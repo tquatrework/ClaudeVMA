@@ -41,7 +41,7 @@ services:
 
   api-gateway:
     build:
-      context: ./services/api-gateway
+      context: ./gateway/api-gateway
       dockerfile: Dockerfile
     container_name: visiomath_gateway
     ports:

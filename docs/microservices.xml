@@ -1,0 +1,1245 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<visiomathematicsArchitecture version="0.2" source="CdC VisioMath - simplifie.docx" status="rules-enriched">
+  <conventions>
+    <apiStyle>REST interne + evenements domaine + workflows orchestration</apiStyle>
+    <ruleOrigin>origin=SPEC pour cahier des charges ou arbitrage utilisateur ; origin=AJOUT pour ajout necessaire/plausible</ruleOrigin>
+    <frontend>API Gateway ou Backend-for-Frontend pour web et mobile</frontend>
+    <persistence>Chaque microservice possede ses donnees metier et expose ses regles de comportement</persistence>
+    <events>Evenements publies sur bus asynchrone lorsque le flux depasse un service</events>
+    <auth>JWT/OAuth2 via identity-access-service</auth>
+  </conventions>
+  <microservice id="orchestration-service" phase="1" priority="critical">
+    <name>Orchestration, integration et coordination interservices</name>
+    <mission>
+      Coordonner les microservices VisioMath afin qu'ils fonctionnent ensemble de maniere coherente :
+      routage API, workflows interservices, evenements domaine, politiques transverses, reprise d'erreur
+      et supervision des processus longs.
+    </mission>
+    <positioning>
+      <principle>L'orchestrateur coordonne les flux, mais chaque microservice reste proprietaire de son domaine metier et de ses donnees.</principle>
+      <principle>Les workflows courts peuvent etre synchrones via API ; les workflows longs ou multi-acteurs doivent etre asynchrones via evenements.</principle>
+      <principle>Les droits effectifs sont controles avec identity-access-service et les relations metier fournies par profile-service.</principle>
+      <principle>L'orchestrateur doit tracer les etapes de coordination sans dupliquer les archives, profils, paiements, contenus ou calendriers.</principle>
+    </positioning>
+    <responsibilities>
+      <item>Exposer le point d'entree technique pour les applications web et mobile via API Gateway ou BFF.</item>
+      <item>Coordonner les workflows transverses : inscription, validation, demande professeur, planification visio, paiement, signature, correction et notification.</item>
+      <item>Router les commandes vers le microservice proprietaire du domaine.</item>
+      <item>Publier, consommer et relayer les evenements domaine.</item>
+      <item>Maintenir l'etat technique des sagas et processus longs.</item>
+      <item>Gerer les erreurs interservices, reprises, compensations et idempotence.</item>
+      <item>Verifier les preconditions transverses avant de declencher certains flux : compte valide, consentement signe, relation autorisee, solde suffisant, contrat signe.</item>
+      <item>Centraliser la correlation technique des logs, traces et evenements.</item>
+    </responsibilities>
+    <businessRules>
+      <rule id="ORCH-BR-001" origin="AJOUT">L'orchestrateur ne doit pas devenir proprietaire des donnees metier des autres services.</rule>
+      <rule id="ORCH-BR-002" origin="AJOUT">Chaque workflow transverse doit conserver son etat courant, ses etapes terminees, ses erreurs et son correlationId.</rule>
+      <rule id="ORCH-BR-003" origin="AJOUT">Les commandes interservices doivent etre idempotentes lorsqu'elles peuvent etre rejouees.</rule>
+      <rule id="ORCH-BR-004" origin="SPEC">La demande professeur doit combiner compte, profil, calendrier, notification et relation formateur-eleve.</rule>
+      <rule id="ORCH-BR-005" origin="SPEC">La planification d'une visio doit combiner calendrier, droits de participants, notification et cahier de texte.</rule>
+      <rule id="ORCH-BR-006" origin="SPEC">Une modification exigeant accord utilisateur doit passer par une demande d'accord tracee, sauf forcage TI.</rule>
+      <rule id="ORCH-BR-007" origin="SPEC">Le TI peut forcer un changement en cas de blocage, avec audit obligatoire.</rule>
+      <rule id="ORCH-BR-008" origin="SPEC">Toute nouvelle contradiction detectee pendant le decoupage ou le codage doit etre remontee avant implementation.</rule>
+    </businessRules>
+    <forbiddenCases>
+      <case id="ORCH-FB-001" origin="AJOUT">L'orchestrateur ne doit pas calculer directement un solde financier.</case>
+      <case id="ORCH-FB-002" origin="AJOUT">L'orchestrateur ne doit pas modifier directement un profil sans passer par profile-service.</case>
+      <case id="ORCH-FB-003" origin="AJOUT">L'orchestrateur ne doit pas masquer une erreur metier en succes technique.</case>
+      <case id="ORCH-FB-004" origin="SPEC">Un workflow ne doit pas continuer si une contradiction metier non arbitree est detectee.</case>
+    </forbiddenCases>
+    <notResponsibilities>
+      <item>Ne gere pas directement les profils utilisateur.</item>
+      <item>Ne calcule pas directement les soldes financiers ou remunerations.</item>
+      <item>Ne stocke pas les documents et archives.</item>
+      <item>Ne valide pas pedagogiquement les contenus a la place des AP ou RP.</item>
+      <item>Ne remplace pas les regles de droits detaillees des services metier.</item>
+    </notResponsibilities>
+    <dataEntities>
+      <entity>WorkflowInstance</entity>
+      <entity>WorkflowStep</entity>
+      <entity>IntegrationCommand</entity>
+      <entity>IntegrationEvent</entity>
+      <entity>IdempotencyKey</entity>
+      <entity>CorrelationTrace</entity>
+      <entity>RetryPolicy</entity>
+      <entity>CompensationAction</entity>
+    </dataEntities>
+    <coreWorkflows>
+      <workflow id="student-onboarding" phase="1">
+        <name>Inscription et activation eleve</name>
+        <steps>
+          <step order="1" service="identity-access-service">Creer le compte eleve et enregistrer les consentements obligatoires.</step>
+          <step order="2" service="profile-service">Creer les profils administratif et pedagogique initiaux.</step>
+          <step order="3" service="profile-service">Lier l'eleve au parent financeur si applicable.</step>
+          <step order="4" service="dashboard-notification-service">Creer le tableau de bord initial et notifier les actions a completer.</step>
+          <step order="5" service="communication-service">Initialiser les possibilites de messagerie phase 1 selon les contacts autorises.</step>
+        </steps>
+      </workflow>
+      <workflow id="teacher-onboarding" phase="1">
+        <name>Inscription et validation formateur</name>
+        <steps>
+          <step order="1" service="identity-access-service">Creer le compte formateur et enregistrer les consentements.</step>
+          <step order="2" service="profile-service">Creer profil administratif et profil pedagogique formateur.</step>
+          <step order="3" service="finance-credit-service">Initialiser le profil financier formateur si la phase finance est active.</step>
+          <step order="4" service="legal-document-service">Declencher le contrat formateur si la phase signature est active.</step>
+          <step order="5" service="profile-service">Enregistrer la validation formateur par RP quand elle est obtenue.</step>
+        </steps>
+      </workflow>
+      <workflow id="teacher-request-to-assignment" phase="1">
+        <name>Demande professeur jusqu'a affectation</name>
+        <steps>
+          <step order="1" service="teacher-request-service">Recevoir la demande professeur.</step>
+          <step order="2" service="dashboard-notification-service">Notifier le RP concerne.</step>
+          <step order="3" service="teacher-request-service">Transmettre la demande aux formateurs selectionnes par RP ou outil de recherche.</step>
+          <step order="4" service="calendar-service">Verifier les disponibilites utiles a la mise en relation.</step>
+          <step order="5" service="teacher-request-service">Creer l'affectation et, si necessaire, le statut de professeur principal.</step>
+          <step order="6" service="profile-service">Creer la relation formateur-eleve.</step>
+          <step order="7" service="dashboard-notification-service">Notifier eleve, parent, formateur et RP.</step>
+        </steps>
+      </workflow>
+      <workflow id="scheduled-video-course" phase="1">
+        <name>Planification et execution d'une visio</name>
+        <steps>
+          <step order="1" service="calendar-service">Planifier l'activite avec participants autorises.</step>
+          <step order="2" service="video-session-service">Creer le salon de visio lie a l'activite.</step>
+          <step order="3" service="dashboard-notification-service">Notifier les participants.</step>
+          <step order="4" service="video-session-service">Tracer presence et cloture.</step>
+          <step order="5" service="pedagogical-log-service">Permettre ou rappeler la saisie du cahier de texte.</step>
+          <step order="6" service="finance-credit-service">Debiter/valoriser la prestation si le module finance est actif.</step>
+        </steps>
+      </workflow>
+      <workflow id="content-validation" phase="3">
+        <name>Depot et validation de contenu pedagogique</name>
+        <steps>
+          <step order="1" service="content-catalog-service">Creer le contenu charge par l'utilisateur autorise.</step>
+          <step order="2" service="archive-document-service">Stocker les fichiers associes si necessaire.</step>
+          <step order="3" service="dashboard-notification-service">Notifier AP ou RP selon le type de validation.</step>
+          <step order="4" service="content-catalog-service">Enregistrer validation, refus ou demande de correction.</step>
+          <step order="5" service="learning-activity-service">Attribuer les points pedagogiques si la regle est active.</step>
+        </steps>
+      </workflow>
+      <workflow id="student-submission-correction" phase="3">
+        <name>Reponse eleve et correction</name>
+        <steps>
+          <step order="1" service="learning-activity-service">Enregistrer la reponse eleve.</step>
+          <step order="2" service="learning-activity-service">Creer une demande de correction si necessaire.</step>
+          <step order="3" service="dashboard-notification-service">Notifier le formateur concerne ou publier l'activite non pourvue.</step>
+          <step order="4" service="learning-activity-service">Enregistrer correction, commentaires et score.</step>
+          <step order="5" service="finance-credit-service">Valoriser l'action si elle donne lieu a credit ou remuneration.</step>
+        </steps>
+      </workflow>
+    </coreWorkflows>
+    <apis>
+      <endpoint method="POST" path="/workflows/{workflowId}/start">Declencher un workflow transverse</endpoint>
+      <endpoint method="GET" path="/workflows/{workflowInstanceId}">Lire l'etat d'un workflow</endpoint>
+      <endpoint method="POST" path="/commands">Emettre une commande d'integration idempotente</endpoint>
+      <endpoint method="GET" path="/events/{correlationId}">Lire les evenements lies a une correlation</endpoint>
+      <endpoint method="POST" path="/callbacks/{provider}">Recevoir callback fournisseur externe</endpoint>
+    </apis>
+    <eventsConsumed>
+      <event>AccountCreated</event>
+      <event>ConsentSigned</event>
+      <event>ProfileUpdated</event>
+      <event>TeacherRequestCreated</event>
+      <event>TeacherAssigned</event>
+      <event>ActivityScheduled</event>
+      <event>VideoSessionEnded</event>
+      <event>PaymentReceived</event>
+      <event>PaymentFailed</event>
+      <event>ContentPendingValidation</event>
+      <event>CorrectionRequested</event>
+      <event>LegalDocumentExpired</event>
+    </eventsConsumed>
+    <eventsPublished>
+      <event>WorkflowStarted</event>
+      <event>WorkflowStepCompleted</event>
+      <event>WorkflowFailed</event>
+      <event>WorkflowCompensated</event>
+      <event>IntegrationCommandDispatched</event>
+    </eventsPublished>
+    <integrationPolicies>
+      <policy id="idempotency">Toute commande externe ou interservice doit porter une cle d'idempotence.</policy>
+      <policy id="correlation">Tout appel interservice doit porter un correlationId pour audit et diagnostic.</policy>
+      <policy id="retry">Les reprises automatiques sont autorisees uniquement sur operations idempotentes.</policy>
+      <policy id="compensation">Les compensations remplacent les transactions distribuees lorsque plusieurs services ont modifie leur etat.</policy>
+      <policy id="source-of-truth">Chaque donnee metier est lue et modifiee dans son service proprietaire.</policy>
+      <policy id="arbitration">Toute ambiguite metier bloquante doit suspendre le workflow en statut NeedsUserArbitration.</policy>
+    </integrationPolicies>
+    <dependencies>
+      <service>identity-access-service</service>
+      <service>profile-service</service>
+      <service>teacher-request-service</service>
+      <service>calendar-service</service>
+      <service>video-session-service</service>
+      <service>dashboard-notification-service</service>
+      <service>communication-service</service>
+      <service>pedagogical-log-service</service>
+      <service>content-catalog-service</service>
+      <service>learning-activity-service</service>
+      <service>community-path-service</service>
+      <service>finance-credit-service</service>
+      <service>legal-document-service</service>
+      <service>archive-document-service</service>
+      <service>admin-observability-service</service>
+    </dependencies>
+    <openArbitrations />
+    <resolvedArbitrations>
+      <decision id="communication-phase">La communication est prevue des la phase 1.</decision>
+      <decision id="evaluation-solutions">Une evaluation doit toujours fournir une solution lors de sa creation ; cette solution n'est pas publiee ni accessible directement par l'eleve. L'eleve peut demander apres coup une correction pour obtenir une note ou la solution comme sur un exercice normal.</decision>
+      <decision id="ap-forum-validation">Un AP peut creer puis gerer son forum, mais sa publication vers les autres membres que le createur AP, les RP et les administrateurs doit passer par une validation RP.</decision>
+      <decision id="parent-detail-view">Le parent a la vue sur tout ce qui concerne les eleves lies, sauf le carnet personnel reserve a l'eleve.</decision>
+      <decision id="pedagogical-points-owner">Le RP et l'administrateur financier ont tous deux les droits complets sur la gestion des points pedagogiques.</decision>
+      <decision id="user-agreement-workflow">Lorsqu'une modification exige l'accord de l'utilisateur, les roles internes hors TI doivent obtenir un accord trace dans l'application, par exemple via modale ou lien envoye par messagerie. Le TI peut forcer n'importe quel changement en cas de blocage.</decision>
+    </resolvedArbitrations>
+    <acceptanceCriteria>
+      <criterion>Un workflow transverse peut etre suivi de bout en bout par correlationId.</criterion>
+      <criterion>Aucune logique metier proprietaire d'un autre service n'est implementee dans l'orchestrateur.</criterion>
+      <criterion>Une panne d'un service aval ne provoque pas de doublon lors d'une reprise.</criterion>
+      <criterion>Aucun arbitrage ouvert n'est conserve apres decision utilisateur ; toute nouvelle contradiction doit creer une suspension explicite.</criterion>
+    </acceptanceCriteria>
+    <manualTestScenarios>
+      <scenario id="ORCH-TEST-001" origin="SPEC">Declencher l'inscription eleve ; verifier creation compte, profil, tableau de bord et messagerie initiale.</scenario>
+      <scenario id="ORCH-TEST-002" origin="SPEC">Declencher une demande professeur ; verifier notification RP, redirection formateur, affectation et relation formateur-eleve.</scenario>
+      <scenario id="ORCH-TEST-003" origin="SPEC">Planifier une visio ; verifier calendrier, lien visio, notifications et trace de fin pour cahier de texte.</scenario>
+      <scenario id="ORCH-TEST-004" origin="SPEC">Demander une modification exigeant accord ; verifier blocage jusqu'a accord utilisateur ou forcage TI audite.</scenario>
+      <scenario id="ORCH-TEST-005" origin="AJOUT">Rejouer deux fois une commande idempotente ; verifier qu'un seul effet metier est produit.</scenario>
+    </manualTestScenarios>
+  </microservice>
+  <microservice id="identity-access-service" phase="1" priority="critical">
+    <name>Identite, acces et consentements</name>
+    <mission>Gerer les comptes, l'authentification, les roles, les permissions applicatives et les consentements RGPD.</mission>
+    <actors>
+      <actor>Eleve</actor>
+      <actor>ParentFinanceur</actor>
+      <actor>Formateur</actor>
+      <actor>AnimateurPedagogique</actor>
+      <actor>ResponsablePedagogique</actor>
+      <actor>TechnicienInformatique</actor>
+      <actor>AdministrateurFinancier</actor>
+    </actors>
+    <responsibilities>
+      <item>Creation de compte client et formateur.</item>
+      <item>Authentification, recuperation de mot de passe et gestion des sessions.</item>
+      <item>Attribution des roles et statuts de validation.</item>
+      <item>Gestion des consentements RGPD et conditions d'utilisation.</item>
+      <item>Controle d'acces centralise pour les autres services.</item>
+    </responsibilities>
+    <businessRules>
+      <rule id="IAM-BR-001" origin="SPEC">La creation de compte existe pour les clients : eleve et parent financeur.</rule>
+      <rule id="IAM-BR-002" origin="SPEC">La creation de compte existe pour les formateurs.</rule>
+      <rule id="IAM-BR-003" origin="SPEC">Chaque creation de compte doit integrer une interface ou etape RGPD.</rule>
+      <rule id="IAM-BR-004" origin="SPEC">Un eleve ou formateur non valide doit avoir des limitations d'acces par rapport a un utilisateur valide.</rule>
+      <rule id="IAM-BR-005" origin="SPEC">Les roles reconnus sont Eleve, ParentFinanceur, Formateur, AnimateurPedagogique, ResponsablePedagogique, TechnicienInformatique et AdministrateurFinancier.</rule>
+      <rule id="IAM-BR-006" origin="SPEC">Un AP est un formateur ayant un statut pedagogique supplementaire.</rule>
+      <rule id="IAM-BR-007" origin="SPEC">Le TI gere notamment les comptes, logins et mots de passe.</rule>
+      <rule id="IAM-BR-008" origin="AJOUT">Tout changement de role ou statut de validation doit etre audite pour permettre les tests de droits.</rule>
+    </businessRules>
+    <roleAccessRules>
+      <rule id="IAM-RA-001" role="TechnicienInformatique" origin="SPEC">Peut intervenir sur la gestion des comptes et acces.</rule>
+      <rule id="IAM-RA-002" role="ResponsablePedagogique" origin="SPEC">Peut valider un formateur et le passer en AP via les droits applicatifs prevus.</rule>
+      <rule id="IAM-RA-003" role="Utilisateur" origin="AJOUT">Peut consulter son identite courante et se deconnecter.</rule>
+    </roleAccessRules>
+    <forbiddenCases>
+      <case id="IAM-FB-001" origin="SPEC">Un formateur non valide ne doit pas acceder aux fonctions reservees aux formateurs valides.</case>
+      <case id="IAM-FB-002" origin="AJOUT">Un utilisateur ne doit pas pouvoir s'attribuer lui-meme un role interne.</case>
+      <case id="IAM-FB-003" origin="AJOUT">Un compte sans consentement obligatoire ne doit pas etre active comme compte pleinement utilisable.</case>
+    </forbiddenCases>
+    <dataEntities>
+      <entity>UserAccount</entity>
+      <entity>RoleAssignment</entity>
+      <entity>PermissionPolicy</entity>
+      <entity>ConsentRecord</entity>
+      <entity>LoginSession</entity>
+    </dataEntities>
+    <apis>
+      <endpoint method="POST" path="/accounts">Creer un compte</endpoint>
+      <endpoint method="POST" path="/auth/login">Ouvrir une session</endpoint>
+      <endpoint method="POST" path="/auth/logout">Fermer une session</endpoint>
+      <endpoint method="GET" path="/me">Lire l'identite courante</endpoint>
+      <endpoint method="PUT" path="/accounts/{accountId}/roles">Modifier les roles</endpoint>
+      <endpoint method="POST" path="/consents">Enregistrer un consentement</endpoint>
+    </apis>
+    <eventsPublished>
+      <event>AccountCreated</event>
+      <event>RoleChanged</event>
+      <event>ConsentSigned</event>
+      <event>AccountValidated</event>
+    </eventsPublished>
+    <acceptanceCriteria>
+      <criterion>Un compte non valide ne peut acceder qu'aux fonctions autorisees avant validation.</criterion>
+      <criterion>Chaque action sensible est rattachee a un utilisateur authentifie.</criterion>
+      <criterion>Les consentements obligatoires sont traces avant l'activation du compte.</criterion>
+    </acceptanceCriteria>
+    <manualTestScenarios>
+      <scenario id="IAM-TEST-001" origin="SPEC">Creer un compte eleve, signer le consentement RGPD, verifier que le role Eleve est attribue.</scenario>
+      <scenario id="IAM-TEST-002" origin="SPEC">Creer un compte formateur non valide, verifier que les fonctions formateur valide sont bloquees.</scenario>
+      <scenario id="IAM-TEST-003" origin="SPEC">Connecter un TI, modifier un mot de passe ou un acces, verifier que l'action est tracee.</scenario>
+      <scenario id="IAM-TEST-004" origin="SPEC">Passer un formateur en AP via un RP, verifier que le nouveau role est disponible.</scenario>
+    </manualTestScenarios>
+  </microservice>
+  <microservice id="profile-service" phase="1" priority="critical">
+    <name>Profils et relations utilisateur</name>
+    <mission>Centraliser les profils administratifs et pedagogiques, ainsi que les relations entre familles, eleves, formateurs, AP et RP.</mission>
+    <responsibilities>
+      <item>Maintenir les profils administratifs des eleves, parents, formateurs et internes.</item>
+      <item>Maintenir les profils pedagogiques des eleves et formateurs.</item>
+      <item>Relier un financeur a un ou plusieurs eleves.</item>
+      <item>Relier un eleve a ses formateurs, son professeur principal et son RP.</item>
+      <item>Declarer les formateurs AP et les groupes pedagogiques animes.</item>
+      <item>Gerer les vues partielles de profil selon le role du lecteur.</item>
+    </responsibilities>
+    <businessRules>
+      <rule id="PROF-BR-001" origin="SPEC">Chaque eleve possede un profil administratif decrivant l'eleve.</rule>
+      <rule id="PROF-BR-002" origin="SPEC">Chaque eleve possede un profil pedagogique decrivant sa situation et sa mission pedagogique.</rule>
+      <rule id="PROF-BR-003" origin="SPEC">Chaque formateur possede un profil administratif.</rule>
+      <rule id="PROF-BR-004" origin="SPEC">Chaque formateur possede un profil pedagogique contenant niveau, experience pedagogique et resultats aux tests.</rule>
+      <rule id="PROF-BR-005" origin="SPEC">Un financeur peut etre relie a plusieurs eleves.</rule>
+      <rule id="PROF-BR-006" origin="SPEC">Un eleve peut avoir une liste de professeurs lies.</rule>
+      <rule id="PROF-BR-007" origin="SPEC">Dans sa relation a l'etudiant, un professeur peut etre professeur principal.</rule>
+      <rule id="PROF-BR-008" origin="SPEC">Un AP est identifie dans son profil pedagogique.</rule>
+      <rule id="PROF-BR-009" origin="SPEC">Les RP peuvent ajouter des commentaires internes sur les profils, non visibles par les utilisateurs.</rule>
+      <rule id="PROF-BR-010" origin="SPEC">Les administrateurs financiers peuvent ajouter des commentaires internes sur les profils financiers et formateurs, non visibles par les utilisateurs.</rule>
+      <rule id="PROF-BR-011" origin="SPEC">Le parent a la vue sur tout ce qui concerne les eleves lies, sauf le carnet personnel reserve a l'eleve.</rule>
+      <rule id="PROF-BR-012" origin="SPEC">Les profils administratifs et pedagogiques des contacts peuvent etre visibles en vue complete ou partielle selon droits.</rule>
+    </businessRules>
+    <roleAccessRules>
+      <rule id="PROF-RA-001" role="Eleve" origin="SPEC">Peut creer, modifier ou consulter ses profils personnels selon les champs autorises.</rule>
+      <rule id="PROF-RA-002" role="ParentFinanceur" origin="SPEC">Peut consulter les elements des eleves lies sauf carnet personnel.</rule>
+      <rule id="PROF-RA-003" role="Formateur" origin="SPEC">Peut consulter les profils administratifs et pedagogiques de ses contacts selon vue autorisee.</rule>
+      <rule id="PROF-RA-004" role="ResponsablePedagogique" origin="SPEC">Peut consulter les utilisateurs de son domaine, valider les formateurs et passer un formateur en AP.</rule>
+      <rule id="PROF-RA-005" role="AdministrateurFinancier" origin="SPEC">Peut consulter et commenter les profils financiers et profils formateurs selon son domaine.</rule>
+    </roleAccessRules>
+    <forbiddenCases>
+      <case id="PROF-FB-001" origin="SPEC">Le parent ne doit jamais voir le carnet personnel de l'eleve.</case>
+      <case id="PROF-FB-002" origin="SPEC">Les notes internes RP ou finance ne doivent pas etre visibles par les clients et formateurs.</case>
+      <case id="PROF-FB-003" origin="SPEC">Un formateur ne doit pas consulter les profils d'eleves qui ne lui sont pas lies, sauf droit interne explicite.</case>
+    </forbiddenCases>
+    <dataEntities>
+      <entity>AdministrativeProfile</entity>
+      <entity>StudentPedagogicalProfile</entity>
+      <entity>TeacherPedagogicalProfile</entity>
+      <entity>FinanceOwnerStudentLink</entity>
+      <entity>TeacherStudentLink</entity>
+      <entity>PedagogicalCoordinatorLink</entity>
+      <entity>InternalProfileNote</entity>
+    </dataEntities>
+    <apis>
+      <endpoint method="GET" path="/profiles/{userId}">Lire un profil selon droits</endpoint>
+      <endpoint method="PUT" path="/profiles/{userId}/administrative">Modifier profil administratif</endpoint>
+      <endpoint method="PUT" path="/profiles/{userId}/pedagogical">Modifier profil pedagogique</endpoint>
+      <endpoint method="POST" path="/relations/finance-owner-student">Lier financeur et eleve</endpoint>
+      <endpoint method="POST" path="/relations/teacher-student">Lier formateur et eleve</endpoint>
+      <endpoint method="POST" path="/profiles/{teacherId}/ap-status">Declarer un AP</endpoint>
+      <endpoint method="POST" path="/profiles/{userId}/internal-notes">Ajouter un commentaire interne</endpoint>
+    </apis>
+    <eventsPublished>
+      <event>ProfileUpdated</event>
+      <event>StudentLinkedToFinanceOwner</event>
+      <event>TeacherLinkedToStudent</event>
+      <event>TeacherPromotedToPedagogicalAnimator</event>
+    </eventsPublished>
+    <acceptanceCriteria>
+      <criterion>Un parent voit tout ce qui concerne les eleves lies, sauf le carnet personnel reserve a l'eleve.</criterion>
+      <criterion>Un formateur ne voit que les profils des contacts autorises.</criterion>
+      <criterion>Les notes internes RP/finance ne sont jamais visibles par les clients et formateurs.</criterion>
+    </acceptanceCriteria>
+    <manualTestScenarios>
+      <scenario id="PROF-TEST-001" origin="SPEC">Lier un parent a deux eleves, verifier qu'il voit les deux dossiers mais aucun carnet personnel.</scenario>
+      <scenario id="PROF-TEST-002" origin="SPEC">Lier un formateur a un eleve, verifier qu'il voit cet eleve et pas un autre eleve non lie.</scenario>
+      <scenario id="PROF-TEST-003" origin="SPEC">Ajouter une note interne RP sur un profil, verifier qu'elle est invisible pour l'utilisateur concerne.</scenario>
+      <scenario id="PROF-TEST-004" origin="SPEC">Passer un formateur en AP et verifier que le statut apparait dans son profil pedagogique.</scenario>
+    </manualTestScenarios>
+  </microservice>
+  <microservice id="dashboard-notification-service" phase="1" priority="high">
+    <name>Tableaux de bord et notifications</name>
+    <mission>Composer les tableaux de bord par role et signaler les evenements utiles.</mission>
+    <responsibilities>
+      <item>Construire une vue d'accueil contextualisee pour eleves, formateurs, RP, TI et finance.</item>
+      <item>Afficher les derniers evenements, soldes, activites et alertes utiles.</item>
+      <item>Envoyer notifications in-app, email ou autres canaux futurs.</item>
+      <item>Agreger des donnees sans devenir proprietaire des donnees sources.</item>
+    </responsibilities>
+    <businessRules>
+      <rule id="DASH-BR-001" origin="SPEC">L'eleve possede un tableau de bord permettant l'acces aux differents elements.</rule>
+      <rule id="DASH-BR-002" origin="SPEC">Le formateur possede un tableau de bord permettant l'acces aux differents elements.</rule>
+      <rule id="DASH-BR-003" origin="SPEC">Les notifications signalent les derniers evenements utiles a l'utilisateur et ses contacts.</rule>
+      <rule id="DASH-BR-004" origin="SPEC">Le tableau de bord eleve peut informer du score pedagogique, du solde financier et de la date de fin de financement.</rule>
+      <rule id="DASH-BR-005" origin="SPEC">Le RP doit etre notifie d'evenements utiles comme un defaut de paiement.</rule>
+      <rule id="DASH-BR-006" origin="SPEC">Le guide d'utilisation doit etre accessible depuis le tableau de bord ou le profil pedagogique.</rule>
+      <rule id="DASH-BR-007" origin="AJOUT">Le service agrege les informations mais ne devient pas proprietaire des donnees de profil, finance, calendrier ou contenu.</rule>
+    </businessRules>
+    <roleAccessRules>
+      <rule id="DASH-RA-001" role="Eleve" origin="SPEC">Voit ses notifications, son calendrier, son score pedagogique et son solde financier si disponibles.</rule>
+      <rule id="DASH-RA-002" role="ParentFinanceur" origin="SPEC">Voit les informations des eleves lies sauf carnet personnel.</rule>
+      <rule id="DASH-RA-003" role="Formateur" origin="SPEC">Voit demandes, calendrier, notifications et activites le concernant.</rule>
+      <rule id="DASH-RA-004" role="ResponsablePedagogique" origin="SPEC">Voit les evenements utiles au pilotage pedagogique.</rule>
+      <rule id="DASH-RA-005" role="TechnicienInformatique" origin="SPEC">Voit les informations utiles a la gestion d'incidents selon son domaine.</rule>
+      <rule id="DASH-RA-006" role="AdministrateurFinancier" origin="SPEC">Voit les informations utiles au pilotage financier et legal.</rule>
+    </roleAccessRules>
+    <forbiddenCases>
+      <case id="DASH-FB-001" origin="SPEC">Le tableau de bord parent ne doit pas afficher le carnet personnel de l'eleve.</case>
+      <case id="DASH-FB-002" origin="AJOUT">Une preference de dashboard ne doit pas donner acces a un element interdit.</case>
+      <case id="DASH-FB-003" origin="AJOUT">Une notification ne doit pas exposer des donnees d'un utilisateur non lie.</case>
+    </forbiddenCases>
+    <dataEntities>
+      <entity>DashboardPreference</entity>
+      <entity>Notification</entity>
+      <entity>NotificationSubscription</entity>
+      <entity>DashboardWidgetState</entity>
+    </dataEntities>
+    <apis>
+      <endpoint method="GET" path="/dashboards/me">Lire mon tableau de bord</endpoint>
+      <endpoint method="PUT" path="/dashboards/me/preferences">Configurer mon tableau de bord</endpoint>
+      <endpoint method="GET" path="/notifications">Lister mes notifications</endpoint>
+      <endpoint method="POST" path="/notifications/{notificationId}/read">Marquer comme lu</endpoint>
+    </apis>
+    <eventsConsumed>
+      <event>AccountCreated</event>
+      <event>TeacherRequestCreated</event>
+      <event>ActivityScheduled</event>
+      <event>PaymentFailed</event>
+      <event>ContentPendingValidation</event>
+    </eventsConsumed>
+    <acceptanceCriteria>
+      <criterion>Chaque role obtient un tableau de bord coherent avec ses droits.</criterion>
+      <criterion>Une notification de demande professeur apparait pour le RP concerne.</criterion>
+      <criterion>Une activite planifiee apparait dans le tableau de bord des participants concernes.</criterion>
+      <criterion>Un defaut de paiement peut etre remonte au RP comme premier niveau d'intervention.</criterion>
+    </acceptanceCriteria>
+    <manualTestScenarios>
+      <scenario id="DASH-TEST-001" origin="SPEC">Connecter un eleve et verifier l'acces aux principaux elements phase 1 depuis son tableau de bord.</scenario>
+      <scenario id="DASH-TEST-002" origin="SPEC">Creer une demande professeur et verifier la notification RP.</scenario>
+      <scenario id="DASH-TEST-003" origin="SPEC">Planifier une activite et verifier les notifications eleve/formateur.</scenario>
+      <scenario id="DASH-TEST-004" origin="SPEC">Connecter un parent et verifier que le carnet personnel n'apparait pas.</scenario>
+    </manualTestScenarios>
+  </microservice>
+  <microservice id="communication-service" phase="1" priority="high">
+    <name>Communication et messagerie</name>
+    <mission>Gerer les messages entre contacts autorises, les communications automatiques et les incidents techniques.</mission>
+    <responsibilities>
+      <item>Creer des conversations selon les relations autorisees.</item>
+      <item>Gerer les messages entre eleves, parents, formateurs, AP, RP, TI et finance.</item>
+      <item>Limiter les contacts parent-formateur ponctuel autour de la periode d'intervention.</item>
+      <item>Recevoir et suivre les incidents TI internes a l'application.</item>
+      <item>Publier les notifications de nouveaux messages.</item>
+      <item>Fournir une messagerie disponible des la phase 1.</item>
+    </responsibilities>
+    <businessRules>
+      <rule id="COM-BR-001" origin="SPEC">La messagerie est disponible des la phase 1.</rule>
+      <rule id="COM-BR-002" origin="SPEC">L'eleve dispose d'une interface de communication avec ses contacts.</rule>
+      <rule id="COM-BR-003" origin="SPEC">Le formateur dispose d'une interface de communication avec ses contacts.</rule>
+      <rule id="COM-BR-004" origin="SPEC">Le parent communique uniquement avec les eleves lies, leurs PP, les formateurs ponctuels pendant la periode autorisee et les administrateurs.</rule>
+      <rule id="COM-BR-005" origin="SPEC">Le RP dispose d'une interface de communication avec tous les contacts utiles.</rule>
+      <rule id="COM-BR-006" origin="SPEC">Le TI utilise l'interface de communication comme outil de gestion d'incidents vis-a-vis des utilisateurs.</rule>
+      <rule id="COM-BR-007" origin="SPEC">Certains messages sont automatiques, notamment administratifs.</rule>
+      <rule id="COM-BR-008" origin="SPEC">Un utilisateur n'est plus proprietaire exclusif de ses messages une fois envoyes.</rule>
+      <rule id="COM-BR-009" origin="SPEC">Une demande d'accord utilisateur peut etre transmise par lien de messagerie.</rule>
+      <rule id="COM-BR-010" origin="AJOUT">Les contacts disponibles doivent etre calcules depuis les relations metier, pas saisis librement par l'utilisateur.</rule>
+    </businessRules>
+    <roleAccessRules>
+      <rule id="COM-RA-001" role="Eleve" origin="SPEC">Peut communiquer avec ses contacts autorises.</rule>
+      <rule id="COM-RA-002" role="ParentFinanceur" origin="SPEC">Peut communiquer avec ses eleves lies, leurs PP, les formateurs ponctuels pendant la fenetre autorisee et les administrateurs.</rule>
+      <rule id="COM-RA-003" role="Formateur" origin="SPEC">Peut communiquer avec ses eleves lies, contacts pedagogiques et administrateurs autorises.</rule>
+      <rule id="COM-RA-004" role="AnimateurPedagogique" origin="SPEC">Peut disposer de contacts formateurs ajoutes par le RP.</rule>
+      <rule id="COM-RA-005" role="ResponsablePedagogique" origin="SPEC">Peut communiquer avec tous les contacts utiles a son action pedagogique.</rule>
+      <rule id="COM-RA-006" role="TechnicienInformatique" origin="SPEC">Peut utiliser les conversations d'incident et intervenir dans son domaine.</rule>
+    </roleAccessRules>
+    <forbiddenCases>
+      <case id="COM-FB-001" origin="SPEC">Un parent ne doit pas contacter librement un formateur ponctuel hors periode autorisee.</case>
+      <case id="COM-FB-002" origin="AJOUT">Un utilisateur ne doit pas creer une conversation avec un utilisateur sans relation autorisee.</case>
+      <case id="COM-FB-003" origin="SPEC">Un message envoye ne doit pas etre supprime ou modifie comme simple brouillon prive.</case>
+    </forbiddenCases>
+    <dataEntities>
+      <entity>Conversation</entity>
+      <entity>Message</entity>
+      <entity>AttachmentReference</entity>
+      <entity>IncidentThread</entity>
+      <entity>ContactPolicy</entity>
+    </dataEntities>
+    <apis>
+      <endpoint method="GET" path="/conversations">Lister les conversations</endpoint>
+      <endpoint method="POST" path="/conversations">Creer une conversation</endpoint>
+      <endpoint method="POST" path="/conversations/{conversationId}/messages">Envoyer un message</endpoint>
+      <endpoint method="POST" path="/incidents">Declarer un incident</endpoint>
+      <endpoint method="PUT" path="/incidents/{incidentId}/status">Modifier le statut incident</endpoint>
+    </apis>
+    <acceptanceCriteria>
+      <criterion>Un message envoye n'est plus modifiable comme propriete privee de l'expediteur.</criterion>
+      <criterion>Les contacts disponibles sont deduits des relations metier et non saisis librement.</criterion>
+    </acceptanceCriteria>
+    <manualTestScenarios>
+      <scenario id="COM-TEST-001" origin="SPEC">Un eleve envoie un message a un formateur lie ; le message est visible dans la conversation des deux.</scenario>
+      <scenario id="COM-TEST-002" origin="SPEC">Un parent tente de contacter un formateur non lie ; la conversation est refusee.</scenario>
+      <scenario id="COM-TEST-003" origin="SPEC">Un RP ajoute des contacts formateurs a un AP ; l'AP peut les contacter.</scenario>
+      <scenario id="COM-TEST-004" origin="SPEC">Un TI ouvre un fil d'incident avec un utilisateur ; le fil est marque comme incident.</scenario>
+      <scenario id="COM-TEST-005" origin="SPEC">Un RP envoie une demande d'accord par lien ; l'accord ou le refus est trace.</scenario>
+    </manualTestScenarios>
+  </microservice>
+  <microservice id="calendar-service" phase="1" priority="critical">
+    <name>Calendriers et disponibilites</name>
+    <mission>Gerer les calendriers, disponibilites, cours, reunions pedagogiques, entretiens, rappels et echeances.</mission>
+    <responsibilities>
+      <item>Maintenir les calendriers eleve, financeur, formateur, AP, RP et finance.</item>
+      <item>Gerer les disponibilites recurrentes ou ponctuelles.</item>
+      <item>Creer des activites planifiees a un ou plusieurs participants.</item>
+      <item>Permettre aux AP/RP de proposer des reunions pedagogiques.</item>
+      <item>Ajouter des rappels lies aux profils ou activites.</item>
+      <item>Publier les changements utiles aux visios, notifications et finance.</item>
+    </responsibilities>
+    <businessRules>
+      <rule id="CAL-BR-001" origin="SPEC">Chaque eleve possede un calendrier avec ses disponibilites.</rule>
+      <rule id="CAL-BR-002" origin="SPEC">Chaque formateur possede un calendrier avec ses disponibilites et les activites qu'il propose ou recoit.</rule>
+      <rule id="CAL-BR-003" origin="SPEC">Le financeur possede un calendrier des versements et paiements passes.</rule>
+      <rule id="CAL-BR-004" origin="SPEC">Le RP possede son propre calendrier et peut y ajouter reunions, rappels et entretiens.</rule>
+      <rule id="CAL-BR-005" origin="SPEC">Un entretien cree par le RP peut impacter le calendrier du formateur concerne.</rule>
+      <rule id="CAL-BR-006" origin="SPEC">Un AP peut intervenir via son calendrier sur les calendriers des formateurs pour proposer des reunions pedagogiques.</rule>
+      <rule id="CAL-BR-007" origin="SPEC">Une activite peut etre proposee a un ou plusieurs eleves.</rule>
+      <rule id="CAL-BR-008" origin="SPEC">Une activite plus rare peut etre proposee au formateur par un AP ou un RP.</rule>
+      <rule id="CAL-BR-009" origin="AJOUT">Toute activite planifiee doit conserver ses participants, son createur, son type, son horaire et son statut.</rule>
+      <rule id="CAL-BR-010" origin="AJOUT">Une modification de calendrier doit publier un evenement utilisable par notifications et visio.</rule>
+    </businessRules>
+    <roleAccessRules>
+      <rule id="CAL-RA-001" role="Eleve" origin="SPEC">Peut gerer ses disponibilites et consulter les activites de son calendrier.</rule>
+      <rule id="CAL-RA-002" role="ParentFinanceur" origin="SPEC">Peut consulter le calendrier des paiements et les elements des eleves lies selon droits.</rule>
+      <rule id="CAL-RA-003" role="Formateur" origin="SPEC">Peut gerer ses disponibilites et consulter les activites qui lui sont proposees ou attribuees.</rule>
+      <rule id="CAL-RA-004" role="AnimateurPedagogique" origin="SPEC">Peut proposer des reunions pedagogiques aux formateurs qu'il anime.</rule>
+      <rule id="CAL-RA-005" role="ResponsablePedagogique" origin="SPEC">Peut creer reunions, rappels et entretiens lies aux utilisateurs de la plateforme.</rule>
+    </roleAccessRules>
+    <forbiddenCases>
+      <case id="CAL-FB-001" origin="AJOUT">Un utilisateur ne doit pas modifier le calendrier d'un autre utilisateur sans droit metier explicite.</case>
+      <case id="CAL-FB-002" origin="AJOUT">Une activite ne doit pas etre creee sans participant ni horaire.</case>
+      <case id="CAL-FB-003" origin="SPEC">Un AP ne doit pas proposer de reunion pedagogique a des formateurs qui ne sont pas dans son perimetre, sauf droit RP/admin.</case>
+    </forbiddenCases>
+    <dataEntities>
+      <entity>Calendar</entity>
+      <entity>AvailabilitySlot</entity>
+      <entity>ScheduledActivity</entity>
+      <entity>Reminder</entity>
+      <entity>PaymentScheduleEntry</entity>
+    </dataEntities>
+    <apis>
+      <endpoint method="GET" path="/calendars/{ownerId}">Lire un calendrier</endpoint>
+      <endpoint method="PUT" path="/calendars/{ownerId}/availability">Mettre a jour les disponibilites</endpoint>
+      <endpoint method="POST" path="/activities">Planifier une activite</endpoint>
+      <endpoint method="PUT" path="/activities/{activityId}">Modifier une activite</endpoint>
+      <endpoint method="POST" path="/reminders">Creer un rappel</endpoint>
+    </apis>
+    <eventsPublished>
+      <event>AvailabilityUpdated</event>
+      <event>ActivityScheduled</event>
+      <event>ActivityUpdated</event>
+      <event>ReminderCreated</event>
+    </eventsPublished>
+    <acceptanceCriteria>
+      <criterion>Un changement de disponibilite est visible dans le calendrier du proprietaire.</criterion>
+      <criterion>Une activite planifiee apparait dans le calendrier de chaque participant autorise.</criterion>
+      <criterion>Une reunion pedagogique AP apparait dans le calendrier des formateurs concernes.</criterion>
+      <criterion>Un rappel RP reste visible selon ses droits et ne devient pas automatiquement public.</criterion>
+    </acceptanceCriteria>
+    <manualTestScenarios>
+      <scenario id="CAL-TEST-001" origin="SPEC">Un eleve renseigne ses disponibilites, le RP les consulte pour une demande professeur.</scenario>
+      <scenario id="CAL-TEST-002" origin="SPEC">Un formateur renseigne ses disponibilites, elles sont utilisables pour la recherche professeur.</scenario>
+      <scenario id="CAL-TEST-003" origin="SPEC">Un AP propose une reunion pedagogique a un formateur de son groupe, l'evenement apparait chez les deux.</scenario>
+      <scenario id="CAL-TEST-004" origin="SPEC">Un RP cree un entretien lie a un formateur, le calendrier du formateur est impacte.</scenario>
+    </manualTestScenarios>
+  </microservice>
+  <microservice id="teacher-request-service" phase="1" priority="critical">
+    <name>Demandes professeur et affectations</name>
+    <mission>Gerer les demandes de professeur, la recherche d'intervenants, les affectations et les arrets de relation pedagogique.</mission>
+    <responsibilities>
+      <item>Recevoir les demandes de professeur des eleves ou familles.</item>
+      <item>Permettre au RP de rediriger une demande vers des formateurs.</item>
+      <item>Suivre les propositions, acceptations, refus et dates de disponibilite.</item>
+      <item>Designer un professeur principal pour un eleve.</item>
+      <item>Permettre au formateur de demander l'arret d'une relation avec preavis.</item>
+      <item>Alimenter la liste d'activites ou besoins non pourvus.</item>
+    </responsibilities>
+    <businessRules>
+      <rule id="TRQ-BR-001" origin="SPEC">L'eleve dispose d'une interface de demande professeur avec la liste des professeurs lies.</rule>
+      <rule id="TRQ-BR-002" origin="SPEC">Le formateur dispose d'une interface de demande professeur avec les demandes redirigees par le RP ou l'application.</rule>
+      <rule id="TRQ-BR-003" origin="SPEC">Le RP recoit les demandes de professeur et les redirige vers les formateurs.</rule>
+      <rule id="TRQ-BR-004" origin="SPEC">Le RP dispose d'un outil de recherche professeur selon points pedagogiques, niveau, secteur et disponibilites.</rule>
+      <rule id="TRQ-BR-005" origin="SPEC">Le formateur peut demander un arret de relation avec preavis.</rule>
+      <rule id="TRQ-BR-006" origin="SPEC">Un professeur lie a l'etudiant peut etre designe professeur principal.</rule>
+      <rule id="TRQ-BR-007" origin="SPEC">La liste d'activites non pourvues concerne les elements en attente d'intervention formateur qui ne sont pas des demandes directes.</rule>
+      <rule id="TRQ-BR-008" origin="SPEC">Sur une activite non pourvue, l'action type du formateur est la declaration d'interet avec date.</rule>
+    </businessRules>
+    <roleAccessRules>
+      <rule id="TRQ-RA-001" role="Eleve" origin="SPEC">Peut demander un professeur et voir ses professeurs lies.</rule>
+      <rule id="TRQ-RA-002" role="ParentFinanceur" origin="SPEC">Peut suivre les elements des eleves lies, dont les demandes professeur.</rule>
+      <rule id="TRQ-RA-003" role="ResponsablePedagogique" origin="SPEC">Peut recevoir, consulter, rediriger et traiter les demandes professeur.</rule>
+      <rule id="TRQ-RA-004" role="Formateur" origin="SPEC">Peut consulter les demandes qui lui sont redirigees et demander un arret avec preavis.</rule>
+    </roleAccessRules>
+    <forbiddenCases>
+      <case id="TRQ-FB-001" origin="SPEC">Un formateur ne doit pas recevoir toutes les demandes : seulement celles redirigees ou accessibles par liste d'activites non pourvues.</case>
+      <case id="TRQ-FB-002" origin="SPEC">Un formateur ne doit pas arreter immediatement une relation sans preavis lorsque le preavis est requis.</case>
+      <case id="TRQ-FB-003" origin="AJOUT">Un professeur principal ne doit pas etre designe si le formateur n'est pas lie a l'eleve.</case>
+    </forbiddenCases>
+    <dataEntities>
+      <entity>TeacherRequest</entity>
+      <entity>TeacherProposal</entity>
+      <entity>Assignment</entity>
+      <entity>MainTeacherStatus</entity>
+      <entity>TerminationRequest</entity>
+    </dataEntities>
+    <apis>
+      <endpoint method="POST" path="/teacher-requests">Creer une demande</endpoint>
+      <endpoint method="GET" path="/teacher-requests">Lister les demandes selon role</endpoint>
+      <endpoint method="POST" path="/teacher-requests/{requestId}/proposals">Proposer un formateur</endpoint>
+      <endpoint method="POST" path="/proposals/{proposalId}/accept">Accepter une proposition</endpoint>
+      <endpoint method="POST" path="/assignments/{assignmentId}/main-teacher">Definir professeur principal</endpoint>
+      <endpoint method="POST" path="/assignments/{assignmentId}/termination">Demander un arret</endpoint>
+    </apis>
+    <eventsPublished>
+      <event>TeacherRequestCreated</event>
+      <event>TeacherProposalSent</event>
+      <event>TeacherAssigned</event>
+      <event>MainTeacherAssigned</event>
+      <event>TeacherRelationTerminationRequested</event>
+    </eventsPublished>
+    <dependencies>
+      <service>profile-service</service>
+      <service>calendar-service</service>
+      <service>dashboard-notification-service</service>
+    </dependencies>
+    <acceptanceCriteria>
+      <criterion>Une demande creee par eleve ou parent devient visible par le RP.</criterion>
+      <criterion>Le RP peut rediriger une demande vers un ou plusieurs formateurs.</criterion>
+      <criterion>L'affectation cree une relation formateur-eleve exploitable par les autres services.</criterion>
+      <criterion>La designation d'un professeur principal est rattachee a une relation formateur-eleve existante.</criterion>
+    </acceptanceCriteria>
+    <manualTestScenarios>
+      <scenario id="TRQ-TEST-001" origin="SPEC">Un parent cree une demande pour un eleve lie, le RP la voit dans son interface.</scenario>
+      <scenario id="TRQ-TEST-002" origin="SPEC">Le RP redirige une demande vers un formateur valide, le formateur la voit dans son interface.</scenario>
+      <scenario id="TRQ-TEST-003" origin="SPEC">Le formateur accepte, l'eleve voit le formateur dans sa liste de professeurs lies.</scenario>
+      <scenario id="TRQ-TEST-004" origin="SPEC">Le RP designe ce formateur comme professeur principal, la relation PP est visible.</scenario>
+      <scenario id="TRQ-TEST-005" origin="SPEC">Le formateur demande un arret, la demande conserve une date de preavis.</scenario>
+    </manualTestScenarios>
+  </microservice>
+  <microservice id="video-session-service" phase="1" priority="critical">
+    <name>Visio pedagogique</name>
+    <mission>Creer, securiser et suivre les sessions de visiocours, masterclass et reunions pedagogiques.</mission>
+    <responsibilities>
+      <item>Creer les salons de visio a partir d'activites planifiees.</item>
+      <item>Gerer les droits d'entree selon participants autorises.</item>
+      <item>Tracer la presence et la duree effective.</item>
+      <item>Transmettre les informations utiles au cahier de texte et a la finance.</item>
+      <item>Supporter un fournisseur externe de visioconference.</item>
+    </responsibilities>
+    <businessRules>
+      <rule id="VID-BR-001" origin="SPEC">La visio est proposee par les formateurs aux eleves.</rule>
+      <rule id="VID-BR-002" origin="SPEC">Le parent n'a pas d'acces special prevu aux visios.</rule>
+      <rule id="VID-BR-003" origin="SPEC">Les visios font partie des activites pedagogiques accessibles via la plateforme.</rule>
+      <rule id="VID-BR-004" origin="AJOUT">Une visio doit etre rattachee a une activite planifiee pour que les droits d'acces soient deduits proprement.</rule>
+      <rule id="VID-BR-005" origin="AJOUT">Les liens ou jetons de visio doivent etre generes uniquement pour les participants autorises.</rule>
+      <rule id="VID-BR-006" origin="AJOUT">La fin de visio doit pouvoir declencher un rappel de cahier de texte et une trace d'activite.</rule>
+    </businessRules>
+    <roleAccessRules>
+      <rule id="VID-RA-001" role="Eleve" origin="SPEC">Peut rejoindre les visios auxquelles il participe.</rule>
+      <rule id="VID-RA-002" role="Formateur" origin="SPEC">Peut creer ou animer les visios liees a ses activites.</rule>
+      <rule id="VID-RA-003" role="ParentFinanceur" origin="SPEC">Ne dispose pas d'un acces special a la visio elle-meme.</rule>
+      <rule id="VID-RA-004" role="ResponsablePedagogique" origin="AJOUT">Peut consulter les informations de planification et d'activite selon droits, sans etre automatiquement participant.</rule>
+    </roleAccessRules>
+    <forbiddenCases>
+      <case id="VID-FB-001" origin="SPEC">Un parent ne doit pas rejoindre une visio au seul motif qu'il finance l'eleve.</case>
+      <case id="VID-FB-002" origin="AJOUT">Un utilisateur non participant ne doit pas obtenir de lien d'acces.</case>
+      <case id="VID-FB-003" origin="AJOUT">Une visio ne doit pas etre creee sans activite planifiee rattachee, sauf cas technique explicitement arbitre.</case>
+    </forbiddenCases>
+    <dataEntities>
+      <entity>VideoRoom</entity>
+      <entity>VideoAccessToken</entity>
+      <entity>AttendanceRecord</entity>
+      <entity>VideoProviderConfig</entity>
+    </dataEntities>
+    <apis>
+      <endpoint method="POST" path="/video-rooms">Creer une visio</endpoint>
+      <endpoint method="GET" path="/video-rooms/{roomId}/join">Obtenir un lien d'acces</endpoint>
+      <endpoint method="POST" path="/video-rooms/{roomId}/attendance">Enregistrer la presence</endpoint>
+      <endpoint method="POST" path="/video-rooms/{roomId}/close">Cloturer la visio</endpoint>
+    </apis>
+    <eventsPublished>
+      <event>VideoRoomCreated</event>
+      <event>VideoSessionStarted</event>
+      <event>VideoSessionEnded</event>
+      <event>AttendanceRecorded</event>
+    </eventsPublished>
+    <dependencies>
+      <service>calendar-service</service>
+      <service>finance-credit-service</service>
+      <service>pedagogical-log-service</service>
+    </dependencies>
+    <acceptanceCriteria>
+      <criterion>Un eleve participant peut obtenir un lien de visio.</criterion>
+      <criterion>Un parent non participant ne peut pas obtenir ce lien.</criterion>
+      <criterion>Une visio terminee publie une trace exploitable par le cahier de texte et les notifications.</criterion>
+    </acceptanceCriteria>
+    <manualTestScenarios>
+      <scenario id="VID-TEST-001" origin="SPEC">Planifier une activite eleve-formateur, creer la visio et verifier l'acces eleve/formateur.</scenario>
+      <scenario id="VID-TEST-002" origin="SPEC">Connecter le parent de l'eleve et verifier qu'il n'a pas d'acces special a la visio.</scenario>
+      <scenario id="VID-TEST-003" origin="AJOUT">Cloturer la visio et verifier qu'un evenement de fin est disponible pour le cahier de texte.</scenario>
+    </manualTestScenarios>
+  </microservice>
+  <microservice id="pedagogical-log-service" phase="1" priority="high">
+    <name>Cahier de texte, memo et carnet personnel</name>
+    <mission>Gerer les traces pedagogiques quotidiennes, visibles selon le role, et le carnet personnel prive de l'eleve.</mission>
+    <responsibilities>
+      <item>Permettre aux formateurs et RP d'ecrire dans le cahier de texte.</item>
+      <item>Permettre aux parents de consulter le cahier de texte des eleves lies.</item>
+      <item>Permettre a l'eleve de tenir un carnet personnel non visible par le parent.</item>
+      <item>Creer des memos et pages speciales avec droits differencies.</item>
+      <item>Rattacher des entrees aux activites, visios, exercices ou parcours.</item>
+    </responsibilities>
+    <businessRules>
+      <rule id="PLOG-BR-001" origin="SPEC">L'eleve peut lire le cahier de texte ecrit par les formateurs et RP, sauf pages speciales non autorisees.</rule>
+      <rule id="PLOG-BR-002" origin="SPEC">Le parent peut utiliser et consulter le cahier de texte des eleves lies.</rule>
+      <rule id="PLOG-BR-003" origin="SPEC">Le formateur utilise le cahier de texte pour communiquer avec l'eleve et parfois le parent.</rule>
+      <rule id="PLOG-BR-004" origin="SPEC">Le carnet personnel est un element propre a l'eleve.</rule>
+      <rule id="PLOG-BR-005" origin="SPEC">Le parent voit tout ce qui concerne ses eleves lies sauf le carnet personnel.</rule>
+      <rule id="PLOG-BR-006" origin="SPEC">Le cahier de texte peut contenir des pages speciales avec visibilite differenciee.</rule>
+      <rule id="PLOG-BR-007" origin="AJOUT">Une entree de cahier de texte doit conserver son auteur, son eleve concerne, sa date, sa visibilite et son rattachement eventuel a une activite.</rule>
+      <rule id="PLOG-BR-008" origin="AJOUT">Une entree de carnet personnel doit etre separee des entrees de cahier de texte pour eviter toute fuite vers le parent.</rule>
+    </businessRules>
+    <roleAccessRules>
+      <rule id="PLOG-RA-001" role="Eleve" origin="SPEC">Peut lire son cahier de texte autorise et gerer son carnet personnel.</rule>
+      <rule id="PLOG-RA-002" role="ParentFinanceur" origin="SPEC">Peut lire le cahier de texte des eleves lies mais pas leur carnet personnel.</rule>
+      <rule id="PLOG-RA-003" role="Formateur" origin="SPEC">Peut ecrire dans le cahier de texte des eleves lies.</rule>
+      <rule id="PLOG-RA-004" role="ResponsablePedagogique" origin="SPEC">Peut ecrire et consulter les elements pedagogiques utiles selon son domaine.</rule>
+    </roleAccessRules>
+    <forbiddenCases>
+      <case id="PLOG-FB-001" origin="SPEC">Le parent ne doit jamais acceder au carnet personnel de l'eleve.</case>
+      <case id="PLOG-FB-002" origin="AJOUT">Une entree de carnet personnel ne doit pas etre retournee dans les APIs de cahier de texte.</case>
+      <case id="PLOG-FB-003" origin="SPEC">Un formateur non lie ne doit pas ecrire dans le cahier de texte d'un eleve.</case>
+    </forbiddenCases>
+    <dataEntities>
+      <entity>PedagogicalLogEntry</entity>
+      <entity>PersonalNotebookEntry</entity>
+      <entity>Memo</entity>
+      <entity>VisibilityRule</entity>
+    </dataEntities>
+    <apis>
+      <endpoint method="GET" path="/students/{studentId}/pedagogical-log">Lire cahier de texte</endpoint>
+      <endpoint method="POST" path="/students/{studentId}/pedagogical-log">Ajouter entree cahier de texte</endpoint>
+      <endpoint method="GET" path="/students/{studentId}/notebook">Lire carnet personnel</endpoint>
+      <endpoint method="POST" path="/students/{studentId}/notebook">Ajouter entree carnet</endpoint>
+      <endpoint method="POST" path="/memos">Creer un memo</endpoint>
+    </apis>
+    <eventsPublished>
+      <event>PedagogicalLogEntryCreated</event>
+      <event>PersonalNotebookUpdated</event>
+    </eventsPublished>
+    <acceptanceCriteria>
+      <criterion>Le parent peut lire le cahier de texte d'un eleve lie.</criterion>
+      <criterion>Le parent ne peut pas lire le carnet personnel du meme eleve.</criterion>
+      <criterion>Un formateur lie peut ecrire une entree visible selon la visibilite choisie.</criterion>
+      <criterion>Une page speciale respecte sa regle de visibilite.</criterion>
+    </acceptanceCriteria>
+    <manualTestScenarios>
+      <scenario id="PLOG-TEST-001" origin="SPEC">Un formateur lie ajoute une entree au cahier de texte ; l'eleve et le parent la consultent.</scenario>
+      <scenario id="PLOG-TEST-002" origin="SPEC">L'eleve cree une entree de carnet personnel ; le parent ne la voit pas.</scenario>
+      <scenario id="PLOG-TEST-003" origin="SPEC">Un RP cree une page speciale ; seul le public autorise la voit.</scenario>
+      <scenario id="PLOG-TEST-004" origin="AJOUT">Un formateur non lie tente d'ecrire dans le cahier de texte ; l'action est refusee.</scenario>
+    </manualTestScenarios>
+  </microservice>
+  <microservice id="admin-observability-service" phase="2" priority="high">
+    <name>Administration, activite et observabilite metier</name>
+    <mission>Fournir aux roles internes les listes d'activite, statistiques, audits, incidents et actions de masquage temporaire.</mission>
+    <responsibilities>
+      <item>Agreger la liste d'activite semaine/mois pour RP, TI et finance.</item>
+      <item>Permettre le suivi detaille d'incidents et d'anomalies.</item>
+      <item>Permettre au TI de masquer temporairement un element sans suppression.</item>
+      <item>Permettre au TI de forcer n'importe quel changement en cas de blocage, avec trace d'audit obligatoire.</item>
+      <item>Tracer les actions sensibles et droits etendus.</item>
+      <item>Tracer les demandes d'accord utilisateur necessaires aux modifications initiees par les roles internes hors TI.</item>
+      <item>Produire statistiques et exports operationnels.</item>
+    </responsibilities>
+    <businessRules>
+      <rule id="ADM-BR-001" origin="SPEC">Le RP voit une liste d'activite avec statistiques et details semaine/mois.</rule>
+      <rule id="ADM-BR-002" origin="SPEC">Le TI voit une liste d'activite avec statistiques et details semaine/mois pour comprendre les incidents.</rule>
+      <rule id="ADM-BR-003" origin="SPEC">L'administrateur financier voit une liste d'activite avec statistiques et details semaine/mois.</rule>
+      <rule id="ADM-BR-004" origin="SPEC">Le TI peut faire disparaitre temporairement de l'affichage tout element de la plateforme en reponse a un incident, sans suppression.</rule>
+      <rule id="ADM-BR-005" origin="SPEC">Le TI peut forcer n'importe quel changement en cas de blocage.</rule>
+      <rule id="ADM-BR-006" origin="SPEC">Tout forcage TI doit etre audite.</rule>
+      <rule id="ADM-BR-007" origin="SPEC">Les roles internes hors TI doivent obtenir un accord utilisateur trace dans l'application quand une modification le requiert.</rule>
+      <rule id="ADM-BR-008" origin="SPEC">La demande d'accord peut etre presentee par modale ou lien envoye par messagerie.</rule>
+      <rule id="ADM-BR-009" origin="SPEC">Le RP et l'administrateur financier peuvent ajouter des commentaires internes selon leur domaine.</rule>
+      <rule id="ADM-BR-010" origin="AJOUT">Chaque action sensible doit conserver acteur, cible, date, motif et resultat.</rule>
+    </businessRules>
+    <roleAccessRules>
+      <rule id="ADM-RA-001" role="ResponsablePedagogique" origin="SPEC">Peut consulter les listes d'activite pedagogiques et demander l'accord utilisateur lorsque requis.</rule>
+      <rule id="ADM-RA-002" role="TechnicienInformatique" origin="SPEC">Peut gerer incidents, masquages temporaires et forcages audites.</rule>
+      <rule id="ADM-RA-003" role="AdministrateurFinancier" origin="SPEC">Peut consulter les listes d'activite financieres et administrer son domaine.</rule>
+      <rule id="ADM-RA-004" role="Utilisateur" origin="SPEC">Peut approuver ou refuser une demande d'accord qui le concerne.</rule>
+    </roleAccessRules>
+    <forbiddenCases>
+      <case id="ADM-FB-001" origin="SPEC">Un masquage temporaire ne doit pas supprimer l'element masque.</case>
+      <case id="ADM-FB-002" origin="SPEC">Un RP ne doit pas finaliser une modification exigeant accord sans accord utilisateur trace.</case>
+      <case id="ADM-FB-003" origin="SPEC">Un forcage non TI ne doit pas etre autorise.</case>
+      <case id="ADM-FB-004" origin="AJOUT">Une action sensible ne doit pas etre appliquee sans audit minimal.</case>
+    </forbiddenCases>
+    <dataEntities>
+      <entity>ActivityLog</entity>
+      <entity>AuditTrail</entity>
+      <entity>TemporaryVisibilityMask</entity>
+      <entity>OperationalStatistic</entity>
+      <entity>ExtendedRightRequest</entity>
+      <entity>UserAgreementRequest</entity>
+      <entity>ForcedChangeRecord</entity>
+    </dataEntities>
+    <apis>
+      <endpoint method="GET" path="/activity">Consulter activite globale</endpoint>
+      <endpoint method="GET" path="/statistics">Consulter statistiques</endpoint>
+      <endpoint method="POST" path="/visibility-masks">Masquer temporairement un element</endpoint>
+      <endpoint method="DELETE" path="/visibility-masks/{maskId}">Retirer masquage</endpoint>
+      <endpoint method="POST" path="/extended-right-requests">Demander droit etendu</endpoint>
+      <endpoint method="POST" path="/user-agreement-requests">Creer une demande d'accord utilisateur pour modification</endpoint>
+      <endpoint method="POST" path="/user-agreement-requests/{requestId}/approve">Approuver une demande d'accord utilisateur</endpoint>
+      <endpoint method="POST" path="/user-agreement-requests/{requestId}/reject">Refuser une demande d'accord utilisateur</endpoint>
+      <endpoint method="POST" path="/forced-changes">Tracer un changement force par TI</endpoint>
+      <endpoint method="POST" path="/audit-events">Tracer evenement audit</endpoint>
+    </apis>
+    <eventsPublished>
+      <event>ElementTemporarilyHidden</event>
+      <event>ExtendedRightRequested</event>
+      <event>UserAgreementRequested</event>
+      <event>UserAgreementApproved</event>
+      <event>UserAgreementRejected</event>
+      <event>ChangeForcedByTechnician</event>
+      <event>AuditEventRecorded</event>
+    </eventsPublished>
+    <acceptanceCriteria>
+      <criterion>Un RP ou autre role interne hors TI ne peut pas finaliser une modification exigeant accord utilisateur sans accord trace dans l'application.</criterion>
+      <criterion>Le TI peut forcer un changement en cas de blocage, mais l'action forcee doit etre auditee.</criterion>
+      <criterion>Une demande d'accord utilisateur peut etre presentee par modale ou par lien envoye via la messagerie.</criterion>
+    </acceptanceCriteria>
+    <manualTestScenarios>
+      <scenario id="ADM-TEST-001" origin="SPEC">Un RP demande un accord utilisateur ; l'utilisateur approuve et la modification devient possible.</scenario>
+      <scenario id="ADM-TEST-002" origin="SPEC">Un RP demande un accord utilisateur ; l'utilisateur refuse et la modification reste bloquee.</scenario>
+      <scenario id="ADM-TEST-003" origin="SPEC">Un TI force une modification en cas de blocage ; l'audit contient acteur, cible, motif et date.</scenario>
+      <scenario id="ADM-TEST-004" origin="SPEC">Un TI masque temporairement un element ; l'element n'est plus affiche mais reste conserve.</scenario>
+      <scenario id="ADM-TEST-005" origin="SPEC">Un RP consulte la liste d'activite semaine/mois avec details utiles.</scenario>
+    </manualTestScenarios>
+  </microservice>
+  <microservice id="archive-document-service" phase="2" priority="high">
+    <name>Archives pedagogiques et financieres</name>
+    <mission>Stocker, classer et exposer les documents rattaches aux activites pedagogiques et financieres.</mission>
+    <responsibilities>
+      <item>Gerer les archives pedagogiques d'un eleve.</item>
+      <item>Gerer les documents crees par un formateur pour un eleve.</item>
+      <item>Gerer les archives financieres famille et formateur.</item>
+      <item>Permettre aux formateurs de charger leurs factures.</item>
+      <item>Servir de point d'acces documentaire aux services legal et finance.</item>
+    </responsibilities>
+    <businessRules>
+      <rule id="ARCH-BR-001" origin="SPEC">Les archives pedagogiques sont une liste de documents lies aux activites de l'eleve.</rule>
+      <rule id="ARCH-BR-002" origin="SPEC">Les formateurs peuvent creer des documents pour les archives pedagogiques des etudiants.</rule>
+      <rule id="ARCH-BR-003" origin="SPEC">Les archives financieres financeur contiennent justificatifs de paiement, factures diverses et aide eventuelle a la declaration.</rule>
+      <rule id="ARCH-BR-004" origin="SPEC">Les archives financieres formateur contiennent prestations realisees, factures recues, paiements et aide eventuelle a la declaration.</rule>
+      <rule id="ARCH-BR-005" origin="SPEC">Le formateur doit pouvoir charger ses factures dans les archives financieres.</rule>
+      <rule id="ARCH-BR-006" origin="AJOUT">Chaque document doit conserver son proprietaire metier, son createur, son type, ses droits d'acces et son rattachement.</rule>
+      <rule id="ARCH-BR-007" origin="AJOUT">Le masquage temporaire d'un document pour incident ne doit pas etre une suppression physique.</rule>
+    </businessRules>
+    <roleAccessRules>
+      <rule id="ARCH-RA-001" role="Eleve" origin="SPEC">Peut consulter les documents pedagogiques qui lui sont lies selon droits.</rule>
+      <rule id="ARCH-RA-002" role="ParentFinanceur" origin="SPEC">Peut consulter les archives des eleves lies et ses archives financieres, sauf restriction explicite.</rule>
+      <rule id="ARCH-RA-003" role="Formateur" origin="SPEC">Peut charger des documents pedagogiques pour ses eleves et charger ses factures.</rule>
+      <rule id="ARCH-RA-004" role="AdministrateurFinancier" origin="SPEC">Peut charger et consulter les documents financiers autorises.</rule>
+    </roleAccessRules>
+    <forbiddenCases>
+      <case id="ARCH-FB-001" origin="AJOUT">Un utilisateur ne doit pas telecharger un document sans droit d'acces.</case>
+      <case id="ARCH-FB-002" origin="SPEC">Un formateur non lie ne doit pas deposer de document pedagogique dans les archives d'un eleve.</case>
+      <case id="ARCH-FB-003" origin="AJOUT">Une facture formateur ne doit pas etre rattachee a un autre formateur.</case>
+    </forbiddenCases>
+    <dataEntities>
+      <entity>DocumentMetadata</entity>
+      <entity>StorageObjectRef</entity>
+      <entity>PedagogicalArchive</entity>
+      <entity>FinancialArchive</entity>
+      <entity>DocumentAccessGrant</entity>
+    </dataEntities>
+    <apis>
+      <endpoint method="POST" path="/documents">Charger un document</endpoint>
+      <endpoint method="GET" path="/documents/{documentId}">Lire metadonnees document</endpoint>
+      <endpoint method="GET" path="/archives/pedagogical/{studentId}">Lister archive pedagogique</endpoint>
+      <endpoint method="GET" path="/archives/financial/{ownerId}">Lister archive financiere</endpoint>
+      <endpoint method="POST" path="/documents/{documentId}/access-grants">Accorder acces document</endpoint>
+    </apis>
+    <eventsPublished>
+      <event>DocumentUploaded</event>
+      <event>PedagogicalArchiveUpdated</event>
+      <event>FinancialArchiveUpdated</event>
+    </eventsPublished>
+    <acceptanceCriteria>
+      <criterion>Un document pedagogique depose par un formateur lie apparait dans les archives de l'eleve.</criterion>
+      <criterion>Une facture chargee par un formateur apparait dans ses archives financieres.</criterion>
+      <criterion>Les droits d'acces sont verifies avant toute lecture ou telechargement.</criterion>
+    </acceptanceCriteria>
+    <manualTestScenarios>
+      <scenario id="ARCH-TEST-001" origin="SPEC">Un formateur lie depose un document pedagogique pour un eleve ; l'eleve et le parent le consultent.</scenario>
+      <scenario id="ARCH-TEST-002" origin="SPEC">Un formateur charge une facture ; l'administrateur financier la retrouve.</scenario>
+      <scenario id="ARCH-TEST-003" origin="AJOUT">Un utilisateur non autorise tente d'ouvrir un document ; l'acces est refuse.</scenario>
+    </manualTestScenarios>
+  </microservice>
+  <microservice id="legal-document-service" phase="2" priority="high">
+    <name>Documents legaux et signatures</name>
+    <mission>Gerer mandats clients, contrats formateurs, signatures et elements legaux a traiter.</mission>
+    <responsibilities>
+      <item>Generer et suivre les mandats clients.</item>
+      <item>Generer et suivre les contrats formateurs.</item>
+      <item>Collecter les signatures obligatoires.</item>
+      <item>Exposer une interface legale pour l'administrateur financier.</item>
+      <item>Tracer l'historique et le statut des documents.</item>
+    </responsibilities>
+    <businessRules>
+      <rule id="LEG-BR-001" origin="SPEC">Le mandat client est le document liant le financeur a VisioMath et doit etre signe.</rule>
+      <rule id="LEG-BR-002" origin="SPEC">Le contrat formateur est le document liant le formateur a VisioMath et doit etre signe.</rule>
+      <rule id="LEG-BR-003" origin="SPEC">L'administrateur financier dispose d'une interface legale regroupant les elements legaux et les elements a traiter.</rule>
+      <rule id="LEG-BR-004" origin="SPEC">Le RP peut signer les mandats clients.</rule>
+      <rule id="LEG-BR-005" origin="SPEC">L'administrateur financier peut signer les contrats formateurs.</rule>
+      <rule id="LEG-BR-006" origin="AJOUT">Un document legal doit conserver son statut, ses signataires attendus, ses signatures et son historique.</rule>
+    </businessRules>
+    <roleAccessRules>
+      <rule id="LEG-RA-001" role="ParentFinanceur" origin="SPEC">Peut signer et consulter son mandat client.</rule>
+      <rule id="LEG-RA-002" role="Formateur" origin="SPEC">Peut signer et consulter son contrat formateur.</rule>
+      <rule id="LEG-RA-003" role="ResponsablePedagogique" origin="SPEC">Peut intervenir sur les signatures de mandats clients.</rule>
+      <rule id="LEG-RA-004" role="AdministrateurFinancier" origin="SPEC">Peut suivre l'interface legale et les contrats formateurs.</rule>
+    </roleAccessRules>
+    <forbiddenCases>
+      <case id="LEG-FB-001" origin="AJOUT">Un document legal obligatoire ne doit pas etre marque signe sans trace de signature.</case>
+      <case id="LEG-FB-002" origin="SPEC">Un utilisateur ne doit pas signer le document legal d'un autre utilisateur sans role autorise.</case>
+      <case id="LEG-FB-003" origin="AJOUT">Un document expire ou remplace ne doit pas etre utilise comme document actif.</case>
+    </forbiddenCases>
+    <dataEntities>
+      <entity>LegalDocument</entity>
+      <entity>ClientMandate</entity>
+      <entity>TeacherContract</entity>
+      <entity>SignatureRequest</entity>
+      <entity>SignatureRecord</entity>
+      <entity>LegalTask</entity>
+    </dataEntities>
+    <apis>
+      <endpoint method="POST" path="/legal-documents">Creer document legal</endpoint>
+      <endpoint method="POST" path="/signature-requests">Creer demande signature</endpoint>
+      <endpoint method="POST" path="/signature-requests/{requestId}/complete">Marquer signe</endpoint>
+      <endpoint method="GET" path="/legal-tasks">Lister elements legaux a traiter</endpoint>
+      <endpoint method="GET" path="/legal-documents/{documentId}">Lire document legal</endpoint>
+    </apis>
+    <eventsPublished>
+      <event>ClientMandateSigned</event>
+      <event>TeacherContractSigned</event>
+      <event>LegalDocumentExpired</event>
+    </eventsPublished>
+    <acceptanceCriteria>
+      <criterion>Un mandat client signe est rattache au financeur et consultable par les roles autorises.</criterion>
+      <criterion>Un contrat formateur signe est rattache au formateur et consultable par les roles autorises.</criterion>
+      <criterion>L'interface legale liste les documents a traiter.</criterion>
+    </acceptanceCriteria>
+    <manualTestScenarios>
+      <scenario id="LEG-TEST-001" origin="SPEC">Generer un mandat client, le signer, verifier le statut signe et l'archive.</scenario>
+      <scenario id="LEG-TEST-002" origin="SPEC">Generer un contrat formateur, le signer, verifier le statut signe et l'archive.</scenario>
+      <scenario id="LEG-TEST-003" origin="SPEC">Connecter l'administrateur financier et consulter les elements legaux a traiter.</scenario>
+    </manualTestScenarios>
+  </microservice>
+  <microservice id="finance-credit-service" phase="2" priority="critical">
+    <name>Finance, credits et remunerations</name>
+    <mission>Gerer les profils financiers, paiements, credits familles, facturation, remunerations formateurs et tables de valorisation.</mission>
+    <responsibilities>
+      <item>Gerer le profil financier du financeur.</item>
+      <item>Gerer le profil financier et bancaire du formateur.</item>
+      <item>Convertir les paiements en credits financiers, avec reference 1 point = 0,10 euro.</item>
+      <item>Debiter les credits selon les activites consommees.</item>
+      <item>Calculer les remunerations formateurs selon prestations.</item>
+      <item>Gerer factures, justificatifs, exports et projections financieres.</item>
+      <item>Administrer les tables de points financiers et pedagogiques.</item>
+      <item>Accorder les droits complets de gestion des points pedagogiques au RP et a l'administrateur financier.</item>
+    </responsibilities>
+    <businessRules>
+      <rule id="FIN-BR-001" origin="SPEC">Le financeur possede un profil financier contenant les donnees relatives au financement.</rule>
+      <rule id="FIN-BR-002" origin="SPEC">Un profil financier peut relier plusieurs etudiants a un meme financeur.</rule>
+      <rule id="FIN-BR-003" origin="SPEC">Le solde financier est exprime en points, avec reference 1 point = 0,10 euro.</rule>
+      <rule id="FIN-BR-004" origin="SPEC">Le tableau de bord eleve peut afficher le solde financier et la date de fin de financement.</rule>
+      <rule id="FIN-BR-005" origin="SPEC">Le formateur possede un profil financier permettant son reglement.</rule>
+      <rule id="FIN-BR-006" origin="SPEC">Les archives financieres formateur comprennent prestations realisees, factures recues, paiements et aide eventuelle a la declaration.</rule>
+      <rule id="FIN-BR-007" origin="SPEC">Les archives financieres ne sont pas seulement consultatives pour le formateur : il doit pouvoir y charger ses factures.</rule>
+      <rule id="FIN-BR-008" origin="SPEC">Une prestation ne peut pas avoir un prix negatif, un nombre de tokens negatif, un titre vide ou une description vide.</rule>
+      <rule id="FIN-BR-009" origin="SPEC">L'achat d'une prestation par un financeur utilise ses tokens pour un eleve finance.</rule>
+      <rule id="FIN-BR-010" origin="SPEC">Des coupons sont generes automatiquement pour chaque heure de cours achetee.</rule>
+      <rule id="FIN-BR-011" origin="SPEC">Le solde professeur augmente lorsqu'un coupon est enregistre.</rule>
+      <rule id="FIN-BR-012" origin="SPEC">Le responsable financier peut valider ou refuser une facture professeur.</rule>
+      <rule id="FIN-BR-013" origin="SPEC">Une facture professeur validee declenche son paiement et la diminution du solde professeur correspondant.</rule>
+      <rule id="FIN-BR-014" origin="SPEC">RP et administrateur financier ont tous deux les droits complets sur la gestion des points pedagogiques.</rule>
+      <rule id="FIN-BR-015" origin="AJOUT">Une facture deja payee ne doit jamais etre payee une seconde fois.</rule>
+    </businessRules>
+    <roleAccessRules>
+      <rule id="FIN-RA-001" role="ParentFinanceur" origin="SPEC">Peut gerer son profil financier, acheter des prestations et consulter ses archives financieres.</rule>
+      <rule id="FIN-RA-002" role="Formateur" origin="SPEC">Peut gerer son profil financier, consulter son solde et charger ses factures.</rule>
+      <rule id="FIN-RA-003" role="AdministrateurFinancier" origin="SPEC">Dispose de l'interface financiere, peut trier, filtrer, exporter, valider, refuser et payer les factures.</rule>
+      <rule id="FIN-RA-004" role="ResponsablePedagogique" origin="SPEC">Dispose de droits complets sur les points pedagogiques.</rule>
+    </roleAccessRules>
+    <forbiddenCases>
+      <case id="FIN-FB-001" origin="SPEC">Une prestation avec prix negatif ou tokens negatifs ne doit pas etre creee.</case>
+      <case id="FIN-FB-002" origin="SPEC">Une facture d'un montant superieur au solde professeur ne doit pas etre validee.</case>
+      <case id="FIN-FB-003" origin="SPEC">Une facture refusee ne doit pas declencher de paiement.</case>
+      <case id="FIN-FB-004" origin="AJOUT">Un financeur ne doit pas acheter une prestation pour un eleve qui ne lui est pas lie.</case>
+    </forbiddenCases>
+    <dataEntities>
+      <entity>FinanceProfile</entity>
+      <entity>Payment</entity>
+      <entity>CreditWallet</entity>
+      <entity>CreditTransaction</entity>
+      <entity>TeacherPayout</entity>
+      <entity>Invoice</entity>
+      <entity>ValuationRule</entity>
+      <entity>PedagogicalPointsAdministrationGrant</entity>
+      <entity>FinancialProjection</entity>
+    </dataEntities>
+    <apis>
+      <endpoint method="GET" path="/wallets/{ownerId}">Lire solde financier</endpoint>
+      <endpoint method="POST" path="/payments">Enregistrer paiement</endpoint>
+      <endpoint method="POST" path="/credits/debit">Debiter credits</endpoint>
+      <endpoint method="POST" path="/credits/grant">Crediter un wallet</endpoint>
+      <endpoint method="GET" path="/invoices">Lister factures</endpoint>
+      <endpoint method="POST" path="/teacher-payouts/calculate">Calculer remunerations</endpoint>
+      <endpoint method="PUT" path="/valuation-rules/{ruleId}">Modifier regle de valorisation</endpoint>
+      <endpoint method="PUT" path="/pedagogical-points/rules/{ruleId}">Modifier une regle de points pedagogiques par RP ou administrateur financier</endpoint>
+      <endpoint method="GET" path="/exports/financial">Exporter donnees financieres</endpoint>
+    </apis>
+    <eventsPublished>
+      <event>PaymentReceived</event>
+      <event>CreditsDebited</event>
+      <event>PaymentFailed</event>
+      <event>TeacherPayoutCalculated</event>
+      <event>InvoiceGenerated</event>
+    </eventsPublished>
+    <acceptanceCriteria>
+      <criterion>Un paiement financeur credite le wallet correspondant.</criterion>
+      <criterion>Un achat de prestation debite les tokens et genere les coupons attendus.</criterion>
+      <criterion>L'enregistrement d'un coupon augmente le solde professeur.</criterion>
+      <criterion>La validation puis le paiement d'une facture diminuent le solde professeur une seule fois.</criterion>
+    </acceptanceCriteria>
+    <manualTestScenarios>
+      <scenario id="FIN-TEST-001" origin="SPEC">Creer une prestation valide, l'acheter pour un eleve lie et verifier la generation des coupons.</scenario>
+      <scenario id="FIN-TEST-002" origin="SPEC">Enregistrer un coupon utilise et verifier l'augmentation du solde professeur.</scenario>
+      <scenario id="FIN-TEST-003" origin="SPEC">Le formateur envoie une facture PDF ; l'administrateur financier la visualise et la valide.</scenario>
+      <scenario id="FIN-TEST-004" origin="SPEC">Refuser une facture avec motif et verifier qu'aucun paiement n'est declenche.</scenario>
+      <scenario id="FIN-TEST-005" origin="AJOUT">Rejouer le paiement d'une facture deja payee et verifier qu'aucun double paiement n'a lieu.</scenario>
+    </manualTestScenarios>
+  </microservice>
+  <microservice id="content-catalog-service" phase="3" priority="high">
+    <name>Catalogue de contenus pedagogiques</name>
+    <mission>Gerer les exercices, evaluations, tutos-videos, leurs metadonnees, solutions, commentaires, scores et validations.</mission>
+    <responsibilities>
+      <item>Permettre aux formateurs, RP et certains eleves de charger des contenus.</item>
+      <item>Rendre la solution obligatoire pour les exercices crees par un formateur.</item>
+      <item>Rendre la solution obligatoire pour toute evaluation lors de sa creation.</item>
+      <item>Conserver la solution d'une evaluation non publiee et non accessible directement par l'eleve.</item>
+      <item>Permettre a l'eleve de demander apres coup une correction d'evaluation pour obtenir une note ou une solution, comme pour un exercice normal.</item>
+      <item>Gerer les contenus en attente d'intervention lorsque la correction ou la validation est requise.</item>
+      <item>Permettre aux AP et RP de valider les contenus.</item>
+      <item>Gerer commentaires, notes, signalements et statut de publication.</item>
+    </responsibilities>
+    <businessRules>
+      <rule id="CONT-BR-001" origin="SPEC">Les eleves peuvent charger exercices, evaluations et tutos-videos a valider.</rule>
+      <rule id="CONT-BR-002" origin="SPEC">Les formateurs peuvent charger exercices, evaluations et tutos-videos.</rule>
+      <rule id="CONT-BR-003" origin="SPEC">Le RP peut creer completement exercices, evaluations et tutos-videos.</rule>
+      <rule id="CONT-BR-004" origin="SPEC">L'AP peut valider les exercices, evaluations et tutos-videos.</rule>
+      <rule id="CONT-BR-005" origin="SPEC">Le RP peut intervenir completement sur les exercices, evaluations et tutos-videos charges par d'autres utilisateurs, notamment pour les valider.</rule>
+      <rule id="CONT-BR-006" origin="SPEC">Un exercice cree par un formateur doit avoir une solution obligatoire.</rule>
+      <rule id="CONT-BR-007" origin="SPEC">Une evaluation doit toujours fournir une solution lors de sa creation.</rule>
+      <rule id="CONT-BR-008" origin="SPEC">La solution d'une evaluation n'est pas publiee ni accessible directement par l'eleve.</rule>
+      <rule id="CONT-BR-009" origin="SPEC">L'eleve peut demander apres coup une correction d'evaluation pour obtenir une note ou la solution comme sur un exercice normal.</rule>
+      <rule id="CONT-BR-010" origin="SPEC">Les tutos-videos peuvent etre visionnes, commentes et scores.</rule>
+      <rule id="CONT-BR-011" origin="SPEC">Une recompense est prevue pour toute personne chargeant du contenu de qualite.</rule>
+      <rule id="CONT-BR-012" origin="AJOUT">Un contenu non valide ne doit pas etre publie comme ressource pedagogique disponible.</rule>
+    </businessRules>
+    <roleAccessRules>
+      <rule id="CONT-RA-001" role="Eleve" origin="SPEC">Peut charger certains contenus a valider et utiliser les contenus publies.</rule>
+      <rule id="CONT-RA-002" role="Formateur" origin="SPEC">Peut charger des contenus, fournir solutions, commenter et scorer selon droits.</rule>
+      <rule id="CONT-RA-003" role="AnimateurPedagogique" origin="SPEC">Peut valider exercices, evaluations et tutos-videos.</rule>
+      <rule id="CONT-RA-004" role="ResponsablePedagogique" origin="SPEC">Peut creer, modifier, valider et gerer les contenus pedagogiques.</rule>
+    </roleAccessRules>
+    <forbiddenCases>
+      <case id="CONT-FB-001" origin="SPEC">Une evaluation ne doit pas etre creee sans solution.</case>
+      <case id="CONT-FB-002" origin="SPEC">La solution d'une evaluation ne doit pas etre accessible directement par l'eleve.</case>
+      <case id="CONT-FB-003" origin="SPEC">Un exercice formateur ne doit pas etre cree sans solution obligatoire.</case>
+      <case id="CONT-FB-004" origin="AJOUT">Un contenu refuse ou non valide ne doit pas apparaitre dans le catalogue public.</case>
+    </forbiddenCases>
+    <dataEntities>
+      <entity>PedagogicalContent</entity>
+      <entity>Exercise</entity>
+      <entity>Evaluation</entity>
+      <entity>TutorialVideo</entity>
+      <entity>Solution</entity>
+      <entity>ValidationReview</entity>
+      <entity>ContentComment</entity>
+      <entity>ContentRating</entity>
+    </dataEntities>
+    <apis>
+      <endpoint method="POST" path="/contents">Creer un contenu</endpoint>
+      <endpoint method="GET" path="/contents">Rechercher les contenus</endpoint>
+      <endpoint method="GET" path="/contents/{contentId}">Lire un contenu</endpoint>
+      <endpoint method="POST" path="/contents/{contentId}/solutions">Ajouter une solution</endpoint>
+      <endpoint method="GET" path="/contents/{contentId}/solutions/internal">Lire une solution non publiee selon droits internes</endpoint>
+      <endpoint method="POST" path="/contents/{contentId}/reviews">Valider ou refuser un contenu</endpoint>
+      <endpoint method="POST" path="/contents/{contentId}/comments">Commenter</endpoint>
+      <endpoint method="POST" path="/contents/{contentId}/ratings">Scorer</endpoint>
+    </apis>
+    <eventsPublished>
+      <event>ContentCreated</event>
+      <event>ContentPendingValidation</event>
+      <event>ContentValidated</event>
+      <event>ContentNeedsTeacherIntervention</event>
+      <event>EvaluationCorrectionRequested</event>
+    </eventsPublished>
+    <acceptanceCriteria>
+      <criterion>Une evaluation ne peut pas etre creee sans solution rattachee.</criterion>
+      <criterion>La solution d'une evaluation n'est jamais publiee directement a l'eleve.</criterion>
+      <criterion>L'acces de l'eleve a une correction ou solution d'evaluation passe par une demande de correction.</criterion>
+    </acceptanceCriteria>
+    <manualTestScenarios>
+      <scenario id="CONT-TEST-001" origin="SPEC">Un formateur cree un exercice sans solution ; la creation est refusee.</scenario>
+      <scenario id="CONT-TEST-002" origin="SPEC">Un formateur cree une evaluation avec solution ; l'eleve voit l'evaluation mais pas la solution.</scenario>
+      <scenario id="CONT-TEST-003" origin="SPEC">Un AP valide un tuto-video ; le contenu devient publiable.</scenario>
+      <scenario id="CONT-TEST-004" origin="SPEC">Un RP modifie puis valide un contenu charge par un autre utilisateur.</scenario>
+    </manualTestScenarios>
+  </microservice>
+  <microservice id="learning-activity-service" phase="3" priority="high">
+    <name>Activites d'apprentissage, corrections et points</name>
+    <mission>Gerer les reponses des eleves, corrections formateurs, points pedagogiques et activites non pourvues.</mission>
+    <responsibilities>
+      <item>Permettre a un eleve de repondre a un exercice ou une evaluation.</item>
+      <item>Permettre aux formateurs de corriger sur demande.</item>
+      <item>Attribuer commentaires, scores et points pedagogiques.</item>
+      <item>Publier les besoins non pourvus, avec declaration d'interet des formateurs.</item>
+      <item>Calculer ou transmettre les actions valorisables financierement.</item>
+    </responsibilities>
+    <businessRules>
+      <rule id="LRN-BR-001" origin="SPEC">L'eleve utilise les exercices pour apporter des reponses, commenter et scorer.</rule>
+      <rule id="LRN-BR-002" origin="SPEC">L'eleve utilise les evaluations pour apporter des reponses, commenter et scorer.</rule>
+      <rule id="LRN-BR-003" origin="SPEC">Le formateur peut corriger les reponses aux exercices sur demande, avec commentaires et score.</rule>
+      <rule id="LRN-BR-004" origin="SPEC">Le formateur peut corriger les reponses aux evaluations sur demande, avec commentaires et score.</rule>
+      <rule id="LRN-BR-005" origin="SPEC">L'eleve peut demander une correction d'evaluation pour obtenir une note ou la solution comme sur un exercice normal.</rule>
+      <rule id="LRN-BR-006" origin="SPEC">La liste d'activites non pourvues contient des elements en attente d'intervention formateur qui ne sont pas des demandes directes.</rule>
+      <rule id="LRN-BR-007" origin="SPEC">Sur une activite non pourvue, le formateur declare son interet avec une date.</rule>
+      <rule id="LRN-BR-008" origin="SPEC">Les points pedagogiques servent dans l'attribution des cours par le RP.</rule>
+      <rule id="LRN-BR-009" origin="SPEC">Les regles de points pedagogiques sont administrables par RP et administrateur financier.</rule>
+      <rule id="LRN-BR-010" origin="AJOUT">Une correction doit etre rattachee a une soumission et a son correcteur.</rule>
+    </businessRules>
+    <roleAccessRules>
+      <rule id="LRN-RA-001" role="Eleve" origin="SPEC">Peut soumettre reponses, demander corrections, commenter et scorer selon droits.</rule>
+      <rule id="LRN-RA-002" role="Formateur" origin="SPEC">Peut corriger sur demande et declarer son interet sur une activite non pourvue.</rule>
+      <rule id="LRN-RA-003" role="ResponsablePedagogique" origin="SPEC">Peut consulter les points pedagogiques utiles a l'attribution des cours.</rule>
+      <rule id="LRN-RA-004" role="AdministrateurFinancier" origin="SPEC">Peut administrer les regles de points pedagogiques avec le RP.</rule>
+    </roleAccessRules>
+    <forbiddenCases>
+      <case id="LRN-FB-001" origin="SPEC">La solution d'une evaluation ne doit pas etre fournie a l'eleve sans correction ou droit explicite.</case>
+      <case id="LRN-FB-002" origin="AJOUT">Un formateur ne doit pas corriger une soumission sans autorisation, demande directe ou activite non pourvue acceptee.</case>
+      <case id="LRN-FB-003" origin="AJOUT">Une declaration d'interet sans date ne doit pas etre validee.</case>
+    </forbiddenCases>
+    <dataEntities>
+      <entity>StudentSubmission</entity>
+      <entity>CorrectionRequest</entity>
+      <entity>Correction</entity>
+      <entity>PedagogicalScore</entity>
+      <entity>UnstaffedActivity</entity>
+      <entity>TeacherInterest</entity>
+    </dataEntities>
+    <apis>
+      <endpoint method="POST" path="/submissions">Soumettre une reponse</endpoint>
+      <endpoint method="POST" path="/correction-requests">Demander une correction</endpoint>
+      <endpoint method="POST" path="/corrections">Publier une correction</endpoint>
+      <endpoint method="GET" path="/unstaffed-activities">Lister activites non pourvues</endpoint>
+      <endpoint method="POST" path="/unstaffed-activities/{activityId}/interests">Declarer interet</endpoint>
+      <endpoint method="GET" path="/users/{userId}/pedagogical-score">Lire score pedagogique</endpoint>
+    </apis>
+    <eventsPublished>
+      <event>SubmissionCreated</event>
+      <event>CorrectionRequested</event>
+      <event>CorrectionCompleted</event>
+      <event>PedagogicalPointsGranted</event>
+      <event>TeacherInterestDeclared</event>
+    </eventsPublished>
+    <acceptanceCriteria>
+      <criterion>Une reponse eleve est conservee et rattachee au contenu concerne.</criterion>
+      <criterion>Une demande de correction cree une action visible par un formateur autorise ou dans les activites non pourvues.</criterion>
+      <criterion>Une correction terminee peut attribuer commentaire, score et points pedagogiques.</criterion>
+      <criterion>Une declaration d'interet formateur conserve la date proposee.</criterion>
+    </acceptanceCriteria>
+    <manualTestScenarios>
+      <scenario id="LRN-TEST-001" origin="SPEC">Un eleve soumet une reponse a un exercice puis demande une correction.</scenario>
+      <scenario id="LRN-TEST-002" origin="SPEC">Un formateur corrige la reponse avec commentaire et score ; l'eleve consulte la correction.</scenario>
+      <scenario id="LRN-TEST-003" origin="SPEC">Un eleve demande une correction d'evaluation ; la solution n'est visible qu'apres correction autorisee.</scenario>
+      <scenario id="LRN-TEST-004" origin="SPEC">Un formateur declare son interet avec date sur une activite non pourvue.</scenario>
+    </manualTestScenarios>
+  </microservice>
+  <microservice id="community-path-service" phase="3" priority="medium">
+    <name>Forums, parcours et badges</name>
+    <mission>Gerer les forums pedagogiques, parcours d'apprentissage, validations RP et badges de reussite.</mission>
+    <responsibilities>
+      <item>Permettre aux AP et RP de creer et gerer des forums.</item>
+      <item>Maintenir tout forum cree par un AP en statut non publie tant qu'un RP ne l'a pas valide.</item>
+      <item>Limiter l'acces a un forum AP non publie au createur AP, aux RP et aux administrateurs.</item>
+      <item>Permettre aux AP de proposer des parcours a validation RP.</item>
+      <item>Permettre aux RP de valider et gerer les parcours.</item>
+      <item>Suivre la progression des eleves dans les parcours.</item>
+      <item>Attribuer des badges de reussite lies aux parcours.</item>
+    </responsibilities>
+    <businessRules>
+      <rule id="COMM-BR-001" origin="SPEC">L'eleve peut utiliser les forums.</rule>
+      <rule id="COMM-BR-002" origin="SPEC">L'AP peut creer un forum et le gerer.</rule>
+      <rule id="COMM-BR-003" origin="SPEC">Un forum cree par AP n'est publie aux autres membres qu'apres validation RP.</rule>
+      <rule id="COMM-BR-004" origin="SPEC">Avant publication, seuls le createur AP, les RP et les administrateurs accedent au forum AP.</rule>
+      <rule id="COMM-BR-005" origin="SPEC">L'AP peut creer un parcours qui doit etre valide par un RP.</rule>
+      <rule id="COMM-BR-006" origin="SPEC">Le RP peut creer, valider et gerer les parcours.</rule>
+      <rule id="COMM-BR-007" origin="SPEC">Les badges de reussite sont lies aux parcours.</rule>
+      <rule id="COMM-BR-008" origin="AJOUT">Un parcours non valide ne doit pas etre propose comme parcours actif aux eleves.</rule>
+    </businessRules>
+    <roleAccessRules>
+      <rule id="COMM-RA-001" role="Eleve" origin="SPEC">Peut participer aux forums et parcours publies auxquels il a acces.</rule>
+      <rule id="COMM-RA-002" role="AnimateurPedagogique" origin="SPEC">Peut creer et gerer ses forums et proposer des parcours.</rule>
+      <rule id="COMM-RA-003" role="ResponsablePedagogique" origin="SPEC">Peut valider et gerer forums AP et parcours.</rule>
+      <rule id="COMM-RA-004" role="Administrateur" origin="SPEC">Peut acceder aux forums AP non publies selon domaine d'administration.</rule>
+    </roleAccessRules>
+    <forbiddenCases>
+      <case id="COMM-FB-001" origin="SPEC">Un forum AP non valide ne doit pas etre visible par les eleves.</case>
+      <case id="COMM-FB-002" origin="SPEC">Un parcours AP non valide par RP ne doit pas etre publie.</case>
+      <case id="COMM-FB-003" origin="AJOUT">Un badge ne doit pas etre attribue sans condition de progression ou reussite remplie.</case>
+    </forbiddenCases>
+    <dataEntities>
+      <entity>Forum</entity>
+      <entity>ForumPublicationReview</entity>
+      <entity>ForumPost</entity>
+      <entity>LearningPath</entity>
+      <entity>PathStep</entity>
+      <entity>PathValidation</entity>
+      <entity>StudentPathProgress</entity>
+      <entity>Badge</entity>
+    </dataEntities>
+    <apis>
+      <endpoint method="POST" path="/forums">Creer un forum</endpoint>
+      <endpoint method="POST" path="/forums/{forumId}/publish-review">Valider la publication d'un forum AP par un RP</endpoint>
+      <endpoint method="POST" path="/forums/{forumId}/posts">Publier un message forum</endpoint>
+      <endpoint method="POST" path="/paths">Creer un parcours</endpoint>
+      <endpoint method="POST" path="/paths/{pathId}/validate">Valider un parcours</endpoint>
+      <endpoint method="POST" path="/paths/{pathId}/progress">Mettre a jour progression</endpoint>
+      <endpoint method="GET" path="/students/{studentId}/badges">Lire badges</endpoint>
+    </apis>
+    <eventsPublished>
+      <event>ForumCreated</event>
+      <event>ForumPendingPublicationValidation</event>
+      <event>ForumPublished</event>
+      <event>LearningPathSubmitted</event>
+      <event>LearningPathValidated</event>
+      <event>BadgeAwarded</event>
+    </eventsPublished>
+    <acceptanceCriteria>
+      <criterion>Un forum cree par AP n'est visible qu'au createur AP, aux RP et aux administrateurs avant validation RP.</criterion>
+      <criterion>La publication d'un forum AP vers les autres membres exige une validation RP explicite.</criterion>
+    </acceptanceCriteria>
+    <manualTestScenarios>
+      <scenario id="COMM-TEST-001" origin="SPEC">Un AP cree un forum ; un eleve ne le voit pas avant validation RP.</scenario>
+      <scenario id="COMM-TEST-002" origin="SPEC">Un RP valide la publication du forum AP ; les membres autorises y accedent.</scenario>
+      <scenario id="COMM-TEST-003" origin="SPEC">Un AP cree un parcours ; le parcours reste non publie jusqu'a validation RP.</scenario>
+      <scenario id="COMM-TEST-004" origin="SPEC">Un eleve termine un parcours valide ; un badge de reussite est attribue.</scenario>
+    </manualTestScenarios>
+  </microservice>
+</visiomathematicsArchitecture>

@@ -1,0 +1,224 @@
+version: '3.9'
+
+services:
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: visiomath_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-visiomath}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-visiomath_secret}
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-databases.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - visiomath_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-visiomath}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: visiomath_redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_secret}
+    volumes:
+      - redis_data:/data
+    networks:
+      - visiomath_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-redis_secret}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ── API Gateway ─────────────────────────────────────────────────────────────
+
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: visiomath_gateway
+    ports:
+      - "80:80"
+    depends_on:
+      - identity-access-service
+      - profile-service
+      - teacher-request-service
+      - calendar-service
+      - video-session-service
+      - communication-service
+      - pedagogical-log-service
+      - dashboard-notification-service
+      - orchestration-service
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
+  # ── Phase 1 Services ─────────────────────────────────────────────────────────
+
+  orchestration-service:
+    build:
+      context: ./services/orchestration-service
+      dockerfile: Dockerfile
+    container_name: visiomath_orchestration
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
+  identity-access-service:
+    build:
+      context: ./services/identity-access-service
+      dockerfile: Dockerfile
+    container_name: visiomath_identity_access
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_identity_access
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
+  profile-service:
+    build:
+      context: ./services/profile-service
+      dockerfile: Dockerfile
+    container_name: visiomath_profile
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_profile
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
+  dashboard-notification-service:
+    build:
+      context: ./services/dashboard-notification-service
+      dockerfile: Dockerfile
+    container_name: visiomath_dashboard_notification
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_dashboard_notification
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
+  communication-service:
+    build:
+      context: ./services/communication-service
+      dockerfile: Dockerfile
+    container_name: visiomath_communication
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_communication
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
+  calendar-service:
+    build:
+      context: ./services/calendar-service
+      dockerfile: Dockerfile
+    container_name: visiomath_calendar
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_calendar
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
+  teacher-request-service:
+    build:
+      context: ./services/teacher-request-service
+      dockerfile: Dockerfile
+    container_name: visiomath_teacher_request
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_teacher_request
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
+  video-session-service:
+    build:
+      context: ./services/video-session-service
+      dockerfile: Dockerfile
+    container_name: visiomath_video_session
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_video_session
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
+  pedagogical-log-service:
+    build:
+      context: ./services/pedagogical-log-service
+      dockerfile: Dockerfile
+    container_name: visiomath_pedagogical_log
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_pedagogical_log
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  visiomath_network:
+    driver: bridge

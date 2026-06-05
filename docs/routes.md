@@ -5,16 +5,48 @@ Les routes marquées 🔒 nécessitent un header `Authorization: Bearer <token>`
 
 ---
 
-## auth-service
+## identity-access-service (port 3001)
+
+Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedagogique`, `responsable_pedagogique`, `technicien_informatique`, `administrateur_financier`
+
+Statuts de validation : `pending` (avant consentements) → `active` (consentements RGPD+CGU signés) → `suspended`
+
+### Authentification
+
+| Méthode | Chemin | Description | Auth | Body / Params |
+|---|---|---|---|---|
+| POST | /auth/login | Se connecter | Non | `{email, password}` |
+| POST | /auth/logout | Révoquer la session courante | 🔒 | — |
+| POST | /auth/refresh | Nouveau token pair | Non | `{refresh_token}` |
+| GET | /auth/me | Identité courante | 🔒 | — |
+
+Réponse login/refresh : `{access_token, refresh_token, user: {id, email, role, validationStatus}}`
+
+### Comptes
+
+| Méthode | Chemin | Description | Auth | Rôles | Body |
+|---|---|---|---|---|---|
+| POST | /accounts | Créer un compte (auto-inscription) | Non | — | `{email, password, role?}` |
+| GET | /accounts/:accountId | Lire un compte | 🔒 | TI, RP, AdministrateurFinancier | — |
+| PUT | /accounts/:accountId/roles | Changer le rôle | 🔒 | RP, TI | `{role}` |
+| PUT | /accounts/:accountId/validate | Valider un compte | 🔒 | RP, TI | — |
+| PUT | /accounts/:accountId/suspend | Suspendre un compte | 🔒 | TI | — |
+| GET | /accounts/:accountId/audit | Journal d'audit | 🔒 | RP, TI | — |
+
+Règles métier : seuls `eleve`, `parent_financeur` et `formateur` peuvent être auto-inscrits (IAM-FB-002). La validation nécessite les consentements RGPD+CGU signés (IAM-FB-003).
+
+### Consentements RGPD
 
 | Méthode | Chemin | Description | Auth | Body |
 |---|---|---|---|---|
-| POST | /auth/register | Créer un compte | Non | `{email, password, role?}` |
-| POST | /auth/login | Se connecter | Non | `{email, password}` |
-| POST | /auth/refresh | Rafraîchir le token | Non | `{refresh_token}` |
-| GET | /auth/me | Profil courant | 🔒 | — |
+| POST | /consents | Signer un consentement | 🔒 | `{consentType, version?}` |
+| GET | /consents | Mes consentements | 🔒 | — |
 
-Réponse login/register : `{access_token, refresh_token, user: {id, email, role}}`
+Types : `rgpd` (requis), `cgu` (requis), `marketing` (optionnel). Une fois RGPD+CGU signés, le compte passe automatiquement à `active`.
+
+### Événements publiés
+
+`AccountCreated` · `RoleChanged` · `ConsentSigned` · `AccountValidated` · `AccountSuspended`
 
 ---
 

@@ -6,6 +6,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../entities/user.entity';
 
+interface JwtPayload {
+  sub: string;
+  email: string;
+  role: string;
+  validationStatus: string;
+  jti: string;
+  type: string;
+}
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
@@ -19,9 +28,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: { sub: string; email: string; role: string }) {
+  async validate(payload: JwtPayload) {
+    if (payload.type !== 'access') throw new UnauthorizedException('Invalid token type');
+
     const user = await this.userRepo.findOne({ where: { id: payload.sub } });
     if (!user || !user.isActive) throw new UnauthorizedException();
-    return user;
+
+    return { ...user, jti: payload.jti };
   }
 }

@@ -1,9 +1,9 @@
 import { IsEmail, IsString, MinLength, IsEnum, IsOptional } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { UserRole } from '../entities/user.entity';
+import { UserRole, SELF_REGISTRATION_ROLES } from '../../auth/entities/user.entity';
 
-export class RegisterDto {
-  @ApiProperty({ example: 'user@example.com' })
+export class CreateAccountDto {
+  @ApiProperty({ example: 'eleve@example.com' })
   @IsEmail()
   email: string;
 
@@ -12,7 +12,11 @@ export class RegisterDto {
   @MinLength(8)
   password: string;
 
-  @ApiPropertyOptional({ enum: UserRole, default: UserRole.STUDENT })
+  @ApiPropertyOptional({
+    enum: SELF_REGISTRATION_ROLES,
+    default: UserRole.ELEVE,
+    description: 'Only eleve, parent_financeur and formateur can be self-registered',
+  })
   @IsOptional()
   @IsEnum(UserRole)
   role?: UserRole;

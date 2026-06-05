@@ -6,22 +6,38 @@ La plateforme est decoupee par domaines metier stables plutot que par type d'ecr
 
 ## Microservices proposes
 
-1. `identity-access-service` : comptes, authentification, consentements RGPD, roles et droits.
-2. `profile-service` : profils administratifs, pedagogiques et relations entre eleves, familles, formateurs, AP et RP.
-3. `teacher-request-service` : demandes de professeur, affectations, refus, arrets, suivi PP.
-4. `calendar-service` : disponibilites, rendez-vous, cours, reunions, rappels et projection d'evenements.
-5. `video-session-service` : creation et suivi des visios pedagogiques.
-6. `dashboard-notification-service` : tableaux de bord, notifications et signaux d'activite utiles par role.
-7. `communication-service` : messagerie entre contacts autorises, messages systeme et incidents TI, prevue des la phase 1.
-8. `pedagogical-log-service` : cahier de texte, memo, carnet personnel et traces pedagogiques.
-9. `content-catalog-service` : exercices, evaluations, tutos-videos, validation et moderation pedagogique.
-10. `learning-activity-service` : reponses, corrections, scores, points pedagogiques et activites non pourvues.
-11. `community-path-service` : forums, parcours, badges et progression.
-12. `finance-credit-service` : profils financiers, credits, paiements familles, remunerations formateurs et exports.
-13. `legal-document-service` : mandats clients, contrats formateurs, signatures et pieces legales.
-14. `archive-document-service` : archives pedagogiques et financieres, pieces justificatives, documents rattaches.
-15. `admin-observability-service` : activite globale, audit, incidents, masquage temporaire et statistiques.
-16. `orchestration-service` : coordination interservices, workflows, routage, evenements, idempotence et reprises.
+Les noms ci-dessous sont canoniques. Ils doivent etre repris tels quels dans les fichiers, le code, les tests et les appels interservices.
+
+1. orchestration-service : coordination interservices, workflows, routage, evenements, idempotence et reprises.
+2. identity-access-service : comptes, authentification, consentements RGPD, roles et droits.
+3. profile-service : profils administratifs, pedagogiques et relations entre eleves, familles, formateurs, AP et RP.
+4. dashboard-notification-service : tableaux de bord, notifications et signaux d'activite utiles par role.
+5. communication-service : messagerie entre contacts autorises, messages systeme et incidents TI, prevue des la phase 1.
+6. calendar-service : disponibilites, rendez-vous, cours, reunions, rappels et projection d'evenements.
+7. teacher-request-service : demandes de professeur, affectations, refus, arrets, suivi PP.
+8. video-session-service : creation et suivi des visios pedagogiques.
+9. pedagogical-log-service : cahier de texte, memo, carnet personnel et traces pedagogiques.
+10. admin-observability-service : activite globale, audit, incidents, masquage temporaire et statistiques.
+11. archive-document-service : archives pedagogiques et financieres, pieces justificatives, documents rattaches.
+12. legal-document-service : mandats clients, contrats formateurs, signatures et pieces legales.
+13. finance-credit-service : profils financiers, credits, paiements familles, remunerations formateurs et exports.
+14. content-catalog-service : exercices, evaluations, tutos-videos, validation et moderation pedagogique.
+15. learning-activity-service : reponses, corrections, scores, points pedagogiques et activites non pourvues.
+16. community-path-service : forums, parcours, badges et progression.
+
+## Pase 1
+
+Les 9 services de phase 1 sont :
+
+orchestration-service
+identity-access-service
+profile-service
+dashboard-notification-service
+communication-service
+calendar-service
+teacher-request-service
+video-session-service
+pedagogical-log-service
 
 ## Priorisation
 

@@ -73,3 +73,52 @@
     </manualTestScenarios>
   </microservice>
 </microserviceSpecification>
+
+## Implémentation Phase 1 — 2026-06-07
+
+### Arborescence src/
+
+```
+src/
+  common/
+    enums/user-role.enum.ts     ← UserRole (eleve, formateur, responsable_pedagogique…)
+    guards/jwt-auth.guard.ts    ← vérifie JWT + type:'access', mappe sub→req.user.id
+    guards/roles.guard.ts       ← @Roles() via Reflector
+    decorators/roles.decorator.ts
+  events/
+    events.service.ts           ← publish(type, payload, correlationId) — log JSON structuré
+    events.module.ts
+  calendars/
+    entities/
+      calendar.entity.ts               ← ownerId, ownerRole, OneToMany(availabilitySlots)
+      availability-slot.entity.ts      ← calendarId, dayOfWeek, startTime/endTime, recurrence
+      payment-schedule-entry.entity.ts ← financeur (lecture seule, CAL-BR-003)
+    dto/update-availability.dto.ts     ← slots[] avec recurrence enum
+    calendars.controller.ts            ← GET /calendars/:ownerId, PUT /calendars/:ownerId/availability
+    calendars.service.ts               ← getCalendar (lazy-create), updateAvailability, assertCan*
+  activities/
+    entities/scheduled-activity.entity.ts ← ActivityType, ActivityStatus, participantIds (JSON)
+    dto/create-activity.dto.ts         ← participantIds >= 1 (CAL-FB-002)
+    dto/update-activity.dto.ts
+    activities.controller.ts           ← POST /activities, PUT /activities/:id, GET /activities/:id
+    activities.service.ts              ← create, update, findOne, findByParticipant
+  reminders/
+    entities/reminder.entity.ts        ← ownerId, activityId, remindAt, isSent
+    dto/create-reminder.dto.ts
+    reminders.controller.ts            ← POST /reminders
+    reminders.service.ts               ← create, findByOwner
+  app.module.ts
+```
+
+### Décisions techniques
+
+- Création lazy du calendrier lors du premier GET ou PUT (pas de seed requis).
+- `participantIds` stocké en `simple-json` (tableau PostgreSQL JSON) — supporte N participants (CAL-BR-007).
+- `CAL-FB-003` (périmètre AP) partiellement implémenté : l'AP est limité au type `REUNION_PEDAGOGIQUE` mais la vérification du périmètre exact est reportée Phase 2.
+- `PaymentScheduleEntry` créée uniquement par finance-credit-service — calendar-service expose uniquement la lecture.
+
+### Points en suspens / blocages
+
+- **Rôles JWT** : `UserRole` utilise les valeurs `eleve`, `formateur`, `responsable_pedagogique`… À aligner avec ce que produit identity-access-service (potentiellement `STUDENT`, `TEACHER`, `RP`…).
+- **`findByParticipant`** utilise `LIKE %uuid%` sur champ JSON — à remplacer par opérateur `@>` jsonb en Phase 2.
+- **Vieux dossier `calendar/`** : scaffold initial, non importé, peut être supprimé.

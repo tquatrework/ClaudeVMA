@@ -2,8 +2,8 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 
 export enum RequestStatus {
   PENDING = 'pending',
-  ACCEPTED = 'accepted',
-  DECLINED = 'declined',
+  REDIRECTED = 'redirected',
+  ASSIGNED = 'assigned',
   CANCELLED = 'cancelled',
 }
 
@@ -12,19 +12,28 @@ export class TeacherRequest {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @Column({ name: 'requester_id' })
+  requesterId: string;
+
+  @Column({ name: 'requester_role' })
+  requesterRole: string;
+
   @Column({ name: 'student_id' })
   studentId: string;
-
-  @Column({ name: 'teacher_id' })
-  teacherId: string;
 
   @Column()
   subject: string;
 
+  @Column({ nullable: true })
+  level: string;
+
+  @Column({ nullable: true })
+  sector: string;
+
   @Column({ type: 'text', nullable: true })
   message: string;
 
-  @Column({ type: 'enum', enum: RequestStatus, default: RequestStatus.PENDING })
+  @Column({ type: 'varchar', default: RequestStatus.PENDING })
   status: RequestStatus;
 
   @CreateDateColumn({ name: 'created_at' })

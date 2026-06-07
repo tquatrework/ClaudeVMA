@@ -78,3 +78,39 @@
     </manualTestScenarios>
   </microservice>
 </microserviceSpecification>
+
+## Implémentation Phase 1 — 2026-06-07
+
+### Arborescence src/
+
+```
+src/
+  common/
+    jwt.guard.ts              ← vérifie JWT Bearer, extrait JwtPayload dans req.user
+    current-user.decorator.ts ← @CurrentUser() param decorator
+  teacher-request/
+    entities/
+      teacher-request.entity.ts      ← requesterId, requesterRole, studentId, subject, level, sector, status
+      teacher-proposal.entity.ts     ← requestId, teacherId, availabilityNote, status (PENDING/ACCEPTED/DECLINED)
+      assignment.entity.ts           ← studentId, teacherId, proposalId, requestId, isMainTeacher, status
+      termination-request.entity.ts  ← assignmentId, teacherId, noticeDate, reason, status
+    dto/
+      create-request.dto.ts      ← studentId optionnel (PARENT l'exige)
+      create-proposal.dto.ts     ← teacherId + availabilityNote
+      create-termination.dto.ts  ← noticeDate ISO 8601 + reason
+    events.service.ts            ← log JSON structuré des événements domaine
+    teacher-request.controller.ts ← toutes routes spec, @Controller()
+    teacher-request.service.ts   ← logique TRQ-BR-001..008, TRQ-FB-001..003
+    teacher-request.service.spec.ts ← 27 tests unitaires
+```
+
+### Décisions techniques
+
+- `MainTeacherStatus` représentée par `isMainTeacher: boolean` sur `Assignment` (même sémantique, plus simple).
+- `GET /teacher-requests` pour TEACHER retourne `TeacherProposal[]` (TRQ-FB-001 : formateur ne voit pas toutes les demandes).
+- `studentId` implicite pour STUDENT (= `user.sub`), requis dans le body pour PARENT.
+- JWT vérifié avec `JWT_SECRET` via ConfigService (`'dev-secret'` en dev).
+
+### Point bloquant
+
+Aligner le format des rôles JWT (`STUDENT | PARENT | TEACHER | RP`) avec ce que produit identity-access-service avant intégration E2E.

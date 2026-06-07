@@ -7,6 +7,7 @@ import { CommandModule } from './command/command.module';
 import { EventModule } from './event/event.module';
 import { CallbackModule } from './callback/callback.module';
 import { IdempotencyModule } from './idempotency/idempotency.module';
+import { CorrelationTraceModule } from './correlation/correlation-trace.module';
 import { CorrelationMiddleware } from './common/middleware/correlation.middleware';
 
 @Module({
@@ -28,6 +29,7 @@ import { CorrelationMiddleware } from './common/middleware/correlation.middlewar
     }),
     HealthModule,
     IdempotencyModule,
+    CorrelationTraceModule,
     WorkflowModule,
     CommandModule,
     EventModule,

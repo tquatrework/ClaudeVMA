@@ -10,11 +10,16 @@ export const studentOnboardingWorkflow: WorkflowDefinition = {
       name: 'create-student-account',
       targetService: 'identity-access-service',
       action: 'create-account',
+      retry: { maxAttempts: 3, delayMs: 500 },
       buildPayload: (ctx) => ({
         email: ctx.payload.email,
         password: ctx.payload.password,
         role: 'eleve',
         consents: ctx.payload.consents,
+      }),
+      compensationAction: 'delete-account',
+      buildCompensationPayload: (ctx) => ({
+        accountId: ctx.stepOutputs['create-student-account']?.accountId,
       }),
     },
     {
@@ -22,12 +27,17 @@ export const studentOnboardingWorkflow: WorkflowDefinition = {
       name: 'create-student-profiles',
       targetService: 'profile-service',
       action: 'create-student-profiles',
+      retry: { maxAttempts: 2, delayMs: 300 },
       buildPayload: (ctx) => ({
         accountId: ctx.stepOutputs['create-student-account']?.accountId,
         firstName: ctx.payload.firstName,
         lastName: ctx.payload.lastName,
         birthDate: ctx.payload.birthDate,
         level: ctx.payload.level,
+      }),
+      compensationAction: 'delete-profiles',
+      buildCompensationPayload: (ctx) => ({
+        accountId: ctx.stepOutputs['create-student-account']?.accountId,
       }),
     },
     {

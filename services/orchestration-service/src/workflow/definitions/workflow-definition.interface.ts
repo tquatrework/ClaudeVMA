@@ -4,6 +4,11 @@ export interface WorkflowContext {
   correlationId: string;
 }
 
+export interface RetryConfig {
+  maxAttempts: number;
+  delayMs: number;
+}
+
 export interface WorkflowStepDefinition {
   order: number;
   name: string;
@@ -11,6 +16,9 @@ export interface WorkflowStepDefinition {
   action: string;
   buildPayload: (ctx: WorkflowContext) => Record<string, any>;
   optional?: boolean;
+  retry?: RetryConfig;
+  compensationAction?: string;
+  buildCompensationPayload?: (ctx: WorkflowContext) => Record<string, any>;
 }
 
 export interface WorkflowDefinition {

@@ -292,3 +292,60 @@ services/orchestration-service/
 - `INTERNAL_SECRET` à ajouter dans `docker-compose.yml` pour les trois services concernés (orchestration, identity-access, profile).
 - La logique de compensation (rollback de steps) n'est pas encore implémentée dans `WorkflowEngineService` (ORCH-BR-002 partiellement couvert).
 - Les events publiés (`WorkflowStarted`, `WorkflowStepCompleted`, `WorkflowFailed`) sont en stub log — pas encore branchés sur un broker (prévu Phase 2).
+
+---
+
+## Correction conformité spec — session 2026-06-07 (suite)
+
+### Écarts fermés
+
+Analyse de conformité complète `docs/services/orchestration-service.md` → code effectuée. 6 écarts corrigés :
+
+#### Entités manquantes (`<dataEntities>`)
+
+| Entité | Fichier | Rôle |
+|---|---|---|
+| `CorrelationTrace` | `src/correlation/entities/correlation-trace.entity.ts` | Journal d'audit par `correlationId` : enregistre chaque transition de workflow, reprise TI, arbitrage |
+| `CompensationAction` | `src/workflow/entities/compensation-action.entity.ts` | Stocke les compensations enregistrées à chaque step réussi, exécutées en ordre inverse sur échec |
+| `RetryPolicy` | `src/workflow/entities/retry-policy.entity.ts` | Historique des tentatives de retry par step (attemptNumber, error, retriedAfterThis) |
+
+#### Politiques d'intégration (`<integrationPolicies>`)
+
+- **retry** : boucle configurable par step (`maxAttempts`, `delayMs`) dans `WorkflowStepDefinition`. Chaque tentative intermédiaire est enregistrée dans `RetryPolicy`. Exemple : step 1 de `student-onboarding` a `maxAttempts: 3, delayMs: 500`.
+- **compensation** : sur échec d'un step requis, le moteur passe en `COMPENSATING`, exécute les compensations en ordre inverse (`CompensationAction.registeredAt DESC`), puis passe en `COMPENSATED`. Publie `WorkflowCompensated`.
+- **arbitration** : `WorkflowStatus.NEEDS_ARBITRATION` actif. Endpoints `POST /workflows/:id/suspend` et `POST /workflows/:id/resume` implémentés (ORCH-BR-006 + ORCH-BR-007).
+
+#### Événements publiés (`<eventsPublished>`)
+
+Tous les événements spec sont maintenant enregistrés dans `IntegrationEvent` (direction `PUBLISHED`) à chaque transition :
+- `WorkflowStarted` → à la création de l'instance
+- `WorkflowStepCompleted` → après chaque step réussi
+- `WorkflowFailed` → avant de lancer la compensation
+- `WorkflowCompensated` → après exécution des compensations
+
+#### Règles métier (ORCH-BR-006 / ORCH-BR-007)
+
+- `POST /workflows/:id/suspend` : suspend le workflow (`NEEDS_ARBITRATION`) avec raison et acteur tracés dans `CorrelationTrace`.
+- `POST /workflows/:id/resume` : reprend l'exécution. Si `tiOverride: true`, l'override TI est audité dans `CorrelationTrace` (`isTiOverride: true`) — ORCH-BR-007.
+
+#### Arborescence complémentaire
+
+```
+src/
+├── correlation/
+│   ├── entities/
+│   │   └── correlation-trace.entity.ts     # correlationId, entityType, action, actor, isTiOverride
+│   ├── correlation-trace.service.ts        # record() / findByCorrelation()
+│   └── correlation-trace.module.ts
+└── workflow/
+    └── entities/
+        ├── compensation-action.entity.ts   # stepName, compensationAction, status, payload, result
+        └── retry-policy.entity.ts          # workflowStepId, attemptNumber, error, retriedAfterThis
+```
+
+### Points en suspens (mis à jour)
+
+- `INTERNAL_SECRET` à ajouter dans `docker-compose.yml`.
+- Les `IntegrationEvent` publiés sont persistés en base mais pas encore émis vers un broker externe (prévu Phase 2).
+- `compensation` dans les 3 autres workflows Phase 1 (`teacher-onboarding`, `teacher-request`, `video-session`) : les `compensationAction` sont à définir au fil de l'implémentation des services aval.
+- Tests d'intégration E2E à créer (ORCH-TEST-001 à 005) une fois que les services aval sont opérationnels.

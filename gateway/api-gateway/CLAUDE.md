@@ -1,6 +1,7 @@
 ## Service : api-gateway
 
 Voir @docs/architecture.md pour le contexte global.
+Et @docs/services/api-gateway.md pour le contexte service
 
 ## Rôle
 Point d'entrée unique de la plateforme. Route les requêtes vers les microservices,
@@ -22,12 +23,13 @@ valide les JWT via `auth_request` avant chaque route protégée, et gère le loa
 | `/api/v1/consents/`      | identity-access-service     | Oui |
 | `/api/v1/profiles/`      | profile-service             | Oui |
 | `/api/v1/relations/`     | profile-service             | Oui |
-| `/api/v1/requests/`      | teacher-request-service     | Oui |
-| `/api/v1/calendar/`      | calendar-service            | Oui |
-| `/api/v1/video/`         | video-session-service       | Oui + WS |
-| `/api/v1/messages/`      | communication-service       | Oui + WS |
-| `/api/v1/logs/`          | pedagogical-log-service     | Oui |
-| `/api/v1/notifications/` | dashboard-notification-service | Oui |
+| `/api/v1/requests/`      | teacher-request-service     | Oui | → `/` (service root) |
+| `/api/v1/calendar/`      | calendar-service            | Oui | → `/` (service root) |
+| `/api/v1/video/`         | video-session-service       | Oui + WS | → `/` (service root) |
+| `/api/v1/messages/`      | communication-service       | Oui + WS | → `/` (service root) |
+| `/api/v1/logs/`          | pedagogical-log-service     | Oui | → `/` (service root) |
+| `/api/v1/notifications/` | dashboard-notification-service | Oui | → `/notifications/` |
+| `/api/v1/dashboard/`     | dashboard-notification-service | Oui | → `/dashboards/` |
 | `/api/v1/orchestration/workflows/`  | orchestration-service | Oui |
 | `/api/v1/orchestration/commands/`   | orchestration-service | Oui |
 | `/api/v1/orchestration/events/`     | orchestration-service | Oui |

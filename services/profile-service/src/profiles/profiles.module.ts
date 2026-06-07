@@ -9,6 +9,7 @@ import { StudentPedagogicalProfile } from './entities/student-pedagogical-profil
 import { TeacherPedagogicalProfile } from './entities/teacher-pedagogical-profile.entity';
 import { InternalProfileNote } from './entities/internal-profile-note.entity';
 import { TeacherStudentLink } from '../relations/entities/teacher-student-link.entity';
+import { FinanceOwnerStudentLink } from '../relations/entities/finance-owner-student-link.entity';
 import { EventsModule } from '../events/events.module';
 
 @Module({
@@ -19,6 +20,7 @@ import { EventsModule } from '../events/events.module';
       TeacherPedagogicalProfile,
       InternalProfileNote,
       TeacherStudentLink,
+      FinanceOwnerStudentLink,
     ]),
     JwtModule.registerAsync({
       imports: [ConfigModule],

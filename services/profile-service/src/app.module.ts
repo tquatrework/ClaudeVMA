@@ -12,6 +12,7 @@ import { TeacherPedagogicalProfile } from './profiles/entities/teacher-pedagogic
 import { InternalProfileNote } from './profiles/entities/internal-profile-note.entity';
 import { FinanceOwnerStudentLink } from './relations/entities/finance-owner-student-link.entity';
 import { TeacherStudentLink } from './relations/entities/teacher-student-link.entity';
+import { PedagogicalCoordinatorLink } from './relations/entities/pedagogical-coordinator-link.entity';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { TeacherStudentLink } from './relations/entities/teacher-student-link.en
           InternalProfileNote,
           FinanceOwnerStudentLink,
           TeacherStudentLink,
+          PedagogicalCoordinatorLink,
         ],
         synchronize: config.get<string>('NODE_ENV') !== 'production',
       }),

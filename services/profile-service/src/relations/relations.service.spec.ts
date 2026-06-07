@@ -4,6 +4,7 @@ import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { RelationsService } from './relations.service';
 import { FinanceOwnerStudentLink } from './entities/finance-owner-student-link.entity';
 import { TeacherStudentLink } from './entities/teacher-student-link.entity';
+import { PedagogicalCoordinatorLink } from './entities/pedagogical-coordinator-link.entity';
 import { EventsService } from '../events/events.service';
 import { UserRole } from '../common/enums/user-role.enum';
 import { Actor } from '../profiles/profiles.service';
@@ -14,6 +15,7 @@ describe('RelationsService', () => {
   let service: RelationsService;
   let financeRepo: any;
   let teacherRepo: any;
+  let coordinatorRepo: any;
   let eventsService: any;
 
   beforeEach(async () => {
@@ -31,6 +33,13 @@ describe('RelationsService', () => {
       save: jest.fn().mockImplementation(async (e) => ({ id: 'link-uuid', ...e, createdAt: new Date() })),
     };
 
+    coordinatorRepo = {
+      findOne: jest.fn().mockResolvedValue(null),
+      find: jest.fn().mockResolvedValue([]),
+      create: jest.fn().mockImplementation((d) => d),
+      save: jest.fn().mockImplementation(async (e) => ({ id: 'link-uuid', ...e, createdAt: new Date() })),
+    };
+
     eventsService = { publish: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -38,6 +47,7 @@ describe('RelationsService', () => {
         RelationsService,
         { provide: getRepositoryToken(FinanceOwnerStudentLink), useValue: financeRepo },
         { provide: getRepositoryToken(TeacherStudentLink), useValue: teacherRepo },
+        { provide: getRepositoryToken(PedagogicalCoordinatorLink), useValue: coordinatorRepo },
         { provide: EventsService, useValue: eventsService },
       ],
     }).compile();
@@ -166,6 +176,46 @@ describe('RelationsService', () => {
     it('throws 403 for parent_financeur viewing another student links', async () => {
       const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
       await expect(service.getTeachersByStudent('student-uuid', actor)).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // linkPedagogicalCoordinator
+  // ---------------------------------------------------------------------------
+  describe('linkPedagogicalCoordinator', () => {
+    const dto = {
+      coordinatorId: 'rp-uuid',
+      studentId: 'student-uuid',
+      coordinatorRole: 'responsable_pedagogique',
+    };
+
+    it('RP can assign a coordinator', async () => {
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await service.linkPedagogicalCoordinator(dto, actor);
+      expect(result).toHaveProperty('coordinatorId', 'rp-uuid');
+    });
+
+    it('throws 403 for formateur', async () => {
+      const actor = makeActor(UserRole.FORMATEUR);
+      await expect(service.linkPedagogicalCoordinator(dto, actor)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws 409 when link already exists', async () => {
+      coordinatorRepo.findOne.mockResolvedValue({ id: 'existing', ...dto });
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      await expect(service.linkPedagogicalCoordinator(dto, actor)).rejects.toThrow(ConflictException);
+    });
+
+    it('coordinator can list their own students', async () => {
+      coordinatorRepo.find.mockResolvedValue([{ coordinatorId: 'rp-uuid', studentId: 'student-uuid' }]);
+      const actor = makeActor(UserRole.ANIMATEUR_PEDAGOGIQUE, 'rp-uuid');
+      const result = await service.getStudentsByCoordinator('rp-uuid', actor);
+      expect(result).toHaveLength(1);
+    });
+
+    it('throws 403 when coordinator tries to list another coordinator students', async () => {
+      const actor = makeActor(UserRole.ANIMATEUR_PEDAGOGIQUE, 'other-uuid');
+      await expect(service.getStudentsByCoordinator('rp-uuid', actor)).rejects.toThrow(ForbiddenException);
     });
   });
 });

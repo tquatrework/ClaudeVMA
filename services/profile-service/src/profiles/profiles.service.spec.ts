@@ -7,6 +7,7 @@ import { StudentPedagogicalProfile } from './entities/student-pedagogical-profil
 import { TeacherPedagogicalProfile } from './entities/teacher-pedagogical-profile.entity';
 import { InternalProfileNote } from './entities/internal-profile-note.entity';
 import { TeacherStudentLink } from '../relations/entities/teacher-student-link.entity';
+import { FinanceOwnerStudentLink } from '../relations/entities/finance-owner-student-link.entity';
 import { EventsService } from '../events/events.service';
 import { UserRole } from '../common/enums/user-role.enum';
 
@@ -19,6 +20,7 @@ describe('ProfilesService', () => {
   let teacherPedaRepo: any;
   let noteRepo: any;
   let teacherLinkRepo: any;
+  let financeLinkRepo: any;
   let eventsService: any;
 
   beforeEach(async () => {
@@ -47,10 +49,8 @@ describe('ProfilesService', () => {
       save: jest.fn().mockImplementation(async (e) => ({ id: 'note-uuid', ...e, createdAt: new Date() })),
     };
 
-    teacherLinkRepo = {
-      findOne: jest.fn().mockResolvedValue(null),
-    };
-
+    teacherLinkRepo = { findOne: jest.fn().mockResolvedValue(null) };
+    financeLinkRepo = { findOne: jest.fn().mockResolvedValue(null) };
     eventsService = { publish: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -61,6 +61,7 @@ describe('ProfilesService', () => {
         { provide: getRepositoryToken(TeacherPedagogicalProfile), useValue: teacherPedaRepo },
         { provide: getRepositoryToken(InternalProfileNote), useValue: noteRepo },
         { provide: getRepositoryToken(TeacherStudentLink), useValue: teacherLinkRepo },
+        { provide: getRepositoryToken(FinanceOwnerStudentLink), useValue: financeLinkRepo },
         { provide: EventsService, useValue: eventsService },
       ],
     }).compile();
@@ -100,6 +101,21 @@ describe('ProfilesService', () => {
     it('throws 403 when formateur views non-linked student (PROF-FB-003)', async () => {
       const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
       teacherLinkRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.getProfile('student-uuid', actor)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('allows parent_financeur to view linked student profile (PROF-RA-002)', async () => {
+      const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
+      financeLinkRepo.findOne.mockResolvedValue({ financeOwnerId: 'parent-uuid', studentId: 'student-uuid' });
+
+      const result = await service.getProfile('student-uuid', actor);
+      expect(result.userId).toBe('student-uuid');
+    });
+
+    it('throws 403 when parent_financeur views non-linked student (PROF-RA-002)', async () => {
+      const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
+      financeLinkRepo.findOne.mockResolvedValue(null);
 
       await expect(service.getProfile('student-uuid', actor)).rejects.toThrow(ForbiddenException);
     });

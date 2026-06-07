@@ -22,6 +22,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { UserRole } from '../common/enums/user-role.enum';
 import { CreateFinanceOwnerStudentLinkDto } from './dto/create-finance-owner-student-link.dto';
 import { CreateTeacherStudentLinkDto } from './dto/create-teacher-student-link.dto';
+import { CreatePedagogicalCoordinatorLinkDto } from './dto/create-pedagogical-coordinator-link.dto';
 
 @ApiTags('relations')
 @ApiBearerAuth()
@@ -101,5 +102,40 @@ export class RelationsController {
     @Request() req,
   ) {
     return this.relationsService.getTeachersByStudent(studentId, req.user);
+  }
+
+  @Post('pedagogical-coordinator')
+  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE)
+  @ApiOperation({
+    summary: 'Assign a pedagogical coordinator to a student',
+    description:
+      'Links a RP or AP as the pedagogical coordinator for a student. ' +
+      'Restricted to RP only.',
+  })
+  @ApiResponse({ status: 201, description: 'Coordinator link created' })
+  @ApiResponse({ status: 403, description: 'Forbidden — RP only' })
+  @ApiResponse({ status: 409, description: 'Link already exists' })
+  linkPedagogicalCoordinator(
+    @Body() dto: CreatePedagogicalCoordinatorLinkDto,
+    @Request() req,
+  ) {
+    return this.relationsService.linkPedagogicalCoordinator(dto, req.user);
+  }
+
+  @Get('pedagogical-coordinator/:coordinatorId')
+  @ApiOperation({
+    summary: 'List students of a coordinator',
+    description:
+      'Returns all students assigned to the given RP or AP coordinator. ' +
+      'Accessible to RP, TI and the coordinator themselves.',
+  })
+  @ApiParam({ name: 'coordinatorId', description: 'Coordinator (RP or AP) UUID' })
+  @ApiResponse({ status: 200, description: 'List of coordinator–student links' })
+  @ApiResponse({ status: 403, description: 'Forbidden — insufficient rights' })
+  getStudentsByCoordinator(
+    @Param('coordinatorId', ParseUUIDPipe) coordinatorId: string,
+    @Request() req,
+  ) {
+    return this.relationsService.getStudentsByCoordinator(coordinatorId, req.user);
   }
 }

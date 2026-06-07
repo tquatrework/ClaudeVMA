@@ -10,6 +10,7 @@ import { StudentPedagogicalProfile } from './entities/student-pedagogical-profil
 import { TeacherPedagogicalProfile } from './entities/teacher-pedagogical-profile.entity';
 import { InternalProfileNote } from './entities/internal-profile-note.entity';
 import { TeacherStudentLink } from '../relations/entities/teacher-student-link.entity';
+import { FinanceOwnerStudentLink } from '../relations/entities/finance-owner-student-link.entity';
 import { UpdateAdministrativeProfileDto } from './dto/update-administrative-profile.dto';
 import {
   UpdateStudentPedagogicalProfileDto,
@@ -50,6 +51,8 @@ export class ProfilesService {
     private readonly noteRepo: Repository<InternalProfileNote>,
     @InjectRepository(TeacherStudentLink)
     private readonly teacherLinkRepo: Repository<TeacherStudentLink>,
+    @InjectRepository(FinanceOwnerStudentLink)
+    private readonly financeLinkRepo: Repository<FinanceOwnerStudentLink>,
     private readonly events: EventsService,
   ) {}
 
@@ -185,9 +188,12 @@ export class ProfilesService {
   /**
    * Asserts that actor may read the profile of userId.
    * PROF-FB-003: a FORMATEUR may only read profiles of linked students.
+   * PROF-RA-002 / PROF-BR-011: a PARENT_FINANCEUR may only read profiles of linked students.
    */
   private async assertReadAccess(userId: string, actor: Actor): Promise<void> {
-    if (actor.role === UserRole.FORMATEUR && actor.id !== userId) {
+    if (actor.id === userId) return;
+
+    if (actor.role === UserRole.FORMATEUR) {
       const link = await this.teacherLinkRepo.findOne({
         where: { teacherId: actor.id, studentId: userId },
       });
@@ -196,13 +202,22 @@ export class ProfilesService {
           'A formateur may only view profiles of students they are linked to (PROF-FB-003)',
         );
       }
+      return;
     }
 
-    // Elève and parent_financeur may only view their own profile (or linked students for parent)
-    if (
-      actor.role === UserRole.ELEVE &&
-      actor.id !== userId
-    ) {
+    if (actor.role === UserRole.PARENT_FINANCEUR) {
+      const link = await this.financeLinkRepo.findOne({
+        where: { financeOwnerId: actor.id, studentId: userId },
+      });
+      if (!link) {
+        throw new ForbiddenException(
+          'A parent may only view profiles of students they are linked to (PROF-RA-002)',
+        );
+      }
+      return;
+    }
+
+    if (actor.role === UserRole.ELEVE) {
       throw new ForbiddenException('An élève may only view their own profile');
     }
   }

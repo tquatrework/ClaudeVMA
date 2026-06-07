@@ -7,8 +7,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { FinanceOwnerStudentLink } from './entities/finance-owner-student-link.entity';
 import { TeacherStudentLink } from './entities/teacher-student-link.entity';
+import { PedagogicalCoordinatorLink } from './entities/pedagogical-coordinator-link.entity';
 import { CreateFinanceOwnerStudentLinkDto } from './dto/create-finance-owner-student-link.dto';
 import { CreateTeacherStudentLinkDto } from './dto/create-teacher-student-link.dto';
+import { CreatePedagogicalCoordinatorLinkDto } from './dto/create-pedagogical-coordinator-link.dto';
 import { EventsService } from '../events/events.service';
 import { UserRole } from '../common/enums/user-role.enum';
 import { Actor } from '../profiles/profiles.service';
@@ -20,6 +22,8 @@ export class RelationsService {
     private readonly financeRepo: Repository<FinanceOwnerStudentLink>,
     @InjectRepository(TeacherStudentLink)
     private readonly teacherRepo: Repository<TeacherStudentLink>,
+    @InjectRepository(PedagogicalCoordinatorLink)
+    private readonly coordinatorRepo: Repository<PedagogicalCoordinatorLink>,
     private readonly events: EventsService,
   ) {}
 
@@ -124,5 +128,40 @@ export class RelationsService {
     }
 
     throw new ForbiddenException('Insufficient rights to list teachers for this student');
+  }
+
+  /**
+   * Assign a RP or AP as coordinator for a student (PROF-BR-004 / responsibility 4).
+   * Restricted to RP only.
+   */
+  async linkPedagogicalCoordinator(dto: CreatePedagogicalCoordinatorLinkDto, actor: Actor) {
+    if (actor.role !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+      throw new ForbiddenException('Only RP can assign a pedagogical coordinator');
+    }
+
+    const existing = await this.coordinatorRepo.findOne({
+      where: { coordinatorId: dto.coordinatorId, studentId: dto.studentId },
+    });
+    if (existing) {
+      throw new ConflictException('This coordinator is already linked to this student');
+    }
+
+    const link = this.coordinatorRepo.create(dto);
+    return this.coordinatorRepo.save(link);
+  }
+
+  /**
+   * List all students assigned to a coordinator.
+   * Accessible to RP, TI, and the coordinator themselves.
+   */
+  async getStudentsByCoordinator(coordinatorId: string, actor: Actor) {
+    const privileged = [
+      UserRole.RESPONSABLE_PEDAGOGIQUE,
+      UserRole.TECHNICIEN_INFORMATIQUE,
+    ];
+    if (!privileged.includes(actor.role) && actor.id !== coordinatorId) {
+      throw new ForbiddenException('You may only list your own students');
+    }
+    return this.coordinatorRepo.find({ where: { coordinatorId }, order: { createdAt: 'ASC' } });
   }
 }

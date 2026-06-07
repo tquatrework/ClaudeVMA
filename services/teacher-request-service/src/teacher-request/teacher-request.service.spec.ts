@@ -8,6 +8,7 @@ import { TeacherProposal, ProposalStatus } from './entities/teacher-proposal.ent
 import { Assignment, AssignmentStatus } from './entities/assignment.entity';
 import { TerminationRequest } from './entities/termination-request.entity';
 import { EventsService } from './events.service';
+import { UserRole } from '../common/user-role.enum';
 
 const makeRepo = () => ({
   create: jest.fn((dto) => ({ ...dto })),
@@ -16,10 +17,10 @@ const makeRepo = () => ({
   findOne: jest.fn(),
 });
 
-const student = { sub: 'student-1', role: 'STUDENT' };
-const parent = { sub: 'parent-1', role: 'PARENT' };
-const rp = { sub: 'rp-1', role: 'RP' };
-const teacher = { sub: 'teacher-1', role: 'TEACHER' };
+const student = { id: 'student-1', role: UserRole.ELEVE };
+const parent = { id: 'parent-1', role: UserRole.PARENT_FINANCEUR };
+const rp = { id: 'rp-1', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
+const teacher = { id: 'teacher-1', role: UserRole.FORMATEUR };
 
 describe('TeacherRequestService', () => {
   let service: TeacherRequestService;
@@ -51,30 +52,30 @@ describe('TeacherRequestService', () => {
   // ── createRequest ──────────────────────────────────────────────────────────
 
   describe('createRequest', () => {
-    it('STUDENT creates request — studentId defaults to their own sub', async () => {
+    it('eleve creates request — studentId defaults to their own id', async () => {
       const dto = { subject: 'Algèbre', level: 'Terminale' };
       const result = await service.createRequest(dto, student);
       expect(requestRepo.save).toHaveBeenCalled();
       expect(result).toMatchObject({ studentId: 'student-1', requesterId: 'student-1', subject: 'Algèbre' });
     });
 
-    it('PARENT creates request with explicit studentId', async () => {
+    it('parent_financeur creates request with explicit studentId', async () => {
       const dto = { subject: 'Géométrie', studentId: 'student-2' };
       const result = await service.createRequest(dto, parent);
       expect(result).toMatchObject({ studentId: 'student-2', requesterId: 'parent-1' });
     });
 
-    it('PARENT without studentId throws BadRequestException', async () => {
+    it('parent_financeur without studentId throws BadRequestException', async () => {
       await expect(service.createRequest({ subject: 'Calcul' }, parent))
         .rejects.toThrow(BadRequestException);
     });
 
-    it('RP cannot create a teacher request', async () => {
+    it('responsable_pedagogique cannot create a teacher request', async () => {
       await expect(service.createRequest({ subject: 'Test' }, rp))
         .rejects.toThrow(ForbiddenException);
     });
 
-    it('TEACHER cannot create a teacher request', async () => {
+    it('formateur cannot create a teacher request', async () => {
       await expect(service.createRequest({ subject: 'Test' }, teacher))
         .rejects.toThrow(ForbiddenException);
     });
@@ -83,26 +84,26 @@ describe('TeacherRequestService', () => {
   // ── listRequests ───────────────────────────────────────────────────────────
 
   describe('listRequests', () => {
-    it('STUDENT queries by studentId', async () => {
+    it('eleve queries by studentId', async () => {
       await service.listRequests(student);
       expect(requestRepo.find).toHaveBeenCalledWith(
         expect.objectContaining({ where: { studentId: 'student-1' } }),
       );
     });
 
-    it('PARENT queries by requesterId', async () => {
+    it('parent_financeur queries by requesterId', async () => {
       await service.listRequests(parent);
       expect(requestRepo.find).toHaveBeenCalledWith(
         expect.objectContaining({ where: { requesterId: 'parent-1' } }),
       );
     });
 
-    it('RP sees all requests', async () => {
+    it('responsable_pedagogique sees all requests', async () => {
       await service.listRequests(rp);
       expect(requestRepo.find).toHaveBeenCalledWith(expect.objectContaining({ order: { createdAt: 'DESC' } }));
     });
 
-    it('TEACHER sees only their own proposals (TRQ-FB-001)', async () => {
+    it('formateur sees only their own proposals (TRQ-FB-001)', async () => {
       await service.listRequests(teacher);
       expect(proposalRepo.find).toHaveBeenCalledWith(
         expect.objectContaining({ where: { teacherId: 'teacher-1' } }),
@@ -110,8 +111,8 @@ describe('TeacherRequestService', () => {
       expect(requestRepo.find).not.toHaveBeenCalled();
     });
 
-    it('unknown role throws ForbiddenException', async () => {
-      await expect(service.listRequests({ sub: 'x', role: 'FINANCE_ADMIN' }))
+    it('administrateur_financier throws ForbiddenException', async () => {
+      await expect(service.listRequests({ id: 'x', role: UserRole.ADMINISTRATEUR_FINANCIER }))
         .rejects.toThrow(ForbiddenException);
     });
   });
@@ -123,13 +124,13 @@ describe('TeacherRequestService', () => {
       requestRepo.findOne.mockResolvedValue({ id: 'req-1', status: RequestStatus.PENDING });
     });
 
-    it('RP redirects a pending request to a teacher', async () => {
+    it('responsable_pedagogique redirects a pending request to a teacher', async () => {
       const result = await service.createProposal('req-1', { teacherId: 'teacher-1' }, rp);
       expect(result).toMatchObject({ requestId: 'req-1', teacherId: 'teacher-1' });
       expect(requestRepo.save).toHaveBeenCalledWith(expect.objectContaining({ status: RequestStatus.REDIRECTED }));
     });
 
-    it('non-RP cannot create proposals', async () => {
+    it('formateur cannot create proposals', async () => {
       await expect(service.createProposal('req-1', { teacherId: 'teacher-1' }, teacher))
         .rejects.toThrow(ForbiddenException);
     });
@@ -160,19 +161,19 @@ describe('TeacherRequestService', () => {
       requestRepo.findOne.mockResolvedValue({ id: 'req-1', studentId: 'student-1', status: RequestStatus.REDIRECTED });
     });
 
-    it('teacher accepts their own proposal → creates assignment', async () => {
+    it('formateur accepts their own proposal → creates assignment', async () => {
       const result = await service.acceptProposal('prop-1', teacher);
       expect(result).toMatchObject({ studentId: 'student-1', teacherId: 'teacher-1' });
       expect(assignmentRepo.save).toHaveBeenCalled();
     });
 
-    it('teacher cannot accept another teacher\'s proposal (TRQ-FB-001)', async () => {
-      const otherTeacher = { sub: 'teacher-2', role: 'TEACHER' };
+    it('formateur cannot accept another teacher\'s proposal (TRQ-FB-001)', async () => {
+      const otherTeacher = { id: 'teacher-2', role: UserRole.FORMATEUR };
       await expect(service.acceptProposal('prop-1', otherTeacher))
         .rejects.toThrow(ForbiddenException);
     });
 
-    it('non-teacher cannot accept a proposal', async () => {
+    it('eleve cannot accept a proposal', async () => {
       await expect(service.acceptProposal('prop-1', student))
         .rejects.toThrow(ForbiddenException);
     });
@@ -197,17 +198,17 @@ describe('TeacherRequestService', () => {
       });
     });
 
-    it('RP can set main teacher on any active assignment', async () => {
+    it('responsable_pedagogique can set main teacher on any active assignment', async () => {
       const result = await service.setMainTeacher('asgn-1', rp);
       expect(result).toMatchObject({ isMainTeacher: true });
     });
 
-    it('STUDENT can set main teacher for their own assignment', async () => {
+    it('eleve can set main teacher for their own assignment', async () => {
       const result = await service.setMainTeacher('asgn-1', student);
       expect(result).toMatchObject({ isMainTeacher: true });
     });
 
-    it('STUDENT cannot set main teacher on another student\'s assignment (TRQ-FB-003)', async () => {
+    it('eleve cannot set main teacher on another student\'s assignment (TRQ-FB-003)', async () => {
       assignmentRepo.findOne.mockResolvedValue({
         id: 'asgn-1', studentId: 'student-99', teacherId: 'teacher-1', status: AssignmentStatus.ACTIVE,
       });
@@ -215,7 +216,7 @@ describe('TeacherRequestService', () => {
         .rejects.toThrow(ForbiddenException);
     });
 
-    it('TEACHER cannot set main teacher', async () => {
+    it('formateur cannot set main teacher', async () => {
       await expect(service.setMainTeacher('asgn-1', teacher))
         .rejects.toThrow(ForbiddenException);
     });
@@ -241,16 +242,16 @@ describe('TeacherRequestService', () => {
       });
     });
 
-    it('teacher requests termination with notice date', async () => {
+    it('formateur requests termination with notice date', async () => {
       const dto = { noticeDate: '2026-09-01', reason: 'Personal reasons' };
-      const result = await service.createTermination('asgn-1', dto, teacher);
+      await service.createTermination('asgn-1', dto, teacher);
       expect(terminationRepo.save).toHaveBeenCalled();
       expect(assignmentRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({ status: AssignmentStatus.TERMINATION_REQUESTED }),
       );
     });
 
-    it('teacher cannot terminate another teacher\'s assignment', async () => {
+    it('formateur cannot terminate another teacher\'s assignment', async () => {
       assignmentRepo.findOne.mockResolvedValue({
         id: 'asgn-1', studentId: 'student-1', teacherId: 'teacher-99', status: AssignmentStatus.ACTIVE,
       });
@@ -258,7 +259,7 @@ describe('TeacherRequestService', () => {
         .rejects.toThrow(ForbiddenException);
     });
 
-    it('non-teacher cannot request termination', async () => {
+    it('responsable_pedagogique cannot request termination', async () => {
       await expect(service.createTermination('asgn-1', { noticeDate: '2026-09-01' }, rp))
         .rejects.toThrow(ForbiddenException);
     });

@@ -2,10 +2,21 @@ import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 
-export interface JwtPayload {
+interface RawJwtPayload {
   sub: string;
+  email: string;
+  role: string;
+  validationStatus: string;
+  jti: string;
+  type: string;
+}
+
+export interface JwtPayload {
+  id: string;
   role: string;
   email?: string;
+  validationStatus?: string;
+  jti?: string;
 }
 
 @Injectable()
@@ -22,8 +33,15 @@ export class JwtAuthGuard implements CanActivate {
     try {
       const token = auth.slice(7);
       const secret = this.config.get<string>('JWT_SECRET', 'dev-secret');
-      const payload = this.jwtService.verify<JwtPayload>(token, { secret });
-      request.user = payload;
+      const raw = this.jwtService.verify<RawJwtPayload>(token, { secret });
+      if (raw.type !== 'access') throw new UnauthorizedException('Invalid token type');
+      request.user = {
+        id: raw.sub,
+        email: raw.email,
+        role: raw.role,
+        validationStatus: raw.validationStatus,
+        jti: raw.jti,
+      } satisfies JwtPayload;
       return true;
     } catch {
       throw new UnauthorizedException();

@@ -16,6 +16,7 @@ import { CreateProposalDto } from './dto/create-proposal.dto';
 import { CreateTerminationDto } from './dto/create-termination.dto';
 import { EventsService } from './events.service';
 import { JwtPayload } from '../common/jwt.guard';
+import { UserRole } from '../common/user-role.enum';
 
 @Injectable()
 export class TeacherRequestService {
@@ -28,15 +29,15 @@ export class TeacherRequestService {
   ) {}
 
   async createRequest(dto: CreateRequestDto, user: JwtPayload): Promise<TeacherRequest> {
-    if (!['STUDENT', 'PARENT'].includes(user.role)) {
+    if (![UserRole.ELEVE, UserRole.PARENT_FINANCEUR].includes(user.role as UserRole)) {
       throw new ForbiddenException('Only students and parents can create teacher requests');
     }
-    const studentId = user.role === 'STUDENT' ? user.sub : dto.studentId;
+    const studentId = user.role === UserRole.ELEVE ? user.id : dto.studentId;
     if (!studentId) {
-      throw new BadRequestException('studentId is required when requester is PARENT');
+      throw new BadRequestException('studentId is required when requester is PARENT_FINANCEUR');
     }
     const request = this.requestRepo.create({
-      requesterId: user.sub,
+      requesterId: user.id,
       requesterRole: user.role,
       studentId,
       subject: dto.subject,
@@ -46,29 +47,29 @@ export class TeacherRequestService {
       status: RequestStatus.PENDING,
     });
     const saved = await this.requestRepo.save(request);
-    this.events.emit('TeacherRequestCreated', { requestId: saved.id, studentId, requesterId: user.sub });
+    this.events.emit('TeacherRequestCreated', { requestId: saved.id, studentId, requesterId: user.id });
     return saved;
   }
 
   async listRequests(user: JwtPayload): Promise<TeacherRequest[] | TeacherProposal[]> {
     switch (user.role) {
-      case 'STUDENT':
-        return this.requestRepo.find({ where: { studentId: user.sub }, order: { createdAt: 'DESC' } });
-      case 'PARENT':
-        return this.requestRepo.find({ where: { requesterId: user.sub }, order: { createdAt: 'DESC' } });
-      case 'RP':
+      case UserRole.ELEVE:
+        return this.requestRepo.find({ where: { studentId: user.id }, order: { createdAt: 'DESC' } });
+      case UserRole.PARENT_FINANCEUR:
+        return this.requestRepo.find({ where: { requesterId: user.id }, order: { createdAt: 'DESC' } });
+      case UserRole.RESPONSABLE_PEDAGOGIQUE:
         return this.requestRepo.find({ order: { createdAt: 'DESC' } });
-      case 'TEACHER':
+      case UserRole.FORMATEUR:
         // TRQ-FB-001: teacher sees only proposals redirected to them, not all requests
-        return this.proposalRepo.find({ where: { teacherId: user.sub }, order: { createdAt: 'DESC' } });
+        return this.proposalRepo.find({ where: { teacherId: user.id }, order: { createdAt: 'DESC' } });
       default:
         throw new ForbiddenException('Access denied');
     }
   }
 
   async createProposal(requestId: string, dto: CreateProposalDto, user: JwtPayload): Promise<TeacherProposal> {
-    if (user.role !== 'RP') {
-      throw new ForbiddenException('Only RP can redirect requests to teachers');
+    if (user.role !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+      throw new ForbiddenException('Only responsable_pedagogique can redirect requests to teachers');
     }
     const request = await this.requestRepo.findOne({ where: { id: requestId } });
     if (!request) throw new NotFoundException(`Request ${requestId} not found`);
@@ -88,13 +89,13 @@ export class TeacherRequestService {
   }
 
   async acceptProposal(proposalId: string, user: JwtPayload): Promise<Assignment> {
-    if (user.role !== 'TEACHER') {
-      throw new ForbiddenException('Only teachers can accept proposals');
+    if (user.role !== UserRole.FORMATEUR) {
+      throw new ForbiddenException('Only formateurs can accept proposals');
     }
     const proposal = await this.proposalRepo.findOne({ where: { id: proposalId } });
     if (!proposal) throw new NotFoundException(`Proposal ${proposalId} not found`);
     // TRQ-FB-001 enforced: teacher can only accept proposals sent to them
-    if (proposal.teacherId !== user.sub) {
+    if (proposal.teacherId !== user.id) {
       throw new ForbiddenException('This proposal was not sent to you');
     }
     if (proposal.status !== ProposalStatus.PENDING) {
@@ -105,7 +106,7 @@ export class TeacherRequestService {
 
     const assignment = this.assignmentRepo.create({
       studentId: request.studentId,
-      teacherId: user.sub,
+      teacherId: user.id,
       proposalId,
       requestId: proposal.requestId,
       isMainTeacher: false,
@@ -114,13 +115,13 @@ export class TeacherRequestService {
     const saved = await this.assignmentRepo.save(assignment);
     await this.proposalRepo.save({ ...proposal, status: ProposalStatus.ACCEPTED });
     await this.requestRepo.save({ ...request, status: RequestStatus.ASSIGNED });
-    this.events.emit('TeacherAssigned', { assignmentId: saved.id, studentId: request.studentId, teacherId: user.sub });
+    this.events.emit('TeacherAssigned', { assignmentId: saved.id, studentId: request.studentId, teacherId: user.id });
     return saved;
   }
 
   async setMainTeacher(assignmentId: string, user: JwtPayload): Promise<Assignment> {
-    if (!['RP', 'STUDENT'].includes(user.role)) {
-      throw new ForbiddenException('Only RP or the student can designate a main teacher');
+    if (![UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.ELEVE].includes(user.role as UserRole)) {
+      throw new ForbiddenException('Only responsable_pedagogique or the student can designate a main teacher');
     }
     const assignment = await this.assignmentRepo.findOne({ where: { id: assignmentId } });
     if (!assignment) throw new NotFoundException(`Assignment ${assignmentId} not found`);
@@ -128,8 +129,8 @@ export class TeacherRequestService {
     if (assignment.status !== AssignmentStatus.ACTIVE) {
       throw new BadRequestException('Cannot set main teacher on an inactive assignment');
     }
-    // STUDENT can only set main teacher on their own assignments
-    if (user.role === 'STUDENT' && assignment.studentId !== user.sub) {
+    // ELEVE can only set main teacher on their own assignments
+    if (user.role === UserRole.ELEVE && assignment.studentId !== user.id) {
       throw new ForbiddenException('You can only set main teacher for your own assignments');
     }
     const updated = await this.assignmentRepo.save({ ...assignment, isMainTeacher: true });
@@ -138,12 +139,12 @@ export class TeacherRequestService {
   }
 
   async createTermination(assignmentId: string, dto: CreateTerminationDto, user: JwtPayload): Promise<TerminationRequest> {
-    if (user.role !== 'TEACHER') {
-      throw new ForbiddenException('Only teachers can request termination');
+    if (user.role !== UserRole.FORMATEUR) {
+      throw new ForbiddenException('Only formateurs can request termination');
     }
     const assignment = await this.assignmentRepo.findOne({ where: { id: assignmentId } });
     if (!assignment) throw new NotFoundException(`Assignment ${assignmentId} not found`);
-    if (assignment.teacherId !== user.sub) {
+    if (assignment.teacherId !== user.id) {
       throw new ForbiddenException('You are not assigned to this student');
     }
     // TRQ-FB-002: immediate termination (same-day noticeDate) is not a block in phase 1 —
@@ -153,7 +154,7 @@ export class TeacherRequestService {
     }
     const termination = this.terminationRepo.create({
       assignmentId,
-      teacherId: user.sub,
+      teacherId: user.id,
       noticeDate: new Date(dto.noticeDate),
       reason: dto.reason,
     });
@@ -162,7 +163,7 @@ export class TeacherRequestService {
     this.events.emit('TeacherRelationTerminationRequested', {
       terminationId: saved.id,
       assignmentId,
-      teacherId: user.sub,
+      teacherId: user.id,
       noticeDate: dto.noticeDate,
     });
     return saved;

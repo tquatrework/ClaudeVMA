@@ -51,11 +51,13 @@ export class HttpClientService {
       return { success: true, data: { skipped: true, reason: 'service-not-configured' } };
     }
 
+    const internalSecret = this.config.get<string>('INTERNAL_SECRET');
     const headers: Record<string, string> = {
       'x-correlation-id': correlationId,
       'content-type': 'application/json',
     };
     if (idempotencyKey) headers['x-idempotency-key'] = idempotencyKey;
+    if (internalSecret) headers['x-internal-secret'] = internalSecret;
 
     try {
       const response = await firstValueFrom(

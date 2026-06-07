@@ -1,5 +1,5 @@
 import {
-  Controller, Post, Get, Param, Body, NotFoundException,
+  Controller, Post, Get, Param, Body, NotFoundException, UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam,
@@ -7,9 +7,11 @@ import {
 import { WorkflowEngineService } from './workflow-engine.service';
 import { StartWorkflowDto } from './dto/start-workflow.dto';
 import { WORKFLOW_DEFINITIONS } from './definitions';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
 @ApiTags('workflows')
 @ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('workflows')
 export class WorkflowController {
   constructor(private readonly engine: WorkflowEngineService) {}

@@ -6,6 +6,7 @@ import { AccountsModule } from './accounts/accounts.module';
 import { ConsentsModule } from './consents/consents.module';
 import { EventsModule } from './events/events.module';
 import { HealthModule } from './health/health.module';
+import { InternalModule } from './internal/internal.module';
 import { User } from './auth/entities/user.entity';
 import { LoginSession } from './auth/entities/login-session.entity';
 import { AuditLog } from './accounts/entities/audit-log.entity';
@@ -30,6 +31,7 @@ import { ConsentRecord } from './consents/entities/consent-record.entity';
     ConsentsModule,
     EventsModule,
     HealthModule,
+    InternalModule,
   ],
 })
 export class AppModule {}

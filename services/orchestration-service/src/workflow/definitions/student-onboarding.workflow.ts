@@ -13,7 +13,7 @@ export const studentOnboardingWorkflow: WorkflowDefinition = {
       buildPayload: (ctx) => ({
         email: ctx.payload.email,
         password: ctx.payload.password,
-        role: 'student',
+        role: 'eleve',
         consents: ctx.payload.consents,
       }),
     },
@@ -37,8 +37,8 @@ export const studentOnboardingWorkflow: WorkflowDefinition = {
       action: 'link-parent',
       optional: true,
       buildPayload: (ctx) => ({
-        studentAccountId: ctx.stepOutputs['create-student-account']?.accountId,
-        parentEmail: ctx.payload.parentEmail,
+        studentId: ctx.stepOutputs['create-student-account']?.accountId,
+        financeOwnerId: ctx.payload.parentAccountId,
       }),
     },
     {
@@ -48,7 +48,7 @@ export const studentOnboardingWorkflow: WorkflowDefinition = {
       action: 'init-dashboard',
       buildPayload: (ctx) => ({
         accountId: ctx.stepOutputs['create-student-account']?.accountId,
-        role: 'student',
+        role: 'eleve',
         correlationId: ctx.correlationId,
       }),
     },
@@ -59,7 +59,7 @@ export const studentOnboardingWorkflow: WorkflowDefinition = {
       action: 'init-messaging',
       buildPayload: (ctx) => ({
         accountId: ctx.stepOutputs['create-student-account']?.accountId,
-        role: 'student',
+        role: 'eleve',
         authorizedContacts: ctx.stepOutputs['link-parent']?.contacts ?? [],
       }),
     },

@@ -13,7 +13,7 @@ export const teacherOnboardingWorkflow: WorkflowDefinition = {
       buildPayload: (ctx) => ({
         email: ctx.payload.email,
         password: ctx.payload.password,
-        role: 'teacher',
+        role: 'formateur',
         consents: ctx.payload.consents,
       }),
     },

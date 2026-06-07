@@ -1,9 +1,11 @@
-import { Controller, Get, Param, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Param, NotFoundException, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { EventService } from './event.service';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
 @ApiTags('events')
 @ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('events')
 export class EventController {
   constructor(private readonly eventService: EventService) {}

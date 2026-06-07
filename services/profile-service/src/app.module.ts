@@ -5,6 +5,7 @@ import { HealthModule } from './health/health.module';
 import { ProfilesModule } from './profiles/profiles.module';
 import { RelationsModule } from './relations/relations.module';
 import { EventsModule } from './events/events.module';
+import { InternalModule } from './internal/internal.module';
 import { AdministrativeProfile } from './profiles/entities/administrative-profile.entity';
 import { StudentPedagogicalProfile } from './profiles/entities/student-pedagogical-profile.entity';
 import { TeacherPedagogicalProfile } from './profiles/entities/teacher-pedagogical-profile.entity';
@@ -36,6 +37,7 @@ import { TeacherStudentLink } from './relations/entities/teacher-student-link.en
     ProfilesModule,
     RelationsModule,
     HealthModule,
+    InternalModule,
   ],
 })
 export class AppModule {}

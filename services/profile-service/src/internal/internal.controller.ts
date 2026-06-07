@@ -1,6 +1,6 @@
 import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
-import { IsOptional, IsString, IsUUID, IsArray } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsUUID, IsArray } from 'class-validator';
 import { InternalGuard } from './internal.guard';
 import { InternalService } from './internal.service';
 
@@ -32,6 +32,13 @@ class CreateTeacherStudentRelationDto {
   @IsOptional() isPrincipalTeacher?: boolean;
 }
 
+class LinkCoordinatorDto {
+  @IsUUID() coordinatorId: string;
+  @IsUUID() studentId: string;
+  @IsIn(['responsable_pedagogique', 'animateur_pedagogique'])
+  coordinatorRole: string;
+}
+
 @ApiExcludeController()
 @UseGuards(InternalGuard)
 @Controller('internal')
@@ -56,5 +63,10 @@ export class InternalController {
   @Post('create-teacher-student-relation')
   createTeacherStudentRelation(@Body() dto: CreateTeacherStudentRelationDto) {
     return this.internalService.createTeacherStudentRelation(dto);
+  }
+
+  @Post('link-coordinator')
+  linkCoordinator(@Body() dto: LinkCoordinatorDto) {
+    return this.internalService.linkCoordinator(dto);
   }
 }

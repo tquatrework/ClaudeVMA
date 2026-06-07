@@ -4,6 +4,7 @@ export type ProfileEventType =
   | 'ProfileUpdated'
   | 'StudentLinkedToFinanceOwner'
   | 'TeacherLinkedToStudent'
+  | 'CoordinatorLinkedToStudent'
   | 'TeacherPromotedToPedagogicalAnimator';
 
 export interface DomainEvent {

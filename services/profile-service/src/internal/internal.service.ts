@@ -6,6 +6,7 @@ import { StudentPedagogicalProfile } from '../profiles/entities/student-pedagogi
 import { TeacherPedagogicalProfile } from '../profiles/entities/teacher-pedagogical-profile.entity';
 import { FinanceOwnerStudentLink } from '../relations/entities/finance-owner-student-link.entity';
 import { TeacherStudentLink } from '../relations/entities/teacher-student-link.entity';
+import { PedagogicalCoordinatorLink } from '../relations/entities/pedagogical-coordinator-link.entity';
 
 @Injectable()
 export class InternalService {
@@ -20,6 +21,8 @@ export class InternalService {
     private readonly financeRepo: Repository<FinanceOwnerStudentLink>,
     @InjectRepository(TeacherStudentLink)
     private readonly teacherLinkRepo: Repository<TeacherStudentLink>,
+    @InjectRepository(PedagogicalCoordinatorLink)
+    private readonly coordinatorLinkRepo: Repository<PedagogicalCoordinatorLink>,
   ) {}
 
   async createStudentProfiles(dto: {
@@ -103,6 +106,26 @@ export class InternalService {
       isPrincipalTeacher: dto.isPrincipalTeacher ?? false,
     });
     await this.teacherLinkRepo.save(link);
+
+    return { linked: true };
+  }
+
+  async linkCoordinator(dto: {
+    coordinatorId: string;
+    studentId: string;
+    coordinatorRole: string;
+  }) {
+    const existing = await this.coordinatorLinkRepo.findOne({
+      where: { coordinatorId: dto.coordinatorId, studentId: dto.studentId },
+    });
+    if (existing) throw new ConflictException('Coordinator already linked to this student');
+
+    const link = this.coordinatorLinkRepo.create({
+      coordinatorId: dto.coordinatorId,
+      studentId: dto.studentId,
+      coordinatorRole: dto.coordinatorRole,
+    });
+    await this.coordinatorLinkRepo.save(link);
 
     return { linked: true };
   }

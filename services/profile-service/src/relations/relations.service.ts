@@ -147,7 +147,16 @@ export class RelationsService {
     }
 
     const link = this.coordinatorRepo.create(dto);
-    return this.coordinatorRepo.save(link);
+    const saved = await this.coordinatorRepo.save(link);
+
+    this.events.publish('CoordinatorLinkedToStudent', {
+      coordinatorId: dto.coordinatorId,
+      studentId: dto.studentId,
+      coordinatorRole: dto.coordinatorRole,
+      actorId: actor.id,
+    });
+
+    return saved;
   }
 
   /**

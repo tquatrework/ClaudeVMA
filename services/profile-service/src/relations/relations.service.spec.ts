@@ -193,6 +193,7 @@ describe('RelationsService', () => {
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
       const result = await service.linkPedagogicalCoordinator(dto, actor);
       expect(result).toHaveProperty('coordinatorId', 'rp-uuid');
+      expect(eventsService.publish).toHaveBeenCalledWith('CoordinatorLinkedToStudent', expect.any(Object));
     });
 
     it('throws 403 for formateur', async () => {

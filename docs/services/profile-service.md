@@ -63,6 +63,7 @@
       <event>ProfileUpdated</event>
       <event>StudentLinkedToFinanceOwner</event>
       <event>TeacherLinkedToStudent</event>
+      <event>CoordinatorLinkedToStudent</event>
       <event>TeacherPromotedToPedagogicalAnimator</event>
     </eventsPublished>
     <acceptanceCriteria>
@@ -88,7 +89,7 @@
 ```
 services/profile-service/
 ├── src/
-│   ├── app.module.ts           # [MODIFIÉ] import InternalModule ; DATABASE_URL ; synchronize hors prod
+│   ├── app.module.ts           # [MODIFIÉ] import InternalModule ; DATABASE_URL ; synchronize hors prod ; PedagogicalCoordinatorLink enregistré
 │   ├── main.ts                 # dist/main, port 3000
 │   ├── common/
 │   │   ├── enums/user-role.enum.ts         # Duplique UserRole depuis identity-access-service (couplage intentionnel Phase 1)
@@ -105,18 +106,23 @@ services/profile-service/
 │   │   ├── profiles.controller.ts          # @UseGuards(JwtAuthGuard, RolesGuard) au niveau classe
 │   │   └── profiles.service.ts             # assertReadAccess, assertWriteAccess, assertNotesAccess
 │   ├── relations/
+│   │   ├── dto/
+│   │   │   ├── create-finance-owner-student-link.dto.ts
+│   │   │   ├── create-teacher-student-link.dto.ts
+│   │   │   └── create-pedagogical-coordinator-link.dto.ts  # [IMPLÉMENTÉ] coordinatorRole @IsIn(['rp','ap'])
 │   │   ├── entities/
 │   │   │   ├── finance-owner-student-link.entity.ts  # @Unique([financeOwnerId, studentId])
-│   │   │   └── teacher-student-link.entity.ts        # isPrincipalTeacher
-│   │   ├── relations.controller.ts         # @UseGuards(JwtAuthGuard, RolesGuard) au niveau classe
-│   │   └── relations.service.ts
-│   ├── internal/               # [NOUVEAU] Routes inter-services, non exposées via nginx
-│   │   ├── internal.controller.ts  # POST /internal/{create-student-profiles, create-teacher-profiles, link-parent, create-teacher-student-relation}
+│   │   │   ├── teacher-student-link.entity.ts        # isPrincipalTeacher
+│   │   │   └── pedagogical-coordinator-link.entity.ts # [IMPLÉMENTÉ] @Unique([coordinatorId, studentId]), coordinatorRole
+│   │   ├── relations.controller.ts         # POST /relations/pedagogical-coordinator — @Roles(RP) ; GET /:coordinatorId
+│   │   └── relations.service.ts            # linkPedagogicalCoordinator — émet CoordinatorLinkedToStudent
+│   ├── internal/               # Routes inter-services, non exposées via nginx
+│   │   ├── internal.controller.ts  # POST /internal/{create-student-profiles, create-teacher-profiles, link-parent, create-teacher-student-relation, link-coordinator}
 │   │   ├── internal.guard.ts       # Valide x-internal-secret header vs INTERNAL_SECRET env
-│   │   ├── internal.service.ts     # Accès direct aux repositories (sans actor check)
-│   │   └── internal.module.ts      # TypeOrmModule.forFeature sur les 5 entités nécessaires
+│   │   ├── internal.service.ts     # linkCoordinator() — accès direct au repository PedagogicalCoordinatorLink
+│   │   └── internal.module.ts      # TypeOrmModule.forFeature sur les 6 entités (incl. PedagogicalCoordinatorLink)
 │   └── events/
-│       └── events.service.ts   # Stub Phase 1 — log domain events
+│       └── events.service.ts   # Stub Phase 1 — log domain events ; type CoordinatorLinkedToStudent ajouté
 └── package.json
 ```
 
@@ -128,9 +134,16 @@ services/profile-service/
 - **Duplication UserRole** : l'enum `UserRole` est dupliqué dans `common/enums/user-role.enum.ts`. Doit être mis à jour si identity-access-service ajoute de nouveaux rôles. Une lib partagée serait la solution long terme (hors Phase 1).
 - **InternalGuard** : identique à identity-access-service (même comportement — warning si non configuré en dev, rejet sinon).
 
+### Décisions techniques — PedagogicalCoordinatorLink (session 2026-06-07)
+
+- **Entité** : `pedagogical_coordinator_links` avec contrainte `@Unique(['coordinatorId', 'studentId'])` pour éviter les doublons. Colonnes UUID typées explicitement comme `uuid` (cohérent avec `finance-owner-student-link`).
+- **coordinatorRole** : champ `string` contraint par `@IsIn(['responsable_pedagogique', 'animateur_pedagogique'])` dans le DTO — permet de tracer si le coordinateur est RP ou AP sans nécessiter une lookup dans identity-access-service.
+- **Event** : `CoordinatorLinkedToStudent` ajouté à `ProfileEventType` dans `EventsService`. Émis dans `RelationsService.linkPedagogicalCoordinator()` après sauvegarde réussie.
+- **InternalModule** : `PedagogicalCoordinatorLink` enregistré dans `TypeOrmModule.forFeature()`. Méthode `linkCoordinator()` ajoutée à `InternalService` avec contrôle de doublon via `findOne`. Endpoint `POST /internal/link-coordinator` dans `InternalController` avec DTO `LinkCoordinatorDto` inline.
+- **Accès** : `POST /relations/pedagogical-coordinator` restreint `@Roles(RP)`. `GET /relations/pedagogical-coordinator/:coordinatorId` accessible au RP, TI et au coordinateur lui-même.
+
 ### Points en suspens
 
 - `INTERNAL_SECRET` à ajouter dans `docker-compose.yml`.
-- `PedagogicalCoordinatorLink` mentionné dans la spec XML n'est pas encore implémenté (aucun besoin identifié Phase 1).
 - La vue partielle de profil selon le rôle du lecteur (PROF-BR-012) n'est pas encore filtrée dans `ProfilesService.getProfile()` — retourne tous les champs disponibles.
 - `user-profile/` module conservé comme placeholder vide (scaffold d'origine, supersédé par `profiles/` et `relations/`).

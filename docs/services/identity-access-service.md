@@ -77,3 +77,49 @@
     </manualTestScenarios>
   </microservice>
 </microserviceSpecification>
+
+---
+
+## Implémentation Phase 1 — session 2026-06-07
+
+### Arborescence
+
+```
+services/identity-access-service/
+├── src/
+│   ├── app.module.ts           # [MODIFIÉ] import InternalModule
+│   ├── main.ts                 # dist/src/main (tsconfig rootDir différent des autres services)
+│   ├── auth/
+│   │   ├── auth.controller.ts  # POST /auth/login, /auth/logout, GET /auth/me
+│   │   ├── auth.service.ts     # Émission JWT access (1h) + refresh (7j), bcryptjs 12 rounds
+│   │   ├── strategies/jwt.strategy.ts  # PassportStrategy — seul service qui émet les JWT
+│   │   └── entities/
+│   │       ├── user.entity.ts  # UserRole enum, ValidationStatus enum, INTERNAL_ROLES, SELF_REGISTRATION_ROLES
+│   │       └── login-session.entity.ts
+│   ├── accounts/
+│   │   ├── accounts.controller.ts  # POST /accounts (public), GET/PUT protégés AuthGuard('jwt')
+│   │   ├── accounts.service.ts     # createAccount, updateRoles, validateAccount, suspendAccount, auditLog
+│   │   └── dto/create-account.dto.ts  # role limité à SELF_REGISTRATION_ROLES par @IsEnum
+│   ├── consents/
+│   │   └── consents.controller.ts  # POST /consents — enregistrement RGPD
+│   ├── internal/               # [NOUVEAU] Routes inter-services, non exposées via nginx
+│   │   ├── internal.controller.ts  # POST /internal/create-account
+│   │   ├── internal.guard.ts       # Valide x-internal-secret header vs INTERNAL_SECRET env
+│   │   └── internal.module.ts      # Importe AccountsModule (réutilise AccountsService)
+│   └── events/
+│       └── events.service.ts   # Stub Phase 1 — log domain events (AccountCreated, RoleChanged…)
+└── package.json
+```
+
+### Décisions techniques
+
+- **InternalModule** : expose `POST /internal/create-account` accessible uniquement via header `x-internal-secret`. Réutilise `AccountsService.createAccount()` — les rôles `eleve` et `formateur` passent la restriction `SELF_REGISTRATION_ROLES` sans modification du service existant.
+- **InternalGuard** : si `INTERNAL_SECRET` n'est pas configurée, laisse passer avec un warning (mode dev). En production, la variable doit être définie.
+- **Guard JWT** : identity-access-service utilise `AuthGuard('jwt')` (Passport) contrairement à profile-service qui utilise un guard custom. Les deux lisent le même payload JWT.
+- **dist/src/main** : le `start:prod` et le Dockerfile CMD pointent vers `dist/src/main` (différent de `dist/main` pour les autres services). Lié à la configuration `rootDir` du tsconfig.
+
+### Points en suspens
+
+- `INTERNAL_SECRET` à ajouter dans `docker-compose.yml`.
+- `AccountSuspended` event manquant dans la liste des eventsPublished de la spec XML (il est émis dans le code).
+- La route `POST /internal/create-account` ne crée pas les consentements — les consents doivent être enregistrés séparément via `POST /consents` dans un step dédié du workflow si nécessaire.

@@ -78,3 +78,59 @@
     </manualTestScenarios>
   </microservice>
 </microserviceSpecification>
+
+---
+
+## Implémentation Phase 1 — session 2026-06-07
+
+### Arborescence
+
+```
+services/profile-service/
+├── src/
+│   ├── app.module.ts           # [MODIFIÉ] import InternalModule ; DATABASE_URL ; synchronize hors prod
+│   ├── main.ts                 # dist/main, port 3000
+│   ├── common/
+│   │   ├── enums/user-role.enum.ts         # Duplique UserRole depuis identity-access-service (couplage intentionnel Phase 1)
+│   │   ├── guards/
+│   │   │   ├── jwt-auth.guard.ts           # Guard custom @nestjs/jwt (sans Passport), vérifie type === 'access'
+│   │   │   └── roles.guard.ts              # Vérifie les rôles via @Roles() decorator
+│   │   └── decorators/roles.decorator.ts
+│   ├── profiles/
+│   │   ├── entities/
+│   │   │   ├── administrative-profile.entity.ts     # PrimaryColumn(userId) — FK implicite vers identity-access-service
+│   │   │   ├── student-pedagogical-profile.entity.ts
+│   │   │   ├── teacher-pedagogical-profile.entity.ts  # isAnimateurPedagogique (PROF-BR-008)
+│   │   │   └── internal-profile-note.entity.ts
+│   │   ├── profiles.controller.ts          # @UseGuards(JwtAuthGuard, RolesGuard) au niveau classe
+│   │   └── profiles.service.ts             # assertReadAccess, assertWriteAccess, assertNotesAccess
+│   ├── relations/
+│   │   ├── entities/
+│   │   │   ├── finance-owner-student-link.entity.ts  # @Unique([financeOwnerId, studentId])
+│   │   │   └── teacher-student-link.entity.ts        # isPrincipalTeacher
+│   │   ├── relations.controller.ts         # @UseGuards(JwtAuthGuard, RolesGuard) au niveau classe
+│   │   └── relations.service.ts
+│   ├── internal/               # [NOUVEAU] Routes inter-services, non exposées via nginx
+│   │   ├── internal.controller.ts  # POST /internal/{create-student-profiles, create-teacher-profiles, link-parent, create-teacher-student-relation}
+│   │   ├── internal.guard.ts       # Valide x-internal-secret header vs INTERNAL_SECRET env
+│   │   ├── internal.service.ts     # Accès direct aux repositories (sans actor check)
+│   │   └── internal.module.ts      # TypeOrmModule.forFeature sur les 5 entités nécessaires
+│   └── events/
+│       └── events.service.ts   # Stub Phase 1 — log domain events
+└── package.json
+```
+
+### Décisions techniques
+
+- **InternalModule** : service dédié (`InternalService`) avec accès direct aux repositories TypeORM, sans vérification de rôle acteur. Justifié par le fait que l'orchestration est le seul appelant et est protégé par `InternalGuard`.
+- **DTOs internes inline** : les DTOs des endpoints `/internal` sont définis dans le contrôleur lui-même (pas de fichier dto/ séparé), car ils ne sont pas exposés dans Swagger (`@ApiExcludeController`).
+- **link-parent** : accepte `{ studentId, financeOwnerId }` (deux UUIDs). Retourne `{ linked: true, contacts: [financeOwnerId] }` — le champ `contacts` est consommé par le step `init-messaging` du workflow student-onboarding.
+- **Duplication UserRole** : l'enum `UserRole` est dupliqué dans `common/enums/user-role.enum.ts`. Doit être mis à jour si identity-access-service ajoute de nouveaux rôles. Une lib partagée serait la solution long terme (hors Phase 1).
+- **InternalGuard** : identique à identity-access-service (même comportement — warning si non configuré en dev, rejet sinon).
+
+### Points en suspens
+
+- `INTERNAL_SECRET` à ajouter dans `docker-compose.yml`.
+- `PedagogicalCoordinatorLink` mentionné dans la spec XML n'est pas encore implémenté (aucun besoin identifié Phase 1).
+- La vue partielle de profil selon le rôle du lecteur (PROF-BR-012) n'est pas encore filtrée dans `ProfilesService.getProfile()` — retourne tous les champs disponibles.
+- `user-profile/` module conservé comme placeholder vide (scaffold d'origine, supersédé par `profiles/` et `relations/`).

@@ -222,3 +222,73 @@
     </manualTestScenarios>
   </microservice>
 </microserviceSpecification>
+
+---
+
+## Implémentation Phase 1 — session 2026-06-07
+
+### Arborescence
+
+```
+services/orchestration-service/
+├── src/
+│   ├── app.module.ts                        # Module racine, TypeORM (DB_HOST/PORT/USER/PASSWORD/NAME), CorrelationMiddleware
+│   ├── main.ts                              # Bootstrap, ValidationPipe, Swagger, port 3000
+│   ├── common/
+│   │   ├── enums/
+│   │   │   ├── workflow-status.enum.ts      # PENDING | RUNNING | COMPLETED | FAILED | COMPENSATING
+│   │   │   └── step-status.enum.ts          # PENDING | RUNNING | COMPLETED | SKIPPED | FAILED
+│   │   ├── guards/
+│   │   │   └── jwt-auth.guard.ts            # [AJOUT] Vérifie le Bearer JWT via @nestjs/jwt (même impl que profile-service)
+│   │   └── middleware/
+│   │       └── correlation.middleware.ts    # Injecte x-correlation-id sur toutes les routes
+│   ├── workflow/
+│   │   ├── definitions/
+│   │   │   ├── student-onboarding.workflow.ts  # [MODIFIÉ] role 'eleve', payload link-parent corrigé
+│   │   │   ├── teacher-onboarding.workflow.ts  # [MODIFIÉ] role 'formateur'
+│   │   │   ├── teacher-request.workflow.ts
+│   │   │   └── video-session.workflow.ts
+│   │   ├── entities/
+│   │   │   ├── workflow-instance.entity.ts  # id, workflowType, correlationId, status, payload, stepOutputs
+│   │   │   └── workflow-step.entity.ts      # order, name, status, output, error
+│   │   ├── dto/start-workflow.dto.ts
+│   │   ├── workflow-engine.service.ts       # Exécute les steps séquentiellement, gère optional/required
+│   │   ├── workflow.controller.ts           # [MODIFIÉ] @UseGuards(JwtAuthGuard)
+│   │   └── workflow.module.ts               # [MODIFIÉ] import JwtModule
+│   ├── command/
+│   │   ├── command.controller.ts            # [MODIFIÉ] @UseGuards(JwtAuthGuard)
+│   │   ├── command.module.ts                # [MODIFIÉ] import JwtModule
+│   │   ├── command.service.ts
+│   │   ├── dto/dispatch-command.dto.ts
+│   │   └── entities/integration-command.entity.ts
+│   ├── event/
+│   │   ├── event.controller.ts              # [MODIFIÉ] @UseGuards(JwtAuthGuard)
+│   │   ├── event.module.ts                  # [MODIFIÉ] import JwtModule
+│   │   ├── event.service.ts
+│   │   └── entities/integration-event.entity.ts  # direction: PUBLISHED | CONSUMED
+│   ├── callback/
+│   │   ├── callback.controller.ts           # Public (pas de guard — webhooks externes)
+│   │   └── callback.module.ts
+│   ├── http-client/
+│   │   ├── http-client.service.ts           # [MODIFIÉ] transmet x-internal-secret + x-correlation-id
+│   │   └── http-client.module.ts
+│   └── idempotency/
+│       ├── idempotency.service.ts           # Déduplique les commandes via clé idempotente en DB
+│       └── entities/idempotency-key.entity.ts
+└── package.json                             # [MODIFIÉ] typeorm ^0.3.17, @nestjs/typeorm ^10, @nestjs/jwt ^10
+```
+
+### Décisions techniques
+
+- **JWT guard** : `JwtAuthGuard` identique à profile-service (vérification signature + claim `type === 'access'`). `CallbackController` reste délibérément non protégé (webhooks providers externes). `JwtModule` importé dans chaque feature module qui en a besoin (pattern aligné avec profile-service).
+- **Versions TypeORM corrigées** : `^1.0.0` → `^0.3.17` et `@nestjs/typeorm ^11` → `^10` pour aligner les trois services Phase 1.
+- **x-internal-secret** : `HttpClientService` transmet le header `x-internal-secret` sur tous les appels `/internal/*`. Si `INTERNAL_SECRET` n'est pas configurée, le header est omis (mode dev tolérant).
+- **Rôles dans les workflows** : valeurs corrigées pour correspondre à l'enum `UserRole` d'identity-access-service (`'eleve'`, `'formateur'`).
+- **Payload link-parent** : remplacé `parentEmail` (non résolvable par profile-service) par `parentAccountId` + `studentId` — le parent doit déjà avoir un compte au moment de l'inscription de l'élève.
+- **Config DB** : orchestration-service utilise 5 variables séparées (`DB_HOST/PORT/USER/PASSWORD/NAME`) alors que les autres services utilisent `DATABASE_URL`. Divergence connue, à unifier si besoin.
+
+### Points en suspens
+
+- `INTERNAL_SECRET` à ajouter dans `docker-compose.yml` pour les trois services concernés (orchestration, identity-access, profile).
+- La logique de compensation (rollback de steps) n'est pas encore implémentée dans `WorkflowEngineService` (ORCH-BR-002 partiellement couvert).
+- Les events publiés (`WorkflowStarted`, `WorkflowStepCompleted`, `WorkflowFailed`) sont en stub log — pas encore branchés sur un broker (prévu Phase 2).

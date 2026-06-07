@@ -120,6 +120,7 @@ services/identity-access-service/
 
 ### Points en suspens
 
-- `INTERNAL_SECRET` à ajouter dans `docker-compose.yml`.
-- `AccountSuspended` event manquant dans la liste des eventsPublished de la spec XML (il est émis dans le code).
-- La route `POST /internal/create-account` ne crée pas les consentements — les consents doivent être enregistrés séparément via `POST /consents` dans un step dédié du workflow si nécessaire.
+- `INTERNAL_SECRET` est déjà dans `docker-compose.yml` (référencé via `${INTERNAL_SECRET:-change_me_in_production}`). Vérifier que la variable est bien définie dans le fichier `.env` racine du projet (le `.env.example` racine a été supprimé — à recréer).
+- `AccountSuspended` event manquant dans la liste des `eventsPublished` de la spec XML (il est émis dans le code) — à arbitrer si l'event doit être officialisé dans le spec.
+- `POST /internal/create-account` ne crée pas les consentements. Les consents restent à enregistrer séparément via `POST /consents` dans un step dédié du workflow orchestration si nécessaire.
+- **[À signaler à api-gateway]** `location = /internal/auth` est commenté dans `nginx.conf` → toutes les routes protégées retournent 500. `POST /api/v1/accounts` est aussi derrière `auth_request` alors que c'est un endpoint public.

@@ -44,6 +44,17 @@ Règles métier : seuls `eleve`, `parent_financeur` et `formateur` peuvent être
 
 Types : `rgpd` (requis), `cgu` (requis), `marketing` (optionnel). Une fois RGPD+CGU signés, le compte passe automatiquement à `active`.
 
+### API interne inter-services (non exposée via nginx)
+
+> Exclue de Swagger (`@ApiExcludeController`). Protégée par `X-Internal-Secret: <INTERNAL_SECRET>`.
+> Utilisée par orchestration-service dans les workflows d'onboarding.
+
+| Méthode | Chemin | Description | Header requis |
+|---|---|---|---|
+| POST | /internal/create-account | Créer un compte depuis un service interne | `X-Internal-Secret` |
+
+Réponse : `{accountId, email, role}`
+
 ### Événements publiés
 
 `AccountCreated` · `RoleChanged` · `ConsentSigned` · `AccountValidated` · `AccountSuspended`

@@ -1,16 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { WorkflowEngineService } from './workflow-engine.service';
-import { WorkflowInstance } from './entities/workflow-instance.entity';
-import { WorkflowStep } from './entities/workflow-step.entity';
-import { CompensationAction } from './entities/compensation-action.entity';
-import { RetryPolicy } from './entities/retry-policy.entity';
-import { HttpClientService } from '../http-client/http-client.service';
-import { IdempotencyService } from '../idempotency/idempotency.service';
-import { EventService } from '../event/event.service';
-import { CorrelationTraceService } from '../correlation/correlation-trace.service';
-import { WorkflowStatus } from '../common/enums/workflow-status.enum';
-import { StepStatus } from '../common/enums/step-status.enum';
+import { WorkflowEngineService } from '../../src/workflow/workflow-engine.service';
+import { WorkflowInstance } from '../../src/workflow/entities/workflow-instance.entity';
+import { WorkflowStep } from '../../src/workflow/entities/workflow-step.entity';
+import { CompensationAction } from '../../src/workflow/entities/compensation-action.entity';
+import { RetryPolicy } from '../../src/workflow/entities/retry-policy.entity';
+import { HttpClientService } from '../../src/http-client/http-client.service';
+import { IdempotencyService } from '../../src/idempotency/idempotency.service';
+import { EventService } from '../../src/event/event.service';
+import { CorrelationTraceService } from '../../src/correlation/correlation-trace.service';
+import { WorkflowStatus } from '../../src/common/enums/workflow-status.enum';
+import { StepStatus } from '../../src/common/enums/step-status.enum';
 
 const makeRepoMock = () => ({
   create: jest.fn((x) => x),

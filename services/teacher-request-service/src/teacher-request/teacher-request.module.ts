@@ -7,7 +7,7 @@ import { TeacherRequest } from './entities/teacher-request.entity';
 import { TeacherProposal } from './entities/teacher-proposal.entity';
 import { Assignment } from './entities/assignment.entity';
 import { TerminationRequest } from './entities/termination-request.entity';
-import { TeacherRequestController } from './teacher-request.controller';
+import { TeacherRequestController, ProposalController, AssignmentController } from './teacher-request.controller';
 import { TeacherRequestService } from './teacher-request.service';
 import { EventsService } from './events.service';
 import { JwtAuthGuard } from '../common/jwt.guard';
@@ -23,7 +23,7 @@ import { JwtAuthGuard } from '../common/jwt.guard';
       inject: [ConfigService],
     }),
   ],
-  controllers: [TeacherRequestController],
+  controllers: [TeacherRequestController, ProposalController, AssignmentController],
   providers: [TeacherRequestService, EventsService, JwtAuthGuard],
 })
 export class TeacherRequestModule {}

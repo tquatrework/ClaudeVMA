@@ -91,5 +91,3 @@ Phase 3 enrichit l'offre :
 - Modification avec accord utilisateur : les roles internes hors TI doivent obtenir un accord utilisateur trace dans l'application avant modification lorsque cet accord est requis ; le TI peut forcer un changement en cas de blocage.
 
 ## Points ouverts a arbitrer
-
-Aucun point d'arbitrage ouvert a ce stade. Toute nouvelle contradiction detectee pendant le decoupage ou le codage doit etre remontee avant implementation.

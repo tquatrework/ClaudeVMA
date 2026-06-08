@@ -71,6 +71,11 @@ export class ProfilesService {
     const studentPeda = await this.studentPedaRepo.findOne({ where: { userId } });
     const teacherPeda = await this.teacherPedaRepo.findOne({ where: { userId } });
 
+    // Return 404 when no profile exists for the given userId
+    if (!admin && !studentPeda && !teacherPeda) {
+      throw new NotFoundException(`Profile not found for user ${userId}`);
+    }
+
     return {
       userId,
       administrative: admin ?? null,

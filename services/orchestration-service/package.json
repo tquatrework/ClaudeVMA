@@ -52,7 +52,7 @@
     ],
     "rootDir": ".",
     "testMatch": [
-      "<rootDir>/test/**/*.spec.ts"
+      "<rootDir>/test/unit/**/*.spec.ts"
     ],
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"

@@ -45,16 +45,16 @@ services:
       dockerfile: Dockerfile
     container_name: visiomath_gateway
     ports:
-      - "80:80"
+      - "8098:80"
     depends_on:
       - identity-access-service
       - profile-service
       - teacher-request-service
       - calendar-service
-      - video-session-service
-      - communication-service
-      - pedagogical-log-service
-      - dashboard-notification-service
+#      - video-session-service
+#      - communication-service
+#      - pedagogical-log-service
+#      - dashboard-notification-service
       - orchestration-service
     networks:
       - visiomath_network
@@ -69,7 +69,14 @@ services:
     container_name: visiomath_orchestration
     environment:
       NODE_ENV: ${NODE_ENV:-production}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-visiomath}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-visiomath_secret}
+      DB_NAME: visiomath_orchestration
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
+      PORT: 3000
     depends_on:
       redis:
         condition: service_healthy
@@ -88,6 +95,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
+      PORT: 3000
     depends_on:
       postgres:
         condition: service_healthy
@@ -106,6 +115,8 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_profile
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
+      PORT: 3000
     depends_on:
       postgres:
         condition: service_healthy
@@ -123,6 +134,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_dashboard_notification
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
+      PORT: 3000
     depends_on:
       postgres:
         condition: service_healthy
@@ -142,6 +154,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_communication
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
+      PORT: 3000
     depends_on:
       postgres:
         condition: service_healthy
@@ -160,6 +173,7 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_calendar
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      PORT: 3000
     depends_on:
       postgres:
         condition: service_healthy
@@ -176,6 +190,7 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_teacher_request
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      PORT: 3000
     depends_on:
       postgres:
         condition: service_healthy
@@ -192,6 +207,7 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_video_session
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      PORT: 3000
     depends_on:
       postgres:
         condition: service_healthy
@@ -208,6 +224,7 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_pedagogical_log
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      PORT: 3000
     depends_on:
       postgres:
         condition: service_healthy

@@ -29,12 +29,13 @@ export class TeacherRequestService {
   ) {}
 
   async createRequest(dto: CreateRequestDto, user: JwtPayload): Promise<TeacherRequest> {
-    if (![UserRole.ELEVE, UserRole.PARENT_FINANCEUR].includes(user.role as UserRole)) {
-      throw new ForbiddenException('Only students and parents can create teacher requests');
+    const allowedRoles = [UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.RESPONSABLE_PEDAGOGIQUE];
+    if (!allowedRoles.includes(user.role as UserRole)) {
+      throw new ForbiddenException('Only students, parents and responsable_pedagogique can create teacher requests');
     }
     const studentId = user.role === UserRole.ELEVE ? user.id : dto.studentId;
     if (!studentId) {
-      throw new BadRequestException('studentId is required when requester is PARENT_FINANCEUR');
+      throw new BadRequestException('studentId is required when requester is not ELEVE');
     }
     const request = this.requestRepo.create({
       requesterId: user.id,
@@ -65,6 +66,51 @@ export class TeacherRequestService {
       default:
         throw new ForbiddenException('Access denied');
     }
+  }
+
+  async getRequest(id: string, user: JwtPayload): Promise<TeacherRequest> {
+    const req = await this.requestRepo.findOne({ where: { id } });
+    if (!req) throw new NotFoundException(`Request ${id} not found`);
+
+    // Access control: RP sees all; student sees own; parent sees own requests
+    if (user.role === UserRole.RESPONSABLE_PEDAGOGIQUE) return req;
+    if (user.role === UserRole.ELEVE && req.studentId === user.id) return req;
+    if (req.requesterId === user.id) return req;
+
+    throw new ForbiddenException('Access denied');
+  }
+
+  async updateRequestStatus(id: string, newStatus: RequestStatus, user: JwtPayload): Promise<TeacherRequest> {
+    // Only RP can change status
+    if (user.role !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+      throw new ForbiddenException('Only responsable_pedagogique can update request status');
+    }
+
+    const req = await this.requestRepo.findOne({ where: { id } });
+    if (!req) throw new NotFoundException(`Request ${id} not found`);
+
+    // Validate transition: only pending → accepted/declined/cancelled is allowed
+    const validFromPending = [RequestStatus.ACCEPTED, RequestStatus.DECLINED, RequestStatus.CANCELLED];
+    if (req.status !== RequestStatus.PENDING || !validFromPending.includes(newStatus)) {
+      throw new BadRequestException(`Invalid status transition from ${req.status} to ${newStatus}`);
+    }
+
+    const updated = await this.requestRepo.save({ ...req, status: newStatus });
+    this.events.emit('TeacherRequestStatusUpdated', { requestId: id, status: newStatus, updatedBy: user.id });
+    return updated;
+  }
+
+  async deleteRequest(id: string, user: JwtPayload): Promise<void> {
+    // RP can delete any; requester can delete their own
+    if (user.role !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+      throw new ForbiddenException('Only responsable_pedagogique can delete requests');
+    }
+
+    const req = await this.requestRepo.findOne({ where: { id } });
+    if (!req) throw new NotFoundException(`Request ${id} not found`);
+
+    await this.requestRepo.remove(req);
+    this.events.emit('TeacherRequestDeleted', { requestId: id, deletedBy: user.id });
   }
 
   async createProposal(requestId: string, dto: CreateProposalDto, user: JwtPayload): Promise<TeacherProposal> {

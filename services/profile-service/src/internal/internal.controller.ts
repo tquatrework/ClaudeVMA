@@ -5,7 +5,7 @@ import { InternalGuard } from './internal.guard';
 import { InternalService } from './internal.service';
 
 class CreateStudentProfilesDto {
-  @IsUUID() accountId: string;
+  @IsUUID() userId: string;
   @IsOptional() @IsString() firstName?: string;
   @IsOptional() @IsString() lastName?: string;
   @IsOptional() @IsString() birthDate?: string;
@@ -13,7 +13,7 @@ class CreateStudentProfilesDto {
 }
 
 class CreateTeacherProfilesDto {
-  @IsUUID() accountId: string;
+  @IsUUID() userId: string;
   @IsOptional() @IsString() firstName?: string;
   @IsOptional() @IsString() lastName?: string;
   @IsOptional() @IsArray() subjects?: string[];

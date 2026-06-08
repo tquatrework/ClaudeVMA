@@ -26,53 +26,77 @@ export class InternalService {
   ) {}
 
   async createStudentProfiles(dto: {
-    accountId: string;
+    userId: string;
     firstName?: string;
     lastName?: string;
     birthDate?: string;
     level?: string;
   }) {
-    const admin = this.adminRepo.create({
-      userId: dto.accountId,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-      dateNaissance: dto.birthDate,
-    });
-    await this.adminRepo.save(admin);
+    // Idempotence: upsert administrative profile
+    let admin = await this.adminRepo.findOne({ where: { userId: dto.userId } });
+    if (!admin) {
+      admin = this.adminRepo.create({
+        userId: dto.userId,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        dateNaissance: dto.birthDate,
+      });
+      await this.adminRepo.save(admin);
+    }
 
-    const peda = this.studentPedaRepo.create({
-      userId: dto.accountId,
-      niveauScolaire: dto.level,
-    });
-    await this.studentPedaRepo.save(peda);
+    // Idempotence: upsert student pedagogical profile
+    let peda = await this.studentPedaRepo.findOne({ where: { userId: dto.userId } });
+    if (!peda) {
+      peda = this.studentPedaRepo.create({
+        userId: dto.userId,
+        niveauScolaire: dto.level,
+      });
+      await this.studentPedaRepo.save(peda);
+    }
 
-    return { profileId: dto.accountId };
+    return {
+      userId: dto.userId,
+      administrativeProfile: admin,
+      pedagogicalProfile: peda,
+    };
   }
 
   async createTeacherProfiles(dto: {
-    accountId: string;
+    userId: string;
     firstName?: string;
     lastName?: string;
     subjects?: string[];
     levels?: string[];
     bio?: string;
   }) {
-    const admin = this.adminRepo.create({
-      userId: dto.accountId,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-    });
-    await this.adminRepo.save(admin);
+    // Idempotence: upsert administrative profile
+    let admin = await this.adminRepo.findOne({ where: { userId: dto.userId } });
+    if (!admin) {
+      admin = this.adminRepo.create({
+        userId: dto.userId,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+      });
+      await this.adminRepo.save(admin);
+    }
 
-    const peda = this.teacherPedaRepo.create({
-      userId: dto.accountId,
-      matieresEnseignees: dto.subjects,
-      niveauxEnseignes: dto.levels,
-      experiencePedagogique: dto.bio,
-    });
-    await this.teacherPedaRepo.save(peda);
+    // Idempotence: upsert teacher pedagogical profile
+    let peda = await this.teacherPedaRepo.findOne({ where: { userId: dto.userId } });
+    if (!peda) {
+      peda = this.teacherPedaRepo.create({
+        userId: dto.userId,
+        matieresEnseignees: dto.subjects,
+        niveauxEnseignes: dto.levels,
+        experiencePedagogique: dto.bio,
+      });
+      await this.teacherPedaRepo.save(peda);
+    }
 
-    return { profileId: dto.accountId };
+    return {
+      userId: dto.userId,
+      administrativeProfile: admin,
+      pedagogicalProfile: peda,
+    };
   }
 
   async linkParent(dto: { studentId: string; financeOwnerId: string }) {
@@ -105,9 +129,9 @@ export class InternalService {
       studentId: dto.studentId,
       isPrincipalTeacher: dto.isPrincipalTeacher ?? false,
     });
-    await this.teacherLinkRepo.save(link);
+    const saved = await this.teacherLinkRepo.save(link);
 
-    return { linked: true };
+    return { teacherId: saved.teacherId, studentId: saved.studentId, isPrincipalTeacher: saved.isPrincipalTeacher };
   }
 
   async linkCoordinator(dto: {
@@ -125,8 +149,8 @@ export class InternalService {
       studentId: dto.studentId,
       coordinatorRole: dto.coordinatorRole,
     });
-    await this.coordinatorLinkRepo.save(link);
+    const saved = await this.coordinatorLinkRepo.save(link);
 
-    return { linked: true };
+    return { coordinatorId: saved.coordinatorId, studentId: saved.studentId, coordinatorRole: saved.coordinatorRole };
   }
 }

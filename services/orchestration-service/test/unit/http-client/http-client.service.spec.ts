@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { of, throwError } from 'rxjs';
-import { HttpClientService } from '../../src/http-client/http-client.service';
+import { HttpClientService } from '../../../src/http-client/http-client.service';
 
 const makeHttpServiceMock = () => ({
   post: jest.fn(),

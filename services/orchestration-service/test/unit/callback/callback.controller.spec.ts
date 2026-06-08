@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { CallbackController } from '../../src/callback/callback.controller';
-import { EventService } from '../../src/event/event.service';
-import { EventDirection } from '../../src/event/entities/integration-event.entity';
+import { CallbackController } from '../../../src/callback/callback.controller';
+import { EventService } from '../../../src/event/event.service';
+import { EventDirection } from '../../../src/event/entities/integration-event.entity';
 
 const makeEventServiceMock = () => ({
   record: jest.fn().mockResolvedValue({ id: 'evt-1' }),

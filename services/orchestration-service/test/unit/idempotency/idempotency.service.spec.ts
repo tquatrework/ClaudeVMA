@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { IdempotencyService } from '../../src/idempotency/idempotency.service';
-import { IdempotencyKey } from '../../src/idempotency/entities/idempotency-key.entity';
+import { IdempotencyService } from '../../../src/idempotency/idempotency.service';
+import { IdempotencyKey } from '../../../src/idempotency/entities/idempotency-key.entity';
 
 const mockRepo = () => ({
   findOne: jest.fn(),

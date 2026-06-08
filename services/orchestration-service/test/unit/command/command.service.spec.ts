@@ -1,9 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { CommandService } from '../../src/command/command.service';
-import { IntegrationCommand } from '../../src/command/entities/integration-command.entity';
-import { HttpClientService } from '../../src/http-client/http-client.service';
-import { IdempotencyService } from '../../src/idempotency/idempotency.service';
+import { CommandService } from '../../../src/command/command.service';
+import { IntegrationCommand } from '../../../src/command/entities/integration-command.entity';
+import { HttpClientService } from '../../../src/http-client/http-client.service';
+import { IdempotencyService } from '../../../src/idempotency/idempotency.service';
 
 const makeRepoMock = () => ({
   create: jest.fn((x) => x),

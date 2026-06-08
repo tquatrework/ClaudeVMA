@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { CorrelationTraceService } from '../../src/correlation/correlation-trace.service';
-import { CorrelationTrace } from '../../src/correlation/entities/correlation-trace.entity';
+import { CorrelationTraceService } from '../../../src/correlation/correlation-trace.service';
+import { CorrelationTrace } from '../../../src/correlation/entities/correlation-trace.entity';
 
 const makeRepoMock = () => ({
   create: jest.fn((x) => x),

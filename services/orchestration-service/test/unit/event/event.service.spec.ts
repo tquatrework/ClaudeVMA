@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { EventService } from '../../src/event/event.service';
-import { IntegrationEvent, EventDirection } from '../../src/event/entities/integration-event.entity';
+import { EventService } from '../../../src/event/event.service';
+import { IntegrationEvent, EventDirection } from '../../../src/event/entities/integration-event.entity';
 
 const makeRepoMock = () => ({
   create: jest.fn((x) => x),

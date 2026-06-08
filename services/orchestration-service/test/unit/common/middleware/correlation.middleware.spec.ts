@@ -1,4 +1,4 @@
-import { CorrelationMiddleware } from '../../../src/common/middleware/correlation.middleware';
+import { CorrelationMiddleware } from '../../../../src/common/middleware/correlation.middleware';
 
 describe('CorrelationMiddleware', () => {
   let middleware: CorrelationMiddleware;

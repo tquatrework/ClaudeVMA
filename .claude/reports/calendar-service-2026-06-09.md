@@ -75,6 +75,29 @@ Cohérent avec la structure du projet :
 
 ---
 
+## package.json fix — 2026-06-09
+
+### Problème identifié
+Le `package-lock.json` était désynchronisé avec `package.json` : les trois dépendances de dev
+`@testcontainers/postgresql`, `testcontainers` et `jsonwebtoken` étaient déclarées dans
+`package.json` mais **absentes de l'entrée racine du lock file** et non installées dans
+`node_modules` (sauf `jsonwebtoken` qui était présent en tant que dépendance transitive mais
+sans entrée explicite).
+
+### Cause
+Le lock file avait été généré sans ces packages (probablement avant leur ajout à `package.json`),
+créant un état incohérent.
+
+### Correction
+Exécution de `npm install` dans le dossier du service :
+- 107 nouveaux packages ajoutés
+- `@testcontainers/postgresql`, `testcontainers` et `jsonwebtoken` présents dans le lock file
+  et dans `node_modules`
+- Build vérifié : `npm run build` → EXIT 0
+- Tests unitaires vérifiés : 28/28 tests passent — EXIT 0
+
+---
+
 ## Points en suspens
 
 1. **Authentification sur `/calendar`** : `CalendarController` porte `@ApiBearerAuth()` en décoration

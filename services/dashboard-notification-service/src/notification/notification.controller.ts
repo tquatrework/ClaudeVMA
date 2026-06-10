@@ -1,50 +1,78 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Param,
+  Query,
+  UseGuards,
+  ParseUUIDPipe,
+  HttpCode,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiParam,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { NotificationService } from './notification.service';
-import { CreateNotificationDto } from './dto/create-notification.dto';
+import { ListNotificationsDto } from './dto/list-notifications.dto';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('notifications')
 @ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('notifications')
 export class NotificationController {
   constructor(private readonly service: NotificationService) {}
 
-  @Post()
-  @ApiOperation({ summary: 'Create a notification', description: 'Push a notification to a user (called internally by other services)' })
-  @ApiResponse({ status: 201, description: 'Notification created' })
-  create(@Body() dto: CreateNotificationDto) {
-    return this.service.create(dto);
+  @Get()
+  @ApiOperation({
+    summary: 'List my notifications',
+    description: 'Returns paginated notifications for the authenticated user, newest first.',
+  })
+  @ApiQuery({ name: 'isRead', required: false, type: Boolean })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'Paginated notification list' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  findAll(@CurrentUser() user: AuthUser, @Query() query: ListNotificationsDto) {
+    return this.service.findByUser(user.id, query);
   }
 
-  @Get('user/:userId')
-  @ApiParam({ name: 'userId', description: 'User UUID' })
-  @ApiOperation({ summary: 'Get notifications for a user', description: 'Returns all notifications for a user, newest first' })
-  @ApiResponse({ status: 200, description: 'Notification list' })
-  findByUser(@Param('userId') userId: string) {
-    return this.service.findByUser(userId);
-  }
-
-  @Patch(':id/read')
-  @ApiParam({ name: 'id', description: 'Notification UUID' })
-  @ApiOperation({ summary: 'Mark notification as read' })
+  @Post(':notificationId/read')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Mark notification as read',
+    description: 'Marks a single notification as read. Only the owner can mark their own notifications.',
+  })
+  @ApiParam({ name: 'notificationId', description: 'Notification UUID' })
   @ApiResponse({ status: 200, description: 'Notification marked as read' })
-  markAsRead(@Param('id') id: string) {
-    return this.service.markAsRead(id);
-  }
-
-  @Patch('user/:userId/read-all')
-  @ApiParam({ name: 'userId', description: 'User UUID' })
-  @ApiOperation({ summary: 'Mark all notifications as read', description: 'Marks all unread notifications for a user as read' })
-  @ApiResponse({ status: 200, description: 'All notifications marked as read' })
-  markAllAsRead(@Param('userId') userId: string) {
-    return this.service.markAllAsRead(userId);
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Notification not found' })
+  markAsRead(
+    @Param('notificationId', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.markAsRead(id, user.id);
   }
 
   @Delete(':id')
+  @ApiOperation({
+    summary: 'Delete a notification',
+    description: 'Deletes a notification. Only the owner can delete their own notifications.',
+  })
   @ApiParam({ name: 'id', description: 'Notification UUID' })
-  @ApiOperation({ summary: 'Delete a notification' })
   @ApiResponse({ status: 200, description: 'Notification deleted' })
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Notification not found' })
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.remove(id, user.id);
   }
 }

@@ -6,6 +6,11 @@ export enum NotificationType {
   SESSION_REMINDER = 'session_reminder',
   NEW_MESSAGE = 'new_message',
   SESSION_CANCELLED = 'session_cancelled',
+  PAYMENT_FAILED = 'payment_failed',
+  TEACHER_REQUEST_CREATED = 'teacher_request_created',
+  ACTIVITY_SCHEDULED = 'activity_scheduled',
+  CONTENT_PENDING_VALIDATION = 'content_pending_validation',
+  ACCOUNT_CREATED = 'account_created',
   SYSTEM = 'system',
 }
 
@@ -28,6 +33,9 @@ export class Notification {
 
   @Column({ name: 'is_read', default: false })
   isRead: boolean;
+
+  @Column({ type: 'jsonb', nullable: true })
+  metadata: Record<string, unknown> | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

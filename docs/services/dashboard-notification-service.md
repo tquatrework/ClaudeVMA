@@ -66,5 +66,20 @@
       <scenario id="DASH-TEST-003" origin="SPEC">Planifier une activite et verifier les notifications eleve/formateur.</scenario>
       <scenario id="DASH-TEST-004" origin="SPEC">Connecter un parent et verifier que le carnet personnel n'apparait pas.</scenario>
     </manualTestScenarios>
+    <implementationStatus date="2026-06-10" phase="1">
+      <status>implemented</status>
+      <technicalDecisions>
+        <decision>Widgets = references (type + service source), pas donnees : dashboard n est pas proprietaire.</decision>
+        <decision>Notification par role : userId stocke sous role:nom_du_role en phase 1, fan-out prevu phase 2.</decision>
+        <decision>initializeDashboard est idempotent.</decision>
+        <decision>Guard JWT sans passport : coherent avec profile-service.</decision>
+        <decision>DASH-FB-001 : widget personal_notebook absent du build parent_financeur.</decision>
+      </technicalDecisions>
+      <pendingItems>
+        <item>Fan-out notifications par role vers identity-access-service (phase 2).</item>
+        <item>NotificationSubscription : entite creee, endpoints CRUD phase 2.</item>
+        <item>DashboardWidgetState : entite creee, persistance cache widgets phase 2.</item>
+      </pendingItems>
+    </implementationStatus>
   </microservice>
 </microserviceSpecification>

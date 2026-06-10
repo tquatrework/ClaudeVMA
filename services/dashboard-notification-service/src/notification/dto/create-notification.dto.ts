@@ -1,9 +1,9 @@
-import { IsString, IsUUID, IsEnum, IsOptional } from 'class-validator';
+import { IsString, IsUUID, IsEnum, IsOptional, IsObject } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { NotificationType } from '../entities/notification.entity';
 
 export class CreateNotificationDto {
-  @ApiProperty()
+  @ApiProperty({ description: 'Target user UUID' })
   @IsUUID()
   userId: string;
 
@@ -19,4 +19,9 @@ export class CreateNotificationDto {
   @ApiProperty({ example: 'Votre séance du 10/06 à 14h est confirmée.' })
   @IsString()
   message: string;
+
+  @ApiPropertyOptional({ description: 'Additional event metadata (JSONB)' })
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
 }

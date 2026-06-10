@@ -8,6 +8,6 @@ export class HealthController {
   @ApiOperation({ summary: 'Health check' })
   @ApiResponse({ status: 200 })
   check() {
-    return { status: 'ok', service: 'notification-dashboard-service', timestamp: new Date().toISOString() };
+    return { status: 'ok', service: 'dashboard-notification-service', timestamp: new Date().toISOString() };
   }
 }

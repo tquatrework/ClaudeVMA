@@ -1,16 +1,14 @@
 import {
   IsString,
-  IsUUID,
   IsOptional,
   IsArray,
   IsNumber,
   Min,
   Max,
   IsIn,
-  IsNotEmpty,
-  MinLength,
+  IsUUID,
 } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { LogVisibility } from '../entities/pedagogical-log.entity';
 
 const VISIBILITY_VALUES: LogVisibility[] = [
@@ -20,42 +18,35 @@ const VISIBILITY_VALUES: LogVisibility[] = [
   'special',
 ];
 
-export class CreateLogDto {
-  @ApiProperty({ description: 'UUID de l\'élève concerné' })
-  @IsUUID()
-  studentId: string;
-
-  @ApiProperty({ description: 'Contenu de l\'entrée pédagogique' })
+export class UpdateLogDto {
+  @ApiPropertyOptional({ description: 'Contenu de l\'entrée pédagogique' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  @MinLength(1)
-  content: string;
+  content?: string;
 
   @ApiPropertyOptional({
     enum: ['eleve_parent_formateur', 'eleve_formateur', 'formateur_rp', 'special'],
-    default: 'eleve_parent_formateur',
-    description: 'Règle de visibilité de l\'entrée (PLOG-BR-006)',
   })
   @IsOptional()
   @IsIn(VISIBILITY_VALUES)
   visibility?: LogVisibility;
 
-  @ApiPropertyOptional({ description: 'UUID de l\'activité ou séance associée' })
+  @ApiPropertyOptional()
   @IsOptional()
   @IsUUID()
   activityId?: string;
 
-  @ApiPropertyOptional({ description: 'UUID de la session visio associée' })
+  @ApiPropertyOptional()
   @IsOptional()
   @IsUUID()
   sessionId?: string;
 
-  @ApiPropertyOptional({ type: [String], example: ['dérivées', 'intégrales'] })
+  @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
   skillsWorked?: string[];
 
-  @ApiPropertyOptional({ example: 'intermédiaire' })
+  @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   difficulty?: string;

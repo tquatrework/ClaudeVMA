@@ -1,9 +1,16 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { CommunicationModule } from './communication/communication.module';
+import { JwtModule } from '@nestjs/jwt';
+import { ConversationModule } from './conversation/conversation.module';
+import { ContactModule } from './contact/contact.module';
+import { IncidentModule } from './incident/incident.module';
+import { InternalModule } from './internal/internal.module';
 import { HealthModule } from './health/health.module';
-import { Message } from './communication/entities/message.entity';
+import { Conversation } from './conversation/entities/conversation.entity';
+import { Message } from './conversation/entities/message.entity';
+import { ContactPolicy } from './contact/entities/contact-policy.entity';
+import { IncidentThread } from './incident/entities/incident-thread.entity';
 
 @Module({
   imports: [
@@ -13,12 +20,16 @@ import { Message } from './communication/entities/message.entity';
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
         url: config.get<string>('DATABASE_URL'),
-        entities: [Message],
+        entities: [Conversation, Message, ContactPolicy, IncidentThread],
         synchronize: config.get<string>('NODE_ENV') !== 'production',
       }),
       inject: [ConfigService],
     }),
-    CommunicationModule,
+    JwtModule.register({ global: true }),
+    ConversationModule,
+    ContactModule,
+    IncidentModule,
+    InternalModule,
     HealthModule,
   ],
 })

@@ -349,3 +349,54 @@ src/
 - Les `IntegrationEvent` publiés sont persistés en base mais pas encore émis vers un broker externe (prévu Phase 2).
 - `compensation` dans les 3 autres workflows Phase 1 (`teacher-onboarding`, `teacher-request`, `video-session`) : les `compensationAction` sont à définir au fil de l'implémentation des services aval.
 - Tests d'intégration E2E à créer (ORCH-TEST-001 à 005) une fois que les services aval sont opérationnels.
+
+---
+
+## Sécurité webhook — session 2026-06-11
+
+### Contexte
+
+`POST /callbacks/:provider` reçoit des webhooks de providers externes (visio, paiement, etc.). Ces providers n'ont pas de JWT utilisateur. La route ne doit donc **pas** utiliser `JwtAuthGuard`, mais un mécanisme adapté aux webhooks : un **secret partagé** transmis dans le header `X-Webhook-Secret`.
+
+Le gateway nginx retire `auth_request` de cette route côté ingress. La protection est assurée exclusivement par le service lui-même via `WebhookSecretGuard`.
+
+### Guard créé
+
+- **Fichier** : `src/common/guards/webhook-secret.guard.ts`
+- Lit le header `X-Webhook-Secret` et compare à la variable d'env `WEBHOOK_SECRET`.
+- Comportement **fail-closed** : si `WEBHOOK_SECRET` n'est pas définie dans l'env, tout accès est refusé (retour `false`).
+- Aucune dépendance externe (pas de `ConfigService`, lecture directe de `process.env.WEBHOOK_SECRET`).
+
+### Controller modifié
+
+- **Fichier** : `src/callback/callback.controller.ts`
+- `@UseGuards(WebhookSecretGuard)` ajouté sur `POST :provider` (ligne ~17).
+- Pas de `JwtAuthGuard` sur cette route — décision délibérée, les providers n'ont pas de token utilisateur.
+- Décorateurs Swagger ajoutés : `@ApiHeader({ name: 'X-Webhook-Secret', ... })`, `@ApiResponse({ status: 403, ... })`.
+
+### Variable d'env ajoutée
+
+`.env.example` :
+```
+WEBHOOK_SECRET=change-me-shared-secret
+```
+
+### APIs (mise à jour)
+
+| Méthode | Chemin | Auth | Description |
+|---|---|---|---|
+| `POST` | `/callbacks/:provider` | `X-Webhook-Secret` (pas de JWT) | Recevoir un webhook d'un provider externe |
+| `POST` | `/workflows/:workflowId/start` | JWT | Déclencher un workflow |
+| `GET` | `/workflows/:workflowInstanceId` | JWT | Lire l'état d'un workflow |
+| `POST` | `/commands` | JWT | Émettre une commande d'intégration |
+| `GET` | `/events/:correlationId` | JWT | Lire les événements d'une corrélation |
+
+### Tests
+
+- **Fichier** : `test/unit/common/guards/webhook-secret.guard.spec.ts`
+- 4 cas couverts :
+  - ORCH-WS-001 : header correct → `canActivate` retourne `true`
+  - ORCH-WS-002 : header absent → retourne `false`
+  - ORCH-WS-003 : header incorrect → retourne `false`
+  - ORCH-WS-004 : `WEBHOOK_SECRET` non définie → retourne `false` (fail-closed)
+- Résultats : 58 tests / 10 suites — tous passent.

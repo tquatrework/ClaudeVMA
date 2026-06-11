@@ -5,7 +5,7 @@ Les routes marquées 🔒 nécessitent un header `Authorization: Bearer <token>`
 
 ---
 
-## identity-access-service (port 3001)
+## identity-access-service
 
 Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedagogique`, `responsable_pedagogique`, `technicien_informatique`, `administrateur_financier`
 
@@ -61,7 +61,7 @@ Réponse : `{accountId, email, role}`
 
 ---
 
-## profile-service (port 3003)
+## profile-service
 
 Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedagogique`, `responsable_pedagogique`, `technicien_informatique`, `administrateur_financier`
 
@@ -137,45 +137,99 @@ Statuts : `pending` → `accepted` / `declined` / `cancelled`
 |---|---|---|---|
 | POST | /video/rooms | Créer une salle vidéo | 🔒 |
 | GET | /video/rooms/:id | Info d'une salle | 🔒 |
-| POST | /video/rooms/:id/join | Rejoindre la salle | 🔒 |
-| POST | /video/rooms/:id/end | Terminer la session | 🔒 |
+| GET | /video/rooms/:id/join | Rejoindre la salle (générer un token d'accès) | 🔒 |
+| POST | /video/rooms/:id/attendance | Enregistrer la présence | 🔒 |
+| POST | /video/rooms/:id/close | Clôturer la session | 🔒 |
+
+API interne (non exposée via nginx) : `GET /internal/video/*` — protégée par `X-Internal-Secret`.
 
 ---
 
 ## communication-service
 
+### Conversations
+
 | Méthode | Chemin | Description | Auth |
 |---|---|---|---|
-| POST | /messages | Envoyer un message | 🔒 |
+| POST | /conversations | Créer une conversation | 🔒 |
+| GET | /conversations | Lister mes conversations | 🔒 |
+| POST | /conversations/:id/messages | Envoyer un message | 🔒 |
+
+### Messages
+
+| Méthode | Chemin | Description | Auth |
+|---|---|---|---|
 | GET | /messages/conversation/:id | Messages d'une conversation | 🔒 |
 | PATCH | /messages/:id/read | Marquer comme lu | 🔒 |
+
+### Incidents (TI uniquement)
+
+| Méthode | Chemin | Description | Auth |
+|---|---|---|---|
+| POST | /incidents | Créer un incident | 🔒 |
+| GET | /incidents | Lister les incidents | 🔒 |
+| GET | /incidents/:id | Détail d'un incident | 🔒 |
+| PUT | /incidents/:id/status | Changer le statut d'un incident | 🔒 |
+
+API interne (non exposée via nginx) : `POST /internal/sync-contacts` — protégée par `X-Internal-Secret`.
 
 ---
 
 ## pedagogical-log-service
 
+### Logs (cahier de texte)
+
 | Méthode | Chemin | Description | Auth |
 |---|---|---|---|
-| POST | /logs | Créer un log | 🔒 |
+| POST | /logs | Créer un log pédagogique | 🔒 |
 | GET | /logs/student/:studentId | Logs d'un élève | 🔒 |
 | GET | /logs/session/:sessionId | Logs d'une séance | 🔒 |
 | GET | /logs/:id | Détail d'un log | 🔒 |
+| PATCH | /logs/:id | Modifier un log | 🔒 |
 
----
-
-## notification-dashboard-service
+### Mémos
 
 | Méthode | Chemin | Description | Auth |
 |---|---|---|---|
-| POST | /notifications | Créer une notification | 🔒 |
-| GET | /notifications/user/:userId | Notifications d'un utilisateur | 🔒 |
-| PATCH | /notifications/:id/read | Marquer comme lue | 🔒 |
-| PATCH | /notifications/user/:userId/read-all | Tout marquer comme lu | 🔒 |
-| DELETE | /notifications/:id | Supprimer une notification | 🔒 |
+| POST | /memos | Créer un mémo | 🔒 |
+| GET | /memos | Lister mes mémos | 🔒 |
+| GET | /memos/:id | Détail d'un mémo | 🔒 |
+| DELETE | /memos/:id | Supprimer un mémo | 🔒 |
+
+### Carnet personnel (élève uniquement)
+
+| Méthode | Chemin | Description | Auth |
+|---|---|---|---|
+| POST | /students/:studentId/notebook | Créer une entrée carnet | 🔒 |
+| GET | /students/:studentId/notebook | Lister les entrées | 🔒 |
+| GET | /students/:studentId/notebook/:id | Détail d'une entrée | 🔒 |
+| PATCH | /students/:studentId/notebook/:id | Modifier une entrée | 🔒 |
+| DELETE | /students/:studentId/notebook/:id | Supprimer une entrée | 🔒 |
 
 ---
 
-## orchestration-service (port 3000 interne)
+## dashboard-notification-service
+
+### Notifications
+
+| Méthode | Chemin | Description | Auth |
+|---|---|---|---|
+| GET | /notifications | Lister mes notifications | 🔒 |
+| POST | /notifications/:id/read | Marquer une notification comme lue | 🔒 |
+| DELETE | /notifications/:id | Supprimer une notification | 🔒 |
+
+### Tableaux de bord
+
+| Méthode | Chemin | Description | Auth |
+|---|---|---|---|
+| GET | /dashboards/me | Mon tableau de bord | 🔒 |
+| PUT | /dashboards/me/preferences | Mettre à jour les préférences | 🔒 |
+
+API interne (non exposée via nginx) : `POST /internal/initialize-dashboard`, `POST /internal/notify` — protégées par `X-Internal-Secret`.
+
+---
+
+## orchestration-service
 
 Toutes les routes sont accessibles via le gateway sous le préfixe `/api/v1/orchestration/`.
 Les routes de callbacks sont techniquement protégées par `auth_request` nginx, mais destinées aux webhooks externes : le `correlationId` est lu depuis le body ou généré automatiquement.
@@ -210,7 +264,7 @@ Types de workflows phase 1 : `student-onboarding`, `teacher-onboarding`, `teache
 |---|---|---|---|---|---|
 | POST | /callbacks/:provider | Recevoir un webhook d'un fournisseur externe (vidéo, paiement, etc.) | Non (webhook) | Path: `provider` (ex: `video-provider`) · Body: `{correlationId?, eventType?, ...payload}` | `200 {received: true, correlationId}` |
 
-Note : la route `/callbacks/:provider` est exposée via nginx avec `auth_request`, mais est conçue pour recevoir des webhooks de fournisseurs externes. Le `correlationId` est lu depuis `body.correlationId` ou `body.correlation_id`, ou généré automatiquement si absent.
+Note : la route `/callbacks/:provider` n'est **pas** protégée par `auth_request` nginx — les providers externes ne peuvent pas fournir un JWT utilisateur. La protection repose sur le header `X-Webhook-Secret` validé côté service. Le `correlationId` est lu depuis `body.correlationId` ou `body.correlation_id`, ou généré automatiquement si absent.
 
 ---
 

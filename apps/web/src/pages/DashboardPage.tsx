@@ -19,7 +19,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user) return
     apiClient
-      .get<Notification[]>(`/notifications/user/${user.id}`)
+      .get<Notification[]>('/notifications')
       .then(({ data }) => setNotifications(data))
       .catch(() => { /* notifications non bloquantes */ })
       .finally(() => setIsLoading(false))

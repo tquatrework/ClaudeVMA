@@ -49,7 +49,7 @@ export default function VideoPage() {
   const endSession = async () => {
     if (!roomId) return
     try {
-      await apiClient.post(`/video/rooms/${roomId}/end`)
+      await apiClient.post(`/video/rooms/${roomId}/close`)
       navigate('/dashboard')
     } catch {
       setError('Erreur lors de la clôture de la session')

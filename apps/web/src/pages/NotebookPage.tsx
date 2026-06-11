@@ -40,10 +40,8 @@ function NotebookContent({ studentId }: { studentId: string }) {
   const [isSaving, setIsSaving] = useState(false)
 
   useEffect(() => {
-    // The notebook reuses pedagogical-log endpoints with a personal flag
-    // or a dedicated sub-resource — using /logs/student/:id for the scaffold
     apiClient
-      .get<NotebookEntry[]>(`/logs/student/${studentId}?type=notebook`)
+      .get<NotebookEntry[]>(`/students/${studentId}/notebook`)
       .then(({ data }) => setEntries(data))
       .catch((err) => {
         const status = err?.response?.status
@@ -58,10 +56,8 @@ function NotebookContent({ studentId }: { studentId: string }) {
     if (!newContent.trim()) return
     setIsSaving(true)
     try {
-      const { data } = await apiClient.post<NotebookEntry>('/logs', {
-        studentId,
+      const { data } = await apiClient.post<NotebookEntry>(`/students/${studentId}/notebook`, {
         content: newContent.trim(),
-        type: 'notebook',
       })
       setEntries((prev) => [data, ...prev])
       setNewContent('')

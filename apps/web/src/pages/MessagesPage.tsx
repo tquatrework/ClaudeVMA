@@ -31,7 +31,7 @@ export default function MessagesPage() {
     // Load conversations list — placeholder using a generic messages endpoint
     // In phase 1 the actual conversations list endpoint may vary
     apiClient
-      .get<Conversation[]>('/messages')
+      .get<Conversation[]>('/conversations')
       .then(({ data }) => setConversations(data))
       .catch(() => setError('Impossible de charger les messages'))
       .finally(() => setIsLoading(false))
@@ -56,8 +56,7 @@ export default function MessagesPage() {
     if (!selectedConv || !newMessage.trim()) return
     setIsSending(true)
     try {
-      const { data } = await apiClient.post<Message>('/messages', {
-        conversationId: selectedConv,
+      const { data } = await apiClient.post<Message>(`/conversations/${selectedConv}/messages`, {
         content: newMessage.trim(),
       })
       setMessages((prev) => [...prev, data])

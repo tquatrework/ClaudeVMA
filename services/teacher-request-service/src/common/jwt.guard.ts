@@ -32,7 +32,8 @@ export class JwtAuthGuard implements CanActivate {
     if (!auth?.startsWith('Bearer ')) throw new UnauthorizedException();
     try {
       const token = auth.slice(7);
-      const secret = this.config.get<string>('JWT_SECRET', 'dev-secret');
+      const secret = this.config.get<string>('JWT_SECRET');
+      if (!secret) throw new Error('JWT_SECRET environment variable is required');
       const raw = this.jwtService.verify<RawJwtPayload>(token, { secret });
       if (raw.type !== 'access') throw new UnauthorizedException('Invalid token type');
       request.user = {

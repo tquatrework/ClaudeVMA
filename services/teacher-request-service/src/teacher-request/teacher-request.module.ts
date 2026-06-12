@@ -17,9 +17,11 @@ import { JwtAuthGuard } from '../common/jwt.guard';
     TypeOrmModule.forFeature([TeacherRequest, TeacherProposal, Assignment, TerminationRequest]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
-      useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET', 'dev-secret'),
-      }),
+      useFactory: (config: ConfigService) => {
+        const secret = config.get<string>('JWT_SECRET');
+        if (!secret) throw new Error('JWT_SECRET environment variable is required');
+        return { secret };
+      },
       inject: [ConfigService],
     }),
   ],

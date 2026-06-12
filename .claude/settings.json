@@ -25,7 +25,14 @@
       "Bash(docker info)",
       "Bash(docker info *)",
       "Bash(pg_isready)",
-      "Bash(pg_isready *)"
+      "Bash(pg_isready *)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(npx tsc --noEmit *)",
+      "Bash(git -C * status)",
+      "Bash(git -C * status *)",
+      "Bash(git -C * log *)",
+      "Bash(git -C * diff *)",
+      "Bash(npx jest *)"
     ]
   }
 }

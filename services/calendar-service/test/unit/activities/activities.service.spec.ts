@@ -153,14 +153,14 @@ describe('ActivitiesService', () => {
 
   describe('findOne', () => {
     it('returns activity by id', async () => {
-      const activity = { id: 'act-1', title: 'Cours' };
+      const activity = { id: 'act-1', title: 'Cours', creatorId: 'teacher-1', participantIds: ['student-1'] };
       mockActivityRepo.findOne.mockResolvedValue(activity);
-      expect(await service.findOne('act-1')).toEqual(activity);
+      expect(await service.findOne('act-1', 'teacher-1', UserRole.FORMATEUR)).toEqual(activity);
     });
 
     it('throws NotFoundException for unknown id', async () => {
       mockActivityRepo.findOne.mockResolvedValue(null);
-      await expect(service.findOne('bad-id')).rejects.toThrow(NotFoundException);
+      await expect(service.findOne('bad-id', 'teacher-1', UserRole.FORMATEUR)).rejects.toThrow(NotFoundException);
     });
   });
 });

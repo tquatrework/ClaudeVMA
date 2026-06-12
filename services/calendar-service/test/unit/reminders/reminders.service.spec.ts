@@ -1,9 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { RemindersService } from './reminders.service';
-import { Reminder } from './entities/reminder.entity';
-import { EventsService } from '../events/events.service';
-import { UserRole } from '../common/enums/user-role.enum';
+import { RemindersService } from '../../../src/reminders/reminders.service';
+import { Reminder } from '../../../src/reminders/entities/reminder.entity';
+import { EventsService } from '../../../src/events/events.service';
+import { UserRole } from '../../../src/common/enums/user-role.enum';
 
 const mockReminderRepo = {
   create: jest.fn(),

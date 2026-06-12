@@ -1,10 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
-import { ActivitiesService } from './activities.service';
-import { ScheduledActivity, ActivityType, ActivityStatus } from './entities/scheduled-activity.entity';
-import { EventsService } from '../events/events.service';
-import { UserRole } from '../common/enums/user-role.enum';
+import { ActivitiesService } from '../../../src/activities/activities.service';
+import { ScheduledActivity, ActivityType, ActivityStatus } from '../../../src/activities/entities/scheduled-activity.entity';
+import { EventsService } from '../../../src/events/events.service';
+import { UserRole } from '../../../src/common/enums/user-role.enum';
 
 const mockActivityRepo = {
   findOne: jest.fn(),

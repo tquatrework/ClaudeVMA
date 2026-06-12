@@ -1,12 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
-import { CalendarsService } from './calendars.service';
-import { Calendar } from './entities/calendar.entity';
-import { AvailabilitySlot, SlotRecurrence } from './entities/availability-slot.entity';
-import { PaymentScheduleEntry } from './entities/payment-schedule-entry.entity';
-import { EventsService } from '../events/events.service';
-import { UserRole } from '../common/enums/user-role.enum';
+import { CalendarsService } from '../../../src/calendars/calendars.service';
+import { Calendar } from '../../../src/calendars/entities/calendar.entity';
+import { AvailabilitySlot, SlotRecurrence } from '../../../src/calendars/entities/availability-slot.entity';
+import { PaymentScheduleEntry } from '../../../src/calendars/entities/payment-schedule-entry.entity';
+import { EventsService } from '../../../src/events/events.service';
+import { UserRole } from '../../../src/common/enums/user-role.enum';
 
 const mockCalendarRepo = {
   findOne: jest.fn(),

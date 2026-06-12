@@ -79,7 +79,8 @@ export class ActivitiesController {
   @ApiOperation({ summary: 'Get an activity by ID' })
   @ApiResponse({ status: 200, description: 'Activity found' })
   @ApiResponse({ status: 404, description: 'Not found' })
-  getActivity(@Param('activityId') activityId: string) {
-    return this.activitiesService.findOne(activityId);
+  @ApiResponse({ status: 403, description: 'Forbidden — IDOR check' })
+  getActivity(@Param('activityId') activityId: string, @Req() req: any) {
+    return this.activitiesService.findOne(activityId, req.user.id, req.user.role);
   }
 }

@@ -100,8 +100,10 @@ export class ActivitiesService {
     return updated;
   }
 
-  async findOne(activityId: string): Promise<ScheduledActivity> {
-    return this.findOneOrFail(activityId);
+  async findOne(activityId: string, requesterId: string, requesterRole: string): Promise<ScheduledActivity> {
+    const activity = await this.findOneOrFail(activityId);
+    this.assertCanReadActivity(activity, requesterId, requesterRole);
+    return activity;
   }
 
   async findByParticipant(userId: string): Promise<ScheduledActivity[]> {
@@ -140,6 +142,26 @@ export class ActivitiesService {
         'CAL-FB-003: AP can only create pedagogical meetings (reunion_pedagogique)',
       );
     }
+  }
+
+  /**
+   * IDOR guard: user can read an activity only if they are the creator,
+   * a declared participant, or hold an internal privileged role (RP, TI, AF).
+   */
+  private assertCanReadActivity(
+    activity: ScheduledActivity,
+    requesterId: string,
+    requesterRole: string,
+  ): void {
+    const readRoles: string[] = [
+      UserRole.RESPONSABLE_PEDAGOGIQUE,
+      UserRole.TECHNICIEN_INFORMATIQUE,
+      UserRole.ADMINISTRATEUR_FINANCIER,
+    ];
+    if (activity.creatorId === requesterId) return;
+    if (activity.participantIds.includes(requesterId)) return;
+    if (readRoles.includes(requesterRole)) return;
+    throw new ForbiddenException('Access to this activity is not allowed');
   }
 
   /**

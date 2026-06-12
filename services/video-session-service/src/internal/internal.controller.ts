@@ -19,6 +19,26 @@ import { VideoSessionService } from '../video-session/video-session.service';
 import { CreateRoomDto } from '../video-session/dto/create-room.dto';
 import { RecordAttendanceDto } from '../video-session/dto/record-attendance.dto';
 import { UserRole } from '../common/enums/user-role.enum';
+import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
+
+/** DTO for internal attendance recording. */
+class InternalAttendanceDto extends RecordAttendanceDto {
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  userRole: string;
+}
+
+/** DTO for internal close operation. */
+class InternalCloseDto {
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  callerId?: string;
+}
 
 @ApiTags('internal')
 @ApiHeader({
@@ -110,15 +130,4 @@ export class InternalController {
   ) {
     return this.service.end(roomId, dto.callerId ?? 'orchestration-service', UserRole.FORMATEUR);
   }
-}
-
-/** DTO for internal attendance recording. */
-class InternalAttendanceDto extends RecordAttendanceDto {
-  userId: string;
-  userRole: string;
-}
-
-/** DTO for internal close operation. */
-class InternalCloseDto {
-  callerId?: string;
 }

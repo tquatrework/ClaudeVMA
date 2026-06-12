@@ -16,8 +16,8 @@ export class InternalGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const expected = this.config.get<string>('INTERNAL_SECRET');
     if (!expected) {
-      this.logger.warn('INTERNAL_SECRET not configured — internal endpoints are unprotected');
-      return true;
+      this.logger.error('INTERNAL_SECRET not configured — rejecting all internal requests');
+      throw new UnauthorizedException('Internal access only');
     }
     const request = context.switchToHttp().getRequest();
     const provided = request.headers['x-internal-secret'];

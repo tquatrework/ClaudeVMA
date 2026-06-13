@@ -52,6 +52,7 @@ describe('[E2E] Pedagogical Log Service', () => {
   let rp1Token: string;
   let ap1Token: string;
   let tiToken: string;
+  let adminFinancierToken: string;
 
   // IDs captured after seed creations
   let createdLogId: string;
@@ -63,14 +64,15 @@ describe('[E2E] Pedagogical Log Service', () => {
   beforeAll(async () => {
     app = await createTestApp();
 
-    teacher1Token = makeJwt(IDS.teacher1, 'formateur');
-    teacher2Token = makeJwt(IDS.teacher2, 'formateur');
-    student1Token = makeJwt(IDS.student1, 'eleve');
-    student2Token = makeJwt(IDS.student2, 'eleve');
-    parent1Token  = makeJwt(IDS.parent1,  'parent_financeur');
-    rp1Token      = makeJwt(IDS.rp1,      'responsable_pedagogique');
-    ap1Token      = makeJwt(IDS.ap1,      'animateur_pedagogique');
-    tiToken       = makeJwt(IDS.ti,       'technicien_informatique');
+    teacher1Token       = makeJwt(IDS.teacher1,       'formateur');
+    teacher2Token       = makeJwt(IDS.teacher2,       'formateur');
+    student1Token       = makeJwt(IDS.student1,       'eleve');
+    student2Token       = makeJwt(IDS.student2,       'eleve');
+    parent1Token        = makeJwt(IDS.parent1,        'parent_financeur');
+    rp1Token            = makeJwt(IDS.rp1,            'responsable_pedagogique');
+    ap1Token            = makeJwt(IDS.ap1,            'animateur_pedagogique');
+    tiToken             = makeJwt(IDS.ti,             'technicien_informatique');
+    adminFinancierToken = makeJwt(IDS.adminFinancier, 'administrateur_financier');
 
     createdSessionId = '11111111-1111-4111-a111-111111111111';
 
@@ -717,6 +719,35 @@ describe('[E2E] Pedagogical Log Service', () => {
       for (const m of res.body) {
         expect(m.authorId).toBe(IDS.teacher1);
       }
+    });
+
+    /**
+     * Régression #FIX-403 — ADMINISTRATEUR_FINANCIER était bloqué par RolesGuard
+     * sur GET /memos avant le correctif (rôle absent de la liste @Roles()).
+     */
+    it('[#FIX-403] GET /memos — administrateur_financier peut accéder → 200', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/memos')
+        .set('Authorization', `Bearer ${adminFinancierToken}`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+    });
+
+    it('GET /memos — un élève ne peut pas accéder → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/memos')
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('GET /memos — un parent ne peut pas accéder → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/memos')
+        .set('Authorization', `Bearer ${parent1Token}`);
+
+      expect(res.status).toBe(403);
     });
 
     it('GET /memos/:id — l\'auteur peut lire son mémo → 200', async () => {

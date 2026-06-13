@@ -26,7 +26,10 @@ import { CreateMemoDto } from './dto/create-memo.dto';
 
 /**
  * Routes mémos (POST /memos, GET /memos, GET /memos/:id, DELETE /memos/:id)
- * Accessible aux formateurs, RP et AP.
+ *
+ * Création/suppression : FORMATEUR, RP, AP, TI.
+ * Lecture (liste + détail) : FORMATEUR, RP, AP, TI, ADMINISTRATEUR_FINANCIER.
+ * ELEVE et PARENT_FINANCEUR n'ont pas accès aux mémos (notes internes du personnel).
  */
 @ApiTags('memos')
 @ApiBearerAuth()
@@ -60,6 +63,7 @@ export class MemoController {
     UserRole.RESPONSABLE_PEDAGOGIQUE,
     UserRole.ANIMATEUR_PEDAGOGIQUE,
     UserRole.TECHNICIEN_INFORMATIQUE,
+    UserRole.ADMINISTRATEUR_FINANCIER,
   )
   @ApiOperation({
     summary: 'List my memos',
@@ -67,6 +71,7 @@ export class MemoController {
   })
   @ApiResponse({ status: 200, description: 'Memo list' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — role not allowed' })
   findAll(@Req() req: any) {
     return this.service.findByAuthor(req.user.id);
   }
@@ -77,6 +82,7 @@ export class MemoController {
     UserRole.RESPONSABLE_PEDAGOGIQUE,
     UserRole.ANIMATEUR_PEDAGOGIQUE,
     UserRole.TECHNICIEN_INFORMATIQUE,
+    UserRole.ADMINISTRATEUR_FINANCIER,
   )
   @ApiParam({ name: 'id', description: 'Memo UUID' })
   @ApiOperation({ summary: 'Get a memo by ID' })

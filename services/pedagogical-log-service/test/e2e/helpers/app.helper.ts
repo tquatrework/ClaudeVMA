@@ -116,13 +116,14 @@ export function makeJwt(
  * All values are valid RFC 4122 v4 UUIDs.
  */
 export const IDS = {
-  student1: 'f841ccff-a112-4df8-9dc3-f875c995507d',
-  student2: 'c1ec1f5c-bbe0-45a2-ac52-b8732878ffe1',
-  parent1:  '5103b232-6f79-4f11-9e37-cb56af21ac13',
-  teacher1: '47a5808b-66c7-41c9-92cd-7367d1cda003',
-  teacher2: '39573f2a-d0f3-4864-9b03-bac893137100',
-  rp1:      '60eff2e3-586f-4f6f-a37c-accad1676ccf',
-  ap1:      '88d58936-a2ac-4323-827d-6b3e90709b9f',
-  ti:       '972ba620-44bf-45ea-82df-8a80357d349f',
-  unknown:  '8769d2b1-4e58-4de0-a7c1-bcde7e5b0c12',
+  student1:      'f841ccff-a112-4df8-9dc3-f875c995507d',
+  student2:      'c1ec1f5c-bbe0-45a2-ac52-b8732878ffe1',
+  parent1:       '5103b232-6f79-4f11-9e37-cb56af21ac13',
+  teacher1:      '47a5808b-66c7-41c9-92cd-7367d1cda003',
+  teacher2:      '39573f2a-d0f3-4864-9b03-bac893137100',
+  rp1:           '60eff2e3-586f-4f6f-a37c-accad1676ccf',
+  ap1:           '88d58936-a2ac-4323-827d-6b3e90709b9f',
+  ti:            '972ba620-44bf-45ea-82df-8a80357d349f',
+  adminFinancier: 'a1b2c3d4-e5f6-4789-abcd-ef1234567890',
+  unknown:       '8769d2b1-4e58-4de0-a7c1-bcde7e5b0c12',
 };

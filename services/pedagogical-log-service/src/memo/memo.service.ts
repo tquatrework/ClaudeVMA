@@ -31,7 +31,8 @@ export class MemoService {
       memo.authorId === callerId ||
       callerRole === 'responsable_pedagogique' ||
       callerRole === 'animateur_pedagogique' ||
-      callerRole === 'technicien_informatique';
+      callerRole === 'technicien_informatique' ||
+      callerRole === 'administrateur_financier';
 
     if (!canRead) {
       throw new ForbiddenException('Access to this memo is not allowed');

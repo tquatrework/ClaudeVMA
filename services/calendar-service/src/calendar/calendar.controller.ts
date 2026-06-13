@@ -7,13 +7,13 @@ import { CreateSessionDto } from './dto/create-session.dto';
 @ApiBearerAuth()
 @Controller('calendar')
 export class CalendarController {
-  constructor(private readonly service: CalendarService) {}
+  constructor(private readonly calendarService: CalendarService) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a session', description: 'Schedule a new tutoring session' })
   @ApiResponse({ status: 201, description: 'Session created' })
   create(@Body() dto: CreateSessionDto) {
-    return this.service.create(dto);
+    return this.calendarService.create(dto);
   }
 
   @Get()
@@ -22,9 +22,9 @@ export class CalendarController {
   @ApiQuery({ name: 'studentId', required: false })
   @ApiResponse({ status: 200, description: 'List of sessions' })
   findAll(@Query('teacherId') teacherId?: string, @Query('studentId') studentId?: string) {
-    if (teacherId) return this.service.findByTeacher(teacherId);
-    if (studentId) return this.service.findByStudent(studentId);
-    return this.service.findAll();
+    if (teacherId) return this.calendarService.findByTeacher(teacherId);
+    if (studentId) return this.calendarService.findByStudent(studentId);
+    return this.calendarService.findAll();
   }
 
   @Get(':id')
@@ -33,7 +33,7 @@ export class CalendarController {
   @ApiResponse({ status: 200, description: 'Session found' })
   @ApiResponse({ status: 404, description: 'Session not found' })
   findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+    return this.calendarService.findOne(id);
   }
 
   @Patch(':id')
@@ -41,7 +41,7 @@ export class CalendarController {
   @ApiOperation({ summary: 'Update a session', description: 'Reschedule or add notes to a session' })
   @ApiResponse({ status: 200, description: 'Session updated' })
   update(@Param('id') id: string, @Body() dto: Partial<CreateSessionDto>) {
-    return this.service.update(id, dto);
+    return this.calendarService.update(id, dto);
   }
 
   @Delete(':id')
@@ -49,6 +49,6 @@ export class CalendarController {
   @ApiOperation({ summary: 'Cancel/delete a session' })
   @ApiResponse({ status: 200, description: 'Session deleted' })
   remove(@Param('id') id: string) {
-    return this.service.remove(id);
+    return this.calendarService.remove(id);
   }
 }

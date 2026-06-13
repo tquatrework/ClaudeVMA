@@ -22,22 +22,22 @@ describe('RelationsService', () => {
     financeRepo = {
       findOne: jest.fn().mockResolvedValue(null),
       find: jest.fn().mockResolvedValue([]),
-      create: jest.fn().mockImplementation((d) => d),
-      save: jest.fn().mockImplementation(async (e) => ({ id: 'link-uuid', ...e, createdAt: new Date() })),
+      create: jest.fn().mockImplementation((dto) => dto),
+      save: jest.fn().mockImplementation(async (entity) => ({ id: 'link-uuid', ...entity, createdAt: new Date() })),
     };
 
     teacherRepo = {
       findOne: jest.fn().mockResolvedValue(null),
       find: jest.fn().mockResolvedValue([]),
-      create: jest.fn().mockImplementation((d) => d),
-      save: jest.fn().mockImplementation(async (e) => ({ id: 'link-uuid', ...e, createdAt: new Date() })),
+      create: jest.fn().mockImplementation((dto) => dto),
+      save: jest.fn().mockImplementation(async (entity) => ({ id: 'link-uuid', ...entity, createdAt: new Date() })),
     };
 
     coordinatorRepo = {
       findOne: jest.fn().mockResolvedValue(null),
       find: jest.fn().mockResolvedValue([]),
-      create: jest.fn().mockImplementation((d) => d),
-      save: jest.fn().mockImplementation(async (e) => ({ id: 'link-uuid', ...e, createdAt: new Date() })),
+      create: jest.fn().mockImplementation((dto) => dto),
+      save: jest.fn().mockImplementation(async (entity) => ({ id: 'link-uuid', ...entity, createdAt: new Date() })),
     };
 
     eventsService = { publish: jest.fn() };

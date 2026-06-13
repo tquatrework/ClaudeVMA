@@ -19,13 +19,15 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user) return
     apiClient
-      .get<Notification[]>('/notifications')
-      .then(({ data }) => setNotifications(data))
+      .get<{ data: Notification[] }>('/notifications')
+      .then(({ data: responseBody }) => {
+        setNotifications(responseBody.data ?? [])
+      })
       .catch(() => { /* notifications non bloquantes */ })
       .finally(() => setIsLoading(false))
   }, [user])
 
-  const unreadCount = notifications.filter((n) => !n.read).length
+  const unreadCount = notifications.filter((notification) => !notification.read).length
 
   return (
     <Layout>
@@ -77,14 +79,14 @@ export default function DashboardPage() {
             <p className="text-gray-400 text-sm">Aucune notification</p>
           ) : (
             <ul className="space-y-2">
-              {notifications.slice(0, 5).map((n) => (
+              {notifications.slice(0, 5).map((notification) => (
                 <li
-                  key={n.id}
+                  key={notification.id}
                   className={`p-3 rounded-lg border text-sm ${
-                    n.read ? 'bg-white border-gray-200 text-gray-600' : 'bg-indigo-50 border-indigo-200 text-gray-800 font-medium'
+                    notification.read ? 'bg-white border-gray-200 text-gray-600' : 'bg-indigo-50 border-indigo-200 text-gray-800 font-medium'
                   }`}
                 >
-                  {n.message}
+                  {notification.message}
                 </li>
               ))}
             </ul>

@@ -47,13 +47,13 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Current user identity' })
   @ApiResponse({ status: 401, description: 'Missing or invalid token' })
   me(@Request() req) {
-    const u = req.user;
+    const currentUser = req.user;
     return {
-      id: u.id,
-      email: u.email,
-      role: u.role,
-      validationStatus: u.validationStatus,
-      consentSigned: u.consentSigned,
+      id: currentUser.id,
+      email: currentUser.email,
+      role: currentUser.role,
+      validationStatus: currentUser.validationStatus,
+      consentSigned: currentUser.consentSigned,
     };
   }
 }

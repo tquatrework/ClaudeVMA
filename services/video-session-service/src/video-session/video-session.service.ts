@@ -221,11 +221,11 @@ export class VideoSessionService {
       startedAt: saved.startedAt,
       endedAt: saved.endedAt,
       endedBy: callerId,
-      attendance: attendanceRecords.map((r) => ({
-        userId: r.userId,
-        userRole: r.userRole,
-        joinedAt: r.joinedAt,
-        leftAt: r.leftAt,
+      attendance: attendanceRecords.map((attendanceRecord) => ({
+        userId: attendanceRecord.userId,
+        userRole: attendanceRecord.userRole,
+        joinedAt: attendanceRecord.joinedAt,
+        leftAt: attendanceRecord.leftAt,
       })),
     });
 

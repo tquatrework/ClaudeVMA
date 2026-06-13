@@ -69,13 +69,13 @@ export class TeacherRequestService {
   }
 
   async getRequest(id: string, user: JwtPayload): Promise<TeacherRequest> {
-    const req = await this.requestRepo.findOne({ where: { id } });
-    if (!req) throw new NotFoundException(`Request ${id} not found`);
+    const teacherRequest = await this.requestRepo.findOne({ where: { id } });
+    if (!teacherRequest) throw new NotFoundException(`Request ${id} not found`);
 
     // Access control: RP sees all; student sees own; parent sees own requests
-    if (user.role === UserRole.RESPONSABLE_PEDAGOGIQUE) return req;
-    if (user.role === UserRole.ELEVE && req.studentId === user.id) return req;
-    if (req.requesterId === user.id) return req;
+    if (user.role === UserRole.RESPONSABLE_PEDAGOGIQUE) return teacherRequest;
+    if (user.role === UserRole.ELEVE && teacherRequest.studentId === user.id) return teacherRequest;
+    if (teacherRequest.requesterId === user.id) return teacherRequest;
 
     throw new ForbiddenException('Access denied');
   }
@@ -86,16 +86,16 @@ export class TeacherRequestService {
       throw new ForbiddenException('Only responsable_pedagogique can update request status');
     }
 
-    const req = await this.requestRepo.findOne({ where: { id } });
-    if (!req) throw new NotFoundException(`Request ${id} not found`);
+    const teacherRequest = await this.requestRepo.findOne({ where: { id } });
+    if (!teacherRequest) throw new NotFoundException(`Request ${id} not found`);
 
     // Validate transition: only pending → accepted/declined/cancelled is allowed
     const validFromPending = [RequestStatus.ACCEPTED, RequestStatus.DECLINED, RequestStatus.CANCELLED];
-    if (req.status !== RequestStatus.PENDING || !validFromPending.includes(newStatus)) {
-      throw new BadRequestException(`Invalid status transition from ${req.status} to ${newStatus}`);
+    if (teacherRequest.status !== RequestStatus.PENDING || !validFromPending.includes(newStatus)) {
+      throw new BadRequestException(`Invalid status transition from ${teacherRequest.status} to ${newStatus}`);
     }
 
-    const updated = await this.requestRepo.save({ ...req, status: newStatus });
+    const updated = await this.requestRepo.save({ ...teacherRequest, status: newStatus });
     this.events.emit('TeacherRequestStatusUpdated', { requestId: id, status: newStatus, updatedBy: user.id });
     return updated;
   }
@@ -106,10 +106,10 @@ export class TeacherRequestService {
       throw new ForbiddenException('Only responsable_pedagogique can delete requests');
     }
 
-    const req = await this.requestRepo.findOne({ where: { id } });
-    if (!req) throw new NotFoundException(`Request ${id} not found`);
+    const teacherRequest = await this.requestRepo.findOne({ where: { id } });
+    if (!teacherRequest) throw new NotFoundException(`Request ${id} not found`);
 
-    await this.requestRepo.remove(req);
+    await this.requestRepo.remove(teacherRequest);
     this.events.emit('TeacherRequestDeleted', { requestId: id, deletedBy: user.id });
   }
 

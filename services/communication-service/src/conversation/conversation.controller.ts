@@ -34,7 +34,7 @@ import { SendMessageDto } from './dto/send-message.dto';
 @UseGuards(JwtAuthGuard)
 @Controller()
 export class ConversationController {
-  constructor(private readonly service: ConversationService) {}
+  constructor(private readonly conversationService: ConversationService) {}
 
   // ── Conversations ──────────────────────────────────────────────────────────
 
@@ -47,7 +47,7 @@ export class ConversationController {
   @ApiResponse({ status: 200, description: 'Conversation list' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   listConversations(@Req() req: any) {
-    return this.service.findAll(req.user.id);
+    return this.conversationService.findAll(req.user.id);
   }
 
   @Post('conversations')
@@ -63,7 +63,7 @@ export class ConversationController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Contact not authorized — COM-FB-002' })
   createConversation(@Body() dto: CreateConversationDto, @Req() req: any) {
-    return this.service.create(dto, req.user.id);
+    return this.conversationService.create(dto, req.user.id);
   }
 
   @Post('conversations/:conversationId/messages')
@@ -84,7 +84,7 @@ export class ConversationController {
     @Body() dto: SendMessageDto,
     @Req() req: any,
   ) {
-    return this.service.sendMessage(conversationId, dto, req.user.id);
+    return this.conversationService.sendMessage(conversationId, dto, req.user.id);
   }
 
   // ── Messages ───────────────────────────────────────────────────────────────
@@ -103,7 +103,7 @@ export class ConversationController {
     @Param('conversationId') conversationId: string,
     @Req() req: any,
   ) {
-    return this.service.getMessages(conversationId, req.user.id);
+    return this.conversationService.getMessages(conversationId, req.user.id);
   }
 
   @Patch('messages/:id/read')
@@ -117,6 +117,6 @@ export class ConversationController {
   @ApiResponse({ status: 403, description: 'Not a participant' })
   @ApiResponse({ status: 404, description: 'Message not found' })
   markAsRead(@Param('id') id: string, @Req() req: any) {
-    return this.service.markAsRead(id, req.user.id);
+    return this.conversationService.markAsRead(id, req.user.id);
   }
 }

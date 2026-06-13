@@ -27,12 +27,12 @@ describe('AccountsService', () => {
   beforeEach(async () => {
     userRepo = {
       findOne: jest.fn().mockResolvedValue(null),
-      create: jest.fn().mockImplementation((d) => d),
-      save: jest.fn().mockImplementation(async (u) => ({ id: 'user-uuid', ...u })),
+      create: jest.fn().mockImplementation((entity) => entity),
+      save: jest.fn().mockImplementation(async (user) => ({ id: 'user-uuid', ...user })),
     };
 
     auditRepo = {
-      create: jest.fn().mockImplementation((d) => d),
+      create: jest.fn().mockImplementation((entity) => entity),
       save: jest.fn().mockResolvedValue({}),
       find: jest.fn().mockResolvedValue([]),
     };

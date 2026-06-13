@@ -34,7 +34,7 @@ export class Conversation {
   @Column({ name: 'incident_id', nullable: true })
   incidentId: string;
 
-  @OneToMany(() => Message, (msg) => msg.conversation, { cascade: false })
+  @OneToMany(() => Message, (message) => message.conversation, { cascade: false })
   messages: Message[];
 
   @CreateDateColumn({ name: 'created_at' })

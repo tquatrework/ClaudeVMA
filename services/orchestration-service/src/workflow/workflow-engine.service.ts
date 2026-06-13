@@ -44,11 +44,11 @@ export class WorkflowEngineService {
     const definition = WORKFLOW_DEFINITIONS[workflowType];
     if (!definition) throw new Error(`Unknown workflow type: ${workflowType}`);
 
-    const corrId = correlationId ?? uuidv4();
+    const resolvedCorrelationId = correlationId ?? uuidv4();
 
     const instance = this.instanceRepo.create({
       workflowType,
-      correlationId: corrId,
+      correlationId: resolvedCorrelationId,
       status: WorkflowStatus.IN_PROGRESS,
       payload,
       context: {},
@@ -70,22 +70,22 @@ export class WorkflowEngineService {
     );
     await this.stepRepo.save(steps);
 
-    await this.eventService.record('WorkflowStarted', corrId, EventDirection.PUBLISHED, {
+    await this.eventService.record('WorkflowStarted', resolvedCorrelationId, EventDirection.PUBLISHED, {
       workflowInstanceId: instance.id,
       workflowType,
       initiatedBy,
     });
-    await this.correlationTrace.record(corrId, 'workflow', 'WorkflowStarted', {
+    await this.correlationTrace.record(resolvedCorrelationId, 'workflow', 'WorkflowStarted', {
       entityId: instance.id,
       metadata: { workflowType, stepCount: steps.length },
       actor: initiatedBy,
     });
 
-    this.logger.log(`[${corrId}] Workflow ${workflowType} started — id=${instance.id}`);
+    this.logger.log(`[${resolvedCorrelationId}] Workflow ${workflowType} started — id=${instance.id}`);
 
     setImmediate(() =>
       this.executeWorkflow(instance.id).catch((err) =>
-        this.logger.error(`[${corrId}] Unhandled execution error: ${err.message}`),
+        this.logger.error(`[${resolvedCorrelationId}] Unhandled execution error: ${err.message}`),
       ),
     );
 
@@ -119,7 +119,7 @@ export class WorkflowEngineService {
       if (step.status === StepStatus.FAILED) break;
       if (instance.status === WorkflowStatus.NEEDS_ARBITRATION) break;
 
-      const stepDef = definition.steps.find((d) => d.order === step.stepOrder);
+      const stepDef = definition.steps.find((stepDefinition) => stepDefinition.order === step.stepOrder);
       if (!stepDef) continue;
 
       const cached = await this.idempotency.check(step.idempotencyKey);
@@ -146,7 +146,7 @@ export class WorkflowEngineService {
 
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         if (attempt > 1) {
-          await new Promise((r) => setTimeout(r, delayMs));
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
 
         const result = await this.httpClient.call({
@@ -323,11 +323,11 @@ export class WorkflowEngineService {
     );
   }
 
-  async getInstance(id: string): Promise<WorkflowInstance & { steps: WorkflowStep[] }> {
-    const instance = await this.instanceRepo.findOne({ where: { id } });
+  async getInstance(instanceId: string): Promise<WorkflowInstance & { steps: WorkflowStep[] }> {
+    const instance = await this.instanceRepo.findOne({ where: { id: instanceId } });
     if (!instance) return null;
     const steps = await this.stepRepo.find({
-      where: { workflowInstanceId: id },
+      where: { workflowInstanceId: instanceId },
       order: { stepOrder: 'ASC' },
     });
     return { ...instance, steps };

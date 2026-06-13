@@ -14,17 +14,17 @@ export class CorrelationTraceService {
     correlationId: string,
     entityType: string,
     action: string,
-    opts: { entityId?: string; metadata?: Record<string, any>; actor?: string; isTiOverride?: boolean } = {},
+    options: { entityId?: string; metadata?: Record<string, any>; actor?: string; isTiOverride?: boolean } = {},
   ): Promise<void> {
     await this.repo.save(
       this.repo.create({
         correlationId,
         entityType,
         action,
-        entityId: opts.entityId,
-        metadata: opts.metadata,
-        actor: opts.actor,
-        isTiOverride: opts.isTiOverride ?? false,
+        entityId: options.entityId,
+        metadata: options.metadata,
+        actor: options.actor,
+        isTiOverride: options.isTiOverride ?? false,
       }),
     );
   }

@@ -11,15 +11,15 @@ export const studentOnboardingWorkflow: WorkflowDefinition = {
       targetService: 'identity-access-service',
       action: 'create-account',
       retry: { maxAttempts: 3, delayMs: 500 },
-      buildPayload: (ctx) => ({
-        email: ctx.payload.email,
-        password: ctx.payload.password,
+      buildPayload: (context) => ({
+        email: context.payload.email,
+        password: context.payload.password,
         role: 'eleve',
-        consents: ctx.payload.consents,
+        consents: context.payload.consents,
       }),
       compensationAction: 'delete-account',
-      buildCompensationPayload: (ctx) => ({
-        accountId: ctx.stepOutputs['create-student-account']?.accountId,
+      buildCompensationPayload: (context) => ({
+        accountId: context.stepOutputs['create-student-account']?.accountId,
       }),
     },
     {
@@ -28,16 +28,16 @@ export const studentOnboardingWorkflow: WorkflowDefinition = {
       targetService: 'profile-service',
       action: 'create-student-profiles',
       retry: { maxAttempts: 2, delayMs: 300 },
-      buildPayload: (ctx) => ({
-        accountId: ctx.stepOutputs['create-student-account']?.accountId,
-        firstName: ctx.payload.firstName,
-        lastName: ctx.payload.lastName,
-        birthDate: ctx.payload.birthDate,
-        level: ctx.payload.level,
+      buildPayload: (context) => ({
+        accountId: context.stepOutputs['create-student-account']?.accountId,
+        firstName: context.payload.firstName,
+        lastName: context.payload.lastName,
+        birthDate: context.payload.birthDate,
+        level: context.payload.level,
       }),
       compensationAction: 'delete-profiles',
-      buildCompensationPayload: (ctx) => ({
-        accountId: ctx.stepOutputs['create-student-account']?.accountId,
+      buildCompensationPayload: (context) => ({
+        accountId: context.stepOutputs['create-student-account']?.accountId,
       }),
     },
     {
@@ -46,9 +46,9 @@ export const studentOnboardingWorkflow: WorkflowDefinition = {
       targetService: 'profile-service',
       action: 'link-parent',
       optional: true,
-      buildPayload: (ctx) => ({
-        studentId: ctx.stepOutputs['create-student-account']?.accountId,
-        financeOwnerId: ctx.payload.parentAccountId,
+      buildPayload: (context) => ({
+        studentId: context.stepOutputs['create-student-account']?.accountId,
+        financeOwnerId: context.payload.parentAccountId,
       }),
     },
     {
@@ -56,10 +56,10 @@ export const studentOnboardingWorkflow: WorkflowDefinition = {
       name: 'init-dashboard',
       targetService: 'dashboard-notification-service',
       action: 'init-dashboard',
-      buildPayload: (ctx) => ({
-        accountId: ctx.stepOutputs['create-student-account']?.accountId,
+      buildPayload: (context) => ({
+        accountId: context.stepOutputs['create-student-account']?.accountId,
         role: 'eleve',
-        correlationId: ctx.correlationId,
+        correlationId: context.correlationId,
       }),
     },
     {
@@ -67,10 +67,10 @@ export const studentOnboardingWorkflow: WorkflowDefinition = {
       name: 'init-messaging',
       targetService: 'communication-service',
       action: 'init-messaging',
-      buildPayload: (ctx) => ({
-        accountId: ctx.stepOutputs['create-student-account']?.accountId,
+      buildPayload: (context) => ({
+        accountId: context.stepOutputs['create-student-account']?.accountId,
         role: 'eleve',
-        authorizedContacts: ctx.stepOutputs['link-parent']?.contacts ?? [],
+        authorizedContacts: context.stepOutputs['link-parent']?.contacts ?? [],
       }),
     },
   ],

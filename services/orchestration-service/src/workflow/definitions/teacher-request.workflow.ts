@@ -10,11 +10,11 @@ export const teacherRequestWorkflow: WorkflowDefinition = {
       name: 'record-teacher-request',
       targetService: 'teacher-request-service',
       action: 'create-request',
-      buildPayload: (ctx) => ({
-        studentId: ctx.payload.studentId,
-        level: ctx.payload.level,
-        subjects: ctx.payload.subjects,
-        requestedBy: ctx.payload.requestedBy,
+      buildPayload: (context) => ({
+        studentId: context.payload.studentId,
+        level: context.payload.level,
+        subjects: context.payload.subjects,
+        requestedBy: context.payload.requestedBy,
       }),
     },
     {
@@ -22,10 +22,10 @@ export const teacherRequestWorkflow: WorkflowDefinition = {
       name: 'notify-rp',
       targetService: 'dashboard-notification-service',
       action: 'notify-new-teacher-request',
-      buildPayload: (ctx) => ({
-        requestId: ctx.stepOutputs['record-teacher-request']?.requestId,
-        studentId: ctx.payload.studentId,
-        correlationId: ctx.correlationId,
+      buildPayload: (context) => ({
+        requestId: context.stepOutputs['record-teacher-request']?.requestId,
+        studentId: context.payload.studentId,
+        correlationId: context.correlationId,
       }),
     },
     {
@@ -33,9 +33,9 @@ export const teacherRequestWorkflow: WorkflowDefinition = {
       name: 'broadcast-to-teachers',
       targetService: 'teacher-request-service',
       action: 'broadcast-request',
-      buildPayload: (ctx) => ({
-        requestId: ctx.stepOutputs['record-teacher-request']?.requestId,
-        teacherIds: ctx.payload.candidateTeacherIds ?? [],
+      buildPayload: (context) => ({
+        requestId: context.stepOutputs['record-teacher-request']?.requestId,
+        teacherIds: context.payload.candidateTeacherIds ?? [],
       }),
     },
     {
@@ -44,9 +44,9 @@ export const teacherRequestWorkflow: WorkflowDefinition = {
       targetService: 'calendar-service',
       action: 'check-availability',
       optional: true,
-      buildPayload: (ctx) => ({
-        requestId: ctx.stepOutputs['record-teacher-request']?.requestId,
-        desiredSlots: ctx.payload.desiredSlots ?? [],
+      buildPayload: (context) => ({
+        requestId: context.stepOutputs['record-teacher-request']?.requestId,
+        desiredSlots: context.payload.desiredSlots ?? [],
       }),
     },
     {
@@ -54,10 +54,10 @@ export const teacherRequestWorkflow: WorkflowDefinition = {
       name: 'create-assignment',
       targetService: 'teacher-request-service',
       action: 'create-assignment',
-      buildPayload: (ctx) => ({
-        requestId: ctx.stepOutputs['record-teacher-request']?.requestId,
-        teacherId: ctx.payload.selectedTeacherId,
-        isPrincipal: ctx.payload.isPrincipal ?? false,
+      buildPayload: (context) => ({
+        requestId: context.stepOutputs['record-teacher-request']?.requestId,
+        teacherId: context.payload.selectedTeacherId,
+        isPrincipal: context.payload.isPrincipal ?? false,
       }),
     },
     {
@@ -65,10 +65,10 @@ export const teacherRequestWorkflow: WorkflowDefinition = {
       name: 'create-teacher-student-relation',
       targetService: 'profile-service',
       action: 'create-teacher-student-relation',
-      buildPayload: (ctx) => ({
-        teacherId: ctx.payload.selectedTeacherId,
-        studentId: ctx.payload.studentId,
-        assignmentId: ctx.stepOutputs['create-assignment']?.assignmentId,
+      buildPayload: (context) => ({
+        teacherId: context.payload.selectedTeacherId,
+        studentId: context.payload.studentId,
+        assignmentId: context.stepOutputs['create-assignment']?.assignmentId,
       }),
     },
     {
@@ -76,11 +76,11 @@ export const teacherRequestWorkflow: WorkflowDefinition = {
       name: 'notify-all-parties',
       targetService: 'dashboard-notification-service',
       action: 'notify-teacher-assigned',
-      buildPayload: (ctx) => ({
-        teacherId: ctx.payload.selectedTeacherId,
-        studentId: ctx.payload.studentId,
-        assignmentId: ctx.stepOutputs['create-assignment']?.assignmentId,
-        correlationId: ctx.correlationId,
+      buildPayload: (context) => ({
+        teacherId: context.payload.selectedTeacherId,
+        studentId: context.payload.studentId,
+        assignmentId: context.stepOutputs['create-assignment']?.assignmentId,
+        correlationId: context.correlationId,
       }),
     },
   ],

@@ -14,7 +14,7 @@ import { UpdateIncidentStatusDto } from './dto/update-incident-status.dto';
 export class IncidentService {
   constructor(
     @InjectRepository(IncidentThread)
-    private readonly repo: Repository<IncidentThread>,
+    private readonly incidentThreadRepository: Repository<IncidentThread>,
     private readonly conversationService: ConversationService,
   ) {}
 
@@ -25,27 +25,27 @@ export class IncidentService {
    */
   async create(dto: CreateIncidentDto, openedBy: string): Promise<IncidentThread> {
     // Step 1: create a preliminary backing conversation (incidentId not yet known)
-    const conv = await this.conversationService.createIncidentConversation(
+    const backingConversation = await this.conversationService.createIncidentConversation(
       [openedBy, dto.targetUserId],
       `Incident: ${dto.description.slice(0, 50)}`,
       '', // placeholder — updated below
     );
 
     // Step 2: save the incident row referencing the conversation
-    const incident = this.repo.create({
-      conversationId: conv.id,
+    const newIncident = this.incidentThreadRepository.create({
+      conversationId: backingConversation.id,
       openedBy,
       targetUserId: dto.targetUserId,
       description: dto.description,
       status: IncidentStatus.OPEN,
     });
 
-    const saved = await this.repo.save(incident);
+    const savedIncident = await this.incidentThreadRepository.save(newIncident);
 
     // Step 3: back-fill the incidentId into the conversation
-    await this.conversationService.setIncidentId(conv.id, saved.id);
+    await this.conversationService.setIncidentId(backingConversation.id, savedIncident.id);
 
-    return saved;
+    return savedIncident;
   }
 
   /**
@@ -58,7 +58,7 @@ export class IncidentService {
     callerId: string,
     callerRole: string,
   ): Promise<IncidentThread> {
-    const incident = await this.repo.findOne({ where: { id: incidentId } });
+    const incident = await this.incidentThreadRepository.findOne({ where: { id: incidentId } });
     if (!incident) throw new NotFoundException(`Incident ${incidentId} not found`);
 
     if (callerRole !== 'technicien_informatique') {
@@ -66,21 +66,21 @@ export class IncidentService {
     }
 
     incident.status = dto.status;
-    return this.repo.save(incident);
+    return this.incidentThreadRepository.save(incident);
   }
 
   /**
    * List all incidents (TI only).
    */
   async findAll(): Promise<IncidentThread[]> {
-    return this.repo.find({ order: { createdAt: 'DESC' } });
+    return this.incidentThreadRepository.find({ order: { createdAt: 'DESC' } });
   }
 
   /**
    * Get a single incident by ID.
    */
   async findOne(id: string): Promise<IncidentThread> {
-    const incident = await this.repo.findOne({ where: { id } });
+    const incident = await this.incidentThreadRepository.findOne({ where: { id } });
     if (!incident) throw new NotFoundException(`Incident ${id} not found`);
     return incident;
   }

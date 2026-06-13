@@ -11,7 +11,7 @@ export class ConsentsService {
   constructor(
     @InjectRepository(ConsentRecord) private readonly consentRepo: Repository<ConsentRecord>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-    private readonly events: EventsService,
+    private readonly eventsService: EventsService,
   ) {}
 
   async signConsent(userId: string, dto: CreateConsentDto, ipAddress?: string) {
@@ -29,7 +29,7 @@ export class ConsentsService {
       }),
     );
 
-    this.events.publish('ConsentSigned', {
+    this.eventsService.publish('ConsentSigned', {
       userId,
       consentType: dto.consentType,
       version: record.version,
@@ -46,10 +46,10 @@ export class ConsentsService {
 
   /** Activates account once all required consents are present (IAM-FB-003) */
   private async activateIfReady(userId: string): Promise<void> {
-    const signed = await this.consentRepo.find({ where: { userId } });
-    const signedTypes = signed.map((c) => c.consentType);
+    const signedConsentRecords = await this.consentRepo.find({ where: { userId } });
+    const signedConsentTypes = signedConsentRecords.map((consentRecord) => consentRecord.consentType);
 
-    const allRequired = REQUIRED_CONSENTS.every((t) => signedTypes.includes(t));
+    const allRequired = REQUIRED_CONSENTS.every((requiredType) => signedConsentTypes.includes(requiredType));
     if (!allRequired) return;
 
     const user = await this.userRepo.findOne({ where: { id: userId } });

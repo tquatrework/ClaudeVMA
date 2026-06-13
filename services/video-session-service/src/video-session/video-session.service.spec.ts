@@ -262,10 +262,10 @@ describe('VideoSessionService', () => {
       expect(result.endedAt).toBeDefined();
 
       // VideoSessionEnded event must have been published (logged)
-      const logCalls: string[] = loggerSpy.mock.calls.map((c) => c[0] as string);
-      const endedEvent = logCalls.find((msg) => {
+      const logCalls: string[] = loggerSpy.mock.calls.map((callArgs) => callArgs[0] as string);
+      const endedEvent = logCalls.find((logMessage) => {
         try {
-          const parsed = JSON.parse(msg);
+          const parsed = JSON.parse(logMessage);
           return parsed.event === 'VideoSessionEnded';
         } catch {
           return false;
@@ -320,10 +320,10 @@ describe('VideoSessionService', () => {
 
       await service.end('room-uuid-1', 'formateur-1', UserRole.FORMATEUR);
 
-      const logCalls: string[] = loggerSpy.mock.calls.map((c) => c[0] as string);
-      const endedEventLog = logCalls.find((msg) => {
+      const logCalls: string[] = loggerSpy.mock.calls.map((callArgs) => callArgs[0] as string);
+      const endedEventLog = logCalls.find((logMessage) => {
         try {
-          return JSON.parse(msg).event === 'VideoSessionEnded';
+          return JSON.parse(logMessage).event === 'VideoSessionEnded';
         } catch {
           return false;
         }

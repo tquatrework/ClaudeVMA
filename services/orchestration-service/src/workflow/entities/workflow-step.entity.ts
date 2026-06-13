@@ -13,7 +13,7 @@ export class WorkflowStep {
   @Column()
   workflowInstanceId: string;
 
-  @ManyToOne(() => WorkflowInstance, (wf) => wf.steps, { onDelete: 'CASCADE' })
+  @ManyToOne(() => WorkflowInstance, (workflowInstance) => workflowInstance.steps, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'workflowInstanceId' })
   workflowInstance: WorkflowInstance;
 

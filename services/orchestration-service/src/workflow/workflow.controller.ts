@@ -61,9 +61,9 @@ export class WorkflowController {
   @ApiParam({ name: 'workflowInstanceId', description: 'UUID de l\'instance' })
   @ApiResponse({ status: 200, description: 'Instance trouvée' })
   @ApiResponse({ status: 404, description: 'Instance introuvable' })
-  async getOne(@Param('workflowInstanceId') id: string) {
-    const instance = await this.engine.getInstance(id);
-    if (!instance) throw new NotFoundException(`Instance "${id}" introuvable`);
+  async getOne(@Param('workflowInstanceId') workflowInstanceId: string) {
+    const instance = await this.engine.getInstance(workflowInstanceId);
+    if (!instance) throw new NotFoundException(`Instance "${workflowInstanceId}" introuvable`);
     return instance;
   }
 
@@ -76,12 +76,12 @@ export class WorkflowController {
   @ApiBody({ schema: { properties: { reason: { type: 'string' } } } })
   @ApiResponse({ status: 200, description: 'Workflow suspendu' })
   async suspend(
-    @Param('workflowInstanceId') id: string,
+    @Param('workflowInstanceId') workflowInstanceId: string,
     @Body() dto: SuspendDto,
     @Request() req,
   ) {
-    await this.engine.suspendForArbitration(id, dto.reason, req.user?.id);
-    return { workflowInstanceId: id, status: 'needs_arbitration', reason: dto.reason };
+    await this.engine.suspendForArbitration(workflowInstanceId, dto.reason, req.user?.id);
+    return { workflowInstanceId, status: 'needs_arbitration', reason: dto.reason };
   }
 
   @Post(':workflowInstanceId/resume')
@@ -93,23 +93,23 @@ export class WorkflowController {
   @ApiBody({ schema: { properties: { tiOverride: { type: 'boolean' } } } })
   @ApiResponse({ status: 200, description: 'Workflow relancé' })
   async resume(
-    @Param('workflowInstanceId') id: string,
+    @Param('workflowInstanceId') workflowInstanceId: string,
     @Body() dto: ResumeDto,
     @Request() req,
   ) {
-    await this.engine.resumeAfterArbitration(id, req.user?.id, dto.tiOverride ?? false);
-    return { workflowInstanceId: id, status: 'in_progress', tiOverride: dto.tiOverride ?? false };
+    await this.engine.resumeAfterArbitration(workflowInstanceId, req.user?.id, dto.tiOverride ?? false);
+    return { workflowInstanceId, status: 'in_progress', tiOverride: dto.tiOverride ?? false };
   }
 
   @Get()
   @ApiOperation({ summary: 'Lister les types de workflows disponibles' })
   @ApiResponse({ status: 200, description: 'Liste des définitions' })
   listDefinitions() {
-    return Object.values(WORKFLOW_DEFINITIONS).map((d) => ({
-      id: d.id,
-      name: d.name,
-      phase: d.phase,
-      stepCount: d.steps.length,
+    return Object.values(WORKFLOW_DEFINITIONS).map((definition) => ({
+      id: definition.id,
+      name: definition.name,
+      phase: definition.phase,
+      stepCount: definition.steps.length,
     }));
   }
 }

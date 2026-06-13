@@ -49,14 +49,14 @@ const DEFAULT_WIDGET_CONFIGS: Record<string, Record<string, unknown>> = {
 export class DashboardService {
   constructor(
     @InjectRepository(DashboardPreference)
-    private readonly prefRepo: Repository<DashboardPreference>,
+    private readonly preferenceRepository: Repository<DashboardPreference>,
     @InjectRepository(DashboardWidgetState)
-    private readonly widgetRepo: Repository<DashboardWidgetState>,
+    private readonly widgetStateRepository: Repository<DashboardWidgetState>,
     private readonly notificationService: NotificationService,
   ) {}
 
   async getMyDashboard(userId: string, role: string) {
-    const preference = await this.prefRepo.findOne({ where: { userId } });
+    const preference = await this.preferenceRepository.findOne({ where: { userId } });
 
     const widgetConfig = preference?.widgetConfig ?? DEFAULT_WIDGET_CONFIGS[role] ?? {};
 
@@ -123,26 +123,26 @@ export class DashboardService {
   }
 
   async updatePreferences(userId: string, role: string, dto: UpdatePreferencesDto): Promise<DashboardPreference> {
-    let pref = await this.prefRepo.findOne({ where: { userId } });
-    if (!pref) {
-      pref = this.prefRepo.create({ userId, role, widgetConfig: dto.widgetConfig });
+    let preference = await this.preferenceRepository.findOne({ where: { userId } });
+    if (!preference) {
+      preference = this.preferenceRepository.create({ userId, role, widgetConfig: dto.widgetConfig });
     } else {
-      pref.widgetConfig = dto.widgetConfig;
+      preference.widgetConfig = dto.widgetConfig;
     }
-    return this.prefRepo.save(pref);
+    return this.preferenceRepository.save(preference);
   }
 
   async initializeDashboard(userId: string, role: string): Promise<DashboardPreference> {
-    const existing = await this.prefRepo.findOne({ where: { userId } });
+    const existing = await this.preferenceRepository.findOne({ where: { userId } });
     if (existing) {
       return existing;
     }
     const widgetConfig = DEFAULT_WIDGET_CONFIGS[role] ?? {};
-    const pref = this.prefRepo.create({ userId, role, widgetConfig });
-    return this.prefRepo.save(pref);
+    const preference = this.preferenceRepository.create({ userId, role, widgetConfig });
+    return this.preferenceRepository.save(preference);
   }
 
   async getPreference(userId: string): Promise<DashboardPreference | null> {
-    return this.prefRepo.findOne({ where: { userId } });
+    return this.preferenceRepository.findOne({ where: { userId } });
   }
 }

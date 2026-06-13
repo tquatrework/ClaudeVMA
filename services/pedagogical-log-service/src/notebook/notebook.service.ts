@@ -13,7 +13,7 @@ import { UpdateNotebookEntryDto } from './dto/update-notebook-entry.dto';
 export class NotebookService {
   constructor(
     @InjectRepository(NotebookEntry)
-    private readonly repo: Repository<NotebookEntry>,
+    private readonly notebookEntryRepository: Repository<NotebookEntry>,
   ) {}
 
   /**
@@ -26,8 +26,8 @@ export class NotebookService {
     callerId: string,
   ): Promise<NotebookEntry> {
     this.assertIsOwner(studentId, callerId);
-    const entry = this.repo.create({ ...dto, studentId });
-    return this.repo.save(entry);
+    const entry = this.notebookEntryRepository.create({ ...dto, studentId });
+    return this.notebookEntryRepository.save(entry);
   }
 
   /**
@@ -37,13 +37,13 @@ export class NotebookService {
   findAll(studentId: string, callerId: string, callerRole: string): Promise<NotebookEntry[]> {
     // TI can access for technical incident resolution only
     if (callerRole === 'technicien_informatique') {
-      return this.repo.find({
+      return this.notebookEntryRepository.find({
         where: { studentId },
         order: { createdAt: 'DESC' },
       });
     }
     this.assertIsOwner(studentId, callerId);
-    return this.repo.find({
+    return this.notebookEntryRepository.find({
       where: { studentId },
       order: { createdAt: 'DESC' },
     });
@@ -59,7 +59,7 @@ export class NotebookService {
     callerId: string,
     callerRole: string,
   ): Promise<NotebookEntry> {
-    const entry = await this.repo.findOne({ where: { id, studentId } });
+    const entry = await this.notebookEntryRepository.findOne({ where: { id, studentId } });
     if (!entry) throw new NotFoundException(`Notebook entry ${id} not found`);
 
     if (callerRole !== 'technicien_informatique') {
@@ -78,11 +78,11 @@ export class NotebookService {
     callerId: string,
   ): Promise<NotebookEntry> {
     this.assertIsOwner(studentId, callerId);
-    const entry = await this.repo.findOne({ where: { id, studentId } });
+    const entry = await this.notebookEntryRepository.findOne({ where: { id, studentId } });
     if (!entry) throw new NotFoundException(`Notebook entry ${id} not found`);
 
     Object.assign(entry, dto);
-    return this.repo.save(entry);
+    return this.notebookEntryRepository.save(entry);
   }
 
   /**
@@ -90,9 +90,9 @@ export class NotebookService {
    */
   async remove(studentId: string, id: string, callerId: string): Promise<void> {
     this.assertIsOwner(studentId, callerId);
-    const entry = await this.repo.findOne({ where: { id, studentId } });
+    const entry = await this.notebookEntryRepository.findOne({ where: { id, studentId } });
     if (!entry) throw new NotFoundException(`Notebook entry ${id} not found`);
-    await this.repo.remove(entry);
+    await this.notebookEntryRepository.remove(entry);
   }
 
   private assertIsOwner(studentId: string, callerId: string): void {

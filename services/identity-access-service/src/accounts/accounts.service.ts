@@ -24,7 +24,7 @@ export class AccountsService {
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(AuditLog) private readonly auditRepo: Repository<AuditLog>,
-    private readonly events: EventsService,
+    private readonly eventsService: EventsService,
   ) {}
 
   async createAccount(dto: CreateAccountDto, ipAddress?: string) {
@@ -47,7 +47,7 @@ export class AccountsService {
     });
     const saved = await this.userRepo.save(user);
 
-    this.events.publish('AccountCreated', {
+    this.eventsService.publish('AccountCreated', {
       userId: saved.id,
       email: saved.email,
       role: saved.role,
@@ -88,7 +88,7 @@ export class AccountsService {
       }),
     );
 
-    this.events.publish('RoleChanged', {
+    this.eventsService.publish('RoleChanged', {
       userId: target.id,
       oldRole,
       newRole: dto.role,
@@ -124,7 +124,7 @@ export class AccountsService {
       }),
     );
 
-    this.events.publish('AccountValidated', { userId: target.id, actorId: actor.id });
+    this.eventsService.publish('AccountValidated', { userId: target.id, actorId: actor.id });
 
     return this.toPublic(target);
   }
@@ -135,7 +135,7 @@ export class AccountsService {
     }
 
     const target = await this.findOrFail(accountId);
-    const old = target.validationStatus;
+    const previousValidationStatus = target.validationStatus;
 
     target.validationStatus = ValidationStatus.SUSPENDED;
     target.isActive = false;
@@ -146,12 +146,12 @@ export class AccountsService {
         targetUserId: target.id,
         actorId: actor.id,
         action: 'ACCOUNT_SUSPENDED',
-        oldValue: { validationStatus: old },
+        oldValue: { validationStatus: previousValidationStatus },
         newValue: { validationStatus: ValidationStatus.SUSPENDED },
       }),
     );
 
-    this.events.publish('AccountSuspended', { userId: target.id, actorId: actor.id });
+    this.eventsService.publish('AccountSuspended', { userId: target.id, actorId: actor.id });
 
     return this.toPublic(target);
   }

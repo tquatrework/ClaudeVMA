@@ -8,23 +8,23 @@ import { CreateMemoDto } from './dto/create-memo.dto';
 export class MemoService {
   constructor(
     @InjectRepository(Memo)
-    private readonly repo: Repository<Memo>,
+    private readonly memoRepository: Repository<Memo>,
   ) {}
 
   create(dto: CreateMemoDto, authorId: string, authorRole: string): Promise<Memo> {
-    const memo = this.repo.create({ ...dto, authorId, authorRole });
-    return this.repo.save(memo);
+    const memo = this.memoRepository.create({ ...dto, authorId, authorRole });
+    return this.memoRepository.save(memo);
   }
 
   findByAuthor(authorId: string): Promise<Memo[]> {
-    return this.repo.find({
+    return this.memoRepository.find({
       where: { authorId },
       order: { createdAt: 'DESC' },
     });
   }
 
   async findOne(id: string, callerId: string, callerRole: string): Promise<Memo> {
-    const memo = await this.repo.findOne({ where: { id } });
+    const memo = await this.memoRepository.findOne({ where: { id } });
     if (!memo) throw new NotFoundException(`Memo ${id} not found`);
 
     const canRead =
@@ -40,7 +40,7 @@ export class MemoService {
   }
 
   async remove(id: string, callerId: string, callerRole: string): Promise<void> {
-    const memo = await this.repo.findOne({ where: { id } });
+    const memo = await this.memoRepository.findOne({ where: { id } });
     if (!memo) throw new NotFoundException(`Memo ${id} not found`);
 
     const canDelete =
@@ -51,6 +51,6 @@ export class MemoService {
     if (!canDelete) {
       throw new ForbiddenException('Only the author or a RP/TI can delete a memo');
     }
-    await this.repo.remove(memo);
+    await this.memoRepository.remove(memo);
   }
 }

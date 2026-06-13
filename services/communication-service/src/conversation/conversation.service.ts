@@ -16,9 +16,9 @@ import { SendMessageDto } from './dto/send-message.dto';
 export class ConversationService {
   constructor(
     @InjectRepository(Conversation)
-    private readonly convRepo: Repository<Conversation>,
+    private readonly conversationRepository: Repository<Conversation>,
     @InjectRepository(Message)
-    private readonly msgRepo: Repository<Message>,
+    private readonly messageRepository: Repository<Message>,
     private readonly contactService: ContactService,
   ) {}
 
@@ -26,10 +26,10 @@ export class ConversationService {
    * List all conversations for the current user.
    */
   async findAll(userId: string): Promise<Conversation[]> {
-    return this.convRepo
-      .createQueryBuilder('conv')
-      .where(':userId = ANY(conv.participant_ids)', { userId })
-      .orderBy('conv.updated_at', 'DESC')
+    return this.conversationRepository
+      .createQueryBuilder('conversation')
+      .where(':userId = ANY(conversation.participant_ids)', { userId })
+      .orderBy('conversation.updated_at', 'DESC')
       .getMany();
   }
 
@@ -38,7 +38,7 @@ export class ConversationService {
    * COM-FB-002: all participants must be authorized contacts of the caller.
    */
   async create(dto: CreateConversationDto, callerId: string): Promise<Conversation> {
-    const otherParticipants = dto.participantIds.filter((id) => id !== callerId);
+    const otherParticipants = dto.participantIds.filter((participantId) => participantId !== callerId);
 
     if (otherParticipants.length === 0) {
       throw new BadRequestException('A conversation must include at least one other participant');
@@ -46,8 +46,8 @@ export class ConversationService {
 
     // Check that caller has authorization to contact each participant
     for (const participantId of otherParticipants) {
-      const authorized = await this.contactService.isAuthorized(callerId, participantId);
-      if (!authorized) {
+      const isContactAuthorized = await this.contactService.isAuthorized(callerId, participantId);
+      if (!isContactAuthorized) {
         throw new ForbiddenException(
           `You are not authorized to contact user ${participantId}`,
         );
@@ -56,13 +56,13 @@ export class ConversationService {
 
     const allParticipants = Array.from(new Set([callerId, ...dto.participantIds]));
 
-    const conv = this.convRepo.create({
+    const newConversation = this.conversationRepository.create({
       participantIds: allParticipants,
       subject: dto.subject,
       isIncident: false,
     });
 
-    return this.convRepo.save(conv);
+    return this.conversationRepository.save(newConversation);
   }
 
   /**
@@ -74,14 +74,14 @@ export class ConversationService {
     dto: SendMessageDto,
     senderId: string,
   ): Promise<Message> {
-    const conv = await this.convRepo.findOne({ where: { id: conversationId } });
-    if (!conv) throw new NotFoundException(`Conversation ${conversationId} not found`);
+    const conversation = await this.conversationRepository.findOne({ where: { id: conversationId } });
+    if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`);
 
-    if (!conv.participantIds.includes(senderId)) {
+    if (!conversation.participantIds.includes(senderId)) {
       throw new ForbiddenException('You are not a participant in this conversation');
     }
 
-    const message = this.msgRepo.create({
+    const newMessage = this.messageRepository.create({
       conversationId,
       senderId,
       content: dto.content,
@@ -89,12 +89,12 @@ export class ConversationService {
       isSystem: false,
     });
 
-    const saved = await this.msgRepo.save(message);
+    const savedMessage = await this.messageRepository.save(newMessage);
 
     // Update conversation timestamp
-    await this.convRepo.save({ ...conv, updatedAt: new Date() });
+    await this.conversationRepository.save({ ...conversation, updatedAt: new Date() });
 
-    return saved;
+    return savedMessage;
   }
 
   /**
@@ -102,14 +102,14 @@ export class ConversationService {
    * The caller must be a participant.
    */
   async getMessages(conversationId: string, callerId: string): Promise<Message[]> {
-    const conv = await this.convRepo.findOne({ where: { id: conversationId } });
-    if (!conv) throw new NotFoundException(`Conversation ${conversationId} not found`);
+    const conversation = await this.conversationRepository.findOne({ where: { id: conversationId } });
+    if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`);
 
-    if (!conv.participantIds.includes(callerId)) {
+    if (!conversation.participantIds.includes(callerId)) {
       throw new ForbiddenException('You are not a participant in this conversation');
     }
 
-    return this.msgRepo.find({
+    return this.messageRepository.find({
       where: { conversationId },
       order: { sentAt: 'ASC' },
     });
@@ -120,16 +120,16 @@ export class ConversationService {
    * COM-BR-008: the message is accessible to all conversation participants.
    */
   async markAsRead(messageId: string, callerId: string): Promise<Message> {
-    const msg = await this.msgRepo.findOne({ where: { id: messageId } });
-    if (!msg) throw new NotFoundException(`Message ${messageId} not found`);
+    const message = await this.messageRepository.findOne({ where: { id: messageId } });
+    if (!message) throw new NotFoundException(`Message ${messageId} not found`);
 
-    const conv = await this.convRepo.findOne({ where: { id: msg.conversationId } });
-    if (!conv || !conv.participantIds.includes(callerId)) {
+    const conversation = await this.conversationRepository.findOne({ where: { id: message.conversationId } });
+    if (!conversation || !conversation.participantIds.includes(callerId)) {
       throw new ForbiddenException('You are not a participant in this conversation');
     }
 
-    msg.isRead = true;
-    return this.msgRepo.save(msg);
+    message.isRead = true;
+    return this.messageRepository.save(message);
   }
 
   /**
@@ -141,19 +141,19 @@ export class ConversationService {
     subject: string,
     incidentId: string,
   ): Promise<Conversation> {
-    const conv = this.convRepo.create({
+    const newConversation = this.conversationRepository.create({
       participantIds,
       subject,
       isIncident: true,
       incidentId: incidentId || null,
     });
-    return this.convRepo.save(conv);
+    return this.conversationRepository.save(newConversation);
   }
 
   /**
    * Back-fill the incidentId into an incident conversation once the incident row is created.
    */
   async setIncidentId(conversationId: string, incidentId: string): Promise<void> {
-    await this.convRepo.update({ id: conversationId }, { incidentId });
+    await this.conversationRepository.update({ id: conversationId }, { incidentId });
   }
 }

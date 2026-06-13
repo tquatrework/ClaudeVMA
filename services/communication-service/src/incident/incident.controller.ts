@@ -38,7 +38,7 @@ import { UpdateIncidentStatusDto } from './dto/update-incident-status.dto';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('incidents')
 export class IncidentController {
-  constructor(private readonly service: IncidentService) {}
+  constructor(private readonly incidentService: IncidentService) {}
 
   @Post()
   @Roles(UserRole.TECHNICIEN_INFORMATIQUE)
@@ -54,7 +54,7 @@ export class IncidentController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden — TI role required' })
   create(@Body() dto: CreateIncidentDto, @Req() req: any) {
-    return this.service.create(dto, req.user.id);
+    return this.incidentService.create(dto, req.user.id);
   }
 
   @Get()
@@ -67,7 +67,7 @@ export class IncidentController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden — TI role required' })
   findAll() {
-    return this.service.findAll();
+    return this.incidentService.findAll();
   }
 
   @Get(':id')
@@ -79,7 +79,7 @@ export class IncidentController {
   @ApiResponse({ status: 403, description: 'Forbidden — TI role required' })
   @ApiResponse({ status: 404, description: 'Incident not found' })
   findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+    return this.incidentService.findOne(id);
   }
 
   @Put(':id/status')
@@ -102,6 +102,6 @@ export class IncidentController {
     @Body() dto: UpdateIncidentStatusDto,
     @Req() req: any,
   ) {
-    return this.service.updateStatus(id, dto, req.user.id, req.user.role);
+    return this.incidentService.updateStatus(id, dto, req.user.id, req.user.role);
   }
 }

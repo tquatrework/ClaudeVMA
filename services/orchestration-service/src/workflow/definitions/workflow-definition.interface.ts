@@ -14,11 +14,11 @@ export interface WorkflowStepDefinition {
   name: string;
   targetService: string;
   action: string;
-  buildPayload: (ctx: WorkflowContext) => Record<string, any>;
+  buildPayload: (context: WorkflowContext) => Record<string, any>;
   optional?: boolean;
   retry?: RetryConfig;
   compensationAction?: string;
-  buildCompensationPayload?: (ctx: WorkflowContext) => Record<string, any>;
+  buildCompensationPayload?: (context: WorkflowContext) => Record<string, any>;
 }
 
 export interface WorkflowDefinition {

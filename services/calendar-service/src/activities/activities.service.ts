@@ -109,18 +109,18 @@ export class ActivitiesService {
   async findByParticipant(userId: string): Promise<ScheduledActivity[]> {
     // simple-json column: use query builder for portability
     return this.activityRepo
-      .createQueryBuilder('a')
-      .where("a.participant_ids LIKE :uid", { uid: `%${userId}%` })
-      .orderBy('a.start_time', 'ASC')
+      .createQueryBuilder('activity')
+      .where("activity.participant_ids LIKE :uid", { uid: `%${userId}%` })
+      .orderBy('activity.start_time', 'ASC')
       .getMany();
   }
 
   // ---- Private helpers ----
 
   private async findOneOrFail(activityId: string): Promise<ScheduledActivity> {
-    const a = await this.activityRepo.findOne({ where: { id: activityId } });
-    if (!a) throw new NotFoundException(`Activity ${activityId} not found`);
-    return a;
+    const foundActivity = await this.activityRepo.findOne({ where: { id: activityId } });
+    if (!foundActivity) throw new NotFoundException(`Activity ${activityId} not found`);
+    return foundActivity;
   }
 
   /**

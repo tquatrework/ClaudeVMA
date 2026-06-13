@@ -41,7 +41,7 @@ describe('AuthService', () => {
     };
 
     sessionRepo = {
-      create: jest.fn().mockImplementation((d) => d),
+      create: jest.fn().mockImplementation((entity) => entity),
       save: jest.fn().mockResolvedValue({ id: 'session-uuid', jwtId: 'jti-uuid' }),
       findOne: jest.fn().mockResolvedValue({
         id: 'session-uuid',

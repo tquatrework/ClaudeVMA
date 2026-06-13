@@ -29,7 +29,7 @@ const VISIBILITY_BY_ROLE: Record<string, LogVisibility[]> = {
 export class PedagogicalLogService {
   constructor(
     @InjectRepository(PedagogicalLog)
-    private readonly repo: Repository<PedagogicalLog>,
+    private readonly pedagogicalLogRepository: Repository<PedagogicalLog>,
   ) {}
 
   /**
@@ -37,13 +37,13 @@ export class PedagogicalLogService {
    * PLOG-FB-003: only formateur or RP can write. The caller must be the authorId.
    */
   create(dto: CreateLogDto, authorId: string, authorRole: string): Promise<PedagogicalLog> {
-    const entry = this.repo.create({
+    const entry = this.pedagogicalLogRepository.create({
       ...dto,
       authorId,
       authorRole,
       visibility: dto.visibility ?? 'eleve_parent_formateur',
     });
-    return this.repo.save(entry);
+    return this.pedagogicalLogRepository.save(entry);
   }
 
   /**
@@ -52,7 +52,7 @@ export class PedagogicalLogService {
    */
   findByStudent(studentId: string, callerRole: string): Promise<PedagogicalLog[]> {
     const allowed = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
-    return this.repo.find({
+    return this.pedagogicalLogRepository.find({
       where: { studentId, visibility: In(allowed) },
       order: { createdAt: 'DESC' },
     });
@@ -64,7 +64,7 @@ export class PedagogicalLogService {
    */
   findBySession(sessionId: string, callerRole: string): Promise<PedagogicalLog[]> {
     const allowed = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
-    return this.repo.find({
+    return this.pedagogicalLogRepository.find({
       where: { sessionId, visibility: In(allowed) },
       order: { createdAt: 'DESC' },
     });
@@ -74,7 +74,7 @@ export class PedagogicalLogService {
    * Get a single textbook entry by ID, filtered by caller role.
    */
   async findOne(id: string, callerRole: string): Promise<PedagogicalLog> {
-    const entry = await this.repo.findOne({ where: { id } });
+    const entry = await this.pedagogicalLogRepository.findOne({ where: { id } });
     if (!entry) throw new NotFoundException(`Log ${id} not found`);
 
     const allowed = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
@@ -94,7 +94,7 @@ export class PedagogicalLogService {
     callerId: string,
     callerRole: string,
   ): Promise<PedagogicalLog> {
-    const entry = await this.repo.findOne({ where: { id } });
+    const entry = await this.pedagogicalLogRepository.findOne({ where: { id } });
     if (!entry) throw new NotFoundException(`Log ${id} not found`);
 
     const canEdit =
@@ -107,6 +107,6 @@ export class PedagogicalLogService {
     }
 
     Object.assign(entry, dto);
-    return this.repo.save(entry);
+    return this.pedagogicalLogRepository.save(entry);
   }
 }

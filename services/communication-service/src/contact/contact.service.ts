@@ -8,7 +8,7 @@ import { SyncContactsDto } from './dto/sync-contacts.dto';
 export class ContactService {
   constructor(
     @InjectRepository(ContactPolicy)
-    private readonly repo: Repository<ContactPolicy>,
+    private readonly contactPolicyRepository: Repository<ContactPolicy>,
   ) {}
 
   /**
@@ -18,7 +18,7 @@ export class ContactService {
    */
   async syncContacts(dto: SyncContactsDto): Promise<void> {
     for (const entry of dto.contacts) {
-      const existing = await this.repo.findOne({
+      const existing = await this.contactPolicyRepository.findOne({
         where: { userId: dto.userId, contactId: entry.contactId },
       });
 
@@ -26,10 +26,10 @@ export class ContactService {
         existing.expiresAt = entry.expiresAt ? new Date(entry.expiresAt) : null;
         existing.relationType = entry.relationType ?? existing.relationType;
         existing.active = true;
-        await this.repo.save(existing);
+        await this.contactPolicyRepository.save(existing);
       } else {
-        await this.repo.save(
-          this.repo.create({
+        await this.contactPolicyRepository.save(
+          this.contactPolicyRepository.create({
             userId: dto.userId,
             contactId: entry.contactId,
             expiresAt: entry.expiresAt ? new Date(entry.expiresAt) : null,
@@ -47,10 +47,10 @@ export class ContactService {
    */
   async listContacts(userId: string): Promise<ContactPolicy[]> {
     const now = new Date();
-    const all = await this.repo.find({
+    const allContacts = await this.contactPolicyRepository.find({
       where: { userId, active: true },
     });
-    return all.filter((c) => !c.expiresAt || c.expiresAt > now);
+    return allContacts.filter((contactPolicy) => !contactPolicy.expiresAt || contactPolicy.expiresAt > now);
   }
 
   /**
@@ -59,11 +59,11 @@ export class ContactService {
    */
   async isAuthorized(userId: string, contactId: string): Promise<boolean> {
     const now = new Date();
-    const policy = await this.repo.findOne({
+    const contactPolicy = await this.contactPolicyRepository.findOne({
       where: { userId, contactId, active: true },
     });
-    if (!policy) return false;
-    if (policy.expiresAt && policy.expiresAt < now) return false;
+    if (!contactPolicy) return false;
+    if (contactPolicy.expiresAt && contactPolicy.expiresAt < now) return false;
     return true;
   }
 }

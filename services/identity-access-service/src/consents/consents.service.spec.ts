@@ -28,8 +28,8 @@ describe('ConsentsService', () => {
     consentRepo = {
       findOne: jest.fn().mockResolvedValue(null),
       find: jest.fn().mockResolvedValue([]),
-      create: jest.fn().mockImplementation((d) => d),
-      save: jest.fn().mockImplementation(async (d) => ({ id: 'consent-uuid', ...d })),
+      create: jest.fn().mockImplementation((entity) => entity),
+      save: jest.fn().mockImplementation(async (entity) => ({ id: 'consent-uuid', ...entity })),
     };
 
     userRepo = {

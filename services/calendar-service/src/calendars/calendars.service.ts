@@ -88,13 +88,13 @@ export class CalendarsService {
     // Delete existing slots and replace with new ones
     await this.slotRepo.delete({ calendarId: calendar.id });
 
-    const newSlots = dto.slots.map((s) =>
+    const newSlots = dto.slots.map((slotDto) =>
       this.slotRepo.create({
         calendarId: calendar.id,
-        dayOfWeek: s.dayOfWeek ?? null,
-        startTime: new Date(s.startTime),
-        endTime: new Date(s.endTime),
-        recurrence: s.recurrence,
+        dayOfWeek: slotDto.dayOfWeek ?? null,
+        startTime: new Date(slotDto.startTime),
+        endTime: new Date(slotDto.endTime),
+        recurrence: slotDto.recurrence,
       }),
     );
 

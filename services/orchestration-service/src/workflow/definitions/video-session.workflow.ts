@@ -10,12 +10,12 @@ export const videoSessionWorkflow: WorkflowDefinition = {
       name: 'schedule-activity',
       targetService: 'calendar-service',
       action: 'schedule-activity',
-      buildPayload: (ctx) => ({
-        teacherId: ctx.payload.teacherId,
-        studentId: ctx.payload.studentId,
-        startAt: ctx.payload.startAt,
-        durationMinutes: ctx.payload.durationMinutes,
-        subject: ctx.payload.subject,
+      buildPayload: (context) => ({
+        teacherId: context.payload.teacherId,
+        studentId: context.payload.studentId,
+        startAt: context.payload.startAt,
+        durationMinutes: context.payload.durationMinutes,
+        subject: context.payload.subject,
       }),
     },
     {
@@ -23,12 +23,12 @@ export const videoSessionWorkflow: WorkflowDefinition = {
       name: 'create-video-room',
       targetService: 'video-session-service',
       action: 'create-session',
-      buildPayload: (ctx) => ({
-        activityId: ctx.stepOutputs['schedule-activity']?.activityId,
-        teacherId: ctx.payload.teacherId,
-        participantIds: [ctx.payload.teacherId, ctx.payload.studentId],
-        startAt: ctx.payload.startAt,
-        durationMinutes: ctx.payload.durationMinutes,
+      buildPayload: (context) => ({
+        activityId: context.stepOutputs['schedule-activity']?.activityId,
+        teacherId: context.payload.teacherId,
+        participantIds: [context.payload.teacherId, context.payload.studentId],
+        startAt: context.payload.startAt,
+        durationMinutes: context.payload.durationMinutes,
       }),
     },
     {
@@ -36,13 +36,13 @@ export const videoSessionWorkflow: WorkflowDefinition = {
       name: 'notify-participants',
       targetService: 'dashboard-notification-service',
       action: 'notify-session-scheduled',
-      buildPayload: (ctx) => ({
-        sessionId: ctx.stepOutputs['create-video-room']?.sessionId,
-        activityId: ctx.stepOutputs['schedule-activity']?.activityId,
-        participantIds: [ctx.payload.teacherId, ctx.payload.studentId],
-        startAt: ctx.payload.startAt,
-        joinUrl: ctx.stepOutputs['create-video-room']?.joinUrl,
-        correlationId: ctx.correlationId,
+      buildPayload: (context) => ({
+        sessionId: context.stepOutputs['create-video-room']?.sessionId,
+        activityId: context.stepOutputs['schedule-activity']?.activityId,
+        participantIds: [context.payload.teacherId, context.payload.studentId],
+        startAt: context.payload.startAt,
+        joinUrl: context.stepOutputs['create-video-room']?.joinUrl,
+        correlationId: context.correlationId,
       }),
     },
     {
@@ -50,9 +50,9 @@ export const videoSessionWorkflow: WorkflowDefinition = {
       name: 'trace-session-end',
       targetService: 'video-session-service',
       action: 'register-end-hook',
-      buildPayload: (ctx) => ({
-        sessionId: ctx.stepOutputs['create-video-room']?.sessionId,
-        callbackUrl: ctx.payload.sessionEndCallbackUrl,
+      buildPayload: (context) => ({
+        sessionId: context.stepOutputs['create-video-room']?.sessionId,
+        callbackUrl: context.payload.sessionEndCallbackUrl,
       }),
     },
     {
@@ -60,11 +60,11 @@ export const videoSessionWorkflow: WorkflowDefinition = {
       name: 'prompt-pedagogical-log',
       targetService: 'pedagogical-log-service',
       action: 'create-log-entry-placeholder',
-      buildPayload: (ctx) => ({
-        sessionId: ctx.stepOutputs['create-video-room']?.sessionId,
-        teacherId: ctx.payload.teacherId,
-        studentId: ctx.payload.studentId,
-        scheduledAt: ctx.payload.startAt,
+      buildPayload: (context) => ({
+        sessionId: context.stepOutputs['create-video-room']?.sessionId,
+        teacherId: context.payload.teacherId,
+        studentId: context.payload.studentId,
+        scheduledAt: context.payload.startAt,
       }),
     },
     {
@@ -73,11 +73,11 @@ export const videoSessionWorkflow: WorkflowDefinition = {
       targetService: 'finance-credit-service',
       action: 'reserve-credits',
       optional: true,
-      buildPayload: (ctx) => ({
-        sessionId: ctx.stepOutputs['create-video-room']?.sessionId,
-        studentId: ctx.payload.studentId,
-        teacherId: ctx.payload.teacherId,
-        durationMinutes: ctx.payload.durationMinutes,
+      buildPayload: (context) => ({
+        sessionId: context.stepOutputs['create-video-room']?.sessionId,
+        studentId: context.payload.studentId,
+        teacherId: context.payload.teacherId,
+        durationMinutes: context.payload.durationMinutes,
       }),
     },
   ],

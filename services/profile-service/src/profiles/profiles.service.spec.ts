@@ -26,27 +26,27 @@ describe('ProfilesService', () => {
   beforeEach(async () => {
     adminRepo = {
       findOne: jest.fn().mockResolvedValue(null),
-      create: jest.fn().mockImplementation((d) => d),
-      save: jest.fn().mockImplementation(async (e) => ({ ...e, updatedAt: new Date() })),
+      create: jest.fn().mockImplementation((dto) => dto),
+      save: jest.fn().mockImplementation(async (entity) => ({ ...entity, updatedAt: new Date() })),
     };
 
     studentPedaRepo = {
       findOne: jest.fn().mockResolvedValue(null),
-      create: jest.fn().mockImplementation((d) => d),
-      save: jest.fn().mockImplementation(async (e) => ({ ...e, updatedAt: new Date() })),
+      create: jest.fn().mockImplementation((dto) => dto),
+      save: jest.fn().mockImplementation(async (entity) => ({ ...entity, updatedAt: new Date() })),
     };
 
     teacherPedaRepo = {
       findOne: jest.fn().mockResolvedValue(null),
-      create: jest.fn().mockImplementation((d) => d),
-      save: jest.fn().mockImplementation(async (e) => ({ ...e, updatedAt: new Date() })),
+      create: jest.fn().mockImplementation((dto) => dto),
+      save: jest.fn().mockImplementation(async (entity) => ({ ...entity, updatedAt: new Date() })),
     };
 
     noteRepo = {
       findOne: jest.fn().mockResolvedValue(null),
       find: jest.fn().mockResolvedValue([]),
-      create: jest.fn().mockImplementation((d) => d),
-      save: jest.fn().mockImplementation(async (e) => ({ id: 'note-uuid', ...e, createdAt: new Date() })),
+      create: jest.fn().mockImplementation((dto) => dto),
+      save: jest.fn().mockImplementation(async (entity) => ({ id: 'note-uuid', ...entity, createdAt: new Date() })),
     };
 
     teacherLinkRepo = { findOne: jest.fn().mockResolvedValue(null) };

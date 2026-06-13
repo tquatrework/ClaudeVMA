@@ -23,12 +23,12 @@ export class CommandService {
       if (existing) return existing;
     }
 
-    const corrId = dto.correlationId ?? uuidv4();
+    const resolvedCorrelationId = dto.correlationId ?? uuidv4();
     const command = this.repo.create({
       idempotencyKey: dto.idempotencyKey,
       targetService: dto.targetService,
       action: dto.action,
-      correlationId: corrId,
+      correlationId: resolvedCorrelationId,
       payload: dto.payload,
       dispatched: false,
     });
@@ -38,7 +38,7 @@ export class CommandService {
       service: dto.targetService,
       action: dto.action,
       payload: dto.payload,
-      correlationId: corrId,
+      correlationId: resolvedCorrelationId,
       idempotencyKey: dto.idempotencyKey,
     });
 

@@ -8,7 +8,7 @@
     "start:dev": "nest start --watch",
     "start:prod": "node dist/src/main",
     "test": "jest",
-    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:e2e": "jest --testMatch \"<rootDir>/test/e2e/**/*.e2e-spec.ts\"",
     "test:cov": "jest --coverage"
   },
   "dependencies": {
@@ -42,11 +42,11 @@
   },
   "jest": {
     "moduleFileExtensions": ["js", "json", "ts"],
-    "rootDir": "src",
-    "testRegex": ".*\\.spec\\.ts$",
+    "rootDir": ".",
+    "testMatch": ["<rootDir>/test/unit/**/*.spec.ts"],
     "transform": { "^.+\\.(t|j)s$": "ts-jest" },
-    "collectCoverageFrom": ["**/*.(t|j)s"],
-    "coverageDirectory": "../coverage",
+    "collectCoverageFrom": ["src/**/*.(t|j)s"],
+    "coverageDirectory": "./coverage",
     "testEnvironment": "node"
   }
 }

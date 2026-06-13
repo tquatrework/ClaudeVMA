@@ -21,6 +21,9 @@ import NotebookPage from './pages/NotebookPage'
 import AgreementsPage from './pages/AgreementsPage'
 import AdminActivityPage from './pages/AdminActivityPage'
 import ForbiddenPage from './pages/ForbiddenPage'
+import IncidentsPage from './pages/IncidentsPage'
+import IncidentDetailPage from './pages/IncidentDetailPage'
+import MemosPage from './pages/MemosPage'
 
 export default function App() {
   return (
@@ -137,6 +140,34 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <AgreementsPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Incidents */}
+          <Route
+            path="/incidents"
+            element={
+              <ProtectedRoute>
+                <IncidentsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/incidents/:incidentId"
+            element={
+              <ProtectedRoute>
+                <IncidentDetailPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Memos */}
+          <Route
+            path="/memos"
+            element={
+              <ProtectedRoute>
+                <MemosPage />
               </ProtectedRoute>
             }
           />

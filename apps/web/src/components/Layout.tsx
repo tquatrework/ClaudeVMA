@@ -54,6 +54,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Link to="/calendar" className={navLinkClass('/calendar')}>
                 Calendrier
               </Link>
+              <Link to="/activities" className={navLinkClass('/activities')}>
+                Activités
+              </Link>
               <Link to="/messages" className={navLinkClass('/messages')}>
                 Messages
               </Link>
@@ -134,6 +137,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <nav className="md:hidden bg-white border-t border-gray-100 px-4 py-3 space-y-2 text-sm">
             <MobileNavLink to="/dashboard" label="Tableau de bord" onClick={() => setIsMobileMenuOpen(false)} />
             <MobileNavLink to="/calendar" label="Calendrier" onClick={() => setIsMobileMenuOpen(false)} />
+            <MobileNavLink to="/activities" label="Activités" onClick={() => setIsMobileMenuOpen(false)} />
             <MobileNavLink to="/messages" label="Messages" onClick={() => setIsMobileMenuOpen(false)} />
             <MobileNavLink to="/teacher-requests" label="Demandes prof." onClick={() => setIsMobileMenuOpen(false)} />
             <MobileNavLink to="/memos" label="Mémos" onClick={() => setIsMobileMenuOpen(false)} />

@@ -24,6 +24,7 @@ import ForbiddenPage from './pages/ForbiddenPage'
 import IncidentsPage from './pages/IncidentsPage'
 import IncidentDetailPage from './pages/IncidentDetailPage'
 import MemosPage from './pages/MemosPage'
+import ActivitiesPage from './pages/ActivitiesPage'
 
 export default function App() {
   return (
@@ -89,6 +90,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <CalendarPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/activities"
+            element={
+              <ProtectedRoute>
+                <ActivitiesPage />
               </ProtectedRoute>
             }
           />

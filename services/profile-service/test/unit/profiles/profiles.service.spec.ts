@@ -222,6 +222,70 @@ describe('ProfilesService', () => {
       expect(studentPedaRepo.save).not.toHaveBeenCalled();
       expect(result).toHaveProperty('pedagogical', null);
     });
+
+    it('creates both administrative and teacher pedagogical profiles for a formateur viewing their own account', async () => {
+      const teacherId = 'bba9e321-4f12-4c8a-b6d3-000000000001';
+      const actor = makeActor(UserRole.FORMATEUR, teacherId);
+      const minimalAdminProfile = { userId: teacherId };
+      const minimalTeacherPeda = { userId: teacherId, isAnimateurPedagogique: false };
+      adminRepo.create.mockReturnValue(minimalAdminProfile);
+      adminRepo.save.mockResolvedValue(minimalAdminProfile);
+      teacherPedaRepo.create.mockReturnValue(minimalTeacherPeda);
+      teacherPedaRepo.save.mockResolvedValue(minimalTeacherPeda);
+
+      const result = await service.getProfile(teacherId, actor);
+
+      // Administrative profile must be persisted
+      expect(adminRepo.create).toHaveBeenCalledWith({ userId: teacherId });
+      expect(adminRepo.save).toHaveBeenCalled();
+      expect(result).toHaveProperty('administrative', minimalAdminProfile);
+
+      // Teacher pedagogical profile must also be persisted
+      expect(teacherPedaRepo.create).toHaveBeenCalledWith({ userId: teacherId });
+      expect(teacherPedaRepo.save).toHaveBeenCalled();
+      expect(result).toHaveProperty('pedagogical', minimalTeacherPeda);
+
+      expect(result.userId).toBe(teacherId);
+    });
+
+    it('does not create teacher peda profile for formateur when one already exists', async () => {
+      const teacherId = 'bba9e321-4f12-4c8a-b6d3-000000000001';
+      const actor = makeActor(UserRole.FORMATEUR, teacherId);
+      const existingAdmin = { userId: teacherId, firstName: 'Jean' };
+      const existingTeacherPeda = { userId: teacherId, niveauxEnseignes: ['Lycée'] };
+      adminRepo.findOne.mockResolvedValue(existingAdmin);
+      teacherPedaRepo.findOne.mockResolvedValue(existingTeacherPeda);
+
+      const result = await service.getProfile(teacherId, actor);
+
+      expect(adminRepo.save).not.toHaveBeenCalled();
+      expect(teacherPedaRepo.save).not.toHaveBeenCalled();
+      expect(result).toHaveProperty('pedagogical', existingTeacherPeda);
+    });
+
+    it('does not create teacher peda profile when RP consults a formateur without peda profile', async () => {
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      // admin exists, no peda — RP is not the owner so no lazy-creation of teacher peda
+      adminRepo.findOne.mockResolvedValue({ userId: 'teacher-uuid' });
+
+      const result = await service.getProfile('teacher-uuid', actor);
+
+      expect(teacherPedaRepo.save).not.toHaveBeenCalled();
+      expect(result).toHaveProperty('pedagogical', null);
+    });
+
+    it('does not create student peda for formateur viewing own profile (only teacher peda)', async () => {
+      const teacherId = 'bba9e321-4f12-4c8a-b6d3-000000000001';
+      const actor = makeActor(UserRole.FORMATEUR, teacherId);
+      const minimalTeacherPeda = { userId: teacherId };
+      teacherPedaRepo.create.mockReturnValue(minimalTeacherPeda);
+      teacherPedaRepo.save.mockResolvedValue(minimalTeacherPeda);
+
+      await service.getProfile(teacherId, actor);
+
+      expect(studentPedaRepo.save).not.toHaveBeenCalled();
+      expect(teacherPedaRepo.save).toHaveBeenCalled();
+    });
   });
 
   // ---------------------------------------------------------------------------

@@ -89,10 +89,15 @@ export class ProfilesService {
 
     // For an ELEVE consulting their own profile, also create a minimal
     // student pedagogical profile if none exists yet (PROF-BR: lazy init).
+    // For a FORMATEUR consulting their own profile, also create a minimal
+    // teacher pedagogical profile if none exists yet (same lazy-init pattern).
     let pedagogical = studentPeda ?? teacherPeda ?? null;
     if (!pedagogical && actor.role === UserRole.ELEVE && actor.id === userId) {
       const minimalStudentPeda = this.studentPedaRepo.create({ userId });
       pedagogical = await this.studentPedaRepo.save(minimalStudentPeda);
+    } else if (!pedagogical && actor.role === UserRole.FORMATEUR && actor.id === userId) {
+      const minimalTeacherPeda = this.teacherPedaRepo.create({ userId });
+      pedagogical = await this.teacherPedaRepo.save(minimalTeacherPeda);
     }
 
     return {

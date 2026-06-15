@@ -108,7 +108,9 @@ async function fetchAllAccounts(): Promise<AccountRecord[]> {
   if (isDryRun) {
     console.log('[dry-run] Would call GET /internal/accounts — returning mock data for syntax check');
     return [
-      { userId: '87482274-1ef2-412a-827b-75fc48c28370', role: 'ELEVE', email: 'mock@example.com' },
+      { userId: '87482274-1ef2-412a-827b-75fc48c28370', role: 'ELEVE', email: 'eleve@example.com' },
+      { userId: 'bba9e321-4f12-4c8a-b6d3-000000000001', role: 'FORMATEUR', email: 'formateur@example.com' },
+      { userId: 'cca9e321-4f12-4c8a-b6d3-000000000002', role: 'PARENT_FINANCEUR', email: 'parent@example.com' },
     ];
   }
 
@@ -140,10 +142,15 @@ async function profileExists(userId: string): Promise<boolean> {
   const targetUrl = `${profileServiceUrl}/profiles/${userId}`;
 
   if (isDryRun) {
-    // En dry-run, simuler un profil absent pour l'userId de test connu
-    const isKnownMissingProfile = userId === '87482274-1ef2-412a-827b-75fc48c28370';
-    console.log(`[dry-run] Would check GET /profiles/${userId} → simulated ${isKnownMissingProfile ? '404 (absent)' : '200 (exists)'}`);
-    return !isKnownMissingProfile;
+    // En dry-run, tous les mock users n'ont pas encore de profil (simule le backfill complet)
+    const mockUserIdsWithoutProfile = [
+      '87482274-1ef2-412a-827b-75fc48c28370',
+      'bba9e321-4f12-4c8a-b6d3-000000000001',
+      'cca9e321-4f12-4c8a-b6d3-000000000002',
+    ];
+    const isProfileMissing = mockUserIdsWithoutProfile.includes(userId);
+    console.log(`[dry-run] Would check GET /profiles/${userId} → simulated ${isProfileMissing ? '404 (absent)' : '200 (exists)'}`);
+    return !isProfileMissing;
   }
 
   const response = await httpRequest(targetUrl, {
@@ -160,16 +167,32 @@ async function profileExists(userId: string): Promise<boolean> {
 }
 
 /**
- * Crée un profil administratif minimal via POST /internal/create-administrative-profile.
- * L'endpoint est idempotent côté service — un double appel ne crée pas de doublon.
+ * Crée les profils nécessaires selon le rôle du compte :
+ *   - ELEVE    → POST /internal/create-student-profiles  (admin + student peda)
+ *   - FORMATEUR → POST /internal/create-teacher-profiles  (admin + teacher peda)
+ *   - autres   → POST /internal/create-administrative-profile (admin uniquement)
+ *
+ * Tous les endpoints sont idempotents côté service.
  */
-async function createMinimalProfile(account: AccountRecord): Promise<void> {
-  const targetUrl = `${profileServiceUrl}/internal/create-administrative-profile`;
+async function createProfilesForAccount(account: AccountRecord): Promise<void> {
+  const isStudentRole = account.role === 'ELEVE';
+  const isTeacherRole = account.role === 'FORMATEUR';
+
+  let targetPath: string;
+  if (isStudentRole) {
+    targetPath = '/internal/create-student-profiles';
+  } else if (isTeacherRole) {
+    targetPath = '/internal/create-teacher-profiles';
+  } else {
+    targetPath = '/internal/create-administrative-profile';
+  }
+
+  const targetUrl = `${profileServiceUrl}${targetPath}`;
   const requestPayload = JSON.stringify({ userId: account.userId });
 
   if (isDryRun) {
     console.log(
-      `[dry-run] Would POST /internal/create-administrative-profile with userId=${account.userId} (role=${account.role})`,
+      `[dry-run] Would POST ${targetPath} with userId=${account.userId} (role=${account.role})`,
     );
     return;
   }
@@ -182,7 +205,7 @@ async function createMinimalProfile(account: AccountRecord): Promise<void> {
 
   if (response.statusCode !== 200 && response.statusCode !== 201) {
     throw new Error(
-      `HTTP ${response.statusCode} when creating profile for userId=${account.userId}: ${response.body}`,
+      `HTTP ${response.statusCode} when creating profiles for userId=${account.userId} (role=${account.role}) via ${targetPath}: ${response.body}`,
     );
   }
 }
@@ -224,9 +247,9 @@ async function runBackfill(): Promise<void> {
         continue;
       }
 
-      console.log(`  → Profile absent — creating minimal profile`);
-      await createMinimalProfile(account);
-      console.log(`  → Profile created successfully`);
+      console.log(`  → Profile absent — creating profiles for role=${account.role}`);
+      await createProfilesForAccount(account);
+      console.log(`  → Profiles created successfully`);
       result.profilesCreated++;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

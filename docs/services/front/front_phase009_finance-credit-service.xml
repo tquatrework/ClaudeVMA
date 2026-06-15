@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<frontDevelopmentPhase version="1.0" id="front_phase009_finance-credit-service" order="9" service="finance-credit-service" status="planned">
+  <title>Finances, credits et interface AF</title>
+  <goal>Developper les vues financieres client/formateur et l'interface AF sans bloquer les phases pedagogiques precedentes.</goal>
+  <screensOrComponents>
+    <item>FinanceurFinancialProfile</item>
+    <item>StudentFundingPlanPanel</item>
+    <item>PaymentFlow</item>
+    <item>TeacherFinancialProfile</item>
+    <item>TeacherPaymentRequestForm</item>
+    <item>FinancialArchiveList</item>
+    <item>AfFinanceDashboard</item>
+    <item>RewardSettingsPage</item>
+  </screensOrComponents>
+  <apiContractsToConsume>
+    <item>GET /api/v1/financial-profiles/{ownerId}</item>
+    <item>PATCH /api/v1/financial-profiles/{ownerId}</item>
+    <item>POST /api/v1/payments</item>
+    <item>POST /api/v1/teacher-payment-requests</item>
+    <item>POST /api/v1/teacher-payment-requests/{id}/validate</item>
+    <item>GET /api/v1/financial-archives/{ownerId}</item>
+    <item>GET /api/v1/finance-events</item>
+    <item>PATCH /api/v1/financial-settings/rewards</item>
+  </apiContractsToConsume>
+  <allowedMocksUntilDependenciesExist>
+    <item>Payment provider can be mocked in non-production.</item>
+    <item>Legal signature state can be mocked until legal-document-service phase if needed.</item>
+  </allowedMocksUntilDependenciesExist>
+  <frontTests>
+    <item>Financeur sees balance, funding plan and payment confirmation.</item>
+    <item>Teacher submits payment request with invoice state.</item>
+    <item>AF validates a teacher payment request.</item>
+    <item>Financial archives filter and download actions are visible.</item>
+    <item>Non-financeur student sees only allowed balance summary.</item>
+  </frontTests>
+  <apiGatewayImpact>
+    <item>Route finance endpoints with strict auth.</item>
+    <item>Prepare payment callback exception only if provider requires it.</item>
+  </apiGatewayImpact>
+  <definitionOfDone>
+    <item>Financial state can support member/validated account logic.</item>
+    <item>AF has first usable finance workspace.</item>
+  </definitionOfDone>
+  <workingRule>Developper par tranche verticale: API minimale reelle, ecran utilisable, tests front, verification navigateur, puis phase suivante.</workingRule>
+</frontDevelopmentPhase>

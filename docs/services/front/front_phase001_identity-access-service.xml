@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<frontDevelopmentPhase version="1.0" id="front_phase001_identity-access-service" order="1" service="identity-access-service" status="planned">
+  <title>Socle front authentification et comptes</title>
+  <goal>Rendre possible la connexion, la session utilisateur, les gardes de routes, la recuperation de mot de passe et les premiers parcours de creation de compte.</goal>
+  <screensOrComponents>
+    <item>LoginPage</item>
+    <item>PasswordResetPage</item>
+    <item>StudentRegistrationWizardShell</item>
+    <item>TeacherRegistrationEntry</item>
+    <item>ProtectedRoute</item>
+    <item>RoleBasedLayout</item>
+  </screensOrComponents>
+  <apiContractsToConsume>
+    <item>POST /api/v1/auth/login</item>
+    <item>POST /api/v1/auth/password-reset/request</item>
+    <item>POST /api/v1/accounts/students</item>
+    <item>POST /api/v1/accounts/teachers</item>
+    <item>GET /api/v1/auth/me</item>
+  </apiContractsToConsume>
+  <allowedMocksUntilDependenciesExist>
+    <item>Profile, finance and legal data are mocked only enough to complete registration screens.</item>
+    <item>Dashboard target route can show a placeholder until dashboard-notification-service exists.</item>
+  </allowedMocksUntilDependenciesExist>
+  <frontTests>
+    <item>Login success stores token and redirects by role.</item>
+    <item>Login failure displays an error without losing form state.</item>
+    <item>Protected route redirects anonymous user to login.</item>
+    <item>Student registration validates required administrative and RGPD fields.</item>
+    <item>Teacher registration entry redirects to the teacher-specific flow.</item>
+  </frontTests>
+  <apiGatewayImpact>
+    <item>Expose public auth and account creation routes.</item>
+    <item>Protect /auth/me with bearer token.</item>
+    <item>Keep VITE_API_BASE_URL=/api/v1.</item>
+  </apiGatewayImpact>
+  <definitionOfDone>
+    <item>A user can log in and the front knows role and account status.</item>
+    <item>All following phases can reuse the same API client and auth state.</item>
+  </definitionOfDone>
+  <workingRule>Developper par tranche verticale: API minimale reelle, ecran utilisable, tests front, verification navigateur, puis phase suivante.</workingRule>
+</frontDevelopmentPhase>

@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude doctor)",
+      "Bash(npm test)",
+      "Bash(npm test *)",
+      "Bash(npm run build)",
+      "Bash(npm run build *)",
+      "Bash(npm install)",
+      "Bash(npm install *)",
+      "Bash(node --check *)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(node_modules/.bin/tsc --noEmit *)",
+      "Bash(npx vitest run)",
+      "Bash(npx vitest run *)",
+      "Bash(docker compose *)",
+      "Bash(docker ps)",
+      "Bash(docker ps *)",
+      "Bash(sudo docker ps)",
+      "Bash(sudo docker ps *)",
+      "Bash(sudo docker logs *)",
+      "Bash(sudo docker inspect *)",
+      "Bash(npm run test:e2e)",
+      "Bash(npm run test:e2e *)",
+      "Bash(docker info)",
+      "Bash(docker info *)",
+      "Bash(pg_isready)",
+      "Bash(pg_isready *)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(npx tsc --noEmit *)",
+      "Bash(git -C * status)",
+      "Bash(git -C * status *)",
+      "Bash(git -C * log *)",
+      "Bash(git -C * diff *)",
+      "Bash(npx jest *)"
+    ]
+  }
+}

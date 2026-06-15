@@ -11,7 +11,7 @@ Structure complète dockerisée, prête à lancer avec `docker compose up --buil
 | `docker-compose.yml` | Orchestre les 9 conteneurs + postgres + redis |
 | `.env.example` | Variables d'environnement à copier en `.env` |
 | `scripts/init-databases.sql` | Crée les 8 BDD PostgreSQL au premier démarrage |
-| `services/api-gateway/nginx.conf` | Routage vers les 8 services |
+| `gateway/api-gateway/nginx.conf` | Routage vers les 8 services |
 
 ### Par service NestJS
 

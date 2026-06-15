@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<frontDevelopmentPhase version="1.0" id="front_phase010_legal-document-service" order="10" service="legal-document-service" status="planned">
+  <title>Mandats, contrats et signatures</title>
+  <goal>Developper les signatures legales et la gestion des modeles/documents par AF.</goal>
+  <screensOrComponents>
+    <item>LegalDocumentsPanel</item>
+    <item>MandateSignatureView</item>
+    <item>TeacherContractSignatureView</item>
+    <item>LegalTemplateAdminPage</item>
+    <item>SecureDocumentAccessView</item>
+  </screensOrComponents>
+  <apiContractsToConsume>
+    <item>GET /api/v1/legal-documents/{ownerId}</item>
+    <item>POST /api/v1/legal-documents/{id}/sign</item>
+    <item>POST /api/v1/legal-templates</item>
+    <item>PATCH /api/v1/legal-templates/{id}</item>
+    <item>GET /api/v1/legal-documents/{id}/secure-copy</item>
+  </apiContractsToConsume>
+  <allowedMocksUntilDependenciesExist>
+    <item>Electronic signature provider can be mocked until provider choice is final.</item>
+  </allowedMocksUntilDependenciesExist>
+  <frontTests>
+    <item>Financeur signs mandate once.</item>
+    <item>Teacher signs contract once.</item>
+    <item>Already signed document cannot be signed again.</item>
+    <item>AF edits a template.</item>
+    <item>Non-authorized user cannot view secure copy.</item>
+  </frontTests>
+  <apiGatewayImpact>
+    <item>Route legal endpoints with strict auth.</item>
+    <item>Keep external signature callback public only if required and separately protected.</item>
+  </apiGatewayImpact>
+  <definitionOfDone>
+    <item>Legal prerequisites for member/validated accounts are visible.</item>
+    <item>AF can manage document templates.</item>
+  </definitionOfDone>
+  <workingRule>Developper par tranche verticale: API minimale reelle, ecran utilisable, tests front, verification navigateur, puis phase suivante.</workingRule>
+</frontDevelopmentPhase>

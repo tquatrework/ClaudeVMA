@@ -1,80 +1,66 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<microserviceSpecification version="0.1" source="CdC VisioMath - simplifie.docx" status="draft-pending-user-arbitration">
+<?xml version="1.0" encoding="utf-8"?>
+<serviceFunctionalSpecification version="1.0" source="Cahier des Charges VisioMath - V 1.1.1 - 240531.docx" previousSource="CdC VisioMath - simplifie.docx" status="completed-from-integral-cdc">
   <scopeControl>
-    <rule>Respecter strictement les specifications du cahier des charges.</rule>
-    <rule>Toute contradiction ou ambiguite doit etre remontee pour arbitrage avant implementation.</rule>
+    <rule>Respecter strictement le cahier des charges integral comme source metier principale.</rule>
+    <rule>Toute contradiction avec les anciens XML doit etre signalee dans le delta.</rule>
   </scopeControl>
-  <microservice id="teacher-request-service" phase="1" priority="critical">
-    <name>Demandes professeur et affectations</name>
-    <mission>Gerer les demandes de professeur, la recherche d'intervenants, les affectations et les arrets de relation pedagogique.</mission>
+  <service id="teacher-request-service" phase="1" priority="high">
+    <name>Demandes professeur et recherche formateur</name>
+    <mission>Gerer les demandes de professeur, changement de PP, demandes specifiques, arrets de collaboration et selection de candidats par le RP.</mission>
+    <sourceReferences>CDC lines 73-74, 151-152, 199-202, 386-396, 571-579</sourceReferences>
     <responsibilities>
-      <item>Recevoir les demandes de professeur des eleves ou familles.</item>
-      <item>Permettre au RP de rediriger une demande vers des formateurs.</item>
-      <item>Suivre les propositions, acceptations, refus et dates de disponibilite.</item>
-      <item>Designer un professeur principal pour un eleve.</item>
-      <item>Permettre au formateur de demander l'arret d'une relation avec preavis.</item>
-      <item>Alimenter la liste d'activites ou besoins non pourvus.</item>
+      <item>Permettre a l'eleve ou au financeur de faire une demande specifique de professeur.</item>
+      <item>Permettre au financeur de demander un changement de PP.</item>
+      <item>Notifier le RP et suivre l'etat de la demande.</item>
+      <item>Permettre au RP de rechercher et selectionner des formateurs candidats.</item>
+      <item>Afficher la demande sur le tableau de bord des formateurs cibles.</item>
+      <item>Permettre au formateur d'accepter/refuser puis au client de choisir un candidat.</item>
+      <item>Permettre au formateur de demander un arret de collaboration avec preavis.</item>
     </responsibilities>
-    <businessRules>
-      <rule id="TRQ-BR-001" origin="SPEC">L'eleve dispose d'une interface de demande professeur avec la liste des professeurs lies.</rule>
-      <rule id="TRQ-BR-002" origin="SPEC">Le formateur dispose d'une interface de demande professeur avec les demandes redirigees par le RP ou l'application.</rule>
-      <rule id="TRQ-BR-003" origin="SPEC">Le RP recoit les demandes de professeur et les redirige vers les formateurs.</rule>
-      <rule id="TRQ-BR-004" origin="SPEC">Le RP dispose d'un outil de recherche professeur selon points pedagogiques, niveau, secteur et disponibilites.</rule>
-      <rule id="TRQ-BR-005" origin="SPEC">Le formateur peut demander un arret de relation avec preavis.</rule>
-      <rule id="TRQ-BR-006" origin="SPEC">Un professeur lie a l'etudiant peut etre designe professeur principal.</rule>
-      <rule id="TRQ-BR-007" origin="SPEC">La liste d'activites non pourvues concerne les elements en attente d'intervention formateur qui ne sont pas des demandes directes.</rule>
-      <rule id="TRQ-BR-008" origin="SPEC">Sur une activite non pourvue, l'action type du formateur est la declaration d'interet avec date.</rule>
-    </businessRules>
+    <functionalities>
+      <functionality id="001">Liste des professeurs de l'annee et PP pour eleve/financeur.</functionality>
+      <functionality id="002">Action changer de PP reservee financeur.</functionality>
+      <functionality id="003">Action demande specifique ouverte eleve et financeur, avec email au financeur si l'eleve initie.</functionality>
+      <functionality id="004">Formulaire cause, objectif, commentaires, disponibilites.</functionality>
+      <functionality id="005">Statuts: demande en cours, candidats selectionnes, candidat choisi, cloture.</functionality>
+      <functionality id="006">Recherche formateur RP par points pedagogiques, niveau, secteur, disponibilites et mots cles.</functionality>
+      <functionality id="007">Demande d'arret formateur avec notification RP et preavis d'un mois.</functionality>
+    </functionalities>
     <roleAccessRules>
-      <rule id="TRQ-RA-001" role="Eleve" origin="SPEC">Peut demander un professeur et voir ses professeurs lies.</rule>
-      <rule id="TRQ-RA-002" role="ParentFinanceur" origin="SPEC">Peut suivre les elements des eleves lies, dont les demandes professeur.</rule>
-      <rule id="TRQ-RA-003" role="ResponsablePedagogique" origin="SPEC">Peut recevoir, consulter, rediriger et traiter les demandes professeur.</rule>
-      <rule id="TRQ-RA-004" role="Formateur" origin="SPEC">Peut consulter les demandes qui lui sont redirigees et demander un arret avec preavis.</rule>
+      <rule role="Eleve">Peut faire une demande specifique; voit les candidats selectionnes.</rule>
+      <rule role="ParentFinanceur">Peut demander changement de PP et demande specifique; choisit un candidat avec l'eleve.</rule>
+      <rule role="Formateur">Recoit les demandes ciblees, accepte/refuse, demande un arret de collaboration.</rule>
+      <rule role="ResponsablePedagogique">Cree/recherche/selectionne les candidats et cloture la demande.</rule>
+      <rule role="TechnicienInformatique">Acces technique sur incident selon autorisation.</rule>
     </roleAccessRules>
-    <forbiddenCases>
-      <case id="TRQ-FB-001" origin="SPEC">Un formateur ne doit pas recevoir toutes les demandes : seulement celles redirigees ou accessibles par liste d'activites non pourvues.</case>
-      <case id="TRQ-FB-002" origin="SPEC">Un formateur ne doit pas arreter immediatement une relation sans preavis lorsque le preavis est requis.</case>
-      <case id="TRQ-FB-003" origin="AJOUT">Un professeur principal ne doit pas etre designe si le formateur n'est pas lie a l'eleve.</case>
-    </forbiddenCases>
+    <candidateApis>
+      <endpoint method="POST" path="/teacher-requests">Creer une demande specifique.</endpoint>
+      <endpoint method="POST" path="/teacher-requests/pp-change">Demander un changement de PP.</endpoint>
+      <endpoint method="GET" path="/teacher-requests/{id}">Suivre l'etat et les candidats.</endpoint>
+      <endpoint method="POST" path="/teacher-requests/{id}/candidates">Ajouter des formateurs candidats par RP.</endpoint>
+      <endpoint method="POST" path="/teacher-requests/{id}/responses">Accepter ou refuser cote formateur.</endpoint>
+      <endpoint method="POST" path="/teacher-requests/{id}/select">Choisir le candidat final.</endpoint>
+      <endpoint method="POST" path="/teacher-collaborations/{id}/stop-request">Demander un arret de collaboration.</endpoint>
+    </candidateApis>
     <dataEntities>
       <entity>TeacherRequest</entity>
-      <entity>TeacherProposal</entity>
-      <entity>Assignment</entity>
-      <entity>MainTeacherStatus</entity>
-      <entity>TerminationRequest</entity>
+      <entity>TeacherCandidate</entity>
+      <entity>TeacherRequestResponse</entity>
+      <entity>TeacherSearch</entity>
+      <entity>TeacherStudentLink</entity>
+      <entity>PrincipalTeacherAssignment</entity>
     </dataEntities>
-    <apis>
-      <endpoint method="POST" path="/teacher-requests">Creer une demande</endpoint>
-      <endpoint method="GET" path="/teacher-requests">Lister les demandes selon role</endpoint>
-      <endpoint method="POST" path="/teacher-requests/{requestId}/proposals">Proposer un formateur</endpoint>
-      <endpoint method="POST" path="/proposals/{proposalId}/accept">Accepter une proposition</endpoint>
-      <endpoint method="POST" path="/assignments/{assignmentId}/main-teacher">Definir professeur principal</endpoint>
-      <endpoint method="POST" path="/assignments/{assignmentId}/termination">Demander un arret</endpoint>
-    </apis>
-    <eventsPublished>
+    <events>
       <event>TeacherRequestCreated</event>
-      <event>TeacherProposalSent</event>
-      <event>TeacherAssigned</event>
-      <event>MainTeacherAssigned</event>
-      <event>TeacherRelationTerminationRequested</event>
-    </eventsPublished>
-    <dependencies>
-      <service>profile-service</service>
-      <service>calendar-service</service>
-      <service>dashboard-notification-service</service>
-    </dependencies>
+      <event>TeacherCandidatesSelected</event>
+      <event>TeacherCandidateChosen</event>
+      <event>TeacherStopRequested</event>
+    </events>
     <acceptanceCriteria>
-      <criterion>Une demande creee par eleve ou parent devient visible par le RP.</criterion>
-      <criterion>Le RP peut rediriger une demande vers un ou plusieurs formateurs.</criterion>
-      <criterion>L'affectation cree une relation formateur-eleve exploitable par les autres services.</criterion>
-      <criterion>La designation d'un professeur principal est rattachee a une relation formateur-eleve existante.</criterion>
+      <criterion>Une demande eleve declenche un email au financeur et une notification RP.</criterion>
+      <criterion>Les formateurs cibles voient la demande en haut de tableau de bord.</criterion>
+      <criterion>Le choix client notifie le formateur choisi et cloture la demande.</criterion>
+      <criterion>Un arret formateur cree une nouvelle demande a gerer par le RP.</criterion>
     </acceptanceCriteria>
-    <manualTestScenarios>
-      <scenario id="TRQ-TEST-001" origin="SPEC">Un parent cree une demande pour un eleve lie, le RP la voit dans son interface.</scenario>
-      <scenario id="TRQ-TEST-002" origin="SPEC">Le RP redirige une demande vers un formateur valide, le formateur la voit dans son interface.</scenario>
-      <scenario id="TRQ-TEST-003" origin="SPEC">Le formateur accepte, l'eleve voit le formateur dans sa liste de professeurs lies.</scenario>
-      <scenario id="TRQ-TEST-004" origin="SPEC">Le RP designe ce formateur comme professeur principal, la relation PP est visible.</scenario>
-      <scenario id="TRQ-TEST-005" origin="SPEC">Le formateur demande un arret, la demande conserve une date de preavis.</scenario>
-    </manualTestScenarios>
-  </microservice>
-</microserviceSpecification>
+  </service>
+</serviceFunctionalSpecification>

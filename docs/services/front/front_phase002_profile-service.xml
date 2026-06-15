@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<frontDevelopmentPhase version="1.0" id="front_phase002_profile-service" order="2" service="profile-service" status="planned">
+  <title>Profils administratifs et pedagogiques</title>
+  <goal>Construire les ecrans de profil eleve, formateur et vues partielles selon role.</goal>
+  <screensOrComponents>
+    <item>AdministrativeProfilePage</item>
+    <item>StudentPedagogicalProfilePage</item>
+    <item>TeacherPedagogicalProfilePage</item>
+    <item>ProfileVisibilitySettings</item>
+    <item>AdminProfileNotesPanel</item>
+  </screensOrComponents>
+  <apiContractsToConsume>
+    <item>GET /api/v1/profiles/{userId}</item>
+    <item>PATCH /api/v1/profiles/{userId}/administrative</item>
+    <item>PATCH /api/v1/profiles/{userId}/pedagogical</item>
+    <item>POST /api/v1/profiles/{userId}/admin-notes</item>
+    <item>PATCH /api/v1/teachers/{userId}/validation</item>
+  </apiContractsToConsume>
+  <allowedMocksUntilDependenciesExist>
+    <item>Calendar availability can stay mocked until calendar-service phase.</item>
+    <item>Finance tab displays only minimal account status until finance-credit-service phase.</item>
+  </allowedMocksUntilDependenciesExist>
+  <frontTests>
+    <item>Student edits own administrative profile.</item>
+    <item>Teacher edits own pedagogical profile except RP-only test results.</item>
+    <item>RP can add an internal note and sees due date.</item>
+    <item>Contact view hides identifying or private fields according to permissions.</item>
+  </frontTests>
+  <apiGatewayImpact>
+    <item>Protect all profile routes.</item>
+    <item>Forward Authorization header consistently.</item>
+  </apiGatewayImpact>
+  <definitionOfDone>
+    <item>The front can display user context and role-specific profile pages.</item>
+    <item>Teacher validation/AP status is visible where relevant.</item>
+  </definitionOfDone>
+  <workingRule>Developper par tranche verticale: API minimale reelle, ecran utilisable, tests front, verification navigateur, puis phase suivante.</workingRule>
+</frontDevelopmentPhase>

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<frontDevelopmentPhase version="1.0" id="front_phase015_admin-observability-service" order="15" service="admin-observability-service" status="planned">
+  <title>Interface TI, logs et observabilite</title>
+  <goal>Developper les vues d'administration technique, logs, activite, masquage temporaire et metadata.</goal>
+  <screensOrComponents>
+    <item>TiAdminDashboard</item>
+    <item>ActivityLogPage</item>
+    <item>TechnicalLogsPage</item>
+    <item>VisibilityOverridePanel</item>
+    <item>SiteMetadataEditor</item>
+    <item>HealthStatusPage</item>
+  </screensOrComponents>
+  <apiContractsToConsume>
+    <item>GET /api/v1/admin/activity-log</item>
+    <item>GET /api/v1/admin/technical-logs</item>
+    <item>POST /api/v1/admin/visibility-overrides</item>
+    <item>DELETE /api/v1/admin/visibility-overrides/{id}</item>
+    <item>GET /api/v1/admin/health</item>
+    <item>PATCH /api/v1/admin/site-metadata/{id}</item>
+  </apiContractsToConsume>
+  <allowedMocksUntilDependenciesExist>
+    <item>Infrastructure metrics can be seeded in local tests.</item>
+  </allowedMocksUntilDependenciesExist>
+  <frontTests>
+    <item>TI sees activity and technical logs.</item>
+    <item>TI creates a temporary visibility override without deleting data.</item>
+    <item>TI cannot self-authorize AF access.</item>
+    <item>Metadata editor saves allowed fields.</item>
+  </frontTests>
+  <apiGatewayImpact>
+    <item>Route /admin endpoints with TI/RP/AF role restrictions.</item>
+  </apiGatewayImpact>
+  <definitionOfDone>
+    <item>Support and incident operations are visible from the front.</item>
+    <item>Admin actions are separated from normal user screens.</item>
+  </definitionOfDone>
+  <workingRule>Developper par tranche verticale: API minimale reelle, ecran utilisable, tests front, verification navigateur, puis phase suivante.</workingRule>
+</frontDevelopmentPhase>

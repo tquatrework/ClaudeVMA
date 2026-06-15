@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<frontDevelopmentPhase version="1.0" id="front_phase003_teacher-request-service" order="3" service="teacher-request-service" status="planned">
+  <title>Demande professeur et recherche formateur</title>
+  <goal>Developper le parcours demande professeur eleve/financeur, la gestion RP et la reponse formateur.</goal>
+  <screensOrComponents>
+    <item>TeacherRequestPage</item>
+    <item>ChangePrincipalTeacherDialog</item>
+    <item>SpecificTeacherRequestForm</item>
+    <item>TeacherCandidatesView</item>
+    <item>RpTeacherSearchWorkspace</item>
+    <item>TeacherRequestInbox</item>
+    <item>StopCollaborationRequestForm</item>
+  </screensOrComponents>
+  <apiContractsToConsume>
+    <item>POST /api/v1/teacher-requests</item>
+    <item>POST /api/v1/teacher-requests/pp-change</item>
+    <item>GET /api/v1/teacher-requests/{id}</item>
+    <item>POST /api/v1/teacher-requests/{id}/candidates</item>
+    <item>POST /api/v1/teacher-requests/{id}/responses</item>
+    <item>POST /api/v1/teacher-requests/{id}/select</item>
+    <item>POST /api/v1/teacher-collaborations/{id}/stop-request</item>
+  </apiContractsToConsume>
+  <allowedMocksUntilDependenciesExist>
+    <item>Teacher search results may mock profile ranking until profile statistics are stable.</item>
+    <item>Notifications can be mocked until dashboard-notification-service phase.</item>
+  </allowedMocksUntilDependenciesExist>
+  <frontTests>
+    <item>Student creates a specific teacher request.</item>
+    <item>Financeur creates a PP change request.</item>
+    <item>RP selects candidates and status changes to candidates selected.</item>
+    <item>Teacher accepts/refuses a targeted request.</item>
+    <item>Client selects a candidate and request closes.</item>
+  </frontTests>
+  <apiGatewayImpact>
+    <item>Add teacher-request routes behind auth.</item>
+    <item>Avoid trailing-slash redirects on collection/detail routes.</item>
+  </apiGatewayImpact>
+  <definitionOfDone>
+    <item>A complete teacher request can be followed from student/financeur to RP to teacher.</item>
+    <item>No orchestration-service is required: the test drives the sequence through public APIs.</item>
+  </definitionOfDone>
+  <workingRule>Developper par tranche verticale: API minimale reelle, ecran utilisable, tests front, verification navigateur, puis phase suivante.</workingRule>
+</frontDevelopmentPhase>

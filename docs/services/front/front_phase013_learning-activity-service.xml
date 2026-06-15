@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<frontDevelopmentPhase version="1.0" id="front_phase013_learning-activity-service" order="13" service="learning-activity-service" status="planned">
+  <title>Activites non pourvues</title>
+  <goal>Afficher les petites annonces pedagogiques et permettre aux formateurs de prendre des activites.</goal>
+  <screensOrComponents>
+    <item>OpenActivitiesList</item>
+    <item>OpenActivityDetail</item>
+    <item>OpenActivityAcceptDialog</item>
+    <item>RpOpenActivityPublisher</item>
+    <item>ActivityGlobalExportView</item>
+  </screensOrComponents>
+  <apiContractsToConsume>
+    <item>GET /api/v1/open-activities</item>
+    <item>POST /api/v1/open-activities</item>
+    <item>POST /api/v1/open-activities/{id}/accept</item>
+    <item>PATCH /api/v1/open-activities/{id}</item>
+    <item>GET /api/v1/activities</item>
+  </apiContractsToConsume>
+  <allowedMocksUntilDependenciesExist>
+    <item>Calendar insertion after accept can be mocked if calendar integration is not wired in environment tests.</item>
+  </allowedMocksUntilDependenciesExist>
+  <frontTests>
+    <item>Formateur lists open activities.</item>
+    <item>Formateur accepts an activity and it disappears when quota is reached.</item>
+    <item>RP publishes a production request.</item>
+    <item>Acceptance triggers visible calendar/notification side effects in mocked integration.</item>
+  </frontTests>
+  <apiGatewayImpact>
+    <item>Route /open-activities and /activities.</item>
+  </apiGatewayImpact>
+  <definitionOfDone>
+    <item>Unfilled corrections/solutions have a visible resolution path.</item>
+    <item>Formateurs can take work from the platform list.</item>
+  </definitionOfDone>
+  <workingRule>Developper par tranche verticale: API minimale reelle, ecran utilisable, tests front, verification navigateur, puis phase suivante.</workingRule>
+</frontDevelopmentPhase>

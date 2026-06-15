@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<frontDevelopmentPhase version="1.0" id="front_phase005_video-session-service" order="5" service="video-session-service" status="planned">
+  <title>Visio et enregistrements</title>
+  <goal>Relier calendrier/tableau de bord a la visio et preparer l'acces aux enregistrements et resumes.</goal>
+  <screensOrComponents>
+    <item>VideoJoinPage</item>
+    <item>UpcomingCourseJoinButton</item>
+    <item>VideoSessionPage</item>
+    <item>RecordingListPanel</item>
+    <item>RecordingCommentTimeline</item>
+    <item>CourseSummaryView</item>
+  </screensOrComponents>
+  <apiContractsToConsume>
+    <item>POST /api/v1/video-sessions</item>
+    <item>GET /api/v1/video-sessions/{id}/join</item>
+    <item>GET /api/v1/video-sessions/{id}/recordings</item>
+    <item>POST /api/v1/recordings/{id}/comments</item>
+    <item>POST /api/v1/video-sessions/{id}/summary</item>
+  </apiContractsToConsume>
+  <allowedMocksUntilDependenciesExist>
+    <item>Real video provider can be stubbed by an embeddable placeholder while the join contract is stabilized.</item>
+    <item>Archive links can be mocked until archive-document-service phase.</item>
+  </allowedMocksUntilDependenciesExist>
+  <frontTests>
+    <item>Student opens join page from calendar event.</item>
+    <item>Teacher opens join page for own session.</item>
+    <item>Parent cannot access recording view.</item>
+    <item>Recording list handles empty and expired states.</item>
+  </frontTests>
+  <apiGatewayImpact>
+    <item>Route /video-sessions and /recordings.</item>
+    <item>Allow provider callback routes separately if external callbacks are introduced.</item>
+  </apiGatewayImpact>
+  <definitionOfDone>
+    <item>A course event can lead to a joinable video session from the front.</item>
+    <item>Access restrictions are visible and tested.</item>
+  </definitionOfDone>
+  <workingRule>Developper par tranche verticale: API minimale reelle, ecran utilisable, tests front, verification navigateur, puis phase suivante.</workingRule>
+</frontDevelopmentPhase>

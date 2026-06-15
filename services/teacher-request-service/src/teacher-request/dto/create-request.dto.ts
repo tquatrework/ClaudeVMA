@@ -1,8 +1,8 @@
-import { IsString, IsOptional, Matches } from 'class-validator';
+import { IsString, IsOptional, IsNotEmpty, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateRequestDto {
-  @ApiPropertyOptional({ description: 'Student UUID — required when requester is PARENT' })
+  @ApiPropertyOptional({ description: 'Student UUID — required when requester is PARENT or RP' })
   @IsOptional()
   @Matches(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/, {
     message: 'studentId must be a UUID',
@@ -11,6 +11,7 @@ export class CreateRequestDto {
 
   @ApiProperty({ example: 'Algèbre linéaire' })
   @IsString()
+  @IsNotEmpty()
   subject: string;
 
   @ApiPropertyOptional({ example: 'Terminale' })

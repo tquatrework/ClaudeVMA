@@ -20,9 +20,12 @@ import {
 
 import { TeacherRequestService } from './teacher-request.service';
 import { CreateRequestDto } from './dto/create-request.dto';
+import { CreatePpChangeDto } from './dto/create-pp-change.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { CreateProposalDto } from './dto/create-proposal.dto';
 import { CreateTerminationDto } from './dto/create-termination.dto';
+import { SelectCandidateDto } from './dto/select-candidate.dto';
+import { PublishSelectedCandidatesDto } from './dto/publish-selected-candidates.dto';
 import { JwtAuthGuard } from '../common/jwt.guard';
 import { CurrentUser } from '../common/current-user.decorator';
 import { JwtPayload } from '../common/jwt.guard';
@@ -37,8 +40,8 @@ export class TeacherRequestController {
 
   @Post()
   @ApiOperation({
-    summary: 'Create a teacher request',
-    description: 'ELEVE, PARENT_FINANCEUR or RESPONSABLE_PEDAGOGIQUE creates a request for a teacher.',
+    summary: 'Create a specific teacher request',
+    description: 'ELEVE, PARENT_FINANCEUR or RESPONSABLE_PEDAGOGIQUE creates a specific request for a teacher.',
   })
   @ApiResponse({ status: 201, description: 'Request created' })
   @ApiResponse({ status: 400, description: 'Validation error' })
@@ -46,6 +49,19 @@ export class TeacherRequestController {
   @ApiResponse({ status: 403, description: 'Forbidden' })
   createRequest(@Body() dto: CreateRequestDto, @CurrentUser() user: JwtPayload) {
     return this.service.createRequest(dto, user);
+  }
+
+  @Post('pp-change')
+  @ApiOperation({
+    summary: 'Request a principal teacher (PP) change',
+    description: 'PARENT_FINANCEUR only. Creates a request to change the principal teacher for a student.',
+  })
+  @ApiResponse({ status: 201, description: 'PP change request created' })
+  @ApiResponse({ status: 400, description: 'Validation error' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — only parent_financeur' })
+  createPpChangeRequest(@Body() dto: CreatePpChangeDto, @CurrentUser() user: JwtPayload) {
+    return this.service.createPpChangeRequest(dto, user);
   }
 
   @Get()
@@ -70,6 +86,49 @@ export class TeacherRequestController {
   @ApiResponse({ status: 404, description: 'Not found' })
   getRequest(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.service.getRequest(id, user);
+  }
+
+  @Post(':id/selected-candidates')
+  @ApiOperation({
+    summary: 'RP publie les candidats retenus à l\'élève/financeur',
+    description:
+      'RESPONSABLE_PEDAGOGIQUE uniquement. ' +
+      'Étape 2 du workflow formateur : après que les formateurs ciblés ont répondu (via POST /requests/:id/proposals), ' +
+      'le RP sélectionne un sous-ensemble de ceux ayant accepté et les publie à l\'élève et au financeur. ' +
+      'Met la demande au statut CANDIDATES_PUBLISHED et émet l\'événement TeacherCandidatesSelected. ' +
+      'À distinguer de POST /requests/:id/select (étape 3) où l\'élève/financeur choisit le formateur final.',
+  })
+  @ApiParam({ name: 'id', description: 'TeacherRequest UUID' })
+  @ApiResponse({ status: 201, description: 'Candidats publiés — demande au statut CANDIDATES_PUBLISHED' })
+  @ApiResponse({ status: 400, description: 'TeacherIds invalides ou n\'ayant pas de proposition acceptée' })
+  @ApiResponse({ status: 403, description: 'Réservé au RESPONSABLE_PEDAGOGIQUE' })
+  @ApiResponse({ status: 404, description: 'Request not found' })
+  publishSelectedCandidates(
+    @Param('id') requestId: string,
+    @Body() dto: PublishSelectedCandidatesDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.publishSelectedCandidates(requestId, dto, user);
+  }
+
+  @Post(':id/select')
+  @ApiOperation({
+    summary: 'Select the final candidate for a request',
+    description:
+      'ELEVE or PARENT_FINANCEUR chooses the final teacher from accepted proposals. Emits TeacherCandidateChosen.',
+  })
+  @ApiParam({ name: 'id', description: 'TeacherRequest UUID' })
+  @ApiResponse({ status: 201, description: 'Candidate chosen, request marked CANDIDATE_CHOSEN' })
+  @ApiResponse({ status: 400, description: 'Invalid state or proposal mismatch' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — only eleve or parent_financeur' })
+  @ApiResponse({ status: 404, description: 'Not found' })
+  selectCandidate(
+    @Param('id') requestId: string,
+    @Body() dto: SelectCandidateDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.selectCandidate(requestId, dto, user);
   }
 
   @Patch(':id/status')
@@ -138,9 +197,27 @@ export class ProposalController {
   })
   @ApiParam({ name: 'proposalId', description: 'TeacherProposal UUID' })
   @ApiResponse({ status: 201, description: 'Assignment created' })
+  @ApiResponse({ status: 400, description: 'Proposal is not pending' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden — proposal not addressed to this teacher' })
+  @ApiResponse({ status: 404, description: 'Not found' })
   acceptProposal(@Param('proposalId') proposalId: string, @CurrentUser() user: JwtPayload) {
     return this.service.acceptProposal(proposalId, user);
+  }
+
+  @Post(':proposalId/decline')
+  @ApiOperation({
+    summary: 'Decline a proposal (FORMATEUR only)',
+    description: 'Marks the proposal as DECLINED. The RP can then redirect to another teacher.',
+  })
+  @ApiParam({ name: 'proposalId', description: 'TeacherProposal UUID' })
+  @ApiResponse({ status: 201, description: 'Proposal declined' })
+  @ApiResponse({ status: 400, description: 'Proposal is not pending' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — proposal not addressed to this teacher' })
+  @ApiResponse({ status: 404, description: 'Not found' })
+  declineProposal(@Param('proposalId') proposalId: string, @CurrentUser() user: JwtPayload) {
+    return this.service.declineProposal(proposalId, user);
   }
 }
 
@@ -167,16 +244,49 @@ export class AssignmentController {
   @Post(':assignmentId/termination')
   @ApiOperation({
     summary: 'Request assignment termination (FORMATEUR only)',
-    description: 'Teacher requests to end relation with a notice date.',
+    description: 'Teacher requests to end relation with a notice date. Emits TeacherStopRequested.',
   })
   @ApiParam({ name: 'assignmentId', description: 'Assignment UUID' })
   @ApiResponse({ status: 201, description: 'Termination request created' })
+  @ApiResponse({ status: 400, description: 'Assignment is not active' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden — not the teacher on this assignment' })
+  @ApiResponse({ status: 404, description: 'Not found' })
   createTermination(
     @Param('assignmentId') assignmentId: string,
     @Body() dto: CreateTerminationDto,
     @CurrentUser() user: JwtPayload,
   ) {
     return this.service.createTermination(assignmentId, dto, user);
+  }
+}
+
+// ── /collaborations routes — alias for stop-request per XML spec ──────────────
+@ApiTags('collaborations')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
+@Controller('collaborations')
+export class CollaborationController {
+  constructor(private readonly service: TeacherRequestService) {}
+
+  @Post(':assignmentId/stop-request')
+  @ApiOperation({
+    summary: 'Request collaboration stop (FORMATEUR only)',
+    description:
+      'Alias of POST /assignments/:id/termination. Formateur requests to end collaboration with notice date. ' +
+      'Emits TeacherStopRequested.',
+  })
+  @ApiParam({ name: 'assignmentId', description: 'Assignment UUID' })
+  @ApiResponse({ status: 201, description: 'Stop request created' })
+  @ApiResponse({ status: 400, description: 'Assignment is not active' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — only formateur assigned to this student' })
+  @ApiResponse({ status: 404, description: 'Not found' })
+  createCollaborationStopRequest(
+    @Param('assignmentId') assignmentId: string,
+    @Body() dto: CreateTerminationDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.createCollaborationStopRequest(assignmentId, dto, user);
   }
 }

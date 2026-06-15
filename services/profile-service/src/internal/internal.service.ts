@@ -99,6 +99,30 @@ export class InternalService {
     };
   }
 
+  /**
+   * Create a minimal administrative profile for any user role not covered by
+   * createStudentProfiles or createTeacherProfiles (e.g. PARENT_FINANCEUR,
+   * RESPONSABLE_PEDAGOGIQUE, TECHNICIEN_INFORMATIQUE, ADMINISTRATEUR_FINANCIER).
+   * Idempotent: skips creation when a profile already exists.
+   */
+  async createAdministrativeProfile(dto: {
+    userId: string;
+    firstName?: string;
+    lastName?: string;
+  }) {
+    let admin = await this.adminRepo.findOne({ where: { userId: dto.userId } });
+    if (!admin) {
+      admin = this.adminRepo.create({
+        userId: dto.userId,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+      });
+      await this.adminRepo.save(admin);
+    }
+
+    return { userId: dto.userId, administrativeProfile: admin };
+  }
+
   async linkParent(dto: { studentId: string; financeOwnerId: string }) {
     const existing = await this.financeRepo.findOne({
       where: { financeOwnerId: dto.financeOwnerId, studentId: dto.studentId },

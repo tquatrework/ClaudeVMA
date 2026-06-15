@@ -144,10 +144,43 @@ describe('ProfilesService', () => {
       await expect(service.getProfile('student-uuid', actor)).rejects.toThrow(ForbiddenException);
     });
 
-    it('throws 404 when no profile exists for userId', async () => {
+    it('creates a minimal administrative profile when no profile exists for userId', async () => {
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
-      // All repos return null by default
-      await expect(service.getProfile('unknown-uuid', actor)).rejects.toThrow('Profile not found');
+      // All repos return null by default — simulates a brand-new user with no profile yet
+      const minimalAdminProfile = { userId: 'new-user-uuid' };
+      adminRepo.create.mockReturnValue(minimalAdminProfile);
+      adminRepo.save.mockResolvedValue(minimalAdminProfile);
+
+      const result = await service.getProfile('new-user-uuid', actor);
+
+      expect(adminRepo.create).toHaveBeenCalledWith({ userId: 'new-user-uuid' });
+      expect(adminRepo.save).toHaveBeenCalled();
+      expect(result).toHaveProperty('userId', 'new-user-uuid');
+      expect(result).toHaveProperty('administrative', minimalAdminProfile);
+      expect(result).toHaveProperty('pedagogical', null);
+    });
+
+    it('creates a minimal profile for an élève viewing their own account', async () => {
+      const actor = makeActor(UserRole.ELEVE, 'eleve-uuid');
+      const minimalAdminProfile = { userId: 'eleve-uuid' };
+      adminRepo.create.mockReturnValue(minimalAdminProfile);
+      adminRepo.save.mockResolvedValue(minimalAdminProfile);
+
+      const result = await service.getProfile('eleve-uuid', actor);
+
+      expect(adminRepo.save).toHaveBeenCalled();
+      expect(result.userId).toBe('eleve-uuid');
+    });
+
+    it('does not create a duplicate profile when one already exists', async () => {
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const existingAdminProfile = { userId: 'student-uuid', firstName: 'Alice' };
+      adminRepo.findOne.mockResolvedValue(existingAdminProfile);
+
+      await service.getProfile('student-uuid', actor);
+
+      // adminRepo.save should not be called since the profile already exists
+      expect(adminRepo.save).not.toHaveBeenCalled();
     });
   });
 

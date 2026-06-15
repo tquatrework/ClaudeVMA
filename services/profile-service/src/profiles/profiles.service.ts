@@ -75,13 +75,16 @@ export class ProfilesService {
   async getProfile(userId: string, actor: Actor) {
     await this.assertReadAccess(userId, actor);
 
-    const admin = await this.adminRepo.findOne({ where: { userId } });
+    let admin = await this.adminRepo.findOne({ where: { userId } });
     const studentPeda = await this.studentPedaRepo.findOne({ where: { userId } });
     const teacherPeda = await this.teacherPedaRepo.findOne({ where: { userId } });
 
-    // Return 404 when no profile exists for the given userId
+    // Lazy-create a minimal administrative profile when none exists for a valid user.
+    // A user that has passed JWT authentication is guaranteed to exist in
+    // identity-access-service, so returning 404 here would be misleading.
     if (!admin && !studentPeda && !teacherPeda) {
-      throw new NotFoundException(`Profile not found for user ${userId}`);
+      const minimalProfile = this.adminRepo.create({ userId });
+      admin = await this.adminRepo.save(minimalProfile);
     }
 
     return {

@@ -21,6 +21,12 @@ class CreateTeacherProfilesDto {
   @IsOptional() @IsString() bio?: string;
 }
 
+class CreateAdministrativeProfileDto {
+  @IsUUID() userId: string;
+  @IsOptional() @IsString() firstName?: string;
+  @IsOptional() @IsString() lastName?: string;
+}
+
 class LinkParentDto {
   @IsUUID() studentId: string;
   @IsUUID() financeOwnerId: string;
@@ -44,6 +50,11 @@ class LinkCoordinatorDto {
 @Controller('internal')
 export class InternalController {
   constructor(private readonly internalService: InternalService) {}
+
+  @Post('create-administrative-profile')
+  createAdministrativeProfile(@Body() dto: CreateAdministrativeProfileDto) {
+    return this.internalService.createAdministrativeProfile(dto);
+  }
 
   @Post('create-student-profiles')
   createStudentProfiles(@Body() dto: CreateStudentProfilesDto) {

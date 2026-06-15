@@ -71,6 +71,43 @@ describe('InternalService', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // createAdministrativeProfile
+  // ---------------------------------------------------------------------------
+  describe('createAdministrativeProfile', () => {
+    it('creates a minimal administrative profile for a new user', async () => {
+      const dto = { userId: 'parent-uuid', firstName: 'Marie', lastName: 'Dupont' };
+      const result = await service.createAdministrativeProfile(dto);
+      expect(adminRepo.save).toHaveBeenCalled();
+      expect(result).toHaveProperty('userId', 'parent-uuid');
+      expect(result).toHaveProperty('administrativeProfile');
+    });
+
+    it('maps firstName and lastName to the administrative profile', async () => {
+      const dto = { userId: 'parent-uuid', firstName: 'Marie', lastName: 'Dupont' };
+      await service.createAdministrativeProfile(dto);
+      expect(adminRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'parent-uuid', firstName: 'Marie', lastName: 'Dupont' }),
+      );
+    });
+
+    it('creates a minimal profile without optional fields', async () => {
+      const dto = { userId: 'rp-uuid' };
+      const result = await service.createAdministrativeProfile(dto);
+      expect(result).toHaveProperty('userId', 'rp-uuid');
+      expect(adminRepo.save).toHaveBeenCalled();
+    });
+
+    it('is idempotent: does not duplicate when profile already exists', async () => {
+      const existingAdmin = { userId: 'parent-uuid', firstName: 'Marie' };
+      adminRepo.findOne.mockResolvedValue(existingAdmin);
+      const dto = { userId: 'parent-uuid', firstName: 'Marie' };
+      const result = await service.createAdministrativeProfile(dto);
+      expect(adminRepo.save).not.toHaveBeenCalled();
+      expect(result).toHaveProperty('administrativeProfile', existingAdmin);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // createStudentProfiles
   // ---------------------------------------------------------------------------
   describe('createStudentProfiles', () => {

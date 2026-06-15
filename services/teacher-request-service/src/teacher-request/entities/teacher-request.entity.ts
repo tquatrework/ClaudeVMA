@@ -7,6 +7,8 @@ export enum RequestStatus {
   DECLINED = 'declined',
   REDIRECTED = 'redirected',
   CANDIDATES_SELECTED = 'candidates_selected',
+  /** RP has published a shortlist of accepted candidates to the student/financeur */
+  CANDIDATES_PUBLISHED = 'candidates_published',
   CANDIDATE_CHOSEN = 'candidate_chosen',
   ASSIGNED = 'assigned',
   CANCELLED = 'cancelled',
@@ -52,6 +54,9 @@ export class TeacherRequest {
 
   @Column({ name: 'chosen_teacher_id', nullable: true })
   chosenTeacherId: string;
+
+  @Column({ name: 'selected_teacher_ids', type: 'simple-array', nullable: true })
+  selectedTeacherIds: string[];
 
   @Column({ type: 'varchar', default: RequestStatus.PENDING })
   status: RequestStatus;

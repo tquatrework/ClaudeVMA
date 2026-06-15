@@ -25,6 +25,7 @@ import { UpdateStatusDto } from './dto/update-status.dto';
 import { CreateProposalDto } from './dto/create-proposal.dto';
 import { CreateTerminationDto } from './dto/create-termination.dto';
 import { SelectCandidateDto } from './dto/select-candidate.dto';
+import { PublishSelectedCandidatesDto } from './dto/publish-selected-candidates.dto';
 import { JwtAuthGuard } from '../common/jwt.guard';
 import { CurrentUser } from '../common/current-user.decorator';
 import { JwtPayload } from '../common/jwt.guard';
@@ -85,6 +86,29 @@ export class TeacherRequestController {
   @ApiResponse({ status: 404, description: 'Not found' })
   getRequest(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.service.getRequest(id, user);
+  }
+
+  @Post(':id/selected-candidates')
+  @ApiOperation({
+    summary: 'RP publie les candidats retenus à l\'élève/financeur',
+    description:
+      'RESPONSABLE_PEDAGOGIQUE uniquement. ' +
+      'Étape 2 du workflow formateur : après que les formateurs ciblés ont répondu (via POST /requests/:id/proposals), ' +
+      'le RP sélectionne un sous-ensemble de ceux ayant accepté et les publie à l\'élève et au financeur. ' +
+      'Met la demande au statut CANDIDATES_PUBLISHED et émet l\'événement TeacherCandidatesSelected. ' +
+      'À distinguer de POST /requests/:id/select (étape 3) où l\'élève/financeur choisit le formateur final.',
+  })
+  @ApiParam({ name: 'id', description: 'TeacherRequest UUID' })
+  @ApiResponse({ status: 201, description: 'Candidats publiés — demande au statut CANDIDATES_PUBLISHED' })
+  @ApiResponse({ status: 400, description: 'TeacherIds invalides ou n\'ayant pas de proposition acceptée' })
+  @ApiResponse({ status: 403, description: 'Réservé au RESPONSABLE_PEDAGOGIQUE' })
+  @ApiResponse({ status: 404, description: 'Request not found' })
+  publishSelectedCandidates(
+    @Param('id') requestId: string,
+    @Body() dto: PublishSelectedCandidatesDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.publishSelectedCandidates(requestId, dto, user);
   }
 
   @Post(':id/select')

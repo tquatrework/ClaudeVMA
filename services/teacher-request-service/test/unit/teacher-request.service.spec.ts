@@ -483,6 +483,107 @@ describe('TeacherRequestService', () => {
     });
   });
 
+  // ── publishSelectedCandidates ──────────────────────────────────────────────
+
+  describe('publishSelectedCandidates', () => {
+    const publishDto = { teacherIds: ['teacher-1', 'teacher-2'] };
+
+    beforeEach(() => {
+      requestRepo.findOne.mockResolvedValue({
+        id: 'req-1',
+        studentId: 'student-1',
+        requesterId: 'parent-1',
+        status: RequestStatus.REDIRECTED,
+      });
+      proposalRepo.find.mockResolvedValue([
+        { id: 'prop-1', requestId: 'req-1', teacherId: 'teacher-1', status: ProposalStatus.ACCEPTED },
+        { id: 'prop-2', requestId: 'req-1', teacherId: 'teacher-2', status: ProposalStatus.ACCEPTED },
+        { id: 'prop-3', requestId: 'req-1', teacherId: 'teacher-3', status: ProposalStatus.ACCEPTED },
+      ]);
+    });
+
+    it('RP publie 2 formateurs sur 3 ayant accepté → statut CANDIDATES_PUBLISHED, événement émis', async () => {
+      const eventsEmit = jest.spyOn((service as any).events, 'emit');
+      const result = await service.publishSelectedCandidates('req-1', publishDto, rpUser);
+
+      expect(requestRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: RequestStatus.CANDIDATES_PUBLISHED,
+          selectedTeacherIds: ['teacher-1', 'teacher-2'],
+        }),
+      );
+      expect(eventsEmit).toHaveBeenCalledWith(
+        'TeacherCandidatesSelected',
+        expect.objectContaining({
+          requestId: 'req-1',
+          selectedTeacherIds: ['teacher-1', 'teacher-2'],
+        }),
+      );
+      expect(result).toMatchObject({ status: RequestStatus.CANDIDATES_PUBLISHED });
+    });
+
+    it('teacherId sans proposition acceptée → BadRequestException (400)', async () => {
+      // teacher-99 n'a pas de proposition acceptée
+      const invalidDto = { teacherIds: ['teacher-1', 'teacher-99'] };
+      await expect(service.publishSelectedCandidates('req-1', invalidDto, rpUser))
+        .rejects.toThrow(BadRequestException);
+    });
+
+    it('non-RP ne peut pas publier les candidats → ForbiddenException (403)', async () => {
+      await expect(service.publishSelectedCandidates('req-1', publishDto, studentUser))
+        .rejects.toThrow(ForbiddenException);
+    });
+
+    it('non-RP formateur → ForbiddenException (403)', async () => {
+      await expect(service.publishSelectedCandidates('req-1', publishDto, teacherUser))
+        .rejects.toThrow(ForbiddenException);
+    });
+
+    it('non-RP parent_financeur → ForbiddenException (403)', async () => {
+      await expect(service.publishSelectedCandidates('req-1', publishDto, parentUser))
+        .rejects.toThrow(ForbiddenException);
+    });
+
+    it('request introuvable → NotFoundException', async () => {
+      requestRepo.findOne.mockResolvedValue(null);
+      await expect(service.publishSelectedCandidates('bad-id', publishDto, rpUser))
+        .rejects.toThrow(NotFoundException);
+    });
+
+    it('request au statut PENDING → BadRequestException (mauvais statut)', async () => {
+      requestRepo.findOne.mockResolvedValue({
+        id: 'req-1',
+        studentId: 'student-1',
+        status: RequestStatus.PENDING,
+      });
+      await expect(service.publishSelectedCandidates('req-1', publishDto, rpUser))
+        .rejects.toThrow(BadRequestException);
+    });
+
+    it('request au statut CANDIDATES_SELECTED → accepté (déjà dans la phase de sélection)', async () => {
+      requestRepo.findOne.mockResolvedValue({
+        id: 'req-1',
+        studentId: 'student-1',
+        status: RequestStatus.CANDIDATES_SELECTED,
+      });
+      const result = await service.publishSelectedCandidates('req-1', publishDto, rpUser);
+      expect(result).toMatchObject({ status: RequestStatus.CANDIDATES_PUBLISHED });
+    });
+
+    it('emits TeacherCandidatesSelected with correct payload', async () => {
+      const eventsEmit = jest.spyOn((service as any).events, 'emit');
+      await service.publishSelectedCandidates('req-1', publishDto, rpUser);
+      expect(eventsEmit).toHaveBeenCalledWith(
+        'TeacherCandidatesSelected',
+        expect.objectContaining({
+          requestId: 'req-1',
+          selectedTeacherIds: ['teacher-1', 'teacher-2'],
+          publishedBy: 'rp-1',
+        }),
+      );
+    });
+  });
+
   // ── selectCandidate ────────────────────────────────────────────────────────
 
   describe('selectCandidate', () => {
@@ -540,7 +641,7 @@ describe('TeacherRequestService', () => {
         .rejects.toThrow(ForbiddenException);
     });
 
-    it('request not in REDIRECTED/CANDIDATES_SELECTED state throws BadRequestException', async () => {
+    it('request not in REDIRECTED/CANDIDATES_SELECTED/CANDIDATES_PUBLISHED state throws BadRequestException', async () => {
       requestRepo.findOne.mockResolvedValue({
         id: 'req-1',
         studentId: 'student-1',
@@ -549,6 +650,20 @@ describe('TeacherRequestService', () => {
       });
       await expect(service.selectCandidate('req-1', selectDto, studentUser))
         .rejects.toThrow(BadRequestException);
+    });
+
+    it('eleve can select from CANDIDATES_PUBLISHED state', async () => {
+      requestRepo.findOne.mockResolvedValue({
+        id: 'req-1',
+        studentId: 'student-1',
+        requesterId: 'parent-1',
+        status: RequestStatus.CANDIDATES_PUBLISHED,
+      });
+      const result = await service.selectCandidate('req-1', selectDto, studentUser);
+      expect(result).toMatchObject({
+        status: RequestStatus.CANDIDATE_CHOSEN,
+        chosenTeacherId: 'teacher-1',
+      });
     });
 
     it('proposal not accepted by teacher throws BadRequestException', async () => {

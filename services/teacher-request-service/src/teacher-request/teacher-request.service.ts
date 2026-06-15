@@ -16,6 +16,7 @@ import { CreatePpChangeDto } from './dto/create-pp-change.dto';
 import { CreateProposalDto } from './dto/create-proposal.dto';
 import { CreateTerminationDto } from './dto/create-termination.dto';
 import { SelectCandidateDto } from './dto/select-candidate.dto';
+import { PublishSelectedCandidatesDto } from './dto/publish-selected-candidates.dto';
 import { EventsService } from './events.service';
 import { JwtPayload } from '../common/jwt.guard';
 import { UserRole } from '../common/user-role.enum';
@@ -230,6 +231,57 @@ export class TeacherRequestService {
     return updated;
   }
 
+  async publishSelectedCandidates(
+    requestId: string,
+    dto: PublishSelectedCandidatesDto,
+    user: JwtPayload,
+  ): Promise<TeacherRequest> {
+    // Only RP can publish the shortlist to the student/financeur
+    if (user.role !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+      throw new ForbiddenException('Only responsable_pedagogique can publish selected candidates');
+    }
+
+    const teacherRequest = await this.requestRepo.findOne({ where: { id: requestId } });
+    if (!teacherRequest) throw new NotFoundException(`Request ${requestId} not found`);
+
+    // Request must have gone through the redirection phase (formateurs have responded)
+    const publishableStatuses = [RequestStatus.REDIRECTED, RequestStatus.CANDIDATES_SELECTED];
+    if (!publishableStatuses.includes(teacherRequest.status)) {
+      throw new BadRequestException(
+        `Request must be in REDIRECTED or CANDIDATES_SELECTED state to publish candidates (current: ${teacherRequest.status})`,
+      );
+    }
+
+    // Verify that every provided teacherId has an accepted proposal on this request
+    const acceptedProposals = await this.proposalRepo.find({
+      where: { requestId, status: ProposalStatus.ACCEPTED },
+    });
+    const acceptedTeacherIds = new Set(acceptedProposals.map((proposal) => proposal.teacherId));
+
+    const invalidTeacherIds = dto.teacherIds.filter(
+      (teacherId) => !acceptedTeacherIds.has(teacherId),
+    );
+    if (invalidTeacherIds.length > 0) {
+      throw new BadRequestException(
+        `The following teacherIds do not have an accepted proposal on this request: ${invalidTeacherIds.join(', ')}`,
+      );
+    }
+
+    const updatedRequest = await this.requestRepo.save({
+      ...teacherRequest,
+      status: RequestStatus.CANDIDATES_PUBLISHED,
+      selectedTeacherIds: dto.teacherIds,
+    });
+
+    this.events.emit('TeacherCandidatesSelected', {
+      requestId,
+      selectedTeacherIds: dto.teacherIds,
+      publishedBy: user.id,
+    });
+
+    return updatedRequest;
+  }
+
   async selectCandidate(requestId: string, dto: SelectCandidateDto, user: JwtPayload): Promise<TeacherRequest> {
     // Functionality 005: ELEVE and PARENT_FINANCEUR can choose the final candidate
     const allowedRoles = [UserRole.ELEVE, UserRole.PARENT_FINANCEUR];
@@ -247,9 +299,17 @@ export class TeacherRequestService {
       throw new ForbiddenException('Access denied');
     }
 
-    // Request must have redirected candidates available
-    if (![RequestStatus.REDIRECTED, RequestStatus.CANDIDATES_SELECTED].includes(teacherRequest.status)) {
-      throw new BadRequestException('Request must be in REDIRECTED or CANDIDATES_SELECTED state to select a candidate');
+    // Request must have published candidates for the student/financeur to choose from
+    if (
+      ![
+        RequestStatus.REDIRECTED,
+        RequestStatus.CANDIDATES_SELECTED,
+        RequestStatus.CANDIDATES_PUBLISHED,
+      ].includes(teacherRequest.status)
+    ) {
+      throw new BadRequestException(
+        'Request must be in REDIRECTED, CANDIDATES_SELECTED or CANDIDATES_PUBLISHED state to select a candidate',
+      );
     }
 
     // Verify the chosen proposal exists, belongs to this request, and was accepted by the teacher

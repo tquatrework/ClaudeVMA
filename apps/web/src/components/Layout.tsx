@@ -91,6 +91,22 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 </Link>
               )}
 
+              {hasRole('responsable_pedagogique', 'technicien_informatique') && (
+                <Link to="/admin/accounts" className={navLinkClass('/admin/accounts')}>
+                  Comptes
+                </Link>
+              )}
+
+              {hasRole(
+                'responsable_pedagogique',
+                'technicien_informatique',
+                'administrateur_financier',
+              ) && (
+                <Link to="/delegations" className={navLinkClass('/delegations')}>
+                  Délégations
+                </Link>
+              )}
+
               <span className="text-gray-200">|</span>
 
               {/* User identity */}
@@ -149,6 +165,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             )}
             {hasRole('responsable_pedagogique', 'animateur_pedagogique', 'technicien_informatique', 'administrateur_financier') && (
               <MobileNavLink to="/admin/activity" label="Admin" onClick={() => setIsMobileMenuOpen(false)} />
+            )}
+            {hasRole('responsable_pedagogique', 'technicien_informatique') && (
+              <MobileNavLink to="/admin/accounts" label="Comptes" onClick={() => setIsMobileMenuOpen(false)} />
+            )}
+            {hasRole('responsable_pedagogique', 'technicien_informatique', 'administrateur_financier') && (
+              <MobileNavLink to="/delegations" label="Délégations" onClick={() => setIsMobileMenuOpen(false)} />
             )}
             <div className="pt-2 border-t border-gray-100">
               <p className="text-xs text-gray-500 mb-1">{user?.email}</p>

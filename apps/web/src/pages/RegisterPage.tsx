@@ -1,104 +1,69 @@
-import React, { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import apiClient from '../api/client'
+import React from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 
-type RegistrableRole = 'eleve' | 'parent_financeur' | 'formateur'
-
+/**
+ * RegisterPage — Entry point for account creation.
+ *
+ * Routes users to the appropriate specialized wizard:
+ * - Élève → /register/student (POST /accounts/students)
+ * - Formateur → /register/teacher (POST /accounts/teachers)
+ * - Parent/Financeur → generic /accounts endpoint via legacy flow
+ *
+ * The generic POST /accounts endpoint remains used for parent_financeur
+ * since no dedicated wizard exists in phase 1.
+ */
 export default function RegisterPage() {
   const navigate = useNavigate()
-
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [role, setRole] = useState<RegistrableRole>('eleve')
-  const [error, setError] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    setIsLoading(true)
-    try {
-      await apiClient.post('/accounts', { email, password, role })
-      // After registration user must sign consents before the account becomes active
-      navigate('/login', {
-        state: { message: 'Compte créé. Veuillez vous connecter puis signer les consentements.' },
-      })
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data
-          ?.message ?? 'Erreur lors de la création du compte'
-      setError(msg)
-    } finally {
-      setIsLoading(false)
-    }
-  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-md p-8">
-        <h1 className="text-2xl font-bold text-indigo-600 mb-6">VisioMath — Créer un compte</h1>
+        <h1 className="text-2xl font-bold text-indigo-600 mb-2">VisioMath — Créer un compte</h1>
+        <p className="text-sm text-gray-500 mb-8">Choisissez votre profil pour commencer.</p>
 
-        {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Adresse e-mail
-            </label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              placeholder="vous@exemple.fr"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Mot de passe
-            </label>
-            <input
-              type="password"
-              required
-              minLength={8}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              placeholder="8 caractères minimum"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Je suis…
-            </label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as RegistrableRole)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            >
-              <option value="eleve">Élève</option>
-              <option value="parent_financeur">Parent / Financeur</option>
-              <option value="formateur">Formateur</option>
-            </select>
-          </div>
+        <div className="space-y-3">
+          <button
+            onClick={() => navigate('/register/student')}
+            className="w-full flex items-start gap-4 p-4 border-2 border-gray-200 rounded-xl hover:border-indigo-400 hover:bg-indigo-50 transition-colors text-left group"
+          >
+            <span className="text-3xl">🎓</span>
+            <div>
+              <p className="font-semibold text-gray-800 group-hover:text-indigo-700">Élève</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Accédez aux cours, au calendrier, au cahier de texte et à votre carnet personnel.
+              </p>
+            </div>
+          </button>
 
           <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full bg-indigo-600 text-white py-2 rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+            onClick={() => navigate('/register/teacher')}
+            className="w-full flex items-start gap-4 p-4 border-2 border-gray-200 rounded-xl hover:border-indigo-400 hover:bg-indigo-50 transition-colors text-left group"
           >
-            {isLoading ? 'Création…' : 'Créer mon compte'}
+            <span className="text-3xl">📚</span>
+            <div>
+              <p className="font-semibold text-gray-800 group-hover:text-indigo-700">Formateur</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Gérez vos élèves, vos cours, votre calendrier et votre suivi pédagogique.
+                Validation par un Responsable Pédagogique requise.
+              </p>
+            </div>
           </button>
-        </form>
 
-        <p className="mt-4 text-sm text-gray-500 text-center">
+          <button
+            onClick={() => navigate('/register/parent')}
+            className="w-full flex items-start gap-4 p-4 border-2 border-gray-200 rounded-xl hover:border-indigo-400 hover:bg-indigo-50 transition-colors text-left group"
+          >
+            <span className="text-3xl">👨‍👩‍👧</span>
+            <div>
+              <p className="font-semibold text-gray-800 group-hover:text-indigo-700">Parent / Financeur</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Suivez la progression de vos élèves, gérez les paiements et consultez les archives.
+              </p>
+            </div>
+          </button>
+        </div>
+
+        <p className="mt-6 text-sm text-gray-500 text-center">
           Déjà inscrit ?{' '}
           <Link to="/login" className="text-indigo-600 hover:underline">
             Se connecter

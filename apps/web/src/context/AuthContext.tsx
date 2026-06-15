@@ -1,4 +1,4 @@
-import React, { createContext, useState, useCallback, ReactNode } from 'react'
+import React, { createContext, useState, useCallback, useEffect, ReactNode } from 'react'
 import apiClient from '../api/client'
 
 export type UserRole =
@@ -42,6 +42,28 @@ function loadStoredUser(): AuthUser | null {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(loadStoredUser)
   const [isLoading, setIsLoading] = useState(false)
+
+  /**
+   * On mount, if a token is stored, call GET /auth/me to validate the session
+   * and refresh the user data (role, validationStatus, etc.).
+   * If the token is expired or invalid, the 401 interceptor clears the session.
+   */
+  useEffect(() => {
+    const storedToken = localStorage.getItem('access_token')
+    if (!storedToken) return
+
+    apiClient
+      .get<AuthUser>('/auth/me')
+      .then(({ data }) => {
+        localStorage.setItem('user', JSON.stringify(data))
+        setUser(data)
+      })
+      .catch(() => {
+        // 401 is handled by the axios interceptor which clears storage.
+        // For other errors (e.g. network), keep the stored user as fallback.
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const login = useCallback(async (email: string, password: string) => {
     setIsLoading(true)

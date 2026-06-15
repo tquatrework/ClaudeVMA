@@ -1,11 +1,14 @@
 /**
  * Tests for RegisterPage
  *
+ * RegisterPage is now a role selection entry point that routes users to the
+ * appropriate specialized wizard (student, teacher, parent).
+ *
  * Covers:
- * - Form rendering (email, password, role selector)
- * - Successful registration calls POST /accounts and redirects to /login
- * - API error is displayed
- * - Loading state during submission
+ * - Renders all three role options
+ * - Navigates to /register/student when clicking Élève
+ * - Navigates to /register/teacher when clicking Formateur
+ * - Has a link back to login page
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -15,14 +18,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import RegisterPage from '../../src/pages/RegisterPage'
 
 vi.mock('../../src/api/client')
-import apiClient from '../../src/api/client'
-const mockApiClient = vi.mocked(apiClient)
 
 function renderRegisterPage() {
   return render(
     <MemoryRouter initialEntries={['/register']}>
       <Routes>
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/register/student" element={<div>Student Registration Page</div>} />
+        <Route path="/register/teacher" element={<div>Teacher Registration Page</div>} />
         <Route path="/login" element={<div>Login Page</div>} />
       </Routes>
     </MemoryRouter>,
@@ -34,95 +37,48 @@ beforeEach(() => {
 })
 
 describe('RegisterPage', () => {
-  it('renders the registration form fields', () => {
+  it('renders the page title', () => {
     renderRegisterPage()
-
-    expect(screen.getByPlaceholderText(/vous@exemple\.fr/i)).toBeDefined()
-    expect(screen.getByPlaceholderText(/8 caractères minimum/i)).toBeDefined()
-    expect(screen.getByRole('combobox')).toBeDefined()
-    expect(screen.getByRole('button', { name: /créer mon compte/i })).toBeDefined()
+    expect(screen.getByText(/créer un compte/i)).toBeDefined()
   })
 
-  it('renders the three selectable roles', () => {
+  it('renders role options including Formateur and Parent/Financeur', () => {
     renderRegisterPage()
 
-    const select = screen.getByRole('combobox') as HTMLSelectElement
-    const optionValues = Array.from(select.options).map((opt) => opt.value)
-    expect(optionValues).toContain('eleve')
-    expect(optionValues).toContain('parent_financeur')
-    expect(optionValues).toContain('formateur')
+    // Use getByRole to find buttons since roles appear as button text
+    expect(screen.getAllByRole('button').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText(/parent.*financeur/i)).toBeDefined()
   })
 
-  it('shows a link back to login page', () => {
+  it('shows a link to the login page', () => {
     renderRegisterPage()
     expect(screen.getByRole('link', { name: /se connecter/i })).toBeDefined()
   })
 
-  it('calls POST /accounts with the correct payload on submit', async () => {
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
-
+  it('navigates to /register/student when clicking the Élève option', async () => {
     renderRegisterPage()
 
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'new@student.com')
-    await userEvent.type(screen.getByPlaceholderText(/8 caractères minimum/i), 'password123')
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'formateur')
-    await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+    // Find all buttons and click the one whose first text node is "Élève"
+    const allButtons = screen.getAllByRole('button')
+    const eleveButton = allButtons.find(btn => btn.querySelector('p')?.textContent === 'Élève')
+    expect(eleveButton).toBeDefined()
+    await userEvent.click(eleveButton!)
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith('/accounts', {
-        email: 'new@student.com',
-        password: 'password123',
-        role: 'formateur',
-      })
+      expect(screen.getByText('Student Registration Page')).toBeDefined()
     })
   })
 
-  it('redirects to /login after successful registration', async () => {
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
-
+  it('navigates to /register/teacher when clicking the Formateur option', async () => {
     renderRegisterPage()
 
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'new@student.com')
-    await userEvent.type(screen.getByPlaceholderText(/8 caractères minimum/i), 'password123')
-    await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+    const allButtons = screen.getAllByRole('button')
+    const formateurButton = allButtons.find(btn => btn.querySelector('p')?.textContent === 'Formateur')
+    expect(formateurButton).toBeDefined()
+    await userEvent.click(formateurButton!)
 
     await waitFor(() => {
-      expect(screen.getByText('Login Page')).toBeDefined()
+      expect(screen.getByText('Teacher Registration Page')).toBeDefined()
     })
-  })
-
-  it('displays API error message on failure', async () => {
-    mockApiClient.post = vi.fn().mockRejectedValue({
-      response: { data: { message: 'Email déjà utilisé' } },
-    })
-
-    renderRegisterPage()
-
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'existing@student.com')
-    await userEvent.type(screen.getByPlaceholderText(/8 caractères minimum/i), 'password123')
-    await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
-
-    await waitFor(() => {
-      expect(screen.getByText('Email déjà utilisé')).toBeDefined()
-    })
-  })
-
-  it('shows loading state during submission', async () => {
-    let resolvePost!: () => void
-    mockApiClient.post = vi.fn().mockImplementation(
-      () => new Promise<{ data: object }>((resolve) => { resolvePost = () => resolve({ data: {} }) }),
-    )
-
-    renderRegisterPage()
-
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'new@student.com')
-    await userEvent.type(screen.getByPlaceholderText(/8 caractères minimum/i), 'password123')
-    await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /création/i })).toBeDefined()
-    })
-
-    resolvePost()
   })
 })

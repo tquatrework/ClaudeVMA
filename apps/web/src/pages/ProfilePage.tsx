@@ -3,6 +3,8 @@ import { useParams, Link } from 'react-router-dom'
 import apiClient from '../api/client'
 import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
+import TeacherValidationPanel from './TeacherValidationPanel'
+import ProfileStatisticsPanel from './ProfileStatisticsPanel'
 
 interface Profile {
   userId: string
@@ -49,6 +51,7 @@ export default function ProfilePage() {
     'formateur',
   )
   const isViewingOwnProfile = user?.id === userId
+  const canSeeValidationPanel = hasRole('responsable_pedagogique', 'technicien_informatique')
 
   useEffect(() => {
     if (!userId) return
@@ -142,6 +145,34 @@ export default function ProfilePage() {
               data={profile.pedagogicalProfile}
               emptyMessage="Aucune donnée pédagogique"
             />
+
+            {/* Pedagogical statistics */}
+            {userId && <ProfileStatisticsPanel userId={userId} />}
+
+            {/* Teacher validation panel (RP / TI only) */}
+            {canSeeValidationPanel && userId && (
+              <TeacherValidationPanel teacherId={userId} />
+            )}
+
+            {/* Confidentiality settings link (own profile only, or RP/TI) */}
+            {(isViewingOwnProfile || hasRole('responsable_pedagogique', 'technicien_informatique')) && (
+              <div className="bg-white border border-gray-200 rounded-xl p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold text-gray-800">Confidentialité</h2>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Gérez la visibilité de vos informations
+                    </p>
+                  </div>
+                  <Link
+                    to={`/profiles/${userId}/visibility`}
+                    className="text-sm text-indigo-600 hover:underline"
+                  >
+                    Gérer →
+                  </Link>
+                </div>
+              </div>
+            )}
 
             {/* Teacher relations */}
             {canSeeRelations && (

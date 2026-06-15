@@ -25,6 +25,13 @@ import IncidentsPage from './pages/IncidentsPage'
 import IncidentDetailPage from './pages/IncidentDetailPage'
 import MemosPage from './pages/MemosPage'
 import ActivitiesPage from './pages/ActivitiesPage'
+import PasswordResetPage from './pages/PasswordResetPage'
+import StudentRegistrationPage from './pages/StudentRegistrationPage'
+import TeacherRegistrationPage from './pages/TeacherRegistrationPage'
+import ParentRegistrationPage from './pages/ParentRegistrationPage'
+import AccountManagementPage from './pages/AccountManagementPage'
+import DelegationsPage from './pages/DelegationsPage'
+import ProfileVisibilitySettingsPage from './pages/ProfileVisibilitySettingsPage'
 
 export default function App() {
   return (
@@ -34,6 +41,10 @@ export default function App() {
           {/* ── Public routes ────────────────────────────────────────── */}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/register/student" element={<StudentRegistrationPage />} />
+          <Route path="/register/teacher" element={<TeacherRegistrationPage />} />
+          <Route path="/register/parent" element={<ParentRegistrationPage />} />
+          <Route path="/password-reset" element={<PasswordResetPage />} />
           <Route path="/forbidden" element={<ForbiddenPage />} />
 
           {/* ── Authenticated routes ─────────────────────────────────── */}
@@ -66,6 +77,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <ProfileEditPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/profiles/:userId/visibility"
+            element={
+              <ProtectedRoute>
+                <ProfileVisibilitySettingsPage />
               </ProtectedRoute>
             }
           />
@@ -194,6 +213,34 @@ export default function App() {
                 ]}
               >
                 <AdminActivityPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Account management (RP + TI) */}
+          <Route
+            path="/admin/accounts"
+            element={
+              <ProtectedRoute
+                allowedRoles={['responsable_pedagogique', 'technicien_informatique']}
+              >
+                <AccountManagementPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Delegations */}
+          <Route
+            path="/delegations"
+            element={
+              <ProtectedRoute
+                allowedRoles={[
+                  'responsable_pedagogique',
+                  'technicien_informatique',
+                  'administrateur_financier',
+                ]}
+              >
+                <DelegationsPage />
               </ProtectedRoute>
             }
           />

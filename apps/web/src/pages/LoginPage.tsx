@@ -1,12 +1,29 @@
 import React, { useState } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import type { UserRole } from '../context/AuthContext'
+
+/** Map a user role to the most relevant landing page after login. */
+function resolveRoleLandingPage(role: UserRole): string {
+  switch (role) {
+    case 'technicien_informatique':
+      return '/admin/accounts'
+    case 'responsable_pedagogique':
+    case 'animateur_pedagogique':
+    case 'administrateur_financier':
+      return '/admin/activity'
+    default:
+      return '/dashboard'
+  }
+}
 
 export default function LoginPage() {
   const { login, isLoading } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const from = (location.state as { from?: Location })?.from?.pathname ?? '/dashboard'
+  const locationState = location.state as { from?: Location; message?: string } | null
+  const redirectTarget = locationState?.from?.pathname ?? null
+  const registrationMessage = locationState?.message ?? null
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -16,8 +33,19 @@ export default function LoginPage() {
     e.preventDefault()
     setError(null)
     try {
+      // login() stores the user in context; we read the role from localStorage
+      // immediately after to determine the redirect destination.
       await login(email, password)
-      navigate(from, { replace: true })
+      if (redirectTarget) {
+        navigate(redirectTarget, { replace: true })
+      } else {
+        const storedUser = localStorage.getItem('user')
+        const userRole: UserRole | null = storedUser
+          ? (JSON.parse(storedUser) as { role: UserRole }).role
+          : null
+        const landingPage = userRole ? resolveRoleLandingPage(userRole) : '/dashboard'
+        navigate(landingPage, { replace: true })
+      }
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { message?: string } } })?.response?.data
@@ -30,6 +58,12 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-md p-8">
         <h1 className="text-2xl font-bold text-indigo-600 mb-6">VisioMath — Connexion</h1>
+
+        {registrationMessage && (
+          <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
+            {registrationMessage}
+          </div>
+        )}
 
         {error && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
@@ -76,6 +110,12 @@ export default function LoginPage() {
         </form>
 
         <p className="mt-4 text-sm text-gray-500 text-center">
+          <Link to="/password-reset" className="text-indigo-600 hover:underline">
+            Mot de passe oublié ?
+          </Link>
+        </p>
+
+        <p className="mt-2 text-sm text-gray-500 text-center">
           Pas encore de compte ?{' '}
           <Link to="/register" className="text-indigo-600 hover:underline">
             Créer un compte

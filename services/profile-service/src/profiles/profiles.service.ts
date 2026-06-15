@@ -79,18 +79,26 @@ export class ProfilesService {
     const studentPeda = await this.studentPedaRepo.findOne({ where: { userId } });
     const teacherPeda = await this.teacherPedaRepo.findOne({ where: { userId } });
 
-    // Lazy-create a minimal administrative profile when none exists for a valid user.
+    // Lazy-create minimal profiles when none exist for a valid user.
     // A user that has passed JWT authentication is guaranteed to exist in
     // identity-access-service, so returning 404 here would be misleading.
-    if (!admin && !studentPeda && !teacherPeda) {
-      const minimalProfile = this.adminRepo.create({ userId });
-      admin = await this.adminRepo.save(minimalProfile);
+    if (!admin) {
+      const minimalAdminProfile = this.adminRepo.create({ userId });
+      admin = await this.adminRepo.save(minimalAdminProfile);
+    }
+
+    // For an ELEVE consulting their own profile, also create a minimal
+    // student pedagogical profile if none exists yet (PROF-BR: lazy init).
+    let pedagogical = studentPeda ?? teacherPeda ?? null;
+    if (!pedagogical && actor.role === UserRole.ELEVE && actor.id === userId) {
+      const minimalStudentPeda = this.studentPedaRepo.create({ userId });
+      pedagogical = await this.studentPedaRepo.save(minimalStudentPeda);
     }
 
     return {
       userId,
-      administrative: admin ?? null,
-      pedagogical: studentPeda ?? teacherPeda ?? null,
+      administrative: admin,
+      pedagogical,
     };
   }
 

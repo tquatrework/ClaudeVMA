@@ -157,22 +157,51 @@ describe('ProfilesService', () => {
       expect(adminRepo.save).toHaveBeenCalled();
       expect(result).toHaveProperty('userId', 'new-user-uuid');
       expect(result).toHaveProperty('administrative', minimalAdminProfile);
-      expect(result).toHaveProperty('pedagogical', null);
+      // RP consulting an unknown user does not trigger student peda lazy-creation
+      expect(studentPedaRepo.save).not.toHaveBeenCalled();
     });
 
-    it('creates a minimal profile for an élève viewing their own account', async () => {
-      const actor = makeActor(UserRole.ELEVE, 'eleve-uuid');
-      const minimalAdminProfile = { userId: 'eleve-uuid' };
+    it('creates both administrative and student pedagogical profiles for an élève viewing their own account', async () => {
+      const eleveId = '87482274-1ef2-412a-827b-75fc48c28370';
+      const actor = makeActor(UserRole.ELEVE, eleveId);
+      const minimalAdminProfile = { userId: eleveId };
+      const minimalStudentPeda = { userId: eleveId };
       adminRepo.create.mockReturnValue(minimalAdminProfile);
       adminRepo.save.mockResolvedValue(minimalAdminProfile);
+      studentPedaRepo.create.mockReturnValue(minimalStudentPeda);
+      studentPedaRepo.save.mockResolvedValue(minimalStudentPeda);
 
-      const result = await service.getProfile('eleve-uuid', actor);
+      const result = await service.getProfile(eleveId, actor);
 
+      // Administrative profile must be persisted
+      expect(adminRepo.create).toHaveBeenCalledWith({ userId: eleveId });
       expect(adminRepo.save).toHaveBeenCalled();
-      expect(result.userId).toBe('eleve-uuid');
+      expect(result).toHaveProperty('administrative', minimalAdminProfile);
+
+      // Student pedagogical profile must also be persisted (this was the bug)
+      expect(studentPedaRepo.create).toHaveBeenCalledWith({ userId: eleveId });
+      expect(studentPedaRepo.save).toHaveBeenCalled();
+      expect(result).toHaveProperty('pedagogical', minimalStudentPeda);
+
+      expect(result.userId).toBe(eleveId);
     });
 
-    it('does not create a duplicate profile when one already exists', async () => {
+    it('does not create student peda profile for élève when one already exists', async () => {
+      const eleveId = '87482274-1ef2-412a-827b-75fc48c28370';
+      const actor = makeActor(UserRole.ELEVE, eleveId);
+      const existingAdmin = { userId: eleveId, firstName: 'Alice' };
+      const existingPeda = { userId: eleveId, niveauScolaire: 'Terminale' };
+      adminRepo.findOne.mockResolvedValue(existingAdmin);
+      studentPedaRepo.findOne.mockResolvedValue(existingPeda);
+
+      const result = await service.getProfile(eleveId, actor);
+
+      expect(adminRepo.save).not.toHaveBeenCalled();
+      expect(studentPedaRepo.save).not.toHaveBeenCalled();
+      expect(result).toHaveProperty('pedagogical', existingPeda);
+    });
+
+    it('does not create a duplicate administrative profile when one already exists', async () => {
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
       const existingAdminProfile = { userId: 'student-uuid', firstName: 'Alice' };
       adminRepo.findOne.mockResolvedValue(existingAdminProfile);
@@ -181,6 +210,17 @@ describe('ProfilesService', () => {
 
       // adminRepo.save should not be called since the profile already exists
       expect(adminRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('does not create student peda profile when RP consults an élève without peda profile', async () => {
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      // admin exists, no peda — RP is not the owner so no lazy-creation of peda
+      adminRepo.findOne.mockResolvedValue({ userId: 'student-uuid' });
+
+      const result = await service.getProfile('student-uuid', actor);
+
+      expect(studentPedaRepo.save).not.toHaveBeenCalled();
+      expect(result).toHaveProperty('pedagogical', null);
     });
   });
 

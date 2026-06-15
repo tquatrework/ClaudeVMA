@@ -29,6 +29,8 @@ export class InternalService {
     userId: string;
     firstName?: string;
     lastName?: string;
+    email?: string;
+    phone?: string;
     birthDate?: string;
     level?: string;
   }) {
@@ -39,6 +41,7 @@ export class InternalService {
         userId: dto.userId,
         firstName: dto.firstName,
         lastName: dto.lastName,
+        telephone: dto.phone ?? undefined,
         dateNaissance: dto.birthDate,
       });
       await this.adminRepo.save(admin);
@@ -65,6 +68,8 @@ export class InternalService {
     userId: string;
     firstName?: string;
     lastName?: string;
+    email?: string;
+    phone?: string;
     subjects?: string[];
     levels?: string[];
     bio?: string;
@@ -76,6 +81,7 @@ export class InternalService {
         userId: dto.userId,
         firstName: dto.firstName,
         lastName: dto.lastName,
+        telephone: dto.phone ?? undefined,
       });
       await this.adminRepo.save(admin);
     }
@@ -109,6 +115,8 @@ export class InternalService {
     userId: string;
     firstName?: string;
     lastName?: string;
+    email?: string;
+    phone?: string;
   }) {
     let admin = await this.adminRepo.findOne({ where: { userId: dto.userId } });
     if (!admin) {
@@ -116,6 +124,7 @@ export class InternalService {
         userId: dto.userId,
         firstName: dto.firstName,
         lastName: dto.lastName,
+        telephone: dto.phone ?? undefined,
       });
       await this.adminRepo.save(admin);
     }

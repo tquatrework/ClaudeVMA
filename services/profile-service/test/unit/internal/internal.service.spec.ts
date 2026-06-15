@@ -90,8 +90,23 @@ describe('InternalService', () => {
       );
     });
 
+    it('maps phone to the telephone field of administrative profile', async () => {
+      const dto = { userId: 'parent-uuid', firstName: 'Marie', lastName: 'Dupont', phone: '+33600000001' };
+      await service.createAdministrativeProfile(dto);
+      expect(adminRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'parent-uuid', telephone: '+33600000001' }),
+      );
+    });
+
     it('creates a minimal profile without optional fields', async () => {
       const dto = { userId: 'rp-uuid' };
+      const result = await service.createAdministrativeProfile(dto);
+      expect(result).toHaveProperty('userId', 'rp-uuid');
+      expect(adminRepo.save).toHaveBeenCalled();
+    });
+
+    it('does not fail when phone is undefined', async () => {
+      const dto = { userId: 'rp-uuid', firstName: 'Paul', lastName: 'Test', phone: undefined };
       const result = await service.createAdministrativeProfile(dto);
       expect(result).toHaveProperty('userId', 'rp-uuid');
       expect(adminRepo.save).toHaveBeenCalled();
@@ -137,6 +152,25 @@ describe('InternalService', () => {
       expect(adminRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({ userId: 'student-uuid', firstName: 'Bob', lastName: 'Dupont', dateNaissance: '2005-01-15' }),
       );
+    });
+
+    it('maps phone to the telephone field of administrative profile', async () => {
+      const dto = {
+        userId: 'student-uuid',
+        firstName: 'Alice',
+        lastName: 'Martin',
+        phone: '+33600000002',
+      };
+      await service.createStudentProfiles(dto);
+      expect(adminRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'student-uuid', telephone: '+33600000002' }),
+      );
+    });
+
+    it('does not fail when phone is undefined', async () => {
+      const dto = { userId: 'student-uuid', firstName: 'Alice', phone: undefined };
+      const result = await service.createStudentProfiles(dto);
+      expect(result).toHaveProperty('userId', 'student-uuid');
     });
 
     it('maps level to student pedagogical profile', async () => {
@@ -206,6 +240,25 @@ describe('InternalService', () => {
           experiencePedagogique: '5 ans d\'expérience',
         }),
       );
+    });
+
+    it('maps phone to the telephone field of administrative profile', async () => {
+      const dto = {
+        userId: 'teacher-uuid',
+        firstName: 'Jean',
+        lastName: 'Professeur',
+        phone: '+33600000005',
+      };
+      await service.createTeacherProfiles(dto);
+      expect(adminRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'teacher-uuid', telephone: '+33600000005' }),
+      );
+    });
+
+    it('does not fail when phone is undefined', async () => {
+      const dto = { userId: 'teacher-uuid', firstName: 'Jean', phone: undefined };
+      const result = await service.createTeacherProfiles(dto);
+      expect(result).toHaveProperty('userId', 'teacher-uuid');
     });
 
     it('does not duplicate administrative profile when one already exists (idempotence)', async () => {

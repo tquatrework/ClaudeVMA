@@ -35,6 +35,9 @@ interface AccountRecord {
   userId: string;
   role: string;
   email: string;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
 }
 
 interface BackfillResult {
@@ -108,9 +111,9 @@ async function fetchAllAccounts(): Promise<AccountRecord[]> {
   if (isDryRun) {
     console.log('[dry-run] Would call GET /internal/accounts — returning mock data for syntax check');
     return [
-      { userId: '87482274-1ef2-412a-827b-75fc48c28370', role: 'ELEVE', email: 'eleve@example.com' },
-      { userId: 'bba9e321-4f12-4c8a-b6d3-000000000001', role: 'FORMATEUR', email: 'formateur@example.com' },
-      { userId: 'cca9e321-4f12-4c8a-b6d3-000000000002', role: 'PARENT_FINANCEUR', email: 'parent@example.com' },
+      { userId: '87482274-1ef2-412a-827b-75fc48c28370', role: 'ELEVE', email: 'eleve@example.com', firstName: 'Alice', lastName: 'Martin', phone: '+33600000001' },
+      { userId: 'bba9e321-4f12-4c8a-b6d3-000000000001', role: 'FORMATEUR', email: 'formateur@example.com', firstName: 'Jean', lastName: 'Professeur', phone: undefined },
+      { userId: 'cca9e321-4f12-4c8a-b6d3-000000000002', role: 'PARENT_FINANCEUR', email: 'parent@example.com', firstName: 'Marie', lastName: 'Dupont', phone: '+33600000003' },
     ];
   }
 
@@ -188,11 +191,26 @@ async function createProfilesForAccount(account: AccountRecord): Promise<void> {
   }
 
   const targetUrl = `${profileServiceUrl}${targetPath}`;
-  const requestPayload = JSON.stringify({ userId: account.userId });
+
+  const payloadBody: Record<string, string | undefined> = {
+    userId: account.userId,
+    firstName: account.firstName ?? undefined,
+    lastName: account.lastName ?? undefined,
+    email: account.email,
+    phone: account.phone ?? undefined,
+  };
+  // Supprimer les clés explicitement undefined pour ne pas polluer le payload JSON
+  for (const key of Object.keys(payloadBody)) {
+    if (payloadBody[key] === undefined) {
+      delete payloadBody[key];
+    }
+  }
+
+  const requestPayload = JSON.stringify(payloadBody);
 
   if (isDryRun) {
     console.log(
-      `[dry-run] Would POST ${targetPath} with userId=${account.userId} (role=${account.role})`,
+      `[dry-run] Would POST ${targetPath} with payload=${requestPayload} (role=${account.role})`,
     );
     return;
   }

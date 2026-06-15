@@ -196,6 +196,96 @@ describe('ProfilesService', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // updatePedagogicalProfile
+  // ---------------------------------------------------------------------------
+  describe('updatePedagogicalProfile', () => {
+    it('creates student pedagogical profile when payload has niveauScolaire', async () => {
+      const actor = makeActor(UserRole.ELEVE, 'user-uuid');
+      const dto = { niveauScolaire: 'Terminale', matieres: ['Mathématiques'] };
+      await service.updatePedagogicalProfile('user-uuid', dto, actor);
+      expect(studentPedaRepo.save).toHaveBeenCalled();
+      expect(eventsService.publish).toHaveBeenCalledWith(
+        'ProfileUpdated',
+        expect.objectContaining({ userId: 'user-uuid', section: 'pedagogical-student' }),
+      );
+    });
+
+    it('updates existing student pedagogical profile', async () => {
+      const existingProfile = { userId: 'user-uuid', niveauScolaire: '3ème', matieres: [] };
+      studentPedaRepo.findOne.mockResolvedValue(existingProfile);
+      const actor = makeActor(UserRole.ELEVE, 'user-uuid');
+      const dto = { niveauScolaire: 'Seconde', objectifsPedagogiques: 'Préparer le bac' };
+      await service.updatePedagogicalProfile('user-uuid', dto, actor);
+      expect(studentPedaRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ niveauScolaire: 'Seconde', objectifsPedagogiques: 'Préparer le bac' }),
+      );
+    });
+
+    it('creates teacher pedagogical profile when payload has niveauxEnseignes', async () => {
+      const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+      const dto = { niveauxEnseignes: ['Lycée'], matieresEnseignees: ['Mathématiques'] };
+      await service.updatePedagogicalProfile('teacher-uuid', dto, actor);
+      expect(teacherPedaRepo.save).toHaveBeenCalled();
+      expect(eventsService.publish).toHaveBeenCalledWith(
+        'ProfileUpdated',
+        expect.objectContaining({ userId: 'teacher-uuid', section: 'pedagogical-teacher' }),
+      );
+    });
+
+    it('updates existing teacher pedagogical profile', async () => {
+      const existingProfile = { userId: 'teacher-uuid', niveauxEnseignes: ['Collège'], matieresEnseignees: [] };
+      teacherPedaRepo.findOne.mockResolvedValue(existingProfile);
+      const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+      const dto = { matieresEnseignees: ['Physique-Chimie'], experiencePedagogique: '3 ans' };
+      await service.updatePedagogicalProfile('teacher-uuid', dto, actor);
+      expect(teacherPedaRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ matieresEnseignees: ['Physique-Chimie'], experiencePedagogique: '3 ans' }),
+      );
+    });
+
+    it('allows RP to update pedagogical profile of any user', async () => {
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const dto = { niveauScolaire: '3ème' };
+      await expect(
+        service.updatePedagogicalProfile('student-uuid', dto, actor),
+      ).resolves.toBeDefined();
+    });
+
+    it('allows TI to update pedagogical profile of any user', async () => {
+      const actor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE);
+      const dto = { niveauScolaire: 'Seconde' };
+      await expect(
+        service.updatePedagogicalProfile('student-uuid', dto, actor),
+      ).resolves.toBeDefined();
+    });
+
+    it('throws 403 when élève tries to update another user pedagogical profile', async () => {
+      const actor = makeActor(UserRole.ELEVE, 'student-uuid');
+      const dto = { niveauScolaire: 'Terminale' };
+      await expect(
+        service.updatePedagogicalProfile('other-uuid', dto, actor),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws 403 when formateur tries to update student pedagogical profile', async () => {
+      const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+      const dto = { niveauScolaire: 'Terminale' };
+      await expect(
+        service.updatePedagogicalProfile('student-uuid', dto, actor),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('accepts besoinsSpecifiques field on student profile', async () => {
+      const actor = makeActor(UserRole.ELEVE, 'user-uuid');
+      const dto = { besoinsSpecifiques: 'Dyslexie légère' };
+      await service.updatePedagogicalProfile('user-uuid', dto, actor);
+      expect(studentPedaRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ besoinsSpecifiques: 'Dyslexie légère' }),
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Internal notes — PROF-FB-002
   // ---------------------------------------------------------------------------
   describe('getInternalNotes (PROF-FB-002)', () => {

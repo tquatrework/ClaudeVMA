@@ -191,6 +191,20 @@ export class AccountsService {
   }
 
   /**
+   * Retourne la liste de tous les comptes (usage interne uniquement).
+   * Filtre optionnel par rôle. N'expose pas les données sensibles.
+   */
+  async listAccounts(filterRole?: UserRole): Promise<{ userId: string; role: string; email: string }[]> {
+    const whereClause = filterRole ? { role: filterRole } : {};
+    const userList = await this.userRepo.find({ where: whereClause });
+    return userList.map((user) => ({
+      userId: user.id,
+      role: user.role,
+      email: user.email,
+    }));
+  }
+
+  /**
    * Creates a student account (eleve role).
    * Optionally creates a linked parent financeur account in the same transaction.
    */

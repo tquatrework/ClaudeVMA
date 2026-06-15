@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<frontDevelopmentPhase version="1.0" id="front_phase011_archive-document-service" order="11" service="archive-document-service" status="planned">
+  <title>Archives pedagogiques et documents</title>
+  <goal>Afficher les archives chronologiques et liens durables issus des activites deja creees.</goal>
+  <screensOrComponents>
+    <item>PedagogicalArchivePage</item>
+    <item>ArchiveTimeline</item>
+    <item>ArchiveItemDetail</item>
+    <item>ArchiveDocumentDownload</item>
+    <item>CourseSummaryArchiveView</item>
+  </screensOrComponents>
+  <apiContractsToConsume>
+    <item>GET /api/v1/students/{studentId}/pedagogical-archives</item>
+    <item>POST /api/v1/students/{studentId}/archive-links</item>
+    <item>GET /api/v1/students/{studentId}/archive-timeline</item>
+    <item>GET /api/v1/archive-documents/{id}/download</item>
+  </apiContractsToConsume>
+  <allowedMocksUntilDependenciesExist>
+    <item>Content catalog archive items can stay as links/placeholders until content-catalog-service phase.</item>
+  </allowedMocksUntilDependenciesExist>
+  <frontTests>
+    <item>Student sees chronological archive.</item>
+    <item>Financeur cannot access personal notebook archive item.</item>
+    <item>Course summary remains visible after recording expiry.</item>
+    <item>Archive item opens source link or download.</item>
+  </frontTests>
+  <apiGatewayImpact>
+    <item>Route archive endpoints.</item>
+    <item>Check download response handling and auth.</item>
+  </apiGatewayImpact>
+  <definitionOfDone>
+    <item>Durable pedagogical history is visible.</item>
+    <item>Archives aggregate existing services without owning their permissions.</item>
+  </definitionOfDone>
+  <workingRule>Developper par tranche verticale: API minimale reelle, ecran utilisable, tests front, verification navigateur, puis phase suivante.</workingRule>
+</frontDevelopmentPhase>

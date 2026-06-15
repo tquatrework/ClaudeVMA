@@ -1,76 +1,62 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<microserviceSpecification version="0.1" source="CdC VisioMath - simplifie.docx" status="draft-pending-user-arbitration">
+<?xml version="1.0" encoding="utf-8"?>
+<serviceFunctionalSpecification version="1.0" source="Cahier des Charges VisioMath - V 1.1.1 - 240531.docx" previousSource="CdC VisioMath - simplifie.docx" status="completed-from-integral-cdc">
   <scopeControl>
-    <rule>Respecter strictement les specifications du cahier des charges.</rule>
-    <rule>Toute contradiction ou ambiguite doit etre remontee pour arbitrage avant implementation.</rule>
+    <rule>Respecter strictement le cahier des charges integral comme source metier principale.</rule>
+    <rule>Toute contradiction avec les anciens XML doit etre signalee dans le delta.</rule>
   </scopeControl>
-  <microservice id="learning-activity-service" phase="3" priority="high">
-    <name>Activites d'apprentissage, corrections et points</name>
-    <mission>Gerer les reponses des eleves, corrections formateurs, points pedagogiques et activites non pourvues.</mission>
+  <service id="learning-activity-service" phase="3" priority="medium">
+    <name>Activites d'apprentissage et activites non pourvues</name>
+    <mission>Orchestrer les actions pedagogiques a realiser: corrections, solutions, productions, cours, masterclass et petites annonces formateurs.</mission>
+    <sourceReferences>CDC lines 177-178, 551-555, 556-569, 626</sourceReferences>
     <responsibilities>
-      <item>Permettre a un eleve de repondre a un exercice ou une evaluation.</item>
-      <item>Permettre aux formateurs de corriger sur demande.</item>
-      <item>Attribuer commentaires, scores et points pedagogiques.</item>
-      <item>Publier les besoins non pourvus, avec declaration d'interet des formateurs.</item>
-      <item>Calculer ou transmettre les actions valorisables financierement.</item>
+      <item>Centraliser les activites non pourvues issues des corrections/solutions manquantes.</item>
+      <item>Permettre au RP de publier demandes de production d'elements, cours specifique ou PP.</item>
+      <item>Exposer une liste accessible aux formateurs et RP.</item>
+      <item>Permettre a un formateur d'accepter une activite.</item>
+      <item>Reporter l'activite acceptee dans le calendrier du formateur.</item>
+      <item>Notifier le RP de l'acceptation.</item>
+      <item>Gerert descriptif, remuneration, echeance et nombre d'acceptations.</item>
     </responsibilities>
-    <businessRules>
-      <rule id="LRN-BR-001" origin="SPEC">L'eleve utilise les exercices pour apporter des reponses, commenter et scorer.</rule>
-      <rule id="LRN-BR-002" origin="SPEC">L'eleve utilise les evaluations pour apporter des reponses, commenter et scorer.</rule>
-      <rule id="LRN-BR-003" origin="SPEC">Le formateur peut corriger les reponses aux exercices sur demande, avec commentaires et score.</rule>
-      <rule id="LRN-BR-004" origin="SPEC">Le formateur peut corriger les reponses aux evaluations sur demande, avec commentaires et score.</rule>
-      <rule id="LRN-BR-005" origin="SPEC">L'eleve peut demander une correction d'evaluation pour obtenir une note ou la solution comme sur un exercice normal.</rule>
-      <rule id="LRN-BR-006" origin="SPEC">La liste d'activites non pourvues contient des elements en attente d'intervention formateur qui ne sont pas des demandes directes.</rule>
-      <rule id="LRN-BR-007" origin="SPEC">Sur une activite non pourvue, le formateur declare son interet avec une date.</rule>
-      <rule id="LRN-BR-008" origin="SPEC">Les points pedagogiques servent dans l'attribution des cours par le RP.</rule>
-      <rule id="LRN-BR-009" origin="SPEC">Les regles de points pedagogiques sont administrables par RP et administrateur financier.</rule>
-      <rule id="LRN-BR-010" origin="AJOUT">Une correction doit etre rattachee a une soumission et a son correcteur.</rule>
-    </businessRules>
+    <functionalities>
+      <functionality id="001">Liste d'activites non pourvues = petites annonces pedagogiques.</functionality>
+      <functionality id="002">Sources: solutions sans preneur, reponses sans correction, demandes RP de production, cours specifique, demande PP.</functionality>
+      <functionality id="003">Remuneration en points pedagogiques ou financiers selon parametrage AF.</functionality>
+      <functionality id="004">Nombre d'acceptations possible, 1 par defaut.</functionality>
+      <functionality id="005">Disparition de l'annonce quand quota atteint.</functionality>
+      <functionality id="006">Engagement formateur a realiser l'action en temps voulu.</functionality>
+      <functionality id="007">Integration liste d'activite dans interface pedagogique RP et interface TI/AF pour statistiques.</functionality>
+    </functionalities>
     <roleAccessRules>
-      <rule id="LRN-RA-001" role="Eleve" origin="SPEC">Peut soumettre reponses, demander corrections, commenter et scorer selon droits.</rule>
-      <rule id="LRN-RA-002" role="Formateur" origin="SPEC">Peut corriger sur demande et declarer son interet sur une activite non pourvue.</rule>
-      <rule id="LRN-RA-003" role="ResponsablePedagogique" origin="SPEC">Peut consulter les points pedagogiques utiles a l'attribution des cours.</rule>
-      <rule id="LRN-RA-004" role="AdministrateurFinancier" origin="SPEC">Peut administrer les regles de points pedagogiques avec le RP.</rule>
+      <rule role="Formateur">Consulte et accepte une activite non pourvue.</rule>
+      <rule role="ResponsablePedagogique">Consulte, publie, suit et peut eviter l'interface si besoin.</rule>
+      <rule role="AnimateurPedagogique">Acces selon role formateur/AP.</rule>
+      <rule role="AdministrateurFinancier">Parametre remunerations et consulte activites financieres.</rule>
+      <rule role="TechnicienInformatique">Consulte activites pour detecter anomalies.</rule>
     </roleAccessRules>
-    <forbiddenCases>
-      <case id="LRN-FB-001" origin="SPEC">La solution d'une evaluation ne doit pas etre fournie a l'eleve sans correction ou droit explicite.</case>
-      <case id="LRN-FB-002" origin="AJOUT">Un formateur ne doit pas corriger une soumission sans autorisation, demande directe ou activite non pourvue acceptee.</case>
-      <case id="LRN-FB-003" origin="AJOUT">Une declaration d'interet sans date ne doit pas etre validee.</case>
-    </forbiddenCases>
+    <candidateApis>
+      <endpoint method="GET" path="/open-activities">Lister activites non pourvues.</endpoint>
+      <endpoint method="POST" path="/open-activities">Publier une activite par RP ou service source.</endpoint>
+      <endpoint method="POST" path="/open-activities/{id}/accept">Accepter une activite.</endpoint>
+      <endpoint method="PATCH" path="/open-activities/{id}">Modifier statut, echeance ou quota.</endpoint>
+      <endpoint method="GET" path="/activities">Liste globale d'activite filtrable/exportable.</endpoint>
+    </candidateApis>
     <dataEntities>
-      <entity>StudentSubmission</entity>
-      <entity>CorrectionRequest</entity>
-      <entity>Correction</entity>
-      <entity>PedagogicalScore</entity>
-      <entity>UnstaffedActivity</entity>
-      <entity>TeacherInterest</entity>
+      <entity>OpenActivity</entity>
+      <entity>ActivityAcceptance</entity>
+      <entity>ActivityReward</entity>
+      <entity>ActivitySource</entity>
+      <entity>ActivityDeadline</entity>
     </dataEntities>
-    <apis>
-      <endpoint method="POST" path="/submissions">Soumettre une reponse</endpoint>
-      <endpoint method="POST" path="/correction-requests">Demander une correction</endpoint>
-      <endpoint method="POST" path="/corrections">Publier une correction</endpoint>
-      <endpoint method="GET" path="/unstaffed-activities">Lister activites non pourvues</endpoint>
-      <endpoint method="POST" path="/unstaffed-activities/{activityId}/interests">Declarer interet</endpoint>
-      <endpoint method="GET" path="/users/{userId}/pedagogical-score">Lire score pedagogique</endpoint>
-    </apis>
-    <eventsPublished>
-      <event>SubmissionCreated</event>
-      <event>CorrectionRequested</event>
-      <event>CorrectionCompleted</event>
-      <event>PedagogicalPointsGranted</event>
-      <event>TeacherInterestDeclared</event>
-    </eventsPublished>
+    <events>
+      <event>OpenActivityPublished</event>
+      <event>OpenActivityAccepted</event>
+      <event>OpenActivityClosed</event>
+      <event>ActivityAddedToCalendar</event>
+    </events>
     <acceptanceCriteria>
-      <criterion>Une reponse eleve est conservee et rattachee au contenu concerne.</criterion>
-      <criterion>Une demande de correction cree une action visible par un formateur autorise ou dans les activites non pourvues.</criterion>
-      <criterion>Une correction terminee peut attribuer commentaire, score et points pedagogiques.</criterion>
-      <criterion>Une declaration d'interet formateur conserve la date proposee.</criterion>
+      <criterion>Une correction non prise alimente la liste.</criterion>
+      <criterion>Une acceptation formateur cree un evenement calendrier et notifie le RP.</criterion>
+      <criterion>Une annonce disparait quand le nombre d'acceptations est atteint.</criterion>
     </acceptanceCriteria>
-    <manualTestScenarios>
-      <scenario id="LRN-TEST-001" origin="SPEC">Un eleve soumet une reponse a un exercice puis demande une correction.</scenario>
-      <scenario id="LRN-TEST-002" origin="SPEC">Un formateur corrige la reponse avec commentaire et score ; l'eleve consulte la correction.</scenario>
-      <scenario id="LRN-TEST-003" origin="SPEC">Un eleve demande une correction d'evaluation ; la solution n'est visible qu'apres correction autorisee.</scenario>
-      <scenario id="LRN-TEST-004" origin="SPEC">Un formateur declare son interet avec date sur une activite non pourvue.</scenario>
-    </manualTestScenarios>
-  </microservice>
-</microserviceSpecification>
+  </service>
+</serviceFunctionalSpecification>

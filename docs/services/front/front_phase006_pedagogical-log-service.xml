@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<frontDevelopmentPhase version="1.0" id="front_phase006_pedagogical-log-service" order="6" service="pedagogical-log-service" status="planned">
+  <title>Cahier de texte, memo eleve et carnet personnel</title>
+  <goal>Corriger le sens metier du memo et developper les ecrans cahier, memo et carnet.</goal>
+  <screensOrComponents>
+    <item>PedagogicalLogPage</item>
+    <item>SpecialLogPageVisibilityDialog</item>
+    <item>StudentMemoPanel</item>
+    <item>MemoChapterEditor</item>
+    <item>MemoItemEditor</item>
+    <item>MemoSearch</item>
+    <item>PersonalNotebookPage</item>
+    <item>InVideoMemoDrawer</item>
+  </screensOrComponents>
+  <apiContractsToConsume>
+    <item>GET /api/v1/students/{studentId}/pedagogical-log</item>
+    <item>POST /api/v1/students/{studentId}/pedagogical-log</item>
+    <item>POST /api/v1/students/{studentId}/pedagogical-log/special-pages</item>
+    <item>GET /api/v1/memos</item>
+    <item>POST /api/v1/memos/chapters</item>
+    <item>POST /api/v1/memos/chapters/{chapterId}/items</item>
+    <item>GET /api/v1/memos/search</item>
+    <item>GET /api/v1/students/{studentId}/notebook</item>
+    <item>POST /api/v1/students/{studentId}/notebook</item>
+  </apiContractsToConsume>
+  <allowedMocksUntilDependenciesExist>
+    <item>Math editor can start as text/limited image input while formula editor is selected.</item>
+    <item>Links to content catalog can use URL placeholders until content-catalog-service phase.</item>
+  </allowedMocksUntilDependenciesExist>
+  <frontTests>
+    <item>Student can list, create and search memo chapters/items.</item>
+    <item>Student can open memo drawer during video session.</item>
+    <item>Teacher cannot write directly into student memo.</item>
+    <item>Teacher creates a cahier de texte page for linked student.</item>
+    <item>Parent cannot read personal notebook.</item>
+  </frontTests>
+  <apiGatewayImpact>
+    <item>Route /memos without blocking eleve role.</item>
+    <item>Route /students/*/pedagogical-log and /students/*/notebook to pedagogical-log-service.</item>
+  </apiGatewayImpact>
+  <definitionOfDone>
+    <item>The current 403 student memo bug is resolved at UI/API contract level.</item>
+    <item>Memo is treated as an eleve-owned learning tool, not a teacher note.</item>
+  </definitionOfDone>
+  <workingRule>Developper par tranche verticale: API minimale reelle, ecran utilisable, tests front, verification navigateur, puis phase suivante.</workingRule>
+</frontDevelopmentPhase>

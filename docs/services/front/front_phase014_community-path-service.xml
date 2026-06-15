@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<frontDevelopmentPhase version="1.0" id="front_phase014_community-path-service" order="14" service="community-path-service" status="planned">
+  <title>Forums, parcours et certificats</title>
+  <goal>Developper forums, moderation, parcours, inscriptions, progression et certificats.</goal>
+  <screensOrComponents>
+    <item>ForumCatalogPage</item>
+    <item>ForumDetailPage</item>
+    <item>ForumModerationPanel</item>
+    <item>PathCatalogPage</item>
+    <item>PathDetailPage</item>
+    <item>PathEnrollmentProgress</item>
+    <item>CertificateView</item>
+  </screensOrComponents>
+  <apiContractsToConsume>
+    <item>GET /api/v1/forums</item>
+    <item>POST /api/v1/forums</item>
+    <item>POST /api/v1/forums/{id}/comments</item>
+    <item>POST /api/v1/forums/{id}/exclusions</item>
+    <item>GET /api/v1/paths</item>
+    <item>POST /api/v1/paths</item>
+    <item>POST /api/v1/paths/{id}/validate</item>
+    <item>POST /api/v1/paths/{id}/enrollments</item>
+    <item>PATCH /api/v1/path-enrollments/{id}/progress</item>
+  </apiContractsToConsume>
+  <allowedMocksUntilDependenciesExist>
+    <item>Final oral interview can be represented by a calendar event until full evaluation integration is ready.</item>
+  </allowedMocksUntilDependenciesExist>
+  <frontTests>
+    <item>AP creates forum and moderates members.</item>
+    <item>RP validates an AP-created path.</item>
+    <item>Student enrolls in a path and sees progress percentage.</item>
+    <item>Student cannot open more than three active paths.</item>
+    <item>Completed path displays certificate.</item>
+  </frontTests>
+  <apiGatewayImpact>
+    <item>Route /forums, /paths and /path-enrollments.</item>
+  </apiGatewayImpact>
+  <definitionOfDone>
+    <item>Phase 3 community and learning paths are usable.</item>
+    <item>Dashboard can surface path progress and certificates.</item>
+  </definitionOfDone>
+  <workingRule>Developper par tranche verticale: API minimale reelle, ecran utilisable, tests front, verification navigateur, puis phase suivante.</workingRule>
+</frontDevelopmentPhase>

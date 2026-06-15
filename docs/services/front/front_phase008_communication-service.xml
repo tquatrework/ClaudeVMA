@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<frontDevelopmentPhase version="1.0" id="front_phase008_communication-service" order="8" service="communication-service" status="planned">
+  <title>Communication, contacts et messages</title>
+  <goal>Developper les contacts obligatoires, precontacts, conversations et droits de visibilite lies aux contacts.</goal>
+  <screensOrComponents>
+    <item>ContactsPage</item>
+    <item>PreContactsReviewPanel</item>
+    <item>ConversationList</item>
+    <item>ConversationThread</item>
+    <item>MessageComposer</item>
+    <item>ContactVisibilitySettings</item>
+    <item>SupportConversationView</item>
+  </screensOrComponents>
+  <apiContractsToConsume>
+    <item>GET /api/v1/contacts</item>
+    <item>POST /api/v1/contacts/{id}/activate</item>
+    <item>DELETE /api/v1/contacts/{id}</item>
+    <item>GET /api/v1/conversations</item>
+    <item>POST /api/v1/conversations/{id}/messages</item>
+    <item>PATCH /api/v1/contacts/{id}/visibility</item>
+  </apiContractsToConsume>
+  <allowedMocksUntilDependenciesExist>
+    <item>Activity-created precontacts can be seeded in tests until content/community phases exist.</item>
+  </allowedMocksUntilDependenciesExist>
+  <frontTests>
+    <item>Student sees mandatory contacts and cannot remove them.</item>
+    <item>Student activates a precontact.</item>
+    <item>Removing a contact closes the conversation.</item>
+    <item>Message send supports text and small attachment error state.</item>
+    <item>Visibility preference updates contact rights.</item>
+  </frontTests>
+  <apiGatewayImpact>
+    <item>Route /contacts and /conversations.</item>
+    <item>Check upload/body-size limits for light files.</item>
+  </apiGatewayImpact>
+  <definitionOfDone>
+    <item>Users can communicate with role-appropriate contacts.</item>
+    <item>Precontact lifecycle is visible and testable.</item>
+  </definitionOfDone>
+  <workingRule>Developper par tranche verticale: API minimale reelle, ecran utilisable, tests front, verification navigateur, puis phase suivante.</workingRule>
+</frontDevelopmentPhase>

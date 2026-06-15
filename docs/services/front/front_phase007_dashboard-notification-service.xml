@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<frontDevelopmentPhase version="1.0" id="front_phase007_dashboard-notification-service" order="7" service="dashboard-notification-service" status="planned">
+  <title>Dashboard reel et notifications</title>
+  <goal>Remplacer les placeholders par un dashboard agregeant les services deja stabilises.</goal>
+  <screensOrComponents>
+    <item>StudentDashboard</item>
+    <item>TeacherDashboard</item>
+    <item>FinanceurStudentDashboardView</item>
+    <item>RpDashboard</item>
+    <item>NotificationCenter</item>
+    <item>NotificationBell</item>
+    <item>DashboardWidgetGrid</item>
+  </screensOrComponents>
+  <apiContractsToConsume>
+    <item>GET /api/v1/dashboard</item>
+    <item>GET /api/v1/dashboard/users/{userId}</item>
+    <item>GET /api/v1/notifications</item>
+    <item>PATCH /api/v1/notifications/{id}/read</item>
+    <item>GET /api/v1/dashboard/news</item>
+  </apiContractsToConsume>
+  <allowedMocksUntilDependenciesExist>
+    <item>Content, archives, communication and finance widgets can stay mocked/empty until their phases.</item>
+  </allowedMocksUntilDependenciesExist>
+  <frontTests>
+    <item>Dashboard displays profile, next course, calendar summary and memo/log links.</item>
+    <item>Notifications endpoint handles paginated data/meta response.</item>
+    <item>Financeur dashboard view respects hidden widgets.</item>
+    <item>Empty states display cleanly when later services are absent.</item>
+  </frontTests>
+  <apiGatewayImpact>
+    <item>Route /dashboard and /notifications.</item>
+    <item>Confirm notifications collection returns consistent data/meta shape.</item>
+  </apiGatewayImpact>
+  <definitionOfDone>
+    <item>The front has a real home page for eleve and formateur.</item>
+    <item>Notifications become the common feedback surface for later phases.</item>
+  </definitionOfDone>
+  <workingRule>Developper par tranche verticale: API minimale reelle, ecran utilisable, tests front, verification navigateur, puis phase suivante.</workingRule>
+</frontDevelopmentPhase>

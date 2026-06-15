@@ -1,68 +1,71 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<microserviceSpecification version="0.1" source="CdC VisioMath - simplifie.docx" status="draft-pending-user-arbitration">
+<?xml version="1.0" encoding="utf-8"?>
+<serviceFunctionalSpecification version="1.0" source="Cahier des Charges VisioMath - V 1.1.1 - 240531.docx" previousSource="CdC VisioMath - simplifie.docx" status="completed-from-integral-cdc">
   <scopeControl>
-    <rule>Respecter strictement les specifications du cahier des charges.</rule>
-    <rule>Toute contradiction ou ambiguite doit etre remontee pour arbitrage avant implementation.</rule>
+    <rule>Respecter strictement le cahier des charges integral comme source metier principale.</rule>
+    <rule>Toute contradiction avec les anciens XML doit etre signalee dans le delta.</rule>
   </scopeControl>
-  <microservice id="pedagogical-log-service" phase="1" priority="high">
+  <service id="pedagogical-log-service" phase="1" priority="high">
     <name>Cahier de texte, memo et carnet personnel</name>
-    <mission>Gerer les traces pedagogiques quotidiennes, visibles selon le role, et le carnet personnel prive de l'eleve.</mission>
+    <mission>Gerer les traces pedagogiques quotidiennes, le cahier de texte, le memo eleve structure et le carnet personnel.</mission>
+    <sourceReferences>CDC lines 103, 129, 164-165, 456-471, 609</sourceReferences>
     <responsibilities>
-      <item>Permettre aux formateurs et RP d'ecrire dans le cahier de texte.</item>
-      <item>Permettre aux parents de consulter le cahier de texte des eleves lies.</item>
-      <item>Permettre a l'eleve de tenir un carnet personnel non visible par le parent.</item>
-      <item>Creer des memos et pages speciales avec droits differencies.</item>
-      <item>Rattacher des entrees aux activites, visios, exercices ou parcours.</item>
+      <item>Creer une page de cahier de texte par visio ou action formateur avec date.</item>
+      <item>Permettre au formateur de relater la seance, donner travail, preconisations et liens vers elements.</item>
+      <item>Permettre au RP de creer pages speciales et communications ciblees.</item>
+      <item>Gerer les visibilites cahier de texte: eleve, financeur, PP, RP, pages speciales.</item>
+      <item>Gerer le memo comme liste de chapitres et items de formules/trucs essentiels de l'eleve.</item>
+      <item>Permettre au memo d'etre ouvert facilement a tout moment, y compris pendant les visios.</item>
+      <item>Gerer le carnet personnel eleve, date et eventuellement lie aux evenements calendrier.</item>
     </responsibilities>
-    <businessRules>
-      <rule id="PLOG-BR-001" origin="SPEC">L'eleve peut lire le cahier de texte ecrit par les formateurs et RP, sauf pages speciales non autorisees.</rule>
-      <rule id="PLOG-BR-002" origin="SPEC">Le parent peut utiliser et consulter le cahier de texte des eleves lies.</rule>
-      <rule id="PLOG-BR-003" origin="SPEC">Le formateur utilise le cahier de texte pour communiquer avec l'eleve et parfois le parent.</rule>
-      <rule id="PLOG-BR-004" origin="SPEC">Le carnet personnel est un element propre a l'eleve.</rule>
-      <rule id="PLOG-BR-005" origin="SPEC">Le parent voit tout ce qui concerne ses eleves lies sauf le carnet personnel.</rule>
-      <rule id="PLOG-BR-006" origin="SPEC">Le cahier de texte peut contenir des pages speciales avec visibilite differenciee.</rule>
-      <rule id="PLOG-BR-007" origin="AJOUT">Une entree de cahier de texte doit conserver son auteur, son eleve concerne, sa date, sa visibilite et son rattachement eventuel a une activite.</rule>
-      <rule id="PLOG-BR-008" origin="AJOUT">Une entree de carnet personnel doit etre separee des entrees de cahier de texte pour eviter toute fuite vers le parent.</rule>
-    </businessRules>
+    <functionalities>
+      <functionality id="001">Cahier de texte compatible formules math via WYSIWYG/TeX si possible.</functionality>
+      <functionality id="002">Liens vers exercices, evaluations, tutos, parcours ou visios.</functionality>
+      <functionality id="003">Pages speciales parent/financeur non visibles par l'eleve si choisies.</functionality>
+      <functionality id="004">Memo: chapitres libres crees par l'eleve, listes d'items courts, formules mathematiques et images limitees en taille.</functionality>
+      <functionality id="005">Recherche dans le memo.</functionality>
+      <functionality id="006">Carnet personnel libre, date, liens calendrier, formules math si possible.</functionality>
+      <functionality id="007">Acces cahier par tableau de bord de l'etudiant pour formateur/RP.</functionality>
+    </functionalities>
     <roleAccessRules>
-      <rule id="PLOG-RA-001" role="Eleve" origin="SPEC">Peut lire son cahier de texte autorise et gerer son carnet personnel.</rule>
-      <rule id="PLOG-RA-002" role="ParentFinanceur" origin="SPEC">Peut lire le cahier de texte des eleves lies mais pas leur carnet personnel.</rule>
-      <rule id="PLOG-RA-003" role="Formateur" origin="SPEC">Peut ecrire dans le cahier de texte des eleves lies.</rule>
-      <rule id="PLOG-RA-004" role="ResponsablePedagogique" origin="SPEC">Peut ecrire et consulter les elements pedagogiques utiles selon son domaine.</rule>
+      <rule role="Eleve">Lit son cahier autorise, ecrit seul dans son memo et son carnet personnel.</rule>
+      <rule role="ParentFinanceur">Lit le cahier de texte des eleves lies sauf carnet personnel et pages interdites.</rule>
+      <rule role="Formateur">Ecrit cahier de texte pour eleves lies; aide l'eleve sur le memo sans droit d'ecriture direct.</rule>
+      <rule role="ResponsablePedagogique">Lit/ecrit cahier, cree pages speciales, acces carnet personnel a arbitrer selon CdC.</rule>
+      <rule role="TechnicienInformatique">Acces incident selon autorisation et logs.</rule>
+      <rule role="AdministrateurFinancier">Pas d'acces fonctionnel naturel hors controle legal explicite.</rule>
     </roleAccessRules>
-    <forbiddenCases>
-      <case id="PLOG-FB-001" origin="SPEC">Le parent ne doit jamais acceder au carnet personnel de l'eleve.</case>
-      <case id="PLOG-FB-002" origin="AJOUT">Une entree de carnet personnel ne doit pas etre retournee dans les APIs de cahier de texte.</case>
-      <case id="PLOG-FB-003" origin="SPEC">Un formateur non lie ne doit pas ecrire dans le cahier de texte d'un eleve.</case>
-    </forbiddenCases>
+    <candidateApis>
+      <endpoint method="GET" path="/students/{studentId}/pedagogical-log">Lire cahier de texte autorise.</endpoint>
+      <endpoint method="POST" path="/students/{studentId}/pedagogical-log">Ajouter page cahier de texte.</endpoint>
+      <endpoint method="POST" path="/students/{studentId}/pedagogical-log/special-pages">Creer page speciale avec visibilite.</endpoint>
+      <endpoint method="GET" path="/memos">Lister le memo de l'eleve courant.</endpoint>
+      <endpoint method="POST" path="/memos/chapters">Creer un chapitre de memo par l'eleve.</endpoint>
+      <endpoint method="POST" path="/memos/chapters/{chapterId}/items">Ajouter formule, texte court ou image limitee.</endpoint>
+      <endpoint method="GET" path="/memos/search">Rechercher dans le memo.</endpoint>
+      <endpoint method="GET" path="/students/{studentId}/notebook">Lire carnet personnel selon droit.</endpoint>
+      <endpoint method="POST" path="/students/{studentId}/notebook">Ajouter une note personnelle.</endpoint>
+    </candidateApis>
     <dataEntities>
-      <entity>PedagogicalLogEntry</entity>
+      <entity>PedagogicalLogPage</entity>
+      <entity>PedagogicalLogVisibility</entity>
+      <entity>MemoChapter</entity>
+      <entity>MemoItem</entity>
+      <entity>MemoImage</entity>
       <entity>PersonalNotebookEntry</entity>
-      <entity>Memo</entity>
-      <entity>VisibilityRule</entity>
+      <entity>MathContent</entity>
     </dataEntities>
-    <apis>
-      <endpoint method="GET" path="/students/{studentId}/pedagogical-log">Lire cahier de texte</endpoint>
-      <endpoint method="POST" path="/students/{studentId}/pedagogical-log">Ajouter entree cahier de texte</endpoint>
-      <endpoint method="GET" path="/students/{studentId}/notebook">Lire carnet personnel</endpoint>
-      <endpoint method="POST" path="/students/{studentId}/notebook">Ajouter entree carnet</endpoint>
-      <endpoint method="POST" path="/memos">Creer un memo</endpoint>
-    </apis>
-    <eventsPublished>
-      <event>PedagogicalLogEntryCreated</event>
-      <event>PersonalNotebookUpdated</event>
-    </eventsPublished>
+    <events>
+      <event>PedagogicalLogPageCreated</event>
+      <event>SpecialPageCreated</event>
+      <event>MemoUpdated</event>
+      <event>NotebookEntryCreated</event>
+    </events>
     <acceptanceCriteria>
-      <criterion>Le parent peut lire le cahier de texte d'un eleve lie.</criterion>
-      <criterion>Le parent ne peut pas lire le carnet personnel du meme eleve.</criterion>
-      <criterion>Un formateur lie peut ecrire une entree visible selon la visibilite choisie.</criterion>
-      <criterion>Une page speciale respecte sa regle de visibilite.</criterion>
+      <criterion>Un eleve peut creer/modifier ses chapitres et items de memo.</criterion>
+      <criterion>Un formateur ne peut pas ecrire directement dans le memo eleve.</criterion>
+      <criterion>Un parent ne voit jamais le carnet personnel.</criterion>
+      <criterion>Une page speciale parent peut etre invisible a l'eleve.</criterion>
+      <criterion>Le memo est accessible pendant une visio.</criterion>
     </acceptanceCriteria>
-    <manualTestScenarios>
-      <scenario id="PLOG-TEST-001" origin="SPEC">Un formateur lie ajoute une entree au cahier de texte ; l'eleve et le parent la consultent.</scenario>
-      <scenario id="PLOG-TEST-002" origin="SPEC">L'eleve cree une entree de carnet personnel ; le parent ne la voit pas.</scenario>
-      <scenario id="PLOG-TEST-003" origin="SPEC">Un RP cree une page speciale ; seul le public autorise la voit.</scenario>
-      <scenario id="PLOG-TEST-004" origin="AJOUT">Un formateur non lie tente d'ecrire dans le cahier de texte ; l'action est refusee.</scenario>
-    </manualTestScenarios>
-  </microservice>
-</microserviceSpecification>
+  </service>
+</serviceFunctionalSpecification>

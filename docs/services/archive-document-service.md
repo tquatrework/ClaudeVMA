@@ -1,67 +1,61 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<microserviceSpecification version="0.1" source="CdC VisioMath - simplifie.docx" status="draft-pending-user-arbitration">
+<?xml version="1.0" encoding="utf-8"?>
+<serviceFunctionalSpecification version="1.0" source="Cahier des Charges VisioMath - V 1.1.1 - 240531.docx" previousSource="CdC VisioMath - simplifie.docx" status="completed-from-integral-cdc">
   <scopeControl>
-    <rule>Respecter strictement les specifications du cahier des charges.</rule>
-    <rule>Toute contradiction ou ambiguite doit etre remontee pour arbitrage avant implementation.</rule>
+    <rule>Respecter strictement le cahier des charges integral comme source metier principale.</rule>
+    <rule>Toute contradiction avec les anciens XML doit etre signalee dans le delta.</rule>
   </scopeControl>
-  <microservice id="archive-document-service" phase="2" priority="high">
-    <name>Archives pedagogiques et financieres</name>
-    <mission>Stocker, classer et exposer les documents rattaches aux activites pedagogiques et financieres.</mission>
+  <service id="archive-document-service" phase="2" priority="medium">
+    <name>Archives pedagogiques et documents</name>
+    <mission>Centraliser les archives pedagogiques et documents lies aux activites, avec liens chronologiques et acces selon rattachement.</mission>
+    <sourceReferences>CDC lines 75-76, 144-145, 360-376, 451-453, 612</sourceReferences>
     <responsibilities>
-      <item>Gerer les archives pedagogiques d'un eleve.</item>
-      <item>Gerer les documents crees par un formateur pour un eleve.</item>
-      <item>Gerer les archives financieres famille et formateur.</item>
-      <item>Permettre aux formateurs de charger leurs factures.</item>
-      <item>Servir de point d'acces documentaire aux services legal et finance.</item>
+      <item>Regrouper les elements lies aux activites d'un eleve.</item>
+      <item>Presenter les archives en liste ou format calendrier.</item>
+      <item>Referencer cahier de texte, carnet personnel, resumes de cours, contenus charges, parcours, exercices, evaluations, videos, commentaires forum.</item>
+      <item>Mettre en evidence les points pedagogiques accumules.</item>
+      <item>Fournir des liens vers les elements sources lorsque pertinent.</item>
+      <item>Conserver durablement les resumes de cours issus des visios.</item>
+      <item>Controler les acces eleves, parents, professeurs et contacts.</item>
     </responsibilities>
-    <businessRules>
-      <rule id="ARCH-BR-001" origin="SPEC">Les archives pedagogiques sont une liste de documents lies aux activites de l'eleve.</rule>
-      <rule id="ARCH-BR-002" origin="SPEC">Les formateurs peuvent creer des documents pour les archives pedagogiques des etudiants.</rule>
-      <rule id="ARCH-BR-003" origin="SPEC">Les archives financieres financeur contiennent justificatifs de paiement, factures diverses et aide eventuelle a la declaration.</rule>
-      <rule id="ARCH-BR-004" origin="SPEC">Les archives financieres formateur contiennent prestations realisees, factures recues, paiements et aide eventuelle a la declaration.</rule>
-      <rule id="ARCH-BR-005" origin="SPEC">Le formateur doit pouvoir charger ses factures dans les archives financieres.</rule>
-      <rule id="ARCH-BR-006" origin="AJOUT">Chaque document doit conserver son proprietaire metier, son createur, son type, ses droits d'acces et son rattachement.</rule>
-      <rule id="ARCH-BR-007" origin="AJOUT">Le masquage temporaire d'un document pour incident ne doit pas etre une suppression physique.</rule>
-    </businessRules>
+    <functionalities>
+      <functionality id="001">Archives etudiant chronologiques.</functionality>
+      <functionality id="002">Liens vers cahier de texte et carnet personnel.</functionality>
+      <functionality id="003">Elements charges par l'etudiant avec score.</functionality>
+      <functionality id="004">Parcours finis ou en cours avec lien de reprise.</functionality>
+      <functionality id="005">Exercices/evaluations commentes, scores ou repondus.</functionality>
+      <functionality id="006">Videos vues, commentees ou notees, hors video enregistree expiree.</functionality>
+      <functionality id="007">Acces depuis profil pedagogique ou tableau de bord.</functionality>
+    </functionalities>
     <roleAccessRules>
-      <rule id="ARCH-RA-001" role="Eleve" origin="SPEC">Peut consulter les documents pedagogiques qui lui sont lies selon droits.</rule>
-      <rule id="ARCH-RA-002" role="ParentFinanceur" origin="SPEC">Peut consulter les archives des eleves lies et ses archives financieres, sauf restriction explicite.</rule>
-      <rule id="ARCH-RA-003" role="Formateur" origin="SPEC">Peut charger des documents pedagogiques pour ses eleves et charger ses factures.</rule>
-      <rule id="ARCH-RA-004" role="AdministrateurFinancier" origin="SPEC">Peut charger et consulter les documents financiers autorises.</rule>
+      <rule role="Eleve">Accede a ses archives pedagogiques.</rule>
+      <rule role="ParentFinanceur">Accede aux archives des eleves lies sauf carnet personnel et visio interdite.</rule>
+      <rule role="Formateur">Accede aux archives des eleves contacts selon rattachement.</rule>
+      <rule role="ResponsablePedagogique">Acces pedagogique large.</rule>
+      <rule role="TechnicienInformatique">Acces incident selon autorisation.</rule>
+      <rule role="AdministrateurFinancier">Acces seulement si element lie a controle financier/legal.</rule>
     </roleAccessRules>
-    <forbiddenCases>
-      <case id="ARCH-FB-001" origin="AJOUT">Un utilisateur ne doit pas telecharger un document sans droit d'acces.</case>
-      <case id="ARCH-FB-002" origin="SPEC">Un formateur non lie ne doit pas deposer de document pedagogique dans les archives d'un eleve.</case>
-      <case id="ARCH-FB-003" origin="AJOUT">Une facture formateur ne doit pas etre rattachee a un autre formateur.</case>
-    </forbiddenCases>
+    <candidateApis>
+      <endpoint method="GET" path="/students/{studentId}/pedagogical-archives">Lister les archives pedagogiques.</endpoint>
+      <endpoint method="POST" path="/students/{studentId}/archive-links">Ajouter un lien archive depuis un service source.</endpoint>
+      <endpoint method="GET" path="/students/{studentId}/archive-timeline">Lire les archives en vue calendrier.</endpoint>
+      <endpoint method="GET" path="/archive-documents/{id}/download">Telecharger un document autorise.</endpoint>
+    </candidateApis>
     <dataEntities>
-      <entity>DocumentMetadata</entity>
-      <entity>StorageObjectRef</entity>
       <entity>PedagogicalArchive</entity>
-      <entity>FinancialArchive</entity>
-      <entity>DocumentAccessGrant</entity>
+      <entity>ArchiveItem</entity>
+      <entity>ArchiveLink</entity>
+      <entity>CourseSummaryDocument</entity>
+      <entity>ArchiveVisibility</entity>
     </dataEntities>
-    <apis>
-      <endpoint method="POST" path="/documents">Charger un document</endpoint>
-      <endpoint method="GET" path="/documents/{documentId}">Lire metadonnees document</endpoint>
-      <endpoint method="GET" path="/archives/pedagogical/{studentId}">Lister archive pedagogique</endpoint>
-      <endpoint method="GET" path="/archives/financial/{ownerId}">Lister archive financiere</endpoint>
-      <endpoint method="POST" path="/documents/{documentId}/access-grants">Accorder acces document</endpoint>
-    </apis>
-    <eventsPublished>
-      <event>DocumentUploaded</event>
-      <event>PedagogicalArchiveUpdated</event>
-      <event>FinancialArchiveUpdated</event>
-    </eventsPublished>
+    <events>
+      <event>ArchiveItemAdded</event>
+      <event>CourseSummaryArchived</event>
+      <event>ArchiveViewed</event>
+    </events>
     <acceptanceCriteria>
-      <criterion>Un document pedagogique depose par un formateur lie apparait dans les archives de l'eleve.</criterion>
-      <criterion>Une facture chargee par un formateur apparait dans ses archives financieres.</criterion>
-      <criterion>Les droits d'acces sont verifies avant toute lecture ou telechargement.</criterion>
+      <criterion>Un resume de cours reste accessible apres expiration de la video.</criterion>
+      <criterion>Le carnet personnel n'est pas expose au parent via les archives.</criterion>
+      <criterion>Les liens archives respectent les droits du service source.</criterion>
     </acceptanceCriteria>
-    <manualTestScenarios>
-      <scenario id="ARCH-TEST-001" origin="SPEC">Un formateur lie depose un document pedagogique pour un eleve ; l'eleve et le parent le consultent.</scenario>
-      <scenario id="ARCH-TEST-002" origin="SPEC">Un formateur charge une facture ; l'administrateur financier la retrouve.</scenario>
-      <scenario id="ARCH-TEST-003" origin="AJOUT">Un utilisateur non autorise tente d'ouvrir un document ; l'acces est refuse.</scenario>
-    </manualTestScenarios>
-  </microservice>
-</microserviceSpecification>
+  </service>
+</serviceFunctionalSpecification>

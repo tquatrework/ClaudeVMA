@@ -1,67 +1,62 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<microserviceSpecification version="0.1" source="CdC VisioMath - simplifie.docx" status="draft-pending-user-arbitration">
+<?xml version="1.0" encoding="utf-8"?>
+<serviceFunctionalSpecification version="1.0" source="Cahier des Charges VisioMath - V 1.1.1 - 240531.docx" previousSource="CdC VisioMath - simplifie.docx" status="completed-from-integral-cdc">
   <scopeControl>
-    <rule>Respecter strictement les specifications du cahier des charges.</rule>
-    <rule>Toute contradiction ou ambiguite doit etre remontee pour arbitrage avant implementation.</rule>
+    <rule>Respecter strictement le cahier des charges integral comme source metier principale.</rule>
+    <rule>Toute contradiction avec les anciens XML doit etre signalee dans le delta.</rule>
   </scopeControl>
-  <microservice id="legal-document-service" phase="2" priority="high">
-    <name>Documents legaux et signatures</name>
-    <mission>Gerer mandats clients, contrats formateurs, signatures et elements legaux a traiter.</mission>
+  <service id="legal-document-service" phase="2" priority="high">
+    <name>Documents legaux, mandats et contrats</name>
+    <mission>Gerer les mandats clients, contrats formateurs, modeles legaux, signatures uniques et stockage securise.</mission>
+    <sourceReferences>CDC lines 120-121, 148-149, 261, 337-359, 599, 613</sourceReferences>
     <responsibilities>
-      <item>Generer et suivre les mandats clients.</item>
-      <item>Generer et suivre les contrats formateurs.</item>
-      <item>Collecter les signatures obligatoires.</item>
-      <item>Exposer une interface legale pour l'administrateur financier.</item>
-      <item>Tracer l'historique et le statut des documents.</item>
+      <item>Gerer le mandat client lie au financeur.</item>
+      <item>Gerer le contrat formateur lie au profil financier formateur.</item>
+      <item>Permettre a l'AF d'editer les modeles et d'ajouter de nouveaux contrats.</item>
+      <item>Signer un document une seule fois et passer de A_SIGNER a SIGNE.</item>
+      <item>Conserver date de signature et nom financeur/client dans l'intitule.</item>
+      <item>Stocker une copie dans un espace hautement securise.</item>
+      <item>Exposer les documents depuis les profils financiers.</item>
     </responsibilities>
-    <businessRules>
-      <rule id="LEG-BR-001" origin="SPEC">Le mandat client est le document liant le financeur a VisioMath et doit etre signe.</rule>
-      <rule id="LEG-BR-002" origin="SPEC">Le contrat formateur est le document liant le formateur a VisioMath et doit etre signe.</rule>
-      <rule id="LEG-BR-003" origin="SPEC">L'administrateur financier dispose d'une interface legale regroupant les elements legaux et les elements a traiter.</rule>
-      <rule id="LEG-BR-004" origin="SPEC">Le RP peut signer les mandats clients.</rule>
-      <rule id="LEG-BR-005" origin="SPEC">L'administrateur financier peut signer les contrats formateurs.</rule>
-      <rule id="LEG-BR-006" origin="AJOUT">Un document legal doit conserver son statut, ses signataires attendus, ses signatures et son historique.</rule>
-    </businessRules>
+    <functionalities>
+      <functionality id="001">Mandat client obligatoire pour validation compte membre.</functionality>
+      <functionality id="002">Contrat formateur obligatoire pour validation formateur.</functionality>
+      <functionality id="003">Signature electronique unique non rejouable.</functionality>
+      <functionality id="004">Modeles editables par AF uniquement.</functionality>
+      <functionality id="005">Ajout de nouveaux contrats par AF.</functionality>
+      <functionality id="006">Lien vers documents depuis profil financier.</functionality>
+      <functionality id="007">Traçabilite signature, version modele et copie securisee.</functionality>
+    </functionalities>
     <roleAccessRules>
-      <rule id="LEG-RA-001" role="ParentFinanceur" origin="SPEC">Peut signer et consulter son mandat client.</rule>
-      <rule id="LEG-RA-002" role="Formateur" origin="SPEC">Peut signer et consulter son contrat formateur.</rule>
-      <rule id="LEG-RA-003" role="ResponsablePedagogique" origin="SPEC">Peut intervenir sur les signatures de mandats clients.</rule>
-      <rule id="LEG-RA-004" role="AdministrateurFinancier" origin="SPEC">Peut suivre l'interface legale et les contrats formateurs.</rule>
+      <rule role="ParentFinanceur">Signe son mandat client.</rule>
+      <rule role="Formateur">Signe son contrat fournisseur.</rule>
+      <rule role="ResponsablePedagogique">Peut faire signer les mandats clients selon CdC.</rule>
+      <rule role="AdministrateurFinancier">Edite modeles, ajoute contrats, suit elements legaux.</rule>
+      <rule role="TechnicienInformatique">Acces support securise selon autorisation.</rule>
     </roleAccessRules>
-    <forbiddenCases>
-      <case id="LEG-FB-001" origin="AJOUT">Un document legal obligatoire ne doit pas etre marque signe sans trace de signature.</case>
-      <case id="LEG-FB-002" origin="SPEC">Un utilisateur ne doit pas signer le document legal d'un autre utilisateur sans role autorise.</case>
-      <case id="LEG-FB-003" origin="AJOUT">Un document expire ou remplace ne doit pas etre utilise comme document actif.</case>
-    </forbiddenCases>
+    <candidateApis>
+      <endpoint method="GET" path="/legal-documents/{ownerId}">Lister documents legaux autorises.</endpoint>
+      <endpoint method="POST" path="/legal-documents/{id}/sign">Signer un document une seule fois.</endpoint>
+      <endpoint method="POST" path="/legal-templates">Creer un modele par AF.</endpoint>
+      <endpoint method="PATCH" path="/legal-templates/{id}">Modifier un modele par AF.</endpoint>
+      <endpoint method="GET" path="/legal-documents/{id}/secure-copy">Acceder a la copie securisee autorisee.</endpoint>
+    </candidateApis>
     <dataEntities>
       <entity>LegalDocument</entity>
-      <entity>ClientMandate</entity>
-      <entity>TeacherContract</entity>
-      <entity>SignatureRequest</entity>
+      <entity>LegalTemplate</entity>
       <entity>SignatureRecord</entity>
-      <entity>LegalTask</entity>
+      <entity>SecureDocumentCopy</entity>
+      <entity>LegalEvent</entity>
     </dataEntities>
-    <apis>
-      <endpoint method="POST" path="/legal-documents">Creer document legal</endpoint>
-      <endpoint method="POST" path="/signature-requests">Creer demande signature</endpoint>
-      <endpoint method="POST" path="/signature-requests/{requestId}/complete">Marquer signe</endpoint>
-      <endpoint method="GET" path="/legal-tasks">Lister elements legaux a traiter</endpoint>
-      <endpoint method="GET" path="/legal-documents/{documentId}">Lire document legal</endpoint>
-    </apis>
-    <eventsPublished>
-      <event>ClientMandateSigned</event>
-      <event>TeacherContractSigned</event>
-      <event>LegalDocumentExpired</event>
-    </eventsPublished>
+    <events>
+      <event>LegalDocumentSigned</event>
+      <event>LegalTemplateUpdated</event>
+      <event>SecureCopyStored</event>
+    </events>
     <acceptanceCriteria>
-      <criterion>Un mandat client signe est rattache au financeur et consultable par les roles autorises.</criterion>
-      <criterion>Un contrat formateur signe est rattache au formateur et consultable par les roles autorises.</criterion>
-      <criterion>L'interface legale liste les documents a traiter.</criterion>
+      <criterion>Un mandat signe ne peut pas etre signe une deuxieme fois.</criterion>
+      <criterion>Un compte membre requiert mandat signe et inscription payee.</criterion>
+      <criterion>Un formateur valide requiert contrat signe.</criterion>
+      <criterion>Seul l'AF modifie les modeles.</criterion>
     </acceptanceCriteria>
-    <manualTestScenarios>
-      <scenario id="LEG-TEST-001" origin="SPEC">Generer un mandat client, le signer, verifier le statut signe et l'archive.</scenario>
-      <scenario id="LEG-TEST-002" origin="SPEC">Generer un contrat formateur, le signer, verifier le statut signe et l'archive.</scenario>
-      <scenario id="LEG-TEST-003" origin="SPEC">Connecter l'administrateur financier et consulter les elements legaux a traiter.</scenario>
-    </manualTestScenarios>
-  </microservice>
-</microserviceSpecification>
+  </service>
+</serviceFunctionalSpecification>

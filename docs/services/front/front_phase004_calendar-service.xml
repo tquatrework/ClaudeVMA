@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<frontDevelopmentPhase version="1.0" id="front_phase004_calendar-service" order="4" service="calendar-service" status="planned">
+  <title>Calendrier, disponibilites et evenements</title>
+  <goal>Afficher et manipuler les calendriers role par role avec evenements, invitations, rappels et disponibilites.</goal>
+  <screensOrComponents>
+    <item>CalendarPage</item>
+    <item>AvailabilityEditor</item>
+    <item>EventCreateDialog</item>
+    <item>InvitationBanner</item>
+    <item>CancellationRequestDialog</item>
+    <item>ReminderSettingsPanel</item>
+  </screensOrComponents>
+  <apiContractsToConsume>
+    <item>GET /api/v1/calendars/{ownerId}/events</item>
+    <item>POST /api/v1/calendars/{ownerId}/events</item>
+    <item>GET /api/v1/calendars/{ownerId}/availability</item>
+    <item>POST /api/v1/events/{id}/invitees/{userId}/accept</item>
+    <item>POST /api/v1/events/{id}/invitees/{userId}/decline</item>
+    <item>POST /api/v1/events/{id}/cancel-request</item>
+    <item>POST /api/v1/events/{id}/reminders</item>
+  </apiContractsToConsume>
+  <allowedMocksUntilDependenciesExist>
+    <item>Video session join URL can be mocked until video-session-service phase.</item>
+    <item>Financial calendar events can be hidden or mocked until finance-credit-service phase.</item>
+  </allowedMocksUntilDependenciesExist>
+  <frontTests>
+    <item>Calendar loads week/month events.</item>
+    <item>User filters by event type and person.</item>
+    <item>Invitee accepts an event and visual state changes.</item>
+    <item>Invitee declines and event disappears.</item>
+    <item>Student creates a personal reminder.</item>
+  </frontTests>
+  <apiGatewayImpact>
+    <item>Route /calendars and /events to calendar-service.</item>
+    <item>Keep slashless and trailing slash variants coherent.</item>
+  </apiGatewayImpact>
+  <definitionOfDone>
+    <item>Calendar is usable from profile/dashboard placeholders.</item>
+    <item>Future services can attach events without changing the core UI.</item>
+  </definitionOfDone>
+  <workingRule>Developper par tranche verticale: API minimale reelle, ecran utilisable, tests front, verification navigateur, puis phase suivante.</workingRule>
+</frontDevelopmentPhase>

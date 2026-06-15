@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<frontDevelopmentPhase version="1.0" id="front_phase016_orchestration-service" order="16" service="orchestration-service" status="planned">
+  <title>Orchestration tardive et suivi workflows</title>
+  <goal>Ajouter le front de suivi des workflows seulement une fois les flux metier stabilises.</goal>
+  <screensOrComponents>
+    <item>WorkflowStatusPage</item>
+    <item>WorkflowRetryPanel</item>
+    <item>WorkflowTimeline</item>
+    <item>WorkflowIncidentView</item>
+  </screensOrComponents>
+  <apiContractsToConsume>
+    <item>POST /api/v1/workflows/student-registration</item>
+    <item>POST /api/v1/workflows/teacher-registration</item>
+    <item>POST /api/v1/workflows/teacher-request</item>
+    <item>POST /api/v1/workflows/course-completed</item>
+    <item>POST /api/v1/workflows/content-correction</item>
+    <item>GET /api/v1/workflows/{id}</item>
+  </apiContractsToConsume>
+  <allowedMocksUntilDependenciesExist>
+    <item>Before this phase, end-to-end tests drive services directly through their public APIs.</item>
+    <item>When orchestration arrives, reuse the same scenarios and assert workflow state/idempotence.</item>
+  </allowedMocksUntilDependenciesExist>
+  <frontTests>
+    <item>Existing vertical-flow tests still pass with orchestration enabled.</item>
+    <item>Workflow status displays completed, pending and failed steps.</item>
+    <item>Retry action is available only to authorized admin roles.</item>
+    <item>Duplicate workflow start is idempotent where required.</item>
+  </frontTests>
+  <apiGatewayImpact>
+    <item>Route /workflows only after orchestration-service is intentionally introduced.</item>
+    <item>Do not make earlier front phases depend on /workflows.</item>
+  </apiGatewayImpact>
+  <definitionOfDone>
+    <item>Orchestration is observable, not a hidden dependency of early front development.</item>
+    <item>Previous service-level and front E2E tests remain valid.</item>
+  </definitionOfDone>
+  <workingRule>Developper par tranche verticale: API minimale reelle, ecran utilisable, tests front, verification navigateur, puis phase suivante.</workingRule>
+</frontDevelopmentPhase>

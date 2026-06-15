@@ -12,6 +12,7 @@ import ProfilePage from './pages/ProfilePage'
 import ProfileEditPage from './pages/ProfileEditPage'
 import TeacherRequestsPage from './pages/TeacherRequestsPage'
 import TeacherRequestDetailPage from './pages/TeacherRequestDetailPage'
+import TeacherRequestPage from './pages/TeacherRequestPage'
 import CalendarPage from './pages/CalendarPage'
 import ActivityDetailPage from './pages/ActivityDetailPage'
 import VideoPage from './pages/VideoPage'
@@ -90,6 +91,15 @@ export default function App() {
           />
           <Route
             path="/teacher-requests"
+            element={
+              <ProtectedRoute>
+                <TeacherRequestPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* Legacy list page — kept for backwards compatibility */}
+          <Route
+            path="/teacher-requests/list"
             element={
               <ProtectedRoute>
                 <TeacherRequestsPage />

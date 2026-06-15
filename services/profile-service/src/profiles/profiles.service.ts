@@ -9,6 +9,8 @@ import { AdministrativeProfile } from './entities/administrative-profile.entity'
 import { StudentPedagogicalProfile } from './entities/student-pedagogical-profile.entity';
 import { TeacherPedagogicalProfile } from './entities/teacher-pedagogical-profile.entity';
 import { InternalProfileNote } from './entities/internal-profile-note.entity';
+import { TeacherValidation } from './entities/teacher-validation.entity';
+import { ProfileVisibilityPreference } from './entities/profile-visibility-preference.entity';
 import { TeacherStudentLink } from '../relations/entities/teacher-student-link.entity';
 import { FinanceOwnerStudentLink } from '../relations/entities/finance-owner-student-link.entity';
 import { UpdateAdministrativeProfileDto } from './dto/update-administrative-profile.dto';
@@ -17,6 +19,8 @@ import {
   UpdateTeacherPedagogicalProfileDto,
 } from './dto/update-pedagogical-profile.dto';
 import { CreateInternalNoteDto } from './dto/create-internal-note.dto';
+import { UpdateTeacherValidationDto } from './dto/update-teacher-validation.dto';
+import { UpdateVisibilityPreferenceDto } from './dto/update-visibility-preference.dto';
 import { EventsService } from '../events/events.service';
 import { UserRole } from '../common/enums/user-role.enum';
 
@@ -49,6 +53,10 @@ export class ProfilesService {
     private readonly teacherPedaRepo: Repository<TeacherPedagogicalProfile>,
     @InjectRepository(InternalProfileNote)
     private readonly noteRepo: Repository<InternalProfileNote>,
+    @InjectRepository(TeacherValidation)
+    private readonly teacherValidationRepo: Repository<TeacherValidation>,
+    @InjectRepository(ProfileVisibilityPreference)
+    private readonly visibilityPrefRepo: Repository<ProfileVisibilityPreference>,
     @InjectRepository(TeacherStudentLink)
     private readonly teacherLinkRepo: Repository<TeacherStudentLink>,
     @InjectRepository(FinanceOwnerStudentLink)
@@ -186,6 +194,144 @@ export class ProfilesService {
     return saved;
   }
 
+  /**
+   * Update (upsert) the validation status of a formateur (PROF-BR: RP or TI only).
+   * Publishes TeacherValidated event when status transitions to 'validated'.
+   */
+  async updateTeacherValidation(
+    teacherId: string,
+    dto: UpdateTeacherValidationDto,
+    actor: Actor,
+  ) {
+    const allowedRoles = [
+      UserRole.RESPONSABLE_PEDAGOGIQUE,
+      UserRole.TECHNICIEN_INFORMATIQUE,
+    ];
+    if (!allowedRoles.includes(actor.role)) {
+      throw new ForbiddenException(
+        'Only RP or TI may update a teacher validation status',
+      );
+    }
+
+    let validation = await this.teacherValidationRepo.findOne({ where: { teacherId } });
+    if (!validation) {
+      validation = this.teacherValidationRepo.create({
+        teacherId,
+        status: dto.status,
+        validatedBy: actor.id,
+        validatorRole: actor.role,
+        comment: dto.comment,
+      });
+    } else {
+      validation.status = dto.status;
+      validation.validatedBy = actor.id;
+      validation.validatorRole = actor.role;
+      if (dto.comment !== undefined) {
+        validation.comment = dto.comment;
+      }
+    }
+
+    const saved = await this.teacherValidationRepo.save(validation);
+
+    if (dto.status === 'validated') {
+      this.events.publish('TeacherValidated', { teacherId, actorId: actor.id });
+    }
+
+    return saved;
+  }
+
+  /**
+   * Get the current validation status of a formateur.
+   * Accessible to RP, TI, and the teacher themselves.
+   */
+  async getTeacherValidation(teacherId: string, actor: Actor) {
+    const allowedRoles = [
+      UserRole.RESPONSABLE_PEDAGOGIQUE,
+      UserRole.TECHNICIEN_INFORMATIQUE,
+      UserRole.ADMINISTRATEUR_FINANCIER,
+    ];
+    if (!allowedRoles.includes(actor.role) && actor.id !== teacherId) {
+      throw new ForbiddenException(
+        'You may only view your own validation status',
+      );
+    }
+
+    const validation = await this.teacherValidationRepo.findOne({ where: { teacherId } });
+    return validation ?? { teacherId, status: 'pending' };
+  }
+
+  /**
+   * Get consolidated pedagogical statistics for a user.
+   * Statistics are computed from external services (learning-activity-service, calendar-service)
+   * and are stored/cached here when received via events.
+   * For phase 1, returns the stored snapshot.
+   */
+  async getPedagogicalStatistics(userId: string, actor: Actor) {
+    await this.assertReadAccess(userId, actor);
+
+    const studentProfile = await this.studentPedaRepo.findOne({ where: { userId } });
+    const teacherProfile = await this.teacherPedaRepo.findOne({ where: { userId } });
+
+    if (!studentProfile && !teacherProfile) {
+      throw new NotFoundException(`No pedagogical profile found for user ${userId}`);
+    }
+
+    // Phase 1: return the data embedded in the pedagogical profile.
+    // In later phases, this will aggregate from learning-activity-service.
+    return {
+      userId,
+      profileType: studentProfile ? 'student' : 'teacher',
+      statistics: studentProfile
+        ? {
+            niveauScolaire: studentProfile.niveauScolaire,
+            matieres: studentProfile.matieres,
+          }
+        : {
+            niveauxEnseignes: teacherProfile.niveauxEnseignes,
+            matieresEnseignees: teacherProfile.matieresEnseignees,
+            isAnimateurPedagogique: teacherProfile.isAnimateurPedagogique,
+          },
+    };
+  }
+
+  /**
+   * Get or create the visibility preference record for an élève.
+   */
+  async getVisibilityPreferences(userId: string, actor: Actor) {
+    if (actor.id !== userId && !this.isPrivilegedRole(actor.role)) {
+      throw new ForbiddenException('You may only view your own visibility preferences');
+    }
+
+    const existing = await this.visibilityPrefRepo.findOne({ where: { userId } });
+    if (existing) return existing;
+
+    // Return defaults without persisting
+    return { userId, hideDifficultiesFromContacts: false, restrictCommentsToPrincipalTeacher: false };
+  }
+
+  /**
+   * Update the visibility preference for an élève (PROF-FN-004).
+   * Only the élève themselves or an admin role may update.
+   */
+  async updateVisibilityPreferences(
+    userId: string,
+    dto: UpdateVisibilityPreferenceDto,
+    actor: Actor,
+  ) {
+    if (actor.id !== userId && !this.isPrivilegedRole(actor.role)) {
+      throw new ForbiddenException('You may only update your own visibility preferences');
+    }
+
+    let preference = await this.visibilityPrefRepo.findOne({ where: { userId } });
+    if (!preference) {
+      preference = this.visibilityPrefRepo.create({ userId, ...dto });
+    } else {
+      Object.assign(preference, dto);
+    }
+
+    return this.visibilityPrefRepo.save(preference);
+  }
+
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
@@ -259,5 +405,13 @@ export class ProfilesService {
       'objectifsPedagogiques' in dto ||
       'besoinsSpecifiques' in dto
     );
+  }
+
+  private isPrivilegedRole(role: UserRole): boolean {
+    return [
+      UserRole.RESPONSABLE_PEDAGOGIQUE,
+      UserRole.TECHNICIEN_INFORMATIQUE,
+      UserRole.ADMINISTRATEUR_FINANCIER,
+    ].includes(role);
   }
 }

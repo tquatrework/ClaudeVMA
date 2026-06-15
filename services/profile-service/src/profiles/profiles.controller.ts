@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Put,
+  Patch,
   Post,
   Param,
   Body,
@@ -27,6 +28,8 @@ import {
   UpdateTeacherPedagogicalProfileDto,
 } from './dto/update-pedagogical-profile.dto';
 import { CreateInternalNoteDto } from './dto/create-internal-note.dto';
+import { UpdateTeacherValidationDto } from './dto/update-teacher-validation.dto';
+import { UpdateVisibilityPreferenceDto } from './dto/update-visibility-preference.dto';
 
 @ApiTags('profiles')
 @ApiBearerAuth()
@@ -144,5 +147,95 @@ export class ProfilesController {
     @Request() req,
   ) {
     return this.profilesService.promoteToAnimateurPedagogique(teacherId, req.user);
+  }
+
+  @Patch(':teacherId/validation')
+  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE)
+  @ApiOperation({
+    summary: 'Update teacher validation status',
+    description:
+      'Sets the validation status (pending / validated / rejected) for a formateur. ' +
+      'Restricted to RP and TI only. Publishes TeacherValidated event when status = validated.',
+  })
+  @ApiParam({ name: 'teacherId', description: 'Teacher (formateur) UUID' })
+  @ApiResponse({ status: 200, description: 'Validation record updated' })
+  @ApiResponse({ status: 403, description: 'Forbidden — RP or TI only' })
+  updateTeacherValidation(
+    @Param('teacherId', ParseUUIDPipe) teacherId: string,
+    @Body() dto: UpdateTeacherValidationDto,
+    @Request() req,
+  ) {
+    return this.profilesService.updateTeacherValidation(teacherId, dto, req.user);
+  }
+
+  @Get(':teacherId/validation')
+  @ApiOperation({
+    summary: 'Get teacher validation status',
+    description:
+      'Returns the current validation record for a formateur. ' +
+      'Accessible to RP, TI, AdministrateurFinancier and the teacher themselves.',
+  })
+  @ApiParam({ name: 'teacherId', description: 'Teacher (formateur) UUID' })
+  @ApiResponse({ status: 200, description: 'Validation record' })
+  @ApiResponse({ status: 403, description: 'Forbidden — insufficient rights' })
+  getTeacherValidation(
+    @Param('teacherId', ParseUUIDPipe) teacherId: string,
+    @Request() req,
+  ) {
+    return this.profilesService.getTeacherValidation(teacherId, req.user);
+  }
+
+  @Get(':userId/statistics')
+  @ApiOperation({
+    summary: 'Get pedagogical statistics for a user',
+    description:
+      'Returns consolidated pedagogical statistics. ' +
+      'Phase 1: returns data embedded in the pedagogical profile. ' +
+      'Access rules mirror GET /profiles/:userId.',
+  })
+  @ApiParam({ name: 'userId', description: 'Target user UUID' })
+  @ApiResponse({ status: 200, description: 'Pedagogical statistics snapshot' })
+  @ApiResponse({ status: 403, description: 'Forbidden — insufficient rights' })
+  @ApiResponse({ status: 404, description: 'No pedagogical profile found' })
+  getPedagogicalStatistics(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Request() req,
+  ) {
+    return this.profilesService.getPedagogicalStatistics(userId, req.user);
+  }
+
+  @Get(':userId/visibility-preferences')
+  @ApiOperation({
+    summary: 'Get visibility preferences for an élève',
+    description:
+      'Returns the confidentiality settings for an élève profile (PROF-FN-004). ' +
+      'Accessible to the élève themselves and privileged roles.',
+  })
+  @ApiParam({ name: 'userId', description: 'Élève UUID' })
+  @ApiResponse({ status: 200, description: 'Visibility preferences' })
+  @ApiResponse({ status: 403, description: 'Forbidden — own account or admin only' })
+  getVisibilityPreferences(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Request() req,
+  ) {
+    return this.profilesService.getVisibilityPreferences(userId, req.user);
+  }
+
+  @Patch(':userId/visibility-preferences')
+  @ApiOperation({
+    summary: 'Update visibility preferences for an élève',
+    description:
+      'Sets confidentiality flags for an élève (PROF-FN-004): ' +
+      'whether to hide difficulties/comments from non-priority contacts.',
+  })
+  @ApiParam({ name: 'userId', description: 'Élève UUID' })
+  @ApiResponse({ status: 200, description: 'Updated visibility preferences' })
+  @ApiResponse({ status: 403, description: 'Forbidden — own account or admin only' })
+  updateVisibilityPreferences(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() dto: UpdateVisibilityPreferenceDto,
+    @Request() req,
+  ) {
+    return this.profilesService.updateVisibilityPreferences(userId, dto, req.user);
   }
 }

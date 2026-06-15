@@ -5,7 +5,9 @@ export type ProfileEventType =
   | 'StudentLinkedToFinanceOwner'
   | 'TeacherLinkedToStudent'
   | 'CoordinatorLinkedToStudent'
-  | 'TeacherPromotedToPedagogicalAnimator';
+  | 'TeacherPromotedToPedagogicalAnimator'
+  | 'TeacherValidated'
+  | 'AdminProfileReminderCreated';
 
 export interface DomainEvent {
   type: ProfileEventType;

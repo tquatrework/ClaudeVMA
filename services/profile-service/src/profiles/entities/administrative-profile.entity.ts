@@ -43,6 +43,14 @@ export class AdministrativeProfile {
   @Column({ name: 'avatar_url', nullable: true })
   avatarUrl: string;
 
+  /** Département de résidence (e.g. "75 - Paris") */
+  @Column({ nullable: true })
+  departement: string;
+
+  /** Comma-separated or JSON list of personal interests/hobbies */
+  @Column({ type: 'simple-array', nullable: true })
+  passions: string[];
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

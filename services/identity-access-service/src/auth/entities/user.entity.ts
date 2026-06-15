@@ -57,6 +57,15 @@ export class User {
   @Column({ name: 'consent_signed', default: false })
   consentSigned: boolean;
 
+  @Column({ name: 'first_name', nullable: true, type: 'varchar', length: 100 })
+  firstName: string | null;
+
+  @Column({ name: 'last_name', nullable: true, type: 'varchar', length: 100 })
+  lastName: string | null;
+
+  @Column({ name: 'phone', nullable: true, type: 'varchar', length: 30 })
+  phone: string | null;
+
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 

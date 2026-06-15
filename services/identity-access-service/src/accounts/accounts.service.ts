@@ -194,13 +194,23 @@ export class AccountsService {
    * Retourne la liste de tous les comptes (usage interne uniquement).
    * Filtre optionnel par rôle. N'expose pas les données sensibles.
    */
-  async listAccounts(filterRole?: UserRole): Promise<{ userId: string; role: string; email: string }[]> {
+  async listAccounts(filterRole?: UserRole): Promise<{
+    userId: string;
+    role: string;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+    phone: string | null;
+  }[]> {
     const whereClause = filterRole ? { role: filterRole } : {};
     const userList = await this.userRepo.find({ where: whereClause });
     return userList.map((user) => ({
       userId: user.id,
       role: user.role,
       email: user.email,
+      firstName: user.firstName ?? null,
+      lastName: user.lastName ?? null,
+      phone: user.phone ?? null,
     }));
   }
 

@@ -3,7 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 
 import { TeacherRequestService } from '../../src/teacher-request/teacher-request.service';
-import { TeacherRequest, RequestStatus } from '../../src/teacher-request/entities/teacher-request.entity';
+import { TeacherRequest, RequestStatus, RequestType } from '../../src/teacher-request/entities/teacher-request.entity';
 import { TeacherProposal, ProposalStatus } from '../../src/teacher-request/entities/teacher-proposal.entity';
 import { Assignment, AssignmentStatus } from '../../src/teacher-request/entities/assignment.entity';
 import { TerminationRequest } from '../../src/teacher-request/entities/termination-request.entity';
@@ -383,6 +383,245 @@ describe('TeacherRequestService', () => {
       });
       await expect(service.createTermination('asgn-1', { noticeDate: '2026-09-01' }, teacherUser))
         .rejects.toThrow(BadRequestException);
+    });
+  });
+
+  // ── createPpChangeRequest ──────────────────────────────────────────────────
+
+  describe('createPpChangeRequest', () => {
+    const ppChangeDto = {
+      studentId: 'student-1',
+      currentPpTeacherId: 'teacher-old',
+      subject: 'Mathématiques avancées',
+      message: 'Le professeur actuel ne convient plus',
+    };
+
+    it('parent_financeur can request a PP change', async () => {
+      const result = await service.createPpChangeRequest(ppChangeDto, parentUser);
+      expect(requestRepo.save).toHaveBeenCalled();
+      expect(result).toMatchObject({
+        studentId: 'student-1',
+        requesterId: 'parent-1',
+        type: RequestType.PP_CHANGE,
+        currentPpTeacherId: 'teacher-old',
+      });
+    });
+
+    it('eleve cannot request a PP change (functionality 002)', async () => {
+      await expect(service.createPpChangeRequest(ppChangeDto, studentUser))
+        .rejects.toThrow(ForbiddenException);
+    });
+
+    it('responsable_pedagogique cannot request a PP change', async () => {
+      await expect(service.createPpChangeRequest(ppChangeDto, rpUser))
+        .rejects.toThrow(ForbiddenException);
+    });
+
+    it('formateur cannot request a PP change', async () => {
+      await expect(service.createPpChangeRequest(ppChangeDto, teacherUser))
+        .rejects.toThrow(ForbiddenException);
+    });
+
+    it('emits TeacherRequestCreated event with PP_CHANGE type', async () => {
+      const eventsEmit = jest.spyOn(
+        (service as any).events,
+        'emit',
+      );
+      await service.createPpChangeRequest(ppChangeDto, parentUser);
+      expect(eventsEmit).toHaveBeenCalledWith(
+        'TeacherRequestCreated',
+        expect.objectContaining({ type: RequestType.PP_CHANGE }),
+      );
+    });
+  });
+
+  // ── declineProposal ────────────────────────────────────────────────────────
+
+  describe('declineProposal', () => {
+    beforeEach(() => {
+      proposalRepo.findOne.mockResolvedValue({
+        id: 'prop-1',
+        teacherId: 'teacher-1',
+        requestId: 'req-1',
+        status: ProposalStatus.PENDING,
+      });
+    });
+
+    it('formateur declines their own proposal', async () => {
+      const result = await service.declineProposal('prop-1', teacherUser);
+      expect(result).toMatchObject({ status: ProposalStatus.DECLINED });
+    });
+
+    it("formateur cannot decline another teacher's proposal", async () => {
+      const otherTeacher = { id: 'teacher-2', role: UserRole.FORMATEUR };
+      await expect(service.declineProposal('prop-1', otherTeacher))
+        .rejects.toThrow(ForbiddenException);
+    });
+
+    it('eleve cannot decline a proposal', async () => {
+      await expect(service.declineProposal('prop-1', studentUser))
+        .rejects.toThrow(ForbiddenException);
+    });
+
+    it('responsable_pedagogique cannot decline a proposal', async () => {
+      await expect(service.declineProposal('prop-1', rpUser))
+        .rejects.toThrow(ForbiddenException);
+    });
+
+    it('already-declined proposal throws BadRequestException', async () => {
+      proposalRepo.findOne.mockResolvedValue({
+        id: 'prop-1', teacherId: 'teacher-1', requestId: 'req-1', status: ProposalStatus.DECLINED,
+      });
+      await expect(service.declineProposal('prop-1', teacherUser))
+        .rejects.toThrow(BadRequestException);
+    });
+
+    it('unknown proposalId throws NotFoundException', async () => {
+      proposalRepo.findOne.mockResolvedValue(null);
+      await expect(service.declineProposal('bad-id', teacherUser))
+        .rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ── selectCandidate ────────────────────────────────────────────────────────
+
+  describe('selectCandidate', () => {
+    const selectDto = { proposalId: 'prop-1' };
+
+    beforeEach(() => {
+      requestRepo.findOne.mockResolvedValue({
+        id: 'req-1',
+        studentId: 'student-1',
+        requesterId: 'parent-1',
+        status: RequestStatus.REDIRECTED,
+      });
+      proposalRepo.findOne.mockResolvedValue({
+        id: 'prop-1',
+        requestId: 'req-1',
+        teacherId: 'teacher-1',
+        status: ProposalStatus.ACCEPTED,
+      });
+    });
+
+    it('eleve can select a candidate for their own request', async () => {
+      const result = await service.selectCandidate('req-1', selectDto, studentUser);
+      expect(result).toMatchObject({
+        status: RequestStatus.CANDIDATE_CHOSEN,
+        chosenTeacherId: 'teacher-1',
+      });
+    });
+
+    it('parent_financeur can select a candidate for a request they created', async () => {
+      const result = await service.selectCandidate('req-1', selectDto, parentUser);
+      expect(result).toMatchObject({
+        status: RequestStatus.CANDIDATE_CHOSEN,
+        chosenTeacherId: 'teacher-1',
+      });
+    });
+
+    it('responsable_pedagogique cannot select a candidate', async () => {
+      await expect(service.selectCandidate('req-1', selectDto, rpUser))
+        .rejects.toThrow(ForbiddenException);
+    });
+
+    it('formateur cannot select a candidate', async () => {
+      await expect(service.selectCandidate('req-1', selectDto, teacherUser))
+        .rejects.toThrow(ForbiddenException);
+    });
+
+    it("eleve cannot select on another student's request", async () => {
+      requestRepo.findOne.mockResolvedValue({
+        id: 'req-1',
+        studentId: 'student-99',
+        requesterId: 'parent-1',
+        status: RequestStatus.REDIRECTED,
+      });
+      await expect(service.selectCandidate('req-1', selectDto, studentUser))
+        .rejects.toThrow(ForbiddenException);
+    });
+
+    it('request not in REDIRECTED/CANDIDATES_SELECTED state throws BadRequestException', async () => {
+      requestRepo.findOne.mockResolvedValue({
+        id: 'req-1',
+        studentId: 'student-1',
+        requesterId: 'parent-1',
+        status: RequestStatus.PENDING,
+      });
+      await expect(service.selectCandidate('req-1', selectDto, studentUser))
+        .rejects.toThrow(BadRequestException);
+    });
+
+    it('proposal not accepted by teacher throws BadRequestException', async () => {
+      proposalRepo.findOne.mockResolvedValue({
+        id: 'prop-1',
+        requestId: 'req-1',
+        teacherId: 'teacher-1',
+        status: ProposalStatus.PENDING,
+      });
+      await expect(service.selectCandidate('req-1', selectDto, studentUser))
+        .rejects.toThrow(BadRequestException);
+    });
+
+    it('proposal belonging to another request throws BadRequestException', async () => {
+      proposalRepo.findOne.mockResolvedValue({
+        id: 'prop-1',
+        requestId: 'req-OTHER',
+        teacherId: 'teacher-1',
+        status: ProposalStatus.ACCEPTED,
+      });
+      await expect(service.selectCandidate('req-1', selectDto, studentUser))
+        .rejects.toThrow(BadRequestException);
+    });
+
+    it('unknown requestId throws NotFoundException', async () => {
+      requestRepo.findOne.mockResolvedValue(null);
+      await expect(service.selectCandidate('bad-id', selectDto, studentUser))
+        .rejects.toThrow(NotFoundException);
+    });
+
+    it('emits TeacherCandidateChosen event', async () => {
+      const eventsEmit = jest.spyOn((service as any).events, 'emit');
+      await service.selectCandidate('req-1', selectDto, studentUser);
+      expect(eventsEmit).toHaveBeenCalledWith(
+        'TeacherCandidateChosen',
+        expect.objectContaining({ chosenTeacherId: 'teacher-1', requestId: 'req-1' }),
+      );
+    });
+  });
+
+  // ── createCollaborationStopRequest ─────────────────────────────────────────
+
+  describe('createCollaborationStopRequest', () => {
+    beforeEach(() => {
+      assignmentRepo.findOne.mockResolvedValue({
+        id: 'asgn-1',
+        studentId: 'student-1',
+        teacherId: 'teacher-1',
+        status: AssignmentStatus.ACTIVE,
+      });
+    });
+
+    it('delegates to createTermination — emits TeacherStopRequested event', async () => {
+      const eventsEmit = jest.spyOn((service as any).events, 'emit');
+      await service.createCollaborationStopRequest('asgn-1', { noticeDate: '2026-09-01' }, teacherUser);
+      expect(eventsEmit).toHaveBeenCalledWith(
+        'TeacherStopRequested',
+        expect.objectContaining({ assignmentId: 'asgn-1', teacherId: 'teacher-1' }),
+      );
+    });
+
+    it('formateur can stop a collaboration they own', async () => {
+      await service.createCollaborationStopRequest('asgn-1', { noticeDate: '2026-09-01' }, teacherUser);
+      expect(terminationRepo.save).toHaveBeenCalled();
+      expect(assignmentRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: AssignmentStatus.TERMINATION_REQUESTED }),
+      );
+    });
+
+    it('eleve cannot stop a collaboration', async () => {
+      await expect(
+        service.createCollaborationStopRequest('asgn-1', { noticeDate: '2026-09-01' }, studentUser),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });

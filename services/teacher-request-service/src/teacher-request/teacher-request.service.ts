@@ -7,13 +7,15 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { TeacherRequest, RequestStatus } from './entities/teacher-request.entity';
+import { TeacherRequest, RequestStatus, RequestType } from './entities/teacher-request.entity';
 import { TeacherProposal, ProposalStatus } from './entities/teacher-proposal.entity';
 import { Assignment, AssignmentStatus } from './entities/assignment.entity';
 import { TerminationRequest } from './entities/termination-request.entity';
 import { CreateRequestDto } from './dto/create-request.dto';
+import { CreatePpChangeDto } from './dto/create-pp-change.dto';
 import { CreateProposalDto } from './dto/create-proposal.dto';
 import { CreateTerminationDto } from './dto/create-termination.dto';
+import { SelectCandidateDto } from './dto/select-candidate.dto';
 import { EventsService } from './events.service';
 import { JwtPayload } from '../common/jwt.guard';
 import { UserRole } from '../common/user-role.enum';
@@ -46,10 +48,36 @@ export class TeacherRequestService {
       level: dto.level,
       sector: dto.sector,
       message: dto.message,
+      type: RequestType.SPECIFIC,
       status: RequestStatus.PENDING,
     });
     const saved = await this.requestRepo.save(request);
     this.events.emit('TeacherRequestCreated', { requestId: saved.id, studentId, requesterId: user.id });
+    return saved;
+  }
+
+  async createPpChangeRequest(dto: CreatePpChangeDto, user: JwtPayload): Promise<TeacherRequest> {
+    // Only PARENT_FINANCEUR can request a PP change (CDC functionality 002)
+    if (user.role !== UserRole.PARENT_FINANCEUR) {
+      throw new ForbiddenException('Only parent_financeur can request a principal teacher change');
+    }
+    const request = this.requestRepo.create({
+      requesterId: user.id,
+      requesterRole: user.role,
+      studentId: dto.studentId,
+      currentPpTeacherId: dto.currentPpTeacherId,
+      subject: dto.subject,
+      message: dto.message,
+      type: RequestType.PP_CHANGE,
+      status: RequestStatus.PENDING,
+    });
+    const saved = await this.requestRepo.save(request);
+    this.events.emit('TeacherRequestCreated', {
+      requestId: saved.id,
+      studentId: dto.studentId,
+      requesterId: user.id,
+      type: RequestType.PP_CHANGE,
+    });
     return saved;
   }
 
@@ -185,6 +213,81 @@ export class TeacherRequestService {
     return updated;
   }
 
+  async declineProposal(proposalId: string, user: JwtPayload): Promise<TeacherProposal> {
+    if (user.role !== UserRole.FORMATEUR) {
+      throw new ForbiddenException('Only formateurs can decline proposals');
+    }
+    const proposal = await this.proposalRepo.findOne({ where: { id: proposalId } });
+    if (!proposal) throw new NotFoundException(`Proposal ${proposalId} not found`);
+    if (proposal.teacherId !== user.id) {
+      throw new ForbiddenException('This proposal was not sent to you');
+    }
+    if (proposal.status !== ProposalStatus.PENDING) {
+      throw new BadRequestException('Proposal is no longer pending');
+    }
+    const updated = await this.proposalRepo.save({ ...proposal, status: ProposalStatus.DECLINED });
+    this.events.emit('TeacherProposalDeclined', { proposalId, teacherId: user.id, requestId: proposal.requestId });
+    return updated;
+  }
+
+  async selectCandidate(requestId: string, dto: SelectCandidateDto, user: JwtPayload): Promise<TeacherRequest> {
+    // Functionality 005: ELEVE and PARENT_FINANCEUR can choose the final candidate
+    const allowedRoles = [UserRole.ELEVE, UserRole.PARENT_FINANCEUR];
+    if (!allowedRoles.includes(user.role as UserRole)) {
+      throw new ForbiddenException('Only eleve or parent_financeur can select the final candidate');
+    }
+    const teacherRequest = await this.requestRepo.findOne({ where: { id: requestId } });
+    if (!teacherRequest) throw new NotFoundException(`Request ${requestId} not found`);
+
+    // Access control: eleve can only select on their own request; parent on requests they created
+    if (user.role === UserRole.ELEVE && teacherRequest.studentId !== user.id) {
+      throw new ForbiddenException('Access denied');
+    }
+    if (user.role === UserRole.PARENT_FINANCEUR && teacherRequest.requesterId !== user.id) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    // Request must have redirected candidates available
+    if (![RequestStatus.REDIRECTED, RequestStatus.CANDIDATES_SELECTED].includes(teacherRequest.status)) {
+      throw new BadRequestException('Request must be in REDIRECTED or CANDIDATES_SELECTED state to select a candidate');
+    }
+
+    // Verify the chosen proposal exists, belongs to this request, and was accepted by the teacher
+    const chosenProposal = await this.proposalRepo.findOne({ where: { id: dto.proposalId } });
+    if (!chosenProposal) throw new NotFoundException(`Proposal ${dto.proposalId} not found`);
+    if (chosenProposal.requestId !== requestId) {
+      throw new BadRequestException('Proposal does not belong to this request');
+    }
+    if (chosenProposal.status !== ProposalStatus.ACCEPTED) {
+      throw new BadRequestException('Only an accepted proposal can be chosen as final candidate');
+    }
+
+    await this.proposalRepo.save({ ...chosenProposal, status: ProposalStatus.CHOSEN });
+    const updatedRequest = await this.requestRepo.save({
+      ...teacherRequest,
+      status: RequestStatus.CANDIDATE_CHOSEN,
+      chosenTeacherId: chosenProposal.teacherId,
+    });
+
+    this.events.emit('TeacherCandidateChosen', {
+      requestId,
+      proposalId: dto.proposalId,
+      chosenTeacherId: chosenProposal.teacherId,
+      selectedBy: user.id,
+    });
+    return updatedRequest;
+  }
+
+  async createCollaborationStopRequest(
+    assignmentId: string,
+    dto: CreateTerminationDto,
+    user: JwtPayload,
+  ): Promise<TerminationRequest> {
+    // Route alias for the XML spec: POST /collaborations/:id/stop-request
+    // Delegates to the same business logic as createTermination
+    return this.createTermination(assignmentId, dto, user);
+  }
+
   async createTermination(assignmentId: string, dto: CreateTerminationDto, user: JwtPayload): Promise<TerminationRequest> {
     if (user.role !== UserRole.FORMATEUR) {
       throw new ForbiddenException('Only formateurs can request termination');
@@ -207,7 +310,7 @@ export class TeacherRequestService {
     });
     const saved = await this.terminationRepo.save(termination);
     await this.assignmentRepo.save({ ...assignment, status: AssignmentStatus.TERMINATION_REQUESTED });
-    this.events.emit('TeacherRelationTerminationRequested', {
+    this.events.emit('TeacherStopRequested', {
       terminationId: saved.id,
       assignmentId,
       teacherId: user.id,

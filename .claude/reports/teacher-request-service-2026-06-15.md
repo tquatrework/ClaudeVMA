@@ -2,73 +2,105 @@
 
 ## Statut global : ✅ Complété
 
-## Objectif de la session
-Compléter le teacher-request-service pour atteindre l'état cible décrit dans `docs/services/teacher-request-service.md`, en implémentant uniquement ce qui manquait.
+## Ce que le delta demandait
 
-## État avant intervention
+Le delta (`teacher-request-service-delta.md`) identifiait trois ajouts majeurs par rapport à l'ancienne version :
 
-Le service était fonctionnel mais présentait deux problèmes bloquants :
+1. **Changement de PP réservé au financeur** — `POST /requests/pp-change`
+2. **Workflow complet des candidats** — statuts, refus formateur, choix client final
+3. **Arrêt de collaboration formateur avec préavis** — alias `/collaborations/:id/stop-request` manquant
 
-1. **Aucun test trouvé** : Le fichier spec (`teacher-request.service.spec.ts`) était dans `src/teacher-request/` mais la configuration Jest ne cherchait que dans `test/unit/**/*.spec.ts`. Résultat : `npm test` retournait code 1 avec "No tests found".
+Fonctionnalités 005 (statuts complets) et refus formateur étaient entièrement absentes.
 
-2. **Incohérence RP/createRequest** : Le test e2e `TR-BR-002` attendait que le RP puisse créer une demande (201), ce que le service autorisait déjà dans la logique mais un test unitaire incorrect affirmait le contraire ("responsable_pedagogique cannot create a teacher request").
+## Ce qui manquait exactement (avant cette session)
 
-3. **Validation manquante** : Le champ `subject` dans `CreateRequestDto` n'avait que `@IsString()` mais pas `@IsNotEmpty()`, ce qui ne retournait pas de 400 sur body vide (attendu par `TR-BR-016`).
-
-## Modifications apportées
-
-### `src/teacher-request/dto/create-request.dto.ts`
-- Ajout de `@IsNotEmpty()` sur le champ `subject` pour forcer le retour 400 sur body vide
-- Ajout de l'import `IsNotEmpty`
-- Mise à jour du commentaire de `studentId` pour mentionner le RP
-
-### `src/teacher-request/teacher-request.service.ts`
-- Correction d'un commentaire pour refléter que le RP est bien autorisé à créer des demandes (logique inchangée, déjà correcte)
-
-### `test/unit/teacher-request.service.spec.ts` (nouveau fichier)
-- Déplacé depuis `src/teacher-request/teacher-request.service.spec.ts`
-- Chemins d'import mis à jour (imports relatifs depuis `test/unit/`)
-- Variables de test renommées de noms courts (`student`, `parent`, `rp`, `teacher`) vers des noms descriptifs (`studentUser`, `parentUser`, `rpUser`, `teacherUser`, `adminFinUser`)
-- Ajout de `remove: jest.fn()` dans `makeRepo()` (nécessaire pour `deleteRequest`)
-- Correction du test RP : "cannot create" → "can create on behalf of a student" (aligné sur spec et e2e)
-- Ajout de tests manquants : `getRequest`, `updateRequestStatus`, `deleteRequest` (couverture des cas nominaux + erreurs)
-- Total : 44 tests unitaires
-
-### Suppression
-- `src/teacher-request/teacher-request.service.spec.ts` supprimé (mauvais emplacement)
+| Élément | État avant | Action effectuée |
+|---|---|---|
+| `POST /requests/pp-change` | Absent | Ajouté |
+| `RequestType` enum (SPECIFIC / PP_CHANGE) | Absent | Ajouté dans `teacher-request.entity.ts` |
+| Champs `type`, `currentPpTeacherId`, `chosenTeacherId` sur `TeacherRequest` | Absents | Ajoutés |
+| `RequestStatus.CANDIDATES_SELECTED` | Absent | Ajouté |
+| `RequestStatus.CANDIDATE_CHOSEN` | Absent | Ajouté |
+| `RequestStatus.CLOSED` | Absent | Ajouté |
+| `ProposalStatus.CHOSEN` | Absent | Ajouté |
+| `POST /proposals/:id/decline` (refus formateur) | Absent | Ajouté |
+| `POST /requests/:id/select` (choix candidat final) | Absent | Ajouté |
+| `POST /collaborations/:id/stop-request` (alias XML) | Absent | Ajouté |
+| Événement `TeacherCandidateChosen` | Absent | Émis par `selectCandidate` |
+| Événement `TeacherStopRequested` | Émis comme `TeacherRelationTerminationRequested` | Renommé |
+| `CreatePpChangeDto` | Absent | Créé |
+| `SelectCandidateDto` | Absent | Créé |
+| `CollaborationController` | Absent | Créé et enregistré dans le module |
 
 ## Routes disponibles après implémentation
 
-| Méthode | Chemin | Description | Auth |
-|---|---|---|---|
-| POST | /requests | Créer une demande | 🔒 |
-| GET | /requests | Lister les demandes (filtrées par rôle) | 🔒 |
-| GET | /requests/:id | Détail d'une demande | 🔒 |
-| PATCH | /requests/:id/status | Changer le statut (RP uniquement) | 🔒 |
-| DELETE | /requests/:id | Supprimer une demande (RP uniquement) | 🔒 |
-| POST | /requests/:requestId/proposals | Rediriger vers un formateur (RP uniquement) | 🔒 |
-| POST | /proposals/:proposalId/accept | Accepter une proposition (formateur uniquement) | 🔒 |
-| POST | /assignments/:assignmentId/main-teacher | Désigner le PP (RP ou élève) | 🔒 |
-| POST | /assignments/:assignmentId/termination | Demander un arrêt de collaboration (formateur) | 🔒 |
-| GET | /health | Health check | Non |
+### `/requests` (TeacherRequestController)
+- `POST /requests` — créer une demande spécifique (ELEVE, PARENT_FINANCEUR, RP)
+- `POST /requests/pp-change` — demander un changement de PP (PARENT_FINANCEUR uniquement)
+- `GET /requests` — lister les demandes (scope selon rôle)
+- `GET /requests/:id` — détail d'une demande
+- `POST /requests/:id/select` — choisir le candidat final (ELEVE ou PARENT_FINANCEUR)
+- `PATCH /requests/:id/status` — mettre à jour le statut (RP uniquement)
+- `DELETE /requests/:id` — supprimer une demande (RP uniquement)
+- `POST /requests/:requestId/proposals` — rediriger vers un formateur (RP uniquement)
+
+### `/proposals` (ProposalController)
+- `POST /proposals/:proposalId/accept` — accepter une proposition (FORMATEUR uniquement)
+- `POST /proposals/:proposalId/decline` — refuser une proposition (FORMATEUR uniquement)
+
+### `/assignments` (AssignmentController)
+- `POST /assignments/:assignmentId/main-teacher` — désigner le PP (RP ou ELEVE)
+- `POST /assignments/:assignmentId/termination` — demander l'arrêt (FORMATEUR uniquement)
+
+### `/collaborations` (CollaborationController — alias XML)
+- `POST /collaborations/:assignmentId/stop-request` — alias de `/assignments/:id/termination`
+
+### `/health`
+- `GET /health` — healthcheck
+
+## Événements publiés
+
+| Événement | Déclenché par |
+|---|---|
+| `TeacherRequestCreated` | `createRequest`, `createPpChangeRequest` |
+| `TeacherProposalSent` | `createProposal` |
+| `TeacherProposalDeclined` | `declineProposal` |
+| `TeacherAssigned` | `acceptProposal` |
+| `MainTeacherAssigned` | `setMainTeacher` |
+| `TeacherCandidateChosen` | `selectCandidate` |
+| `TeacherStopRequested` | `createTermination` / `createCollaborationStopRequest` |
+| `TeacherRequestStatusUpdated` | `updateRequestStatus` |
+| `TeacherRequestDeleted` | `deleteRequest` |
 
 ## Résultats des tests
 
 ```
+Tests: 68 passed, 68 total (était 44 avant cette session)
 Test Suites: 1 passed, 1 total
-Tests:       44 passed, 44 total
-Time:        2.183 s
+Time: 4.223 s
 ```
 
-## Écarts restants avec les specs
+24 nouveaux tests ajoutés couvrant :
+- `createPpChangeRequest` : 5 cas (nominal + rôles interdits + événement)
+- `declineProposal` : 6 cas (nominal + rôles interdits + état invalide + 404)
+- `selectCandidate` : 10 cas (nominal × 2 rôles + rôles interdits + états invalides + 404 + événement)
+- `createCollaborationStopRequest` : 3 cas (délégation, nominal, rôle interdit)
 
-Les routes de la spec XML (`/teacher-requests`, `/teacher-collaborations`) diffèrent des routes implémentées (`/requests`, `/proposals`, `/assignments`). Ce choix d'implémentation est cohérent avec `docs/routes.md` qui définit `/requests` comme chemin canonique.
+TypeScript : `tsc --noEmit` sans erreur.
 
-La recherche formateur par points pédagogiques/niveau/disponibilités (fonctionnalité 006) n'est pas implémentée — elle dépend de profile-service et calendar-service et relève de la phase 2 selon l'architecture.
+## Écarts restants avec les XML
 
-## Fichiers modifiés
+- **Fonctionnalité 006 — Recherche formateur RP** : pas de route de recherche (`GET /teachers/search?points=...&level=...&sector=...`). Cette fonctionnalité nécessite une dépendance sur `profile-service` et `calendar-service` (disponibilités) ; elle est laissée pour une session dédiée.
+- **`TeacherCandidatesSelected`** : événement prévu par le XML mais aucune route RP ne marque explicitement l'état "candidats sélectionnés" en bloc. Le statut `CANDIDATES_SELECTED` est disponible dans l'enum — à connecter si le RP veut valider un sous-ensemble avant soumission au client.
+- **Notification email financeur** (critère d'acceptation 1) : l'événement `TeacherRequestCreated` est émis ; la notification email dépend de `communication-service` et est déléguée à l'orchestrateur.
 
-- `services/teacher-request-service/src/teacher-request/dto/create-request.dto.ts`
-- `services/teacher-request-service/src/teacher-request/teacher-request.service.ts` (commentaire)
-- `services/teacher-request-service/test/unit/teacher-request.service.spec.ts` (créé)
-- `services/teacher-request-service/src/teacher-request/teacher-request.service.spec.ts` (supprimé)
+## Fichiers modifiés ou créés
+
+- `src/teacher-request/entities/teacher-request.entity.ts` — ajout `RequestType`, statuts, champs `type`/`currentPpTeacherId`/`chosenTeacherId`
+- `src/teacher-request/entities/teacher-proposal.entity.ts` — ajout `ProposalStatus.CHOSEN`
+- `src/teacher-request/dto/create-pp-change.dto.ts` — nouveau
+- `src/teacher-request/dto/select-candidate.dto.ts` — nouveau
+- `src/teacher-request/teacher-request.service.ts` — ajout `createPpChangeRequest`, `declineProposal`, `selectCandidate`, `createCollaborationStopRequest`; renommage événement `TeacherStopRequested`
+- `src/teacher-request/teacher-request.controller.ts` — ajout routes `pp-change`, `select`, `decline`, `CollaborationController`
+- `src/teacher-request/teacher-request.module.ts` — enregistrement `CollaborationController`
+- `test/unit/teacher-request.service.spec.ts` — 24 nouveaux tests

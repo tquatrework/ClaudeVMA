@@ -9,7 +9,8 @@
     "start:prod": "node dist/src/main",
     "test": "jest",
     "test:e2e": "jest --testMatch \"<rootDir>/test/e2e/**/*.e2e-spec.ts\"",
-    "test:cov": "jest --coverage"
+    "test:cov": "jest --coverage",
+    "backfill:profiles": "ts-node --transpile-only scripts/backfill-profiles.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",

@@ -1,10 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConflictException } from '@nestjs/common';
-import { ConsentsService } from './consents.service';
-import { ConsentRecord, ConsentType } from './entities/consent-record.entity';
-import { User, UserRole, ValidationStatus } from '../auth/entities/user.entity';
-import { EventsService } from '../events/events.service';
+import { ConsentsService } from '../../src/consents/consents.service';
+import { ConsentRecord, ConsentType } from '../../src/consents/entities/consent-record.entity';
+import { User, UserRole, ValidationStatus } from '../../src/auth/entities/user.entity';
+import { EventsService } from '../../src/events/events.service';
 
 const mockUser: User = {
   id: 'user-uuid',

@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Put,
+  Patch,
   Param,
   Body,
   UseGuards,
@@ -21,6 +22,10 @@ import { AuthGuard } from '@nestjs/passport';
 import { AccountsService } from './accounts.service';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateRolesDto } from './dto/update-roles.dto';
+import { CreateStudentAccountDto } from './dto/create-student-account.dto';
+import { CreateTeacherAccountDto } from './dto/create-teacher-account.dto';
+import { UpdateAccountStatusDto } from './dto/update-account-status.dto';
+import { UpdateMeDto } from './dto/update-me.dto';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { UserRole } from '../auth/entities/user.entity';
@@ -40,6 +45,49 @@ export class AccountsController {
   @ApiResponse({ status: 403, description: 'Attempt to self-register with an internal role' })
   createAccount(@Body() dto: CreateAccountDto, @Ip() ipAddress: string) {
     return this.accountsService.createAccount(dto, ipAddress);
+  }
+
+  @Post('students')
+  @ApiOperation({
+    summary: 'Create student account',
+    description:
+      'Self-register as an eleve. Optionally create a linked parent financeur account in the same call. ' +
+      'Account starts in PENDING status. RGPD acceptance must follow via /consents.',
+  })
+  @ApiResponse({ status: 201, description: 'Student account created — status PENDING' })
+  @ApiResponse({ status: 409, description: 'Email already in use' })
+  createStudentAccount(@Body() dto: CreateStudentAccountDto, @Ip() ipAddress: string) {
+    return this.accountsService.createStudentAccount(dto, ipAddress);
+  }
+
+  @Post('teachers')
+  @ApiOperation({
+    summary: 'Create teacher account',
+    description:
+      'Self-register as a formateur. Account is created in NON_APPROVED status until the RP validates ' +
+      'after interview/test, contract signing and financial information submission.',
+  })
+  @ApiResponse({ status: 201, description: 'Teacher account created — status PENDING (non_approved)' })
+  @ApiResponse({ status: 409, description: 'Email already in use' })
+  createTeacherAccount(@Body() dto: CreateTeacherAccountDto, @Ip() ipAddress: string) {
+    return this.accountsService.createTeacherAccount(dto, ipAddress);
+  }
+
+  @Patch('me')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({
+    summary: 'Update own account',
+    description:
+      'Update the authenticated user\'s own account. Only email and password can be changed. ' +
+      'Role and status modifications are handled by dedicated admin routes.',
+  })
+  @ApiResponse({ status: 200, description: 'Account updated successfully' })
+  @ApiResponse({ status: 400, description: 'Validation error — invalid email or password too short' })
+  @ApiResponse({ status: 401, description: 'Unauthorized — JWT required' })
+  @ApiResponse({ status: 409, description: 'Email already in use' })
+  updateMe(@Body() dto: UpdateMeDto, @Request() req) {
+    return this.accountsService.updateMe(req.user.id, dto);
   }
 
   @Get(':accountId')
@@ -105,6 +153,49 @@ export class AccountsController {
     @Request() req,
   ) {
     return this.accountsService.suspendAccount(accountId, req.user);
+  }
+
+  @Patch(':accountId/status')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE)
+  @ApiOperation({
+    summary: 'Update account status',
+    description:
+      'Change the business status of an account: limited, member, non_approved, validated or suspended. ' +
+      'Only TI can set suspended. Only RP or TI can change status. Every change is audit-logged.',
+  })
+  @ApiParam({ name: 'accountId', description: 'Account UUID' })
+  @ApiResponse({ status: 200, description: 'Status updated — change is audited' })
+  @ApiResponse({ status: 403, description: 'Insufficient role or consent not signed' })
+  @ApiResponse({ status: 404, description: 'Account not found' })
+  updateAccountStatus(
+    @Param('accountId', ParseUUIDPipe) accountId: string,
+    @Body() dto: UpdateAccountStatusDto,
+    @Request() req,
+  ) {
+    return this.accountsService.updateAccountStatus(accountId, dto, req.user);
+  }
+
+  @Post(':accountId/access/regenerate')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(UserRole.TECHNICIEN_INFORMATIQUE)
+  @ApiOperation({
+    summary: 'Regenerate account access (TI only)',
+    description:
+      'Reactivate a suspended or blocked account and revoke all existing sessions. ' +
+      'Does NOT delete any business data. TI only. Every action is audit-logged.',
+  })
+  @ApiParam({ name: 'accountId', description: 'Account UUID' })
+  @ApiResponse({ status: 201, description: 'Access regenerated — all prior sessions revoked' })
+  @ApiResponse({ status: 403, description: 'TI role required' })
+  @ApiResponse({ status: 404, description: 'Account not found' })
+  regenerateAccess(
+    @Param('accountId', ParseUUIDPipe) accountId: string,
+    @Request() req,
+  ) {
+    return this.accountsService.regenerateAccess(accountId, req.user);
   }
 
   @Get(':accountId/audit')

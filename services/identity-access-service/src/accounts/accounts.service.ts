@@ -17,6 +17,10 @@ import {
 import { AuditLog } from './entities/audit-log.entity';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateRolesDto } from './dto/update-roles.dto';
+import { CreateStudentAccountDto } from './dto/create-student-account.dto';
+import { CreateTeacherAccountDto } from './dto/create-teacher-account.dto';
+import { UpdateAccountStatusDto, AccountStatusValue } from './dto/update-account-status.dto';
+import { UpdateMeDto } from './dto/update-me.dto';
 import { EventsService } from '../events/events.service';
 
 @Injectable()
@@ -60,6 +64,28 @@ export class AccountsService {
   async getAccount(accountId: string) {
     const user = await this.findOrFail(accountId);
     return this.toPublic(user);
+  }
+
+  /**
+   * PATCH /accounts/me — update the authenticated user's own account.
+   * Only email and password can be changed via this route.
+   * Role and status modifications are handled by dedicated admin routes.
+   */
+  async updateMe(currentUserId: string, dto: UpdateMeDto) {
+    const account = await this.findOrFail(currentUserId);
+
+    if (dto.email !== undefined && dto.email !== account.email) {
+      const emailAlreadyTaken = await this.userRepo.findOne({ where: { email: dto.email } });
+      if (emailAlreadyTaken) throw new ConflictException('Email already in use');
+      account.email = dto.email;
+    }
+
+    if (dto.password !== undefined) {
+      account.passwordHash = await bcrypt.hash(dto.password, 12);
+    }
+
+    const updatedAccount = await this.userRepo.save(account);
+    return this.toPublic(updatedAccount);
   }
 
   async updateRoles(accountId: string, dto: UpdateRolesDto, actor: User) {
@@ -162,6 +188,187 @@ export class AccountsService {
       where: { targetUserId: accountId },
       order: { createdAt: 'DESC' },
     });
+  }
+
+  /**
+   * Creates a student account (eleve role).
+   * Optionally creates a linked parent financeur account in the same transaction.
+   */
+  async createStudentAccount(dto: CreateStudentAccountDto, ipAddress?: string) {
+    const existingStudent = await this.userRepo.findOne({ where: { email: dto.email } });
+    if (existingStudent) throw new ConflictException('Email already in use');
+
+    const studentPasswordHash = await bcrypt.hash(dto.password, 12);
+    const student = this.userRepo.create({
+      email: dto.email,
+      passwordHash: studentPasswordHash,
+      role: UserRole.ELEVE,
+      validationStatus: ValidationStatus.PENDING,
+      consentSigned: false,
+    });
+    const savedStudent = await this.userRepo.save(student);
+
+    this.eventsService.publish('AccountCreated', {
+      userId: savedStudent.id,
+      email: savedStudent.email,
+      role: savedStudent.role,
+      ipAddress,
+    });
+
+    let savedParent: User | null = null;
+
+    if (dto.parentEmail) {
+      const existingParent = await this.userRepo.findOne({ where: { email: dto.parentEmail } });
+      if (existingParent) throw new ConflictException('Parent email already in use');
+
+      const parentPasswordHash = await bcrypt.hash(dto.parentPassword ?? dto.password, 12);
+      const parent = this.userRepo.create({
+        email: dto.parentEmail,
+        passwordHash: parentPasswordHash,
+        role: UserRole.PARENT_FINANCEUR,
+        validationStatus: ValidationStatus.PENDING,
+        consentSigned: false,
+      });
+      savedParent = await this.userRepo.save(parent);
+
+      this.eventsService.publish('AccountCreated', {
+        userId: savedParent.id,
+        email: savedParent.email,
+        role: savedParent.role,
+        ipAddress,
+      });
+    }
+
+    return {
+      student: this.toPublic(savedStudent),
+      parent: savedParent ? this.toPublic(savedParent) : null,
+    };
+  }
+
+  /**
+   * Creates a teacher account (formateur role) in NON_APPROVED status.
+   * The teacher remains non_approved until RP validates after interview/test, contract and financial info.
+   */
+  async createTeacherAccount(dto: CreateTeacherAccountDto, ipAddress?: string) {
+    const existing = await this.userRepo.findOne({ where: { email: dto.email } });
+    if (existing) throw new ConflictException('Email already in use');
+
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+    const teacher = this.userRepo.create({
+      email: dto.email,
+      passwordHash,
+      role: UserRole.FORMATEUR,
+      validationStatus: ValidationStatus.PENDING,
+      consentSigned: false,
+    });
+    const savedTeacher = await this.userRepo.save(teacher);
+
+    this.eventsService.publish('AccountCreated', {
+      userId: savedTeacher.id,
+      email: savedTeacher.email,
+      role: savedTeacher.role,
+      ipAddress,
+      cvReference: dto.cvReference,
+    });
+
+    return this.toPublic(savedTeacher);
+  }
+
+  /**
+   * PATCH /accounts/{id}/status — unified status endpoint.
+   * Maps the business statuses (limited, member, non_approved, validated, suspended) to internal states.
+   * - limited / non_approved → PENDING + isActive = true
+   * - member / validated     → ACTIVE  + isActive = true
+   * - suspended              → SUSPENDED + isActive = false (TI only)
+   */
+  async updateAccountStatus(accountId: string, dto: UpdateAccountStatusDto, actor: User) {
+    const isTI = actor.role === UserRole.TECHNICIEN_INFORMATIQUE;
+    const isRP = actor.role === UserRole.RESPONSABLE_PEDAGOGIQUE;
+
+    if (!isTI && !isRP) {
+      throw new ForbiddenException('Only TI or RP can change account status');
+    }
+
+    if (dto.status === AccountStatusValue.SUSPENDED && !isTI) {
+      throw new ForbiddenException('Only TI can suspend accounts');
+    }
+
+    const targetAccount = await this.findOrFail(accountId);
+    const previousValidationStatus = targetAccount.validationStatus;
+
+    switch (dto.status) {
+      case AccountStatusValue.LIMITED:
+      case AccountStatusValue.NON_APPROVED:
+        targetAccount.validationStatus = ValidationStatus.PENDING;
+        targetAccount.isActive = true;
+        break;
+      case AccountStatusValue.MEMBER:
+      case AccountStatusValue.VALIDATED:
+        if (!targetAccount.consentSigned && dto.status === AccountStatusValue.VALIDATED) {
+          throw new ForbiddenException('Account cannot be validated before mandatory consents are signed (IAM-FB-003)');
+        }
+        targetAccount.validationStatus = ValidationStatus.ACTIVE;
+        targetAccount.isActive = true;
+        break;
+      case AccountStatusValue.SUSPENDED:
+        targetAccount.validationStatus = ValidationStatus.SUSPENDED;
+        targetAccount.isActive = false;
+        break;
+    }
+
+    await this.userRepo.save(targetAccount);
+
+    await this.auditRepo.save(
+      this.auditRepo.create({
+        targetUserId: targetAccount.id,
+        actorId: actor.id,
+        action: 'STATUS_CHANGED',
+        oldValue: { validationStatus: previousValidationStatus },
+        newValue: { validationStatus: targetAccount.validationStatus, requestedStatus: dto.status },
+      }),
+    );
+
+    if (dto.status === AccountStatusValue.SUSPENDED) {
+      this.eventsService.publish('AccountSuspended', { userId: targetAccount.id, actorId: actor.id });
+    } else if (dto.status === AccountStatusValue.VALIDATED || dto.status === AccountStatusValue.MEMBER) {
+      this.eventsService.publish('AccountValidated', { userId: targetAccount.id, actorId: actor.id });
+    }
+
+    return this.toPublic(targetAccount);
+  }
+
+  /**
+   * POST /accounts/{id}/access/regenerate — TI only.
+   * Reactivates account and revokes all prior sessions.
+   * Does NOT delete any business data.
+   */
+  async regenerateAccess(accountId: string, actor: User) {
+    if (actor.role !== UserRole.TECHNICIEN_INFORMATIQUE) {
+      throw new ForbiddenException('Only TI can regenerate account access');
+    }
+
+    const targetAccount = await this.findOrFail(accountId);
+    targetAccount.isActive = true;
+
+    if (targetAccount.validationStatus === ValidationStatus.SUSPENDED) {
+      targetAccount.validationStatus = ValidationStatus.ACTIVE;
+    }
+
+    await this.userRepo.save(targetAccount);
+
+    await this.auditRepo.save(
+      this.auditRepo.create({
+        targetUserId: targetAccount.id,
+        actorId: actor.id,
+        action: 'ACCESS_REGENERATED',
+        oldValue: { isActive: false },
+        newValue: { isActive: true },
+      }),
+    );
+
+    this.eventsService.publish('AccessRegenerated', { userId: targetAccount.id, actorId: actor.id });
+
+    return { message: `Access regenerated for account ${accountId}. All existing sessions should be revoked by the client.` };
   }
 
   private async findOrFail(id: string): Promise<User> {

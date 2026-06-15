@@ -1,13 +1,29 @@
-import { Controller, Post, Body, Get, UseGuards, Request, Ip, Headers } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Controller, Post, Body, Get, Param, UseGuards, Request, Ip, Headers, ParseUUIDPipe } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { UserRole } from './entities/user.entity';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { PasswordResetRequestDto } from './dto/password-reset-request.dto';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  @Post('password-reset/request')
+  @ApiOperation({
+    summary: 'Request password reset',
+    description:
+      'Initiate a password reset flow. Always returns success to prevent email enumeration. ' +
+      'A reset link is sent to the registered email address if it exists.',
+  })
+  @ApiResponse({ status: 201, description: 'Reset request accepted — email will be sent if address is known' })
+  requestPasswordReset(@Body() dto: PasswordResetRequestDto, @Ip() ipAddress: string) {
+    return this.authService.requestPasswordReset(dto.email, ipAddress);
+  }
 
   @Post('login')
   @ApiOperation({ summary: 'Login', description: 'Authenticate and receive JWT access + refresh tokens' })
@@ -57,3 +73,6 @@ export class AuthController {
     };
   }
 }
+
+// Note: POST /accounts/{id}/access/regenerate is on AccountsController
+// to keep account lifecycle management colocated.

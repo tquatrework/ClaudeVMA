@@ -5,7 +5,10 @@ export type DomainEventType =
   | 'RoleChanged'
   | 'ConsentSigned'
   | 'AccountValidated'
-  | 'AccountSuspended';
+  | 'AccountSuspended'
+  | 'PasswordResetRequested'
+  | 'AccessRegenerated'
+  | 'DelegatedAccessGranted';
 
 export interface DomainEvent {
   type: DomainEventType;

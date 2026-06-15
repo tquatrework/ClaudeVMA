@@ -8,10 +8,12 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { User } from './entities/user.entity';
 import { LoginSession } from './entities/login-session.entity';
+import { PasswordResetToken } from './entities/password-reset-token.entity';
+import { EventsModule } from '../events/events.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, LoginSession]),
+    TypeOrmModule.forFeature([User, LoginSession, PasswordResetToken]),
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -21,6 +23,7 @@ import { LoginSession } from './entities/login-session.entity';
       }),
       inject: [ConfigService],
     }),
+    EventsModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],

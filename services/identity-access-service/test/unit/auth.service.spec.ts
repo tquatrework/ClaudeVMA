@@ -3,9 +3,11 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { UnauthorizedException } from '@nestjs/common';
-import { AuthService } from './auth.service';
-import { User, UserRole, ValidationStatus } from './entities/user.entity';
-import { LoginSession } from './entities/login-session.entity';
+import { AuthService } from '../../src/auth/auth.service';
+import { User, UserRole, ValidationStatus } from '../../src/auth/entities/user.entity';
+import { LoginSession } from '../../src/auth/entities/login-session.entity';
+import { PasswordResetToken } from '../../src/auth/entities/password-reset-token.entity';
+import { EventsService } from '../../src/events/events.service';
 import * as bcrypt from 'bcryptjs';
 
 const mockUser: User = {
@@ -24,6 +26,7 @@ describe('AuthService', () => {
   let service: AuthService;
   let userRepo: any;
   let sessionRepo: any;
+  let resetTokenRepo: any;
   let jwtService: JwtService;
 
   beforeEach(async () => {
@@ -37,6 +40,7 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(userWithHash),
       }),
       findOne: jest.fn().mockResolvedValue(mockUser),
+      save: jest.fn().mockResolvedValue(mockUser),
       update: jest.fn().mockResolvedValue(undefined),
     };
 
@@ -52,11 +56,17 @@ describe('AuthService', () => {
       update: jest.fn().mockResolvedValue(undefined),
     };
 
+    resetTokenRepo = {
+      create: jest.fn().mockImplementation((entity) => entity),
+      save: jest.fn().mockResolvedValue({ id: 'token-uuid' }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
         { provide: getRepositoryToken(User), useValue: userRepo },
         { provide: getRepositoryToken(LoginSession), useValue: sessionRepo },
+        { provide: getRepositoryToken(PasswordResetToken), useValue: resetTokenRepo },
         {
           provide: JwtService,
           useValue: {
@@ -65,6 +75,7 @@ describe('AuthService', () => {
           },
         },
         { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue('secret') } },
+        { provide: EventsService, useValue: { publish: jest.fn() } },
       ],
     }).compile();
 
@@ -149,6 +160,48 @@ describe('AuthService', () => {
         expiresAt: new Date(Date.now() - 1000),
       });
       await expect(service.refresh('any')).rejects.toThrow(UnauthorizedException);
+    });
+  });
+
+  describe('requestPasswordReset', () => {
+    it('always returns success message regardless of whether email exists', async () => {
+      userRepo.findOne.mockResolvedValue(mockUser);
+      const result = await service.requestPasswordReset('test@example.com');
+      expect(result.message).toContain('reset link');
+    });
+
+    it('returns same success message when email does not exist (prevents enumeration)', async () => {
+      userRepo.findOne.mockResolvedValue(null);
+      const result = await service.requestPasswordReset('unknown@example.com');
+      expect(result.message).toContain('reset link');
+    });
+
+    it('creates a reset token when user is found', async () => {
+      userRepo.findOne.mockResolvedValue(mockUser);
+      await service.requestPasswordReset('test@example.com');
+      expect(resetTokenRepo.save).toHaveBeenCalled();
+    });
+
+    it('does not create a reset token when user is not found', async () => {
+      userRepo.findOne.mockResolvedValue(null);
+      await service.requestPasswordReset('ghost@example.com');
+      expect(resetTokenRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('regenerateAccess', () => {
+    const tiActor = { ...mockUser, id: 'ti-uuid', role: UserRole.TECHNICIEN_INFORMATIQUE };
+
+    it('reactivates a suspended account and returns success message', async () => {
+      userRepo.findOne.mockResolvedValue({ ...mockUser, isActive: false, validationStatus: 'suspended' });
+      const result = await service.regenerateAccess('user-uuid', tiActor as any);
+      expect(result.message).toContain('Access regenerated');
+      expect(sessionRepo.update).toHaveBeenCalled();
+    });
+
+    it('throws 401 when target account is not found', async () => {
+      userRepo.findOne.mockResolvedValue(null);
+      await expect(service.regenerateAccess('ghost-uuid', tiActor as any)).rejects.toThrow(UnauthorizedException);
     });
   });
 });

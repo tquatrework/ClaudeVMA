@@ -23,6 +23,7 @@ describe('AccountsService', () => {
   let service: AccountsService;
   let userRepo: any;
   let auditRepo: any;
+  let eventsService: { publish: jest.Mock };
 
   beforeEach(async () => {
     userRepo = {
@@ -37,12 +38,14 @@ describe('AccountsService', () => {
       find: jest.fn().mockResolvedValue([]),
     };
 
+    eventsService = { publish: jest.fn() };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AccountsService,
         { provide: getRepositoryToken(User), useValue: userRepo },
         { provide: getRepositoryToken(AuditLog), useValue: auditRepo },
-        { provide: EventsService, useValue: { publish: jest.fn() } },
+        { provide: EventsService, useValue: eventsService },
       ],
     }).compile();
 
@@ -79,6 +82,15 @@ describe('AccountsService', () => {
         role: UserRole.FORMATEUR,
       });
       expect(result.role).toBe(UserRole.FORMATEUR);
+    });
+
+    it('publishes AccountCreated with userId, email and role after account creation', async () => {
+      await service.createAccount({ email: 'new@test.com', password: 'password123' });
+      expect(eventsService.publish).toHaveBeenCalledWith('AccountCreated', expect.objectContaining({
+        userId: 'user-uuid',
+        email: 'new@test.com',
+        role: UserRole.ELEVE,
+      }));
     });
   });
 
@@ -165,6 +177,35 @@ describe('AccountsService', () => {
         service.createStudentAccount({ email: 'existing@test.com', password: 'password123' }),
       ).rejects.toThrow(ConflictException);
     });
+
+    it('publishes AccountCreated for the student with userId and role ELEVE', async () => {
+      await service.createStudentAccount({ email: 'student@test.com', password: 'password123' });
+      expect(eventsService.publish).toHaveBeenCalledWith('AccountCreated', expect.objectContaining({
+        userId: 'user-uuid',
+        email: 'student@test.com',
+        role: UserRole.ELEVE,
+      }));
+    });
+
+    it('publishes AccountCreated for both student and parent when parentEmail is provided', async () => {
+      await service.createStudentAccount({
+        email: 'student@test.com',
+        password: 'password123',
+        parentEmail: 'parent@test.com',
+        parentPassword: 'parentpass123',
+      });
+      const publishCalls = eventsService.publish.mock.calls.filter(
+        ([eventType]) => eventType === 'AccountCreated',
+      );
+      expect(publishCalls).toHaveLength(2);
+      const publishedRoles = publishCalls.map(([, payload]) => payload.role);
+      expect(publishedRoles).toContain(UserRole.ELEVE);
+      expect(publishedRoles).toContain(UserRole.PARENT_FINANCEUR);
+      publishCalls.forEach(([, payload]) => {
+        expect(payload).toHaveProperty('userId');
+        expect(typeof payload.userId).toBe('string');
+      });
+    });
   });
 
   describe('createTeacherAccount', () => {
@@ -179,6 +220,15 @@ describe('AccountsService', () => {
       await expect(
         service.createTeacherAccount({ email: 'existing@test.com', password: 'password123' }),
       ).rejects.toThrow(ConflictException);
+    });
+
+    it('publishes AccountCreated with userId and role FORMATEUR after teacher account creation', async () => {
+      await service.createTeacherAccount({ email: 'teacher@test.com', password: 'password123' });
+      expect(eventsService.publish).toHaveBeenCalledWith('AccountCreated', expect.objectContaining({
+        userId: 'user-uuid',
+        email: 'teacher@test.com',
+        role: UserRole.FORMATEUR,
+      }));
     });
   });
 

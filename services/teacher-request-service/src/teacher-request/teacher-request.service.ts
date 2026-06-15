@@ -31,8 +31,9 @@ export class TeacherRequestService {
   async createRequest(dto: CreateRequestDto, user: JwtPayload): Promise<TeacherRequest> {
     const allowedRoles = [UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.RESPONSABLE_PEDAGOGIQUE];
     if (!allowedRoles.includes(user.role as UserRole)) {
-      throw new ForbiddenException('Only students, parents and responsable_pedagogique can create teacher requests');
+      throw new ForbiddenException('Only students, parents or responsable_pedagogique can create teacher requests');
     }
+    // ELEVE uses their own id as studentId; PARENT and RP must provide it explicitly
     const studentId = user.role === UserRole.ELEVE ? user.id : dto.studentId;
     if (!studentId) {
       throw new BadRequestException('studentId is required when requester is not ELEVE');

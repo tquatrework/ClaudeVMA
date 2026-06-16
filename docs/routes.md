@@ -119,15 +119,55 @@ Statuts : `pending` → `accepted` / `declined` / `cancelled`
 
 ## calendar-service
 
+Types d'événements : `cours`, `masterclass`, `pedagogique`, `financier`, `rappel`, `invitation`
+
+Délais de rappel valides : `1week`, `1day`, `1hour`, `15min`, `none`
+
+### Calendriers et événements
+
+| Méthode | Chemin | Description | Auth | Rôles / Remarques |
+|---|---|---|---|---|
+| GET | /calendars/:ownerId/events | Lister les événements autorisés | 🔒 | Query: `type?`, `personId?`. Filtrage par rôle côté serveur. |
+| POST | /calendars/:ownerId/events | Créer un événement selon rôle | 🔒 | `eleve` → `rappel` · `formateur` → `cours/masterclass/pedagogique/rappel` · `animateur_pedagogique` → `pedagogique/rappel` · `responsable_pedagogique` → tous |
+| GET | /calendars/:ownerId/availability | Lire les disponibilités | 🔒 | — |
+
+Body `POST /calendars/:ownerId/events` : `{title, startAt, endAt, eventType, description?, inviteeIds?}`
+
+Réponse `GET /calendars/:ownerId/events` : `[{id, title, startAt, endAt, eventType, status, ownerId, invitations?, reminderRules?}]`
+
+### Invitations
+
 | Méthode | Chemin | Description | Auth |
 |---|---|---|---|
-| POST | /calendar | Créer une séance | 🔒 |
-| GET | /calendar | Lister les séances | 🔒 |
-| GET | /calendar?teacherId=X | Séances d'un professeur | 🔒 |
-| GET | /calendar?studentId=X | Séances d'un élève | 🔒 |
-| GET | /calendar/:id | Détail d'une séance | 🔒 |
-| PATCH | /calendar/:id | Modifier une séance | 🔒 |
-| DELETE | /calendar/:id | Supprimer une séance | 🔒 |
+| POST | /events/:id/invitees/:userId/accept | Accepter une invitation | 🔒 |
+| POST | /events/:id/invitees/:userId/decline | Refuser une invitation (retire l'invité) | 🔒 |
+
+### Annulations
+
+| Méthode | Chemin | Description | Auth | Remarques |
+|---|---|---|---|---|
+| POST | /events/:id/cancel-request | Demander ou appliquer une annulation | 🔒 | Si < 48h avant l'événement → `status: pending_approval`. Si ≥ 48h → annulation immédiate. |
+
+Body : `{reason?}`
+
+### Rappels
+
+| Méthode | Chemin | Description | Auth |
+|---|---|---|---|
+| POST | /events/:id/reminders | Configurer les rappels | 🔒 |
+
+Body : `{delay: "1week"|"1day"|"1hour"|"15min"|"none"}`
+
+### Accès visibilité (RP uniquement)
+
+| Méthode | Chemin | Description | Auth | Rôles |
+|---|---|---|---|---|
+| POST | /calendars/:ownerId/grants | Autoriser un utilisateur à voir ce calendrier | 🔒 | `responsable_pedagogique` |
+| DELETE | /calendars/:ownerId/grants/:granteeId | Révoquer un accès visibilité | 🔒 | `responsable_pedagogique` |
+
+### Événements publiés
+
+`CalendarEventCreated` · `InvitationAccepted` · `InvitationDeclined` · `CancellationRequested` · `ReminderDue`
 
 ---
 

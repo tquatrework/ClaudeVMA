@@ -7,14 +7,17 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { PedagogicalLog, LogVisibility } from './entities/pedagogical-log.entity';
 import { CreateLogDto } from './dto/create-log.dto';
+import { CreateSpecialPageDto } from './dto/create-special-page.dto';
 import { UpdateLogDto } from './dto/update-log.dto';
 
 /**
- * Visibilities accessible to each role (PLOG-RA-001 to PLOG-RA-004).
+ * Visibilités accessibles selon le rôle du demandeur (PLOG-RA-001 à PLOG-RA-004).
  *
- * - Formateur / RP : can see everything (they write and coordinate)
- * - Eleve          : can see eleve_parent_formateur and eleve_formateur (not formateur_rp special pages)
- * - Parent         : can see eleve_parent_formateur only (PLOG-BR-005 / PLOG-FB-001)
+ * - Formateur / RP / AP : accès large (ils écrivent et coordonnent)
+ * - Eleve               : voit eleve_parent_formateur et eleve_formateur
+ *                         MAIS jamais les pages hiddenFromStudent=true (filtré en service)
+ * - Parent financeur    : voit eleve_parent_formateur uniquement
+ *                         + les pages spéciales qui leur sont destinées (special) si hiddenFromStudent=false
  */
 const VISIBILITY_BY_ROLE: Record<string, LogVisibility[]> = {
   formateur: ['eleve_parent_formateur', 'eleve_formateur', 'formateur_rp', 'special'],
@@ -22,7 +25,7 @@ const VISIBILITY_BY_ROLE: Record<string, LogVisibility[]> = {
   animateur_pedagogique: ['eleve_parent_formateur', 'eleve_formateur', 'formateur_rp', 'special'],
   technicien_informatique: ['eleve_parent_formateur', 'eleve_formateur', 'formateur_rp', 'special'],
   eleve: ['eleve_parent_formateur', 'eleve_formateur'],
-  parent_financeur: ['eleve_parent_formateur'],
+  parent_financeur: ['eleve_parent_formateur', 'special'],
 };
 
 @Injectable()
@@ -34,7 +37,7 @@ export class PedagogicalLogService {
 
   /**
    * Create a new textbook entry.
-   * PLOG-FB-003: only formateur or RP can write. The caller must be the authorId.
+   * Formateur and RP can write; isSpecialPage defaults to false.
    */
   create(dto: CreateLogDto, authorId: string, authorRole: string): Promise<PedagogicalLog> {
     const entry = this.pedagogicalLogRepository.create({
@@ -42,32 +45,74 @@ export class PedagogicalLogService {
       authorId,
       authorRole,
       visibility: dto.visibility ?? 'eleve_parent_formateur',
+      isSpecialPage: false,
+      hiddenFromStudent: dto.hiddenFromStudent ?? false,
+    });
+    return this.pedagogicalLogRepository.save(entry);
+  }
+
+  /**
+   * Create a special page (RP only).
+   * XML spec functionality 003: pages spéciales parent/financeur non visibles par l'élève si choisies.
+   */
+  createSpecialPage(
+    studentId: string,
+    dto: CreateSpecialPageDto,
+    authorId: string,
+    authorRole: string,
+  ): Promise<PedagogicalLog> {
+    const entry = this.pedagogicalLogRepository.create({
+      studentId,
+      content: dto.content,
+      hiddenFromStudent: dto.hiddenFromStudent ?? false,
+      linkedResources: dto.linkedResources,
+      sessionId: dto.sessionId,
+      authorId,
+      authorRole,
+      visibility: 'special',
+      isSpecialPage: true,
     });
     return this.pedagogicalLogRepository.save(entry);
   }
 
   /**
    * Get all textbook entries for a student, filtered by caller role.
-   * PLOG-BR-001, PLOG-BR-002, PLOG-RA-001, PLOG-RA-002.
+   * - Elève: visibilité autorisée + hiddenFromStudent=false uniquement
+   * - Parent financeur: pages special visibles + eleve_parent_formateur (sauf hiddenFromStudent si l'élève n'en est pas destinataire — le parent voit les pages special qui lui sont destinées)
+   * - RP/Formateur/TI/AP: tout
    */
-  findByStudent(studentId: string, callerRole: string): Promise<PedagogicalLog[]> {
-    const allowed = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
-    return this.pedagogicalLogRepository.find({
-      where: { studentId, visibility: In(allowed) },
+  async findByStudent(studentId: string, callerRole: string): Promise<PedagogicalLog[]> {
+    const allowedVisibilities = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
+
+    const allEntries = await this.pedagogicalLogRepository.find({
+      where: { studentId, visibility: In(allowedVisibilities) },
       order: { createdAt: 'DESC' },
     });
+
+    if (callerRole === 'eleve') {
+      // L'élève ne voit jamais les pages marquées hiddenFromStudent=true
+      return allEntries.filter((entry) => !entry.hiddenFromStudent);
+    }
+
+    return allEntries;
   }
 
   /**
-   * Get all textbook entries for a session.
-   * Visibility is filtered by caller role.
+   * Get all textbook entries for a session, filtered by caller role.
    */
-  findBySession(sessionId: string, callerRole: string): Promise<PedagogicalLog[]> {
-    const allowed = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
-    return this.pedagogicalLogRepository.find({
-      where: { sessionId, visibility: In(allowed) },
+  async findBySession(sessionId: string, callerRole: string): Promise<PedagogicalLog[]> {
+    const allowedVisibilities = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
+
+    const allEntries = await this.pedagogicalLogRepository.find({
+      where: { sessionId, visibility: In(allowedVisibilities) },
       order: { createdAt: 'DESC' },
     });
+
+    if (callerRole === 'eleve') {
+      return allEntries.filter((entry) => !entry.hiddenFromStudent);
+    }
+
+    return allEntries;
   }
 
   /**
@@ -77,10 +122,16 @@ export class PedagogicalLogService {
     const entry = await this.pedagogicalLogRepository.findOne({ where: { id } });
     if (!entry) throw new NotFoundException(`Log ${id} not found`);
 
-    const allowed = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
-    if (!allowed.includes(entry.visibility)) {
+    const allowedVisibilities = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
+    if (!allowedVisibilities.includes(entry.visibility)) {
       throw new ForbiddenException('Access to this log entry is not allowed for your role');
     }
+
+    // L'élève ne voit jamais les pages hiddenFromStudent=true
+    if (callerRole === 'eleve' && entry.hiddenFromStudent) {
+      throw new ForbiddenException('Cette page est masquée à l\'élève');
+    }
+
     return entry;
   }
 

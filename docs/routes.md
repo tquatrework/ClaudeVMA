@@ -349,6 +349,62 @@ Note : la route `/callbacks/:provider` n'est **pas** protégée par `auth_reques
 
 ---
 
+## finance-credit-service
+
+Phase 2 — Gestion des profils financiers, paiements, factures et archives financières.
+
+Toutes les routes 🔒 nécessitent `Authorization: Bearer <access_token>`.
+
+### Profils financiers
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Body / Params | Réponse attendue |
+|---|---|---|---|---|---|---|
+| GET | /financial-profiles/:ownerId | Lire le profil financier d'un financeur | 🔒 | owner (soi-même), administrateur_financier, responsable_pedagogique, technicien_informatique | — | `200 {id, ownerId, profileType, pointsBalance, fundingEndDate, paymentMethod, paymentReference}` · `401` · `403` · `404` |
+| PATCH | /financial-profiles/:ownerId | Modifier les moyens de paiement ou paramètres | 🔒 | owner (soi-même), administrateur_financier, technicien_informatique | `{paymentMethod?, paymentReference?, fundingEndDate?}` | `200 {profileType mise à jour}` · `400` · `401` · `403` · `404` |
+
+Valeurs `profileType` : `limite` (compte non encore activé — inscription non payée) · `membre` (inscription payée).
+Valeurs `paymentMethod` : `cb` · `virement` · `paypal`.
+
+### Paiements
+
+| Méthode | Chemin | Description | Auth | Body | Réponse attendue |
+|---|---|---|---|---|---|
+| POST | /payments | Initier un paiement (inscription, abonnement, versement ponctuel) | 🔒 | `{paymentType, amountCents, externalReference?, correlationId?}` | `201 {payment, invoice}` · `400` validation · `401` · `409` doublon inscription (FIN-AC-002) |
+
+Règles métier :
+- Une inscription confirmée : crée/upgrade le profil financier en `membre`, génère une `Invoice`, un `FinancialArchiveItem`, crédite des points (1 pt/€) et publie `PaymentConfirmed` + `InvoiceIssued`.
+- Un seul paiement `inscription` confirmé par financeur est autorisé (`409` si doublon).
+- Valeurs `paymentType` : `inscription` · `abonnement` · `versement_ponctuel`.
+
+### Archives financières
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /financial-archives/:ownerId | Lister les archives financières d'un financeur | 🔒 | owner (soi-même), administrateur_financier, responsable_pedagogique, technicien_informatique | `200 [{id, ownerId, itemType, referenceId, label, amountCents, balanceSnapshot, occurredAt}]` · `401` · `403` |
+
+Les archives sont triées par `occurredAt DESC`. Types d'items : `payment` · `invoice` · `ledger_entry`.
+
+### Healthcheck
+
+| Méthode | Chemin | Description | Auth |
+|---|---|---|---|
+| GET | /health | Vérifier l'état du service | Non |
+
+### API interne inter-services (non exposée via nginx)
+
+> Exclue de Swagger (`@ApiExcludeController`). Protégée par `X-Internal-Secret: <INTERNAL_SECRET>`.
+> Utilisée par orchestration-service et legal-document-service pour conditionner le statut membre.
+
+| Méthode | Chemin | Description | Header requis | Réponse attendue |
+|---|---|---|---|---|
+| POST | /internal/check-payment-status/:ownerId | Vérifier si l'inscription est payée pour un financeur | `X-Internal-Secret` | `200 {isPaid: bool, paymentId: string\|null}` · `401` |
+
+### Événements publiés
+
+`PaymentConfirmed` · `InvoiceIssued` · `PointsCredited`
+
+---
+
 ## Health checks (non authentifié)
 
 Chaque service expose `GET /health` → `{status: "ok", service: "...", timestamp: "..."}`

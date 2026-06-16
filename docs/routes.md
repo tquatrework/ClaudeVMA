@@ -425,3 +425,102 @@ Les archives sont triées par `occurredAt DESC`. Types d'items : `payment` · `i
 ## Health checks (non authentifié)
 
 Chaque service expose `GET /health` → `{status: "ok", service: "...", timestamp: "..."}`
+
+---
+
+## legal-document-service
+
+Gère les mandats clients, contrats formateurs, modèles légaux et enregistrements de signature.
+
+Règles métier clés :
+- `LDS-BR-001` : seul `administrateur_financier` peut créer ou modifier les modèles.
+- `LDS-BR-002` : la signature est unique et non rejouable — toute re-signature retourne HTTP 409.
+- `LDS-BR-003` : un mandat client signé (`MANDAT_CLIENT`) conditionne la validation du compte membre.
+- `LDS-BR-004` : un contrat formateur signé (`CONTRAT_FORMATEUR`) conditionne la validation du formateur.
+
+Statuts de document : `A_SIGNER` → `SIGNE` (transition unique, irréversible).
+
+Types de documents : `MANDAT_CLIENT`, `CONTRAT_FORMATEUR`.
+
+### Documents légaux
+
+| Méthode | Chemin | Description | Auth | Rôles | Body / Params | Réponse attendue |
+|---|---|---|---|---|---|---|
+| GET | /legal-documents/:ownerId | Lister les documents légaux d'un utilisateur | 🔒 | Propriétaire, RP, TI, AF | Path: `ownerId` | `200 [{id, ownerId, documentType, status, templateId, templateVersion, signatureRecord?, createdAt}]` · `401` · `403 LDS-FB-001` |
+| POST | /legal-documents/:id/sign | Signer un document (transition A_SIGNER → SIGNE) | 🔒 | Propriétaire du document uniquement | Path: `id` · Body: `{signerName, signerEmail?}` | `201 {legalDocument, signatureRecord}` · `403 LDS-FB-002` · `404` · `409 LDS-BR-002 déjà signé` |
+
+### Modèles légaux
+
+| Méthode | Chemin | Description | Auth | Rôles | Body / Params | Réponse attendue |
+|---|---|---|---|---|---|---|
+| POST | /legal-templates | Créer un modèle légal | 🔒 | `administrateur_financier` uniquement | Body: `{title, documentType, content}` | `201 {id, title, documentType, version: 1, content, isActive, createdBy, createdAt}` · `400` · `403 LDS-BR-001` |
+| PATCH | /legal-templates/:id | Modifier un modèle (incrémente la version) | 🔒 | `administrateur_financier` uniquement | Path: `id` · Body: `{title?, content?}` | `200 {id, title, documentType, version: N+1, content, lastModifiedBy, updatedAt}` · `403 LDS-BR-001` · `404` |
+
+### API interne inter-services (non exposée via nginx)
+
+> Exclue de Swagger (`@ApiExcludeController`). Protégée par `X-Internal-Secret: <INTERNAL_SECRET>`.
+> Utilisée par orchestration-service dans les workflows d'onboarding et de validation.
+
+| Méthode | Chemin | Description | Header requis | Réponse attendue |
+|---|---|---|---|---|
+| GET | /internal/check-signature-status/:ownerId | Vérifier si les documents requis sont signés pour un utilisateur | `X-Internal-Secret` | `200 {ownerId, mandatClientSigne: bool, contratFormateurSigne: bool, documents[{documentType, status, signedAt?}]}` · `401` |
+
+### Événements publiés (phase 2 — event bus non disponible en dev)
+
+`LegalDocumentSigned` · `LegalTemplateUpdated` · `SecureCopyStored`
+
+---
+
+## finance-credit-service
+
+Phase 2 — Gestion des profils financiers, paiements, factures et archives financières.
+
+Toutes les routes 🔒 nécessitent `Authorization: Bearer <access_token>`.
+
+### Profils financiers
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Body / Params | Réponse attendue |
+|---|---|---|---|---|---|---|
+| GET | /financial-profiles/:ownerId | Lire le profil financier d'un financeur | 🔒 | owner (soi-même), administrateur_financier, responsable_pedagogique, technicien_informatique | — | `200 {id, ownerId, profileType, pointsBalance, fundingEndDate, paymentMethod, paymentReference}` · `401` · `403` · `404` |
+| PATCH | /financial-profiles/:ownerId | Modifier les moyens de paiement ou paramètres | 🔒 | owner (soi-même), administrateur_financier, technicien_informatique | `{paymentMethod?, paymentReference?, fundingEndDate?}` | `200 {profileType mise à jour}` · `400` · `401` · `403` · `404` |
+
+Valeurs `profileType` : `limite` (compte non encore activé — inscription non payée) · `membre` (inscription payée).
+Valeurs `paymentMethod` : `cb` · `virement` · `paypal`.
+
+### Paiements
+
+| Méthode | Chemin | Description | Auth | Body | Réponse attendue |
+|---|---|---|---|---|---|
+| POST | /payments | Initier un paiement (inscription, abonnement, versement ponctuel) | 🔒 | `{paymentType, amountCents, externalReference?, correlationId?}` | `201 {payment, invoice}` · `400` validation · `401` · `409` doublon inscription (FIN-AC-002) |
+
+Règles métier :
+- Une inscription confirmée : crée/upgrade le profil financier en `membre`, génère une `Invoice`, un `FinancialArchiveItem`, crédite des points (1 pt/€) et publie `PaymentConfirmed` + `InvoiceIssued`.
+- Un seul paiement `inscription` confirmé par financeur est autorisé (`409` si doublon).
+- Valeurs `paymentType` : `inscription` · `abonnement` · `versement_ponctuel`.
+
+### Archives financières
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /financial-archives/:ownerId | Lister les archives financières d'un financeur | 🔒 | owner (soi-même), administrateur_financier, responsable_pedagogique, technicien_informatique | `200 [{id, ownerId, itemType, referenceId, label, amountCents, balanceSnapshot, occurredAt}]` · `401` · `403` |
+
+Les archives sont triées par `occurredAt DESC`. Types d'items : `payment` · `invoice` · `ledger_entry`.
+
+### Healthcheck
+
+| Méthode | Chemin | Description | Auth |
+|---|---|---|---|
+| GET | /health | Vérifier l'état du service | Non |
+
+### API interne inter-services (non exposée via nginx)
+
+> Exclue de Swagger (`@ApiExcludeController`). Protégée par `X-Internal-Secret: <INTERNAL_SECRET>`.
+> Utilisée par orchestration-service et legal-document-service pour conditionner le statut membre.
+
+| Méthode | Chemin | Description | Header requis | Réponse attendue |
+|---|---|---|---|---|
+| POST | /internal/check-payment-status/:ownerId | Vérifier si l'inscription est payée pour un financeur | `X-Internal-Secret` | `200 {isPaid: bool, paymentId: string\|null}` · `401` |
+
+### Événements publiés
+
+`PaymentConfirmed` · `InvoiceIssued` · `PointsCredited`

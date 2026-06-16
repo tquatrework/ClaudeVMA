@@ -11,8 +11,14 @@ import { v4 as uuidv4 } from 'uuid';
 import { VideoRoom, RoomStatus } from './entities/video-room.entity';
 import { VideoAccessToken } from './entities/video-access-token.entity';
 import { AttendanceRecord } from './entities/attendance-record.entity';
+import { VideoRecording } from './entities/video-recording.entity';
+import { RecordingComment } from './entities/recording-comment.entity';
+import { CourseSummary } from './entities/course-summary.entity';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { RecordAttendanceDto } from './dto/record-attendance.dto';
+import { DeclareRecordingDto } from './dto/declare-recording.dto';
+import { AddCommentDto } from './dto/add-comment.dto';
+import { PublishSummaryDto } from './dto/publish-summary.dto';
 import { UserRole } from '../common/enums/user-role.enum';
 
 /** Roles that are authorised to join a video room (VID-RA-001, VID-RA-002, VID-FB-001). */
@@ -38,6 +44,12 @@ export class VideoSessionService {
     private readonly tokenRepo: Repository<VideoAccessToken>,
     @InjectRepository(AttendanceRecord)
     private readonly attendanceRepo: Repository<AttendanceRecord>,
+    @InjectRepository(VideoRecording)
+    private readonly recordingRepo: Repository<VideoRecording>,
+    @InjectRepository(RecordingComment)
+    private readonly commentRepo: Repository<RecordingComment>,
+    @InjectRepository(CourseSummary)
+    private readonly summaryRepo: Repository<CourseSummary>,
   ) {}
 
   // ─── Room lifecycle ──────────────────────────────────────────────────────────
@@ -230,6 +242,165 @@ export class VideoSessionService {
     });
 
     return saved;
+  }
+
+  // ─── Recordings ──────────────────────────────────────────────────────────────
+
+  /**
+   * Declare a recording for an ended room.
+   * VID-AC-001: recordings expire 30 days after declaration.
+   * Only formateur, RP, AP and TI may declare recordings.
+   *
+   * Publishes: VideoRecordingAvailable.
+   */
+  async declareRecording(
+    roomId: string,
+    dto: DeclareRecordingDto,
+    requesterId: string,
+    requesterRole: string,
+  ): Promise<VideoRecording> {
+    if (
+      requesterRole !== UserRole.FORMATEUR &&
+      requesterRole !== UserRole.RESPONSABLE_PEDAGOGIQUE &&
+      requesterRole !== UserRole.ANIMATEUR_PEDAGOGIQUE &&
+      requesterRole !== UserRole.TECHNICIEN_INFORMATIQUE
+    ) {
+      throw new ForbiddenException('Only a formateur or pedagogical staff can declare a recording');
+    }
+
+    const room = await this.findOne(roomId);
+
+    if (room.status !== RoomStatus.ENDED) {
+      throw new BadRequestException('Recordings can only be declared for ended sessions');
+    }
+
+    const RECORDING_TTL_DAYS = 30;
+    const expiresAt = new Date(Date.now() + RECORDING_TTL_DAYS * 24 * 60 * 60 * 1000);
+
+    const recording = this.recordingRepo.create({
+      roomId: room.id,
+      declaredBy: requesterId,
+      downloadUrl: dto.downloadUrl ?? null,
+      expiresAt,
+    });
+    const savedRecording = await this.recordingRepo.save(recording);
+
+    this.publishEvent('VideoRecordingAvailable', {
+      recordingId: savedRecording.id,
+      roomId: room.id,
+      calendarSessionId: room.calendarSessionId,
+      declaredBy: requesterId,
+      expiresAt: savedRecording.expiresAt,
+    });
+
+    return savedRecording;
+  }
+
+  /**
+   * List recordings visible to the requesting user.
+   * VID-FB-001 / VID-AC-001: parent_financeur is explicitly blocked.
+   * Formateurs and staff see all recordings including expired ones.
+   */
+  async listRecordings(
+    roomId: string,
+    requesterId: string,
+    requesterRole: string,
+  ): Promise<VideoRecording[]> {
+    if (requesterRole === UserRole.PARENT_FINANCEUR) {
+      throw new ForbiddenException(
+        'Parents financeurs do not have access to session recordings (VID-FB-001)',
+      );
+    }
+
+    await this.findOne(roomId);
+
+    return this.recordingRepo.find({ where: { roomId } });
+  }
+
+  /**
+   * Add a timestamped comment on a recording.
+   * VID-FB-001: parent_financeur is blocked.
+   * Elève can only comment on non-expired recordings;
+   * formateur and staff can always comment.
+   */
+  async addComment(
+    recordingId: string,
+    dto: AddCommentDto,
+    userId: string,
+    userRole: string,
+  ): Promise<RecordingComment> {
+    if (userRole === UserRole.PARENT_FINANCEUR) {
+      throw new ForbiddenException(
+        'Parents financeurs do not have access to recording comments (VID-FB-001)',
+      );
+    }
+
+    const recording = await this.recordingRepo.findOne({ where: { id: recordingId } });
+    if (!recording) {
+      throw new NotFoundException(`Recording ${recordingId} not found`);
+    }
+
+    const isExpired = recording.expiresAt < new Date();
+    const isRestrictedRole =
+      userRole === UserRole.ELEVE || userRole === UserRole.ADMINISTRATEUR_FINANCIER;
+
+    if (isExpired && isRestrictedRole) {
+      throw new BadRequestException('This recording has expired and can no longer be commented on');
+    }
+
+    const comment = this.commentRepo.create({
+      recordingId: recording.id,
+      userId,
+      timestampSeconds: dto.timestampSeconds,
+      content: dto.content,
+    });
+    return this.commentRepo.save(comment);
+  }
+
+  /**
+   * Publish a course summary for a room.
+   * The summary is always permanent (isPermanent: true) and survives video expiry.
+   * Only formateur, RP and AP may publish.
+   *
+   * Publishes: CourseSummaryPublished.
+   */
+  async publishSummary(
+    roomId: string,
+    dto: PublishSummaryDto,
+    authorId: string,
+    authorRole: string,
+  ): Promise<CourseSummary> {
+    if (
+      authorRole !== UserRole.FORMATEUR &&
+      authorRole !== UserRole.RESPONSABLE_PEDAGOGIQUE &&
+      authorRole !== UserRole.ANIMATEUR_PEDAGOGIQUE
+    ) {
+      throw new ForbiddenException(
+        'Only a formateur, RP or AP can publish a course summary',
+      );
+    }
+
+    const room = await this.findOne(roomId);
+
+    const publishedAt = new Date();
+    const summary = this.summaryRepo.create({
+      roomId: room.id,
+      authorId,
+      content: dto.content,
+      isPermanent: true,
+      publishedAt,
+    });
+    const savedSummary = await this.summaryRepo.save(summary);
+
+    this.publishEvent('CourseSummaryPublished', {
+      summaryId: savedSummary.id,
+      roomId: room.id,
+      calendarSessionId: room.calendarSessionId,
+      authorId,
+      publishedAt: savedSummary.publishedAt,
+    });
+
+    return savedSummary;
   }
 
   // ─── Event publishing (stub — replace with EventEmitter2 / message bus) ──────

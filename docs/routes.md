@@ -173,13 +173,54 @@ Body : `{delay: "1week"|"1day"|"1hour"|"15min"|"none"}`
 
 ## video-session-service
 
-| Méthode | Chemin | Description | Auth |
-|---|---|---|---|
-| POST | /video/rooms | Créer une salle vidéo | 🔒 |
-| GET | /video/rooms/:id | Info d'une salle | 🔒 |
-| GET | /video/rooms/:id/join | Rejoindre la salle (générer un token d'accès) | 🔒 |
-| POST | /video/rooms/:id/attendance | Enregistrer la présence | 🔒 |
-| POST | /video/rooms/:id/close | Clôturer la session | 🔒 |
+### Salles vidéo
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés |
+|---|---|---|---|---|
+| POST | /video/rooms | Créer une salle vidéo | 🔒 | formateur, RP, AP, TI |
+| GET | /video/rooms/:id | Info d'une salle | 🔒 | Tout utilisateur authentifié |
+| GET | /video/rooms/:id/join | Rejoindre la salle (générer un token d'accès) | 🔒 | élève, formateur, RP, AP, TI — parent_financeur refusé (VID-FB-001) |
+| POST | /video/rooms/:id/attendance | Enregistrer la présence | 🔒 | élève, formateur, RP, AP, TI — parent_financeur refusé |
+| POST | /video/rooms/:id/close | Clôturer la session | 🔒 | formateur, RP, AP, TI |
+
+### Enregistrements
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés |
+|---|---|---|---|---|
+| POST | /video/rooms/:roomId/recordings | Déclarer un enregistrement (expire dans 30 jours) | 🔒 | formateur, RP, AP, TI — parent_financeur et élève refusés (VID-AC-001) |
+| GET | /video/rooms/:roomId/recordings | Lister les enregistrements visibles | 🔒 | élève, formateur, RP, AP, TI — parent_financeur refusé (VID-FB-001, VID-AC-001) |
+
+Body `POST /video/rooms/:roomId/recordings` : `{downloadUrl?}` (URL facultative — peut être ajoutée plus tard)
+
+### Commentaires horodatés
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés |
+|---|---|---|---|---|
+| POST | /recordings/:recordingId/comments | Ajouter un commentaire horodaté sur un enregistrement | 🔒 | élève (si enregistrement non expiré), formateur, RP, AP, TI — parent_financeur refusé (VID-FB-001) |
+
+Body `POST /recordings/:recordingId/comments` : `{timestampSeconds: number, content: string}`
+
+Réponse : `201 {id, recordingId, userId, timestampSeconds, content, createdAt}` · `400` enregistrement expiré (élève) · `403` rôle non autorisé · `404` enregistrement introuvable
+
+### Résumés de cours
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés |
+|---|---|---|---|---|
+| POST | /video/rooms/:roomId/summary | Publier le résumé de cours (permanent, survit à l'expiration vidéo) | 🔒 | formateur, RP, AP — élève, TI et parent_financeur refusés (VID-AC-002) |
+
+Body `POST /video/rooms/:roomId/summary` : `{content: string}`
+
+Réponse : `201 {id, roomId, authorId, content, isPermanent: true, publishedAt, createdAt}` · `403` rôle non autorisé · `404` salle introuvable
+
+### Événements publiés
+
+`VideoRoomCreated` · `VideoSessionStarted` · `VideoSessionEnded` · `AttendanceRecorded` · `VideoRecordingAvailable` · `CourseSummaryPublished`
+
+### Critères d'acceptation
+
+- Un parent financeur ne peut pas ouvrir une visio ni accéder aux enregistrements (VID-FB-001)
+- La vidéo est téléchargeable pendant 30 jours puis expire (VID-AC-001)
+- Le résumé de cours reste dans les archives pédagogiques après expiration vidéo (`isPermanent: true`) (VID-AC-002)
 
 API interne (non exposée via nginx) : `GET /internal/video/*` — protégée par `X-Internal-Secret`.
 

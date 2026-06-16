@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import apiClient from '../api/client'
 import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
+import RecordingListPanel from '../components/video/RecordingListPanel'
+import CourseSummaryView from '../components/video/CourseSummaryView'
 
 interface RoomInfo {
   id: string
@@ -249,6 +251,25 @@ export default function VideoPage() {
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Recordings section — shown once room is loaded */}
+        {room && (
+          <div className="mt-8 space-y-8">
+            <section>
+              <h2 className="text-lg font-semibold text-gray-800 mb-3">Enregistrements</h2>
+              <RecordingListPanel roomId={roomId!} userRole={user?.role ?? ''} />
+            </section>
+
+            <section>
+              <h2 className="text-lg font-semibold text-gray-800 mb-3">Résumé de cours</h2>
+              <CourseSummaryView
+                roomId={roomId!}
+                userRole={user?.role ?? ''}
+                roomStatus={room.status}
+              />
+            </section>
           </div>
         )}
       </div>

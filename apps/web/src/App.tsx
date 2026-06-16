@@ -16,6 +16,7 @@ import TeacherRequestPage from './pages/TeacherRequestPage'
 import CalendarPage from './pages/CalendarPage'
 import ActivityDetailPage from './pages/ActivityDetailPage'
 import VideoPage from './pages/VideoPage'
+import VideoJoinPage from './pages/VideoJoinPage'
 import MessagesPage from './pages/MessagesPage'
 import PedagogicalLogPage from './pages/PedagogicalLogPage'
 import NotebookPage from './pages/NotebookPage'
@@ -143,6 +144,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <VideoPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/video-join/:roomId"
+            element={
+              <ProtectedRoute>
+                <VideoJoinPage />
               </ProtectedRoute>
             }
           />

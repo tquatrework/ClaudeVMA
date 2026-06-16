@@ -1,0 +1,448 @@
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { CalendarEvent, EventType, CalendarEventStatus } from './entities/calendar-event.entity';
+import { EventInvitation, InvitationStatus } from './entities/event-invitation.entity';
+import { CancellationRequest, CancellationStatus } from './entities/cancellation-request.entity';
+import { ReminderRule, ReminderDelay } from './entities/reminder-rule.entity';
+import { CalendarVisibilityGrant } from './entities/calendar-visibility-grant.entity';
+import { CreateCalendarEventDto } from './dto/create-calendar-event.dto';
+import { ListEventsQueryDto } from './dto/list-events-query.dto';
+import { CancelRequestDto } from './dto/cancel-request.dto';
+import { ConfigureReminderDto } from './dto/configure-reminder.dto';
+import { CreateVisibilityGrantDto } from './dto/create-visibility-grant.dto';
+import { EventsService } from '../events/events.service';
+import { UserRole } from '../common/enums/user-role.enum';
+
+/** Milliseconds in 48 hours */
+const FORTY_EIGHT_HOURS_MS = 48 * 60 * 60 * 1000;
+
+/** Which EventType values each role is allowed to create */
+const CREATION_ALLOWED_TYPES: Record<string, EventType[]> = {
+  [UserRole.ELEVE]: [EventType.RAPPEL],
+  [UserRole.FORMATEUR]: [EventType.COURS, EventType.MASTERCLASS, EventType.PEDAGOGIQUE, EventType.RAPPEL],
+  [UserRole.ANIMATEUR_PEDAGOGIQUE]: [EventType.PEDAGOGIQUE, EventType.RAPPEL],
+  [UserRole.RESPONSABLE_PEDAGOGIQUE]: [
+    EventType.COURS,
+    EventType.MASTERCLASS,
+    EventType.PEDAGOGIQUE,
+    EventType.FINANCIER,
+    EventType.RAPPEL,
+    EventType.INVITATION,
+  ],
+  [UserRole.PARENT_FINANCEUR]: [],
+  [UserRole.ADMINISTRATEUR_FINANCIER]: [],
+  [UserRole.TECHNICIEN_INFORMATIQUE]: [],
+};
+
+@Injectable()
+export class CalendarEventsService {
+  constructor(
+    @InjectRepository(CalendarEvent)
+    private readonly eventRepo: Repository<CalendarEvent>,
+    @InjectRepository(EventInvitation)
+    private readonly invitationRepo: Repository<EventInvitation>,
+    @InjectRepository(CancellationRequest)
+    private readonly cancellationRepo: Repository<CancellationRequest>,
+    @InjectRepository(ReminderRule)
+    private readonly reminderRuleRepo: Repository<ReminderRule>,
+    @InjectRepository(CalendarVisibilityGrant)
+    private readonly grantRepo: Repository<CalendarVisibilityGrant>,
+    private readonly eventsService: EventsService,
+  ) {}
+
+  /**
+   * List events for a calendar owner, filtered by the requester's role
+   * and optional type/personId query parameters.
+   *
+   * Access rules:
+   * - PARENT_FINANCEUR: sees only FINANCIER events
+   * - ADMINISTRATEUR_FINANCIER: sees only FINANCIER events
+   * - RP, AP, TI: may view any user's events
+   * - Others: see only their own events (ownerId === requesterId) or events where they are invitees
+   * - A CalendarVisibilityGrant also enables access
+   */
+  async listEvents(
+    ownerId: string,
+    requesterId: string,
+    requesterRole: string,
+    query: ListEventsQueryDto,
+    correlationId?: string,
+  ): Promise<CalendarEvent[]> {
+    await this.assertCanReadEvents(ownerId, requesterId, requesterRole);
+
+    const queryBuilder = this.eventRepo
+      .createQueryBuilder('event')
+      .leftJoinAndSelect('event.invitations', 'invitation')
+      .where('event.owner_id = :ownerId', { ownerId });
+
+    // Role-based type filtering
+    if (
+      requesterRole === UserRole.PARENT_FINANCEUR ||
+      requesterRole === UserRole.ADMINISTRATEUR_FINANCIER
+    ) {
+      queryBuilder.andWhere('event.event_type = :type', { type: EventType.FINANCIER });
+    } else if (query.type) {
+      queryBuilder.andWhere('event.event_type = :type', { type: query.type });
+    }
+
+    if (query.personId) {
+      queryBuilder.andWhere(
+        '(event.creator_id = :personId OR invitation.invitee_id = :personId)',
+        { personId: query.personId },
+      );
+    }
+
+    queryBuilder.orderBy('event.start_time', 'ASC');
+
+    return queryBuilder.getMany();
+  }
+
+  /**
+   * Create a CalendarEvent for ownerId's calendar.
+   * Validates the requester's role against CREATION_ALLOWED_TYPES.
+   * Publishes CalendarEventCreated domain event.
+   */
+  async createEvent(
+    ownerId: string,
+    dto: CreateCalendarEventDto,
+    requesterId: string,
+    requesterRole: string,
+    correlationId?: string,
+  ): Promise<CalendarEvent> {
+    const allowedTypes = CREATION_ALLOWED_TYPES[requesterRole] ?? [];
+    if (!allowedTypes.includes(dto.eventType)) {
+      throw new ForbiddenException(
+        `Role ${requesterRole} is not allowed to create events of type ${dto.eventType}`,
+      );
+    }
+
+    const savedEvent = await this.eventRepo.save(
+      this.eventRepo.create({
+        ownerId,
+        title: dto.title,
+        eventType: dto.eventType,
+        creatorId: requesterId,
+        creatorRole: requesterRole,
+        startTime: new Date(dto.startTime),
+        endTime: new Date(dto.endTime),
+        description: dto.description ?? null,
+        targetRef: dto.targetRef ?? null,
+      }),
+    );
+
+    if (dto.inviteeIds && dto.inviteeIds.length > 0) {
+      const invitations = dto.inviteeIds.map((inviteeId) =>
+        this.invitationRepo.create({
+          eventId: savedEvent.id,
+          inviteeId,
+          status: InvitationStatus.PENDING,
+        }),
+      );
+      await this.invitationRepo.save(invitations);
+    }
+
+    this.eventsService.publish(
+      'CalendarEventCreated',
+      {
+        eventId: savedEvent.id,
+        ownerId,
+        eventType: savedEvent.eventType,
+        creatorId: requesterId,
+        startTime: savedEvent.startTime,
+        inviteeIds: dto.inviteeIds ?? [],
+      },
+      correlationId,
+    );
+
+    return this.eventRepo.findOne({
+      where: { id: savedEvent.id },
+      relations: ['invitations'],
+    });
+  }
+
+  /**
+   * Accept an invitation for an event.
+   * Publishes InvitationAccepted domain event.
+   */
+  async acceptInvitation(
+    eventId: string,
+    userId: string,
+    correlationId?: string,
+  ): Promise<EventInvitation> {
+    const invitation = await this.findInvitationOrFail(eventId, userId);
+
+    if (invitation.status !== InvitationStatus.PENDING) {
+      throw new ConflictException(
+        `Invitation is already ${invitation.status} — cannot accept`,
+      );
+    }
+
+    invitation.status = InvitationStatus.ACCEPTED;
+    const updatedInvitation = await this.invitationRepo.save(invitation);
+
+    this.eventsService.publish(
+      'InvitationAccepted',
+      { eventId, userId },
+      correlationId,
+    );
+
+    return updatedInvitation;
+  }
+
+  /**
+   * Decline an invitation for an event.
+   * The invitation record is marked declined (effectively removing the event from the invitee's view).
+   * Publishes InvitationDeclined domain event.
+   */
+  async declineInvitation(
+    eventId: string,
+    userId: string,
+    correlationId?: string,
+  ): Promise<EventInvitation> {
+    const invitation = await this.findInvitationOrFail(eventId, userId);
+
+    if (invitation.status !== InvitationStatus.PENDING) {
+      throw new ConflictException(
+        `Invitation is already ${invitation.status} — cannot decline`,
+      );
+    }
+
+    invitation.status = InvitationStatus.DECLINED;
+    const updatedInvitation = await this.invitationRepo.save(invitation);
+
+    this.eventsService.publish(
+      'InvitationDeclined',
+      { eventId, userId },
+      correlationId,
+    );
+
+    return updatedInvitation;
+  }
+
+  /**
+   * Request or apply cancellation of an event.
+   * Business rule: if the event starts within 48h, status is PENDING_APPROVAL.
+   * Otherwise status is APPROVED and the event is immediately cancelled.
+   * Publishes CancellationRequested domain event.
+   */
+  async requestCancellation(
+    eventId: string,
+    dto: CancelRequestDto,
+    requesterId: string,
+    requesterRole: string,
+    correlationId?: string,
+  ): Promise<CancellationRequest> {
+    const calendarEvent = await this.findEventOrFail(eventId);
+
+    this.assertCanCancelEvent(calendarEvent, requesterId, requesterRole);
+
+    if (calendarEvent.status === CalendarEventStatus.CANCELLED) {
+      throw new ConflictException('Event is already cancelled');
+    }
+
+    const timeUntilEvent = calendarEvent.startTime.getTime() - Date.now();
+    const isWithin48Hours = timeUntilEvent < FORTY_EIGHT_HOURS_MS;
+
+    const cancellationStatus = isWithin48Hours
+      ? CancellationStatus.PENDING_APPROVAL
+      : CancellationStatus.APPROVED;
+
+    const cancellationRequest = await this.cancellationRepo.save(
+      this.cancellationRepo.create({
+        eventId,
+        requesterId,
+        status: cancellationStatus,
+        reason: dto.reason ?? null,
+      }),
+    );
+
+    // If approved automatically, mark the event as cancelled
+    if (cancellationStatus === CancellationStatus.APPROVED) {
+      await this.eventRepo.save({
+        ...calendarEvent,
+        status: CalendarEventStatus.CANCELLED,
+      });
+    }
+
+    this.eventsService.publish(
+      'CancellationRequested',
+      {
+        eventId,
+        requesterId,
+        status: cancellationStatus,
+        isWithin48Hours,
+      },
+      correlationId,
+    );
+
+    return cancellationRequest;
+  }
+
+  /**
+   * Configure a ReminderRule for an event for the requesting user.
+   * Replaces any existing rule the user may have for this event.
+   */
+  async configureReminder(
+    eventId: string,
+    dto: ConfigureReminderDto,
+    requesterId: string,
+    correlationId?: string,
+  ): Promise<ReminderRule> {
+    await this.findEventOrFail(eventId);
+
+    // Remove existing rule for this user on this event (idempotent)
+    await this.reminderRuleRepo.delete({ eventId, ownerId: requesterId });
+
+    if (dto.delay === ReminderDelay.NONE) {
+      // "none" means no reminder — return a transient object for the response
+      return Object.assign(new ReminderRule(), {
+        id: null,
+        eventId,
+        ownerId: requesterId,
+        delay: ReminderDelay.NONE,
+        isSent: false,
+      });
+    }
+
+    const reminderRule = await this.reminderRuleRepo.save(
+      this.reminderRuleRepo.create({
+        eventId,
+        ownerId: requesterId,
+        delay: dto.delay,
+        isSent: false,
+      }),
+    );
+
+    return reminderRule;
+  }
+
+  /**
+   * Create a CalendarVisibilityGrant (RP only).
+   * Allows granteeId to read ownerId's calendar.
+   */
+  async createVisibilityGrant(
+    ownerId: string,
+    dto: CreateVisibilityGrantDto,
+    grantedBy: string,
+    requesterRole: string,
+    correlationId?: string,
+  ): Promise<CalendarVisibilityGrant> {
+    if (requesterRole !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+      throw new ForbiddenException('Only a RP can create calendar visibility grants');
+    }
+
+    const existingGrant = await this.grantRepo.findOne({
+      where: { ownerId, granteeId: dto.granteeId },
+    });
+
+    if (existingGrant) {
+      return existingGrant;
+    }
+
+    return this.grantRepo.save(
+      this.grantRepo.create({
+        ownerId,
+        granteeId: dto.granteeId,
+        grantedBy,
+      }),
+    );
+  }
+
+  /**
+   * Revoke a CalendarVisibilityGrant (RP only).
+   */
+  async revokeVisibilityGrant(
+    ownerId: string,
+    granteeId: string,
+    requesterRole: string,
+    correlationId?: string,
+  ): Promise<{ revoked: boolean }> {
+    if (requesterRole !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+      throw new ForbiddenException('Only a RP can revoke calendar visibility grants');
+    }
+
+    const grant = await this.grantRepo.findOne({ where: { ownerId, granteeId } });
+    if (!grant) {
+      throw new NotFoundException(`No visibility grant found for grantee ${granteeId} on calendar ${ownerId}`);
+    }
+
+    await this.grantRepo.remove(grant);
+    return { revoked: true };
+  }
+
+  // ---- Private helpers ----
+
+  private async findEventOrFail(eventId: string): Promise<CalendarEvent> {
+    const calendarEvent = await this.eventRepo.findOne({ where: { id: eventId } });
+    if (!calendarEvent) {
+      throw new NotFoundException(`Event ${eventId} not found`);
+    }
+    return calendarEvent;
+  }
+
+  private async findInvitationOrFail(eventId: string, inviteeId: string): Promise<EventInvitation> {
+    const invitation = await this.invitationRepo.findOne({
+      where: { eventId, inviteeId },
+    });
+    if (!invitation) {
+      throw new NotFoundException(
+        `No pending invitation found for user ${inviteeId} on event ${eventId}`,
+      );
+    }
+    return invitation;
+  }
+
+  /**
+   * Determine whether a user can read events for a given calendar owner.
+   * Checks: is owner, has internal privileged role, or has a CalendarVisibilityGrant.
+   */
+  private async assertCanReadEvents(
+    ownerId: string,
+    requesterId: string,
+    requesterRole: string,
+  ): Promise<void> {
+    if (requesterId === ownerId) return;
+
+    const privilegedRoles: string[] = [
+      UserRole.RESPONSABLE_PEDAGOGIQUE,
+      UserRole.ANIMATEUR_PEDAGOGIQUE,
+      UserRole.TECHNICIEN_INFORMATIQUE,
+      UserRole.ADMINISTRATEUR_FINANCIER,
+      UserRole.PARENT_FINANCEUR,
+    ];
+    if (privilegedRoles.includes(requesterRole)) return;
+
+    const visibilityGrant = await this.grantRepo.findOne({
+      where: { ownerId, granteeId: requesterId },
+    });
+    if (visibilityGrant) return;
+
+    throw new ForbiddenException(
+      'You do not have permission to view this calendar\'s events',
+    );
+  }
+
+  /**
+   * Only the event creator, RP, or TI can request cancellation.
+   */
+  private assertCanCancelEvent(
+    calendarEvent: CalendarEvent,
+    requesterId: string,
+    requesterRole: string,
+  ): void {
+    const cancellationRoles: string[] = [
+      UserRole.RESPONSABLE_PEDAGOGIQUE,
+      UserRole.TECHNICIEN_INFORMATIQUE,
+    ];
+    if (calendarEvent.creatorId === requesterId) return;
+    if (cancellationRoles.includes(requesterRole)) return;
+    throw new ForbiddenException('Only the event creator, RP, or TI can request cancellation');
+  }
+}

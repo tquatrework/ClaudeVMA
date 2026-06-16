@@ -3,13 +3,14 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { MemoController } from './memo.controller';
 import { MemoService } from './memo.service';
-import { Memo } from './entities/memo.entity';
+import { MemoChapter } from './entities/memo-chapter.entity';
+import { MemoItem } from './entities/memo-item.entity';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Memo]),
+    TypeOrmModule.forFeature([MemoChapter, MemoItem]),
     JwtModule.register({}),
   ],
   controllers: [MemoController],

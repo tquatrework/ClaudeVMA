@@ -154,13 +154,13 @@ describe('Journey 2: Dashboard → Calendrier → Création séance', () => {
 
     // Now on Calendar page — should see the create button for formateur
     await waitFor(() => {
-      screen.getByRole('button', { name: /planifier une séance/i })
+      screen.getByRole('button', { name: /nouvel événement/i })
     })
 
-    await userEvent.click(screen.getByRole('button', { name: /planifier une séance/i }))
+    await userEvent.click(screen.getByRole('button', { name: /nouvel événement/i }))
 
     await waitFor(() => {
-      expect(screen.getByText('Nouvelle séance')).toBeDefined()
+      expect(screen.getByRole('dialog', { name: /créer un événement/i })).toBeDefined()
     })
 
     // Set datetime inputs via native input event
@@ -173,13 +173,13 @@ describe('Journey 2: Dashboard → Calendrier → Création séance', () => {
     Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(endInput, '2030-03-10T10:00')
     endInput.dispatchEvent(new Event('change', { bubbles: true }))
 
-    await userEvent.click(screen.getByRole('button', { name: /planifier$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /créer$/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith('/calendar', expect.objectContaining({
-        type: 'course',
-        teacherId: 'teacher-1',
-      }))
+      expect(mockApiClient.post).toHaveBeenCalledWith(
+        expect.stringContaining('/calendars/teacher-1/events'),
+        expect.objectContaining({ eventType: expect.any(String) }),
+      )
     })
   })
 })

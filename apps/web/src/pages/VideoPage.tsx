@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
 import RecordingListPanel from '../components/video/RecordingListPanel'
 import CourseSummaryView from '../components/video/CourseSummaryView'
+import InVideoMemoDrawer from '../components/pedagogical-log/InVideoMemoDrawer'
 
 interface RoomInfo {
   id: string
@@ -26,8 +27,11 @@ export default function VideoPage() {
   const [attendanceRecorded, setAttendanceRecorded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [isMemoDrawerOpen, setIsMemoDrawerOpen] = useState(false)
 
   const canClose = hasRole('formateur', 'responsable_pedagogique', 'technicien_informatique', 'animateur_pedagogique')
+  // Le bouton mémo est accessible à l'élève ET au formateur (drawer affiche readonly pour le formateur)
+  const canOpenMemo = hasRole('eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique')
 
   useEffect(() => {
     if (!roomId) return
@@ -128,7 +132,18 @@ export default function VideoPage() {
   return (
     <Layout>
       <div className="max-w-xl">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">Session visio</h1>
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold text-gray-900">Session visio</h1>
+          {canOpenMemo && (
+            <button
+              onClick={() => setIsMemoDrawerOpen(true)}
+              className="text-sm bg-indigo-50 text-indigo-700 border border-indigo-200 px-4 py-2 rounded-lg hover:bg-indigo-100 transition-colors"
+              aria-label="Ouvrir le mémo"
+            >
+              Mémo
+            </button>
+          )}
+        </div>
 
         {isLoading && <p className="text-gray-400 text-sm">Chargement…</p>}
 
@@ -273,6 +288,12 @@ export default function VideoPage() {
           </div>
         )}
       </div>
+
+      {/* In-video memo drawer */}
+      <InVideoMemoDrawer
+        isOpen={isMemoDrawerOpen}
+        onClose={() => setIsMemoDrawerOpen(false)}
+      />
     </Layout>
   )
 }

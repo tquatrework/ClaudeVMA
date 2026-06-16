@@ -172,11 +172,12 @@ export default function App() {
             }
           />
 
-          {/* Notebook — student-only: the page itself enforces the role check */}
+          {/* Notebook — élève propriétaire + TI (pour incidents). RP interdit en Phase 1.
+              La page elle-même renforce le contrôle d'accès (PLOG-FB-001). */}
           <Route
             path="/notebook/:studentId"
             element={
-              <ProtectedRoute allowedRoles={['eleve', 'responsable_pedagogique', 'technicien_informatique']}>
+              <ProtectedRoute allowedRoles={['eleve', 'technicien_informatique']}>
                 <NotebookPage />
               </ProtectedRoute>
             }

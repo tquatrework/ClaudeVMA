@@ -1,65 +1,92 @@
 /**
- * Unit tests — MemoService
+ * Unit tests — MemoService (refactorisé)
+ *
+ * Le mémo est un outil EXCLUSIVEMENT élève de formules/trucs essentiels.
+ * CRITIQUE XML spec: seul l'élève peut écrire dans son mémo → 403 pour tout autre rôle.
  *
  * Couvre :
- *   - create()          → sauvegarde le mémo avec authorId et authorRole
- *   - findByAuthor()    → filtre par authorId
- *   - findOne()         → accès autorisé (auteur, RP, AP, TI, ADMIN_FIN) et refusé (autre formateur)
- *   - remove()          → suppression autorisée (auteur, RP, TI) et refusée (autre formateur, AP)
- *
- * Régression #FIX-403 : ADMINISTRATEUR_FINANCIER doit pouvoir lire les mémos
- * (ajouté dans findOne après correction du bug GET /memos → 403).
+ *   - createChapter() : élève peut créer, formateur/RP → 403
+ *   - findChapters()  : élève voit ses chapitres, autre élève → 403
+ *   - createItem()    : élève peut ajouter, image trop grande → 400, formateur → 403
+ *   - search()        : élève peut chercher, autre rôle → 403
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { MemoService } from '../../../src/memo/memo.service';
-import { Memo } from '../../../src/memo/entities/memo.entity';
+import { MemoChapter } from '../../../src/memo/entities/memo-chapter.entity';
+import { MemoItem } from '../../../src/memo/entities/memo-item.entity';
 
-/** Minimal mock for a TypeORM Repository<Memo> */
-function buildMockRepository() {
+const STUDENT_ID    = 'aaaaaaaa-0000-4000-a000-aaaaaaaaaaaa';
+const OTHER_STUDENT = 'bbbbbbbb-0000-4000-b000-bbbbbbbbbbbb';
+const CHAPTER_ID    = 'cccccccc-0000-4000-c000-cccccccccccc';
+const ITEM_ID       = 'dddddddd-0000-4000-d000-dddddddddddd';
+
+function buildMockChapterRepository() {
   return {
     create: jest.fn(),
-    save:   jest.fn(),
-    find:   jest.fn(),
+    save: jest.fn(),
+    find: jest.fn(),
     findOne: jest.fn(),
-    remove: jest.fn(),
   };
 }
 
-const AUTHOR_ID      = 'aaaaaaaa-0000-4000-a000-aaaaaaaaaaaa';
-const OTHER_USER_ID  = 'bbbbbbbb-0000-4000-b000-bbbbbbbbbbbb';
-const MEMO_ID        = 'cccccccc-0000-4000-c000-cccccccccccc';
-
-function buildSampleMemo(overrides: Partial<Memo> = {}): Memo {
+function buildMockItemRepository() {
   return {
-    id:         MEMO_ID,
-    authorId:   AUTHOR_ID,
-    authorRole: 'formateur',
-    studentId:  null,
-    activityId: null,
-    content:    'Contenu du mémo test',
-    title:      null,
-    createdAt:  new Date('2026-01-01T00:00:00Z'),
-    updatedAt:  new Date('2026-01-01T00:00:00Z'),
+    create: jest.fn(),
+    save: jest.fn(),
+    find: jest.fn(),
+  };
+}
+
+function buildSampleChapter(overrides: Partial<MemoChapter> = {}): MemoChapter {
+  return {
+    id: CHAPTER_ID,
+    studentId: STUDENT_ID,
+    title: 'Algèbre',
+    order: 0,
+    items: [],
+    createdAt: new Date('2026-01-01'),
+    updatedAt: new Date('2026-01-01'),
+    ...overrides,
+  };
+}
+
+function buildSampleItem(overrides: Partial<MemoItem> = {}): MemoItem {
+  return {
+    id: ITEM_ID,
+    chapterId: CHAPTER_ID,
+    chapter: undefined as any,
+    type: 'formula',
+    content: '$\\frac{a}{b}$',
+    sizeKb: null,
+    order: 0,
+    createdAt: new Date('2026-01-01'),
+    updatedAt: new Date('2026-01-01'),
     ...overrides,
   };
 }
 
 describe('MemoService', () => {
   let memoService: MemoService;
-  let mockRepository: ReturnType<typeof buildMockRepository>;
+  let mockChapterRepo: ReturnType<typeof buildMockChapterRepository>;
+  let mockItemRepo: ReturnType<typeof buildMockItemRepository>;
 
   beforeEach(async () => {
-    mockRepository = buildMockRepository();
+    mockChapterRepo = buildMockChapterRepository();
+    mockItemRepo = buildMockItemRepository();
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         MemoService,
         {
-          provide: getRepositoryToken(Memo),
-          useValue: mockRepository,
+          provide: getRepositoryToken(MemoChapter),
+          useValue: mockChapterRepo,
+        },
+        {
+          provide: getRepositoryToken(MemoItem),
+          useValue: mockItemRepo,
         },
       ],
     }).compile();
@@ -69,191 +96,197 @@ describe('MemoService', () => {
 
   afterEach(() => jest.clearAllMocks());
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // create()
-  // ──────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // createChapter()
+  // ─────────────────────────────────────────────────────────────────────────
 
-  describe('create()', () => {
-    it('crée et sauvegarde un mémo avec authorId et authorRole', async () => {
-      const dto = { content: 'Préparer exercice', title: 'Rappel', studentId: undefined, activityId: undefined };
-      const savedMemo = buildSampleMemo({ content: dto.content, title: dto.title });
+  describe('createChapter()', () => {
+    it('[OK] un élève peut créer un chapitre dans son propre mémo → 201', async () => {
+      const dto = { title: 'Algèbre', order: 0 };
+      const savedChapter = buildSampleChapter();
 
-      mockRepository.create.mockReturnValue(savedMemo);
-      mockRepository.save.mockResolvedValue(savedMemo);
+      mockChapterRepo.create.mockReturnValue(savedChapter);
+      mockChapterRepo.save.mockResolvedValue(savedChapter);
 
-      const result = await memoService.create(dto, AUTHOR_ID, 'formateur');
+      const result = await memoService.createChapter(STUDENT_ID, dto, STUDENT_ID, 'eleve');
 
-      expect(mockRepository.create).toHaveBeenCalledWith({
-        ...dto,
-        authorId:   AUTHOR_ID,
-        authorRole: 'formateur',
+      expect(mockChapterRepo.create).toHaveBeenCalledWith({
+        studentId: STUDENT_ID,
+        title: 'Algèbre',
+        order: 0,
       });
-      expect(mockRepository.save).toHaveBeenCalledWith(savedMemo);
-      expect(result.authorId).toBe(AUTHOR_ID);
-      expect(result.authorRole).toBe('formateur');
+      expect(result.studentId).toBe(STUDENT_ID);
+    });
+
+    it('[CRITIQUE] un formateur tente d\'écrire dans le mémo → 403 ForbiddenException', async () => {
+      const dto = { title: 'Mes notes', order: 0 };
+
+      await expect(
+        memoService.createChapter(STUDENT_ID, dto, 'formateur-uuid', 'formateur'),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(mockChapterRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('[CRITIQUE] un RP tente d\'écrire dans le mémo → 403 ForbiddenException', async () => {
+      const dto = { title: 'Notes RP', order: 0 };
+
+      await expect(
+        memoService.createChapter(STUDENT_ID, dto, 'rp-uuid', 'responsable_pedagogique'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('[CRITIQUE] un AP tente d\'écrire dans le mémo → 403 ForbiddenException', async () => {
+      const dto = { title: 'Notes AP', order: 0 };
+
+      await expect(
+        memoService.createChapter(STUDENT_ID, dto, 'ap-uuid', 'animateur_pedagogique'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('un élève tente de modifier le mémo d\'un autre élève → 403 ForbiddenException', async () => {
+      const dto = { title: 'Chapitre volé', order: 0 };
+
+      await expect(
+        memoService.createChapter(STUDENT_ID, dto, OTHER_STUDENT, 'eleve'),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // findByAuthor()
-  // ──────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // findChapters()
+  // ─────────────────────────────────────────────────────────────────────────
 
-  describe('findByAuthor()', () => {
-    it('retourne uniquement les mémos de l\'auteur demandé', async () => {
-      const memoList = [buildSampleMemo(), buildSampleMemo({ id: 'dddd-0000-4000-d000-dddddddddddd' })];
-      mockRepository.find.mockResolvedValue(memoList);
+  describe('findChapters()', () => {
+    it('[OK] un élève peut lister ses propres chapitres', async () => {
+      const chapters = [buildSampleChapter()];
+      mockChapterRepo.find.mockResolvedValue(chapters);
 
-      const result = await memoService.findByAuthor(AUTHOR_ID);
+      const result = await memoService.findChapters(STUDENT_ID, STUDENT_ID, 'eleve');
 
-      expect(mockRepository.find).toHaveBeenCalledWith({
-        where: { authorId: AUTHOR_ID },
-        order: { createdAt: 'DESC' },
+      expect(mockChapterRepo.find).toHaveBeenCalledWith({
+        where: { studentId: STUDENT_ID },
+        relations: ['items'],
+        order: { order: 'ASC', createdAt: 'ASC' },
       });
-      expect(result).toHaveLength(2);
+      expect(result).toHaveLength(1);
     });
 
-    it('retourne un tableau vide si aucun mémo pour cet auteur', async () => {
-      mockRepository.find.mockResolvedValue([]);
+    it('[CRITIQUE] un parent tente de lire le mémo → 403 ForbiddenException', async () => {
+      await expect(
+        memoService.findChapters(STUDENT_ID, 'parent-uuid', 'parent_financeur'),
+      ).rejects.toThrow(ForbiddenException);
+    });
 
-      const result = await memoService.findByAuthor(OTHER_USER_ID);
+    it('[CRITIQUE] un formateur tente de lire le mémo → 403 ForbiddenException', async () => {
+      await expect(
+        memoService.findChapters(STUDENT_ID, 'formateur-uuid', 'formateur'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // createItem()
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('createItem()', () => {
+    it('[OK] un élève peut ajouter un item de type formula', async () => {
+      const sampleChapter = buildSampleChapter();
+      const savedItem = buildSampleItem();
+
+      mockChapterRepo.findOne.mockResolvedValue(sampleChapter);
+      mockItemRepo.create.mockReturnValue(savedItem);
+      mockItemRepo.save.mockResolvedValue(savedItem);
+
+      const dto = { type: 'formula' as const, content: '$x^2$', order: 0 };
+      const result = await memoService.createItem(CHAPTER_ID, dto, STUDENT_ID, 'eleve');
+
+      expect(result.type).toBe('formula');
+    });
+
+    it('[CRITIQUE] un formateur tente d\'ajouter un item → 403 ForbiddenException', async () => {
+      const sampleChapter = buildSampleChapter();
+      mockChapterRepo.findOne.mockResolvedValue(sampleChapter);
+
+      const dto = { type: 'text' as const, content: 'Note formateur', order: 0 };
+
+      await expect(
+        memoService.createItem(CHAPTER_ID, dto, 'formateur-uuid', 'formateur'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('[CRITIQUE] image dépassant 500 Ko → 400 BadRequestException', async () => {
+      const sampleChapter = buildSampleChapter();
+      mockChapterRepo.findOne.mockResolvedValue(sampleChapter);
+
+      const dto = { type: 'image' as const, content: 'data:image/png;base64,...', sizeKb: 501 };
+
+      await expect(
+        memoService.createItem(CHAPTER_ID, dto, STUDENT_ID, 'eleve'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('image exactement à 500 Ko → OK', async () => {
+      const sampleChapter = buildSampleChapter();
+      const savedItem = buildSampleItem({ type: 'image', sizeKb: 500 });
+
+      mockChapterRepo.findOne.mockResolvedValue(sampleChapter);
+      mockItemRepo.create.mockReturnValue(savedItem);
+      mockItemRepo.save.mockResolvedValue(savedItem);
+
+      const dto = { type: 'image' as const, content: 'data:image/png;base64,...', sizeKb: 500 };
+
+      await expect(
+        memoService.createItem(CHAPTER_ID, dto, STUDENT_ID, 'eleve'),
+      ).resolves.toBeDefined();
+    });
+
+    it('chapitre introuvable → 404 NotFoundException', async () => {
+      mockChapterRepo.findOne.mockResolvedValue(null);
+
+      const dto = { type: 'text' as const, content: 'test', order: 0 };
+
+      await expect(
+        memoService.createItem('inexistant-uuid', dto, STUDENT_ID, 'eleve'),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // search()
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('search()', () => {
+    it('[OK] un élève peut rechercher dans son mémo', async () => {
+      const chapters = [buildSampleChapter()];
+      const items = [buildSampleItem({ content: 'dérivée' })];
+
+      mockChapterRepo.find.mockResolvedValue(chapters);
+      mockItemRepo.find.mockResolvedValue(items);
+
+      const result = await memoService.search(STUDENT_ID, 'dérivée', STUDENT_ID, 'eleve');
+
+      expect(result).toHaveLength(1);
+    });
+
+    it('[CRITIQUE] un formateur tente de chercher dans le mémo → 403 ForbiddenException', async () => {
+      await expect(
+        memoService.search(STUDENT_ID, 'dérivée', 'formateur-uuid', 'formateur'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('requête de recherche vide → 400 BadRequestException', async () => {
+      await expect(
+        memoService.search(STUDENT_ID, '', STUDENT_ID, 'eleve'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('aucun chapitre → tableau vide', async () => {
+      mockChapterRepo.find.mockResolvedValue([]);
+
+      const result = await memoService.search(STUDENT_ID, 'dérivée', STUDENT_ID, 'eleve');
 
       expect(result).toHaveLength(0);
-    });
-  });
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // findOne()
-  // ──────────────────────────────────────────────────────────────────────────
-
-  describe('findOne()', () => {
-    it('retourne le mémo si l\'appelant en est l\'auteur', async () => {
-      const sampleMemo = buildSampleMemo();
-      mockRepository.findOne.mockResolvedValue(sampleMemo);
-
-      const result = await memoService.findOne(MEMO_ID, AUTHOR_ID, 'formateur');
-
-      expect(result.id).toBe(MEMO_ID);
-    });
-
-    it('retourne le mémo si l\'appelant est responsable_pedagogique', async () => {
-      const sampleMemo = buildSampleMemo();
-      mockRepository.findOne.mockResolvedValue(sampleMemo);
-
-      const result = await memoService.findOne(MEMO_ID, OTHER_USER_ID, 'responsable_pedagogique');
-
-      expect(result.id).toBe(MEMO_ID);
-    });
-
-    it('retourne le mémo si l\'appelant est animateur_pedagogique', async () => {
-      const sampleMemo = buildSampleMemo();
-      mockRepository.findOne.mockResolvedValue(sampleMemo);
-
-      const result = await memoService.findOne(MEMO_ID, OTHER_USER_ID, 'animateur_pedagogique');
-
-      expect(result.id).toBe(MEMO_ID);
-    });
-
-    it('retourne le mémo si l\'appelant est technicien_informatique', async () => {
-      const sampleMemo = buildSampleMemo();
-      mockRepository.findOne.mockResolvedValue(sampleMemo);
-
-      const result = await memoService.findOne(MEMO_ID, OTHER_USER_ID, 'technicien_informatique');
-
-      expect(result.id).toBe(MEMO_ID);
-    });
-
-    /**
-     * Régression #FIX-403 — ADMINISTRATEUR_FINANCIER doit pouvoir lire les mémos.
-     * Bug original : findOne() levait ForbiddenException pour ce rôle.
-     */
-    it('[#FIX-403] retourne le mémo si l\'appelant est administrateur_financier', async () => {
-      const sampleMemo = buildSampleMemo();
-      mockRepository.findOne.mockResolvedValue(sampleMemo);
-
-      const result = await memoService.findOne(MEMO_ID, OTHER_USER_ID, 'administrateur_financier');
-
-      expect(result.id).toBe(MEMO_ID);
-    });
-
-    it('lève ForbiddenException si l\'appelant est un autre formateur (non auteur)', async () => {
-      const sampleMemo = buildSampleMemo();
-      mockRepository.findOne.mockResolvedValue(sampleMemo);
-
-      await expect(
-        memoService.findOne(MEMO_ID, OTHER_USER_ID, 'formateur'),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('lève NotFoundException si le mémo n\'existe pas', async () => {
-      mockRepository.findOne.mockResolvedValue(null);
-
-      await expect(
-        memoService.findOne(MEMO_ID, AUTHOR_ID, 'formateur'),
-      ).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // remove()
-  // ──────────────────────────────────────────────────────────────────────────
-
-  describe('remove()', () => {
-    it('l\'auteur peut supprimer son mémo', async () => {
-      const sampleMemo = buildSampleMemo();
-      mockRepository.findOne.mockResolvedValue(sampleMemo);
-      mockRepository.remove.mockResolvedValue(undefined);
-
-      await expect(
-        memoService.remove(MEMO_ID, AUTHOR_ID, 'formateur'),
-      ).resolves.toBeUndefined();
-
-      expect(mockRepository.remove).toHaveBeenCalledWith(sampleMemo);
-    });
-
-    it('un RP peut supprimer n\'importe quel mémo', async () => {
-      const sampleMemo = buildSampleMemo();
-      mockRepository.findOne.mockResolvedValue(sampleMemo);
-      mockRepository.remove.mockResolvedValue(undefined);
-
-      await expect(
-        memoService.remove(MEMO_ID, OTHER_USER_ID, 'responsable_pedagogique'),
-      ).resolves.toBeUndefined();
-    });
-
-    it('un TI peut supprimer n\'importe quel mémo', async () => {
-      const sampleMemo = buildSampleMemo();
-      mockRepository.findOne.mockResolvedValue(sampleMemo);
-      mockRepository.remove.mockResolvedValue(undefined);
-
-      await expect(
-        memoService.remove(MEMO_ID, OTHER_USER_ID, 'technicien_informatique'),
-      ).resolves.toBeUndefined();
-    });
-
-    it('un AP ne peut pas supprimer le mémo d\'un autre → ForbiddenException', async () => {
-      const sampleMemo = buildSampleMemo();
-      mockRepository.findOne.mockResolvedValue(sampleMemo);
-
-      await expect(
-        memoService.remove(MEMO_ID, OTHER_USER_ID, 'animateur_pedagogique'),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('un autre formateur ne peut pas supprimer → ForbiddenException', async () => {
-      const sampleMemo = buildSampleMemo();
-      mockRepository.findOne.mockResolvedValue(sampleMemo);
-
-      await expect(
-        memoService.remove(MEMO_ID, OTHER_USER_ID, 'formateur'),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('lève NotFoundException si le mémo n\'existe pas', async () => {
-      mockRepository.findOne.mockResolvedValue(null);
-
-      await expect(
-        memoService.remove(MEMO_ID, AUTHOR_ID, 'formateur'),
-      ).rejects.toThrow(NotFoundException);
     });
   });
 });

@@ -20,7 +20,7 @@ export class NotebookService {
    * Create a notebook entry for the authenticated student.
    * PLOG-RA-001: only the student themselves can write in their notebook.
    */
-  create(
+  async create(
     studentId: string,
     dto: CreateNotebookEntryDto,
     callerId: string,
@@ -33,8 +33,10 @@ export class NotebookService {
   /**
    * Get all notebook entries for a student.
    * PLOG-FB-001 / PLOG-RA-001: only the student themselves can access their notebook.
+   * Phase 1 arbitrage conservateur: RP n'a PAS accès au carnet personnel.
+   * TI peut accéder pour résolution d'incident technique uniquement.
    */
-  findAll(studentId: string, callerId: string, callerRole: string): Promise<NotebookEntry[]> {
+  async findAll(studentId: string, callerId: string, callerRole: string): Promise<NotebookEntry[]> {
     // TI can access for technical incident resolution only
     if (callerRole === 'technicien_informatique') {
       return this.notebookEntryRepository.find({

@@ -256,37 +256,54 @@ API interne (non exposée via nginx) : `POST /internal/sync-contacts` — proté
 
 ---
 
+
 ## pedagogical-log-service
 
-### Logs (cahier de texte)
+### Cahier de texte
 
-| Méthode | Chemin | Description | Auth |
-|---|---|---|---|
-| POST | /logs | Créer un log pédagogique | 🔒 |
-| GET | /logs/student/:studentId | Logs d'un élève | 🔒 |
-| GET | /logs/session/:sessionId | Logs d'une séance | 🔒 |
-| GET | /logs/:id | Détail d'un log | 🔒 |
-| PATCH | /logs/:id | Modifier un log | 🔒 |
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| POST | /students/:studentId/pedagogical-log | Ajouter une page de cahier de texte | 🔒 | formateur, RP, AP, TI | `201 {id, studentId, authorId, authorRole, content, visibility, isSpecialPage, hiddenFromStudent, linkedResources?, ...}` · `400` validation · `403` rôle non autorisé |
+| POST | /students/:studentId/pedagogical-log/special-pages | Créer une page spéciale (RP uniquement) | 🔒 | responsable_pedagogique | `201 {id, ..., isSpecialPage: true, hiddenFromStudent, visibility: "special"}` · `403` réservé RP |
+| GET | /students/:studentId/pedagogical-log | Lire le cahier de texte d'un élève (filtré par rôle) | 🔒 | Tout rôle authentifié | `200 [PedagogicalLogPage]` — élève: hors pages hiddenFromStudent · parent: eleve_parent_formateur + special · RP/Formateur: tout |
+| GET | /logs/session/:sessionId | Logs d'une séance (filtrés par rôle) | 🔒 | Tout rôle authentifié | `200 [PedagogicalLogPage]` |
+| GET | /logs/:id | Détail d'une page | 🔒 | Selon visibilité et rôle | `200 PedagogicalLogPage` · `403` visibilité bloquée · `404` introuvable |
+| PATCH | /logs/:id | Modifier une page | 🔒 | Auteur, RP, TI | `200 PedagogicalLogPage` · `403` non auteur · `404` introuvable |
 
-### Mémos
+Règles de visibilité :
+- `eleve_parent_formateur` : élève, parent, formateur, RP, AP, TI
+- `eleve_formateur` : élève et formateur (pas le parent)
+- `formateur_rp` : formateur et RP uniquement
+- `special` : pages spéciales — RP, formateur, parent (sauf si `hiddenFromStudent=true`, l'élève ne voit pas)
 
-| Méthode | Chemin | Description | Auth |
-|---|---|---|---|
-| POST | /memos | Créer un mémo | 🔒 |
-| GET | /memos | Lister mes mémos | 🔒 |
-| GET | /memos/:id | Détail d'un mémo | 🔒 |
-| DELETE | /memos/:id | Supprimer un mémo | 🔒 |
+`hiddenFromStudent=true` : masque la page à l'élève — applicable aux pages spéciales parent/financeur (XML spec func 003).
+
+### Mémo élève (EXCLUSIVEMENT réservé à l'élève)
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /memos | Lister chapitres + items du mémo | 🔒 | eleve uniquement | `200 [MemoChapter avec items]` · `403` tout autre rôle |
+| GET | /memos/search?q= | Recherche dans le mémo | 🔒 | eleve uniquement | `200 [MemoItem]` · `400` q vide · `403` tout autre rôle |
+| POST | /memos/chapters | Créer un chapitre de mémo | 🔒 | eleve uniquement | `201 MemoChapter` · `403` formateur/RP/parent → refusé |
+| POST | /memos/chapters/:chapterId/items | Ajouter un item (texte/formule/image) | 🔒 | eleve uniquement | `201 MemoItem` · `400` image > 500 Ko · `403` autre rôle · `404` chapitre introuvable |
+
+CRITIQUE: Un formateur tente d'écrire dans le mémo → `403 ForbiddenException`. Le mémo est l'outil perso de l'élève pour ses formules et trucs essentiels (XML spec func 004, 005).
+Types d'items : `text`, `formula` (LaTeX), `image` (max 500 Ko).
 
 ### Carnet personnel (élève uniquement)
 
-| Méthode | Chemin | Description | Auth |
-|---|---|---|---|
-| POST | /students/:studentId/notebook | Créer une entrée carnet | 🔒 |
-| GET | /students/:studentId/notebook | Lister les entrées | 🔒 |
-| GET | /students/:studentId/notebook/:id | Détail d'une entrée | 🔒 |
-| PATCH | /students/:studentId/notebook/:id | Modifier une entrée | 🔒 |
-| DELETE | /students/:studentId/notebook/:id | Supprimer une entrée | 🔒 |
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| POST | /students/:studentId/notebook | Ajouter une entrée carnet | 🔒 | eleve (propriétaire) | `201 NotebookEntry` · `403` non propriétaire ou parent/RP |
+| GET | /students/:studentId/notebook | Lister les entrées carnet | 🔒 | eleve (propriétaire), TI (incident) | `200 [NotebookEntry]` · `403` parent → refusé, RP → refusé (Phase 1) |
+| GET | /students/:studentId/notebook/:id | Détail d'une entrée | 🔒 | eleve (propriétaire), TI | `200 NotebookEntry` · `403` parent/RP · `404` introuvable |
+| PATCH | /students/:studentId/notebook/:id | Modifier une entrée | 🔒 | eleve (propriétaire) uniquement | `200 NotebookEntry` · `403` · `404` |
+| DELETE | /students/:studentId/notebook/:id | Supprimer une entrée | 🔒 | eleve (propriétaire) uniquement | `204` · `403` · `404` |
 
+Arbitrage Phase 1 : RP n'a PAS accès au carnet personnel (décision conservatrice — à arbitrer en Phase 2).
+Le parent financeur ne voit JAMAIS le carnet personnel (PLOG-FB-001).
+
+---
 ---
 
 ## dashboard-notification-service

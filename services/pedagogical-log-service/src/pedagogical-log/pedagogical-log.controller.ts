@@ -21,156 +21,99 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { UserRole } from '../common/enums/user-role.enum';
 import { PedagogicalLogService } from './pedagogical-log.service';
 import { CreateLogDto } from './dto/create-log.dto';
-import { CreateSpecialPageDto } from './dto/create-special-page.dto';
 import { UpdateLogDto } from './dto/update-log.dto';
 
 /**
- * Cahier de texte — routes alignées sur le XML spec candidateApis :
+ * Routes cahier de texte (docs/routes.md)
  *
- * GET  /students/:studentId/pedagogical-log              → Lire cahier de texte autorisé
- * POST /students/:studentId/pedagogical-log              → Ajouter page cahier de texte
- * POST /students/:studentId/pedagogical-log/special-pages → Créer page spéciale (RP uniquement)
- * GET  /logs/session/:sessionId                          → Logs d'une séance (filtrés par rôle)
- * GET  /logs/:id                                         → Détail d'un log
- * PATCH /logs/:id                                        → Modifier un log (auteur ou RP/TI)
+ * POST   /logs                          → Créer un log (formateur, RP, AP)
+ * GET    /logs/student/:studentId       → Logs d'un élève (filtrés par rôle)
+ * GET    /logs/session/:sessionId       → Logs d'une séance (filtrés par rôle)
+ * GET    /logs/:id                      → Détail d'un log
+ * PATCH  /logs/:id                      → Modifier un log (auteur ou RP/TI)
  *
  * PLOG-RA-003 / PLOG-RA-004: seuls formateur, RP, AP peuvent créer.
  * PLOG-RA-001 / PLOG-RA-002: lecture filtrée par visibilité selon rôle.
- * PLOG-FB-003: formateur non lié ne doit pas écrire (délégué au profile-service).
+ * PLOG-FB-003: formateur non lié ne doit pas écrire (vérifié au niveau service métier, la liaison est déléguée au profile-service).
  */
-@ApiTags('pedagogical-log')
+@ApiTags('logs')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Controller()
+@Controller('logs')
 export class PedagogicalLogController {
   constructor(private readonly service: PedagogicalLogService) {}
 
-  /**
-   * POST /students/:studentId/pedagogical-log
-   * Formateur ou RP — ajouter une page de cahier de texte pour un élève lié.
-   */
-  @Post('students/:studentId/pedagogical-log')
+  @Post()
   @Roles(
     UserRole.FORMATEUR,
     UserRole.RESPONSABLE_PEDAGOGIQUE,
     UserRole.ANIMATEUR_PEDAGOGIQUE,
     UserRole.TECHNICIEN_INFORMATIQUE,
   )
-  @ApiParam({ name: 'studentId', description: 'UUID de l\'élève' })
   @ApiOperation({
-    summary: 'Ajouter une page de cahier de texte',
+    summary: 'Create a textbook entry',
     description:
-      'Crée une nouvelle page de cahier de texte pour l\'élève spécifié. ' +
-      'PLOG-RA-003: formateur peut écrire. PLOG-RA-004: RP peut écrire. ' +
-      'PLOG-BR-006: la visibilité contrôle qui peut lire l\'entrée. ' +
-      'Le champ hiddenFromStudent masque la page à l\'élève (XML spec func 003).',
+      'Record a pedagogical log entry after a session. ' +
+      'PLOG-RA-003: formateur can write. PLOG-RA-004: RP can write. ' +
+      'PLOG-BR-006: visibility controls who can read the entry.',
   })
-  @ApiResponse({ status: 201, description: 'Page créée' })
+  @ApiResponse({ status: 201, description: 'Log created' })
   @ApiResponse({ status: 400, description: 'Validation error' })
-  @ApiResponse({ status: 401, description: 'Non authentifié' })
-  @ApiResponse({ status: 403, description: 'Rôle non autorisé à écrire' })
-  createForStudent(
-    @Param('studentId') studentId: string,
-    @Body() dto: CreateLogDto,
-    @Req() req: any,
-  ) {
-    // Override studentId from path param (canonical source of truth)
-    return this.service.create({ ...dto, studentId }, req.user.id, req.user.role);
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — role not allowed to write' })
+  create(@Body() dto: CreateLogDto, @Req() req: any) {
+    return this.service.create(dto, req.user.id, req.user.role);
   }
 
-  /**
-   * POST /students/:studentId/pedagogical-log/special-pages
-   * RP uniquement — créer une page spéciale avec visibilité contrôlée.
-   * XML spec functionality 003: pages spéciales parent/financeur non visibles par l'élève si choisies.
-   */
-  @Post('students/:studentId/pedagogical-log/special-pages')
-  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE)
-  @ApiParam({ name: 'studentId', description: 'UUID de l\'élève' })
+  @Get('student/:studentId')
+  @ApiParam({ name: 'studentId', description: 'Student UUID' })
   @ApiOperation({
-    summary: 'Créer une page spéciale (RP uniquement)',
+    summary: 'Get logs by student',
     description:
-      'Crée une page spéciale dans le cahier de texte, avec contrôle de visibilité. ' +
-      'hiddenFromStudent=true rend la page invisible à l\'élève (ex: communication parent). ' +
-      'XML spec functionality 003.',
+      'Returns textbook entries for a student, filtered by the caller\'s role. ' +
+      'PLOG-RA-001: eleve sees allowed entries. ' +
+      'PLOG-RA-002: parent_financeur sees only eleve_parent_formateur entries. ' +
+      'PLOG-BR-008: carnet personnel entries are never returned here.',
   })
-  @ApiResponse({ status: 201, description: 'Page spéciale créée' })
-  @ApiResponse({ status: 400, description: 'Validation error' })
-  @ApiResponse({ status: 401, description: 'Non authentifié' })
-  @ApiResponse({ status: 403, description: 'Réservé au Responsable Pédagogique' })
-  createSpecialPage(
-    @Param('studentId') studentId: string,
-    @Body() dto: CreateSpecialPageDto,
-    @Req() req: any,
-  ) {
-    return this.service.createSpecialPage(studentId, dto, req.user.id, req.user.role);
-  }
-
-  /**
-   * GET /students/:studentId/pedagogical-log
-   * Lire les pages du cahier de texte, filtrées selon le rôle du demandeur.
-   */
-  @Get('students/:studentId/pedagogical-log')
-  @ApiParam({ name: 'studentId', description: 'UUID de l\'élève' })
-  @ApiOperation({
-    summary: 'Lire le cahier de texte d\'un élève',
-    description:
-      'Retourne les pages du cahier de texte, filtrées selon le rôle. ' +
-      'Élève: pages visibles pour lui (hiddenFromStudent=false). ' +
-      'Parent: pages eleve_parent_formateur et special (sauf hiddenFromStudent). ' +
-      'RP/Formateur/TI: toutes les pages. ' +
-      'PLOG-BR-008: les entrées de carnet personnel ne sont jamais retournées ici.',
-  })
-  @ApiResponse({ status: 200, description: 'Liste des pages (filtrée par visibilité)' })
-  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  @ApiResponse({ status: 200, description: 'Log list (filtered by visibility)' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   findByStudent(@Param('studentId') studentId: string, @Req() req: any) {
     return this.service.findByStudent(studentId, req.user.role);
   }
 
-  /**
-   * GET /logs/session/:sessionId
-   * Logs d'une séance, filtrés par rôle.
-   */
-  @Get('logs/session/:sessionId')
-  @ApiParam({ name: 'sessionId', description: 'UUID de la session' })
+  @Get('session/:sessionId')
+  @ApiParam({ name: 'sessionId', description: 'Session UUID' })
   @ApiOperation({
-    summary: 'Logs d\'une séance',
-    description: 'Retourne toutes les pages de cahier de texte liées à une session, filtrées par rôle.',
+    summary: 'Get logs by session',
+    description: 'Returns all logs for a given session, filtered by caller role.',
   })
-  @ApiResponse({ status: 200, description: 'Liste des pages' })
-  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  @ApiResponse({ status: 200, description: 'Log list' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   findBySession(@Param('sessionId') sessionId: string, @Req() req: any) {
     return this.service.findBySession(sessionId, req.user.role);
   }
 
-  /**
-   * GET /logs/:id
-   * Détail d'une page.
-   */
-  @Get('logs/:id')
-  @ApiParam({ name: 'id', description: 'UUID de la page' })
-  @ApiOperation({ summary: 'Détail d\'une page du cahier de texte' })
-  @ApiResponse({ status: 200, description: 'Page trouvée' })
-  @ApiResponse({ status: 401, description: 'Non authentifié' })
-  @ApiResponse({ status: 403, description: 'Visibilité non autorisée pour ce rôle' })
-  @ApiResponse({ status: 404, description: 'Page introuvable' })
+  @Get(':id')
+  @ApiParam({ name: 'id', description: 'Log UUID' })
+  @ApiOperation({ summary: 'Get a log by ID' })
+  @ApiResponse({ status: 200, description: 'Log found' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — visibility rule blocks access' })
+  @ApiResponse({ status: 404, description: 'Log not found' })
   findOne(@Param('id') id: string, @Req() req: any) {
     return this.service.findOne(id, req.user.role);
   }
 
-  /**
-   * PATCH /logs/:id
-   * Modifier une page (auteur ou RP/TI).
-   */
-  @Patch('logs/:id')
-  @ApiParam({ name: 'id', description: 'UUID de la page' })
+  @Patch(':id')
+  @ApiParam({ name: 'id', description: 'Log UUID' })
   @ApiOperation({
-    summary: 'Modifier une page du cahier de texte',
-    description: 'Seuls l\'auteur original, un RP ou un TI peuvent modifier une page.',
+    summary: 'Update a log entry',
+    description: 'Only the original author, a RP, or a TI can update a log entry.',
   })
-  @ApiResponse({ status: 200, description: 'Page modifiée' })
-  @ApiResponse({ status: 401, description: 'Non authentifié' })
-  @ApiResponse({ status: 403, description: 'Non autorisé (pas l\'auteur)' })
-  @ApiResponse({ status: 404, description: 'Page introuvable' })
+  @ApiResponse({ status: 200, description: 'Log updated' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — not the author' })
+  @ApiResponse({ status: 404, description: 'Log not found' })
   update(@Param('id') id: string, @Body() dto: UpdateLogDto, @Req() req: any) {
     return this.service.update(id, dto, req.user.id, req.user.role);
   }

@@ -17,9 +17,6 @@ import {
 import { VideoSessionService } from './video-session.service';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { RecordAttendanceDto } from './dto/record-attendance.dto';
-import { DeclareRecordingDto } from './dto/declare-recording.dto';
-import { AddCommentDto } from './dto/add-comment.dto';
-import { PublishSummaryDto } from './dto/publish-summary.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtPayload } from '../common/guards/jwt-auth.guard';
@@ -144,118 +141,5 @@ export class VideoSessionController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.service.end(roomId, user.sub, user.role);
-  }
-
-  // ─── Recordings ─────────────────────────────────────────────────────────────
-
-  /**
-   * POST /video/rooms/:roomId/recordings — Declare a recording for an ended session.
-   * VID-AC-001: expires 30 days after creation; parent_financeur is blocked.
-   */
-  @Post('rooms/:roomId/recordings')
-  @ApiParam({ name: 'roomId', description: 'Room UUID' })
-  @ApiOperation({
-    summary: 'Declare a recording',
-    description:
-      'Declares that a recording is available for an ended session. ' +
-      'The recording expires automatically 30 days after declaration. ' +
-      'Only formateur, RP, AP and TI may declare recordings (VID-AC-001).',
-  })
-  @ApiResponse({ status: 201, description: 'Recording declared with expiry date' })
-  @ApiResponse({ status: 400, description: 'Room is not ended' })
-  @ApiResponse({ status: 401, description: 'Unauthenticated' })
-  @ApiResponse({ status: 403, description: 'Insufficient role' })
-  @ApiResponse({ status: 404, description: 'Room not found' })
-  declareRecording(
-    @Param('roomId', ParseUUIDPipe) roomId: string,
-    @Body() dto: DeclareRecordingDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.service.declareRecording(roomId, dto, user.sub, user.role);
-  }
-
-  /**
-   * GET /video/rooms/:roomId/recordings — List recordings visible to the user.
-   * VID-FB-001: parent_financeur is blocked.
-   */
-  @Get('rooms/:roomId/recordings')
-  @ApiParam({ name: 'roomId', description: 'Room UUID' })
-  @ApiOperation({
-    summary: 'List recordings',
-    description:
-      'Returns all recordings declared for a room. ' +
-      'Parent financeurs are explicitly denied (VID-FB-001). ' +
-      'Formateurs and staff see all recordings including expired ones.',
-  })
-  @ApiResponse({ status: 200, description: 'List of recordings' })
-  @ApiResponse({ status: 401, description: 'Unauthenticated' })
-  @ApiResponse({ status: 403, description: 'Role not allowed to view recordings' })
-  @ApiResponse({ status: 404, description: 'Room not found' })
-  listRecordings(
-    @Param('roomId', ParseUUIDPipe) roomId: string,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.service.listRecordings(roomId, user.sub, user.role);
-  }
-
-  /**
-   * POST /video/rooms/:roomId/summary — Publish a course summary.
-   * VID-AC-002: summaries are permanent and survive video expiry.
-   */
-  @Post('rooms/:roomId/summary')
-  @ApiParam({ name: 'roomId', description: 'Room UUID' })
-  @ApiOperation({
-    summary: 'Publish a course summary',
-    description:
-      'Publishes a pedagogical summary for a completed session. ' +
-      'The summary is permanent (isPermanent: true) and survives recording expiry. ' +
-      'Only formateur, RP and AP may publish summaries (VID-AC-002).',
-  })
-  @ApiResponse({ status: 201, description: 'Course summary published' })
-  @ApiResponse({ status: 401, description: 'Unauthenticated' })
-  @ApiResponse({ status: 403, description: 'Insufficient role' })
-  @ApiResponse({ status: 404, description: 'Room not found' })
-  publishSummary(
-    @Param('roomId', ParseUUIDPipe) roomId: string,
-    @Body() dto: PublishSummaryDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.service.publishSummary(roomId, dto, user.sub, user.role);
-  }
-}
-
-// ─── Recording comments controller ───────────────────────────────────────────
-
-@ApiTags('recordings')
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
-@Controller('recordings')
-export class RecordingCommentsController {
-  constructor(private readonly service: VideoSessionService) {}
-
-  /**
-   * POST /recordings/:recordingId/comments — Add a timestamped comment.
-   * VID-FB-001: parent_financeur is blocked.
-   */
-  @Post(':recordingId/comments')
-  @ApiParam({ name: 'recordingId', description: 'Recording UUID' })
-  @ApiOperation({
-    summary: 'Add a timestamped comment on a recording',
-    description:
-      'Adds a comment at a specific position in the recording (seconds). ' +
-      'Parent financeurs are blocked (VID-FB-001). ' +
-      'Students may only comment on non-expired recordings.',
-  })
-  @ApiResponse({ status: 201, description: 'Comment added' })
-  @ApiResponse({ status: 400, description: 'Recording has expired (for restricted roles)' })
-  @ApiResponse({ status: 401, description: 'Unauthenticated' })
-  @ApiResponse({ status: 403, description: 'Role not allowed' })
-  @ApiResponse({ status: 404, description: 'Recording not found' })
-  addComment(
-    @Param('recordingId', ParseUUIDPipe) recordingId: string,
-    @Body() dto: AddCommentDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.service.addComment(recordingId, dto, user.sub, user.role);
   }
 }

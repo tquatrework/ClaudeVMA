@@ -4,7 +4,6 @@ export enum ProposalStatus {
   PENDING = 'pending',
   ACCEPTED = 'accepted',
   DECLINED = 'declined',
-  CHOSEN = 'chosen',
 }
 
 @Entity('teacher_proposals')

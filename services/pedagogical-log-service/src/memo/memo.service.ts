@@ -1,144 +1,57 @@
-import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like } from 'typeorm';
-import { MemoChapter } from './entities/memo-chapter.entity';
-import { MemoItem } from './entities/memo-item.entity';
-import { CreateMemoChapterDto } from './dto/create-memo-chapter.dto';
-import { CreateMemoItemDto, IMAGE_SIZE_LIMIT_KB } from './dto/create-memo-item.dto';
+import { Repository } from 'typeorm';
+import { Memo } from './entities/memo.entity';
+import { CreateMemoDto } from './dto/create-memo.dto';
 
-/**
- * MemoService — outil mémo EXCLUSIVEMENT réservé à l'élève.
- *
- * CRITIQUE XML spec: "Seul l'élève peut écrire dans son mémo."
- * Un formateur tente d'écrire → ForbiddenException.
- * XML spec functionality 004, 005.
- */
 @Injectable()
 export class MemoService {
   constructor(
-    @InjectRepository(MemoChapter)
-    private readonly memoChapterRepository: Repository<MemoChapter>,
-    @InjectRepository(MemoItem)
-    private readonly memoItemRepository: Repository<MemoItem>,
+    @InjectRepository(Memo)
+    private readonly memoRepository: Repository<Memo>,
   ) {}
 
-  /**
-   * Créer un chapitre de mémo — ÉLÈVE UNIQUEMENT.
-   * XML spec: "chapitres libres créés par l'élève".
-   */
-  async createChapter(
-    studentId: string,
-    dto: CreateMemoChapterDto,
-    callerId: string,
-    callerRole: string,
-  ): Promise<MemoChapter> {
-    this.assertIsEleve(callerId, studentId, callerRole);
-    const chapter = this.memoChapterRepository.create({
-      studentId,
-      title: dto.title,
-      order: dto.order ?? 0,
-    });
-    return this.memoChapterRepository.save(chapter);
+  create(dto: CreateMemoDto, authorId: string, authorRole: string): Promise<Memo> {
+    const memo = this.memoRepository.create({ ...dto, authorId, authorRole });
+    return this.memoRepository.save(memo);
   }
 
-  /**
-   * Lister les chapitres et items du mémo — ÉLÈVE UNIQUEMENT.
-   * XML spec: "GET /memos — liste des chapitres + items de l'élève courant (élève uniquement)".
-   */
-  async findChapters(studentId: string, callerId: string, callerRole: string): Promise<MemoChapter[]> {
-    this.assertIsEleve(callerId, studentId, callerRole);
-    return this.memoChapterRepository.find({
-      where: { studentId },
-      relations: ['items'],
-      order: { order: 'ASC', createdAt: 'ASC' },
-    });
-  }
-
-  /**
-   * Ajouter un item dans un chapitre — ÉLÈVE UNIQUEMENT.
-   * XML spec functionality 004: listes d'items courts, formules mathématiques et images limitées.
-   */
-  async createItem(
-    chapterId: string,
-    dto: CreateMemoItemDto,
-    callerId: string,
-    callerRole: string,
-  ): Promise<MemoItem> {
-    const chapter = await this.memoChapterRepository.findOne({ where: { id: chapterId } });
-    if (!chapter) throw new NotFoundException(`Chapitre de mémo ${chapterId} introuvable`);
-
-    this.assertIsEleve(callerId, chapter.studentId, callerRole);
-
-    if (dto.type === 'image' && dto.sizeKb !== undefined && dto.sizeKb > IMAGE_SIZE_LIMIT_KB) {
-      throw new BadRequestException(
-        `La taille de l'image dépasse la limite autorisée (${IMAGE_SIZE_LIMIT_KB} Ko)`,
-      );
-    }
-
-    const item = this.memoItemRepository.create({
-      chapterId,
-      type: dto.type,
-      content: dto.content,
-      sizeKb: dto.sizeKb,
-      order: dto.order ?? 0,
-    });
-    return this.memoItemRepository.save(item);
-  }
-
-  /**
-   * Recherche textuelle dans les items du mémo — ÉLÈVE UNIQUEMENT.
-   * XML spec functionality 005: "Recherche dans le memo".
-   */
-  async search(
-    studentId: string,
-    query: string,
-    callerId: string,
-    callerRole: string,
-  ): Promise<MemoItem[]> {
-    this.assertIsEleve(callerId, studentId, callerRole);
-
-    if (!query || query.trim().length === 0) {
-      throw new BadRequestException('Le paramètre de recherche q ne peut pas être vide');
-    }
-
-    // Récupérer les chapitres de l'élève pour filtrer par studentId
-    const chapters = await this.memoChapterRepository.find({ where: { studentId } });
-    if (chapters.length === 0) return [];
-
-    const chapterIds = chapters.map((chapter) => chapter.id);
-
-    // Recherche textuelle sur le contenu des items
-    const allItems = await this.memoItemRepository.find({
-      where: chapterIds.map((chapterId) => ({
-        chapterId,
-        content: Like(`%${query.trim()}%`),
-      })),
-      relations: ['chapter'],
+  findByAuthor(authorId: string): Promise<Memo[]> {
+    return this.memoRepository.find({
+      where: { authorId },
       order: { createdAt: 'DESC' },
     });
-
-    return allItems;
   }
 
-  /**
-   * Vérifie que l'appelant est l'élève propriétaire.
-   * CRITIQUE: seul le rôle 'eleve' peut écrire dans le mémo — 403 pour tout autre rôle.
-   */
-  private assertIsEleve(callerId: string, studentId: string, callerRole: string): void {
-    if (callerRole !== 'eleve') {
-      throw new ForbiddenException(
-        'Le mémo est réservé à l\'élève uniquement — aucun autre rôle ne peut y écrire (XML spec)',
-      );
+  async findOne(id: string, callerId: string, callerRole: string): Promise<Memo> {
+    const memo = await this.memoRepository.findOne({ where: { id } });
+    if (!memo) throw new NotFoundException(`Memo ${id} not found`);
+
+    const canRead =
+      memo.authorId === callerId ||
+      callerRole === 'responsable_pedagogique' ||
+      callerRole === 'animateur_pedagogique' ||
+      callerRole === 'technicien_informatique' ||
+      callerRole === 'administrateur_financier';
+
+    if (!canRead) {
+      throw new ForbiddenException('Access to this memo is not allowed');
     }
-    if (callerId !== studentId) {
-      throw new ForbiddenException(
-        'Vous ne pouvez accéder qu\'à votre propre mémo',
-      );
+    return memo;
+  }
+
+  async remove(id: string, callerId: string, callerRole: string): Promise<void> {
+    const memo = await this.memoRepository.findOne({ where: { id } });
+    if (!memo) throw new NotFoundException(`Memo ${id} not found`);
+
+    const canDelete =
+      memo.authorId === callerId ||
+      callerRole === 'responsable_pedagogique' ||
+      callerRole === 'technicien_informatique';
+
+    if (!canDelete) {
+      throw new ForbiddenException('Only the author or a RP/TI can delete a memo');
     }
+    await this.memoRepository.remove(memo);
   }
 }

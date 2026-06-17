@@ -2,25 +2,15 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { VideoSessionController, RecordingCommentsController } from './video-session.controller';
+import { VideoSessionController } from './video-session.controller';
 import { VideoSessionService } from './video-session.service';
 import { VideoRoom } from './entities/video-room.entity';
 import { VideoAccessToken } from './entities/video-access-token.entity';
 import { AttendanceRecord } from './entities/attendance-record.entity';
-import { VideoRecording } from './entities/video-recording.entity';
-import { RecordingComment } from './entities/recording-comment.entity';
-import { CourseSummary } from './entities/course-summary.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      VideoRoom,
-      VideoAccessToken,
-      AttendanceRecord,
-      VideoRecording,
-      RecordingComment,
-      CourseSummary,
-    ]),
+    TypeOrmModule.forFeature([VideoRoom, VideoAccessToken, AttendanceRecord]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({
@@ -30,7 +20,7 @@ import { CourseSummary } from './entities/course-summary.entity';
       inject: [ConfigService],
     }),
   ],
-  controllers: [VideoSessionController, RecordingCommentsController],
+  controllers: [VideoSessionController],
   providers: [VideoSessionService],
   exports: [VideoSessionService],
 })

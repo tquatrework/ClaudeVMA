@@ -238,36 +238,6 @@ describe('MessagesPage', () => {
     })
   })
 
-  // Spec 4 — Phase 8: si l'envoi retourne 413, afficher un message d'erreur d'attachement
-  it('message send supports text and small attachment error state — shows 413 attachment error', async () => {
-    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
-      if (url === '/conversations') return Promise.resolve({ data: SAMPLE_CONVERSATIONS })
-      if (url === '/messages/conversation/conv-1') return Promise.resolve({ data: [] })
-      return Promise.resolve({ data: [] })
-    })
-    mockApiClient.patch = vi.fn().mockResolvedValue({ data: {} })
-    mockApiClient.post = vi.fn().mockRejectedValue({ response: { status: 413 } })
-
-    renderMessages()
-
-    await waitFor(() => {
-      screen.getByText('prof@test.com')
-    })
-
-    await userEvent.click(screen.getByText('prof@test.com'))
-
-    await waitFor(() => {
-      screen.getByPlaceholderText('Votre message…')
-    })
-
-    await userEvent.type(screen.getByPlaceholderText('Votre message…'), 'Message avec pièce jointe')
-    await userEvent.click(screen.getByRole('button', { name: /envoyer/i }))
-
-    await waitFor(() => {
-      expect(screen.getByText(/pièce jointe est trop volumineuse/i)).toBeDefined()
-    })
-  })
-
   it('creates a new conversation via POST /conversations', async () => {
     const newConversation = {
       id: 'conv-new',
@@ -301,6 +271,35 @@ describe('MessagesPage', () => {
       expect(mockApiClient.post).toHaveBeenCalledWith('/conversations', {
         participantId: 'contact-uuid-123',
       })
+    })
+  })
+
+  it('message send supports text and small attachment error state — shows 413 attachment error', async () => {
+    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
+      if (url === '/conversations') return Promise.resolve({ data: SAMPLE_CONVERSATIONS })
+      if (url === '/messages/conversation/conv-1') return Promise.resolve({ data: [] })
+      return Promise.resolve({ data: [] })
+    })
+    mockApiClient.patch = vi.fn().mockResolvedValue({ data: {} })
+    mockApiClient.post = vi.fn().mockRejectedValue({ response: { status: 413 } })
+
+    renderMessages()
+
+    await waitFor(() => {
+      screen.getByText('prof@test.com')
+    })
+
+    await userEvent.click(screen.getByText('prof@test.com'))
+
+    await waitFor(() => {
+      screen.getByPlaceholderText('Votre message…')
+    })
+
+    await userEvent.type(screen.getByPlaceholderText('Votre message…'), 'Message avec pièce jointe')
+    await userEvent.click(screen.getByRole('button', { name: /envoyer/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/pièce jointe est trop volumineuse/i)).toBeDefined()
     })
   })
 })

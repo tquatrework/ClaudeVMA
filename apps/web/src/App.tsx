@@ -12,11 +12,9 @@ import ProfilePage from './pages/ProfilePage'
 import ProfileEditPage from './pages/ProfileEditPage'
 import TeacherRequestsPage from './pages/TeacherRequestsPage'
 import TeacherRequestDetailPage from './pages/TeacherRequestDetailPage'
-import TeacherRequestPage from './pages/TeacherRequestPage'
 import CalendarPage from './pages/CalendarPage'
 import ActivityDetailPage from './pages/ActivityDetailPage'
 import VideoPage from './pages/VideoPage'
-import VideoJoinPage from './pages/VideoJoinPage'
 import MessagesPage from './pages/MessagesPage'
 import PedagogicalLogPage from './pages/PedagogicalLogPage'
 import NotebookPage from './pages/NotebookPage'
@@ -95,15 +93,6 @@ export default function App() {
             path="/teacher-requests"
             element={
               <ProtectedRoute>
-                <TeacherRequestPage />
-              </ProtectedRoute>
-            }
-          />
-          {/* Legacy list page — kept for backwards compatibility */}
-          <Route
-            path="/teacher-requests/list"
-            element={
-              <ProtectedRoute>
                 <TeacherRequestsPage />
               </ProtectedRoute>
             }
@@ -149,14 +138,6 @@ export default function App() {
             }
           />
           <Route
-            path="/video-join/:roomId"
-            element={
-              <ProtectedRoute>
-                <VideoJoinPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
             path="/messages"
             element={
               <ProtectedRoute>
@@ -173,12 +154,11 @@ export default function App() {
             }
           />
 
-          {/* Notebook — élève propriétaire + TI (pour incidents). RP interdit en Phase 1.
-              La page elle-même renforce le contrôle d'accès (PLOG-FB-001). */}
+          {/* Notebook — student-only: the page itself enforces the role check */}
           <Route
             path="/notebook/:studentId"
             element={
-              <ProtectedRoute allowedRoles={['eleve', 'technicien_informatique']}>
+              <ProtectedRoute allowedRoles={['eleve', 'responsable_pedagogique', 'technicien_informatique']}>
                 <NotebookPage />
               </ProtectedRoute>
             }
@@ -207,16 +187,6 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <IncidentDetailPage />
-              </ProtectedRoute>
-            }
-          />
-
-          {/* Contacts */}
-          <Route
-            path="/contacts"
-            element={
-              <ProtectedRoute>
-                <ContactsPage />
               </ProtectedRoute>
             }
           />
@@ -272,6 +242,16 @@ export default function App() {
                 ]}
               >
                 <DelegationsPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Contacts */}
+          <Route
+            path="/contacts"
+            element={
+              <ProtectedRoute>
+                <ContactsPage />
               </ProtectedRoute>
             }
           />

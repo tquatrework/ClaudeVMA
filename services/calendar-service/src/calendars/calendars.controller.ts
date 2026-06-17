@@ -55,32 +55,6 @@ export class CalendarsController {
     );
   }
 
-  @Get(':ownerId/availability')
-  @ApiParam({ name: 'ownerId', description: 'User ID whose availability to read' })
-  @ApiHeader({ name: 'x-correlation-id', required: false })
-  @ApiOperation({
-    summary: 'Read availability slots',
-    description:
-      'Returns the availability slots for a user. ' +
-      'CAL-FB-001: requester must be the owner or hold an internal role (RP, AP, TI, FINANCE_ADMIN).',
-  })
-  @ApiResponse({ status: 200, description: 'Availability slots returned' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden — CAL-FB-001' })
-  async getAvailability(
-    @Param('ownerId') ownerId: string,
-    @Req() req: any,
-    @Headers('x-correlation-id') correlationId?: string,
-  ) {
-    const calendar = await this.calendarsService.getCalendar(
-      ownerId,
-      req.user.id,
-      req.user.role,
-      correlationId,
-    );
-    return { ownerId, availabilitySlots: calendar.availabilitySlots ?? [] };
-  }
-
   @Put(':ownerId/availability')
   @ApiParam({ name: 'ownerId', description: 'User ID whose availability to update' })
   @ApiHeader({ name: 'x-correlation-id', required: false })

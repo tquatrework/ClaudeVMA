@@ -1,23 +1,12 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
-
 export enum RequestStatus {
   PENDING = 'pending',
   ACCEPTED = 'accepted',
   DECLINED = 'declined',
   REDIRECTED = 'redirected',
-  CANDIDATES_SELECTED = 'candidates_selected',
-  /** RP has published a shortlist of accepted candidates to the student/financeur */
-  CANDIDATES_PUBLISHED = 'candidates_published',
-  CANDIDATE_CHOSEN = 'candidate_chosen',
   ASSIGNED = 'assigned',
   CANCELLED = 'cancelled',
-  CLOSED = 'closed',
-}
-
-export enum RequestType {
-  SPECIFIC = 'specific',
-  PP_CHANGE = 'pp_change',
 }
 
 @Entity('teacher_requests')
@@ -45,18 +34,6 @@ export class TeacherRequest {
 
   @Column({ type: 'text', nullable: true })
   message: string;
-
-  @Column({ type: 'varchar', default: RequestType.SPECIFIC })
-  type: RequestType;
-
-  @Column({ name: 'current_pp_teacher_id', nullable: true })
-  currentPpTeacherId: string;
-
-  @Column({ name: 'chosen_teacher_id', nullable: true })
-  chosenTeacherId: string;
-
-  @Column({ name: 'selected_teacher_ids', type: 'simple-array', nullable: true })
-  selectedTeacherIds: string[];
 
   @Column({ type: 'varchar', default: RequestStatus.PENDING })
   status: RequestStatus;

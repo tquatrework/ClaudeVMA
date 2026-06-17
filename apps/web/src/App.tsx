@@ -33,6 +33,11 @@ import AccountManagementPage from './pages/AccountManagementPage'
 import DelegationsPage from './pages/DelegationsPage'
 import ProfileVisibilitySettingsPage from './pages/ProfileVisibilitySettingsPage'
 import ContactsPage from './pages/ContactsPage'
+import FinancialProfilePage from './pages/FinancialProfilePage'
+import AfFinanceDashboardPage from './pages/AfFinanceDashboardPage'
+import TeacherPaymentRequestPage from './pages/TeacherPaymentRequestPage'
+import LegalDocumentsPage from './pages/LegalDocumentsPage'
+import LegalTemplateAdminPage from './pages/LegalTemplateAdminPage'
 
 export default function App() {
   return (
@@ -252,6 +257,66 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <ContactsPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ── Phase 9 — Finance ───────────────────────────────── */}
+          <Route
+            path="/finance/:ownerId"
+            element={
+              <ProtectedRoute>
+                <FinancialProfilePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/finance"
+            element={
+              <ProtectedRoute>
+                <FinancialProfilePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/finance"
+            element={
+              <ProtectedRoute allowedRoles={['administrateur_financier']}>
+                <AfFinanceDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/teacher-payment-requests"
+            element={
+              <ProtectedRoute allowedRoles={['formateur', 'administrateur_financier']}>
+                <TeacherPaymentRequestPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ── Phase 10 — Documents légaux ─────────────────────── */}
+          <Route
+            path="/legal/:ownerId"
+            element={
+              <ProtectedRoute>
+                <LegalDocumentsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/legal"
+            element={
+              <ProtectedRoute>
+                <LegalDocumentsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/legal/templates"
+            element={
+              <ProtectedRoute allowedRoles={['administrateur_financier']}>
+                <LegalTemplateAdminPage />
               </ProtectedRoute>
             }
           />

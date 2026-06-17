@@ -1,0 +1,4 @@
+export enum DocumentType {
+  MANDAT_CLIENT = 'MANDAT_CLIENT',
+  CONTRAT_FORMATEUR = 'CONTRAT_FORMATEUR',
+}

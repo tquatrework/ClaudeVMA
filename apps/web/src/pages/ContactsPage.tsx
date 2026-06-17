@@ -1,0 +1,285 @@
+import React, { useEffect, useState } from 'react'
+import Layout from '../components/Layout'
+import {
+  fetchContacts,
+  activateContact,
+  deleteContact,
+  updateContactVisibility,
+  type Contact,
+  type ContactVisibility,
+} from '../api/communication'
+
+export default function ContactsPage() {
+  const [contactList, setContactList] = useState<Contact[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [pendingActionIds, setPendingActionIds] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    fetchContacts()
+      .then((contacts) => setContactList(contacts))
+      .catch(() => setErrorMessage('Impossible de charger les contacts'))
+      .finally(() => setIsLoading(false))
+  }, [])
+
+  const markContactAsPending = (contactId: string) => {
+    setPendingActionIds((prev) => new Set(prev).add(contactId))
+  }
+
+  const unmarkContactAsPending = (contactId: string) => {
+    setPendingActionIds((prev) => {
+      const updated = new Set(prev)
+      updated.delete(contactId)
+      return updated
+    })
+  }
+
+  const handleActivateContact = async (contactId: string) => {
+    markContactAsPending(contactId)
+    try {
+      const activatedContact = await activateContact(contactId)
+      setContactList((prev) =>
+        prev.map((contact) => (contact.id === contactId ? activatedContact : contact)),
+      )
+    } catch {
+      setErrorMessage("Impossible d'activer ce contact")
+    } finally {
+      unmarkContactAsPending(contactId)
+    }
+  }
+
+  const handleDeleteContact = async (contactId: string) => {
+    markContactAsPending(contactId)
+    try {
+      await deleteContact(contactId)
+      setContactList((prev) => prev.filter((contact) => contact.id !== contactId))
+    } catch {
+      setErrorMessage('Impossible de supprimer ce contact')
+    } finally {
+      unmarkContactAsPending(contactId)
+    }
+  }
+
+  const handleVisibilityChange = async (contactId: string, newVisibility: ContactVisibility) => {
+    markContactAsPending(contactId)
+    try {
+      const updatedContact = await updateContactVisibility(contactId, {
+        visibility: newVisibility,
+      })
+      setContactList((prev) =>
+        prev.map((contact) => (contact.id === contactId ? updatedContact : contact)),
+      )
+    } catch {
+      setErrorMessage('Impossible de mettre à jour la visibilité')
+    } finally {
+      unmarkContactAsPending(contactId)
+    }
+  }
+
+  const mandatoryContacts = contactList.filter((contact) => contact.mandatory)
+  const precontacts = contactList.filter(
+    (contact) => !contact.mandatory && contact.status === 'precontact',
+  )
+  const activeOptionalContacts = contactList.filter(
+    (contact) => !contact.mandatory && contact.status === 'active',
+  )
+
+  return (
+    <Layout>
+      <div className="max-w-3xl">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-gray-900">Contacts autorisés</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Gérez vos contacts de messagerie. Les contacts obligatoires ne peuvent pas être
+            supprimés.
+          </p>
+        </div>
+
+        {errorMessage && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center justify-between">
+            <span>{errorMessage}</span>
+            <button
+              onClick={() => setErrorMessage(null)}
+              className="text-red-400 hover:text-red-600 ml-3"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {isLoading && (
+          <div className="py-8 text-center text-gray-400 text-sm">Chargement des contacts…</div>
+        )}
+
+        {!isLoading && contactList.length === 0 && (
+          <div className="py-8 text-center text-gray-400 text-sm">Aucun contact disponible</div>
+        )}
+
+        {!isLoading && contactList.length > 0 && (
+          <div className="space-y-6">
+            {/* Contacts obligatoires */}
+            {mandatoryContacts.length > 0 && (
+              <section>
+                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                  Contacts obligatoires
+                </h2>
+                <ul className="space-y-2">
+                  {mandatoryContacts.map((contact) => (
+                    <ContactRow
+                      key={contact.id}
+                      contact={contact}
+                      isPending={pendingActionIds.has(contact.id)}
+                      onActivate={handleActivateContact}
+                      onDelete={handleDeleteContact}
+                      onVisibilityChange={handleVisibilityChange}
+                    />
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {/* Précontacts */}
+            {precontacts.length > 0 && (
+              <section>
+                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                  Précontacts (en attente d'activation)
+                </h2>
+                <ul className="space-y-2">
+                  {precontacts.map((contact) => (
+                    <ContactRow
+                      key={contact.id}
+                      contact={contact}
+                      isPending={pendingActionIds.has(contact.id)}
+                      onActivate={handleActivateContact}
+                      onDelete={handleDeleteContact}
+                      onVisibilityChange={handleVisibilityChange}
+                    />
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {/* Contacts actifs optionnels */}
+            {activeOptionalContacts.length > 0 && (
+              <section>
+                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                  Contacts actifs
+                </h2>
+                <ul className="space-y-2">
+                  {activeOptionalContacts.map((contact) => (
+                    <ContactRow
+                      key={contact.id}
+                      contact={contact}
+                      isPending={pendingActionIds.has(contact.id)}
+                      onActivate={handleActivateContact}
+                      onDelete={handleDeleteContact}
+                      onVisibilityChange={handleVisibilityChange}
+                    />
+                  ))}
+                </ul>
+              </section>
+            )}
+          </div>
+        )}
+      </div>
+    </Layout>
+  )
+}
+
+// ─── Sous-composant ContactRow ─────────────────────────────────────────────────
+
+interface ContactRowProps {
+  contact: Contact
+  isPending: boolean
+  onActivate: (contactId: string) => Promise<void>
+  onDelete: (contactId: string) => Promise<void>
+  onVisibilityChange: (contactId: string, visibility: ContactVisibility) => Promise<void>
+}
+
+function ContactRow({
+  contact,
+  isPending,
+  onActivate,
+  onDelete,
+  onVisibilityChange,
+}: ContactRowProps) {
+  const displayLabel =
+    contact.displayName ?? contact.email ?? `Contact ${contact.id.slice(0, 8)}…`
+
+  return (
+    <li className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      {/* Identité du contact */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium text-gray-900 text-sm truncate">{displayLabel}</span>
+          {contact.role && (
+            <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
+              {contact.role}
+            </span>
+          )}
+          {contact.mandatory && (
+            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+              Obligatoire
+            </span>
+          )}
+          {contact.status === 'precontact' && (
+            <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">
+              Précontact
+            </span>
+          )}
+        </div>
+        {contact.email && contact.displayName && (
+          <p className="text-xs text-gray-500 mt-0.5">{contact.email}</p>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-3 flex-shrink-0">
+        {/* Sélecteur de visibilité (ContactVisibilitySettings inline) */}
+        <div className="flex items-center gap-2">
+          <label
+            htmlFor={`visibility-${contact.id}`}
+            className="text-xs text-gray-500 whitespace-nowrap"
+          >
+            Visibilité
+          </label>
+          <select
+            id={`visibility-${contact.id}`}
+            value={contact.visibility ?? 'visible'}
+            onChange={(e) =>
+              onVisibilityChange(contact.id, e.target.value as ContactVisibility)
+            }
+            disabled={isPending}
+            className="text-xs border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-50"
+            aria-label={`Visibilité de ${displayLabel}`}
+          >
+            <option value="visible">Visible</option>
+            <option value="hidden">Masqué</option>
+          </select>
+        </div>
+
+        {/* Bouton Activer (précontacts uniquement) */}
+        {contact.status === 'precontact' && (
+          <button
+            onClick={() => onActivate(contact.id)}
+            disabled={isPending}
+            className="text-xs bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50 whitespace-nowrap"
+          >
+            {isPending ? '…' : 'Activer'}
+          </button>
+        )}
+
+        {/* Bouton Supprimer (contacts actifs non obligatoires uniquement) */}
+        {!contact.mandatory && contact.status === 'active' && (
+          <button
+            onClick={() => onDelete(contact.id)}
+            disabled={isPending}
+            className="text-xs bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-100 disabled:opacity-50 whitespace-nowrap"
+          >
+            {isPending ? '…' : 'Supprimer'}
+          </button>
+        )}
+      </div>
+    </li>
+  )
+}

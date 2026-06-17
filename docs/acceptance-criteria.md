@@ -172,23 +172,23 @@
 ## communication-service
 
 ### Envoi de message
-- [ ] COM-BR-001 — POST /messages avec body valide envoie un message entre deux contacts autorisés (→ 201)
-- [ ] COM-BR-002 — POST /messages sans token retourne 401
-- [ ] COM-BR-003 — POST /messages avec un destinataire non autorisé (hors contacts métier liés) retourne 403
-- [ ] COM-BR-004 — POST /messages sans body requis retourne 400
+- [x] COM-BR-001 — POST /messages avec body valide envoie un message entre deux contacts autorisés (→ 201)
+- [x] COM-BR-002 — POST /messages sans token retourne 401
+- [x] COM-BR-003 — POST /messages avec un destinataire non autorisé (hors contacts métier liés) retourne 403
+- [x] COM-BR-004 — POST /messages sans body requis retourne 400
 
 ### Lecture des conversations
-- [ ] COM-BR-005 — GET /messages/conversation/:id retourne la liste des messages d'une conversation (→ 200)
-- [ ] COM-BR-006 — GET /messages/conversation/:id pour une conversation à laquelle l'appelant n'appartient pas retourne 403
-- [ ] COM-BR-007 — GET /messages/conversation/:id sur une conversation inexistante retourne 404
+- [x] COM-BR-005 — GET /messages/conversation/:id retourne la liste des messages d'une conversation (→ 200)
+- [x] COM-BR-006 — GET /messages/conversation/:id pour une conversation à laquelle l'appelant n'appartient pas retourne 403
+- [x] COM-BR-007 — GET /messages/conversation/:id sur une conversation inexistante retourne 404
 
 ### Marquage comme lu
-- [ ] COM-BR-008 — PATCH /messages/:id/read marque un message comme lu (→ 200)
-- [ ] COM-BR-009 — PATCH /messages/:id/read sur un message inexistant retourne 404
+- [x] COM-BR-008 — PATCH /messages/:id/read marque un message comme lu (→ 200)
+- [x] COM-BR-009 — PATCH /messages/:id/read sur un message inexistant retourne 404
 
 ### Contacts autorisés
-- [ ] COM-RA-001 — Un élève ne peut envoyer de message qu'aux contacts issus de ses relations métier (formateur lié, parent lié, RP) ; un contact non lié retourne 403
-- [ ] COM-RA-002 — Un parent ne peut envoyer de message qu'aux contacts associés à ses élèves (formateur, RP) ; un formateur non lié retourne 403
+- [x] COM-RA-001 — Un élève ne peut envoyer de message qu'aux contacts issus de ses relations métier (formateur lié, parent lié, RP) ; un contact non lié retourne 403
+- [x] COM-RA-002 — Un parent ne peut envoyer de message qu'aux contacts associés à ses élèves (formateur, RP) ; un formateur non lié retourne 403
 
 ---
 

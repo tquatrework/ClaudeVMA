@@ -125,6 +125,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 </Link>
               )}
 
+              {!hasRole('technicien_informatique', 'administrateur_financier') && (
+                <Link to="/archives" className={navLinkClass('/archives')}>
+                  Archives
+                </Link>
+              )}
+
               {hasRole('administrateur_financier') && (
                 <Link to="/admin/finance" className={navLinkClass('/admin/finance')}>
                   Espace AF
@@ -204,6 +210,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             )}
             {(hasRole('eleve', 'parent_financeur', 'formateur') || hasRole('administrateur_financier')) && (
               <MobileNavLink to="/legal" label="Documents légaux" onClick={() => setIsMobileMenuOpen(false)} />
+            )}
+            {!hasRole('technicien_informatique', 'administrateur_financier') && (
+              <MobileNavLink to="/archives" label="Archives" onClick={() => setIsMobileMenuOpen(false)} />
             )}
             {hasRole('administrateur_financier') && (
               <MobileNavLink to="/admin/finance" label="Espace AF" onClick={() => setIsMobileMenuOpen(false)} />

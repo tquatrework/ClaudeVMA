@@ -572,3 +572,29 @@ Les archives sont triées par `occurredAt DESC`. Types d'items : `payment` · `i
 ### Événements publiés
 
 `PaymentConfirmed` · `InvoiceIssued` · `PointsCredited`
+
+---
+
+## archive-document-service
+
+Phase 2 — Archives pédagogiques chronologiques et liens durables issus des activités.
+
+Règles métier clés :
+- Le parent financeur ne peut pas accéder aux entrées de type `notebook_entry` (carnet personnel réservé à l'élève).
+- Les résumés de cours (`course_summary`) sont permanents et restent accessibles après expiration de l'enregistrement vidéo (VID-AC-002).
+
+Types d'items : `pedagogical_log` · `course_summary` · `notebook_entry` · `recording` · `content_catalog`
+
+### Archives pédagogiques
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /students/:studentId/pedagogical-archives | Lister les archives pédagogiques d'un élève | 🔒 | élève (soi-même), formateur (liés), parent_financeur (hors notebook_entry), RP, AP, TI | `200 [{id, studentId, itemType, title, description?, sourceUrl?, downloadUrl?, occurredAt, createdAt, isAccessibleToFinanceOwner}]` · `401` · `403` · `404` |
+| POST | /students/:studentId/archive-links | Créer un lien d'archive manuel | 🔒 | formateur, RP, AP, TI | `201 {id, studentId, itemType, title, ...}` · `400` · `401` · `403` |
+| GET | /students/:studentId/archive-timeline | Timeline chronologique des archives | 🔒 | élève, formateur, parent_financeur (hors notebook_entry), RP, AP, TI | `200 [{id, studentId, itemType, title, description?, occurredAt, sourceUrl?, isAccessibleToFinanceOwner}]` · `401` · `403` · `404` |
+
+### Téléchargement
+
+| Méthode | Chemin | Description | Auth | Réponse attendue |
+|---|---|---|---|---|
+| GET | /archive-documents/:id/download | Télécharger un document d'archive (blob) | 🔒 | Selon rôle et type d'archive | `200 (blob)` · `401` · `403` · `404` |

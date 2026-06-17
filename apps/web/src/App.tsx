@@ -38,6 +38,7 @@ import AfFinanceDashboardPage from './pages/AfFinanceDashboardPage'
 import TeacherPaymentRequestPage from './pages/TeacherPaymentRequestPage'
 import LegalDocumentsPage from './pages/LegalDocumentsPage'
 import LegalTemplateAdminPage from './pages/LegalTemplateAdminPage'
+import PedagogicalArchivePage from './pages/PedagogicalArchivePage'
 
 export default function App() {
   return (
@@ -317,6 +318,24 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={['administrateur_financier']}>
                 <LegalTemplateAdminPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ── Phase 11 — Archives pédagogiques ────────────────── */}
+          <Route
+            path="/archives/:studentId"
+            element={
+              <ProtectedRoute>
+                <PedagogicalArchivePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/archives"
+            element={
+              <ProtectedRoute>
+                <PedagogicalArchivePage />
               </ProtectedRoute>
             }
           />

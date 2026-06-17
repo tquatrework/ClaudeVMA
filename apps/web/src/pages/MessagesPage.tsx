@@ -92,8 +92,14 @@ export default function MessagesPage() {
             : conv,
         ),
       )
-    } catch {
-      setError("Erreur lors de l'envoi du message")
+    } catch (err: unknown) {
+      const httpStatus =
+        (err as { response?: { status?: number } })?.response?.status
+      if (httpStatus === 413) {
+        setError('La pièce jointe est trop volumineuse (413)')
+      } else {
+        setError("Erreur lors de l'envoi du message")
+      }
     } finally {
       setIsSending(false)
     }

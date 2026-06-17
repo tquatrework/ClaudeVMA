@@ -34,6 +34,7 @@ import ParentRegistrationPage from './pages/ParentRegistrationPage'
 import AccountManagementPage from './pages/AccountManagementPage'
 import DelegationsPage from './pages/DelegationsPage'
 import ProfileVisibilitySettingsPage from './pages/ProfileVisibilitySettingsPage'
+import ContactsPage from './pages/ContactsPage'
 
 export default function App() {
   return (
@@ -206,6 +207,16 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <IncidentDetailPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Contacts */}
+          <Route
+            path="/contacts"
+            element={
+              <ProtectedRoute>
+                <ContactsPage />
               </ProtectedRoute>
             }
           />

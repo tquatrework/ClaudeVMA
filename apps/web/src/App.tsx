@@ -59,6 +59,10 @@ import TechnicalLogsPage from './pages/TechnicalLogsPage'
 import VisibilityOverridePanel from './pages/VisibilityOverridePanel'
 import SiteMetadataEditor from './pages/SiteMetadataEditor'
 import HealthStatusPage from './pages/HealthStatusPage'
+import WorkflowStatusPage from './pages/WorkflowStatusPage'
+import WorkflowTimeline from './pages/WorkflowTimeline'
+import WorkflowRetryPanel from './pages/WorkflowRetryPanel'
+import WorkflowIncidentView from './pages/WorkflowIncidentView'
 
 export default function App() {
   return (
@@ -549,6 +553,64 @@ export default function App() {
                 allowedRoles={['technicien_informatique', 'responsable_pedagogique']}
               >
                 <HealthStatusPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ── Phase 16 — Orchestration ────────────────────── */}
+          <Route
+            path="/admin/orchestration/workflows"
+            element={
+              <ProtectedRoute
+                allowedRoles={[
+                  'technicien_informatique',
+                  'responsable_pedagogique',
+                  'administrateur_financier',
+                ]}
+              >
+                <WorkflowStatusPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/orchestration/workflows/:workflowInstanceId"
+            element={
+              <ProtectedRoute
+                allowedRoles={[
+                  'technicien_informatique',
+                  'responsable_pedagogique',
+                  'administrateur_financier',
+                ]}
+              >
+                <WorkflowTimeline />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/orchestration/retry"
+            element={
+              <ProtectedRoute
+                allowedRoles={[
+                  'technicien_informatique',
+                  'responsable_pedagogique',
+                  'administrateur_financier',
+                ]}
+              >
+                <WorkflowRetryPanel />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/orchestration/incidents"
+            element={
+              <ProtectedRoute
+                allowedRoles={[
+                  'technicien_informatique',
+                  'responsable_pedagogique',
+                  'administrateur_financier',
+                ]}
+              >
+                <WorkflowIncidentView />
               </ProtectedRoute>
             }
           />

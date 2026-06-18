@@ -31,6 +31,14 @@ export class NotebookEntry {
   @Column({ nullable: true })
   title: string;
 
+  /** Date de l'entrée dans le carnet (peut différer de la date de création) */
+  @Column({ name: 'entry_date', nullable: true, type: 'timestamptz' })
+  entryDate: Date;
+
+  /** UUID d'un événement calendrier associé (optionnel) */
+  @Column({ name: 'calendar_event_id', nullable: true })
+  calendarEventId: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

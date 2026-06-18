@@ -173,5 +173,18 @@ describe('WorkflowController', () => {
       expect(ids).toContain('teacher-request-to-assignment');
       expect(ids).toContain('scheduled-video-course');
     });
+
+    it('includes phase-2 and phase-3 workflows — ORCH-WF-011', () => {
+      const result = controller.listDefinitions();
+      const ids = result.map((d) => d.id);
+
+      expect(ids).toContain('teacher-payment');
+      expect(ids).toContain('content-correction');
+    });
+
+    it('lists 6 workflows in total — ORCH-WF-012', () => {
+      const result = controller.listDefinitions();
+      expect(result).toHaveLength(6);
+    });
   });
 });

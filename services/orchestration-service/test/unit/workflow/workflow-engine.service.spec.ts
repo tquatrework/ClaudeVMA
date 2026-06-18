@@ -235,8 +235,8 @@ describe('WorkflowEngineService', () => {
     });
   });
 
-  describe('suspendForArbitration / resumeAfterArbitration', () => {
-    it('suspends a workflow and records a CorrelationTrace', async () => {
+  describe('suspendForArbitration — ORCH-WF-ENGINE-008', () => {
+    it('passes workflow to NEEDS_ARBITRATION and records a CorrelationTrace', async () => {
       instanceRepo.findOne.mockResolvedValue({
         id: 'inst-6', correlationId: 'corr-6', status: WorkflowStatus.IN_PROGRESS,
       });
@@ -252,7 +252,9 @@ describe('WorkflowEngineService', () => {
         expect.objectContaining({ actor: 'user-123' }),
       );
     });
+  });
 
+  describe('resumeAfterArbitration — ORCH-WF-ENGINE-009', () => {
     it('resumes a workflow and marks TI override in trace when tiOverride=true', async () => {
       instanceRepo.findOne.mockResolvedValue({
         id: 'inst-7', correlationId: 'corr-7', status: WorkflowStatus.NEEDS_ARBITRATION,
@@ -268,6 +270,24 @@ describe('WorkflowEngineService', () => {
       expect(correlationTrace.record).toHaveBeenCalledWith(
         'corr-7', 'workflow', 'WorkflowResumed',
         expect.objectContaining({ isTiOverride: true, actor: 'ti-admin' }),
+      );
+    });
+
+    it('resumes a workflow with isTiOverride: false when tiOverride is not provided', async () => {
+      instanceRepo.findOne.mockResolvedValue({
+        id: 'inst-8', correlationId: 'corr-8', status: WorkflowStatus.NEEDS_ARBITRATION,
+        workflowType: 'student-onboarding', payload: {}, context: {},
+      });
+      stepRepo.find.mockResolvedValue([]);
+
+      await engine.resumeAfterArbitration('inst-8', 'rp-user', false);
+
+      expect(instanceRepo.update).toHaveBeenCalledWith('inst-8', {
+        status: WorkflowStatus.IN_PROGRESS, error: null,
+      });
+      expect(correlationTrace.record).toHaveBeenCalledWith(
+        'corr-8', 'workflow', 'WorkflowResumed',
+        expect.objectContaining({ isTiOverride: false, actor: 'rp-user' }),
       );
     });
   });

@@ -4,7 +4,11 @@ export type CalendarEventType =
   | 'AvailabilityUpdated'
   | 'ActivityScheduled'
   | 'ActivityUpdated'
-  | 'ReminderCreated';
+  | 'ReminderCreated'
+  | 'CalendarEventCreated'
+  | 'InvitationAccepted'
+  | 'InvitationDeclined'
+  | 'CancellationRequested';
 
 export interface DomainEvent {
   type: CalendarEventType;

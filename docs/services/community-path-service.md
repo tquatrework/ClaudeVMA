@@ -73,3 +73,109 @@
     </acceptanceCriteria>
   </service>
 </serviceFunctionalSpecification>
+
+<!-- ================================================================
+     DECISIONS TECHNIQUES — SESSION 2026-06-18
+     ================================================================ -->
+
+## Implémentation NestJS — Session 2026-06-18
+
+### Arborescence créée
+
+```
+services/community-path-service/
+├── package.json
+├── tsconfig.json
+├── nest-cli.json
+├── src/
+│   ├── main.ts
+│   ├── app.module.ts
+│   ├── common/
+│   │   ├── decorators/
+│   │   │   ├── current-user.decorator.ts   — extracteur du user JWT de la requête
+│   │   │   └── roles.decorator.ts          — @Roles() métadonnée pour RolesGuard
+│   │   ├── enums/
+│   │   │   ├── user-role.enum.ts           — 7 rôles VisioMath
+│   │   │   ├── forum-public.enum.ts        — etudiant | mixte | professeur
+│   │   │   ├── path-status.enum.ts         — draft | pending_validation | validated | rejected
+│   │   │   └── enrollment-status.enum.ts   — in_progress | abandoned | completed
+│   │   └── guards/
+│   │       ├── jwt-auth.guard.ts           — vérifie le Bearer JWT, injecte request.user
+│   │       └── roles.guard.ts              — contrôle les rôles requis
+│   ├── forums/
+│   │   ├── entities/
+│   │   │   ├── forum.entity.ts             — Forum principal
+│   │   │   ├── forum-comment.entity.ts     — Commentaires liés à un forum
+│   │   │   └── forum-exclusion.entity.ts   — Exclusions de membres
+│   │   ├── dto/
+│   │   │   ├── create-forum.dto.ts
+│   │   │   ├── create-forum-comment.dto.ts
+│   │   │   └── create-forum-exclusion.dto.ts
+│   │   ├── forums.service.ts               — Logique métier forums
+│   │   ├── forums.controller.ts            — Routes /forums
+│   │   └── forums.module.ts
+│   ├── paths/
+│   │   ├── entities/
+│   │   │   ├── learning-path.entity.ts     — Parcours pédagogique
+│   │   │   ├── path-step.entity.ts         — Étapes ordonnées d'un parcours
+│   │   │   ├── path-enrollment.entity.ts   — Inscription d'un élève à un parcours
+│   │   │   ├── path-progress.entity.ts     — Progression par étape
+│   │   │   └── certificate.entity.ts       — Certificat émis à la complétion
+│   │   ├── dto/
+│   │   │   ├── create-path.dto.ts          — Inclut CreatePathStepDto imbriqué
+│   │   │   └── update-enrollment-progress.dto.ts
+│   │   ├── paths.service.ts                — Logique métier parcours
+│   │   ├── paths.controller.ts             — Routes /paths et /path-enrollments
+│   │   └── paths.module.ts
+│   └── health/
+│       ├── health.controller.ts            — GET /health
+│       └── health.module.ts
+└── test/
+    └── unit/
+        ├── forums/forums.service.spec.ts   — 23 tests
+        └── paths/paths.service.spec.ts     — 24 tests
+```
+
+### Décisions techniques
+
+1. **Forums AP non publiés** : Un forum créé par AP a `isPublished: false`. Il doit être publié manuellement par un RP (non implémenté en route explicite — le RP peut utiliser la route de création directe). Décision : cohérent avec la spec "parcours AP validé par RP", même logique appliquée aux forums.
+
+2. **Parcours AP en `pending_validation`** : Un parcours AP passe à `PathStatus.PENDING_VALIDATION`. La route `POST /paths/:id/validate` (RP seulement) le fait passer à `VALIDATED`.
+
+3. **Limite 3 parcours ouverts** : La constante `MAX_OPEN_ENROLLMENTS = 3` est exportée depuis `paths.service.ts` pour être testable directement.
+
+4. **Certificat automatique** : `updateEnrollmentProgress()` calcule le pourcentage en comparant les étapes complétées sur le total de steps du parcours. À 100%, le statut passe à `COMPLETED` et un certificat est émis (idempotent : pas de doublon si déjà émis).
+
+5. **Progression via `path-enrollments/:id/progress`** : Deux contrôleurs distincts dans le même fichier `paths.controller.ts` — `PathsController` sur `/paths` et `PathEnrollmentsController` sur `/path-enrollments` — conformément à la spec candidateApis.
+
+6. **Accès forum selon public** : La fonction `isRoleAllowedForForumPublic()` est exportée pour faciliter les tests unitaires directs.
+
+7. **Base de données** : PostgreSQL en production (TypeORM `synchronize: true` hors prod). Tests unitaires : mocks de repositories, pas de SQLite.
+
+### Routes disponibles
+
+| Méthode | Chemin | Rôles autorisés |
+|---------|--------|-----------------|
+| GET | /health | public |
+| POST | /forums | RP, AP |
+| GET | /forums | tous authentifiés |
+| POST | /forums/:id/comments | tous authentifiés (selon public forum) |
+| POST | /forums/:id/exclusions | propriétaire du forum ou RP |
+| POST | /paths | RP, AP |
+| GET | /paths | tous authentifiés |
+| POST | /paths/:id/validate | RP seulement |
+| POST | /paths/:id/enrollments | tous authentifiés (élève en pratique) |
+| PATCH | /path-enrollments/:id/progress | propriétaire de l'inscription |
+
+### Résultats des tests
+
+- **47 tests passés / 47 total** (2 suites)
+- Forums service : 23 tests
+- Paths service : 24 tests
+
+### Points en suspens
+
+- La route de publication d'un forum AP (équivalent `POST /paths/:id/validate` pour les forums) n'est pas exposée — à ajouter si requis.
+- Les badges (`Badge` entity) sont mentionnés dans la spec mais non implémentés (hors scope minimum).
+- Les mégaparcours sont mentionnés dans la spec mais non modélisés (nécessiterait une entité `MegaPath` agrégant des `LearningPath`).
+- La gestion des précontacts via forum (fonctionnalité 003) n'est pas implémentée — dépend du `communication-service`.

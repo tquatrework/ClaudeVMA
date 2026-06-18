@@ -4,6 +4,7 @@ import {
   Post,
   Param,
   Body,
+  Query,
   UseGuards,
   Req,
   Headers,
@@ -16,6 +17,7 @@ import {
   ApiBearerAuth,
   ApiParam,
   ApiHeader,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -23,6 +25,8 @@ import { ArchiveService } from './archive.service';
 import { AddArchiveLinkDto } from './dto/add-archive-link.dto';
 import { ArchiveItemResponseDto } from './dto/archive-item-response.dto';
 import { ArchiveTimelineEntryDto } from './dto/archive-timeline-entry.dto';
+import { PaginationQueryDto } from './dto/pagination-query.dto';
+import { PaginatedResponseDto } from './dto/paginated-response.dto';
 
 @ApiTags('archive-documents')
 @ApiBearerAuth()
@@ -37,26 +41,31 @@ export class ArchiveController {
   @ApiOperation({
     summary: 'Lister les archives pédagogiques d\'un élève',
     description:
-      'Retourne la liste chronologique des archives pédagogiques d\'un élève. ' +
+      'Retourne la liste chronologique paginée des archives pédagogiques d\'un élève. ' +
       'Spec XML fonctionnalité 001 et 007. ' +
       'Accès : élève (ses propres archives), parent financeur (sauf carnet personnel), ' +
       'formateur (élèves rattachés), RP/TI/AF (accès large). ' +
-      'Le carnet personnel est automatiquement exclu pour les parents financeurs.',
+      'Le carnet personnel est automatiquement exclu pour les parents financeurs. ' +
+      'Pagination : paramètres page et limit (défaut : page=1, limit=20, max=100).',
   })
   @ApiParam({ name: 'studentId', description: 'UUID de l\'élève' })
+  @ApiQuery({ name: 'page', required: false, description: 'Numéro de page (défaut : 1)', type: Number })
+  @ApiQuery({ name: 'limit', required: false, description: 'Éléments par page (défaut : 20, max : 100)', type: Number })
   @ApiHeader({ name: 'x-correlation-id', required: false, description: 'Corrélation ID de traçabilité' })
-  @ApiResponse({ status: 200, description: 'Liste des archives retournée', type: [ArchiveItemResponseDto] })
+  @ApiResponse({ status: 200, description: 'Liste paginée des archives retournée' })
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   @ApiResponse({ status: 403, description: 'Accès interdit pour ce rôle' })
   listPedagogicalArchives(
     @Param('studentId') studentId: string,
+    @Query() paginationQuery: PaginationQueryDto,
     @Req() request: any,
     @Headers('x-correlation-id') _correlationId?: string,
-  ): Promise<ArchiveItemResponseDto[]> {
+  ): Promise<PaginatedResponseDto<ArchiveItemResponseDto>> {
     return this.archiveService.listPedagogicalArchives(
       studentId,
       request.user.id,
       request.user.role,
+      paginationQuery,
     );
   }
 
@@ -99,22 +108,27 @@ export class ArchiveController {
       'pour affichage sous forme de calendrier. ' +
       'Spec XML fonctionnalité 001 (vue calendrier). ' +
       'Les mêmes règles d\'accès que la liste s\'appliquent. ' +
-      'Le carnet personnel est exclu pour les parents financeurs.',
+      'Le carnet personnel est exclu pour les parents financeurs. ' +
+      'La pagination s\'applique sur les groupes de dates.',
   })
   @ApiParam({ name: 'studentId', description: 'UUID de l\'élève' })
+  @ApiQuery({ name: 'page', required: false, description: 'Numéro de page (défaut : 1)', type: Number })
+  @ApiQuery({ name: 'limit', required: false, description: 'Groupes de dates par page (défaut : 20, max : 100)', type: Number })
   @ApiHeader({ name: 'x-correlation-id', required: false, description: 'Corrélation ID de traçabilité' })
-  @ApiResponse({ status: 200, description: 'Vue calendrier retournée', type: [ArchiveTimelineEntryDto] })
+  @ApiResponse({ status: 200, description: 'Vue calendrier paginée retournée', type: [ArchiveTimelineEntryDto] })
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   @ApiResponse({ status: 403, description: 'Accès interdit pour ce rôle' })
   getArchiveTimeline(
     @Param('studentId') studentId: string,
+    @Query() paginationQuery: PaginationQueryDto,
     @Req() request: any,
     @Headers('x-correlation-id') _correlationId?: string,
-  ): Promise<{ date: string; items: object[] }[]> {
+  ): Promise<PaginatedResponseDto<{ date: string; items: object[] }>> {
     return this.archiveService.getArchiveTimeline(
       studentId,
       request.user.id,
       request.user.role,
+      paginationQuery,
     );
   }
 

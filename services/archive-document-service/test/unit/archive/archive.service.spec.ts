@@ -14,7 +14,10 @@ const mockQueryBuilder = {
   andWhere: jest.fn().mockReturnThis(),
   orderBy: jest.fn().mockReturnThis(),
   select: jest.fn().mockReturnThis(),
+  skip: jest.fn().mockReturnThis(),
+  take: jest.fn().mockReturnThis(),
   getMany: jest.fn(),
+  getCount: jest.fn(),
 };
 
 const mockArchiveItemRepo = {
@@ -84,7 +87,10 @@ describe('ArchiveService', () => {
     mockQueryBuilder.andWhere.mockReturnThis();
     mockQueryBuilder.orderBy.mockReturnThis();
     mockQueryBuilder.select.mockReturnThis();
+    mockQueryBuilder.skip.mockReturnThis();
+    mockQueryBuilder.take.mockReturnThis();
     mockQueryBuilder.getMany.mockResolvedValue([]);
+    mockQueryBuilder.getCount.mockResolvedValue(0);
   });
 
   // ─── listPedagogicalArchives ────────────────────────────────────────────────
@@ -92,14 +98,45 @@ describe('ArchiveService', () => {
   describe('listPedagogicalArchives', () => {
     it('permet à un élève d\'accéder à ses propres archives', async () => {
       mockQueryBuilder.getMany.mockResolvedValue([baseArchiveItem]);
+      mockQueryBuilder.getCount.mockResolvedValue(1);
 
       const result = await service.listPedagogicalArchives(STUDENT_ID, STUDENT_ID, UserRole.ELEVE);
 
-      expect(result).toEqual([baseArchiveItem]);
+      expect(result.data).toEqual([baseArchiveItem]);
+      expect(result.total).toBe(1);
       expect(mockQueryBuilder.where).toHaveBeenCalledWith(
         'item.studentId = :studentId',
         { studentId: STUDENT_ID },
       );
+    });
+
+    it('retourne les métadonnées de pagination correctes', async () => {
+      mockQueryBuilder.getMany.mockResolvedValue([baseArchiveItem]);
+      mockQueryBuilder.getCount.mockResolvedValue(42);
+
+      const result = await service.listPedagogicalArchives(
+        STUDENT_ID,
+        STUDENT_ID,
+        UserRole.ELEVE,
+        { page: 2, limit: 10 },
+      );
+
+      expect(result.page).toBe(2);
+      expect(result.limit).toBe(10);
+      expect(result.total).toBe(42);
+      expect(result.totalPages).toBe(5);
+    });
+
+    it('utilise les valeurs de pagination par défaut (page=1, limit=20)', async () => {
+      mockQueryBuilder.getMany.mockResolvedValue([]);
+      mockQueryBuilder.getCount.mockResolvedValue(0);
+
+      const result = await service.listPedagogicalArchives(STUDENT_ID, STUDENT_ID, UserRole.ELEVE);
+
+      expect(result.page).toBe(1);
+      expect(result.limit).toBe(20);
+      expect(mockQueryBuilder.skip).toHaveBeenCalledWith(0);
+      expect(mockQueryBuilder.take).toHaveBeenCalledWith(20);
     });
 
     it('refuse l\'accès à un élève qui tente de consulter les archives d\'un autre élève', async () => {
@@ -110,14 +147,16 @@ describe('ArchiveService', () => {
 
     it('permet au parent financeur d\'accéder aux archives de l\'élève lié', async () => {
       mockQueryBuilder.getMany.mockResolvedValue([baseArchiveItem]);
+      mockQueryBuilder.getCount.mockResolvedValue(1);
 
       const result = await service.listPedagogicalArchives(STUDENT_ID, PARENT_ID, UserRole.PARENT_FINANCEUR);
 
-      expect(result).toEqual([baseArchiveItem]);
+      expect(result.data).toEqual([baseArchiveItem]);
     });
 
     it('exclut le carnet personnel pour le parent financeur (spec XML : règle parent)', async () => {
       mockQueryBuilder.getMany.mockResolvedValue([baseArchiveItem]);
+      mockQueryBuilder.getCount.mockResolvedValue(1);
 
       await service.listPedagogicalArchives(STUDENT_ID, PARENT_ID, UserRole.PARENT_FINANCEUR);
 
@@ -129,6 +168,7 @@ describe('ArchiveService', () => {
 
     it('n\'exclut pas le carnet personnel pour l\'élève lui-même', async () => {
       mockQueryBuilder.getMany.mockResolvedValue([baseArchiveItem, carnetPersonnelItem]);
+      mockQueryBuilder.getCount.mockResolvedValue(2);
 
       await service.listPedagogicalArchives(STUDENT_ID, STUDENT_ID, UserRole.ELEVE);
 
@@ -137,22 +177,25 @@ describe('ArchiveService', () => {
 
     it('permet au formateur d\'accéder aux archives des élèves rattachés', async () => {
       mockQueryBuilder.getMany.mockResolvedValue([baseArchiveItem]);
+      mockQueryBuilder.getCount.mockResolvedValue(1);
 
       const result = await service.listPedagogicalArchives(STUDENT_ID, FORMATEUR_ID, UserRole.FORMATEUR);
 
-      expect(result).toEqual([baseArchiveItem]);
+      expect(result.data).toEqual([baseArchiveItem]);
     });
 
     it('permet au RP d\'accéder aux archives de n\'importe quel élève (accès pédagogique large)', async () => {
       mockQueryBuilder.getMany.mockResolvedValue([baseArchiveItem]);
+      mockQueryBuilder.getCount.mockResolvedValue(1);
 
       const result = await service.listPedagogicalArchives(STUDENT_ID, RP_ID, UserRole.RESPONSABLE_PEDAGOGIQUE);
 
-      expect(result).toEqual([baseArchiveItem]);
+      expect(result.data).toEqual([baseArchiveItem]);
     });
 
     it('permet au TI d\'accéder aux archives (accès incident)', async () => {
       mockQueryBuilder.getMany.mockResolvedValue([]);
+      mockQueryBuilder.getCount.mockResolvedValue(0);
 
       await expect(
         service.listPedagogicalArchives(STUDENT_ID, TI_ID, UserRole.TECHNICIEN_INFORMATIQUE),
@@ -161,6 +204,7 @@ describe('ArchiveService', () => {
 
     it('permet à l\'AF d\'accéder aux archives (contrôle financier)', async () => {
       mockQueryBuilder.getMany.mockResolvedValue([]);
+      mockQueryBuilder.getCount.mockResolvedValue(0);
 
       await expect(
         service.listPedagogicalArchives(STUDENT_ID, AF_ID, UserRole.ADMINISTRATEUR_FINANCIER),
@@ -278,7 +322,7 @@ describe('ArchiveService', () => {
   // ─── getArchiveTimeline ─────────────────────────────────────────────────────
 
   describe('getArchiveTimeline', () => {
-    it('retourne les archives groupées par date', async () => {
+    it('retourne les archives groupées par date avec pagination', async () => {
       const item1 = { ...baseArchiveItem, occurredAt: new Date('2026-06-12T14:00:00Z') };
       const item2 = {
         ...baseArchiveItem,
@@ -291,9 +335,32 @@ describe('ArchiveService', () => {
 
       const result = await service.getArchiveTimeline(STUDENT_ID, STUDENT_ID, UserRole.ELEVE);
 
-      expect(result).toHaveLength(2);
-      expect(result[0].date).toBe('2026-06-12');
-      expect(result[1].date).toBe('2026-06-15');
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0].date).toBe('2026-06-12');
+      expect(result.data[1].date).toBe('2026-06-15');
+      expect(result.total).toBe(2);
+    });
+
+    it('retourne les métadonnées de pagination correctes pour la timeline', async () => {
+      const items = Array.from({ length: 5 }, (_, index) => ({
+        ...baseArchiveItem,
+        id: `item-uuid-${index}`,
+        occurredAt: new Date(`2026-06-${String(index + 1).padStart(2, '0')}T14:00:00Z`),
+      }));
+      mockQueryBuilder.getMany.mockResolvedValue(items);
+
+      const result = await service.getArchiveTimeline(
+        STUDENT_ID,
+        STUDENT_ID,
+        UserRole.ELEVE,
+        { page: 1, limit: 2 },
+      );
+
+      expect(result.data).toHaveLength(2);
+      expect(result.total).toBe(5);
+      expect(result.totalPages).toBe(3);
+      expect(result.page).toBe(1);
+      expect(result.limit).toBe(2);
     });
 
     it('regroupe plusieurs éléments de la même date', async () => {
@@ -308,9 +375,9 @@ describe('ArchiveService', () => {
 
       const result = await service.getArchiveTimeline(STUDENT_ID, STUDENT_ID, UserRole.ELEVE);
 
-      expect(result).toHaveLength(1);
-      expect(result[0].date).toBe('2026-06-12');
-      expect(result[0].items).toHaveLength(2);
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].date).toBe('2026-06-12');
+      expect(result.data[0].items).toHaveLength(2);
     });
 
     it('refuse l\'accès à un élève consultant les archives d\'un autre élève', async () => {

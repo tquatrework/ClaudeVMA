@@ -45,6 +45,9 @@ import EvaluationCatalogPage from './pages/EvaluationCatalogPage'
 import EvaluationAttemptPage from './pages/EvaluationAttemptPage'
 import TutorialCatalogPage from './pages/TutorialCatalogPage'
 import ContentValidationQueuePage from './pages/ContentValidationQueuePage'
+import OpenActivitiesPage from './pages/OpenActivitiesPage'
+import OpenActivityDetailPage from './pages/OpenActivityDetailPage'
+import ActivityGlobalExportPage from './pages/ActivityGlobalExportPage'
 
 export default function App() {
   return (
@@ -394,6 +397,39 @@ export default function App() {
                 allowedRoles={['responsable_pedagogique', 'animateur_pedagogique']}
               >
                 <ContentValidationQueuePage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ── Phase 13 — Activités non pourvues ──────────────── */}
+          <Route
+            path="/open-activities"
+            element={
+              <ProtectedRoute allowedRoles={['formateur', 'responsable_pedagogique', 'animateur_pedagogique']}>
+                <OpenActivitiesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/open-activities/:activityId"
+            element={
+              <ProtectedRoute allowedRoles={['formateur', 'responsable_pedagogique', 'animateur_pedagogique']}>
+                <OpenActivityDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/activities/export"
+            element={
+              <ProtectedRoute
+                allowedRoles={[
+                  'responsable_pedagogique',
+                  'animateur_pedagogique',
+                  'technicien_informatique',
+                  'administrateur_financier',
+                ]}
+              >
+                <ActivityGlobalExportPage />
               </ProtectedRoute>
             }
           />

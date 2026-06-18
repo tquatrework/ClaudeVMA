@@ -31,7 +31,10 @@ const mockQueryBuilder = {
   andWhere: jest.fn().mockReturnThis(),
   orderBy: jest.fn().mockReturnThis(),
   select: jest.fn().mockReturnThis(),
+  skip: jest.fn().mockReturnThis(),
+  take: jest.fn().mockReturnThis(),
   getMany: jest.fn(),
+  getCount: jest.fn(),
 };
 
 const mockArchiveItemRepo = {
@@ -92,7 +95,10 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
     mockQueryBuilder.andWhere.mockReturnThis();
     mockQueryBuilder.orderBy.mockReturnThis();
     mockQueryBuilder.select.mockReturnThis();
+    mockQueryBuilder.skip.mockReturnThis();
+    mockQueryBuilder.take.mockReturnThis();
     mockQueryBuilder.getMany.mockResolvedValue([]);
+    mockQueryBuilder.getCount.mockResolvedValue(0);
   });
 
   // ─── ADS-AC-001 : résumé de cours accessible après expiration de la vidéo ───
@@ -107,10 +113,11 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
         downloadUrl: 'https://storage.example.com/resumes/expired-session.pdf',
       });
       mockQueryBuilder.getMany.mockResolvedValue([resumeItem]);
+      mockQueryBuilder.getCount.mockResolvedValue(1);
 
       const result = await service.listPedagogicalArchives(STUDENT_ID, STUDENT_ID, UserRole.ELEVE);
 
-      expect(result).toContainEqual(expect.objectContaining({
+      expect(result.data).toContainEqual(expect.objectContaining({
         itemType: ArchiveItemType.RESUME_DE_COURS,
         downloadUrl: 'https://storage.example.com/resumes/expired-session.pdf',
       }));
@@ -146,6 +153,7 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
     });
 
     it('la liste filtrée pour le parent exclut les éléments de type carnet_personnel', async () => {
+      mockQueryBuilder.getCount.mockResolvedValue(0);
       await service.listPedagogicalArchives(STUDENT_ID, PARENT_ID, UserRole.PARENT_FINANCEUR);
 
       expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
@@ -170,13 +178,14 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
       // et que le filtrage du carnet est cohérent.
       const publicItem = buildArchiveItem({ itemType: ArchiveItemType.CAHIER_DE_TEXTE });
       mockQueryBuilder.getMany.mockResolvedValue([publicItem]);
+      mockQueryBuilder.getCount.mockResolvedValue(1);
 
       const result = await service.listPedagogicalArchives(STUDENT_ID, FORMATEUR_ID, UserRole.FORMATEUR);
 
       // Le formateur reçoit les archives sans CarnetPersonnel dans la requête
       // (géré par isParentVisible au niveau BDD, non re-filtré côté code pour FORMATEUR)
       expect(result).toBeDefined();
-      expect(Array.isArray(result)).toBe(true);
+      expect(Array.isArray(result.data)).toBe(true);
     });
   });
 
@@ -333,10 +342,11 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
       });
 
       mockQueryBuilder.getMany.mockResolvedValue([evaluationItem]);
+      mockQueryBuilder.getCount.mockResolvedValue(1);
 
       const result = await service.listPedagogicalArchives(STUDENT_ID, STUDENT_ID, UserRole.ELEVE);
 
-      const evaluations = result.filter(
+      const evaluations = result.data.filter(
         (item) => item.itemType === ArchiveItemType.EXERCICE_EVALUATION,
       );
       expect(evaluations).toHaveLength(1);
@@ -386,6 +396,7 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
     it('ADS-ROLE-TI — le TI peut accéder aux archives pour traiter des incidents', async () => {
       const items = [buildArchiveItem()];
       mockQueryBuilder.getMany.mockResolvedValue(items);
+      mockQueryBuilder.getCount.mockResolvedValue(1);
 
       const result = await service.listPedagogicalArchives(
         STUDENT_ID,
@@ -393,12 +404,13 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
         UserRole.TECHNICIEN_INFORMATIQUE,
       );
 
-      expect(result).toEqual(items);
+      expect(result.data).toEqual(items);
     });
 
     it('ADS-ROLE-AF — l\'AF peut accéder aux archives (contrôle financier/légal)', async () => {
       const items = [buildArchiveItem()];
       mockQueryBuilder.getMany.mockResolvedValue(items);
+      mockQueryBuilder.getCount.mockResolvedValue(1);
 
       const result = await service.listPedagogicalArchives(
         STUDENT_ID,
@@ -406,7 +418,7 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
         UserRole.ADMINISTRATEUR_FINANCIER,
       );
 
-      expect(result).toEqual(items);
+      expect(result.data).toEqual(items);
     });
 
     it('ADS-ROLE-TI — le TI peut télécharger n\'importe quel document archivé', async () => {
@@ -446,11 +458,12 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
         buildArchiveItem({ id: 'item-3', pedagogicalPoints: 8, itemType: ArchiveItemType.EXERCICE_EVALUATION }),
       ];
       mockQueryBuilder.getMany.mockResolvedValue(itemsWithPoints);
+      mockQueryBuilder.getCount.mockResolvedValue(3);
 
       const result = await service.listPedagogicalArchives(STUDENT_ID, STUDENT_ID, UserRole.ELEVE);
 
-      expect(result.every((item) => item.pedagogicalPoints !== undefined)).toBe(true);
-      expect(result.map((item) => item.pedagogicalPoints)).toEqual([10, 5, 8]);
+      expect(result.data.every((item) => item.pedagogicalPoints !== undefined)).toBe(true);
+      expect(result.data.map((item) => item.pedagogicalPoints)).toEqual([10, 5, 8]);
     });
 
     it('la timeline retourne les points pédagogiques dans la vue groupée par date', async () => {
@@ -459,8 +472,8 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
 
       const timeline = await service.getArchiveTimeline(STUDENT_ID, STUDENT_ID, UserRole.ELEVE);
 
-      expect(timeline).toHaveLength(1);
-      expect(timeline[0].items[0]).toHaveProperty('pedagogicalPoints', 10);
+      expect(timeline.data).toHaveLength(1);
+      expect(timeline.data[0].items[0]).toHaveProperty('pedagogicalPoints', 10);
     });
   });
 

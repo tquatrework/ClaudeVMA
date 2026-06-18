@@ -50,6 +50,14 @@ const mockArchiveItem = {
   createdAt: new Date(),
 };
 
+const mockPaginatedResult = {
+  data: [mockArchiveItem],
+  page: 1,
+  limit: 20,
+  total: 1,
+  totalPages: 1,
+};
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('ArchiveController', () => {
@@ -78,17 +86,41 @@ describe('ArchiveController', () => {
   // ─── listPedagogicalArchives ────────────────────────────────────────────────
 
   describe('GET /students/:studentId/pedagogical-archives', () => {
-    it('délègue au service et retourne la liste des archives', async () => {
-      mockArchiveService.listPedagogicalArchives.mockResolvedValue([mockArchiveItem]);
+    it('délègue au service avec pagination et retourne le résultat paginé', async () => {
+      mockArchiveService.listPedagogicalArchives.mockResolvedValue(mockPaginatedResult);
 
-      const result = await controller.listPedagogicalArchives(STUDENT_ID, mockRequest);
+      const paginationQuery = { page: 1, limit: 20 };
+      const result = await controller.listPedagogicalArchives(STUDENT_ID, paginationQuery, mockRequest);
 
-      expect(result).toEqual([mockArchiveItem]);
+      expect(result).toEqual(mockPaginatedResult);
       expect(mockArchiveService.listPedagogicalArchives).toHaveBeenCalledWith(
         STUDENT_ID,
         mockUser.id,
         mockUser.role,
+        paginationQuery,
       );
+    });
+
+    it('retourne les métadonnées de pagination dans la réponse', async () => {
+      const paginatedResponse = {
+        data: [mockArchiveItem],
+        page: 2,
+        limit: 10,
+        total: 42,
+        totalPages: 5,
+      };
+      mockArchiveService.listPedagogicalArchives.mockResolvedValue(paginatedResponse);
+
+      const result = await controller.listPedagogicalArchives(
+        STUDENT_ID,
+        { page: 2, limit: 10 },
+        mockRequest,
+      );
+
+      expect(result.page).toBe(2);
+      expect(result.limit).toBe(10);
+      expect(result.total).toBe(42);
+      expect(result.totalPages).toBe(5);
     });
 
     it('propage ForbiddenException du service', async () => {
@@ -97,7 +129,7 @@ describe('ArchiveController', () => {
       );
 
       await expect(
-        controller.listPedagogicalArchives(STUDENT_ID, mockRequest),
+        controller.listPedagogicalArchives(STUDENT_ID, {}, mockRequest),
       ).rejects.toThrow(ForbiddenException);
     });
   });
@@ -126,23 +158,46 @@ describe('ArchiveController', () => {
   // ─── getArchiveTimeline ─────────────────────────────────────────────────────
 
   describe('GET /students/:studentId/archive-timeline', () => {
-    it('retourne la vue calendrier groupée par date', async () => {
-      const timelineResult = [
-        {
-          date: '2026-06-12',
-          items: [{ id: 'item-uuid-1', title: 'Résumé — Algèbre' }],
-        },
-      ];
-      mockArchiveService.getArchiveTimeline.mockResolvedValue(timelineResult);
+    it('retourne la vue calendrier paginée groupée par date', async () => {
+      const paginatedTimeline = {
+        data: [{ date: '2026-06-12', items: [{ id: 'item-uuid-1', title: 'Résumé — Algèbre' }] }],
+        page: 1,
+        limit: 20,
+        total: 1,
+        totalPages: 1,
+      };
+      mockArchiveService.getArchiveTimeline.mockResolvedValue(paginatedTimeline);
 
-      const result = await controller.getArchiveTimeline(STUDENT_ID, mockRequest);
+      const paginationQuery = { page: 1, limit: 20 };
+      const result = await controller.getArchiveTimeline(STUDENT_ID, paginationQuery, mockRequest);
 
-      expect(result).toEqual(timelineResult);
+      expect(result).toEqual(paginatedTimeline);
       expect(mockArchiveService.getArchiveTimeline).toHaveBeenCalledWith(
         STUDENT_ID,
         mockUser.id,
         mockUser.role,
+        paginationQuery,
       );
+    });
+
+    it('retourne les métadonnées de pagination dans la vue timeline', async () => {
+      const paginatedTimeline = {
+        data: [],
+        page: 3,
+        limit: 5,
+        total: 12,
+        totalPages: 3,
+      };
+      mockArchiveService.getArchiveTimeline.mockResolvedValue(paginatedTimeline);
+
+      const result = await controller.getArchiveTimeline(
+        STUDENT_ID,
+        { page: 3, limit: 5 },
+        mockRequest,
+      );
+
+      expect(result.page).toBe(3);
+      expect(result.totalPages).toBe(3);
     });
   });
 

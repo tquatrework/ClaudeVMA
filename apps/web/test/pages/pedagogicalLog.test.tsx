@@ -481,6 +481,7 @@ describe('MemosPage — formateur voit en readonly', () => {
 
     renderMemosPage()
 
+    // Wait for the page to fully render — the informational message should appear
     await waitFor(() => {
       expect(screen.getByText(/consultation individuelle uniquement/i)).toBeDefined()
     })

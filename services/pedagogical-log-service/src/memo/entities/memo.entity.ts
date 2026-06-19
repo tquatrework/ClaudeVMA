@@ -7,39 +7,35 @@ import {
 } from 'typeorm';
 
 /**
- * Memo — Notes rapides liées à une activité ou un élève
+ * Memo — Formulaire structuré appartenant à l'élève
  *
- * Un mémo peut être créé par formateur, RP ou AP pour noter rapidement
- * une observation, un rappel ou une information contextuelle.
+ * Le mémo est un outil personnel de l'élève (formules, trucs essentiels, chapitres libres).
+ * Il N'EST PAS une note interne du personnel.
+ * Seul l'élève propriétaire crée, modifie et supprime ses propres entrées.
+ * Les acteurs autorisés (formateur lié, RP, AP) peuvent lire en lecture seule.
+ *
+ * XML spec func 004, 005 — PLOG-BR-003.
  */
 @Entity('memos')
 export class Memo {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  /** UUID de l'auteur du mémo */
-  @Column({ name: 'author_id' })
-  authorId: string;
-
-  /** Rôle de l'auteur au moment de la création */
-  @Column({ name: 'author_role' })
-  authorRole: string;
-
-  /** Élève concerné (optionnel) */
-  @Column({ name: 'student_id', nullable: true })
+  /** UUID de l'élève propriétaire du mémo */
+  @Column({ name: 'student_id' })
   studentId: string;
 
-  /** Activité concernée (optionnel) */
-  @Column({ name: 'activity_id', nullable: true })
-  activityId: string;
-
-  /** Contenu du mémo */
+  /** Contenu du mémo (texte libre, formules, etc.) */
   @Column({ type: 'text' })
   content: string;
 
-  /** Titre du mémo */
+  /** Titre du chapitre ou entrée de mémo */
   @Column({ nullable: true })
   title: string;
+
+  /** Activité concernée (optionnel — lien contextuel pendant une visio) */
+  @Column({ name: 'activity_id', nullable: true })
+  activityId: string;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

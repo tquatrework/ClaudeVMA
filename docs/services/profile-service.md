@@ -12,7 +12,7 @@
       <item>Conserver les profils administratifs des eleves, formateurs et administrateurs.</item>
       <item>Conserver les profils pedagogiques eleve et formateur avec champs distincts.</item>
       <item>Gerer les champs saisis a l'inscription puis completes ou valides par le RP.</item>
-      <item>Gerer les commentaires/rappels administratifs invisibles aux utilisateurs non administrateurs.</item>
+      <item>Gerer les notes internes confidentielles (commentaires/rappels administratifs) invisibles aux utilisateurs non administrateurs, notamment invisibles a l'eleve et au parent/financeur. Ces notes appartiennent au profile-service et non au pedagogical-log-service.</item>
       <item>Calculer ou exposer les statistiques utiles au score pedagogique.</item>
       <item>Exposer des vues partielles aux contacts selon les droits et options de confidentialite.</item>
       <item>Permettre au RP de valider un formateur et de le passer AP.</item>
@@ -39,7 +39,11 @@
       <endpoint method="GET" path="/profiles/{userId}">Lire le profil selon la vue autorisee.</endpoint>
       <endpoint method="PATCH" path="/profiles/{userId}/administrative">Modifier le profil administratif.</endpoint>
       <endpoint method="PATCH" path="/profiles/{userId}/pedagogical">Modifier le profil pedagogique.</endpoint>
-      <endpoint method="POST" path="/profiles/{userId}/admin-notes">Ajouter commentaire ou rappel administratif.</endpoint>
+      <!-- Notes internes confidentielles — non visibles par l'eleve, le parent/financeur ni le formateur -->
+      <endpoint method="GET" path="/profiles/{userId}/internal-notes">Lister les notes internes (role : responsable_pedagogique, animateur_pedagogique, technicien_informatique, administrateur_financier).</endpoint>
+      <endpoint method="POST" path="/profiles/{userId}/internal-notes">Creer une note interne confidentielle (role : responsable_pedagogique, animateur_pedagogique).</endpoint>
+      <endpoint method="PUT" path="/profiles/{userId}/internal-notes/{id}">Modifier une note interne (role : auteur, responsable_pedagogique).</endpoint>
+      <endpoint method="DELETE" path="/profiles/{userId}/internal-notes/{id}">Supprimer une note interne (role : responsable_pedagogique).</endpoint>
       <endpoint method="PATCH" path="/teachers/{userId}/validation">Valider un formateur ou lui attribuer le statut AP.</endpoint>
       <endpoint method="GET" path="/profiles/{userId}/statistics">Lire les statistiques pedagogiques consolidees.</endpoint>
     </candidateApis>

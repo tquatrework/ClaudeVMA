@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Delete,
   Body,
   Param,
@@ -23,13 +24,21 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { UserRole } from '../common/enums/user-role.enum';
 import { MemoService } from './memo.service';
 import { CreateMemoDto } from './dto/create-memo.dto';
+import { UpdateMemoDto } from './dto/update-memo.dto';
 
 /**
- * Routes mémos (POST /memos, GET /memos, GET /memos/:id, DELETE /memos/:id)
+ * Routes mémos — formulaire structuré appartenant à l'élève
  *
- * Création/suppression : FORMATEUR, RP, AP, TI.
- * Lecture (liste + détail) : FORMATEUR, RP, AP, TI, ADMINISTRATEUR_FINANCIER.
- * ELEVE et PARENT_FINANCEUR n'ont pas accès aux mémos (notes internes du personnel).
+ * Le mémo est un outil personnel de l'élève (formules, trucs essentiels).
+ * Il N'EST PAS une note interne du personnel (docs/routes.md, XML spec func 004).
+ *
+ * GET    /memos      → eleve uniquement (liste ses propres mémos)
+ * POST   /memos      → eleve uniquement
+ * GET    /memos/:id  → eleve propriétaire + formateur/RP/AP en lecture seule
+ * PUT    /memos/:id  → eleve propriétaire uniquement
+ * DELETE /memos/:id  → eleve propriétaire uniquement
+ *
+ * PLOG-BR-003: un formateur tentant POST/PUT/DELETE reçoit 403.
  */
 @ApiTags('memos')
 @ApiBearerAuth()
@@ -39,76 +48,92 @@ export class MemoController {
   constructor(private readonly service: MemoService) {}
 
   @Post()
-  @Roles(
-    UserRole.FORMATEUR,
-    UserRole.RESPONSABLE_PEDAGOGIQUE,
-    UserRole.ANIMATEUR_PEDAGOGIQUE,
-    UserRole.TECHNICIEN_INFORMATIQUE,
-  )
+  @Roles(UserRole.ELEVE)
   @ApiOperation({
-    summary: 'Create a memo',
-    description: 'Create a quick note optionally linked to an activity or a student.',
+    summary: 'Créer un mémo',
+    description:
+      'Crée un mémo pour l\'élève connecté. ' +
+      'Seul l\'élève peut créer ses propres mémos (PLOG-BR-003). ' +
+      'Un formateur ou RP tentant cette route reçoit 403.',
   })
-  @ApiResponse({ status: 201, description: 'Memo created' })
-  @ApiResponse({ status: 400, description: 'Validation error' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden — role not allowed' })
+  @ApiResponse({ status: 201, description: 'Mémo créé' })
+  @ApiResponse({ status: 400, description: 'Erreur de validation' })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  @ApiResponse({ status: 403, description: 'Interdit — réservé à l\'élève' })
   create(@Body() dto: CreateMemoDto, @Req() req: any) {
-    return this.service.create(dto, req.user.id, req.user.role);
+    return this.service.create(dto, req.user.id);
   }
 
   @Get()
-  @Roles(
-    UserRole.FORMATEUR,
-    UserRole.RESPONSABLE_PEDAGOGIQUE,
-    UserRole.ANIMATEUR_PEDAGOGIQUE,
-    UserRole.TECHNICIEN_INFORMATIQUE,
-    UserRole.ADMINISTRATEUR_FINANCIER,
-  )
+  @Roles(UserRole.ELEVE)
   @ApiOperation({
-    summary: 'List my memos',
-    description: 'Returns all memos authored by the authenticated user.',
+    summary: 'Lister les mémos de l\'élève connecté',
+    description:
+      'Retourne tous les mémos appartenant à l\'élève connecté (filtre par studentId = userId JWT). ' +
+      'Tout autre rôle reçoit 403.',
   })
-  @ApiResponse({ status: 200, description: 'Memo list' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden — role not allowed' })
+  @ApiResponse({ status: 200, description: 'Liste des mémos' })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  @ApiResponse({ status: 403, description: 'Interdit — réservé à l\'élève' })
   findAll(@Req() req: any) {
-    return this.service.findByAuthor(req.user.id);
+    return this.service.findByStudent(req.user.id);
   }
 
   @Get(':id')
   @Roles(
+    UserRole.ELEVE,
     UserRole.FORMATEUR,
     UserRole.RESPONSABLE_PEDAGOGIQUE,
     UserRole.ANIMATEUR_PEDAGOGIQUE,
-    UserRole.TECHNICIEN_INFORMATIQUE,
-    UserRole.ADMINISTRATEUR_FINANCIER,
   )
-  @ApiParam({ name: 'id', description: 'Memo UUID' })
-  @ApiOperation({ summary: 'Get a memo by ID' })
-  @ApiResponse({ status: 200, description: 'Memo found' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden' })
-  @ApiResponse({ status: 404, description: 'Not found' })
+  @ApiParam({ name: 'id', description: 'UUID du mémo' })
+  @ApiOperation({
+    summary: 'Lire un mémo par ID',
+    description:
+      'L\'élève propriétaire peut toujours lire. ' +
+      'Le formateur lié, le RP et l\'AP peuvent lire en lecture seule. ' +
+      'Le parent financeur et les autres rôles sont refusés (403).',
+  })
+  @ApiResponse({ status: 200, description: 'Mémo trouvé' })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  @ApiResponse({ status: 403, description: 'Interdit' })
+  @ApiResponse({ status: 404, description: 'Mémo introuvable' })
   findOne(@Param('id') id: string, @Req() req: any) {
     return this.service.findOne(id, req.user.id, req.user.role);
   }
 
+  @Put(':id')
+  @Roles(UserRole.ELEVE)
+  @ApiParam({ name: 'id', description: 'UUID du mémo' })
+  @ApiOperation({
+    summary: 'Modifier un mémo',
+    description:
+      'Seul l\'élève propriétaire peut modifier son mémo (PLOG-BR-003). ' +
+      'Tout autre rôle reçoit 403.',
+  })
+  @ApiResponse({ status: 200, description: 'Mémo modifié' })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  @ApiResponse({ status: 403, description: 'Interdit — seul l\'élève propriétaire peut modifier' })
+  @ApiResponse({ status: 404, description: 'Mémo introuvable' })
+  update(@Param('id') id: string, @Body() dto: UpdateMemoDto, @Req() req: any) {
+    return this.service.update(id, dto, req.user.id);
+  }
+
   @Delete(':id')
-  @Roles(
-    UserRole.FORMATEUR,
-    UserRole.RESPONSABLE_PEDAGOGIQUE,
-    UserRole.ANIMATEUR_PEDAGOGIQUE,
-    UserRole.TECHNICIEN_INFORMATIQUE,
-  )
+  @Roles(UserRole.ELEVE)
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiParam({ name: 'id', description: 'Memo UUID' })
-  @ApiOperation({ summary: 'Delete a memo' })
-  @ApiResponse({ status: 204, description: 'Memo deleted' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden' })
-  @ApiResponse({ status: 404, description: 'Not found' })
+  @ApiParam({ name: 'id', description: 'UUID du mémo' })
+  @ApiOperation({
+    summary: 'Supprimer un mémo',
+    description:
+      'Seul l\'élève propriétaire peut supprimer son mémo (PLOG-BR-003). ' +
+      'Tout autre rôle reçoit 403.',
+  })
+  @ApiResponse({ status: 204, description: 'Mémo supprimé' })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  @ApiResponse({ status: 403, description: 'Interdit — seul l\'élève propriétaire peut supprimer' })
+  @ApiResponse({ status: 404, description: 'Mémo introuvable' })
   remove(@Param('id') id: string, @Req() req: any) {
-    return this.service.remove(id, req.user.id, req.user.role);
+    return this.service.remove(id, req.user.id);
   }
 }

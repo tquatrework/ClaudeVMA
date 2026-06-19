@@ -51,6 +51,7 @@ describe('ProfilesService', () => {
       find: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockImplementation((dto) => dto),
       save: jest.fn().mockImplementation(async (entity) => ({ id: 'note-uuid', ...entity, createdAt: new Date() })),
+      remove: jest.fn().mockResolvedValue(undefined),
     };
 
     teacherValidationRepo = {
@@ -433,6 +434,19 @@ describe('ProfilesService', () => {
       expect(result).toHaveLength(1);
     });
 
+    it('returns notes for AnimateurPedagogique', async () => {
+      noteRepo.find.mockResolvedValue([{ id: 'note-2', content: 'ap note' }]);
+      const actor = makeActor(UserRole.ANIMATEUR_PEDAGOGIQUE);
+      const result = await service.getInternalNotes('user-uuid', actor);
+      expect(result).toHaveLength(1);
+    });
+
+    it('returns notes for TechnicienInformatique', async () => {
+      noteRepo.find.mockResolvedValue([]);
+      const actor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE);
+      await expect(service.getInternalNotes('user-uuid', actor)).resolves.toEqual([]);
+    });
+
     it('returns notes for AdministrateurFinancier', async () => {
       noteRepo.find.mockResolvedValue([]);
       const actor = makeActor(UserRole.ADMINISTRATEUR_FINANCIER);
@@ -455,6 +469,72 @@ describe('ProfilesService', () => {
     });
   });
 
+  describe('getInternalNote (single — PROF-FB-002)', () => {
+    const existingNote = {
+      id: 'note-uuid',
+      targetUserId: 'user-uuid',
+      authorId: 'rp-uuid',
+      content: 'Detail note',
+    };
+
+    it('RP can retrieve a single note', async () => {
+      noteRepo.findOne.mockResolvedValue(existingNote);
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await service.getInternalNote('user-uuid', 'note-uuid', actor);
+      expect(result).toHaveProperty('id', 'note-uuid');
+    });
+
+    it('AP can retrieve a single note', async () => {
+      noteRepo.findOne.mockResolvedValue(existingNote);
+      const actor = makeActor(UserRole.ANIMATEUR_PEDAGOGIQUE);
+      const result = await service.getInternalNote('user-uuid', 'note-uuid', actor);
+      expect(result).toHaveProperty('id', 'note-uuid');
+    });
+
+    it('TI can retrieve a single note', async () => {
+      noteRepo.findOne.mockResolvedValue(existingNote);
+      const actor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE);
+      const result = await service.getInternalNote('user-uuid', 'note-uuid', actor);
+      expect(result).toHaveProperty('id', 'note-uuid');
+    });
+
+    it('AF can retrieve a single note', async () => {
+      noteRepo.findOne.mockResolvedValue(existingNote);
+      const actor = makeActor(UserRole.ADMINISTRATEUR_FINANCIER);
+      const result = await service.getInternalNote('user-uuid', 'note-uuid', actor);
+      expect(result).toHaveProperty('id', 'note-uuid');
+    });
+
+    it('throws 404 when note does not exist', async () => {
+      noteRepo.findOne.mockResolvedValue(null);
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      await expect(
+        service.getInternalNote('user-uuid', 'unknown-uuid', actor),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws 403 for élève (PROF-FB-002)', async () => {
+      const actor = makeActor(UserRole.ELEVE);
+      await expect(
+        service.getInternalNote('user-uuid', 'note-uuid', actor),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws 403 for parent_financeur (PROF-FB-002)', async () => {
+      const actor = makeActor(UserRole.PARENT_FINANCEUR);
+      await expect(
+        service.getInternalNote('user-uuid', 'note-uuid', actor),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws 403 for formateur (PROF-FB-002)', async () => {
+      const actor = makeActor(UserRole.FORMATEUR);
+      await expect(
+        service.getInternalNote('user-uuid', 'note-uuid', actor),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
   describe('createInternalNote (PROF-FB-002)', () => {
     it('RP can create an internal note', async () => {
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
@@ -463,11 +543,155 @@ describe('ProfilesService', () => {
       expect(result).toHaveProperty('content', 'Note text');
     });
 
+    it('AP can create an internal note', async () => {
+      const actor = makeActor(UserRole.ANIMATEUR_PEDAGOGIQUE);
+      const result = await service.createInternalNote('user-uuid', { content: 'AP note' }, actor);
+      expect(noteRepo.save).toHaveBeenCalled();
+      expect(result).toHaveProperty('content', 'AP note');
+    });
+
+    it('throws 403 when AdministrateurFinancier tries to create a note (PROF-FB-002)', async () => {
+      const actor = makeActor(UserRole.ADMINISTRATEUR_FINANCIER);
+      await expect(
+        service.createInternalNote('user-uuid', { content: 'af note' }, actor),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws 403 when TI tries to create a note (PROF-FB-002)', async () => {
+      const actor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE);
+      await expect(
+        service.createInternalNote('user-uuid', { content: 'ti note' }, actor),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
     it('throws 403 when formateur tries to create a note (PROF-FB-002)', async () => {
       const actor = makeActor(UserRole.FORMATEUR);
       await expect(
         service.createInternalNote('user-uuid', { content: 'hack' }, actor),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('updateInternalNote (PROF-FB-002)', () => {
+    const rpAuthoredNote = {
+      id: 'note-uuid',
+      targetUserId: 'user-uuid',
+      authorId: 'rp-uuid',
+      authorRole: UserRole.RESPONSABLE_PEDAGOGIQUE,
+      content: 'Original content',
+    };
+    const apAuthoredNote = {
+      id: 'note-uuid-2',
+      targetUserId: 'user-uuid',
+      authorId: 'ap-uuid',
+      authorRole: UserRole.ANIMATEUR_PEDAGOGIQUE,
+      content: 'AP original content',
+    };
+
+    it('RP author can update their own note', async () => {
+      noteRepo.findOne.mockResolvedValue(rpAuthoredNote);
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE, 'rp-uuid');
+      const result = await service.updateInternalNote('user-uuid', 'note-uuid', { content: 'Updated' }, actor);
+      expect(noteRepo.save).toHaveBeenCalledWith(expect.objectContaining({ content: 'Updated' }));
+    });
+
+    it('any RP can update a note even if not the author', async () => {
+      noteRepo.findOne.mockResolvedValue(apAuthoredNote);
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE, 'other-rp-uuid');
+      const result = await service.updateInternalNote('user-uuid', 'note-uuid-2', { content: 'RP override' }, actor);
+      expect(noteRepo.save).toHaveBeenCalledWith(expect.objectContaining({ content: 'RP override' }));
+    });
+
+    it('AP author can update their own note', async () => {
+      noteRepo.findOne.mockResolvedValue(apAuthoredNote);
+      const actor = makeActor(UserRole.ANIMATEUR_PEDAGOGIQUE, 'ap-uuid');
+      await service.updateInternalNote('user-uuid', 'note-uuid-2', { content: 'AP updated' }, actor);
+      expect(noteRepo.save).toHaveBeenCalledWith(expect.objectContaining({ content: 'AP updated' }));
+    });
+
+    it('throws 403 when AP tries to update another author note', async () => {
+      noteRepo.findOne.mockResolvedValue(rpAuthoredNote);
+      const actor = makeActor(UserRole.ANIMATEUR_PEDAGOGIQUE, 'different-ap-uuid');
+      await expect(
+        service.updateInternalNote('user-uuid', 'note-uuid', { content: 'hack' }, actor),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws 403 when TI tries to update a note', async () => {
+      const actor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE, 'ti-uuid');
+      await expect(
+        service.updateInternalNote('user-uuid', 'note-uuid', { content: 'hack' }, actor),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws 403 when AF tries to update a note', async () => {
+      const actor = makeActor(UserRole.ADMINISTRATEUR_FINANCIER, 'af-uuid');
+      await expect(
+        service.updateInternalNote('user-uuid', 'note-uuid', { content: 'hack' }, actor),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws 404 when note does not exist', async () => {
+      noteRepo.findOne.mockResolvedValue(null);
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE, 'rp-uuid');
+      await expect(
+        service.updateInternalNote('user-uuid', 'unknown-uuid', { content: 'x' }, actor),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('deleteInternalNote (PROF-FB-002)', () => {
+    const existingNote = {
+      id: 'note-uuid',
+      targetUserId: 'user-uuid',
+      authorId: 'rp-uuid',
+      content: 'To be deleted',
+    };
+
+    it('RP can delete a note', async () => {
+      noteRepo.findOne.mockResolvedValue(existingNote);
+      noteRepo.remove = jest.fn().mockResolvedValue(undefined);
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      await expect(
+        service.deleteInternalNote('user-uuid', 'note-uuid', actor),
+      ).resolves.toBeUndefined();
+      expect(noteRepo.remove).toHaveBeenCalledWith(existingNote);
+    });
+
+    it('throws 403 when AP tries to delete a note (RP only)', async () => {
+      const actor = makeActor(UserRole.ANIMATEUR_PEDAGOGIQUE);
+      await expect(
+        service.deleteInternalNote('user-uuid', 'note-uuid', actor),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws 403 when TI tries to delete a note', async () => {
+      const actor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE);
+      await expect(
+        service.deleteInternalNote('user-uuid', 'note-uuid', actor),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws 403 when AF tries to delete a note', async () => {
+      const actor = makeActor(UserRole.ADMINISTRATEUR_FINANCIER);
+      await expect(
+        service.deleteInternalNote('user-uuid', 'note-uuid', actor),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws 403 when formateur tries to delete a note', async () => {
+      const actor = makeActor(UserRole.FORMATEUR);
+      await expect(
+        service.deleteInternalNote('user-uuid', 'note-uuid', actor),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws 404 when note does not exist', async () => {
+      noteRepo.findOne.mockResolvedValue(null);
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      await expect(
+        service.deleteInternalNote('user-uuid', 'unknown-uuid', actor),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 

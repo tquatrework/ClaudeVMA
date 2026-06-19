@@ -4,7 +4,10 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { Chapter } from './chapter.entity';
 
 /**
  * Memo — Formulaire structuré appartenant à l'élève
@@ -36,6 +39,18 @@ export class Memo {
   /** Activité concernée (optionnel — lien contextuel pendant une visio) */
   @Column({ name: 'activity_id', nullable: true })
   activityId: string;
+
+  /**
+   * Chapitre de classement optionnel (nullable).
+   * Quand le Chapter est supprimé, cette FK passe à null (onDelete: 'SET NULL').
+   * Les mémos sans chapitre apparaissent sous la catégorie virtuelle "Général".
+   */
+  @ManyToOne(() => Chapter, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'chapter_id' })
+  chapter: Chapter | null;
+
+  @Column({ name: 'chapter_id', type: 'uuid', nullable: true })
+  chapterId: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

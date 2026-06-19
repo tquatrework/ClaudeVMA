@@ -38,15 +38,20 @@ export default function StudentMemoPanel() {
   const canWrite = isEleve
 
   useEffect(() => {
+    // GET /memos est réservé à l'élève — les autres rôles ne doivent pas appeler cette route
+    if (!isEleve) {
+      setIsLoading(false)
+      return
+    }
     fetchMemoChapters()
       .then((fetchedChapters) => setChapters(fetchedChapters))
       .catch((err) => {
-        const status = err?.response?.status
-        if (status === 403) setErrorMessage('Accès refusé — le mémo est réservé à l\'élève')
+        const httpStatus = err?.response?.status
+        if (httpStatus === 403) setErrorMessage('Accès refusé au mémo — vérifiez votre session')
         else setErrorMessage('Impossible de charger le mémo')
       })
       .finally(() => setIsLoading(false))
-  }, [])
+  }, [isEleve])
 
   const handleChapterCreated = (newChapter: MemoChapter) => {
     setChapters((prev) => [...prev, newChapter])

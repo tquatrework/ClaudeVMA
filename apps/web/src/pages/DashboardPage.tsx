@@ -215,7 +215,7 @@ export default function DashboardPage() {
               <QuickCard to={`/notebook/${user.id}`} label="Mon carnet" />
             )}
             {hasRole('eleve', 'parent_financeur', 'formateur', 'responsable_pedagogique') && user && (
-              <QuickCard to={`/pedagogical-log/${user.id}`} label="Cahier de texte" />
+              <QuickCard to="/pedagogical-log" label="Cahier de texte" />
             )}
             <QuickCard to="/memos" label="Mémos" />
             {hasRole('technicien_informatique', 'responsable_pedagogique') && (

@@ -85,7 +85,7 @@ describe('ArchiveController', () => {
 
   // ─── listPedagogicalArchives ────────────────────────────────────────────────
 
-  describe('GET /students/:studentId/pedagogical-archives', () => {
+  describe('GET /archives/students/:studentId/pedagogical-archives', () => {
     it('délègue au service avec pagination et retourne le résultat paginé', async () => {
       mockArchiveService.listPedagogicalArchives.mockResolvedValue(mockPaginatedResult);
 
@@ -136,7 +136,7 @@ describe('ArchiveController', () => {
 
   // ─── addArchiveLink ─────────────────────────────────────────────────────────
 
-  describe('POST /students/:studentId/archive-links', () => {
+  describe('POST /archives/students/:studentId/archive-links', () => {
     const addDto: AddArchiveLinkDto = {
       itemType: ArchiveItemType.RESUME_DE_COURS,
       sourceId: 'session-uuid-1',
@@ -157,7 +157,7 @@ describe('ArchiveController', () => {
 
   // ─── getArchiveTimeline ─────────────────────────────────────────────────────
 
-  describe('GET /students/:studentId/archive-timeline', () => {
+  describe('GET /archives/students/:studentId/archive-timeline', () => {
     it('retourne la vue calendrier paginée groupée par date', async () => {
       const paginatedTimeline = {
         data: [{ date: '2026-06-12', items: [{ id: 'item-uuid-1', title: 'Résumé — Algèbre' }] }],
@@ -203,7 +203,7 @@ describe('ArchiveController', () => {
 
   // ─── downloadArchiveDocument ────────────────────────────────────────────────
 
-  describe('GET /archive-documents/:id/download', () => {
+  describe('GET /documents/:id/download', () => {
     it('retourne l\'URL de redirection pour téléchargement', async () => {
       mockArchiveService.getArchiveItemForDownload.mockResolvedValue(mockArchiveItem);
 

@@ -604,14 +604,17 @@ Types d'items : `pedagogical_log` · `course_summary` · `notebook_entry` · `re
 
 ### Archives pédagogiques
 
-| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+> Préfixe gateway : `/api/v1/archives` → service reçoit `/archives/...`
+> Téléchargement : `/api/v1/documents` → service reçoit `/documents/...`
+
+| Méthode | Chemin (via gateway) | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /students/:studentId/pedagogical-archives | Lister les archives pédagogiques d'un élève | 🔒 | élève (soi-même), formateur (liés), parent_financeur (hors notebook_entry), RP, AP, TI | `200 [{id, studentId, itemType, title, description?, sourceUrl?, downloadUrl?, occurredAt, createdAt, isAccessibleToFinanceOwner}]` · `401` · `403` · `404` |
-| POST | /students/:studentId/archive-links | Créer un lien d'archive manuel | 🔒 | formateur, RP, AP, TI | `201 {id, studentId, itemType, title, ...}` · `400` · `401` · `403` |
-| GET | /students/:studentId/archive-timeline | Timeline chronologique des archives | 🔒 | élève, formateur, parent_financeur (hors notebook_entry), RP, AP, TI | `200 [{id, studentId, itemType, title, description?, occurredAt, sourceUrl?, isAccessibleToFinanceOwner}]` · `401` · `403` · `404` |
+| GET | /api/v1/archives/students/:studentId/pedagogical-archives | Lister les archives pédagogiques d'un élève | 🔒 | élève (soi-même), formateur (liés), parent_financeur (hors carnet_personnel), RP, TI, AF | `200 [{id, studentId, itemType, title, description?, downloadUrl?, occurredAt, createdAt, isParentVisible}]` · `401` · `403` |
+| POST | /api/v1/archives/students/:studentId/archive-links | Créer un lien d'archive depuis un service source | 🔒 | formateur, RP, AP, TI | `201 {id, studentId, itemType, title, ...}` · `200` idempotent · `400` · `401` · `403` · `409` clé idempotence conflit |
+| GET | /api/v1/archives/students/:studentId/archive-timeline | Timeline chronologique des archives (groupée par date) | 🔒 | élève, formateur, parent_financeur (hors carnet_personnel), RP, TI, AF | `200 {data: [{date, items}], page, limit, total, totalPages}` · `401` · `403` |
 
 ### Téléchargement
 
-| Méthode | Chemin | Description | Auth | Réponse attendue |
+| Méthode | Chemin (via gateway) | Description | Auth | Réponse attendue |
 |---|---|---|---|---|
-| GET | /archive-documents/:id/download | Télécharger un document d'archive (blob) | 🔒 | Selon rôle et type d'archive | `200 (blob)` · `401` · `403` · `404` |
+| GET | /api/v1/documents/:id/download | Télécharger un document d'archive (redirection 302 vers URL source) | 🔒 | Selon rôle et type d'archive | `302` redirect · `401` · `403` carnet_personnel interdit au parent · `404` introuvable ou pas d'URL |

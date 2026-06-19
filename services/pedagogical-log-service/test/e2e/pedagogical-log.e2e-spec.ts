@@ -1,14 +1,17 @@
 /**
- * E2E — Pedagogical Log Service: cahier de texte, notebook, mémos
+ * E2E — Pedagogical Log Service: cahier de texte, notebook, mémos élève
  *
  * Routes testées :
  *
- *   Cahier de texte (textbook logs)
- *   POST   /logs                          créer un log
- *   GET    /logs/student/:studentId       logs d'un élève (filtrés par rôle)
- *   GET    /logs/session/:sessionId       logs d'une séance
- *   GET    /logs/:id                      détail d'un log
- *   PATCH  /logs/:id                      modifier un log
+ *   Cahier de texte (textbook logs) — /pedagogical-logs
+ *   GET    /pedagogical-logs                          lister (eleve, parent, formateur, RP, AP)
+ *   POST   /pedagogical-logs                          créer un log (formateur, RP uniquement)
+ *   GET    /pedagogical-logs/:id                      détail d'un log
+ *   PUT    /pedagogical-logs/:id                      modifier un log (auteur)
+ *   DELETE /pedagogical-logs/:id                      supprimer un log (auteur ou RP)
+ *   GET    /pedagogical-logs/student/:studentId       logs d'un élève (filtrés par rôle)
+ *   GET    /pedagogical-logs/session/:sessionId       logs d'une séance
+ *   PATCH  /pedagogical-logs/:id                      modifier partiel (auteur, RP, TI)
  *
  *   Carnet personnel
  *   POST   /students/:studentId/notebook          créer une entrée
@@ -17,22 +20,23 @@
  *   PATCH  /students/:studentId/notebook/:id      modifier une entrée
  *   DELETE /students/:studentId/notebook/:id      supprimer une entrée
  *
- *   Mémos
- *   POST   /memos         créer un mémo
- *   GET    /memos         lister mes mémos
- *   GET    /memos/:id     détail d'un mémo
- *   DELETE /memos/:id     supprimer un mémo
+ *   Mémos élève — /memos (formulaire structuré appartenant à l'élève)
+ *   GET    /memos         lister mes mémos (élève uniquement)
+ *   POST   /memos         créer un mémo (élève uniquement)
+ *   GET    /memos/:id     détail d'un mémo (élève propriétaire + formateur/RP/AP en lecture)
+ *   PUT    /memos/:id     modifier un mémo (élève propriétaire uniquement)
+ *   DELETE /memos/:id     supprimer un mémo (élève propriétaire uniquement)
  *
  * Critères couverts :
  *   PLOG-BR-001  L'élève peut lire les entrées autorisées
  *   PLOG-BR-002  Le parent peut lire le cahier de texte des élèves liés
+ *   PLOG-BR-003  Le mémo appartient à l'élève — le formateur ne peut pas écrire
  *   PLOG-BR-004  Le carnet personnel est réservé à l'élève
  *   PLOG-BR-005  Le parent ne voit pas le carnet personnel
  *   PLOG-BR-006  Visibilité différenciée (formateur_rp invisible au parent)
- *   PLOG-BR-007  Entrée conserve auteur, élève, date, visibilité, activité
  *   PLOG-FB-001  Parent interdit sur carnet personnel → 403
  *   PLOG-FB-002  Carnet personnel non retourné par les APIs de logs
- *   PLOG-FB-003  Seuls formateur/RP/AP peuvent créer des logs
+ *   PLOG-FB-003  Seuls formateur/RP peuvent créer des logs (élève → 403)
  *
  * Auth : JWT Bearer (type: "access") via JwtAuthGuard.
  */
@@ -54,7 +58,7 @@ describe('[E2E] Pedagogical Log Service', () => {
   let tiToken: string;
   let adminFinancierToken: string;
 
-  // IDs captured after seed creations
+  // IDs capturés après les seed creations
   let createdLogId: string;
   let createdSpecialLogId: string;
   let createdSessionId: string;
@@ -76,9 +80,9 @@ describe('[E2E] Pedagogical Log Service', () => {
 
     createdSessionId = '11111111-1111-4111-a111-111111111111';
 
-    // Seed: create a standard log (eleve_parent_formateur visibility)
+    // Seed: créer un log standard (visibilité eleve_parent_formateur)
     const logRes = await request(app.getHttpServer())
-      .post('/logs')
+      .post('/pedagogical-logs')
       .set('Authorization', `Bearer ${teacher1Token}`)
       .send({
         studentId: IDS.student1,
@@ -94,9 +98,9 @@ describe('[E2E] Pedagogical Log Service', () => {
       createdLogId = logRes.body.id;
     }
 
-    // Seed: create a formateur_rp special page (invisible to parent and eleve)
+    // Seed: créer une page spéciale formateur_rp (invisible au parent et à l'élève)
     const specialRes = await request(app.getHttpServer())
-      .post('/logs')
+      .post('/pedagogical-logs')
       .set('Authorization', `Bearer ${rp1Token}`)
       .send({
         studentId: IDS.student1,
@@ -109,23 +113,23 @@ describe('[E2E] Pedagogical Log Service', () => {
       createdSpecialLogId = specialRes.body.id;
     }
 
-    // Seed: create a notebook entry for student1
-    const nbRes = await request(app.getHttpServer())
+    // Seed: créer une entrée de carnet pour student1
+    const notebookRes = await request(app.getHttpServer())
       .post(`/students/${IDS.student1}/notebook`)
       .set('Authorization', `Bearer ${student1Token}`)
       .send({ content: 'Mon journal personnel', title: 'Jour 1' });
 
-    if (nbRes.status === 201) {
-      createdNotebookEntryId = nbRes.body.id;
+    if (notebookRes.status === 201) {
+      createdNotebookEntryId = notebookRes.body.id;
     }
 
-    // Seed: create a memo by teacher1
+    // Seed: créer un mémo par student1 (l'élève est propriétaire)
     const memoRes = await request(app.getHttpServer())
       .post('/memos')
-      .set('Authorization', `Bearer ${teacher1Token}`)
+      .set('Authorization', `Bearer ${student1Token}`)
       .send({
-        content: 'Rappel: vérifier exercice avant séance',
-        studentId: IDS.student1,
+        content: 'Formule du second degré : ax²+bx+c=0',
+        title: 'Algèbre — mémo',
       });
 
     if (memoRes.status === 201) {
@@ -138,24 +142,19 @@ describe('[E2E] Pedagogical Log Service', () => {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Auth guard — all routes require Bearer token
+  // Auth guard — toutes les routes nécessitent un token Bearer
   // ──────────────────────────────────────────────────────────────────────────
 
   describe('Auth guard', () => {
-    it('POST /logs sans token → 401', async () => {
+    it('POST /pedagogical-logs sans token → 401', async () => {
       const res = await request(app.getHttpServer())
-        .post('/logs')
+        .post('/pedagogical-logs')
         .send({ studentId: IDS.student1, content: 'Test' });
       expect(res.status).toBe(401);
     });
 
-    it('GET /logs/student/:id sans token → 401', async () => {
-      const res = await request(app.getHttpServer()).get(`/logs/student/${IDS.student1}`);
-      expect(res.status).toBe(401);
-    });
-
-    it('GET /logs/:id sans token → 401', async () => {
-      const res = await request(app.getHttpServer()).get('/logs/some-id');
+    it('GET /pedagogical-logs sans token → 401', async () => {
+      const res = await request(app.getHttpServer()).get('/pedagogical-logs');
       expect(res.status).toBe(401);
     });
 
@@ -172,16 +171,21 @@ describe('[E2E] Pedagogical Log Service', () => {
         .send({ content: 'Test' });
       expect(res.status).toBe(401);
     });
+
+    it('GET /memos sans token → 401', async () => {
+      const res = await request(app.getHttpServer()).get('/memos');
+      expect(res.status).toBe(401);
+    });
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // POST /logs — création (PLOG-RA-003, PLOG-FB-003)
+  // POST /pedagogical-logs — création (PLOG-RA-003, PLOG-FB-003)
   // ──────────────────────────────────────────────────────────────────────────
 
-  describe('POST /logs — création d\'entrées cahier de texte', () => {
+  describe('POST /pedagogical-logs — création d\'entrées cahier de texte', () => {
     it('[PLOG-RA-003] Un formateur peut créer un log → 201', async () => {
       const res = await request(app.getHttpServer())
-        .post('/logs')
+        .post('/pedagogical-logs')
         .set('Authorization', `Bearer ${teacher1Token}`)
         .send({
           studentId: IDS.student1,
@@ -197,7 +201,7 @@ describe('[E2E] Pedagogical Log Service', () => {
 
     it('[PLOG-RA-004] Un RP peut créer un log → 201', async () => {
       const res = await request(app.getHttpServer())
-        .post('/logs')
+        .post('/pedagogical-logs')
         .set('Authorization', `Bearer ${rp1Token}`)
         .send({
           studentId: IDS.student1,
@@ -209,22 +213,22 @@ describe('[E2E] Pedagogical Log Service', () => {
       expect(res.body).toHaveProperty('id');
     });
 
-    it('[PLOG-RA-004] Un AP peut créer un log → 201', async () => {
+    it('[PLOG-FB-003] Un AP ne peut pas créer un log via POST /pedagogical-logs → 403', async () => {
       const res = await request(app.getHttpServer())
-        .post('/logs')
+        .post('/pedagogical-logs')
         .set('Authorization', `Bearer ${ap1Token}`)
         .send({
           studentId: IDS.student1,
-          content: 'Observations de l\'AP',
+          content: 'Tentative AP',
           visibility: 'eleve_parent_formateur',
         });
 
-      expect(res.status).toBe(201);
+      expect(res.status).toBe(403);
     });
 
     it('[PLOG-FB-003] Un élève ne peut pas créer un log → 403', async () => {
       const res = await request(app.getHttpServer())
-        .post('/logs')
+        .post('/pedagogical-logs')
         .set('Authorization', `Bearer ${student1Token}`)
         .send({
           studentId: IDS.student1,
@@ -236,7 +240,7 @@ describe('[E2E] Pedagogical Log Service', () => {
 
     it('[PLOG-FB-003] Un parent ne peut pas créer un log → 403', async () => {
       const res = await request(app.getHttpServer())
-        .post('/logs')
+        .post('/pedagogical-logs')
         .set('Authorization', `Bearer ${parent1Token}`)
         .send({
           studentId: IDS.student1,
@@ -248,7 +252,7 @@ describe('[E2E] Pedagogical Log Service', () => {
 
     it('Body vide → 400', async () => {
       const res = await request(app.getHttpServer())
-        .post('/logs')
+        .post('/pedagogical-logs')
         .set('Authorization', `Bearer ${teacher1Token}`)
         .send({});
 
@@ -257,7 +261,7 @@ describe('[E2E] Pedagogical Log Service', () => {
 
     it('studentId manquant → 400', async () => {
       const res = await request(app.getHttpServer())
-        .post('/logs')
+        .post('/pedagogical-logs')
         .set('Authorization', `Bearer ${teacher1Token}`)
         .send({ content: 'Sans élève' });
 
@@ -266,7 +270,7 @@ describe('[E2E] Pedagogical Log Service', () => {
 
     it('content manquant → 400', async () => {
       const res = await request(app.getHttpServer())
-        .post('/logs')
+        .post('/pedagogical-logs')
         .set('Authorization', `Bearer ${teacher1Token}`)
         .send({ studentId: IDS.student1 });
 
@@ -276,7 +280,7 @@ describe('[E2E] Pedagogical Log Service', () => {
     it('[PLOG-BR-007] Création avec activité rattachée → 201', async () => {
       const activityId = '22222222-2222-4222-a222-222222222222';
       const res = await request(app.getHttpServer())
-        .post('/logs')
+        .post('/pedagogical-logs')
         .set('Authorization', `Bearer ${teacher1Token}`)
         .send({
           studentId: IDS.student1,
@@ -291,13 +295,78 @@ describe('[E2E] Pedagogical Log Service', () => {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // GET /logs/student/:studentId — lecture filtrée par rôle
+  // GET /pedagogical-logs — liste globale filtrée par rôle
   // ──────────────────────────────────────────────────────────────────────────
 
-  describe('GET /logs/student/:studentId — lecture filtrée', () => {
-    it('[PLOG-BR-001] Un formateur peut lire tous les logs (toutes visibilités) → 200', async () => {
+  describe('GET /pedagogical-logs — liste globale filtrée', () => {
+    it('[PLOG-BR-001] Un élève peut lister les logs → 200', async () => {
       const res = await request(app.getHttpServer())
-        .get(`/logs/student/${IDS.student1}`)
+        .get('/pedagogical-logs')
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      // L'élève ne doit pas voir les entrées formateur_rp
+      const hasSpecialEntry = res.body.some((entry: any) => entry.visibility === 'formateur_rp');
+      expect(hasSpecialEntry).toBe(false);
+    });
+
+    it('[PLOG-BR-002] Un parent peut lister les logs → 200 (uniquement eleve_parent_formateur)', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/pedagogical-logs')
+        .set('Authorization', `Bearer ${parent1Token}`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      for (const entry of res.body) {
+        expect(entry.visibility).toBe('eleve_parent_formateur');
+      }
+    });
+
+    it('Un formateur peut lister tous les logs → 200', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/pedagogical-logs')
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+    });
+
+    it('Un RP peut lister tous les logs → 200', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/pedagogical-logs')
+        .set('Authorization', `Bearer ${rp1Token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.length).toBeGreaterThan(0);
+    });
+
+    it('Un AP peut lister les logs → 200', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/pedagogical-logs')
+        .set('Authorization', `Bearer ${ap1Token}`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+    });
+
+    it('Un TI ne peut pas accéder à GET /pedagogical-logs → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/pedagogical-logs')
+        .set('Authorization', `Bearer ${tiToken}`);
+
+      expect(res.status).toBe(403);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // GET /pedagogical-logs/student/:studentId — lecture filtrée par rôle
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('GET /pedagogical-logs/student/:studentId — lecture filtrée', () => {
+    it('[PLOG-BR-001] Un formateur peut lire tous les logs d\'un élève → 200', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/pedagogical-logs/student/${IDS.student1}`)
         .set('Authorization', `Bearer ${teacher1Token}`);
 
       expect(res.status).toBe(200);
@@ -306,19 +375,19 @@ describe('[E2E] Pedagogical Log Service', () => {
 
     it('[PLOG-RA-001] Un élève peut lire ses logs autorisés → 200', async () => {
       const res = await request(app.getHttpServer())
-        .get(`/logs/student/${IDS.student1}`)
+        .get(`/pedagogical-logs/student/${IDS.student1}`)
         .set('Authorization', `Bearer ${student1Token}`);
 
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
       // L'élève ne doit pas voir les entrées formateur_rp
-      const hasSpecialEntry = res.body.some((e: any) => e.visibility === 'formateur_rp');
+      const hasSpecialEntry = res.body.some((entry: any) => entry.visibility === 'formateur_rp');
       expect(hasSpecialEntry).toBe(false);
     });
 
     it('[PLOG-BR-002] Un parent peut lire les logs eleve_parent_formateur → 200', async () => {
       const res = await request(app.getHttpServer())
-        .get(`/logs/student/${IDS.student1}`)
+        .get(`/pedagogical-logs/student/${IDS.student1}`)
         .set('Authorization', `Bearer ${parent1Token}`);
 
       expect(res.status).toBe(200);
@@ -331,22 +400,19 @@ describe('[E2E] Pedagogical Log Service', () => {
 
     it('[PLOG-BR-006] Un RP voit toutes les visibilités y compris formateur_rp → 200', async () => {
       const res = await request(app.getHttpServer())
-        .get(`/logs/student/${IDS.student1}`)
+        .get(`/pedagogical-logs/student/${IDS.student1}`)
         .set('Authorization', `Bearer ${rp1Token}`);
 
       expect(res.status).toBe(200);
-      // Le RP voit tous les logs y compris les pages spéciales
       expect(res.body.length).toBeGreaterThan(0);
     });
 
-    it('[PLOG-FB-002] Les entrées de carnet personnel ne sont pas retournées ici → 200', async () => {
+    it('[PLOG-FB-002] Les entrées de carnet personnel ne sont pas retournées ici', async () => {
       const res = await request(app.getHttpServer())
-        .get(`/logs/student/${IDS.student1}`)
+        .get(`/pedagogical-logs/student/${IDS.student1}`)
         .set('Authorization', `Bearer ${parent1Token}`);
 
       expect(res.status).toBe(200);
-      // Le type notebook_entries n'existe pas dans la table pedagogical_logs
-      // Toutes les entrées retournées doivent avoir un authorId (preuve que ce sont des logs, pas du carnet)
       for (const entry of res.body) {
         expect(entry).toHaveProperty('authorId');
       }
@@ -354,13 +420,13 @@ describe('[E2E] Pedagogical Log Service', () => {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // GET /logs/session/:sessionId
+  // GET /pedagogical-logs/session/:sessionId
   // ──────────────────────────────────────────────────────────────────────────
 
-  describe('GET /logs/session/:sessionId', () => {
+  describe('GET /pedagogical-logs/session/:sessionId', () => {
     it('Un formateur peut lire les logs d\'une séance → 200', async () => {
       const res = await request(app.getHttpServer())
-        .get(`/logs/session/${createdSessionId}`)
+        .get(`/pedagogical-logs/session/${createdSessionId}`)
         .set('Authorization', `Bearer ${teacher1Token}`);
 
       expect(res.status).toBe(200);
@@ -369,7 +435,7 @@ describe('[E2E] Pedagogical Log Service', () => {
 
     it('Un parent ne voit que les logs eleve_parent_formateur de la séance', async () => {
       const res = await request(app.getHttpServer())
-        .get(`/logs/session/${createdSessionId}`)
+        .get(`/pedagogical-logs/session/${createdSessionId}`)
         .set('Authorization', `Bearer ${parent1Token}`);
 
       expect(res.status).toBe(200);
@@ -380,27 +446,36 @@ describe('[E2E] Pedagogical Log Service', () => {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // GET /logs/:id — détail
+  // GET /pedagogical-logs/:id — détail
   // ──────────────────────────────────────────────────────────────────────────
 
-  describe('GET /logs/:id — détail', () => {
+  describe('GET /pedagogical-logs/:id — détail', () => {
     it('Un formateur peut lire le détail d\'un log → 200', async () => {
       if (!createdLogId) {
         console.warn('createdLogId non défini — seed a échoué, skip');
         return;
       }
       const res = await request(app.getHttpServer())
-        .get(`/logs/${createdLogId}`)
+        .get(`/pedagogical-logs/${createdLogId}`)
         .set('Authorization', `Bearer ${teacher1Token}`);
 
       expect(res.status).toBe(200);
       expect(res.body.id).toBe(createdLogId);
     });
 
-    it('Un parent peut lire un log eleve_parent_formateur → 200', async () => {
+    it('[PLOG-BR-001] Un élève peut lire un log eleve_parent_formateur → 200', async () => {
       if (!createdLogId) return;
       const res = await request(app.getHttpServer())
-        .get(`/logs/${createdLogId}`)
+        .get(`/pedagogical-logs/${createdLogId}`)
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      expect(res.status).toBe(200);
+    });
+
+    it('[PLOG-BR-002] Un parent peut lire un log eleve_parent_formateur → 200', async () => {
+      if (!createdLogId) return;
+      const res = await request(app.getHttpServer())
+        .get(`/pedagogical-logs/${createdLogId}`)
         .set('Authorization', `Bearer ${parent1Token}`);
 
       expect(res.status).toBe(200);
@@ -412,7 +487,7 @@ describe('[E2E] Pedagogical Log Service', () => {
         return;
       }
       const res = await request(app.getHttpServer())
-        .get(`/logs/${createdSpecialLogId}`)
+        .get(`/pedagogical-logs/${createdSpecialLogId}`)
         .set('Authorization', `Bearer ${parent1Token}`);
 
       expect(res.status).toBe(403);
@@ -421,7 +496,7 @@ describe('[E2E] Pedagogical Log Service', () => {
     it('[PLOG-BR-006] Un élève ne peut pas lire un log formateur_rp → 403', async () => {
       if (!createdSpecialLogId) return;
       const res = await request(app.getHttpServer())
-        .get(`/logs/${createdSpecialLogId}`)
+        .get(`/pedagogical-logs/${createdSpecialLogId}`)
         .set('Authorization', `Bearer ${student1Token}`);
 
       expect(res.status).toBe(403);
@@ -429,7 +504,7 @@ describe('[E2E] Pedagogical Log Service', () => {
 
     it('Log inexistant → 404', async () => {
       const res = await request(app.getHttpServer())
-        .get(`/logs/${IDS.unknown}`)
+        .get(`/pedagogical-logs/${IDS.unknown}`)
         .set('Authorization', `Bearer ${teacher1Token}`);
 
       expect(res.status).toBe(404);
@@ -437,25 +512,124 @@ describe('[E2E] Pedagogical Log Service', () => {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // PATCH /logs/:id — modification
+  // PUT /pedagogical-logs/:id — modification complète (auteur uniquement)
   // ──────────────────────────────────────────────────────────────────────────
 
-  describe('PATCH /logs/:id — modification', () => {
+  describe('PUT /pedagogical-logs/:id — modification', () => {
     it('L\'auteur peut modifier son log → 200', async () => {
       if (!createdLogId) return;
       const res = await request(app.getHttpServer())
-        .patch(`/logs/${createdLogId}`)
+        .put(`/pedagogical-logs/${createdLogId}`)
         .set('Authorization', `Bearer ${teacher1Token}`)
-        .send({ content: 'Contenu mis à jour', difficulty: 'difficile' });
+        .send({ content: 'Contenu mis à jour via PUT', difficulty: 'difficile' });
 
       expect(res.status).toBe(200);
-      expect(res.body.difficulty).toBe('difficile');
+    });
+
+    it('Un autre formateur ne peut pas modifier le log via PUT → 403', async () => {
+      if (!createdLogId) return;
+      const res = await request(app.getHttpServer())
+        .put(`/pedagogical-logs/${createdLogId}`)
+        .set('Authorization', `Bearer ${teacher2Token}`)
+        .send({ content: 'Tentative de modification' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('Un RP peut modifier n\'importe quel log via PUT → 200', async () => {
+      if (!createdLogId) return;
+      const res = await request(app.getHttpServer())
+        .put(`/pedagogical-logs/${createdLogId}`)
+        .set('Authorization', `Bearer ${rp1Token}`)
+        .send({ difficulty: 'facile' });
+
+      expect(res.status).toBe(200);
+    });
+
+    it('Log inexistant → 404', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/pedagogical-logs/${IDS.unknown}`)
+        .set('Authorization', `Bearer ${rp1Token}`)
+        .send({ content: 'x' });
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // DELETE /pedagogical-logs/:id — suppression (auteur ou RP)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('DELETE /pedagogical-logs/:id — suppression', () => {
+    it('L\'auteur peut supprimer son log → 204', async () => {
+      const createRes = await request(app.getHttpServer())
+        .post('/pedagogical-logs')
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send({
+          studentId: IDS.student1,
+          content: 'Log à supprimer',
+          visibility: 'eleve_parent_formateur',
+        });
+
+      expect(createRes.status).toBe(201);
+      const toDeleteId = createRes.body.id;
+
+      const res = await request(app.getHttpServer())
+        .delete(`/pedagogical-logs/${toDeleteId}`)
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
+      expect(res.status).toBe(204);
+    });
+
+    it('Un autre formateur ne peut pas supprimer le log → 403', async () => {
+      if (!createdLogId) return;
+      const res = await request(app.getHttpServer())
+        .delete(`/pedagogical-logs/${createdLogId}`)
+        .set('Authorization', `Bearer ${teacher2Token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('Un RP peut supprimer n\'importe quel log → 204', async () => {
+      const createRes = await request(app.getHttpServer())
+        .post('/pedagogical-logs')
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send({
+          studentId: IDS.student1,
+          content: 'Log supprimé par RP',
+          visibility: 'eleve_parent_formateur',
+        });
+
+      expect(createRes.status).toBe(201);
+      const toDeleteId = createRes.body.id;
+
+      const res = await request(app.getHttpServer())
+        .delete(`/pedagogical-logs/${toDeleteId}`)
+        .set('Authorization', `Bearer ${rp1Token}`);
+
+      expect(res.status).toBe(204);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // PATCH /pedagogical-logs/:id — modification partielle (compatibilité)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('PATCH /pedagogical-logs/:id — modification partielle', () => {
+    it('L\'auteur peut modifier son log → 200', async () => {
+      if (!createdLogId) return;
+      const res = await request(app.getHttpServer())
+        .patch(`/pedagogical-logs/${createdLogId}`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send({ content: 'Contenu mis à jour via PATCH', difficulty: 'difficile' });
+
+      expect(res.status).toBe(200);
     });
 
     it('Un autre formateur ne peut pas modifier le log → 403', async () => {
       if (!createdLogId) return;
       const res = await request(app.getHttpServer())
-        .patch(`/logs/${createdLogId}`)
+        .patch(`/pedagogical-logs/${createdLogId}`)
         .set('Authorization', `Bearer ${teacher2Token}`)
         .send({ content: 'Tentative de modification' });
 
@@ -465,7 +639,7 @@ describe('[E2E] Pedagogical Log Service', () => {
     it('Un RP peut modifier n\'importe quel log → 200', async () => {
       if (!createdLogId) return;
       const res = await request(app.getHttpServer())
-        .patch(`/logs/${createdLogId}`)
+        .patch(`/pedagogical-logs/${createdLogId}`)
         .set('Authorization', `Bearer ${rp1Token}`)
         .send({ difficulty: 'facile' });
 
@@ -474,7 +648,7 @@ describe('[E2E] Pedagogical Log Service', () => {
 
     it('Log inexistant → 404', async () => {
       const res = await request(app.getHttpServer())
-        .patch(`/logs/${IDS.unknown}`)
+        .patch(`/pedagogical-logs/${IDS.unknown}`)
         .set('Authorization', `Bearer ${rp1Token}`)
         .send({ content: 'x' });
 
@@ -629,7 +803,6 @@ describe('[E2E] Pedagogical Log Service', () => {
     });
 
     it('L\'élève peut supprimer son entrée → 204', async () => {
-      // Create a new entry specifically for deletion
       const createRes = await request(app.getHttpServer())
         .post(`/students/${IDS.student1}/notebook`)
         .set('Authorization', `Bearer ${student1Token}`)
@@ -656,39 +829,40 @@ describe('[E2E] Pedagogical Log Service', () => {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Mémos
+  // Mémos élève — POST /memos
   // ──────────────────────────────────────────────────────────────────────────
 
-  describe('POST /memos — création', () => {
-    it('Un formateur peut créer un mémo → 201', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/memos')
-        .set('Authorization', `Bearer ${teacher1Token}`)
-        .send({ content: 'Préparer exercices niveau 3ème', studentId: IDS.student1 });
-
-      expect(res.status).toBe(201);
-      expect(res.body).toHaveProperty('id');
-    });
-
-    it('Un RP peut créer un mémo → 201', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/memos')
-        .set('Authorization', `Bearer ${rp1Token}`)
-        .send({ content: 'Vérifier progression de l\'élève' });
-
-      expect(res.status).toBe(201);
-    });
-
-    it('Un élève ne peut pas créer un mémo → 403', async () => {
+  describe('POST /memos — création (PLOG-BR-003)', () => {
+    it('[PLOG-BR-003] Un élève peut créer un mémo → 201', async () => {
       const res = await request(app.getHttpServer())
         .post('/memos')
         .set('Authorization', `Bearer ${student1Token}`)
-        .send({ content: 'Tentative élève' });
+        .send({ content: 'Rappel sur la trigonométrie', title: 'Trigo' });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('id');
+      expect(res.body.studentId).toBe(IDS.student1);
+    });
+
+    it('[PLOG-BR-003] Un formateur ne peut pas créer un mémo → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/memos')
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send({ content: 'Tentative formateur' });
 
       expect(res.status).toBe(403);
     });
 
-    it('Un parent ne peut pas créer un mémo → 403', async () => {
+    it('[PLOG-BR-003] Un RP ne peut pas créer un mémo → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/memos')
+        .set('Authorization', `Bearer ${rp1Token}`)
+        .send({ content: 'Tentative RP' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('[PLOG-BR-003] Un parent ne peut pas créer un mémo → 403', async () => {
       const res = await request(app.getHttpServer())
         .post('/memos')
         .set('Authorization', `Bearer ${parent1Token}`)
@@ -700,49 +874,40 @@ describe('[E2E] Pedagogical Log Service', () => {
     it('Content manquant → 400', async () => {
       const res = await request(app.getHttpServer())
         .post('/memos')
-        .set('Authorization', `Bearer ${teacher1Token}`)
+        .set('Authorization', `Bearer ${student1Token}`)
         .send({ title: 'Sans contenu' });
 
       expect(res.status).toBe(400);
     });
   });
 
-  describe('GET /memos — liste et détail', () => {
-    it('GET /memos — liste des mémos de l\'auteur → 200', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/memos')
-        .set('Authorization', `Bearer ${teacher1Token}`);
+  // ──────────────────────────────────────────────────────────────────────────
+  // Mémos élève — GET /memos
+  // ──────────────────────────────────────────────────────────────────────────
 
-      expect(res.status).toBe(200);
-      expect(Array.isArray(res.body)).toBe(true);
-      // Tous les mémos appartiennent à l'auteur
-      for (const m of res.body) {
-        expect(m.authorId).toBe(IDS.teacher1);
-      }
-    });
-
-    /**
-     * Régression #FIX-403 — ADMINISTRATEUR_FINANCIER était bloqué par RolesGuard
-     * sur GET /memos avant le correctif (rôle absent de la liste @Roles()).
-     */
-    it('[#FIX-403] GET /memos — administrateur_financier peut accéder → 200', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/memos')
-        .set('Authorization', `Bearer ${adminFinancierToken}`);
-
-      expect(res.status).toBe(200);
-      expect(Array.isArray(res.body)).toBe(true);
-    });
-
-    it('GET /memos — un élève ne peut pas accéder → 403', async () => {
+  describe('GET /memos — liste (élève uniquement)', () => {
+    it('[PLOG-BR-003] Un élève peut lister ses propres mémos → 200', async () => {
       const res = await request(app.getHttpServer())
         .get('/memos')
         .set('Authorization', `Bearer ${student1Token}`);
 
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      // Tous les mémos appartiennent à l'élève connecté
+      for (const memo of res.body) {
+        expect(memo.studentId).toBe(IDS.student1);
+      }
+    });
+
+    it('[PLOG-BR-003] Un formateur ne peut pas lister les mémos → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/memos')
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
       expect(res.status).toBe(403);
     });
 
-    it('GET /memos — un parent ne peut pas accéder → 403', async () => {
+    it('[PLOG-BR-003] Un parent ne peut pas accéder à GET /memos → 403', async () => {
       const res = await request(app.getHttpServer())
         .get('/memos')
         .set('Authorization', `Bearer ${parent1Token}`);
@@ -750,42 +915,124 @@ describe('[E2E] Pedagogical Log Service', () => {
       expect(res.status).toBe(403);
     });
 
-    it('GET /memos/:id — l\'auteur peut lire son mémo → 200', async () => {
+    it('[PLOG-BR-003] Un RP ne peut pas lister les mémos → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/memos')
+        .set('Authorization', `Bearer ${rp1Token}`);
+
+      expect(res.status).toBe(403);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Mémos élève — GET /memos/:id
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('GET /memos/:id — détail', () => {
+    it('[PLOG-BR-003] L\'élève propriétaire peut lire son mémo → 200', async () => {
       if (!createdMemoId) {
         console.warn('createdMemoId non défini — seed a échoué, skip');
         return;
       }
       const res = await request(app.getHttpServer())
         .get(`/memos/${createdMemoId}`)
-        .set('Authorization', `Bearer ${teacher1Token}`);
+        .set('Authorization', `Bearer ${student1Token}`);
 
       expect(res.status).toBe(200);
       expect(res.body.id).toBe(createdMemoId);
+      expect(res.body.studentId).toBe(IDS.student1);
     });
 
-    it('GET /memos/:id — un autre formateur est refusé → 403', async () => {
+    it('[PLOG-BR-003] Un formateur peut lire un mémo en lecture seule → 200', async () => {
       if (!createdMemoId) return;
       const res = await request(app.getHttpServer())
         .get(`/memos/${createdMemoId}`)
-        .set('Authorization', `Bearer ${teacher2Token}`);
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
+      expect(res.status).toBe(200);
+    });
+
+    it('[PLOG-BR-003] Un RP peut lire un mémo en lecture seule → 200', async () => {
+      if (!createdMemoId) return;
+      const res = await request(app.getHttpServer())
+        .get(`/memos/${createdMemoId}`)
+        .set('Authorization', `Bearer ${rp1Token}`);
+
+      expect(res.status).toBe(200);
+    });
+
+    it('[PLOG-BR-003] Un autre élève ne peut pas lire le mémo → 403', async () => {
+      if (!createdMemoId) return;
+      const res = await request(app.getHttpServer())
+        .get(`/memos/${createdMemoId}`)
+        .set('Authorization', `Bearer ${student2Token}`);
 
       expect(res.status).toBe(403);
     });
 
-    it('GET /memos/:id inexistant → 404', async () => {
+    it('Mémo inexistant → 404', async () => {
       const res = await request(app.getHttpServer())
         .get(`/memos/${IDS.unknown}`)
-        .set('Authorization', `Bearer ${teacher1Token}`);
+        .set('Authorization', `Bearer ${student1Token}`);
 
       expect(res.status).toBe(404);
     });
   });
 
-  describe('DELETE /memos/:id — suppression', () => {
-    it('L\'auteur peut supprimer son mémo → 204', async () => {
+  // ──────────────────────────────────────────────────────────────────────────
+  // Mémos élève — PUT /memos/:id (élève propriétaire uniquement)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('PUT /memos/:id — modification (élève propriétaire uniquement)', () => {
+    it('[PLOG-BR-003] L\'élève propriétaire peut modifier son mémo → 200', async () => {
+      if (!createdMemoId) return;
+      const res = await request(app.getHttpServer())
+        .put(`/memos/${createdMemoId}`)
+        .set('Authorization', `Bearer ${student1Token}`)
+        .send({ content: 'Formule modifiée par l\'élève', title: 'Mise à jour' });
+
+      expect(res.status).toBe(200);
+    });
+
+    it('[PLOG-BR-003] Un formateur ne peut pas modifier le mémo d\'un élève → 403', async () => {
+      if (!createdMemoId) return;
+      const res = await request(app.getHttpServer())
+        .put(`/memos/${createdMemoId}`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send({ content: 'Tentative formateur' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('[PLOG-BR-003] Un RP ne peut pas modifier le mémo d\'un élève → 403', async () => {
+      if (!createdMemoId) return;
+      const res = await request(app.getHttpServer())
+        .put(`/memos/${createdMemoId}`)
+        .set('Authorization', `Bearer ${rp1Token}`)
+        .send({ content: 'Tentative RP' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('Mémo inexistant → 404', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/memos/${IDS.unknown}`)
+        .set('Authorization', `Bearer ${student1Token}`)
+        .send({ content: 'x' });
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Mémos élève — DELETE /memos/:id (élève propriétaire uniquement)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('DELETE /memos/:id — suppression (élève propriétaire uniquement)', () => {
+    it('[PLOG-BR-003] L\'élève propriétaire peut supprimer son mémo → 204', async () => {
       const createRes = await request(app.getHttpServer())
         .post('/memos')
-        .set('Authorization', `Bearer ${teacher1Token}`)
+        .set('Authorization', `Bearer ${student1Token}`)
         .send({ content: 'Mémo à supprimer' });
 
       expect(createRes.status).toBe(201);
@@ -793,16 +1040,25 @@ describe('[E2E] Pedagogical Log Service', () => {
 
       const res = await request(app.getHttpServer())
         .delete(`/memos/${toDeleteId}`)
-        .set('Authorization', `Bearer ${teacher1Token}`);
+        .set('Authorization', `Bearer ${student1Token}`);
 
       expect(res.status).toBe(204);
     });
 
-    it('Un autre formateur ne peut pas supprimer le mémo → 403', async () => {
+    it('[PLOG-BR-003] Un formateur ne peut pas supprimer le mémo d\'un élève → 403', async () => {
       if (!createdMemoId) return;
       const res = await request(app.getHttpServer())
         .delete(`/memos/${createdMemoId}`)
-        .set('Authorization', `Bearer ${teacher2Token}`);
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('[PLOG-BR-003] Un RP ne peut pas supprimer le mémo d\'un élève → 403', async () => {
+      if (!createdMemoId) return;
+      const res = await request(app.getHttpServer())
+        .delete(`/memos/${createdMemoId}`)
+        .set('Authorization', `Bearer ${rp1Token}`);
 
       expect(res.status).toBe(403);
     });

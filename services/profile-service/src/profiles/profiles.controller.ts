@@ -4,11 +4,14 @@ import {
   Put,
   Patch,
   Post,
+  Delete,
   Param,
   Body,
   UseGuards,
   Request,
   ParseUUIDPipe,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -28,6 +31,7 @@ import {
   UpdateTeacherPedagogicalProfileDto,
 } from './dto/update-pedagogical-profile.dto';
 import { CreateInternalNoteDto } from './dto/create-internal-note.dto';
+import { UpdateInternalNoteDto } from './dto/update-internal-note.dto';
 import { UpdateTeacherValidationDto } from './dto/update-teacher-validation.dto';
 import { UpdateVisibilityPreferenceDto } from './dto/update-visibility-preference.dto';
 
@@ -95,16 +99,22 @@ export class ProfilesController {
   }
 
   @Get(':userId/internal-notes')
-  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.ADMINISTRATEUR_FINANCIER)
+  @Roles(
+    UserRole.RESPONSABLE_PEDAGOGIQUE,
+    UserRole.ANIMATEUR_PEDAGOGIQUE,
+    UserRole.TECHNICIEN_INFORMATIQUE,
+    UserRole.ADMINISTRATEUR_FINANCIER,
+  )
   @ApiOperation({
     summary: 'List internal notes',
     description:
-      'Returns internal notes written about a user. ' +
-      'Restricted to RP and AdministrateurFinancier only (PROF-FB-002).',
+      'Returns all internal notes written about a user, ordered newest first. ' +
+      'Restricted to RP, AP, TI and AdministrateurFinancier (PROF-FB-002). ' +
+      'Élève, parent_financeur and formateur receive 403.',
   })
   @ApiParam({ name: 'userId', description: 'Target user UUID' })
   @ApiResponse({ status: 200, description: 'List of internal notes (newest first)' })
-  @ApiResponse({ status: 403, description: 'Forbidden — RP or AdministrateurFinancier only' })
+  @ApiResponse({ status: 403, description: 'Forbidden — RP, AP, TI or AF only' })
   getInternalNotes(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Request() req,
@@ -113,22 +123,94 @@ export class ProfilesController {
   }
 
   @Post(':userId/internal-notes')
-  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.ADMINISTRATEUR_FINANCIER)
+  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.ANIMATEUR_PEDAGOGIQUE)
   @ApiOperation({
     summary: 'Create internal note',
     description:
-      'Append an internal note about a user. ' +
-      'Restricted to RP and AdministrateurFinancier only (PROF-FB-002).',
+      'Append a confidential internal note about a user. ' +
+      'Restricted to RP and AP only (PROF-FB-002). ' +
+      'AdministrateurFinancier, élève, parent_financeur and formateur receive 403.',
   })
   @ApiParam({ name: 'userId', description: 'Target user UUID' })
   @ApiResponse({ status: 201, description: 'Internal note created' })
-  @ApiResponse({ status: 403, description: 'Forbidden — RP or AdministrateurFinancier only' })
+  @ApiResponse({ status: 400, description: 'Bad request — empty body or invalid content' })
+  @ApiResponse({ status: 403, description: 'Forbidden — RP or AP only' })
   createInternalNote(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Body() dto: CreateInternalNoteDto,
     @Request() req,
   ) {
     return this.profilesService.createInternalNote(userId, dto, req.user);
+  }
+
+  @Get(':userId/internal-notes/:noteId')
+  @Roles(
+    UserRole.RESPONSABLE_PEDAGOGIQUE,
+    UserRole.ANIMATEUR_PEDAGOGIQUE,
+    UserRole.TECHNICIEN_INFORMATIQUE,
+    UserRole.ADMINISTRATEUR_FINANCIER,
+  )
+  @ApiOperation({
+    summary: 'Get a single internal note',
+    description:
+      'Returns a single internal note by ID. ' +
+      'Restricted to RP, AP, TI and AF (PROF-FB-002).',
+  })
+  @ApiParam({ name: 'userId', description: 'Target user UUID' })
+  @ApiParam({ name: 'noteId', description: 'Internal note UUID' })
+  @ApiResponse({ status: 200, description: 'Internal note' })
+  @ApiResponse({ status: 403, description: 'Forbidden — RP, AP, TI or AF only' })
+  @ApiResponse({ status: 404, description: 'Note not found' })
+  getInternalNote(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('noteId', ParseUUIDPipe) noteId: string,
+    @Request() req,
+  ) {
+    return this.profilesService.getInternalNote(userId, noteId, req.user);
+  }
+
+  @Put(':userId/internal-notes/:noteId')
+  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.ANIMATEUR_PEDAGOGIQUE)
+  @ApiOperation({
+    summary: 'Update an internal note',
+    description:
+      'Modifies an existing internal note. ' +
+      'Only the original author (RP or AP) or any RP may update (PROF-FB-002).',
+  })
+  @ApiParam({ name: 'userId', description: 'Target user UUID' })
+  @ApiParam({ name: 'noteId', description: 'Internal note UUID' })
+  @ApiResponse({ status: 200, description: 'Updated internal note' })
+  @ApiResponse({ status: 403, description: 'Forbidden — author or RP only' })
+  @ApiResponse({ status: 404, description: 'Note not found' })
+  updateInternalNote(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('noteId', ParseUUIDPipe) noteId: string,
+    @Body() dto: UpdateInternalNoteDto,
+    @Request() req,
+  ) {
+    return this.profilesService.updateInternalNote(userId, noteId, dto, req.user);
+  }
+
+  @Delete(':userId/internal-notes/:noteId')
+  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Delete an internal note',
+    description:
+      'Permanently deletes an internal note. ' +
+      'Restricted to RP only (PROF-FB-002).',
+  })
+  @ApiParam({ name: 'userId', description: 'Target user UUID' })
+  @ApiParam({ name: 'noteId', description: 'Internal note UUID' })
+  @ApiResponse({ status: 204, description: 'Note deleted' })
+  @ApiResponse({ status: 403, description: 'Forbidden — RP only' })
+  @ApiResponse({ status: 404, description: 'Note not found' })
+  deleteInternalNote(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('noteId', ParseUUIDPipe) noteId: string,
+    @Request() req,
+  ) {
+    return this.profilesService.deleteInternalNote(userId, noteId, req.user);
   }
 
   @Post(':teacherId/ap-status')

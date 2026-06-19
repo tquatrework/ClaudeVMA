@@ -176,7 +176,7 @@ export default function App() {
             }
           />
           <Route
-            path="/pedagogical-log/:studentId"
+            path="/pedagogical-log"
             element={
               <ProtectedRoute>
                 <PedagogicalLogPage />

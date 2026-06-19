@@ -11,11 +11,12 @@ import { CreateSpecialPageDto } from './dto/create-special-page.dto';
 import { UpdateLogDto } from './dto/update-log.dto';
 
 /**
- * Visibilities accessible to each role (PLOG-RA-001 to PLOG-RA-004).
+ * Visibilités accessibles selon le rôle (PLOG-RA-001 à PLOG-RA-004).
  *
- * - Formateur / RP : can see everything (they write and coordinate)
- * - Eleve          : can see eleve_parent_formateur and eleve_formateur (not formateur_rp special pages)
- * - Parent         : can see eleve_parent_formateur only (PLOG-BR-005 / PLOG-FB-001)
+ * - Formateur / RP / AP / TI : peut tout voir (ils écrivent et coordonnent)
+ * - Eleve                    : voit eleve_parent_formateur et eleve_formateur
+ *                              (pas les pages formateur_rp ni les pages spéciales)
+ * - Parent                   : voit uniquement eleve_parent_formateur (PLOG-BR-005 / PLOG-FB-001)
  */
 const VISIBILITY_BY_ROLE: Record<string, LogVisibility[]> = {
   formateur: ['eleve_parent_formateur', 'eleve_formateur', 'formateur_rp', 'special'],
@@ -34,8 +35,8 @@ export class PedagogicalLogService {
   ) {}
 
   /**
-   * Create a new textbook entry.
-   * PLOG-FB-003: only formateur or RP can write. The caller must be the authorId.
+   * Créer une nouvelle entrée de cahier de texte.
+   * PLOG-FB-003: seuls formateur et RP peuvent écrire.
    */
   create(dto: CreateLogDto, authorId: string, authorRole: string): Promise<PedagogicalLog> {
     const entry = this.pedagogicalLogRepository.create({
@@ -50,7 +51,7 @@ export class PedagogicalLogService {
   }
 
   /**
-   * Create a special page (RP only).
+   * Créer une page spéciale (RP uniquement).
    * XML spec functionality 003: pages spéciales pouvant être invisibles à l'élève.
    */
   createSpecialPage(
@@ -72,14 +73,14 @@ export class PedagogicalLogService {
   }
 
   /**
-   * Get all textbook entries for a student, filtered by caller role.
-   * PLOG-BR-001, PLOG-BR-002, PLOG-RA-001, PLOG-RA-002.
+   * Lister toutes les entrées de cahier de texte, filtrées par rôle appelant.
+   * PLOG-RA-001, PLOG-RA-002, PLOG-BR-006.
    * XML spec func 003: pages hiddenFromStudent=true invisibles à l'élève.
    */
-  async findByStudent(studentId: string, callerRole: string): Promise<PedagogicalLog[]> {
-    const allowed = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
+  async findAll(callerRole: string): Promise<PedagogicalLog[]> {
+    const allowedVisibilities = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
     const entries = await this.pedagogicalLogRepository.find({
-      where: { studentId, visibility: In(allowed) },
+      where: { visibility: In(allowedVisibilities) },
       order: { createdAt: 'DESC' },
     });
 
@@ -90,27 +91,45 @@ export class PedagogicalLogService {
   }
 
   /**
-   * Get all textbook entries for a session.
-   * Visibility is filtered by caller role.
+   * Obtenir toutes les entrées de cahier de texte pour un élève, filtrées par rôle appelant.
+   * PLOG-BR-001, PLOG-BR-002, PLOG-RA-001, PLOG-RA-002.
+   * XML spec func 003: pages hiddenFromStudent=true invisibles à l'élève.
+   */
+  async findByStudent(studentId: string, callerRole: string): Promise<PedagogicalLog[]> {
+    const allowedVisibilities = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
+    const entries = await this.pedagogicalLogRepository.find({
+      where: { studentId, visibility: In(allowedVisibilities) },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (callerRole === 'eleve') {
+      return entries.filter((entry) => !entry.hiddenFromStudent);
+    }
+    return entries;
+  }
+
+  /**
+   * Obtenir toutes les entrées de cahier de texte pour une séance.
+   * La visibilité est filtrée par rôle appelant.
    */
   findBySession(sessionId: string, callerRole: string): Promise<PedagogicalLog[]> {
-    const allowed = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
+    const allowedVisibilities = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
     return this.pedagogicalLogRepository.find({
-      where: { sessionId, visibility: In(allowed) },
+      where: { sessionId, visibility: In(allowedVisibilities) },
       order: { createdAt: 'DESC' },
     });
   }
 
   /**
-   * Get a single textbook entry by ID, filtered by caller role.
+   * Obtenir une seule entrée par ID, filtrée par rôle appelant.
    * XML spec func 003: pages hiddenFromStudent=true lancent ForbiddenException pour l'élève.
    */
   async findOne(id: string, callerRole: string): Promise<PedagogicalLog> {
     const entry = await this.pedagogicalLogRepository.findOne({ where: { id } });
     if (!entry) throw new NotFoundException(`Log ${id} not found`);
 
-    const allowed = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
-    if (!allowed.includes(entry.visibility)) {
+    const allowedVisibilities = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
+    if (!allowedVisibilities.includes(entry.visibility)) {
       throw new ForbiddenException('Access to this log entry is not allowed for your role');
     }
 
@@ -122,8 +141,8 @@ export class PedagogicalLogService {
   }
 
   /**
-   * Update a textbook entry.
-   * Only the original author or a RP/TI can update.
+   * Modifier une entrée de cahier de texte.
+   * Seul l'auteur original ou un RP/TI peut modifier.
    */
   async update(
     id: string,
@@ -145,5 +164,24 @@ export class PedagogicalLogService {
 
     Object.assign(entry, dto);
     return this.pedagogicalLogRepository.save(entry);
+  }
+
+  /**
+   * Supprimer une entrée de cahier de texte.
+   * Seul l'auteur ou un RP peut supprimer.
+   */
+  async remove(id: string, callerId: string, callerRole: string): Promise<void> {
+    const entry = await this.pedagogicalLogRepository.findOne({ where: { id } });
+    if (!entry) throw new NotFoundException(`Log ${id} not found`);
+
+    const canDelete =
+      entry.authorId === callerId ||
+      callerRole === 'responsable_pedagogique';
+
+    if (!canDelete) {
+      throw new ForbiddenException('Only the author or a RP can delete this entry');
+    }
+
+    await this.pedagogicalLogRepository.remove(entry);
   }
 }

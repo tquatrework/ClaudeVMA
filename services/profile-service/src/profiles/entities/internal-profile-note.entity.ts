@@ -3,12 +3,14 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  UpdateDateColumn,
 } from 'typeorm';
 import { UserRole } from '../../common/enums/user-role.enum';
 
 /**
- * Internal notes written by RP or AdministrateurFinancier about any user.
+ * Internal notes written by RP or AnimateurPedagogique about any user.
  * PROF-BR-009/010 + PROF-FB-002: never exposed to eleve, parent_financeur or formateur.
+ * Readable by RP, AP, TI, AF. Writable only by RP and AP.
  */
 @Entity('internal_profile_notes')
 export class InternalProfileNote {
@@ -33,4 +35,7 @@ export class InternalProfileNote {
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 }

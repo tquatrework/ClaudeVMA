@@ -35,9 +35,9 @@ import { PaginatedResponseDto } from './dto/paginated-response.dto';
 export class ArchiveController {
   constructor(private readonly archiveService: ArchiveService) {}
 
-  // ─── GET /students/:studentId/pedagogical-archives ──────────────────────────
+  // ─── GET /archives/students/:studentId/pedagogical-archives ─────────────────
 
-  @Get('students/:studentId/pedagogical-archives')
+  @Get('archives/students/:studentId/pedagogical-archives')
   @ApiOperation({
     summary: 'Lister les archives pédagogiques d\'un élève',
     description:
@@ -69,9 +69,9 @@ export class ArchiveController {
     );
   }
 
-  // ─── POST /students/:studentId/archive-links ─────────────────────────────────
+  // ─── POST /archives/students/:studentId/archive-links ────────────────────────
 
-  @Post('students/:studentId/archive-links')
+  @Post('archives/students/:studentId/archive-links')
   @ApiOperation({
     summary: 'Ajouter un lien archive depuis un service source',
     description:
@@ -98,9 +98,9 @@ export class ArchiveController {
     return this.archiveService.addArchiveLink(studentId, dto);
   }
 
-  // ─── GET /students/:studentId/archive-timeline ───────────────────────────────
+  // ─── GET /archives/students/:studentId/archive-timeline ──────────────────────
 
-  @Get('students/:studentId/archive-timeline')
+  @Get('archives/students/:studentId/archive-timeline')
   @ApiOperation({
     summary: 'Vue calendrier des archives pédagogiques',
     description:
@@ -132,9 +132,9 @@ export class ArchiveController {
     );
   }
 
-  // ─── GET /archive-documents/:id/download ─────────────────────────────────────
+  // ─── GET /documents/:id/download ─────────────────────────────────────────────
 
-  @Get('archive-documents/:id/download')
+  @Get('documents/:id/download')
   @ApiOperation({
     summary: 'Télécharger un document archivé autorisé',
     description:

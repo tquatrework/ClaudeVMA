@@ -17,4 +17,9 @@ export class UpdateMemoDto {
   @IsOptional()
   @IsUUID()
   activityId?: string;
+
+  @ApiPropertyOptional({ description: 'UUID du chapitre de classement (nullable — null = catégorie "Général")' })
+  @IsOptional()
+  @IsUUID()
+  chapterId?: string | null;
 }

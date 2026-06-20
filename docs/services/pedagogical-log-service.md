@@ -44,10 +44,17 @@
       <endpoint method="POST" path="/students/{studentId}/pedagogical-log/special-pages">Creer page speciale avec visibilite (role : responsable_pedagogique).</endpoint>
       <!-- Memo — formulaire structure appartenant a l'eleve ; ni le formateur ni le RP n'ont droit d'ecriture -->
       <endpoint method="GET" path="/memos">Lister le memo de l'eleve courant (role : eleve uniquement).</endpoint>
-      <endpoint method="POST" path="/memos">Creer un memo (role : eleve uniquement).</endpoint>
+      <endpoint method="POST" path="/memos">Creer un memo (role : eleve uniquement). Champ optionnel : chapterId (nullable, reference vers Chapter).</endpoint>
       <endpoint method="GET" path="/memos/{id}">Lire un memo (role : eleve proprietaire, formateur/RP lies en lecture seule).</endpoint>
-      <endpoint method="PUT" path="/memos/{id}">Modifier un memo (role : eleve proprietaire uniquement).</endpoint>
+      <endpoint method="PUT" path="/memos/{id}">Modifier un memo (role : eleve proprietaire uniquement). Inclut chapterId modifiable.</endpoint>
       <endpoint method="DELETE" path="/memos/{id}">Supprimer un memo (role : eleve proprietaire uniquement).</endpoint>
+      <!-- Chapitres de memo — etiquettes de classement optionnelles appartenant a l'eleve -->
+      <!-- Note d'affichage : les memos sont groupes par chapitre dans l'UI ; les memos sans chapitre (chapterId null) apparaissent sous la categorie virtuelle "General". -->
+      <endpoint method="GET" path="/memos/chapters">Lister les chapitres de l'eleve connecte (role : eleve uniquement).</endpoint>
+      <endpoint method="POST" path="/memos/chapters">Creer un chapitre (role : eleve uniquement). Body : {title}.</endpoint>
+      <endpoint method="GET" path="/memos/chapters/{id}">Detailler un chapitre et ses memos (role : eleve proprietaire, formateur/RP lies en lecture).</endpoint>
+      <endpoint method="PUT" path="/memos/chapters/{id}">Renommer un chapitre (role : eleve proprietaire uniquement). Body : {title}.</endpoint>
+      <endpoint method="DELETE" path="/memos/chapters/{id}">Supprimer un chapitre ; les memos associes passent a chapterId=null (role : eleve proprietaire uniquement).</endpoint>
       <!-- Carnet personnel — exclusivement reserve a l'eleve -->
       <endpoint method="GET" path="/students/{studentId}/notebook">Lire carnet personnel (role : eleve proprietaire, TI en cas d'incident).</endpoint>
       <endpoint method="POST" path="/students/{studentId}/notebook">Ajouter une note personnelle (role : eleve proprietaire).</endpoint>
@@ -57,6 +64,16 @@
     <dataEntities>
       <entity>PedagogicalLogPage</entity>
       <entity>PedagogicalLogVisibility</entity>
+      <entity name="Chapter">
+        <field name="id" type="uuid" key="primary"/>
+        <field name="title" type="string"/>
+        <field name="studentId" type="uuid" description="Eleve proprietaire du chapitre"/>
+        <field name="createdAt" type="datetime"/>
+        <note>Un chapitre est une etiquette de classement optionnelle. Il n'existe pas independamment des memos : sa suppression repasse chapterId a null sur les memos associes.</note>
+      </entity>
+      <entity name="Memo">
+        <field name="chapterId" type="uuid" nullable="true" description="Reference vers Chapter ; null = memo dans la categorie virtuelle General"/>
+      </entity>
       <entity>MemoChapter</entity>
       <entity>MemoItem</entity>
       <entity>MemoImage</entity>

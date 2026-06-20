@@ -38,20 +38,19 @@ export interface CreateSpecialPagePayload {
   hiddenFromStudent: boolean
 }
 
-export type MemoItemType = 'text' | 'formula' | 'image'
-
-export interface MemoItem {
+export interface Memo {
   id: string
-  chapterId: string
-  itemType: MemoItemType
+  title: string
   content: string
+  chapterId: string | null
   createdAt: string
+  updatedAt?: string
 }
 
 export interface MemoChapter {
   id: string
   title: string
-  items: MemoItem[]
+  studentId?: string
   createdAt: string
 }
 
@@ -59,9 +58,16 @@ export interface CreateChapterPayload {
   title: string
 }
 
-export interface CreateMemoItemPayload {
-  itemType: MemoItemType
+export interface CreateMemoPayload {
+  title: string
   content: string
+  chapterId?: string | null
+}
+
+export interface UpdateMemoPayload {
+  title?: string
+  content?: string
+  chapterId?: string | null
 }
 
 export interface NotebookEntry {
@@ -145,8 +151,17 @@ export async function deleteLogPage(logId: string): Promise<void> {
  * Liste les mémos de l'élève connecté.
  * Route : GET /memos — élève uniquement.
  */
+export async function fetchMemos(): Promise<Memo[]> {
+  const { data } = await apiClient.get<Memo[]>('/memos')
+  return data
+}
+
+/**
+ * Liste les chapitres de mémo de l'élève connecté.
+ * Route : GET /memos/chapters — élève uniquement.
+ */
 export async function fetchMemoChapters(): Promise<MemoChapter[]> {
-  const { data } = await apiClient.get<MemoChapter[]>('/memos')
+  const { data } = await apiClient.get<MemoChapter[]>('/memos/chapters')
   return data
 }
 
@@ -154,8 +169,17 @@ export async function fetchMemoChapters(): Promise<MemoChapter[]> {
  * Recherche dans les mémos de l'élève.
  * Route : GET /memos/search?q=
  */
-export async function searchMemoItems(query: string): Promise<MemoItem[]> {
-  const { data } = await apiClient.get<MemoItem[]>(`/memos/search`, { params: { q: query } })
+export async function searchMemos(query: string): Promise<Memo[]> {
+  const { data } = await apiClient.get<Memo[]>(`/memos/search`, { params: { q: query } })
+  return data
+}
+
+/**
+ * Crée un mémo (avec ou sans chapitre).
+ * Route : POST /memos — élève uniquement.
+ */
+export async function createMemo(payload: CreateMemoPayload): Promise<Memo> {
+  const { data } = await apiClient.post<Memo>('/memos', payload)
   return data
 }
 
@@ -169,26 +193,11 @@ export async function createMemoChapter(payload: CreateChapterPayload): Promise<
 }
 
 /**
- * Ajoute un item dans un chapitre de mémo.
- * Route : POST /memos/chapters/:chapterId/items — élève uniquement.
- */
-export async function createMemoItem(
-  chapterId: string,
-  payload: CreateMemoItemPayload,
-): Promise<MemoItem> {
-  const { data } = await apiClient.post<MemoItem>(
-    `/memos/chapters/${chapterId}/items`,
-    payload,
-  )
-  return data
-}
-
-/**
  * Modifie un mémo (élève propriétaire uniquement).
  * Route : PUT /memos/:id
  */
-export async function updateMemo(memoId: string, content: string): Promise<MemoChapter> {
-  const { data } = await apiClient.put<MemoChapter>(`/memos/${memoId}`, { content })
+export async function updateMemo(memoId: string, payload: UpdateMemoPayload): Promise<Memo> {
+  const { data } = await apiClient.put<Memo>(`/memos/${memoId}`, payload)
   return data
 }
 

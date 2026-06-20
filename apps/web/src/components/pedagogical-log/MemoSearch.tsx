@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react'
-import { searchMemoItems, type MemoItem, type MemoItemType } from '../../api/pedagogicalLog'
+import { searchMemos, type Memo } from '../../api/pedagogicalLog'
 
 interface MemoSearchProps {
   onClose: () => void
@@ -13,7 +13,7 @@ interface MemoSearchProps {
 
 export default function MemoSearch({ onClose }: MemoSearchProps) {
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<MemoItem[]>([])
+  const [searchResults, setSearchResults] = useState<Memo[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [hasSearched, setHasSearched] = useState(false)
@@ -33,7 +33,7 @@ export default function MemoSearch({ onClose }: MemoSearchProps) {
     setErrorMessage(null)
     setHasSearched(true)
     try {
-      const results = await searchMemoItems(trimmedQuery)
+      const results = await searchMemos(trimmedQuery)
       setSearchResults(results)
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status
@@ -44,12 +44,6 @@ export default function MemoSearch({ onClose }: MemoSearchProps) {
     } finally {
       setIsSearching(false)
     }
-  }
-
-  const itemTypeLabel: Record<MemoItemType, string> = {
-    text: 'Texte',
-    formula: 'Formule',
-    image: 'Image',
   }
 
   return (
@@ -91,21 +85,13 @@ export default function MemoSearch({ onClose }: MemoSearchProps) {
 
       {searchResults.length > 0 && (
         <ul className="space-y-2">
-          {searchResults.map((item) => (
+          {searchResults.map((memo) => (
             <li
-              key={item.id}
+              key={memo.id}
               className="bg-gray-50 border border-gray-100 rounded-lg px-3 py-2"
             >
-              <span className="inline-block text-xs text-gray-400 mr-2">
-                [{itemTypeLabel[item.itemType]}]
-              </span>
-              {item.itemType === 'formula' ? (
-                <code className="font-mono text-xs text-indigo-700 bg-white px-1 rounded">
-                  {item.content}
-                </code>
-              ) : (
-                <span className="text-sm text-gray-700">{item.content}</span>
-              )}
+              <p className="text-sm font-medium text-gray-700">{memo.title}</p>
+              <p className="text-sm text-gray-600 mt-0.5 whitespace-pre-wrap">{memo.content}</p>
             </li>
           ))}
         </ul>

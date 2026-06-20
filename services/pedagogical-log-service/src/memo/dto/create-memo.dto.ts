@@ -17,4 +17,9 @@ export class CreateMemoDto {
   @IsOptional()
   @IsUUID()
   activityId?: string;
+
+  @ApiPropertyOptional({ description: 'UUID du chapitre de classement (nullable — mémo sans chapitre → catégorie "Général")' })
+  @IsOptional()
+  @IsUUID()
+  chapterId?: string | null;
 }

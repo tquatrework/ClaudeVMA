@@ -19,11 +19,15 @@ apiClient.interceptors.request.use((config) => {
   return config
 })
 
-// Handle 401 — clear session and redirect to login
+// Handle 401 — clear session and redirect to login (except on public registration/auth routes)
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const publicApiRoutes = ['/accounts/teachers', '/accounts/students', '/accounts/parents', '/accounts', '/auth/login']
+    const isPublicRoute = publicApiRoutes.some(
+      (path) => error.config?.url?.includes(path)
+    )
+    if (error.response?.status === 401 && !isPublicRoute) {
       localStorage.removeItem('access_token')
       localStorage.removeItem('refresh_token')
       localStorage.removeItem('user')

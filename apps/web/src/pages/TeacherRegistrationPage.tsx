@@ -94,9 +94,10 @@ export default function TeacherRegistrationPage() {
 
     setIsSubmitting(true)
     try {
-      await apiClient.post('/accounts/teachers', {
+      await apiClient.post('/accounts', {
         email: administrativeData.email,
         password: administrativeData.password,
+        role: 'formateur',
         firstName: administrativeData.firstName,
         lastName: administrativeData.lastName,
         phoneNumber: administrativeData.phoneNumber || undefined,

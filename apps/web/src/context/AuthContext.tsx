@@ -52,6 +52,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const storedToken = localStorage.getItem('access_token')
     if (!storedToken) return
 
+    const publicPaths = ['/login', '/register', '/register/student', '/register/teacher', '/register/parent', '/password-reset', '/forbidden']
+    const isPublicPath = publicPaths.some((path) => window.location.pathname.startsWith(path))
+    if (isPublicPath) return
+
     apiClient
       .get<AuthUser>('/auth/me')
       .then(({ data }) => {

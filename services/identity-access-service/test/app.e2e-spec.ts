@@ -44,6 +44,48 @@ describe('Identity Access Service (e2e)', () => {
       });
   });
 
+  it('POST /accounts/students without JWT → 201 (public route, no token required)', () => {
+    const studentEmail = `student-${timestamp}@example.com`;
+    return request(app.getHttpServer())
+      .post('/accounts/students')
+      .send({ email: studentEmail, password: testPassword })
+      .expect(201)
+      .expect((res) => {
+        expect(res.body.student).toBeDefined();
+        expect(res.body.student.email).toBe(studentEmail);
+        expect(res.body.student.role).toBe('eleve');
+        expect(res.body.student.validationStatus).toBe('pending');
+      });
+  });
+
+  it('POST /accounts/teachers without JWT → 201 (public route, no token required)', () => {
+    const teacherEmail = `teacher-${timestamp}@example.com`;
+    return request(app.getHttpServer())
+      .post('/accounts/teachers')
+      .send({ email: teacherEmail, password: testPassword })
+      .expect(201)
+      .expect((res) => {
+        expect(res.body.id).toBeDefined();
+        expect(res.body.email).toBe(teacherEmail);
+        expect(res.body.role).toBe('formateur');
+        expect(res.body.validationStatus).toBe('pending');
+      });
+  });
+
+  it('POST /accounts/parents without JWT → 201 (public route, no token required)', () => {
+    const parentEmail = `parent-${timestamp}@example.com`;
+    return request(app.getHttpServer())
+      .post('/accounts/parents')
+      .send({ email: parentEmail, password: testPassword })
+      .expect(201)
+      .expect((res) => {
+        expect(res.body.id).toBeDefined();
+        expect(res.body.email).toBe(parentEmail);
+        expect(res.body.role).toBe('parent_financeur');
+        expect(res.body.validationStatus).toBe('pending');
+      });
+  });
+
   it('POST /auth/login → 201 after account creation', () => {
     return request(app.getHttpServer())
       .post('/auth/login')

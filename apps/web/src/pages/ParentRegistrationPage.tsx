@@ -39,10 +39,9 @@ export default function ParentRegistrationPage() {
 
     setIsSubmitting(true)
     try {
-      await apiClient.post('/accounts', {
+      await apiClient.post('/accounts/parents', {
         email: formData.email,
         password: formData.password,
-        role: 'parent_financeur',
       })
       navigate('/login', {
         state: {

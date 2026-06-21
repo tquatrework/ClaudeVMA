@@ -26,7 +26,10 @@ Réponse login/refresh : `{access_token, refresh_token, user: {id, email, role, 
 
 | Méthode | Chemin | Description | Auth | Rôles | Body |
 |---|---|---|---|---|---|
-| POST | /accounts | Créer un compte (auto-inscription) | Non | — | `{email, password, role?}` |
+| POST | /accounts | Créer un compte générique (auto-inscription) | Non | — | `{email, password, role?}` |
+| POST | /accounts/students | Créer un compte élève (+ parent optionnel) | Non | — | `{email, password, isMember?, parentEmail?, parentPassword?}` |
+| POST | /accounts/teachers | Créer un compte formateur | Non | — | `{email, password, cvReference?}` |
+| POST | /accounts/parents | Créer un compte parent / financeur | Non | — | `{email, password}` |
 | GET | /accounts/:accountId | Lire un compte | 🔒 | TI, RP, AdministrateurFinancier | — |
 | PUT | /accounts/:accountId/roles | Changer le rôle | 🔒 | RP, TI | `{role}` |
 | PUT | /accounts/:accountId/validate | Valider un compte | 🔒 | RP, TI | — |

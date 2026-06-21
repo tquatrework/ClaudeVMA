@@ -19,6 +19,7 @@ import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateRolesDto } from './dto/update-roles.dto';
 import { CreateStudentAccountDto } from './dto/create-student-account.dto';
 import { CreateTeacherAccountDto } from './dto/create-teacher-account.dto';
+import { CreateParentAccountDto } from './dto/create-parent-account.dto';
 import { UpdateAccountStatusDto, AccountStatusValue } from './dto/update-account-status.dto';
 import { UpdateMeDto } from './dto/update-me.dto';
 import { EventsService } from '../events/events.service';
@@ -296,6 +297,33 @@ export class AccountsService {
     });
 
     return this.toPublic(savedTeacher);
+  }
+
+  /**
+   * Creates a standalone parent financeur account.
+   */
+  async createParentAccount(dto: CreateParentAccountDto, ipAddress?: string) {
+    const existing = await this.userRepo.findOne({ where: { email: dto.email } });
+    if (existing) throw new ConflictException('Email already in use');
+
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+    const parent = this.userRepo.create({
+      email: dto.email,
+      passwordHash,
+      role: UserRole.PARENT_FINANCEUR,
+      validationStatus: ValidationStatus.PENDING,
+      consentSigned: false,
+    });
+    const savedParent = await this.userRepo.save(parent);
+
+    this.eventsService.publish('AccountCreated', {
+      userId: savedParent.id,
+      email: savedParent.email,
+      role: savedParent.role,
+      ipAddress,
+    });
+
+    return this.toPublic(savedParent);
   }
 
   /**

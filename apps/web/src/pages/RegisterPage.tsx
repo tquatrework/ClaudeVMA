@@ -7,10 +7,7 @@ import { Link, useNavigate } from 'react-router-dom'
  * Routes users to the appropriate specialized wizard:
  * - Élève → /register/student (POST /accounts/students)
  * - Formateur → /register/teacher (POST /accounts/teachers)
- * - Parent/Financeur → generic /accounts endpoint via legacy flow
- *
- * The generic POST /accounts endpoint remains used for parent_financeur
- * since no dedicated wizard exists in phase 1.
+ * - Parent/Financeur → /register/parent (POST /accounts/parents)
  */
 export default function RegisterPage() {
   const navigate = useNavigate()

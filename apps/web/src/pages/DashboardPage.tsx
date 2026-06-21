@@ -26,9 +26,16 @@ interface DashboardData {
 
 interface TeacherRequest {
   id: string
-  status: 'pending' | 'accepted' | 'declined' | 'cancelled'
+  status: 'pending' | 'accepted' | 'declined' | 'cancelled' | 'candidates_selected'
   createdAt: string
   description?: string
+  studentId?: string
+  teacherId?: string
+}
+
+interface AdminProfile {
+  firstName?: string
+  lastName?: string
 }
 
 interface Activity {
@@ -39,19 +46,23 @@ interface Activity {
   type?: string
 }
 
-const STATUS_COLORS: Record<TeacherRequest['status'], string> = {
+const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-700',
   accepted: 'bg-green-100 text-green-700',
   declined: 'bg-red-100 text-red-700',
   cancelled: 'bg-gray-100 text-gray-500',
+  candidates_selected: 'bg-blue-100 text-blue-700',
 }
 
-const STATUS_LABELS: Record<TeacherRequest['status'], string> = {
+const STATUS_LABELS: Record<string, string> = {
   pending: 'En attente',
   accepted: 'Acceptée',
   declined: 'Refusée',
   cancelled: 'Annulée',
+  candidates_selected: 'Candidats sélectionnés',
 }
+
+const ACTIVE_STATUSES = new Set(['pending', 'candidates_selected'])
 
 export default function DashboardPage() {
   const { user, hasRole } = useAuth()
@@ -60,6 +71,8 @@ export default function DashboardPage() {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
   const [recentRequests, setRecentRequests] = useState<TeacherRequest[]>([])
+  const [profileNames, setProfileNames] = useState<Record<string, string>>({})
+  const [requestFilter, setRequestFilter] = useState<'active' | 'all'>('active')
   const [upcomingActivities, setUpcomingActivities] = useState<Activity[]>([])
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(true)
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(true)
@@ -86,10 +99,40 @@ export default function DashboardPage() {
       .catch(() => { /* non-blocking */ })
       .finally(() => setIsLoadingNotifications(false))
 
-    // Load recent requests
+    // Load recent requests — sorted by date desc, then resolve profiles for names
     apiClient
       .get<TeacherRequest[]>('/requests')
-      .then(({ data }) => setRecentRequests(Array.isArray(data) ? data.slice(0, 5) : []))
+      .then(async ({ data }) => {
+        const sorted = (Array.isArray(data) ? data : [])
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          .slice(0, 10)
+        setRecentRequests(sorted)
+
+        // Resolve profile names for all unique student/teacher IDs
+        const userIds = [
+          ...new Set(
+            sorted.flatMap((r) => [r.studentId, r.teacherId].filter(Boolean) as string[])
+          ),
+        ]
+        if (userIds.length === 0) return
+
+        const results = await Promise.allSettled(
+          userIds.map((id) =>
+            apiClient.get<{ administrativeProfile?: AdminProfile }>(`/profiles/${id}`)
+          )
+        )
+        const names: Record<string, string> = {}
+        results.forEach((result, index) => {
+          if (result.status === 'fulfilled') {
+            const profile = result.value.data.administrativeProfile
+            const displayName = [profile?.firstName, profile?.lastName]
+              .filter(Boolean)
+              .join(' ')
+            if (displayName) names[userIds[index]] = displayName
+          }
+        })
+        setProfileNames(names)
+      })
       .catch(() => { /* non-blocking */ })
       .finally(() => setIsLoadingRequests(false))
 
@@ -278,25 +321,87 @@ export default function DashboardPage() {
                 Voir tout
               </Link>
             </div>
-            <ul className="space-y-2">
-              {recentRequests.map((request) => (
-                <li key={request.id}>
-                  <Link
-                    to={`/teacher-requests/${request.id}`}
-                    className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg hover:border-indigo-300 hover:shadow-sm transition-all"
-                  >
-                    <span className="text-sm text-gray-800">
-                      Demande #{request.id.slice(0, 8)}
-                    </span>
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[request.status]}`}
-                    >
-                      {STATUS_LABELS[request.status]}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+
+            {/* Filter toggle */}
+            <div className="flex gap-2 mb-3">
+              <button
+                onClick={() => setRequestFilter('active')}
+                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                  requestFilter === 'active'
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
+                }`}
+              >
+                Non traitées ({recentRequests.filter((r) => ACTIVE_STATUSES.has(r.status)).length})
+              </button>
+              <button
+                onClick={() => setRequestFilter('all')}
+                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                  requestFilter === 'all'
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
+                }`}
+              >
+                Toutes ({recentRequests.length})
+              </button>
+            </div>
+
+            {(() => {
+              const visibleRequests = requestFilter === 'active'
+                ? recentRequests.filter((r) => ACTIVE_STATUSES.has(r.status))
+                : recentRequests
+
+              if (visibleRequests.length === 0) {
+                return (
+                  <p className="text-gray-400 text-sm py-2">
+                    Aucune demande non traitée
+                  </p>
+                )
+              }
+
+              return (
+                <ul className="space-y-2">
+                  {visibleRequests.slice(0, 5).map((request) => {
+                    const studentName = request.studentId ? profileNames[request.studentId] : undefined
+                    const teacherName = request.teacherId ? profileNames[request.teacherId] : undefined
+
+                    return (
+                      <li key={request.id}>
+                        <Link
+                          to={`/teacher-requests/${request.id}`}
+                          className="flex items-start justify-between p-3 bg-white border border-gray-200 rounded-lg hover:border-indigo-300 hover:shadow-sm transition-all"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-gray-800 truncate">
+                              {studentName
+                                ? `Élève : ${studentName}`
+                                : `Demande #${request.id.slice(0, 8)}`}
+                            </p>
+                            {teacherName && (
+                              <p className="text-xs text-gray-500 truncate mt-0.5">
+                                Formateur : {teacherName}
+                              </p>
+                            )}
+                            <p className="text-xs text-gray-400 mt-1">
+                              {new Date(request.createdAt).toLocaleDateString('fr-FR', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric',
+                              })}
+                            </p>
+                          </div>
+                          <span
+                            className={`shrink-0 ml-3 text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[request.status] ?? 'bg-gray-100 text-gray-500'}`}
+                          >
+                            {STATUS_LABELS[request.status] ?? request.status}
+                          </span>
+                        </Link>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )
+            })()}
           </section>
         )}
 

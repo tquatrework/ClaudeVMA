@@ -1,18 +1,22 @@
 /**
- * PedagogicalLogPage — cahier de texte partagé.
+ * PedagogicalLogPage — cahier de texte d'un élève.
  * Accessible aux formateurs (écriture), RP (écriture + pages spéciales),
  * élèves et parents (lecture seule).
  * Le filtrage de visibilité est géré côté serveur.
  *
  * Routes API :
+ *   GET    /students/:studentId/pedagogical-log
  *   GET    /pedagogical-logs
- *   POST   /pedagogical-logs         (formateur, RP)
- *   PUT    /pedagogical-logs/:id     (auteur)
- *   DELETE /pedagogical-logs/:id     (auteur ou RP)
+ *   POST   /students/:studentId/pedagogical-log         (formateur, RP, AP, TI)
+ *   POST   /pedagogical-logs                            (formateur, RP)
  *   POST   /students/:studentId/pedagogical-log/special-pages  (RP uniquement)
+ *   PUT    /pedagogical-logs/:id     (auteur)
+ *   PATCH  /logs/:id
+ *   DELETE /logs/:id / /pedagogical-logs/:id    (auteur ou RP)
  */
 
 import React, { useEffect, useState } from 'react'
+import { useParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
 import {
@@ -27,6 +31,7 @@ import {
 import SpecialLogPageVisibilityDialog from '../components/pedagogical-log/SpecialLogPageVisibilityDialog'
 
 export default function PedagogicalLogPage() {
+  const { studentId } = useParams<{ studentId?: string }>()
   const { user, hasRole } = useAuth()
 
   const [logPages, setLogPages] = useState<LogPage[]>([])
@@ -49,7 +54,7 @@ export default function PedagogicalLogPage() {
   // Special page dialog (RP only)
   const [isSpecialPageDialogOpen, setIsSpecialPageDialogOpen] = useState(false)
 
-  const canWrite = hasRole('formateur', 'responsable_pedagogique')
+  const canWrite = hasRole('formateur', 'responsable_pedagogique', 'animateur_pedagogique', 'technicien_informatique')
   const isResponsablePedagogique = hasRole('responsable_pedagogique')
   const isReadOnly = !canWrite
 
@@ -182,7 +187,7 @@ export default function PedagogicalLogPage() {
           </div>
         )}
 
-        {/* New entry form — visible to formateurs and RP */}
+        {/* New entry form — visible to formateurs, RP, AP, TI */}
         {canWrite && (
           <div className="mb-6 space-y-3">
             <form
@@ -242,7 +247,7 @@ export default function PedagogicalLogPage() {
             <p className="text-gray-400 text-sm">Aucune entrée dans le cahier de texte</p>
             {canWrite && (
               <p className="text-xs text-gray-300 mt-1">
-                Utilisez le formulaire ci-dessus pour ajouter la première entrée.
+                Utilisez le formulaire ci-dessus pour ajouter la première page.
               </p>
             )}
           </div>
@@ -326,7 +331,7 @@ export default function PedagogicalLogPage() {
       {/* Special page dialog — RP only */}
       {isSpecialPageDialogOpen && (
         <SpecialLogPageVisibilityDialog
-          studentId={user?.id ?? ''}
+          studentId={studentId ?? user?.id ?? ''}
           onCreated={handleSpecialPageCreated}
           onClose={() => setIsSpecialPageDialogOpen(false)}
         />

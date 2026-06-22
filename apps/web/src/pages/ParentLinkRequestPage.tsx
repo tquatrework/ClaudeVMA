@@ -1,0 +1,172 @@
+import React, { useEffect, useState } from 'react'
+import Layout from '../components/Layout'
+import {
+  createParentLinkRequest,
+  fetchParentLinkRequests,
+  ParentLinkRequest,
+  ParentLinkRequestStatus,
+} from '../api/parentLinkRequest'
+
+const STATUS_LABELS: Record<ParentLinkRequestStatus, string> = {
+  pending: 'En attente',
+  approved: 'Approuvée',
+  rejected: 'Refusée',
+}
+
+const STATUS_BADGE_CLASSES: Record<ParentLinkRequestStatus, string> = {
+  pending: 'bg-yellow-100 text-yellow-700',
+  approved: 'bg-green-100 text-green-700',
+  rejected: 'bg-red-100 text-red-700',
+}
+
+export default function ParentLinkRequestPage() {
+  const [studentIdInput, setStudentIdInput] = useState('')
+  const [existingRequests, setExistingRequests] = useState<ParentLinkRequest[]>([])
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isLoadingRequests, setIsLoadingRequests] = useState(true)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [submitSuccess, setSubmitSuccess] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetchParentLinkRequests()
+      .then((requests) => setExistingRequests(requests))
+      .catch(() => setLoadError('Impossible de charger vos demandes de rattachement'))
+      .finally(() => setIsLoadingRequests(false))
+  }, [])
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const trimmedStudentId = studentIdInput.trim()
+    if (!trimmedStudentId) return
+
+    setIsSubmitting(true)
+    setSubmitError(null)
+    setSubmitSuccess(false)
+
+    try {
+      const createdRequest = await createParentLinkRequest(trimmedStudentId)
+      setExistingRequests((previous) => [createdRequest, ...previous])
+      setStudentIdInput('')
+      setSubmitSuccess(true)
+    } catch (error: unknown) {
+      const axiosError = error as { response?: { status?: number } }
+      if (axiosError.response?.status === 409) {
+        setSubmitError('Une demande de rattachement est déjà en cours pour cet élève.')
+      } else if (axiosError.response?.status === 400) {
+        setSubmitError("L'identifiant élève fourni est invalide.")
+      } else {
+        setSubmitError('Une erreur est survenue. Veuillez réessayer.')
+      }
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <Layout>
+      <div className="max-w-xl">
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">Rattacher un élève</h1>
+        <p className="text-sm text-gray-500 mb-6">
+          Envoyez une demande de rattachement à un élève. Celui-ci devra l'approuver.
+        </p>
+
+        {/* Form */}
+        <div className="bg-white border border-gray-200 rounded-xl p-6 mb-8">
+          <h2 className="text-base font-semibold text-gray-800 mb-4">Nouvelle demande</h2>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label htmlFor="studentId" className="block text-sm font-medium text-gray-700 mb-1">
+                Identifiant de l'élève
+              </label>
+              <input
+                id="studentId"
+                type="text"
+                value={studentIdInput}
+                onChange={(e) => setStudentIdInput(e.target.value)}
+                placeholder="ex : a1b2c3d4-…"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                disabled={isSubmitting}
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Saisissez l'identifiant communiqué par l'établissement ou l'élève.
+              </p>
+            </div>
+
+            {submitError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                {submitError}
+              </div>
+            )}
+
+            {submitSuccess && (
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
+                Votre demande de rattachement a bien été envoyée.
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={isSubmitting || !studentIdInput.trim()}
+              className="bg-indigo-600 text-white text-sm px-5 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+            >
+              {isSubmitting ? 'Envoi…' : 'Envoyer la demande'}
+            </button>
+          </form>
+        </div>
+
+        {/* Existing requests */}
+        <section>
+          <h2 className="text-base font-semibold text-gray-700 mb-3">Mes demandes</h2>
+
+          {isLoadingRequests ? (
+            <p className="text-sm text-gray-400">Chargement…</p>
+          ) : loadError ? (
+            <p className="text-sm text-red-600">{loadError}</p>
+          ) : existingRequests.length === 0 ? (
+            <p className="text-sm text-gray-400">Aucune demande pour le moment.</p>
+          ) : (
+            <ul className="space-y-3">
+              {existingRequests.map((request) => (
+                <li
+                  key={request.id}
+                  className="p-4 bg-white border border-gray-200 rounded-xl flex items-start justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">
+                      Élève : <span className="font-mono">{request.studentId}</span>
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Envoyée le{' '}
+                      {new Date(request.requestedAt).toLocaleDateString('fr-FR', {
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric',
+                      })}
+                    </p>
+                    {request.processedAt && (
+                      <p className="text-xs text-gray-400">
+                        Traitée le{' '}
+                        {new Date(request.processedAt).toLocaleDateString('fr-FR', {
+                          day: 'numeric',
+                          month: 'long',
+                          year: 'numeric',
+                        })}
+                      </p>
+                    )}
+                  </div>
+                  <span
+                    className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE_CLASSES[request.status]}`}
+                  >
+                    {STATUS_LABELS[request.status]}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    </Layout>
+  )
+}

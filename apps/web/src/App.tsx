@@ -63,6 +63,8 @@ import WorkflowStatusPage from './pages/WorkflowStatusPage'
 import WorkflowTimeline from './pages/WorkflowTimeline'
 import WorkflowRetryPanel from './pages/WorkflowRetryPanel'
 import WorkflowIncidentView from './pages/WorkflowIncidentView'
+import ParentLinkRequestPage from './pages/ParentLinkRequestPage'
+import ParentLinkRequestsInboxPage from './pages/ParentLinkRequestsInboxPage'
 
 export default function App() {
   return (
@@ -611,6 +613,26 @@ export default function App() {
                 ]}
               >
                 <WorkflowIncidentView />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ── Rattachement parent↔élève ────────────────────── */}
+          <Route
+            path="/parent-link-requests/new"
+            element={
+              <ProtectedRoute allowedRoles={['parent_financeur']}>
+                <ParentLinkRequestPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/parent-link-requests/inbox"
+            element={
+              <ProtectedRoute
+                allowedRoles={['eleve', 'responsable_pedagogique', 'technicien_informatique']}
+              >
+                <ParentLinkRequestsInboxPage />
               </ProtectedRoute>
             }
           />

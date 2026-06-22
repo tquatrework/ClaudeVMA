@@ -24,6 +24,7 @@ import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateRolesDto } from './dto/update-roles.dto';
 import { CreateStudentAccountDto } from './dto/create-student-account.dto';
 import { CreateTeacherAccountDto } from './dto/create-teacher-account.dto';
+import { CreateParentAccountDto } from './dto/create-parent-account.dto';
 import { UpdateAccountStatusDto } from './dto/update-account-status.dto';
 import { UpdateMeDto } from './dto/update-me.dto';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -71,6 +72,19 @@ export class AccountsController {
   @ApiResponse({ status: 409, description: 'Email already in use' })
   createTeacherAccount(@Body() dto: CreateTeacherAccountDto, @Ip() ipAddress: string) {
     return this.accountsService.createTeacherAccount(dto, ipAddress);
+  }
+
+  @Post('parents')
+  @ApiOperation({
+    summary: 'Create parent financeur account',
+    description:
+      'Self-register as a parent_financeur. Allows a financing parent to create an account independently, ' +
+      'without going through the student registration flow. Account starts in PENDING status.',
+  })
+  @ApiResponse({ status: 201, description: 'Parent account created — status PENDING' })
+  @ApiResponse({ status: 409, description: 'Email already in use' })
+  createParentAccount(@Body() dto: CreateParentAccountDto, @Ip() ipAddress: string) {
+    return this.accountsService.createParentAccount(dto, ipAddress);
   }
 
   @Patch('me')

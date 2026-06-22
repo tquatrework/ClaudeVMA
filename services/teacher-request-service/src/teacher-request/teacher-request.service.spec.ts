@@ -17,10 +17,10 @@ const makeRepo = () => ({
   findOne: jest.fn(),
 });
 
-const student = { id: 'student-1', role: UserRole.ELEVE };
-const parent = { id: 'parent-1', role: UserRole.PARENT_FINANCEUR };
-const rp = { id: 'rp-1', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
-const teacher = { id: 'teacher-1', role: UserRole.FORMATEUR };
+const student = { id: 'student-1', role: UserRole.ELEVE, loginIdentifier: 'student.one' };
+const parent = { id: 'parent-1', role: UserRole.PARENT_FINANCEUR, loginIdentifier: 'parent.one' };
+const rp = { id: 'rp-1', role: UserRole.RESPONSABLE_PEDAGOGIQUE, loginIdentifier: 'rp.one' };
+const teacher = { id: 'teacher-1', role: UserRole.FORMATEUR, loginIdentifier: 'teacher.one' };
 
 describe('TeacherRequestService', () => {
   let service: TeacherRequestService;
@@ -168,7 +168,7 @@ describe('TeacherRequestService', () => {
     });
 
     it('formateur cannot accept another teacher\'s proposal (TRQ-FB-001)', async () => {
-      const otherTeacher = { id: 'teacher-2', role: UserRole.FORMATEUR };
+      const otherTeacher = { id: 'teacher-2', role: UserRole.FORMATEUR, loginIdentifier: 'teacher.two' };
       await expect(service.acceptProposal('prop-1', otherTeacher))
         .rejects.toThrow(ForbiddenException);
     });

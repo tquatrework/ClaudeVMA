@@ -17,10 +17,10 @@ import { UserRole } from '../../src/common/user-role.enum';
 
 // ── Shared user fixtures ──────────────────────────────────────────────────────
 
-const studentUser = { id: 'student-1', role: UserRole.ELEVE };
-const parentUser = { id: 'parent-1', role: UserRole.PARENT_FINANCEUR };
-const rpUser = { id: 'rp-1', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
-const teacherUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+const studentUser = { id: 'student-1', role: UserRole.ELEVE, loginIdentifier: 'student.one' };
+const parentUser = { id: 'parent-1', role: UserRole.PARENT_FINANCEUR, loginIdentifier: 'parent.one' };
+const rpUser = { id: 'rp-1', role: UserRole.RESPONSABLE_PEDAGOGIQUE, loginIdentifier: 'rp.one' };
+const teacherUser = { id: 'teacher-1', role: UserRole.FORMATEUR, loginIdentifier: 'teacher.one' };
 
 // ── Shared entity fixtures ────────────────────────────────────────────────────
 
@@ -402,7 +402,7 @@ describe('ProposalController', () => {
 
     it("propagates ForbiddenException when formateur tries to accept another teacher's proposal", async () => {
       mockService.acceptProposal.mockRejectedValue(new ForbiddenException());
-      const otherTeacher = { id: 'teacher-2', role: UserRole.FORMATEUR };
+      const otherTeacher = { id: 'teacher-2', role: UserRole.FORMATEUR, loginIdentifier: 'teacher.two' };
       await expect(controller.acceptProposal('prop-1', otherTeacher as any))
         .rejects.toThrow(ForbiddenException);
     });
@@ -439,7 +439,7 @@ describe('ProposalController', () => {
 
     it("propagates ForbiddenException when formateur tries to decline another teacher's proposal", async () => {
       mockService.declineProposal.mockRejectedValue(new ForbiddenException());
-      const otherTeacher = { id: 'teacher-2', role: UserRole.FORMATEUR };
+      const otherTeacher = { id: 'teacher-2', role: UserRole.FORMATEUR, loginIdentifier: 'teacher.two' };
       await expect(controller.declineProposal('prop-1', otherTeacher as any))
         .rejects.toThrow(ForbiddenException);
     });
@@ -569,7 +569,7 @@ describe('AssignmentController', () => {
 
     it("propagates ForbiddenException when formateur requests termination on another teacher's assignment", async () => {
       mockService.createTermination.mockRejectedValue(new ForbiddenException());
-      const otherTeacher = { id: 'teacher-2', role: UserRole.FORMATEUR };
+      const otherTeacher = { id: 'teacher-2', role: UserRole.FORMATEUR, loginIdentifier: 'teacher.two' };
       await expect(controller.createTermination('asgn-1', terminationDto as any, otherTeacher as any))
         .rejects.toThrow(ForbiddenException);
     });
@@ -649,7 +649,7 @@ describe('CollaborationController', () => {
 
     it("propagates ForbiddenException when formateur is not the assigned teacher", async () => {
       mockService.createCollaborationStopRequest.mockRejectedValue(new ForbiddenException());
-      const otherTeacher = { id: 'teacher-2', role: UserRole.FORMATEUR };
+      const otherTeacher = { id: 'teacher-2', role: UserRole.FORMATEUR, loginIdentifier: 'teacher.two' };
       await expect(controller.createCollaborationStopRequest('asgn-1', stopDto as any, otherTeacher as any))
         .rejects.toThrow(ForbiddenException);
     });

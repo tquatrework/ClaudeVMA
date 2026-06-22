@@ -18,11 +18,11 @@ const makeRepo = () => ({
   remove: jest.fn(() => Promise.resolve()),
 });
 
-const studentUser = { id: 'student-1', role: UserRole.ELEVE };
-const parentUser = { id: 'parent-1', role: UserRole.PARENT_FINANCEUR };
-const rpUser = { id: 'rp-1', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
-const teacherUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
-const adminFinUser = { id: 'admin-fin-1', role: UserRole.ADMINISTRATEUR_FINANCIER };
+const studentUser = { id: 'student-1', role: UserRole.ELEVE, loginIdentifier: 'student.one' };
+const parentUser = { id: 'parent-1', role: UserRole.PARENT_FINANCEUR, loginIdentifier: 'parent.one' };
+const rpUser = { id: 'rp-1', role: UserRole.RESPONSABLE_PEDAGOGIQUE, loginIdentifier: 'rp.one' };
+const teacherUser = { id: 'teacher-1', role: UserRole.FORMATEUR, loginIdentifier: 'teacher.one' };
+const adminFinUser = { id: 'admin-fin-1', role: UserRole.ADMINISTRATEUR_FINANCIER, loginIdentifier: 'admin.fin.one' };
 
 describe('TeacherRequestService', () => {
   let service: TeacherRequestService;
@@ -279,7 +279,7 @@ describe('TeacherRequestService', () => {
     });
 
     it("formateur cannot accept another teacher's proposal (TRQ-FB-001)", async () => {
-      const otherTeacher = { id: 'teacher-2', role: UserRole.FORMATEUR };
+      const otherTeacher = { id: 'teacher-2', role: UserRole.FORMATEUR, loginIdentifier: 'teacher.two' };
       await expect(service.acceptProposal('prop-1', otherTeacher))
         .rejects.toThrow(ForbiddenException);
     });
@@ -453,7 +453,7 @@ describe('TeacherRequestService', () => {
     });
 
     it("formateur cannot decline another teacher's proposal", async () => {
-      const otherTeacher = { id: 'teacher-2', role: UserRole.FORMATEUR };
+      const otherTeacher = { id: 'teacher-2', role: UserRole.FORMATEUR, loginIdentifier: 'teacher.two' };
       await expect(service.declineProposal('prop-1', otherTeacher))
         .rejects.toThrow(ForbiddenException);
     });

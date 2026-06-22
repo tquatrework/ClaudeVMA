@@ -112,7 +112,7 @@ describe('TeacherRequestService', () => {
     });
 
     it('administrateur_financier throws ForbiddenException', async () => {
-      await expect(service.listRequests({ id: 'x', role: UserRole.ADMINISTRATEUR_FINANCIER }))
+      await expect(service.listRequests({ id: 'x', role: UserRole.ADMINISTRATEUR_FINANCIER, loginIdentifier: 'admin.x' }))
         .rejects.toThrow(ForbiddenException);
     });
   });

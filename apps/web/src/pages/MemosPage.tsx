@@ -9,6 +9,12 @@
  * L'écran affiche les chapitres et items du mémo de l'élève connecté.
  * Pour les acteurs non-élève, un message informatif est affiché à la place
  * car GET /memos (liste) est réservé à l'élève propriétaire.
+ *
+ * Routes API :
+ *   GET  /memos
+ *   GET  /memos/search?q=
+ *   POST /memos/chapters
+ *   POST /memos/chapters/:chapterId/items
  */
 
 import React from 'react'

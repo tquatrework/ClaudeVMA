@@ -23,6 +23,7 @@ interface AuthState {
   isLoading: boolean
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  refreshUser: () => Promise<void>
   hasRole: (...roles: UserRole[]) => boolean
   isInternalRole: () => boolean
 }
@@ -87,6 +88,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const refreshUser = useCallback(async () => {
+    try {
+      const { data } = await apiClient.get<AuthUser>('/auth/me')
+      localStorage.setItem('user', JSON.stringify(data))
+      setUser(data)
+    } catch {
+      // keep current user on network error
+    }
+  }, [])
+
   const logout = useCallback(async () => {
     try {
       await apiClient.post('/auth/logout')
@@ -126,6 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         login,
         logout,
+        refreshUser,
         hasRole,
         isInternalRole,
       }}

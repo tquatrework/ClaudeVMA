@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import apiClient from '../api/client'
+import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
 
 interface Consent {
@@ -12,6 +13,7 @@ const REQUIRED_TYPES = ['rgpd', 'cgu'] as const
 
 export default function ConsentsPage() {
   const navigate = useNavigate()
+  const { refreshUser } = useAuth()
   const [signed, setSigned] = useState<string[]>([])
   const [marketing, setMarketing] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
@@ -128,7 +130,10 @@ export default function ConsentsPage() {
               </button>
             )}
             <button
-              onClick={() => navigate('/dashboard')}
+              onClick={async () => {
+                await refreshUser()
+                navigate('/dashboard')
+              }}
               className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 text-sm"
             >
               Accéder à mon espace

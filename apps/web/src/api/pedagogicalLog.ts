@@ -38,20 +38,19 @@ export interface CreateSpecialPagePayload {
   hiddenFromStudent: boolean
 }
 
-export type MemoItemType = 'text' | 'formula' | 'image'
-
-export interface MemoItem {
+export interface Memo {
   id: string
-  chapterId: string
-  itemType: MemoItemType
+  title: string
   content: string
+  chapterId: string | null
   createdAt: string
+  updatedAt?: string
 }
 
 export interface MemoChapter {
   id: string
   title: string
-  items: MemoItem[]
+  studentId?: string
   createdAt: string
 }
 
@@ -59,9 +58,16 @@ export interface CreateChapterPayload {
   title: string
 }
 
-export interface CreateMemoItemPayload {
-  itemType: MemoItemType
+export interface CreateMemoPayload {
+  title: string
   content: string
+  chapterId?: string | null
+}
+
+export interface UpdateMemoPayload {
+  title?: string
+  content?: string
+  chapterId?: string | null
 }
 
 export interface NotebookEntry {
@@ -82,24 +88,32 @@ export interface UpdateNotebookEntryPayload {
 
 // ─── Cahier de texte ──────────────────────────────────────────────────────────
 
-export async function fetchPedagogicalLog(studentId: string): Promise<PedagogicalLogPage[]> {
-  const { data } = await apiClient.get<PedagogicalLogPage[]>(
-    `/students/${studentId}/pedagogical-log`,
-  )
+/**
+ * Liste les entrées du cahier de texte.
+ * Le filtrage par rôle et visibilité est effectué côté serveur.
+ * Route : GET /pedagogical-logs
+ */
+export async function fetchPedagogicalLogs(): Promise<PedagogicalLogPage[]> {
+  const { data } = await apiClient.get<PedagogicalLogPage[]>('/pedagogical-logs')
   return data
 }
 
+/**
+ * Crée une entrée de cahier de texte.
+ * Autorisé uniquement pour formateur et responsable_pedagogique.
+ * Route : POST /pedagogical-logs
+ */
 export async function createLogPage(
-  studentId: string,
   payload: CreateLogPagePayload,
 ): Promise<PedagogicalLogPage> {
-  const { data } = await apiClient.post<PedagogicalLogPage>(
-    `/students/${studentId}/pedagogical-log`,
-    payload,
-  )
+  const { data } = await apiClient.post<PedagogicalLogPage>('/pedagogical-logs', payload)
   return data
 }
 
+/**
+ * Crée une page spéciale avec visibilité ciblée (RP uniquement).
+ * Route : POST /students/:studentId/pedagogical-log/special-pages
+ */
 export async function createSpecialLogPage(
   studentId: string,
   payload: CreateSpecialPagePayload,
@@ -111,40 +125,88 @@ export async function createSpecialLogPage(
   return data
 }
 
+/**
+ * Modifie une entrée de cahier de texte (auteur uniquement).
+ * Route : PUT /pedagogical-logs/:id
+ */
 export async function updateLogPage(
   logId: string,
   content: string,
 ): Promise<PedagogicalLogPage> {
-  const { data } = await apiClient.patch<PedagogicalLogPage>(`/logs/${logId}`, { content })
+  const { data } = await apiClient.put<PedagogicalLogPage>(`/pedagogical-logs/${logId}`, { content })
   return data
+}
+
+/**
+ * Supprime une entrée de cahier de texte (auteur ou RP).
+ * Route : DELETE /pedagogical-logs/:id
+ */
+export async function deleteLogPage(logId: string): Promise<void> {
+  await apiClient.delete(`/pedagogical-logs/${logId}`)
 }
 
 // ─── Mémo élève ───────────────────────────────────────────────────────────────
 
+/**
+ * Liste les mémos de l'élève connecté.
+ * Route : GET /memos — élève uniquement.
+ */
+export async function fetchMemos(): Promise<Memo[]> {
+  const { data } = await apiClient.get<Memo[]>('/memos')
+  return data
+}
+
+/**
+ * Liste les chapitres de mémo de l'élève connecté.
+ * Route : GET /memos/chapters — élève uniquement.
+ */
 export async function fetchMemoChapters(): Promise<MemoChapter[]> {
-  const { data } = await apiClient.get<MemoChapter[]>('/memos')
+  const { data } = await apiClient.get<MemoChapter[]>('/memos/chapters')
   return data
 }
 
-export async function searchMemoItems(query: string): Promise<MemoItem[]> {
-  const { data } = await apiClient.get<MemoItem[]>(`/memos/search`, { params: { q: query } })
+/**
+ * Recherche dans les mémos de l'élève.
+ * Route : GET /memos/search?q=
+ */
+export async function searchMemos(query: string): Promise<Memo[]> {
+  const { data } = await apiClient.get<Memo[]>(`/memos/search`, { params: { q: query } })
   return data
 }
 
+/**
+ * Crée un mémo (avec ou sans chapitre).
+ * Route : POST /memos — élève uniquement.
+ */
+export async function createMemo(payload: CreateMemoPayload): Promise<Memo> {
+  const { data } = await apiClient.post<Memo>('/memos', payload)
+  return data
+}
+
+/**
+ * Crée un chapitre de mémo.
+ * Route : POST /memos/chapters — élève uniquement.
+ */
 export async function createMemoChapter(payload: CreateChapterPayload): Promise<MemoChapter> {
   const { data } = await apiClient.post<MemoChapter>('/memos/chapters', payload)
   return data
 }
 
-export async function createMemoItem(
-  chapterId: string,
-  payload: CreateMemoItemPayload,
-): Promise<MemoItem> {
-  const { data } = await apiClient.post<MemoItem>(
-    `/memos/chapters/${chapterId}/items`,
-    payload,
-  )
+/**
+ * Modifie un mémo (élève propriétaire uniquement).
+ * Route : PUT /memos/:id
+ */
+export async function updateMemo(memoId: string, payload: UpdateMemoPayload): Promise<Memo> {
+  const { data } = await apiClient.put<Memo>(`/memos/${memoId}`, payload)
   return data
+}
+
+/**
+ * Supprime un mémo (élève propriétaire uniquement).
+ * Route : DELETE /memos/:id
+ */
+export async function deleteMemo(memoId: string): Promise<void> {
+  await apiClient.delete(`/memos/${memoId}`)
 }
 
 // ─── Carnet personnel ─────────────────────────────────────────────────────────

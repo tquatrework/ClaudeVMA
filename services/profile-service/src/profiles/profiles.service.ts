@@ -19,6 +19,7 @@ import {
   UpdateTeacherPedagogicalProfileDto,
 } from './dto/update-pedagogical-profile.dto';
 import { CreateInternalNoteDto } from './dto/create-internal-note.dto';
+import { UpdateInternalNoteDto } from './dto/update-internal-note.dto';
 import { UpdateTeacherValidationDto } from './dto/update-teacher-validation.dto';
 import { UpdateVisibilityPreferenceDto } from './dto/update-visibility-preference.dto';
 import { EventsService } from '../events/events.service';
@@ -29,17 +30,24 @@ export interface Actor {
   role: UserRole;
 }
 
-/** Roles that may never see InternalProfileNote (PROF-FB-002 / PROF-BR-009-010) */
-const NOTES_FORBIDDEN_ROLES: UserRole[] = [
-  UserRole.ELEVE,
-  UserRole.PARENT_FINANCEUR,
-  UserRole.FORMATEUR,
+/**
+ * Roles allowed to READ internal notes (PROF-FB-002):
+ * RP, AP, TI, AF — eleve, parent_financeur and formateur are always forbidden.
+ */
+const NOTES_READ_ROLES: UserRole[] = [
+  UserRole.RESPONSABLE_PEDAGOGIQUE,
+  UserRole.ANIMATEUR_PEDAGOGIQUE,
+  UserRole.TECHNICIEN_INFORMATIQUE,
+  UserRole.ADMINISTRATEUR_FINANCIER,
 ];
 
-/** Roles allowed to read/write internal notes */
-const NOTES_ALLOWED_ROLES: UserRole[] = [
+/**
+ * Roles allowed to CREATE internal notes (PROF-FB-002):
+ * Only RP and AP may write notes.
+ */
+const NOTES_WRITE_ROLES: UserRole[] = [
   UserRole.RESPONSABLE_PEDAGOGIQUE,
-  UserRole.ADMINISTRATEUR_FINANCIER,
+  UserRole.ANIMATEUR_PEDAGOGIQUE,
 ];
 
 @Injectable()
@@ -163,18 +171,40 @@ export class ProfilesService {
     return saved;
   }
 
-  /** List internal notes for a user. Restricted to RP and AdministrateurFinancier (PROF-FB-002). */
+  /**
+   * List internal notes for a user.
+   * Restricted to RP, AP, TI and AF (PROF-FB-002).
+   */
   async getInternalNotes(userId: string, actor: Actor) {
-    this.assertNotesAccess(actor);
+    this.assertNotesReadAccess(actor);
     return this.noteRepo.find({
       where: { targetUserId: userId },
       order: { createdAt: 'DESC' },
     });
   }
 
-  /** Add an internal note about a user. Restricted to RP and AdministrateurFinancier. */
+  /**
+   * Get a single internal note by noteId.
+   * Restricted to RP, AP, TI and AF (PROF-FB-002).
+   */
+  async getInternalNote(userId: string, noteId: string, actor: Actor) {
+    this.assertNotesReadAccess(actor);
+
+    const note = await this.noteRepo.findOne({
+      where: { id: noteId, targetUserId: userId },
+    });
+    if (!note) {
+      throw new NotFoundException(`Internal note ${noteId} not found for user ${userId}`);
+    }
+    return note;
+  }
+
+  /**
+   * Add an internal note about a user.
+   * Restricted to RP and AP only (PROF-FB-002).
+   */
   async createInternalNote(userId: string, dto: CreateInternalNoteDto, actor: Actor) {
-    this.assertNotesAccess(actor);
+    this.assertNotesWriteAccess(actor);
 
     const note = this.noteRepo.create({
       targetUserId: userId,
@@ -183,6 +213,59 @@ export class ProfilesService {
       content: dto.content,
     });
     return this.noteRepo.save(note);
+  }
+
+  /**
+   * Update an internal note.
+   * Restricted to the note's author (RP or AP) or any RP (PROF-FB-002).
+   */
+  async updateInternalNote(
+    userId: string,
+    noteId: string,
+    dto: UpdateInternalNoteDto,
+    actor: Actor,
+  ) {
+    this.assertNotesWriteAccess(actor);
+
+    const note = await this.noteRepo.findOne({
+      where: { id: noteId, targetUserId: userId },
+    });
+    if (!note) {
+      throw new NotFoundException(`Internal note ${noteId} not found for user ${userId}`);
+    }
+
+    // Only the original author OR any RP may update the note
+    const isAuthor = note.authorId === actor.id;
+    const isResponsablePedagogique = actor.role === UserRole.RESPONSABLE_PEDAGOGIQUE;
+    if (!isAuthor && !isResponsablePedagogique) {
+      throw new ForbiddenException(
+        'Only the note author or a RP may update this internal note (PROF-FB-002)',
+      );
+    }
+
+    note.content = dto.content;
+    return this.noteRepo.save(note);
+  }
+
+  /**
+   * Delete an internal note.
+   * Restricted to RP only (PROF-FB-002).
+   */
+  async deleteInternalNote(userId: string, noteId: string, actor: Actor) {
+    if (actor.role !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+      throw new ForbiddenException(
+        'Only a RP may delete an internal note (PROF-FB-002)',
+      );
+    }
+
+    const note = await this.noteRepo.findOne({
+      where: { id: noteId, targetUserId: userId },
+    });
+    if (!note) {
+      throw new NotFoundException(`Internal note ${noteId} not found for user ${userId}`);
+    }
+
+    await this.noteRepo.remove(note);
   }
 
   /**
@@ -404,11 +487,20 @@ export class ProfilesService {
     }
   }
 
-  /** Guards endpoints that expose internal notes (PROF-FB-002). */
-  private assertNotesAccess(actor: Actor): void {
-    if (!NOTES_ALLOWED_ROLES.includes(actor.role)) {
+  /** Guards READ endpoints for internal notes (RP, AP, TI, AF — PROF-FB-002). */
+  private assertNotesReadAccess(actor: Actor): void {
+    if (!NOTES_READ_ROLES.includes(actor.role)) {
       throw new ForbiddenException(
-        'Internal notes are only accessible to RP and AdministrateurFinancier (PROF-FB-002)',
+        'Internal notes are only readable by RP, AP, TI and AdministrateurFinancier (PROF-FB-002)',
+      );
+    }
+  }
+
+  /** Guards WRITE endpoints for internal notes (RP and AP only — PROF-FB-002). */
+  private assertNotesWriteAccess(actor: Actor): void {
+    if (!NOTES_WRITE_ROLES.includes(actor.role)) {
+      throw new ForbiddenException(
+        'Internal notes can only be created or modified by RP and AnimateurPedagogique (PROF-FB-002)',
       );
     }
   }

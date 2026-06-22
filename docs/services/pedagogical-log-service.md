@@ -13,7 +13,7 @@
       <item>Permettre au formateur de relater la seance, donner travail, preconisations et liens vers elements.</item>
       <item>Permettre au RP de creer pages speciales et communications ciblees.</item>
       <item>Gerer les visibilites cahier de texte: eleve, financeur, PP, RP, pages speciales.</item>
-      <item>Gerer le memo comme liste de chapitres et items de formules/trucs essentiels de l'eleve.</item>
+      <item>Gerer le memo comme formulaire structure appartenant a l'eleve : chapitres et items de formules/trucs essentiels, cree et modifie exclusivement par l'eleve proprietaire. Ce n'est pas une note interne du personnel.</item>
       <item>Permettre au memo d'etre ouvert facilement a tout moment, y compris pendant les visios.</item>
       <item>Gerer le carnet personnel eleve, date et eventuellement lie aux evenements calendrier.</item>
     </responsibilities>
@@ -35,19 +35,45 @@
       <rule role="AdministrateurFinancier">Pas d'acces fonctionnel naturel hors controle legal explicite.</rule>
     </roleAccessRules>
     <candidateApis>
-      <endpoint method="GET" path="/students/{studentId}/pedagogical-log">Lire cahier de texte autorise.</endpoint>
-      <endpoint method="POST" path="/students/{studentId}/pedagogical-log">Ajouter page cahier de texte.</endpoint>
-      <endpoint method="POST" path="/students/{studentId}/pedagogical-log/special-pages">Creer page speciale avec visibilite.</endpoint>
-      <endpoint method="GET" path="/memos">Lister le memo de l'eleve courant.</endpoint>
-      <endpoint method="POST" path="/memos/chapters">Creer un chapitre de memo par l'eleve.</endpoint>
-      <endpoint method="POST" path="/memos/chapters/{chapterId}/items">Ajouter formule, texte court ou image limitee.</endpoint>
-      <endpoint method="GET" path="/memos/search">Rechercher dans le memo.</endpoint>
-      <endpoint method="GET" path="/students/{studentId}/notebook">Lire carnet personnel selon droit.</endpoint>
-      <endpoint method="POST" path="/students/{studentId}/notebook">Ajouter une note personnelle.</endpoint>
+      <!-- Cahier de texte — tenu par le formateur ou le RP, lisible par eleve/parent/formateurs lies/RP/AP -->
+      <endpoint method="GET" path="/pedagogical-logs">Lister les entrees du cahier de texte (role : formateur, responsable_pedagogique, animateur_pedagogique, eleve, parent_financeur).</endpoint>
+      <endpoint method="POST" path="/pedagogical-logs">Creer une entree de cahier de texte (role : formateur, responsable_pedagogique).</endpoint>
+      <endpoint method="GET" path="/pedagogical-logs/{id}">Lire une entree de cahier de texte (selon visibilite et rattachement).</endpoint>
+      <endpoint method="PUT" path="/pedagogical-logs/{id}">Modifier une entree (role : auteur).</endpoint>
+      <endpoint method="DELETE" path="/pedagogical-logs/{id}">Supprimer une entree (role : auteur, responsable_pedagogique).</endpoint>
+      <endpoint method="POST" path="/students/{studentId}/pedagogical-log/special-pages">Creer page speciale avec visibilite (role : responsable_pedagogique).</endpoint>
+      <!-- Memo — formulaire structure appartenant a l'eleve ; ni le formateur ni le RP n'ont droit d'ecriture -->
+      <endpoint method="GET" path="/memos">Lister le memo de l'eleve courant (role : eleve uniquement).</endpoint>
+      <endpoint method="POST" path="/memos">Creer un memo (role : eleve uniquement). Champ optionnel : chapterId (nullable, reference vers Chapter).</endpoint>
+      <endpoint method="GET" path="/memos/{id}">Lire un memo (role : eleve proprietaire, formateur/RP lies en lecture seule).</endpoint>
+      <endpoint method="PUT" path="/memos/{id}">Modifier un memo (role : eleve proprietaire uniquement). Inclut chapterId modifiable.</endpoint>
+      <endpoint method="DELETE" path="/memos/{id}">Supprimer un memo (role : eleve proprietaire uniquement).</endpoint>
+      <!-- Chapitres de memo — etiquettes de classement optionnelles appartenant a l'eleve -->
+      <!-- Note d'affichage : les memos sont groupes par chapitre dans l'UI ; les memos sans chapitre (chapterId null) apparaissent sous la categorie virtuelle "General". -->
+      <endpoint method="GET" path="/memos/chapters">Lister les chapitres de l'eleve connecte (role : eleve uniquement).</endpoint>
+      <endpoint method="POST" path="/memos/chapters">Creer un chapitre (role : eleve uniquement). Body : {title}.</endpoint>
+      <endpoint method="GET" path="/memos/chapters/{id}">Detailler un chapitre et ses memos (role : eleve proprietaire, formateur/RP lies en lecture).</endpoint>
+      <endpoint method="PUT" path="/memos/chapters/{id}">Renommer un chapitre (role : eleve proprietaire uniquement). Body : {title}.</endpoint>
+      <endpoint method="DELETE" path="/memos/chapters/{id}">Supprimer un chapitre ; les memos associes passent a chapterId=null (role : eleve proprietaire uniquement).</endpoint>
+      <!-- Carnet personnel — exclusivement reserve a l'eleve -->
+      <endpoint method="GET" path="/students/{studentId}/notebook">Lire carnet personnel (role : eleve proprietaire, TI en cas d'incident).</endpoint>
+      <endpoint method="POST" path="/students/{studentId}/notebook">Ajouter une note personnelle (role : eleve proprietaire).</endpoint>
+      <endpoint method="PUT" path="/students/{studentId}/notebook/{id}">Modifier une note personnelle (role : eleve proprietaire).</endpoint>
+      <endpoint method="DELETE" path="/students/{studentId}/notebook/{id}">Supprimer une note personnelle (role : eleve proprietaire).</endpoint>
     </candidateApis>
     <dataEntities>
       <entity>PedagogicalLogPage</entity>
       <entity>PedagogicalLogVisibility</entity>
+      <entity name="Chapter">
+        <field name="id" type="uuid" key="primary"/>
+        <field name="title" type="string"/>
+        <field name="studentId" type="uuid" description="Eleve proprietaire du chapitre"/>
+        <field name="createdAt" type="datetime"/>
+        <note>Un chapitre est une etiquette de classement optionnelle. Il n'existe pas independamment des memos : sa suppression repasse chapterId a null sur les memos associes.</note>
+      </entity>
+      <entity name="Memo">
+        <field name="chapterId" type="uuid" nullable="true" description="Reference vers Chapter ; null = memo dans la categorie virtuelle General"/>
+      </entity>
       <entity>MemoChapter</entity>
       <entity>MemoItem</entity>
       <entity>MemoImage</entity>

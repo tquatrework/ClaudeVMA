@@ -107,6 +107,36 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 </Link>
               )}
 
+              {hasRole('parent_financeur', 'administrateur_financier') && (
+                <Link to="/finance" className={navLinkClass('/finance')}>
+                  Finances
+                </Link>
+              )}
+
+              {hasRole('formateur', 'administrateur_financier') && (
+                <Link to="/teacher-payment-requests" className={navLinkClass('/teacher-payment-requests')}>
+                  Paiements
+                </Link>
+              )}
+
+              {(hasRole('eleve', 'parent_financeur', 'formateur') || hasRole('administrateur_financier')) && (
+                <Link to="/legal" className={navLinkClass('/legal')}>
+                  Documents légaux
+                </Link>
+              )}
+
+              {!hasRole('technicien_informatique', 'administrateur_financier') && (
+                <Link to="/archives" className={navLinkClass('/archives')}>
+                  Archives
+                </Link>
+              )}
+
+              {hasRole('administrateur_financier') && (
+                <Link to="/admin/finance" className={navLinkClass('/admin/finance')}>
+                  Espace AF
+                </Link>
+              )}
+
               <span className="text-gray-200">|</span>
 
               {/* User identity */}
@@ -171,6 +201,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             )}
             {hasRole('responsable_pedagogique', 'technicien_informatique', 'administrateur_financier') && (
               <MobileNavLink to="/delegations" label="Délégations" onClick={() => setIsMobileMenuOpen(false)} />
+            )}
+            {hasRole('parent_financeur', 'administrateur_financier') && (
+              <MobileNavLink to="/finance" label="Finances" onClick={() => setIsMobileMenuOpen(false)} />
+            )}
+            {hasRole('formateur', 'administrateur_financier') && (
+              <MobileNavLink to="/teacher-payment-requests" label="Paiements" onClick={() => setIsMobileMenuOpen(false)} />
+            )}
+            {(hasRole('eleve', 'parent_financeur', 'formateur') || hasRole('administrateur_financier')) && (
+              <MobileNavLink to="/legal" label="Documents légaux" onClick={() => setIsMobileMenuOpen(false)} />
+            )}
+            {!hasRole('technicien_informatique', 'administrateur_financier') && (
+              <MobileNavLink to="/archives" label="Archives" onClick={() => setIsMobileMenuOpen(false)} />
+            )}
+            {hasRole('administrateur_financier') && (
+              <MobileNavLink to="/admin/finance" label="Espace AF" onClick={() => setIsMobileMenuOpen(false)} />
             )}
             <div className="pt-2 border-t border-gray-100">
               <p className="text-xs text-gray-500 mb-1">{user?.email}</p>

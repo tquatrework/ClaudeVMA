@@ -66,12 +66,19 @@ services:
     depends_on:
       - identity-access-service
       - profile-service
-      - teacher-request-service
+      - dashboard-notification-service
+      - communication-service
       - calendar-service
-#      - video-session-service
-#      - communication-service
-#      - pedagogical-log-service
-#      - dashboard-notification-service
+      - teacher-request-service
+      - video-session-service
+      - pedagogical-log-service
+      - admin-observability-service
+      - archive-document-service
+      - legal-document-service
+      - finance-credit-service
+      - content-catalog-service
+      - learning-activity-service
+      - community-path-service
       - orchestration-service
     networks:
       - visiomath_network
@@ -114,7 +121,7 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
-      PORT: 3000
+      PORT: 3001
     depends_on:
       postgres:
         condition: service_healthy
@@ -134,7 +141,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_profile
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
       INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
-      PORT: 3000
+      PORT: 3002
     depends_on:
       postgres:
         condition: service_healthy
@@ -153,7 +160,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
-      PORT: 3000
+      PORT: 3003
     depends_on:
       postgres:
         condition: service_healthy
@@ -174,7 +181,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
-      PORT: 3000
+      PORT: 3004
     depends_on:
       postgres:
         condition: service_healthy
@@ -193,7 +200,7 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_calendar
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
-      PORT: 3000
+      PORT: 3005
     depends_on:
       postgres:
         condition: service_healthy
@@ -210,7 +217,7 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_teacher_request
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
-      PORT: 3000
+      PORT: 3006
     depends_on:
       postgres:
         condition: service_healthy
@@ -228,7 +235,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_video_session
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
       INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
-      PORT: 3000
+      PORT: 3007
     depends_on:
       postgres:
         condition: service_healthy
@@ -245,7 +252,140 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_pedagogical_log
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
-      PORT: 3000
+      PORT: 3008
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
+  # -- Phase 2 Services ---------------------------------------------------------
+
+  admin-observability-service:
+    build:
+      context: ./services/admin-observability-service
+      dockerfile: Dockerfile
+    container_name: visiomath_admin_observability
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_admin_observability
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
+      PORT: 3009
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
+  archive-document-service:
+    build:
+      context: ./services/archive-document-service
+      dockerfile: Dockerfile
+    container_name: visiomath_archive_document
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_archive_document
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
+      PORT: 3010
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
+  legal-document-service:
+    build:
+      context: ./services/legal-document-service
+      dockerfile: Dockerfile
+    container_name: visiomath_legal_document
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_legal_document
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
+      PORT: 3011
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
+  finance-credit-service:
+    build:
+      context: ./services/finance-credit-service
+      dockerfile: Dockerfile
+    container_name: visiomath_finance_credit
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_finance_credit
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
+      PORT: 3012
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
+  # -- Phase 3 Services ---------------------------------------------------------
+
+  content-catalog-service:
+    build:
+      context: ./services/content-catalog-service
+      dockerfile: Dockerfile
+    container_name: visiomath_content_catalog
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_content_catalog
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
+      PORT: 3013
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
+  learning-activity-service:
+    build:
+      context: ./services/learning-activity-service
+      dockerfile: Dockerfile
+    container_name: visiomath_learning_activity
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_learning_activity
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
+      PORT: 3014
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
+  community-path-service:
+    build:
+      context: ./services/community-path-service
+      dockerfile: Dockerfile
+    container_name: visiomath_community_path
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_community_path
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
+      PORT: 3015
     depends_on:
       postgres:
         condition: service_healthy

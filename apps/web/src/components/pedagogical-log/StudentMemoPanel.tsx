@@ -1,23 +1,24 @@
 /**
  * StudentMemoPanel — panneau principal du mémo élève.
- * Affiche les chapitres + items. Permet la création (élève uniquement).
- * Formateurs et autres rôles voient le mémo en readonly (le backend renvoie 403 à l'écriture).
+ * Affiche les mémos groupés par chapitre. Permet la création (élève uniquement).
+ * Formateurs et autres rôles voient un message readonly (le backend renvoie 403 à l'écriture).
  *
  * Routes API :
- *   GET  /memos
- *   POST /memos/chapters
- *   POST /memos/chapters/:chapterId/items
+ *   GET  /memos               → liste tous les mémos de l'élève
+ *   GET  /memos/chapters      → liste les chapitres de l'élève
+ *   POST /memos               → créer un mémo (avec chapterId optionnel)
+ *   POST /memos/chapters      → créer un chapitre
  */
 
 import React, { useEffect, useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import {
+  fetchMemos,
   fetchMemoChapters,
+  createMemo,
   createMemoChapter,
-  createMemoItem,
+  type Memo,
   type MemoChapter,
-  type MemoItem,
-  type MemoItemType,
 } from '../../api/pedagogicalLog'
 import MemoChapterEditor from './MemoChapterEditor'
 import MemoItemEditor from './MemoItemEditor'
@@ -26,54 +27,55 @@ import MemoSearch from './MemoSearch'
 export default function StudentMemoPanel() {
   const { hasRole } = useAuth()
 
+  const [memos, setMemos] = useState<Memo[]>([])
   const [chapters, setChapters] = useState<MemoChapter[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [expandedChapterId, setExpandedChapterId] = useState<string | null>(null)
   const [isAddingChapter, setIsAddingChapter] = useState(false)
-  const [addingItemChapterId, setAddingItemChapterId] = useState<string | null>(null)
+  const [isAddingMemo, setIsAddingMemo] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
 
   const isEleve = hasRole('eleve')
   const canWrite = isEleve
 
   useEffect(() => {
-    fetchMemoChapters()
-      .then((fetchedChapters) => setChapters(fetchedChapters))
+    // GET /memos et /memos/chapters sont réservés à l'élève
+    if (!isEleve) {
+      setIsLoading(false)
+      return
+    }
+    Promise.all([fetchMemos(), fetchMemoChapters()])
+      .then(([fetchedMemos, fetchedChapters]) => {
+        setMemos(fetchedMemos)
+        setChapters(fetchedChapters)
+      })
       .catch((err) => {
-        const status = err?.response?.status
-        if (status === 403) setErrorMessage('Accès refusé — le mémo est réservé à l\'élève')
+        const httpStatus = err?.response?.status
+        if (httpStatus === 403) setErrorMessage('Accès refusé au mémo — vérifiez votre session')
         else setErrorMessage('Impossible de charger le mémo')
       })
       .finally(() => setIsLoading(false))
-  }, [])
+  }, [isEleve])
 
   const handleChapterCreated = (newChapter: MemoChapter) => {
     setChapters((prev) => [...prev, newChapter])
     setIsAddingChapter(false)
-    setExpandedChapterId(newChapter.id)
   }
 
-  const handleItemCreated = (chapterId: string, newItem: MemoItem) => {
-    setChapters((prev) =>
-      prev.map((chapter) =>
-        chapter.id === chapterId
-          ? { ...chapter, items: [...chapter.items, newItem] }
-          : chapter,
-      ),
-    )
-    setAddingItemChapterId(null)
+  const handleMemoCreated = (newMemo: Memo) => {
+    setMemos((prev) => [...prev, newMemo])
+    setIsAddingMemo(false)
   }
 
-  const toggleChapter = (chapterId: string) => {
-    setExpandedChapterId((prev) => (prev === chapterId ? null : chapterId))
-  }
+  // Grouper les mémos par chapitre
+  const memosByChapterId = memos.reduce<Record<string, Memo[]>>((accumulator, memo) => {
+    const chapterKey = memo.chapterId ?? '__general__'
+    if (!accumulator[chapterKey]) accumulator[chapterKey] = []
+    accumulator[chapterKey].push(memo)
+    return accumulator
+  }, {})
 
-  const itemTypeLabel: Record<MemoItemType, string> = {
-    text: 'Texte',
-    formula: 'Formule LaTeX',
-    image: 'Image',
-  }
+  const generalMemos = memosByChapterId['__general__'] ?? []
 
   return (
     <div className="space-y-4">
@@ -93,12 +95,20 @@ export default function StudentMemoPanel() {
             Rechercher
           </button>
           {canWrite && (
-            <button
-              onClick={() => setIsAddingChapter(true)}
-              className="text-sm bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700"
-            >
-              + Chapitre
-            </button>
+            <>
+              <button
+                onClick={() => setIsAddingMemo(true)}
+                className="text-sm bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700"
+              >
+                + Mémo
+              </button>
+              <button
+                onClick={() => setIsAddingChapter(true)}
+                className="text-sm border border-indigo-300 text-indigo-600 px-3 py-1.5 rounded-lg hover:bg-indigo-50"
+              >
+                + Chapitre
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -106,6 +116,18 @@ export default function StudentMemoPanel() {
       {/* Search panel */}
       {isSearchOpen && (
         <MemoSearch onClose={() => setIsSearchOpen(false)} />
+      )}
+
+      {/* Add memo form */}
+      {isAddingMemo && canWrite && (
+        <MemoItemEditor
+          chapters={chapters}
+          onSave={async (title, content, chapterId) => {
+            const newMemo = await createMemo({ title, content, chapterId })
+            handleMemoCreated(newMemo)
+          }}
+          onCancel={() => setIsAddingMemo(false)}
+        />
       )}
 
       {/* Add chapter form */}
@@ -127,81 +149,77 @@ export default function StudentMemoPanel() {
 
       {isLoading && <p className="text-gray-400 text-sm">Chargement du mémo…</p>}
 
-      {!isLoading && chapters.length === 0 && !errorMessage && (
+      {!isLoading && memos.length === 0 && chapters.length === 0 && !errorMessage && (
         <div className="text-center py-10 bg-gray-50 border border-dashed border-gray-200 rounded-xl">
-          <p className="text-gray-400 text-sm">Aucun chapitre dans le mémo</p>
+          <p className="text-gray-400 text-sm">Aucune note dans le mémo</p>
           {canWrite && (
             <p className="text-xs text-gray-300 mt-1">
-              Cliquez sur "+ Chapitre" pour démarrer votre mémo.
+              Cliquez sur "+ Mémo" pour ajouter votre première note.
             </p>
           )}
         </div>
       )}
 
-      {/* Chapters list */}
-      <ul className="space-y-3">
-        {chapters.map((chapter) => (
-          <li key={chapter.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-            {/* Chapter header */}
-            <button
-              onClick={() => toggleChapter(chapter.id)}
-              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors"
-            >
-              <span className="font-medium text-gray-800 text-sm">{chapter.title}</span>
-              <span className="text-gray-400 text-xs ml-2">
-                {chapter.items.length} item{chapter.items.length !== 1 ? 's' : ''}
-                <span className="ml-2">{expandedChapterId === chapter.id ? '▲' : '▼'}</span>
-              </span>
-            </button>
-
-            {/* Chapter content */}
-            {expandedChapterId === chapter.id && (
-              <div className="border-t border-gray-100 px-4 py-3 space-y-2">
-                {chapter.items.length === 0 && (
-                  <p className="text-xs text-gray-400">Aucun item dans ce chapitre.</p>
-                )}
-
+      {!isLoading && !errorMessage && (
+        <div className="space-y-4">
+          {/* Section Général — mémos sans chapitre */}
+          {(generalMemos.length > 0 || canWrite) && (
+            <section>
+              <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-2">
+                Général
+              </h3>
+              {generalMemos.length === 0 ? (
+                <p className="text-xs text-gray-400 italic">Aucune note dans la section générale.</p>
+              ) : (
                 <ul className="space-y-2">
-                  {chapter.items.map((item) => (
-                    <li key={item.id} className="text-sm">
-                      <span className="inline-block text-xs text-gray-400 mr-2">
-                        [{itemTypeLabel[item.itemType]}]
-                      </span>
-                      {item.itemType === 'formula' ? (
-                        <code className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-xs text-indigo-700">
-                          {item.content}
-                        </code>
-                      ) : (
-                        <span className="text-gray-700 whitespace-pre-wrap">{item.content}</span>
-                      )}
-                    </li>
+                  {generalMemos.map((memo) => (
+                    <MemoCard key={memo.id} memo={memo} />
                   ))}
                 </ul>
+              )}
+            </section>
+          )}
 
-                {/* Add item form */}
-                {canWrite && addingItemChapterId === chapter.id ? (
-                  <MemoItemEditor
-                    onSave={async (itemType, content) => {
-                      const newItem = await createMemoItem(chapter.id, { itemType, content })
-                      handleItemCreated(chapter.id, newItem)
-                    }}
-                    onCancel={() => setAddingItemChapterId(null)}
-                  />
+          {/* Sections par chapitre */}
+          {chapters.map((chapter) => {
+            const chapterMemos = memosByChapterId[chapter.id] ?? []
+            return (
+              <section key={chapter.id}>
+                <h3 className="text-sm font-medium text-gray-700 border-b border-gray-100 pb-1 mb-2">
+                  {chapter.title}
+                </h3>
+                {chapterMemos.length === 0 ? (
+                  <p className="text-xs text-gray-400 italic">Aucune note dans ce chapitre.</p>
                 ) : (
-                  canWrite && (
-                    <button
-                      onClick={() => setAddingItemChapterId(chapter.id)}
-                      className="text-xs text-indigo-500 hover:underline mt-1"
-                    >
-                      + Ajouter un item
-                    </button>
-                  )
+                  <ul className="space-y-2">
+                    {chapterMemos.map((memo) => (
+                      <MemoCard key={memo.id} memo={memo} />
+                    ))}
+                  </ul>
                 )}
-              </div>
-            )}
-          </li>
-        ))}
-      </ul>
+              </section>
+            )
+          })}
+        </div>
+      )}
     </div>
+  )
+}
+
+// ─── Composant carte mémo ─────────────────────────────────────────────────────
+
+interface MemoCardProps {
+  memo: Memo
+}
+
+function MemoCard({ memo }: MemoCardProps) {
+  return (
+    <li className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+      <p className="text-sm font-medium text-gray-800">{memo.title}</p>
+      <p className="text-sm text-gray-600 mt-1 whitespace-pre-wrap">{memo.content}</p>
+      <p className="text-xs text-gray-400 mt-2">
+        {new Date(memo.createdAt).toLocaleDateString('fr-FR')}
+      </p>
+    </li>
   )
 }

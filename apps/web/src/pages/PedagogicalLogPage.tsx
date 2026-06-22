@@ -4,10 +4,11 @@
  * Le filtrage de visibilité est géré côté serveur.
  *
  * Routes API :
- *   GET  /students/:studentId/pedagogical-log
- *   POST /students/:studentId/pedagogical-log         (formateur, RP, AP, TI)
- *   POST /students/:studentId/pedagogical-log/special-pages  (RP uniquement)
- *   PATCH /logs/:id
+ *   GET    /students/:studentId/pedagogical-log
+ *   POST   /students/:studentId/pedagogical-log         (formateur, RP, AP, TI)
+ *   POST   /students/:studentId/pedagogical-log/special-pages  (RP uniquement)
+ *   PATCH  /logs/:id
+ *   DELETE /logs/:id     (auteur ou RP)
  */
 
 import React, { useEffect, useState } from 'react'
@@ -15,11 +16,13 @@ import { useParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
 import {
-  fetchPedagogicalLog,
+  fetchPedagogicalLogs,
   createLogPage,
   updateLogPage,
+  deleteLogPage,
   type PedagogicalLogPage as LogPage,
   type LogVisibility,
+  type CreateLogPagePayload,
 } from '../api/pedagogicalLog'
 import SpecialLogPageVisibilityDialog from '../components/pedagogical-log/SpecialLogPageVisibilityDialog'
 
@@ -41,16 +44,19 @@ export default function PedagogicalLogPage() {
   const [editContent, setEditContent] = useState('')
   const [isSavingEdit, setIsSavingEdit] = useState(false)
 
+  // Delete state
+  const [deletingLogId, setDeletingLogId] = useState<string | null>(null)
+
   // Special page dialog (RP only)
   const [isSpecialPageDialogOpen, setIsSpecialPageDialogOpen] = useState(false)
 
   const canWrite = hasRole('formateur', 'responsable_pedagogique', 'animateur_pedagogique', 'technicien_informatique')
   const isResponsablePedagogique = hasRole('responsable_pedagogique')
+  const isReadOnly = !canWrite
 
   useEffect(() => {
-    if (!studentId) return
     setIsLoading(true)
-    fetchPedagogicalLog(studentId)
+    fetchPedagogicalLogs()
       .then((pages) => setLogPages(pages))
       .catch((err) => {
         const status = err?.response?.status
@@ -58,24 +64,25 @@ export default function PedagogicalLogPage() {
         else setErrorMessage('Impossible de charger le cahier de texte')
       })
       .finally(() => setIsLoading(false))
-  }, [studentId])
+  }, [])
 
   const handleAddPage = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newContent.trim() || !studentId) return
+    if (!newContent.trim()) return
     setIsSaving(true)
     setErrorMessage(null)
     try {
-      const newPage = await createLogPage(studentId, {
+      const payload: CreateLogPagePayload = {
         content: newContent.trim(),
         visibility: selectedVisibility,
-      })
+      }
+      const newPage = await createLogPage(payload)
       setLogPages((prev) => [newPage, ...prev])
       setNewContent('')
     } catch (err: unknown) {
       const message =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        "Erreur lors de la création de la page"
+        'Erreur lors de la création de la page'
       setErrorMessage(message)
     } finally {
       setIsSaving(false)
@@ -116,6 +123,31 @@ export default function PedagogicalLogPage() {
     }
   }
 
+  const handleDeletePage = async (logId: string) => {
+    if (!window.confirm('Supprimer cette entrée du cahier de texte ?')) return
+    setDeletingLogId(logId)
+    setErrorMessage(null)
+    try {
+      await deleteLogPage(logId)
+      setLogPages((prev) => prev.filter((p) => p.id !== logId))
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        'Erreur lors de la suppression'
+      setErrorMessage(message)
+    } finally {
+      setDeletingLogId(null)
+    }
+  }
+
+  const canDeletePage = (logPage: LogPage): boolean => {
+    return logPage.authorId === user?.id || isResponsablePedagogique
+  }
+
+  const canEditPage = (logPage: LogPage): boolean => {
+    return logPage.authorId === user?.id
+  }
+
   const visibilityLabel: Record<LogVisibility, string> = {
     eleve_parent_formateur: 'Élève + Parent + Formateur',
     eleve_formateur: 'Élève + Formateur',
@@ -128,11 +160,11 @@ export default function PedagogicalLogPage() {
       <div className="max-w-2xl">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Cahier de texte</h1>
-          {studentId && (
-            <p className="text-sm text-gray-500 mt-1">
-              Élève : <span className="font-mono text-xs">{studentId}</span>
-            </p>
-          )}
+          <p className="text-sm text-gray-500 mt-1">
+            {isReadOnly
+              ? 'Suivi séance par séance — consultation uniquement'
+              : 'Suivi séance par séance — vous pouvez ajouter des entrées'}
+          </p>
         </div>
 
         {errorMessage && (
@@ -144,6 +176,13 @@ export default function PedagogicalLogPage() {
           </div>
         )}
 
+        {/* Read-only banner for eleve and parent */}
+        {isReadOnly && (
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-700 text-sm">
+            Vous consultez le cahier de texte en lecture seule.
+          </div>
+        )}
+
         {/* New entry form — visible to formateurs, RP, AP, TI */}
         {canWrite && (
           <div className="mb-6 space-y-3">
@@ -151,7 +190,7 @@ export default function PedagogicalLogPage() {
               onSubmit={handleAddPage}
               className="bg-white border border-gray-200 rounded-xl p-4 space-y-3 shadow-sm"
             >
-              <h2 className="text-sm font-semibold text-gray-700">Nouvelle page</h2>
+              <h2 className="text-sm font-semibold text-gray-700">Nouvelle entrée</h2>
 
               <div>
                 <label htmlFor="visibility-select" className="block text-xs text-gray-500 mb-1">
@@ -181,7 +220,7 @@ export default function PedagogicalLogPage() {
                 disabled={isSaving || !newContent.trim()}
                 className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50"
               >
-                {isSaving ? 'Ajout…' : 'Ajouter une page'}
+                {isSaving ? 'Ajout…' : 'Ajouter une entrée'}
               </button>
             </form>
 
@@ -254,17 +293,29 @@ export default function PedagogicalLogPage() {
                     <div className="text-xs text-gray-400 space-x-2">
                       <span>{new Date(logPage.createdAt).toLocaleString('fr-FR')}</span>
                       <span className="text-gray-300">·</span>
+                      <span className="italic">{logPage.authorRole}</span>
+                      <span className="text-gray-300">·</span>
                       <span className="italic">{visibilityLabel[logPage.visibility]}</span>
                     </div>
-                    {(logPage.authorId === user?.id ||
-                      hasRole('responsable_pedagogique', 'technicien_informatique')) && (
-                      <button
-                        onClick={() => startEdit(logPage)}
-                        className="text-xs text-indigo-500 hover:underline"
-                      >
-                        Modifier
-                      </button>
-                    )}
+                    <div className="flex gap-2">
+                      {canEditPage(logPage) && (
+                        <button
+                          onClick={() => startEdit(logPage)}
+                          className="text-xs text-indigo-500 hover:underline"
+                        >
+                          Modifier
+                        </button>
+                      )}
+                      {canDeletePage(logPage) && (
+                        <button
+                          onClick={() => handleDeletePage(logPage.id)}
+                          disabled={deletingLogId === logPage.id}
+                          className="text-xs text-red-400 hover:underline disabled:opacity-50"
+                        >
+                          {deletingLogId === logPage.id ? 'Suppression…' : 'Supprimer'}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </>
               )}
@@ -274,9 +325,9 @@ export default function PedagogicalLogPage() {
       </div>
 
       {/* Special page dialog — RP only */}
-      {isSpecialPageDialogOpen && studentId && (
+      {isSpecialPageDialogOpen && (
         <SpecialLogPageVisibilityDialog
-          studentId={studentId}
+          studentId={studentId ?? user?.id ?? ''}
           onCreated={handleSpecialPageCreated}
           onClose={() => setIsSpecialPageDialogOpen(false)}
         />

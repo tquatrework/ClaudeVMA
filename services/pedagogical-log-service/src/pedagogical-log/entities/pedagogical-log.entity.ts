@@ -6,6 +6,13 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+/** Structure d'une ressource liée (exercice, évaluation, tuto, parcours, visio) */
+export interface LinkedResource {
+  type: string;
+  id: string;
+  label?: string;
+}
+
 /**
  * TextbookEntry — Cahier de texte (journal pédagogique)
  *
@@ -67,6 +74,27 @@ export class PedagogicalLog {
   /** Note sur 5 */
   @Column({ nullable: true, type: 'int' })
   rating: number;
+
+  /**
+   * Indique s'il s'agit d'une page spéciale (créée par le RP).
+   * XML spec functionality 003.
+   */
+  @Column({ name: 'is_special_page', default: false })
+  isSpecialPage: boolean;
+
+  /**
+   * Masquer cette page à l'élève.
+   * XML spec functionality 003: pages spéciales pouvant être invisibles à l'élève.
+   */
+  @Column({ name: 'hidden_from_student', default: false })
+  hiddenFromStudent: boolean;
+
+  /**
+   * Ressources liées (exercices, évaluations, tutos, parcours, visios).
+   * Stockées en JSON.
+   */
+  @Column({ name: 'linked_resources', type: 'simple-json', nullable: true })
+  linkedResources: LinkedResource[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

@@ -5,7 +5,7 @@
  * - Form rendering (email, password, confirmPassword)
  * - Password mismatch validation
  * - Password too short validation
- * - Successful registration calls POST /accounts with role parent_financeur and redirects to /login
+ * - Successful registration calls POST /accounts/parents and redirects to /login
  * - API error displayed in form
  */
 
@@ -87,10 +87,9 @@ describe('ParentRegistrationPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith('/accounts', {
+      expect(mockApiClient.post).toHaveBeenCalledWith('/accounts/parents', {
         email: 'parent@test.com',
         password: 'password123',
-        role: 'parent_financeur',
       })
     })
   })

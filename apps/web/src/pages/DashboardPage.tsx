@@ -261,6 +261,12 @@ export default function DashboardPage() {
               <QuickCard to="/pedagogical-log" label="Cahier de texte" />
             )}
             <QuickCard to="/memos" label="Mémos" />
+            {hasRole('parent_financeur') && (
+              <QuickCard to="/parent-link-requests/new" label="Rattacher un élève" />
+            )}
+            {hasRole('eleve', 'responsable_pedagogique', 'technicien_informatique') && (
+              <QuickCard to="/parent-link-requests/inbox" label="Demandes de rattachement" />
+            )}
             {hasRole('technicien_informatique', 'responsable_pedagogique') && (
               <QuickCard to="/incidents" label="Incidents" />
             )}

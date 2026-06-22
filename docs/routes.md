@@ -103,9 +103,22 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 | POST | /internal/create-teacher-student-relation | Créer la relation formateur-élève | `X-Internal-Secret` |
 | POST | /internal/link-coordinator | Lier un coordinateur pédagogique à un élève | `X-Internal-Secret` |
 
+### Demandes de rattachement parent↔élève
+
+Flux en deux temps : le parent fournit le `studentId` qu'il connaît hors-plateforme. L'élève ou un RP/TI valide. Aucune liste d'élèves n'est exposée au parent.
+
+Statuts : `pending` → `approved` (lien finance-owner-student créé) / `rejected`
+
+| Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
+|---|---|---|---|---|---|
+| POST | /parent-link-requests | 🔒 | `parent_financeur` | Soumet une demande de rattachement | Body : `{ studentId }` · `201 { id, parentId, studentId, status: "pending", requestedAt }` · `400` studentId inexistant · `409` demande pending déjà en cours |
+| GET | /parent-link-requests | 🔒 | `parent_financeur` (ses demandes), `eleve` (demandes le ciblant), `responsable_pedagogique`, `technicien_informatique` (toutes) | Liste filtrée selon le rôle | `200 [{ id, parentId, studentId, status, requestedAt, processedAt, processedBy }]` |
+| POST | /parent-link-requests/:id/approve | 🔒 | `eleve` (uniquement si ciblé), `responsable_pedagogique`, `technicien_informatique` | Approuve → crée le lien finance-owner-student | `200 { id, status: "approved", processedAt, processedBy }` · `403` · `404` |
+| POST | /parent-link-requests/:id/reject | 🔒 | `eleve` (uniquement si ciblé), `responsable_pedagogique`, `technicien_informatique` | Rejette la demande | `200 { id, status: "rejected", processedAt, processedBy }` · `403` · `404` |
+
 ### Événements publiés
 
-`ProfileUpdated` · `StudentLinkedToFinanceOwner` · `TeacherLinkedToStudent` · `CoordinatorLinkedToStudent` · `TeacherPromotedToPedagogicalAnimator`
+`ProfileUpdated` · `StudentLinkedToFinanceOwner` · `TeacherLinkedToStudent` · `CoordinatorLinkedToStudent` · `TeacherPromotedToPedagogicalAnimator` · `ParentLinkRequested` · `ParentLinkApproved` · `ParentLinkRejected`
 
 ---
 

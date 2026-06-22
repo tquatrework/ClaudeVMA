@@ -144,7 +144,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 to={user ? `/profiles/${user.id}` : '/dashboard'}
                 className="flex items-center gap-2 hover:opacity-80 transition-opacity"
               >
-                <span className="font-medium text-gray-800 text-xs">{user?.email}</span>
+                <span className="font-medium text-gray-800 text-xs">{user?.loginIdentifier}</span>
                 <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
                   {user?.role}
                 </span>
@@ -218,7 +218,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <MobileNavLink to="/admin/finance" label="Espace AF" onClick={() => setIsMobileMenuOpen(false)} />
             )}
             <div className="pt-2 border-t border-gray-100">
-              <p className="text-xs text-gray-500 mb-1">{user?.email}</p>
+              <p className="text-xs text-gray-500 mb-1">{user?.loginIdentifier}</p>
               <button
                 onClick={handleLogout}
                 className="text-sm text-red-500 hover:text-red-700"

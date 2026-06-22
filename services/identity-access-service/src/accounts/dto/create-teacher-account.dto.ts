@@ -11,6 +11,15 @@ export class CreateTeacherAccountDto {
   @MinLength(8)
   password: string;
 
+  @ApiPropertyOptional({
+    example: 'marie.martin',
+    description: 'Desired login identifier. If omitted, one is generated from the email address.',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  loginIdentifier?: string;
+
   @ApiPropertyOptional({ description: 'URL or reference to the submitted CV' })
   @IsOptional()
   @IsString()

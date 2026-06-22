@@ -18,6 +18,7 @@ const buildValidPayload = (overrides: Partial<Record<string, unknown>> = {}) => 
 
 const buildActiveUser = (overrides: Partial<User> = {}): User => ({
   id: 'user-uuid-123',
+  loginIdentifier: 'test.user',
   email: 'test@example.com',
   passwordHash: 'hashed',
   role: UserRole.ELEVE,

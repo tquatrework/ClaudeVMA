@@ -12,6 +12,7 @@ export type UserRole =
 
 export interface AuthUser {
   id: string
+  loginIdentifier: string
   email: string
   role: UserRole
   validationStatus: 'pending' | 'active' | 'suspended'
@@ -21,7 +22,7 @@ interface AuthState {
   user: AuthUser | null
   isAuthenticated: boolean
   isLoading: boolean
-  login: (email: string, password: string) => Promise<void>
+  login: (loginIdentifier: string, password: string) => Promise<void>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
   hasRole: (...roles: UserRole[]) => boolean
@@ -70,14 +71,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (loginIdentifier: string, password: string) => {
     setIsLoading(true)
     try {
       const { data } = await apiClient.post<{
         access_token: string
         refresh_token: string
         user: AuthUser
-      }>('/auth/login', { email, password })
+      }>('/auth/login', { loginIdentifier, password })
 
       localStorage.setItem('access_token', data.access_token)
       localStorage.setItem('refresh_token', data.refresh_token)

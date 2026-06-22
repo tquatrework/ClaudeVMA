@@ -65,6 +65,7 @@ import WorkflowRetryPanel from './pages/WorkflowRetryPanel'
 import WorkflowIncidentView from './pages/WorkflowIncidentView'
 import ParentLinkRequestPage from './pages/ParentLinkRequestPage'
 import ParentLinkRequestsInboxPage from './pages/ParentLinkRequestsInboxPage'
+import RecoverIdentifierPage from './pages/RecoverIdentifierPage'
 
 export default function App() {
   return (
@@ -78,6 +79,7 @@ export default function App() {
           <Route path="/register/teacher" element={<TeacherRegistrationPage />} />
           <Route path="/register/parent" element={<ParentRegistrationPage />} />
           <Route path="/password-reset" element={<PasswordResetPage />} />
+          <Route path="/recover-identifier" element={<RecoverIdentifierPage />} />
           <Route path="/forbidden" element={<ForbiddenPage />} />
 
           {/* ── Authenticated routes ─────────────────────────────────── */}

@@ -20,4 +20,13 @@ export class CreateAccountDto {
   @IsOptional()
   @IsEnum(UserRole)
   role?: UserRole;
+
+  @ApiPropertyOptional({
+    example: 'jean.dupont',
+    description: 'Desired login identifier. If omitted, one is generated from the email address.',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  loginIdentifier?: string;
 }

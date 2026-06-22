@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 
 interface RawJwtPayload {
   sub: string;
+  loginIdentifier: string;
   email: string;
   role: string;
   validationStatus: string;
@@ -13,6 +14,7 @@ interface RawJwtPayload {
 
 export interface JwtPayload {
   id: string;
+  loginIdentifier: string;
   role: string;
   email?: string;
   validationStatus?: string;
@@ -38,6 +40,7 @@ export class JwtAuthGuard implements CanActivate {
       if (raw.type !== 'access') throw new UnauthorizedException('Invalid token type');
       request.user = {
         id: raw.sub,
+        loginIdentifier: raw.loginIdentifier,
         email: raw.email,
         role: raw.role,
         validationStatus: raw.validationStatus,

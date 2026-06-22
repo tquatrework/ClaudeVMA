@@ -6,6 +6,7 @@ type WizardStep = 'administrative' | 'pedagogical' | 'rgpd'
 
 interface AdministrativeFormData {
   email: string
+  loginIdentifier: string
   password: string
   passwordConfirm: string
   firstName: string
@@ -26,6 +27,7 @@ interface RgpdFormData {
 
 const INITIAL_ADMINISTRATIVE: AdministrativeFormData = {
   email: '',
+  loginIdentifier: '',
   password: '',
   passwordConfirm: '',
   firstName: '',
@@ -52,9 +54,28 @@ export default function TeacherRegistrationPage() {
   const [rgpdData, setRgpdData] = useState<RgpdFormData>(INITIAL_RGPD)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isEmailAlreadyUsed, setIsEmailAlreadyUsed] = useState(false)
 
   const handleAdministrativeChange = (field: keyof AdministrativeFormData, value: string) => {
     setAdministrativeData((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const checkEmailAvailability = async (emailValue: string) => {
+    if (!emailValue) return
+    try {
+      const response = await apiClient.get<{ alreadyUsed: boolean; suggestedLoginIdentifier: string }>(
+        `/accounts/check-email?email=${encodeURIComponent(emailValue)}`
+      )
+      setIsEmailAlreadyUsed(response.data.alreadyUsed)
+      if (response.data.suggestedLoginIdentifier) {
+        setAdministrativeData((prev) => ({
+          ...prev,
+          loginIdentifier: response.data.suggestedLoginIdentifier,
+        }))
+      }
+    } catch {
+      // silencieux
+    }
   }
 
   const handlePedagogicalChange = (field: keyof PedagogicalFormData, value: string) => {
@@ -96,6 +117,7 @@ export default function TeacherRegistrationPage() {
     try {
       await apiClient.post('/accounts/teachers', {
         email: administrativeData.email,
+        loginIdentifier: administrativeData.loginIdentifier || undefined,
         password: administrativeData.password,
         firstName: administrativeData.firstName,
         lastName: administrativeData.lastName,
@@ -219,9 +241,38 @@ export default function TeacherRegistrationPage() {
                 required
                 value={administrativeData.email}
                 onChange={(e) => handleAdministrativeChange('email', e.target.value)}
+                onBlur={(e) => checkEmailAvailability(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
                 placeholder="vous@exemple.fr"
               />
+            </div>
+
+            {isEmailAlreadyUsed && (
+              <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-yellow-800 text-sm">
+                Cet email est déjà utilisé pour un autre compte. Vous pouvez continuer avec le même email de contact.
+                {administrativeData.loginIdentifier && (
+                  <span className="block mt-1 font-medium">
+                    Identifiant proposé : {administrativeData.loginIdentifier}
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Identifiant de connexion
+              </label>
+              <input
+                type="text"
+                value={administrativeData.loginIdentifier}
+                onChange={(e) => handleAdministrativeChange('loginIdentifier', e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                placeholder="jean.dupont"
+                autoComplete="username"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Cet identifiant vous servira à vous connecter.
+              </p>
             </div>
 
             <div>

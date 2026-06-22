@@ -14,7 +14,7 @@ export class InternalController {
   @Post('create-account')
   async createAccount(@Body() dto: CreateAccountDto) {
     const account = await this.accountsService.createAccount(dto);
-    return { accountId: account.id, email: account.email, role: account.role };
+    return { accountId: account.id, loginIdentifier: account.loginIdentifier, email: account.email, role: account.role };
   }
 
   @Get('accounts')

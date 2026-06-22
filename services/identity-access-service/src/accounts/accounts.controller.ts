@@ -5,6 +5,7 @@ import {
   Put,
   Patch,
   Param,
+  Query,
   Body,
   UseGuards,
   Request,
@@ -17,6 +18,7 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiParam,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { AccountsService } from './accounts.service';
@@ -41,8 +43,8 @@ export class AccountsController {
     summary: 'Create account',
     description: 'Self-register as eleve, parent_financeur or formateur. Account starts in PENDING status until required consents are signed.',
   })
-  @ApiResponse({ status: 201, description: 'Account created — status PENDING' })
-  @ApiResponse({ status: 409, description: 'Email already in use' })
+  @ApiResponse({ status: 201, description: 'Account created — status PENDING. emailAlreadyUsed:true if email was already registered.' })
+  @ApiResponse({ status: 409, description: 'Login identifier already taken' })
   @ApiResponse({ status: 403, description: 'Attempt to self-register with an internal role' })
   createAccount(@Body() dto: CreateAccountDto, @Ip() ipAddress: string) {
     return this.accountsService.createAccount(dto, ipAddress);
@@ -55,8 +57,9 @@ export class AccountsController {
       'Self-register as an eleve. Optionally create a linked parent financeur account in the same call. ' +
       'Account starts in PENDING status. RGPD acceptance must follow via /consents.',
   })
-  @ApiResponse({ status: 201, description: 'Student account created — status PENDING' })
-  @ApiResponse({ status: 409, description: 'Email already in use' })
+  @ApiResponse({ status: 201, description: 'Student (and optionally parent) account created — status PENDING. emailAlreadyUsed:true if email was already registered.' })
+  @ApiResponse({ status: 409, description: 'Login identifier already taken, or multiple parent accounts share the given parentEmail' })
+  @ApiResponse({ status: 404, description: 'parentLoginIdentifier not found' })
   createStudentAccount(@Body() dto: CreateStudentAccountDto, @Ip() ipAddress: string) {
     return this.accountsService.createStudentAccount(dto, ipAddress);
   }
@@ -68,8 +71,8 @@ export class AccountsController {
       'Self-register as a formateur. Account is created in NON_APPROVED status until the RP validates ' +
       'after interview/test, contract signing and financial information submission.',
   })
-  @ApiResponse({ status: 201, description: 'Teacher account created — status PENDING (non_approved)' })
-  @ApiResponse({ status: 409, description: 'Email already in use' })
+  @ApiResponse({ status: 201, description: 'Teacher account created — status PENDING (non_approved). emailAlreadyUsed:true if email was already registered.' })
+  @ApiResponse({ status: 409, description: 'Login identifier already taken' })
   createTeacherAccount(@Body() dto: CreateTeacherAccountDto, @Ip() ipAddress: string) {
     return this.accountsService.createTeacherAccount(dto, ipAddress);
   }
@@ -81,8 +84,8 @@ export class AccountsController {
       'Self-register as a parent_financeur. Allows a financing parent to create an account independently, ' +
       'without going through the student registration flow. Account starts in PENDING status.',
   })
-  @ApiResponse({ status: 201, description: 'Parent account created — status PENDING' })
-  @ApiResponse({ status: 409, description: 'Email already in use' })
+  @ApiResponse({ status: 201, description: 'Parent account created — status PENDING. emailAlreadyUsed:true if email was already registered.' })
+  @ApiResponse({ status: 409, description: 'Login identifier already taken' })
   createParentAccount(@Body() dto: CreateParentAccountDto, @Ip() ipAddress: string) {
     return this.accountsService.createParentAccount(dto, ipAddress);
   }
@@ -97,11 +100,24 @@ export class AccountsController {
       'Role and status modifications are handled by dedicated admin routes.',
   })
   @ApiResponse({ status: 200, description: 'Account updated successfully' })
-  @ApiResponse({ status: 400, description: 'Validation error — invalid email or password too short' })
+  @ApiResponse({ status: 400, description: 'Validation error — invalid email, identifier too short or password too short' })
   @ApiResponse({ status: 401, description: 'Unauthorized — JWT required' })
-  @ApiResponse({ status: 409, description: 'Email already in use' })
+  @ApiResponse({ status: 409, description: 'Login identifier already in use' })
   updateMe(@Body() dto: UpdateMeDto, @Request() req) {
     return this.accountsService.updateMe(req.user.id, dto);
+  }
+
+  @Get('check-email')
+  @ApiOperation({
+    summary: 'Check email availability',
+    description:
+      'Public endpoint. Returns whether an email is already associated with one or more accounts, ' +
+      'and suggests a loginIdentifier that would be available for a new account with that email.',
+  })
+  @ApiQuery({ name: 'email', required: true, description: 'Email address to check' })
+  @ApiResponse({ status: 200, description: 'Check result — alreadyUsed and suggestedLoginIdentifier' })
+  checkEmail(@Query('email') email: string) {
+    return this.accountsService.checkEmail(email);
   }
 
   @Get(':accountId')

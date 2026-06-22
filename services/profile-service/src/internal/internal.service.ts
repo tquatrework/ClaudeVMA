@@ -29,7 +29,6 @@ export class InternalService {
     userId: string;
     firstName?: string;
     lastName?: string;
-    email?: string;
     phone?: string;
     birthDate?: string;
     level?: string;
@@ -68,7 +67,6 @@ export class InternalService {
     userId: string;
     firstName?: string;
     lastName?: string;
-    email?: string;
     phone?: string;
     subjects?: string[];
     levels?: string[];
@@ -115,7 +113,6 @@ export class InternalService {
     userId: string;
     firstName?: string;
     lastName?: string;
-    email?: string;
     phone?: string;
   }) {
     let admin = await this.adminRepo.findOne({ where: { userId: dto.userId } });

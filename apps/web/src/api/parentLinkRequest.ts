@@ -12,8 +12,8 @@ export interface ParentLinkRequest {
   processedBy?: string
 }
 
-export async function createParentLinkRequest(studentId: string): Promise<ParentLinkRequest> {
-  const { data } = await apiClient.post<ParentLinkRequest>('/parent-link-requests', { studentId })
+export async function createParentLinkRequest(studentLoginIdentifier: string): Promise<ParentLinkRequest> {
+  const { data } = await apiClient.post<ParentLinkRequest>('/parent-link-requests', { studentLoginIdentifier })
   return data
 }
 

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import apiClient from '../api/client'
 import Layout from '../components/Layout'
+import { fetchLinkedStudents, fetchStudentProfile } from '../api/relations'
 
 interface Notification {
   id: string
@@ -46,6 +47,11 @@ interface Activity {
   type?: string
 }
 
+interface LinkedStudentEntry {
+  studentId: string
+  displayName: string
+}
+
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-700',
   accepted: 'bg-green-100 text-green-700',
@@ -74,6 +80,8 @@ export default function DashboardPage() {
   const [profileNames, setProfileNames] = useState<Record<string, string>>({})
   const [requestFilter, setRequestFilter] = useState<'active' | 'all'>('active')
   const [upcomingActivities, setUpcomingActivities] = useState<Activity[]>([])
+  const [linkedStudents, setLinkedStudents] = useState<LinkedStudentEntry[]>([])
+  const [isLoadingLinkedStudents, setIsLoadingLinkedStudents] = useState(false)
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(true)
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(true)
   const [isLoadingRequests, setIsLoadingRequests] = useState(true)
@@ -155,6 +163,30 @@ export default function DashboardPage() {
       })
       .catch(() => { /* non-blocking */ })
       .finally(() => setIsLoadingCalendar(false))
+
+    // Load linked students for parent_financeur
+    if (user.role === 'parent_financeur') {
+      setIsLoadingLinkedStudents(true)
+      fetchLinkedStudents(user.id)
+        .then(async (links) => {
+          const studentEntries = await Promise.all(
+            links.map(async (link) => {
+              try {
+                const profile = await fetchStudentProfile(link.studentId)
+                const firstName = profile.administrativeProfile?.firstName ?? ''
+                const lastName = profile.administrativeProfile?.lastName ?? ''
+                const displayName = [firstName, lastName].filter(Boolean).join(' ') || link.studentId
+                return { studentId: link.studentId, displayName }
+              } catch {
+                return { studentId: link.studentId, displayName: link.studentId }
+              }
+            }),
+          )
+          setLinkedStudents(studentEntries)
+        })
+        .catch(() => { /* non-blocking */ })
+        .finally(() => setIsLoadingLinkedStudents(false))
+    }
   }, [user])
 
   const unreadNotificationCount = notifications.filter((n) => !n.read).length
@@ -311,6 +343,62 @@ export default function DashboardPage() {
                         })}
                       </span>
                     </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+
+        {/* Linked students — parent_financeur only */}
+        {hasRole('parent_financeur') && (
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-semibold text-gray-700">Mes élèves</h2>
+              <Link to="/my-students" className="text-sm text-indigo-600 hover:underline">
+                Voir tout
+              </Link>
+            </div>
+
+            {isLoadingLinkedStudents ? (
+              <p className="text-gray-400 text-sm">Chargement…</p>
+            ) : linkedStudents.length === 0 ? (
+              <div className="bg-white border border-gray-200 rounded-xl p-4 text-center">
+                <p className="text-gray-400 text-sm mb-3">Aucun élève rattaché.</p>
+                <Link
+                  to="/parent-link-requests/new"
+                  className="text-sm text-indigo-600 hover:underline"
+                >
+                  Rattacher un élève
+                </Link>
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {linkedStudents.map((student) => (
+                  <li key={student.studentId}>
+                    <div className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg">
+                      <span className="text-sm font-medium text-gray-800">{student.displayName}</span>
+                      <div className="flex gap-2">
+                        <Link
+                          to={`/profiles/${student.studentId}`}
+                          className="text-xs text-indigo-600 hover:underline"
+                        >
+                          Profil
+                        </Link>
+                        <Link
+                          to={`/calendar?studentId=${student.studentId}`}
+                          className="text-xs text-indigo-600 hover:underline"
+                        >
+                          Calendrier
+                        </Link>
+                        <Link
+                          to={`/pedagogical-log?studentId=${student.studentId}`}
+                          className="text-xs text-indigo-600 hover:underline"
+                        >
+                          Cahier
+                        </Link>
+                      </div>
+                    </div>
                   </li>
                 ))}
               </ul>

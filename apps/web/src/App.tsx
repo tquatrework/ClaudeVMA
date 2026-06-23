@@ -66,6 +66,7 @@ import WorkflowIncidentView from './pages/WorkflowIncidentView'
 import ParentLinkRequestPage from './pages/ParentLinkRequestPage'
 import ParentLinkRequestsInboxPage from './pages/ParentLinkRequestsInboxPage'
 import RecoverIdentifierPage from './pages/RecoverIdentifierPage'
+import MyStudentsPage from './pages/MyStudentsPage'
 
 export default function App() {
   return (
@@ -620,6 +621,14 @@ export default function App() {
           />
 
           {/* ── Rattachement parent↔élève ────────────────────── */}
+          <Route
+            path="/my-students"
+            element={
+              <ProtectedRoute allowedRoles={['parent_financeur']}>
+                <MyStudentsPage />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/parent-link-requests/new"
             element={

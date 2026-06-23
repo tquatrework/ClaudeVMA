@@ -549,6 +549,12 @@ export class AccountsService {
     };
   }
 
+  async findByLoginIdentifier(loginIdentifier: string): Promise<{ userId: string; role: string }> {
+    const user = await this.userRepo.findOne({ where: { loginIdentifier } });
+    if (!user) throw new NotFoundException('Identifiant élève introuvable');
+    return { userId: user.id, role: user.role };
+  }
+
   private async findOrFail(id: string): Promise<User> {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`Account ${id} not found`);

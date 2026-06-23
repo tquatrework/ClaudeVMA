@@ -21,4 +21,9 @@ export class InternalController {
   async listAccounts(@Query('role') roleFilter?: UserRole) {
     return this.accountsService.listAccounts(roleFilter);
   }
+
+  @Get('accounts/by-login-identifier')
+  async findByLoginIdentifier(@Query('loginIdentifier') loginIdentifier: string) {
+    return this.accountsService.findByLoginIdentifier(loginIdentifier);
+  }
 }

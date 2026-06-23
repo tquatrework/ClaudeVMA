@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { AccountsService } from '../accounts/accounts.service';
 import { CreateAccountDto } from '../accounts/dto/create-account.dto';
@@ -25,5 +25,10 @@ export class InternalController {
   @Get('accounts/by-login-identifier')
   async findByLoginIdentifier(@Query('loginIdentifier') loginIdentifier: string) {
     return this.accountsService.findByLoginIdentifier(loginIdentifier);
+  }
+
+  @Get('accounts/by-user-id/:userId')
+  async findByUserId(@Param('userId') userId: string) {
+    return this.accountsService.findByUserId(userId);
   }
 }

@@ -30,12 +30,38 @@ const makeRequest = (overrides: Partial<ParentLinkRequest> = {}): ParentLinkRequ
   ...overrides,
 });
 
+const makeIdentityResponse = (overrides: Partial<{ userId: string; role: string }> = {}) => ({
+  userId: 'student-uuid',
+  role: 'eleve',
+  ...overrides,
+});
+
 describe('ParentLinkRequestsService', () => {
   let service: ParentLinkRequestsService;
   let requestRepo: any;
   let studentPedaRepo: any;
   let financeLinkRepo: any;
   let configService: any;
+
+  const mockFetchSuccess = (responseData: object, status = 200) => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: status >= 200 && status < 300,
+      status,
+      json: jest.fn().mockResolvedValue(responseData),
+    } as unknown as Response);
+  };
+
+  const mockFetchNotFound = () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: jest.fn().mockResolvedValue({ message: 'Identifiant élève introuvable' }),
+    } as unknown as Response);
+  };
+
+  const mockFetchNetworkError = () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
+  };
 
   beforeEach(async () => {
     requestRepo = {
@@ -78,15 +104,22 @@ describe('ParentLinkRequestsService', () => {
     }).compile();
 
     service = module.get<ParentLinkRequestsService>(ParentLinkRequestsService);
+
+    // Réinitialiser fetch par défaut : retourne un compte élève valide
+    mockFetchSuccess(makeIdentityResponse());
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   // ---------------------------------------------------------------------------
   // createRequest
   // ---------------------------------------------------------------------------
   describe('createRequest', () => {
-    const dto = { studentId: 'student-uuid' };
+    const dto = { studentLoginIdentifier: 'eleve.dupont.2024' };
 
-    it('parent_financeur can submit a request for an existing student', async () => {
+    it('parent_financeur peut soumettre une demande pour un élève existant', async () => {
       const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
       const result = await service.createRequest(dto, actor);
       expect(result).toHaveProperty('parentId', 'parent-uuid');
@@ -94,33 +127,60 @@ describe('ParentLinkRequestsService', () => {
       expect(result).toHaveProperty('status', ParentLinkRequestStatus.PENDING);
     });
 
-    it('throws 403 for non-parent_financeur roles', async () => {
+    it('lève 403 pour un rôle non parent_financeur (eleve)', async () => {
       const actor = makeActor(UserRole.ELEVE);
       await expect(service.createRequest(dto, actor)).rejects.toThrow(ForbiddenException);
     });
 
-    it('throws 403 for responsable_pedagogique', async () => {
+    it('lève 403 pour un responsable_pedagogique', async () => {
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
       await expect(service.createRequest(dto, actor)).rejects.toThrow(ForbiddenException);
     });
 
-    it('throws 400 when student profile does not exist', async () => {
+    it('lève 404 quand identity-access-service retourne 404 pour le loginIdentifier', async () => {
+      mockFetchNotFound();
+      const actor = makeActor(UserRole.PARENT_FINANCEUR);
+      await expect(service.createRequest(dto, actor)).rejects.toThrow(NotFoundException);
+    });
+
+    it('lève 400 quand le compte trouvé n\'est pas de rôle eleve', async () => {
+      mockFetchSuccess(makeIdentityResponse({ role: 'formateur' }));
+      const actor = makeActor(UserRole.PARENT_FINANCEUR);
+      await expect(service.createRequest(dto, actor)).rejects.toThrow(BadRequestException);
+    });
+
+    it('lève 400 quand le profil pédagogique élève est absent en base', async () => {
       studentPedaRepo.findOne.mockResolvedValue(null);
       const actor = makeActor(UserRole.PARENT_FINANCEUR);
       await expect(service.createRequest(dto, actor)).rejects.toThrow(BadRequestException);
     });
 
-    it('throws 409 when a pending request already exists for this pair', async () => {
+    it('lève 409 quand une demande en attente existe déjà pour cette paire', async () => {
       requestRepo.findOne.mockResolvedValue(makeRequest());
       const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
       await expect(service.createRequest(dto, actor)).rejects.toThrow(ConflictException);
     });
 
-    it('creates a new request when no pending request exists', async () => {
+    it('crée une nouvelle demande quand aucune demande en attente n\'existe', async () => {
       requestRepo.findOne.mockResolvedValue(null);
       const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
       await service.createRequest(dto, actor);
       expect(requestRepo.save).toHaveBeenCalled();
+    });
+
+    it('lève 400 en cas d\'erreur réseau vers identity-access-service', async () => {
+      mockFetchNetworkError();
+      const actor = makeActor(UserRole.PARENT_FINANCEUR);
+      await expect(service.createRequest(dto, actor)).rejects.toThrow(BadRequestException);
+    });
+
+    it('appelle identity-access-service avec le bon loginIdentifier encodé', async () => {
+      const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
+      await service.createRequest(dto, actor);
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('eleve.dupont.2024'),
+        expect.objectContaining({ method: 'GET' }),
+      );
     });
   });
 
@@ -128,7 +188,7 @@ describe('ParentLinkRequestsService', () => {
   // listRequests
   // ---------------------------------------------------------------------------
   describe('listRequests', () => {
-    it('parent_financeur sees only their own requests', async () => {
+    it('parent_financeur ne voit que ses propres demandes', async () => {
       requestRepo.find.mockResolvedValue([makeRequest({ parentId: 'parent-uuid' })]);
       const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
       const result = await service.listRequests(actor);
@@ -139,7 +199,7 @@ describe('ParentLinkRequestsService', () => {
       expect(result).toHaveLength(1);
     });
 
-    it('eleve sees only requests targeting them', async () => {
+    it('eleve ne voit que les demandes qui le ciblent', async () => {
       requestRepo.find.mockResolvedValue([makeRequest({ studentId: 'student-uuid' })]);
       const actor = makeActor(UserRole.ELEVE, 'student-uuid');
       const result = await service.listRequests(actor);
@@ -150,7 +210,7 @@ describe('ParentLinkRequestsService', () => {
       expect(result).toHaveLength(1);
     });
 
-    it('responsable_pedagogique sees all requests', async () => {
+    it('responsable_pedagogique voit toutes les demandes', async () => {
       requestRepo.find.mockResolvedValue([makeRequest(), makeRequest({ id: 'other-uuid' })]);
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
       const result = await service.listRequests(actor);
@@ -158,19 +218,19 @@ describe('ParentLinkRequestsService', () => {
       expect(result).toHaveLength(2);
     });
 
-    it('technicien_informatique sees all requests', async () => {
+    it('technicien_informatique voit toutes les demandes', async () => {
       requestRepo.find.mockResolvedValue([makeRequest()]);
       const actor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE);
       await service.listRequests(actor);
       expect(requestRepo.find).toHaveBeenCalledWith({ order: { requestedAt: 'DESC' } });
     });
 
-    it('throws 403 for formateur', async () => {
+    it('lève 403 pour le rôle formateur', async () => {
       const actor = makeActor(UserRole.FORMATEUR);
       await expect(service.listRequests(actor)).rejects.toThrow(ForbiddenException);
     });
 
-    it('throws 403 for administrateur_financier', async () => {
+    it('lève 403 pour le rôle administrateur_financier', async () => {
       const actor = makeActor(UserRole.ADMINISTRATEUR_FINANCIER);
       await expect(service.listRequests(actor)).rejects.toThrow(ForbiddenException);
     });
@@ -180,7 +240,7 @@ describe('ParentLinkRequestsService', () => {
   // approveRequest
   // ---------------------------------------------------------------------------
   describe('approveRequest', () => {
-    it('targeted élève can approve a request targeting them', async () => {
+    it("l'élève ciblé peut approuver une demande qui le cible", async () => {
       const pendingRequest = makeRequest({ studentId: 'student-uuid' });
       requestRepo.findOne.mockResolvedValue(pendingRequest);
 
@@ -192,7 +252,7 @@ describe('ParentLinkRequestsService', () => {
       expect(financeLinkRepo.save).toHaveBeenCalled();
     });
 
-    it('RP can approve any request', async () => {
+    it('le RP peut approuver n\'importe quelle demande', async () => {
       const pendingRequest = makeRequest();
       requestRepo.findOne.mockResolvedValue(pendingRequest);
 
@@ -202,7 +262,7 @@ describe('ParentLinkRequestsService', () => {
       expect(result).toHaveProperty('status', ParentLinkRequestStatus.APPROVED);
     });
 
-    it('TI can approve any request', async () => {
+    it('le TI peut approuver n\'importe quelle demande', async () => {
       const pendingRequest = makeRequest();
       requestRepo.findOne.mockResolvedValue(pendingRequest);
 
@@ -212,7 +272,7 @@ describe('ParentLinkRequestsService', () => {
       expect(result).toHaveProperty('status', ParentLinkRequestStatus.APPROVED);
     });
 
-    it('throws 403 when élève is not the targeted student', async () => {
+    it("lève 403 quand l'élève n'est pas l'élève ciblé", async () => {
       const pendingRequest = makeRequest({ studentId: 'other-student-uuid' });
       requestRepo.findOne.mockResolvedValue(pendingRequest);
 
@@ -220,31 +280,31 @@ describe('ParentLinkRequestsService', () => {
       await expect(service.approveRequest('request-uuid', actor)).rejects.toThrow(ForbiddenException);
     });
 
-    it('throws 403 for parent_financeur', async () => {
+    it('lève 403 pour le rôle parent_financeur', async () => {
       requestRepo.findOne.mockResolvedValue(makeRequest());
       const actor = makeActor(UserRole.PARENT_FINANCEUR);
       await expect(service.approveRequest('request-uuid', actor)).rejects.toThrow(ForbiddenException);
     });
 
-    it('throws 404 when request does not exist', async () => {
+    it('lève 404 quand la demande est introuvable', async () => {
       requestRepo.findOne.mockResolvedValue(null);
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
       await expect(service.approveRequest('nonexistent-uuid', actor)).rejects.toThrow(NotFoundException);
     });
 
-    it('throws 409 when request is already approved', async () => {
+    it('lève 409 quand la demande est déjà approuvée', async () => {
       requestRepo.findOne.mockResolvedValue(makeRequest({ status: ParentLinkRequestStatus.APPROVED }));
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
       await expect(service.approveRequest('request-uuid', actor)).rejects.toThrow(ConflictException);
     });
 
-    it('throws 409 when request is already rejected', async () => {
+    it('lève 409 quand la demande est déjà rejetée', async () => {
       requestRepo.findOne.mockResolvedValue(makeRequest({ status: ParentLinkRequestStatus.REJECTED }));
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
       await expect(service.approveRequest('request-uuid', actor)).rejects.toThrow(ConflictException);
     });
 
-    it('does not create a duplicate finance link if one already exists', async () => {
+    it('ne crée pas de doublon de lien financier si un lien existe déjà', async () => {
       requestRepo.findOne.mockResolvedValue(makeRequest());
       financeLinkRepo.findOne.mockResolvedValue({ id: 'existing-link' });
 
@@ -259,7 +319,7 @@ describe('ParentLinkRequestsService', () => {
   // rejectRequest
   // ---------------------------------------------------------------------------
   describe('rejectRequest', () => {
-    it('targeted élève can reject a request targeting them', async () => {
+    it("l'élève ciblé peut rejeter une demande qui le cible", async () => {
       const pendingRequest = makeRequest({ studentId: 'student-uuid' });
       requestRepo.findOne.mockResolvedValue(pendingRequest);
 
@@ -271,45 +331,45 @@ describe('ParentLinkRequestsService', () => {
       expect(financeLinkRepo.save).not.toHaveBeenCalled();
     });
 
-    it('RP can reject any request', async () => {
+    it('le RP peut rejeter n\'importe quelle demande', async () => {
       requestRepo.findOne.mockResolvedValue(makeRequest());
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
       const result = await service.rejectRequest('request-uuid', actor);
       expect(result).toHaveProperty('status', ParentLinkRequestStatus.REJECTED);
     });
 
-    it('TI can reject any request', async () => {
+    it('le TI peut rejeter n\'importe quelle demande', async () => {
       requestRepo.findOne.mockResolvedValue(makeRequest());
       const actor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE);
       const result = await service.rejectRequest('request-uuid', actor);
       expect(result).toHaveProperty('status', ParentLinkRequestStatus.REJECTED);
     });
 
-    it('throws 403 when élève is not the targeted student', async () => {
+    it("lève 403 quand l'élève n'est pas l'élève ciblé", async () => {
       requestRepo.findOne.mockResolvedValue(makeRequest({ studentId: 'other-student-uuid' }));
       const actor = makeActor(UserRole.ELEVE, 'student-uuid');
       await expect(service.rejectRequest('request-uuid', actor)).rejects.toThrow(ForbiddenException);
     });
 
-    it('throws 403 for parent_financeur', async () => {
+    it('lève 403 pour le rôle parent_financeur', async () => {
       requestRepo.findOne.mockResolvedValue(makeRequest());
       const actor = makeActor(UserRole.PARENT_FINANCEUR);
       await expect(service.rejectRequest('request-uuid', actor)).rejects.toThrow(ForbiddenException);
     });
 
-    it('throws 404 when request does not exist', async () => {
+    it('lève 404 quand la demande est introuvable', async () => {
       requestRepo.findOne.mockResolvedValue(null);
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
       await expect(service.rejectRequest('nonexistent-uuid', actor)).rejects.toThrow(NotFoundException);
     });
 
-    it('throws 409 when request is already processed', async () => {
+    it('lève 409 quand la demande est déjà traitée', async () => {
       requestRepo.findOne.mockResolvedValue(makeRequest({ status: ParentLinkRequestStatus.APPROVED }));
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
       await expect(service.rejectRequest('request-uuid', actor)).rejects.toThrow(ConflictException);
     });
 
-    it('does not create any finance link on rejection', async () => {
+    it('ne crée aucun lien financier lors d\'un rejet', async () => {
       requestRepo.findOne.mockResolvedValue(makeRequest());
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
       await service.rejectRequest('request-uuid', actor);

@@ -8,9 +8,15 @@ export interface FinanceOwnerStudentLink {
 
 export interface StudentProfile {
   userId: string
+  loginIdentifier: string | null
   administrativeProfile?: {
     firstName?: string
     lastName?: string
+  }
+  pedagogicalProfile?: {
+    level?: string
+    grade?: string
+    schoolYear?: string
   }
 }
 

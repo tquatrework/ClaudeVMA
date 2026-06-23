@@ -11,6 +11,8 @@ import {
 interface LinkedStudentEntry {
   studentId: string
   displayName: string
+  loginIdentifier: string | null
+  level: string | null
 }
 
 export default function MyStudentsPage() {
@@ -30,10 +32,27 @@ export default function MyStudentsPage() {
               const profile = await fetchStudentProfile(link.studentId)
               const firstName = profile.administrativeProfile?.firstName ?? ''
               const lastName = profile.administrativeProfile?.lastName ?? ''
-              const displayName = [firstName, lastName].filter(Boolean).join(' ') || link.studentId
-              return { studentId: link.studentId, displayName }
+              const displayName =
+                [firstName, lastName].filter(Boolean).join(' ') || 'Élève sans nom renseigné'
+              const pedagogicalProfile = profile.pedagogicalProfile
+              const level =
+                pedagogicalProfile?.level ??
+                pedagogicalProfile?.grade ??
+                pedagogicalProfile?.schoolYear ??
+                null
+              return {
+                studentId: link.studentId,
+                displayName,
+                loginIdentifier: profile.loginIdentifier,
+                level,
+              }
             } catch {
-              return { studentId: link.studentId, displayName: link.studentId }
+              return {
+                studentId: link.studentId,
+                displayName: 'Profil indisponible',
+                loginIdentifier: null,
+                level: null,
+              }
             }
           }),
         )
@@ -78,10 +97,18 @@ export default function MyStudentsPage() {
                 key={student.studentId}
                 className="bg-white border border-gray-200 rounded-xl p-5"
               >
-                <p className="text-base font-semibold text-gray-800 mb-3">
+                <p className="text-base font-semibold text-gray-800">
                   {student.displayName}
                 </p>
-                <div className="flex flex-wrap gap-2">
+                {student.loginIdentifier && (
+                  <p className="font-mono text-sm text-gray-500 mt-0.5">
+                    {student.loginIdentifier}
+                  </p>
+                )}
+                {student.level && (
+                  <p className="text-sm text-gray-400 mt-0.5">Niveau : {student.level}</p>
+                )}
+                <div className="flex flex-wrap gap-2 mt-3">
                   <Link
                     to={`/profiles/${student.studentId}`}
                     className="text-sm text-indigo-600 border border-indigo-200 px-3 py-1 rounded-lg hover:bg-indigo-50 transition-colors"

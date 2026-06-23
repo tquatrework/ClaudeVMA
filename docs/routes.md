@@ -72,7 +72,7 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 
 | Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /profiles/:userId | 🔒 | eleve (soi-même), formateur (contacts liés), parent_financeur (élèves liés), responsable_pedagogique, animateur_pedagogique, technicien_informatique, administrateur_financier | Lire un profil selon droits | `200 {userId, administrativeProfile, pedagogicalProfile}` · `401` sans token · `403` accès refusé · `404` profil inexistant |
+| GET | /profiles/:userId | 🔒 | eleve (soi-même), formateur (contacts liés), parent_financeur (élèves liés), responsable_pedagogique, animateur_pedagogique, technicien_informatique, administrateur_financier | Lire un profil selon droits | `200 {userId, loginIdentifier, administrativeProfile, pedagogicalProfile}` (`loginIdentifier` peut être `null` si résolution impossible) · `401` sans token · `403` accès refusé · `404` profil inexistant |
 | PUT | /profiles/:userId/administrative | 🔒 | eleve (soi-même), responsable_pedagogique, technicien_informatique | Modifier le profil administratif | `200 {userId, ...champsAdmin}` · `401` · `403` · `404` |
 | PUT | /profiles/:userId/pedagogical | 🔒 | eleve (soi-même), formateur (soi-même), responsable_pedagogique, technicien_informatique | Modifier le profil pédagogique | `200 {userId, ...champsPedago}` · `401` · `403` · `404` |
 | POST | /profiles/:teacherId/ap-status | 🔒 | responsable_pedagogique | Promouvoir un formateur en Animateur Pédagogique | `201 {userId, isAnimateurPedagogique: true}` · `401` · `403` · `404` |

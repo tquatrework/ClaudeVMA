@@ -1,10 +1,12 @@
 import {
   Injectable,
   ForbiddenException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 import { AdministrativeProfile } from './entities/administrative-profile.entity';
 import { StudentPedagogicalProfile } from './entities/student-pedagogical-profile.entity';
 import { TeacherPedagogicalProfile } from './entities/teacher-pedagogical-profile.entity';
@@ -52,6 +54,8 @@ const NOTES_WRITE_ROLES: UserRole[] = [
 
 @Injectable()
 export class ProfilesService {
+  private readonly logger = new Logger(ProfilesService.name);
+
   constructor(
     @InjectRepository(AdministrativeProfile)
     private readonly adminRepo: Repository<AdministrativeProfile>,
@@ -70,6 +74,7 @@ export class ProfilesService {
     @InjectRepository(FinanceOwnerStudentLink)
     private readonly financeLinkRepo: Repository<FinanceOwnerStudentLink>,
     private readonly events: EventsService,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -108,8 +113,11 @@ export class ProfilesService {
       pedagogical = await this.teacherPedaRepo.save(minimalTeacherPeda);
     }
 
+    const loginIdentifier = await this.fetchLoginIdentifier(userId);
+
     return {
       userId,
+      loginIdentifier,
       administrative: admin,
       pedagogical,
     };
@@ -521,5 +529,46 @@ export class ProfilesService {
       UserRole.TECHNICIEN_INFORMATIQUE,
       UserRole.ADMINISTRATEUR_FINANCIER,
     ].includes(role);
+  }
+
+  /**
+   * Fetches loginIdentifier from identity-access-service for a given userId.
+   * Returns null on 404 or network error (graceful degradation — never throws).
+   */
+  private async fetchLoginIdentifier(userId: string): Promise<string | null> {
+    const identityServiceUrl = this.configService.get<string>(
+      'IDENTITY_ACCESS_SERVICE_URL',
+      'http://identity-access-service:3001',
+    );
+    const internalSecret = this.configService.get<string>('INTERNAL_SECRET', '');
+
+    let response: Response;
+    try {
+      response = await fetch(
+        `${identityServiceUrl}/internal/accounts/by-user-id/${userId}`,
+        {
+          method: 'GET',
+          headers: { 'X-Internal-Secret': internalSecret },
+          signal: AbortSignal.timeout(3000),
+        },
+      );
+    } catch (networkError) {
+      this.logger.warn(
+        `Impossible de joindre identity-access-service pour userId ${userId} : ${(networkError as Error).message}`,
+      );
+      return null;
+    }
+
+    if (!response.ok) {
+      if (response.status !== 404) {
+        this.logger.warn(
+          `identity-access-service a retourné HTTP ${response.status} pour userId ${userId}`,
+        );
+      }
+      return null;
+    }
+
+    const accountData = await response.json() as { userId: string; loginIdentifier: string; role: string };
+    return accountData.loginIdentifier ?? null;
   }
 }

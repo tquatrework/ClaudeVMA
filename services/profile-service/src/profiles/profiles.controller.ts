@@ -51,7 +51,12 @@ export class ProfilesController {
       'Internal notes are never included in this response.',
   })
   @ApiParam({ name: 'userId', description: 'Target user UUID' })
-  @ApiResponse({ status: 200, description: 'Profile data (fields filtered by actor role)' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Profile data (fields filtered by actor role). ' +
+      'Includes loginIdentifier fetched from identity-access-service; null if unavailable.',
+  })
   @ApiResponse({ status: 403, description: 'Forbidden — insufficient role or not linked' })
   @ApiResponse({ status: 404, description: 'Profile not found' })
   getProfile(

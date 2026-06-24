@@ -34,40 +34,6 @@ import AccountManagementPage from './pages/AccountManagementPage'
 import DelegationsPage from './pages/DelegationsPage'
 import ProfileVisibilitySettingsPage from './pages/ProfileVisibilitySettingsPage'
 import ContactsPage from './pages/ContactsPage'
-import FinancialProfilePage from './pages/FinancialProfilePage'
-import AfFinanceDashboardPage from './pages/AfFinanceDashboardPage'
-import TeacherPaymentRequestPage from './pages/TeacherPaymentRequestPage'
-import LegalDocumentsPage from './pages/LegalDocumentsPage'
-import LegalTemplateAdminPage from './pages/LegalTemplateAdminPage'
-import PedagogicalArchivePage from './pages/PedagogicalArchivePage'
-import ExerciseCatalogPage from './pages/ExerciseCatalogPage'
-import ExerciseDetailPage from './pages/ExerciseDetailPage'
-import EvaluationCatalogPage from './pages/EvaluationCatalogPage'
-import EvaluationAttemptPage from './pages/EvaluationAttemptPage'
-import TutorialCatalogPage from './pages/TutorialCatalogPage'
-import ContentValidationQueuePage from './pages/ContentValidationQueuePage'
-import OpenActivitiesPage from './pages/OpenActivitiesPage'
-import OpenActivityDetailPage from './pages/OpenActivityDetailPage'
-import ActivityGlobalExportPage from './pages/ActivityGlobalExportPage'
-import ForumCatalogPage from './pages/ForumCatalogPage'
-import ForumDetailPage from './pages/ForumDetailPage'
-import ForumModerationPanel from './pages/ForumModerationPanel'
-import PathCatalogPage from './pages/PathCatalogPage'
-import PathDetailPage from './pages/PathDetailPage'
-import TiAdminDashboard from './pages/TiAdminDashboard'
-import ActivityLogPage from './pages/ActivityLogPage'
-import TechnicalLogsPage from './pages/TechnicalLogsPage'
-import VisibilityOverridePanel from './pages/VisibilityOverridePanel'
-import SiteMetadataEditor from './pages/SiteMetadataEditor'
-import HealthStatusPage from './pages/HealthStatusPage'
-import WorkflowStatusPage from './pages/WorkflowStatusPage'
-import WorkflowTimeline from './pages/WorkflowTimeline'
-import WorkflowRetryPanel from './pages/WorkflowRetryPanel'
-import WorkflowIncidentView from './pages/WorkflowIncidentView'
-import ParentLinkRequestPage from './pages/ParentLinkRequestPage'
-import ParentLinkRequestsInboxPage from './pages/ParentLinkRequestsInboxPage'
-import RecoverIdentifierPage from './pages/RecoverIdentifierPage'
-import MyStudentsPage from './pages/MyStudentsPage'
 
 export default function App() {
   return (
@@ -239,6 +205,16 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <IncidentDetailPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Contacts */}
+          <Route
+            path="/contacts"
+            element={
+              <ProtectedRoute>
+                <ContactsPage />
               </ProtectedRoute>
             }
           />

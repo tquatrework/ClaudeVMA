@@ -173,7 +173,19 @@ describe('RelationsService', () => {
       });
     });
 
-    it('throws 403 for parent_financeur viewing another student links', async () => {
+    it('parent_financeur linked to student can list all their teachers', async () => {
+      financeRepo.findOne.mockResolvedValue({ id: 'link-uuid', financeOwnerId: 'parent-uuid', studentId: 'student-uuid' });
+      teacherRepo.find.mockResolvedValue([{ teacherId: 'teacher-uuid', studentId: 'student-uuid' }]);
+      const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
+      const result = await service.getTeachersByStudent('student-uuid', actor);
+      expect(result).toHaveLength(1);
+      expect(financeRepo.findOne).toHaveBeenCalledWith({
+        where: { financeOwnerId: 'parent-uuid', studentId: 'student-uuid' },
+      });
+    });
+
+    it('throws 403 for parent_financeur not linked to the student', async () => {
+      financeRepo.findOne.mockResolvedValue(null);
       const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
       await expect(service.getTeachersByStudent('student-uuid', actor)).rejects.toThrow(ForbiddenException);
     });

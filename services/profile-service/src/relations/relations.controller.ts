@@ -92,7 +92,9 @@ export class RelationsController {
     summary: 'List teachers of a student',
     description:
       'Returns all formateurs linked to the given student. ' +
-      'Accessible to RP, TI, the student themselves and their linked teachers (own link only, PROF-FB-003).',
+      'Accessible to RP, TI, AdministrateurFinancier, the student themselves, ' +
+      'any PARENT_FINANCEUR linked to that student, ' +
+      'and their linked teachers (own link only, PROF-FB-003).',
   })
   @ApiParam({ name: 'studentId', description: 'Student (élève) UUID' })
   @ApiResponse({ status: 200, description: 'List of teacher–student links' })

@@ -86,6 +86,7 @@ export default function DashboardPage() {
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(true)
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(true)
   const [isLoadingRequests, setIsLoadingRequests] = useState(true)
+  const [requestsFetchError, setRequestsFetchError] = useState(false)
   const [isLoadingCalendar, setIsLoadingCalendar] = useState(true)
 
   useEffect(() => {
@@ -110,7 +111,7 @@ export default function DashboardPage() {
 
     // Load recent requests — sorted by date desc, then resolve profiles for names
     apiClient
-      .get<TeacherRequest[]>('/teacher-requests')
+      .get<TeacherRequest[]>('/teacher-requests/requests')
       .then(async ({ data }) => {
         const sorted = (Array.isArray(data) ? data : [])
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -142,7 +143,7 @@ export default function DashboardPage() {
         })
         setProfileNames(names)
       })
-      .catch(() => { /* non-blocking */ })
+      .catch(() => setRequestsFetchError(true))
       .finally(() => setIsLoadingRequests(false))
 
     // Load upcoming calendar activities
@@ -416,9 +417,8 @@ export default function DashboardPage() {
           </section>
         )}
 
-        {/* Recent requests */}
-        {!isLoadingRequests && recentRequests.length > 0 && (
-          <section>
+        {/* Recent requests — always visible, shows error or empty state */}
+        <section>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-base font-semibold text-gray-700">Demandes professeur récentes</h2>
               <Link to="/teacher-requests" className="text-sm text-indigo-600 hover:underline">
@@ -426,88 +426,93 @@ export default function DashboardPage() {
               </Link>
             </div>
 
-            {/* Filter toggle */}
-            <div className="flex gap-2 mb-3">
-              <button
-                onClick={() => setRequestFilter('active')}
-                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
-                  requestFilter === 'active'
-                    ? 'bg-indigo-600 text-white border-indigo-600'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
-                }`}
-              >
-                Non traitées ({recentRequests.filter((r) => ACTIVE_STATUSES.has(r.status)).length})
-              </button>
-              <button
-                onClick={() => setRequestFilter('all')}
-                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
-                  requestFilter === 'all'
-                    ? 'bg-indigo-600 text-white border-indigo-600'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
-                }`}
-              >
-                Toutes ({recentRequests.length})
-              </button>
-            </div>
+            {isLoadingRequests ? (
+              <p className="text-gray-400 text-sm">Chargement…</p>
+            ) : requestsFetchError ? (
+              <p className="text-red-500 text-sm">Impossible de charger les demandes professeur.</p>
+            ) : (
+              <>
+                {/* Filter toggle */}
+                <div className="flex gap-2 mb-3">
+                  <button
+                    onClick={() => setRequestFilter('active')}
+                    className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                      requestFilter === 'active'
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
+                    }`}
+                  >
+                    Non traitées ({recentRequests.filter((r) => ACTIVE_STATUSES.has(r.status)).length})
+                  </button>
+                  <button
+                    onClick={() => setRequestFilter('all')}
+                    className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                      requestFilter === 'all'
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
+                    }`}
+                  >
+                    Toutes ({recentRequests.length})
+                  </button>
+                </div>
 
-            {(() => {
-              const visibleRequests = requestFilter === 'active'
-                ? recentRequests.filter((r) => ACTIVE_STATUSES.has(r.status))
-                : recentRequests
+                {(() => {
+                  const visibleRequests = requestFilter === 'active'
+                    ? recentRequests.filter((r) => ACTIVE_STATUSES.has(r.status))
+                    : recentRequests
 
-              if (visibleRequests.length === 0) {
-                return (
-                  <p className="text-gray-400 text-sm py-2">
-                    Aucune demande non traitée
-                  </p>
-                )
-              }
-
-              return (
-                <ul className="space-y-2">
-                  {visibleRequests.slice(0, 5).map((request) => {
-                    const studentName = request.studentId ? profileNames[request.studentId] : undefined
-                    const teacherName = request.teacherId ? profileNames[request.teacherId] : undefined
-
+                  if (visibleRequests.length === 0) {
                     return (
-                      <li key={request.id}>
-                        <Link
-                          to={`/teacher-requests/${request.id}`}
-                          className="flex items-start justify-between p-3 bg-white border border-gray-200 rounded-lg hover:border-indigo-300 hover:shadow-sm transition-all"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-gray-800 truncate">
-                              {studentName
-                                ? `Élève : ${studentName}`
-                                : `Demande #${request.id.slice(0, 8)}`}
-                            </p>
-                            {teacherName && (
-                              <p className="text-xs text-gray-500 truncate mt-0.5">
-                                Formateur : {teacherName}
-                              </p>
-                            )}
-                            <p className="text-xs text-gray-400 mt-1">
-                              {new Date(request.createdAt).toLocaleDateString('fr-FR', {
-                                day: 'numeric',
-                                month: 'short',
-                                year: 'numeric',
-                              })}
-                            </p>
-                          </div>
-                          <span
-                            className={`shrink-0 ml-3 text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[request.status] ?? 'bg-gray-100 text-gray-500'}`}
-                          >
-                            {STATUS_LABELS[request.status] ?? request.status}
-                          </span>
-                        </Link>
-                      </li>
+                      <p className="text-gray-400 text-sm py-2">Aucune demande en attente</p>
                     )
-                  })}
-                </ul>
-              )
-            })()}
+                  }
+
+                  return (
+                    <ul className="space-y-2">
+                      {visibleRequests.slice(0, 5).map((request) => {
+                        const studentName = request.studentId ? profileNames[request.studentId] : undefined
+                        const teacherName = request.teacherId ? profileNames[request.teacherId] : undefined
+
+                        return (
+                          <li key={request.id}>
+                            <Link
+                              to={`/teacher-requests/${request.id}`}
+                              className="flex items-start justify-between p-3 bg-white border border-gray-200 rounded-lg hover:border-indigo-300 hover:shadow-sm transition-all"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-gray-800 truncate">
+                                  {studentName
+                                    ? `Élève : ${studentName}`
+                                    : `Demande #${request.id.slice(0, 8)}`}
+                                </p>
+                                {teacherName && (
+                                  <p className="text-xs text-gray-500 truncate mt-0.5">
+                                    Formateur : {teacherName}
+                                  </p>
+                                )}
+                                <p className="text-xs text-gray-400 mt-1">
+                                  {new Date(request.createdAt).toLocaleDateString('fr-FR', {
+                                    day: 'numeric',
+                                    month: 'short',
+                                    year: 'numeric',
+                                  })}
+                                </p>
+                              </div>
+                              <span
+                                className={`shrink-0 ml-3 text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[request.status] ?? 'bg-gray-100 text-gray-500'}`}
+                              >
+                                {STATUS_LABELS[request.status] ?? request.status}
+                              </span>
+                            </Link>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )
+                })()}
+              </>
+            )}
           </section>
-        )}
 
         {/* Notifications */}
         <section>

@@ -42,7 +42,7 @@ export default function TeacherRequestsPage() {
 
   useEffect(() => {
     apiClient
-      .get<TeacherRequest[]>('/teacher-requests')
+      .get<TeacherRequest[]>('/teacher-requests/requests')
       .then(({ data }) => setRequests(Array.isArray(data) ? data : []))
       .catch((err) => {
         const status = err?.response?.status
@@ -62,7 +62,7 @@ export default function TeacherRequestsPage() {
       if (newStudentId.trim()) {
         payload.studentId = newStudentId.trim()
       }
-      const { data } = await apiClient.post<TeacherRequest>('/teacher-requests', payload)
+      const { data } = await apiClient.post<TeacherRequest>('/teacher-requests/requests', payload)
       setRequests((prev) => [data, ...prev])
       setNewDescription('')
       setNewStudentId('')

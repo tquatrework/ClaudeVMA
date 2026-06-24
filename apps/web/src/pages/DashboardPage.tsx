@@ -50,6 +50,7 @@ interface Activity {
 interface LinkedStudentEntry {
   studentId: string
   displayName: string
+  loginIdentifier: string | null
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -175,10 +176,12 @@ export default function DashboardPage() {
                 const profile = await fetchStudentProfile(link.studentId)
                 const firstName = profile.administrativeProfile?.firstName ?? ''
                 const lastName = profile.administrativeProfile?.lastName ?? ''
-                const displayName = [firstName, lastName].filter(Boolean).join(' ') || link.studentId
-                return { studentId: link.studentId, displayName }
+                const resolvedDisplayName = [firstName, lastName].filter(Boolean).join(' ')
+                const loginIdentifier = profile.loginIdentifier ?? null
+                const displayName = resolvedDisplayName || loginIdentifier || 'Élève inconnu'
+                return { studentId: link.studentId, displayName, loginIdentifier }
               } catch {
-                return { studentId: link.studentId, displayName: link.studentId }
+                return { studentId: link.studentId, displayName: 'Élève inconnu', loginIdentifier: null }
               }
             }),
           )
@@ -376,14 +379,21 @@ export default function DashboardPage() {
               <ul className="space-y-2">
                 {linkedStudents.map((student) => (
                   <li key={student.studentId}>
-                    <div className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg">
-                      <span className="text-sm font-medium text-gray-800">{student.displayName}</span>
-                      <div className="flex gap-2">
+                    <div className="flex items-start justify-between p-3 bg-white border border-gray-200 rounded-lg">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-gray-800">{student.displayName}</p>
+                        {student.loginIdentifier && (
+                          <p className="font-mono text-xs text-gray-500 mt-0.5">
+                            {student.loginIdentifier}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex gap-2 shrink-0 ml-3">
                         <Link
                           to={`/profiles/${student.studentId}`}
                           className="text-xs text-indigo-600 hover:underline"
                         >
-                          Profil
+                          Voir profil
                         </Link>
                         <Link
                           to={`/calendar?studentId=${student.studentId}`}
@@ -395,7 +405,7 @@ export default function DashboardPage() {
                           to={`/pedagogical-log?studentId=${student.studentId}`}
                           className="text-xs text-indigo-600 hover:underline"
                         >
-                          Cahier
+                          Cahier de texte
                         </Link>
                       </div>
                     </div>

@@ -58,5 +58,19 @@ Lorsqu’une API retourne seulement un id technique, le front doit soit :
 
 Appliquer cette règle à toutes les vues parent, élève, formateur, responsable pédagogique et administrateur non technique.
 
+### Vue parent_financeur — pattern multi-élèves
+
+Le rôle `parent_financeur` peut être lié à plusieurs élèves. Deux contextes distincts :
+
+**Dashboard (`/dashboard`)** — vue globale agrégée :
+- Affiche les informations de TOUS les élèves rattachés sans sélecteur.
+- Chaque item (prochaine séance, formateur, solde, etc.) indique clairement l'élève concerné.
+- Ne pas imposer un élève actif global sur cette vue.
+
+**Pages détaillées** (calendrier, cahier de texte, archives, etc.) — vue par élève :
+- Proposer un sélecteur d'élève en haut de page (liste déroulante avec prénom + nom).
+- Ajouter une option "Tous" uniquement si le module le permet techniquement (ex. calendrier peut agréger, archives non).
+- Par défaut, sélectionner le premier élève lié.
+
 ## Rapport utilisateur
 Écrire un rapport complet dans .claude/reports/front-[date].md

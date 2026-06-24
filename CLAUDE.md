@@ -12,6 +12,10 @@ délègue son développement à son subagent.
 @docs/architecture.md — 16 microservices, respecter strictement le découpage domaine.
 Toute contradiction détectée pendant le codage doit être remontée AVANT implémentation.
 
+### Aspects Front.
+Les règles relatives au développement du Front End sont hébergés par l'agent Front-developper, via le fichier 
+.claude/agents/front-developper.md
+
 ## Périmètre de contexte — RÈGLE STRICTE
 Tu lis automatiquement : ce fichier + les fichiers @importés ci-dessus.
 Tu ne lis JAMAIS : le code des services, les CLAUDE.md des services.
@@ -53,3 +57,6 @@ sauf demande explicite de l'utilisateur.
 - Rôle de chaque dossier/fichier important
 - Décisions techniques prises durant la session
 - Points en suspens éventuels
+
+## Build
+A chaque correction, sans précision, tu est autorisé à lancer un build des services modifiés.

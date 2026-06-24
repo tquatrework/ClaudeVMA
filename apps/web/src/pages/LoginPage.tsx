@@ -8,7 +8,6 @@ function resolveRoleLandingPage(role: UserRole): string {
   switch (role) {
     case 'technicien_informatique':
       return '/admin/accounts'
-    case 'responsable_pedagogique':
     case 'animateur_pedagogique':
     case 'administrateur_financier':
       return '/admin/activity'

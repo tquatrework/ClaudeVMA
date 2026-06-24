@@ -42,6 +42,24 @@ import { UpdateVisibilityPreferenceDto } from './dto/update-visibility-preferenc
 export class ProfilesController {
   constructor(private readonly profilesService: ProfilesService) {}
 
+  @Get('teachers/pending-validation')
+  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE)
+  @ApiOperation({
+    summary: 'List teachers pending validation',
+    description:
+      'Returns all formateurs whose validation status is pending. ' +
+      'Restricted to RP only. ' +
+      'Name fields are joined from administrative profiles when available.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of formateurs pending validation (may be empty)',
+  })
+  @ApiResponse({ status: 403, description: 'Forbidden — RP only' })
+  listTeachersPendingValidation(@Request() req) {
+    return this.profilesService.listTeachersPendingValidation(req.user);
+  }
+
   @Get(':userId')
   @ApiOperation({
     summary: 'Get profile',
@@ -241,8 +259,11 @@ export class ProfilesController {
   @ApiOperation({
     summary: 'Update teacher validation status',
     description:
-      'Sets the validation status (pending / validated / rejected) for a formateur. ' +
-      'Restricted to RP and TI only. Publishes TeacherValidated event when status = validated.',
+      'Sets the validation status for a formateur. Allowed transitions:\n' +
+      '  pending → in_review : RP only\n' +
+      '  in_review → validated or rejected : RP or TI\n' +
+      '  pending → validated or rejected : TI only (bypass)\n' +
+      'Restricted to RP and TI. Publishes TeacherValidated event when status = validated.',
   })
   @ApiParam({ name: 'teacherId', description: 'Teacher (formateur) UUID' })
   @ApiResponse({ status: 200, description: 'Validation record updated' })

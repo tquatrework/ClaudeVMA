@@ -32,6 +32,8 @@ interface TeacherRequest {
   description?: string
   studentId?: string
   teacherId?: string
+  studentName?: string
+  teacherName?: string
 }
 
 interface AdminProfile {
@@ -51,6 +53,13 @@ interface LinkedStudentEntry {
   studentId: string
   displayName: string
   loginIdentifier: string | null
+}
+
+interface PendingTeacherEntry {
+  id: string
+  firstName?: string
+  lastName?: string
+  createdAt?: string
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -83,6 +92,8 @@ export default function DashboardPage() {
   const [upcomingActivities, setUpcomingActivities] = useState<Activity[]>([])
   const [linkedStudents, setLinkedStudents] = useState<LinkedStudentEntry[]>([])
   const [isLoadingLinkedStudents, setIsLoadingLinkedStudents] = useState(false)
+  const [pendingTeachers, setPendingTeachers] = useState<PendingTeacherEntry[]>([])
+  const [isLoadingPendingTeachers, setIsLoadingPendingTeachers] = useState(false)
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(true)
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(true)
   const [isLoadingRequests, setIsLoadingRequests] = useState(true)
@@ -190,6 +201,21 @@ export default function DashboardPage() {
         })
         .catch(() => { /* non-blocking */ })
         .finally(() => setIsLoadingLinkedStudents(false))
+    }
+
+    // Load pending teachers for responsable_pedagogique
+    if (user.role === 'responsable_pedagogique') {
+      setIsLoadingPendingTeachers(true)
+      apiClient
+        .get<PendingTeacherEntry[]>('/profile/teachers/pending-validation')
+        .then(({ data }) => {
+          setPendingTeachers(Array.isArray(data) ? data : [])
+        })
+        .catch(() => {
+          // Non-bloquant : endpoint peut ne pas encore être disponible
+          setPendingTeachers([])
+        })
+        .finally(() => setIsLoadingPendingTeachers(false))
     }
   }, [user])
 
@@ -470,8 +496,12 @@ export default function DashboardPage() {
                   return (
                     <ul className="space-y-2">
                       {visibleRequests.slice(0, 5).map((request) => {
-                        const studentName = request.studentId ? profileNames[request.studentId] : undefined
-                        const teacherName = request.teacherId ? profileNames[request.teacherId] : undefined
+                        const resolvedStudentName =
+                          request.studentName ??
+                          (request.studentId ? profileNames[request.studentId] : undefined)
+                        const resolvedTeacherName =
+                          request.teacherName ??
+                          (request.teacherId ? profileNames[request.teacherId] : undefined)
 
                         return (
                           <li key={request.id}>
@@ -481,13 +511,13 @@ export default function DashboardPage() {
                             >
                               <div className="min-w-0 flex-1">
                                 <p className="text-sm font-medium text-gray-800 truncate">
-                                  {studentName
-                                    ? `Élève : ${studentName}`
+                                  {resolvedStudentName
+                                    ? `Élève : ${resolvedStudentName}`
                                     : `Demande #${request.id.slice(0, 8)}`}
                                 </p>
-                                {teacherName && (
+                                {resolvedTeacherName && (
                                   <p className="text-xs text-gray-500 truncate mt-0.5">
-                                    Formateur : {teacherName}
+                                    Formateur : {resolvedTeacherName}
                                   </p>
                                 )}
                                 <p className="text-xs text-gray-400 mt-1">
@@ -513,6 +543,63 @@ export default function DashboardPage() {
               </>
             )}
           </section>
+
+        {/* Pending teachers validation — responsable_pedagogique only */}
+        {hasRole('responsable_pedagogique') && (
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-semibold text-gray-700">
+                Formateurs en attente de validation
+                {pendingTeachers.length > 0 && (
+                  <span className="ml-2 text-xs bg-yellow-500 text-white px-2 py-0.5 rounded-full">
+                    {pendingTeachers.length}
+                  </span>
+                )}
+              </h2>
+            </div>
+
+            {isLoadingPendingTeachers ? (
+              <p className="text-gray-400 text-sm">Chargement…</p>
+            ) : pendingTeachers.length === 0 ? (
+              <p className="text-gray-400 text-sm">Aucun formateur en attente de validation</p>
+            ) : (
+              <ul className="space-y-2">
+                {pendingTeachers.map((teacher) => {
+                  const teacherDisplayName = [teacher.firstName, teacher.lastName]
+                    .filter(Boolean)
+                    .join(' ') || `Formateur ${teacher.id.slice(0, 8)}`
+                  return (
+                    <li key={teacher.id}>
+                      <Link
+                        to={`/profiles/${teacher.id}`}
+                        className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg hover:border-indigo-300 hover:shadow-sm transition-all"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-gray-800 truncate">
+                            {teacherDisplayName}
+                          </p>
+                          {teacher.createdAt && (
+                            <p className="text-xs text-gray-400 mt-0.5">
+                              Inscrit le{' '}
+                              {new Date(teacher.createdAt).toLocaleDateString('fr-FR', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric',
+                              })}
+                            </p>
+                          )}
+                        </div>
+                        <span className="shrink-0 ml-3 text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-medium">
+                          En attente
+                        </span>
+                      </Link>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </section>
+        )}
 
         {/* Notifications */}
         <section>

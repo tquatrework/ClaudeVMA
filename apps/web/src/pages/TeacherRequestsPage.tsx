@@ -10,6 +10,7 @@ interface TeacherRequest {
   createdAt: string
   description?: string
   studentId?: string
+  studentName?: string
 }
 
 const STATUS_LABELS: Record<TeacherRequest['status'], string> = {
@@ -223,7 +224,7 @@ export default function TeacherRequestsPage() {
               >
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-gray-800">
-                    Demande #{req.id.slice(0, 8)}
+                    {req.studentName ?? `Demande #${req.id.slice(0, 8)}`}
                   </span>
                   <span
                     className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[req.status]}`}

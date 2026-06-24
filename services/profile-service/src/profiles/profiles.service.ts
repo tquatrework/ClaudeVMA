@@ -302,35 +302,48 @@ export class ProfilesService {
   }
 
   /**
-   * Update (upsert) the validation status of a formateur (PROF-BR: RP or TI only).
-   * Publishes TeacherValidated event when status transitions to 'validated'.
+   * Update (upsert) the validation status of a formateur.
+   *
+   * Transition rules (PROF-BR):
+   *   pending     → in_review  : RP only
+   *   in_review   → validated  : RP or TI
+   *   in_review   → rejected   : RP or TI
+   *   pending     → validated  : TI only (bypass administratif autorisé)
+   *   pending     → rejected   : TI only (bypass administratif autorisé)
+   *
+   * Publishes TeacherValidated when status transitions to 'validated'.
    */
   async updateTeacherValidation(
     teacherId: string,
     dto: UpdateTeacherValidationDto,
     actor: Actor,
   ) {
-    const allowedRoles = [
-      UserRole.RESPONSABLE_PEDAGOGIQUE,
-      UserRole.TECHNICIEN_INFORMATIQUE,
-    ];
-    if (!allowedRoles.includes(actor.role)) {
+    const isResponsablePedagogique = actor.role === UserRole.RESPONSABLE_PEDAGOGIQUE;
+    const isTechnicienInformatique = actor.role === UserRole.TECHNICIEN_INFORMATIQUE;
+
+    if (!isResponsablePedagogique && !isTechnicienInformatique) {
       throw new ForbiddenException(
         'Only RP or TI may update a teacher validation status',
       );
     }
 
+    // Fetch or initialise the validation record
     let validation = await this.teacherValidationRepo.findOne({ where: { teacherId } });
+    const currentStatus = validation?.status ?? 'pending';
+    const targetStatus = dto.status;
+
+    this.assertValidationTransition(currentStatus, targetStatus, actor);
+
     if (!validation) {
       validation = this.teacherValidationRepo.create({
         teacherId,
-        status: dto.status,
+        status: targetStatus,
         validatedBy: actor.id,
         validatorRole: actor.role,
         comment: dto.comment,
       });
     } else {
-      validation.status = dto.status;
+      validation.status = targetStatus;
       validation.validatedBy = actor.id;
       validation.validatorRole = actor.role;
       if (dto.comment !== undefined) {
@@ -340,11 +353,115 @@ export class ProfilesService {
 
     const saved = await this.teacherValidationRepo.save(validation);
 
-    if (dto.status === 'validated') {
+    if (targetStatus === 'validated') {
       this.events.publish('TeacherValidated', { teacherId, actorId: actor.id });
     }
 
     return saved;
+  }
+
+  /**
+   * Validates that the requested status transition is allowed for the given actor.
+   *
+   * Allowed transitions:
+   *   pending   → in_review  : RP only
+   *   in_review → validated  : RP or TI
+   *   in_review → rejected   : RP or TI
+   *   pending   → validated  : TI only (bypass)
+   *   pending   → rejected   : TI only (bypass)
+   *
+   * Any other transition is rejected with a ForbiddenException.
+   */
+  private assertValidationTransition(
+    currentStatus: string,
+    targetStatus: string,
+    actor: Actor,
+  ): void {
+    const isResponsablePedagogique = actor.role === UserRole.RESPONSABLE_PEDAGOGIQUE;
+    const isTechnicienInformatique = actor.role === UserRole.TECHNICIEN_INFORMATIQUE;
+
+    if (currentStatus === targetStatus) {
+      throw new ForbiddenException(
+        `Teacher validation status is already '${currentStatus}' — no transition needed`,
+      );
+    }
+
+    // pending → in_review : RP only
+    if (currentStatus === 'pending' && targetStatus === 'in_review') {
+      if (!isResponsablePedagogique) {
+        throw new ForbiddenException(
+          'Only RP may move a formateur from pending to in_review',
+        );
+      }
+      return;
+    }
+
+    // in_review → validated or in_review → rejected : RP or TI
+    if (
+      currentStatus === 'in_review' &&
+      (targetStatus === 'validated' || targetStatus === 'rejected')
+    ) {
+      return; // both RP and TI are already guarded at the method entry point
+    }
+
+    // pending → validated or pending → rejected : TI bypass only
+    if (
+      currentStatus === 'pending' &&
+      (targetStatus === 'validated' || targetStatus === 'rejected')
+    ) {
+      if (!isTechnicienInformatique) {
+        throw new ForbiddenException(
+          'Only TI may bypass the in_review step and move directly from pending to validated or rejected',
+        );
+      }
+      return;
+    }
+
+    // All other transitions are forbidden
+    throw new ForbiddenException(
+      `Transition from '${currentStatus}' to '${targetStatus}' is not allowed`,
+    );
+  }
+
+  /**
+   * List all formateurs whose validation status is 'pending'.
+   * Restricted to RP only.
+   * Joins with administrative_profiles to return name fields when available.
+   */
+  async listTeachersPendingValidation(actor: Actor): Promise<{
+    id: string;
+    teacherId: string;
+    firstName: string | null;
+    lastName: string | null;
+    createdAt: Date;
+  }[]> {
+    if (actor.role !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+      throw new ForbiddenException(
+        'Only RP may list teachers pending validation',
+      );
+    }
+
+    const pendingValidations = await this.teacherValidationRepo.find({
+      where: { status: 'pending' },
+      order: { createdAt: 'ASC' },
+    });
+
+    const enrichedResults = await Promise.all(
+      pendingValidations.map(async (validation) => {
+        const adminProfile = await this.adminRepo.findOne({
+          where: { userId: validation.teacherId },
+        });
+        return {
+          id: validation.id,
+          teacherId: validation.teacherId,
+          firstName: adminProfile?.firstName ?? null,
+          lastName: adminProfile?.lastName ?? null,
+          createdAt: validation.createdAt,
+        };
+      }),
+    );
+
+    return enrichedResults;
   }
 
   /**

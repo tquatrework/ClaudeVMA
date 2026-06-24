@@ -32,7 +32,7 @@ export default function TeacherRequestInbox({ currentTeacherId }: TeacherRequest
 
   useEffect(() => {
     apiClient
-      .get<TeacherRequestForInbox[] | { data: TeacherRequestForInbox[] }>('/teacher-requests')
+      .get<TeacherRequestForInbox[] | { data: TeacherRequestForInbox[] }>('/teacher-requests/requests')
       .then(({ data }) => {
         const requestList = Array.isArray(data) ? data : (data as { data: TeacherRequestForInbox[] }).data ?? []
         // Filter requests where the teacher is a pending candidate
@@ -63,11 +63,10 @@ export default function TeacherRequestInbox({ currentTeacherId }: TeacherRequest
     setErrorMessage(null)
 
     try {
-      await apiClient.post(`/teacher-requests/${requestId}/responses`, {
-        candidateId,
-        status: responseStatus,
-        teacherId: currentTeacherId,
-      })
+      const responseAction = responseStatus === 'accepted' ? 'accept' : 'decline'
+      // candidateId is the proposal ID when available; fallback to requestId-based path
+      const proposalId = candidateId ?? requestId
+      await apiClient.post(`/teacher-requests/proposals/${proposalId}/${responseAction}`, {})
 
       setInboxRequests((previous) =>
         previous.filter((request) => request.id !== requestId),

@@ -67,7 +67,7 @@ export default function TeacherRequestPage() {
 
   useEffect(() => {
     apiClient
-      .get<TeacherRequestSummary[] | { data: TeacherRequestSummary[] }>('/teacher-requests')
+      .get<TeacherRequestSummary[] | { data: TeacherRequestSummary[] }>('/teacher-requests/requests')
       .then(({ data }) => {
         const requestList = Array.isArray(data)
           ? data

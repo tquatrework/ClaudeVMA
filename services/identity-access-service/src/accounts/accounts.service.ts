@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -23,13 +24,17 @@ import { CreateParentAccountDto } from './dto/create-parent-account.dto';
 import { UpdateAccountStatusDto, AccountStatusValue } from './dto/update-account-status.dto';
 import { UpdateMeDto } from './dto/update-me.dto';
 import { EventsService } from '../events/events.service';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class AccountsService {
+  private readonly logger = new Logger(AccountsService.name);
+
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(AuditLog) private readonly auditRepo: Repository<AuditLog>,
     private readonly eventsService: EventsService,
+    private readonly configService: ConfigService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -400,6 +405,13 @@ export class AccountsService {
       cvReference: dto.cvReference,
     });
 
+    // Notification non-bloquante au dashboard RP
+    this.notifyDashboardTeacherPending(
+      savedTeacher.id,
+      savedTeacher.firstName ?? '',
+      savedTeacher.lastName ?? '',
+    );
+
     return {
       ...this.toPublic(savedTeacher),
       ...(emailAlreadyUsed ? { emailAlreadyUsed: true, suggestedLoginIdentifier: loginIdentifier } : {}),
@@ -559,6 +571,43 @@ export class AccountsService {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('Compte introuvable');
     return { userId: user.id, loginIdentifier: user.loginIdentifier, role: user.role };
+  }
+
+  /**
+   * Envoie une notification au dashboard-notification-service pour informer le RP
+   * qu'un nouveau formateur est en attente de validation.
+   * L'appel est non-bloquant : une erreur est loguée mais ne fait pas échouer la création de compte.
+   */
+  private notifyDashboardTeacherPending(
+    teacherId: string,
+    firstName: string,
+    lastName: string,
+  ): void {
+    const dashboardServiceUrl = this.configService.get<string>(
+      'DASHBOARD_NOTIFICATION_SERVICE_URL',
+      'http://dashboard-notification-service:3000',
+    );
+
+    const teacherFullName = [firstName, lastName].filter(Boolean).join(' ') || 'Formateur inconnu';
+
+    fetch(`${dashboardServiceUrl}/internal/notify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'TEACHER_PENDING_VALIDATION',
+        targetRole: 'responsable_pedagogique',
+        payload: {
+          teacherId,
+          teacherName: teacherFullName,
+          message: 'Nouveau formateur en attente de validation',
+        },
+      }),
+      signal: AbortSignal.timeout(5000),
+    }).catch((notificationError: Error) => {
+      this.logger.warn(
+        `Impossible de notifier le dashboard pour le formateur ${teacherId} : ${notificationError.message}`,
+      );
+    });
   }
 
   private async findOrFail(id: string): Promise<User> {

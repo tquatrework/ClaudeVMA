@@ -3,9 +3,10 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Not, Repository } from 'typeorm';
 
 import { TeacherRequest, RequestStatus, RequestType } from './entities/teacher-request.entity';
 import { TeacherProposal, ProposalStatus } from './entities/teacher-proposal.entity';
@@ -21,8 +22,22 @@ import { EventsService } from './events.service';
 import { JwtPayload } from '../common/jwt.guard';
 import { UserRole } from '../common/user-role.enum';
 
+interface ProfileName {
+  firstName: string;
+  lastName: string;
+}
+
+export interface TeacherRequestWithNames extends TeacherRequest {
+  studentName: string | null;
+  teacherName: string | null;
+}
+
 @Injectable()
 export class TeacherRequestService {
+  private readonly logger = new Logger(TeacherRequestService.name);
+  private readonly profileServiceUrl: string =
+    process.env.PROFILE_SERVICE_URL ?? 'http://profile-service:3000';
+
   constructor(
     @InjectRepository(TeacherRequest) private readonly requestRepo: Repository<TeacherRequest>,
     @InjectRepository(TeacherProposal) private readonly proposalRepo: Repository<TeacherProposal>,
@@ -30,6 +45,32 @@ export class TeacherRequestService {
     @InjectRepository(TerminationRequest) private readonly terminationRepo: Repository<TerminationRequest>,
     private readonly events: EventsService,
   ) {}
+
+  private async resolveProfileName(profileId: string): Promise<string | null> {
+    try {
+      const response = await fetch(`${this.profileServiceUrl}/profiles/${profileId}`);
+      if (!response.ok) return null;
+      const profile = (await response.json()) as ProfileName;
+      return `${profile.firstName} ${profile.lastName}`.trim() || null;
+    } catch (error) {
+      this.logger.warn(`Could not resolve profile name for id ${profileId}: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  private async enrichRequestsWithNames(
+    requests: TeacherRequest[],
+  ): Promise<TeacherRequestWithNames[]> {
+    return Promise.all(
+      requests.map(async (request) => {
+        const [studentName, teacherName] = await Promise.all([
+          this.resolveProfileName(request.studentId),
+          request.chosenTeacherId ? this.resolveProfileName(request.chosenTeacherId) : Promise.resolve(null),
+        ]);
+        return { ...request, studentName, teacherName };
+      }),
+    );
+  }
 
   async createRequest(dto: CreateRequestDto, user: JwtPayload): Promise<TeacherRequest> {
     const allowedRoles = [UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.RESPONSABLE_PEDAGOGIQUE];
@@ -55,14 +96,30 @@ export class TeacherRequestService {
     return saved;
   }
 
-  async listRequests(user: JwtPayload): Promise<TeacherRequest[] | TeacherProposal[]> {
+  async listRequests(user: JwtPayload): Promise<TeacherRequestWithNames[] | TeacherProposal[]> {
     switch (user.role) {
-      case UserRole.ELEVE:
-        return this.requestRepo.find({ where: { studentId: user.id }, order: { createdAt: 'DESC' } });
-      case UserRole.PARENT_FINANCEUR:
-        return this.requestRepo.find({ where: { requesterId: user.id }, order: { createdAt: 'DESC' } });
-      case UserRole.RESPONSABLE_PEDAGOGIQUE:
-        return this.requestRepo.find({ order: { createdAt: 'DESC' } });
+      case UserRole.ELEVE: {
+        const studentRequests = await this.requestRepo.find({
+          where: { studentId: user.id },
+          order: { createdAt: 'DESC' },
+        });
+        return this.enrichRequestsWithNames(studentRequests);
+      }
+      case UserRole.PARENT_FINANCEUR: {
+        const parentRequests = await this.requestRepo.find({
+          where: { requesterId: user.id },
+          order: { createdAt: 'DESC' },
+        });
+        return this.enrichRequestsWithNames(parentRequests);
+      }
+      case UserRole.RESPONSABLE_PEDAGOGIQUE: {
+        // Fix 2: only return TeacherRequests that have a studentId (excludes orphan/proposal-only entries)
+        const rpRequests = await this.requestRepo.find({
+          where: { studentId: Not(IsNull()) },
+          order: { createdAt: 'DESC' },
+        });
+        return this.enrichRequestsWithNames(rpRequests);
+      }
       case UserRole.FORMATEUR:
         // TRQ-FB-001: teacher sees only proposals redirected to them, not all requests
         return this.proposalRepo.find({ where: { teacherId: user.id }, order: { createdAt: 'DESC' } });

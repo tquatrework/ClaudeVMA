@@ -24,7 +24,7 @@ valide les JWT via `auth_request` avant chaque route protégée, et gère le loa
 | `/api/v1/profiles/`      | profile-service             | Oui |
 | `/api/v1/relations/`     | profile-service             | Oui |
 | `/api/v1/parent-link-requests/` | profile-service      | Oui |
-| `/api/v1/requests/`      | teacher-request-service     | Oui | → `/` (service root) |
+| `/api/v1/teacher-requests/` | teacher-request-service   | Oui | → `/` (contrôleurs: /requests, /proposals, /assignments) |
 | `/api/v1/calendar/`      | calendar-service            | Oui | → `/` (service root) |
 | `/api/v1/video/`         | video-session-service       | Oui + WS | → `/` (service root) |
 | `/api/v1/messages/`      | communication-service       | Oui + WS | → `/` (service root) |

@@ -110,7 +110,7 @@ export default function DashboardPage() {
 
     // Load recent requests — sorted by date desc, then resolve profiles for names
     apiClient
-      .get<TeacherRequest[]>('/requests')
+      .get<TeacherRequest[]>('/teacher-requests')
       .then(async ({ data }) => {
         const sorted = (Array.isArray(data) ? data : [])
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())

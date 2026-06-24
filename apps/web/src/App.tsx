@@ -34,6 +34,18 @@ import AccountManagementPage from './pages/AccountManagementPage'
 import DelegationsPage from './pages/DelegationsPage'
 import ProfileVisibilitySettingsPage from './pages/ProfileVisibilitySettingsPage'
 import ContactsPage from './pages/ContactsPage'
+import FinancialProfilePage from './pages/FinancialProfilePage'
+import AfFinanceDashboardPage from './pages/AfFinanceDashboardPage'
+import TeacherPaymentRequestPage from './pages/TeacherPaymentRequestPage'
+import LegalDocumentsPage from './pages/LegalDocumentsPage'
+import LegalTemplateAdminPage from './pages/LegalTemplateAdminPage'
+import PedagogicalArchivePage from './pages/PedagogicalArchivePage'
+import ExerciseCatalogPage from './pages/ExerciseCatalogPage'
+import ExerciseDetailPage from './pages/ExerciseDetailPage'
+import EvaluationCatalogPage from './pages/EvaluationCatalogPage'
+import EvaluationAttemptPage from './pages/EvaluationAttemptPage'
+import TutorialCatalogPage from './pages/TutorialCatalogPage'
+import ContentValidationQueuePage from './pages/ContentValidationQueuePage'
 
 export default function App() {
   return (
@@ -410,233 +422,6 @@ export default function App() {
                 allowedRoles={['responsable_pedagogique', 'animateur_pedagogique']}
               >
                 <ContentValidationQueuePage />
-              </ProtectedRoute>
-            }
-          />
-
-          {/* ── Phase 13 — Activités non pourvues ──────────────── */}
-          <Route
-            path="/open-activities"
-            element={
-              <ProtectedRoute allowedRoles={['formateur', 'responsable_pedagogique', 'animateur_pedagogique']}>
-                <OpenActivitiesPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/open-activities/:activityId"
-            element={
-              <ProtectedRoute allowedRoles={['formateur', 'responsable_pedagogique', 'animateur_pedagogique']}>
-                <OpenActivityDetailPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/activities/export"
-            element={
-              <ProtectedRoute
-                allowedRoles={[
-                  'responsable_pedagogique',
-                  'animateur_pedagogique',
-                  'technicien_informatique',
-                  'administrateur_financier',
-                ]}
-              >
-                <ActivityGlobalExportPage />
-              </ProtectedRoute>
-            }
-          />
-
-          {/* ── Phase 14 — Community & parcours ─────────────── */}
-          <Route
-            path="/community/forums"
-            element={
-              <ProtectedRoute>
-                <ForumCatalogPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/community/forums/:forumId"
-            element={
-              <ProtectedRoute>
-                <ForumDetailPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/community/forums/:forumId/moderation"
-            element={
-              <ProtectedRoute
-                allowedRoles={['animateur_pedagogique', 'responsable_pedagogique']}
-              >
-                <ForumModerationPanel />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/community/paths"
-            element={
-              <ProtectedRoute>
-                <PathCatalogPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/community/paths/:pathId"
-            element={
-              <ProtectedRoute>
-                <PathDetailPage />
-              </ProtectedRoute>
-            }
-          />
-
-          {/* ── Phase 15 — Admin observabilité ──────────────── */}
-          <Route
-            path="/admin/observability"
-            element={
-              <ProtectedRoute
-                allowedRoles={[
-                  'technicien_informatique',
-                  'responsable_pedagogique',
-                  'administrateur_financier',
-                ]}
-              >
-                <TiAdminDashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/observability/activity-log"
-            element={
-              <ProtectedRoute
-                allowedRoles={[
-                  'technicien_informatique',
-                  'responsable_pedagogique',
-                  'administrateur_financier',
-                ]}
-              >
-                <ActivityLogPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/observability/technical-logs"
-            element={
-              <ProtectedRoute allowedRoles={['technicien_informatique']}>
-                <TechnicalLogsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/observability/visibility-overrides"
-            element={
-              <ProtectedRoute allowedRoles={['technicien_informatique']}>
-                <VisibilityOverridePanel />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/observability/site-metadata"
-            element={
-              <ProtectedRoute allowedRoles={['technicien_informatique']}>
-                <SiteMetadataEditor />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/observability/health"
-            element={
-              <ProtectedRoute
-                allowedRoles={['technicien_informatique', 'responsable_pedagogique']}
-              >
-                <HealthStatusPage />
-              </ProtectedRoute>
-            }
-          />
-
-          {/* ── Phase 16 — Orchestration ────────────────────── */}
-          <Route
-            path="/admin/orchestration/workflows"
-            element={
-              <ProtectedRoute
-                allowedRoles={[
-                  'technicien_informatique',
-                  'responsable_pedagogique',
-                  'administrateur_financier',
-                ]}
-              >
-                <WorkflowStatusPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/orchestration/workflows/:workflowInstanceId"
-            element={
-              <ProtectedRoute
-                allowedRoles={[
-                  'technicien_informatique',
-                  'responsable_pedagogique',
-                  'administrateur_financier',
-                ]}
-              >
-                <WorkflowTimeline />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/orchestration/retry"
-            element={
-              <ProtectedRoute
-                allowedRoles={[
-                  'technicien_informatique',
-                  'responsable_pedagogique',
-                  'administrateur_financier',
-                ]}
-              >
-                <WorkflowRetryPanel />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/orchestration/incidents"
-            element={
-              <ProtectedRoute
-                allowedRoles={[
-                  'technicien_informatique',
-                  'responsable_pedagogique',
-                  'administrateur_financier',
-                ]}
-              >
-                <WorkflowIncidentView />
-              </ProtectedRoute>
-            }
-          />
-
-          {/* ── Rattachement parent↔élève ────────────────────── */}
-          <Route
-            path="/my-students"
-            element={
-              <ProtectedRoute allowedRoles={['parent_financeur']}>
-                <MyStudentsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/parent-link-requests/new"
-            element={
-              <ProtectedRoute allowedRoles={['parent_financeur']}>
-                <ParentLinkRequestPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/parent-link-requests/inbox"
-            element={
-              <ProtectedRoute
-                allowedRoles={['eleve', 'responsable_pedagogique', 'technicien_informatique']}
-              >
-                <ParentLinkRequestsInboxPage />
               </ProtectedRoute>
             }
           />

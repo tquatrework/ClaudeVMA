@@ -462,54 +462,6 @@ Les archives sont triées par `occurredAt DESC`. Types d'items : `payment` · `i
 
 `PaymentConfirmed` · `InvoiceIssued` · `PointsCredited`
 
-### Tableaux de bord
-
-| Méthode | Chemin | Description | Auth |
-|---|---|---|---|
-| GET | /dashboards/me | Mon tableau de bord | 🔒 |
-| PUT | /dashboards/me/preferences | Mettre à jour les préférences | 🔒 |
-
-API interne (non exposée via nginx) : `POST /internal/initialize-dashboard`, `POST /internal/notify` — protégées par `X-Internal-Secret`.
-
----
-
-## orchestration-service
-
-Toutes les routes sont accessibles via le gateway sous le préfixe `/api/v1/orchestration/`.
-Les routes de callbacks sont techniquement protégées par `auth_request` nginx, mais destinées aux webhooks externes : le `correlationId` est lu depuis le body ou généré automatiquement.
-
-### Workflows
-
-| Méthode | Chemin | Description | Auth | Paramètres / Body | Réponse attendue |
-|---|---|---|---|---|---|
-| GET | /workflows | Lister les types de workflows disponibles | 🔒 | — | `200 [{id, name, phase, stepCount}]` |
-| POST | /workflows/:workflowId/start | Déclencher un workflow transverse (ex: `student-onboarding`) | 🔒 | Path: `workflowId` (type de workflow) · Body: `{workflowType, payload, initiatedBy?, correlationId?}` | `202 {workflowInstanceId, workflowType, correlationId, status, startedAt}` · `404` type inconnu |
-| GET | /workflows/:workflowInstanceId | Lire l'état d'une instance de workflow | 🔒 | Path: `workflowInstanceId` (UUID) | `200 {instance, steps, status}` · `404` instance introuvable |
-| POST | /workflows/:workflowInstanceId/suspend | Suspendre un workflow en attente d'arbitrage utilisateur (ORCH-BR-006) | 🔒 | Path: `workflowInstanceId` · Body: `{reason}` | `200 {workflowInstanceId, status: "needs_arbitration", reason}` |
-| POST | /workflows/:workflowInstanceId/resume | Reprendre un workflow après arbitrage ou forcage TI (ORCH-BR-006/007) | 🔒 | Path: `workflowInstanceId` · Body: `{tiOverride?}` (`true` = forcage TI audité) | `200 {workflowInstanceId, status: "in_progress", tiOverride}` |
-
-Types de workflows phase 1 : `student-onboarding`, `teacher-onboarding`, `teacher-request-to-assignment`, `scheduled-video-course`.
-
-### Commandes d'intégration
-
-| Méthode | Chemin | Description | Auth | Body | Réponse attendue |
-|---|---|---|---|---|---|
-| POST | /commands | Émettre une commande idempotente vers un microservice cible | 🔒 | `{targetService, action, payload, idempotencyKey, correlationId?}` | `201 commande dispatchée` · `409` clé d'idempotence déjà utilisée |
-
-### Événements d'intégration
-
-| Méthode | Chemin | Description | Auth | Paramètres | Réponse attendue |
-|---|---|---|---|---|---|
-| GET | /events/:correlationId | Lire l'historique chronologique des événements pour un correlationId | 🔒 | Path: `correlationId` (UUID) | `200 {correlationId, count, events[]}` |
-
-### Callbacks externes (webhooks)
-
-| Méthode | Chemin | Description | Auth | Paramètres / Body | Réponse attendue |
-|---|---|---|---|---|---|
-| POST | /callbacks/:provider | Recevoir un webhook d'un fournisseur externe (vidéo, paiement, etc.) | Non (webhook) | Path: `provider` (ex: `video-provider`) · Body: `{correlationId?, eventType?, ...payload}` | `200 {received: true, correlationId}` |
-
-Note : la route `/callbacks/:provider` n'est **pas** protégée par `auth_request` nginx — les providers externes ne peuvent pas fournir un JWT utilisateur. La protection repose sur le header `X-Webhook-Secret` validé côté service. Le `correlationId` est lu depuis `body.correlationId` ou `body.correlation_id`, ou généré automatiquement si absent.
-
 ---
 
 ## Health checks (non authentifié)

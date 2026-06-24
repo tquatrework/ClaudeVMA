@@ -74,7 +74,7 @@ export class LegalDocumentsService {
       legalDocumentId: documentId,
       signerId: requesterId,
       signerName: dto.signerName,
-      signerEmail: requesterEmail,
+      signerEmail: dto.signerEmail ?? requesterEmail,
       templateVersion: existingDocument.templateVersion,
       signerIp: requesterIp ?? null,
     });

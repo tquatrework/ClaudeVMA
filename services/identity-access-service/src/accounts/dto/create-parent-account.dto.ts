@@ -1,5 +1,5 @@
-import { IsEmail, IsString, MinLength, IsOptional } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsEmail, IsString, MinLength } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateParentAccountDto {
   @ApiProperty({ example: 'parent@example.com', description: 'Parent financeur email address' })
@@ -10,13 +10,4 @@ export class CreateParentAccountDto {
   @IsString()
   @MinLength(8)
   password: string;
-
-  @ApiPropertyOptional({
-    example: 'pierre.dupont',
-    description: 'Desired login identifier. If omitted, one is generated from the email address.',
-  })
-  @IsOptional()
-  @IsString()
-  @MinLength(3)
-  loginIdentifier?: string;
 }

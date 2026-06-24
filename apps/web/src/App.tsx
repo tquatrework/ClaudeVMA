@@ -40,6 +40,15 @@ import TeacherPaymentRequestPage from './pages/TeacherPaymentRequestPage'
 import LegalDocumentsPage from './pages/LegalDocumentsPage'
 import LegalTemplateAdminPage from './pages/LegalTemplateAdminPage'
 import PedagogicalArchivePage from './pages/PedagogicalArchivePage'
+import ExerciseCatalogPage from './pages/ExerciseCatalogPage'
+import ExerciseDetailPage from './pages/ExerciseDetailPage'
+import EvaluationCatalogPage from './pages/EvaluationCatalogPage'
+import EvaluationAttemptPage from './pages/EvaluationAttemptPage'
+import TutorialCatalogPage from './pages/TutorialCatalogPage'
+import ContentValidationQueuePage from './pages/ContentValidationQueuePage'
+import OpenActivitiesPage from './pages/OpenActivitiesPage'
+import OpenActivityDetailPage from './pages/OpenActivityDetailPage'
+import ActivityGlobalExportPage from './pages/ActivityGlobalExportPage'
 
 export default function App() {
   return (
@@ -364,6 +373,91 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <PedagogicalArchivePage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ── Phase 12 — Catalogue pédagogique ────────────────── */}
+          <Route
+            path="/content/exercises"
+            element={
+              <ProtectedRoute>
+                <ExerciseCatalogPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/content/exercises/:exerciseId"
+            element={
+              <ProtectedRoute>
+                <ExerciseDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/content/evaluations"
+            element={
+              <ProtectedRoute>
+                <EvaluationCatalogPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/content/evaluations/:evaluationId/attempt"
+            element={
+              <ProtectedRoute allowedRoles={['eleve']}>
+                <EvaluationAttemptPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/content/tutorials"
+            element={
+              <ProtectedRoute>
+                <TutorialCatalogPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/content/validation"
+            element={
+              <ProtectedRoute
+                allowedRoles={['responsable_pedagogique', 'animateur_pedagogique']}
+              >
+                <ContentValidationQueuePage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ── Phase 13 — Activités non pourvues ──────────────── */}
+          <Route
+            path="/open-activities"
+            element={
+              <ProtectedRoute allowedRoles={['formateur', 'responsable_pedagogique', 'animateur_pedagogique']}>
+                <OpenActivitiesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/open-activities/:activityId"
+            element={
+              <ProtectedRoute allowedRoles={['formateur', 'responsable_pedagogique', 'animateur_pedagogique']}>
+                <OpenActivityDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/activities/export"
+            element={
+              <ProtectedRoute
+                allowedRoles={[
+                  'responsable_pedagogique',
+                  'animateur_pedagogique',
+                  'technicien_informatique',
+                  'administrateur_financier',
+                ]}
+              >
+                <ActivityGlobalExportPage />
               </ProtectedRoute>
             }
           />

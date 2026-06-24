@@ -1,5 +1,5 @@
-import { IsNotEmpty, IsString, IsOptional } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsNotEmpty, IsString } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
 
 export class SignDocumentDto {
   @ApiProperty({
@@ -9,12 +9,4 @@ export class SignDocumentDto {
   @IsString()
   @IsNotEmpty()
   signerName: string;
-
-  @ApiPropertyOptional({
-    description: 'Email of the signer (optional — defaults to JWT email)',
-    example: 'marie.dupont@example.com',
-  })
-  @IsOptional()
-  @IsString()
-  signerEmail?: string;
 }

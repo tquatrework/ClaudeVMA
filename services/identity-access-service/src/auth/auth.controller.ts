@@ -1,33 +1,19 @@
-import { Controller, Post, Body, Get, Param, UseGuards, Request, Ip, Headers, ParseUUIDPipe } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
+import { Controller, Post, Body, Get, UseGuards, Request, Ip, Headers } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
-import { RolesGuard } from '../common/guards/roles.guard';
-import { Roles } from '../common/decorators/roles.decorator';
-import { UserRole } from './entities/user.entity';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { PasswordResetRequestDto } from './dto/password-reset-request.dto';
+import { RecoverIdentifierDto } from './dto/recover-identifier.dto';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @Post('password-reset/request')
-  @ApiOperation({
-    summary: 'Request password reset',
-    description:
-      'Initiate a password reset flow. Always returns success to prevent email enumeration. ' +
-      'A reset link is sent to the registered email address if it exists.',
-  })
-  @ApiResponse({ status: 201, description: 'Reset request accepted — email will be sent if address is known' })
-  requestPasswordReset(@Body() dto: PasswordResetRequestDto, @Ip() ipAddress: string) {
-    return this.authService.requestPasswordReset(dto.email, ipAddress);
-  }
-
   @Post('login')
-  @ApiOperation({ summary: 'Login', description: 'Authenticate and receive JWT access + refresh tokens' })
-  @ApiResponse({ status: 200, description: 'Login successful — returns access_token, refresh_token and user info' })
+  @ApiOperation({ summary: 'Login', description: 'Authenticate with loginIdentifier and password. Returns JWT access + refresh tokens.' })
+  @ApiResponse({ status: 200, description: 'Login successful — returns access_token, refresh_token and user info (including loginIdentifier)' })
   @ApiResponse({ status: 401, description: 'Invalid credentials or inactive account' })
   login(
     @Body() dto: LoginDto,
@@ -56,6 +42,30 @@ export class AuthController {
     return this.authService.refresh(refreshToken);
   }
 
+  @Post('password-reset/request')
+  @ApiOperation({
+    summary: 'Request password reset',
+    description:
+      'Initiate a password reset flow using your loginIdentifier. Always returns 200 to prevent identifier enumeration. ' +
+      'A reset link is sent to the email address registered with that identifier.',
+  })
+  @ApiResponse({ status: 201, description: 'Reset request accepted — email will be sent if identifier is known' })
+  requestPasswordReset(@Body() dto: PasswordResetRequestDto, @Ip() ipAddress: string) {
+    return this.authService.requestPasswordReset(dto.loginIdentifier, ipAddress);
+  }
+
+  @Post('recover-identifier')
+  @ApiOperation({
+    summary: 'Recover login identifier',
+    description:
+      'Request a reminder of all loginIdentifier(s) associated with an email address. ' +
+      'Always returns 200 to prevent email enumeration. The identifier(s) are sent by email.',
+  })
+  @ApiResponse({ status: 201, description: 'Recovery request accepted — identifiers will be emailed if the address is known' })
+  recoverIdentifier(@Body() dto: RecoverIdentifierDto, @Ip() ipAddress: string) {
+    return this.authService.recoverIdentifier(dto.email, ipAddress);
+  }
+
   @Get('me')
   @ApiBearerAuth()
   @UseGuards(AuthGuard('jwt'))
@@ -66,6 +76,7 @@ export class AuthController {
     const currentUser = req.user;
     return {
       id: currentUser.id,
+      loginIdentifier: currentUser.loginIdentifier,
       email: currentUser.email,
       role: currentUser.role,
       validationStatus: currentUser.validationStatus,

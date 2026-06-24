@@ -20,7 +20,7 @@ const STATUS_BADGE_CLASSES: Record<ParentLinkRequestStatus, string> = {
 }
 
 export default function ParentLinkRequestPage() {
-  const [studentIdInput, setStudentIdInput] = useState('')
+  const [studentLoginIdentifierInput, setStudentLoginIdentifierInput] = useState('')
   const [existingRequests, setExistingRequests] = useState<ParentLinkRequest[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isLoadingRequests, setIsLoadingRequests] = useState(true)
@@ -37,24 +37,28 @@ export default function ParentLinkRequestPage() {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
-    const trimmedStudentId = studentIdInput.trim()
-    if (!trimmedStudentId) return
+    const trimmedLoginIdentifier = studentLoginIdentifierInput.trim()
+    if (!trimmedLoginIdentifier) return
 
     setIsSubmitting(true)
     setSubmitError(null)
     setSubmitSuccess(false)
 
     try {
-      const createdRequest = await createParentLinkRequest(trimmedStudentId)
+      const createdRequest = await createParentLinkRequest(trimmedLoginIdentifier)
       setExistingRequests((previous) => [createdRequest, ...previous])
-      setStudentIdInput('')
+      setStudentLoginIdentifierInput('')
       setSubmitSuccess(true)
     } catch (error: unknown) {
-      const axiosError = error as { response?: { status?: number } }
+      const axiosError = error as { response?: { status?: number; data?: { message?: string } } }
       if (axiosError.response?.status === 409) {
         setSubmitError('Une demande de rattachement est déjà en cours pour cet élève.')
+      } else if (axiosError.response?.status === 404) {
+        setSubmitError("Identifiant élève introuvable. Vérifiez l'identifiant communiqué.")
       } else if (axiosError.response?.status === 400) {
-        setSubmitError("L'identifiant élève fourni est invalide.")
+        setSubmitError(
+          axiosError.response.data?.message ?? "Cet identifiant ne correspond pas à un compte élève.",
+        )
       } else {
         setSubmitError('Une erreur est survenue. Veuillez réessayer.')
       }
@@ -77,15 +81,15 @@ export default function ParentLinkRequestPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label htmlFor="studentId" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="studentLoginIdentifier" className="block text-sm font-medium text-gray-700 mb-1">
                 Identifiant de l'élève
               </label>
               <input
-                id="studentId"
+                id="studentLoginIdentifier"
                 type="text"
-                value={studentIdInput}
-                onChange={(e) => setStudentIdInput(e.target.value)}
-                placeholder="ex : a1b2c3d4-…"
+                value={studentLoginIdentifierInput}
+                onChange={(e) => setStudentLoginIdentifierInput(e.target.value)}
+                placeholder="ex : jean.dupont"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
                 disabled={isSubmitting}
               />
@@ -108,7 +112,7 @@ export default function ParentLinkRequestPage() {
 
             <button
               type="submit"
-              disabled={isSubmitting || !studentIdInput.trim()}
+              disabled={isSubmitting || !studentLoginIdentifierInput.trim()}
               className="bg-indigo-600 text-white text-sm px-5 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
             >
               {isSubmitting ? 'Envoi…' : 'Envoyer la demande'}

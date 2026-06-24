@@ -5,7 +5,7 @@ import apiClient from '../api/client'
 type RequestStep = 'form' | 'sent'
 
 export default function PasswordResetPage() {
-  const [emailAddress, setEmailAddress] = useState('')
+  const [loginIdentifier, setLoginIdentifier] = useState('')
   const [step, setStep] = useState<RequestStep>('form')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -15,7 +15,7 @@ export default function PasswordResetPage() {
     setErrorMessage(null)
     setIsSubmitting(true)
     try {
-      await apiClient.post('/auth/password-reset/request', { email: emailAddress })
+      await apiClient.post('/auth/password-reset/request', { loginIdentifier })
       setStep('sent')
     } catch (err: unknown) {
       const apiMessage =
@@ -34,8 +34,7 @@ export default function PasswordResetPage() {
           <div className="mb-4 text-4xl">📧</div>
           <h1 className="text-2xl font-bold text-indigo-600 mb-3">E-mail envoyé</h1>
           <p className="text-gray-600 text-sm mb-6">
-            Si un compte correspond à l'adresse <strong>{emailAddress}</strong>, vous recevrez
-            un lien de réinitialisation de mot de passe dans quelques minutes.
+            Un lien de réinitialisation a été envoyé à l'adresse email associée à votre identifiant.
           </p>
           <Link
             to="/login"
@@ -53,7 +52,7 @@ export default function PasswordResetPage() {
       <div className="w-full max-w-md bg-white rounded-2xl shadow-md p-8">
         <h1 className="text-2xl font-bold text-indigo-600 mb-2">Mot de passe oublié</h1>
         <p className="text-sm text-gray-500 mb-6">
-          Saisissez votre adresse e-mail pour recevoir un lien de réinitialisation.
+          Saisissez votre identifiant de connexion pour recevoir un lien de réinitialisation.
         </p>
 
         {errorMessage && (
@@ -65,15 +64,16 @@ export default function PasswordResetPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Adresse e-mail
+              Identifiant de connexion
             </label>
             <input
-              type="email"
+              type="text"
               required
-              value={emailAddress}
-              onChange={(e) => setEmailAddress(e.target.value)}
+              value={loginIdentifier}
+              onChange={(e) => setLoginIdentifier(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              placeholder="vous@exemple.fr"
+              placeholder="jean.dupont"
+              autoComplete="username"
             />
           </div>
 
@@ -87,6 +87,12 @@ export default function PasswordResetPage() {
         </form>
 
         <p className="mt-4 text-sm text-gray-500 text-center">
+          <Link to="/recover-identifier" className="text-indigo-600 hover:underline">
+            Identifiant oublié ?
+          </Link>
+        </p>
+
+        <p className="mt-2 text-sm text-gray-500 text-center">
           <Link to="/login" className="text-indigo-600 hover:underline">
             Retour à la connexion
           </Link>

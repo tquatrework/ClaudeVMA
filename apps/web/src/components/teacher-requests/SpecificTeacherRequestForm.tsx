@@ -9,39 +9,23 @@ import React, { useState } from 'react'
 import apiClient from '../../api/client'
 
 interface TeacherRequestPayload {
-  description: string
+  subject: string
+  level: string
+  sector: string
+  message?: string
   studentId?: string
-  level?: string
-  subjects?: string[]
-  preferredDays?: string[]
 }
 
 interface TeacherRequestCreated {
   id: string
   status: string
   createdAt: string
-  description: string
+  subject: string
+  level: string
+  sector: string
+  message?: string
   studentId?: string
 }
-
-const AVAILABLE_SUBJECTS = [
-  'Algèbre',
-  'Géométrie',
-  'Analyse',
-  'Probabilités',
-  'Statistiques',
-  'Arithmétique',
-]
-
-const AVAILABLE_DAYS = [
-  'Lundi',
-  'Mardi',
-  'Mercredi',
-  'Jeudi',
-  'Vendredi',
-  'Samedi',
-  'Dimanche',
-]
 
 interface SpecificTeacherRequestFormProps {
   /** Pré-rempli si l'utilisateur est un parent soumettant pour un élève lié */
@@ -58,42 +42,30 @@ export default function SpecificTeacherRequestForm({
   onSuccess,
   onCancel,
 }: SpecificTeacherRequestFormProps) {
-  const [description, setDescription] = useState('')
-  const [studentId, setStudentId] = useState(defaultStudentId)
+  const [subject, setSubject] = useState('')
   const [level, setLevel] = useState('')
-  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([])
-  const [selectedDays, setSelectedDays] = useState<string[]>([])
+  const [sector, setSector] = useState('')
+  const [message, setMessage] = useState('')
+  const [studentId, setStudentId] = useState(defaultStudentId)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  const toggleSubject = (subject: string) => {
-    setSelectedSubjects((previous) =>
-      previous.includes(subject)
-        ? previous.filter((subj) => subj !== subject)
-        : [...previous, subject],
-    )
-  }
-
-  const toggleDay = (day: string) => {
-    setSelectedDays((previous) =>
-      previous.includes(day)
-        ? previous.filter((existingDay) => existingDay !== day)
-        : [...previous, day],
-    )
-  }
+  const isFormValid = subject.trim() !== '' && level.trim() !== '' && sector.trim() !== ''
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (!description.trim()) return
+    if (!isFormValid) return
 
     setIsSubmitting(true)
     setErrorMessage(null)
 
-    const payload: TeacherRequestPayload = { description: description.trim() }
+    const payload: TeacherRequestPayload = {
+      subject: subject.trim(),
+      level: level.trim(),
+      sector: sector.trim(),
+    }
+    if (message.trim()) payload.message = message.trim()
     if (studentId.trim()) payload.studentId = studentId.trim()
-    if (level.trim()) payload.level = level.trim()
-    if (selectedSubjects.length > 0) payload.subjects = selectedSubjects
-    if (selectedDays.length > 0) payload.preferredDays = selectedDays
 
     try {
       const { data } = await apiClient.post<TeacherRequestCreated>('/teacher-requests', payload)
@@ -147,70 +119,54 @@ export default function SpecificTeacherRequestForm({
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
-          Niveau <span className="text-gray-400 font-normal">(optionnel)</span>
+          Sujet / Matière <span className="text-red-500">*</span>
         </label>
         <input
           type="text"
-          value={level}
-          onChange={(event) => setLevel(event.target.value)}
-          placeholder="ex. 3ème, Terminale S, BTS…"
+          required
+          value={subject}
+          onChange={(event) => setSubject(event.target.value)}
+          placeholder="ex. Algèbre, Analyse, Probabilités…"
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
         />
       </div>
 
       <div>
-        <p className="text-sm font-medium text-gray-700 mb-2">
-          Matières concernées <span className="text-gray-400 font-normal">(optionnel)</span>
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {AVAILABLE_SUBJECTS.map((subject) => (
-            <button
-              key={subject}
-              type="button"
-              onClick={() => toggleSubject(subject)}
-              className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
-                selectedSubjects.includes(subject)
-                  ? 'bg-indigo-600 text-white border-indigo-600'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
-              }`}
-            >
-              {subject}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <p className="text-sm font-medium text-gray-700 mb-2">
-          Disponibilités souhaitées <span className="text-gray-400 font-normal">(optionnel)</span>
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {AVAILABLE_DAYS.map((day) => (
-            <button
-              key={day}
-              type="button"
-              onClick={() => toggleDay(day)}
-              className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
-                selectedDays.includes(day)
-                  ? 'bg-indigo-600 text-white border-indigo-600'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
-              }`}
-            >
-              {day}
-            </button>
-          ))}
-        </div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Niveau scolaire <span className="text-red-500">*</span>
+        </label>
+        <input
+          type="text"
+          required
+          value={level}
+          onChange={(event) => setLevel(event.target.value)}
+          placeholder="ex. 3ème, Terminale, BTS, L1…"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+        />
       </div>
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
-          Description <span className="text-red-500">*</span>
+          Filière <span className="text-red-500">*</span>
+        </label>
+        <input
+          type="text"
+          required
+          value={sector}
+          onChange={(event) => setSector(event.target.value)}
+          placeholder="ex. Générale, Technologique, Professionnelle, Supérieur…"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Message <span className="text-gray-400 font-normal">(optionnel)</span>
         </label>
         <textarea
-          required
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-          placeholder="Décrivez le besoin pédagogique, les objectifs, les contraintes particulières…"
+          value={message}
+          onChange={(event) => setMessage(event.target.value)}
+          placeholder="Précisez les objectifs, les difficultés rencontrées, les contraintes particulières…"
           rows={4}
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
         />
@@ -219,7 +175,7 @@ export default function SpecificTeacherRequestForm({
       <div className="flex gap-3 pt-1">
         <button
           type="submit"
-          disabled={isSubmitting || !description.trim()}
+          disabled={isSubmitting || !isFormValid}
           className="bg-indigo-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
         >
           {isSubmitting ? 'Envoi…' : 'Soumettre la demande'}

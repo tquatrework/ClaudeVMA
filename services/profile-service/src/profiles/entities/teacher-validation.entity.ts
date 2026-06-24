@@ -9,6 +9,7 @@ import { UserRole } from '../../common/enums/user-role.enum';
 
 export type TeacherValidationStatus =
   | 'pending'
+  | 'in_review'
   | 'validated'
   | 'rejected';
 
@@ -28,7 +29,7 @@ export class TeacherValidation {
 
   @Column({
     type: 'enum',
-    enum: ['pending', 'validated', 'rejected'],
+    enum: ['pending', 'in_review', 'validated', 'rejected'],
     default: 'pending',
   })
   status: TeacherValidationStatus;

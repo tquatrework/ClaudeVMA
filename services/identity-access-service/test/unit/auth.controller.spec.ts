@@ -9,6 +9,7 @@ const mockTokenResponse = {
   refresh_token: 'signed-refresh-token',
   user: {
     id: 'user-uuid',
+    loginIdentifier: 'test.user',
     email: 'test@example.com',
     role: UserRole.ELEVE,
     validationStatus: ValidationStatus.ACTIVE,
@@ -20,6 +21,7 @@ const mockAuthService = {
   logout: jest.fn(),
   refresh: jest.fn(),
   requestPasswordReset: jest.fn(),
+  recoverIdentifier: jest.fn(),
 };
 
 describe('AuthController', () => {
@@ -41,14 +43,14 @@ describe('AuthController', () => {
       mockAuthService.login.mockResolvedValue(mockTokenResponse);
 
       const result = await controller.login(
-        { email: 'test@example.com', password: 'password123' },
+        { loginIdentifier: 'test.user', password: 'password123' },
         '127.0.0.1',
         'Mozilla/5.0',
       );
 
       expect(result).toEqual(mockTokenResponse);
       expect(mockAuthService.login).toHaveBeenCalledWith(
-        { email: 'test@example.com', password: 'password123' },
+        { loginIdentifier: 'test.user', password: 'password123' },
         '127.0.0.1',
         'Mozilla/5.0',
       );
@@ -58,7 +60,7 @@ describe('AuthController', () => {
       mockAuthService.login.mockRejectedValue(new UnauthorizedException('Invalid credentials'));
 
       await expect(
-        controller.login({ email: 'x@x.com', password: 'wrong' }, '127.0.0.1', 'Mozilla'),
+        controller.login({ loginIdentifier: 'unknown.user', password: 'wrong' }, '127.0.0.1', 'Mozilla'),
       ).rejects.toThrow(UnauthorizedException);
     });
   });
@@ -98,10 +100,11 @@ describe('AuthController', () => {
   });
 
   describe('GET /auth/me', () => {
-    it('returns the authenticated user identity from the request', () => {
+    it('returns the authenticated user identity including loginIdentifier', () => {
       const mockRequest = {
         user: {
           id: 'user-uuid',
+          loginIdentifier: 'test.user',
           email: 'test@example.com',
           role: UserRole.ELEVE,
           validationStatus: ValidationStatus.ACTIVE,
@@ -113,6 +116,7 @@ describe('AuthController', () => {
 
       expect(result).toEqual({
         id: 'user-uuid',
+        loginIdentifier: 'test.user',
         email: 'test@example.com',
         role: UserRole.ELEVE,
         validationStatus: ValidationStatus.ACTIVE,
@@ -124,6 +128,7 @@ describe('AuthController', () => {
       const mockRequest = {
         user: {
           id: 'user-uuid',
+          loginIdentifier: 'test.user',
           email: 'test@example.com',
           role: UserRole.ELEVE,
           validationStatus: ValidationStatus.ACTIVE,
@@ -139,25 +144,38 @@ describe('AuthController', () => {
   });
 
   describe('POST /auth/password-reset/request', () => {
-    it('returns success message for a known email (anti-enumeration)', async () => {
+    it('returns success message for a known loginIdentifier (anti-enumeration)', async () => {
       mockAuthService.requestPasswordReset.mockResolvedValue({
-        message: 'If the email is registered, a reset link will be sent.',
+        message: 'If the identifier is registered, a reset link will be sent to the associated email.',
       });
 
-      const result = await controller.requestPasswordReset({ email: 'test@example.com' }, '127.0.0.1');
+      const result = await controller.requestPasswordReset({ loginIdentifier: 'test.user' }, '127.0.0.1');
 
       expect(result.message).toContain('reset link');
-      expect(mockAuthService.requestPasswordReset).toHaveBeenCalledWith('test@example.com', '127.0.0.1');
+      expect(mockAuthService.requestPasswordReset).toHaveBeenCalledWith('test.user', '127.0.0.1');
     });
 
-    it('returns the same success message for an unknown email (anti-enumeration)', async () => {
+    it('returns the same success message for an unknown loginIdentifier (anti-enumeration)', async () => {
       mockAuthService.requestPasswordReset.mockResolvedValue({
-        message: 'If the email is registered, a reset link will be sent.',
+        message: 'If the identifier is registered, a reset link will be sent to the associated email.',
       });
 
-      const result = await controller.requestPasswordReset({ email: 'unknown@example.com' }, '127.0.0.1');
+      const result = await controller.requestPasswordReset({ loginIdentifier: 'unknown.user' }, '127.0.0.1');
 
       expect(result.message).toContain('reset link');
+    });
+  });
+
+  describe('POST /auth/recover-identifier', () => {
+    it('always returns success message regardless of whether email has accounts', async () => {
+      mockAuthService.recoverIdentifier.mockResolvedValue({
+        message: 'If the email is registered, the associated login identifier(s) will be sent.',
+      });
+
+      const result = await controller.recoverIdentifier({ email: 'test@example.com' }, '127.0.0.1');
+
+      expect(result.message).toContain('login identifier');
+      expect(mockAuthService.recoverIdentifier).toHaveBeenCalledWith('test@example.com', '127.0.0.1');
     });
   });
 });

@@ -3,23 +3,41 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Not, Repository } from 'typeorm';
 
-import { TeacherRequest, RequestStatus } from './entities/teacher-request.entity';
+import { TeacherRequest, RequestStatus, RequestType } from './entities/teacher-request.entity';
 import { TeacherProposal, ProposalStatus } from './entities/teacher-proposal.entity';
 import { Assignment, AssignmentStatus } from './entities/assignment.entity';
 import { TerminationRequest } from './entities/termination-request.entity';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { CreateProposalDto } from './dto/create-proposal.dto';
 import { CreateTerminationDto } from './dto/create-termination.dto';
+import { CreatePpChangeDto } from './dto/create-pp-change.dto';
+import { PublishSelectedCandidatesDto } from './dto/publish-selected-candidates.dto';
+import { SelectCandidateDto } from './dto/select-candidate.dto';
 import { EventsService } from './events.service';
 import { JwtPayload } from '../common/jwt.guard';
 import { UserRole } from '../common/user-role.enum';
 
+interface ProfileName {
+  firstName: string;
+  lastName: string;
+}
+
+export interface TeacherRequestWithNames extends TeacherRequest {
+  studentName: string | null;
+  teacherName: string | null;
+}
+
 @Injectable()
 export class TeacherRequestService {
+  private readonly logger = new Logger(TeacherRequestService.name);
+  private readonly profileServiceUrl: string =
+    process.env.PROFILE_SERVICE_URL ?? 'http://profile-service:3000';
+
   constructor(
     @InjectRepository(TeacherRequest) private readonly requestRepo: Repository<TeacherRequest>,
     @InjectRepository(TeacherProposal) private readonly proposalRepo: Repository<TeacherProposal>,
@@ -27,6 +45,32 @@ export class TeacherRequestService {
     @InjectRepository(TerminationRequest) private readonly terminationRepo: Repository<TerminationRequest>,
     private readonly events: EventsService,
   ) {}
+
+  private async resolveProfileName(profileId: string): Promise<string | null> {
+    try {
+      const response = await fetch(`${this.profileServiceUrl}/profiles/${profileId}`);
+      if (!response.ok) return null;
+      const profile = (await response.json()) as ProfileName;
+      return `${profile.firstName} ${profile.lastName}`.trim() || null;
+    } catch (error) {
+      this.logger.warn(`Could not resolve profile name for id ${profileId}: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  private async enrichRequestsWithNames(
+    requests: TeacherRequest[],
+  ): Promise<TeacherRequestWithNames[]> {
+    return Promise.all(
+      requests.map(async (request) => {
+        const [studentName, teacherName] = await Promise.all([
+          this.resolveProfileName(request.studentId),
+          request.chosenTeacherId ? this.resolveProfileName(request.chosenTeacherId) : Promise.resolve(null),
+        ]);
+        return { ...request, studentName, teacherName };
+      }),
+    );
+  }
 
   async createRequest(dto: CreateRequestDto, user: JwtPayload): Promise<TeacherRequest> {
     const allowedRoles = [UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.RESPONSABLE_PEDAGOGIQUE];
@@ -52,14 +96,30 @@ export class TeacherRequestService {
     return saved;
   }
 
-  async listRequests(user: JwtPayload): Promise<TeacherRequest[] | TeacherProposal[]> {
+  async listRequests(user: JwtPayload): Promise<TeacherRequestWithNames[] | TeacherProposal[]> {
     switch (user.role) {
-      case UserRole.ELEVE:
-        return this.requestRepo.find({ where: { studentId: user.id }, order: { createdAt: 'DESC' } });
-      case UserRole.PARENT_FINANCEUR:
-        return this.requestRepo.find({ where: { requesterId: user.id }, order: { createdAt: 'DESC' } });
-      case UserRole.RESPONSABLE_PEDAGOGIQUE:
-        return this.requestRepo.find({ order: { createdAt: 'DESC' } });
+      case UserRole.ELEVE: {
+        const studentRequests = await this.requestRepo.find({
+          where: { studentId: user.id },
+          order: { createdAt: 'DESC' },
+        });
+        return this.enrichRequestsWithNames(studentRequests);
+      }
+      case UserRole.PARENT_FINANCEUR: {
+        const parentRequests = await this.requestRepo.find({
+          where: { requesterId: user.id },
+          order: { createdAt: 'DESC' },
+        });
+        return this.enrichRequestsWithNames(parentRequests);
+      }
+      case UserRole.RESPONSABLE_PEDAGOGIQUE: {
+        // Fix 2: only return TeacherRequests that have a studentId (excludes orphan/proposal-only entries)
+        const rpRequests = await this.requestRepo.find({
+          where: { studentId: Not(IsNull()) },
+          order: { createdAt: 'DESC' },
+        });
+        return this.enrichRequestsWithNames(rpRequests);
+      }
       case UserRole.FORMATEUR:
         // TRQ-FB-001: teacher sees only proposals redirected to them, not all requests
         return this.proposalRepo.find({ where: { teacherId: user.id }, order: { createdAt: 'DESC' } });
@@ -207,6 +267,171 @@ export class TeacherRequestService {
     const saved = await this.terminationRepo.save(termination);
     await this.assignmentRepo.save({ ...assignment, status: AssignmentStatus.TERMINATION_REQUESTED });
     this.events.emit('TeacherRelationTerminationRequested', {
+      terminationId: saved.id,
+      assignmentId,
+      teacherId: user.id,
+      noticeDate: dto.noticeDate,
+    });
+    return saved;
+  }
+
+  async declineProposal(proposalId: string, user: JwtPayload): Promise<TeacherProposal> {
+    if (user.role !== UserRole.FORMATEUR) {
+      throw new ForbiddenException('Only formateurs can decline proposals');
+    }
+    const proposal = await this.proposalRepo.findOne({ where: { id: proposalId } });
+    if (!proposal) throw new NotFoundException(`Proposal ${proposalId} not found`);
+    if (proposal.teacherId !== user.id) {
+      throw new ForbiddenException('This proposal was not sent to you');
+    }
+    if (proposal.status !== ProposalStatus.PENDING) {
+      throw new BadRequestException('Proposal is no longer pending');
+    }
+    const updated = await this.proposalRepo.save({ ...proposal, status: ProposalStatus.DECLINED });
+    this.events.emit('TeacherProposalDeclined', { proposalId, teacherId: user.id, requestId: proposal.requestId });
+    return updated;
+  }
+
+  async createPpChangeRequest(dto: CreatePpChangeDto, user: JwtPayload): Promise<TeacherRequest> {
+    if (user.role !== UserRole.PARENT_FINANCEUR) {
+      throw new ForbiddenException('Only parent_financeur can request a principal teacher change');
+    }
+    const request = this.requestRepo.create({
+      requesterId: user.id,
+      requesterRole: user.role,
+      studentId: dto.studentId,
+      subject: dto.subject,
+      message: dto.message,
+      currentPpTeacherId: dto.currentPpTeacherId,
+      type: RequestType.PP_CHANGE,
+      status: RequestStatus.PENDING,
+    });
+    const saved = await this.requestRepo.save(request);
+    this.events.emit('TeacherRequestCreated', {
+      requestId: saved.id,
+      studentId: dto.studentId,
+      requesterId: user.id,
+      type: RequestType.PP_CHANGE,
+    });
+    return saved;
+  }
+
+  async publishSelectedCandidates(
+    requestId: string,
+    dto: PublishSelectedCandidatesDto,
+    user: JwtPayload,
+  ): Promise<TeacherRequest> {
+    if (user.role !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+      throw new ForbiddenException('Only responsable_pedagogique can publish selected candidates');
+    }
+    const request = await this.requestRepo.findOne({ where: { id: requestId } });
+    if (!request) throw new NotFoundException(`Request ${requestId} not found`);
+
+    const allowedStatuses = [RequestStatus.REDIRECTED, RequestStatus.CANDIDATES_SELECTED];
+    if (!allowedStatuses.includes(request.status)) {
+      throw new BadRequestException(`Request is not in a publishable state (current: ${request.status})`);
+    }
+
+    // Verify every selected teacherId has an accepted proposal for this request
+    const acceptedProposals = await this.proposalRepo.find({ where: { requestId } });
+    const acceptedTeacherIds = new Set(
+      acceptedProposals
+        .filter((proposal) => proposal.status === ProposalStatus.ACCEPTED)
+        .map((proposal) => proposal.teacherId),
+    );
+    const invalidTeacherIds = dto.teacherIds.filter((teacherId) => !acceptedTeacherIds.has(teacherId));
+    if (invalidTeacherIds.length > 0) {
+      throw new BadRequestException(
+        `The following teacherIds have no accepted proposal: ${invalidTeacherIds.join(', ')}`,
+      );
+    }
+
+    const updated = await this.requestRepo.save({
+      ...request,
+      status: RequestStatus.CANDIDATES_PUBLISHED,
+      selectedTeacherIds: dto.teacherIds,
+    });
+    this.events.emit('TeacherCandidatesSelected', {
+      requestId,
+      selectedTeacherIds: dto.teacherIds,
+      publishedBy: user.id,
+    });
+    return updated;
+  }
+
+  async selectCandidate(
+    requestId: string,
+    dto: SelectCandidateDto,
+    user: JwtPayload,
+  ): Promise<TeacherRequest> {
+    const allowedRoles = [UserRole.ELEVE, UserRole.PARENT_FINANCEUR];
+    if (!allowedRoles.includes(user.role as UserRole)) {
+      throw new ForbiddenException('Only eleve or parent_financeur can select a candidate');
+    }
+    const request = await this.requestRepo.findOne({ where: { id: requestId } });
+    if (!request) throw new NotFoundException(`Request ${requestId} not found`);
+
+    const selectableStatuses = [
+      RequestStatus.REDIRECTED,
+      RequestStatus.CANDIDATES_SELECTED,
+      RequestStatus.CANDIDATES_PUBLISHED,
+    ];
+    if (!selectableStatuses.includes(request.status)) {
+      throw new BadRequestException(`Request is not in a selectable state (current: ${request.status})`);
+    }
+
+    // Access control: eleve can only select for their own request
+    if (user.role === UserRole.ELEVE && request.studentId !== user.id) {
+      throw new ForbiddenException('You can only select a candidate for your own request');
+    }
+
+    const proposal = await this.proposalRepo.findOne({ where: { id: dto.proposalId } });
+    if (!proposal) throw new NotFoundException(`Proposal ${dto.proposalId} not found`);
+    if (proposal.requestId !== requestId) {
+      throw new BadRequestException('This proposal does not belong to the given request');
+    }
+    if (proposal.status !== ProposalStatus.ACCEPTED) {
+      throw new BadRequestException('The selected teacher has not accepted the proposal yet');
+    }
+
+    const updated = await this.requestRepo.save({
+      ...request,
+      status: RequestStatus.CANDIDATE_CHOSEN,
+      chosenTeacherId: proposal.teacherId,
+    });
+    this.events.emit('TeacherCandidateChosen', {
+      requestId,
+      chosenTeacherId: proposal.teacherId,
+      selectedBy: user.id,
+    });
+    return updated;
+  }
+
+  async createCollaborationStopRequest(
+    assignmentId: string,
+    dto: CreateTerminationDto,
+    user: JwtPayload,
+  ): Promise<TerminationRequest> {
+    if (user.role !== UserRole.FORMATEUR) {
+      throw new ForbiddenException('Only formateurs can stop a collaboration');
+    }
+    const assignment = await this.assignmentRepo.findOne({ where: { id: assignmentId } });
+    if (!assignment) throw new NotFoundException(`Assignment ${assignmentId} not found`);
+    if (assignment.teacherId !== user.id) {
+      throw new ForbiddenException('You are not assigned to this student');
+    }
+    if (assignment.status !== AssignmentStatus.ACTIVE) {
+      throw new BadRequestException('Assignment is not active');
+    }
+    const termination = this.terminationRepo.create({
+      assignmentId,
+      teacherId: user.id,
+      noticeDate: new Date(dto.noticeDate),
+      reason: dto.reason,
+    });
+    const saved = await this.terminationRepo.save(termination);
+    await this.assignmentRepo.save({ ...assignment, status: AssignmentStatus.TERMINATION_REQUESTED });
+    this.events.emit('TeacherStopRequested', {
       terminationId: saved.id,
       assignmentId,
       teacherId: user.id,

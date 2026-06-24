@@ -12,6 +12,7 @@ import * as bcrypt from 'bcryptjs';
 
 const mockUser: User = {
   id: 'user-uuid',
+  loginIdentifier: 'test.user',
   email: 'test@example.com',
   passwordHash: '',
   role: UserRole.ELEVE,
@@ -88,9 +89,10 @@ describe('AuthService', () => {
 
   describe('login', () => {
     it('returns token pair for valid credentials', async () => {
-      const result = await service.login({ email: 'test@example.com', password: 'password123' });
+      const result = await service.login({ loginIdentifier: 'test.user', password: 'password123' });
       expect(result).toHaveProperty('access_token');
       expect(result).toHaveProperty('refresh_token');
+      expect(result.user.loginIdentifier).toBe('test.user');
       expect(result.user.email).toBe('test@example.com');
     });
 
@@ -100,14 +102,14 @@ describe('AuthService', () => {
         where: jest.fn().mockReturnThis(),
         getOne: jest.fn().mockResolvedValue(null),
       });
-      await expect(service.login({ email: 'x@x.com', password: 'password123' })).rejects.toThrow(
+      await expect(service.login({ loginIdentifier: 'unknown.user', password: 'password123' })).rejects.toThrow(
         UnauthorizedException,
       );
     });
 
     it('throws 401 for wrong password', async () => {
       await expect(
-        service.login({ email: 'test@example.com', password: 'wrongpassword' }),
+        service.login({ loginIdentifier: 'test.user', password: 'wrongpassword' }),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -117,7 +119,7 @@ describe('AuthService', () => {
         where: jest.fn().mockReturnThis(),
         getOne: jest.fn().mockResolvedValue({ ...mockUser, isActive: false }),
       });
-      await expect(service.login({ email: 'test@example.com', password: 'password123' })).rejects.toThrow(
+      await expect(service.login({ loginIdentifier: 'test.user', password: 'password123' })).rejects.toThrow(
         UnauthorizedException,
       );
     });
@@ -167,27 +169,27 @@ describe('AuthService', () => {
   });
 
   describe('requestPasswordReset', () => {
-    it('always returns success message regardless of whether email exists', async () => {
+    it('always returns success message regardless of whether loginIdentifier exists', async () => {
       userRepo.findOne.mockResolvedValue(mockUser);
-      const result = await service.requestPasswordReset('test@example.com');
+      const result = await service.requestPasswordReset('test.user');
       expect(result.message).toContain('reset link');
     });
 
-    it('returns same success message when email does not exist (prevents enumeration)', async () => {
+    it('returns same success message when loginIdentifier does not exist (prevents enumeration)', async () => {
       userRepo.findOne.mockResolvedValue(null);
-      const result = await service.requestPasswordReset('unknown@example.com');
+      const result = await service.requestPasswordReset('unknown.user');
       expect(result.message).toContain('reset link');
     });
 
     it('creates a reset token when user is found', async () => {
       userRepo.findOne.mockResolvedValue(mockUser);
-      await service.requestPasswordReset('test@example.com');
+      await service.requestPasswordReset('test.user');
       expect(resetTokenRepo.save).toHaveBeenCalled();
     });
 
     it('does not create a reset token when user is not found', async () => {
       userRepo.findOne.mockResolvedValue(null);
-      await service.requestPasswordReset('ghost@example.com');
+      await service.requestPasswordReset('ghost.user');
       expect(resetTokenRepo.save).not.toHaveBeenCalled();
     });
   });

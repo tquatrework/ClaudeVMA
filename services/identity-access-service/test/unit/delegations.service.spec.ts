@@ -9,6 +9,7 @@ import { EventsService } from '../../src/events/events.service';
 
 const makeUser = (overrides: Partial<User> = {}): User => ({
   id: 'actor-uuid',
+  loginIdentifier: 'actor.user',
   email: 'actor@test.com',
   passwordHash: 'hash',
   role: UserRole.RESPONSABLE_PEDAGOGIQUE,

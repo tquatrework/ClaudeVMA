@@ -8,6 +8,7 @@ import { EventsService } from '../../src/events/events.service';
 
 const mockUser: User = {
   id: 'user-uuid',
+  loginIdentifier: 'test.user',
   email: 'test@test.com',
   passwordHash: 'h',
   role: UserRole.ELEVE,

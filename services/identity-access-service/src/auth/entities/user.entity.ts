@@ -36,7 +36,10 @@ export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
+  @Column({ name: 'login_identifier', unique: true, length: 100 })
+  loginIdentifier: string;
+
+  @Column()
   email: string;
 
   @Column({ name: 'password_hash', select: false })

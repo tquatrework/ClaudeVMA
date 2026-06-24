@@ -32,18 +32,20 @@ export class ParentLinkRequestsController {
   @Post()
   @Roles(UserRole.PARENT_FINANCEUR)
   @ApiOperation({
-    summary: 'Submit a parent-link request',
+    summary: 'Soumettre une demande de rattachement parent–élève',
     description:
-      'Allows a parent_financeur to request linkage to a student by providing the student\'s UUID. ' +
-      'The student ID must be obtained through out-of-platform means. ' +
-      'Returns 400 if the student profile is not found. ' +
-      'Returns 409 if a pending request already exists for this parent–student pair. ' +
-      'Triggers a best-effort notification to the student.',
+      'Permet à un parent_financeur de demander le rattachement à un élève en fournissant son loginIdentifier. ' +
+      "L'identifiant est résolu en interne — l'UUID technique de l'élève n'est jamais exposé au parent. " +
+      "Retourne 404 si l'identifiant élève est introuvable. " +
+      "Retourne 400 si l'identifiant ne correspond pas à un compte élève ou si le profil élève est absent. " +
+      "Retourne 409 si une demande en attente existe déjà pour cette paire parent–élève. " +
+      "Déclenche une notification best-effort à l'élève.",
   })
-  @ApiResponse({ status: 201, description: 'Parent-link request created' })
-  @ApiResponse({ status: 400, description: 'Student profile not found for the given studentId' })
-  @ApiResponse({ status: 403, description: 'Forbidden — parent_financeur only' })
-  @ApiResponse({ status: 409, description: 'A pending request already exists for this pair' })
+  @ApiResponse({ status: 201, description: 'Demande de rattachement créée' })
+  @ApiResponse({ status: 400, description: "Profil élève introuvable ou identifiant non élève" })
+  @ApiResponse({ status: 403, description: 'Interdit — réservé au rôle parent_financeur' })
+  @ApiResponse({ status: 404, description: "Identifiant élève introuvable" })
+  @ApiResponse({ status: 409, description: 'Une demande en attente existe déjà pour cette paire' })
   createRequest(@Body() dto: CreateParentLinkRequestDto, @Request() req) {
     return this.parentLinkRequestsService.createRequest(dto, req.user);
   }

@@ -8,6 +8,7 @@ import { User } from '../entities/user.entity';
 
 interface JwtPayload {
   sub: string;
+  loginIdentifier: string;
   email: string;
   role: string;
   validationStatus: string;

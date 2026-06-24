@@ -10,6 +10,7 @@ interface TeacherRequest {
   createdAt: string
   description?: string
   studentId?: string
+  studentName?: string
 }
 
 const STATUS_LABELS: Record<TeacherRequest['status'], string> = {
@@ -42,7 +43,7 @@ export default function TeacherRequestsPage() {
 
   useEffect(() => {
     apiClient
-      .get<TeacherRequest[]>('/requests')
+      .get<TeacherRequest[]>('/teacher-requests/requests')
       .then(({ data }) => setRequests(Array.isArray(data) ? data : []))
       .catch((err) => {
         const status = err?.response?.status
@@ -62,7 +63,7 @@ export default function TeacherRequestsPage() {
       if (newStudentId.trim()) {
         payload.studentId = newStudentId.trim()
       }
-      const { data } = await apiClient.post<TeacherRequest>('/requests', payload)
+      const { data } = await apiClient.post<TeacherRequest>('/teacher-requests/requests', payload)
       setRequests((prev) => [data, ...prev])
       setNewDescription('')
       setNewStudentId('')
@@ -223,7 +224,7 @@ export default function TeacherRequestsPage() {
               >
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-gray-800">
-                    Demande #{req.id.slice(0, 8)}
+                    {req.studentName ?? `Demande #${req.id.slice(0, 8)}`}
                   </span>
                   <span
                     className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[req.status]}`}

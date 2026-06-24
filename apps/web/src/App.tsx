@@ -12,6 +12,7 @@ import ProfilePage from './pages/ProfilePage'
 import ProfileEditPage from './pages/ProfileEditPage'
 import TeacherRequestsPage from './pages/TeacherRequestsPage'
 import TeacherRequestDetailPage from './pages/TeacherRequestDetailPage'
+import TeacherRequestPage from './pages/TeacherRequestPage'
 import CalendarPage from './pages/CalendarPage'
 import ActivityDetailPage from './pages/ActivityDetailPage'
 import VideoPage from './pages/VideoPage'
@@ -65,6 +66,8 @@ import WorkflowRetryPanel from './pages/WorkflowRetryPanel'
 import WorkflowIncidentView from './pages/WorkflowIncidentView'
 import ParentLinkRequestPage from './pages/ParentLinkRequestPage'
 import ParentLinkRequestsInboxPage from './pages/ParentLinkRequestsInboxPage'
+import RecoverIdentifierPage from './pages/RecoverIdentifierPage'
+import MyStudentsPage from './pages/MyStudentsPage'
 
 export default function App() {
   return (
@@ -78,6 +81,7 @@ export default function App() {
           <Route path="/register/teacher" element={<TeacherRegistrationPage />} />
           <Route path="/register/parent" element={<ParentRegistrationPage />} />
           <Route path="/password-reset" element={<PasswordResetPage />} />
+          <Route path="/recover-identifier" element={<RecoverIdentifierPage />} />
           <Route path="/forbidden" element={<ForbiddenPage />} />
 
           {/* ── Authenticated routes ─────────────────────────────────── */}
@@ -126,6 +130,22 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <TeacherRequestsPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* TeacherRequestPage — vue complète avec workspace RP, inbox formateur et formulaire élève/parent */}
+          <Route
+            path="/rp/teacher-requests"
+            element={
+              <ProtectedRoute
+                allowedRoles={[
+                  'responsable_pedagogique',
+                  'formateur',
+                  'eleve',
+                  'parent_financeur',
+                ]}
+              >
+                <TeacherRequestPage />
               </ProtectedRoute>
             }
           />
@@ -618,6 +638,14 @@ export default function App() {
           />
 
           {/* ── Rattachement parent↔élève ────────────────────── */}
+          <Route
+            path="/my-students"
+            element={
+              <ProtectedRoute allowedRoles={['parent_financeur']}>
+                <MyStudentsPage />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/parent-link-requests/new"
             element={

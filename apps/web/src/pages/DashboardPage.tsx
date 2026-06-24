@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import apiClient from '../api/client'
 import Layout from '../components/Layout'
+import { fetchLinkedStudents, fetchStudentProfile } from '../api/relations'
 
 interface Notification {
   id: string
@@ -31,6 +32,8 @@ interface TeacherRequest {
   description?: string
   studentId?: string
   teacherId?: string
+  studentName?: string
+  teacherName?: string
 }
 
 interface AdminProfile {
@@ -44,6 +47,19 @@ interface Activity {
   startAt: string
   endAt: string
   type?: string
+}
+
+interface LinkedStudentEntry {
+  studentId: string
+  displayName: string
+  loginIdentifier: string | null
+}
+
+interface PendingTeacherEntry {
+  id: string
+  firstName?: string
+  lastName?: string
+  createdAt?: string
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -74,9 +90,14 @@ export default function DashboardPage() {
   const [profileNames, setProfileNames] = useState<Record<string, string>>({})
   const [requestFilter, setRequestFilter] = useState<'active' | 'all'>('active')
   const [upcomingActivities, setUpcomingActivities] = useState<Activity[]>([])
+  const [linkedStudents, setLinkedStudents] = useState<LinkedStudentEntry[]>([])
+  const [isLoadingLinkedStudents, setIsLoadingLinkedStudents] = useState(false)
+  const [pendingTeachers, setPendingTeachers] = useState<PendingTeacherEntry[]>([])
+  const [isLoadingPendingTeachers, setIsLoadingPendingTeachers] = useState(false)
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(true)
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(true)
   const [isLoadingRequests, setIsLoadingRequests] = useState(true)
+  const [requestsFetchError, setRequestsFetchError] = useState(false)
   const [isLoadingCalendar, setIsLoadingCalendar] = useState(true)
 
   useEffect(() => {
@@ -101,7 +122,7 @@ export default function DashboardPage() {
 
     // Load recent requests — sorted by date desc, then resolve profiles for names
     apiClient
-      .get<TeacherRequest[]>('/requests')
+      .get<TeacherRequest[]>('/teacher-requests/requests')
       .then(async ({ data }) => {
         const sorted = (Array.isArray(data) ? data : [])
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -133,7 +154,7 @@ export default function DashboardPage() {
         })
         setProfileNames(names)
       })
-      .catch(() => { /* non-blocking */ })
+      .catch(() => setRequestsFetchError(true))
       .finally(() => setIsLoadingRequests(false))
 
     // Load upcoming calendar activities
@@ -155,6 +176,47 @@ export default function DashboardPage() {
       })
       .catch(() => { /* non-blocking */ })
       .finally(() => setIsLoadingCalendar(false))
+
+    // Load linked students for parent_financeur
+    if (user.role === 'parent_financeur') {
+      setIsLoadingLinkedStudents(true)
+      fetchLinkedStudents(user.id)
+        .then(async (links) => {
+          const studentEntries = await Promise.all(
+            links.map(async (link) => {
+              try {
+                const profile = await fetchStudentProfile(link.studentId)
+                const firstName = profile.administrativeProfile?.firstName ?? ''
+                const lastName = profile.administrativeProfile?.lastName ?? ''
+                const resolvedDisplayName = [firstName, lastName].filter(Boolean).join(' ')
+                const loginIdentifier = profile.loginIdentifier ?? null
+                const displayName = resolvedDisplayName || loginIdentifier || 'Élève inconnu'
+                return { studentId: link.studentId, displayName, loginIdentifier }
+              } catch {
+                return { studentId: link.studentId, displayName: 'Élève inconnu', loginIdentifier: null }
+              }
+            }),
+          )
+          setLinkedStudents(studentEntries)
+        })
+        .catch(() => { /* non-blocking */ })
+        .finally(() => setIsLoadingLinkedStudents(false))
+    }
+
+    // Load pending teachers for responsable_pedagogique
+    if (user.role === 'responsable_pedagogique') {
+      setIsLoadingPendingTeachers(true)
+      apiClient
+        .get<PendingTeacherEntry[]>('/profiles/teachers/pending-validation')
+        .then(({ data }) => {
+          setPendingTeachers(Array.isArray(data) ? data : [])
+        })
+        .catch(() => {
+          // Non-bloquant : endpoint peut ne pas encore être disponible
+          setPendingTeachers([])
+        })
+        .finally(() => setIsLoadingPendingTeachers(false))
+    }
   }, [user])
 
   const unreadNotificationCount = notifications.filter((n) => !n.read).length
@@ -187,7 +249,7 @@ export default function DashboardPage() {
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">
-              Bonjour{user ? `, ${user.email}` : ''}
+              Bonjour{user ? `, ${user.loginIdentifier}` : ''}
             </h1>
             <p className="text-gray-500 text-sm mt-1">
               Rôle :{' '}
@@ -257,10 +319,12 @@ export default function DashboardPage() {
             {hasRole('eleve') && user && (
               <QuickCard to={`/notebook/${user.id}`} label="Mon carnet" />
             )}
-            {hasRole('eleve', 'parent_financeur', 'formateur', 'responsable_pedagogique') && user && (
+            {hasRole('eleve', 'parent_financeur', 'formateur') && user && (
               <QuickCard to="/pedagogical-log" label="Cahier de texte" />
             )}
-            <QuickCard to="/memos" label="Mémos" />
+            {hasRole('eleve') && (
+              <QuickCard to="/memos" label="Mémos" />
+            )}
             {hasRole('parent_financeur') && (
               <QuickCard to="/parent-link-requests/new" label="Rattacher un élève" />
             )}
@@ -318,9 +382,71 @@ export default function DashboardPage() {
           </section>
         )}
 
-        {/* Recent requests */}
-        {!isLoadingRequests && recentRequests.length > 0 && (
+        {/* Linked students — parent_financeur only */}
+        {hasRole('parent_financeur') && (
           <section>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-semibold text-gray-700">Mes élèves</h2>
+              <Link to="/my-students" className="text-sm text-indigo-600 hover:underline">
+                Voir tout
+              </Link>
+            </div>
+
+            {isLoadingLinkedStudents ? (
+              <p className="text-gray-400 text-sm">Chargement…</p>
+            ) : linkedStudents.length === 0 ? (
+              <div className="bg-white border border-gray-200 rounded-xl p-4 text-center">
+                <p className="text-gray-400 text-sm mb-3">Aucun élève rattaché.</p>
+                <Link
+                  to="/parent-link-requests/new"
+                  className="text-sm text-indigo-600 hover:underline"
+                >
+                  Rattacher un élève
+                </Link>
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {linkedStudents.map((student) => (
+                  <li key={student.studentId}>
+                    <div className="flex items-start justify-between p-3 bg-white border border-gray-200 rounded-lg">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-gray-800">{student.displayName}</p>
+                        {student.loginIdentifier && (
+                          <p className="font-mono text-xs text-gray-500 mt-0.5">
+                            {student.loginIdentifier}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex gap-2 shrink-0 ml-3">
+                        <Link
+                          to={`/profiles/${student.studentId}`}
+                          className="text-xs text-indigo-600 hover:underline"
+                        >
+                          Voir profil
+                        </Link>
+                        <Link
+                          to={`/calendar?studentId=${student.studentId}`}
+                          className="text-xs text-indigo-600 hover:underline"
+                        >
+                          Calendrier
+                        </Link>
+                        <Link
+                          to={`/pedagogical-log?studentId=${student.studentId}`}
+                          className="text-xs text-indigo-600 hover:underline"
+                        >
+                          Cahier de texte
+                        </Link>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+
+        {/* Recent requests — visible pour élève, parent et RP uniquement */}
+        {hasRole('eleve', 'parent_financeur', 'responsable_pedagogique') && <section>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-base font-semibold text-gray-700">Demandes professeur récentes</h2>
               <Link to="/teacher-requests" className="text-sm text-indigo-600 hover:underline">
@@ -328,86 +454,152 @@ export default function DashboardPage() {
               </Link>
             </div>
 
-            {/* Filter toggle */}
-            <div className="flex gap-2 mb-3">
-              <button
-                onClick={() => setRequestFilter('active')}
-                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
-                  requestFilter === 'active'
-                    ? 'bg-indigo-600 text-white border-indigo-600'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
-                }`}
-              >
-                Non traitées ({recentRequests.filter((r) => ACTIVE_STATUSES.has(r.status)).length})
-              </button>
-              <button
-                onClick={() => setRequestFilter('all')}
-                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
-                  requestFilter === 'all'
-                    ? 'bg-indigo-600 text-white border-indigo-600'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
-                }`}
-              >
-                Toutes ({recentRequests.length})
-              </button>
+            {isLoadingRequests ? (
+              <p className="text-gray-400 text-sm">Chargement…</p>
+            ) : requestsFetchError ? (
+              <p className="text-red-500 text-sm">Impossible de charger les demandes professeur.</p>
+            ) : (
+              <>
+                {/* Filter toggle */}
+                <div className="flex gap-2 mb-3">
+                  <button
+                    onClick={() => setRequestFilter('active')}
+                    className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                      requestFilter === 'active'
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
+                    }`}
+                  >
+                    Non traitées ({recentRequests.filter((r) => ACTIVE_STATUSES.has(r.status)).length})
+                  </button>
+                  <button
+                    onClick={() => setRequestFilter('all')}
+                    className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                      requestFilter === 'all'
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
+                    }`}
+                  >
+                    Toutes ({recentRequests.length})
+                  </button>
+                </div>
+
+                {(() => {
+                  const visibleRequests = requestFilter === 'active'
+                    ? recentRequests.filter((r) => ACTIVE_STATUSES.has(r.status))
+                    : recentRequests
+
+                  if (visibleRequests.length === 0) {
+                    return (
+                      <p className="text-gray-400 text-sm py-2">Aucune demande en attente</p>
+                    )
+                  }
+
+                  return (
+                    <ul className="space-y-2">
+                      {visibleRequests.slice(0, 5).map((request) => {
+                        const resolvedStudentName =
+                          request.studentName ??
+                          (request.studentId ? profileNames[request.studentId] : undefined)
+                        const resolvedTeacherName =
+                          request.teacherName ??
+                          (request.teacherId ? profileNames[request.teacherId] : undefined)
+
+                        return (
+                          <li key={request.id}>
+                            <Link
+                              to={`/teacher-requests/${request.id}`}
+                              className="flex items-start justify-between p-3 bg-white border border-gray-200 rounded-lg hover:border-indigo-300 hover:shadow-sm transition-all"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-gray-800 truncate">
+                                  {resolvedStudentName
+                                    ? `Élève : ${resolvedStudentName}`
+                                    : `Demande #${request.id.slice(0, 8)}`}
+                                </p>
+                                {resolvedTeacherName && (
+                                  <p className="text-xs text-gray-500 truncate mt-0.5">
+                                    Formateur : {resolvedTeacherName}
+                                  </p>
+                                )}
+                                <p className="text-xs text-gray-400 mt-1">
+                                  {new Date(request.createdAt).toLocaleDateString('fr-FR', {
+                                    day: 'numeric',
+                                    month: 'short',
+                                    year: 'numeric',
+                                  })}
+                                </p>
+                              </div>
+                              <span
+                                className={`shrink-0 ml-3 text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[request.status] ?? 'bg-gray-100 text-gray-500'}`}
+                              >
+                                {STATUS_LABELS[request.status] ?? request.status}
+                              </span>
+                            </Link>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )
+                })()}
+              </>
+            )}
+          </section>}
+
+        {/* Pending teachers validation — responsable_pedagogique only */}
+        {hasRole('responsable_pedagogique') && (
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-semibold text-gray-700">
+                Formateurs en attente de validation
+                {pendingTeachers.length > 0 && (
+                  <span className="ml-2 text-xs bg-yellow-500 text-white px-2 py-0.5 rounded-full">
+                    {pendingTeachers.length}
+                  </span>
+                )}
+              </h2>
             </div>
 
-            {(() => {
-              const visibleRequests = requestFilter === 'active'
-                ? recentRequests.filter((r) => ACTIVE_STATUSES.has(r.status))
-                : recentRequests
-
-              if (visibleRequests.length === 0) {
-                return (
-                  <p className="text-gray-400 text-sm py-2">
-                    Aucune demande non traitée
-                  </p>
-                )
-              }
-
-              return (
-                <ul className="space-y-2">
-                  {visibleRequests.slice(0, 5).map((request) => {
-                    const studentName = request.studentId ? profileNames[request.studentId] : undefined
-                    const teacherName = request.teacherId ? profileNames[request.teacherId] : undefined
-
-                    return (
-                      <li key={request.id}>
-                        <Link
-                          to={`/teacher-requests/${request.id}`}
-                          className="flex items-start justify-between p-3 bg-white border border-gray-200 rounded-lg hover:border-indigo-300 hover:shadow-sm transition-all"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-gray-800 truncate">
-                              {studentName
-                                ? `Élève : ${studentName}`
-                                : `Demande #${request.id.slice(0, 8)}`}
-                            </p>
-                            {teacherName && (
-                              <p className="text-xs text-gray-500 truncate mt-0.5">
-                                Formateur : {teacherName}
-                              </p>
-                            )}
-                            <p className="text-xs text-gray-400 mt-1">
-                              {new Date(request.createdAt).toLocaleDateString('fr-FR', {
+            {isLoadingPendingTeachers ? (
+              <p className="text-gray-400 text-sm">Chargement…</p>
+            ) : pendingTeachers.length === 0 ? (
+              <p className="text-gray-400 text-sm">Aucun formateur en attente de validation</p>
+            ) : (
+              <ul className="space-y-2">
+                {pendingTeachers.map((teacher) => {
+                  const teacherDisplayName = [teacher.firstName, teacher.lastName]
+                    .filter(Boolean)
+                    .join(' ') || `Formateur ${teacher.id.slice(0, 8)}`
+                  return (
+                    <li key={teacher.id}>
+                      <Link
+                        to={`/profiles/${teacher.id}`}
+                        className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg hover:border-indigo-300 hover:shadow-sm transition-all"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-gray-800 truncate">
+                            {teacherDisplayName}
+                          </p>
+                          {teacher.createdAt && (
+                            <p className="text-xs text-gray-400 mt-0.5">
+                              Inscrit le{' '}
+                              {new Date(teacher.createdAt).toLocaleDateString('fr-FR', {
                                 day: 'numeric',
                                 month: 'short',
                                 year: 'numeric',
                               })}
                             </p>
-                          </div>
-                          <span
-                            className={`shrink-0 ml-3 text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[request.status] ?? 'bg-gray-100 text-gray-500'}`}
-                          >
-                            {STATUS_LABELS[request.status] ?? request.status}
-                          </span>
-                        </Link>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )
-            })()}
+                          )}
+                        </div>
+                        <span className="shrink-0 ml-3 text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-medium">
+                          En attente
+                        </span>
+                      </Link>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
           </section>
         )}
 

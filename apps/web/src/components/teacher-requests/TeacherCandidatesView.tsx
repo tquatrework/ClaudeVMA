@@ -58,7 +58,7 @@ export default function TeacherCandidatesView({
 
     try {
       const { data } = await apiClient.post<{ candidates: TeacherCandidate[] }>(
-        `/teacher-requests/${requestId}/candidates`,
+        `/teacher-requests/requests/${requestId}/proposals`,
         { teacherId: candidateTeacherId.trim() },
       )
       onCandidatesUpdated(data.candidates ?? candidates)
@@ -83,10 +83,8 @@ export default function TeacherCandidatesView({
     setErrorMessage(null)
 
     try {
-      await apiClient.post(`/teacher-requests/${requestId}/responses`, {
-        candidateId,
-        status: responseStatus,
-      })
+      const responseAction = responseStatus === 'accepted' ? 'accept' : 'decline'
+      await apiClient.post(`/teacher-requests/proposals/${candidateId}/${responseAction}`, {})
       const updatedCandidates = candidates.map((candidate) =>
         candidate.id === candidateId
           ? { ...candidate, status: responseStatus }
@@ -112,8 +110,8 @@ export default function TeacherCandidatesView({
 
     try {
       const { data } = await apiClient.post<{ status: string }>(
-        `/teacher-requests/${requestId}/select`,
-        { candidateId },
+        `/teacher-requests/requests/${requestId}/select`,
+        { proposalId: candidateId },
       )
       onRequestStatusChange(data.status ?? 'accepted')
       setSuccessMessage('Formateur sélectionné — demande clôturée')

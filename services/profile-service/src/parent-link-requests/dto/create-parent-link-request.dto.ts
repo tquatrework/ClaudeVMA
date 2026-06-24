@@ -1,11 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsUUID } from 'class-validator';
+import { IsString, MinLength } from 'class-validator';
 
 export class CreateParentLinkRequestDto {
   @ApiProperty({
-    description: 'UUID of the student (élève) the parent wants to be linked to. The parent must obtain this ID through out-of-platform means.',
-    example: 'e5f6a7b8-0000-0000-0000-000000000001',
+    description: "Identifiant de connexion de l'élève (loginIdentifier) tel que communiqué par la plateforme à la famille.",
+    example: 'eleve.dupont.2024',
   })
-  @IsUUID()
-  studentId: string;
+  @IsString()
+  @MinLength(3)
+  studentLoginIdentifier: string;
 }

@@ -8,6 +8,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ArchiveItem } from './entities/archive-item.entity';
 import { AddArchiveLinkDto } from './dto/add-archive-link.dto';
+import { PaginationQueryDto } from './dto/pagination-query.dto';
+import { PaginatedResponseDto } from './dto/paginated-response.dto';
 import { ArchiveItemType } from '../common/enums/archive-item-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 
@@ -95,17 +97,22 @@ export class ArchiveService {
   }
 
   /**
-   * Liste les archives pédagogiques d'un élève.
+   * Liste les archives pédagogiques d'un élève avec pagination.
    * GET /students/:studentId/pedagogical-archives
    */
   async listPedagogicalArchives(
     studentId: string,
     requesterId: string,
     requesterRole: string,
-  ): Promise<ArchiveItem[]> {
+    pagination?: PaginationQueryDto,
+  ): Promise<PaginatedResponseDto<ArchiveItem>> {
     this.assertReadAccess(requesterId, requesterRole, studentId);
 
     const hideCarnet = this.shouldHideCarnetPersonnel(requesterRole, requesterId, studentId);
+
+    const page = pagination?.page ?? 1;
+    const limit = pagination?.limit ?? 20;
+    const offset = (page - 1) * limit;
 
     const queryBuilder = this.archiveItemRepository
       .createQueryBuilder('item')
@@ -118,7 +125,16 @@ export class ArchiveService {
       });
     }
 
-    return queryBuilder.getMany();
+    const total = await queryBuilder.getCount();
+    const data = await queryBuilder.skip(offset).take(limit).getMany();
+
+    return {
+      data,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   /**
@@ -170,14 +186,16 @@ export class ArchiveService {
   }
 
   /**
-   * Retourne les archives en vue calendrier (groupées par date d'occurrence).
+   * Retourne les archives en vue calendrier (groupées par date d'occurrence) avec pagination.
+   * La pagination s'applique sur les dates (groupes), pas sur les éléments individuels.
    * GET /students/:studentId/archive-timeline
    */
   async getArchiveTimeline(
     studentId: string,
     requesterId: string,
     requesterRole: string,
-  ): Promise<{ date: string; items: Partial<ArchiveItem>[] }[]> {
+    pagination?: PaginationQueryDto,
+  ): Promise<PaginatedResponseDto<{ date: string; items: Partial<ArchiveItem>[] }>> {
     this.assertReadAccess(requesterId, requesterRole, studentId);
 
     const hideCarnet = this.shouldHideCarnetPersonnel(requesterRole, requesterId, studentId);
@@ -203,12 +221,12 @@ export class ArchiveService {
       });
     }
 
-    const archiveItems = await queryBuilder.getMany();
+    const allItems = await queryBuilder.getMany();
 
     // Groupement par date (YYYY-MM-DD)
     const groupedByDate = new Map<string, Partial<ArchiveItem>[]>();
 
-    for (const item of archiveItems) {
+    for (const item of allItems) {
       const dateKey = item.occurredAt.toISOString().slice(0, 10);
       if (!groupedByDate.has(dateKey)) {
         groupedByDate.set(dateKey, []);
@@ -224,10 +242,24 @@ export class ArchiveService {
       });
     }
 
-    return Array.from(groupedByDate.entries()).map(([date, items]) => ({
+    const allDates = Array.from(groupedByDate.entries()).map(([date, items]) => ({
       date,
       items,
     }));
+
+    const page = pagination?.page ?? 1;
+    const limit = pagination?.limit ?? 20;
+    const total = allDates.length;
+    const offset = (page - 1) * limit;
+    const data = allDates.slice(offset, offset + limit);
+
+    return {
+      data,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   /**

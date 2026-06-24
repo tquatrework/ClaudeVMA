@@ -54,6 +54,12 @@ import ForumDetailPage from './pages/ForumDetailPage'
 import ForumModerationPanel from './pages/ForumModerationPanel'
 import PathCatalogPage from './pages/PathCatalogPage'
 import PathDetailPage from './pages/PathDetailPage'
+import TiAdminDashboard from './pages/TiAdminDashboard'
+import ActivityLogPage from './pages/ActivityLogPage'
+import TechnicalLogsPage from './pages/TechnicalLogsPage'
+import VisibilityOverridePanel from './pages/VisibilityOverridePanel'
+import SiteMetadataEditor from './pages/SiteMetadataEditor'
+import HealthStatusPage from './pages/HealthStatusPage'
 
 export default function App() {
   return (
@@ -507,6 +513,70 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <PathDetailPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ── Phase 15 — Admin observabilité ──────────────── */}
+          <Route
+            path="/admin/observability"
+            element={
+              <ProtectedRoute
+                allowedRoles={[
+                  'technicien_informatique',
+                  'responsable_pedagogique',
+                  'administrateur_financier',
+                ]}
+              >
+                <TiAdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/observability/activity-log"
+            element={
+              <ProtectedRoute
+                allowedRoles={[
+                  'technicien_informatique',
+                  'responsable_pedagogique',
+                  'administrateur_financier',
+                ]}
+              >
+                <ActivityLogPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/observability/technical-logs"
+            element={
+              <ProtectedRoute allowedRoles={['technicien_informatique']}>
+                <TechnicalLogsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/observability/visibility-overrides"
+            element={
+              <ProtectedRoute allowedRoles={['technicien_informatique']}>
+                <VisibilityOverridePanel />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/observability/site-metadata"
+            element={
+              <ProtectedRoute allowedRoles={['technicien_informatique']}>
+                <SiteMetadataEditor />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/observability/health"
+            element={
+              <ProtectedRoute
+                allowedRoles={['technicien_informatique', 'responsable_pedagogique']}
+              >
+                <HealthStatusPage />
               </ProtectedRoute>
             }
           />

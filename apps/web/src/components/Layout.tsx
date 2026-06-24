@@ -107,18 +107,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 </Link>
               )}
 
-              {hasRole('parent_financeur') && (
-                <Link to="/my-students" className={navLinkClass('/my-students')}>
-                  Mes élèves
-                </Link>
-              )}
-
-              {hasRole('parent_financeur') && (
-                <Link to="/parent-link-requests/new" className={navLinkClass('/parent-link-requests/new')}>
-                  Rattacher un élève
-                </Link>
-              )}
-
               {hasRole('parent_financeur', 'administrateur_financier') && (
                 <Link to="/finance" className={navLinkClass('/finance')}>
                   Finances
@@ -134,12 +122,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               {(hasRole('eleve', 'parent_financeur', 'formateur') || hasRole('administrateur_financier')) && (
                 <Link to="/legal" className={navLinkClass('/legal')}>
                   Documents légaux
-                </Link>
-              )}
-
-              {!hasRole('technicien_informatique', 'administrateur_financier') && (
-                <Link to="/archives" className={navLinkClass('/archives')}>
-                  Archives
                 </Link>
               )}
 
@@ -214,12 +196,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             {hasRole('responsable_pedagogique', 'technicien_informatique', 'administrateur_financier') && (
               <MobileNavLink to="/delegations" label="Délégations" onClick={() => setIsMobileMenuOpen(false)} />
             )}
-            {hasRole('parent_financeur') && (
-              <MobileNavLink to="/my-students" label="Mes élèves" onClick={() => setIsMobileMenuOpen(false)} />
-            )}
-            {hasRole('parent_financeur') && (
-              <MobileNavLink to="/parent-link-requests/new" label="Rattacher un élève" onClick={() => setIsMobileMenuOpen(false)} />
-            )}
             {hasRole('parent_financeur', 'administrateur_financier') && (
               <MobileNavLink to="/finance" label="Finances" onClick={() => setIsMobileMenuOpen(false)} />
             )}
@@ -228,9 +204,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             )}
             {(hasRole('eleve', 'parent_financeur', 'formateur') || hasRole('administrateur_financier')) && (
               <MobileNavLink to="/legal" label="Documents légaux" onClick={() => setIsMobileMenuOpen(false)} />
-            )}
-            {!hasRole('technicien_informatique', 'administrateur_financier') && (
-              <MobileNavLink to="/archives" label="Archives" onClick={() => setIsMobileMenuOpen(false)} />
             )}
             {hasRole('administrateur_financier') && (
               <MobileNavLink to="/admin/finance" label="Espace AF" onClick={() => setIsMobileMenuOpen(false)} />

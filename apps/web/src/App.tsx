@@ -49,6 +49,11 @@ import ContentValidationQueuePage from './pages/ContentValidationQueuePage'
 import OpenActivitiesPage from './pages/OpenActivitiesPage'
 import OpenActivityDetailPage from './pages/OpenActivityDetailPage'
 import ActivityGlobalExportPage from './pages/ActivityGlobalExportPage'
+import ForumCatalogPage from './pages/ForumCatalogPage'
+import ForumDetailPage from './pages/ForumDetailPage'
+import ForumModerationPanel from './pages/ForumModerationPanel'
+import PathCatalogPage from './pages/PathCatalogPage'
+import PathDetailPage from './pages/PathDetailPage'
 
 export default function App() {
   return (
@@ -458,6 +463,50 @@ export default function App() {
                 ]}
               >
                 <ActivityGlobalExportPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ── Phase 14 — Community & parcours ─────────────── */}
+          <Route
+            path="/community/forums"
+            element={
+              <ProtectedRoute>
+                <ForumCatalogPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/community/forums/:forumId"
+            element={
+              <ProtectedRoute>
+                <ForumDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/community/forums/:forumId/moderation"
+            element={
+              <ProtectedRoute
+                allowedRoles={['animateur_pedagogique', 'responsable_pedagogique']}
+              >
+                <ForumModerationPanel />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/community/paths"
+            element={
+              <ProtectedRoute>
+                <PathCatalogPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/community/paths/:pathId"
+            element={
+              <ProtectedRoute>
+                <PathDetailPage />
               </ProtectedRoute>
             }
           />

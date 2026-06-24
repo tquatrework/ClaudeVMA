@@ -51,7 +51,7 @@ export class PedagogicalLogService {
   }
 
   /**
-   * Créer une page spéciale (RP uniquement).
+   * Create a special page (RP only).
    * XML spec functionality 003: pages spéciales pouvant être invisibles à l'élève.
    */
   createSpecialPage(
@@ -70,6 +70,24 @@ export class PedagogicalLogService {
       hiddenFromStudent: dto.hiddenFromStudent ?? false,
     });
     return this.pedagogicalLogRepository.save(entry);
+  }
+
+  /**
+   * Get all textbook entries for a student, filtered by caller role.
+   * PLOG-BR-001, PLOG-BR-002, PLOG-RA-001, PLOG-RA-002.
+   * XML spec func 003: pages hiddenFromStudent=true invisibles à l'élève.
+   */
+  async findByStudent(studentId: string, callerRole: string): Promise<PedagogicalLog[]> {
+    const allowed = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
+    const entries = await this.pedagogicalLogRepository.find({
+      where: { studentId, visibility: In(allowed) },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (callerRole === 'eleve') {
+      return entries.filter((entry) => !entry.hiddenFromStudent);
+    }
+    return entries;
   }
 
   /**
@@ -121,7 +139,7 @@ export class PedagogicalLogService {
   }
 
   /**
-   * Obtenir une seule entrée par ID, filtrée par rôle appelant.
+   * Get a single textbook entry by ID, filtered by caller role.
    * XML spec func 003: pages hiddenFromStudent=true lancent ForbiddenException pour l'élève.
    */
   async findOne(id: string, callerRole: string): Promise<PedagogicalLog> {

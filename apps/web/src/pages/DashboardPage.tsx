@@ -207,7 +207,7 @@ export default function DashboardPage() {
     if (user.role === 'responsable_pedagogique') {
       setIsLoadingPendingTeachers(true)
       apiClient
-        .get<PendingTeacherEntry[]>('/profile/teachers/pending-validation')
+        .get<PendingTeacherEntry[]>('/profiles/teachers/pending-validation')
         .then(({ data }) => {
           setPendingTeachers(Array.isArray(data) ? data : [])
         })
@@ -319,10 +319,12 @@ export default function DashboardPage() {
             {hasRole('eleve') && user && (
               <QuickCard to={`/notebook/${user.id}`} label="Mon carnet" />
             )}
-            {hasRole('eleve', 'parent_financeur', 'formateur', 'responsable_pedagogique') && user && (
+            {hasRole('eleve', 'parent_financeur', 'formateur') && user && (
               <QuickCard to="/pedagogical-log" label="Cahier de texte" />
             )}
-            <QuickCard to="/memos" label="Mémos" />
+            {hasRole('eleve') && (
+              <QuickCard to="/memos" label="Mémos" />
+            )}
             {hasRole('parent_financeur') && (
               <QuickCard to="/parent-link-requests/new" label="Rattacher un élève" />
             )}
@@ -443,8 +445,8 @@ export default function DashboardPage() {
           </section>
         )}
 
-        {/* Recent requests — always visible, shows error or empty state */}
-        <section>
+        {/* Recent requests — visible pour élève, parent et RP uniquement */}
+        {hasRole('eleve', 'parent_financeur', 'responsable_pedagogique') && <section>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-base font-semibold text-gray-700">Demandes professeur récentes</h2>
               <Link to="/teacher-requests" className="text-sm text-indigo-600 hover:underline">
@@ -542,7 +544,7 @@ export default function DashboardPage() {
                 })()}
               </>
             )}
-          </section>
+          </section>}
 
         {/* Pending teachers validation — responsable_pedagogique only */}
         {hasRole('responsable_pedagogique') && (

@@ -1,12 +1,13 @@
 /**
- * Tests for CalendarPage
+ * Tests pour CalendarPage — Phase 4 (calendar-service)
  *
- * Covers:
- * - Displays activities from GET /calendar
- * - Loading and empty states
- * - API error is shown
- * - Create session form is shown only for authorised roles (formateur, RP…)
- * - POST /calendar is called with correct payload when form is submitted
+ * Couvre :
+ * 1. Chargement des événements à venir et passés depuis GET /calendars/:ownerId/events
+ * 2. Filtrage par type d'événement
+ * 3. InvitationBanner — accepter une invitation met à jour l'état visuel
+ * 4. InvitationBanner — refuser une invitation retire l'élément
+ * 5. Créer un rappel personnel (rôle élève)
+ * 6. Tests additionnels : états de chargement, erreurs, création d'événement
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -58,45 +59,75 @@ function renderCalendar() {
   )
 }
 
-const FUTURE_DATE_1 = new Date(Date.now() + 86400000).toISOString() // +1 day
-const FUTURE_DATE_2 = new Date(Date.now() + 172800000).toISOString() // +2 days
+const FUTURE_ISO_1 = new Date(Date.now() + 86400000).toISOString()
+const FUTURE_ISO_2 = new Date(Date.now() + 172800000).toISOString()
+const PAST_ISO_1 = new Date(Date.now() - 86400000).toISOString()
+const PAST_ISO_2 = new Date(Date.now() - 3600000).toISOString()
 
 beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue(buildAuthMock())
 })
 
-describe('CalendarPage', () => {
-  it('shows loading indicator while fetching', () => {
-    mockApiClient.get = vi.fn().mockReturnValue(new Promise(() => {}))
-
-    renderCalendar()
-
-    expect(screen.getByText('Chargement…')).toBeDefined()
-  })
-
-  it('renders activities fetched from GET /calendar', async () => {
-    const activities = [
+// ---------------------------------------------------------------------------
+// Test 1 — Chargement événements à venir et passés
+// ---------------------------------------------------------------------------
+describe('CalendarPage — chargement des événements', () => {
+  it('affiche le chargement puis les événements à venir', async () => {
+    const fetchedEvents = [
       {
-        id: 'act-1',
-        title: 'Cours de maths niveau Terminale',
-        startAt: FUTURE_DATE_1,
-        endAt: FUTURE_DATE_2,
-        type: 'course',
+        id: 'evt-1',
+        title: 'Cours de mathématiques',
+        startAt: FUTURE_ISO_1,
+        endAt: FUTURE_ISO_2,
+        eventType: 'cours',
         status: 'scheduled',
       },
     ]
 
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: activities })
+    mockApiClient.get = vi.fn().mockResolvedValue({ data: fetchedEvents })
+
+    renderCalendar()
+
+    expect(screen.getByText('Chargement…')).toBeDefined()
+
+    await waitFor(() => {
+      expect(screen.getByText('Cours de mathématiques')).toBeDefined()
+    })
+
+    expect(mockApiClient.get).toHaveBeenCalledWith(
+      expect.stringContaining('/calendars/teacher-1/events'),
+    )
+  })
+
+  it('affiche les événements passés dans la vue passés', async () => {
+    const fetchedEvents = [
+      {
+        id: 'evt-past-1',
+        title: 'Ancien cours',
+        startAt: PAST_ISO_1,
+        endAt: PAST_ISO_2,
+        eventType: 'cours',
+        status: 'completed',
+      },
+    ]
+
+    mockApiClient.get = vi.fn().mockResolvedValue({ data: fetchedEvents })
 
     renderCalendar()
 
     await waitFor(() => {
-      expect(screen.getByText('Cours de maths niveau Terminale')).toBeDefined()
+      screen.getByText('Passés (1)')
+    })
+
+    await userEvent.click(screen.getByText('Passés (1)'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Ancien cours')).toBeDefined()
     })
   })
 
-  it('shows empty state when no activities exist', async () => {
+  it('affiche l\'état vide quand aucun événement', async () => {
     mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
 
     renderCalendar()
@@ -106,17 +137,7 @@ describe('CalendarPage', () => {
     })
   })
 
-  it('shows error message on API failure', async () => {
-    mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 500 } })
-
-    renderCalendar()
-
-    await waitFor(() => {
-      expect(screen.getByText('Impossible de charger le calendrier')).toBeDefined()
-    })
-  })
-
-  it('shows access denied error for 403 response', async () => {
+  it('affiche l\'erreur d\'accès refusé pour une réponse 403', async () => {
     mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 403 } })
 
     renderCalendar()
@@ -126,100 +147,306 @@ describe('CalendarPage', () => {
     })
   })
 
-  it('shows "Planifier une séance" button for formateur', async () => {
+  it('affiche l\'erreur générique pour une erreur 500', async () => {
+    mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 500 } })
+
+    renderCalendar()
+
+    await waitFor(() => {
+      expect(screen.getByText('Impossible de charger le calendrier')).toBeDefined()
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Test 2 — Filtrage par type d'événement
+// ---------------------------------------------------------------------------
+describe('CalendarPage — filtrage par type d\'événement', () => {
+  it('ajoute le paramètre type dans l\'URL quand un type est sélectionné', async () => {
     mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
 
     renderCalendar()
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /planifier une séance/i })).toBeDefined()
+      screen.getByLabelText("Filtrer par type d'événement")
+    })
+
+    await userEvent.selectOptions(
+      screen.getByLabelText("Filtrer par type d'événement"),
+      'cours',
+    )
+
+    await waitFor(() => {
+      expect(mockApiClient.get).toHaveBeenCalledWith(
+        expect.stringContaining('type=cours'),
+      )
     })
   })
 
-  it('hides "Planifier une séance" button for élève', async () => {
+  it('recharge sans filtre quand "Tous les types" est sélectionné', async () => {
+    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+
+    renderCalendar()
+
+    await waitFor(() => {
+      screen.getByLabelText("Filtrer par type d'événement")
+    })
+
+    await userEvent.selectOptions(
+      screen.getByLabelText("Filtrer par type d'événement"),
+      'cours',
+    )
+
+    await userEvent.selectOptions(
+      screen.getByLabelText("Filtrer par type d'événement"),
+      '',
+    )
+
+    await waitFor(() => {
+      const lastCall = vi.mocked(mockApiClient.get).mock.calls.at(-1)
+      expect(lastCall![0]).not.toContain('type=')
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Test 3 — InvitationBanner — accepter une invitation change l'état visuel
+// ---------------------------------------------------------------------------
+describe('InvitationBanner — accepter une invitation', () => {
+  it('affiche le statut accepté après avoir cliqué sur "Accepter"', async () => {
+    const fetchedEvents = [
+      {
+        id: 'inv-evt-1',
+        title: 'Réunion pédagogique',
+        startAt: FUTURE_ISO_1,
+        endAt: FUTURE_ISO_2,
+        eventType: 'invitation',
+        inviteeStatus: 'pending',
+      },
+    ]
+
+    mockApiClient.get = vi.fn().mockResolvedValue({ data: fetchedEvents })
+    mockApiClient.post = vi.fn().mockResolvedValue({ data: { status: 'accepted' } })
+
+    renderCalendar()
+
+    await waitFor(() => {
+      expect(screen.getByText('Réunion pédagogique')).toBeDefined()
+    })
+
+    expect(screen.getByRole('button', { name: /accepter/i })).toBeDefined()
+
+    await userEvent.click(screen.getByRole('button', { name: /accepter/i }))
+
+    await waitFor(() => {
+      expect(mockApiClient.post).toHaveBeenCalledWith(
+        `/events/inv-evt-1/invitees/teacher-1/accept`,
+      )
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Test 4 — InvitationBanner — refuser une invitation retire l'élément
+// ---------------------------------------------------------------------------
+describe('InvitationBanner — refuser une invitation', () => {
+  it('retire l\'invitation de la liste après avoir cliqué sur "Refuser"', async () => {
+    const fetchedEvents = [
+      {
+        id: 'inv-evt-2',
+        title: 'Cours optionnel',
+        startAt: FUTURE_ISO_1,
+        endAt: FUTURE_ISO_2,
+        eventType: 'invitation',
+        inviteeStatus: 'pending',
+      },
+    ]
+
+    mockApiClient.get = vi.fn().mockResolvedValue({ data: fetchedEvents })
+    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+
+    renderCalendar()
+
+    await waitFor(() => {
+      expect(screen.getByText('Cours optionnel')).toBeDefined()
+    })
+
+    expect(screen.getByRole('button', { name: /refuser/i })).toBeDefined()
+
+    await userEvent.click(screen.getByRole('button', { name: /refuser/i }))
+
+    await waitFor(() => {
+      expect(mockApiClient.post).toHaveBeenCalledWith(
+        `/events/inv-evt-2/invitees/teacher-1/decline`,
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByText('Invitations en attente')).toBeNull()
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Test 5 — Élève crée un rappel personnel
+// ---------------------------------------------------------------------------
+describe('CalendarPage (rôle élève) — créer un rappel personnel', () => {
+  it('affiche le bouton de création pour un élève et crée un événement de type rappel', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
+
+    const futureRappel = {
+      id: 'rappel-1',
+      title: 'Révisions chapitre 3',
+      startAt: FUTURE_ISO_1,
+      endAt: FUTURE_ISO_2,
+      eventType: 'rappel',
+    }
+
+    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockApiClient.post = vi.fn().mockResolvedValue({ data: futureRappel })
+
+    renderCalendar()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /nouvel événement/i })).toBeDefined()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /nouvel événement/i }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: /créer un événement/i })).toBeDefined()
+    })
+
+    const typeSelect = screen.getByRole('combobox', { name: /type/i })
+    expect(typeSelect).toBeDefined()
+
+    const dateTimeInputs = document.querySelectorAll('input[type="datetime-local"]')
+    const startInput = dateTimeInputs[0] as HTMLInputElement
+    const endInput = dateTimeInputs[1] as HTMLInputElement
+
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(
+      startInput,
+      '2030-06-20T10:00',
+    )
+    startInput.dispatchEvent(new Event('change', { bubbles: true }))
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(
+      endInput,
+      '2030-06-20T11:00',
+    )
+    endInput.dispatchEvent(new Event('change', { bubbles: true }))
+
+    await userEvent.click(screen.getByRole('button', { name: /créer$/i }))
+
+    await waitFor(() => {
+      expect(mockApiClient.post).toHaveBeenCalledWith(
+        `/calendars/student-1/events`,
+        expect.objectContaining({ eventType: 'rappel' }),
+      )
+    })
+  })
+
+  it('configure un rappel via ReminderSettingsPanel', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
+
+    const futureEvent = {
+      id: 'evt-student-1',
+      title: 'Révision',
+      startAt: FUTURE_ISO_1,
+      endAt: FUTURE_ISO_2,
+      eventType: 'rappel',
+    }
+
+    mockApiClient.get = vi.fn().mockResolvedValue({ data: [futureEvent] })
+    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+
+    renderCalendar()
+
+    await waitFor(() => {
+      expect(screen.getByText('Révision')).toBeDefined()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /configurer un rappel/i }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Délai de rappel')).toBeDefined()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /enregistrer le rappel/i }))
+
+    await waitFor(() => {
+      expect(mockApiClient.post).toHaveBeenCalledWith(
+        `/events/evt-student-1/reminders`,
+        expect.objectContaining({ delay: expect.any(String) }),
+      )
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tests sur le bouton de création selon le rôle
+// ---------------------------------------------------------------------------
+describe('CalendarPage — contrôle d\'accès création d\'événement', () => {
+  it('affiche le bouton "Nouvel événement" pour un formateur', async () => {
+    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+
+    renderCalendar()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /nouvel événement/i })).toBeDefined()
+    })
+  })
+
+  it('affiche le bouton pour un élève (peut créer des rappels)', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
     mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
 
     renderCalendar()
 
     await waitFor(() => {
-      expect(screen.queryByRole('button', { name: /planifier une séance/i })).toBeNull()
+      expect(screen.getByRole('button', { name: /nouvel événement/i })).toBeDefined()
     })
   })
+})
 
-  it('shows create form when clicking "Planifier une séance"', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+// ---------------------------------------------------------------------------
+// Test annulation d'événement
+// ---------------------------------------------------------------------------
+describe('CalendarPage — demande d\'annulation', () => {
+  it('ouvre la modale d\'annulation en cliquant sur "Demander l\'annulation"', async () => {
+    const futureEvent = {
+      id: 'evt-cancel-1',
+      title: 'Cours à annuler',
+      startAt: FUTURE_ISO_1,
+      endAt: FUTURE_ISO_2,
+      eventType: 'cours',
+    }
+
+    mockApiClient.get = vi.fn().mockResolvedValue({ data: [futureEvent] })
+    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
 
     renderCalendar()
 
     await waitFor(() => {
-      screen.getByRole('button', { name: /planifier une séance/i })
+      expect(screen.getByText('Cours à annuler')).toBeDefined()
     })
 
-    await userEvent.click(screen.getByRole('button', { name: /planifier une séance/i }))
-
-    expect(screen.getByText('Nouvelle séance')).toBeDefined()
-  })
-
-  it('calls POST /calendar with correct payload on session creation', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-    mockApiClient.post = vi.fn().mockResolvedValue({
-      data: {
-        id: 'new-act-1',
-        startAt: FUTURE_DATE_1,
-        endAt: FUTURE_DATE_2,
-        title: 'Nouveau cours',
-        type: 'course',
-      },
-    })
-
-    renderCalendar()
+    await userEvent.click(screen.getByRole('button', { name: /demander l'annulation/i }))
 
     await waitFor(() => {
-      screen.getByRole('button', { name: /planifier une séance/i })
+      expect(screen.getByRole('dialog', { name: /demande d'annulation/i })).toBeDefined()
     })
 
-    await userEvent.click(screen.getByRole('button', { name: /planifier une séance/i }))
-
-    await waitFor(() => {
-      expect(screen.getByText('Nouvelle séance')).toBeDefined()
-    })
-
-    // Fill in the datetime-local inputs — they have type="datetime-local" so query by type
-    const dateTimeInputs = document.querySelectorAll('input[type="datetime-local"]')
-    const startInput = dateTimeInputs[0] as HTMLInputElement
-    const endInput = dateTimeInputs[1] as HTMLInputElement
-
-    // Fire change events directly since userEvent.type may not work well with datetime-local
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(startInput, '2030-01-15T10:00')
-    startInput.dispatchEvent(new Event('change', { bubbles: true }))
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(endInput, '2030-01-15T11:00')
-    endInput.dispatchEvent(new Event('change', { bubbles: true }))
-
-    await userEvent.click(screen.getByRole('button', { name: /planifier$/i }))
+    const allCancelButtons = screen.getAllByRole('button', { name: /demander l'annulation/i })
+    const dialogSubmitButton = allCancelButtons.find(
+      (button) => button.getAttribute('type') === 'submit',
+    )!
+    await userEvent.click(dialogSubmitButton)
 
     await waitFor(() => {
       expect(mockApiClient.post).toHaveBeenCalledWith(
-        '/calendar',
-        expect.objectContaining({
-          type: 'course',
-          teacherId: 'teacher-1',
-        }),
+        `/events/evt-cancel-1/cancel-request`,
+        expect.any(Object),
       )
-    })
-  })
-
-  it('fetches calendar with teacherId query param for formateur', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-
-    renderCalendar()
-
-    await waitFor(() => {
-      const calendarCall = vi.mocked(mockApiClient.get).mock.calls.find(
-        ([url]) => typeof url === 'string' && url.includes('/calendar'),
-      )
-      expect(calendarCall).toBeDefined()
-      expect(calendarCall![0]).toContain('teacherId=teacher-1')
     })
   })
 })

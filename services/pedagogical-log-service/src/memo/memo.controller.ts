@@ -2,14 +2,11 @@ import {
   Controller,
   Get,
   Post,
-  Put,
-  Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   Req,
-  HttpCode,
-  HttpStatus,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -17,28 +14,27 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiParam,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { UserRole } from '../common/enums/user-role.enum';
 import { MemoService } from './memo.service';
-import { CreateMemoDto } from './dto/create-memo.dto';
-import { UpdateMemoDto } from './dto/update-memo.dto';
+import { CreateMemoChapterDto } from './dto/create-memo-chapter.dto';
+import { CreateMemoItemDto } from './dto/create-memo-item.dto';
 
 /**
- * Routes mémos — formulaire structuré appartenant à l'élève
+ * Mémo élève — outil EXCLUSIVEMENT réservé à l'élève.
  *
- * Le mémo est un outil personnel de l'élève (formules, trucs essentiels).
- * Il N'EST PAS une note interne du personnel (docs/routes.md, XML spec func 004).
+ * Routes alignées sur le XML spec candidateApis :
+ *   GET  /memos                              → Lister chapitres + items (élève courant)
+ *   POST /memos/chapters                     → Créer un chapitre (élève uniquement)
+ *   POST /memos/chapters/:chapterId/items    → Ajouter un item (élève uniquement)
+ *   GET  /memos/search?q=                    → Recherche dans le mémo (élève uniquement)
  *
- * GET    /memos      → eleve uniquement (liste ses propres mémos)
- * POST   /memos      → eleve uniquement
- * GET    /memos/:id  → eleve propriétaire + formateur/RP/AP en lecture seule
- * PUT    /memos/:id  → eleve propriétaire uniquement
- * DELETE /memos/:id  → eleve propriétaire uniquement
- *
- * PLOG-BR-003: un formateur tentant POST/PUT/DELETE reçoit 403.
+ * CRITIQUE XML spec: seul l'élève peut écrire dans son mémo → 403 pour tout autre rôle.
+ * XML spec functionality 004, 005, 007.
  */
 @ApiTags('memos')
 @ApiBearerAuth()
@@ -47,93 +43,95 @@ import { UpdateMemoDto } from './dto/update-memo.dto';
 export class MemoController {
   constructor(private readonly service: MemoService) {}
 
-  @Post()
-  @Roles(UserRole.ELEVE)
-  @ApiOperation({
-    summary: 'Créer un mémo',
-    description:
-      'Crée un mémo pour l\'élève connecté. ' +
-      'Seul l\'élève peut créer ses propres mémos (PLOG-BR-003). ' +
-      'Un formateur ou RP tentant cette route reçoit 403.',
-  })
-  @ApiResponse({ status: 201, description: 'Mémo créé' })
-  @ApiResponse({ status: 400, description: 'Erreur de validation' })
-  @ApiResponse({ status: 401, description: 'Non authentifié' })
-  @ApiResponse({ status: 403, description: 'Interdit — réservé à l\'élève' })
-  create(@Body() dto: CreateMemoDto, @Req() req: any) {
-    return this.service.create(dto, req.user.id);
-  }
-
+  /**
+   * GET /memos
+   * Liste des chapitres et items du mémo — élève courant uniquement.
+   * XML spec: "accessible facilement à tout moment, y compris pendant les visios".
+   */
   @Get()
   @Roles(UserRole.ELEVE)
   @ApiOperation({
-    summary: 'Lister les mémos de l\'élève connecté',
+    summary: 'Lister les chapitres et items du mémo',
     description:
-      'Retourne tous les mémos appartenant à l\'élève connecté (filtre par studentId = userId JWT). ' +
-      'Tout autre rôle reçoit 403.',
+      'Retourne tous les chapitres et items du mémo de l\'élève courant. ' +
+      'Accessible pendant les visios. ÉLÈVE UNIQUEMENT. ' +
+      'XML spec functionality 004, 007.',
   })
-  @ApiResponse({ status: 200, description: 'Liste des mémos' })
+  @ApiResponse({ status: 200, description: 'Liste des chapitres avec leurs items' })
   @ApiResponse({ status: 401, description: 'Non authentifié' })
-  @ApiResponse({ status: 403, description: 'Interdit — réservé à l\'élève' })
-  findAll(@Req() req: any) {
-    return this.service.findByStudent(req.user.id);
+  @ApiResponse({ status: 403, description: 'Réservé à l\'élève uniquement' })
+  findChapters(@Req() req: any) {
+    // studentId = callerId (l'élève voit son propre mémo)
+    return this.service.findChapters(req.user.id, req.user.id, req.user.role);
   }
 
-  @Get(':id')
-  @Roles(
-    UserRole.ELEVE,
-    UserRole.FORMATEUR,
-    UserRole.RESPONSABLE_PEDAGOGIQUE,
-    UserRole.ANIMATEUR_PEDAGOGIQUE,
-  )
-  @ApiParam({ name: 'id', description: 'UUID du mémo' })
-  @ApiOperation({
-    summary: 'Lire un mémo par ID',
-    description:
-      'L\'élève propriétaire peut toujours lire. ' +
-      'Le formateur lié, le RP et l\'AP peuvent lire en lecture seule. ' +
-      'Le parent financeur et les autres rôles sont refusés (403).',
-  })
-  @ApiResponse({ status: 200, description: 'Mémo trouvé' })
-  @ApiResponse({ status: 401, description: 'Non authentifié' })
-  @ApiResponse({ status: 403, description: 'Interdit' })
-  @ApiResponse({ status: 404, description: 'Mémo introuvable' })
-  findOne(@Param('id') id: string, @Req() req: any) {
-    return this.service.findOne(id, req.user.id, req.user.role);
-  }
-
-  @Put(':id')
+  /**
+   * GET /memos/search?q=
+   * Recherche dans le mémo — élève courant uniquement.
+   * Doit être déclaré AVANT /memos/chapters/:chapterId pour éviter le conflit de routes.
+   */
+  @Get('search')
   @Roles(UserRole.ELEVE)
-  @ApiParam({ name: 'id', description: 'UUID du mémo' })
+  @ApiQuery({ name: 'q', description: 'Terme de recherche dans le mémo', required: true })
   @ApiOperation({
-    summary: 'Modifier un mémo',
+    summary: 'Rechercher dans le mémo',
     description:
-      'Seul l\'élève propriétaire peut modifier son mémo (PLOG-BR-003). ' +
-      'Tout autre rôle reçoit 403.',
+      'Recherche textuelle dans les items du mémo de l\'élève courant. ' +
+      'ÉLÈVE UNIQUEMENT. XML spec functionality 005.',
   })
-  @ApiResponse({ status: 200, description: 'Mémo modifié' })
+  @ApiResponse({ status: 200, description: 'Items correspondant à la recherche' })
+  @ApiResponse({ status: 400, description: 'Paramètre q manquant ou vide' })
   @ApiResponse({ status: 401, description: 'Non authentifié' })
-  @ApiResponse({ status: 403, description: 'Interdit — seul l\'élève propriétaire peut modifier' })
-  @ApiResponse({ status: 404, description: 'Mémo introuvable' })
-  update(@Param('id') id: string, @Body() dto: UpdateMemoDto, @Req() req: any) {
-    return this.service.update(id, dto, req.user.id);
+  @ApiResponse({ status: 403, description: 'Réservé à l\'élève uniquement' })
+  search(@Query('q') query: string, @Req() req: any) {
+    return this.service.search(req.user.id, query, req.user.id, req.user.role);
   }
 
-  @Delete(':id')
+  /**
+   * POST /memos/chapters
+   * Créer un chapitre de mémo — élève uniquement.
+   * XML spec functionality 004: "chapitres libres créés par l'élève".
+   */
+  @Post('chapters')
   @Roles(UserRole.ELEVE)
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiParam({ name: 'id', description: 'UUID du mémo' })
   @ApiOperation({
-    summary: 'Supprimer un mémo',
+    summary: 'Créer un chapitre de mémo',
     description:
-      'Seul l\'élève propriétaire peut supprimer son mémo (PLOG-BR-003). ' +
-      'Tout autre rôle reçoit 403.',
+      'Crée un nouveau chapitre dans le mémo de l\'élève courant. ' +
+      'ÉLÈVE UNIQUEMENT — un formateur reçoit 403. XML spec functionality 004.',
   })
-  @ApiResponse({ status: 204, description: 'Mémo supprimé' })
+  @ApiResponse({ status: 201, description: 'Chapitre créé' })
+  @ApiResponse({ status: 400, description: 'Validation error' })
   @ApiResponse({ status: 401, description: 'Non authentifié' })
-  @ApiResponse({ status: 403, description: 'Interdit — seul l\'élève propriétaire peut supprimer' })
-  @ApiResponse({ status: 404, description: 'Mémo introuvable' })
-  remove(@Param('id') id: string, @Req() req: any) {
-    return this.service.remove(id, req.user.id);
+  @ApiResponse({ status: 403, description: 'Réservé à l\'élève uniquement' })
+  createChapter(@Body() dto: CreateMemoChapterDto, @Req() req: any) {
+    return this.service.createChapter(req.user.id, dto, req.user.id, req.user.role);
+  }
+
+  /**
+   * POST /memos/chapters/:chapterId/items
+   * Ajouter un item dans un chapitre — élève uniquement.
+   * XML spec functionality 004: "formule, texte court ou image limitée".
+   */
+  @Post('chapters/:chapterId/items')
+  @Roles(UserRole.ELEVE)
+  @ApiParam({ name: 'chapterId', description: 'UUID du chapitre de mémo' })
+  @ApiOperation({
+    summary: 'Ajouter un item dans un chapitre de mémo',
+    description:
+      'Ajoute un item (texte, formule LaTeX ou image) dans un chapitre du mémo. ' +
+      'Images limitées à 500 Ko. ÉLÈVE UNIQUEMENT. XML spec functionality 004.',
+  })
+  @ApiResponse({ status: 201, description: 'Item ajouté' })
+  @ApiResponse({ status: 400, description: 'Validation error ou image trop grande' })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  @ApiResponse({ status: 403, description: 'Réservé à l\'élève uniquement' })
+  @ApiResponse({ status: 404, description: 'Chapitre introuvable' })
+  createItem(
+    @Param('chapterId') chapterId: string,
+    @Body() dto: CreateMemoItemDto,
+    @Req() req: any,
+  ) {
+    return this.service.createItem(chapterId, dto, req.user.id, req.user.role);
   }
 }

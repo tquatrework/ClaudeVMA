@@ -10,7 +10,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { LinkedResourceDto } from './linked-resource.dto';
+import { LinkedResourceDto } from './create-log.dto';
 
 /**
  * DTO pour la création de pages spéciales (RP uniquement).
@@ -40,7 +40,7 @@ export class CreateSpecialPageDto {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => LinkedResourceDto)
-  linkedResources?: LinkedResourceDto[];
+  linkedResources?: Array<{ type: string; id: string; label?: string }>;
 
   @ApiPropertyOptional({ description: 'UUID de la session visio associée' })
   @IsOptional()

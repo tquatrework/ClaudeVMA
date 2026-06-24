@@ -7,8 +7,8 @@ import { MemoModule } from './memo/memo.module';
 import { HealthModule } from './health/health.module';
 import { PedagogicalLog } from './pedagogical-log/entities/pedagogical-log.entity';
 import { NotebookEntry } from './notebook/entities/notebook-entry.entity';
-import { Memo } from './memo/entities/memo.entity';
-import { Chapter } from './memo/entities/chapter.entity';
+import { MemoChapter } from './memo/entities/memo-chapter.entity';
+import { MemoItem } from './memo/entities/memo-item.entity';
 
 @Module({
   imports: [
@@ -18,7 +18,7 @@ import { Chapter } from './memo/entities/chapter.entity';
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
         url: configService.get<string>('DATABASE_URL'),
-        entities: [PedagogicalLog, NotebookEntry, Memo, Chapter],
+        entities: [PedagogicalLog, NotebookEntry, MemoChapter, MemoItem],
         synchronize: configService.get<string>('NODE_ENV') !== 'production',
       }),
       inject: [ConfigService],

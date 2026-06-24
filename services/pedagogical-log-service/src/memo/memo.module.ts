@@ -5,8 +5,8 @@ import { ChapterController } from './chapter.controller';
 import { MemoController } from './memo.controller';
 import { ChapterService } from './chapter.service';
 import { MemoService } from './memo.service';
-import { Chapter } from './entities/chapter.entity';
-import { Memo } from './entities/memo.entity';
+import { MemoChapter } from './entities/memo-chapter.entity';
+import { MemoItem } from './entities/memo-item.entity';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 
@@ -19,7 +19,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Chapter, Memo]),
+    TypeOrmModule.forFeature([MemoChapter, MemoItem]),
     JwtModule.register({}),
   ],
   controllers: [ChapterController, MemoController],

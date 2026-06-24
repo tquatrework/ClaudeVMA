@@ -8,7 +8,6 @@ function resolveRoleLandingPage(role: UserRole): string {
   switch (role) {
     case 'technicien_informatique':
       return '/admin/accounts'
-    case 'responsable_pedagogique':
     case 'animateur_pedagogique':
     case 'administrateur_financier':
       return '/admin/activity'
@@ -25,7 +24,7 @@ export default function LoginPage() {
   const redirectTarget = locationState?.from?.pathname ?? null
   const registrationMessage = locationState?.message ?? null
 
-  const [email, setEmail] = useState('')
+  const [loginIdentifier, setLoginIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
 
@@ -35,7 +34,7 @@ export default function LoginPage() {
     try {
       // login() stores the user in context; we read the role from localStorage
       // immediately after to determine the redirect destination.
-      await login(email, password)
+      await login(loginIdentifier, password)
       if (redirectTarget) {
         navigate(redirectTarget, { replace: true })
       } else {
@@ -74,15 +73,16 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Adresse e-mail
+              Identifiant de connexion
             </label>
             <input
-              type="email"
+              type="text"
               required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={loginIdentifier}
+              onChange={(e) => setLoginIdentifier(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              placeholder="vous@exemple.fr"
+              placeholder="jean.dupont"
+              autoComplete="username"
             />
           </div>
 
@@ -112,6 +112,12 @@ export default function LoginPage() {
         <p className="mt-4 text-sm text-gray-500 text-center">
           <Link to="/password-reset" className="text-indigo-600 hover:underline">
             Mot de passe oublié ?
+          </Link>
+        </p>
+
+        <p className="mt-2 text-sm text-gray-500 text-center">
+          <Link to="/recover-identifier" className="text-indigo-600 hover:underline">
+            Identifiant oublié ?
           </Link>
         </p>
 

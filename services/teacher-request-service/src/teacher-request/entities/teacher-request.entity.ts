@@ -7,6 +7,14 @@ export enum RequestStatus {
   REDIRECTED = 'redirected',
   ASSIGNED = 'assigned',
   CANCELLED = 'cancelled',
+  CANDIDATES_PUBLISHED = 'candidates_published',
+  CANDIDATES_SELECTED = 'candidates_selected',
+  CANDIDATE_CHOSEN = 'candidate_chosen',
+}
+
+export enum RequestType {
+  SPECIFIC = 'specific',
+  PP_CHANGE = 'pp_change',
 }
 
 @Entity('teacher_requests')
@@ -37,6 +45,18 @@ export class TeacherRequest {
 
   @Column({ type: 'varchar', default: RequestStatus.PENDING })
   status: RequestStatus;
+
+  @Column({ type: 'varchar', default: RequestType.SPECIFIC })
+  type: RequestType;
+
+  @Column({ name: 'current_pp_teacher_id', nullable: true })
+  currentPpTeacherId: string;
+
+  @Column({ name: 'selected_teacher_ids', type: 'simple-array', nullable: true })
+  selectedTeacherIds: string[];
+
+  @Column({ name: 'chosen_teacher_id', nullable: true })
+  chosenTeacherId: string;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

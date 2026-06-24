@@ -108,7 +108,8 @@ export class RelationsService {
 
   /**
    * List all teachers linked to a student.
-   * Accessible to RP, TI, the student themselves, and their linked parent.
+   * Accessible to RP, TI, AdministrateurFinancier, the student themselves,
+   * and any PARENT_FINANCEUR who is actually linked to that student.
    * Formateurs may also see their own links to that student.
    */
   async getTeachersByStudent(studentId: string, actor: Actor) {
@@ -125,6 +126,19 @@ export class RelationsService {
     // A formateur may see only their own link to the student (PROF-FB-003)
     if (actor.role === UserRole.FORMATEUR) {
       return this.teacherRepo.find({ where: { teacherId: actor.id, studentId } });
+    }
+
+    // A PARENT_FINANCEUR may see all teachers of a student they are linked to
+    if (actor.role === UserRole.PARENT_FINANCEUR) {
+      const parentStudentLink = await this.financeRepo.findOne({
+        where: { financeOwnerId: actor.id, studentId },
+      });
+      if (!parentStudentLink) {
+        throw new ForbiddenException(
+          'You are not linked to this student and cannot list their teachers',
+        );
+      }
+      return this.teacherRepo.find({ where: { studentId }, order: { createdAt: 'ASC' } });
     }
 
     throw new ForbiddenException('Insufficient rights to list teachers for this student');

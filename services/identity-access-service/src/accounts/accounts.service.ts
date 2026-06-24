@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -23,14 +24,72 @@ import { CreateParentAccountDto } from './dto/create-parent-account.dto';
 import { UpdateAccountStatusDto, AccountStatusValue } from './dto/update-account-status.dto';
 import { UpdateMeDto } from './dto/update-me.dto';
 import { EventsService } from '../events/events.service';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class AccountsService {
+  private readonly logger = new Logger(AccountsService.name);
+
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(AuditLog) private readonly auditRepo: Repository<AuditLog>,
     private readonly eventsService: EventsService,
+    private readonly configService: ConfigService,
   ) {}
+
+  // ---------------------------------------------------------------------------
+  // Login identifier generation
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Derives a unique loginIdentifier from an email address.
+   * - Extracts the local part (before @)
+   * - Lower-cases and strips characters outside [a-z0-9.-]
+   * - Collapses consecutive dots and trims leading/trailing dots
+   * - Appends .2, .3, … until an available identifier is found
+   */
+  private async generateLoginIdentifier(email: string): Promise<string> {
+    const localPart = email.split('@')[0];
+    let baseIdentifier = localPart
+      .toLowerCase()
+      .replace(/[^a-z0-9.\-]/g, '.')
+      .replace(/\.{2,}/g, '.')
+      .replace(/^\.|\.$/g, '');
+
+    if (baseIdentifier.length === 0) {
+      baseIdentifier = 'user';
+    }
+
+    let candidateIdentifier = baseIdentifier;
+    let collisionCounter = 1;
+
+    while (await this.userRepo.findOne({ where: { loginIdentifier: candidateIdentifier } })) {
+      collisionCounter += 1;
+      candidateIdentifier = `${baseIdentifier}.${collisionCounter}`;
+    }
+
+    return candidateIdentifier;
+  }
+
+  /**
+   * Resolves the loginIdentifier for a new account:
+   * - If dto.loginIdentifier is provided, check it is free (409 if taken).
+   * - Otherwise, auto-generate from the email.
+   */
+  private async resolveLoginIdentifier(email: string, requestedIdentifier?: string): Promise<string> {
+    if (requestedIdentifier) {
+      const alreadyTaken = await this.userRepo.findOne({ where: { loginIdentifier: requestedIdentifier } });
+      if (alreadyTaken) {
+        throw new ConflictException(`Login identifier '${requestedIdentifier}' is already taken`);
+      }
+      return requestedIdentifier;
+    }
+    return this.generateLoginIdentifier(email);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Public API
+  // ---------------------------------------------------------------------------
 
   async createAccount(dto: CreateAccountDto, ipAddress?: string) {
     const role = dto.role ?? UserRole.ELEVE;
@@ -39,27 +98,33 @@ export class AccountsService {
       throw new ForbiddenException('Cannot self-register with an internal role (IAM-FB-002)');
     }
 
-    const existing = await this.userRepo.findOne({ where: { email: dto.email } });
-    if (existing) throw new ConflictException('Email already in use');
+    const loginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier);
+
+    const emailAlreadyUsed = !!(await this.userRepo.findOne({ where: { email: dto.email } }));
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
-    const user = this.userRepo.create({
+    const newUser = this.userRepo.create({
+      loginIdentifier,
       email: dto.email,
       passwordHash,
       role,
       validationStatus: ValidationStatus.PENDING,
       consentSigned: false,
     });
-    const saved = await this.userRepo.save(user);
+    const savedUser = await this.userRepo.save(newUser);
 
     this.eventsService.publish('AccountCreated', {
-      userId: saved.id,
-      email: saved.email,
-      role: saved.role,
+      userId: savedUser.id,
+      loginIdentifier: savedUser.loginIdentifier,
+      email: savedUser.email,
+      role: savedUser.role,
       ipAddress,
     });
 
-    return this.toPublic(saved);
+    return {
+      ...this.toPublic(savedUser),
+      ...(emailAlreadyUsed ? { emailAlreadyUsed: true, suggestedLoginIdentifier: loginIdentifier } : {}),
+    };
   }
 
   async getAccount(accountId: string) {
@@ -69,15 +134,19 @@ export class AccountsService {
 
   /**
    * PATCH /accounts/me — update the authenticated user's own account.
-   * Only email and password can be changed via this route.
+   * email, loginIdentifier and password can be changed via this route.
    * Role and status modifications are handled by dedicated admin routes.
    */
   async updateMe(currentUserId: string, dto: UpdateMeDto) {
     const account = await this.findOrFail(currentUserId);
 
-    if (dto.email !== undefined && dto.email !== account.email) {
-      const emailAlreadyTaken = await this.userRepo.findOne({ where: { email: dto.email } });
-      if (emailAlreadyTaken) throw new ConflictException('Email already in use');
+    if (dto.loginIdentifier !== undefined && dto.loginIdentifier !== account.loginIdentifier) {
+      const alreadyTaken = await this.userRepo.findOne({ where: { loginIdentifier: dto.loginIdentifier } });
+      if (alreadyTaken) throw new ConflictException('Login identifier already in use');
+      account.loginIdentifier = dto.loginIdentifier;
+    }
+
+    if (dto.email !== undefined) {
       account.email = dto.email;
     }
 
@@ -90,7 +159,7 @@ export class AccountsService {
   }
 
   async updateRoles(accountId: string, dto: UpdateRolesDto, actor: User) {
-    const target = await this.findOrFail(accountId);
+    const targetAccount = await this.findOrFail(accountId);
 
     const canAssignInternal = [
       UserRole.RESPONSABLE_PEDAGOGIQUE,
@@ -101,13 +170,13 @@ export class AccountsService {
       throw new ForbiddenException('Only RP or TI can assign internal roles');
     }
 
-    const oldRole = target.role;
-    target.role = dto.role;
-    await this.userRepo.save(target);
+    const oldRole = targetAccount.role;
+    targetAccount.role = dto.role;
+    await this.userRepo.save(targetAccount);
 
     await this.auditRepo.save(
       this.auditRepo.create({
-        targetUserId: target.id,
+        targetUserId: targetAccount.id,
         actorId: actor.id,
         action: 'ROLE_CHANGED',
         oldValue: { role: oldRole },
@@ -116,17 +185,17 @@ export class AccountsService {
     );
 
     this.eventsService.publish('RoleChanged', {
-      userId: target.id,
+      userId: targetAccount.id,
       oldRole,
       newRole: dto.role,
       actorId: actor.id,
     });
 
-    return this.toPublic(target);
+    return this.toPublic(targetAccount);
   }
 
   async validateAccount(accountId: string, actor: User) {
-    const target = await this.findOrFail(accountId);
+    const targetAccount = await this.findOrFail(accountId);
 
     const canValidate = [
       UserRole.RESPONSABLE_PEDAGOGIQUE,
@@ -134,16 +203,16 @@ export class AccountsService {
     ].includes(actor.role);
     if (!canValidate) throw new ForbiddenException('Only RP or TI can validate accounts');
 
-    if (!target.consentSigned) {
+    if (!targetAccount.consentSigned) {
       throw new ForbiddenException('Account cannot be validated before mandatory consents are signed (IAM-FB-003)');
     }
 
-    target.validationStatus = ValidationStatus.ACTIVE;
-    await this.userRepo.save(target);
+    targetAccount.validationStatus = ValidationStatus.ACTIVE;
+    await this.userRepo.save(targetAccount);
 
     await this.auditRepo.save(
       this.auditRepo.create({
-        targetUserId: target.id,
+        targetUserId: targetAccount.id,
         actorId: actor.id,
         action: 'ACCOUNT_VALIDATED',
         oldValue: { validationStatus: ValidationStatus.PENDING },
@@ -151,9 +220,9 @@ export class AccountsService {
       }),
     );
 
-    this.eventsService.publish('AccountValidated', { userId: target.id, actorId: actor.id });
+    this.eventsService.publish('AccountValidated', { userId: targetAccount.id, actorId: actor.id });
 
-    return this.toPublic(target);
+    return this.toPublic(targetAccount);
   }
 
   async suspendAccount(accountId: string, actor: User) {
@@ -161,16 +230,16 @@ export class AccountsService {
       throw new ForbiddenException('Only TI can suspend accounts');
     }
 
-    const target = await this.findOrFail(accountId);
-    const previousValidationStatus = target.validationStatus;
+    const targetAccount = await this.findOrFail(accountId);
+    const previousValidationStatus = targetAccount.validationStatus;
 
-    target.validationStatus = ValidationStatus.SUSPENDED;
-    target.isActive = false;
-    await this.userRepo.save(target);
+    targetAccount.validationStatus = ValidationStatus.SUSPENDED;
+    targetAccount.isActive = false;
+    await this.userRepo.save(targetAccount);
 
     await this.auditRepo.save(
       this.auditRepo.create({
-        targetUserId: target.id,
+        targetUserId: targetAccount.id,
         actorId: actor.id,
         action: 'ACCOUNT_SUSPENDED',
         oldValue: { validationStatus: previousValidationStatus },
@@ -178,9 +247,9 @@ export class AccountsService {
       }),
     );
 
-    this.eventsService.publish('AccountSuspended', { userId: target.id, actorId: actor.id });
+    this.eventsService.publish('AccountSuspended', { userId: targetAccount.id, actorId: actor.id });
 
-    return this.toPublic(target);
+    return this.toPublic(targetAccount);
   }
 
   async getAuditLogs(accountId: string) {
@@ -197,6 +266,7 @@ export class AccountsService {
    */
   async listAccounts(filterRole?: UserRole): Promise<{
     userId: string;
+    loginIdentifier: string;
     role: string;
     email: string;
     firstName: string | null;
@@ -207,6 +277,7 @@ export class AccountsService {
     const userList = await this.userRepo.find({ where: whereClause });
     return userList.map((user) => ({
       userId: user.id,
+      loginIdentifier: user.loginIdentifier,
       role: user.role,
       email: user.email,
       firstName: user.firstName ?? null,
@@ -217,14 +288,22 @@ export class AccountsService {
 
   /**
    * Creates a student account (eleve role).
-   * Optionally creates a linked parent financeur account in the same transaction.
+   * Optionally links or creates a parent financeur account in the same call.
+   *
+   * Parent resolution rules:
+   *   - parentLoginIdentifier provided → find by loginIdentifier (404 if not found)
+   *   - parentEmail provided only:
+   *       0 results → create new parent account
+   *       1 result  → link that existing account
+   *       2+ results → 409: ask to use parentLoginIdentifier instead
    */
   async createStudentAccount(dto: CreateStudentAccountDto, ipAddress?: string) {
-    const existingStudent = await this.userRepo.findOne({ where: { email: dto.email } });
-    if (existingStudent) throw new ConflictException('Email already in use');
+    const studentLoginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier);
+    const studentEmailAlreadyUsed = !!(await this.userRepo.findOne({ where: { email: dto.email } }));
 
     const studentPasswordHash = await bcrypt.hash(dto.password, 12);
     const student = this.userRepo.create({
+      loginIdentifier: studentLoginIdentifier,
       email: dto.email,
       passwordHash: studentPasswordHash,
       role: UserRole.ELEVE,
@@ -235,51 +314,80 @@ export class AccountsService {
 
     this.eventsService.publish('AccountCreated', {
       userId: savedStudent.id,
+      loginIdentifier: savedStudent.loginIdentifier,
       email: savedStudent.email,
       role: savedStudent.role,
       ipAddress,
     });
 
     let savedParent: User | null = null;
+    let parentCreated = false;
 
-    if (dto.parentEmail) {
-      const existingParent = await this.userRepo.findOne({ where: { email: dto.parentEmail } });
-      if (existingParent) throw new ConflictException('Parent email already in use');
+    if (dto.parentLoginIdentifier) {
+      // Explicit identifier — find the account or fail
+      const existingParent = await this.userRepo.findOne({ where: { loginIdentifier: dto.parentLoginIdentifier } });
+      if (!existingParent) {
+        throw new NotFoundException(`No account found with loginIdentifier '${dto.parentLoginIdentifier}'`);
+      }
+      savedParent = existingParent;
+    } else if (dto.parentEmail) {
+      const matchingParents = await this.userRepo.find({ where: { email: dto.parentEmail } });
 
-      const parentPasswordHash = await bcrypt.hash(dto.parentPassword ?? dto.password, 12);
-      const parent = this.userRepo.create({
-        email: dto.parentEmail,
-        passwordHash: parentPasswordHash,
-        role: UserRole.PARENT_FINANCEUR,
-        validationStatus: ValidationStatus.PENDING,
-        consentSigned: false,
-      });
-      savedParent = await this.userRepo.save(parent);
+      if (matchingParents.length === 0) {
+        // Create new parent account
+        const parentLoginIdentifier = await this.generateLoginIdentifier(dto.parentEmail);
+        const parentPasswordHash = await bcrypt.hash(dto.parentPassword ?? dto.password, 12);
+        const parent = this.userRepo.create({
+          loginIdentifier: parentLoginIdentifier,
+          email: dto.parentEmail,
+          passwordHash: parentPasswordHash,
+          role: UserRole.PARENT_FINANCEUR,
+          validationStatus: ValidationStatus.PENDING,
+          consentSigned: false,
+        });
+        savedParent = await this.userRepo.save(parent);
+        parentCreated = true;
 
-      this.eventsService.publish('AccountCreated', {
-        userId: savedParent.id,
-        email: savedParent.email,
-        role: savedParent.role,
-        ipAddress,
-      });
+        this.eventsService.publish('AccountCreated', {
+          userId: savedParent.id,
+          loginIdentifier: savedParent.loginIdentifier,
+          email: savedParent.email,
+          role: savedParent.role,
+          ipAddress,
+        });
+      } else if (matchingParents.length === 1) {
+        // Link existing account
+        savedParent = matchingParents[0];
+      } else {
+        // Ambiguous — multiple accounts share this email
+        throw new ConflictException(
+          'Plusieurs comptes existent avec cet email parent. Utilisez parentLoginIdentifier à la place.',
+        );
+      }
     }
 
     return {
-      student: this.toPublic(savedStudent),
-      parent: savedParent ? this.toPublic(savedParent) : null,
+      student: {
+        ...this.toPublic(savedStudent),
+        ...(studentEmailAlreadyUsed ? { emailAlreadyUsed: true, suggestedLoginIdentifier: studentLoginIdentifier } : {}),
+      },
+      parent: savedParent
+        ? { ...this.toPublic(savedParent), created: parentCreated }
+        : null,
     };
   }
 
   /**
-   * Creates a teacher account (formateur role) in NON_APPROVED status.
-   * The teacher remains non_approved until RP validates after interview/test, contract and financial info.
+   * Creates a teacher account (formateur role) in PENDING status.
+   * The teacher remains pending until RP validates after interview/test, contract and financial info.
    */
   async createTeacherAccount(dto: CreateTeacherAccountDto, ipAddress?: string) {
-    const existing = await this.userRepo.findOne({ where: { email: dto.email } });
-    if (existing) throw new ConflictException('Email already in use');
+    const loginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier);
+    const emailAlreadyUsed = !!(await this.userRepo.findOne({ where: { email: dto.email } }));
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
     const teacher = this.userRepo.create({
+      loginIdentifier,
       email: dto.email,
       passwordHash,
       role: UserRole.FORMATEUR,
@@ -290,24 +398,36 @@ export class AccountsService {
 
     this.eventsService.publish('AccountCreated', {
       userId: savedTeacher.id,
+      loginIdentifier: savedTeacher.loginIdentifier,
       email: savedTeacher.email,
       role: savedTeacher.role,
       ipAddress,
       cvReference: dto.cvReference,
     });
 
-    return this.toPublic(savedTeacher);
+    // Notification non-bloquante au dashboard RP
+    this.notifyDashboardTeacherPending(
+      savedTeacher.id,
+      savedTeacher.firstName ?? '',
+      savedTeacher.lastName ?? '',
+    );
+
+    return {
+      ...this.toPublic(savedTeacher),
+      ...(emailAlreadyUsed ? { emailAlreadyUsed: true, suggestedLoginIdentifier: loginIdentifier } : {}),
+    };
   }
 
   /**
    * Creates a standalone parent financeur account.
    */
   async createParentAccount(dto: CreateParentAccountDto, ipAddress?: string) {
-    const existing = await this.userRepo.findOne({ where: { email: dto.email } });
-    if (existing) throw new ConflictException('Email already in use');
+    const loginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier);
+    const emailAlreadyUsed = !!(await this.userRepo.findOne({ where: { email: dto.email } }));
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
     const parent = this.userRepo.create({
+      loginIdentifier,
       email: dto.email,
       passwordHash,
       role: UserRole.PARENT_FINANCEUR,
@@ -318,12 +438,16 @@ export class AccountsService {
 
     this.eventsService.publish('AccountCreated', {
       userId: savedParent.id,
+      loginIdentifier: savedParent.loginIdentifier,
       email: savedParent.email,
       role: savedParent.role,
       ipAddress,
     });
 
-    return this.toPublic(savedParent);
+    return {
+      ...this.toPublic(savedParent),
+      ...(emailAlreadyUsed ? { emailAlreadyUsed: true, suggestedLoginIdentifier: loginIdentifier } : {}),
+    };
   }
 
   /**
@@ -423,6 +547,69 @@ export class AccountsService {
     return { message: `Access regenerated for account ${accountId}. All existing sessions should be revoked by the client.` };
   }
 
+  /**
+   * GET /accounts/check-email?email=xxx — public endpoint.
+   * Returns whether an email is already associated with one or more accounts,
+   * and what loginIdentifier would be suggested for a new registration with that email.
+   */
+  async checkEmail(email: string): Promise<{ alreadyUsed: boolean; suggestedLoginIdentifier: string }> {
+    const existingUsers = await this.userRepo.find({ where: { email } });
+    const suggestedLoginIdentifier = await this.generateLoginIdentifier(email);
+    return {
+      alreadyUsed: existingUsers.length > 0,
+      suggestedLoginIdentifier,
+    };
+  }
+
+  async findByLoginIdentifier(loginIdentifier: string): Promise<{ userId: string; role: string }> {
+    const user = await this.userRepo.findOne({ where: { loginIdentifier } });
+    if (!user) throw new NotFoundException('Identifiant élève introuvable');
+    return { userId: user.id, role: user.role };
+  }
+
+  async findByUserId(userId: string): Promise<{ userId: string; loginIdentifier: string; role: string }> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Compte introuvable');
+    return { userId: user.id, loginIdentifier: user.loginIdentifier, role: user.role };
+  }
+
+  /**
+   * Envoie une notification au dashboard-notification-service pour informer le RP
+   * qu'un nouveau formateur est en attente de validation.
+   * L'appel est non-bloquant : une erreur est loguée mais ne fait pas échouer la création de compte.
+   */
+  private notifyDashboardTeacherPending(
+    teacherId: string,
+    firstName: string,
+    lastName: string,
+  ): void {
+    const dashboardServiceUrl = this.configService.get<string>(
+      'DASHBOARD_NOTIFICATION_SERVICE_URL',
+      'http://dashboard-notification-service:3000',
+    );
+
+    const teacherFullName = [firstName, lastName].filter(Boolean).join(' ') || 'Formateur inconnu';
+
+    fetch(`${dashboardServiceUrl}/internal/notify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'TEACHER_PENDING_VALIDATION',
+        targetRole: 'responsable_pedagogique',
+        payload: {
+          teacherId,
+          teacherName: teacherFullName,
+          message: 'Nouveau formateur en attente de validation',
+        },
+      }),
+      signal: AbortSignal.timeout(5000),
+    }).catch((notificationError: Error) => {
+      this.logger.warn(
+        `Impossible de notifier le dashboard pour le formateur ${teacherId} : ${notificationError.message}`,
+      );
+    });
+  }
+
   private async findOrFail(id: string): Promise<User> {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`Account ${id} not found`);
@@ -432,6 +619,7 @@ export class AccountsService {
   private toPublic(user: User) {
     return {
       id: user.id,
+      loginIdentifier: user.loginIdentifier,
       email: user.email,
       role: user.role,
       validationStatus: user.validationStatus,

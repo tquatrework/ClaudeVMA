@@ -13,6 +13,7 @@ import { EventsService } from '../events/events.service';
 
 interface JwtPayload {
   sub: string;
+  loginIdentifier: string;
   email: string;
   role: string;
   validationStatus: string;
@@ -37,13 +38,13 @@ export class AuthService {
     const user = await this.userRepo
       .createQueryBuilder('user')
       .addSelect('user.passwordHash')
-      .where('user.email = :email', { email: dto.email })
+      .where('user.loginIdentifier = :loginIdentifier', { loginIdentifier: dto.loginIdentifier })
       .getOne();
 
     if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
 
-    const valid = await bcrypt.compare(dto.password, user.passwordHash);
-    if (!valid) throw new UnauthorizedException('Invalid credentials');
+    const isPasswordValid = await bcrypt.compare(dto.password, user.passwordHash);
+    if (!isPasswordValid) throw new UnauthorizedException('Invalid credentials');
 
     return this.buildTokenResponse(user, ipAddress, userAgent);
   }
@@ -76,12 +77,12 @@ export class AuthService {
   }
 
   /**
-   * Initiates a password reset flow.
-   * Always returns a success response to avoid email enumeration.
-   * In production a real email would be sent; here we log the token for observability.
+   * Initiates a password reset flow using loginIdentifier.
+   * Always returns a success response to avoid identifier enumeration.
+   * The reset link is emailed to the address associated with the account.
    */
-  async requestPasswordReset(email: string, ipAddress?: string): Promise<{ message: string }> {
-    const user = await this.userRepo.findOne({ where: { email } });
+  async requestPasswordReset(loginIdentifier: string, ipAddress?: string): Promise<{ message: string }> {
+    const user = await this.userRepo.findOne({ where: { loginIdentifier } });
 
     if (user) {
       const rawToken = randomUUID();
@@ -96,17 +97,41 @@ export class AuthService {
 
       this.eventsService.publish('PasswordResetRequested', {
         userId: user.id,
+        loginIdentifier: user.loginIdentifier,
         email: user.email,
         ipAddress,
-        // In production, rawToken would be emailed to the user — never logged in plaintext.
+        // In production, rawToken would be emailed to user.email — never logged in plaintext.
       });
 
-      // Phase 1 stub: log that a reset was triggered (token not exposed in logs)
       this.logger.log(`Password reset requested for user ${user.id}`);
     }
 
+    // Always return success to prevent identifier enumeration
+    return { message: 'If the identifier is registered, a reset link will be sent to the associated email.' };
+  }
+
+  /**
+   * Recovers loginIdentifier(s) associated with a given email address.
+   * Always returns 200 to prevent email enumeration.
+   * An event is emitted so the platform can send the identifier list by email.
+   */
+  async recoverIdentifier(email: string, ipAddress?: string): Promise<{ message: string }> {
+    const matchingUsers = await this.userRepo.find({ where: { email } });
+
+    if (matchingUsers.length > 0) {
+      const loginIdentifiers = matchingUsers.map((user) => user.loginIdentifier);
+
+      this.eventsService.publish('IdentifierRecoveryRequested', {
+        email,
+        loginIdentifiers,
+        ipAddress,
+      });
+
+      this.logger.log(`Identifier recovery requested for email — ${matchingUsers.length} account(s) found`);
+    }
+
     // Always return success to prevent email enumeration
-    return { message: 'If the email is registered, a reset link will be sent.' };
+    return { message: 'If the email is registered, the associated login identifier(s) will be sent.' };
   }
 
   /**
@@ -140,6 +165,7 @@ export class AuthService {
 
     const accessPayload = {
       sub: user.id,
+      loginIdentifier: user.loginIdentifier,
       email: user.email,
       role: user.role,
       validationStatus: user.validationStatus,
@@ -163,6 +189,7 @@ export class AuthService {
       refresh_token: refreshToken,
       user: {
         id: user.id,
+        loginIdentifier: user.loginIdentifier,
         email: user.email,
         role: user.role,
         validationStatus: user.validationStatus,

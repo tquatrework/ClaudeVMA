@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ProfilesService, Actor } from '../../../src/profiles/profiles.service';
 import { AdministrativeProfile } from '../../../src/profiles/entities/administrative-profile.entity';
 import { StudentPedagogicalProfile } from '../../../src/profiles/entities/student-pedagogical-profile.entity';
@@ -26,8 +27,17 @@ describe('ProfilesService', () => {
   let teacherLinkRepo: any;
   let financeLinkRepo: any;
   let eventsService: any;
+  let configService: any;
+  let mockFetch: jest.Mock;
 
   beforeEach(async () => {
+    mockFetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ userId: 'student-uuid', loginIdentifier: 'alice.martin', role: 'eleve' }),
+    });
+    global.fetch = mockFetch;
+
     adminRepo = {
       findOne: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockImplementation((dto) => dto),
@@ -69,6 +79,9 @@ describe('ProfilesService', () => {
     teacherLinkRepo = { findOne: jest.fn().mockResolvedValue(null) };
     financeLinkRepo = { findOne: jest.fn().mockResolvedValue(null) };
     eventsService = { publish: jest.fn() };
+    configService = {
+      get: jest.fn().mockImplementation((key: string, defaultValue?: string) => defaultValue ?? ''),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -82,6 +95,7 @@ describe('ProfilesService', () => {
         { provide: getRepositoryToken(TeacherStudentLink), useValue: teacherLinkRepo },
         { provide: getRepositoryToken(FinanceOwnerStudentLink), useValue: financeLinkRepo },
         { provide: EventsService, useValue: eventsService },
+        { provide: ConfigService, useValue: configService },
       ],
     }).compile();
 
@@ -106,6 +120,34 @@ describe('ProfilesService', () => {
       const actor = makeActor(UserRole.ELEVE, 'student-uuid');
       const result = await service.getProfile('student-uuid', actor);
       expect(result.userId).toBe('student-uuid');
+    });
+
+    it('includes loginIdentifier from identity-access-service', async () => {
+      adminRepo.findOne.mockResolvedValue(mockAdminProfile);
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ userId: 'student-uuid', loginIdentifier: 'alice.martin', role: 'eleve' }),
+      });
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await service.getProfile('student-uuid', actor);
+      expect(result).toHaveProperty('loginIdentifier', 'alice.martin');
+    });
+
+    it('returns loginIdentifier null when identity-access-service returns 404', async () => {
+      adminRepo.findOne.mockResolvedValue(mockAdminProfile);
+      mockFetch.mockResolvedValue({ ok: false, status: 404 });
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await service.getProfile('student-uuid', actor);
+      expect(result).toHaveProperty('loginIdentifier', null);
+    });
+
+    it('returns loginIdentifier null on network error (graceful degradation)', async () => {
+      adminRepo.findOne.mockResolvedValue(mockAdminProfile);
+      mockFetch.mockRejectedValue(new Error('ECONNREFUSED'));
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await service.getProfile('student-uuid', actor);
+      expect(result).toHaveProperty('loginIdentifier', null);
     });
 
     it('throws 403 when élève tries to view another profile', async () => {

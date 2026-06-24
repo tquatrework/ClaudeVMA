@@ -4,7 +4,7 @@ import { useAuth } from '../hooks/useAuth'
 
 interface TeacherValidationStatus {
   teacherId: string
-  validationStatus: 'pending' | 'approved' | 'rejected'
+  validationStatus: 'pending' | 'in_review' | 'validated' | 'rejected'
   validatedAt?: string
   validatedBy?: string
   rejectionReason?: string
@@ -24,6 +24,7 @@ export default function TeacherValidationPanel({ teacherId }: Props) {
   const [validationStatus, setValidationStatus] = useState<TeacherValidationStatus | null>(null)
   const [isLoadingStatus, setIsLoadingStatus] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isTakingCharge, setIsTakingCharge] = useState(false)
   const [rejectionReason, setRejectionReason] = useState('')
   const [showRejectionForm, setShowRejectionForm] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -44,6 +45,27 @@ export default function TeacherValidationPanel({ teacherId }: Props) {
       .finally(() => setIsLoadingStatus(false))
   }, [teacherId, canValidate])
 
+  const handleTakeCharge = async () => {
+    setIsTakingCharge(true)
+    setErrorMessage(null)
+    setSuccessMessage(null)
+    try {
+      const { data } = await apiClient.patch<TeacherValidationStatus>(
+        `/profiles/${teacherId}/validation`,
+        { validationStatus: 'in_review' },
+      )
+      setValidationStatus(data)
+      setSuccessMessage('Dossier pris en charge — entretien en cours')
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        'Erreur lors de la prise en charge'
+      setErrorMessage(message)
+    } finally {
+      setIsTakingCharge(false)
+    }
+  }
+
   const handleApprove = async () => {
     setIsSaving(true)
     setErrorMessage(null)
@@ -51,7 +73,7 @@ export default function TeacherValidationPanel({ teacherId }: Props) {
     try {
       const { data } = await apiClient.patch<TeacherValidationStatus>(
         `/profiles/${teacherId}/validation`,
-        { validationStatus: 'approved' },
+        { validationStatus: 'validated' },
       )
       setValidationStatus(data)
       setSuccessMessage('Formateur validé avec succès')
@@ -94,14 +116,16 @@ export default function TeacherValidationPanel({ teacherId }: Props) {
   if (!canValidate) return null
 
   const statusLabel: Record<string, string> = {
-    pending: 'En attente',
-    approved: 'Validé',
+    pending: 'En attente de prise en charge',
+    in_review: "En cours d'entretien",
+    validated: 'Validé',
     rejected: 'Rejeté',
   }
 
   const statusColor: Record<string, string> = {
     pending: 'bg-yellow-100 text-yellow-700',
-    approved: 'bg-green-100 text-green-700',
+    in_review: 'bg-blue-100 text-blue-700',
+    validated: 'bg-green-100 text-green-700',
     rejected: 'bg-red-100 text-red-700',
   }
 
@@ -167,8 +191,21 @@ export default function TeacherValidationPanel({ teacherId }: Props) {
             </p>
           )}
 
-          {/* Actions */}
+          {/* Actions — étape 1 : prise en charge (statut pending uniquement) */}
           {validationStatus.validationStatus === 'pending' && (
+            <div className="flex gap-3 flex-wrap">
+              <button
+                onClick={handleTakeCharge}
+                disabled={isTakingCharge}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
+              >
+                {isTakingCharge ? 'En cours…' : 'Prendre en charge'}
+              </button>
+            </div>
+          )}
+
+          {/* Actions — étape 2 : validation ou rejet (statut in_review uniquement) */}
+          {validationStatus.validationStatus === 'in_review' && (
             <div className="flex gap-3 flex-wrap">
               <button
                 onClick={handleApprove}

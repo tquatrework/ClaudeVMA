@@ -7,6 +7,7 @@ export type DomainEventType =
   | 'AccountValidated'
   | 'AccountSuspended'
   | 'PasswordResetRequested'
+  | 'IdentifierRecoveryRequested'
   | 'AccessRegenerated'
   | 'DelegatedAccessGranted';
 

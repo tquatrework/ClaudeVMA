@@ -31,47 +31,47 @@ export class ParentLinkRequestsService {
   ) {}
 
   /**
-   * Submit a new parent-link request.
-   * Allowed for PARENT_FINANCEUR only.
-   * Validates that the studentId corresponds to an existing student pedagogical profile.
-   * Returns 400 if the student profile is not found.
-   * Returns 409 if a pending request already exists for this parent–student pair.
+   * Soumet une demande de rattachement parent↔élève.
+   * Réservé au rôle PARENT_FINANCEUR.
+   * Résout le loginIdentifier en UUID via identity-access-service (interne).
+   * Retourne 404 si l'identifiant élève est introuvable.
+   * Retourne 400 si l'identifiant ne correspond pas à un compte élève.
+   * Retourne 409 si une demande en attente existe déjà pour cette paire parent–élève.
    */
   async createRequest(dto: CreateParentLinkRequestDto, actor: Actor): Promise<ParentLinkRequest> {
     if (actor.role !== UserRole.PARENT_FINANCEUR) {
-      throw new ForbiddenException('Only a parent_financeur may submit a parent-link request');
+      throw new ForbiddenException('Seul un parent_financeur peut soumettre une demande de rattachement');
     }
 
-    const studentProfile = await this.studentPedaRepo.findOne({ where: { userId: dto.studentId } });
+    const resolvedStudentId = await this.resolveStudentIdFromLoginIdentifier(dto.studentLoginIdentifier);
+
+    const studentProfile = await this.studentPedaRepo.findOne({ where: { userId: resolvedStudentId } });
     if (!studentProfile) {
-      throw new BadRequestException(
-        `No student profile found for studentId ${dto.studentId}. Verify the student ID.`,
-      );
+      throw new BadRequestException('Aucun profil élève trouvé pour cet identifiant.');
     }
 
     const pendingRequest = await this.requestRepo.findOne({
       where: {
         parentId: actor.id,
-        studentId: dto.studentId,
+        studentId: resolvedStudentId,
         status: ParentLinkRequestStatus.PENDING,
       },
     });
     if (pendingRequest) {
       throw new ConflictException(
-        'A pending parent-link request already exists for this parent–student pair',
+        'Une demande de rattachement en attente existe déjà pour cette paire parent–élève',
       );
     }
 
     const newRequest = this.requestRepo.create({
       parentId: actor.id,
-      studentId: dto.studentId,
+      studentId: resolvedStudentId,
       status: ParentLinkRequestStatus.PENDING,
     });
     const savedRequest = await this.requestRepo.save(newRequest);
 
-    // Best-effort notification to the student
     await this.notifyUser(
-      dto.studentId,
+      resolvedStudentId,
       'Un parent demande à être rattaché à votre compte. Vérifiez vos demandes de rattachement.',
     );
 
@@ -208,6 +208,52 @@ export class ParentLinkRequestsService {
     throw new ForbiddenException(
       'Only the targeted élève, a responsable_pedagogique, or a technicien_informatique may process this request',
     );
+  }
+
+  /**
+   * Résout un loginIdentifier élève en UUID via identity-access-service.
+   * Lève NotFoundException si l'identifiant est introuvable (404 distant).
+   * Lève BadRequestException si le compte trouvé n'est pas de rôle 'eleve'.
+   */
+  private async resolveStudentIdFromLoginIdentifier(studentLoginIdentifier: string): Promise<string> {
+    const identityServiceUrl = this.configService.get<string>(
+      'IDENTITY_ACCESS_SERVICE_URL',
+      'http://identity-access-service:3001',
+    );
+    const internalSecret = this.configService.get<string>('INTERNAL_SECRET', '');
+
+    let response: Response;
+    try {
+      response = await fetch(
+        `${identityServiceUrl}/internal/accounts/by-login-identifier?loginIdentifier=${encodeURIComponent(studentLoginIdentifier)}`,
+        {
+          method: 'GET',
+          headers: { 'X-Internal-Secret': internalSecret },
+        },
+      );
+    } catch (networkError) {
+      this.logger.error(
+        `Impossible de joindre identity-access-service pour résoudre le loginIdentifier : ${(networkError as Error).message}`,
+      );
+      throw new BadRequestException('Service d\'identité temporairement indisponible, veuillez réessayer.');
+    }
+
+    if (response.status === 404) {
+      throw new NotFoundException('Identifiant élève introuvable');
+    }
+
+    if (!response.ok) {
+      this.logger.error(`identity-access-service a retourné HTTP ${response.status} pour loginIdentifier ${studentLoginIdentifier}`);
+      throw new BadRequestException('Erreur lors de la résolution de l\'identifiant élève.');
+    }
+
+    const accountData = await response.json() as { userId: string; role: string };
+
+    if (accountData.role !== 'eleve') {
+      throw new BadRequestException('Cet identifiant ne correspond pas à un compte élève');
+    }
+
+    return accountData.userId;
   }
 
   /**

@@ -20,6 +20,7 @@ import type { AuthUser, UserRole } from './context/AuthContext'
 export function makeAuthUser(overrides: Partial<AuthUser> = {}): AuthUser {
   return {
     id: 'user-123',
+    loginIdentifier: 'test.user',
     email: 'test@example.com',
     role: 'eleve' as UserRole,
     validationStatus: 'active',

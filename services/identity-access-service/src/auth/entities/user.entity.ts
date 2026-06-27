@@ -72,6 +72,10 @@ export class User {
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
+  /** True une fois que l'utilisateur a cliqué sur le lien de vérification reçu par email */
+  @Column({ name: 'email_verified', default: false })
+  emailVerified: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

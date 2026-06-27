@@ -6,7 +6,9 @@ export type DomainEventType =
   | 'ConsentSigned'
   | 'AccountValidated'
   | 'AccountSuspended'
+  | 'EmailVerified'
   | 'PasswordResetRequested'
+  | 'PasswordReset'
   | 'IdentifierRecoveryRequested'
   | 'AccessRegenerated'
   | 'DelegatedAccessGranted';

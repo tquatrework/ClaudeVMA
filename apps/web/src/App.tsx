@@ -26,6 +26,7 @@ import ForbiddenPage from './pages/ForbiddenPage'
 import IncidentsPage from './pages/IncidentsPage'
 import IncidentDetailPage from './pages/IncidentDetailPage'
 import MemosPage from './pages/MemosPage'
+import MemoReadOnlyView from './pages/MemoReadOnlyView'
 import ActivitiesPage from './pages/ActivitiesPage'
 import PasswordResetPage from './pages/PasswordResetPage'
 import RecoverIdentifierPage from './pages/RecoverIdentifierPage'
@@ -310,14 +311,23 @@ export default function App() {
             }
           />
 
-          {/* Memos */}
+          {/* Memos — liste réservée à l'élève */}
           <Route
             path="/memos"
             element={
-              <ProtectedRoute
-                allowedRoles={['eleve', 'formateur', 'responsable_pedagogique']}
-              >
+              <ProtectedRoute allowedRoles={['eleve']}>
                 <MemosPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* Memos — lecture seule d'un mémo individuel (formateur, RP, AP) */}
+          <Route
+            path="/memos/:id"
+            element={
+              <ProtectedRoute
+                allowedRoles={['formateur', 'responsable_pedagogique', 'animateur_pedagogique']}
+              >
+                <MemoReadOnlyView />
               </ProtectedRoute>
             }
           />

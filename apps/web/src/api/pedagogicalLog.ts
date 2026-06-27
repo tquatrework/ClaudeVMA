@@ -209,6 +209,16 @@ export async function deleteMemo(memoId: string): Promise<void> {
   await apiClient.delete(`/memos/${memoId}`)
 }
 
+/**
+ * Lit un mémo individuel par identifiant.
+ * Autorisé pour : élève (propriétaire), formateur lié, RP, AP.
+ * Route : GET /memos/:id
+ */
+export async function fetchMemoById(memoId: string): Promise<Memo> {
+  const { data } = await apiClient.get<Memo>(`/memos/${memoId}`)
+  return data
+}
+
 // ─── Carnet personnel ─────────────────────────────────────────────────────────
 
 export async function fetchNotebookEntries(studentId: string): Promise<NotebookEntry[]> {

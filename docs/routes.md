@@ -281,15 +281,22 @@ API interne (non exposée via nginx) : `POST /internal/sync-contacts` — proté
 
 ### Cahier de texte — tenu par le formateur ou le RP, suivi séance après séance
 
+Préfixe gateway canonique : `/api/v1/pedagogical-logs` → contrôleur `/pedagogical-logs`
+Préfixes complémentaires : `/api/v1/students` → `/students` · `/api/v1/logs` → `/logs` (legacy)
+
 | Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
+| GET | /pedagogical-logs | Lister les pages de cahier de texte (filtré par rôle) | 🔒 | Tout rôle authentifié | `200 [PedagogicalLogPage]` |
+| POST | /pedagogical-logs | Ajouter une page de cahier de texte | 🔒 | formateur, RP, AP, TI | `201 {id, studentId, authorId, authorRole, content, visibility, isSpecialPage, hiddenFromStudent, linkedResources?, ...}` · `400` validation · `403` rôle non autorisé |
+| PUT | /pedagogical-logs/:id | Modifier une page (auteur, RP, TI) | 🔒 | Auteur, RP, TI | `200 PedagogicalLogPage` · `403` non auteur · `404` introuvable |
+| DELETE | /pedagogical-logs/:id | Supprimer une page | 🔒 | Auteur, responsable_pedagogique | `204` · `403` · `404` introuvable |
 | GET | /students/:studentId/pedagogical-log | Lire le cahier de texte d'un élève (filtré par rôle) | 🔒 | Tout rôle authentifié | `200 [PedagogicalLogPage]` — élève: hors pages hiddenFromStudent · parent: eleve_parent_formateur + special · RP/Formateur: tout |
-| POST | /students/:studentId/pedagogical-log | Ajouter une page de cahier de texte | 🔒 | formateur, RP, AP, TI | `201 {id, studentId, authorId, authorRole, content, visibility, isSpecialPage, hiddenFromStudent, linkedResources?, ...}` · `400` validation · `403` rôle non autorisé |
+| POST | /students/:studentId/pedagogical-log | Ajouter une page liée à un élève précis | 🔒 | formateur, RP, AP, TI | `201 {id, studentId, ...}` · `400` validation · `403` rôle non autorisé |
 | POST | /students/:studentId/pedagogical-log/special-pages | Créer une page spéciale avec visibilité ciblée (RP uniquement) | 🔒 | responsable_pedagogique | `201 {id, ..., isSpecialPage: true, hiddenFromStudent, visibility: "special"}` · `403` réservé RP |
 | GET | /logs/session/:sessionId | Logs d'une séance (filtrés par rôle) | 🔒 | Tout rôle authentifié | `200 [PedagogicalLogPage]` |
 | GET | /logs/:id | Détail d'une page | 🔒 | Selon visibilité et rôle | `200 PedagogicalLogPage` · `403` visibilité bloquée · `404` introuvable |
-| PATCH | /logs/:id | Modifier une page | 🔒 | Auteur, RP, TI | `200 PedagogicalLogPage` · `403` non auteur · `404` introuvable |
-| DELETE | /logs/:id | Supprimer une page | 🔒 | Auteur, responsable_pedagogique | `204` · `403` · `404` introuvable |
+| PATCH | /logs/:id | Modifier une page (legacy) | 🔒 | Auteur, RP, TI | `200 PedagogicalLogPage` · `403` non auteur · `404` introuvable |
+| DELETE | /logs/:id | Supprimer une page (legacy) | 🔒 | Auteur, responsable_pedagogique | `204` · `403` · `404` introuvable |
 
 Règles de visibilité :
 - `eleve_parent_formateur` : élève, parent, formateur, RP, AP, TI

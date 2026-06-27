@@ -69,7 +69,7 @@ export interface FinancialArchiveItem {
  * Rôles autorisés : owner, AF, RP, TI
  */
 export async function fetchFinancialProfile(ownerId: string): Promise<FinancialProfile> {
-  const { data } = await apiClient.get<FinancialProfile>(`/financial-profiles/${ownerId}`)
+  const { data } = await apiClient.get<FinancialProfile>(`/finance/financial-profiles/${ownerId}`)
   return data
 }
 
@@ -82,7 +82,7 @@ export async function updateFinancialProfile(
   payload: UpdateFinancialProfilePayload,
 ): Promise<FinancialProfile> {
   const { data } = await apiClient.patch<FinancialProfile>(
-    `/financial-profiles/${ownerId}`,
+    `/finance/financial-profiles/${ownerId}`,
     payload,
   )
   return data
@@ -93,7 +93,7 @@ export async function updateFinancialProfile(
  * Initier un paiement (inscription, abonnement, versement ponctuel)
  */
 export async function initiatePayment(payload: PaymentPayload): Promise<PaymentResponse> {
-  const { data } = await apiClient.post<PaymentResponse>('/payments', payload)
+  const { data } = await apiClient.post<PaymentResponse>('/finance/payments', payload)
   return data
 }
 
@@ -102,6 +102,6 @@ export async function initiatePayment(payload: PaymentPayload): Promise<PaymentR
  * Rôles autorisés : owner, AF, RP, TI
  */
 export async function fetchFinancialArchives(ownerId: string): Promise<FinancialArchiveItem[]> {
-  const { data } = await apiClient.get<FinancialArchiveItem[]>(`/financial-archives/${ownerId}`)
+  const { data } = await apiClient.get<FinancialArchiveItem[]>(`/finance/financial-archives/${ownerId}`)
   return Array.isArray(data) ? data : []
 }

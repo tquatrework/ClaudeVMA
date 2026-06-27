@@ -228,7 +228,7 @@ describe('FinancialProfilePage', () => {
 
     await waitFor(() => {
       expect(mockApiClient.post).toHaveBeenCalledWith(
-        '/payments',
+        '/finance/payments',
         expect.objectContaining({ paymentType: 'inscription' }),
       )
     })
@@ -285,7 +285,7 @@ describe('FinancialProfilePage', () => {
 
     await waitFor(() => {
       expect(mockApiClient.patch).toHaveBeenCalledWith(
-        '/financial-profiles/owner-1',
+        '/finance/financial-profiles/owner-1',
         expect.any(Object),
       )
     })

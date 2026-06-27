@@ -408,24 +408,69 @@ describe('CalendarEventsService', () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   describe('configureReminder', () => {
-    it('creates a reminder rule for the requesting user', async () => {
-      const calendarEvent = { id: 'evt-1' } as CalendarEvent;
+    it('creates a reminder rule for the event organizer', async () => {
+      const calendarEvent = { id: 'evt-1', creatorId: 'user-1' } as CalendarEvent;
       mockEventRepo.findOne.mockResolvedValue(calendarEvent);
       mockReminderRuleRepo.delete.mockResolvedValue({});
       const savedRule = { id: 'rule-1', eventId: 'evt-1', ownerId: 'user-1', delay: ReminderDelay.ONE_HOUR } as ReminderRule;
       mockReminderRuleRepo.create.mockReturnValue(savedRule);
       mockReminderRuleRepo.save.mockResolvedValue(savedRule);
 
-      const result = await service.configureReminder('evt-1', { delay: ReminderDelay.ONE_HOUR }, 'user-1');
+      const result = await service.configureReminder('evt-1', { delay: ReminderDelay.ONE_HOUR }, 'user-1', UserRole.FORMATEUR);
       expect(result.delay).toBe(ReminderDelay.ONE_HOUR);
     });
 
-    it('deletes reminder rule when delay is "none"', async () => {
-      const calendarEvent = { id: 'evt-1' } as CalendarEvent;
+    it('creates a reminder rule for an accepted invitee', async () => {
+      const calendarEvent = { id: 'evt-1', creatorId: 'organizer-1' } as CalendarEvent;
+      mockEventRepo.findOne.mockResolvedValue(calendarEvent);
+      mockInvitationRepo.findOne.mockResolvedValue({ inviteeId: 'user-1', status: InvitationStatus.ACCEPTED });
+      mockReminderRuleRepo.delete.mockResolvedValue({});
+      const savedRule = { id: 'rule-1', eventId: 'evt-1', ownerId: 'user-1', delay: ReminderDelay.ONE_HOUR } as ReminderRule;
+      mockReminderRuleRepo.create.mockReturnValue(savedRule);
+      mockReminderRuleRepo.save.mockResolvedValue(savedRule);
+
+      const result = await service.configureReminder('evt-1', { delay: ReminderDelay.ONE_HOUR }, 'user-1', UserRole.ELEVE);
+      expect(result.delay).toBe(ReminderDelay.ONE_HOUR);
+    });
+
+    it('allows a privileged internal role (RP) to configure a reminder on any event', async () => {
+      const calendarEvent = { id: 'evt-1', creatorId: 'organizer-1' } as CalendarEvent;
+      mockEventRepo.findOne.mockResolvedValue(calendarEvent);
+      mockReminderRuleRepo.delete.mockResolvedValue({});
+      const savedRule = { id: 'rule-1', eventId: 'evt-1', ownerId: 'rp-1', delay: ReminderDelay.ONE_DAY } as ReminderRule;
+      mockReminderRuleRepo.create.mockReturnValue(savedRule);
+      mockReminderRuleRepo.save.mockResolvedValue(savedRule);
+
+      const result = await service.configureReminder('evt-1', { delay: ReminderDelay.ONE_DAY }, 'rp-1', UserRole.RESPONSABLE_PEDAGOGIQUE);
+      expect(result.delay).toBe(ReminderDelay.ONE_DAY);
+    });
+
+    it('throws ForbiddenException when user has no access to the event', async () => {
+      const calendarEvent = { id: 'evt-1', creatorId: 'organizer-1' } as CalendarEvent;
+      mockEventRepo.findOne.mockResolvedValue(calendarEvent);
+      mockInvitationRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.configureReminder('evt-1', { delay: ReminderDelay.ONE_HOUR }, 'unrelated-user', UserRole.ELEVE),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws ForbiddenException when invitee has declined the invitation', async () => {
+      const calendarEvent = { id: 'evt-1', creatorId: 'organizer-1' } as CalendarEvent;
+      mockEventRepo.findOne.mockResolvedValue(calendarEvent);
+      mockInvitationRepo.findOne.mockResolvedValue({ inviteeId: 'user-1', status: InvitationStatus.DECLINED });
+
+      await expect(
+        service.configureReminder('evt-1', { delay: ReminderDelay.ONE_HOUR }, 'user-1', UserRole.ELEVE),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('deletes reminder rule when delay is "none" (organizer)', async () => {
+      const calendarEvent = { id: 'evt-1', creatorId: 'user-1' } as CalendarEvent;
       mockEventRepo.findOne.mockResolvedValue(calendarEvent);
       mockReminderRuleRepo.delete.mockResolvedValue({});
 
-      const result = await service.configureReminder('evt-1', { delay: ReminderDelay.NONE }, 'user-1');
+      const result = await service.configureReminder('evt-1', { delay: ReminderDelay.NONE }, 'user-1', UserRole.ELEVE);
       expect(result.delay).toBe(ReminderDelay.NONE);
       expect(mockReminderRuleRepo.save).not.toHaveBeenCalled();
     });
@@ -433,7 +478,7 @@ describe('CalendarEventsService', () => {
     it('throws NotFoundException when event does not exist', async () => {
       mockEventRepo.findOne.mockResolvedValue(null);
       await expect(
-        service.configureReminder('unknown-evt', { delay: ReminderDelay.ONE_DAY }, 'user-1'),
+        service.configureReminder('unknown-evt', { delay: ReminderDelay.ONE_DAY }, 'user-1', UserRole.FORMATEUR),
       ).rejects.toThrow(NotFoundException);
     });
   });

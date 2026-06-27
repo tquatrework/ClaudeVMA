@@ -11,6 +11,7 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -124,6 +125,9 @@ export class CalendarEventsController {
     @Req() req: any,
     @Headers('x-correlation-id') correlationId?: string,
   ) {
+    if (req.user.id !== userId) {
+      throw new ForbiddenException('You can only accept your own invitations');
+    }
     return this.calendarEventsService.acceptInvitation(eventId, userId, correlationId);
   }
 
@@ -148,6 +152,9 @@ export class CalendarEventsController {
     @Req() req: any,
     @Headers('x-correlation-id') correlationId?: string,
   ) {
+    if (req.user.id !== userId) {
+      throw new ForbiddenException('You can only decline your own invitations');
+    }
     return this.calendarEventsService.declineInvitation(eventId, userId, correlationId);
   }
 
@@ -211,6 +218,7 @@ export class CalendarEventsController {
       eventId,
       dto,
       req.user.id,
+      req.user.role,
       correlationId,
     );
   }

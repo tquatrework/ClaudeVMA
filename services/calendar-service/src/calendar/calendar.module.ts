@@ -1,12 +1,5 @@
-import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { CalendarController } from './calendar.controller';
-import { CalendarService } from './calendar.service';
-import { CalendarSession } from './entities/calendar-session.entity';
-
-@Module({
-  imports: [TypeOrmModule.forFeature([CalendarSession])],
-  controllers: [CalendarController],
-  providers: [CalendarService],
-})
-export class CalendarModule {}
+/**
+ * @deprecated Ce module est obsolète et n'est plus importé dans AppModule.
+ * L'architecture moderne utilise CalendarEventsModule (src/calendar-events/calendar-events.module.ts).
+ * Ce fichier sera supprimé lors d'un prochain nettoyage.
+ */

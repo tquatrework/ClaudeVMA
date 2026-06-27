@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
 import RecordingListPanel from '../components/video/RecordingListPanel'
 import CourseSummaryView from '../components/video/CourseSummaryView'
+import InVideoMemoDrawer from '../components/pedagogical-log/InVideoMemoDrawer'
 
 interface RoomInfo {
   id: string

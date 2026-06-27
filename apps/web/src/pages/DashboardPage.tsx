@@ -63,6 +63,20 @@ const STATUS_LABELS: Record<string, string> = {
   candidates_selected: 'Candidats sélectionnés',
 }
 
+interface LinkedStudentEntry {
+  studentId: string
+  displayName: string
+  loginIdentifier: string | null
+}
+
+interface PendingTeacherEntry {
+  id: string
+  userId?: string
+  displayName?: string
+  email?: string
+  validationStatus?: string
+}
+
 const ACTIVE_STATUSES = new Set(['pending', 'candidates_selected'])
 
 export default function DashboardPage() {
@@ -520,7 +534,7 @@ export default function DashboardPage() {
               )
             })()}
           </section>
-        )}
+        }
 
         {/* Notifications */}
         <section>

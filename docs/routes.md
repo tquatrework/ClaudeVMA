@@ -248,6 +248,17 @@ API interne (non exposée via nginx) : `GET /internal/video/*` — protégée pa
 
 ## communication-service
 
+### Contacts autorisés
+
+| Méthode | Chemin | Description | Auth |
+|---|---|---|---|
+| GET | /contacts | Lister les contacts autorisés (obligatoires + précontacts) | 🔒 |
+| POST | /contacts/:id/activate | Activer un précontact (status: precontact → active) | 🔒 |
+| DELETE | /contacts/:id | Supprimer un contact actif (interdit si mandatory: true → 403) | 🔒 |
+| PATCH | /contacts/:id/visibility | Modifier la visibilité (visible/hidden) | 🔒 |
+
+Retour Contact : `{id, userId, email?, displayName?, role?, status: 'active'|'precontact', mandatory: boolean, visibility?: 'visible'|'hidden'}`
+
 ### Conversations
 
 | Méthode | Chemin | Description | Auth |

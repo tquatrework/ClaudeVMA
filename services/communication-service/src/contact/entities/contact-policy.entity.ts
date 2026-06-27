@@ -7,6 +7,9 @@ import {
   Index,
 } from 'typeorm';
 
+export type ContactStatus = 'active' | 'precontact';
+export type ContactVisibility = 'visible' | 'hidden';
+
 /**
  * Records authorized contact relationships for a given user.
  * COM-BR-010: contacts are computed from business relations (profile-service), not freely entered.
@@ -40,6 +43,36 @@ export class ContactPolicy {
 
   @Column({ default: true })
   active: boolean;
+
+  /**
+   * Contact lifecycle status.
+   * - 'precontact': contact has been authorized by the system but not yet confirmed by the user.
+   * - 'active': contact is fully usable for messaging.
+   */
+  @Column({
+    type: 'varchar',
+    name: 'status',
+    default: 'active',
+  })
+  status: ContactStatus;
+
+  /**
+   * Whether this contact can be removed by the user.
+   * Mandatory contacts (e.g. administrators, assigned teachers) cannot be deleted.
+   */
+  @Column({ name: 'mandatory', default: false })
+  mandatory: boolean;
+
+  /**
+   * User-defined display preference for this contact.
+   * Hidden contacts remain authorized but are filtered from the default list view.
+   */
+  @Column({
+    type: 'varchar',
+    name: 'visibility',
+    default: 'visible',
+  })
+  visibility: ContactVisibility;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

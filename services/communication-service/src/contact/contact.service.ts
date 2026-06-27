@@ -1,7 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
-import { ContactPolicy } from './entities/contact-policy.entity';
+import { ContactPolicy, ContactVisibility } from './entities/contact-policy.entity';
 import { SyncContactsDto } from './dto/sync-contacts.dto';
 
 @Injectable()
@@ -65,5 +69,62 @@ export class ContactService {
     if (!contactPolicy) return false;
     if (contactPolicy.expiresAt && contactPolicy.expiresAt < now) return false;
     return true;
+  }
+
+  /**
+   * Activate a precontact for the given user.
+   * Transitions status from 'precontact' to 'active'.
+   * Throws NotFoundException if the contact does not exist for this user.
+   */
+  async activateContact(userId: string, contactPolicyId: string): Promise<ContactPolicy> {
+    const contactPolicy = await this.contactPolicyRepository.findOne({
+      where: { id: contactPolicyId, userId },
+    });
+    if (!contactPolicy) {
+      throw new NotFoundException(`Contact ${contactPolicyId} not found for user ${userId}`);
+    }
+    contactPolicy.status = 'active';
+    contactPolicy.active = true;
+    return this.contactPolicyRepository.save(contactPolicy);
+  }
+
+  /**
+   * Remove a contact from the user's list.
+   * COM-BR-010: mandatory contacts (e.g. administrators, assigned teachers) cannot be removed.
+   * Throws NotFoundException if the contact does not belong to this user.
+   * Throws ForbiddenException if the contact is marked as mandatory.
+   */
+  async removeContact(userId: string, contactPolicyId: string): Promise<void> {
+    const contactPolicy = await this.contactPolicyRepository.findOne({
+      where: { id: contactPolicyId, userId },
+    });
+    if (!contactPolicy) {
+      throw new NotFoundException(`Contact ${contactPolicyId} not found for user ${userId}`);
+    }
+    if (contactPolicy.mandatory) {
+      throw new ForbiddenException('Mandatory contacts cannot be removed');
+    }
+    contactPolicy.active = false;
+    await this.contactPolicyRepository.save(contactPolicy);
+  }
+
+  /**
+   * Update the display visibility of a contact for the current user.
+   * Allowed values: 'visible' | 'hidden'.
+   * Throws NotFoundException if the contact does not belong to this user.
+   */
+  async updateVisibility(
+    userId: string,
+    contactPolicyId: string,
+    visibility: ContactVisibility,
+  ): Promise<ContactPolicy> {
+    const contactPolicy = await this.contactPolicyRepository.findOne({
+      where: { id: contactPolicyId, userId },
+    });
+    if (!contactPolicy) {
+      throw new NotFoundException(`Contact ${contactPolicyId} not found for user ${userId}`);
+    }
+    contactPolicy.visibility = visibility;
+    return this.contactPolicyRepository.save(contactPolicy);
   }
 }

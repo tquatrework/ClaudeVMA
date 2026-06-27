@@ -60,7 +60,7 @@ export async function fetchPedagogicalArchives(
   studentId: string,
 ): Promise<PedagogicalArchiveItem[]> {
   const { data } = await apiClient.get<PedagogicalArchiveItem[]>(
-    `/students/${studentId}/pedagogical-archives`,
+    `/archives/students/${studentId}/pedagogical-archives`,
   )
   return Array.isArray(data) ? data : []
 }
@@ -75,7 +75,7 @@ export async function createArchiveLink(
   payload: CreateArchiveLinkPayload,
 ): Promise<PedagogicalArchiveItem> {
   const { data } = await apiClient.post<PedagogicalArchiveItem>(
-    `/students/${studentId}/archive-links`,
+    `/archives/students/${studentId}/archive-links`,
     payload,
   )
   return data
@@ -90,7 +90,7 @@ export async function fetchArchiveTimeline(
   studentId: string,
 ): Promise<ArchiveTimelineEntry[]> {
   const { data } = await apiClient.get<ArchiveTimelineEntry[]>(
-    `/students/${studentId}/archive-timeline`,
+    `/archives/students/${studentId}/archive-timeline`,
   )
   return Array.isArray(data) ? data : []
 }
@@ -100,7 +100,7 @@ export async function fetchArchiveTimeline(
  * Télécharge un document d'archive (retourne un blob).
  */
 export async function downloadArchiveDocument(documentId: string): Promise<Blob> {
-  const { data } = await apiClient.get<Blob>(`/archive-documents/${documentId}/download`, {
+  const { data } = await apiClient.get<Blob>(`/documents/${documentId}/download`, {
     responseType: 'blob',
   })
   return data

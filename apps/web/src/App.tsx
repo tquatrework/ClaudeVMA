@@ -126,7 +126,9 @@ export default function App() {
           <Route
             path="/teacher-requests"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={['eleve', 'parent_financeur', 'formateur', 'responsable_pedagogique']}
+              >
                 <TeacherRequestsPage />
               </ProtectedRoute>
             }
@@ -150,7 +152,9 @@ export default function App() {
           <Route
             path="/teacher-requests/:requestId"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={['eleve', 'parent_financeur', 'formateur', 'responsable_pedagogique']}
+              >
                 <TeacherRequestDetailPage />
               </ProtectedRoute>
             }
@@ -158,7 +162,17 @@ export default function App() {
           <Route
             path="/calendar"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={[
+                  'eleve',
+                  'parent_financeur',
+                  'formateur',
+                  'responsable_pedagogique',
+                  'animateur_pedagogique',
+                  'technicien_informatique',
+                  'administrateur_financier',
+                ]}
+              >
                 <CalendarPage />
               </ProtectedRoute>
             }
@@ -166,7 +180,15 @@ export default function App() {
           <Route
             path="/activities"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={[
+                  'eleve',
+                  'parent_financeur',
+                  'formateur',
+                  'responsable_pedagogique',
+                  'animateur_pedagogique',
+                ]}
+              >
                 <ActivitiesPage />
               </ProtectedRoute>
             }
@@ -174,7 +196,15 @@ export default function App() {
           <Route
             path="/activities/:activityId"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={[
+                  'eleve',
+                  'parent_financeur',
+                  'formateur',
+                  'responsable_pedagogique',
+                  'animateur_pedagogique',
+                ]}
+              >
                 <ActivityDetailPage />
               </ProtectedRoute>
             }
@@ -198,7 +228,16 @@ export default function App() {
           <Route
             path="/messages"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={[
+                  'eleve',
+                  'parent_financeur',
+                  'formateur',
+                  'responsable_pedagogique',
+                  'animateur_pedagogique',
+                  'technicien_informatique',
+                ]}
+              >
                 <MessagesPage />
               </ProtectedRoute>
             }
@@ -206,7 +245,9 @@ export default function App() {
           <Route
             path="/pedagogical-log"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={['eleve', 'formateur', 'responsable_pedagogique', 'parent_financeur']}
+              >
                 <PedagogicalLogPage />
               </ProtectedRoute>
             }
@@ -253,7 +294,17 @@ export default function App() {
           <Route
             path="/contacts"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={[
+                  'eleve',
+                  'parent_financeur',
+                  'formateur',
+                  'responsable_pedagogique',
+                  'animateur_pedagogique',
+                  'technicien_informatique',
+                  'administrateur_financier',
+                ]}
+              >
                 <ContactsPage />
               </ProtectedRoute>
             }
@@ -263,7 +314,9 @@ export default function App() {
           <Route
             path="/memos"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={['eleve', 'formateur', 'responsable_pedagogique']}
+              >
                 <MemosPage />
               </ProtectedRoute>
             }
@@ -314,21 +367,18 @@ export default function App() {
             }
           />
 
-          {/* Contacts */}
-          <Route
-            path="/contacts"
-            element={
-              <ProtectedRoute>
-                <ContactsPage />
-              </ProtectedRoute>
-            }
-          />
-
           {/* ── Phase 9 — Finance ───────────────────────────────── */}
           <Route
             path="/finance/:ownerId"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={[
+                  'parent_financeur',
+                  'administrateur_financier',
+                  'responsable_pedagogique',
+                  'technicien_informatique',
+                ]}
+              >
                 <FinancialProfilePage />
               </ProtectedRoute>
             }
@@ -336,7 +386,14 @@ export default function App() {
           <Route
             path="/finance"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={[
+                  'parent_financeur',
+                  'administrateur_financier',
+                  'responsable_pedagogique',
+                  'technicien_informatique',
+                ]}
+              >
                 <FinancialProfilePage />
               </ProtectedRoute>
             }
@@ -362,7 +419,14 @@ export default function App() {
           <Route
             path="/legal/:ownerId"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={[
+                  'administrateur_financier',
+                  'responsable_pedagogique',
+                  'technicien_informatique',
+                  'parent_financeur',
+                ]}
+              >
                 <LegalDocumentsPage />
               </ProtectedRoute>
             }
@@ -370,7 +434,14 @@ export default function App() {
           <Route
             path="/legal"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={[
+                  'administrateur_financier',
+                  'responsable_pedagogique',
+                  'technicien_informatique',
+                  'parent_financeur',
+                ]}
+              >
                 <LegalDocumentsPage />
               </ProtectedRoute>
             }
@@ -388,7 +459,16 @@ export default function App() {
           <Route
             path="/archives/:studentId"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={[
+                  'eleve',
+                  'parent_financeur',
+                  'formateur',
+                  'responsable_pedagogique',
+                  'administrateur_financier',
+                  'technicien_informatique',
+                ]}
+              >
                 <PedagogicalArchivePage />
               </ProtectedRoute>
             }
@@ -396,7 +476,16 @@ export default function App() {
           <Route
             path="/archives"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={[
+                  'eleve',
+                  'parent_financeur',
+                  'formateur',
+                  'responsable_pedagogique',
+                  'administrateur_financier',
+                  'technicien_informatique',
+                ]}
+              >
                 <PedagogicalArchivePage />
               </ProtectedRoute>
             }
@@ -406,7 +495,9 @@ export default function App() {
           <Route
             path="/content/exercises"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={['eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique']}
+              >
                 <ExerciseCatalogPage />
               </ProtectedRoute>
             }
@@ -438,7 +529,9 @@ export default function App() {
           <Route
             path="/content/tutorials"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={['eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique']}
+              >
                 <TutorialCatalogPage />
               </ProtectedRoute>
             }
@@ -491,7 +584,9 @@ export default function App() {
           <Route
             path="/community/forums"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={['eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique']}
+              >
                 <ForumCatalogPage />
               </ProtectedRoute>
             }
@@ -499,7 +594,9 @@ export default function App() {
           <Route
             path="/community/forums/:forumId"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={['eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique']}
+              >
                 <ForumDetailPage />
               </ProtectedRoute>
             }
@@ -517,7 +614,9 @@ export default function App() {
           <Route
             path="/community/paths"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={['eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique']}
+              >
                 <PathCatalogPage />
               </ProtectedRoute>
             }
@@ -525,7 +624,9 @@ export default function App() {
           <Route
             path="/community/paths/:pathId"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={['eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique']}
+              >
                 <PathDetailPage />
               </ProtectedRoute>
             }

@@ -7,6 +7,8 @@ Les routes marquées 🔒 nécessitent un header `Authorization: Bearer <token>`
 
 ## identity-access-service
 
+Préfixes gateway : `/api/v1/auth/` (public) · `/api/v1/accounts` (public inscription) · `/api/v1/accounts/check-email` (public) · `/api/v1/accounts/` (🔒) · `/api/v1/consents` (🔒) → identity-access-service
+
 Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedagogique`, `responsable_pedagogique`, `technicien_informatique`, `administrateur_financier`
 
 Statuts de validation : `pending` (avant consentements) → `active` (consentements RGPD+CGU signés) → `suspended`
@@ -67,6 +69,9 @@ Réponse : `{accountId, email, role}`
 
 ## profile-service
 
+Préfixes gateway : `/api/v1/profiles` · `/api/v1/relations` (🔒) → profile-service
+⚠️ `/api/v1/parent-link-requests` absent de `nginx.conf` — à ajouter (voir `docs/api-mapping.md`)
+
 Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedagogique`, `responsable_pedagogique`, `technicien_informatique`, `administrateur_financier`
 
 ### Profils
@@ -126,6 +131,8 @@ Statuts : `pending` → `approved` (lien finance-owner-student créé) / `reject
 
 ## teacher-request-service
 
+Préfixe gateway canonique : `/api/v1/teacher-requests` → contrôleur `/teacher-requests`
+
 | Méthode | Chemin | Description | Auth |
 |---|---|---|---|
 | POST | /requests | Créer une demande | 🔒 |
@@ -139,6 +146,8 @@ Statuts : `pending` → `accepted` / `declined` / `cancelled`
 ---
 
 ## calendar-service
+
+Préfixes gateway : `/api/v1/calendars` · `/api/v1/events` · `/api/v1/activities` · `/api/v1/reminders` (🔒) → calendar-service
 
 Types d'événements : `cours`, `masterclass`, `pedagogique`, `financier`, `rappel`, `invitation`
 
@@ -194,6 +203,8 @@ Body : `{delay: "1week"|"1day"|"1hour"|"15min"|"none"}`
 
 ## video-session-service
 
+Préfixe gateway canonique : `/api/v1/video-sessions` → contrôleur `/video-sessions` (alias legacy : `/api/v1/video` → `/video`)
+
 ### Salles vidéo
 
 | Méthode | Chemin | Description | Auth | Rôles autorisés |
@@ -248,6 +259,8 @@ API interne (non exposée via nginx) : `GET /internal/video/*` — protégée pa
 ---
 
 ## communication-service
+
+Préfixes gateway : `/api/v1/contacts` · `/api/v1/messages` · `/api/v1/conversations` · `/api/v1/threads` · `/api/v1/incidents` (🔒) → communication-service
 
 ### Contacts autorisés
 
@@ -363,6 +376,8 @@ Le parent financeur ne voit JAMAIS le carnet personnel (PLOG-FB-001).
 ---
 
 ## dashboard-notification-service
+
+Préfixes gateway : `/api/v1/notifications` · `/api/v1/dashboard` (🔒) → dashboard-notification-service
 
 ### Notifications
 
@@ -513,6 +528,9 @@ Chaque service expose `GET /health` → `{status: "ok", service: "...", timestam
 ---
 
 ## legal-document-service
+
+Préfixes gateway : `/api/v1/legal-documents` · `/api/v1/mandates` (🔒) → legal-document-service
+⚠️ `/api/v1/legal-templates` absent de `nginx.conf` — à ajouter (voir `docs/api-mapping.md`)
 
 Gère les mandats clients, contrats formateurs, modèles légaux et enregistrements de signature.
 

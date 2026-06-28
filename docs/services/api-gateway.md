@@ -14,16 +14,18 @@ gateway/api-gateway/
 └── CLAUDE.md      — documentation du service et table des routes
 ```
 
-## Services routés (Phase 1 — état au 2026-06-11)
+## Services routés (Phase 1 — état au 2026-06-28)
 
 | Service | Locations nginx (gateway) | proxy_pass (upstream) | Upstream | Auth JWT | Notes |
 |---|---|---|---|---|---|
 | identity-access-service | `/api/v1/auth/` | `/auth/` | `identity_access` | Non (public) | Rate-limit 10r/m |
 | identity-access-service | `= /api/v1/accounts` | `/accounts` | `identity_access` | Non (POST only) | Inscription |
-| identity-access-service | `/api/v1/accounts/` | `/accounts/` | `identity_access` | Oui | Gestion compte |
+| identity-access-service | `= /api/v1/accounts/check-email` | `/accounts/check-email` | `identity_access` | Non (public) | Vérif. dispo email — Rate-limit zone auth |
+| identity-access-service | `^~ /api/v1/accounts/` | `/accounts/` | `identity_access` | Oui | Gestion compte |
 | identity-access-service | `/api/v1/consents/` | `/consents/` | `identity_access` | Oui | Consentements RGPD |
 | profile-service | `/api/v1/profiles/` | `/profiles/` | `profile` | Oui | |
 | profile-service | `/api/v1/relations/` | `/relations/` | `profile` | Oui | |
+| profile-service | `^~ /api/v1/parent-link-requests` | `/parent-link-requests` | `profile` | Oui | Gap gateway corrigé 2026-06-28 |
 | teacher-request-service | `/api/v1/requests/` | `/` | `teacher_request` | Oui | |
 | calendar-service | `/api/v1/calendar/` | `/` | `calendar` | Oui | |
 | video-session-service | `/api/v1/video/` | `/video/` | `video_session` | Oui | WebSocket |
@@ -39,6 +41,7 @@ gateway/api-gateway/
 | orchestration-service | `/api/v1/orchestration/commands/` | `/commands/` | `orchestration` | Oui | |
 | orchestration-service | `/api/v1/orchestration/events/` | `/events/` | `orchestration` | Oui | |
 | orchestration-service | `/api/v1/orchestration/callbacks/` | `/callbacks/` | `orchestration` | **Non** | Protection X-Webhook-Secret |
+| legal-document-service | `^~ /api/v1/legal-templates` | `/legal-templates` | `legal_document` | Oui | Gap gateway corrigé 2026-06-28 |
 | gateway (nginx) | `/health` | — | — | Non | Healthcheck gateway |
 | gateway (nginx) | `/docs` | — | — | Non | Index JSON des Swagger |
 
@@ -50,6 +53,7 @@ gateway/api-gateway/
 |---|---|
 | `/api/v1/auth/` | Public — login, logout, refresh |
 | `= /api/v1/accounts` (POST) | Public — inscription |
+| `= /api/v1/accounts/check-email` | Public — vérification disponibilité email (inscription, rate-limit zone auth) |
 | `/api/v1/orchestration/callbacks/` | Webhooks providers externes — pas de JWT émetteur ; protection assurée côté service par `WebhookSecretGuard` (header `X-Webhook-Secret`) |
 | `/health` | Healthcheck infrastructure |
 | `/docs` | Index des documentations |
@@ -106,6 +110,11 @@ Quatre services précédemment commentés ont été activés dans nginx.conf :
 - `dashboard-notification-service` : locations `/api/v1/notifications/`, `/api/v1/dashboards/`
 
 Correction incluse : `/api/v1/dashboard/` renommé en `/api/v1/dashboards/` (pluriel, conforme au contrôleur NestJS).
+
+### Session 2026-06-28 — Trois nouvelles locations ajoutées
+1. `= /api/v1/accounts/check-email` : route publique (zone auth, rate-limit) placée avant la location protégée `^~ /api/v1/accounts/` pour permettre la vérification de disponibilité d'email pendant l'inscription sans JWT.
+2. `^~ /api/v1/parent-link-requests` → profile-service (JWT) : gap corrigé — le frontend appelait cette route mais aucune location nginx ne la couvrait.
+3. `^~ /api/v1/legal-templates` → legal-document-service (JWT) : même situation de gap gateway confirmée et corrigée.
 
 ## Points en suspens
 - `WEBHOOK_SECRET` à définir dans docker-compose/Kubernetes secrets (ne pas committer en clair).

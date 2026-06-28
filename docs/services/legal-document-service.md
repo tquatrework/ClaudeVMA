@@ -58,5 +58,30 @@
       <criterion>Un formateur valide requiert contrat signe.</criterion>
       <criterion>Seul l'AF modifie les modeles.</criterion>
     </acceptanceCriteria>
+    <technicalNotes session="2026-06-28">
+      <security>
+        <note id="N1" label="Homogeneisation guards (2026-06-28)">
+          Dans legal-documents.controller.ts, le guard de classe est desormais
+          @UseGuards(JwtAuthGuard, RolesGuard) (anciennement JwtAuthGuard seul).
+          - findByOwnerId : @Roles(ELEVE, PARENT_FINANCEUR, FORMATEUR,
+            RESPONSABLE_PEDAGOGIQUE, TECHNICIEN_INFORMATIQUE, ADMINISTRATEUR_FINANCIER)
+            + verification ownership propriétaire du document.
+          - signDocument : @Roles(ELEVE, PARENT_FINANCEUR, FORMATEUR)
+            + verification ownership signataire.
+        </note>
+      </security>
+      <gateway>
+        <note id="G1" label="Gap nginx corrige (2026-06-28)">
+          La route /api/v1/legal-templates etait absente de nginx.conf.
+          Ajout : location ^~ /api/v1/legal-templates -> legal-document-service.
+          Les appels frontend vers /legal-templates (creation et modification de
+          modeles legaux par l'AF) sont desormais routes correctement.
+        </note>
+      </gateway>
+      <openPoints>
+        <point>Verifier que la route /api/v1/legal-documents/{id}/secure-copy
+          est egalement declaree dans nginx.conf.</point>
+      </openPoints>
+    </technicalNotes>
   </service>
 </serviceFunctionalSpecification>

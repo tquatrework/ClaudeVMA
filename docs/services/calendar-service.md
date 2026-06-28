@@ -66,5 +66,34 @@
       <criterion>Un financeur ne voit pas les visios elles-memes, mais voit les informations financieres autorisees.</criterion>
       <criterion>Les rappels generent notifications selon le delai choisi.</criterion>
     </acceptanceCriteria>
+    <technicalSessions>
+      <session date="2026-06-28" label="N1 — Homogeneisation des guards NestJS">
+        <context>Normalisation N1 : tous les controleurs du service suivent desormais la convention @UseGuards(JwtAuthGuard, RolesGuard) au niveau classe + @Roles(...) explicite sur chaque methode.</context>
+        <changes>
+          <change controller="calendars.controller.ts">
+            <item>@Roles ajoutee sur GET /:ownerId (tous roles).</item>
+            <item>@Roles ajoutee sur PUT /:ownerId/availability (formateur, animateur_pedagogique, responsable_pedagogique).</item>
+          </change>
+          <change controller="activities.controller.ts">
+            <item>@Roles ajoutee sur POST / (creation d'activite).</item>
+            <item>@Roles ajoutee sur PUT /:activityId (modification d'activite).</item>
+            <item>@Roles ajoutee sur GET /:activityId (lecture d'activite).</item>
+          </change>
+          <change controller="calendar-events.controller.ts">
+            <item>@Roles ajoutee sur GET /calendars/:ownerId/events.</item>
+            <item>@Roles ajoutee sur POST /calendars/:ownerId/events.</item>
+            <item>@Roles ajoutee sur POST /events/:id/invitees/:userId/accept.</item>
+            <item>@Roles ajoutee sur POST /events/:id/invitees/:userId/decline.</item>
+            <item>@Roles ajoutee sur POST /events/:id/cancel-request.</item>
+            <item>@Roles ajoutee sur POST /events/:id/reminders.</item>
+          </change>
+        </changes>
+        <securityConvention>
+          @UseGuards(JwtAuthGuard, RolesGuard) est positionne au niveau classe sur les trois controleurs.
+          @Roles(...) est desormais present et explicite sur toutes les methodes exposees — aucune methode ne repose plus sur le guard de classe seul sans declaration de role.
+          Etat : N1 resolu, aucun point en suspens sur les guards de ce service.
+        </securityConvention>
+      </session>
+    </technicalSessions>
   </service>
 </serviceFunctionalSpecification>

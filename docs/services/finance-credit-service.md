@@ -71,5 +71,37 @@
       <criterion>Un paiement formateur valide consomme les points financiers du financeur concerne.</criterion>
       <criterion>L'AF peut exporter les evenements financiers et ajuster les baremes.</criterion>
     </acceptanceCriteria>
+    <securityGuards session="2026-06-28">
+      <convention>
+        Normalisation N1 appliquee le 2026-06-28 : homogeneisation des guards NestJS.
+        Le RolesGuard etait declare global mais @Roles() etait absent de tous les controleurs —
+        les verifications de role etaient donc inoperantes au niveau HTTP.
+        Correction : ajout explicite de @Roles(...) sur chaque route sensible,
+        combinee avec JwtAuthGuard deja en place.
+        Les checks contextuels d'ownership restent dans les services metier.
+      </convention>
+      <controller name="financial-profiles.controller.ts">
+        <route method="GET" path="/financial-profiles/{ownerId}" roles="parent_financeur, administrateur_financier, responsable_pedagogique, technicien_informatique"/>
+        <route method="PATCH" path="/financial-profiles/{ownerId}" roles="parent_financeur, administrateur_financier, technicien_informatique" note="ownership verifie dans le service"/>
+      </controller>
+      <controller name="payments.controller.ts">
+        <route method="POST" path="/payments" roles="parent_financeur, administrateur_financier"/>
+      </controller>
+      <controller name="financial-archives.controller.ts">
+        <route method="GET" path="/financial-archives/{ownerId}" roles="parent_financeur, administrateur_financier, responsable_pedagogique, technicien_informatique"/>
+      </controller>
+      <controller name="financial-settings.controller.ts">
+        <route method="GET" path="/financial-settings" roles="administrateur_financier, technicien_informatique"/>
+        <route method="PATCH" path="/financial-settings" roles="administrateur_financier"/>
+      </controller>
+      <controller name="teacher-payment-requests.controller.ts">
+        <route method="GET" roles="administrateur_financier, responsable_pedagogique, technicien_informatique, formateur"/>
+        <route method="POST" roles="formateur"/>
+        <route method="PATCH" path="status" roles="administrateur_financier"/>
+      </controller>
+      <suspens status="resolu">
+        Absence de @Roles sur les controleurs — resolue lors de la session 2026-06-28 (normalisation N1).
+      </suspens>
+    </securityGuards>
   </service>
 </serviceFunctionalSpecification>

@@ -92,10 +92,10 @@ export class ArchiveController {
   addArchiveLink(
     @Param('studentId') studentId: string,
     @Body() dto: AddArchiveLinkDto,
-    @Req() _request: any,
+    @Req() request: any,
     @Headers('x-correlation-id') _correlationId?: string,
   ): Promise<ArchiveItemResponseDto> {
-    return this.archiveService.addArchiveLink(studentId, dto);
+    return this.archiveService.addArchiveLink(studentId, dto, request.user.id, request.user.role);
   }
 
   // ─── GET /students/:studentId/archive-timeline ───────────────────────────────

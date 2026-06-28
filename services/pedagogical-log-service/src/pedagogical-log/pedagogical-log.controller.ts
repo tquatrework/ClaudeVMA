@@ -11,6 +11,7 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -27,7 +28,6 @@ import { PedagogicalLogService } from './pedagogical-log.service';
 import { CreateLogDto } from './dto/create-log.dto';
 import { CreateSpecialPageDto } from './dto/create-special-page.dto';
 import { UpdateLogDto } from './dto/update-log.dto';
-import { CreateSpecialPageDto } from './dto/create-special-page.dto';
 
 /**
  * Cahier de texte — routes alignées sur le XML spec candidateApis :
@@ -135,6 +135,12 @@ export class PedagogicalLogController {
   @ApiResponse({ status: 200, description: 'Liste des pages (filtrée par visibilité)' })
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   findByStudent(@Param('studentId') studentId: string, @Req() req: any) {
+    // S3: un élève ne peut lire que son propre cahier de texte (PLOG-RA-001)
+    if (req.user.role === UserRole.ELEVE && req.user.id !== studentId) {
+      throw new ForbiddenException(
+        "Un élève ne peut consulter que son propre cahier de texte — PLOG-RA-001",
+      );
+    }
     return this.service.findByStudent(studentId, req.user.role);
   }
 

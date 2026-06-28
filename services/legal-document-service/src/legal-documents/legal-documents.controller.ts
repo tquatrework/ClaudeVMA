@@ -17,17 +17,17 @@ import {
   ApiHeader,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../common/guards/roles.guard';
 import { LegalDocumentsService } from './legal-documents.service';
 import { SignDocumentDto } from './dto/sign-document.dto';
 
 @ApiTags('legal-documents')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard)
 @Controller('legal-documents')
 export class LegalDocumentsController {
   constructor(private readonly legalDocumentsService: LegalDocumentsService) {}
 
+  // Droits contextuels vérifiés dans le service (LDS-FB-001 : propriétaire du document, ou rôle interne RP / TI / AF)
   @Get(':ownerId')
   @ApiOperation({
     summary: 'List legal documents for an owner',
@@ -48,6 +48,7 @@ export class LegalDocumentsController {
     return this.legalDocumentsService.findByOwnerId(ownerId, req.user.id, req.user.role);
   }
 
+  // Droits contextuels vérifiés dans le service (LDS-FB-002 : seul le propriétaire du document peut le signer)
   @Post(':id/sign')
   @ApiOperation({
     summary: 'Sign a legal document',

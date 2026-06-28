@@ -71,6 +71,36 @@
       <criterion>Un paiement formateur valide consomme les points financiers du financeur concerne.</criterion>
       <criterion>L'AF peut exporter les evenements financiers et ajuster les baremes.</criterion>
     </acceptanceCriteria>
+    <transactionalGuarantees session="2026-06-28">
+      <convention>
+        Atomicite introduite le 2026-06-28 : les workflows d'ecriture multi-entites sont
+        desormais encapsules dans des transactions TypeORM via DataSource.transaction().
+        La publication d'evenements (events.publish()) reste intentionnellement hors transaction,
+        apres le commit, pour eviter tout double-declenchement en cas de rollback.
+      </convention>
+      <atomicOperation method="initiatePayment" service="payments.service.ts">
+        Les 5 repository.save() (Payment, Invoice, LedgerEntry, PointsBalance, FinancialArchive)
+        sont enveloppes dans une transaction unique. Un echec sur l'un des save() declenche
+        un rollback complet de l'ensemble du workflow.
+      </atomicOperation>
+      <atomicOperation method="validateRequest" service="teacher-payment-requests.service.ts">
+        Les 3 save() (LedgerEntry, FinancialArchive, TeacherPaymentRequest.status) sont
+        enveloppes dans une transaction unique. Rollback sur erreur garanti.
+      </atomicOperation>
+      <idempotence endpoint="POST /payments">
+        Le DTO CreatePaymentDto expose un champ optionnel idempotencyKey (string).
+        L'entite Payment dispose d'un index composite sur (ownerId, idempotencyKey).
+        Au debut de initiatePayment, si idempotencyKey est fourni, le service recherche
+        un Payment existant avec ce couple (ownerId, idempotencyKey) : si trouve, il retourne
+        le resultat existant sans re-executer le workflow. Ce mecanisme garantit la securite
+        des rejeux cote client sans risque de double-facturation.
+      </idempotence>
+      <testCoverage>
+        payments.service.spec.ts : DataSource mocke, 3 nouveaux tests (transaction nominale,
+        rollback sur echec mid-workflow, idempotence avec 2 sous-cas).
+        teacher-payment-requests.service.spec.ts : mock DataSource, test rollback sur validateRequest.
+      </testCoverage>
+    </transactionalGuarantees>
     <securityGuards session="2026-06-28">
       <convention>
         Normalisation N1 appliquee le 2026-06-28 : homogeneisation des guards NestJS.
@@ -101,6 +131,12 @@
       </controller>
       <suspens status="resolu">
         Absence de @Roles sur les controleurs — resolue lors de la session 2026-06-28 (normalisation N1).
+      </suspens>
+      <suspens status="resolu">
+        Absence de transactions atomiques sur initiatePayment et validateRequest — resolue le 2026-06-28 (DataSource.transaction()).
+      </suspens>
+      <suspens status="resolu">
+        Absence d'idempotence sur POST /payments — resolue le 2026-06-28 (champ idempotencyKey + index composite).
       </suspens>
     </securityGuards>
   </service>

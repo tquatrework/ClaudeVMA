@@ -67,4 +67,33 @@
       <criterion>Toute action TI/RP sur le compte d'autrui est journalisee.</criterion>
     </acceptanceCriteria>
   </service>
+
+  <implementationNotes>
+    <session date="2026-06-28">
+      <decision id="S3-unique-email">
+        <title>Contrainte unique sur email — niveau base de donnees</title>
+        <files>
+          <file>src/auth/entities/user.entity.ts</file>
+          <file>src/migrations/1751000000000-add-unique-constraint-email.ts</file>
+        </files>
+        <description>
+          La colonne email de la table users disposait d'une verification applicative mais n'avait plus de contrainte UNIQUE en base (supprimee dans une migration anterieure).
+          Cette absence exposait le service a des race conditions a l'inscription (deux requetes simultanees pouvant creer deux comptes avec le meme email).
+          Correction : ajout de unique: true dans user.entity.ts et migration DDL ajoutant la contrainte "UQ_users_email".
+          Migration up : ALTER TABLE users ADD CONSTRAINT "UQ_users_email" UNIQUE ("email").
+          Migration down : ALTER TABLE users DROP CONSTRAINT "UQ_users_email".
+        </description>
+        <status>resolved</status>
+      </decision>
+      <technicalDebt id="TD-multi-save-transactions">
+        <title>Transactions multi-save() non wrappees</title>
+        <description>
+          Les sequences de plusieurs save() successifs (compte + audit, consentements + statut) ne sont pas encore encapsulees dans une transaction atomique.
+          Risque : incohérence partielle si un save() intermediaire echoue.
+          Scope volontairement limite lors de la session du 2026-06-28 — a traiter dans une session ulterieure.
+        </description>
+        <status>open</status>
+      </technicalDebt>
+    </session>
+  </implementationNotes>
 </serviceFunctionalSpecification>

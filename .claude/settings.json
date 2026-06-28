@@ -37,7 +37,17 @@
       "Bash(git -C * fetch *)",
       "Bash(git worktree list)",
       "Bash(git worktree list *)",
-      "Bash(npx jest *)"
+      "Bash(npx jest *)",
+      "Bash(npm run test)",
+      "Bash(npm run test *)",
+      "Bash(cd * && npm run build *)",
+      "Bash(cd * && npm run test *)",
+      "Bash(cd * && npm test *)",
+      "Bash(cd * && npm test)",
+      "Bash(cd * && npx tsc --noEmit *)",
+      "Bash(cd * && npx tsc --noEmit)",
+      "Bash(git fetch *)",
+      "Bash(git fetch)"
     ]
   }
 }

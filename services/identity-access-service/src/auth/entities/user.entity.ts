@@ -39,7 +39,7 @@ export class User {
   @Column({ name: 'login_identifier', unique: true, length: 100 })
   loginIdentifier: string;
 
-  @Column()
+  @Column({ unique: true })
   email: string;
 
   @Column({ name: 'password_hash', select: false })

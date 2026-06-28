@@ -6,7 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import {
   TeacherPaymentRequest,
   TeacherPaymentRequestStatus,
@@ -33,6 +33,7 @@ export class TeacherPaymentRequestsService {
     private readonly archiveRepo: Repository<FinancialArchiveItem>,
     private readonly financialProfilesService: FinancialProfilesService,
     private readonly eventsService: EventsService,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -89,6 +90,10 @@ export class TeacherPaymentRequestsService {
    * Validate or reject a teacher payment request.
    * FIN-AC-003: only AF can validate or reject.
    * On validation: debits financial points from the funding owner and creates an archive entry.
+   *
+   * Atomicity: all database writes (ledger, archive, request status update) are wrapped
+   * in a single transaction. The events.publish() call happens after the transaction commits
+   * so that events are only emitted on success.
    */
   async validateRequest(
     requestId: string,
@@ -122,59 +127,67 @@ export class TeacherPaymentRequestsService {
     const effectiveCorrelationId =
       dto.correlationId ?? correlationId ?? paymentRequest.correlationId ?? null;
 
-    if (dto.decision === ValidationDecision.VALIDATED) {
-      // Debit financial points from the funding owner (1 point per euro)
-      const pointsToDebit = Math.floor(paymentRequest.amountCents / 100);
-      const fundingProfile = await this.financialProfilesService.findByOwnerId(
-        paymentRequest.fundingOwnerId,
-        reviewerId,
-        reviewerRole,
-      );
+    // All writes are wrapped in a single transaction to ensure atomicity
+    const updatedRequest = await this.dataSource.transaction(async (manager) => {
+      const requestRepository = manager.getRepository(TeacherPaymentRequest);
+      const ledgerRepository = manager.getRepository(FinancialPointLedger);
+      const archiveRepository = manager.getRepository(FinancialArchiveItem);
 
-      const newBalance = (fundingProfile.pointsBalance ?? 0) - pointsToDebit;
+      if (dto.decision === ValidationDecision.VALIDATED) {
+        // Debit financial points from the funding owner (1 point per euro)
+        const pointsToDebit = Math.floor(paymentRequest.amountCents / 100);
+        const fundingProfile = await this.financialProfilesService.findByOwnerId(
+          paymentRequest.fundingOwnerId,
+          reviewerId,
+          reviewerRole,
+        );
 
-      await this.ledgerRepo.save(
-        this.ledgerRepo.create({
-          ownerId: paymentRequest.fundingOwnerId,
-          entryType: LedgerEntryType.DEBIT,
-          pointsAmount: pointsToDebit,
-          balanceAfter: newBalance,
-          description: `Teacher payment validated — request ${requestId} — ${pointsToDebit} points debited`,
-          referenceId: requestId,
-          correlationId: effectiveCorrelationId,
-        }),
-      );
+        const newBalance = (fundingProfile.pointsBalance ?? 0) - pointsToDebit;
 
-      await this.financialProfilesService.updatePointsBalance(
-        paymentRequest.fundingOwnerId,
-        newBalance,
-      );
+        await ledgerRepository.save(
+          ledgerRepository.create({
+            ownerId: paymentRequest.fundingOwnerId,
+            entryType: LedgerEntryType.DEBIT,
+            pointsAmount: pointsToDebit,
+            balanceAfter: newBalance,
+            description: `Teacher payment validated — request ${requestId} — ${pointsToDebit} points debited`,
+            referenceId: requestId,
+            correlationId: effectiveCorrelationId,
+          }),
+        );
 
-      // Create an archive entry for the funding owner
-      await this.archiveRepo.save(
-        this.archiveRepo.create({
-          ownerId: paymentRequest.fundingOwnerId,
-          itemType: ArchiveItemType.LEDGER_ENTRY,
-          referenceId: requestId,
-          label: `Paiement formateur validé — ${paymentRequest.description} — −${pointsToDebit} pts`,
-          amountCents: -paymentRequest.amountCents,
-          balanceSnapshot: newBalance,
-          correlationId: effectiveCorrelationId,
-        }),
-      );
-    }
+        await this.financialProfilesService.updatePointsBalance(
+          paymentRequest.fundingOwnerId,
+          newBalance,
+        );
 
-    const updatedRequest = await this.requestRepo.save({
-      ...paymentRequest,
-      requestStatus:
-        dto.decision === ValidationDecision.VALIDATED
-          ? TeacherPaymentRequestStatus.VALIDATED
-          : TeacherPaymentRequestStatus.REJECTED,
-      rejectionReason: dto.rejectionReason ?? null,
-      reviewedBy: reviewerId,
-      correlationId: effectiveCorrelationId,
+        // Create an archive entry for the funding owner
+        await archiveRepository.save(
+          archiveRepository.create({
+            ownerId: paymentRequest.fundingOwnerId,
+            itemType: ArchiveItemType.LEDGER_ENTRY,
+            referenceId: requestId,
+            label: `Paiement formateur validé — ${paymentRequest.description} — −${pointsToDebit} pts`,
+            amountCents: -paymentRequest.amountCents,
+            balanceSnapshot: newBalance,
+            correlationId: effectiveCorrelationId,
+          }),
+        );
+      }
+
+      return requestRepository.save({
+        ...paymentRequest,
+        requestStatus:
+          dto.decision === ValidationDecision.VALIDATED
+            ? TeacherPaymentRequestStatus.VALIDATED
+            : TeacherPaymentRequestStatus.REJECTED,
+        rejectionReason: dto.rejectionReason ?? null,
+        reviewedBy: reviewerId,
+        correlationId: effectiveCorrelationId,
+      });
     });
 
+    // Publish domain event after the transaction commits (not part of the transactional scope)
     const eventType =
       dto.decision === ValidationDecision.VALIDATED
         ? 'TeacherPaymentValidated'

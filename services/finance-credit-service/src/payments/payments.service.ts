@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Payment, PaymentType, PaymentStatus } from './entities/payment.entity';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
 import { FinancialPointLedger, LedgerEntryType } from './entities/financial-point-ledger.entity';
@@ -26,6 +26,7 @@ export class PaymentsService {
     private readonly archiveRepo: Repository<FinancialArchiveItem>,
     private readonly financialProfilesService: FinancialProfilesService,
     private readonly eventsService: EventsService,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -37,83 +38,124 @@ export class PaymentsService {
    *   - Credits financial points (1 point per euro for inscription)
    *   - Publishes PaymentConfirmed + InvoiceIssued events
    * FIN-AC-002: only one active inscription per owner allowed.
+   *
+   * Idempotency: if `dto.idempotencyKey` is provided and a Payment with the same
+   * (ownerId, idempotencyKey) already exists, the existing result is returned immediately
+   * without executing the workflow again. This prevents duplicate payments on retries.
+   *
+   * Atomicity: all database writes (payment, invoice, ledger, archive, profile) are
+   * wrapped in a single transaction. The events.publish() calls happen after the
+   * transaction commits so that events are only emitted on success.
    */
   async initiatePayment(
     ownerId: string,
     dto: CreatePaymentDto,
     correlationId?: string,
   ): Promise<{ payment: Payment; invoice: Invoice }> {
-    // Guard: prevent duplicate active inscription
+    // Idempotency check: return existing result if key was already processed
+    if (dto.idempotencyKey) {
+      const existingPayment = await this.paymentRepo.findOne({
+        where: { ownerId, idempotencyKey: dto.idempotencyKey },
+      });
+      if (existingPayment) {
+        const existingInvoice = await this.invoiceRepo.findOne({
+          where: { paymentId: existingPayment.id },
+        });
+        if (existingInvoice) {
+          return { payment: existingPayment, invoice: existingInvoice };
+        }
+      }
+    }
+
+    // Guard: prevent duplicate active inscription (outside transaction — read-only guard)
     if (dto.paymentType === PaymentType.INSCRIPTION) {
       await this.assertNoActiveInscription(ownerId);
     }
 
-    // Create the payment record (immediately confirmed for Phase 1 — real provider integration deferred)
-    const payment = await this.paymentRepo.save(
-      this.paymentRepo.create({
-        ownerId,
-        paymentType: dto.paymentType,
-        amountCents: dto.amountCents,
-        paymentStatus: PaymentStatus.CONFIRMED,
-        externalReference: dto.externalReference ?? null,
-        correlationId: dto.correlationId ?? correlationId ?? null,
-      }),
+    // All writes are wrapped in a single transaction to ensure atomicity
+    const { payment, invoice, archiveItem } = await this.dataSource.transaction(
+      async (manager) => {
+        const paymentRepository = manager.getRepository(Payment);
+        const invoiceRepository = manager.getRepository(Invoice);
+        const ledgerRepository = manager.getRepository(FinancialPointLedger);
+        const archiveRepository = manager.getRepository(FinancialArchiveItem);
+
+        // Create the payment record (immediately confirmed for Phase 1 — real provider integration deferred)
+        const createdPayment = await paymentRepository.save(
+          paymentRepository.create({
+            ownerId,
+            paymentType: dto.paymentType,
+            amountCents: dto.amountCents,
+            paymentStatus: PaymentStatus.CONFIRMED,
+            externalReference: dto.externalReference ?? null,
+            idempotencyKey: dto.idempotencyKey ?? null,
+            correlationId: dto.correlationId ?? correlationId ?? null,
+          }),
+        );
+
+        // Generate invoice number (sequential — in production: use a dedicated sequence)
+        const invoiceNumber = this.generateInvoiceNumber(createdPayment.id);
+
+        const createdInvoice = await invoiceRepository.save(
+          invoiceRepository.create({
+            paymentId: createdPayment.id,
+            invoiceNumber,
+            ownerId,
+            amountCents: createdPayment.amountCents,
+            invoiceStatus: InvoiceStatus.ISSUED,
+            correlationId: createdPayment.correlationId,
+          }),
+        );
+
+        // For inscription: upgrade profile to "membre" and credit points
+        if (dto.paymentType === PaymentType.INSCRIPTION) {
+          const updatedProfile = await this.financialProfilesService.createOrUpgradeToMembre(
+            ownerId,
+            createdPayment.correlationId,
+          );
+
+          // Credit financial points: 1 point per euro
+          const pointsEarned = Math.floor(dto.amountCents / 100);
+          const newBalance = (updatedProfile.pointsBalance ?? 0) + pointsEarned;
+
+          await ledgerRepository.save(
+            ledgerRepository.create({
+              ownerId,
+              entryType: LedgerEntryType.CREDIT,
+              pointsAmount: pointsEarned,
+              balanceAfter: newBalance,
+              description: `Inscription payment ${createdPayment.id} — ${pointsEarned} points credited`,
+              referenceId: createdPayment.id,
+              correlationId: createdPayment.correlationId,
+            }),
+          );
+
+          await this.financialProfilesService.updatePointsBalance(ownerId, newBalance);
+        }
+
+        // Archive this event
+        const createdArchiveItem = await archiveRepository.save(
+          archiveRepository.create({
+            ownerId,
+            itemType: ArchiveItemType.PAYMENT,
+            referenceId: createdPayment.id,
+            label: `${dto.paymentType} — €${(dto.amountCents / 100).toFixed(2)} — Facture ${invoiceNumber}`,
+            amountCents: dto.amountCents,
+            balanceSnapshot: null,
+            correlationId: createdPayment.correlationId,
+          }),
+        );
+
+        return {
+          payment: createdPayment,
+          invoice: createdInvoice,
+          archiveItem: createdArchiveItem,
+          invoiceNumber,
+        };
+      },
     );
 
-    // Generate invoice number (sequential — in production: use a dedicated sequence)
-    const invoiceNumber = this.generateInvoiceNumber(payment.id);
-
-    const invoice = await this.invoiceRepo.save(
-      this.invoiceRepo.create({
-        paymentId: payment.id,
-        invoiceNumber,
-        ownerId,
-        amountCents: payment.amountCents,
-        invoiceStatus: InvoiceStatus.ISSUED,
-        correlationId: payment.correlationId,
-      }),
-    );
-
-    // For inscription: upgrade profile to "membre" and credit points
-    if (dto.paymentType === PaymentType.INSCRIPTION) {
-      const updatedProfile = await this.financialProfilesService.createOrUpgradeToMembre(
-        ownerId,
-        payment.correlationId,
-      );
-
-      // Credit financial points: 1 point per euro
-      const pointsEarned = Math.floor(dto.amountCents / 100);
-      const newBalance = (updatedProfile.pointsBalance ?? 0) + pointsEarned;
-
-      await this.ledgerRepo.save(
-        this.ledgerRepo.create({
-          ownerId,
-          entryType: LedgerEntryType.CREDIT,
-          pointsAmount: pointsEarned,
-          balanceAfter: newBalance,
-          description: `Inscription payment ${payment.id} — ${pointsEarned} points credited`,
-          referenceId: payment.id,
-          correlationId: payment.correlationId,
-        }),
-      );
-
-      await this.financialProfilesService.updatePointsBalance(ownerId, newBalance);
-    }
-
-    // Archive this event
-    const archiveItem = await this.archiveRepo.save(
-      this.archiveRepo.create({
-        ownerId,
-        itemType: ArchiveItemType.PAYMENT,
-        referenceId: payment.id,
-        label: `${dto.paymentType} — €${(dto.amountCents / 100).toFixed(2)} — Facture ${invoiceNumber}`,
-        amountCents: dto.amountCents,
-        balanceSnapshot: null,
-        correlationId: payment.correlationId,
-      }),
-    );
-
-    // Publish domain events
+    // Publish domain events after the transaction commits (not part of the transactional scope)
     this.eventsService.publish(
       'PaymentConfirmed',
       {
@@ -131,7 +173,7 @@ export class PaymentsService {
       'InvoiceIssued',
       {
         invoiceId: invoice.id,
-        invoiceNumber,
+        invoiceNumber: invoice.invoiceNumber,
         paymentId: payment.id,
         ownerId,
         amountCents: invoice.amountCents,

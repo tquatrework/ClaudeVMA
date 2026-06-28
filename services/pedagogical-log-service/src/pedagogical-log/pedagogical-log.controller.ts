@@ -122,6 +122,15 @@ export class PedagogicalLogController {
    * Lire les pages du cahier de texte, filtrées selon le rôle du demandeur.
    */
   @Get('students/:studentId/pedagogical-log')
+  @Roles(
+    UserRole.ELEVE,
+    UserRole.PARENT_FINANCEUR,
+    UserRole.FORMATEUR,
+    UserRole.ANIMATEUR_PEDAGOGIQUE,
+    UserRole.RESPONSABLE_PEDAGOGIQUE,
+    UserRole.TECHNICIEN_INFORMATIQUE,
+    UserRole.ADMINISTRATEUR_FINANCIER,
+  ) // accès filtré par relation/visibilité dans le service
   @ApiParam({ name: 'studentId', description: 'UUID de l\'élève' })
   @ApiOperation({
     summary: 'Lire le cahier de texte d\'un élève',
@@ -149,6 +158,15 @@ export class PedagogicalLogController {
    * Logs d'une séance, filtrés par rôle.
    */
   @Get('logs/session/:sessionId')
+  @Roles(
+    UserRole.ELEVE,
+    UserRole.PARENT_FINANCEUR,
+    UserRole.FORMATEUR,
+    UserRole.ANIMATEUR_PEDAGOGIQUE,
+    UserRole.RESPONSABLE_PEDAGOGIQUE,
+    UserRole.TECHNICIEN_INFORMATIQUE,
+    UserRole.ADMINISTRATEUR_FINANCIER,
+  ) // accès filtré par relation/visibilité dans le service
   @ApiParam({ name: 'sessionId', description: 'UUID de la session' })
   @ApiOperation({
     summary: 'Logs d\'une séance',
@@ -165,6 +183,15 @@ export class PedagogicalLogController {
    * Détail d'une page.
    */
   @Get('logs/:id')
+  @Roles(
+    UserRole.ELEVE,
+    UserRole.PARENT_FINANCEUR,
+    UserRole.FORMATEUR,
+    UserRole.ANIMATEUR_PEDAGOGIQUE,
+    UserRole.RESPONSABLE_PEDAGOGIQUE,
+    UserRole.TECHNICIEN_INFORMATIQUE,
+    UserRole.ADMINISTRATEUR_FINANCIER,
+  ) // accès filtré par relation/visibilité dans le service
   @ApiParam({ name: 'id', description: 'UUID de la page' })
   @ApiOperation({ summary: 'Détail d\'une page du cahier de texte' })
   @ApiResponse({ status: 200, description: 'Page trouvée' })
@@ -180,6 +207,12 @@ export class PedagogicalLogController {
    * Modifier une page (auteur ou RP/TI).
    */
   @Patch('logs/:id')
+  @Roles(
+    UserRole.FORMATEUR,
+    UserRole.ANIMATEUR_PEDAGOGIQUE,
+    UserRole.RESPONSABLE_PEDAGOGIQUE,
+    UserRole.TECHNICIEN_INFORMATIQUE,
+  ) // auteur ou RP/TI, vérifié dans le service
   @ApiParam({ name: 'id', description: 'UUID de la page' })
   @ApiOperation({
     summary: 'Modifier une page du cahier de texte',

@@ -17,17 +17,21 @@ import {
   ApiHeader,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { UserRole } from '../common/enums/user-role.enum';
 import { LegalDocumentsService } from './legal-documents.service';
 import { SignDocumentDto } from './dto/sign-document.dto';
 
 @ApiTags('legal-documents')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('legal-documents')
 export class LegalDocumentsController {
   constructor(private readonly legalDocumentsService: LegalDocumentsService) {}
 
-  // Droits contextuels vérifiés dans le service (LDS-FB-001 : propriétaire du document, ou rôle interne RP / TI / AF)
+  // accès filtré par ownership dans le service
+  @Roles(UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.FORMATEUR, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE, UserRole.ADMINISTRATEUR_FINANCIER)
   @Get(':ownerId')
   @ApiOperation({
     summary: 'List legal documents for an owner',
@@ -48,7 +52,8 @@ export class LegalDocumentsController {
     return this.legalDocumentsService.findByOwnerId(ownerId, req.user.id, req.user.role);
   }
 
-  // Droits contextuels vérifiés dans le service (LDS-FB-002 : seul le propriétaire du document peut le signer)
+  // seul le propriétaire du document peut signer, vérifié dans le service
+  @Roles(UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.FORMATEUR)
   @Post(':id/sign')
   @ApiOperation({
     summary: 'Sign a legal document',

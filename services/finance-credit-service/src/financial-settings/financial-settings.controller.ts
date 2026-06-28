@@ -18,6 +18,8 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { UserRole } from '../common/enums/user-role.enum';
 import { FinancialSettingsService } from './financial-settings.service';
 import { UpdateRewardSettingsDto } from './dto/update-reward-settings.dto';
 
@@ -29,6 +31,7 @@ export class FinancialSettingsController {
   constructor(private readonly financialSettingsService: FinancialSettingsService) {}
 
   @Get('rewards')
+  @Roles(UserRole.ADMINISTRATEUR_FINANCIER, UserRole.TECHNICIEN_INFORMATIQUE)
   @ApiHeader({ name: 'x-correlation-id', required: false })
   @ApiOperation({
     summary: 'Get all reward settings (AF only)',
@@ -47,6 +50,7 @@ export class FinancialSettingsController {
   }
 
   @Patch('rewards')
+  @Roles(UserRole.ADMINISTRATEUR_FINANCIER)
   @ApiHeader({ name: 'x-correlation-id', required: false })
   @ApiOperation({
     summary: 'Update reward settings (AF only)',
@@ -84,6 +88,7 @@ export class FinanceEventsController {
   constructor(private readonly financialSettingsService: FinancialSettingsService) {}
 
   @Get()
+  @Roles(UserRole.ADMINISTRATEUR_FINANCIER, UserRole.TECHNICIEN_INFORMATIQUE)
   @ApiQuery({
     name: 'ownerId',
     required: false,

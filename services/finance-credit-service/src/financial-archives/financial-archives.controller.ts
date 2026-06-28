@@ -16,6 +16,8 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { UserRole } from '../common/enums/user-role.enum';
 import { FinancialArchivesService } from './financial-archives.service';
 
 @ApiTags('financial-archives')
@@ -26,6 +28,7 @@ export class FinancialArchivesController {
   constructor(private readonly financialArchivesService: FinancialArchivesService) {}
 
   @Get(':ownerId')
+  @Roles(UserRole.PARENT_FINANCEUR, UserRole.ADMINISTRATEUR_FINANCIER, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE)
   @ApiParam({ name: 'ownerId', description: 'UUID of the funding owner' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
   @ApiOperation({
@@ -39,6 +42,7 @@ export class FinancialArchivesController {
   @ApiResponse({ status: 200, description: 'List of financial archive items' })
   @ApiResponse({ status: 401, description: 'Missing or invalid JWT' })
   @ApiResponse({ status: 403, description: 'Insufficient permissions' })
+  // accès filtré par ownership dans le service
   listFinancialArchives(
     @Param('ownerId') ownerId: string,
     @Req() req: any,

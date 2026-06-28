@@ -42,6 +42,7 @@ export class CalendarEventsController {
   // ── /calendars/{ownerId}/events ──────────────────────────────────────────
 
   @Get('calendars/:ownerId/events')
+  @Roles(UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE, UserRole.ADMINISTRATEUR_FINANCIER) // accès filtré par ownership/filtrage dans le service
   @ApiParam({ name: 'ownerId', description: 'Calendar owner user ID' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
   @ApiOperation({
@@ -70,6 +71,7 @@ export class CalendarEventsController {
   }
 
   @Post('calendars/:ownerId/events')
+  @Roles(UserRole.ELEVE, UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE)
   @ApiParam({ name: 'ownerId', description: 'Calendar owner user ID' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
   @ApiOperation({
@@ -105,6 +107,7 @@ export class CalendarEventsController {
   // ── /events/{id}/invitees/{userId} ────────────────────────────────────────
 
   @Post('events/:id/invitees/:userId/accept')
+  @Roles(UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE, UserRole.ADMINISTRATEUR_FINANCIER) // accès filtré dans le service
   @ApiParam({ name: 'id', description: 'Event UUID' })
   @ApiParam({ name: 'userId', description: 'Invitee user ID' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
@@ -132,6 +135,7 @@ export class CalendarEventsController {
   }
 
   @Post('events/:id/invitees/:userId/decline')
+  @Roles(UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE, UserRole.ADMINISTRATEUR_FINANCIER) // accès filtré dans le service
   @ApiParam({ name: 'id', description: 'Event UUID' })
   @ApiParam({ name: 'userId', description: 'Invitee user ID' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
@@ -161,6 +165,7 @@ export class CalendarEventsController {
   // ── /events/{id}/cancel-request ──────────────────────────────────────────
 
   @Post('events/:id/cancel-request')
+  @Roles(UserRole.ELEVE, UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE) // accès filtré dans le service
   @ApiParam({ name: 'id', description: 'Event UUID' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
   @ApiOperation({
@@ -195,6 +200,7 @@ export class CalendarEventsController {
   // ── /events/{id}/reminders ────────────────────────────────────────────────
 
   @Post('events/:id/reminders')
+  @Roles(UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE, UserRole.ADMINISTRATEUR_FINANCIER) // accès filtré par ownership dans le service
   @ApiParam({ name: 'id', description: 'Event UUID' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
   @ApiOperation({

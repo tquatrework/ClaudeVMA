@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import {
   fetchContacts,
@@ -10,10 +11,15 @@ import {
 } from '../api/communication'
 
 export default function ContactsPage() {
+  const navigate = useNavigate()
   const [contactList, setContactList] = useState<Contact[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [pendingActionIds, setPendingActionIds] = useState<Set<string>>(new Set())
+
+  const handleStartConversation = (contact: Contact) => {
+    navigate('/messages', { state: { initialContactId: contact.userId, initialContactLabel: contact.displayName ?? contact.email } })
+  }
 
   useEffect(() => {
     fetchContacts()
@@ -132,6 +138,7 @@ export default function ContactsPage() {
                       onActivate={handleActivateContact}
                       onDelete={handleDeleteContact}
                       onVisibilityChange={handleVisibilityChange}
+                      onStartConversation={handleStartConversation}
                     />
                   ))}
                 </ul>
@@ -153,6 +160,7 @@ export default function ContactsPage() {
                       onActivate={handleActivateContact}
                       onDelete={handleDeleteContact}
                       onVisibilityChange={handleVisibilityChange}
+                      onStartConversation={handleStartConversation}
                     />
                   ))}
                 </ul>
@@ -174,6 +182,7 @@ export default function ContactsPage() {
                       onActivate={handleActivateContact}
                       onDelete={handleDeleteContact}
                       onVisibilityChange={handleVisibilityChange}
+                      onStartConversation={handleStartConversation}
                     />
                   ))}
                 </ul>
@@ -194,6 +203,7 @@ interface ContactRowProps {
   onActivate: (contactId: string) => Promise<void>
   onDelete: (contactId: string) => Promise<void>
   onVisibilityChange: (contactId: string, visibility: ContactVisibility) => Promise<void>
+  onStartConversation: (contact: Contact) => void
 }
 
 function ContactRow({
@@ -202,6 +212,7 @@ function ContactRow({
   onActivate,
   onDelete,
   onVisibilityChange,
+  onStartConversation,
 }: ContactRowProps) {
   const displayLabel =
     contact.displayName ?? contact.email ?? `Contact ${contact.id.slice(0, 8)}…`
@@ -277,6 +288,17 @@ function ContactRow({
             className="text-xs bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-100 disabled:opacity-50 whitespace-nowrap"
           >
             {isPending ? '…' : 'Supprimer'}
+          </button>
+        )}
+
+        {/* Bouton Écrire (contacts actifs uniquement) */}
+        {contact.status === 'active' && (
+          <button
+            onClick={() => onStartConversation(contact)}
+            disabled={isPending}
+            className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
+          >
+            Écrire
           </button>
         )}
       </div>

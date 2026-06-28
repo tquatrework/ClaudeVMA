@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import apiClient from '../api/client'
 import Layout from '../components/Layout'
 
@@ -18,7 +19,15 @@ interface Conversation {
   unreadCount: number
 }
 
+interface LocationState {
+  initialContactId?: string
+  initialContactLabel?: string
+}
+
 export default function MessagesPage() {
+  const location = useLocation()
+  const locationState = (location.state ?? {}) as LocationState
+
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -27,9 +36,9 @@ export default function MessagesPage() {
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Create conversation state
-  const [isCreatingConv, setIsCreatingConv] = useState(false)
-  const [newConvParticipantId, setNewConvParticipantId] = useState('')
+  // Create conversation state — pre-filled when navigating from ContactsPage
+  const [isCreatingConv, setIsCreatingConv] = useState(!!locationState.initialContactId)
+  const [newConvParticipantId, setNewConvParticipantId] = useState(locationState.initialContactId ?? '')
   const [isCreatingConvLoading, setIsCreatingConvLoading] = useState(false)
   const [createConvError, setCreateConvError] = useState<string | null>(null)
 
@@ -161,6 +170,11 @@ export default function MessagesPage() {
             <p className="text-xs text-gray-500">
               Vous pouvez uniquement démarrer une conversation avec un contact autorisé.
             </p>
+            {locationState.initialContactLabel && (
+              <p className="text-xs text-indigo-700 font-medium">
+                Contact sélectionné : {locationState.initialContactLabel}
+              </p>
+            )}
             {createConvError && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
                 {createConvError}

@@ -139,13 +139,13 @@ describe('fetchArchiveTimeline', () => {
 // ─── downloadArchiveDocument ──────────────────────────────────────────────────
 
 describe('downloadArchiveDocument', () => {
-  it('appelle GET /archive-documents/:id/download avec responseType blob', async () => {
+  it('appelle GET /documents/:id/download avec responseType blob', async () => {
     const blobData = new Blob(['fake-content'], { type: 'application/pdf' })
     mockGet.mockResolvedValue({ data: blobData })
 
     const result = await downloadArchiveDocument('doc-99')
 
-    expect(mockGet).toHaveBeenCalledWith('/archive-documents/doc-99/download', {
+    expect(mockGet).toHaveBeenCalledWith('/documents/doc-99/download', {
       responseType: 'blob',
     })
     expect(result).toBeInstanceOf(Blob)

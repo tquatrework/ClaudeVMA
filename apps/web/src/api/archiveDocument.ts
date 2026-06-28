@@ -96,7 +96,7 @@ export async function fetchArchiveTimeline(
 }
 
 /**
- * GET /archive-documents/:id/download
+ * GET /documents/:id/download
  * Télécharge un document d'archive (retourne un blob).
  */
 export async function downloadArchiveDocument(documentId: string): Promise<Blob> {

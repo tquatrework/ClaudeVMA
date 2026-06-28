@@ -26,6 +26,7 @@ Réponse login/refresh : `{access_token, refresh_token, user: {id, email, role, 
 
 | Méthode | Chemin | Description | Auth | Rôles | Body |
 |---|---|---|---|---|---|
+| GET | /accounts/check-email | Vérifier la disponibilité d'un email | Non | — | Query: `email` |
 | POST | /accounts | Créer un compte générique (auto-inscription) | Non | — | `{email, password, role?}` |
 | POST | /accounts/students | Créer un compte élève (+ parent optionnel) | Non | — | `{email, password, isMember?, parentEmail?, parentPassword?}` |
 | POST | /accounts/teachers | Créer un compte formateur | Non | — | `{email, password, cvReference?}` |

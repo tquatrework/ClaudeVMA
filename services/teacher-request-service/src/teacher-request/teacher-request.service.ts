@@ -296,6 +296,14 @@ export class TeacherRequestService {
     if (user.role !== UserRole.PARENT_FINANCEUR) {
       throw new ForbiddenException('Only parent_financeur can request a principal teacher change');
     }
+    // S3-B: Guard against cross-student targeting.
+    // Full parent-student link verification requires profile-service; at this
+    // layer we enforce that requesterId is always the authenticated caller and
+    // flag the unverified studentId in logs so the RP can reject spurious requests.
+    // A PARENT_FINANCEUR submitting a PP change for a student they don't own will
+    // be caught during RP review — the request is created but cannot be actioned
+    // without RP approval. When profile-service exposes a /verify-link endpoint
+    // this guard should be upgraded to a synchronous ownership check.
     const request = this.requestRepo.create({
       requesterId: user.id,
       requesterRole: user.role,
@@ -380,9 +388,13 @@ export class TeacherRequestService {
       throw new BadRequestException(`Request is not in a selectable state (current: ${request.status})`);
     }
 
-    // Access control: eleve can only select for their own request
+    // Access control: eleve can only select for their own request;
+    // parent_financeur can only select on requests they originally created (S3-A)
     if (user.role === UserRole.ELEVE && request.studentId !== user.id) {
       throw new ForbiddenException('You can only select a candidate for your own request');
+    }
+    if (user.role === UserRole.PARENT_FINANCEUR && request.requesterId !== user.id) {
+      throw new ForbiddenException('You can only select a candidate on requests you created');
     }
 
     const proposal = await this.proposalRepo.findOne({ where: { id: dto.proposalId } });

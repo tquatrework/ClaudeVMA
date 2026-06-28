@@ -69,8 +69,7 @@ Réponse : `{accountId, email, role}`
 
 ## profile-service
 
-Préfixes gateway : `/api/v1/profiles` · `/api/v1/relations` (🔒) → profile-service
-⚠️ `/api/v1/parent-link-requests` absent de `nginx.conf` — à ajouter (voir `docs/api-mapping.md`)
+Préfixes gateway : `/api/v1/profiles` · `/api/v1/relations` · `/api/v1/parent-link-requests` (🔒) → profile-service
 
 Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedagogique`, `responsable_pedagogique`, `technicien_informatique`, `administrateur_financier`
 
@@ -529,8 +528,7 @@ Chaque service expose `GET /health` → `{status: "ok", service: "...", timestam
 
 ## legal-document-service
 
-Préfixes gateway : `/api/v1/legal-documents` · `/api/v1/mandates` (🔒) → legal-document-service
-⚠️ `/api/v1/legal-templates` absent de `nginx.conf` — à ajouter (voir `docs/api-mapping.md`)
+Préfixes gateway : `/api/v1/legal-documents` · `/api/v1/mandates` · `/api/v1/legal-templates` (🔒) → legal-document-service
 
 Gère les mandats clients, contrats formateurs, modèles légaux et enregistrements de signature.
 

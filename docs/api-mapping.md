@@ -32,10 +32,10 @@ Légende : 🔒 = JWT requis · ⚠️ = gap gateway confirmé · (phase N) = no
 |---|---|---|---|---|
 | `relations.ts` | `fetchLinkedStudents` | `/relations/finance-owner-student/:id` | `/api/v1/relations` 🔒 | `/relations/finance-owner-student/:id` |
 | `relations.ts` | *(getStudentProfile)* | `/profiles/:studentId` | `/api/v1/profiles` 🔒 | `/profiles/:studentId` |
-| `parentLinkRequest.ts` | `submitParentLinkRequest` | `/parent-link-requests` | ⚠️ **absent nginx.conf** | `/parent-link-requests` |
-| `parentLinkRequest.ts` | `listParentLinkRequests` | `/parent-link-requests` | ⚠️ **absent nginx.conf** | `/parent-link-requests` |
-| `parentLinkRequest.ts` | `approveParentLinkRequest` | `/parent-link-requests/:id/approve` | ⚠️ **absent nginx.conf** | `/parent-link-requests/:id/approve` |
-| `parentLinkRequest.ts` | `rejectParentLinkRequest` | `/parent-link-requests/:id/reject` | ⚠️ **absent nginx.conf** | `/parent-link-requests/:id/reject` |
+| `parentLinkRequest.ts` | `submitParentLinkRequest` | `/parent-link-requests` | `/api/v1/parent-link-requests` 🔒 | `/parent-link-requests` |
+| `parentLinkRequest.ts` | `listParentLinkRequests` | `/parent-link-requests` | `/api/v1/parent-link-requests` 🔒 | `/parent-link-requests` |
+| `parentLinkRequest.ts` | `approveParentLinkRequest` | `/parent-link-requests/:id/approve` | `/api/v1/parent-link-requests` 🔒 | `/parent-link-requests/:id/approve` |
+| `parentLinkRequest.ts` | `rejectParentLinkRequest` | `/parent-link-requests/:id/reject` | `/api/v1/parent-link-requests` 🔒 | `/parent-link-requests/:id/reject` |
 
 ---
 
@@ -119,8 +119,8 @@ Cas particulier : le préfixe `/finance/` est **strippé** par nginx avant trans
 | `legal.ts` | `fetchLegalDocuments` | `/legal-documents/:ownerId` | `/api/v1/legal-documents` 🔒 | `/legal-documents/:ownerId` |
 | `legal.ts` | `signDocument` | `/legal-documents/:id/sign` | `/api/v1/legal-documents` 🔒 | `/legal-documents/:id/sign` |
 | `legal.ts` | `downloadSecureCopy` | `/legal-documents/:id/secure-copy` | `/api/v1/legal-documents` 🔒 | `/legal-documents/:id/secure-copy` |
-| `legal.ts` | `createLegalTemplate` | `/legal-templates` | ⚠️ **absent nginx.conf** | `/legal-templates` |
-| `legal.ts` | `updateLegalTemplate` | `/legal-templates/:id` | ⚠️ **absent nginx.conf** | `/legal-templates/:id` |
+| `legal.ts` | `createLegalTemplate` | `/legal-templates` | `/api/v1/legal-templates` 🔒 | `/legal-templates` |
+| `legal.ts` | `updateLegalTemplate` | `/legal-templates/:id` | `/api/v1/legal-templates` 🔒 | `/legal-templates/:id` |
 
 ---
 
@@ -153,15 +153,6 @@ Ces services n'ont pas encore de fichier dédié dans `src/api/`. Les appels son
 | teacher-request-service | `/api/v1/teacher-requests` | `/teacher-requests/...` |
 
 ---
-
-## Alertes — Routes frontend sans couverture gateway
-
-Ces routes sont appelées par des helpers frontend mais absentes de `nginx.conf`. Toute requête aboutira à un 404 gateway.
-
-| Route `apiClient` | Helper | Service cible | Correction à apporter |
-|---|---|---|---|
-| `/parent-link-requests` | `parentLinkRequest.ts` | profile-service | Ajouter `location ^~ /api/v1/parent-link-requests` → profile-service dans nginx.conf |
-| `/legal-templates` | `legal.ts` | legal-document-service | Ajouter `location ^~ /api/v1/legal-templates` → legal-document-service dans nginx.conf |
 
 ---
 

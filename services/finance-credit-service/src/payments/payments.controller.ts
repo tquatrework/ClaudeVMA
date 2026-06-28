@@ -14,13 +14,15 @@ import {
   ApiHeader,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../common/guards/roles.guard';
 import { PaymentsService } from './payments.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 
+// Droits contextuels vérifiés dans le service (le paiement est toujours initié par le
+// propriétaire lui-même — ownerId = req.user.id). Aucun rôle fixe requis : tout utilisateur
+// authentifié peut initier un paiement pour son propre compte. RolesGuard retiré.
 @ApiTags('payments')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard)
 @Controller('payments')
 export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
@@ -42,6 +44,7 @@ export class PaymentsController {
   @ApiResponse({ status: 400, description: 'Validation error' })
   @ApiResponse({ status: 401, description: 'Missing or invalid JWT' })
   @ApiResponse({ status: 409, description: 'Duplicate inscription payment (FIN-AC-002)' })
+  // Droits contextuels vérifiés dans le service (ownerId = req.user.id, pas de restriction de rôle).
   initiatePayment(
     @Body() dto: CreatePaymentDto,
     @Req() req: any,

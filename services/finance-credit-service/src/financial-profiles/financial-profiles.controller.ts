@@ -17,13 +17,16 @@ import {
   ApiHeader,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../common/guards/roles.guard';
 import { FinancialProfilesService } from './financial-profiles.service';
 import { UpdateFinancialProfileDto } from './dto/update-financial-profile.dto';
 
+// Droits contextuels vérifiés dans le service (propriétaire de la ressource, AF, RP ou TI selon
+// l'opération). RolesGuard retiré : aucun rôle fixe applicable — la liste des autorisés inclut
+// le propriétaire de la ressource identifié dynamiquement (assertCanRead / assertCanWrite dans
+// FinancialProfilesService).
 @ApiTags('financial-profiles')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard)
 @Controller('financial-profiles')
 export class FinancialProfilesController {
   constructor(private readonly financialProfilesService: FinancialProfilesService) {}
@@ -42,6 +45,7 @@ export class FinancialProfilesController {
   @ApiResponse({ status: 401, description: 'Missing or invalid JWT' })
   @ApiResponse({ status: 403, description: 'Insufficient permissions' })
   @ApiResponse({ status: 404, description: 'Financial profile not found' })
+  // Droits contextuels vérifiés dans le service (propriétaire de la ressource OU rôle AF / RP / TI).
   getFinancialProfile(
     @Param('ownerId') ownerId: string,
     @Req() req: any,
@@ -58,13 +62,14 @@ export class FinancialProfilesController {
     description:
       'Update payment method, payment reference, or funding end date. ' +
       'Allowed for the owner themselves, AF, or TI. ' +
-      'Profile type transitions (limite → membre) are managed by the payment flow.',
+      'Profile type transitions (limite -> membre) are managed by the payment flow.',
   })
   @ApiResponse({ status: 200, description: 'Financial profile updated' })
   @ApiResponse({ status: 400, description: 'Validation error' })
   @ApiResponse({ status: 401, description: 'Missing or invalid JWT' })
   @ApiResponse({ status: 403, description: 'Insufficient permissions' })
   @ApiResponse({ status: 404, description: 'Financial profile not found' })
+  // Droits contextuels vérifiés dans le service (propriétaire de la ressource OU rôle AF / TI).
   updateFinancialProfile(
     @Param('ownerId') ownerId: string,
     @Body() dto: UpdateFinancialProfileDto,

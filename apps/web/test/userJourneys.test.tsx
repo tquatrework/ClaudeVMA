@@ -295,7 +295,7 @@ describe('Journey 4: Dashboard → Demandes professeur → Création demande', (
     await userEvent.click(screen.getByRole('button', { name: /soumettre la demande/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith('/teacher-requests/requests', {
+      expect(mockApiClient.post).toHaveBeenCalledWith('/teacher-requests', {
         description: 'Aide en statistiques Terminale',
       })
     })

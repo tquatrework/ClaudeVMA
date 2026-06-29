@@ -67,7 +67,7 @@ export default function TeacherRequestPage() {
 
   useEffect(() => {
     apiClient
-      .get<TeacherRequestSummary[] | { data: TeacherRequestSummary[] }>('/teacher-requests/requests')
+      .get<TeacherRequestSummary[] | { data: TeacherRequestSummary[] }>('/teacher-requests')
       .then(({ data }) => {
         const requestList = Array.isArray(data)
           ? data
@@ -191,9 +191,13 @@ export default function TeacherRequestPage() {
               <p className="text-gray-400 text-sm">Chargement…</p>
             )}
 
-            {!isLoading && requests.length === 0 && (
+            {!isLoading && requests.length === 0 && !errorMessage && (
               <div className="text-center py-12 bg-white border border-gray-200 rounded-xl">
-                <p className="text-gray-400 text-sm">Aucune demande</p>
+                <p className="text-gray-500 text-sm font-medium">
+                  {isEleve || isParentFinanceur
+                    ? "Vous n'avez pas pour l'instant de professeur attitré"
+                    : 'Aucune demande'}
+                </p>
                 {canCreateRequest && (
                   <button
                     onClick={() => setIsShowingRequestForm(true)}

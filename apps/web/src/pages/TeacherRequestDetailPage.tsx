@@ -79,7 +79,7 @@ export default function TeacherRequestDetailPage() {
   useEffect(() => {
     if (!requestId) return
     apiClient
-      .get<TeacherRequest>(`/teacher-requests/requests/${requestId}`)
+      .get<TeacherRequest>(`/teacher-requests/${requestId}`)
       .then(({ data }) => {
         setRequest(data)
         setCandidates(data.candidates ?? [])
@@ -99,7 +99,7 @@ export default function TeacherRequestDetailPage() {
     setErrorMessage(null)
     try {
       const { data } = await apiClient.patch<TeacherRequest>(
-        `/teacher-requests/requests/${requestId}/status`,
+        `/teacher-requests/${requestId}/status`,
         { status: newStatus },
       )
       setRequest(data)
@@ -118,7 +118,7 @@ export default function TeacherRequestDetailPage() {
   const handleDelete = async () => {
     if (!requestId || !window.confirm('Supprimer définitivement cette demande ?')) return
     try {
-      await apiClient.delete(`/teacher-requests/requests/${requestId}`)
+      await apiClient.delete(`/teacher-requests/${requestId}`)
       navigate('/teacher-requests')
     } catch (error: unknown) {
       const apiMessage =

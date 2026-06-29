@@ -2,6 +2,14 @@ import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
+import './styles/tokens.css'
+
+// Dashboards par rôle
+import EleveDashboardPage from './pages/EleveDashboardPage'
+import ParentDashboardPage from './pages/ParentDashboardPage'
+import ProfesseurDashboardPage from './pages/ProfesseurDashboardPage'
+import RpDashboardPage from './pages/RpDashboardPage'
+import ApDashboardPage from './pages/ApDashboardPage'
 
 // Pages
 import LoginPage from './pages/LoginPage'
@@ -760,6 +768,48 @@ export default function App() {
                 ]}
               >
                 <WorkflowIncidentView />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ── Dashboards par rôle ────────────────────────── */}
+          <Route
+            path="/dashboard/eleve"
+            element={
+              <ProtectedRoute allowedRoles={['eleve']}>
+                <EleveDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/parent"
+            element={
+              <ProtectedRoute allowedRoles={['parent_financeur']}>
+                <ParentDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/professeur"
+            element={
+              <ProtectedRoute allowedRoles={['formateur']}>
+                <ProfesseurDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/rp"
+            element={
+              <ProtectedRoute allowedRoles={['responsable_pedagogique']}>
+                <RpDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/ap"
+            element={
+              <ProtectedRoute allowedRoles={['animateur_pedagogique']}>
+                <ApDashboardPage />
               </ProtectedRoute>
             }
           />

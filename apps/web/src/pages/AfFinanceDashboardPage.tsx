@@ -1,20 +1,14 @@
 /**
- * AfFinanceDashboardPage — Phase 9
- *
- * Tableau de bord AF (Administrateur Financier).
- * Accès restreint : administrateur_financier uniquement.
- *
- * Contient :
- * - Vue des événements financiers récents
- * - Accès aux paramètres de rémunération (RewardSettings)
- * - Liens vers profils financiers et demandes de paiement formateur
+ * AfFinanceDashboardPage — Dashboard Administrateur Financier
+ * Accent : Ardoise oklch(0.52 0.07 250)
  */
 
 import React, { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
+import DashboardShell, { RailGroup, NavItem } from '../components/dashboard/DashboardShell'
 import apiClient from '../api/client'
+import '../styles/tokens.css'
 
 interface FinanceEvent {
   id: string
@@ -28,15 +22,44 @@ interface RewardSettings {
   bonusMultiplier?: number
 }
 
+const TOP_NAV_ITEMS: NavItem[] = [
+  { label: 'Accueil', path: '/admin/finance' },
+  { label: 'Profils financiers', path: '/finance' },
+  { label: 'Paiements', path: '/teacher-payment-requests' },
+  { label: 'Documents légaux', path: '/legal' },
+  { label: 'Activité', path: '/admin/activity' },
+  { label: 'Délégations', path: '/delegations' },
+]
+
+const RAIL_GROUPS: RailGroup[] = [
+  {
+    groupLabel: 'Finance',
+    items: [
+      { label: 'Profils financiers', path: '/finance', icon: '💳' },
+      { label: 'Paiements formateurs', path: '/teacher-payment-requests', icon: '💰' },
+      { label: 'Modèles légaux', path: '/legal/templates', icon: '📄' },
+    ],
+  },
+  {
+    groupLabel: 'Administration',
+    items: [
+      { label: 'Activité globale', path: '/admin/activity', icon: '📊' },
+      { label: 'Délégations', path: '/delegations', icon: '🔑' },
+      { label: 'Workflows', path: '/admin/orchestration/workflows', icon: '⚙️' },
+    ],
+  },
+]
+
 export default function AfFinanceDashboardPage() {
   const { user, hasRole } = useAuth()
   const navigate = useNavigate()
+  const firstName = user?.loginIdentifier ?? 'vous'
 
   const [financeEvents, setFinanceEvents] = useState<FinanceEvent[]>([])
   const [isLoadingEvents, setIsLoadingEvents] = useState(true)
   const [rewardSettings, setRewardSettings] = useState<RewardSettings>({ pointsPerEuro: 1 })
   const [isEditingRewards, setIsEditingRewards] = useState(false)
-  const [pointsPerEuro, setPointsPerEuro] = useState(1)
+  const [editedPointsPerEuro, setEditedPointsPerEuro] = useState(1)
   const [isSavingRewards, setIsSavingRewards] = useState(false)
   const [rewardSaveError, setRewardSaveError] = useState<string | null>(null)
   const [rewardSaveSuccess, setRewardSaveSuccess] = useState(false)
@@ -50,7 +73,7 @@ export default function AfFinanceDashboardPage() {
     apiClient
       .get<FinanceEvent[]>('/finance-events')
       .then(({ data }) => setFinanceEvents(Array.isArray(data) ? data : []))
-      .catch(() => { /* non-bloquant */ })
+      .catch(() => {})
       .finally(() => setIsLoadingEvents(false))
   }, [hasRole, navigate])
 
@@ -58,69 +81,182 @@ export default function AfFinanceDashboardPage() {
     setIsSavingRewards(true)
     setRewardSaveError(null)
     setRewardSaveSuccess(false)
-
     try {
-      await apiClient.patch('/financial-settings/rewards', { pointsPerEuro })
-      setRewardSettings({ pointsPerEuro })
+      await apiClient.patch('/financial-settings/rewards', { pointsPerEuro: editedPointsPerEuro })
+      setRewardSettings({ pointsPerEuro: editedPointsPerEuro })
       setIsEditingRewards(false)
       setRewardSaveSuccess(true)
     } catch {
-      setRewardSaveError('Impossible de mettre à jour les paramètres de rémunération.')
+      setRewardSaveError('Impossible de mettre à jour les paramètres.')
     } finally {
       setIsSavingRewards(false)
     }
   }
 
-  if (!hasRole('administrateur_financier')) {
-    return null
-  }
+  if (!hasRole('administrateur_financier')) return null
+
+  // TODO: brancher API KPIs financiers
+  const kpiCards = [
+    { label: 'Crédits actifs', value: '—', description: 'Total en circulation' },
+    { label: 'Paiements en attente', value: '—', description: 'Formateurs à payer' },
+    { label: 'Factures émises (mois)', value: '—', description: 'Ce mois-ci' },
+  ]
 
   return (
-    <Layout>
-      <div className="space-y-8">
-        {/* En-tête */}
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Espace Administrateur Financier</h1>
-          <p className="text-gray-500 text-sm mt-1">Connecté en tant que : {user?.email}</p>
-        </div>
+    <DashboardShell
+      accentClass="role-af"
+      railGroups={RAIL_GROUPS}
+      topNavItems={TOP_NAV_ITEMS}
+      userName={firstName}
+      userRole="Administrateur financier"
+    >
+      {/* Salutation */}
+      <div style={{ marginBottom: '24px' }}>
+        <h1
+          style={{
+            fontFamily: 'var(--font-heading)',
+            fontSize: '24px',
+            fontWeight: 700,
+            color: 'var(--color-ink)',
+            margin: 0,
+          }}
+        >
+          Bonjour, {firstName}
+        </h1>
+        <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
+          Espace administrateur financier
+        </p>
+      </div>
 
-        {/* Accès rapides */}
-        <section>
-          <h2 className="text-base font-semibold text-gray-700 mb-3">Actions rapides</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <Link
-              to={`/finance/${user?.id}`}
-              className="flex items-center justify-center p-4 bg-white border border-gray-200 rounded-xl hover:border-indigo-300 hover:shadow-sm transition-all text-sm font-medium text-gray-700 text-center"
+      {/* KPIs */}
+      <div
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '28px' }}
+        className="vm-af-kpis"
+      >
+        {kpiCards.map((kpi) => (
+          <div
+            key={kpi.label}
+            style={{
+              background: 'var(--color-white)',
+              border: '1px solid var(--color-surface)',
+              borderRadius: 'var(--radius-card)',
+              boxShadow: 'var(--shadow-card)',
+              padding: '20px',
+            }}
+          >
+            <p
+              style={{
+                fontSize: '28px',
+                fontFamily: 'var(--font-heading)',
+                fontWeight: 700,
+                color: 'var(--accent)',
+                margin: '0 0 4px',
+              }}
             >
-              Mon profil financier
-            </Link>
-            <Link
-              to="/legal/templates"
-              className="flex items-center justify-center p-4 bg-white border border-gray-200 rounded-xl hover:border-indigo-300 hover:shadow-sm transition-all text-sm font-medium text-gray-700 text-center"
-            >
-              Modèles légaux
-            </Link>
-            <Link
-              to="/delegations"
-              className="flex items-center justify-center p-4 bg-white border border-gray-200 rounded-xl hover:border-indigo-300 hover:shadow-sm transition-all text-sm font-medium text-gray-700 text-center"
-            >
-              Délégations
-            </Link>
+              {kpi.value}
+            </p>
+            <p style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)', margin: '0 0 2px' }}>
+              {kpi.label}
+            </p>
+            <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: 0 }}>
+              {kpi.description}
+            </p>
           </div>
-        </section>
+        ))}
+      </div>
 
-        {/* Paramètres de rémunération */}
-        <section className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-gray-700">Paramètres de rémunération</h2>
+      {/* Actions rapides */}
+      <div style={{ marginBottom: '28px' }}>
+        <h2
+          style={{
+            fontFamily: 'var(--font-heading)',
+            fontSize: '15px',
+            fontWeight: 600,
+            color: 'var(--color-ink)',
+            marginBottom: '12px',
+          }}
+        >
+          Actions rapides
+        </h2>
+        <div
+          style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}
+          className="vm-af-actions"
+        >
+          {[
+            { label: 'Profils financiers', path: '/finance' },
+            { label: 'Modèles légaux', path: '/legal/templates' },
+            { label: 'Délégations', path: '/delegations' },
+            { label: 'Paiements formateurs', path: '/teacher-payment-requests' },
+            { label: 'Export activités', path: '/admin/activities/export' },
+            { label: 'Workflows', path: '/admin/orchestration/workflows' },
+          ].map((action) => (
+            <Link
+              key={action.path}
+              to={action.path}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '14px 12px',
+                background: 'var(--color-white)',
+                border: '1px solid var(--color-surface)',
+                borderRadius: 'var(--radius-card)',
+                boxShadow: 'var(--shadow-card)',
+                fontSize: '13px',
+                fontWeight: 500,
+                color: 'var(--color-ink)',
+                textDecoration: 'none',
+                textAlign: 'center',
+              }}
+            >
+              {action.label}
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      {/* Grille : Paramètres rémunération + Événements récents */}
+      <div
+        style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '24px' }}
+        className="vm-grid-af"
+      >
+        {/* Paramètres rémunération */}
+        <div
+          style={{
+            background: 'var(--color-white)',
+            border: '1px solid var(--color-surface)',
+            borderRadius: 'var(--radius-card)',
+            boxShadow: 'var(--shadow-card)',
+            padding: '20px',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3
+              style={{
+                fontFamily: 'var(--font-heading)',
+                fontSize: '15px',
+                fontWeight: 600,
+                color: 'var(--color-ink)',
+                margin: 0,
+              }}
+            >
+              Rémunération
+            </h3>
             {!isEditingRewards && (
               <button
                 onClick={() => {
-                  setPointsPerEuro(rewardSettings.pointsPerEuro ?? 1)
+                  setEditedPointsPerEuro(rewardSettings.pointsPerEuro ?? 1)
                   setIsEditingRewards(true)
                   setRewardSaveSuccess(false)
                 }}
-                className="text-xs text-indigo-600 hover:underline"
+                style={{
+                  fontSize: '12px',
+                  color: 'var(--accent)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
               >
                 Modifier
               </button>
@@ -128,77 +264,134 @@ export default function AfFinanceDashboardPage() {
           </div>
 
           {rewardSaveSuccess && (
-            <p className="text-xs text-green-600">Paramètres mis à jour avec succès.</p>
+            <p style={{ fontSize: '12px', color: '#16a34a', marginBottom: '12px' }}>
+              Paramètres mis à jour.
+            </p>
           )}
 
           {isEditingRewards ? (
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs text-gray-600 mb-1">Points crédités par euro dépensé</label>
-                <input
-                  type="number"
-                  value={pointsPerEuro}
-                  onChange={(event) => setPointsPerEuro(Number(event.target.value))}
-                  min={0}
-                  step={0.1}
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-32 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                />
-              </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '6px' }}>
+                Points crédités par euro
+              </label>
+              <input
+                type="number"
+                value={editedPointsPerEuro}
+                onChange={(event) => setEditedPointsPerEuro(Number(event.target.value))}
+                min={0}
+                step={0.1}
+                style={{
+                  border: '1px solid var(--color-surface)',
+                  borderRadius: 'var(--radius-field)',
+                  padding: '8px 12px',
+                  fontSize: '14px',
+                  width: '100px',
+                  outline: 'none',
+                  marginBottom: '12px',
+                  display: 'block',
+                }}
+              />
               {rewardSaveError && (
-                <p className="text-xs text-red-600">{rewardSaveError}</p>
+                <p style={{ fontSize: '12px', color: '#dc2626', marginBottom: '8px' }}>{rewardSaveError}</p>
               )}
-              <div className="flex gap-2">
+              <div style={{ display: 'flex', gap: '8px' }}>
                 <button
                   onClick={handleSaveRewards}
                   disabled={isSavingRewards}
-                  className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: '#fff',
+                    background: 'var(--accent)',
+                    border: 'none',
+                    borderRadius: 'var(--radius-field)',
+                    padding: '7px 14px',
+                    cursor: 'pointer',
+                    opacity: isSavingRewards ? 0.6 : 1,
+                  }}
                 >
-                  {isSavingRewards ? 'Enregistrement…' : 'Enregistrer'}
+                  {isSavingRewards ? '…' : 'Enregistrer'}
                 </button>
                 <button
                   onClick={() => setIsEditingRewards(false)}
-                  className="text-xs text-gray-600 hover:text-gray-800"
+                  style={{
+                    fontSize: '12px',
+                    color: 'var(--color-text-secondary)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                  }}
                 >
                   Annuler
                 </button>
               </div>
             </div>
           ) : (
-            <p className="text-sm text-gray-800">
-              <span className="font-semibold text-indigo-600">
-                {rewardSettings.pointsPerEuro ?? 1}
-              </span>{' '}
-              point(s) par euro dépensé
-            </p>
+            <div>
+              <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+                Taux actuel
+              </p>
+              <p style={{ fontSize: '24px', fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--accent)', margin: 0 }}>
+                {rewardSettings.pointsPerEuro ?? 1} pt/€
+              </p>
+            </div>
           )}
-        </section>
+        </div>
 
         {/* Événements financiers récents */}
-        <section>
-          <h2 className="text-base font-semibold text-gray-700 mb-3">
-            Événements financiers récents
-          </h2>
+        <div
+          style={{
+            background: 'var(--color-white)',
+            border: '1px solid var(--color-surface)',
+            borderRadius: 'var(--radius-card)',
+            boxShadow: 'var(--shadow-card)',
+            padding: '20px',
+          }}
+        >
+          <h3
+            style={{
+              fontFamily: 'var(--font-heading)',
+              fontSize: '15px',
+              fontWeight: 600,
+              color: 'var(--color-ink)',
+              margin: '0 0 16px',
+            }}
+          >
+            Derniers mouvements
+          </h3>
+
           {isLoadingEvents ? (
-            <p className="text-gray-400 text-sm">Chargement…</p>
+            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Chargement…</p>
           ) : financeEvents.length === 0 ? (
-            <p className="text-gray-400 text-sm">Aucun événement financier récent.</p>
+            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+              Aucun événement financier récent.
+            </p>
           ) : (
-            <ul className="space-y-2">
-              {financeEvents.slice(0, 20).map((financeEvent) => (
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+              {financeEvents.slice(0, 12).map((financeEvent) => (
                 <li
                   key={financeEvent.id}
-                  className="p-3 bg-white border border-gray-200 rounded-lg flex items-center justify-between gap-4 text-sm"
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    padding: '10px 0',
+                    borderBottom: '1px solid var(--color-surface)',
+                    gap: '12px',
+                  }}
                 >
-                  <div>
-                    <span className="font-medium text-gray-800">{financeEvent.eventType}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-ink)', margin: '0 0 2px' }}>
+                      {financeEvent.eventType}
+                    </p>
                     {financeEvent.payload && (
-                      <span className="ml-2 text-xs text-gray-400">
+                      <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {JSON.stringify(financeEvent.payload).slice(0, 60)}
                         {JSON.stringify(financeEvent.payload).length > 60 ? '…' : ''}
-                      </span>
+                      </p>
                     )}
                   </div>
-                  <span className="text-xs text-gray-500 shrink-0">
+                  <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', flexShrink: 0 }}>
                     {new Date(financeEvent.occurredAt).toLocaleString('fr-FR', {
                       day: '2-digit',
                       month: '2-digit',
@@ -211,8 +404,20 @@ export default function AfFinanceDashboardPage() {
               ))}
             </ul>
           )}
-        </section>
+        </div>
       </div>
-    </Layout>
+
+      <style>{`
+        @media (max-width: 900px) {
+          .vm-af-kpis { grid-template-columns: 1fr 1fr !important; }
+          .vm-af-actions { grid-template-columns: 1fr 1fr !important; }
+          .vm-grid-af { grid-template-columns: 1fr !important; }
+        }
+        @media (max-width: 600px) {
+          .vm-af-kpis { grid-template-columns: 1fr !important; }
+          .vm-af-actions { grid-template-columns: 1fr 1fr !important; }
+        }
+      `}</style>
+    </DashboardShell>
   )
 }

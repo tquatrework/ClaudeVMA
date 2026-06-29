@@ -53,7 +53,9 @@ Avant de coder un appel API :
 l'URL API correspondante est `/admin/activity-log`. Ne jamais les confondre.
 
 ## Design
-Garder le design simple au départ, mais propre.
+Les éléments de design (direction visuelle, maquettes, charte graphique) se trouvent dans `.claude/design/`.
+Consulter ce dossier avant toute décision de mise en page ou de style. Le `README.md` du projet peut y être partiellement repris pour le contexte métier.
+Garder le design cohérent avec ces références, simple et propre.
 
 ## UX
 ### Lisibilité

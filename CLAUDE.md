@@ -16,6 +16,11 @@ Toute contradiction détectée pendant le codage doit être remontée AVANT impl
 Les règles relatives au développement du Front End sont hébergés par l'agent Front-developper, via le fichier 
 .claude/agents/front-developper.md
 
+### Design
+Les éléments de design du site (maquettes, direction visuelle, charte graphique) se trouvent dans `.claude/design/`.
+Le `README.md` du projet peut être partiellement repris dans ces fichiers de design pour le contexte métier.
+Lorsque tu délègues au subagent front-developper, rappelle-lui que ce dossier est sa référence design.
+
 ## Périmètre de contexte — RÈGLE STRICTE
 Tu lis automatiquement : ce fichier + les fichiers @importés ci-dessus.
 Tu ne lis JAMAIS : le code des services, les CLAUDE.md des services.

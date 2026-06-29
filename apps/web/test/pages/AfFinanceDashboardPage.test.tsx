@@ -99,7 +99,7 @@ describe('AfFinanceDashboardPage', () => {
     renderAfDashboard()
 
     await waitFor(() => {
-      expect(screen.getByText('Espace Administrateur Financier')).toBeDefined()
+      expect(screen.getByText('Espace administrateur financier')).toBeDefined()
     })
   })
 
@@ -130,7 +130,7 @@ describe('AfFinanceDashboardPage', () => {
     renderAfDashboard()
 
     await waitFor(() => {
-      expect(screen.getByText('Paramètres de rémunération')).toBeDefined()
+      expect(screen.getByText('Rémunération')).toBeDefined()
     })
   })
 

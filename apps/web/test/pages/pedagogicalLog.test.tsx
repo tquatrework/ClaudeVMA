@@ -990,7 +990,8 @@ describe('Élève — cahier de texte charge en lecture seule (GET /pedagogical-
     renderPedagogicalLogPage()
 
     await waitFor(() => {
-      expect(screen.getByText('Cahier de texte')).toBeDefined()
+      const matches = screen.getAllByText('Cahier de texte')
+      expect(matches.length).toBeGreaterThan(0)
     })
 
     expect(screen.queryByText('Nouvelle entrée')).toBeNull()
@@ -1081,7 +1082,8 @@ describe('Parent — cahier de texte en lecture seule', () => {
     renderPedagogicalLogPage()
 
     await waitFor(() => {
-      expect(screen.getByText('Cahier de texte')).toBeDefined()
+      const matches = screen.getAllByText('Cahier de texte')
+      expect(matches.length).toBeGreaterThan(0)
     })
 
     expect(screen.queryByText('Nouvelle entrée')).toBeNull()

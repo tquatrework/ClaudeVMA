@@ -2,7 +2,6 @@ import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
-import './styles/tokens.css'
 
 // Dashboards par rôle
 import EleveDashboardPage from './pages/EleveDashboardPage'

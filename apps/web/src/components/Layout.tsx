@@ -50,25 +50,69 @@ interface RailGroup {
 ───────────────────────────────────────────────────────── */
 
 function useTopNavItems(): TopNavItem[] {
-  const { user, hasRole } = useAuth()
-
   return [
-    { label: 'Tableau de bord', path: '/dashboard' },
-    { label: 'Calendrier', path: '/calendar' },
-    { label: 'Activités', path: '/activities' },
-    { label: 'Messages', path: '/messages' },
-    { label: 'Demandes', path: '/teacher-requests' },
+    { label: 'Accueil', path: '/dashboard' },
+
+    /*
+     * Calendrier : retiré du top pour parent_financeur (déjà dans son rail).
+     * Accessible aux autres rôles connectés.
+     */
     {
-      label: 'Mon carnet',
-      path: user ? `/notebook/${user.id}` : '/dashboard',
-      allowedRoles: ['eleve'],
+      label: 'Calendrier',
+      path: '/calendar',
+      allowedRoles: [
+        'eleve',
+        'formateur',
+        'animateur_pedagogique',
+        'responsable_pedagogique',
+        'technicien_informatique',
+        'administrateur_financier',
+      ],
     },
-    { label: 'Mémos', path: '/memos' },
+
+    /*
+     * Activités : retiré du top pour eleve et formateur (déjà dans leur rail).
+     */
+    {
+      label: 'Activités',
+      path: '/activities',
+      allowedRoles: [
+        'parent_financeur',
+        'animateur_pedagogique',
+        'responsable_pedagogique',
+        'technicien_informatique',
+        'administrateur_financier',
+      ],
+    },
+
+    { label: 'Messages', path: '/messages' },
+
+    /*
+     * Demandes : retiré du top pour formateur (déjà dans son rail sous "Demandes prof.").
+     */
+    {
+      label: 'Demandes',
+      path: '/teacher-requests',
+      allowedRoles: [
+        'eleve',
+        'parent_financeur',
+        'animateur_pedagogique',
+        'responsable_pedagogique',
+        'technicien_informatique',
+        'administrateur_financier',
+      ],
+    },
+
+    /*
+     * Incidents : retiré du top pour technicien_informatique (déjà dans son rail).
+     * RP n'a pas Incidents dans son rail → conservé.
+     */
     {
       label: 'Incidents',
       path: '/incidents',
-      allowedRoles: ['technicien_informatique', 'responsable_pedagogique'],
+      allowedRoles: ['responsable_pedagogique'],
     },
+
     {
       label: 'Admin',
       path: '/admin/activity',
@@ -79,37 +123,52 @@ function useTopNavItems(): TopNavItem[] {
         'administrateur_financier',
       ],
     },
-    {
-      label: 'Comptes',
-      path: '/admin/accounts',
-      allowedRoles: ['responsable_pedagogique', 'technicien_informatique'],
-    },
+
+    /*
+     * Comptes : retiré du top pour responsable_pedagogique et technicien_informatique
+     * (déjà dans leurs rails respectifs).
+     */
+
+    /*
+     * Délégations : retiré du top pour administrateur_financier (déjà dans son rail).
+     * Conservé pour responsable_pedagogique et technicien_informatique.
+     */
     {
       label: 'Délégations',
       path: '/delegations',
-      allowedRoles: [
-        'responsable_pedagogique',
-        'technicien_informatique',
-        'administrateur_financier',
-      ],
+      allowedRoles: ['responsable_pedagogique', 'technicien_informatique'],
     },
+
+    /*
+     * Finances : retiré du top pour parent_financeur (déjà dans son rail).
+     * Conservé pour administrateur_financier.
+     */
     {
       label: 'Finances',
       path: '/finance',
-      allowedRoles: ['parent_financeur', 'administrateur_financier'],
+      allowedRoles: ['administrateur_financier'],
     },
+
+    /*
+     * Paiements : retiré du top pour administrateur_financier (déjà dans son rail).
+     * Conservé pour formateur.
+     */
     {
       label: 'Paiements',
       path: '/teacher-payment-requests',
-      allowedRoles: ['formateur', 'administrateur_financier'],
+      allowedRoles: ['formateur'],
     },
+
+    /*
+     * Documents légaux : retiré du top pour parent_financeur et administrateur_financier
+     * (déjà dans leurs rails). Conservé pour eleve et formateur.
+     */
     {
       label: 'Documents légaux',
       path: '/legal',
-      condition:
-        hasRole('eleve', 'parent_financeur', 'formateur') ||
-        hasRole('administrateur_financier'),
+      allowedRoles: ['eleve', 'formateur'],
     },
+
     {
       label: 'Espace AF',
       path: '/admin/finance',

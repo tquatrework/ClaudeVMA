@@ -37,7 +37,7 @@ describe('PasswordResetPage', () => {
   it('renders the email field and submit button', () => {
     renderPasswordResetPage()
 
-    expect(screen.getByPlaceholderText(/vous@exemple\.fr/i)).toBeDefined()
+    expect(screen.getByPlaceholderText(/jean\.dupont/i)).toBeDefined()
     expect(screen.getByRole('button', { name: /envoyer le lien/i })).toBeDefined()
   })
 
@@ -47,17 +47,17 @@ describe('PasswordResetPage', () => {
     expect(screen.getByRole('link', { name: /retour à la connexion/i })).toBeDefined()
   })
 
-  it('calls POST /auth/password-reset/request with the email on submit', async () => {
+  it('calls POST /auth/password-reset/request with the loginIdentifier on submit', async () => {
     mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
 
     renderPasswordResetPage()
 
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'user@test.com')
+    await userEvent.type(screen.getByPlaceholderText(/jean\.dupont/i), 'user.test')
     await userEvent.click(screen.getByRole('button', { name: /envoyer le lien/i }))
 
     await waitFor(() => {
       expect(mockApiClient.post).toHaveBeenCalledWith('/auth/password-reset/request', {
-        email: 'user@test.com',
+        loginIdentifier: 'user.test',
       })
     })
   })
@@ -67,25 +67,24 @@ describe('PasswordResetPage', () => {
 
     renderPasswordResetPage()
 
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'user@test.com')
+    await userEvent.type(screen.getByPlaceholderText(/jean\.dupont/i), 'user.test')
     await userEvent.click(screen.getByRole('button', { name: /envoyer le lien/i }))
 
     await waitFor(() => {
       expect(screen.getByText(/e-mail envoyé/i)).toBeDefined()
-      expect(screen.getByText(/user@test\.com/i)).toBeDefined()
     })
   })
 
-  it('shows the submitted email address in the confirmation message', async () => {
+  it('shows a confirmation message after submitting', async () => {
     mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
 
     renderPasswordResetPage()
 
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'another@example.com')
+    await userEvent.type(screen.getByPlaceholderText(/jean\.dupont/i), 'jean.dupont')
     await userEvent.click(screen.getByRole('button', { name: /envoyer le lien/i }))
 
     await waitFor(() => {
-      expect(screen.getByText(/another@example\.com/i)).toBeDefined()
+      expect(screen.getByText(/lien de réinitialisation/i)).toBeDefined()
     })
   })
 
@@ -96,7 +95,7 @@ describe('PasswordResetPage', () => {
 
     renderPasswordResetPage()
 
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'user@test.com')
+    await userEvent.type(screen.getByPlaceholderText(/jean\.dupont/i), 'user.test')
     await userEvent.click(screen.getByRole('button', { name: /envoyer le lien/i }))
 
     await waitFor(() => {
@@ -109,7 +108,7 @@ describe('PasswordResetPage', () => {
 
     renderPasswordResetPage()
 
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'user@test.com')
+    await userEvent.type(screen.getByPlaceholderText(/jean\.dupont/i), 'user.test')
     await userEvent.click(screen.getByRole('button', { name: /envoyer le lien/i }))
 
     await waitFor(() => {
@@ -125,7 +124,7 @@ describe('PasswordResetPage', () => {
 
     renderPasswordResetPage()
 
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'user@test.com')
+    await userEvent.type(screen.getByPlaceholderText(/jean\.dupont/i), 'user.test')
     await userEvent.click(screen.getByRole('button', { name: /envoyer le lien/i }))
 
     await waitFor(() => {

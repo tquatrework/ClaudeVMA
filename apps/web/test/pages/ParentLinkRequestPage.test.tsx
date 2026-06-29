@@ -174,7 +174,7 @@ describe('ParentLinkRequestPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /envoyer la demande/i }))
 
       await waitFor(() => {
-        expect(screen.getByText(/l'identifiant élève fourni est invalide/i)).toBeDefined()
+        expect(screen.getByText(/cet identifiant ne correspond pas à un compte élève/i)).toBeDefined()
       })
     })
 

@@ -472,7 +472,7 @@ describe('MemosPage — formateur voit en readonly', () => {
     renderMemosPage()
 
     await waitFor(() => {
-      expect(screen.getByText(/consultation individuelle uniquement/i)).toBeDefined()
+      expect(screen.getByText(/réservé à l'élève/i)).toBeDefined()
     })
   })
 
@@ -483,7 +483,7 @@ describe('MemosPage — formateur voit en readonly', () => {
 
     // Wait for the page to fully render — the informational message should appear
     await waitFor(() => {
-      expect(screen.getByText(/consultation individuelle uniquement/i)).toBeDefined()
+      expect(screen.getByText(/réservé à l'élève/i)).toBeDefined()
     })
 
     expect(mockApiClient.get).not.toHaveBeenCalledWith('/memos')
@@ -973,11 +973,11 @@ describe('Formateur — écran mémo en lecture seule (pas de boutons d\'éditio
     })
   })
 
-  it('formateur — voit le message informatif sur la consultation individuelle', async () => {
+  it('formateur — voit le message informatif sur l\'accès réservé à l\'élève', async () => {
     renderMemosPage()
 
     await waitFor(() => {
-      expect(screen.getByText(/consultation individuelle uniquement/i)).toBeDefined()
+      expect(screen.getByText(/réservé à l'élève/i)).toBeDefined()
     })
   })
 })

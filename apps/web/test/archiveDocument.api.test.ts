@@ -72,7 +72,7 @@ describe('fetchPedagogicalArchives', () => {
 
     const result = await fetchPedagogicalArchives('student-42')
 
-    expect(mockGet).toHaveBeenCalledWith('/students/student-42/pedagogical-archives')
+    expect(mockGet).toHaveBeenCalledWith('/archives/students/student-42/pedagogical-archives')
     expect(result).toHaveLength(1)
     expect(result[0].id).toBe('archive-1')
   })
@@ -108,7 +108,7 @@ describe('fetchArchiveTimeline', () => {
 
     const result = await fetchArchiveTimeline('student-42')
 
-    expect(mockGet).toHaveBeenCalledWith('/students/student-42/archive-timeline')
+    expect(mockGet).toHaveBeenCalledWith('/archives/students/student-42/archive-timeline')
     expect(result).toHaveLength(1)
     expect(result[0].id).toBe('entry-1')
   })
@@ -183,7 +183,7 @@ describe('createArchiveLink', () => {
     const result = await createArchiveLink('student-42', createPayload)
 
     expect(mockPost).toHaveBeenCalledWith(
-      '/students/student-42/archive-links',
+      '/archives/students/student-42/archive-links',
       createPayload,
     )
     expect(result.id).toBe('new-1')

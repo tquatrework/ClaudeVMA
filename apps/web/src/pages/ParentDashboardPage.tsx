@@ -36,9 +36,9 @@ interface StudentCard {
 const TOP_NAV_ITEMS: NavItem[] = [
   { label: 'Accueil', path: '/dashboard' },
   { label: 'Calendrier', path: '/calendar' },
+  { label: 'Contacts', path: '/contacts' },
   { label: 'Messages', path: '/messages' },
   { label: 'Finances', path: '/finance' },
-  { label: 'Documents', path: '/legal' },
 ]
 
 const RAIL_GROUPS: RailGroup[] = [

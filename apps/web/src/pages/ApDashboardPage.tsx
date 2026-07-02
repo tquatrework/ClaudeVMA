@@ -20,10 +20,10 @@ interface Notification {
 const TOP_NAV_ITEMS: NavItem[] = [
   { label: 'Accueil', path: '/dashboard' },
   { label: 'Calendrier', path: '/calendar' },
+  { label: 'Contacts', path: '/contacts' },
   { label: 'Messages', path: '/messages' },
   { label: 'Contenus', path: '/content/validation' },
   { label: 'Forums', path: '/community/forums' },
-  { label: 'Parcours', path: '/community/paths' },
 ]
 
 const RAIL_GROUPS: RailGroup[] = [

@@ -27,11 +27,11 @@ const HEALTH_STATUS_COLORS: Record<ServiceHealthStatus, { bg: string; text: stri
 
 const TOP_NAV_ITEMS: NavItem[] = [
   { label: 'Accueil', path: '/admin/observability' },
+  { label: 'Messages', path: '/messages' },
   { label: 'Activité', path: '/admin/observability/activity-log' },
-  { label: 'Logs techniques', path: '/admin/observability/technical-logs' },
-  { label: 'Santé', path: '/admin/observability/health' },
+  { label: 'Logs', path: '/admin/observability/technical-logs' },
+  { label: 'Santé services', path: '/admin/observability/health' },
   { label: 'Incidents', path: '/incidents' },
-  { label: 'Comptes', path: '/admin/accounts' },
 ]
 
 const RAIL_GROUPS: RailGroup[] = [

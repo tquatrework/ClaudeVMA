@@ -278,8 +278,8 @@ describe('Journey 4: Dashboard → Demandes professeur → Création demande', (
       expect(screen.getByText('Bonjour, vous')).toBeDefined()
     })
 
-    // Navigate via "Demandes prof." quick-access card
-    await userEvent.click(screen.getByText('Demandes prof.'))
+    // Navigate via "Demandes" nav item (élève dashboard)
+    await userEvent.click(screen.getByText('Demandes'))
 
     await waitFor(() => {
       screen.getByRole('button', { name: /nouvelle demande/i })

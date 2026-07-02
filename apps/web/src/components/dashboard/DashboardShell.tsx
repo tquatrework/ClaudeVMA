@@ -34,7 +34,6 @@ export default function DashboardShell({
   railGroups,
   topNavItems,
   userName,
-  userRole,
   children,
 }: DashboardShellProps) {
   const { logout, user } = useAuth()
@@ -42,6 +41,7 @@ export default function DashboardShell({
   const navigate = useNavigate()
   const [isMobileRailOpen, setIsMobileRailOpen] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [isRailCollapsed, setIsRailCollapsed] = useState(false)
 
   const handleLogout = async () => {
     await logout()
@@ -52,6 +52,8 @@ export default function DashboardShell({
     location.pathname === path || location.pathname.startsWith(`${path}/`)
 
   const hasConsentWarning = user?.validationStatus === 'pending'
+
+  const railWidth = isRailCollapsed ? '56px' : 'var(--rail-width)'
 
   return (
     <div
@@ -93,41 +95,90 @@ export default function DashboardShell({
         style={{
           height: 'var(--topbar-height)',
           background: 'var(--color-white)',
+          borderBottom: '1px solid var(--color-surface)',
           boxShadow: 'var(--shadow-card)',
           display: 'flex',
           alignItems: 'center',
-          padding: '0 24px',
-          gap: '24px',
+          padding: '0 16px 0 0',
+          gap: '0',
           position: 'sticky',
           top: 0,
           zIndex: 100,
           flexShrink: 0,
         }}
       >
-        {/* Logo */}
-        <Link
-          to="/dashboard"
+        {/* Zone logo + bouton masquer rail — largeur calée sur le rail */}
+        <div
           style={{
-            fontFamily: 'var(--font-heading)',
-            fontWeight: 700,
-            fontSize: '18px',
-            color: 'var(--accent)',
-            textDecoration: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            width: railWidth,
             flexShrink: 0,
-            letterSpacing: '-0.3px',
+            padding: '0 12px',
+            transition: 'width 0.2s ease',
+            overflow: 'hidden',
           }}
+          className="vm-rail-header-zone"
         >
-          VisioMath
-        </Link>
+          {/* Bouton toggle rail (desktop seulement) */}
+          <button
+            onClick={() => setIsRailCollapsed(!isRailCollapsed)}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: '6px',
+              borderRadius: 'var(--radius-field)',
+              color: 'var(--color-text-secondary)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '3px',
+              flexShrink: 0,
+            }}
+            aria-label={isRailCollapsed ? 'Afficher le menu outils' : 'Masquer le menu outils'}
+            className="vm-rail-toggle-btn"
+          >
+            <span style={{ display: 'block', width: '16px', height: '2px', background: 'currentColor', borderRadius: '1px' }} />
+            <span style={{ display: 'block', width: '16px', height: '2px', background: 'currentColor', borderRadius: '1px' }} />
+            <span style={{ display: 'block', width: '16px', height: '2px', background: 'currentColor', borderRadius: '1px' }} />
+          </button>
+
+          {/* Logo — masqué quand rail très étroit */}
+          <Link
+            to="/dashboard"
+            style={{
+              fontFamily: 'var(--font-heading)',
+              fontWeight: 700,
+              fontSize: '17px',
+              color: 'var(--accent)',
+              textDecoration: 'none',
+              flexShrink: 0,
+              letterSpacing: '-0.3px',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              opacity: isRailCollapsed ? 0 : 1,
+              transition: 'opacity 0.15s ease',
+              pointerEvents: isRailCollapsed ? 'none' : 'auto',
+            }}
+            className="vm-logo-text"
+          >
+            VisioMath
+          </Link>
+        </div>
+
+        {/* Séparateur vertical */}
+        <div style={{ width: '1px', height: '28px', background: 'var(--color-surface)', flexShrink: 0 }} className="vm-header-sep" />
 
         {/* Nav desktop */}
         <nav
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '4px',
+            gap: '2px',
             flex: 1,
             overflowX: 'auto',
+            padding: '0 12px',
           }}
           className="vm-topnav-desktop"
         >
@@ -176,15 +227,15 @@ export default function DashboardShell({
         </nav>
 
         {/* Avatar / profil */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, paddingRight: '4px' }}>
           <Link
             to={user ? `/profiles/${user.id}` : '/dashboard'}
             style={{ display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none' }}
           >
             <div
               style={{
-                width: '32px',
-                height: '32px',
+                width: '30px',
+                height: '30px',
                 borderRadius: '50%',
                 background: 'var(--accent)',
                 display: 'flex',
@@ -192,7 +243,7 @@ export default function DashboardShell({
                 justifyContent: 'center',
                 color: '#fff',
                 fontWeight: 700,
-                fontSize: '13px',
+                fontSize: '12px',
                 flexShrink: 0,
               }}
             >
@@ -232,7 +283,7 @@ export default function DashboardShell({
               display: 'none',
               flexDirection: 'column',
               gap: '4px',
-              padding: '4px',
+              padding: '6px',
             }}
             aria-label="Menu"
             className="vm-burger"
@@ -250,10 +301,10 @@ export default function DashboardShell({
           style={{
             background: 'var(--color-white)',
             borderBottom: '1px solid var(--color-surface)',
-            padding: '12px 24px',
+            padding: '12px 20px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '4px',
+            gap: '2px',
             zIndex: 99,
           }}
           className="vm-mobile-menu"
@@ -268,8 +319,11 @@ export default function DashboardShell({
                 fontWeight: isActive(navItem.path) ? 600 : 400,
                 color: isActive(navItem.path) ? 'var(--accent)' : 'var(--color-ink)',
                 textDecoration: 'none',
-                padding: '10px 0',
+                padding: '11px 0',
                 borderBottom: '1px solid var(--color-surface)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
               }}
             >
               {navItem.label}
@@ -283,7 +337,7 @@ export default function DashboardShell({
               background: 'none',
               border: 'none',
               textAlign: 'left',
-              padding: '10px 0',
+              padding: '11px 0',
               cursor: 'pointer',
             }}
           >
@@ -295,42 +349,52 @@ export default function DashboardShell({
       {/* CORPS : RAIL + ZONE CENTRALE */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
-        {/* RAIL */}
+        {/* RAIL gauche — desktop et tablette */}
         <aside
           style={{
-            width: 'var(--rail-width)',
+            width: railWidth,
             flexShrink: 0,
             background: 'var(--color-white)',
             borderRight: '1px solid var(--color-surface)',
             overflowY: 'auto',
-            padding: '20px 0',
+            overflowX: 'hidden',
+            padding: '16px 0',
+            transition: 'width 0.2s ease',
           }}
           className="vm-rail"
         >
           {railGroups.map((group) => (
-            <div key={group.groupLabel} style={{ marginBottom: '24px' }}>
-              <p
-                style={{
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  color: 'var(--color-text-secondary)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  padding: '0 16px',
-                  marginBottom: '4px',
-                }}
-              >
-                {group.groupLabel}
-              </p>
+            <div key={group.groupLabel} style={{ marginBottom: '20px' }}>
+              {/* Label de groupe — masqué quand rail réduit */}
+              {!isRailCollapsed && (
+                <p
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    color: 'var(--color-text-secondary)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                    padding: '0 16px',
+                    marginBottom: '4px',
+                  }}
+                >
+                  {group.groupLabel}
+                </p>
+              )}
+              {isRailCollapsed && (
+                <div style={{ height: '8px' }} />
+              )}
               {group.items.map((railItem) => (
                 <Link
-                  key={railItem.path}
+                  key={`${railItem.path}-${railItem.label}`}
                   to={railItem.path}
+                  title={isRailCollapsed ? railItem.label : undefined}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: '8px',
-                    padding: '8px 16px',
+                    padding: isRailCollapsed ? '10px 0' : '8px 16px',
+                    justifyContent: isRailCollapsed ? 'center' : 'flex-start',
                     fontSize: '13px',
                     fontWeight: isActive(railItem.path) ? 600 : 400,
                     color: isActive(railItem.path) ? 'var(--accent)' : 'var(--color-ink)',
@@ -339,13 +403,17 @@ export default function DashboardShell({
                     borderLeft: isActive(railItem.path) ? '3px solid var(--accent)' : '3px solid transparent',
                     transition: 'background 0.15s',
                     position: 'relative',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
                   }}
                 >
                   {railItem.icon && (
                     <span style={{ fontSize: '16px', flexShrink: 0 }}>{railItem.icon}</span>
                   )}
-                  <span className="vm-rail-label">{railItem.label}</span>
-                  {railItem.badge && railItem.badge > 0 ? (
+                  {!isRailCollapsed && (
+                    <span>{railItem.label}</span>
+                  )}
+                  {!isRailCollapsed && railItem.badge && railItem.badge > 0 ? (
                     <span
                       style={{
                         marginLeft: 'auto',
@@ -369,23 +437,6 @@ export default function DashboardShell({
               ))}
             </div>
           ))}
-
-          {/* Bouton rail mobile */}
-          <button
-            onClick={() => setIsMobileRailOpen(false)}
-            style={{
-              display: 'none',
-              margin: '12px 16px 0',
-              fontSize: '12px',
-              color: 'var(--color-text-secondary)',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-            }}
-            className="vm-rail-close"
-          >
-            Fermer
-          </button>
         </aside>
 
         {/* Tiroir rail mobile */}
@@ -400,22 +451,53 @@ export default function DashboardShell({
           >
             <div
               style={{
-                width: '240px',
+                width: '260px',
                 background: 'var(--color-white)',
                 boxShadow: 'var(--shadow-card-hover)',
                 overflowY: 'auto',
-                padding: '20px 0',
+                padding: '16px 0',
               }}
             >
+              {/* En-tête tiroir mobile */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0 16px 16px',
+                  borderBottom: '1px solid var(--color-surface)',
+                  marginBottom: '8px',
+                }}
+              >
+                <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: '16px', color: 'var(--accent)' }}>
+                  Outils
+                </span>
+                <button
+                  onClick={() => setIsMobileRailOpen(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '18px',
+                    color: 'var(--color-text-secondary)',
+                    padding: '4px',
+                    lineHeight: 1,
+                  }}
+                  aria-label="Fermer le menu outils"
+                >
+                  ✕
+                </button>
+              </div>
+
               {railGroups.map((group) => (
-                <div key={group.groupLabel} style={{ marginBottom: '24px' }}>
+                <div key={group.groupLabel} style={{ marginBottom: '20px' }}>
                   <p
                     style={{
-                      fontSize: '11px',
-                      fontWeight: 600,
+                      fontSize: '10px',
+                      fontWeight: 700,
                       color: 'var(--color-text-secondary)',
                       textTransform: 'uppercase',
-                      letterSpacing: '0.06em',
+                      letterSpacing: '0.08em',
                       padding: '0 16px',
                       marginBottom: '4px',
                     }}
@@ -424,22 +506,23 @@ export default function DashboardShell({
                   </p>
                   {group.items.map((railItem) => (
                     <Link
-                      key={railItem.path}
+                      key={`${railItem.path}-${railItem.label}`}
                       to={railItem.path}
                       onClick={() => setIsMobileRailOpen(false)}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '8px',
-                        padding: '10px 16px',
+                        gap: '10px',
+                        padding: '11px 16px',
                         fontSize: '14px',
                         fontWeight: isActive(railItem.path) ? 600 : 400,
                         color: isActive(railItem.path) ? 'var(--accent)' : 'var(--color-ink)',
                         textDecoration: 'none',
                         borderLeft: isActive(railItem.path) ? '3px solid var(--accent)' : '3px solid transparent',
+                        background: isActive(railItem.path) ? 'var(--accent-alpha-10, rgba(91,108,240,0.10))' : 'transparent',
                       }}
                     >
-                      {railItem.icon && <span style={{ fontSize: '16px' }}>{railItem.icon}</span>}
+                      {railItem.icon && <span style={{ fontSize: '17px' }}>{railItem.icon}</span>}
                       {railItem.label}
                     </Link>
                   ))}
@@ -458,28 +541,51 @@ export default function DashboardShell({
           style={{
             flex: 1,
             overflowY: 'auto',
-            padding: '32px',
+            padding: '28px',
           }}
           className="vm-main"
         >
-          {/* Bouton ouvrir rail mobile */}
-          <button
-            onClick={() => setIsMobileRailOpen(true)}
+          {/* Barre mobile : logo + bouton ouvrir rail */}
+          <div
             style={{
               display: 'none',
+              alignItems: 'center',
+              justifyContent: 'space-between',
               marginBottom: '16px',
-              fontSize: '12px',
-              color: 'var(--accent)',
-              background: 'none',
-              border: '1px solid var(--color-surface)',
-              borderRadius: 'var(--radius-field)',
-              padding: '6px 12px',
-              cursor: 'pointer',
             }}
-            className="vm-rail-toggle"
+            className="vm-mobile-topbar"
           >
-            Menu
-          </button>
+            <Link
+              to="/dashboard"
+              style={{
+                fontFamily: 'var(--font-heading)',
+                fontWeight: 700,
+                fontSize: '16px',
+                color: 'var(--accent)',
+                textDecoration: 'none',
+              }}
+            >
+              VisioMath
+            </Link>
+            <button
+              onClick={() => setIsMobileRailOpen(true)}
+              style={{
+                fontSize: '13px',
+                fontWeight: 500,
+                color: 'var(--accent)',
+                background: 'none',
+                border: '1px solid var(--color-surface)',
+                borderRadius: 'var(--radius-field)',
+                padding: '6px 14px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              Menu outils
+            </button>
+          </div>
 
           {children}
         </main>
@@ -487,18 +593,23 @@ export default function DashboardShell({
 
       {/* Styles responsive inlined */}
       <style>{`
-        @media (max-width: 1024px) {
-          .vm-rail { width: var(--rail-width-collapsed) !important; }
-          .vm-rail-label { display: none !important; }
+        /* Tablette (769px–1024px) : rail visible avec libellés complets, légèrement plus étroit */
+        @media (max-width: 1024px) and (min-width: 769px) {
+          .vm-rail { width: 148px !important; }
+          .vm-rail-header-zone { width: 148px !important; }
         }
+        /* Mobile : rail masqué, burger visible, barre mobile visible */
         @media (max-width: 768px) {
           .vm-rail { display: none !important; }
+          .vm-rail-header-zone { display: none !important; }
+          .vm-header-sep { display: none !important; }
+          .vm-rail-toggle-btn { display: none !important; }
           .vm-topnav-desktop { display: none !important; }
           .vm-burger { display: flex !important; }
-          .vm-rail-toggle { display: block !important; }
           .vm-avatar-name { display: none !important; }
           .vm-main { padding: 16px !important; }
-          .vm-mobile-menu { display: flex !important; }
+          .vm-mobile-topbar { display: flex !important; }
+          .vm-logo-text { display: none !important; }
         }
       `}</style>
     </div>

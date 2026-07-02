@@ -70,20 +70,8 @@ function useTopNavItems(): TopNavItem[] {
       ],
     },
 
-    /*
-     * Activités : retiré du top pour eleve et formateur (déjà dans leur rail).
-     */
-    {
-      label: 'Activités',
-      path: '/activities',
-      allowedRoles: [
-        'parent_financeur',
-        'animateur_pedagogique',
-        'responsable_pedagogique',
-        'technicien_informatique',
-        'administrateur_financier',
-      ],
-    },
+    /* Contacts : séparé de Messages comme dans les dashboards dédiés */
+    { label: 'Contacts', path: '/contacts' },
 
     { label: 'Messages', path: '/messages' },
 
@@ -878,10 +866,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* ── Styles responsives ──────────────────────────────── */}
       <style>{`
-        @media (max-width: 1024px) {
-          .vm-rail { width: var(--rail-width-collapsed) !important; }
-          .vm-rail-label { display: none !important; }
+        /* Tablette (769px–1024px) : rail visible avec libellés complets */
+        @media (max-width: 1024px) and (min-width: 769px) {
+          .vm-rail { width: 148px !important; }
         }
+        /* Mobile : rail masqué, burger visible */
         @media (max-width: 768px) {
           .vm-rail { display: none !important; }
           .vm-topnav-desktop { display: none !important; }

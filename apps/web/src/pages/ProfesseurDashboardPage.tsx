@@ -28,10 +28,10 @@ interface Notification {
 const TOP_NAV_ITEMS: NavItem[] = [
   { label: 'Accueil', path: '/dashboard' },
   { label: 'Calendrier', path: '/calendar' },
+  { label: 'Contacts', path: '/contacts' },
   { label: 'Messages', path: '/messages' },
   { label: 'Mes élèves', path: '/my-students' },
   { label: 'Demandes', path: '/teacher-requests' },
-  { label: 'Paiements', path: '/teacher-payment-requests' },
 ]
 
 const RAIL_GROUPS: RailGroup[] = [

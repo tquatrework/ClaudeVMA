@@ -1,6 +1,14 @@
 /**
  * EleveDashboardPage — Dashboard Élève
  * Accent : Indigo oklch(0.58 0.13 270)
+ *
+ * Blocs :
+ *   - Salutation
+ *   - Carte professeur attitré (ou état vide avec action)
+ *   - Prochain cours (hero)
+ *   - Grille : Travail en cours | À ne pas oublier
+ *   - Contacts importants
+ *   - Fil d'activité
  */
 
 import React, { useEffect, useState } from 'react'
@@ -26,19 +34,21 @@ interface Notification {
   createdAt: string
 }
 
-interface ActivityItem {
+interface ContactEntry {
   id: string
-  label: string
-  timestamp: string
-  type: 'notification' | 'log' | 'request'
+  displayName?: string
+  role?: string
+  email?: string
+  status: string
+  mandatory: boolean
 }
 
 const TOP_NAV_ITEMS: NavItem[] = [
   { label: 'Accueil', path: '/dashboard' },
   { label: 'Calendrier', path: '/calendar' },
+  { label: 'Contacts', path: '/contacts' },
   { label: 'Messages', path: '/messages' },
-  { label: 'Demandes prof.', path: '/teacher-requests' },
-  { label: 'Documents', path: '/archives' },
+  { label: 'Demandes', path: '/teacher-requests' },
 ]
 
 const RAIL_GROUPS: RailGroup[] = [
@@ -89,6 +99,59 @@ function formatEventDate(startAt: string): string {
   })
 }
 
+function formatShortDate(startAt: string): string {
+  return new Date(startAt).toLocaleDateString('fr-FR', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+// ─── Sous-composants utilitaires ────────────────────────────
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h3
+      style={{
+        fontFamily: 'var(--font-heading)',
+        fontSize: '15px',
+        fontWeight: 600,
+        color: 'var(--color-ink)',
+        margin: '0 0 14px',
+      }}
+    >
+      {children}
+    </h3>
+  )
+}
+
+function Card({
+  children,
+  style,
+}: {
+  children: React.ReactNode
+  style?: React.CSSProperties
+}) {
+  return (
+    <div
+      style={{
+        background: 'var(--color-white)',
+        border: '1px solid var(--color-surface)',
+        borderRadius: 'var(--radius-card)',
+        boxShadow: 'var(--shadow-card)',
+        padding: '20px',
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+// ─── Composant principal ────────────────────────────────────
+
 export default function EleveDashboardPage() {
   const { user } = useAuth()
   const firstName = user?.loginIdentifier ?? 'vous'
@@ -96,32 +159,41 @@ export default function EleveDashboardPage() {
   const [nextCourse, setNextCourse] = useState<CalendarEvent | null>(null)
   const [upcomingCourses, setUpcomingCourses] = useState<CalendarEvent[]>([])
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const [contacts, setContacts] = useState<ContactEntry[]>([])
   const [isLoadingCourses, setIsLoadingCourses] = useState(true)
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(true)
+  const [isLoadingContacts, setIsLoadingContacts] = useState(true)
 
-  // TODO: brancher API progression
+  // Données de progression (TODO : brancher API)
   const mockProgressItems = [
     { label: 'Suites et séries', percent: 72 },
     { label: 'Dérivées', percent: 58 },
     { label: 'Géométrie vectorielle', percent: 45 },
   ]
 
+  // Données rappels (TODO : brancher API)
+  const mockReminders = [
+    { id: '1', label: 'Rendre exercice sur les intégrales', deadline: 'Demain 18h', isUrgent: true },
+    { id: '2', label: 'Signer le mandat client', deadline: 'Avant le 05/07', isUrgent: false },
+  ]
+
   useEffect(() => {
     if (!user) return
 
+    // Calendrier
     apiClient
       .get<CalendarEvent[]>(`/calendars/${user.id}/events`)
       .then(({ data }) => {
         const futureEvents = (Array.isArray(data) ? data : [])
           .filter((event) => new Date(event.startAt) >= new Date())
           .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
-
         setNextCourse(futureEvents[0] ?? null)
         setUpcomingCourses(futureEvents.slice(1, 4))
       })
       .catch(() => {})
       .finally(() => setIsLoadingCourses(false))
 
+    // Notifications
     apiClient
       .get<{ data?: Notification[] } | Notification[]>('/notifications')
       .then(({ data }) => {
@@ -130,14 +202,26 @@ export default function EleveDashboardPage() {
       })
       .catch(() => {})
       .finally(() => setIsLoadingNotifications(false))
+
+    // Contacts
+    apiClient
+      .get<ContactEntry[]>('/contacts')
+      .then(({ data }) => {
+        const contactList = Array.isArray(data) ? data : []
+        setContacts(contactList.filter((contact) => contact.status === 'active').slice(0, 5))
+      })
+      .catch(() => {})
+      .finally(() => setIsLoadingContacts(false))
   }, [user])
 
-  const activityFeed: ActivityItem[] = notifications.map((notification) => ({
-    id: notification.id,
-    label: notification.message,
-    timestamp: notification.createdAt,
-    type: 'notification' as const,
-  }))
+  // Détecter le professeur principal parmi les contacts
+  const principalTeacher = contacts.find(
+    (contact) => contact.role === 'formateur' && contact.mandatory,
+  ) ?? contacts.find((contact) => contact.role === 'formateur') ?? null
+
+  const isVisioSoon =
+    nextCourse !== null &&
+    new Date(nextCourse.startAt).getTime() - Date.now() < 30 * 60 * 1000
 
   const railGroupsWithNotebook: RailGroup[] = RAIL_GROUPS.map((group) => {
     if (group.groupLabel !== 'Mon espace') return group
@@ -159,7 +243,7 @@ export default function EleveDashboardPage() {
       userName={firstName}
       userRole="Élève"
     >
-      {/* Salutation */}
+      {/* ── Salutation ─────────────────────────────────────── */}
       <div style={{ marginBottom: '24px' }}>
         <h1
           style={{
@@ -177,156 +261,530 @@ export default function EleveDashboardPage() {
         </p>
       </div>
 
-      {/* HERO — Prochain cours */}
+      {/* ── LIGNE 1 : Professeur attitré + Prochain cours ─── */}
       <div
-        style={{
-          background: 'var(--color-white)',
-          border: '1px solid var(--color-surface)',
-          borderRadius: 'var(--radius-card)',
-          boxShadow: 'var(--shadow-card)',
-          padding: '24px',
-          marginBottom: '24px',
-        }}
+        style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px', marginBottom: '20px' }}
+        className="vm-grid-hero"
       >
-        {isLoadingCourses ? (
-          <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Chargement…</p>
-        ) : nextCourse ? (
-          <div>
-            <p
-              style={{
-                fontSize: '11px',
-                fontWeight: 600,
-                color: 'var(--color-text-secondary)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
-                marginBottom: '8px',
-              }}
-            >
-              Prochain cours
-            </p>
-            <h2
-              style={{
-                fontFamily: 'var(--font-heading)',
-                fontSize: '20px',
-                fontWeight: 700,
-                color: 'var(--color-ink)',
-                margin: '0 0 4px',
-              }}
-            >
-              {nextCourse.title ?? 'Séance de mathématiques'}
-            </h2>
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', margin: '0 0 16px' }}>
-              {formatEventDate(nextCourse.startAt)}
-            </p>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-              <span
+        {/* Carte professeur attitré */}
+        <Card>
+          <p
+            style={{
+              fontSize: '10px',
+              fontWeight: 700,
+              color: 'var(--color-text-secondary)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              marginBottom: '12px',
+            }}
+          >
+            Mon professeur
+          </p>
+
+          {principalTeacher ? (
+            <div>
+              {/* Avatar + nom */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+                <div
+                  style={{
+                    width: '44px',
+                    height: '44px',
+                    borderRadius: '50%',
+                    background: 'var(--accent-alpha-15, rgba(91,108,240,0.15))',
+                    border: '2px solid var(--accent)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--accent)',
+                    fontWeight: 700,
+                    fontSize: '18px',
+                    flexShrink: 0,
+                  }}
+                >
+                  {(principalTeacher.displayName ?? '?').charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-ink)', margin: 0 }}>
+                    {principalTeacher.displayName ?? 'Formateur'}
+                  </p>
+                  <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: '2px 0 0' }}>
+                    Mathématiques
+                  </p>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <Link
+                  to={`/profiles/${principalTeacher.id}`}
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    color: 'var(--accent)',
+                    border: '1px solid var(--color-surface)',
+                    borderRadius: 'var(--radius-field)',
+                    padding: '7px 12px',
+                    textDecoration: 'none',
+                    textAlign: 'center',
+                    display: 'block',
+                  }}
+                >
+                  Voir le profil
+                </Link>
+                {isVisioSoon && nextCourse && (
+                  <Link
+                    to={`/activities/${nextCourse.id}`}
+                    style={{
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      color: '#fff',
+                      background: 'var(--accent)',
+                      borderRadius: 'var(--radius-field)',
+                      padding: '7px 12px',
+                      textDecoration: 'none',
+                      textAlign: 'center',
+                      display: 'block',
+                    }}
+                  >
+                    Rejoindre la visio
+                  </Link>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '8px 0' }}>
+              <div
                 style={{
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
-                  color: 'var(--accent)',
-                  borderRadius: 'var(--radius-pill)',
-                  padding: '4px 12px',
-                }}
-              >
-                {formatCountdown(nextCourse.startAt)}
-              </span>
-              <span
-                style={{
-                  fontSize: '12px',
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: '50%',
                   background: 'var(--color-surface)',
-                  color: 'var(--color-text-secondary)',
-                  borderRadius: 'var(--radius-pill)',
-                  padding: '4px 12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 12px',
+                  fontSize: '20px',
                 }}
               >
-                visio
-              </span>
-              <Link
-                to={`/activities/${nextCourse.id}`}
+                ?
+              </div>
+              <p
                 style={{
-                  marginLeft: 'auto',
                   fontSize: '13px',
+                  color: 'var(--color-text-secondary)',
+                  marginBottom: '14px',
+                  lineHeight: 1.4,
+                }}
+              >
+                Vous n'avez pas encore de professeur attitré
+              </p>
+              <Link
+                to="/teacher-requests"
+                style={{
+                  fontSize: '12px',
                   fontWeight: 600,
                   color: '#fff',
                   background: 'var(--accent)',
+                  borderRadius: 'var(--radius-field)',
+                  padding: '8px 14px',
+                  textDecoration: 'none',
+                  display: 'inline-block',
+                }}
+              >
+                Demander un professeur
+              </Link>
+            </div>
+          )}
+        </Card>
+
+        {/* Hero — Prochain cours */}
+        <Card style={{ padding: '24px' }}>
+          <p
+            style={{
+              fontSize: '10px',
+              fontWeight: 700,
+              color: 'var(--color-text-secondary)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              marginBottom: '10px',
+            }}
+          >
+            Prochain cours
+          </p>
+
+          {isLoadingCourses ? (
+            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Chargement…</p>
+          ) : nextCourse ? (
+            <div>
+              <h2
+                style={{
+                  fontFamily: 'var(--font-heading)',
+                  fontSize: '20px',
+                  fontWeight: 700,
+                  color: 'var(--color-ink)',
+                  margin: '0 0 4px',
+                }}
+              >
+                {nextCourse.title ?? 'Séance de mathématiques'}
+              </h2>
+              <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', margin: '0 0 16px' }}>
+                {formatEventDate(nextCourse.startAt)}
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <span
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
+                    color: 'var(--accent)',
+                    borderRadius: 'var(--radius-pill)',
+                    padding: '4px 12px',
+                  }}
+                >
+                  {formatCountdown(nextCourse.startAt)}
+                </span>
+                <span
+                  style={{
+                    fontSize: '12px',
+                    background: 'var(--color-surface)',
+                    color: 'var(--color-text-secondary)',
+                    borderRadius: 'var(--radius-pill)',
+                    padding: '4px 12px',
+                  }}
+                >
+                  visio
+                </span>
+                <Link
+                  to={`/activities/${nextCourse.id}`}
+                  style={{
+                    marginLeft: 'auto',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    color: '#fff',
+                    background: 'var(--accent)',
+                    borderRadius: 'var(--radius-pill)',
+                    padding: '8px 20px',
+                    textDecoration: 'none',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  ▶ Rejoindre
+                </Link>
+              </div>
+
+              {/* Prochains cours */}
+              {upcomingCourses.length > 0 && (
+                <div
+                  style={{
+                    marginTop: '16px',
+                    paddingTop: '14px',
+                    borderTop: '1px solid var(--color-surface)',
+                  }}
+                >
+                  <p
+                    style={{
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      color: 'var(--color-text-secondary)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.08em',
+                      marginBottom: '8px',
+                    }}
+                  >
+                    À venir
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {upcomingCourses.map((courseEvent) => (
+                      <Link
+                        key={courseEvent.id}
+                        to={`/activities/${courseEvent.id}`}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '6px 0',
+                          borderBottom: '1px solid var(--color-surface)',
+                          textDecoration: 'none',
+                        }}
+                      >
+                        <span style={{ fontSize: '13px', color: 'var(--color-ink)' }}>
+                          {courseEvent.title ?? 'Séance'}
+                        </span>
+                        <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                          {formatShortDate(courseEvent.startAt)}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '16px 0' }}>
+              <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: '16px' }}>
+                Aucun cours à venir
+              </p>
+              <Link
+                to="/teacher-requests"
+                style={{
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  color: 'var(--accent)',
+                  border: '1px solid var(--accent)',
                   borderRadius: 'var(--radius-pill)',
                   padding: '8px 20px',
                   textDecoration: 'none',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
                 }}
               >
-                ▶ Rejoindre
+                Demander un professeur
               </Link>
             </div>
-          </div>
-        ) : (
-          <div style={{ textAlign: 'center', padding: '12px 0' }}>
-            <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: '16px' }}>
-              Aucun cours à venir
-            </p>
-            <Link
-              to="/teacher-requests"
-              style={{
-                fontSize: '13px',
-                fontWeight: 500,
-                color: 'var(--accent)',
-                border: '1px solid var(--accent)',
-                borderRadius: 'var(--radius-pill)',
-                padding: '8px 20px',
-                textDecoration: 'none',
-              }}
-            >
-              Demander un professeur
-            </Link>
-          </div>
-        )}
+          )}
+        </Card>
       </div>
 
-      {/* Grille : Fil d'activité + Progression */}
+      {/* ── LIGNE 2 : Travail en cours | À ne pas oublier ── */}
       <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '3fr 2fr',
-          gap: '24px',
-        }}
-        className="vm-grid-eleve"
+        style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}
+        className="vm-grid-work"
       >
-        {/* Fil d'activité */}
-        <div
-          style={{
-            background: 'var(--color-white)',
-            border: '1px solid var(--color-surface)',
-            borderRadius: 'var(--radius-card)',
-            boxShadow: 'var(--shadow-card)',
-            padding: '20px',
-          }}
-        >
-          <h3
-            style={{
-              fontFamily: 'var(--font-heading)',
-              fontSize: '15px',
-              fontWeight: 600,
-              color: 'var(--color-ink)',
-              margin: '0 0 16px',
-            }}
-          >
-            Fil d'activité
-          </h3>
+        {/* Travail en cours */}
+        <Card>
+          <SectionTitle>Travail en cours</SectionTitle>
 
-          {isLoadingNotifications ? (
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Chargement…</p>
-          ) : activityFeed.length === 0 ? (
+          {mockProgressItems.length === 0 ? (
             <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-              Aucune activité récente
+              Aucun exercice en cours.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {mockProgressItems.map((progressItem) => (
+                <div key={progressItem.label}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                    <span style={{ fontSize: '13px', color: 'var(--color-ink)', fontWeight: 500 }}>
+                      {progressItem.label}
+                    </span>
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent)' }}>
+                      {progressItem.percent}%
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      height: '5px',
+                      background: 'var(--color-surface)',
+                      borderRadius: 'var(--radius-pill)',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        height: '100%',
+                        width: `${progressItem.percent}%`,
+                        background: 'var(--accent)',
+                        borderRadius: 'var(--radius-pill)',
+                        transition: 'width 0.5s ease',
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <Link
+              to="/content/exercises"
+              style={{ fontSize: '12px', color: 'var(--accent)', textDecoration: 'none' }}
+            >
+              Exercices →
+            </Link>
+            <Link
+              to="/content/evaluations"
+              style={{ fontSize: '12px', color: 'var(--accent)', textDecoration: 'none' }}
+            >
+              Évaluations →
+            </Link>
+            <Link
+              to="/community/paths"
+              style={{ fontSize: '12px', color: 'var(--accent)', textDecoration: 'none' }}
+            >
+              Parcours →
+            </Link>
+          </div>
+        </Card>
+
+        {/* À ne pas oublier */}
+        <Card>
+          <SectionTitle>À ne pas oublier</SectionTitle>
+
+          {mockReminders.length === 0 ? (
+            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+              Aucune échéance à venir.
             </p>
           ) : (
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {activityFeed.map((activityItem) => (
+              {mockReminders.map((reminder) => (
                 <li
-                  key={activityItem.id}
+                  key={reminder.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '10px',
+                    padding: '10px 12px',
+                    background: reminder.isUrgent ? '#fff7ed' : 'var(--color-bg)',
+                    border: `1px solid ${reminder.isUrgent ? '#fed7aa' : 'var(--color-surface)'}`,
+                    borderRadius: 'var(--radius-field)',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '8px',
+                      height: '8px',
+                      borderRadius: '50%',
+                      background: reminder.isUrgent ? '#f97316' : 'var(--color-text-secondary)',
+                      flexShrink: 0,
+                      marginTop: '3px',
+                    }}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: '13px', color: 'var(--color-ink)', fontWeight: 500, margin: '0 0 2px' }}>
+                      {reminder.label}
+                    </p>
+                    <p style={{ fontSize: '11px', color: reminder.isUrgent ? '#c2410c' : 'var(--color-text-secondary)', margin: 0 }}>
+                      {reminder.deadline}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <Link
+            to="/calendar"
+            style={{
+              display: 'inline-block',
+              marginTop: '14px',
+              fontSize: '12px',
+              color: 'var(--accent)',
+              textDecoration: 'none',
+            }}
+          >
+            Voir le calendrier →
+          </Link>
+        </Card>
+      </div>
+
+      {/* ── LIGNE 3 : Contacts importants + Fil d'activité ─ */}
+      <div
+        style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px' }}
+        className="vm-grid-bottom"
+      >
+        {/* Contacts importants */}
+        <Card>
+          <SectionTitle>Contacts importants</SectionTitle>
+
+          {isLoadingContacts ? (
+            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Chargement…</p>
+          ) : contacts.length === 0 ? (
+            <div>
+              <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '12px' }}>
+                Aucun contact pour l'instant.
+              </p>
+              <Link
+                to="/contacts"
+                style={{ fontSize: '12px', color: 'var(--accent)', textDecoration: 'none' }}
+              >
+                Gérer les contacts →
+              </Link>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {contacts.map((contact) => (
+                <div
+                  key={contact.id}
+                  style={{ display: 'flex', alignItems: 'center', gap: '10px' }}
+                >
+                  <div
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '50%',
+                      background: 'var(--accent-alpha-10, rgba(91,108,240,0.10))',
+                      border: '1px solid var(--color-surface)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--accent)',
+                      fontWeight: 700,
+                      fontSize: '13px',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {(contact.displayName ?? '?').charAt(0).toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p
+                      style={{
+                        fontSize: '13px',
+                        fontWeight: 500,
+                        color: 'var(--color-ink)',
+                        margin: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {contact.displayName ?? contact.email ?? 'Contact'}
+                    </p>
+                    {contact.role && (
+                      <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: 0 }}>
+                        {contact.role}
+                      </p>
+                    )}
+                  </div>
+                  <Link
+                    to={`/messages`}
+                    style={{
+                      fontSize: '11px',
+                      color: 'var(--accent)',
+                      border: '1px solid var(--color-surface)',
+                      borderRadius: 'var(--radius-pill)',
+                      padding: '3px 8px',
+                      textDecoration: 'none',
+                      flexShrink: 0,
+                    }}
+                  >
+                    Écrire
+                  </Link>
+                </div>
+              ))}
+              <Link
+                to="/contacts"
+                style={{ fontSize: '12px', color: 'var(--accent)', textDecoration: 'none', marginTop: '4px' }}
+              >
+                Tous les contacts →
+              </Link>
+            </div>
+          )}
+        </Card>
+
+        {/* Fil d'activité */}
+        <Card>
+          <SectionTitle>Activité récente</SectionTitle>
+
+          {isLoadingNotifications ? (
+            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Chargement…</p>
+          ) : notifications.length === 0 ? (
+            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+              Aucune activité récente.
+            </p>
+          ) : (
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0' }}>
+              {notifications.map((notification) => (
+                <li
+                  key={notification.id}
                   style={{
                     display: 'flex',
                     gap: '12px',
@@ -337,12 +795,12 @@ export default function EleveDashboardPage() {
                 >
                   <div
                     style={{
-                      width: '6px',
-                      height: '6px',
+                      width: '7px',
+                      height: '7px',
                       borderRadius: '50%',
-                      background: 'var(--accent)',
+                      background: notification.read ? 'var(--color-surface)' : 'var(--accent)',
                       flexShrink: 0,
-                      marginTop: '5px',
+                      marginTop: '4px',
                     }}
                   />
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -350,16 +808,17 @@ export default function EleveDashboardPage() {
                       style={{
                         fontSize: '13px',
                         color: 'var(--color-ink)',
+                        fontWeight: notification.read ? 400 : 500,
                         margin: '0 0 2px',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {activityItem.label}
+                      {notification.message}
                     </p>
                     <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: 0 }}>
-                      {new Date(activityItem.timestamp).toLocaleString('fr-FR', {
+                      {new Date(notification.createdAt).toLocaleString('fr-FR', {
                         day: 'numeric',
                         month: 'short',
                         hour: '2-digit',
@@ -371,162 +830,15 @@ export default function EleveDashboardPage() {
               ))}
             </ul>
           )}
-
-          {/* Prochains cours */}
-          {!isLoadingCourses && upcomingCourses.length > 0 && (
-            <div style={{ marginTop: '20px' }}>
-              <p
-                style={{
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  color: 'var(--color-text-secondary)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  marginBottom: '8px',
-                }}
-              >
-                À venir
-              </p>
-              {upcomingCourses.map((courseEvent) => (
-                <Link
-                  key={courseEvent.id}
-                  to={`/activities/${courseEvent.id}`}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '8px 0',
-                    borderBottom: '1px solid var(--color-surface)',
-                    textDecoration: 'none',
-                  }}
-                >
-                  <span style={{ fontSize: '13px', color: 'var(--color-ink)' }}>
-                    {courseEvent.title ?? 'Séance'}
-                  </span>
-                  <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
-                    {new Date(courseEvent.startAt).toLocaleDateString('fr-FR', {
-                      weekday: 'short',
-                      day: 'numeric',
-                      month: 'short',
-                    })}
-                  </span>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Progression & Objectifs */}
-        <div
-          style={{
-            background: 'var(--color-white)',
-            border: '1px solid var(--color-surface)',
-            borderRadius: 'var(--radius-card)',
-            boxShadow: 'var(--shadow-card)',
-            padding: '20px',
-          }}
-        >
-          <h3
-            style={{
-              fontFamily: 'var(--font-heading)',
-              fontSize: '15px',
-              fontWeight: 600,
-              color: 'var(--color-ink)',
-              margin: '0 0 16px',
-            }}
-          >
-            Ma progression
-          </h3>
-
-          {/* TODO: brancher API progression */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {mockProgressItems.map((progressItem) => (
-              <div key={progressItem.label}>
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    marginBottom: '6px',
-                  }}
-                >
-                  <span style={{ fontSize: '13px', color: 'var(--color-ink)', fontWeight: 500 }}>
-                    {progressItem.label}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: 'var(--accent)',
-                    }}
-                  >
-                    {progressItem.percent}%
-                  </span>
-                </div>
-                <div
-                  style={{
-                    height: '6px',
-                    background: 'var(--color-surface)',
-                    borderRadius: 'var(--radius-pill)',
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
-                    style={{
-                      height: '100%',
-                      width: `${progressItem.percent}%`,
-                      background: 'var(--accent)',
-                      borderRadius: 'var(--radius-pill)',
-                      transition: 'width 0.5s ease',
-                    }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div
-            style={{
-              marginTop: '24px',
-              paddingTop: '16px',
-              borderTop: '1px solid var(--color-surface)',
-            }}
-          >
-            <p
-              style={{
-                fontSize: '11px',
-                fontWeight: 600,
-                color: 'var(--color-text-secondary)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
-                marginBottom: '10px',
-              }}
-            >
-              Objectifs
-            </p>
-            {/* TODO: brancher API objectifs */}
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-              Aucun objectif défini pour l'instant.
-            </p>
-            <Link
-              to="/community/paths"
-              style={{
-                display: 'inline-block',
-                marginTop: '10px',
-                fontSize: '12px',
-                color: 'var(--accent)',
-                textDecoration: 'none',
-              }}
-            >
-              Découvrir les parcours →
-            </Link>
-          </div>
-        </div>
+        </Card>
       </div>
 
-      {/* Responsive — empiler les 2 colonnes sur mobile */}
+      {/* Responsive */}
       <style>{`
-        @media (max-width: 768px) {
-          .vm-grid-eleve { grid-template-columns: 1fr !important; }
+        @media (max-width: 900px) {
+          .vm-grid-hero { grid-template-columns: 1fr !important; }
+          .vm-grid-work { grid-template-columns: 1fr !important; }
+          .vm-grid-bottom { grid-template-columns: 1fr !important; }
         }
       `}</style>
     </DashboardShell>

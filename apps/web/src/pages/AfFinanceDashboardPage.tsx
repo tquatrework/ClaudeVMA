@@ -28,7 +28,6 @@ const TOP_NAV_ITEMS: NavItem[] = [
   { label: 'Paiements', path: '/teacher-payment-requests' },
   { label: 'Documents légaux', path: '/legal' },
   { label: 'Activité', path: '/admin/activity' },
-  { label: 'Délégations', path: '/delegations' },
 ]
 
 const RAIL_GROUPS: RailGroup[] = [

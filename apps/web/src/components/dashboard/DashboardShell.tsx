@@ -228,6 +228,29 @@ export default function DashboardShell({
 
         {/* Avatar / profil */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, paddingRight: '4px' }}>
+          {/* Icône notifications */}
+          <Link
+            to="/notifications"
+            title="Notifications"
+            aria-label="Notifications"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '30px',
+              height: '30px',
+              borderRadius: 'var(--radius-field)',
+              color: 'var(--color-text-secondary)',
+              textDecoration: 'none',
+              fontSize: '17px',
+              transition: 'color 0.15s',
+              flexShrink: 0,
+            }}
+            className="vm-avatar-name"
+          >
+            🔔
+          </Link>
+
           <Link
             to={user ? `/profiles/${user.id}` : '/dashboard'}
             style={{ display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none' }}

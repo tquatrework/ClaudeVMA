@@ -30,16 +30,14 @@ const TOP_NAV_ITEMS: NavItem[] = [
   { label: 'Calendrier', path: '/calendar' },
   { label: 'Contacts', path: '/contacts' },
   { label: 'Messages', path: '/messages' },
-  { label: 'Mes élèves', path: '/my-students' },
-  { label: 'Demandes', path: '/teacher-requests' },
+  { label: 'Stats / Archives', path: '/archives' },
 ]
 
 const RAIL_GROUPS: RailGroup[] = [
   {
     groupLabel: 'Cours',
     items: [
-      { label: 'Mes cours', path: '/activities', icon: '🎥' },
-      { label: 'Tableau blanc', path: '/activities', icon: '✏️' },
+      { label: 'Visio', path: '/activities', icon: '🎥' },
       { label: 'Demandes ouvertes', path: '/open-activities', icon: '📢' },
     ],
   },
@@ -48,7 +46,7 @@ const RAIL_GROUPS: RailGroup[] = [
     items: [
       { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
       { label: 'Mes élèves', path: '/my-students', icon: '👥' },
-      { label: 'Mémos', path: '/memos', icon: '💡' },
+      { label: 'Demandes prof.', path: '/teacher-requests', icon: '📋' },
     ],
   },
   {
@@ -56,7 +54,14 @@ const RAIL_GROUPS: RailGroup[] = [
     items: [
       { label: 'Exercices', path: '/content/exercises', icon: '📐' },
       { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
-      { label: 'Tutoriels vidéo', path: '/content/tutorials', icon: '🎬' },
+      { label: 'Tutos-vidéos', path: '/content/tutorials', icon: '🎬' },
+    ],
+  },
+  {
+    groupLabel: 'Compte',
+    items: [
+      { label: 'Rémunérations', path: '/teacher-payment-requests', icon: '💰' },
+      { label: 'Documents légaux', path: '/legal', icon: '📄' },
     ],
   },
 ]

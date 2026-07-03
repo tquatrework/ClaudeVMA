@@ -80,7 +80,7 @@ Le canvas présente **3 variantes du même écran** (dashboard d'accueil élève
 - **Checklist Objectifs** : cases cochables, persistées.
 - **Responsive** (PC d'abord, mais tout doit s'adapter) :
   - **Desktop** : top bar + rail + centre tel quel.
-  - **Tablette** : rail réduit aux **icônes seules** ; grille centrale qui se resserre.
+  - **Tablette** : rail en **icône + libellé court** (~148px) ; grille centrale qui se resserre.
   - **Mobile** : navigation haute → menu **burger** ; rail outils → **tiroir latéral ou barre d'outils basse** ;
     centre en **1 seule colonne** (les colonnes/tuiles s'empilent).
 
@@ -109,6 +109,7 @@ Le canvas présente **3 variantes du même écran** (dashboard d'accueil élève
 - Professeur — Vert — `oklch(0.60 0.12 155)`
 - Responsable pédagogique — Prune — `oklch(0.58 0.13 330)`
 - Animateur pédagogique — Ambre — `oklch(0.65 0.13 65)`
+- Technicien informatique — Violet — `oklch(0.55 0.12 295)`
 - Administrateur financier — Ardoise — `oklch(0.52 0.07 250)`
 
 > L'accent ne s'applique qu'aux éléments d'action/d'état : bouton principal, lien/onglet actif, pastille de profil,
@@ -137,15 +138,14 @@ Le canvas présente **3 variantes du même écran** (dashboard d'accueil élève
 - `Dashboard élève — Wireframes.dc.html` — le canvas avec les 3 directions de layout (A/B/C) + le panneau « Direction visuelle ».
   Ouvrir dans un navigateur pour visualiser ; pan/zoom à la souris.
 
-## À valider pour ce premier jet
-1. **La direction visuelle** (couleurs, accent par rôle, polices) → voir `Direction visuelle.png`.
-2. **Une direction de layout** pour le dashboard (A / B / C).
-Une fois ces deux points validés, on passe la vue élève en haute-fidélité, puis on décline les autres rôles.
-Pour ce premier jet, **direction visuelle + un seul dashboard d'exemple (élève)** suffisent à donner l'orientation
-générale — les 5 autres rôles viendront ensuite (même layout, accent différent).
+## Décisions validées
+
+1. **Direction visuelle** (couleurs, accent par rôle, polices) — **validée**. Référence : `Direction visuelle.png` et tokens ci-dessus.
+2. **Direction de layout** — **Direction A retenue** (1 colonne, hero prochain cours, puis 2 colonnes activité/progression).
+3. **Tablette** — icône + libellé court (≤ 12 caractères), pas d'icônes seules.
+4. Ces règles font référence pour tous les rôles. En cas de conflit, `front-design.md` tranche.
 
 ## Statut & suite
-- **Lot 1 (ce bundle)** : wireframes vue élève, 3 directions à arbitrer + charte visuelle.
-- **Lot 2** : passage en haute-fidélité de la direction choisie.
+- **Lot 1** ✅ : wireframes vue élève + charte visuelle validés.
+- **Lot 2** : passage en haute-fidélité (Direction A) — en cours.
 - **Lot 3** : déclinaison des 5 autres rôles (même layout, accent différent).
-- Itératif : ce package sera **régénéré** à chaque étape stable.

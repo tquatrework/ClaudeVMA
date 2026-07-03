@@ -22,8 +22,7 @@ const TOP_NAV_ITEMS: NavItem[] = [
   { label: 'Calendrier', path: '/calendar' },
   { label: 'Contacts', path: '/contacts' },
   { label: 'Messages', path: '/messages' },
-  { label: 'Contenus', path: '/content/validation' },
-  { label: 'Forums', path: '/community/forums' },
+  { label: 'Stats / Archives', path: '/archives' },
 ]
 
 const RAIL_GROUPS: RailGroup[] = [
@@ -59,18 +58,6 @@ export default function ApDashboardPage() {
 
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(true)
-
-  // TODO: brancher API contenus en attente de validation
-  const mockPendingContents = [
-    { id: '1', title: 'Exercice intégration par parties', type: 'Exercice', submittedBy: 'M. Dupont', submittedAt: '2026-06-28T10:00:00Z' },
-    { id: '2', title: 'Évaluation Suites numériques', type: 'Évaluation', submittedBy: 'Mme Martin', submittedAt: '2026-06-27T14:00:00Z' },
-  ]
-
-  // TODO: brancher API forums
-  const mockForumActivity = [
-    { id: '1', title: 'Forum Terminale Spécialité', newMessages: 5, lastActivity: '2026-06-29T08:30:00Z' },
-    { id: '2', title: 'Espace Première Maths', newMessages: 2, lastActivity: '2026-06-28T16:00:00Z' },
-  ]
 
   useEffect(() => {
     if (!user) return
@@ -117,9 +104,9 @@ export default function ApDashboardPage() {
         className="vm-ap-stats"
       >
         {[
-          { label: 'Contenus en attente', value: String(mockPendingContents.length), isAlert: mockPendingContents.length > 0 },
-          { label: 'Contenus publiés', value: '—', isAlert: false }, // TODO: brancher API
-          { label: 'Parcours actifs', value: '—', isAlert: false }, // TODO: brancher API
+          { label: 'Contenus en attente', value: '—', isAlert: false },
+          { label: 'Contenus publiés', value: '—', isAlert: false },
+          { label: 'Parcours actifs', value: '—', isAlert: false },
         ].map((stat) => (
           <div
             key={stat.label}
@@ -185,50 +172,9 @@ export default function ApDashboardPage() {
             </Link>
           </div>
 
-          {mockPendingContents.length === 0 ? (
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-              Aucun contenu en attente
-            </p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {mockPendingContents.map((content) => (
-                <div
-                  key={content.id}
-                  style={{
-                    padding: '12px',
-                    background: 'var(--color-bg)',
-                    border: '1px solid var(--color-surface)',
-                    borderRadius: 'var(--radius-field)',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-ink)', margin: '0 0 2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {content.title}
-                      </p>
-                      <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: 0 }}>
-                        {content.type} — par {content.submittedBy}
-                      </p>
-                    </div>
-                    <span
-                      style={{
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        color: '#fff',
-                        background: 'var(--accent)',
-                        borderRadius: 'var(--radius-pill)',
-                        padding: '3px 8px',
-                        flexShrink: 0,
-                        marginLeft: '8px',
-                      }}
-                    >
-                      À valider
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+            Aucun contenu en attente.
+          </p>
         </div>
 
         {/* Activité des forums */}
@@ -261,55 +207,9 @@ export default function ApDashboardPage() {
             </Link>
           </div>
 
-          {mockForumActivity.length === 0 ? (
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-              Aucun forum actif
-            </p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {mockForumActivity.map((forum) => (
-                <Link
-                  key={forum.id}
-                  to={`/community/forums/${forum.id}`}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '12px',
-                    background: 'var(--color-bg)',
-                    border: '1px solid var(--color-surface)',
-                    borderRadius: 'var(--radius-field)',
-                    textDecoration: 'none',
-                  }}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-ink)', margin: '0 0 2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {forum.title}
-                    </p>
-                    <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: 0 }}>
-                      Dernière activité {new Date(forum.lastActivity).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
-                    </p>
-                  </div>
-                  {forum.newMessages > 0 && (
-                    <span
-                      style={{
-                        fontSize: '11px',
-                        fontWeight: 700,
-                        color: '#fff',
-                        background: 'var(--accent)',
-                        borderRadius: 'var(--radius-pill)',
-                        padding: '2px 8px',
-                        flexShrink: 0,
-                        marginLeft: '8px',
-                      }}
-                    >
-                      +{forum.newMessages}
-                    </span>
-                  )}
-                </Link>
-              ))}
-            </div>
-          )}
+          <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+            Aucun forum actif pour l'instant.
+          </p>
         </div>
       </div>
 

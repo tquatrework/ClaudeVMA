@@ -28,8 +28,7 @@ const TOP_NAV_ITEMS: NavItem[] = [
   { label: 'Calendrier', path: '/calendar' },
   { label: 'Contacts', path: '/contacts' },
   { label: 'Messages', path: '/messages' },
-  { label: 'Demandes prof.', path: '/rp/teacher-requests' },
-  { label: 'Comptes', path: '/admin/accounts' },
+  { label: 'Stats / Archives', path: '/archives' },
 ]
 
 const RAIL_GROUPS: RailGroup[] = [
@@ -37,16 +36,24 @@ const RAIL_GROUPS: RailGroup[] = [
     groupLabel: 'Gestion',
     items: [
       { label: 'Demandes professeurs', path: '/rp/teacher-requests', icon: '🎓' },
-      { label: 'Formateurs', path: '/admin/accounts', icon: '👨‍🏫' },
-      { label: 'Élèves', path: '/admin/accounts', icon: '🎒' },
+      { label: 'Comptes', path: '/admin/accounts', icon: '🔑' },
+      { label: 'Délégations', path: '/delegations', icon: '🔗' },
+    ],
+  },
+  {
+    groupLabel: 'Validation',
+    items: [
+      { label: 'Contenus à valider', path: '/content/validation', icon: '✅' },
+      { label: 'Demandes rattachement', path: '/parent-link-requests/inbox', icon: '👨‍👩‍👧' },
     ],
   },
   {
     groupLabel: 'Pédagogie',
     items: [
-      { label: 'Contenus à valider', path: '/content/validation', icon: '✅' },
       { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
       { label: 'Archives', path: '/archives', icon: '🗂️' },
+      { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
+      { label: 'Forums', path: '/community/forums', icon: '💬' },
     ],
   },
   {
@@ -54,7 +61,6 @@ const RAIL_GROUPS: RailGroup[] = [
     items: [
       { label: 'Activité globale', path: '/admin/activity', icon: '📊' },
       { label: 'Santé services', path: '/admin/observability/health', icon: '❤️' },
-      { label: 'Incidents', path: '/incidents', icon: '⚠️' },
     ],
   },
 ]

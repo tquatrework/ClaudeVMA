@@ -38,30 +38,30 @@ const TOP_NAV_ITEMS: NavItem[] = [
   { label: 'Calendrier', path: '/calendar' },
   { label: 'Contacts', path: '/contacts' },
   { label: 'Messages', path: '/messages' },
-  { label: 'Finances', path: '/finance' },
+  { label: 'Demandes', path: '/teacher-requests' },
+  { label: 'Stats / Archives', path: '/archives' },
 ]
 
 const RAIL_GROUPS: RailGroup[] = [
   {
-    groupLabel: 'Suivi',
+    groupLabel: 'Suivi élève',
     items: [
       { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
-      { label: 'Calendrier élève', path: '/calendar', icon: '📅' },
-      { label: 'Demandes prof.', path: '/teacher-requests', icon: '🎓' },
-    ],
-  },
-  {
-    groupLabel: 'Finance',
-    items: [
-      { label: 'Mon profil financier', path: '/finance', icon: '💳' },
-      { label: 'Documents légaux', path: '/legal', icon: '📄' },
+      { label: 'Calendrier', path: '/calendar', icon: '📅' },
       { label: 'Archives', path: '/archives', icon: '🗂️' },
     ],
   },
   {
-    groupLabel: 'Rattachement',
+    groupLabel: 'Démarches',
     items: [
-      { label: 'Rattacher un élève', path: '/parent-link-requests/new', icon: '🔗' },
+      { label: 'Demande de rattachement', path: '/parent-link-requests', icon: '🔗' },
+    ],
+  },
+  {
+    groupLabel: 'Compte',
+    items: [
+      { label: 'Profil financier', path: '/finance', icon: '💳' },
+      { label: 'Documents légaux', path: '/legal', icon: '📄' },
     ],
   },
 ]

@@ -49,31 +49,39 @@ const TOP_NAV_ITEMS: NavItem[] = [
   { label: 'Contacts', path: '/contacts' },
   { label: 'Messages', path: '/messages' },
   { label: 'Demandes', path: '/teacher-requests' },
+  { label: 'Stats / Archives', path: '/archives' },
 ]
 
 const RAIL_GROUPS: RailGroup[] = [
   {
     groupLabel: 'Cours',
     items: [
-      { label: 'Rejoindre la visio', path: '/activities', icon: '🎥' },
-      { label: 'Tableau blanc', path: '/activities', icon: '✏️' },
+      { label: 'Visio', path: '/activities', icon: '🎥' },
+      { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
+      { label: 'Mémo', path: '/memos', icon: '💡' },
+      { label: 'Carnet personnel', path: '/notebook/', icon: '📓' },
     ],
   },
   {
-    groupLabel: 'Travail',
+    groupLabel: 'Contenus',
     items: [
-      { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
       { label: 'Exercices', path: '/content/exercises', icon: '📐' },
       { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
+      { label: 'Tutos-vidéos', path: '/content/tutorials', icon: '🎬' },
     ],
   },
   {
-    groupLabel: 'Mon espace',
+    groupLabel: 'Communauté',
     items: [
-      { label: 'Mon carnet', path: '/notebook/', icon: '📓' },
-      { label: 'Mémos', path: '/memos', icon: '💡' },
+      { label: 'Forums', path: '/community/forums', icon: '💬' },
       { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
-      { label: 'Ressources', path: '/content/tutorials', icon: '🎬' },
+      // Jeux : fonctionnalité phase 3 non encore disponible
+    ],
+  },
+  {
+    groupLabel: 'Compte',
+    items: [
+      { label: 'Documents légaux', path: '/legal', icon: '📄' },
     ],
   },
 ]
@@ -164,19 +172,6 @@ export default function EleveDashboardPage() {
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(true)
   const [isLoadingContacts, setIsLoadingContacts] = useState(true)
 
-  // Données de progression (TODO : brancher API)
-  const mockProgressItems = [
-    { label: 'Suites et séries', percent: 72 },
-    { label: 'Dérivées', percent: 58 },
-    { label: 'Géométrie vectorielle', percent: 45 },
-  ]
-
-  // Données rappels (TODO : brancher API)
-  const mockReminders = [
-    { id: '1', label: 'Rendre exercice sur les intégrales', deadline: 'Demain 18h', isUrgent: true },
-    { id: '2', label: 'Signer le mandat client', deadline: 'Avant le 05/07', isUrgent: false },
-  ]
-
   useEffect(() => {
     if (!user) return
 
@@ -224,11 +219,11 @@ export default function EleveDashboardPage() {
     new Date(nextCourse.startAt).getTime() - Date.now() < 30 * 60 * 1000
 
   const railGroupsWithNotebook: RailGroup[] = RAIL_GROUPS.map((group) => {
-    if (group.groupLabel !== 'Mon espace') return group
+    if (group.groupLabel !== 'Cours') return group
     return {
       ...group,
       items: group.items.map((item) =>
-        item.label === 'Mon carnet' && user
+        item.label === 'Carnet personnel' && user
           ? { ...item, path: `/notebook/${user.id}` }
           : item,
       ),
@@ -376,7 +371,7 @@ export default function EleveDashboardPage() {
                   lineHeight: 1.4,
                 }}
               >
-                Vous n'avez pas encore de professeur attitré
+                Vous n'avez pas pour l'instant de professeur attitré
               </p>
               <Link
                 to="/teacher-requests"
@@ -526,20 +521,22 @@ export default function EleveDashboardPage() {
               <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: '16px' }}>
                 Aucun cours à venir
               </p>
-              <Link
-                to="/teacher-requests"
-                style={{
-                  fontSize: '13px',
-                  fontWeight: 500,
-                  color: 'var(--accent)',
-                  border: '1px solid var(--accent)',
-                  borderRadius: 'var(--radius-pill)',
-                  padding: '8px 20px',
-                  textDecoration: 'none',
-                }}
-              >
-                Demander un professeur
-              </Link>
+              {!isLoadingContacts && principalTeacher === null && (
+                <Link
+                  to="/contacts"
+                  style={{
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    color: 'var(--accent)',
+                    border: '1px solid var(--accent)',
+                    borderRadius: 'var(--radius-pill)',
+                    padding: '8px 20px',
+                    textDecoration: 'none',
+                  }}
+                >
+                  Demander un professeur
+                </Link>
+              )}
             </div>
           )}
         </Card>
@@ -554,46 +551,11 @@ export default function EleveDashboardPage() {
         <Card>
           <SectionTitle>Travail en cours</SectionTitle>
 
-          {mockProgressItems.length === 0 ? (
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-              Aucun exercice en cours.
-            </p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {mockProgressItems.map((progressItem) => (
-                <div key={progressItem.label}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                    <span style={{ fontSize: '13px', color: 'var(--color-ink)', fontWeight: 500 }}>
-                      {progressItem.label}
-                    </span>
-                    <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent)' }}>
-                      {progressItem.percent}%
-                    </span>
-                  </div>
-                  <div
-                    style={{
-                      height: '5px',
-                      background: 'var(--color-surface)',
-                      borderRadius: 'var(--radius-pill)',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <div
-                      style={{
-                        height: '100%',
-                        width: `${progressItem.percent}%`,
-                        background: 'var(--accent)',
-                        borderRadius: 'var(--radius-pill)',
-                        transition: 'width 0.5s ease',
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '16px' }}>
+            Aucun travail en cours pour l'instant.
+          </p>
 
-          <div style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Link
               to="/content/exercises"
               style={{ fontSize: '12px', color: 'var(--accent)', textDecoration: 'none' }}
@@ -619,53 +581,14 @@ export default function EleveDashboardPage() {
         <Card>
           <SectionTitle>À ne pas oublier</SectionTitle>
 
-          {mockReminders.length === 0 ? (
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-              Aucune échéance à venir.
-            </p>
-          ) : (
-            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {mockReminders.map((reminder) => (
-                <li
-                  key={reminder.id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '10px',
-                    padding: '10px 12px',
-                    background: reminder.isUrgent ? '#fff7ed' : 'var(--color-bg)',
-                    border: `1px solid ${reminder.isUrgent ? '#fed7aa' : 'var(--color-surface)'}`,
-                    borderRadius: 'var(--radius-field)',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: '8px',
-                      height: '8px',
-                      borderRadius: '50%',
-                      background: reminder.isUrgent ? '#f97316' : 'var(--color-text-secondary)',
-                      flexShrink: 0,
-                      marginTop: '3px',
-                    }}
-                  />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: '13px', color: 'var(--color-ink)', fontWeight: 500, margin: '0 0 2px' }}>
-                      {reminder.label}
-                    </p>
-                    <p style={{ fontSize: '11px', color: reminder.isUrgent ? '#c2410c' : 'var(--color-text-secondary)', margin: 0 }}>
-                      {reminder.deadline}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '14px' }}>
+            Aucun rappel pour l'instant.
+          </p>
 
           <Link
             to="/calendar"
             style={{
               display: 'inline-block',
-              marginTop: '14px',
               fontSize: '12px',
               color: 'var(--accent)',
               textDecoration: 'none',

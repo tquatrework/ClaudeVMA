@@ -278,8 +278,11 @@ describe('Journey 4: Dashboard → Demandes professeur → Création demande', (
       expect(screen.getByText('Bonjour, vous')).toBeDefined()
     })
 
-    // Navigate via "Demandes" nav item (élève dashboard)
-    await userEvent.click(screen.getByText('Demandes'))
+    // Navigate via "Demander un professeur" button — visible quand aucun professeur attitré
+    await waitFor(() => {
+      expect(screen.getAllByText('Demander un professeur').length).toBeGreaterThan(0)
+    })
+    await userEvent.click(screen.getAllByText('Demander un professeur')[0])
 
     await waitFor(() => {
       screen.getByRole('button', { name: /nouvelle demande/i })

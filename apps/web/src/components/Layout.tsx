@@ -53,114 +53,57 @@ function useTopNavItems(): TopNavItem[] {
   return [
     { label: 'Accueil', path: '/dashboard' },
 
-    /*
-     * Calendrier : retiré du top pour parent_financeur (déjà dans son rail).
-     * Accessible aux autres rôles connectés.
-     */
     {
       label: 'Calendrier',
       path: '/calendar',
       allowedRoles: [
         'eleve',
+        'parent_financeur',
         'formateur',
         'animateur_pedagogique',
         'responsable_pedagogique',
-        'technicien_informatique',
-        'administrateur_financier',
       ],
     },
 
-    /* Contacts : séparé de Messages comme dans les dashboards dédiés */
-    { label: 'Contacts', path: '/contacts' },
-
-    { label: 'Messages', path: '/messages' },
-
-    /*
-     * Demandes : retiré du top pour formateur (déjà dans son rail sous "Demandes prof.").
-     */
     {
-      label: 'Demandes',
-      path: '/teacher-requests',
+      label: 'Contacts',
+      path: '/contacts',
       allowedRoles: [
         'eleve',
         'parent_financeur',
-        'animateur_pedagogique',
+        'formateur',
         'responsable_pedagogique',
-        'technicien_informatique',
-        'administrateur_financier',
+        'animateur_pedagogique',
       ],
     },
 
-    /*
-     * Incidents : retiré du top pour technicien_informatique (déjà dans son rail).
-     * RP n'a pas Incidents dans son rail → conservé.
-     */
     {
-      label: 'Incidents',
-      path: '/incidents',
-      allowedRoles: ['responsable_pedagogique'],
-    },
-
-    {
-      label: 'Admin',
-      path: '/admin/activity',
+      label: 'Messages',
+      path: '/messages',
       allowedRoles: [
+        'eleve',
+        'parent_financeur',
+        'formateur',
         'responsable_pedagogique',
         'animateur_pedagogique',
         'technicien_informatique',
-        'administrateur_financier',
       ],
     },
 
-    /*
-     * Comptes : retiré du top pour responsable_pedagogique et technicien_informatique
-     * (déjà dans leurs rails respectifs).
-     */
-
-    /*
-     * Délégations : retiré du top pour administrateur_financier (déjà dans son rail).
-     * Conservé pour responsable_pedagogique et technicien_informatique.
-     */
+    /* Stats / Archives : pointe vers la page archives pédagogiques existante.
+     * Filtrée côté serveur selon le rôle. */
     {
-      label: 'Délégations',
-      path: '/delegations',
-      allowedRoles: ['responsable_pedagogique', 'technicien_informatique'],
-    },
-
-    /*
-     * Finances : retiré du top pour parent_financeur (déjà dans son rail).
-     * Conservé pour administrateur_financier.
-     */
-    {
-      label: 'Finances',
-      path: '/finance',
-      allowedRoles: ['administrateur_financier'],
-    },
-
-    /*
-     * Paiements : retiré du top pour administrateur_financier (déjà dans son rail).
-     * Conservé pour formateur.
-     */
-    {
-      label: 'Paiements',
-      path: '/teacher-payment-requests',
-      allowedRoles: ['formateur'],
-    },
-
-    /*
-     * Documents légaux : retiré du top pour parent_financeur et administrateur_financier
-     * (déjà dans leurs rails). Conservé pour eleve et formateur.
-     */
-    {
-      label: 'Documents légaux',
-      path: '/legal',
-      allowedRoles: ['eleve', 'formateur'],
-    },
-
-    {
-      label: 'Espace AF',
-      path: '/admin/finance',
-      allowedRoles: ['administrateur_financier'],
+      label: 'Stats / Archives',
+      path: '/archives',
+      allowedRoles: [
+        'eleve',
+        'parent_financeur',
+        'formateur',
+        'responsable_pedagogique',
+        'animateur_pedagogique',
+        'administrateur_financier',
+        'technicien_informatique',
+      ],
     },
   ]
 }
@@ -180,25 +123,26 @@ function useRailGroups(): RailGroup[] {
         {
           groupLabel: 'Cours',
           items: [
-            { label: 'Rejoindre la visio', path: '/activities', icon: '🎥' },
-            { label: 'Tableau blanc', path: '/activities', icon: '✏️' },
+            { label: 'Visio', path: '/activities', icon: '🎥' },
+            { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
+            { label: 'Mémo', path: '/memos', icon: '💡' },
+            { label: 'Carnet personnel', path: `/notebook/${user.id}`, icon: '📓' },
           ],
         },
         {
-          groupLabel: 'Travail',
+          groupLabel: 'Contenus',
           items: [
-            { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
             { label: 'Exercices', path: '/content/exercises', icon: '📐' },
             { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
+            { label: 'Tutos-vidéos', path: '/content/tutorials', icon: '🎬' },
           ],
         },
         {
-          groupLabel: 'Mon espace',
+          groupLabel: 'Communauté',
           items: [
-            { label: 'Mon carnet', path: `/notebook/${user.id}`, icon: '📓' },
-            { label: 'Mémos', path: '/memos', icon: '💡' },
+            { label: 'Forums', path: '/community/forums', icon: '💬' },
             { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
-            { label: 'Ressources', path: '/content/tutorials', icon: '🎬' },
+            { label: 'Jeux', path: '/community/games', icon: '🎮' },
           ],
         },
       ]
@@ -206,18 +150,23 @@ function useRailGroups(): RailGroup[] {
     case 'parent_financeur':
       return [
         {
-          groupLabel: 'Suivi',
+          groupLabel: 'Suivi élève',
           items: [
             { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
-            { label: 'Calendrier enfant', path: '/calendar', icon: '📅' },
+            { label: 'Calendrier', path: '/calendar', icon: '📅' },
             { label: 'Archives', path: '/archives', icon: '🗂️' },
           ],
         },
         {
-          groupLabel: 'Finances',
+          groupLabel: 'Démarches',
+          items: [
+            { label: 'Demande de rattachement', path: '/parent-link-requests', icon: '🔗' },
+          ],
+        },
+        {
+          groupLabel: 'Compte',
           items: [
             { label: 'Profil financier', path: '/finance', icon: '💳' },
-            { label: 'Documents légaux', path: '/legal', icon: '📄' },
           ],
         },
       ]
@@ -227,15 +176,15 @@ function useRailGroups(): RailGroup[] {
         {
           groupLabel: 'Cours',
           items: [
-            { label: 'Démarrer la visio', path: '/activities', icon: '🎥' },
-            { label: 'Tableau blanc', path: '/activities', icon: '✏️' },
+            { label: 'Visio', path: '/activities', icon: '🎥' },
+            { label: 'Demandes ouvertes', path: '/open-activities', icon: '📢' },
           ],
         },
         {
-          groupLabel: 'Travail',
+          groupLabel: 'Suivi',
           items: [
             { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
-            { label: 'Mes élèves', path: '/contacts', icon: '👥' },
+            { label: 'Mes élèves', path: '/my-students', icon: '👥' },
             { label: 'Demandes prof.', path: '/teacher-requests', icon: '📋' },
           ],
         },
@@ -244,7 +193,13 @@ function useRailGroups(): RailGroup[] {
           items: [
             { label: 'Exercices', path: '/content/exercises', icon: '📐' },
             { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
-            { label: 'Tutos vidéo', path: '/content/tutorials', icon: '🎬' },
+            { label: 'Tutos-vidéos', path: '/content/tutorials', icon: '🎬' },
+          ],
+        },
+        {
+          groupLabel: 'Compte',
+          items: [
+            { label: 'Rémunérations', path: '/teacher-payment-requests', icon: '💰' },
           ],
         },
       ]
@@ -255,23 +210,31 @@ function useRailGroups(): RailGroup[] {
           groupLabel: 'Gestion',
           items: [
             { label: 'Demandes prof.', path: '/rp/teacher-requests', icon: '📋' },
-            { label: 'Formateurs', path: '/contacts', icon: '👨‍🏫' },
-            { label: 'Élèves', path: '/admin/accounts', icon: '🎓' },
+            { label: 'Comptes', path: '/admin/accounts', icon: '🔑' },
+            { label: 'Délégations', path: '/delegations', icon: '🔗' },
           ],
         },
         {
           groupLabel: 'Validation',
           items: [
             { label: 'Contenus', path: '/content/validation', icon: '✅' },
-            { label: 'Comptes', path: '/admin/accounts', icon: '🔑' },
+            { label: 'Demandes rattachement', path: '/parent-link-requests/inbox', icon: '👨‍👩‍👧' },
           ],
         },
         {
-          groupLabel: 'Outils',
+          groupLabel: 'Pédagogie',
           items: [
+            { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
             { label: 'Archives', path: '/archives', icon: '🗂️' },
             { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
             { label: 'Forums', path: '/community/forums', icon: '💬' },
+          ],
+        },
+        {
+          groupLabel: 'Observabilité',
+          items: [
+            { label: 'Activité globale', path: '/admin/activity', icon: '📊' },
+            { label: 'Santé services', path: '/admin/observability/health', icon: '❤️' },
           ],
         },
       ]
@@ -281,9 +244,10 @@ function useRailGroups(): RailGroup[] {
         {
           groupLabel: 'Contenus',
           items: [
-            { label: 'Mes contenus', path: '/content/exercises', icon: '📐' },
+            { label: 'Exercices', path: '/content/exercises', icon: '📐' },
             { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
-            { label: 'Tutos vidéo', path: '/content/tutorials', icon: '🎬' },
+            { label: 'Tutos-vidéos', path: '/content/tutorials', icon: '🎬' },
+            { label: 'File de validation', path: '/content/validation', icon: '✅' },
           ],
         },
         {
@@ -293,6 +257,14 @@ function useRailGroups(): RailGroup[] {
             { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
           ],
         },
+        {
+          groupLabel: 'Suivi',
+          items: [
+            { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
+            { label: 'Activités non pourvues', path: '/open-activities', icon: '📢' },
+            { label: 'Activité globale', path: '/admin/activity', icon: '📊' },
+          ],
+        },
       ]
 
     case 'administrateur_financier':
@@ -300,17 +272,24 @@ function useRailGroups(): RailGroup[] {
         {
           groupLabel: 'Finances',
           items: [
-            { label: 'Paiements', path: '/teacher-payment-requests', icon: '💳' },
-            { label: 'Documents légaux', path: '/legal', icon: '📄' },
-            { label: 'Modèles', path: '/legal/templates', icon: '📋' },
-            { label: 'Exports', path: '/admin/activities/export', icon: '📊' },
+            { label: 'Tableau de bord AF', path: '/admin/finance', icon: '💼' },
+            { label: 'Rémunérations', path: '/teacher-payment-requests', icon: '💳' },
+            { label: 'Exports activité', path: '/admin/activities/export', icon: '📊' },
           ],
         },
         {
           groupLabel: 'Documents',
           items: [
+            { label: 'Documents légaux', path: '/legal', icon: '📄' },
+            { label: 'Modèles légaux', path: '/legal/templates', icon: '📋' },
             { label: 'Archives', path: '/archives', icon: '🗂️' },
+          ],
+        },
+        {
+          groupLabel: 'Administration',
+          items: [
             { label: 'Délégations', path: '/delegations', icon: '🔗' },
+            { label: 'Logs activité', path: '/admin/observability/activity-log', icon: '📋' },
           ],
         },
       ]
@@ -323,12 +302,13 @@ function useRailGroups(): RailGroup[] {
             { label: 'Comptes', path: '/admin/accounts', icon: '🔑' },
             { label: 'Incidents', path: '/incidents', icon: '⚠️' },
             { label: 'Masquages', path: '/admin/observability/visibility-overrides', icon: '👁️' },
+            { label: 'Métadonnées site', path: '/admin/observability/site-metadata', icon: '⚙️' },
           ],
         },
         {
           groupLabel: 'Observabilité',
           items: [
-            { label: 'Journaux', path: '/admin/observability/activity-log', icon: '📋' },
+            { label: 'Journaux activité', path: '/admin/observability/activity-log', icon: '📋' },
             { label: 'Logs techniques', path: '/admin/observability/technical-logs', icon: '🖥️' },
             { label: 'Santé services', path: '/admin/observability/health', icon: '💚' },
             { label: 'Orchestration', path: '/admin/orchestration/workflows', icon: '⚙️' },
@@ -500,6 +480,28 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               marginLeft: 'auto',
             }}
           >
+            {/* Icône notifications */}
+            <Link
+              to="/notifications"
+              title="Notifications"
+              aria-label="Notifications"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '30px',
+                height: '30px',
+                borderRadius: 'var(--radius-field)',
+                color: 'var(--color-text-secondary)',
+                textDecoration: 'none',
+                fontSize: '17px',
+                transition: 'color 0.15s',
+                flexShrink: 0,
+              }}
+            >
+              🔔
+            </Link>
+
             <Link
               to={user ? `/profiles/${user.id}` : '/dashboard'}
               style={{

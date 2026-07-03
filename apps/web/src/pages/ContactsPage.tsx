@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import Layout from '../components/Layout'
+import { useAuth } from '../hooks/useAuth'
 import {
   fetchContacts,
   activateContact,
@@ -12,10 +13,17 @@ import {
 
 export default function ContactsPage() {
   const navigate = useNavigate()
+  const { hasRole } = useAuth()
   const [contactList, setContactList] = useState<Contact[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [pendingActionIds, setPendingActionIds] = useState<Set<string>>(new Set())
+
+  /**
+   * L'encart "Nouvelle demande" est visible pour les rôles impliqués dans le
+   * workflow demande professeur (élève, parent_financeur) ou qui gèrent des demandes (RP).
+   */
+  const canMakeTeacherRequest = hasRole('eleve', 'parent_financeur', 'responsable_pedagogique')
 
   const handleStartConversation = (contact: Contact) => {
     navigate('/messages', { state: { initialContactId: contact.userId, initialContactLabel: contact.displayName ?? contact.email } })
@@ -100,6 +108,61 @@ export default function ContactsPage() {
             supprimés.
           </p>
         </div>
+
+        {/* Encart "Nouvelle demande" — visible pour les rôles concernés par le workflow professeur */}
+        {canMakeTeacherRequest && (
+          <div
+            style={{
+              background: 'var(--color-white)',
+              border: '1px solid var(--color-surface)',
+              borderRadius: 'var(--radius-card)',
+              padding: '20px 24px',
+              marginBottom: '24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '16px',
+              boxShadow: 'var(--shadow-card)',
+            }}
+          >
+            <div>
+              <p
+                style={{
+                  fontWeight: 600,
+                  fontSize: '15px',
+                  color: 'var(--color-ink)',
+                  marginBottom: '4px',
+                }}
+              >
+                Faire une demande
+              </p>
+              <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+                {hasRole('responsable_pedagogique')
+                  ? 'Accéder aux demandes de professeur en attente de traitement.'
+                  : 'Demandez un professeur ou consultez vos demandes en cours.'}
+              </p>
+            </div>
+            <Link
+              to={hasRole('responsable_pedagogique') ? '/rp/teacher-requests' : '/teacher-requests'}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: 'var(--accent)',
+                color: '#fff',
+                fontWeight: 600,
+                fontSize: '13px',
+                padding: '8px 18px',
+                borderRadius: 'var(--radius-field)',
+                textDecoration: 'none',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+            >
+              Nouvelle demande
+            </Link>
+          </div>
+        )}
 
         {errorMessage && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center justify-between">

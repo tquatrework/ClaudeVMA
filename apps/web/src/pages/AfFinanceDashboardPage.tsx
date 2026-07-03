@@ -7,8 +7,10 @@ import React, { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import DashboardShell from '../components/dashboard/DashboardShell'
-import type { RailGroup, NavItem } from '../types/navigation'
+import type { NavItem } from '../types/navigation'
 import apiClient from '../api/client'
+import { getRailGroupsForRole } from '../navigation/navigationConfig'
+import { useCanAccess } from '../navigation/navigationFilters'
 import '../styles/tokens.css'
 
 interface FinanceEvent {
@@ -23,7 +25,8 @@ interface RewardSettings {
   bonusMultiplier?: number
 }
 
-const TOP_NAV_ITEMS: NavItem[] = [
+// Tous les items de topbar potentiels pour l'AF — filtrés dynamiquement
+const ALL_TOP_NAV_ITEMS: NavItem[] = [
   { label: 'Accueil', path: '/admin/finance' },
   { label: 'Profils financiers', path: '/finance' },
   { label: 'Paiements', path: '/teacher-payment-requests' },
@@ -31,29 +34,28 @@ const TOP_NAV_ITEMS: NavItem[] = [
   { label: 'Activité', path: '/admin/activity' },
 ]
 
-const RAIL_GROUPS: RailGroup[] = [
-  {
-    groupLabel: 'Finance',
-    items: [
-      { label: 'Profils financiers', path: '/finance', icon: '💳' },
-      { label: 'Paiements formateurs', path: '/teacher-payment-requests', icon: '💰' },
-      { label: 'Modèles légaux', path: '/legal/templates', icon: '📄' },
-    ],
-  },
-  {
-    groupLabel: 'Administration',
-    items: [
-      { label: 'Activité globale', path: '/admin/activity', icon: '📊' },
-      { label: 'Délégations', path: '/delegations', icon: '🔑' },
-      { label: 'Workflows', path: '/admin/orchestration/workflows', icon: '⚙️' },
-    ],
-  },
+// Tous les liens d'actions rapides potentiels — filtrés dynamiquement
+const ALL_QUICK_ACTIONS = [
+  { label: 'Profils financiers', path: '/finance' },
+  { label: 'Modèles légaux', path: '/legal/templates' },
+  { label: 'Délégations', path: '/delegations' },
+  { label: 'Paiements formateurs', path: '/teacher-payment-requests' },
+  { label: 'Export activités', path: '/admin/activities/export' },
+  { label: 'Workflows', path: '/admin/orchestration/workflows' },
 ]
 
 export default function AfFinanceDashboardPage() {
   const { user, hasRole } = useAuth()
+  const { checkAccess } = useCanAccess()
   const navigate = useNavigate()
   const firstName = user?.loginIdentifier ?? 'vous'
+
+  // Filtrer la topbar et les actions rapides selon les droits réels du rôle courant
+  const visibleTopNavItems = ALL_TOP_NAV_ITEMS.filter((item) => checkAccess(item.path))
+  const visibleQuickActions = ALL_QUICK_ACTIONS.filter((action) => checkAccess(action.path))
+
+  // Rail gauche depuis la config centralisée (déjà scopé par rôle)
+  const railGroups = user ? getRailGroupsForRole(user.role) : []
 
   const [financeEvents, setFinanceEvents] = useState<FinanceEvent[]>([])
   const [isLoadingEvents, setIsLoadingEvents] = useState(true)
@@ -105,8 +107,8 @@ export default function AfFinanceDashboardPage() {
   return (
     <DashboardShell
       accentClass="role-af"
-      railGroups={RAIL_GROUPS}
-      topNavItems={TOP_NAV_ITEMS}
+      railGroups={railGroups}
+      topNavItems={visibleTopNavItems}
       userName={firstName}
       userRole="Administrateur financier"
     >
@@ -182,14 +184,7 @@ export default function AfFinanceDashboardPage() {
           style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}
           className="vm-af-actions"
         >
-          {[
-            { label: 'Profils financiers', path: '/finance' },
-            { label: 'Modèles légaux', path: '/legal/templates' },
-            { label: 'Délégations', path: '/delegations' },
-            { label: 'Paiements formateurs', path: '/teacher-payment-requests' },
-            { label: 'Export activités', path: '/admin/activities/export' },
-            { label: 'Workflows', path: '/admin/orchestration/workflows' },
-          ].map((action) => (
+          {visibleQuickActions.map((action) => (
             <Link
               key={action.path}
               to={action.path}

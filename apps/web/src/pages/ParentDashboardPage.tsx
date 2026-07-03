@@ -105,7 +105,7 @@ export default function ParentDashboardPage() {
         {[
           { label: 'Calendrier', path: '/calendar' },
           { label: 'Finances', path: '/finance' },
-          { label: 'Rattacher un élève', path: '/parent-link-requests/new' },
+          { label: 'Rattacher un élève', path: '/parent-link-requests' },
         ].map((quickAction) => (
           <Link
             key={quickAction.path}
@@ -162,7 +162,7 @@ export default function ParentDashboardPage() {
               Aucun élève rattaché à votre compte.
             </p>
             <Link
-              to="/parent-link-requests/new"
+              to="/parent-link-requests"
               style={{
                 fontSize: '13px',
                 fontWeight: 600,

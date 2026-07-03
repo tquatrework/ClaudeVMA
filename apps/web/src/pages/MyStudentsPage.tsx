@@ -82,7 +82,7 @@ export default function MyStudentsPage() {
           <div className="bg-white border border-gray-200 rounded-xl p-6 text-center">
             <p className="text-gray-500 text-sm mb-4">Aucun élève rattaché.</p>
             <Link
-              to="/parent-link-requests/new"
+              to="/parent-link-requests"
               className="inline-block bg-indigo-600 text-white text-sm px-5 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
             >
               Rattacher un élève

@@ -144,6 +144,16 @@ Si un pattern visuel identique apparaît dans deux pages, extraire un composant.
 - Au-delà de 300 lignes : signaler, proposer une découpe si elle améliore la lisibilité.
 - Ne pas découper artificiellement si cela nuit à la lisibilité (ex. wizard multi-étapes fortement couplé).
 
+### Filtrage UI — règle obligatoire
+Toute entrée de navigation, carte dashboard, bouton ou raccourci qui mènerait l'utilisateur vers `/forbidden` pour son rôle courant **ne doit pas être affiché**.
+
+- Vérifier les rôles autorisés avant d'afficher un lien, une carte ou un raccourci.
+- Cette règle s'applique à : topbar, rail gauche, sous-menus Profil(s), Contacts, cartes dashboard, raccourcis.
+- Si l'utilisateur n'a pas le droit → masquer l'entrée, ne pas la griser ni la rediriger.
+- `/forbidden` est une sécurité de secours pour les URLs forcées manuellement, pas une destination de navigation normale.
+
+Implémentation : utiliser un helper `canAccess(role, path)` ou équivalent centralisé, basé sur les `allowedRoles` de `navigationConfig.ts`. Ne pas dupliquer la logique de filtrage dans chaque composant.
+
 ### Vérifications après modification front
 1. `npx tsc --noEmit` → 0 erreur.
 2. `npm run build` → succès.

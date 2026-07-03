@@ -175,7 +175,7 @@ describe('TeacherRequestDetailPage', () => {
 
       await waitFor(() => {
         expect(mockApiClient.post).toHaveBeenCalledWith(
-          `/teacher-requests/${REQUEST_ID}/candidates`,
+          `/teacher-requests/${REQUEST_ID}/proposals`,
           { teacherId: 'teacher-999' },
         )
       })
@@ -256,8 +256,8 @@ describe('TeacherRequestDetailPage', () => {
 
       await waitFor(() => {
         expect(mockApiClient.post).toHaveBeenCalledWith(
-          `/teacher-requests/${REQUEST_ID}/responses`,
-          expect.objectContaining({ candidateId: 'candidate-own', status: 'accepted' }),
+          `/proposals/candidate-own/accept`,
+          {},
         )
       })
     })
@@ -287,8 +287,8 @@ describe('TeacherRequestDetailPage', () => {
 
       await waitFor(() => {
         expect(mockApiClient.post).toHaveBeenCalledWith(
-          `/teacher-requests/${REQUEST_ID}/responses`,
-          expect.objectContaining({ status: 'declined' }),
+          `/proposals/candidate-own/decline`,
+          {},
         )
       })
     })
@@ -346,7 +346,7 @@ describe('TeacherRequestDetailPage', () => {
       await waitFor(() => {
         expect(mockApiClient.post).toHaveBeenCalledWith(
           `/teacher-requests/${REQUEST_ID}/select`,
-          { candidateId: 'candidate-accepted' },
+          { proposalId: 'candidate-accepted' },
         )
       })
     })

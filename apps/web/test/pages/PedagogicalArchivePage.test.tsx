@@ -17,6 +17,10 @@ import PedagogicalArchivePage from '../../src/pages/PedagogicalArchivePage'
 
 vi.mock('../../src/hooks/useAuth')
 vi.mock('../../src/api/archiveDocument')
+// Mocker ProfileStatisticsPanel pour éviter les appels apiClient non mockés dans ce contexte
+vi.mock('../../src/pages/ProfileStatisticsPanel', () => ({
+  default: () => <div data-testid="mock-statistics-panel">Statistiques (mock)</div>,
+}))
 
 import { useAuth } from '../../src/hooks/useAuth'
 import {
@@ -188,6 +192,12 @@ describe('PedagogicalArchivePage', () => {
 
     renderArchivePage()
 
+    // L'onglet par défaut est "Statistiques" — naviguer vers "Archives" pour voir la timeline
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Archives' })).toBeDefined()
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Archives' }))
+
     await waitFor(() => {
       expect(screen.getByText(/Aucune archive disponible/)).toBeDefined()
     })
@@ -203,6 +213,12 @@ describe('PedagogicalArchivePage', () => {
 
     renderArchivePage()
 
+    // Naviguer vers l'onglet "Archives" (l'onglet par défaut est "Statistiques")
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Archives' })).toBeDefined()
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Archives' }))
+
     await waitFor(() => {
       expect(screen.getByText('Résumé séance — Algèbre linéaire')).toBeDefined()
       expect(screen.getByText('Cahier — Exercice 12')).toBeDefined()
@@ -215,6 +231,12 @@ describe('PedagogicalArchivePage', () => {
     mockFetchArchiveTimeline.mockResolvedValue([TIMELINE_ENTRIES[0]])
 
     renderArchivePage()
+
+    // Naviguer vers l'onglet "Archives"
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Archives' })).toBeDefined()
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Archives' }))
 
     await waitFor(() => {
       expect(screen.getByText('Résumé séance — Algèbre linéaire')).toBeDefined()
@@ -236,6 +258,12 @@ describe('PedagogicalArchivePage', () => {
 
     renderArchivePage()
 
+    // Naviguer vers l'onglet "Archives"
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Archives' })).toBeDefined()
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Archives' }))
+
     await waitFor(() => {
       expect(screen.getByText('Note personnelle')).toBeDefined()
     })
@@ -256,6 +284,12 @@ describe('PedagogicalArchivePage', () => {
     mockFetchArchiveTimeline.mockResolvedValue([TIMELINE_ENTRIES[2]])
 
     renderArchivePage()
+
+    // Naviguer vers l'onglet "Archives"
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Archives' })).toBeDefined()
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Archives' }))
 
     await waitFor(() => {
       screen.getByText('Note personnelle')
@@ -358,6 +392,12 @@ describe('PedagogicalArchivePage', () => {
 
     renderArchivePage()
 
+    // Naviguer vers l'onglet "Archives"
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Archives' })).toBeDefined()
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Archives' }))
+
     await waitFor(() => {
       expect(screen.getByText('Résumé séance — Algèbre linéaire')).toBeDefined()
       expect(screen.getByText('Note personnelle')).toBeDefined()
@@ -377,6 +417,12 @@ describe('PedagogicalArchivePage', () => {
     mockFetchArchiveTimeline.mockResolvedValue([TIMELINE_ENTRIES[1]])
 
     renderArchivePage()
+
+    // Naviguer vers l'onglet "Archives"
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Archives' })).toBeDefined()
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Archives' }))
 
     await waitFor(() => {
       screen.getByText('Cahier — Exercice 12')

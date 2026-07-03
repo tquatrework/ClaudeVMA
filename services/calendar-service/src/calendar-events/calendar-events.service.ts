@@ -288,14 +288,17 @@ export class CalendarEventsService {
   /**
    * Configure a ReminderRule for an event for the requesting user.
    * Replaces any existing rule the user may have for this event.
+   * The requesting user must be the event organizer or an invitee.
    */
   async configureReminder(
     eventId: string,
     dto: ConfigureReminderDto,
     requesterId: string,
+    requesterRole: string,
     correlationId?: string,
   ): Promise<ReminderRule> {
-    await this.findEventOrFail(eventId);
+    const calendarEvent = await this.findEventOrFail(eventId);
+    await this.assertUserCanAccessEvent(calendarEvent, requesterId, requesterRole);
 
     // Remove existing rule for this user on this event (idempotent)
     await this.reminderRuleRepo.delete({ eventId, ownerId: requesterId });
@@ -444,5 +447,37 @@ export class CalendarEventsService {
     if (calendarEvent.creatorId === requesterId) return;
     if (cancellationRoles.includes(requesterRole)) return;
     throw new ForbiddenException('Only the event creator, RP, or TI can request cancellation');
+  }
+
+  /**
+   * Assert that a user can access (read or configure reminders for) an event.
+   * Access is granted if the user is:
+   *   - the event organizer (creatorId)
+   *   - an invitee with a non-declined invitation
+   *   - a privileged internal role (RP, TI, AP, ADMINISTRATEUR_FINANCIER)
+   */
+  private async assertUserCanAccessEvent(
+    calendarEvent: CalendarEvent,
+    requesterId: string,
+    requesterRole: string,
+  ): Promise<void> {
+    if (calendarEvent.creatorId === requesterId) return;
+
+    const privilegedInternalRoles: string[] = [
+      UserRole.RESPONSABLE_PEDAGOGIQUE,
+      UserRole.TECHNICIEN_INFORMATIQUE,
+      UserRole.ANIMATEUR_PEDAGOGIQUE,
+      UserRole.ADMINISTRATEUR_FINANCIER,
+    ];
+    if (privilegedInternalRoles.includes(requesterRole)) return;
+
+    const invitation = await this.invitationRepo.findOne({
+      where: { eventId: calendarEvent.id, inviteeId: requesterId },
+    });
+    if (invitation && invitation.status !== InvitationStatus.DECLINED) return;
+
+    throw new ForbiddenException(
+      'You must be the event organizer or an invitee to configure a reminder on this event',
+    );
   }
 }

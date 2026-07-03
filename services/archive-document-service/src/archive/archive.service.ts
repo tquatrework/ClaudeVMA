@@ -23,6 +23,20 @@ const INTERNAL_ROLES_WITH_BROAD_ACCESS: string[] = [
   UserRole.ADMINISTRATEUR_FINANCIER,
 ];
 
+/**
+ * Rôles autorisés à créer un lien archive pour un élève via cette route HTTP.
+ * La route POST /students/:studentId/archive-links est réservée aux services sources
+ * (formateurs) et aux rôles internes (RP, TI, AF).
+ * Les élèves et parents financeurs ne peuvent pas créer d'archives directement.
+ */
+const ROLES_ALLOWED_TO_WRITE_ARCHIVES: string[] = [
+  UserRole.FORMATEUR,
+  UserRole.ANIMATEUR_PEDAGOGIQUE,
+  UserRole.RESPONSABLE_PEDAGOGIQUE,
+  UserRole.TECHNICIEN_INFORMATIQUE,
+  UserRole.ADMINISTRATEUR_FINANCIER,
+];
+
 @Injectable()
 export class ArchiveService {
   constructor(
@@ -141,11 +155,20 @@ export class ArchiveService {
    * Ajoute un lien archive depuis un service source.
    * POST /students/:studentId/archive-links
    * Supporte l'idempotence via idempotencyKey.
+   * Seuls les rôles autorisés (formateur, AP, RP, TI, AF) peuvent créer des archives.
+   * Les élèves et parents financeurs n'ont pas le droit d'écrire dans les archives.
    */
   async addArchiveLink(
     studentId: string,
     dto: AddArchiveLinkDto,
+    requesterId: string,
+    requesterRole: string,
   ): Promise<ArchiveItem> {
+    if (!ROLES_ALLOWED_TO_WRITE_ARCHIVES.includes(requesterRole)) {
+      throw new ForbiddenException(
+        `Le rôle ${requesterRole} n'est pas autorisé à créer des liens archive`,
+      );
+    }
     // Vérification idempotence
     if (dto.idempotencyKey) {
       const existingItem = await this.archiveItemRepository.findOne({

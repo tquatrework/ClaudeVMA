@@ -72,7 +72,7 @@ describe('fetchPedagogicalArchives', () => {
 
     const result = await fetchPedagogicalArchives('student-42')
 
-    expect(mockGet).toHaveBeenCalledWith('/students/student-42/pedagogical-archives')
+    expect(mockGet).toHaveBeenCalledWith('/archives/students/student-42/pedagogical-archives')
     expect(result).toHaveLength(1)
     expect(result[0].id).toBe('archive-1')
   })
@@ -108,7 +108,7 @@ describe('fetchArchiveTimeline', () => {
 
     const result = await fetchArchiveTimeline('student-42')
 
-    expect(mockGet).toHaveBeenCalledWith('/students/student-42/archive-timeline')
+    expect(mockGet).toHaveBeenCalledWith('/archives/students/student-42/archive-timeline')
     expect(result).toHaveLength(1)
     expect(result[0].id).toBe('entry-1')
   })
@@ -139,13 +139,13 @@ describe('fetchArchiveTimeline', () => {
 // ─── downloadArchiveDocument ──────────────────────────────────────────────────
 
 describe('downloadArchiveDocument', () => {
-  it('appelle GET /archive-documents/:id/download avec responseType blob', async () => {
+  it('appelle GET /documents/:id/download avec responseType blob', async () => {
     const blobData = new Blob(['fake-content'], { type: 'application/pdf' })
     mockGet.mockResolvedValue({ data: blobData })
 
     const result = await downloadArchiveDocument('doc-99')
 
-    expect(mockGet).toHaveBeenCalledWith('/archive-documents/doc-99/download', {
+    expect(mockGet).toHaveBeenCalledWith('/documents/doc-99/download', {
       responseType: 'blob',
     })
     expect(result).toBeInstanceOf(Blob)
@@ -183,7 +183,7 @@ describe('createArchiveLink', () => {
     const result = await createArchiveLink('student-42', createPayload)
 
     expect(mockPost).toHaveBeenCalledWith(
-      '/students/student-42/archive-links',
+      '/archives/students/student-42/archive-links',
       createPayload,
     )
     expect(result.id).toBe('new-1')

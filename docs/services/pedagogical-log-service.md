@@ -93,5 +93,33 @@
       <criterion>Une page speciale parent peut etre invisible a l'eleve.</criterion>
       <criterion>Le memo est accessible pendant une visio.</criterion>
     </acceptanceCriteria>
+    <technicalImplementation>
+      <session date="2026-06-28" type="security-normalization" label="N1 — homogeneisation guards NestJS">
+        <description>
+          Normalisation N1 : alignement de tous les endpoints sur la convention @UseGuards(JwtAuthGuard, RolesGuard) + @Roles(...) dans pedagogical-log.controller.ts.
+          Les autres controleurs (notebook, chapter, memo, special-page) avaient deja leurs @Roles correctement definis.
+        </description>
+        <guardsFixes>
+          <fix endpoint="GET /students/:studentId/pedagogical-log">
+            Ajout @Roles('eleve', 'parent_financeur', 'formateur', 'animateur_pedagogique', 'responsable_pedagogique', 'administrateur_financier', 'technicien_informatique') — 7 roles (tous). Commentaire : "filtre par visibilite dans le service".
+          </fix>
+          <fix endpoint="GET /logs/session/:sessionId">
+            Meme ajout @Roles 7 roles + commentaire "filtre par visibilite dans le service".
+          </fix>
+          <fix endpoint="GET /logs/:id">
+            Meme ajout @Roles 7 roles + commentaire "filtre par visibilite dans le service".
+          </fix>
+          <fix endpoint="PATCH /logs/:id">
+            Ajout @Roles('formateur', 'animateur_pedagogique', 'responsable_pedagogique', 'technicien_informatique') + commentaire "auteur/service".
+          </fix>
+        </guardsFixes>
+        <status>RESOLU — Le service respecte desormais entierement la convention @UseGuards + @Roles sur tous les controleurs.</status>
+      </session>
+    </technicalImplementation>
+    <pendingPoints>
+      <point id="guards-N1" status="resolu" resolvedOn="2026-06-28">
+        Ecart guards NestJS dans pedagogical-log.controller.ts : @UseGuards present en classe mais @Roles manquants sur 4 methodes — RolesGuard etait inoperant. Corrige le 2026-06-28 dans le cadre de la normalisation N1.
+      </point>
+    </pendingPoints>
   </service>
 </serviceFunctionalSpecification>

@@ -148,7 +148,9 @@ describe('TeacherRequestPage', () => {
         id: 'req-new-001',
         status: 'pending',
         createdAt: new Date().toISOString(),
-        description: 'Aide en géométrie',
+        subject: 'Algèbre',
+        level: 'Terminale',
+        sector: 'Générale',
       }
 
       mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
@@ -162,9 +164,18 @@ describe('TeacherRequestPage', () => {
 
       await userEvent.click(screen.getByRole('button', { name: /nouvelle demande/i }))
 
+      // Remplir les champs obligatoires du formulaire : sujet, niveau, filière
       await userEvent.type(
-        screen.getByPlaceholderText(/décrivez le besoin pédagogique/i),
-        'Aide en géométrie',
+        screen.getByPlaceholderText(/ex\. algèbre/i),
+        'Algèbre',
+      )
+      await userEvent.type(
+        screen.getByPlaceholderText(/ex\. 3ème/i),
+        'Terminale',
+      )
+      await userEvent.type(
+        screen.getByPlaceholderText(/ex\. générale/i),
+        'Générale',
       )
 
       await userEvent.click(screen.getByRole('button', { name: /soumettre la demande/i }))
@@ -172,7 +183,7 @@ describe('TeacherRequestPage', () => {
       await waitFor(() => {
         expect(mockApiClient.post).toHaveBeenCalledWith(
           '/teacher-requests',
-          expect.objectContaining({ description: 'Aide en géométrie' }),
+          expect.objectContaining({ subject: 'Algèbre', level: 'Terminale', sector: 'Générale' }),
         )
       })
     })
@@ -182,7 +193,9 @@ describe('TeacherRequestPage', () => {
         id: 'req-new-002',
         status: 'pending',
         createdAt: new Date().toISOString(),
-        description: 'Besoin géométrie',
+        subject: 'Géométrie',
+        level: '3ème',
+        sector: 'Générale',
       }
 
       mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
@@ -196,8 +209,16 @@ describe('TeacherRequestPage', () => {
 
       await userEvent.click(screen.getByRole('button', { name: /nouvelle demande/i }))
       await userEvent.type(
-        screen.getByPlaceholderText(/décrivez le besoin pédagogique/i),
-        'Besoin géométrie',
+        screen.getByPlaceholderText(/ex\. algèbre/i),
+        'Géométrie',
+      )
+      await userEvent.type(
+        screen.getByPlaceholderText(/ex\. 3ème/i),
+        '3ème',
+      )
+      await userEvent.type(
+        screen.getByPlaceholderText(/ex\. générale/i),
+        'Générale',
       )
       await userEvent.click(screen.getByRole('button', { name: /soumettre la demande/i }))
 

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { AccountsService } from '../../src/accounts/accounts.service';
 import { User, UserRole, ValidationStatus } from '../../src/auth/entities/user.entity';
 import { AuditLog } from '../../src/accounts/entities/audit-log.entity';
@@ -18,6 +19,7 @@ const makeUser = (overrides: Partial<User> = {}): User => ({
   lastName: null,
   phone: null,
   isActive: true,
+  emailVerified: false,
   createdAt: new Date(),
   updatedAt: new Date(),
   ...overrides,
@@ -50,6 +52,10 @@ describe('AccountsService', () => {
         { provide: getRepositoryToken(User), useValue: userRepo },
         { provide: getRepositoryToken(AuditLog), useValue: auditRepo },
         { provide: EventsService, useValue: eventsService },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn((key: string, defaultValue?: unknown) => defaultValue ?? null) },
+        },
       ],
     }).compile();
 

@@ -18,6 +18,8 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { UserRole } from '../common/enums/user-role.enum';
 import { FinancialProfilesService } from './financial-profiles.service';
 import { UpdateFinancialProfileDto } from './dto/update-financial-profile.dto';
 
@@ -29,6 +31,7 @@ export class FinancialProfilesController {
   constructor(private readonly financialProfilesService: FinancialProfilesService) {}
 
   @Get(':ownerId')
+  @Roles(UserRole.PARENT_FINANCEUR, UserRole.ADMINISTRATEUR_FINANCIER, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE)
   @ApiParam({ name: 'ownerId', description: 'UUID of the funding owner' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
   @ApiOperation({
@@ -42,6 +45,7 @@ export class FinancialProfilesController {
   @ApiResponse({ status: 401, description: 'Missing or invalid JWT' })
   @ApiResponse({ status: 403, description: 'Insufficient permissions' })
   @ApiResponse({ status: 404, description: 'Financial profile not found' })
+  // accès filtré par ownership dans le service
   getFinancialProfile(
     @Param('ownerId') ownerId: string,
     @Req() req: any,
@@ -51,6 +55,7 @@ export class FinancialProfilesController {
   }
 
   @Patch(':ownerId')
+  @Roles(UserRole.PARENT_FINANCEUR, UserRole.ADMINISTRATEUR_FINANCIER, UserRole.TECHNICIEN_INFORMATIQUE)
   @ApiParam({ name: 'ownerId', description: 'UUID of the funding owner' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
   @ApiOperation({
@@ -58,13 +63,14 @@ export class FinancialProfilesController {
     description:
       'Update payment method, payment reference, or funding end date. ' +
       'Allowed for the owner themselves, AF, or TI. ' +
-      'Profile type transitions (limite → membre) are managed by the payment flow.',
+      'Profile type transitions (limite -> membre) are managed by the payment flow.',
   })
   @ApiResponse({ status: 200, description: 'Financial profile updated' })
   @ApiResponse({ status: 400, description: 'Validation error' })
   @ApiResponse({ status: 401, description: 'Missing or invalid JWT' })
   @ApiResponse({ status: 403, description: 'Insufficient permissions' })
   @ApiResponse({ status: 404, description: 'Financial profile not found' })
+  // accès filtré par ownership dans le service
   updateFinancialProfile(
     @Param('ownerId') ownerId: string,
     @Body() dto: UpdateFinancialProfileDto,

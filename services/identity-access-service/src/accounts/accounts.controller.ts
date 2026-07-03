@@ -84,8 +84,8 @@ export class AccountsController {
       'Self-register as a parent_financeur. Allows a financing parent to create an account independently, ' +
       'without going through the student registration flow. Account starts in PENDING status.',
   })
-  @ApiResponse({ status: 201, description: 'Parent account created — status PENDING. emailAlreadyUsed:true if email was already registered.' })
-  @ApiResponse({ status: 409, description: 'Login identifier already taken' })
+  @ApiResponse({ status: 201, description: 'Parent account created — status PENDING' })
+  @ApiResponse({ status: 409, description: 'Email already in use' })
   createParentAccount(@Body() dto: CreateParentAccountDto, @Ip() ipAddress: string) {
     return this.accountsService.createParentAccount(dto, ipAddress);
   }

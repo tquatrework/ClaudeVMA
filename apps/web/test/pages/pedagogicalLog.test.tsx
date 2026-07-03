@@ -472,7 +472,7 @@ describe('MemosPage — formateur voit en readonly', () => {
     renderMemosPage()
 
     await waitFor(() => {
-      expect(screen.getByText(/consultation individuelle uniquement/i)).toBeDefined()
+      expect(screen.getByText(/réservé à l'élève/i)).toBeDefined()
     })
   })
 
@@ -483,7 +483,7 @@ describe('MemosPage — formateur voit en readonly', () => {
 
     // Wait for the page to fully render — the informational message should appear
     await waitFor(() => {
-      expect(screen.getByText(/consultation individuelle uniquement/i)).toBeDefined()
+      expect(screen.getByText(/réservé à l'élève/i)).toBeDefined()
     })
 
     expect(mockApiClient.get).not.toHaveBeenCalledWith('/memos')
@@ -872,7 +872,9 @@ describe('Alignement mémo — élève accède sans 403', () => {
     renderMemosPage()
 
     await waitFor(() => {
-      expect(screen.getByText('Mémo')).toBeDefined()
+      // Le titre <h1> de la page doit exister (getAllByText car le rail contient aussi "Mémo")
+      const memoHeadings = screen.getAllByText('Mémo')
+      expect(memoHeadings.length).toBeGreaterThanOrEqual(1)
       expect(screen.queryByText(/accès refusé/i)).toBeNull()
     })
 
@@ -973,11 +975,11 @@ describe('Formateur — écran mémo en lecture seule (pas de boutons d\'éditio
     })
   })
 
-  it('formateur — voit le message informatif sur la consultation individuelle', async () => {
+  it('formateur — voit le message informatif sur l\'accès réservé à l\'élève', async () => {
     renderMemosPage()
 
     await waitFor(() => {
-      expect(screen.getByText(/consultation individuelle uniquement/i)).toBeDefined()
+      expect(screen.getByText(/réservé à l'élève/i)).toBeDefined()
     })
   })
 })
@@ -990,7 +992,8 @@ describe('Élève — cahier de texte charge en lecture seule (GET /pedagogical-
     renderPedagogicalLogPage()
 
     await waitFor(() => {
-      expect(screen.getByText('Cahier de texte')).toBeDefined()
+      const matches = screen.getAllByText('Cahier de texte')
+      expect(matches.length).toBeGreaterThan(0)
     })
 
     expect(screen.queryByText('Nouvelle entrée')).toBeNull()
@@ -1081,7 +1084,8 @@ describe('Parent — cahier de texte en lecture seule', () => {
     renderPedagogicalLogPage()
 
     await waitFor(() => {
-      expect(screen.getByText('Cahier de texte')).toBeDefined()
+      const matches = screen.getAllByText('Cahier de texte')
+      expect(matches.length).toBeGreaterThan(0)
     })
 
     expect(screen.queryByText('Nouvelle entrée')).toBeNull()

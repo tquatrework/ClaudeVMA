@@ -9,11 +9,20 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { User } from './entities/user.entity';
 import { LoginSession } from './entities/login-session.entity';
 import { PasswordResetToken } from './entities/password-reset-token.entity';
+import { EmailVerificationToken } from './entities/email-verification-token.entity';
+import { IdentifierRecoveryToken } from './entities/identifier-recovery-token.entity';
 import { EventsModule } from '../events/events.module';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, LoginSession, PasswordResetToken]),
+    TypeOrmModule.forFeature([
+      User,
+      LoginSession,
+      PasswordResetToken,
+      EmailVerificationToken,
+      IdentifierRecoveryToken,
+    ]),
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -24,6 +33,7 @@ import { EventsModule } from '../events/events.module';
       inject: [ConfigService],
     }),
     EventsModule,
+    MailModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],

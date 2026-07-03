@@ -260,7 +260,7 @@ describe('TeacherRequestsPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /soumettre la demande/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith('/requests', {
+      expect(mockApiClient.post).toHaveBeenCalledWith('/teacher-requests', {
         description: 'Aide en analyse',
       })
     })

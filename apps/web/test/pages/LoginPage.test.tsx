@@ -61,14 +61,14 @@ describe('LoginPage', () => {
   it('renders the email field, password field and submit button', () => {
     renderLoginPage()
 
-    expect(screen.getByPlaceholderText(/vous@exemple\.fr/i)).toBeDefined()
+    expect(screen.getByPlaceholderText(/jean\.dupont/i)).toBeDefined()
     expect(screen.getByPlaceholderText(/••••••••/)).toBeDefined()
     expect(screen.getByRole('button', { name: /se connecter/i })).toBeDefined()
   })
 
-  it('renders "Adresse e-mail" and "Mot de passe" labels', () => {
+  it('renders "Identifiant de connexion" and "Mot de passe" labels', () => {
     renderLoginPage()
-    expect(screen.getByText(/adresse e-mail/i)).toBeDefined()
+    expect(screen.getByText(/identifiant de connexion/i)).toBeDefined()
     // Use getAllByText since "Mot de passe" appears in both the label and the password-reset link
     const passwordTexts = screen.getAllByText(/mot de passe/i)
     expect(passwordTexts.length).toBeGreaterThanOrEqual(1)
@@ -83,7 +83,7 @@ describe('LoginPage', () => {
     mockLoginFn.mockResolvedValue(undefined)
     renderLoginPage()
 
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'student@test.com')
+    await userEvent.type(screen.getByPlaceholderText(/jean\.dupont/i), 'student@test.com')
     await userEvent.type(screen.getByPlaceholderText(/••••••••/), 'secret123')
     await userEvent.click(screen.getByRole('button', { name: /se connecter/i }))
 
@@ -100,7 +100,7 @@ describe('LoginPage', () => {
     })
     renderLoginPage()
 
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'student@test.com')
+    await userEvent.type(screen.getByPlaceholderText(/jean\.dupont/i), 'student@test.com')
     await userEvent.type(screen.getByPlaceholderText(/••••••••/), 'secret123')
     await userEvent.click(screen.getByRole('button', { name: /se connecter/i }))
 
@@ -116,7 +116,7 @@ describe('LoginPage', () => {
     })
     renderLoginPage()
 
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'ti@test.com')
+    await userEvent.type(screen.getByPlaceholderText(/jean\.dupont/i), 'ti@test.com')
     await userEvent.type(screen.getByPlaceholderText(/••••••••/), 'secret123')
     await userEvent.click(screen.getByRole('button', { name: /se connecter/i }))
 
@@ -125,19 +125,19 @@ describe('LoginPage', () => {
     })
   })
 
-  it('redirects to /admin/activity after login when user role is responsable_pedagogique', async () => {
+  it('redirects to /dashboard after login when user role is responsable_pedagogique', async () => {
     mockLoginFn.mockImplementation(() => {
       localStorage.setItem('user', JSON.stringify({ role: 'responsable_pedagogique' }))
       return Promise.resolve()
     })
     renderLoginPage()
 
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'rp@test.com')
+    await userEvent.type(screen.getByPlaceholderText(/jean\.dupont/i), 'rp@test.com')
     await userEvent.type(screen.getByPlaceholderText(/••••••••/), 'secret123')
     await userEvent.click(screen.getByRole('button', { name: /se connecter/i }))
 
     await waitFor(() => {
-      expect(screen.getByText('Admin Activity Page')).toBeDefined()
+      expect(screen.getByText('Dashboard Page')).toBeDefined()
     })
   })
 
@@ -158,7 +158,7 @@ describe('LoginPage', () => {
       </MemoryRouter>,
     )
 
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'student@test.com')
+    await userEvent.type(screen.getByPlaceholderText(/jean\.dupont/i), 'student@test.com')
     await userEvent.type(screen.getByPlaceholderText(/••••••••/), 'secret123')
     await userEvent.click(screen.getByRole('button', { name: /se connecter/i }))
 
@@ -186,7 +186,7 @@ describe('LoginPage', () => {
     })
     renderLoginPage()
 
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'bad@test.com')
+    await userEvent.type(screen.getByPlaceholderText(/jean\.dupont/i), 'bad@test.com')
     await userEvent.type(screen.getByPlaceholderText(/••••••••/), 'wrongpass')
     await userEvent.click(screen.getByRole('button', { name: /se connecter/i }))
 
@@ -199,7 +199,7 @@ describe('LoginPage', () => {
     mockLoginFn.mockRejectedValue(new Error('Network Error'))
     renderLoginPage()
 
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'bad@test.com')
+    await userEvent.type(screen.getByPlaceholderText(/jean\.dupont/i), 'bad@test.com')
     await userEvent.type(screen.getByPlaceholderText(/••••••••/), 'wrongpass')
     await userEvent.click(screen.getByRole('button', { name: /se connecter/i }))
 
@@ -212,7 +212,7 @@ describe('LoginPage', () => {
     mockLoginFn.mockRejectedValue(new Error('Network Error'))
     renderLoginPage()
 
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'bad@test.com')
+    await userEvent.type(screen.getByPlaceholderText(/jean\.dupont/i), 'bad@test.com')
     await userEvent.type(screen.getByPlaceholderText(/••••••••/), 'wrongpass')
     await userEvent.click(screen.getByRole('button', { name: /se connecter/i }))
 
@@ -221,7 +221,7 @@ describe('LoginPage', () => {
     })
 
     // Form fields should still contain the typed values
-    expect((screen.getByPlaceholderText(/vous@exemple\.fr/i) as HTMLInputElement).value).toBe(
+    expect((screen.getByPlaceholderText(/jean\.dupont/i) as HTMLInputElement).value).toBe(
       'bad@test.com',
     )
     expect((screen.getByPlaceholderText(/••••••••/) as HTMLInputElement).value).toBe('wrongpass')

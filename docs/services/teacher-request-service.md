@@ -62,5 +62,27 @@
       <criterion>Le choix client notifie le formateur choisi et cloture la demande.</criterion>
       <criterion>Un arret formateur cree une nouvelle demande a gerer par le RP.</criterion>
     </acceptanceCriteria>
+    <technicalDecisions session="2026-06-28">
+      <decision id="T1" status="implemented">
+        <title>Garanties transactionnelles sur les workflows multi-ecritures</title>
+        <description>
+          Les 4 methodes du service qui enchainaient plusieurs repository.save() sans transaction
+          sont desormais atomiques via DataSource.transaction(async manager =&gt; { ... }).
+          DataSource est injecte dans le constructeur de TeacherRequestService.
+          Les events.emit() restent effectues apres la transaction pour ne pas bloquer le commit.
+        </description>
+        <impactedMethods>
+          <method>createProposal — proposalRepo.save + requestRepo.save</method>
+          <method>acceptProposal — assignmentRepo.save + proposalRepo.save + requestRepo.save</method>
+          <method>createTermination — terminationRepo.save + assignmentRepo.save</method>
+          <method>createCollaborationStopRequest — terminationRepo.save + assignmentRepo.save</method>
+        </impactedMethods>
+        <testCoverage>
+          6 nouveaux tests unitaires dans test/unit/teacher-request.service.spec.ts :
+          nominal + rollback pour createProposal, acceptProposal et createTermination/createCollaborationStopRequest.
+          Total : 84/84 tests verts.
+        </testCoverage>
+      </decision>
+    </technicalDecisions>
   </service>
 </serviceFunctionalSpecification>

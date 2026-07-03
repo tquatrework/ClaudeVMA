@@ -31,8 +31,31 @@ Ne jamais lire le code source des services backend.
 Appels uniquement via api-gateway
 Ne pas connecter les services non développés.
 
+## Convention d'URL — Règle obligatoire
+
+`apiClient` utilise `/api/v1` comme base (`VITE_API_BASE_URL`).
+**L'URL passée à `apiClient` est exactement le chemin backend documenté dans `docs/routes.md` — jamais inventé, jamais calqué sur la route React.**
+
+```
+// ✅ docs/routes.md : GET /documents/:id/download (archive-document-service)
+apiClient.get(`/documents/${id}/download`)
+
+// ❌ chemin inventé d'après le nom de la page React
+apiClient.get(`/archive-documents/${id}/download`)
+```
+
+Avant de coder un appel API :
+1. Vérifier la route dans `docs/routes.md` — si absente, ne pas coder l'appel.
+2. Vérifier la colonne « Gateway » dans `docs/api-mapping.md` — si ⚠️, signaler le gap avant de livrer.
+3. Garder l'URL du helper identique au chemin backend de la doc.
+
+**Routes React ≠ URLs API.** `/admin/observability/activity-log` est une route de navigation UI ;
+l'URL API correspondante est `/admin/activity-log`. Ne jamais les confondre.
+
 ## Design
-Garder le design simple au départ, mais propre.
+Les éléments de design (direction visuelle, maquettes, charte graphique) se trouvent dans `.claude/design/`.
+Consulter ce dossier avant toute décision de mise en page ou de style. Le `README.md` du projet peut y être partiellement repris pour le contexte métier.
+Garder le design cohérent avec ces références, simple et propre.
 
 ## UX
 ### Lisibilité

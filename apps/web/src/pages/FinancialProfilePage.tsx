@@ -12,7 +12,7 @@
  */
 
 import React, { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, Navigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
 import {
@@ -58,6 +58,13 @@ export default function FinancialProfilePage() {
   const [saveProfileError, setSaveProfileError] = useState<string | null>(null)
 
   const resolvedOwnerId = ownerId ?? user?.id ?? ''
+
+  // Un parent_financeur ne peut accéder qu'à son propre profil financier (FIN-FB-001).
+  // AF, RP et TI peuvent accéder à n'importe quel profil — pas de restriction pour eux.
+  const isAdminFinanceRole = hasRole('administrateur_financier', 'responsable_pedagogique', 'technicien_informatique')
+  if (ownerId && hasRole('parent_financeur') && !isAdminFinanceRole && user?.id !== ownerId) {
+    return <Navigate to="/forbidden" replace />
+  }
 
   const canEdit =
     hasRole('administrateur_financier', 'technicien_informatique') ||

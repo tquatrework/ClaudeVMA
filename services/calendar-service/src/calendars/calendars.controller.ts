@@ -18,6 +18,8 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { UserRole } from '../common/enums/user-role.enum';
 import { CalendarsService } from './calendars.service';
 import { UpdateAvailabilityDto } from './dto/update-availability.dto';
 
@@ -29,6 +31,7 @@ export class CalendarsController {
   constructor(private readonly calendarsService: CalendarsService) {}
 
   @Get(':ownerId')
+  @Roles(UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE, UserRole.ADMINISTRATEUR_FINANCIER) // accès filtré par ownership/relation dans le service
   @ApiParam({ name: 'ownerId', description: 'User ID whose calendar to read' })
   @ApiHeader({ name: 'x-correlation-id', required: false, description: 'Correlation ID for tracing' })
   @ApiOperation({
@@ -56,6 +59,7 @@ export class CalendarsController {
   }
 
   @Put(':ownerId/availability')
+  @Roles(UserRole.FORMATEUR, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.ANIMATEUR_PEDAGOGIQUE) // accès filtré par ownership/relation dans le service
   @ApiParam({ name: 'ownerId', description: 'User ID whose availability to update' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
   @ApiOperation({

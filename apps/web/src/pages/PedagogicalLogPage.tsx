@@ -1,18 +1,14 @@
 /**
  * PedagogicalLogPage — cahier de texte d'un élève.
- * Accessible aux formateurs (écriture), RP (écriture + pages spéciales),
- * élèves et parents (lecture seule).
+ * Accessible aux formateurs (écriture), RP (écriture + pages spéciales), élèves et parents (lecture).
  * Le filtrage de visibilité est géré côté serveur.
  *
  * Routes API :
  *   GET    /students/:studentId/pedagogical-log
- *   GET    /pedagogical-logs
  *   POST   /students/:studentId/pedagogical-log         (formateur, RP, AP, TI)
- *   POST   /pedagogical-logs                            (formateur, RP)
  *   POST   /students/:studentId/pedagogical-log/special-pages  (RP uniquement)
- *   PUT    /pedagogical-logs/:id     (auteur)
  *   PATCH  /logs/:id
- *   DELETE /logs/:id / /pedagogical-logs/:id    (auteur ou RP)
+ *   DELETE /logs/:id     (auteur ou RP)
  */
 
 import React, { useEffect, useState } from 'react'
@@ -31,7 +27,7 @@ import {
 import SpecialLogPageVisibilityDialog from '../components/pedagogical-log/SpecialLogPageVisibilityDialog'
 
 export default function PedagogicalLogPage() {
-  const { studentId } = useParams<{ studentId?: string }>()
+  const { studentId } = useParams<{ studentId: string }>()
   const { user, hasRole } = useAuth()
 
   const [logPages, setLogPages] = useState<LogPage[]>([])
@@ -63,8 +59,8 @@ export default function PedagogicalLogPage() {
     fetchPedagogicalLogs()
       .then((pages) => setLogPages(pages))
       .catch((err) => {
-        const httpStatus = err?.response?.status
-        if (httpStatus === 403) setErrorMessage('Accès refusé')
+        const status = err?.response?.status
+        if (status === 403) setErrorMessage('Accès refusé')
         else setErrorMessage('Impossible de charger le cahier de texte')
       })
       .finally(() => setIsLoading(false))

@@ -18,12 +18,15 @@ import { VideoSessionService } from './video-session.service';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { RecordAttendanceDto } from './dto/record-attendance.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { UserRole } from '../common/enums/user-role.enum';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtPayload } from '../common/guards/jwt-auth.guard';
 
 @ApiTags('video')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('video')
 export class VideoSessionController {
   constructor(private readonly service: VideoSessionService) {}
@@ -34,6 +37,12 @@ export class VideoSessionController {
    * Only formateur, RP, AP and TI may create a room (VID-RA-002, VID-RA-004).
    */
   @Post('rooms')
+  @Roles(
+    UserRole.FORMATEUR,
+    UserRole.RESPONSABLE_PEDAGOGIQUE,
+    UserRole.ANIMATEUR_PEDAGOGIQUE,
+    UserRole.TECHNICIEN_INFORMATIQUE,
+  )
   @ApiOperation({
     summary: 'Create a video room',
     description:
@@ -54,6 +63,7 @@ export class VideoSessionController {
   /**
    * GET /video/rooms/:roomId — Get room details.
    * All authenticated users may query a room.
+   * Droits contextuels vérifiés dans le service (aucun — tout utilisateur authentifié peut lire les détails d'une salle).
    */
   @Get('rooms/:roomId')
   @ApiParam({ name: 'roomId', description: 'Room UUID' })
@@ -72,6 +82,7 @@ export class VideoSessionController {
    * GET /video/rooms/:roomId/join — Obtain an access token to join the room.
    * VID-BR-005: only authorised participants obtain a token.
    * VID-FB-001: parent_financeur is blocked.
+   * Droits contextuels vérifiés dans le service (rôle participant autorisé : eleve, formateur, RP, AP, TI — parent_financeur et administrateur_financier exclus par VID-FB-001).
    */
   @Get('rooms/:roomId/join')
   @ApiParam({ name: 'roomId', description: 'Room UUID' })
@@ -97,6 +108,7 @@ export class VideoSessionController {
   /**
    * POST /video/rooms/:roomId/attendance — Record presence for a participant.
    * VID-BR-006: presence data feeds pedagogical-log and finance after session close.
+   * Droits contextuels vérifiés dans le service (rôle participant autorisé : eleve, formateur, RP, AP, TI — parent_financeur et administrateur_financier exclus).
    */
   @Post('rooms/:roomId/attendance')
   @ApiParam({ name: 'roomId', description: 'Room UUID' })
@@ -124,6 +136,12 @@ export class VideoSessionController {
    * VID-BR-006: publishes VideoSessionEnded for pedagogical-log-service.
    */
   @Post('rooms/:roomId/close')
+  @Roles(
+    UserRole.FORMATEUR,
+    UserRole.RESPONSABLE_PEDAGOGIQUE,
+    UserRole.ANIMATEUR_PEDAGOGIQUE,
+    UserRole.TECHNICIEN_INFORMATIQUE,
+  )
   @ApiParam({ name: 'roomId', description: 'Room UUID' })
   @ApiOperation({
     summary: 'Close a video session',

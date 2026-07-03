@@ -15,6 +15,13 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
+import { PageHeader } from '../components/ui/PageHeader'
+import { StatusBadge } from '../components/ui/StatusBadge'
+import { EmptyState } from '../components/ui/EmptyState'
+import {
+  OPEN_ACTIVITY_STATUS_LABELS,
+  OPEN_ACTIVITY_STATUS_BADGE_CLASSES,
+} from '../types/learningActivity'
 import {
   fetchOpenActivities,
   createOpenActivity,
@@ -22,20 +29,6 @@ import {
   type OpenActivityStatus,
   type CreateOpenActivityPayload,
 } from '../api/learningActivity'
-
-const STATUS_LABELS: Record<OpenActivityStatus, string> = {
-  open: 'Ouverte',
-  partially_filled: 'Partiellement pourvue',
-  filled: 'Pourvue',
-  cancelled: 'Annulée',
-}
-
-const STATUS_BADGE_CLASSES: Record<OpenActivityStatus, string> = {
-  open: 'bg-green-100 text-green-700',
-  partially_filled: 'bg-yellow-100 text-yellow-700',
-  filled: 'bg-gray-100 text-gray-500',
-  cancelled: 'bg-red-100 text-red-700',
-}
 
 export default function OpenActivitiesPage() {
   const { hasRole } = useAuth()
@@ -145,24 +138,21 @@ export default function OpenActivitiesPage() {
   return (
     <Layout>
       <div className="space-y-6">
-        {/* En-tête */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Activités non pourvues</h1>
-            <p className="text-gray-500 text-sm mt-1">
-              Petites annonces pédagogiques ouvertes aux formateurs disponibles.
-            </p>
-          </div>
-          {canPublish && (
-            <button
-              type="button"
-              onClick={() => setShouldShowPublishForm(true)}
-              className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
-            >
-              Publier une annonce
-            </button>
-          )}
-        </div>
+        <PageHeader
+          title="Activités non pourvues"
+          subtitle="Petites annonces pédagogiques ouvertes aux formateurs disponibles."
+          action={
+            canPublish ? (
+              <button
+                type="button"
+                onClick={() => setShouldShowPublishForm(true)}
+                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
+              >
+                Publier une annonce
+              </button>
+            ) : undefined
+          }
+        />
 
         {/* Formulaire de publication (RP) */}
         {shouldShowPublishForm && (
@@ -240,13 +230,11 @@ export function OpenActivitiesList({ activityList, onSelectActivity }: OpenActiv
                 </div>
               </div>
               <div className="shrink-0 flex flex-col items-end gap-2">
-                <span
-                  className={`text-xs px-2 py-0.5 rounded font-medium ${
-                    STATUS_BADGE_CLASSES[activity.status]
-                  }`}
-                >
-                  {STATUS_LABELS[activity.status]}
-                </span>
+                <StatusBadge
+                  status={activity.status}
+                  label={OPEN_ACTIVITY_STATUS_LABELS[activity.status]}
+                  badgeClasses={OPEN_ACTIVITY_STATUS_BADGE_CLASSES}
+                />
                 <span className="text-xs text-gray-400">
                   {activity.filledSlots}/{activity.requiredSlots} poste
                   {activity.requiredSlots > 1 ? 's' : ''}

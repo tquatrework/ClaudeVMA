@@ -19,6 +19,7 @@ const makeUser = (overrides: Partial<User> = {}): User => ({
   lastName: null,
   phone: null,
   isActive: true,
+  emailVerified: false,
   createdAt: new Date(),
   updatedAt: new Date(),
   ...overrides,

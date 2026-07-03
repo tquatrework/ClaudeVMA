@@ -11,12 +11,13 @@ import { CreateSpecialPageDto } from './dto/create-special-page.dto';
 import { UpdateLogDto } from './dto/update-log.dto';
 
 /**
- * Visibilités accessibles selon le rôle (PLOG-RA-001 à PLOG-RA-004).
+ * Visibilités accessibles selon le rôle du demandeur (PLOG-RA-001 à PLOG-RA-004).
  *
- * - Formateur / RP / AP / TI : peut tout voir (ils écrivent et coordonnent)
- * - Eleve                    : voit eleve_parent_formateur et eleve_formateur
- *                              (pas les pages formateur_rp ni les pages spéciales)
- * - Parent                   : voit uniquement eleve_parent_formateur (PLOG-BR-005 / PLOG-FB-001)
+ * - Formateur / RP / AP : accès large (ils écrivent et coordonnent)
+ * - Eleve               : voit eleve_parent_formateur et eleve_formateur
+ *                         MAIS jamais les pages hiddenFromStudent=true (filtré en service)
+ * - Parent financeur    : voit eleve_parent_formateur uniquement
+ *                         + les pages spéciales qui leur sont destinées (special) si hiddenFromStudent=false
  */
 const VISIBILITY_BY_ROLE: Record<string, LogVisibility[]> = {
   formateur: ['eleve_parent_formateur', 'eleve_formateur', 'formateur_rp', 'special'],
@@ -24,7 +25,7 @@ const VISIBILITY_BY_ROLE: Record<string, LogVisibility[]> = {
   animateur_pedagogique: ['eleve_parent_formateur', 'eleve_formateur', 'formateur_rp', 'special'],
   technicien_informatique: ['eleve_parent_formateur', 'eleve_formateur', 'formateur_rp', 'special'],
   eleve: ['eleve_parent_formateur', 'eleve_formateur'],
-  parent_financeur: ['eleve_parent_formateur'],
+  parent_financeur: ['eleve_parent_formateur', 'special'],
 };
 
 @Injectable()
@@ -35,8 +36,8 @@ export class PedagogicalLogService {
   ) {}
 
   /**
-   * Créer une nouvelle entrée de cahier de texte.
-   * PLOG-FB-003: seuls formateur et RP peuvent écrire.
+   * Create a new textbook entry.
+   * Formateur and RP can write; isSpecialPage defaults to false.
    */
   create(dto: CreateLogDto, authorId: string, authorRole: string): Promise<PedagogicalLog> {
     const entry = this.pedagogicalLogRepository.create({
@@ -45,14 +46,14 @@ export class PedagogicalLogService {
       authorRole,
       visibility: dto.visibility ?? 'eleve_parent_formateur',
       isSpecialPage: false,
-      hiddenFromStudent: false,
+      hiddenFromStudent: dto.hiddenFromStudent ?? false,
     });
     return this.pedagogicalLogRepository.save(entry);
   }
 
   /**
-   * Créer une page spéciale (RP uniquement).
-   * XML spec functionality 003: pages spéciales pouvant être invisibles à l'élève.
+   * Create a special page (RP only).
+   * XML spec functionality 003: pages spéciales parent/financeur non visibles par l'élève si choisies.
    */
   createSpecialPage(
     studentId: string,
@@ -61,67 +62,61 @@ export class PedagogicalLogService {
     authorRole: string,
   ): Promise<PedagogicalLog> {
     const entry = this.pedagogicalLogRepository.create({
-      ...dto,
       studentId,
+      content: dto.content,
+      hiddenFromStudent: dto.hiddenFromStudent ?? false,
+      linkedResources: dto.linkedResources,
+      sessionId: dto.sessionId,
       authorId,
       authorRole,
       visibility: 'special',
       isSpecialPage: true,
-      hiddenFromStudent: dto.hiddenFromStudent ?? false,
     });
     return this.pedagogicalLogRepository.save(entry);
   }
 
   /**
-   * Lister toutes les entrées de cahier de texte, filtrées par rôle appelant.
-   * PLOG-RA-001, PLOG-RA-002, PLOG-BR-006.
-   * XML spec func 003: pages hiddenFromStudent=true invisibles à l'élève.
-   */
-  async findAll(callerRole: string): Promise<PedagogicalLog[]> {
-    const allowedVisibilities = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
-    const entries = await this.pedagogicalLogRepository.find({
-      where: { visibility: In(allowedVisibilities) },
-      order: { createdAt: 'DESC' },
-    });
-
-    if (callerRole === 'eleve') {
-      return entries.filter((entry) => !entry.hiddenFromStudent);
-    }
-    return entries;
-  }
-
-  /**
-   * Obtenir toutes les entrées de cahier de texte pour un élève, filtrées par rôle appelant.
-   * PLOG-BR-001, PLOG-BR-002, PLOG-RA-001, PLOG-RA-002.
-   * XML spec func 003: pages hiddenFromStudent=true invisibles à l'élève.
+   * Get all textbook entries for a student, filtered by caller role.
+   * - Elève: visibilité autorisée + hiddenFromStudent=false uniquement
+   * - Parent financeur: pages special visibles + eleve_parent_formateur (sauf hiddenFromStudent si l'élève n'en est pas destinataire — le parent voit les pages special qui lui sont destinées)
+   * - RP/Formateur/TI/AP: tout
    */
   async findByStudent(studentId: string, callerRole: string): Promise<PedagogicalLog[]> {
     const allowedVisibilities = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
-    const entries = await this.pedagogicalLogRepository.find({
+
+    const allEntries = await this.pedagogicalLogRepository.find({
       where: { studentId, visibility: In(allowedVisibilities) },
       order: { createdAt: 'DESC' },
     });
 
     if (callerRole === 'eleve') {
-      return entries.filter((entry) => !entry.hiddenFromStudent);
+      // L'élève ne voit jamais les pages marquées hiddenFromStudent=true
+      return allEntries.filter((entry) => !entry.hiddenFromStudent);
     }
-    return entries;
+
+    return allEntries;
   }
 
   /**
-   * Obtenir toutes les entrées de cahier de texte pour une séance.
-   * La visibilité est filtrée par rôle appelant.
+   * Get all textbook entries for a session, filtered by caller role.
    */
-  findBySession(sessionId: string, callerRole: string): Promise<PedagogicalLog[]> {
+  async findBySession(sessionId: string, callerRole: string): Promise<PedagogicalLog[]> {
     const allowedVisibilities = VISIBILITY_BY_ROLE[callerRole] ?? ['eleve_parent_formateur'];
-    return this.pedagogicalLogRepository.find({
+
+    const allEntries = await this.pedagogicalLogRepository.find({
       where: { sessionId, visibility: In(allowedVisibilities) },
       order: { createdAt: 'DESC' },
     });
+
+    if (callerRole === 'eleve') {
+      return allEntries.filter((entry) => !entry.hiddenFromStudent);
+    }
+
+    return allEntries;
   }
 
   /**
-   * Obtenir une seule entrée par ID, filtrée par rôle appelant.
+   * Get a single textbook entry by ID, filtered by caller role.
    * XML spec func 003: pages hiddenFromStudent=true lancent ForbiddenException pour l'élève.
    */
   async findOne(id: string, callerRole: string): Promise<PedagogicalLog> {
@@ -133,8 +128,9 @@ export class PedagogicalLogService {
       throw new ForbiddenException('Access to this log entry is not allowed for your role');
     }
 
+    // L'élève ne voit jamais les pages hiddenFromStudent=true
     if (callerRole === 'eleve' && entry.hiddenFromStudent) {
-      throw new ForbiddenException('This log entry is hidden from the student');
+      throw new ForbiddenException('Cette page est masquée à l\'élève');
     }
 
     return entry;

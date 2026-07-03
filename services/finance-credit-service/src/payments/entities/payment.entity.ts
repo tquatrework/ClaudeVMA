@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  Index,
 } from 'typeorm';
 
 export enum PaymentType {
@@ -22,7 +23,12 @@ export enum PaymentStatus {
 /**
  * Records a payment initiated by a funding owner.
  * FIN-AC-001: a confirmed payment creates an Invoice and a FinancialArchiveItem.
+ *
+ * Idempotency: the combination (ownerId, idempotencyKey) is indexed to enable
+ * fast duplicate detection. The index is non-unique to accommodate null values
+ * (when no idempotency key is provided). Uniqueness is enforced at the service layer.
  */
+@Index('idx_payments_owner_idempotency_key', ['ownerId', 'idempotencyKey'])
 @Entity('payments')
 export class Payment {
   @PrimaryGeneratedColumn('uuid')
@@ -45,6 +51,14 @@ export class Payment {
   /** External transaction reference from payment provider */
   @Column({ name: 'external_reference', nullable: true, type: 'varchar' })
   externalReference: string | null;
+
+  /**
+   * Optional client-provided idempotency key.
+   * When supplied, the service returns the existing payment instead of creating a duplicate.
+   * Uniqueness on (ownerId, idempotencyKey) is enforced at the service layer.
+   */
+  @Column({ name: 'idempotency_key', nullable: true, type: 'varchar' })
+  idempotencyKey: string | null;
 
   @Column({ name: 'correlation_id', nullable: true, type: 'varchar' })
   correlationId: string | null;

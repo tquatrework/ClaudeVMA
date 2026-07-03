@@ -20,7 +20,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // Pages
 import LoginPage from '../src/pages/LoginPage'
-import DashboardPage from '../src/pages/DashboardPage'
+import EleveDashboardPage from '../src/pages/EleveDashboardPage'
+import ProfesseurDashboardPage from '../src/pages/ProfesseurDashboardPage'
 import CalendarPage from '../src/pages/CalendarPage'
 import MessagesPage from '../src/pages/MessagesPage'
 import TeacherRequestsPage from '../src/pages/TeacherRequestsPage'
@@ -83,7 +84,7 @@ describe('Journey 1: Login → Dashboard → Notifications', () => {
     // Start unauthenticated on login
     mockUseAuth.mockReturnValue({
       ...buildAuthMock(STUDENT_USER, { isAuthenticated: false, user: null }),
-      login: async (_email: string, _password: string) => {
+      login: async (_loginIdentifier: string, _password: string) => {
         // After login, switch to authenticated state
         mockUseAuth.mockReturnValue(buildAuthMock())
         mockApiClient.get = vi.fn().mockImplementation((url: string) => {
@@ -97,19 +98,20 @@ describe('Journey 1: Login → Dashboard → Notifications', () => {
       <MemoryRouter initialEntries={['/login']}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/dashboard" element={<EleveDashboardPage />} />
+          <Route path="/dashboard/eleve" element={<EleveDashboardPage />} />
         </Routes>
       </MemoryRouter>,
     )
 
-    // Fill in login form using placeholders (labels lack htmlFor)
-    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'eleve@test.com')
+    // Fill in login form using loginIdentifier placeholder
+    await userEvent.type(screen.getByPlaceholderText(/jean\.dupont/i), 'eleve@test.com')
     await userEvent.type(screen.getByPlaceholderText(/••••••••/), 'password')
     await userEvent.click(screen.getByRole('button', { name: /se connecter/i }))
 
-    // Should land on dashboard — greeting appears
+    // Should land on dashboard — greeting appears (loginIdentifier absent → "vous")
     await waitFor(() => {
-      expect(screen.getByText('Bonjour, eleve@test.com')).toBeDefined()
+      expect(screen.getByText('Bonjour, vous')).toBeDefined()
     })
   })
 })
@@ -134,17 +136,17 @@ describe('Journey 2: Dashboard → Calendrier → Création séance', () => {
     mockApiClient.post = vi.fn().mockResolvedValue({ data: newActivity })
 
     render(
-      <MemoryRouter initialEntries={['/dashboard']}>
+      <MemoryRouter initialEntries={['/dashboard/professeur']}>
         <Routes>
-          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/dashboard/professeur" element={<ProfesseurDashboardPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
         </Routes>
       </MemoryRouter>,
     )
 
-    // Dashboard renders — greeting uses "Bonjour, prof@test.com"
+    // Dashboard renders — greeting uses "Bonjour, vous" (loginIdentifier absent dans le mock)
     await waitFor(() => {
-      expect(screen.getByText('Bonjour, prof@test.com')).toBeDefined()
+      expect(screen.getByText('Bonjour, vous')).toBeDefined()
     })
 
     // Navigate to calendar via the "Calendrier" quick card (the link element)
@@ -154,13 +156,13 @@ describe('Journey 2: Dashboard → Calendrier → Création séance', () => {
 
     // Now on Calendar page — should see the create button for formateur
     await waitFor(() => {
-      screen.getByRole('button', { name: /planifier une séance/i })
+      screen.getByRole('button', { name: /nouvel événement/i })
     })
 
-    await userEvent.click(screen.getByRole('button', { name: /planifier une séance/i }))
+    await userEvent.click(screen.getByRole('button', { name: /nouvel événement/i }))
 
     await waitFor(() => {
-      expect(screen.getByText('Nouvelle séance')).toBeDefined()
+      expect(screen.getByRole('dialog', { name: /créer un événement/i })).toBeDefined()
     })
 
     // Set datetime inputs via native input event
@@ -173,13 +175,13 @@ describe('Journey 2: Dashboard → Calendrier → Création séance', () => {
     Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(endInput, '2030-03-10T10:00')
     endInput.dispatchEvent(new Event('change', { bubbles: true }))
 
-    await userEvent.click(screen.getByRole('button', { name: /planifier$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /créer$/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith('/calendar', expect.objectContaining({
-        type: 'course',
-        teacherId: 'teacher-1',
-      }))
+      expect(mockApiClient.post).toHaveBeenCalledWith(
+        expect.stringContaining('/calendars/teacher-1/events'),
+        expect.objectContaining({ eventType: expect.any(String) }),
+      )
     })
   })
 })
@@ -208,16 +210,16 @@ describe('Journey 3: Dashboard → Messagerie → Envoi message', () => {
     mockApiClient.post = vi.fn().mockResolvedValue({ data: sentMessage })
 
     render(
-      <MemoryRouter initialEntries={['/dashboard']}>
+      <MemoryRouter initialEntries={['/dashboard/eleve']}>
         <Routes>
-          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/dashboard/eleve" element={<EleveDashboardPage />} />
           <Route path="/messages" element={<MessagesPage />} />
         </Routes>
       </MemoryRouter>,
     )
 
     await waitFor(() => {
-      expect(screen.getByText('Bonjour, eleve@test.com')).toBeDefined()
+      expect(screen.getByText('Bonjour, vous')).toBeDefined()
     })
 
     // Navigate to messages — use the Messages nav link
@@ -264,20 +266,23 @@ describe('Journey 4: Dashboard → Demandes professeur → Création demande', (
     mockApiClient.post = vi.fn().mockResolvedValue({ data: newRequest })
 
     render(
-      <MemoryRouter initialEntries={['/dashboard']}>
+      <MemoryRouter initialEntries={['/dashboard/eleve']}>
         <Routes>
-          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/dashboard/eleve" element={<EleveDashboardPage />} />
           <Route path="/teacher-requests" element={<TeacherRequestsPage />} />
         </Routes>
       </MemoryRouter>,
     )
 
     await waitFor(() => {
-      expect(screen.getByText('Bonjour, eleve@test.com')).toBeDefined()
+      expect(screen.getByText('Bonjour, vous')).toBeDefined()
     })
 
-    // Navigate via "Demandes prof." quick-access card
-    await userEvent.click(screen.getByText('Demandes prof.'))
+    // Navigate via "Demander un professeur" button — visible quand aucun professeur attitré
+    await waitFor(() => {
+      expect(screen.getAllByText('Demander un professeur').length).toBeGreaterThan(0)
+    })
+    await userEvent.click(screen.getAllByText('Demander un professeur')[0])
 
     await waitFor(() => {
       screen.getByRole('button', { name: /nouvelle demande/i })
@@ -293,7 +298,7 @@ describe('Journey 4: Dashboard → Demandes professeur → Création demande', (
     await userEvent.click(screen.getByRole('button', { name: /soumettre la demande/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith('/requests', {
+      expect(mockApiClient.post).toHaveBeenCalledWith('/teacher-requests', {
         description: 'Aide en statistiques Terminale',
       })
     })
@@ -322,7 +327,7 @@ describe('Journey 5: Dashboard → Profil → Édition profil', () => {
         <Routes>
           <Route path="/profiles/:userId" element={<ProfilePage />} />
           <Route path="/profiles/:userId/edit" element={<ProfileEditPage />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/dashboard" element={<EleveDashboardPage />} />
         </Routes>
       </MemoryRouter>,
     )

@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ForbiddenException } from '@nestjs/common';
 import { CalendarEventsController } from '../../../src/calendar-events/calendar-events.controller';
 import { CalendarEventsService } from '../../../src/calendar-events/calendar-events.service';
 import { JwtAuthGuard } from '../../../src/common/guards/jwt-auth.guard';
@@ -188,6 +189,19 @@ describe('CalendarEventsController', () => {
         correlationId,
       );
     });
+
+    it('throws ForbiddenException when req.user.id does not match the userId param', async () => {
+      const differentUserRequest = { user: { id: 'other-user', role: UserRole.ELEVE } };
+
+      let thrownError: unknown;
+      try {
+        await controller.acceptInvitation('evt-1', 'invitee-1', differentUserRequest, undefined);
+      } catch (error) {
+        thrownError = error;
+      }
+      expect(thrownError).toBeInstanceOf(ForbiddenException);
+      expect(mockCalendarEventsService.acceptInvitation).not.toHaveBeenCalled();
+    });
   });
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -222,6 +236,19 @@ describe('CalendarEventsController', () => {
         'invitee-2',
         correlationId,
       );
+    });
+
+    it('throws ForbiddenException when req.user.id does not match the userId param', async () => {
+      const differentUserRequest = { user: { id: 'attacker-user', role: UserRole.FORMATEUR } };
+
+      let thrownError: unknown;
+      try {
+        await controller.declineInvitation('evt-2', 'invitee-2', differentUserRequest, undefined);
+      } catch (error) {
+        thrownError = error;
+      }
+      expect(thrownError).toBeInstanceOf(ForbiddenException);
+      expect(mockCalendarEventsService.declineInvitation).not.toHaveBeenCalled();
     });
   });
 
@@ -298,6 +325,7 @@ describe('CalendarEventsController', () => {
         'evt-4',
         configureReminderDto,
         'user-3',
+        UserRole.ELEVE,
         undefined,
       );
       expect(result).toEqual(reminderResult);
@@ -313,11 +341,12 @@ describe('CalendarEventsController', () => {
         'evt-4',
         configureReminderDto,
         'user-3',
+        UserRole.ELEVE,
         correlationId,
       );
     });
 
-    it('extracts user.id from the request object', async () => {
+    it('extracts user.id and user.role from the request object', async () => {
       const teacherRequest = { user: { id: 'teacher-99', role: UserRole.FORMATEUR } };
       const oneDayReminderDto: ConfigureReminderDto = { delay: ReminderDelay.ONE_DAY };
       mockCalendarEventsService.configureReminder.mockResolvedValue({ delay: ReminderDelay.ONE_DAY });
@@ -328,6 +357,7 @@ describe('CalendarEventsController', () => {
         'evt-4',
         oneDayReminderDto,
         'teacher-99',
+        UserRole.FORMATEUR,
         undefined,
       );
     });

@@ -19,21 +19,15 @@ apiClient.interceptors.request.use((config) => {
   return config
 })
 
-// Handle 401 — clear session and redirect to login ONLY when the main auth
-// token itself is rejected (i.e. /auth/me or /auth/refresh).
-// A 401 returned by any other service route (e.g. /orchestration/workflows)
-// means the user lacks permission for that specific resource — it must NOT
-// log the user out. Each call site's own .catch() handles those errors locally.
-const AUTH_ROUTES_REQUIRING_LOGOUT = ['/auth/me', '/auth/refresh']
-
+// Handle 401 — clear session and redirect to login (except on public registration/auth routes)
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    const requestUrl: string = error.config?.url ?? ''
-    const isAuthTokenRejected = AUTH_ROUTES_REQUIRING_LOGOUT.some((authPath) =>
-      requestUrl.includes(authPath)
+    const publicApiRoutes = ['/accounts/teachers', '/accounts/students', '/accounts/parents', '/accounts', '/auth/login']
+    const isPublicRoute = publicApiRoutes.some(
+      (path) => error.config?.url?.includes(path)
     )
-    if (error.response?.status === 401 && isAuthTokenRejected) {
+    if (error.response?.status === 401 && !isPublicRoute) {
       localStorage.removeItem('access_token')
       localStorage.removeItem('refresh_token')
       localStorage.removeItem('user')

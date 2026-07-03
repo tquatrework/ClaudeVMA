@@ -18,6 +18,8 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { UserRole } from '../common/enums/user-role.enum';
 import { LegalDocumentsService } from './legal-documents.service';
 import { SignDocumentDto } from './dto/sign-document.dto';
 
@@ -28,6 +30,8 @@ import { SignDocumentDto } from './dto/sign-document.dto';
 export class LegalDocumentsController {
   constructor(private readonly legalDocumentsService: LegalDocumentsService) {}
 
+  // accès filtré par ownership dans le service
+  @Roles(UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.FORMATEUR, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE, UserRole.ADMINISTRATEUR_FINANCIER)
   @Get(':ownerId')
   @ApiOperation({
     summary: 'List legal documents for an owner',
@@ -48,6 +52,8 @@ export class LegalDocumentsController {
     return this.legalDocumentsService.findByOwnerId(ownerId, req.user.id, req.user.role);
   }
 
+  // seul le propriétaire du document peut signer, vérifié dans le service
+  @Roles(UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.FORMATEUR)
   @Post(':id/sign')
   @ApiOperation({
     summary: 'Sign a legal document',

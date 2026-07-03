@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { DataSource } from 'typeorm';
 
 import { TeacherRequestService } from '../../src/teacher-request/teacher-request.service';
 import { TeacherRequest, RequestStatus, RequestType } from '../../src/teacher-request/entities/teacher-request.entity';
@@ -18,6 +19,17 @@ const makeRepo = () => ({
   remove: jest.fn(() => Promise.resolve()),
 });
 
+/** Build a DataSource mock whose transaction() executes the callback with a manager
+ *  that delegates getRepository() calls to the provided repo map. */
+const makeDataSource = (repoMap: Record<string, ReturnType<typeof makeRepo>>) => ({
+  transaction: jest.fn(async (callback: (manager: unknown) => Promise<unknown>) => {
+    const manager = {
+      getRepository: jest.fn((entity: { name: string }) => repoMap[entity.name] ?? makeRepo()),
+    };
+    return callback(manager);
+  }),
+});
+
 const studentUser = { id: 'student-1', role: UserRole.ELEVE, loginIdentifier: 'student.one' };
 const parentUser = { id: 'parent-1', role: UserRole.PARENT_FINANCEUR, loginIdentifier: 'parent.one' };
 const rpUser = { id: 'rp-1', role: UserRole.RESPONSABLE_PEDAGOGIQUE, loginIdentifier: 'rp.one' };
@@ -30,12 +42,21 @@ describe('TeacherRequestService', () => {
   let proposalRepo: ReturnType<typeof makeRepo>;
   let assignmentRepo: ReturnType<typeof makeRepo>;
   let terminationRepo: ReturnType<typeof makeRepo>;
+  let dataSource: ReturnType<typeof makeDataSource>;
+  let eventsService: { emit: jest.Mock };
 
   beforeEach(async () => {
     requestRepo = makeRepo();
     proposalRepo = makeRepo();
     assignmentRepo = makeRepo();
     terminationRepo = makeRepo();
+    dataSource = makeDataSource({
+      TeacherRequest: requestRepo,
+      TeacherProposal: proposalRepo,
+      Assignment: assignmentRepo,
+      TerminationRequest: terminationRepo,
+    });
+    eventsService = { emit: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -44,7 +65,8 @@ describe('TeacherRequestService', () => {
         { provide: getRepositoryToken(TeacherProposal), useValue: proposalRepo },
         { provide: getRepositoryToken(Assignment), useValue: assignmentRepo },
         { provide: getRepositoryToken(TerminationRequest), useValue: terminationRepo },
-        { provide: EventsService, useValue: { emit: jest.fn() } },
+        { provide: EventsService, useValue: eventsService },
+        { provide: DataSource, useValue: dataSource },
       ],
     }).compile();
 
@@ -717,9 +739,8 @@ describe('TeacherRequestService', () => {
     });
 
     it('delegates to createTermination — emits TeacherStopRequested event', async () => {
-      const eventsEmit = jest.spyOn((service as any).events, 'emit');
       await service.createCollaborationStopRequest('asgn-1', { noticeDate: '2026-09-01' }, teacherUser);
-      expect(eventsEmit).toHaveBeenCalledWith(
+      expect(eventsService.emit).toHaveBeenCalledWith(
         'TeacherStopRequested',
         expect.objectContaining({ assignmentId: 'asgn-1', teacherId: 'teacher-1' }),
       );
@@ -737,6 +758,145 @@ describe('TeacherRequestService', () => {
       await expect(
         service.createCollaborationStopRequest('asgn-1', { noticeDate: '2026-09-01' }, studentUser),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ── Transaction integrity tests ────────────────────────────────────────────
+
+  describe('acceptProposal — transaction integrity', () => {
+    beforeEach(() => {
+      proposalRepo.findOne.mockResolvedValue({
+        id: 'prop-1',
+        teacherId: 'teacher-1',
+        requestId: 'req-1',
+        status: ProposalStatus.PENDING,
+      });
+      requestRepo.findOne.mockResolvedValue({
+        id: 'req-1',
+        studentId: 'student-1',
+        status: RequestStatus.REDIRECTED,
+      });
+    });
+
+    it('nominal: all three saves are called inside the transaction and event is emitted', async () => {
+      const result = await service.acceptProposal('prop-1', teacherUser);
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(assignmentRepo.save).toHaveBeenCalledTimes(1);
+      expect(proposalRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: ProposalStatus.ACCEPTED }),
+      );
+      expect(requestRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: RequestStatus.ASSIGNED }),
+      );
+      expect(result).toMatchObject({ studentId: 'student-1', teacherId: 'teacher-1' });
+      expect(eventsService.emit).toHaveBeenCalledWith('TeacherAssigned', expect.any(Object));
+    });
+
+    it('rollback: error on proposalRepo.save rolls back — no event is emitted', async () => {
+      dataSource.transaction = jest.fn(async (callback: (manager: unknown) => Promise<unknown>) => {
+        const faultyProposalRepo = {
+          ...makeRepo(),
+          save: jest.fn().mockRejectedValue(new Error('DB failure on proposal save')),
+        };
+        const manager = {
+          getRepository: jest.fn((entity: { name: string }) => {
+            if (entity.name === 'TeacherProposal') return faultyProposalRepo;
+            if (entity.name === 'Assignment') return assignmentRepo;
+            if (entity.name === 'TeacherRequest') return requestRepo;
+            return makeRepo();
+          }),
+        };
+        return callback(manager);
+      });
+
+      await expect(service.acceptProposal('prop-1', teacherUser)).rejects.toThrow('DB failure on proposal save');
+      // requestRepo.save is inside the transaction callback — it was not reached before the throw
+      expect(requestRepo.save).not.toHaveBeenCalled();
+      expect(eventsService.emit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('createTermination — transaction integrity', () => {
+    beforeEach(() => {
+      assignmentRepo.findOne.mockResolvedValue({
+        id: 'asgn-1',
+        studentId: 'student-1',
+        teacherId: 'teacher-1',
+        status: AssignmentStatus.ACTIVE,
+      });
+    });
+
+    it('nominal: both saves are called inside the transaction and event is emitted', async () => {
+      const dto = { noticeDate: '2026-09-01', reason: 'Departure' };
+      const result = await service.createTermination('asgn-1', dto, teacherUser);
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(terminationRepo.save).toHaveBeenCalledTimes(1);
+      expect(assignmentRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: AssignmentStatus.TERMINATION_REQUESTED }),
+      );
+      expect(result).toMatchObject({ assignmentId: 'asgn-1', teacherId: 'teacher-1' });
+      expect(eventsService.emit).toHaveBeenCalledWith('TeacherRelationTerminationRequested', expect.any(Object));
+    });
+
+    it('rollback: error on assignmentRepo.save rolls back — no event is emitted', async () => {
+      dataSource.transaction = jest.fn(async (callback: (manager: unknown) => Promise<unknown>) => {
+        const faultyAssignmentRepo = {
+          ...makeRepo(),
+          save: jest.fn().mockRejectedValue(new Error('DB failure on assignment save')),
+        };
+        const manager = {
+          getRepository: jest.fn((entity: { name: string }) => {
+            if (entity.name === 'Assignment') return faultyAssignmentRepo;
+            if (entity.name === 'TerminationRequest') return terminationRepo;
+            return makeRepo();
+          }),
+        };
+        return callback(manager);
+      });
+
+      const dto = { noticeDate: '2026-09-01', reason: 'Departure' };
+      await expect(service.createTermination('asgn-1', dto, teacherUser)).rejects.toThrow('DB failure on assignment save');
+      expect(eventsService.emit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('createProposal — transaction integrity', () => {
+    beforeEach(() => {
+      requestRepo.findOne.mockResolvedValue({ id: 'req-1', status: RequestStatus.PENDING });
+    });
+
+    it('nominal: both saves are called inside the transaction and event is emitted', async () => {
+      const result = await service.createProposal('req-1', { teacherId: 'teacher-1' }, rpUser);
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(proposalRepo.save).toHaveBeenCalledTimes(1);
+      expect(requestRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: RequestStatus.REDIRECTED }),
+      );
+      expect(result).toMatchObject({ requestId: 'req-1', teacherId: 'teacher-1' });
+      expect(eventsService.emit).toHaveBeenCalledWith('TeacherProposalSent', expect.any(Object));
+    });
+
+    it('rollback: error on requestRepo.save rolls back — no event is emitted', async () => {
+      dataSource.transaction = jest.fn(async (callback: (manager: unknown) => Promise<unknown>) => {
+        const faultyRequestRepo = {
+          ...makeRepo(),
+          save: jest.fn().mockRejectedValue(new Error('DB failure on request save')),
+        };
+        const manager = {
+          getRepository: jest.fn((entity: { name: string }) => {
+            if (entity.name === 'TeacherRequest') return faultyRequestRepo;
+            if (entity.name === 'TeacherProposal') return proposalRepo;
+            return makeRepo();
+          }),
+        };
+        return callback(manager);
+      });
+
+      await expect(service.createProposal('req-1', { teacherId: 'teacher-1' }, rpUser)).rejects.toThrow('DB failure on request save');
+      expect(eventsService.emit).not.toHaveBeenCalled();
     });
   });
 });

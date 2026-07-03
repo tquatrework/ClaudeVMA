@@ -39,7 +39,7 @@ export class User {
   @Column({ name: 'login_identifier', unique: true, length: 100 })
   loginIdentifier: string;
 
-  @Column()
+  @Column({ unique: true })
   email: string;
 
   @Column({ name: 'password_hash', select: false })
@@ -71,6 +71,10 @@ export class User {
 
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
+
+  /** True une fois que l'utilisateur a cliqué sur le lien de vérification reçu par email */
+  @Column({ name: 'email_verified', default: false })
+  emailVerified: boolean;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

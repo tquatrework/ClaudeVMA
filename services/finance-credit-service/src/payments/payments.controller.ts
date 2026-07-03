@@ -15,6 +15,8 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { UserRole } from '../common/enums/user-role.enum';
 import { PaymentsService } from './payments.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 
@@ -26,6 +28,7 @@ export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
   @Post()
+  @Roles(UserRole.PARENT_FINANCEUR, UserRole.ADMINISTRATEUR_FINANCIER)
   @ApiHeader({ name: 'x-correlation-id', required: false })
   @ApiOperation({
     summary: 'Initiate a payment',
@@ -42,6 +45,7 @@ export class PaymentsController {
   @ApiResponse({ status: 400, description: 'Validation error' })
   @ApiResponse({ status: 401, description: 'Missing or invalid JWT' })
   @ApiResponse({ status: 409, description: 'Duplicate inscription payment (FIN-AC-002)' })
+  // accès filtré par ownership dans le service
   initiatePayment(
     @Body() dto: CreatePaymentDto,
     @Req() req: any,

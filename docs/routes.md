@@ -7,6 +7,8 @@ Les routes marquées 🔒 nécessitent un header `Authorization: Bearer <token>`
 
 ## identity-access-service
 
+Préfixes gateway : `/api/v1/auth/` (public) · `/api/v1/accounts` (public inscription) · `/api/v1/accounts/check-email` (public) · `/api/v1/accounts/` (🔒) · `/api/v1/consents` (🔒) → identity-access-service
+
 Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedagogique`, `responsable_pedagogique`, `technicien_informatique`, `administrateur_financier`
 
 Statuts de validation : `pending` (avant consentements) → `active` (consentements RGPD+CGU signés) → `suspended`
@@ -26,6 +28,7 @@ Réponse login/refresh : `{access_token, refresh_token, user: {id, email, role, 
 
 | Méthode | Chemin | Description | Auth | Rôles | Body |
 |---|---|---|---|---|---|
+| GET | /accounts/check-email | Vérifier la disponibilité d'un email | Non | — | Query: `email` |
 | POST | /accounts | Créer un compte générique (auto-inscription) | Non | — | `{email, password, role?}` |
 | POST | /accounts/students | Créer un compte élève (+ parent optionnel) | Non | — | `{email, password, isMember?, parentEmail?, parentPassword?}` |
 | POST | /accounts/teachers | Créer un compte formateur | Non | — | `{email, password, cvReference?}` |
@@ -65,6 +68,8 @@ Réponse : `{accountId, email, role}`
 ---
 
 ## profile-service
+
+Préfixes gateway : `/api/v1/profiles` · `/api/v1/relations` · `/api/v1/parent-link-requests` (🔒) → profile-service
 
 Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedagogique`, `responsable_pedagogique`, `technicien_informatique`, `administrateur_financier`
 
@@ -125,6 +130,8 @@ Statuts : `pending` → `approved` (lien finance-owner-student créé) / `reject
 
 ## teacher-request-service
 
+Préfixe gateway canonique : `/api/v1/teacher-requests` → contrôleur `/teacher-requests`
+
 | Méthode | Chemin | Description | Auth |
 |---|---|---|---|
 | POST | /requests | Créer une demande | 🔒 |
@@ -138,6 +145,8 @@ Statuts : `pending` → `accepted` / `declined` / `cancelled`
 ---
 
 ## calendar-service
+
+Préfixes gateway : `/api/v1/calendars` · `/api/v1/events` · `/api/v1/activities` · `/api/v1/reminders` (🔒) → calendar-service
 
 Types d'événements : `cours`, `masterclass`, `pedagogique`, `financier`, `rappel`, `invitation`
 
@@ -192,6 +201,8 @@ Body : `{delay: "1week"|"1day"|"1hour"|"15min"|"none"}`
 ---
 
 ## video-session-service
+
+Préfixe gateway canonique : `/api/v1/video-sessions` → contrôleur `/video-sessions` (alias legacy : `/api/v1/video` → `/video`)
 
 ### Salles vidéo
 
@@ -248,6 +259,19 @@ API interne (non exposée via nginx) : `GET /internal/video/*` — protégée pa
 
 ## communication-service
 
+Préfixes gateway : `/api/v1/contacts` · `/api/v1/messages` · `/api/v1/conversations` · `/api/v1/threads` · `/api/v1/incidents` (🔒) → communication-service
+
+### Contacts autorisés
+
+| Méthode | Chemin | Description | Auth |
+|---|---|---|---|
+| GET | /contacts | Lister les contacts autorisés (obligatoires + précontacts) | 🔒 |
+| POST | /contacts/:id/activate | Activer un précontact (status: precontact → active) | 🔒 |
+| DELETE | /contacts/:id | Supprimer un contact actif (interdit si mandatory: true → 403) | 🔒 |
+| PATCH | /contacts/:id/visibility | Modifier la visibilité (visible/hidden) | 🔒 |
+
+Retour Contact : `{id, userId, email?, displayName?, role?, status: 'active'|'precontact', mandatory: boolean, visibility?: 'visible'|'hidden'}`
+
 ### Conversations
 
 | Méthode | Chemin | Description | Auth |
@@ -281,20 +305,22 @@ API interne (non exposée via nginx) : `POST /internal/sync-contacts` — proté
 
 ### Cahier de texte — tenu par le formateur ou le RP, suivi séance après séance
 
+Préfixe gateway canonique : `/api/v1/pedagogical-logs` → contrôleur `/pedagogical-logs`
+Préfixes complémentaires : `/api/v1/students` → `/students` · `/api/v1/logs` → `/logs` (legacy)
+
 | Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
+| GET | /pedagogical-logs | Lister les pages de cahier de texte (filtré par rôle) | 🔒 | Tout rôle authentifié | `200 [PedagogicalLogPage]` |
+| POST | /pedagogical-logs | Ajouter une page de cahier de texte | 🔒 | formateur, RP, AP, TI | `201 {id, studentId, authorId, authorRole, content, visibility, isSpecialPage, hiddenFromStudent, linkedResources?, ...}` · `400` validation · `403` rôle non autorisé |
+| PUT | /pedagogical-logs/:id | Modifier une page (auteur, RP, TI) | 🔒 | Auteur, RP, TI | `200 PedagogicalLogPage` · `403` non auteur · `404` introuvable |
+| DELETE | /pedagogical-logs/:id | Supprimer une page | 🔒 | Auteur, responsable_pedagogique | `204` · `403` · `404` introuvable |
 | GET | /students/:studentId/pedagogical-log | Lire le cahier de texte d'un élève (filtré par rôle) | 🔒 | Tout rôle authentifié | `200 [PedagogicalLogPage]` — élève: hors pages hiddenFromStudent · parent: eleve_parent_formateur + special · RP/Formateur: tout |
-| POST | /students/:studentId/pedagogical-log | Ajouter une page de cahier de texte | 🔒 | formateur, RP, AP, TI | `201 {id, studentId, authorId, authorRole, content, visibility, isSpecialPage, hiddenFromStudent, linkedResources?, ...}` · `400` validation · `403` rôle non autorisé |
+| POST | /students/:studentId/pedagogical-log | Ajouter une page liée à un élève précis | 🔒 | formateur, RP, AP, TI | `201 {id, studentId, ...}` · `400` validation · `403` rôle non autorisé |
 | POST | /students/:studentId/pedagogical-log/special-pages | Créer une page spéciale avec visibilité ciblée (RP uniquement) | 🔒 | responsable_pedagogique | `201 {id, ..., isSpecialPage: true, hiddenFromStudent, visibility: "special"}` · `403` réservé RP |
 | GET | /logs/session/:sessionId | Logs d'une séance (filtrés par rôle) | 🔒 | Tout rôle authentifié | `200 [PedagogicalLogPage]` |
 | GET | /logs/:id | Détail d'une page | 🔒 | Selon visibilité et rôle | `200 PedagogicalLogPage` · `403` visibilité bloquée · `404` introuvable |
-| PATCH | /logs/:id | Modifier une page | 🔒 | Auteur, RP, TI | `200 PedagogicalLogPage` · `403` non auteur · `404` introuvable |
-| DELETE | /logs/:id | Supprimer une page | 🔒 | Auteur, responsable_pedagogique | `204` · `403` · `404` introuvable |
-| GET | /pedagogical-logs | Lister les entrées du cahier de texte | 🔒 | formateur, responsable_pedagogique, animateur_pedagogique, eleve, parent_financeur | `200 [PedagogicalLogPage]` — filtrage par rôle · élève: hors pages hiddenFromStudent · parent: hors pages eleve_formateur |
-| POST | /pedagogical-logs | Créer une entrée de cahier de texte | 🔒 | formateur, responsable_pedagogique | `201 {id, studentId, authorId, authorRole, content, visibility, isSpecialPage, hiddenFromStudent, linkedResources?, ...}` · `400` validation · `403` rôle non autorisé |
-| GET | /pedagogical-logs/:id | Lire une entrée | 🔒 | Selon visibilité et rôle | `200 PedagogicalLogPage` · `403` visibilité bloquée · `404` introuvable |
-| PUT | /pedagogical-logs/:id | Modifier une entrée | 🔒 | Auteur | `200 PedagogicalLogPage` · `403` non auteur · `404` introuvable |
-| DELETE | /pedagogical-logs/:id | Supprimer une entrée | 🔒 | Auteur, responsable_pedagogique | `204` · `403` · `404` introuvable |
+| PATCH | /logs/:id | Modifier une page (legacy) | 🔒 | Auteur, RP, TI | `200 PedagogicalLogPage` · `403` non auteur · `404` introuvable |
+| DELETE | /logs/:id | Supprimer une page (legacy) | 🔒 | Auteur, responsable_pedagogique | `204` · `403` · `404` introuvable |
 
 Règles de visibilité :
 - `eleve_parent_formateur` : élève, parent, formateur, RP, AP, TI
@@ -312,8 +338,8 @@ Le mémo est un outil personnel de l'élève (formules, trucs essentiels). Il n'
 |---|---|---|---|---|---|
 | GET | /memos | Lister chapitres + items du mémo de l'élève connecté | 🔒 | eleve uniquement | `200 [MemoChapter avec items]` · `403` tout autre rôle |
 | GET | /memos/search?q= | Recherche dans le mémo | 🔒 | eleve uniquement | `200 [MemoItem]` · `400` q vide · `403` tout autre rôle |
-| POST | /memos | Créer un mémo | 🔒 | eleve uniquement | `201 Memo` · `403` formateur/RP/parent → refusé |
 | GET | /memos/:id | Lire un mémo | 🔒 | eleve (propriétaire), formateur lié (lecture), RP lié (lecture) | `200 Memo` · `403` parent/autre · `404` introuvable |
+| POST | /memos | Créer un mémo | 🔒 | eleve uniquement | `201 Memo` · `403` formateur/RP/parent → refusé |
 | PUT | /memos/:id | Modifier un mémo | 🔒 | eleve (propriétaire) uniquement | `200 Memo` · `403` tout autre rôle · `404` introuvable |
 | DELETE | /memos/:id | Supprimer un mémo | 🔒 | eleve (propriétaire) uniquement | `204` · `403` tout autre rôle · `404` introuvable |
 
@@ -349,6 +375,8 @@ Le parent financeur ne voit JAMAIS le carnet personnel (PLOG-FB-001).
 ---
 
 ## dashboard-notification-service
+
+Préfixes gateway : `/api/v1/notifications` · `/api/v1/dashboard` (🔒) → dashboard-notification-service
 
 ### Notifications
 
@@ -410,23 +438,30 @@ Note : la route `/callbacks/:provider` n'est **pas** protégée par `auth_reques
 
 ## finance-credit-service
 
-Phase 2 — Gestion des profils financiers, paiements, factures et archives financières.
+Phase 2 — Gestion des profils financiers, paiements, paramètres et archives financières.
+
+Préfixe gateway canonique : `/api/v1/finance/` (strip de préfixe — le backend reçoit le chemin sans `/finance`)
+Préfixes legacy conservés (ne routent pas vers les contrôleurs actuels) : `/api/v1/credits` · `/api/v1/payments` · `/api/v1/invoices`
 
 Toutes les routes 🔒 nécessitent `Authorization: Bearer <access_token>`.
 
 ### Profils financiers
 
-| Méthode | Chemin | Description | Auth | Rôles autorisés | Body / Params | Réponse attendue |
+Via gateway : `GET /api/v1/finance/financial-profiles/:ownerId` → backend reçoit `GET /financial-profiles/:ownerId`
+
+| Méthode | Chemin (backend) | Description | Auth | Rôles autorisés | Body / Params | Réponse attendue |
 |---|---|---|---|---|---|---|
 | GET | /financial-profiles/:ownerId | Lire le profil financier d'un financeur | 🔒 | owner (soi-même), administrateur_financier, responsable_pedagogique, technicien_informatique | — | `200 {id, ownerId, profileType, pointsBalance, fundingEndDate, paymentMethod, paymentReference}` · `401` · `403` · `404` |
-| PATCH | /financial-profiles/:ownerId | Modifier les moyens de paiement ou paramètres | 🔒 | owner (soi-même), administrateur_financier, technicien_informatique | `{paymentMethod?, paymentReference?, fundingEndDate?}` | `200 {profileType mise à jour}` · `400` · `401` · `403` · `404` |
+| PATCH | /financial-profiles/:ownerId | Modifier les moyens de paiement ou paramètres | 🔒 | owner (soi-même), administrateur_financier, technicien_informatique | `{paymentMethod?, paymentReference?, fundingEndDate?}` | `200 {profileType mis à jour}` · `400` · `401` · `403` · `404` |
 
 Valeurs `profileType` : `limite` (compte non encore activé — inscription non payée) · `membre` (inscription payée).
 Valeurs `paymentMethod` : `cb` · `virement` · `paypal`.
 
 ### Paiements
 
-| Méthode | Chemin | Description | Auth | Body | Réponse attendue |
+Via gateway : `POST /api/v1/finance/payments` → backend reçoit `POST /payments`
+
+| Méthode | Chemin (backend) | Description | Auth | Body | Réponse attendue |
 |---|---|---|---|---|---|
 | POST | /payments | Initier un paiement (inscription, abonnement, versement ponctuel) | 🔒 | `{paymentType, amountCents, externalReference?, correlationId?}` | `201 {payment, invoice}` · `400` validation · `401` · `409` doublon inscription (FIN-AC-002) |
 
@@ -437,11 +472,32 @@ Règles métier :
 
 ### Archives financières
 
-| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+Via gateway : `GET /api/v1/finance/financial-archives/:ownerId` → backend reçoit `GET /financial-archives/:ownerId`
+
+| Méthode | Chemin (backend) | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
 | GET | /financial-archives/:ownerId | Lister les archives financières d'un financeur | 🔒 | owner (soi-même), administrateur_financier, responsable_pedagogique, technicien_informatique | `200 [{id, ownerId, itemType, referenceId, label, amountCents, balanceSnapshot, occurredAt}]` · `401` · `403` |
 
 Les archives sont triées par `occurredAt DESC`. Types d'items : `payment` · `invoice` · `ledger_entry`.
+
+### Paramètres financiers
+
+Via gateway : `/api/v1/finance/settings` → backend reçoit `/settings`
+
+| Méthode | Chemin (backend) | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /settings | Lire les paramètres financiers globaux | 🔒 | administrateur_financier, technicien_informatique | `200 {settings}` · `401` · `403` |
+| PATCH | /settings | Modifier les paramètres financiers | 🔒 | administrateur_financier | `200 {settings}` · `400` · `401` · `403` |
+
+### Demandes de paiement formateur
+
+Via gateway : `/api/v1/finance/teacher-payment-requests` → backend reçoit `/teacher-payment-requests`
+
+| Méthode | Chemin (backend) | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /teacher-payment-requests | Lister les demandes de rémunération | 🔒 | formateur (ses propres), administrateur_financier, technicien_informatique | `200 [{id, teacherId, amountCents, status, ...}]` · `401` · `403` |
+| POST | /teacher-payment-requests | Créer une demande de rémunération | 🔒 | formateur | `201 {id, teacherId, amountCents, status, createdAt}` · `400` · `401` · `403` |
+| PATCH | /teacher-payment-requests/:id/status | Valider ou rejeter une demande | 🔒 | administrateur_financier | `200 {id, status}` · `401` · `403` · `404` |
 
 ### Healthcheck
 
@@ -462,54 +518,6 @@ Les archives sont triées par `occurredAt DESC`. Types d'items : `payment` · `i
 
 `PaymentConfirmed` · `InvoiceIssued` · `PointsCredited`
 
-### Tableaux de bord
-
-| Méthode | Chemin | Description | Auth |
-|---|---|---|---|
-| GET | /dashboards/me | Mon tableau de bord | 🔒 |
-| PUT | /dashboards/me/preferences | Mettre à jour les préférences | 🔒 |
-
-API interne (non exposée via nginx) : `POST /internal/initialize-dashboard`, `POST /internal/notify` — protégées par `X-Internal-Secret`.
-
----
-
-## orchestration-service
-
-Toutes les routes sont accessibles via le gateway sous le préfixe `/api/v1/orchestration/`.
-Les routes de callbacks sont techniquement protégées par `auth_request` nginx, mais destinées aux webhooks externes : le `correlationId` est lu depuis le body ou généré automatiquement.
-
-### Workflows
-
-| Méthode | Chemin | Description | Auth | Paramètres / Body | Réponse attendue |
-|---|---|---|---|---|---|
-| GET | /workflows | Lister les types de workflows disponibles | 🔒 | — | `200 [{id, name, phase, stepCount}]` |
-| POST | /workflows/:workflowId/start | Déclencher un workflow transverse (ex: `student-onboarding`) | 🔒 | Path: `workflowId` (type de workflow) · Body: `{workflowType, payload, initiatedBy?, correlationId?}` | `202 {workflowInstanceId, workflowType, correlationId, status, startedAt}` · `404` type inconnu |
-| GET | /workflows/:workflowInstanceId | Lire l'état d'une instance de workflow | 🔒 | Path: `workflowInstanceId` (UUID) | `200 {instance, steps, status}` · `404` instance introuvable |
-| POST | /workflows/:workflowInstanceId/suspend | Suspendre un workflow en attente d'arbitrage utilisateur (ORCH-BR-006) | 🔒 | Path: `workflowInstanceId` · Body: `{reason}` | `200 {workflowInstanceId, status: "needs_arbitration", reason}` |
-| POST | /workflows/:workflowInstanceId/resume | Reprendre un workflow après arbitrage ou forcage TI (ORCH-BR-006/007) | 🔒 | Path: `workflowInstanceId` · Body: `{tiOverride?}` (`true` = forcage TI audité) | `200 {workflowInstanceId, status: "in_progress", tiOverride}` |
-
-Types de workflows phase 1 : `student-onboarding`, `teacher-onboarding`, `teacher-request-to-assignment`, `scheduled-video-course`.
-
-### Commandes d'intégration
-
-| Méthode | Chemin | Description | Auth | Body | Réponse attendue |
-|---|---|---|---|---|---|
-| POST | /commands | Émettre une commande idempotente vers un microservice cible | 🔒 | `{targetService, action, payload, idempotencyKey, correlationId?}` | `201 commande dispatchée` · `409` clé d'idempotence déjà utilisée |
-
-### Événements d'intégration
-
-| Méthode | Chemin | Description | Auth | Paramètres | Réponse attendue |
-|---|---|---|---|---|---|
-| GET | /events/:correlationId | Lire l'historique chronologique des événements pour un correlationId | 🔒 | Path: `correlationId` (UUID) | `200 {correlationId, count, events[]}` |
-
-### Callbacks externes (webhooks)
-
-| Méthode | Chemin | Description | Auth | Paramètres / Body | Réponse attendue |
-|---|---|---|---|---|---|
-| POST | /callbacks/:provider | Recevoir un webhook d'un fournisseur externe (vidéo, paiement, etc.) | Non (webhook) | Path: `provider` (ex: `video-provider`) · Body: `{correlationId?, eventType?, ...payload}` | `200 {received: true, correlationId}` |
-
-Note : la route `/callbacks/:provider` n'est **pas** protégée par `auth_request` nginx — les providers externes ne peuvent pas fournir un JWT utilisateur. La protection repose sur le header `X-Webhook-Secret` validé côté service. Le `correlationId` est lu depuis `body.correlationId` ou `body.correlation_id`, ou généré automatiquement si absent.
-
 ---
 
 ## Health checks (non authentifié)
@@ -519,6 +527,8 @@ Chaque service expose `GET /health` → `{status: "ok", service: "...", timestam
 ---
 
 ## legal-document-service
+
+Préfixes gateway : `/api/v1/legal-documents` · `/api/v1/mandates` · `/api/v1/legal-templates` (🔒) → legal-document-service
 
 Gère les mandats clients, contrats formateurs, modèles légaux et enregistrements de signature.
 
@@ -561,62 +571,6 @@ Types de documents : `MANDAT_CLIENT`, `CONTRAT_FORMATEUR`.
 
 ---
 
-## finance-credit-service
-
-Phase 2 — Gestion des profils financiers, paiements, factures et archives financières.
-
-Toutes les routes 🔒 nécessitent `Authorization: Bearer <access_token>`.
-
-### Profils financiers
-
-| Méthode | Chemin | Description | Auth | Rôles autorisés | Body / Params | Réponse attendue |
-|---|---|---|---|---|---|---|
-| GET | /financial-profiles/:ownerId | Lire le profil financier d'un financeur | 🔒 | owner (soi-même), administrateur_financier, responsable_pedagogique, technicien_informatique | — | `200 {id, ownerId, profileType, pointsBalance, fundingEndDate, paymentMethod, paymentReference}` · `401` · `403` · `404` |
-| PATCH | /financial-profiles/:ownerId | Modifier les moyens de paiement ou paramètres | 🔒 | owner (soi-même), administrateur_financier, technicien_informatique | `{paymentMethod?, paymentReference?, fundingEndDate?}` | `200 {profileType mise à jour}` · `400` · `401` · `403` · `404` |
-
-Valeurs `profileType` : `limite` (compte non encore activé — inscription non payée) · `membre` (inscription payée).
-Valeurs `paymentMethod` : `cb` · `virement` · `paypal`.
-
-### Paiements
-
-| Méthode | Chemin | Description | Auth | Body | Réponse attendue |
-|---|---|---|---|---|---|
-| POST | /payments | Initier un paiement (inscription, abonnement, versement ponctuel) | 🔒 | `{paymentType, amountCents, externalReference?, correlationId?}` | `201 {payment, invoice}` · `400` validation · `401` · `409` doublon inscription (FIN-AC-002) |
-
-Règles métier :
-- Une inscription confirmée : crée/upgrade le profil financier en `membre`, génère une `Invoice`, un `FinancialArchiveItem`, crédite des points (1 pt/€) et publie `PaymentConfirmed` + `InvoiceIssued`.
-- Un seul paiement `inscription` confirmé par financeur est autorisé (`409` si doublon).
-- Valeurs `paymentType` : `inscription` · `abonnement` · `versement_ponctuel`.
-
-### Archives financières
-
-| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
-|---|---|---|---|---|---|
-| GET | /financial-archives/:ownerId | Lister les archives financières d'un financeur | 🔒 | owner (soi-même), administrateur_financier, responsable_pedagogique, technicien_informatique | `200 [{id, ownerId, itemType, referenceId, label, amountCents, balanceSnapshot, occurredAt}]` · `401` · `403` |
-
-Les archives sont triées par `occurredAt DESC`. Types d'items : `payment` · `invoice` · `ledger_entry`.
-
-### Healthcheck
-
-| Méthode | Chemin | Description | Auth |
-|---|---|---|---|
-| GET | /health | Vérifier l'état du service | Non |
-
-### API interne inter-services (non exposée via nginx)
-
-> Exclue de Swagger (`@ApiExcludeController`). Protégée par `X-Internal-Secret: <INTERNAL_SECRET>`.
-> Utilisée par orchestration-service et legal-document-service pour conditionner le statut membre.
-
-| Méthode | Chemin | Description | Header requis | Réponse attendue |
-|---|---|---|---|---|
-| POST | /internal/check-payment-status/:ownerId | Vérifier si l'inscription est payée pour un financeur | `X-Internal-Secret` | `200 {isPaid: bool, paymentId: string\|null}` · `401` |
-
-### Événements publiés
-
-`PaymentConfirmed` · `InvoiceIssued` · `PointsCredited`
-
----
-
 ## archive-document-service
 
 Phase 2 — Archives pédagogiques chronologiques et liens durables issus des activités.
@@ -643,3 +597,49 @@ Types d'items : `pedagogical_log` · `course_summary` · `notebook_entry` · `re
 | Méthode | Chemin (via gateway) | Description | Auth | Réponse attendue |
 |---|---|---|---|---|
 | GET | /api/v1/documents/:id/download | Télécharger un document d'archive (redirection 302 vers URL source) | 🔒 | Selon rôle et type d'archive | `302` redirect · `401` · `403` carnet_personnel interdit au parent · `404` introuvable ou pas d'URL |
+
+---
+
+## admin-observability-service
+
+Préfixe gateway canonique : `/api/v1/admin` → contrôleur `/admin`
+Préfixes legacy conservés : `/api/v1/audit` · `/api/v1/activity-logs` (ne correspondent pas aux routes contrôleur actuelles)
+
+### Logs d'activité
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /admin/activity-log | Lister les logs d'activité utilisateur (paginés, filtrables) | 🔒 | technicien_informatique, responsable_pedagogique, administrateur_financier | `200 [ActivityLogEntry]` ou `200 {data, meta}` · `401` · `403` |
+
+Query params : `userId?`, `action?`, `from?`, `to?`, `page?`, `pageSize?`
+
+### Logs techniques
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /admin/technical-logs | Lister les logs techniques des microservices (paginés, filtrables) | 🔒 | technicien_informatique | `200 [TechnicalLogEntry]` ou `200 {data, meta}` · `401` · `403` |
+
+Query params : `level?` (debug/info/warn/error/fatal), `service?`, `from?`, `to?`, `page?`, `pageSize?`
+
+### Overrides de visibilité (masquage temporaire)
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| POST | /admin/visibility-overrides | Masquer temporairement une ressource sans suppression | 🔒 | technicien_informatique | `201 VisibilityOverride` · `400` · `401` · `403` |
+| DELETE | /admin/visibility-overrides/:id | Lever un masquage | 🔒 | technicien_informatique | `204` · `401` · `403` · `404` |
+
+Body `POST` : `{targetType: "account"|"profile"|"content", targetId, reason, expiresAt?}`
+
+### Santé des services
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /admin/health | Rapport de santé agrégé de tous les microservices | 🔒 | technicien_informatique | `200 {overallStatus, services[], checkedAt}` · `401` · `403` |
+
+### Métadonnées du site
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| PATCH | /admin/site-metadata/:id | Mettre à jour les métadonnées globales du site | 🔒 | technicien_informatique | `200 SiteMetadata` · `400` · `401` · `403` · `404` |
+
+Body : `{siteName?, maintenanceMessage?, isMaintenanceMode?, contactEmail?, supportUrl?, announcementBanner?}`

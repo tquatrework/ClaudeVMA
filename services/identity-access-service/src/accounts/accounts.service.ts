@@ -422,7 +422,7 @@ export class AccountsService {
    * Creates a standalone parent financeur account.
    */
   async createParentAccount(dto: CreateParentAccountDto, ipAddress?: string) {
-    const loginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier);
+    const loginIdentifier = await this.resolveLoginIdentifier(dto.email, undefined);
     const emailAlreadyUsed = !!(await this.userRepo.findOne({ where: { email: dto.email } }));
 
     const passwordHash = await bcrypt.hash(dto.password, 12);

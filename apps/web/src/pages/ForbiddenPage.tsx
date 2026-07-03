@@ -14,7 +14,7 @@ export default function ForbiddenPage() {
           to="/dashboard"
           className="inline-block bg-indigo-600 text-white px-6 py-2 rounded-lg text-sm hover:bg-indigo-700"
         >
-          Retour au tableau de bord
+          Retour à l'accueil
         </Link>
       </div>
     </div>

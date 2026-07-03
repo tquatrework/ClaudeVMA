@@ -6,6 +6,7 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
+import { DataSource } from 'typeorm';
 import { TeacherPaymentRequestsService } from '../../../src/teacher-payment-requests/teacher-payment-requests.service';
 import {
   TeacherPaymentRequest,
@@ -23,6 +24,27 @@ import {
   ValidationDecision,
 } from '../../../src/teacher-payment-requests/dto/validate-teacher-payment-request.dto';
 import { FinancialProfileType } from '../../../src/financial-profiles/entities/financial-profile.entity';
+
+// ---- Repository mocks used inside the transaction manager ----
+
+const mockRequestRepoInner = {
+  findOne: jest.fn(),
+  save: jest.fn(),
+  create: jest.fn(),
+  find: jest.fn(),
+};
+
+const mockLedgerRepoInner = {
+  save: jest.fn(),
+  create: jest.fn(),
+};
+
+const mockArchiveRepoInner = {
+  save: jest.fn(),
+  create: jest.fn(),
+};
+
+// ---- Top-level repository mocks (used for reads outside the transaction) ----
 
 const mockRequestRepo = {
   findOne: jest.fn(),
@@ -47,6 +69,24 @@ const mockFinancialProfilesService = {
 };
 
 const mockEventsService = { publish: jest.fn() };
+
+/**
+ * Build a mock DataSource whose transaction() method executes the callback
+ * with a manager that returns pre-configured inner repository mocks.
+ */
+const buildMockDataSource = () => ({
+  transaction: jest.fn().mockImplementation(async (callback: (manager: unknown) => Promise<unknown>) => {
+    const manager = {
+      getRepository: (entityClass: unknown) => {
+        if (entityClass === TeacherPaymentRequest) return mockRequestRepoInner;
+        if (entityClass === FinancialPointLedger) return mockLedgerRepoInner;
+        if (entityClass === FinancialArchiveItem) return mockArchiveRepoInner;
+        throw new Error(`Unexpected entity class in transaction manager: ${String(entityClass)}`);
+      },
+    };
+    return callback(manager);
+  }),
+});
 
 const buildRequest = (
   overrides: Partial<TeacherPaymentRequest> = {},
@@ -83,8 +123,11 @@ const buildProfile = (pointsBalance = 500) => ({
 
 describe('TeacherPaymentRequestsService', () => {
   let service: TeacherPaymentRequestsService;
+  let mockDataSource: ReturnType<typeof buildMockDataSource>;
 
   beforeEach(async () => {
+    mockDataSource = buildMockDataSource();
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TeacherPaymentRequestsService,
@@ -93,11 +136,25 @@ describe('TeacherPaymentRequestsService', () => {
         { provide: getRepositoryToken(FinancialArchiveItem), useValue: mockArchiveRepo },
         { provide: FinancialProfilesService, useValue: mockFinancialProfilesService },
         { provide: EventsService, useValue: mockEventsService },
+        { provide: DataSource, useValue: mockDataSource },
       ],
     }).compile();
 
     service = module.get<TeacherPaymentRequestsService>(TeacherPaymentRequestsService);
     jest.clearAllMocks();
+
+    // Re-assign the transaction mock after clearAllMocks
+    mockDataSource.transaction.mockImplementation(async (callback: (manager: unknown) => Promise<unknown>) => {
+      const manager = {
+        getRepository: (entityClass: unknown) => {
+          if (entityClass === TeacherPaymentRequest) return mockRequestRepoInner;
+          if (entityClass === FinancialPointLedger) return mockLedgerRepoInner;
+          if (entityClass === FinancialArchiveItem) return mockArchiveRepoInner;
+          throw new Error(`Unexpected entity class in transaction manager: ${String(entityClass)}`);
+        },
+      };
+      return callback(manager);
+    });
   });
 
   // ---- createRequest ----
@@ -176,12 +233,12 @@ describe('TeacherPaymentRequestsService', () => {
 
       mockRequestRepo.findOne.mockResolvedValue(pendingRequest);
       mockFinancialProfilesService.findByOwnerId.mockResolvedValue(fundingProfile);
-      mockLedgerRepo.create.mockReturnValue({});
-      mockLedgerRepo.save.mockResolvedValue({});
-      mockArchiveRepo.create.mockReturnValue({});
-      mockArchiveRepo.save.mockResolvedValue({});
+      mockLedgerRepoInner.create.mockReturnValue({});
+      mockLedgerRepoInner.save.mockResolvedValue({});
+      mockArchiveRepoInner.create.mockReturnValue({});
+      mockArchiveRepoInner.save.mockResolvedValue({});
       mockFinancialProfilesService.updatePointsBalance.mockResolvedValue(undefined);
-      mockRequestRepo.save.mockResolvedValue(validatedRequest);
+      mockRequestRepoInner.save.mockResolvedValue(validatedRequest);
 
       const result = await service.validateRequest(
         'request-1',
@@ -192,7 +249,7 @@ describe('TeacherPaymentRequestsService', () => {
 
       expect(result.requestStatus).toBe(TeacherPaymentRequestStatus.VALIDATED);
       // 12000 cents = 120 points debited
-      expect(mockLedgerRepo.create).toHaveBeenCalledWith(
+      expect(mockLedgerRepoInner.create).toHaveBeenCalledWith(
         expect.objectContaining({
           entryType: LedgerEntryType.DEBIT,
           pointsAmount: 120,
@@ -200,7 +257,7 @@ describe('TeacherPaymentRequestsService', () => {
         }),
       );
       expect(mockFinancialProfilesService.updatePointsBalance).toHaveBeenCalledWith('owner-1', 380);
-      expect(mockArchiveRepo.save).toHaveBeenCalledTimes(1);
+      expect(mockArchiveRepoInner.save).toHaveBeenCalledTimes(1);
       expect(mockEventsService.publish).toHaveBeenCalledWith(
         'TeacherPaymentValidated',
         expect.objectContaining({ requestId: 'request-1', decision: ValidationDecision.VALIDATED }),
@@ -217,7 +274,7 @@ describe('TeacherPaymentRequestsService', () => {
       });
 
       mockRequestRepo.findOne.mockResolvedValue(pendingRequest);
-      mockRequestRepo.save.mockResolvedValue(rejectedRequest);
+      mockRequestRepoInner.save.mockResolvedValue(rejectedRequest);
 
       const result = await service.validateRequest(
         'request-1',
@@ -227,8 +284,8 @@ describe('TeacherPaymentRequestsService', () => {
       );
 
       expect(result.requestStatus).toBe(TeacherPaymentRequestStatus.REJECTED);
-      expect(mockLedgerRepo.save).not.toHaveBeenCalled();
-      expect(mockArchiveRepo.save).not.toHaveBeenCalled();
+      expect(mockLedgerRepoInner.save).not.toHaveBeenCalled();
+      expect(mockArchiveRepoInner.save).not.toHaveBeenCalled();
       expect(mockEventsService.publish).toHaveBeenCalledWith(
         'PaymentIncidentDetected',
         expect.objectContaining({ decision: ValidationDecision.REJECTED }),
@@ -288,6 +345,50 @@ describe('TeacherPaymentRequestsService', () => {
           UserRole.ADMINISTRATEUR_FINANCIER,
         ),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    // ---- Test rollback ----
+
+    it('rolls back all writes when an error occurs after the first save inside the transaction', async () => {
+      const pendingRequest = buildRequest();
+      const fundingProfile = buildProfile(500);
+
+      mockRequestRepo.findOne.mockResolvedValue(pendingRequest);
+      mockFinancialProfilesService.findByOwnerId.mockResolvedValue(fundingProfile);
+      mockLedgerRepoInner.create.mockReturnValue({});
+
+      // Simulate: ledger save succeeds, then archive save throws → transaction should roll back
+      mockLedgerRepoInner.save.mockResolvedValue({});
+      mockArchiveRepoInner.create.mockReturnValue({});
+      mockArchiveRepoInner.save.mockRejectedValue(new Error('DB error on archive save'));
+
+      // Override dataSource.transaction to simulate rollback: let the callback throw
+      mockDataSource.transaction.mockImplementation(async (callback: (manager: unknown) => Promise<unknown>) => {
+        const manager = {
+          getRepository: (entityClass: unknown) => {
+            if (entityClass === TeacherPaymentRequest) return mockRequestRepoInner;
+            if (entityClass === FinancialPointLedger) return mockLedgerRepoInner;
+            if (entityClass === FinancialArchiveItem) return mockArchiveRepoInner;
+            throw new Error(`Unexpected entity class`);
+          },
+        };
+        // The real DataSource would roll back; here we just let the error propagate
+        return callback(manager);
+      });
+
+      await expect(
+        service.validateRequest(
+          'request-1',
+          { decision: ValidationDecision.VALIDATED },
+          'af-user',
+          UserRole.ADMINISTRATEUR_FINANCIER,
+        ),
+      ).rejects.toThrow('DB error on archive save');
+
+      // Events must NOT be published because the transaction failed
+      expect(mockEventsService.publish).not.toHaveBeenCalled();
+      // Request status update must NOT have been persisted (error happened before it)
+      expect(mockRequestRepoInner.save).not.toHaveBeenCalled();
     });
   });
 

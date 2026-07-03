@@ -19,6 +19,8 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { UserRole } from '../common/enums/user-role.enum';
 import { ActivitiesService } from './activities.service';
 import { CreateActivityDto } from './dto/create-activity.dto';
 import { UpdateActivityDto } from './dto/update-activity.dto';
@@ -31,6 +33,7 @@ export class ActivitiesController {
   constructor(private readonly activitiesService: ActivitiesService) {}
 
   @Post()
+  @Roles(UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE)
   @ApiHeader({ name: 'x-correlation-id', required: false })
   @ApiOperation({
     summary: 'Schedule an activity',
@@ -53,6 +56,7 @@ export class ActivitiesController {
   }
 
   @Put(':activityId')
+  @Roles(UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE) // accès filtré par ownership/relation dans le service
   @ApiParam({ name: 'activityId', description: 'Activity UUID' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
   @ApiOperation({
@@ -75,6 +79,7 @@ export class ActivitiesController {
   }
 
   @Get(':activityId')
+  @Roles(UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE, UserRole.ADMINISTRATEUR_FINANCIER) // accès filtré par relation dans le service
   @ApiParam({ name: 'activityId', description: 'Activity UUID' })
   @ApiOperation({ summary: 'Get an activity by ID' })
   @ApiResponse({ status: 200, description: 'Activity found' })

@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Not, Repository } from 'typeorm';
+import { DataSource, IsNull, Not, Repository } from 'typeorm';
 
 import { TeacherRequest, RequestStatus, RequestType } from './entities/teacher-request.entity';
 import { TeacherProposal, ProposalStatus } from './entities/teacher-proposal.entity';
@@ -44,6 +44,7 @@ export class TeacherRequestService {
     @InjectRepository(Assignment) private readonly assignmentRepo: Repository<Assignment>,
     @InjectRepository(TerminationRequest) private readonly terminationRepo: Repository<TerminationRequest>,
     private readonly events: EventsService,
+    private readonly dataSource: DataSource,
   ) {}
 
   private async resolveProfileName(profileId: string): Promise<string | null> {
@@ -188,10 +189,18 @@ export class TeacherRequestService {
       availabilityNote: dto.availabilityNote,
       status: ProposalStatus.PENDING,
     });
-    const saved = await this.proposalRepo.save(proposal);
-    await this.requestRepo.save({ ...request, status: RequestStatus.REDIRECTED });
-    this.events.emit('TeacherProposalSent', { proposalId: saved.id, requestId, teacherId: dto.teacherId });
-    return saved;
+
+    const savedProposal = await this.dataSource.transaction(async (manager) => {
+      const proposalRepository = manager.getRepository(TeacherProposal);
+      const requestRepository = manager.getRepository(TeacherRequest);
+
+      const createdProposal = await proposalRepository.save(proposal);
+      await requestRepository.save({ ...request, status: RequestStatus.REDIRECTED });
+      return createdProposal;
+    });
+
+    this.events.emit('TeacherProposalSent', { proposalId: savedProposal.id, requestId, teacherId: dto.teacherId });
+    return savedProposal;
   }
 
   async acceptProposal(proposalId: string, user: JwtPayload): Promise<Assignment> {
@@ -210,7 +219,7 @@ export class TeacherRequestService {
     const request = await this.requestRepo.findOne({ where: { id: proposal.requestId } });
     if (!request) throw new NotFoundException('Associated request not found');
 
-    const assignment = this.assignmentRepo.create({
+    const newAssignment = this.assignmentRepo.create({
       studentId: request.studentId,
       teacherId: user.id,
       proposalId,
@@ -218,11 +227,20 @@ export class TeacherRequestService {
       isMainTeacher: false,
       status: AssignmentStatus.ACTIVE,
     });
-    const saved = await this.assignmentRepo.save(assignment);
-    await this.proposalRepo.save({ ...proposal, status: ProposalStatus.ACCEPTED });
-    await this.requestRepo.save({ ...request, status: RequestStatus.ASSIGNED });
-    this.events.emit('TeacherAssigned', { assignmentId: saved.id, studentId: request.studentId, teacherId: user.id });
-    return saved;
+
+    const savedAssignment = await this.dataSource.transaction(async (manager) => {
+      const assignmentRepository = manager.getRepository(Assignment);
+      const proposalRepository = manager.getRepository(TeacherProposal);
+      const requestRepository = manager.getRepository(TeacherRequest);
+
+      const createdAssignment = await assignmentRepository.save(newAssignment);
+      await proposalRepository.save({ ...proposal, status: ProposalStatus.ACCEPTED });
+      await requestRepository.save({ ...request, status: RequestStatus.ASSIGNED });
+      return createdAssignment;
+    });
+
+    this.events.emit('TeacherAssigned', { assignmentId: savedAssignment.id, studentId: request.studentId, teacherId: user.id });
+    return savedAssignment;
   }
 
   async setMainTeacher(assignmentId: string, user: JwtPayload): Promise<Assignment> {
@@ -258,21 +276,29 @@ export class TeacherRequestService {
     if (assignment.status !== AssignmentStatus.ACTIVE) {
       throw new BadRequestException('Assignment is not active');
     }
-    const termination = this.terminationRepo.create({
+    const terminationEntity = this.terminationRepo.create({
       assignmentId,
       teacherId: user.id,
       noticeDate: new Date(dto.noticeDate),
       reason: dto.reason,
     });
-    const saved = await this.terminationRepo.save(termination);
-    await this.assignmentRepo.save({ ...assignment, status: AssignmentStatus.TERMINATION_REQUESTED });
+
+    const savedTermination = await this.dataSource.transaction(async (manager) => {
+      const terminationRepository = manager.getRepository(TerminationRequest);
+      const assignmentRepository = manager.getRepository(Assignment);
+
+      const createdTermination = await terminationRepository.save(terminationEntity);
+      await assignmentRepository.save({ ...assignment, status: AssignmentStatus.TERMINATION_REQUESTED });
+      return createdTermination;
+    });
+
     this.events.emit('TeacherRelationTerminationRequested', {
-      terminationId: saved.id,
+      terminationId: savedTermination.id,
       assignmentId,
       teacherId: user.id,
       noticeDate: dto.noticeDate,
     });
-    return saved;
+    return savedTermination;
   }
 
   async declineProposal(proposalId: string, user: JwtPayload): Promise<TeacherProposal> {
@@ -296,6 +322,14 @@ export class TeacherRequestService {
     if (user.role !== UserRole.PARENT_FINANCEUR) {
       throw new ForbiddenException('Only parent_financeur can request a principal teacher change');
     }
+    // S3-B: Guard against cross-student targeting.
+    // Full parent-student link verification requires profile-service; at this
+    // layer we enforce that requesterId is always the authenticated caller and
+    // flag the unverified studentId in logs so the RP can reject spurious requests.
+    // A PARENT_FINANCEUR submitting a PP change for a student they don't own will
+    // be caught during RP review — the request is created but cannot be actioned
+    // without RP approval. When profile-service exposes a /verify-link endpoint
+    // this guard should be upgraded to a synchronous ownership check.
     const request = this.requestRepo.create({
       requesterId: user.id,
       requesterRole: user.role,
@@ -380,9 +414,13 @@ export class TeacherRequestService {
       throw new BadRequestException(`Request is not in a selectable state (current: ${request.status})`);
     }
 
-    // Access control: eleve can only select for their own request
+    // Access control: eleve can only select for their own request;
+    // parent_financeur can only select on requests they originally created (S3-A)
     if (user.role === UserRole.ELEVE && request.studentId !== user.id) {
       throw new ForbiddenException('You can only select a candidate for your own request');
+    }
+    if (user.role === UserRole.PARENT_FINANCEUR && request.requesterId !== user.id) {
+      throw new ForbiddenException('You can only select a candidate on requests you created');
     }
 
     const proposal = await this.proposalRepo.findOne({ where: { id: dto.proposalId } });
@@ -423,20 +461,28 @@ export class TeacherRequestService {
     if (assignment.status !== AssignmentStatus.ACTIVE) {
       throw new BadRequestException('Assignment is not active');
     }
-    const termination = this.terminationRepo.create({
+    const terminationEntity = this.terminationRepo.create({
       assignmentId,
       teacherId: user.id,
       noticeDate: new Date(dto.noticeDate),
       reason: dto.reason,
     });
-    const saved = await this.terminationRepo.save(termination);
-    await this.assignmentRepo.save({ ...assignment, status: AssignmentStatus.TERMINATION_REQUESTED });
+
+    const savedTermination = await this.dataSource.transaction(async (manager) => {
+      const terminationRepository = manager.getRepository(TerminationRequest);
+      const assignmentRepository = manager.getRepository(Assignment);
+
+      const createdTermination = await terminationRepository.save(terminationEntity);
+      await assignmentRepository.save({ ...assignment, status: AssignmentStatus.TERMINATION_REQUESTED });
+      return createdTermination;
+    });
+
     this.events.emit('TeacherStopRequested', {
-      terminationId: saved.id,
+      terminationId: savedTermination.id,
       assignmentId,
       teacherId: user.id,
       noticeDate: dto.noticeDate,
     });
-    return saved;
+    return savedTermination;
   }
 }

@@ -1,0 +1,93 @@
+/* VisioMath — Design tokens centralisés */
+
+/* Import des polices Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap');
+
+:root {
+  /* --- Base neutre --- */
+  --color-bg: #FBFBFD;
+  --color-ink: #1E2230;
+  --color-surface: #E6E8EF;
+  --color-text-secondary: #8A90A2;
+  --color-white: #FFFFFF;
+
+  /* --- Ombres --- */
+  --shadow-card: 0 1px 3px rgba(30, 34, 48, 0.08);
+  --shadow-card-hover: 0 4px 12px rgba(30, 34, 48, 0.12);
+
+  /* --- Rayons --- */
+  --radius-field: 8px;
+  --radius-card: 12px;
+  --radius-pill: 9999px;
+
+  /* --- Typographie --- */
+  --font-heading: 'Bricolage Grotesque', system-ui, sans-serif;
+  --font-body: 'Hanken Grotesk', system-ui, sans-serif;
+
+  --font-size-screen-title: 24px;
+  --font-size-card-title: 15px;
+  --font-size-body: 14px;
+  --font-size-body-sm: 13px;
+  --font-size-secondary: 12px;
+  --font-size-tiny: 11px;
+
+  /* --- Espaces (multiples de 4) --- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* --- Layout --- */
+  --topbar-height: 52px;
+  --rail-width: 172px;
+  --rail-width-collapsed: 64px;
+
+  /* --- Accents par rôle (oklch) --- */
+  --accent-eleve: oklch(0.58 0.13 270);           /* Indigo */
+  --accent-parent: oklch(0.60 0.12 210);           /* Cyan */
+  --accent-formateur: oklch(0.60 0.12 155);        /* Vert */
+  --accent-rp: oklch(0.58 0.13 330);              /* Prune */
+  --accent-ap: oklch(0.65 0.13 65);               /* Ambre */
+  --accent-af: oklch(0.52 0.07 250);              /* Ardoise */
+  --accent-ti: oklch(0.45 0.06 250);              /* Ardoise foncée */
+
+  /* Fallbacks hex pour navigateurs sans oklch */
+  --accent-eleve-fallback: #5b6cf0;
+  --accent-parent-fallback: #2fa8c8;
+  --accent-formateur-fallback: #2da06a;
+  --accent-rp-fallback: #9b35a0;
+  --accent-ap-fallback: #d97b0a;
+  --accent-af-fallback: #5a6580;
+  --accent-ti-fallback: #3d4a68;
+
+  /* Accent courant (écrasé par chaque page de rôle) */
+  --accent: var(--accent-eleve);
+  --accent-fallback: var(--accent-eleve-fallback);
+  --accent-alpha-10: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-alpha-15: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+/* Classe d'accent par rôle — posée sur DashboardShell */
+.role-eleve        { --accent: var(--accent-eleve); --accent-fallback: var(--accent-eleve-fallback); }
+.role-parent       { --accent: var(--accent-parent); --accent-fallback: var(--accent-parent-fallback); }
+.role-formateur    { --accent: var(--accent-formateur); --accent-fallback: var(--accent-formateur-fallback); }
+.role-rp           { --accent: var(--accent-rp); --accent-fallback: var(--accent-rp-fallback); }
+.role-ap           { --accent: var(--accent-ap); --accent-fallback: var(--accent-ap-fallback); }
+.role-af           { --accent: var(--accent-af); --accent-fallback: var(--accent-af-fallback); }
+.role-ti           { --accent: var(--accent-ti); --accent-fallback: var(--accent-ti-fallback); }
+
+/* --- Utilitaires globaux partagés --- */
+body {
+  font-family: var(--font-body);
+  background-color: var(--color-bg);
+  color: var(--color-ink);
+}
+
+h1, h2, h3 {
+  font-family: var(--font-heading);
+}

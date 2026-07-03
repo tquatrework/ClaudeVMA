@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, Navigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
 import {
@@ -46,6 +46,13 @@ export default function LegalDocumentsPage() {
   const [isDownloadingSecureCopy, setIsDownloadingSecureCopy] = useState<string | null>(null)
 
   const resolvedOwnerId = ownerId ?? user?.id ?? ''
+
+  // Un parent_financeur ne peut accéder qu'à ses propres documents légaux (LDS-FB-001).
+  // AF, RP et TI peuvent accéder aux documents de n'importe quel utilisateur.
+  const isAdminLegalRole = hasRole('administrateur_financier', 'responsable_pedagogique', 'technicien_informatique')
+  if (ownerId && hasRole('parent_financeur') && !isAdminLegalRole && user?.id !== ownerId) {
+    return <Navigate to="/forbidden" replace />
+  }
 
   const isOwner = user?.id === resolvedOwnerId
   const canSign = isOwner

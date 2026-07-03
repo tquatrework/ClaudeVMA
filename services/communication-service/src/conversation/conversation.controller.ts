@@ -38,6 +38,7 @@ export class ConversationController {
 
   // ── Conversations ──────────────────────────────────────────────────────────
 
+  // Droits contextuels vérifiés dans le service (appartenance à la liste des conversations du userId courant)
   @Get('conversations')
   @ApiOperation({
     summary: 'List my conversations',
@@ -50,6 +51,7 @@ export class ConversationController {
     return this.conversationService.findAll(req.user.id);
   }
 
+  // Droits contextuels vérifiés dans le service (contact autorisé via ContactService.isAuthorized — COM-BR-010, COM-FB-002)
   @Post('conversations')
   @ApiOperation({
     summary: 'Create a conversation',
@@ -66,6 +68,7 @@ export class ConversationController {
     return this.conversationService.create(dto, req.user.id);
   }
 
+  // Droits contextuels vérifiés dans le service (appelant doit être participant de la conversation)
   @Post('conversations/:conversationId/messages')
   @ApiParam({ name: 'conversationId', description: 'Conversation UUID' })
   @ApiOperation({
@@ -89,6 +92,7 @@ export class ConversationController {
 
   // ── Messages ───────────────────────────────────────────────────────────────
 
+  // Droits contextuels vérifiés dans le service (appelant doit être participant de la conversation)
   @Get('messages/conversation/:conversationId')
   @ApiParam({ name: 'conversationId', description: 'Conversation UUID' })
   @ApiOperation({
@@ -106,6 +110,7 @@ export class ConversationController {
     return this.conversationService.getMessages(conversationId, req.user.id);
   }
 
+  // Droits contextuels vérifiés dans le service (appelant doit être participant de la conversation du message)
   @Patch('messages/:id/read')
   @ApiParam({ name: 'id', description: 'Message UUID' })
   @ApiOperation({

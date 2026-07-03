@@ -18,6 +18,7 @@ const mockUser: User = {
   lastName: null,
   phone: null,
   isActive: true,
+  emailVerified: false,
   createdAt: new Date(),
   updatedAt: new Date(),
 };

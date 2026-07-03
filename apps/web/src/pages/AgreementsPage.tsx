@@ -70,7 +70,7 @@ export default function AgreementsPage() {
           <div className="p-4 bg-green-50 border border-green-200 rounded-xl text-green-700 text-sm">
             Votre réponse a été enregistrée.{' '}
             <button onClick={() => navigate('/dashboard')} className="underline">
-              Retour au tableau de bord
+              Retour à l'accueil
             </button>
           </div>
         )}

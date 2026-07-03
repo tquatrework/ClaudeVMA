@@ -35,9 +35,9 @@ import { PaginatedResponseDto } from './dto/paginated-response.dto';
 export class ArchiveController {
   constructor(private readonly archiveService: ArchiveService) {}
 
-  // ─── GET /archives/students/:studentId/pedagogical-archives ─────────────────
+  // ─── GET /students/:studentId/pedagogical-archives ──────────────────────────
 
-  @Get('archives/students/:studentId/pedagogical-archives')
+  @Get('students/:studentId/pedagogical-archives')
   @ApiOperation({
     summary: 'Lister les archives pédagogiques d\'un élève',
     description:
@@ -69,9 +69,9 @@ export class ArchiveController {
     );
   }
 
-  // ─── POST /archives/students/:studentId/archive-links ────────────────────────
+  // ─── POST /students/:studentId/archive-links ─────────────────────────────────
 
-  @Post('archives/students/:studentId/archive-links')
+  @Post('students/:studentId/archive-links')
   @ApiOperation({
     summary: 'Ajouter un lien archive depuis un service source',
     description:
@@ -92,15 +92,15 @@ export class ArchiveController {
   addArchiveLink(
     @Param('studentId') studentId: string,
     @Body() dto: AddArchiveLinkDto,
-    @Req() _request: any,
+    @Req() request: any,
     @Headers('x-correlation-id') _correlationId?: string,
   ): Promise<ArchiveItemResponseDto> {
-    return this.archiveService.addArchiveLink(studentId, dto);
+    return this.archiveService.addArchiveLink(studentId, dto, request.user.id, request.user.role);
   }
 
-  // ─── GET /archives/students/:studentId/archive-timeline ──────────────────────
+  // ─── GET /students/:studentId/archive-timeline ───────────────────────────────
 
-  @Get('archives/students/:studentId/archive-timeline')
+  @Get('students/:studentId/archive-timeline')
   @ApiOperation({
     summary: 'Vue calendrier des archives pédagogiques',
     description:
@@ -132,9 +132,9 @@ export class ArchiveController {
     );
   }
 
-  // ─── GET /documents/:id/download ─────────────────────────────────────────────
+  // ─── GET /archive-documents/:id/download ─────────────────────────────────────
 
-  @Get('documents/:id/download')
+  @Get('archive-documents/:id/download')
   @ApiOperation({
     summary: 'Télécharger un document archivé autorisé',
     description:

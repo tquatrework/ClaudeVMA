@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#EEF0F5;font-family:'Hanken Grotesk',sans-serif;color:#1E2230}
+</style>
+</helmet>
+
+<div style="width:1080px;margin:0 auto;padding:40px 36px 56px">
+
+  <!-- header -->
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid #DADCE6;padding-bottom:22px;margin-bottom:30px">
+    <div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="width:11px;height:11px;border-radius:50%;background:oklch(0.58 0.13 270)"></span>
+        <span style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:18px;letter-spacing:-.2px">VisioMath</span>
+      </div>
+      <h1 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:34px;letter-spacing:-.7px;margin:0;line-height:1.05">Direction visuelle</h1>
+      <p style="font-size:14.5px;color:#6B7180;margin:10px 0 0;max-width:560px;line-height:1.5">Sobriété, lisibilité, modernité. Une base neutre commune à tous les rôles, un accent de couleur propre à chaque rôle — pour l'unité et le repère immédiat.</p>
+    </div>
+    <div style="font-size:12px;color:#9aa0b0;text-align:right;line-height:1.7">Premier jet · à valider<br>Référence haute-fidélité</div>
+  </div>
+
+  <!-- principes -->
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:34px">
+    <div style="background:#fff;border:1px solid #E6E8EF;border-radius:14px;padding:16px 16px 18px">
+      <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:15px;margin-bottom:6px">Sobriété</div>
+      <div style="font-size:12.5px;color:#6B7180;line-height:1.5">Beaucoup de blanc, ombres douces. L'espace crée la hiérarchie, pas les effets.</div>
+    </div>
+    <div style="background:#fff;border:1px solid #E6E8EF;border-radius:14px;padding:16px 16px 18px">
+      <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:15px;margin-bottom:6px">Une action claire</div>
+      <div style="font-size:12.5px;color:#6B7180;line-height:1.5">Un objectif principal par écran (ex. « Rejoindre le cours »), mis en avant.</div>
+    </div>
+    <div style="background:#fff;border:1px solid #E6E8EF;border-radius:14px;padding:16px 16px 18px">
+      <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:15px;margin-bottom:6px">Un seul accent</div>
+      <div style="font-size:12.5px;color:#6B7180;line-height:1.5">La couleur ne sert qu'aux actions et états actifs. Le reste reste neutre.</div>
+    </div>
+    <div style="background:#fff;border:1px solid #E6E8EF;border-radius:14px;padding:16px 16px 18px">
+      <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:15px;margin-bottom:6px">Unité multi-rôles</div>
+      <div style="font-size:12.5px;color:#6B7180;line-height:1.5">Même layout et même charte pour les 6 rôles ; seul l'accent change.</div>
+    </div>
+  </div>
+
+  <!-- couleurs -->
+  <div style="display:grid;grid-template-columns:0.85fr 1.15fr;gap:22px;margin-bottom:34px">
+    <!-- base neutre -->
+    <div style="background:#fff;border:1px solid #E6E8EF;border-radius:16px;padding:24px">
+      <h2 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:19px;margin:0 0 4px">Base neutre</h2>
+      <p style="font-size:12.5px;color:#6B7180;margin:0 0 18px">Commune à tous les rôles.</p>
+      <div style="display:flex;flex-direction:column;gap:13px">
+        <div style="display:flex;align-items:center;gap:14px"><span style="width:46px;height:46px;border-radius:10px;border:1px solid #DADCE6;background:#FBFBFD"></span><div><div style="font-size:13.5px;font-weight:600">Fond</div><div style="font-size:12px;color:#8A90A2;font-variant-numeric:tabular-nums">#FBFBFD · blanc froid</div></div></div>
+        <div style="display:flex;align-items:center;gap:14px"><span style="width:46px;height:46px;border-radius:10px;background:#1E2230"></span><div><div style="font-size:13.5px;font-weight:600">Encre · texte</div><div style="font-size:12px;color:#8A90A2;font-variant-numeric:tabular-nums">#1E2230 · bleu-noir</div></div></div>
+        <div style="display:flex;align-items:center;gap:14px"><span style="width:46px;height:46px;border-radius:10px;background:#E6E8EF"></span><div><div style="font-size:13.5px;font-weight:600">Lignes · surfaces</div><div style="font-size:12px;color:#8A90A2;font-variant-numeric:tabular-nums">#E6E8EF</div></div></div>
+        <div style="display:flex;align-items:center;gap:14px"><span style="width:46px;height:46px;border-radius:10px;background:#8A90A2"></span><div><div style="font-size:13.5px;font-weight:600">Texte secondaire</div><div style="font-size:12px;color:#8A90A2;font-variant-numeric:tabular-nums">#8A90A2</div></div></div>
+      </div>
+    </div>
+    <!-- accent par rôle -->
+    <div style="background:#fff;border:1px solid #E6E8EF;border-radius:16px;padding:24px">
+      <h2 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:19px;margin:0 0 4px">Accent par rôle</h2>
+      <p style="font-size:12.5px;color:#6B7180;margin:0 0 18px">Même luminosité, on varie la teinte → cohérence garantie.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div style="display:flex;align-items:center;gap:12px;border:1px solid #EEF0F5;border-radius:12px;padding:11px 13px"><span style="width:34px;height:34px;border-radius:9px;background:oklch(0.58 0.13 270)"></span><div><div style="font-size:13.5px;font-weight:600">Élève</div><div style="font-size:11px;color:#8A90A2">Indigo</div></div></div>
+        <div style="display:flex;align-items:center;gap:12px;border:1px solid #EEF0F5;border-radius:12px;padding:11px 13px"><span style="width:34px;height:34px;border-radius:9px;background:oklch(0.60 0.12 210)"></span><div><div style="font-size:13.5px;font-weight:600">Parent</div><div style="font-size:11px;color:#8A90A2">Cyan</div></div></div>
+        <div style="display:flex;align-items:center;gap:12px;border:1px solid #EEF0F5;border-radius:12px;padding:11px 13px"><span style="width:34px;height:34px;border-radius:9px;background:oklch(0.60 0.12 155)"></span><div><div style="font-size:13.5px;font-weight:600">Professeur</div><div style="font-size:11px;color:#8A90A2">Vert</div></div></div>
+        <div style="display:flex;align-items:center;gap:12px;border:1px solid #EEF0F5;border-radius:12px;padding:11px 13px"><span style="width:34px;height:34px;border-radius:9px;background:oklch(0.58 0.13 330)"></span><div><div style="font-size:13.5px;font-weight:600">Responsable péda.</div><div style="font-size:11px;color:#8A90A2">Prune</div></div></div>
+        <div style="display:flex;align-items:center;gap:12px;border:1px solid #EEF0F5;border-radius:12px;padding:11px 13px"><span style="width:34px;height:34px;border-radius:9px;background:oklch(0.65 0.13 65)"></span><div><div style="font-size:13.5px;font-weight:600">Animateur péda.</div><div style="font-size:11px;color:#8A90A2">Ambre</div></div></div>
+        <div style="display:flex;align-items:center;gap:12px;border:1px solid #EEF0F5;border-radius:12px;padding:11px 13px"><span style="width:34px;height:34px;border-radius:9px;background:oklch(0.52 0.07 250)"></span><div><div style="font-size:13.5px;font-weight:600">Admin financier</div><div style="font-size:11px;color:#8A90A2">Ardoise</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- typographie -->
+  <div style="background:#fff;border:1px solid #E6E8EF;border-radius:16px;padding:26px 28px;margin-bottom:34px">
+    <h2 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:19px;margin:0 0 20px">Typographie</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px">
+      <div style="border-right:1px solid #EEF0F5;padding-right:26px">
+        <div style="font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:#8A90A2;margin-bottom:12px">Titres — Bricolage Grotesque</div>
+        <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:38px;letter-spacing:-1px;line-height:1.05;margin-bottom:6px">Bonjour, Léa</div>
+        <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:600;font-size:22px;color:#3a3f4d;margin-bottom:4px">Prochain cours</div>
+        <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:500;font-size:15px;color:#6B7180">Un peu de caractère, sans bavardage.</div>
+      </div>
+      <div>
+        <div style="font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:#8A90A2;margin-bottom:12px">Texte & interface — Hanken Grotesk</div>
+        <div style="font-size:15px;line-height:1.6;color:#2b3040;margin-bottom:12px">Neutre, très lisible à toutes les tailles. Idéale pour les libellés, listes, formulaires et données du dashboard.</div>
+        <div style="display:flex;gap:18px;font-variant-numeric:tabular-nums">
+          <div><div style="font-size:26px;font-weight:700;color:oklch(0.58 0.13 270)">72%</div><div style="font-size:11.5px;color:#8A90A2">progression</div></div>
+          <div><div style="font-size:26px;font-weight:700">0 1 2 3 4</div><div style="font-size:11.5px;color:#8A90A2">chiffres tabulaires</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- composants en contexte -->
+  <div style="background:#fff;border:1px solid #E6E8EF;border-radius:16px;padding:26px 28px">
+    <h2 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:19px;margin:0 0 4px">Composants — aperçu</h2>
+    <p style="font-size:12.5px;color:#6B7180;margin:0 0 22px">Le même composant prend simplement l'accent du rôle.</p>
+
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:24px">
+      <span style="font-size:12px;color:#8A90A2;width:130px">Bouton principal</span>
+      <button style="border:none;border-radius:11px;padding:11px 18px;font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:14px;color:#fff;background:oklch(0.58 0.13 270);box-shadow:0 2px 6px oklch(0.58 0.13 270 / .35);cursor:pointer">▶ Rejoindre — Élève</button>
+      <button style="border:none;border-radius:11px;padding:11px 18px;font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:14px;color:#fff;background:oklch(0.60 0.12 155);cursor:pointer">Valider — Professeur</button>
+      <button style="border:none;border-radius:11px;padding:11px 18px;font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:14px;color:#fff;background:oklch(0.52 0.07 250);cursor:pointer">Exporter — Admin</button>
+    </div>
+
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:24px">
+      <span style="font-size:12px;color:#8A90A2;width:130px">Étiquettes</span>
+      <span style="padding:5px 13px;border-radius:20px;font-size:12.5px;font-weight:500;background:oklch(0.58 0.13 270 / .1);color:oklch(0.42 0.13 270)">dans 1h30</span>
+      <span style="padding:5px 13px;border-radius:20px;font-size:12.5px;font-weight:500;background:#EEF0F5;color:#5a6072">visio</span>
+      <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 13px;border-radius:20px;font-size:12.5px;font-weight:500;background:#fff;border:1px solid #E6E8EF;color:#3a3f4d"><span style="width:8px;height:8px;border-radius:50%;background:oklch(0.60 0.12 155)"></span>en ligne</span>
+    </div>
+
+    <div style="display:flex;gap:30px;align-items:flex-start;flex-wrap:wrap">
+      <div style="flex:1;min-width:280px">
+        <span style="font-size:12px;color:#8A90A2;display:block;margin-bottom:12px">Barre de progression</span>
+        <div style="font-size:12.5px;color:#5a6072;margin-bottom:4px;display:flex;justify-content:space-between"><span>Algèbre</span><span style="font-variant-numeric:tabular-nums">72%</span></div>
+        <div style="height:9px;border-radius:6px;background:#EEF0F5;overflow:hidden;margin-bottom:12px"><div style="width:72%;height:100%;background:oklch(0.58 0.13 270)"></div></div>
+        <div style="font-size:12.5px;color:#5a6072;margin-bottom:4px;display:flex;justify-content:space-between"><span>Analyse</span><span style="font-variant-numeric:tabular-nums">46%</span></div>
+        <div style="height:9px;border-radius:6px;background:#EEF0F5;overflow:hidden"><div style="width:46%;height:100%;background:oklch(0.58 0.13 270)"></div></div>
+      </div>
+      <div style="flex:1;min-width:280px">
+        <span style="font-size:12px;color:#8A90A2;display:block;margin-bottom:12px">Carte</span>
+        <div style="border:1px solid #E6E8EF;border-radius:14px;padding:16px 18px;background:#FBFBFD;box-shadow:0 1px 3px rgba(30,34,48,.06)">
+          <div style="font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:#8A90A2;margin-bottom:5px">Prochain cours</div>
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;margin-bottom:2px">Maths — Suites & limites</div>
+          <div style="font-size:13px;color:#6B7180">avec M. Diallo · aujourd'hui 17h00</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1080,&quot;height&quot;:1180}}"></script>
+</body>
+</html>

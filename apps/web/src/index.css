@@ -1,3 +1,6 @@
+/* Design system VisioMath — tokens centralisés (doit précéder @tailwind) */
+@import './styles/tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

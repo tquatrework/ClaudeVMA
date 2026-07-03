@@ -18,6 +18,8 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { UserRole } from '../common/enums/user-role.enum';
 import { TeacherPaymentRequestsService } from './teacher-payment-requests.service';
 import { CreateTeacherPaymentRequestDto } from './dto/create-teacher-payment-request.dto';
 import { ValidateTeacherPaymentRequestDto } from './dto/validate-teacher-payment-request.dto';
@@ -32,6 +34,7 @@ export class TeacherPaymentRequestsController {
   ) {}
 
   @Post()
+  @Roles(UserRole.FORMATEUR)
   @ApiHeader({ name: 'x-correlation-id', required: false })
   @ApiOperation({
     summary: 'Submit a teacher payment request',
@@ -57,6 +60,7 @@ export class TeacherPaymentRequestsController {
   }
 
   @Post(':id/validate')
+  @Roles(UserRole.ADMINISTRATEUR_FINANCIER)
   @ApiParam({ name: 'id', description: 'UUID of the teacher payment request' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
   @ApiOperation({
@@ -92,6 +96,7 @@ export class TeacherPaymentRequestsController {
   }
 
   @Get('by-teacher/:teacherId')
+  @Roles(UserRole.FORMATEUR, UserRole.ADMINISTRATEUR_FINANCIER, UserRole.TECHNICIEN_INFORMATIQUE)
   @ApiParam({ name: 'teacherId', description: 'UUID of the teacher' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
   @ApiOperation({
@@ -103,6 +108,7 @@ export class TeacherPaymentRequestsController {
   @ApiResponse({ status: 200, description: 'List of teacher payment requests' })
   @ApiResponse({ status: 401, description: 'Missing or invalid JWT' })
   @ApiResponse({ status: 403, description: 'Insufficient permissions' })
+  // accès filtré par ownership dans le service
   findByTeacher(
     @Param('teacherId') teacherId: string,
     @Req() req: any,

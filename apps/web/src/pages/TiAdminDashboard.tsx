@@ -7,7 +7,8 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import DashboardShell, { RailGroup, NavItem } from '../components/dashboard/DashboardShell'
+import DashboardShell from '../components/dashboard/DashboardShell'
+import type { RailGroup, NavItem } from '../types/navigation'
 import { fetchHealthStatus, type HealthStatusReport, type ServiceHealthStatus } from '../api/adminObservability'
 import '../styles/tokens.css'
 

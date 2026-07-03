@@ -6,64 +6,20 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import DashboardShell, { RailGroup, NavItem } from '../components/dashboard/DashboardShell'
+import DashboardShell from '../components/dashboard/DashboardShell'
 import apiClient from '../api/client'
 import '../styles/tokens.css'
+import type { DashboardNotification } from '../types/dashboard'
+import { normalizeListResponse } from '../utils/dashboardFormat'
+import { getRailGroupsForRole, filterTopNavItems } from '../navigation/navigationConfig'
+import { ActivityFeed } from '../components/ui/ActivityFeed'
+import { PageTitle } from '../components/ui/PageTitle'
 
 interface TeacherRequest {
   id: string
   status: string
   createdAt: string
 }
-
-interface Notification {
-  id: string
-  message: string
-  read: boolean
-  createdAt: string
-}
-
-const TOP_NAV_ITEMS: NavItem[] = [
-  { label: 'Accueil', path: '/dashboard' },
-  { label: 'Calendrier', path: '/calendar' },
-  { label: 'Contacts', path: '/contacts' },
-  { label: 'Messages', path: '/messages' },
-  { label: 'Stats / Archives', path: '/archives' },
-]
-
-const RAIL_GROUPS: RailGroup[] = [
-  {
-    groupLabel: 'Gestion',
-    items: [
-      { label: 'Demandes professeurs', path: '/rp/teacher-requests', icon: '🎓' },
-      { label: 'Comptes', path: '/admin/accounts', icon: '🔑' },
-      { label: 'Délégations', path: '/delegations', icon: '🔗' },
-    ],
-  },
-  {
-    groupLabel: 'Validation',
-    items: [
-      { label: 'Contenus à valider', path: '/content/validation', icon: '✅' },
-      { label: 'Demandes rattachement', path: '/parent-link-requests/inbox', icon: '👨‍👩‍👧' },
-    ],
-  },
-  {
-    groupLabel: 'Pédagogie',
-    items: [
-      { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
-      { label: 'Archives', path: '/archives', icon: '🗂️' },
-      { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
-      { label: 'Forums', path: '/community/forums', icon: '💬' },
-    ],
-  },
-  {
-    groupLabel: 'Observabilité',
-    items: [
-      { label: 'Activité globale', path: '/admin/activity', icon: '📊' },
-      { label: 'Santé services', path: '/admin/observability/health', icon: '❤️' },
-    ],
-  },
-]
 
 interface ActionItem {
   label: string
@@ -73,13 +29,16 @@ interface ActionItem {
 }
 
 export default function RpDashboardPage() {
-  const { user } = useAuth()
+  const { user, hasRole } = useAuth()
   const firstName = user?.loginIdentifier ?? 'vous'
 
   const [pendingRequestCount, setPendingRequestCount] = useState<number | null>(null)
-  const [notifications, setNotifications] = useState<Notification[]>([])
+  const [notifications, setNotifications] = useState<DashboardNotification[]>([])
   const [isLoadingRequests, setIsLoadingRequests] = useState(true)
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(true)
+
+  const topNavItems = filterTopNavItems('responsable_pedagogique', hasRole)
+  const railGroups = getRailGroupsForRole('responsable_pedagogique')
 
   useEffect(() => {
     if (!user) return
@@ -96,10 +55,9 @@ export default function RpDashboardPage() {
       .finally(() => setIsLoadingRequests(false))
 
     apiClient
-      .get<{ data?: Notification[] } | Notification[]>('/notifications')
+      .get<{ data?: DashboardNotification[] } | DashboardNotification[]>('/notifications')
       .then(({ data }) => {
-        const notificationList = Array.isArray(data) ? data : (data.data ?? [])
-        setNotifications(notificationList.slice(0, 8))
+        setNotifications(normalizeListResponse(data).slice(0, 8))
       })
       .catch(() => {})
       .finally(() => setIsLoadingNotifications(false))
@@ -135,28 +93,13 @@ export default function RpDashboardPage() {
   return (
     <DashboardShell
       accentClass="role-rp"
-      railGroups={RAIL_GROUPS}
-      topNavItems={TOP_NAV_ITEMS}
+      railGroups={railGroups}
+      topNavItems={topNavItems}
       userName={firstName}
       userRole="Responsable pédagogique"
     >
       {/* Salutation */}
-      <div style={{ marginBottom: '24px' }}>
-        <h1
-          style={{
-            fontFamily: 'var(--font-heading)',
-            fontSize: '24px',
-            fontWeight: 700,
-            color: 'var(--color-ink)',
-            margin: 0,
-          }}
-        >
-          Bonjour, {firstName}
-        </h1>
-        <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-          Responsable pédagogique — vue de coordination
-        </p>
-      </div>
+      <PageTitle title={`Bonjour, ${firstName}`} subtitle="Responsable pédagogique — vue de coordination" />
 
       {/* Stats rapides */}
       <div
@@ -320,74 +263,7 @@ export default function RpDashboardPage() {
             padding: '20px',
           }}
         >
-          <h3
-            style={{
-              fontFamily: 'var(--font-heading)',
-              fontSize: '15px',
-              fontWeight: 600,
-              color: 'var(--color-ink)',
-              margin: '0 0 16px',
-            }}
-          >
-            Activité récente
-          </h3>
-
-          {isLoadingNotifications ? (
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Chargement…</p>
-          ) : notifications.length === 0 ? (
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-              Aucune activité récente
-            </p>
-          ) : (
-            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-              {notifications.map((notification) => (
-                <li
-                  key={notification.id}
-                  style={{
-                    display: 'flex',
-                    gap: '12px',
-                    alignItems: 'flex-start',
-                    padding: '10px 0',
-                    borderBottom: '1px solid var(--color-surface)',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: '6px',
-                      height: '6px',
-                      borderRadius: '50%',
-                      background: notification.read ? 'var(--color-surface)' : 'var(--accent)',
-                      flexShrink: 0,
-                      marginTop: '5px',
-                    }}
-                  />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p
-                      style={{
-                        fontSize: '13px',
-                        color: 'var(--color-ink)',
-                        margin: '0 0 2px',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        fontWeight: notification.read ? 400 : 500,
-                      }}
-                    >
-                      {notification.message}
-                    </p>
-                    <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: 0 }}>
-                      {new Date(notification.createdAt).toLocaleString('fr-FR', {
-                        day: 'numeric',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <ActivityFeed notifications={notifications} isLoading={isLoadingNotifications} />
         </div>
       </div>
 

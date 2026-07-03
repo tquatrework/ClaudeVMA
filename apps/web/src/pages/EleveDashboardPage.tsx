@@ -14,149 +14,23 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import DashboardShell, { RailGroup, NavItem } from '../components/dashboard/DashboardShell'
+import DashboardShell from '../components/dashboard/DashboardShell'
 import apiClient from '../api/client'
 import '../styles/tokens.css'
+import type { CalendarEvent } from '../types/calendar'
+import type { DashboardNotification, DashboardContact } from '../types/dashboard'
+import { formatCountdown, formatEventDate, formatShortDate } from '../utils/dateFormat'
+import { normalizeListResponse, getFutureEvents } from '../utils/dashboardFormat'
+import { getRailGroupsForRole, filterTopNavItems } from '../navigation/navigationConfig'
+import { DashboardCard, DashboardSectionTitle, DashboardCardLabel } from '../components/ui/DashboardCard'
+import { ActivityFeed } from '../components/ui/ActivityFeed'
+import { ImportantContacts } from '../components/ui/ImportantContacts'
+import { PageTitle } from '../components/ui/PageTitle'
+import { useRoleAccent } from '../hooks/useRoleAccent'
 
-interface CalendarEvent {
-  id: string
-  title?: string
-  startAt: string
-  endAt: string
-  eventType?: string
-  description?: string
-}
-
-interface Notification {
-  id: string
-  message: string
-  read: boolean
-  createdAt: string
-}
-
-interface ContactEntry {
-  id: string
-  displayName?: string
-  role?: string
-  email?: string
-  status: string
-  mandatory: boolean
-}
-
-const TOP_NAV_ITEMS: NavItem[] = [
-  { label: 'Accueil', path: '/dashboard' },
-  { label: 'Calendrier', path: '/calendar' },
-  { label: 'Contacts', path: '/contacts' },
-  { label: 'Messages', path: '/messages' },
-  { label: 'Demandes', path: '/teacher-requests' },
-  { label: 'Stats / Archives', path: '/archives' },
-]
-
-const RAIL_GROUPS: RailGroup[] = [
-  {
-    groupLabel: 'Cours',
-    items: [
-      { label: 'Visio', path: '/activities', icon: '🎥' },
-      { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
-      { label: 'Mémo', path: '/memos', icon: '💡' },
-      { label: 'Carnet personnel', path: '/notebook/', icon: '📓' },
-    ],
-  },
-  {
-    groupLabel: 'Contenus',
-    items: [
-      { label: 'Exercices', path: '/content/exercises', icon: '📐' },
-      { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
-      { label: 'Tutos-vidéos', path: '/content/tutorials', icon: '🎬' },
-    ],
-  },
-  {
-    groupLabel: 'Communauté',
-    items: [
-      { label: 'Forums', path: '/community/forums', icon: '💬' },
-      { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
-      // Jeux : fonctionnalité phase 3 non encore disponible
-    ],
-  },
-  {
-    groupLabel: 'Compte',
-    items: [
-      { label: 'Documents légaux', path: '/legal', icon: '📄' },
-    ],
-  },
-]
-
-function formatCountdown(startAt: string): string {
-  const diffMs = new Date(startAt).getTime() - Date.now()
-  if (diffMs <= 0) return 'en cours'
-  const diffMinutes = Math.floor(diffMs / 60000)
-  if (diffMinutes < 60) return `dans ${diffMinutes} min`
-  const diffHours = Math.floor(diffMinutes / 60)
-  const remainingMinutes = diffMinutes % 60
-  if (remainingMinutes === 0) return `dans ${diffHours}h`
-  return `dans ${diffHours}h${String(remainingMinutes).padStart(2, '0')}`
-}
-
-function formatEventDate(startAt: string): string {
-  return new Date(startAt).toLocaleString('fr-FR', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-function formatShortDate(startAt: string): string {
-  return new Date(startAt).toLocaleDateString('fr-FR', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-// ─── Sous-composants utilitaires ────────────────────────────
-
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <h3
-      style={{
-        fontFamily: 'var(--font-heading)',
-        fontSize: '15px',
-        fontWeight: 600,
-        color: 'var(--color-ink)',
-        margin: '0 0 14px',
-      }}
-    >
-      {children}
-    </h3>
-  )
-}
-
-function Card({
-  children,
-  style,
-}: {
-  children: React.ReactNode
-  style?: React.CSSProperties
-}) {
-  return (
-    <div
-      style={{
-        background: 'var(--color-white)',
-        border: '1px solid var(--color-surface)',
-        borderRadius: 'var(--radius-card)',
-        boxShadow: 'var(--shadow-card)',
-        padding: '20px',
-        ...style,
-      }}
-    >
-      {children}
-    </div>
-  )
-}
+// Alias pour la rétrocompatibilité interne
+const Card = DashboardCard
+const SectionTitle = DashboardSectionTitle
 
 // ─── Composant principal ────────────────────────────────────
 
@@ -166,11 +40,25 @@ export default function EleveDashboardPage() {
 
   const [nextCourse, setNextCourse] = useState<CalendarEvent | null>(null)
   const [upcomingCourses, setUpcomingCourses] = useState<CalendarEvent[]>([])
-  const [notifications, setNotifications] = useState<Notification[]>([])
-  const [contacts, setContacts] = useState<ContactEntry[]>([])
+  const [notifications, setNotifications] = useState<DashboardNotification[]>([])
+  const [contacts, setContacts] = useState<DashboardContact[]>([])
   const [isLoadingCourses, setIsLoadingCourses] = useState(true)
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(true)
   const [isLoadingContacts, setIsLoadingContacts] = useState(true)
+
+  const { hasRole } = useAuth()
+  const topNavItems = filterTopNavItems('eleve', hasRole)
+
+  // Rail avec chemin carnet personnel résolu
+  const baseRailGroups = getRailGroupsForRole('eleve')
+  const railGroupsWithNotebook = user
+    ? baseRailGroups.map((group) => ({
+        ...group,
+        items: group.items.map((item) =>
+          item.label === 'Carnet personnel' ? { ...item, path: `/notebook/${user.id}` } : item,
+        ),
+      }))
+    : baseRailGroups
 
   useEffect(() => {
     if (!user) return
@@ -179,9 +67,7 @@ export default function EleveDashboardPage() {
     apiClient
       .get<CalendarEvent[]>(`/calendars/${user.id}/events`)
       .then(({ data }) => {
-        const futureEvents = (Array.isArray(data) ? data : [])
-          .filter((event) => new Date(event.startAt) >= new Date())
-          .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
+        const futureEvents = getFutureEvents(Array.isArray(data) ? data : [])
         setNextCourse(futureEvents[0] ?? null)
         setUpcomingCourses(futureEvents.slice(1, 4))
       })
@@ -190,17 +76,16 @@ export default function EleveDashboardPage() {
 
     // Notifications
     apiClient
-      .get<{ data?: Notification[] } | Notification[]>('/notifications')
+      .get<{ data?: DashboardNotification[] } | DashboardNotification[]>('/notifications')
       .then(({ data }) => {
-        const notificationList = Array.isArray(data) ? data : (data.data ?? [])
-        setNotifications(notificationList.slice(0, 5))
+        setNotifications(normalizeListResponse(data).slice(0, 5))
       })
       .catch(() => {})
       .finally(() => setIsLoadingNotifications(false))
 
     // Contacts
     apiClient
-      .get<ContactEntry[]>('/contacts')
+      .get<DashboardContact[]>('/contacts')
       .then(({ data }) => {
         const contactList = Array.isArray(data) ? data : []
         setContacts(contactList.filter((contact) => contact.status === 'active').slice(0, 5))
@@ -218,43 +103,16 @@ export default function EleveDashboardPage() {
     nextCourse !== null &&
     new Date(nextCourse.startAt).getTime() - Date.now() < 30 * 60 * 1000
 
-  const railGroupsWithNotebook: RailGroup[] = RAIL_GROUPS.map((group) => {
-    if (group.groupLabel !== 'Cours') return group
-    return {
-      ...group,
-      items: group.items.map((item) =>
-        item.label === 'Carnet personnel' && user
-          ? { ...item, path: `/notebook/${user.id}` }
-          : item,
-      ),
-    }
-  })
-
   return (
     <DashboardShell
       accentClass="role-eleve"
       railGroups={railGroupsWithNotebook}
-      topNavItems={TOP_NAV_ITEMS}
+      topNavItems={topNavItems}
       userName={firstName}
       userRole="Élève"
     >
       {/* ── Salutation ─────────────────────────────────────── */}
-      <div style={{ marginBottom: '24px' }}>
-        <h1
-          style={{
-            fontFamily: 'var(--font-heading)',
-            fontSize: '24px',
-            fontWeight: 700,
-            color: 'var(--color-ink)',
-            margin: 0,
-          }}
-        >
-          Bonjour, {firstName}
-        </h1>
-        <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-          Voici votre espace élève
-        </p>
-      </div>
+      <PageTitle title={`Bonjour, ${firstName}`} subtitle="Voici votre espace élève" />
 
       {/* ── LIGNE 1 : Professeur attitré + Prochain cours ─── */}
       <div
@@ -604,155 +462,12 @@ export default function EleveDashboardPage() {
         style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px' }}
         className="vm-grid-bottom"
       >
-        {/* Contacts importants */}
         <Card>
-          <SectionTitle>Contacts importants</SectionTitle>
-
-          {isLoadingContacts ? (
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Chargement…</p>
-          ) : contacts.length === 0 ? (
-            <div>
-              <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '12px' }}>
-                Aucun contact pour l'instant.
-              </p>
-              <Link
-                to="/contacts"
-                style={{ fontSize: '12px', color: 'var(--accent)', textDecoration: 'none' }}
-              >
-                Gérer les contacts →
-              </Link>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {contacts.map((contact) => (
-                <div
-                  key={contact.id}
-                  style={{ display: 'flex', alignItems: 'center', gap: '10px' }}
-                >
-                  <div
-                    style={{
-                      width: '32px',
-                      height: '32px',
-                      borderRadius: '50%',
-                      background: 'var(--accent-alpha-10, rgba(91,108,240,0.10))',
-                      border: '1px solid var(--color-surface)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: 'var(--accent)',
-                      fontWeight: 700,
-                      fontSize: '13px',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {(contact.displayName ?? '?').charAt(0).toUpperCase()}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p
-                      style={{
-                        fontSize: '13px',
-                        fontWeight: 500,
-                        color: 'var(--color-ink)',
-                        margin: 0,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {contact.displayName ?? contact.email ?? 'Contact'}
-                    </p>
-                    {contact.role && (
-                      <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: 0 }}>
-                        {contact.role}
-                      </p>
-                    )}
-                  </div>
-                  <Link
-                    to={`/messages`}
-                    style={{
-                      fontSize: '11px',
-                      color: 'var(--accent)',
-                      border: '1px solid var(--color-surface)',
-                      borderRadius: 'var(--radius-pill)',
-                      padding: '3px 8px',
-                      textDecoration: 'none',
-                      flexShrink: 0,
-                    }}
-                  >
-                    Écrire
-                  </Link>
-                </div>
-              ))}
-              <Link
-                to="/contacts"
-                style={{ fontSize: '12px', color: 'var(--accent)', textDecoration: 'none', marginTop: '4px' }}
-              >
-                Tous les contacts →
-              </Link>
-            </div>
-          )}
+          <ImportantContacts contacts={contacts} isLoading={isLoadingContacts} />
         </Card>
 
-        {/* Fil d'activité */}
         <Card>
-          <SectionTitle>Activité récente</SectionTitle>
-
-          {isLoadingNotifications ? (
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Chargement…</p>
-          ) : notifications.length === 0 ? (
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-              Aucune activité récente.
-            </p>
-          ) : (
-            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0' }}>
-              {notifications.map((notification) => (
-                <li
-                  key={notification.id}
-                  style={{
-                    display: 'flex',
-                    gap: '12px',
-                    alignItems: 'flex-start',
-                    padding: '10px 0',
-                    borderBottom: '1px solid var(--color-surface)',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: '7px',
-                      height: '7px',
-                      borderRadius: '50%',
-                      background: notification.read ? 'var(--color-surface)' : 'var(--accent)',
-                      flexShrink: 0,
-                      marginTop: '4px',
-                    }}
-                  />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p
-                      style={{
-                        fontSize: '13px',
-                        color: 'var(--color-ink)',
-                        fontWeight: notification.read ? 400 : 500,
-                        margin: '0 0 2px',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {notification.message}
-                    </p>
-                    <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: 0 }}>
-                      {new Date(notification.createdAt).toLocaleString('fr-FR', {
-                        day: 'numeric',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <ActivityFeed notifications={notifications} isLoading={isLoadingNotifications} />
         </Card>
       </div>
 

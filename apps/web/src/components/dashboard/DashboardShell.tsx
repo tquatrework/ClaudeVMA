@@ -2,23 +2,9 @@ import React, { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 
-export interface NavItem {
-  label: string
-  path: string
-  badge?: number
-}
-
-export interface RailItem {
-  label: string
-  path: string
-  badge?: number
-  icon?: string
-}
-
-export interface RailGroup {
-  groupLabel: string
-  items: RailItem[]
-}
+// Re-export des types centralisés pour la rétrocompatibilité
+export type { NavItem, RailItem, RailGroup } from '../../types/navigation'
+import type { NavItem, RailGroup } from '../../types/navigation'
 
 interface DashboardShellProps {
   accentClass: string

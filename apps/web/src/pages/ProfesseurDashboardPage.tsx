@@ -6,95 +6,29 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import DashboardShell, { RailGroup, NavItem } from '../components/dashboard/DashboardShell'
+import DashboardShell from '../components/dashboard/DashboardShell'
 import apiClient from '../api/client'
 import '../styles/tokens.css'
-
-interface CalendarEvent {
-  id: string
-  title?: string
-  startAt: string
-  endAt: string
-  eventType?: string
-}
-
-interface Notification {
-  id: string
-  message: string
-  read: boolean
-  createdAt: string
-}
-
-const TOP_NAV_ITEMS: NavItem[] = [
-  { label: 'Accueil', path: '/dashboard' },
-  { label: 'Calendrier', path: '/calendar' },
-  { label: 'Contacts', path: '/contacts' },
-  { label: 'Messages', path: '/messages' },
-  { label: 'Stats / Archives', path: '/archives' },
-]
-
-const RAIL_GROUPS: RailGroup[] = [
-  {
-    groupLabel: 'Cours',
-    items: [
-      { label: 'Visio', path: '/activities', icon: '🎥' },
-      { label: 'Demandes ouvertes', path: '/open-activities', icon: '📢' },
-    ],
-  },
-  {
-    groupLabel: 'Suivi',
-    items: [
-      { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
-      { label: 'Mes élèves', path: '/my-students', icon: '👥' },
-      { label: 'Demandes prof.', path: '/teacher-requests', icon: '📋' },
-    ],
-  },
-  {
-    groupLabel: 'Contenus',
-    items: [
-      { label: 'Exercices', path: '/content/exercises', icon: '📐' },
-      { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
-      { label: 'Tutos-vidéos', path: '/content/tutorials', icon: '🎬' },
-    ],
-  },
-  {
-    groupLabel: 'Compte',
-    items: [
-      { label: 'Rémunérations', path: '/teacher-payment-requests', icon: '💰' },
-      { label: 'Documents légaux', path: '/legal', icon: '📄' },
-    ],
-  },
-]
-
-function formatEventDate(startAt: string): string {
-  return new Date(startAt).toLocaleString('fr-FR', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-function formatShortDate(startAt: string): string {
-  return new Date(startAt).toLocaleDateString('fr-FR', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
+import type { CalendarEvent } from '../types/calendar'
+import type { DashboardNotification } from '../types/dashboard'
+import { formatEventDate, formatShortDate } from '../utils/dateFormat'
+import { normalizeListResponse, getFutureEvents } from '../utils/dashboardFormat'
+import { getRailGroupsForRole, filterTopNavItems } from '../navigation/navigationConfig'
+import { ActivityFeed } from '../components/ui/ActivityFeed'
+import { PageTitle } from '../components/ui/PageTitle'
 
 export default function ProfesseurDashboardPage() {
-  const { user } = useAuth()
+  const { user, hasRole } = useAuth()
   const firstName = user?.loginIdentifier ?? 'vous'
 
   const [nextCourse, setNextCourse] = useState<CalendarEvent | null>(null)
   const [upcomingCourses, setUpcomingCourses] = useState<CalendarEvent[]>([])
-  const [notifications, setNotifications] = useState<Notification[]>([])
+  const [notifications, setNotifications] = useState<DashboardNotification[]>([])
   const [isLoadingCourses, setIsLoadingCourses] = useState(true)
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(true)
+
+  const topNavItems = filterTopNavItems('formateur', hasRole)
+  const railGroups = getRailGroupsForRole('formateur')
 
   useEffect(() => {
     if (!user) return
@@ -102,10 +36,7 @@ export default function ProfesseurDashboardPage() {
     apiClient
       .get<CalendarEvent[]>(`/calendars/${user.id}/events`)
       .then(({ data }) => {
-        const futureEvents = (Array.isArray(data) ? data : [])
-          .filter((event) => new Date(event.startAt) >= new Date())
-          .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
-
+        const futureEvents = getFutureEvents(Array.isArray(data) ? data : [])
         setNextCourse(futureEvents[0] ?? null)
         setUpcomingCourses(futureEvents.slice(1, 5))
       })
@@ -113,10 +44,9 @@ export default function ProfesseurDashboardPage() {
       .finally(() => setIsLoadingCourses(false))
 
     apiClient
-      .get<{ data?: Notification[] } | Notification[]>('/notifications')
+      .get<{ data?: DashboardNotification[] } | DashboardNotification[]>('/notifications')
       .then(({ data }) => {
-        const notificationList = Array.isArray(data) ? data : (data.data ?? [])
-        setNotifications(notificationList.slice(0, 6))
+        setNotifications(normalizeListResponse(data).slice(0, 6))
       })
       .catch(() => {})
       .finally(() => setIsLoadingNotifications(false))
@@ -125,28 +55,13 @@ export default function ProfesseurDashboardPage() {
   return (
     <DashboardShell
       accentClass="role-formateur"
-      railGroups={RAIL_GROUPS}
-      topNavItems={TOP_NAV_ITEMS}
+      railGroups={railGroups}
+      topNavItems={topNavItems}
       userName={firstName}
       userRole="Formateur"
     >
       {/* Salutation */}
-      <div style={{ marginBottom: '24px' }}>
-        <h1
-          style={{
-            fontFamily: 'var(--font-heading)',
-            fontSize: '24px',
-            fontWeight: 700,
-            color: 'var(--color-ink)',
-            margin: 0,
-          }}
-        >
-          Bonjour, {firstName}
-        </h1>
-        <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-          Votre espace formateur
-        </p>
-      </div>
+      <PageTitle title={`Bonjour, ${firstName}`} subtitle="Votre espace formateur" />
 
       {/* HERO — Prochain cours */}
       <div
@@ -248,74 +163,7 @@ export default function ProfesseurDashboardPage() {
             padding: '20px',
           }}
         >
-          <h3
-            style={{
-              fontFamily: 'var(--font-heading)',
-              fontSize: '15px',
-              fontWeight: 600,
-              color: 'var(--color-ink)',
-              margin: '0 0 16px',
-            }}
-          >
-            Activité récente
-          </h3>
-
-          {isLoadingNotifications ? (
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Chargement…</p>
-          ) : notifications.length === 0 ? (
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-              Aucune activité récente
-            </p>
-          ) : (
-            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-              {notifications.map((notification) => (
-                <li
-                  key={notification.id}
-                  style={{
-                    display: 'flex',
-                    gap: '12px',
-                    alignItems: 'flex-start',
-                    padding: '10px 0',
-                    borderBottom: '1px solid var(--color-surface)',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: '6px',
-                      height: '6px',
-                      borderRadius: '50%',
-                      background: notification.read ? 'var(--color-surface)' : 'var(--accent)',
-                      flexShrink: 0,
-                      marginTop: '5px',
-                    }}
-                  />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p
-                      style={{
-                        fontSize: '13px',
-                        color: 'var(--color-ink)',
-                        margin: '0 0 2px',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        fontWeight: notification.read ? 400 : 500,
-                      }}
-                    >
-                      {notification.message}
-                    </p>
-                    <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: 0 }}>
-                      {new Date(notification.createdAt).toLocaleString('fr-FR', {
-                        day: 'numeric',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <ActivityFeed notifications={notifications} isLoading={isLoadingNotifications} />
         </div>
 
         {/* Cours de la semaine */}

@@ -17,312 +17,12 @@ import React, { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useRoleAccent } from '../hooks/useRoleAccent'
+import { filterTopNavItems, getRailGroupsForRole } from '../navigation/navigationConfig'
 import type { UserRole } from '../context/AuthContext'
 
 /* ─────────────────────────────────────────────────────────
-   Types internes
-───────────────────────────────────────────────────────── */
-
-interface TopNavItem {
-  label: string
-  path: string
-  /** Rôles autorisés — undefined = accessible à tous les connectés */
-  allowedRoles?: UserRole[]
-  /** Condition booléenne supplémentaire (ex : besoin du user.id) */
-  condition?: boolean
-}
-
-interface RailItem {
-  label: string
-  path: string
-  icon: string
-}
-
-interface RailGroup {
-  groupLabel: string
-  items: RailItem[]
-}
-
-/* ─────────────────────────────────────────────────────────
-   Navigation principale (top bar)
-   Les conditions hasRole sont CONSERVÉES À L'IDENTIQUE
-   depuis l'ancienne Layout.tsx.
-───────────────────────────────────────────────────────── */
-
-function useTopNavItems(): TopNavItem[] {
-  return [
-    { label: 'Accueil', path: '/dashboard' },
-
-    {
-      label: 'Calendrier',
-      path: '/calendar',
-      allowedRoles: [
-        'eleve',
-        'parent_financeur',
-        'formateur',
-        'animateur_pedagogique',
-        'responsable_pedagogique',
-      ],
-    },
-
-    {
-      label: 'Contacts',
-      path: '/contacts',
-      allowedRoles: [
-        'eleve',
-        'parent_financeur',
-        'formateur',
-        'responsable_pedagogique',
-        'animateur_pedagogique',
-      ],
-    },
-
-    {
-      label: 'Messages',
-      path: '/messages',
-      allowedRoles: [
-        'eleve',
-        'parent_financeur',
-        'formateur',
-        'responsable_pedagogique',
-        'animateur_pedagogique',
-        'technicien_informatique',
-      ],
-    },
-
-    /* Stats / Archives : pointe vers la page archives pédagogiques existante.
-     * Filtrée côté serveur selon le rôle. */
-    {
-      label: 'Stats / Archives',
-      path: '/archives',
-      allowedRoles: [
-        'eleve',
-        'parent_financeur',
-        'formateur',
-        'responsable_pedagogique',
-        'animateur_pedagogique',
-        'administrateur_financier',
-        'technicien_informatique',
-      ],
-    },
-  ]
-}
-
-/* ─────────────────────────────────────────────────────────
-   Rail par rôle
-───────────────────────────────────────────────────────── */
-
-function useRailGroups(): RailGroup[] {
-  const { user } = useAuth()
-
-  if (!user) return []
-
-  switch (user.role) {
-    case 'eleve':
-      return [
-        {
-          groupLabel: 'Cours',
-          items: [
-            { label: 'Visio', path: '/activities', icon: '🎥' },
-            { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
-            { label: 'Mémo', path: '/memos', icon: '💡' },
-            { label: 'Carnet personnel', path: `/notebook/${user.id}`, icon: '📓' },
-          ],
-        },
-        {
-          groupLabel: 'Contenus',
-          items: [
-            { label: 'Exercices', path: '/content/exercises', icon: '📐' },
-            { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
-            { label: 'Tutos-vidéos', path: '/content/tutorials', icon: '🎬' },
-          ],
-        },
-        {
-          groupLabel: 'Communauté',
-          items: [
-            { label: 'Forums', path: '/community/forums', icon: '💬' },
-            { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
-            { label: 'Jeux', path: '/community/games', icon: '🎮' },
-          ],
-        },
-      ]
-
-    case 'parent_financeur':
-      return [
-        {
-          groupLabel: 'Suivi élève',
-          items: [
-            { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
-            { label: 'Calendrier', path: '/calendar', icon: '📅' },
-            { label: 'Archives', path: '/archives', icon: '🗂️' },
-          ],
-        },
-        {
-          groupLabel: 'Démarches',
-          items: [
-            { label: 'Demande de rattachement', path: '/parent-link-requests', icon: '🔗' },
-          ],
-        },
-        {
-          groupLabel: 'Compte',
-          items: [
-            { label: 'Profil financier', path: '/finance', icon: '💳' },
-          ],
-        },
-      ]
-
-    case 'formateur':
-      return [
-        {
-          groupLabel: 'Cours',
-          items: [
-            { label: 'Visio', path: '/activities', icon: '🎥' },
-            { label: 'Demandes ouvertes', path: '/open-activities', icon: '📢' },
-          ],
-        },
-        {
-          groupLabel: 'Suivi',
-          items: [
-            { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
-            { label: 'Mes élèves', path: '/my-students', icon: '👥' },
-            { label: 'Demandes prof.', path: '/teacher-requests', icon: '📋' },
-          ],
-        },
-        {
-          groupLabel: 'Contenus',
-          items: [
-            { label: 'Exercices', path: '/content/exercises', icon: '📐' },
-            { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
-            { label: 'Tutos-vidéos', path: '/content/tutorials', icon: '🎬' },
-          ],
-        },
-        {
-          groupLabel: 'Compte',
-          items: [
-            { label: 'Rémunérations', path: '/teacher-payment-requests', icon: '💰' },
-          ],
-        },
-      ]
-
-    case 'responsable_pedagogique':
-      return [
-        {
-          groupLabel: 'Gestion',
-          items: [
-            { label: 'Demandes prof.', path: '/rp/teacher-requests', icon: '📋' },
-            { label: 'Comptes', path: '/admin/accounts', icon: '🔑' },
-            { label: 'Délégations', path: '/delegations', icon: '🔗' },
-          ],
-        },
-        {
-          groupLabel: 'Validation',
-          items: [
-            { label: 'Contenus', path: '/content/validation', icon: '✅' },
-            { label: 'Demandes rattachement', path: '/parent-link-requests/inbox', icon: '👨‍👩‍👧' },
-          ],
-        },
-        {
-          groupLabel: 'Pédagogie',
-          items: [
-            { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
-            { label: 'Archives', path: '/archives', icon: '🗂️' },
-            { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
-            { label: 'Forums', path: '/community/forums', icon: '💬' },
-          ],
-        },
-        {
-          groupLabel: 'Observabilité',
-          items: [
-            { label: 'Activité globale', path: '/admin/activity', icon: '📊' },
-            { label: 'Santé services', path: '/admin/observability/health', icon: '❤️' },
-          ],
-        },
-      ]
-
-    case 'animateur_pedagogique':
-      return [
-        {
-          groupLabel: 'Contenus',
-          items: [
-            { label: 'Exercices', path: '/content/exercises', icon: '📐' },
-            { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
-            { label: 'Tutos-vidéos', path: '/content/tutorials', icon: '🎬' },
-            { label: 'File de validation', path: '/content/validation', icon: '✅' },
-          ],
-        },
-        {
-          groupLabel: 'Communauté',
-          items: [
-            { label: 'Forums', path: '/community/forums', icon: '💬' },
-            { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
-          ],
-        },
-        {
-          groupLabel: 'Suivi',
-          items: [
-            { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
-            { label: 'Activités non pourvues', path: '/open-activities', icon: '📢' },
-            { label: 'Activité globale', path: '/admin/activity', icon: '📊' },
-          ],
-        },
-      ]
-
-    case 'administrateur_financier':
-      return [
-        {
-          groupLabel: 'Finances',
-          items: [
-            { label: 'Tableau de bord AF', path: '/admin/finance', icon: '💼' },
-            { label: 'Rémunérations', path: '/teacher-payment-requests', icon: '💳' },
-            { label: 'Exports activité', path: '/admin/activities/export', icon: '📊' },
-          ],
-        },
-        {
-          groupLabel: 'Documents',
-          items: [
-            { label: 'Documents légaux', path: '/legal', icon: '📄' },
-            { label: 'Modèles légaux', path: '/legal/templates', icon: '📋' },
-            { label: 'Archives', path: '/archives', icon: '🗂️' },
-          ],
-        },
-        {
-          groupLabel: 'Administration',
-          items: [
-            { label: 'Délégations', path: '/delegations', icon: '🔗' },
-            { label: 'Logs activité', path: '/admin/observability/activity-log', icon: '📋' },
-          ],
-        },
-      ]
-
-    case 'technicien_informatique':
-      return [
-        {
-          groupLabel: 'Administration',
-          items: [
-            { label: 'Comptes', path: '/admin/accounts', icon: '🔑' },
-            { label: 'Incidents', path: '/incidents', icon: '⚠️' },
-            { label: 'Masquages', path: '/admin/observability/visibility-overrides', icon: '👁️' },
-            { label: 'Métadonnées site', path: '/admin/observability/site-metadata', icon: '⚙️' },
-          ],
-        },
-        {
-          groupLabel: 'Observabilité',
-          items: [
-            { label: 'Journaux activité', path: '/admin/observability/activity-log', icon: '📋' },
-            { label: 'Logs techniques', path: '/admin/observability/technical-logs', icon: '🖥️' },
-            { label: 'Santé services', path: '/admin/observability/health', icon: '💚' },
-            { label: 'Orchestration', path: '/admin/orchestration/workflows', icon: '⚙️' },
-          ],
-        },
-      ]
-
-    default:
-      return []
-  }
-}
-
-/* ─────────────────────────────────────────────────────────
    Composant principal
+   Navigation et rail lus depuis navigationConfig — source unique.
 ───────────────────────────────────────────────────────── */
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -334,8 +34,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isMobileRailOpen, setIsMobileRailOpen] = useState(false)
 
-  const allTopNavItems = useTopNavItems()
-  const railGroups = useRailGroups()
+  // Navigation haute — filtrée depuis la config centralisée
+  const visibleTopNavItems = filterTopNavItems(user?.role, hasRole)
+
+  // Rail gauche — depuis la config centralisée, avec résolution du carnet personnel
+  const baseRailGroups = user ? getRailGroupsForRole(user.role) : []
+  const railGroups = user?.role === 'eleve'
+    ? baseRailGroups.map((group) => ({
+        ...group,
+        items: group.items.map((item) =>
+          item.label === 'Carnet personnel' ? { ...item, path: `/notebook/${user.id}` } : item,
+        ),
+      }))
+    : baseRailGroups
 
   const handleLogout = async () => {
     await logout()
@@ -347,18 +58,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const hasConsentWarning =
     isAuthenticated && user?.validationStatus === 'pending'
-
-  /** Filtre les items de navigation selon les conditions de rôle */
-  const visibleTopNavItems = allTopNavItems.filter((navItem) => {
-    // Condition booléenne explicite (ex. documents légaux)
-    if (navItem.condition !== undefined) return navItem.condition
-    // Filtre par rôles autorisés
-    if (navItem.allowedRoles && navItem.allowedRoles.length > 0) {
-      return hasRole(...navItem.allowedRoles)
-    }
-    // Pas de restriction → visible à tous les connectés
-    return true
-  })
 
   const userName = user?.loginIdentifier ?? ''
   const userAvatarLetter = userName.charAt(0).toUpperCase() || '?'

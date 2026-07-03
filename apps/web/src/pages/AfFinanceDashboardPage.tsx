@@ -6,7 +6,8 @@
 import React, { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import DashboardShell, { RailGroup, NavItem } from '../components/dashboard/DashboardShell'
+import DashboardShell from '../components/dashboard/DashboardShell'
+import type { RailGroup, NavItem } from '../types/navigation'
 import apiClient from '../api/client'
 import '../styles/tokens.css'
 

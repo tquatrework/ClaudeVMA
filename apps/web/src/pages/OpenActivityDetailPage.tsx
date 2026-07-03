@@ -16,6 +16,11 @@ import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
+import { StatusBadge } from '../components/ui/StatusBadge'
+import {
+  OPEN_ACTIVITY_STATUS_LABELS,
+  OPEN_ACTIVITY_STATUS_BADGE_CLASSES,
+} from '../types/learningActivity'
 import {
   fetchOpenActivity,
   acceptOpenActivity,
@@ -23,20 +28,6 @@ import {
   type OpenActivity,
   type OpenActivityStatus,
 } from '../api/learningActivity'
-
-const STATUS_LABELS: Record<OpenActivityStatus, string> = {
-  open: 'Ouverte',
-  partially_filled: 'Partiellement pourvue',
-  filled: 'Pourvue',
-  cancelled: 'Annulée',
-}
-
-const STATUS_BADGE_CLASSES: Record<OpenActivityStatus, string> = {
-  open: 'bg-green-100 text-green-700',
-  partially_filled: 'bg-yellow-100 text-yellow-700',
-  filled: 'bg-gray-100 text-gray-500',
-  cancelled: 'bg-red-100 text-red-700',
-}
 
 export default function OpenActivityDetailPage() {
   const { activityId } = useParams<{ activityId: string }>()
@@ -220,13 +211,12 @@ export default function OpenActivityDetailPage() {
                 </span>
               </div>
             </div>
-            <span
-              className={`shrink-0 text-xs px-3 py-1 rounded-full font-medium ${
-                STATUS_BADGE_CLASSES[openActivity.status]
-              }`}
-            >
-              {STATUS_LABELS[openActivity.status]}
-            </span>
+            <StatusBadge
+              status={openActivity.status}
+              label={OPEN_ACTIVITY_STATUS_LABELS[openActivity.status]}
+              badgeClasses={OPEN_ACTIVITY_STATUS_BADGE_CLASSES}
+              size="md"
+            />
           </div>
 
           <p className="text-sm text-gray-700 whitespace-pre-wrap">{openActivity.description}</p>

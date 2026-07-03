@@ -100,7 +100,10 @@ describe('LegalTemplateAdminPage', () => {
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByText('Modèles légaux')).toBeDefined()
+      // Le titre "Modèles légaux" peut apparaître à la fois dans le rail de navigation
+      // et dans le h1 de la page — on vérifie qu'au moins un élément existe.
+      const headingElements = screen.getAllByText('Modèles légaux')
+      expect(headingElements.length).toBeGreaterThan(0)
     })
   })
 

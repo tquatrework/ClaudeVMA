@@ -17,285 +17,12 @@ import React, { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useRoleAccent } from '../hooks/useRoleAccent'
+import { filterTopNavItems, getRailGroupsForRole } from '../navigation/navigationConfig'
 import type { UserRole } from '../context/AuthContext'
 
 /* ─────────────────────────────────────────────────────────
-   Types internes
-───────────────────────────────────────────────────────── */
-
-interface TopNavItem {
-  label: string
-  path: string
-  /** Rôles autorisés — undefined = accessible à tous les connectés */
-  allowedRoles?: UserRole[]
-  /** Condition booléenne supplémentaire (ex : besoin du user.id) */
-  condition?: boolean
-}
-
-interface RailItem {
-  label: string
-  path: string
-  icon: string
-}
-
-interface RailGroup {
-  groupLabel: string
-  items: RailItem[]
-}
-
-/* ─────────────────────────────────────────────────────────
-   Navigation principale (top bar)
-   Les conditions hasRole sont CONSERVÉES À L'IDENTIQUE
-   depuis l'ancienne Layout.tsx.
-───────────────────────────────────────────────────────── */
-
-function useTopNavItems(): TopNavItem[] {
-  const { user, hasRole } = useAuth()
-
-  return [
-    { label: 'Tableau de bord', path: '/dashboard' },
-    { label: 'Calendrier', path: '/calendar' },
-    { label: 'Activités', path: '/activities' },
-    { label: 'Messages', path: '/messages' },
-    { label: 'Demandes', path: '/teacher-requests' },
-    {
-      label: 'Mon carnet',
-      path: user ? `/notebook/${user.id}` : '/dashboard',
-      allowedRoles: ['eleve'],
-    },
-    { label: 'Mémos', path: '/memos' },
-    {
-      label: 'Incidents',
-      path: '/incidents',
-      allowedRoles: ['technicien_informatique', 'responsable_pedagogique'],
-    },
-    {
-      label: 'Admin',
-      path: '/admin/activity',
-      allowedRoles: [
-        'responsable_pedagogique',
-        'animateur_pedagogique',
-        'technicien_informatique',
-        'administrateur_financier',
-      ],
-    },
-    {
-      label: 'Comptes',
-      path: '/admin/accounts',
-      allowedRoles: ['responsable_pedagogique', 'technicien_informatique'],
-    },
-    {
-      label: 'Délégations',
-      path: '/delegations',
-      allowedRoles: [
-        'responsable_pedagogique',
-        'technicien_informatique',
-        'administrateur_financier',
-      ],
-    },
-    {
-      label: 'Finances',
-      path: '/finance',
-      allowedRoles: ['parent_financeur', 'administrateur_financier'],
-    },
-    {
-      label: 'Paiements',
-      path: '/teacher-payment-requests',
-      allowedRoles: ['formateur', 'administrateur_financier'],
-    },
-    {
-      label: 'Documents légaux',
-      path: '/legal',
-      condition:
-        hasRole('eleve', 'parent_financeur', 'formateur') ||
-        hasRole('administrateur_financier'),
-    },
-    {
-      label: 'Espace AF',
-      path: '/admin/finance',
-      allowedRoles: ['administrateur_financier'],
-    },
-  ]
-}
-
-/* ─────────────────────────────────────────────────────────
-   Rail par rôle
-───────────────────────────────────────────────────────── */
-
-function useRailGroups(): RailGroup[] {
-  const { user } = useAuth()
-
-  if (!user) return []
-
-  switch (user.role) {
-    case 'eleve':
-      return [
-        {
-          groupLabel: 'Cours',
-          items: [
-            { label: 'Rejoindre la visio', path: '/activities', icon: '🎥' },
-            { label: 'Tableau blanc', path: '/activities', icon: '✏️' },
-          ],
-        },
-        {
-          groupLabel: 'Travail',
-          items: [
-            { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
-            { label: 'Exercices', path: '/content/exercises', icon: '📐' },
-            { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
-          ],
-        },
-        {
-          groupLabel: 'Mon espace',
-          items: [
-            { label: 'Mon carnet', path: `/notebook/${user.id}`, icon: '📓' },
-            { label: 'Mémos', path: '/memos', icon: '💡' },
-            { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
-            { label: 'Ressources', path: '/content/tutorials', icon: '🎬' },
-          ],
-        },
-      ]
-
-    case 'parent_financeur':
-      return [
-        {
-          groupLabel: 'Suivi',
-          items: [
-            { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
-            { label: 'Calendrier enfant', path: '/calendar', icon: '📅' },
-            { label: 'Archives', path: '/archives', icon: '🗂️' },
-          ],
-        },
-        {
-          groupLabel: 'Finances',
-          items: [
-            { label: 'Profil financier', path: '/finance', icon: '💳' },
-            { label: 'Documents légaux', path: '/legal', icon: '📄' },
-          ],
-        },
-      ]
-
-    case 'formateur':
-      return [
-        {
-          groupLabel: 'Cours',
-          items: [
-            { label: 'Démarrer la visio', path: '/activities', icon: '🎥' },
-            { label: 'Tableau blanc', path: '/activities', icon: '✏️' },
-          ],
-        },
-        {
-          groupLabel: 'Travail',
-          items: [
-            { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
-            { label: 'Mes élèves', path: '/contacts', icon: '👥' },
-            { label: 'Demandes prof.', path: '/teacher-requests', icon: '📋' },
-          ],
-        },
-        {
-          groupLabel: 'Contenus',
-          items: [
-            { label: 'Exercices', path: '/content/exercises', icon: '📐' },
-            { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
-            { label: 'Tutos vidéo', path: '/content/tutorials', icon: '🎬' },
-          ],
-        },
-      ]
-
-    case 'responsable_pedagogique':
-      return [
-        {
-          groupLabel: 'Gestion',
-          items: [
-            { label: 'Demandes prof.', path: '/rp/teacher-requests', icon: '📋' },
-            { label: 'Formateurs', path: '/contacts', icon: '👨‍🏫' },
-            { label: 'Élèves', path: '/admin/accounts', icon: '🎓' },
-          ],
-        },
-        {
-          groupLabel: 'Validation',
-          items: [
-            { label: 'Contenus', path: '/content/validation', icon: '✅' },
-            { label: 'Comptes', path: '/admin/accounts', icon: '🔑' },
-          ],
-        },
-        {
-          groupLabel: 'Outils',
-          items: [
-            { label: 'Archives', path: '/archives', icon: '🗂️' },
-            { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
-            { label: 'Forums', path: '/community/forums', icon: '💬' },
-          ],
-        },
-      ]
-
-    case 'animateur_pedagogique':
-      return [
-        {
-          groupLabel: 'Contenus',
-          items: [
-            { label: 'Mes contenus', path: '/content/exercises', icon: '📐' },
-            { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
-            { label: 'Tutos vidéo', path: '/content/tutorials', icon: '🎬' },
-          ],
-        },
-        {
-          groupLabel: 'Communauté',
-          items: [
-            { label: 'Forums', path: '/community/forums', icon: '💬' },
-            { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
-          ],
-        },
-      ]
-
-    case 'administrateur_financier':
-      return [
-        {
-          groupLabel: 'Finances',
-          items: [
-            { label: 'Paiements', path: '/teacher-payment-requests', icon: '💳' },
-            { label: 'Documents légaux', path: '/legal', icon: '📄' },
-            { label: 'Modèles', path: '/legal/templates', icon: '📋' },
-            { label: 'Exports', path: '/admin/activities/export', icon: '📊' },
-          ],
-        },
-        {
-          groupLabel: 'Documents',
-          items: [
-            { label: 'Archives', path: '/archives', icon: '🗂️' },
-            { label: 'Délégations', path: '/delegations', icon: '🔗' },
-          ],
-        },
-      ]
-
-    case 'technicien_informatique':
-      return [
-        {
-          groupLabel: 'Administration',
-          items: [
-            { label: 'Comptes', path: '/admin/accounts', icon: '🔑' },
-            { label: 'Incidents', path: '/incidents', icon: '⚠️' },
-            { label: 'Masquages', path: '/admin/observability/visibility-overrides', icon: '👁️' },
-          ],
-        },
-        {
-          groupLabel: 'Observabilité',
-          items: [
-            { label: 'Journaux', path: '/admin/observability/activity-log', icon: '📋' },
-            { label: 'Logs techniques', path: '/admin/observability/technical-logs', icon: '🖥️' },
-            { label: 'Santé services', path: '/admin/observability/health', icon: '💚' },
-            { label: 'Orchestration', path: '/admin/orchestration/workflows', icon: '⚙️' },
-          ],
-        },
-      ]
-
-    default:
-      return []
-  }
-}
-
-/* ─────────────────────────────────────────────────────────
    Composant principal
+   Navigation et rail lus depuis navigationConfig — source unique.
 ───────────────────────────────────────────────────────── */
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -307,8 +34,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isMobileRailOpen, setIsMobileRailOpen] = useState(false)
 
-  const allTopNavItems = useTopNavItems()
-  const railGroups = useRailGroups()
+  // Navigation haute — filtrée depuis la config centralisée
+  const visibleTopNavItems = filterTopNavItems(user?.role, hasRole)
+
+  // Rail gauche — depuis la config centralisée, avec résolution du carnet personnel
+  const baseRailGroups = user ? getRailGroupsForRole(user.role) : []
+  const railGroups = user?.role === 'eleve'
+    ? baseRailGroups.map((group) => ({
+        ...group,
+        items: group.items.map((item) =>
+          item.label === 'Carnet personnel' ? { ...item, path: `/notebook/${user.id}` } : item,
+        ),
+      }))
+    : baseRailGroups
 
   const handleLogout = async () => {
     await logout()
@@ -320,18 +58,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const hasConsentWarning =
     isAuthenticated && user?.validationStatus === 'pending'
-
-  /** Filtre les items de navigation selon les conditions de rôle */
-  const visibleTopNavItems = allTopNavItems.filter((navItem) => {
-    // Condition booléenne explicite (ex. documents légaux)
-    if (navItem.condition !== undefined) return navItem.condition
-    // Filtre par rôles autorisés
-    if (navItem.allowedRoles && navItem.allowedRoles.length > 0) {
-      return hasRole(...navItem.allowedRoles)
-    }
-    // Pas de restriction → visible à tous les connectés
-    return true
-  })
 
   const userName = user?.loginIdentifier ?? ''
   const userAvatarLetter = userName.charAt(0).toUpperCase() || '?'
@@ -453,6 +179,28 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               marginLeft: 'auto',
             }}
           >
+            {/* Icône notifications */}
+            <Link
+              to="/notifications"
+              title="Notifications"
+              aria-label="Notifications"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '30px',
+                height: '30px',
+                borderRadius: 'var(--radius-field)',
+                color: 'var(--color-text-secondary)',
+                textDecoration: 'none',
+                fontSize: '17px',
+                transition: 'color 0.15s',
+                flexShrink: 0,
+              }}
+            >
+              🔔
+            </Link>
+
             <Link
               to={user ? `/profiles/${user.id}` : '/dashboard'}
               style={{
@@ -819,10 +567,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* ── Styles responsives ──────────────────────────────── */}
       <style>{`
-        @media (max-width: 1024px) {
-          .vm-rail { width: var(--rail-width-collapsed) !important; }
-          .vm-rail-label { display: none !important; }
+        /* Tablette (769px–1024px) : rail visible avec libellés complets */
+        @media (max-width: 1024px) and (min-width: 769px) {
+          .vm-rail { width: 148px !important; }
         }
+        /* Mobile : rail masqué, burger visible */
         @media (max-width: 768px) {
           .vm-rail { display: none !important; }
           .vm-topnav-desktop { display: none !important; }

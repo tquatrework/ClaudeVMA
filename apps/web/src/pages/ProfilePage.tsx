@@ -5,26 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
 import TeacherValidationPanel from './TeacherValidationPanel'
 import ProfileStatisticsPanel from './ProfileStatisticsPanel'
-
-interface Profile {
-  userId: string
-  administrativeProfile?: Record<string, unknown>
-  pedagogicalProfile?: Record<string, unknown>
-}
-
-interface TeacherStudentRelation {
-  teacherId: string
-  studentId: string
-  isPrincipalTeacher?: boolean
-  createdAt?: string
-}
-
-interface InternalNote {
-  id: string
-  authorId: string
-  content: string
-  createdAt: string
-}
+import type { Profile, InternalNote, TeacherStudentRelation } from '../types/profile'
 
 export default function ProfilePage() {
   const { userId } = useParams<{ userId: string }>()
@@ -52,6 +33,35 @@ export default function ProfilePage() {
   )
   const isViewingOwnProfile = user?.id === userId
   const canSeeValidationPanel = hasRole('responsable_pedagogique', 'technicien_informatique')
+
+  /**
+   * Le profil financier est visible uniquement pour les rôles ayant une dimension financière :
+   * parent_financeur, formateur, animateur_pedagogique, responsable_pedagogique, administrateur_financier.
+   * L'élève n'a pas de profil financier propre.
+   */
+  const canSeeFinancialProfile = isViewingOwnProfile && hasRole(
+    'parent_financeur',
+    'formateur',
+    'animateur_pedagogique',
+    'responsable_pedagogique',
+    'administrateur_financier',
+  )
+
+  /**
+   * Les documents légaux (mandats, contrats) sont accessibles depuis le profil pour
+   * les rôles qui ont perdu l'entrée directe dans le menu gauche :
+   * élève, formateur, parent_financeur — ainsi que les rôles admin qui y avaient déjà accès.
+   * L'entrée n'est affichée que sur son propre profil.
+   */
+  const canSeeDocumentsLegaux = isViewingOwnProfile && hasRole(
+    'eleve',
+    'formateur',
+    'parent_financeur',
+    'animateur_pedagogique',
+    'responsable_pedagogique',
+    'administrateur_financier',
+    'technicien_informatique',
+  )
 
   useEffect(() => {
     if (!userId) return
@@ -146,6 +156,26 @@ export default function ProfilePage() {
               emptyMessage="Aucune donnée pédagogique"
             />
 
+            {/* Financial profile — only for roles with a financial dimension */}
+            {canSeeFinancialProfile && (
+              <div className="bg-white border border-gray-200 rounded-xl p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold text-gray-800">Profil financier</h2>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Moyens de paiement, crédits et historique financier
+                    </p>
+                  </div>
+                  <Link
+                    to="/finance"
+                    className="text-sm text-indigo-600 hover:underline"
+                  >
+                    Gérer →
+                  </Link>
+                </div>
+              </div>
+            )}
+
             {/* Pedagogical statistics */}
             {userId && <ProfileStatisticsPanel userId={userId} />}
 
@@ -169,6 +199,26 @@ export default function ProfilePage() {
                     className="text-sm text-indigo-600 hover:underline"
                   >
                     Gérer →
+                  </Link>
+                </div>
+              </div>
+            )}
+
+            {/* Legal documents link — accessible depuis le profil pour les rôles concernés */}
+            {canSeeDocumentsLegaux && (
+              <div className="bg-white border border-gray-200 rounded-xl p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold text-gray-800">Documents légaux</h2>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Mandats, contrats et documents à signer
+                    </p>
+                  </div>
+                  <Link
+                    to="/legal"
+                    className="text-sm text-indigo-600 hover:underline"
+                  >
+                    Consulter →
                   </Link>
                 </div>
               </div>

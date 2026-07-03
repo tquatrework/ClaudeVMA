@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import Layout from '../components/Layout'
+import { useAuth } from '../hooks/useAuth'
 import {
   fetchContacts,
   activateContact,
@@ -12,10 +13,17 @@ import {
 
 export default function ContactsPage() {
   const navigate = useNavigate()
+  const { hasRole } = useAuth()
   const [contactList, setContactList] = useState<Contact[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [pendingActionIds, setPendingActionIds] = useState<Set<string>>(new Set())
+
+  /**
+   * L'encart "Nouvelle demande" est visible pour les rôles impliqués dans le
+   * workflow demande professeur (élève, parent_financeur) ou qui gèrent des demandes (RP).
+   */
+  const canMakeTeacherRequest = hasRole('eleve', 'parent_financeur', 'responsable_pedagogique')
 
   const handleStartConversation = (contact: Contact) => {
     navigate('/messages', { state: { initialContactId: contact.userId, initialContactLabel: contact.displayName ?? contact.email } })
@@ -100,6 +108,28 @@ export default function ContactsPage() {
             supprimés.
           </p>
         </div>
+
+        {/* Encart "Nouvelle demande" — visible pour les rôles concernés par le workflow professeur */}
+        {canMakeTeacherRequest && (
+          <div className="bg-white border border-gray-200 rounded-xl px-6 py-5 mb-6 flex items-center justify-between gap-4 shadow-sm">
+            <div>
+              <p className="font-semibold text-sm text-gray-900 mb-1">
+                Faire une demande
+              </p>
+              <p className="text-xs text-gray-500">
+                {hasRole('responsable_pedagogique')
+                  ? 'Accéder aux demandes de professeur en attente de traitement.'
+                  : 'Demandez un professeur ou consultez vos demandes en cours.'}
+              </p>
+            </div>
+            <Link
+              to={hasRole('responsable_pedagogique') ? '/rp/teacher-requests' : '/teacher-requests'}
+              className="inline-flex items-center gap-1.5 bg-indigo-600 text-white font-semibold text-xs px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors whitespace-nowrap shrink-0"
+            >
+              Nouvelle demande
+            </Link>
+          </div>
+        )}
 
         {errorMessage && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center justify-between">

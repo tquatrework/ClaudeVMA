@@ -74,6 +74,11 @@ import WorkflowStatusPage from './pages/WorkflowStatusPage'
 import WorkflowTimeline from './pages/WorkflowTimeline'
 import WorkflowRetryPanel from './pages/WorkflowRetryPanel'
 import WorkflowIncidentView from './pages/WorkflowIncidentView'
+import ParentLinkRequestPage from './pages/ParentLinkRequestPage'
+import ParentLinkRequestsInboxPage from './pages/ParentLinkRequestsInboxPage'
+import MyStudentsPage from './pages/MyStudentsPage'
+import NotificationsPage from './pages/NotificationsPage'
+import GamesPage from './pages/GamesPage'
 
 export default function App() {
   return (
@@ -314,6 +319,54 @@ export default function App() {
                 ]}
               >
                 <ContactsPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Notifications */}
+          <Route
+            path="/notifications"
+            element={
+              <ProtectedRoute>
+                <NotificationsPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Élèves suivis (formateur, RP, AP) */}
+          <Route
+            path="/my-students"
+            element={
+              <ProtectedRoute
+                allowedRoles={[
+                  'formateur',
+                  'responsable_pedagogique',
+                  'animateur_pedagogique',
+                  'parent_financeur',
+                ]}
+              >
+                <MyStudentsPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Demandes de rattachement parent↔élève */}
+          <Route
+            path="/parent-link-requests"
+            element={
+              <ProtectedRoute allowedRoles={['parent_financeur']}>
+                <ParentLinkRequestPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* Boîte de réception des demandes de rattachement (élève, RP, TI) */}
+          <Route
+            path="/parent-link-requests/inbox"
+            element={
+              <ProtectedRoute
+                allowedRoles={['eleve', 'responsable_pedagogique', 'technicien_informatique']}
+              >
+                <ParentLinkRequestsInboxPage />
               </ProtectedRoute>
             }
           />
@@ -645,6 +698,14 @@ export default function App() {
                 allowedRoles={['eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique']}
               >
                 <PathDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/community/games"
+            element={
+              <ProtectedRoute allowedRoles={['eleve']}>
+                <GamesPage />
               </ProtectedRoute>
             }
           />

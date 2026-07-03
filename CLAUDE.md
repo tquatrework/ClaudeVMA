@@ -18,6 +18,7 @@ Les règles relatives au développement du Front End sont hébergés par l'agent
 
 ### Design
 Les éléments de design du site (maquettes, direction visuelle, charte graphique) se trouvent dans `.claude/design/`.
+Les instructions globales de design sont formulés dans .claude/design/front-design.md
 Le `README.md` du projet peut être partiellement repris dans ces fichiers de design pour le contexte métier.
 Lorsque tu délègues au subagent front-developper, rappelle-lui que ce dossier est sa référence design.
 

@@ -872,7 +872,9 @@ describe('Alignement mémo — élève accède sans 403', () => {
     renderMemosPage()
 
     await waitFor(() => {
-      expect(screen.getByText('Mémo')).toBeDefined()
+      // Le titre <h1> de la page doit exister (getAllByText car le rail contient aussi "Mémo")
+      const memoHeadings = screen.getAllByText('Mémo')
+      expect(memoHeadings.length).toBeGreaterThanOrEqual(1)
       expect(screen.queryByText(/accès refusé/i)).toBeNull()
     })
 

@@ -95,5 +95,71 @@ Le rôle `parent_financeur` peut être lié à plusieurs élèves. Deux contexte
 - Ajouter une option "Tous" uniquement si le module le permet techniquement (ex. calendrier peut agréger, archives non).
 - Par défaut, sélectionner le premier élève lié.
 
+## Factorisation et maintenabilité — règles permanentes
+
+### Principe général
+Le front doit être maintenable, cohérent et factorisé. Ces règles s'appliquent à toutes les pages — les dashboards par rôle en sont le cas le plus critique.
+
+**Interdit :**
+- redéfinir une interface TypeScript déjà centralisée dans `src/types/`
+- copier/coller un menu ou une liste de navigation par rôle
+- dupliquer une fonction utilitaire pure (`formatCountdown`, `formatEventDate`, etc.)
+- recréer localement `Card`, `Title`, `Button`, `Badge`, `EmptyState` ou équivalents
+- styles inline répétitifs pour des valeurs non dynamiques
+
+**Obligatoire :**
+- types partagés dans `src/types/`
+- fonctions utilitaires dans `src/utils/`
+- navigation centralisée filtrée par rôle dans `src/navigation/navigationConfig.ts`
+- composants UI communs réutilisés, pas recréés
+- CSS/classes/variables CSS plutôt que styles inline répétés
+
+### Types et interfaces
+Centraliser dans `src/types/` tout type utilisé par plus d'un fichier.
+Exemples déjà centralisés : `CalendarEvent`, `DashboardNotification`, `DashboardContact`, `NavItem`, `Role`, `DifficultyLevel`, `OpenActivityStatus`, `Profile`.
+Types vraiment locaux à un seul composant peuvent rester locaux.
+
+### Fonctions utilitaires
+Centraliser dans `src/utils/` toute fonction pure réutilisée.
+Fichiers existants : `dateFormat.ts`, `dashboardFormat.ts`, `role.ts`.
+Si la fonction dépend de hooks React → créer un hook dédié dans `src/hooks/`.
+
+### Navigation
+Source unique : `src/navigation/navigationConfig.ts`.
+Chaque item déclare `zone` (top / side / profile / context), `roles`, `status`.
+`TopNavigation`, `SideToolNav`, `ProfileMenu` filtrent cette source — ils ne redéfinissent pas leur propre liste.
+
+### Canevas communs
+Ne pas créer des pages totalement indépendantes si le canevas est identique.
+- Dashboards → canevas commun + sections configurées par rôle.
+- Autres familles (profils, archives, catalogues, formulaires) → même principe.
+- Une section vraiment spécifique à un rôle peut rester spécifique, mais doit réutiliser types, styles et composants communs.
+
+### Composants UI partagés
+Réutiliser (dans `src/components/ui/`) : `DashboardCard`, `DashboardSection`, `EmptyState`, `ActivityFeed`, `ImportantContacts`, `PageTitle`, `PageHeader`, `StatusBadge`, `ErrorMessage`, `CatalogItemCard`, `RoleBadge`.
+Si un pattern visuel identique apparaît dans deux pages, extraire un composant.
+
+### Taille des fichiers
+- Objectif : moins de 300 lignes par fichier.
+- Au-delà de 300 lignes : signaler, proposer une découpe si elle améliore la lisibilité.
+- Ne pas découper artificiellement si cela nuit à la lisibilité (ex. wizard multi-étapes fortement couplé).
+
+### Filtrage UI — règle obligatoire
+Toute entrée de navigation, carte dashboard, bouton ou raccourci qui mènerait l'utilisateur vers `/forbidden` pour son rôle courant **ne doit pas être affiché**.
+
+- Vérifier les rôles autorisés avant d'afficher un lien, une carte ou un raccourci.
+- Cette règle s'applique à : topbar, rail gauche, sous-menus Profil(s), Contacts, cartes dashboard, raccourcis.
+- Si l'utilisateur n'a pas le droit → masquer l'entrée, ne pas la griser ni la rediriger.
+- `/forbidden` est une sécurité de secours pour les URLs forcées manuellement, pas une destination de navigation normale.
+
+Implémentation : utiliser un helper `canAccess(role, path)` ou équivalent centralisé, basé sur les `allowedRoles` de `navigationConfig.ts`. Ne pas dupliquer la logique de filtrage dans chaque composant.
+
+### Vérifications après modification front
+1. `npx tsc --noEmit` → 0 erreur.
+2. `npm run build` → succès.
+3. Si dashboard commun touché → vérifier élève, parent, professeur au minimum.
+4. Lister les fichiers encore au-dessus de 300 lignes avec justification.
+5. Signaler les risques résiduels.
+
 ## Rapport utilisateur
 Écrire un rapport complet dans .claude/reports/front-[date].md

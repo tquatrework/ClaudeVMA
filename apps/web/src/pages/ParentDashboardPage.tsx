@@ -6,23 +6,14 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import DashboardShell, { RailGroup, NavItem } from '../components/dashboard/DashboardShell'
+import DashboardShell from '../components/dashboard/DashboardShell'
 import { fetchLinkedStudents, fetchStudentProfile } from '../api/relations'
 import apiClient from '../api/client'
 import '../styles/tokens.css'
-
-interface LinkedStudent {
-  studentId: string
-  displayName: string
-  loginIdentifier: string | null
-}
-
-interface CalendarEvent {
-  id: string
-  title?: string
-  startAt: string
-  endAt: string
-}
+import type { CalendarEvent } from '../types/calendar'
+import { getFutureEvents } from '../utils/dashboardFormat'
+import { getRailGroupsForRole, filterTopNavItems } from '../navigation/navigationConfig'
+import { PageTitle } from '../components/ui/PageTitle'
 
 interface StudentCard {
   studentId: string
@@ -33,42 +24,12 @@ interface StudentCard {
   lastActivityLabel: string | null
 }
 
-const TOP_NAV_ITEMS: NavItem[] = [
-  { label: 'Accueil', path: '/dashboard' },
-  { label: 'Calendrier', path: '/calendar' },
-  { label: 'Messages', path: '/messages' },
-  { label: 'Finances', path: '/finance' },
-  { label: 'Documents', path: '/legal' },
-]
-
-const RAIL_GROUPS: RailGroup[] = [
-  {
-    groupLabel: 'Suivi',
-    items: [
-      { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
-      { label: 'Calendrier élève', path: '/calendar', icon: '📅' },
-      { label: 'Demandes prof.', path: '/teacher-requests', icon: '🎓' },
-    ],
-  },
-  {
-    groupLabel: 'Finance',
-    items: [
-      { label: 'Mon profil financier', path: '/finance', icon: '💳' },
-      { label: 'Documents légaux', path: '/legal', icon: '📄' },
-      { label: 'Archives', path: '/archives', icon: '🗂️' },
-    ],
-  },
-  {
-    groupLabel: 'Rattachement',
-    items: [
-      { label: 'Rattacher un élève', path: '/parent-link-requests/new', icon: '🔗' },
-    ],
-  },
-]
-
 export default function ParentDashboardPage() {
-  const { user } = useAuth()
+  const { user, hasRole } = useAuth()
   const firstName = user?.loginIdentifier ?? 'vous'
+
+  const topNavItems = filterTopNavItems('parent_financeur', hasRole)
+  const railGroups = getRailGroupsForRole('parent_financeur')
 
   const [studentCards, setStudentCards] = useState<StudentCard[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -105,9 +66,7 @@ export default function ParentDashboardPage() {
               const { data: calendarEvents } = await apiClient.get<CalendarEvent[]>(
                 `/calendars/${link.studentId}/events`,
               )
-              const futureEvents = (Array.isArray(calendarEvents) ? calendarEvents : [])
-                .filter((event) => new Date(event.startAt) >= new Date())
-                .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
+              const futureEvents = getFutureEvents(Array.isArray(calendarEvents) ? calendarEvents : [])
               studentCard.nextCourse = futureEvents[0] ?? null
             } catch {
               // calendrier indisponible pour cet élève
@@ -125,28 +84,13 @@ export default function ParentDashboardPage() {
   return (
     <DashboardShell
       accentClass="role-parent"
-      railGroups={RAIL_GROUPS}
-      topNavItems={TOP_NAV_ITEMS}
+      railGroups={railGroups}
+      topNavItems={topNavItems}
       userName={firstName}
       userRole="Parent"
     >
       {/* Salutation */}
-      <div style={{ marginBottom: '24px' }}>
-        <h1
-          style={{
-            fontFamily: 'var(--font-heading)',
-            fontSize: '24px',
-            fontWeight: 700,
-            color: 'var(--color-ink)',
-            margin: 0,
-          }}
-        >
-          Bonjour, {firstName}
-        </h1>
-        <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-          Vue d'ensemble de vos élèves
-        </p>
-      </div>
+      <PageTitle title={`Bonjour, ${firstName}`} subtitle="Vue d'ensemble de vos élèves" />
 
       {/* Actions rapides */}
       <div
@@ -161,7 +105,7 @@ export default function ParentDashboardPage() {
         {[
           { label: 'Calendrier', path: '/calendar' },
           { label: 'Finances', path: '/finance' },
-          { label: 'Rattacher un élève', path: '/parent-link-requests/new' },
+          { label: 'Rattacher un élève', path: '/parent-link-requests' },
         ].map((quickAction) => (
           <Link
             key={quickAction.path}
@@ -218,7 +162,7 @@ export default function ParentDashboardPage() {
               Aucun élève rattaché à votre compte.
             </p>
             <Link
-              to="/parent-link-requests/new"
+              to="/parent-link-requests"
               style={{
                 fontSize: '13px',
                 fontWeight: 600,

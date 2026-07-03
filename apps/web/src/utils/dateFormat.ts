@@ -60,3 +60,19 @@ export function formatActivityDate(dateStr: string): string {
     minute: '2-digit',
   })
 }
+
+/**
+ * Formate une date en forme locale courte sans heure.
+ * Ex : "03/07/2026"
+ */
+export function formatLocalDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString('fr-FR')
+}
+
+/**
+ * Formate une date-heure complète en locale longue.
+ * Ex : "3 juil. 2026 à 14:02"
+ */
+export function formatLocalDateTime(dateStr: string): string {
+  return new Date(dateStr).toLocaleString('fr-FR')
+}

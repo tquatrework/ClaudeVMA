@@ -15,24 +15,20 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
+import { CatalogItemCard } from '../components/ui/CatalogItemCard'
+import { StatusBadge } from '../components/ui/StatusBadge'
+import { PageHeader } from '../components/ui/PageHeader'
+import { EmptyState } from '../components/ui/EmptyState'
+import {
+  DIFFICULTY_LABELS,
+  DIFFICULTY_BADGE_CLASSES,
+} from '../types/content'
 import {
   fetchEvaluations,
   createEvaluation,
   type Evaluation,
   type DifficultyLevel,
 } from '../api/contentCatalog'
-
-const DIFFICULTY_BADGE_CLASSES: Record<DifficultyLevel, string> = {
-  facile: 'bg-green-100 text-green-700',
-  moyen: 'bg-yellow-100 text-yellow-700',
-  difficile: 'bg-red-100 text-red-700',
-}
-
-const DIFFICULTY_LABELS: Record<DifficultyLevel, string> = {
-  facile: 'Facile',
-  moyen: 'Moyen',
-  difficile: 'Difficile',
-}
 
 export default function EvaluationCatalogPage() {
   const { hasRole } = useAuth()
@@ -140,24 +136,21 @@ export default function EvaluationCatalogPage() {
   return (
     <Layout>
       <div className="space-y-6">
-        {/* En-tête */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Évaluations</h1>
-            <p className="text-gray-500 text-sm mt-1">
-              Catalogue des évaluations pédagogiques disponibles.
-            </p>
-          </div>
-          {canCreateEvaluation && (
-            <button
-              type="button"
-              onClick={() => setShouldShowCreateForm(true)}
-              className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
-            >
-              Nouvelle évaluation
-            </button>
-          )}
-        </div>
+        <PageHeader
+          title="Évaluations"
+          subtitle="Catalogue des évaluations pédagogiques disponibles."
+          action={
+            canCreateEvaluation ? (
+              <button
+                type="button"
+                onClick={() => setShouldShowCreateForm(true)}
+                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
+              >
+                Nouvelle évaluation
+              </button>
+            ) : undefined
+          }
+        />
 
         {/* Formulaire de création */}
         {shouldShowCreateForm && (
@@ -306,58 +299,41 @@ export default function EvaluationCatalogPage() {
         {/* Liste des évaluations */}
         {evaluationList.length === 0 ? (
           <div className="bg-gray-50 border border-gray-200 rounded-xl p-8 text-center">
-            <p className="text-gray-400 text-sm">
-              Aucune évaluation disponible pour le moment.
-            </p>
+            <EmptyState message="Aucune évaluation disponible pour le moment." />
           </div>
         ) : (
           <ul className="space-y-3">
             {evaluationList.map((evaluation) => (
-              <li key={evaluation.id}>
-                <button
-                  type="button"
-                  onClick={() => handleOpenEvaluation(evaluation.id)}
-                  className="w-full text-left bg-white border border-gray-200 rounded-xl p-4 hover:border-indigo-300 hover:shadow-sm transition-all"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-gray-900 truncate">
-                        {evaluation.title}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">
-                        {evaluation.description}
-                      </p>
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
-                          {evaluation.subject}
-                        </span>
-                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
-                          {evaluation.level}
-                        </span>
-                        {evaluation.durationMinutes && (
-                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
-                            {evaluation.durationMinutes} min
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="shrink-0 flex flex-col items-end gap-2">
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded font-medium ${
-                          DIFFICULTY_BADGE_CLASSES[evaluation.difficultyLevel]
-                        }`}
-                      >
-                        {DIFFICULTY_LABELS[evaluation.difficultyLevel]}
-                      </span>
-                      {evaluation.status === 'pending_validation' && (
-                        <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">
-                          En attente
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              </li>
+              <CatalogItemCard
+                key={evaluation.id}
+                id={evaluation.id}
+                title={evaluation.title}
+                description={evaluation.description}
+                tags={[
+                  { label: evaluation.subject, colorClass: 'bg-blue-50 text-blue-700' },
+                  { label: evaluation.level },
+                  ...(evaluation.durationMinutes
+                    ? [{ label: `${evaluation.durationMinutes} min` }]
+                    : []),
+                ]}
+                rightBadge={
+                  <>
+                    <StatusBadge
+                      status={evaluation.difficultyLevel}
+                      label={DIFFICULTY_LABELS[evaluation.difficultyLevel]}
+                      badgeClasses={DIFFICULTY_BADGE_CLASSES}
+                    />
+                    {evaluation.status === 'pending_validation' && (
+                      <StatusBadge
+                        status="pending_validation"
+                        label="En attente"
+                        badgeClasses={{ pending_validation: 'bg-orange-100 text-orange-700' }}
+                      />
+                    )}
+                  </>
+                }
+                onSelect={handleOpenEvaluation}
+              />
             ))}
           </ul>
         )}

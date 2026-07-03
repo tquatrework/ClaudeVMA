@@ -15,24 +15,20 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
+import { CatalogItemCard } from '../components/ui/CatalogItemCard'
+import { StatusBadge } from '../components/ui/StatusBadge'
+import { PageHeader } from '../components/ui/PageHeader'
+import { EmptyState } from '../components/ui/EmptyState'
+import {
+  DIFFICULTY_LABELS,
+  DIFFICULTY_BADGE_CLASSES,
+} from '../types/content'
 import {
   fetchExercises,
   createExercise,
   type Exercise,
   type DifficultyLevel,
 } from '../api/contentCatalog'
-
-const DIFFICULTY_LABELS: Record<DifficultyLevel, string> = {
-  facile: 'Facile',
-  moyen: 'Moyen',
-  difficile: 'Difficile',
-}
-
-const DIFFICULTY_BADGE_CLASSES: Record<DifficultyLevel, string> = {
-  facile: 'bg-green-100 text-green-700',
-  moyen: 'bg-yellow-100 text-yellow-700',
-  difficile: 'bg-red-100 text-red-700',
-}
 
 export default function ExerciseCatalogPage() {
   const { user, hasRole } = useAuth()
@@ -137,24 +133,21 @@ export default function ExerciseCatalogPage() {
   return (
     <Layout>
       <div className="space-y-6">
-        {/* En-tête */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Exercices</h1>
-            <p className="text-gray-500 text-sm mt-1">
-              Catalogue des exercices pédagogiques disponibles.
-            </p>
-          </div>
-          {canCreateExercise && (
-            <button
-              type="button"
-              onClick={() => setShouldShowCreateForm(true)}
-              className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
-            >
-              Nouvel exercice
-            </button>
-          )}
-        </div>
+        <PageHeader
+          title="Exercices"
+          subtitle="Catalogue des exercices pédagogiques disponibles."
+          action={
+            canCreateExercise ? (
+              <button
+                type="button"
+                onClick={() => setShouldShowCreateForm(true)}
+                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
+              >
+                Nouvel exercice
+              </button>
+            ) : undefined
+          }
+        />
 
         {/* Formulaire de création */}
         {shouldShowCreateForm && (
@@ -288,51 +281,38 @@ export default function ExerciseCatalogPage() {
         {/* Liste des exercices */}
         {exerciseList.length === 0 ? (
           <div className="bg-gray-50 border border-gray-200 rounded-xl p-8 text-center">
-            <p className="text-gray-400 text-sm">Aucun exercice disponible pour le moment.</p>
+            <EmptyState message="Aucun exercice disponible pour le moment." />
           </div>
         ) : (
           <ul className="space-y-3">
             {exerciseList.map((exercise) => (
-              <li key={exercise.id}>
-                <button
-                  type="button"
-                  onClick={() => handleOpenExercise(exercise.id)}
-                  className="w-full text-left bg-white border border-gray-200 rounded-xl p-4 hover:border-indigo-300 hover:shadow-sm transition-all"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-gray-900 truncate">
-                        {exercise.title}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">
-                        {exercise.description}
-                      </p>
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
-                          {exercise.subject}
-                        </span>
-                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
-                          {exercise.level}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="shrink-0 flex flex-col items-end gap-2">
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded font-medium ${
-                          DIFFICULTY_BADGE_CLASSES[exercise.difficultyLevel]
-                        }`}
-                      >
-                        {DIFFICULTY_LABELS[exercise.difficultyLevel]}
-                      </span>
-                      {exercise.status === 'pending_validation' && (
-                        <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">
-                          En attente
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              </li>
+              <CatalogItemCard
+                key={exercise.id}
+                id={exercise.id}
+                title={exercise.title}
+                description={exercise.description}
+                tags={[
+                  { label: exercise.subject, colorClass: 'bg-blue-50 text-blue-700' },
+                  { label: exercise.level },
+                ]}
+                rightBadge={
+                  <>
+                    <StatusBadge
+                      status={exercise.difficultyLevel}
+                      label={DIFFICULTY_LABELS[exercise.difficultyLevel]}
+                      badgeClasses={DIFFICULTY_BADGE_CLASSES}
+                    />
+                    {exercise.status === 'pending_validation' && (
+                      <StatusBadge
+                        status="pending_validation"
+                        label="En attente"
+                        badgeClasses={{ pending_validation: 'bg-orange-100 text-orange-700' }}
+                      />
+                    )}
+                  </>
+                }
+                onSelect={handleOpenExercise}
+              />
             ))}
           </ul>
         )}

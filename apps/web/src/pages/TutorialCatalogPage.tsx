@@ -14,6 +14,9 @@
 import React, { useEffect, useState } from 'react'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
+import { PageHeader } from '../components/ui/PageHeader'
+import { StatusBadge } from '../components/ui/StatusBadge'
+import { EmptyState } from '../components/ui/EmptyState'
 import {
   fetchTutorials,
   createTutorial,
@@ -124,24 +127,21 @@ export default function TutorialCatalogPage() {
   return (
     <Layout>
       <div className="space-y-6">
-        {/* En-tête */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Tutoriels vidéos</h1>
-            <p className="text-gray-500 text-sm mt-1">
-              Catalogue des tutoriels pédagogiques disponibles.
-            </p>
-          </div>
-          {canCreateTutorial && (
-            <button
-              type="button"
-              onClick={() => setShouldShowCreateForm(true)}
-              className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
-            >
-              Nouveau tutoriel
-            </button>
-          )}
-        </div>
+        <PageHeader
+          title="Tutoriels vidéos"
+          subtitle="Catalogue des tutoriels pédagogiques disponibles."
+          action={
+            canCreateTutorial ? (
+              <button
+                type="button"
+                onClick={() => setShouldShowCreateForm(true)}
+                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
+              >
+                Nouveau tutoriel
+              </button>
+            ) : undefined
+          }
+        />
 
         {/* Formulaire de création */}
         {shouldShowCreateForm && (
@@ -255,9 +255,7 @@ export default function TutorialCatalogPage() {
           <div>
             {tutorialList.length === 0 ? (
               <div className="bg-gray-50 border border-gray-200 rounded-xl p-8 text-center">
-                <p className="text-gray-400 text-sm">
-                  Aucun tutoriel disponible pour le moment.
-                </p>
+                <EmptyState message="Aucun tutoriel disponible pour le moment." />
               </div>
             ) : (
               <ul className="space-y-3">
@@ -286,9 +284,11 @@ export default function TutorialCatalogPage() {
                           {tutorial.level}
                         </span>
                         {tutorial.status === 'pending_validation' && (
-                          <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">
-                            En attente
-                          </span>
+                          <StatusBadge
+                            status="pending_validation"
+                            label="En attente"
+                            badgeClasses={{ pending_validation: 'bg-orange-100 text-orange-700' }}
+                          />
                         )}
                       </div>
                     </button>

@@ -5,26 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
 import TeacherValidationPanel from './TeacherValidationPanel'
 import ProfileStatisticsPanel from './ProfileStatisticsPanel'
-
-interface Profile {
-  userId: string
-  administrativeProfile?: Record<string, unknown>
-  pedagogicalProfile?: Record<string, unknown>
-}
-
-interface TeacherStudentRelation {
-  teacherId: string
-  studentId: string
-  isPrincipalTeacher?: boolean
-  createdAt?: string
-}
-
-interface InternalNote {
-  id: string
-  authorId: string
-  content: string
-  createdAt: string
-}
+import type { Profile, InternalNote, TeacherStudentRelation } from '../types/profile'
 
 export default function ProfilePage() {
   const { userId } = useParams<{ userId: string }>()

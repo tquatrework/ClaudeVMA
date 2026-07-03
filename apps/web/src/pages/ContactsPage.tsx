@@ -111,32 +111,12 @@ export default function ContactsPage() {
 
         {/* Encart "Nouvelle demande" — visible pour les rôles concernés par le workflow professeur */}
         {canMakeTeacherRequest && (
-          <div
-            style={{
-              background: 'var(--color-white)',
-              border: '1px solid var(--color-surface)',
-              borderRadius: 'var(--radius-card)',
-              padding: '20px 24px',
-              marginBottom: '24px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '16px',
-              boxShadow: 'var(--shadow-card)',
-            }}
-          >
+          <div className="bg-white border border-gray-200 rounded-xl px-6 py-5 mb-6 flex items-center justify-between gap-4 shadow-sm">
             <div>
-              <p
-                style={{
-                  fontWeight: 600,
-                  fontSize: '15px',
-                  color: 'var(--color-ink)',
-                  marginBottom: '4px',
-                }}
-              >
+              <p className="font-semibold text-sm text-gray-900 mb-1">
                 Faire une demande
               </p>
-              <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+              <p className="text-xs text-gray-500">
                 {hasRole('responsable_pedagogique')
                   ? 'Accéder aux demandes de professeur en attente de traitement.'
                   : 'Demandez un professeur ou consultez vos demandes en cours.'}
@@ -144,20 +124,7 @@ export default function ContactsPage() {
             </div>
             <Link
               to={hasRole('responsable_pedagogique') ? '/rp/teacher-requests' : '/teacher-requests'}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                background: 'var(--accent)',
-                color: '#fff',
-                fontWeight: 600,
-                fontSize: '13px',
-                padding: '8px 18px',
-                borderRadius: 'var(--radius-field)',
-                textDecoration: 'none',
-                whiteSpace: 'nowrap',
-                flexShrink: 0,
-              }}
+              className="inline-flex items-center gap-1.5 bg-indigo-600 text-white font-semibold text-xs px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors whitespace-nowrap shrink-0"
             >
               Nouvelle demande
             </Link>

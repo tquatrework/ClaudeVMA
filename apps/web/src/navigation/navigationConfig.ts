@@ -65,7 +65,7 @@ export const TOP_NAV_CONFIG: TopNavItem[] = [
     id: 'demandes',
     label: 'Demandes',
     path: '/teacher-requests',
-    allowedRoles: ['eleve', 'parent_financeur', 'responsable_pedagogique'],
+    allowedRoles: ['parent_financeur', 'responsable_pedagogique'],
   },
   {
     id: 'archives',
@@ -131,12 +131,6 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
         { label: 'Jeux', path: '/community/games', icon: '🎮' },
       ],
     },
-    {
-      groupLabel: 'Compte',
-      items: [
-        { label: 'Documents légaux', path: '/legal', icon: '📄' },
-      ],
-    },
   ],
 
   parent_financeur: [
@@ -158,7 +152,6 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
       groupLabel: 'Compte',
       items: [
         { label: 'Profil financier', path: '/finance', icon: '💳' },
-        { label: 'Documents légaux', path: '/legal', icon: '📄' },
       ],
     },
   ],
@@ -191,7 +184,6 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
       groupLabel: 'Compte',
       items: [
         { label: 'Rémunérations', path: '/teacher-payment-requests', icon: '💰' },
-        { label: 'Documents légaux', path: '/legal', icon: '📄' },
       ],
     },
   ],

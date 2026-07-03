@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,400..700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Kalam',cursive;color:#2b2b2b}
+</style>
+</helmet>
+
+<!-- ====================== TITRE ====================== -->
+<div style="position:absolute;left:80px;top:40px;width:1000px">
+  <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:30px;color:#1e2230;letter-spacing:-.5px">VisioMath — Dashboard élève · wireframes</div>
+  <div style="font-family:'Hanken Grotesk',sans-serif;font-size:15px;color:#6b7280;margin-top:8px;line-height:1.5">Menu de navigation en haut · rail d'outils pédagogiques à gauche · « vie du profil » au centre (mix prochain cours + fil d'activité + progression).<br>3 directions de mise en page → on choisit une base, puis on passe en haute-fidélité.</div>
+</div>
+
+<!-- post-it responsive -->
+<div style="position:absolute;left:1240px;top:30px;width:230px;background:#fef4a8;padding:14px 15px;font-family:'Hanken Grotesk',sans-serif;font-size:12.5px;line-height:1.5;color:#3a3320;box-shadow:0 2px 6px rgba(0,0,0,.12);transform:rotate(-1.4deg)">
+  <b>Responsive (rappel)</b><br>• Desktop : nav haut + rail gauche + centre.<br>• Tablette : rail en icônes seules.<br>• Mobile : nav → burger, rail → tiroir / barre basse, centre en 1 colonne.
+</div>
+<!-- post-it rôles -->
+<div style="position:absolute;left:1500px;top:36px;width:235px;background:#d9f3e6;padding:14px 15px;font-family:'Hanken Grotesk',sans-serif;font-size:12.5px;line-height:1.5;color:#173a2a;box-shadow:0 2px 6px rgba(0,0,0,.12);transform:rotate(1.2deg)">
+  <b>6 rôles, 1 logique</b><br>Élève · Parent · Professeur · Responsable · Animateur · Admin financier.<br>Même layout, l'<b>accent couleur</b> change par rôle → repère immédiat. (Palette en bas.)
+</div>
+
+<!-- ====================== DIRECTION A ====================== -->
+<div style="position:absolute;left:80px;top:230px;width:1120px">
+  <div data-drags-parent="1" style="position:absolute;top:-30px;font-family:'Kalam',cursive;font-weight:700;font-size:17px;color:#5b5bd6">Direction A — « Cours en avant »</div>
+  <div style="background:#fff;border:2px solid #2b2b2b;border-radius:10px;box-shadow:7px 7px 0 rgba(43,43,43,.09);overflow:hidden">
+    <!-- nav -->
+    <div style="display:flex;align-items:center;gap:18px;padding:13px 18px;border-bottom:2px dashed #cfcfcf">
+      <div style="font-weight:700;font-size:18px;color:#5b5bd6">VisioMath</div>
+      <div style="display:flex;gap:16px;font-size:14px;color:#5a5a5a">
+        <span style="color:#1e2230;font-weight:700;border-bottom:2px solid #5b5bd6;padding-bottom:2px">Accueil</span>
+        <span>Calendrier</span><span>Messages</span><span>Demandes</span><span>Documents</span>
+      </div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:#5a5a5a">
+        <span style="width:9px;height:9px;border-radius:50%;background:#5b5bd6"></span>
+        <span style="width:26px;height:26px;border-radius:50%;border:1.8px solid #2b2b2b"></span>Léa · Élève
+      </div>
+    </div>
+    <div style="display:flex;min-height:700px">
+      <!-- rail outils -->
+      <div style="width:172px;border-right:2px dashed #cfcfcf;padding:14px 12px;display:flex;flex-direction:column;gap:3px">
+        <div style="font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:#a3a3a3;margin:2px 4px 4px">Cours</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:8px;background:#eeefff;font-size:13.5px;color:#1e2230"><span style="width:18px;height:18px;border:1.8px solid #5b5bd6;border-radius:5px"></span>Rejoindre la visio</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;font-size:13.5px;color:#3a3a3a"><span style="width:18px;height:18px;border:1.8px solid #2b2b2b;border-radius:5px"></span>Tableau blanc</div>
+        <div style="font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:#a3a3a3;margin:10px 4px 4px">Travail</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;font-size:13.5px;color:#3a3a3a"><span style="width:18px;height:18px;border:1.8px solid #2b2b2b"></span>Cahier de texte</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;font-size:13.5px;color:#3a3a3a"><span style="width:18px;height:18px;border:1.8px solid #2b2b2b"></span>Devoirs <span style="margin-left:auto;font-size:11px;background:#2b2b2b;color:#fff;border-radius:9px;padding:0 6px">3</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;font-size:13.5px;color:#3a3a3a"><span style="width:18px;height:18px;border:1.8px solid #2b2b2b;transform:rotate(45deg)"></span>Exercices</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;font-size:13.5px;color:#3a3a3a"><span style="width:18px;height:18px;border:1.8px solid #2b2b2b;border-radius:50%"></span>Évaluations</div>
+        <div style="font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:#a3a3a3;margin:10px 4px 4px">Mon espace</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;font-size:13.5px;color:#3a3a3a"><span style="width:18px;height:18px;border:1.8px solid #2b2b2b;border-radius:5px"></span>Mon carnet</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;font-size:13.5px;color:#3a3a3a"><span style="width:18px;height:18px;border:1.8px solid #2b2b2b;border-radius:50%"></span>Mémos</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;font-size:13.5px;color:#3a3a3a"><span style="width:18px;height:18px;border:1.8px solid #2b2b2b;transform:rotate(45deg)"></span>Parcours</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;font-size:13.5px;color:#3a3a3a"><span style="width:18px;height:18px;border:1.8px solid #2b2b2b"></span>Ressources</div>
+      </div>
+      <!-- centre -->
+      <div style="flex:1;padding:18px;display:flex;flex-direction:column;gap:14px">
+        <div style="font-size:21px;color:#1e2230;font-weight:700">Bonjour, Léa</div>
+        <!-- hero prochain cours -->
+        <div style="border:2px solid #2b2b2b;border-radius:12px;padding:16px 18px;display:flex;justify-content:space-between;align-items:center;gap:16px;background:#f7f8ff">
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <div style="font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:#8a8a8a">Prochain cours</div>
+            <div style="font-size:19px;font-weight:700;color:#1e2230">Maths — Suites & limites</div>
+            <div style="font-size:13.5px;color:#5a5a5a">avec M. Diallo · aujourd'hui 17h00</div>
+            <div style="display:flex;gap:8px;margin-top:5px">
+              <span style="padding:3px 9px;border:1.5px solid #2b2b2b;border-radius:20px;font-size:11.5px;background:#fff">dans 1h30</span>
+              <span style="padding:3px 9px;border:1.5px solid #2b2b2b;border-radius:20px;font-size:11.5px;background:#fff">visio</span>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+            <span style="width:54px;height:54px;border-radius:50%;border:2px solid #2b2b2b"></span>
+            <div style="padding:10px 16px;border:2px solid #2b2b2b;border-radius:10px;background:#5b5bd6;color:#fff;font-weight:700;font-size:14px;box-shadow:3px 3px 0 #2b2b2b">▶ Rejoindre</div>
+          </div>
+        </div>
+        <!-- deux colonnes -->
+        <div style="display:flex;gap:14px;flex:1">
+          <div style="flex:1.5;border:2px solid #2b2b2b;border-radius:12px;padding:14px 16px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-size:15px;font-weight:700;color:#1e2230">Fil d'activité</div><span style="font-size:12px;color:#5b5bd6">Tout voir</span></div>
+            <div style="display:flex;gap:10px;padding:9px 0;border-bottom:1.5px dashed #e2e2e2"><span style="width:9px;height:9px;border-radius:50%;border:1.8px solid #2b2b2b;margin-top:4px"></span><div><div style="font-size:13.5px;color:#2b2b2b">M. Diallo a partagé un document « Fiche limites »</div><div style="font-size:11.5px;color:#9a9a9a">il y a 2 h</div></div></div>
+            <div style="display:flex;gap:10px;padding:9px 0;border-bottom:1.5px dashed #e2e2e2"><span style="width:9px;height:9px;border-radius:50%;border:1.8px solid #2b2b2b;margin-top:4px"></span><div><div style="font-size:13.5px;color:#2b2b2b">Nouvel exercice corrigé disponible</div><div style="font-size:11.5px;color:#9a9a9a">hier</div></div></div>
+            <div style="display:flex;gap:10px;padding:9px 0;border-bottom:1.5px dashed #e2e2e2"><span style="width:9px;height:9px;border-radius:50%;border:1.8px solid #2b2b2b;margin-top:4px"></span><div><div style="font-size:13.5px;color:#2b2b2b">Devoir « Dérivées » à rendre vendredi</div><div style="font-size:11.5px;color:#9a9a9a">il y a 2 j</div></div></div>
+            <div style="display:flex;gap:10px;padding:9px 0"><span style="width:9px;height:9px;border-radius:50%;border:1.8px solid #2b2b2b;margin-top:4px"></span><div><div style="font-size:13.5px;color:#2b2b2b">Séance du 12/06 : compte-rendu ajouté</div><div style="font-size:11.5px;color:#9a9a9a">il y a 3 j</div></div></div>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:14px">
+            <div style="border:2px solid #2b2b2b;border-radius:12px;padding:14px 16px">
+              <div style="font-size:15px;font-weight:700;color:#1e2230;margin-bottom:10px">Ma progression</div>
+              <div style="font-size:12.5px;color:#5a5a5a;margin-bottom:3px">Algèbre</div>
+              <div style="height:9px;border-radius:6px;background:#ececf5;overflow:hidden;margin-bottom:9px"><div style="width:72%;height:100%;background:#5b5bd6"></div></div>
+              <div style="font-size:12.5px;color:#5a5a5a;margin-bottom:3px">Analyse</div>
+              <div style="height:9px;border-radius:6px;background:#ececf5;overflow:hidden;margin-bottom:9px"><div style="width:46%;height:100%;background:#5b5bd6"></div></div>
+              <div style="font-size:12.5px;color:#5a5a5a;margin-bottom:3px">Géométrie</div>
+              <div style="height:9px;border-radius:6px;background:#ececf5;overflow:hidden"><div style="width:60%;height:100%;background:#5b5bd6"></div></div>
+            </div>
+            <div style="border:2px solid #2b2b2b;border-radius:12px;padding:14px 16px;flex:1">
+              <div style="font-size:15px;font-weight:700;color:#1e2230;margin-bottom:8px">Objectifs</div>
+              <div style="display:flex;gap:8px;align-items:center;font-size:13px;color:#3a3a3a;padding:5px 0"><span style="width:16px;height:16px;border:1.8px solid #2b2b2b;border-radius:4px;background:#5b5bd6"></span>Réviser les limites</div>
+              <div style="display:flex;gap:8px;align-items:center;font-size:13px;color:#3a3a3a;padding:5px 0"><span style="width:16px;height:16px;border:1.8px solid #2b2b2b;border-radius:4px"></span>Finir parcours « Dérivées »</div>
+              <div style="display:flex;gap:8px;align-items:center;font-size:13px;color:#3a3a3a;padding:5px 0"><span style="width:16px;height:16px;border:1.8px solid #2b2b2b;border-radius:4px"></span>Préparer le DS de jeudi</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="font-family:'Hanken Grotesk',sans-serif;font-size:12.5px;color:#6b7280;margin-top:14px;line-height:1.5;width:1040px">Le cours à venir domine l'écran (1 action principale : <b>Rejoindre</b>). En dessous, fil d'activité large + progression/objectifs en colonne. Lecture verticale très simple.</div>
+</div>
+
+<!-- ====================== DIRECTION B ====================== -->
+<div style="position:absolute;left:1320px;top:230px;width:1120px">
+  <div data-drags-parent="1" style="position:absolute;top:-30px;font-family:'Kalam',cursive;font-weight:700;font-size:17px;color:#5b5bd6">Direction B — « Bento équilibré »</div>
+  <div style="background:#fff;border:2px solid #2b2b2b;border-radius:10px;box-shadow:7px 7px 0 rgba(43,43,43,.09);overflow:hidden">
+    <div style="display:flex;align-items:center;gap:18px;padding:13px 18px;border-bottom:2px dashed #cfcfcf">
+      <div style="font-weight:700;font-size:18px;color:#5b5bd6">VisioMath</div>
+      <div style="display:flex;gap:16px;font-size:14px;color:#5a5a5a">
+        <span style="color:#1e2230;font-weight:700;border-bottom:2px solid #5b5bd6;padding-bottom:2px">Accueil</span>
+        <span>Calendrier</span><span>Messages</span><span>Demandes</span><span>Documents</span>
+      </div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:#5a5a5a">
+        <span style="width:9px;height:9px;border-radius:50%;background:#5b5bd6"></span>
+        <span style="width:26px;height:26px;border-radius:50%;border:1.8px solid #2b2b2b"></span>Léa · Élève
+      </div>
+    </div>
+    <div style="display:flex;min-height:700px">
+      <!-- rail icônes seules -->
+      <div style="width:64px;border-right:2px dashed #cfcfcf;padding:14px 0;display:flex;flex-direction:column;align-items:center;gap:14px">
+        <span style="width:26px;height:26px;border:1.8px solid #5b5bd6;border-radius:7px;background:#eeefff"></span>
+        <span style="width:26px;height:26px;border:1.8px solid #2b2b2b;border-radius:7px"></span>
+        <span style="width:26px;height:26px;border:1.8px solid #2b2b2b"></span>
+        <span style="width:26px;height:26px;border:1.8px solid #2b2b2b"></span>
+        <span style="width:26px;height:26px;border:1.8px solid #2b2b2b;transform:rotate(45deg)"></span>
+        <span style="width:26px;height:26px;border:1.8px solid #2b2b2b;border-radius:50%"></span>
+        <span style="width:30px;height:2px;background:#d4d4d4;margin:2px 0"></span>
+        <span style="width:26px;height:26px;border:1.8px solid #2b2b2b;border-radius:7px"></span>
+        <span style="width:26px;height:26px;border:1.8px solid #2b2b2b;border-radius:50%"></span>
+        <span style="width:26px;height:26px;border:1.8px solid #2b2b2b;transform:rotate(45deg)"></span>
+        <span style="width:26px;height:26px;border:1.8px solid #2b2b2b"></span>
+      </div>
+      <div style="flex:1;padding:18px">
+        <div style="font-size:21px;color:#1e2230;font-weight:700;margin-bottom:14px">Bonjour, Léa</div>
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:13px">
+          <!-- prochain cours full -->
+          <div style="grid-column:span 6;border:2px solid #2b2b2b;border-radius:12px;padding:15px 18px;display:flex;justify-content:space-between;align-items:center;background:#f7f8ff">
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <div style="font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:#8a8a8a">Prochain cours · dans 1h30</div>
+              <div style="font-size:18px;font-weight:700;color:#1e2230">Maths — Suites & limites · M. Diallo</div>
+            </div>
+            <div style="padding:10px 16px;border:2px solid #2b2b2b;border-radius:10px;background:#5b5bd6;color:#fff;font-weight:700;font-size:14px;box-shadow:3px 3px 0 #2b2b2b">▶ Rejoindre</div>
+          </div>
+          <!-- 3 tuiles -->
+          <div style="grid-column:span 2;border:2px solid #2b2b2b;border-radius:12px;padding:14px;min-height:130px">
+            <div style="font-size:14px;font-weight:700;color:#1e2230;margin-bottom:8px">Fil d'activité</div>
+            <div style="font-size:12.5px;color:#3a3a3a;padding:4px 0;border-bottom:1.5px dashed #e2e2e2">Doc partagé · 2 h</div>
+            <div style="font-size:12.5px;color:#3a3a3a;padding:4px 0;border-bottom:1.5px dashed #e2e2e2">Exo corrigé · hier</div>
+            <div style="font-size:12.5px;color:#3a3a3a;padding:4px 0">Compte-rendu · 3 j</div>
+          </div>
+          <div style="grid-column:span 2;border:2px solid #2b2b2b;border-radius:12px;padding:14px;min-height:130px">
+            <div style="font-size:14px;font-weight:700;color:#1e2230;margin-bottom:8px">Devoirs à rendre</div>
+            <div style="font-size:30px;font-weight:700;color:#5b5bd6;line-height:1">3</div>
+            <div style="font-size:12px;color:#9a9a9a;margin-top:4px">dont 1 pour vendredi</div>
+          </div>
+          <div style="grid-column:span 2;border:2px solid #2b2b2b;border-radius:12px;padding:14px;min-height:130px">
+            <div style="font-size:14px;font-weight:700;color:#1e2230;margin-bottom:10px">Progression</div>
+            <div style="height:8px;border-radius:6px;background:#ececf5;overflow:hidden;margin-bottom:7px"><div style="width:72%;height:100%;background:#5b5bd6"></div></div>
+            <div style="height:8px;border-radius:6px;background:#ececf5;overflow:hidden;margin-bottom:7px"><div style="width:46%;height:100%;background:#5b5bd6"></div></div>
+            <div style="height:8px;border-radius:6px;background:#ececf5;overflow:hidden"><div style="width:60%;height:100%;background:#5b5bd6"></div></div>
+          </div>
+          <!-- 2 tuiles bas -->
+          <div style="grid-column:span 3;border:2px solid #2b2b2b;border-radius:12px;padding:14px;min-height:120px">
+            <div style="font-size:14px;font-weight:700;color:#1e2230;margin-bottom:8px">Objectifs de la semaine</div>
+            <div style="display:flex;gap:8px;align-items:center;font-size:12.5px;color:#3a3a3a;padding:4px 0"><span style="width:15px;height:15px;border:1.8px solid #2b2b2b;border-radius:4px;background:#5b5bd6"></span>Réviser les limites</div>
+            <div style="display:flex;gap:8px;align-items:center;font-size:12.5px;color:#3a3a3a;padding:4px 0"><span style="width:15px;height:15px;border:1.8px solid #2b2b2b;border-radius:4px"></span>Finir parcours « Dérivées »</div>
+          </div>
+          <div style="grid-column:span 3;border:2px solid #2b2b2b;border-radius:12px;padding:14px;min-height:120px;background:#fafafa">
+            <div style="font-size:14px;font-weight:700;color:#1e2230;margin-bottom:6px">Évaluation à venir</div>
+            <div style="font-size:13px;color:#3a3a3a">DS « Dérivées » — jeudi 13h</div>
+            <div style="font-size:12px;color:#9a9a9a;margin-top:4px">parcours de révision suggéré</div>
+            <div style="display:inline-block;margin-top:9px;padding:6px 12px;border:1.8px solid #2b2b2b;border-radius:8px;font-size:12.5px">Réviser</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="font-family:'Hanken Grotesk',sans-serif;font-size:12.5px;color:#6b7280;margin-top:14px;line-height:1.5;width:1040px">Grille de tuiles (« bento ») : chaque module a un poids équivalent, tout est visible d'un coup d'œil. Rail compact en icônes → plus de place. Très scalable d'un rôle à l'autre (on échange/masque des tuiles).</div>
+</div>
+
+<!-- ====================== DIRECTION C ====================== -->
+<div style="position:absolute;left:2560px;top:230px;width:1120px">
+  <div data-drags-parent="1" style="position:absolute;top:-30px;font-family:'Kalam',cursive;font-weight:700;font-size:17px;color:#5b5bd6">Direction C — « 3 colonnes »</div>
+  <div style="background:#fff;border:2px solid #2b2b2b;border-radius:10px;box-shadow:7px 7px 0 rgba(43,43,43,.09);overflow:hidden">
+    <div style="display:flex;align-items:center;gap:18px;padding:13px 18px;border-bottom:2px dashed #cfcfcf">
+      <div style="font-weight:700;font-size:18px;color:#5b5bd6">VisioMath</div>
+      <div style="display:flex;gap:16px;font-size:14px;color:#5a5a5a">
+        <span style="color:#1e2230;font-weight:700;border-bottom:2px solid #5b5bd6;padding-bottom:2px">Accueil</span>
+        <span>Calendrier</span><span>Messages</span><span>Demandes</span><span>Documents</span>
+      </div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:#5a5a5a">
+        <span style="width:9px;height:9px;border-radius:50%;background:#5b5bd6"></span>
+        <span style="width:26px;height:26px;border-radius:50%;border:1.8px solid #2b2b2b"></span>Léa · Élève
+      </div>
+    </div>
+    <div style="display:flex;min-height:700px">
+      <div style="width:172px;border-right:2px dashed #cfcfcf;padding:14px 12px;display:flex;flex-direction:column;gap:3px">
+        <div style="font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:#a3a3a3;margin:2px 4px 4px">Cours</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:8px;background:#eeefff;font-size:13.5px;color:#1e2230"><span style="width:18px;height:18px;border:1.8px solid #5b5bd6;border-radius:5px"></span>Rejoindre la visio</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;font-size:13.5px;color:#3a3a3a"><span style="width:18px;height:18px;border:1.8px solid #2b2b2b;border-radius:5px"></span>Tableau blanc</div>
+        <div style="font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:#a3a3a3;margin:10px 4px 4px">Travail</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;font-size:13.5px;color:#3a3a3a"><span style="width:18px;height:18px;border:1.8px solid #2b2b2b"></span>Cahier de texte</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;font-size:13.5px;color:#3a3a3a"><span style="width:18px;height:18px;border:1.8px solid #2b2b2b"></span>Devoirs</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;font-size:13.5px;color:#3a3a3a"><span style="width:18px;height:18px;border:1.8px solid #2b2b2b;transform:rotate(45deg)"></span>Exercices</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;font-size:13.5px;color:#3a3a3a"><span style="width:18px;height:18px;border:1.8px solid #2b2b2b;border-radius:50%"></span>Évaluations</div>
+        <div style="font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:#a3a3a3;margin:10px 4px 4px">Mon espace</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;font-size:13.5px;color:#3a3a3a"><span style="width:18px;height:18px;border:1.8px solid #2b2b2b;border-radius:5px"></span>Mon carnet</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;font-size:13.5px;color:#3a3a3a"><span style="width:18px;height:18px;border:1.8px solid #2b2b2b;border-radius:50%"></span>Mémos</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;font-size:13.5px;color:#3a3a3a"><span style="width:18px;height:18px;border:1.8px solid #2b2b2b;transform:rotate(45deg)"></span>Parcours</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:7px 8px;font-size:13.5px;color:#3a3a3a"><span style="width:18px;height:18px;border:1.8px solid #2b2b2b"></span>Ressources</div>
+      </div>
+      <div style="flex:1;padding:18px;display:flex;gap:14px">
+        <!-- col 1 -->
+        <div style="flex:1;display:flex;flex-direction:column;gap:12px">
+          <div style="font-size:13px;font-weight:700;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px">Cours & agenda</div>
+          <div style="border:2px solid #2b2b2b;border-radius:12px;padding:14px;background:#f7f8ff">
+            <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:#8a8a8a;margin-bottom:4px">Prochain</div>
+            <div style="font-size:15px;font-weight:700;color:#1e2230;line-height:1.3">Suites & limites</div>
+            <div style="font-size:12.5px;color:#5a5a5a;margin:3px 0 10px">M. Diallo · 17h00</div>
+            <div style="padding:8px 12px;border:2px solid #2b2b2b;border-radius:9px;background:#5b5bd6;color:#fff;font-weight:700;font-size:13px;text-align:center;box-shadow:2px 2px 0 #2b2b2b">▶ Rejoindre</div>
+          </div>
+          <div style="border:2px solid #2b2b2b;border-radius:12px;padding:14px;flex:1">
+            <div style="font-size:14px;font-weight:700;color:#1e2230;margin-bottom:8px">À venir</div>
+            <div style="font-size:12.5px;color:#3a3a3a;padding:6px 0;border-bottom:1.5px dashed #e2e2e2">Jeu. 13h — DS Dérivées</div>
+            <div style="font-size:12.5px;color:#3a3a3a;padding:6px 0;border-bottom:1.5px dashed #e2e2e2">Ven. 17h — Cours physique</div>
+            <div style="font-size:12.5px;color:#3a3a3a;padding:6px 0">Lun. 17h — Maths</div>
+          </div>
+        </div>
+        <!-- col 2 -->
+        <div style="flex:1.3;display:flex;flex-direction:column;gap:12px">
+          <div style="font-size:13px;font-weight:700;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px">Fil d'activité</div>
+          <div style="border:2px solid #2b2b2b;border-radius:12px;padding:14px 16px;flex:1">
+            <div style="display:flex;gap:10px;padding:9px 0;border-bottom:1.5px dashed #e2e2e2"><span style="width:9px;height:9px;border-radius:50%;border:1.8px solid #2b2b2b;margin-top:4px"></span><div><div style="font-size:13px;color:#2b2b2b">M. Diallo a partagé « Fiche limites »</div><div style="font-size:11px;color:#9a9a9a">il y a 2 h</div></div></div>
+            <div style="display:flex;gap:10px;padding:9px 0;border-bottom:1.5px dashed #e2e2e2"><span style="width:9px;height:9px;border-radius:50%;border:1.8px solid #2b2b2b;margin-top:4px"></span><div><div style="font-size:13px;color:#2b2b2b">Exercice corrigé disponible</div><div style="font-size:11px;color:#9a9a9a">hier</div></div></div>
+            <div style="display:flex;gap:10px;padding:9px 0;border-bottom:1.5px dashed #e2e2e2"><span style="width:9px;height:9px;border-radius:50%;border:1.8px solid #2b2b2b;margin-top:4px"></span><div><div style="font-size:13px;color:#2b2b2b">Devoir « Dérivées » à rendre vendredi</div><div style="font-size:11px;color:#9a9a9a">il y a 2 j</div></div></div>
+            <div style="display:flex;gap:10px;padding:9px 0;border-bottom:1.5px dashed #e2e2e2"><span style="width:9px;height:9px;border-radius:50%;border:1.8px solid #2b2b2b;margin-top:4px"></span><div><div style="font-size:13px;color:#2b2b2b">Compte-rendu séance 12/06 ajouté</div><div style="font-size:11px;color:#9a9a9a">il y a 3 j</div></div></div>
+            <div style="display:flex;gap:10px;padding:9px 0"><span style="width:9px;height:9px;border-radius:50%;border:1.8px solid #2b2b2b;margin-top:4px"></span><div><div style="font-size:13px;color:#2b2b2b">Nouveau message du responsable</div><div style="font-size:11px;color:#9a9a9a">il y a 4 j</div></div></div>
+          </div>
+        </div>
+        <!-- col 3 -->
+        <div style="flex:1;display:flex;flex-direction:column;gap:12px">
+          <div style="font-size:13px;font-weight:700;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px">Progression</div>
+          <div style="border:2px solid #2b2b2b;border-radius:12px;padding:14px">
+            <div style="font-size:12.5px;color:#5a5a5a;margin-bottom:3px">Algèbre</div>
+            <div style="height:9px;border-radius:6px;background:#ececf5;overflow:hidden;margin-bottom:9px"><div style="width:72%;height:100%;background:#5b5bd6"></div></div>
+            <div style="font-size:12.5px;color:#5a5a5a;margin-bottom:3px">Analyse</div>
+            <div style="height:9px;border-radius:6px;background:#ececf5;overflow:hidden;margin-bottom:9px"><div style="width:46%;height:100%;background:#5b5bd6"></div></div>
+            <div style="font-size:12.5px;color:#5a5a5a;margin-bottom:3px">Géométrie</div>
+            <div style="height:9px;border-radius:6px;background:#ececf5;overflow:hidden"><div style="width:60%;height:100%;background:#5b5bd6"></div></div>
+          </div>
+          <div style="border:2px solid #2b2b2b;border-radius:12px;padding:14px;flex:1">
+            <div style="font-size:14px;font-weight:700;color:#1e2230;margin-bottom:8px">Objectifs</div>
+            <div style="display:flex;gap:8px;align-items:center;font-size:12.5px;color:#3a3a3a;padding:5px 0"><span style="width:15px;height:15px;border:1.8px solid #2b2b2b;border-radius:4px;background:#5b5bd6"></span>Réviser les limites</div>
+            <div style="display:flex;gap:8px;align-items:center;font-size:12.5px;color:#3a3a3a;padding:5px 0"><span style="width:15px;height:15px;border:1.8px solid #2b2b2b;border-radius:4px"></span>Parcours « Dérivées »</div>
+            <div style="display:flex;gap:8px;align-items:center;font-size:12.5px;color:#3a3a3a;padding:5px 0"><span style="width:15px;height:15px;border:1.8px solid #2b2b2b;border-radius:4px"></span>Préparer le DS</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="font-family:'Hanken Grotesk',sans-serif;font-size:12.5px;color:#6b7280;margin-top:14px;line-height:1.5;width:1040px">Trois colonnes claires : <b>Cours & agenda</b> · <b>Fil d'activité</b> (central, plus large) · <b>Progression & objectifs</b>. Dense mais très lisible — bon pour les rôles « pro » (prof, responsable). Sur mobile, les colonnes s'empilent.</div>
+</div>
+
+<!-- ====================== DIRECTION VISUELLE ====================== -->
+<div style="position:absolute;left:80px;top:1170px;width:1760px">
+  <div data-drags-parent="1" style="position:absolute;top:-32px;font-family:'Kalam',cursive;font-weight:700;font-size:18px;color:#3DAE7C">Direction visuelle proposée</div>
+  <div style="background:#fff;border:2px solid #2b2b2b;border-radius:12px;box-shadow:7px 7px 0 rgba(43,43,43,.09);padding:26px 28px;font-family:'Hanken Grotesk',sans-serif">
+    <div style="display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:34px">
+      <!-- palette neutre -->
+      <div>
+        <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;color:#1e2230;margin-bottom:14px">Base neutre</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;gap:12px"><span style="width:40px;height:40px;border-radius:8px;border:1.5px solid #d8d8de;background:#FBFBFD"></span><div><div style="font-size:13px;font-weight:600;color:#1e2230">Fond</div><div style="font-size:11.5px;color:#8A90A2">#FBFBFD · blanc froid</div></div></div>
+          <div style="display:flex;align-items:center;gap:12px"><span style="width:40px;height:40px;border-radius:8px;background:#1E2230"></span><div><div style="font-size:13px;font-weight:600;color:#1e2230">Encre</div><div style="font-size:11.5px;color:#8A90A2">#1E2230 · bleu-noir</div></div></div>
+          <div style="display:flex;align-items:center;gap:12px"><span style="width:40px;height:40px;border-radius:8px;background:#E6E8EF"></span><div><div style="font-size:13px;font-weight:600;color:#1e2230">Lignes / surfaces</div><div style="font-size:11.5px;color:#8A90A2">#E6E8EF</div></div></div>
+          <div style="display:flex;align-items:center;gap:12px"><span style="width:40px;height:40px;border-radius:8px;background:#8A90A2"></span><div><div style="font-size:13px;font-weight:600;color:#1e2230">Texte secondaire</div><div style="font-size:11.5px;color:#8A90A2">#8A90A2</div></div></div>
+        </div>
+        <div style="font-size:12px;color:#6b7280;margin-top:14px;line-height:1.5">Beaucoup de blanc, ombres très douces, coins arrondis modérés. Sobriété = espace + hiérarchie, pas d'effets.</div>
+      </div>
+      <!-- accent par rôle -->
+      <div>
+        <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;color:#1e2230;margin-bottom:14px">Accent par rôle <span style="font-weight:400;font-size:13px;color:#8A90A2">— même luminosité, on varie la teinte</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px">
+          <div style="display:flex;align-items:center;gap:11px;border:1.5px solid #E6E8EF;border-radius:10px;padding:9px 11px"><span style="width:30px;height:30px;border-radius:8px;background:oklch(0.58 0.13 270)"></span><div><div style="font-size:13px;font-weight:600;color:#1e2230">Élève</div><div style="font-size:11px;color:#8A90A2">Indigo</div></div></div>
+          <div style="display:flex;align-items:center;gap:11px;border:1.5px solid #E6E8EF;border-radius:10px;padding:9px 11px"><span style="width:30px;height:30px;border-radius:8px;background:oklch(0.60 0.12 210)"></span><div><div style="font-size:13px;font-weight:600;color:#1e2230">Parent</div><div style="font-size:11px;color:#8A90A2">Cyan</div></div></div>
+          <div style="display:flex;align-items:center;gap:11px;border:1.5px solid #E6E8EF;border-radius:10px;padding:9px 11px"><span style="width:30px;height:30px;border-radius:8px;background:oklch(0.60 0.12 155)"></span><div><div style="font-size:13px;font-weight:600;color:#1e2230">Professeur</div><div style="font-size:11px;color:#8A90A2">Vert</div></div></div>
+          <div style="display:flex;align-items:center;gap:11px;border:1.5px solid #E6E8EF;border-radius:10px;padding:9px 11px"><span style="width:30px;height:30px;border-radius:8px;background:oklch(0.58 0.13 330)"></span><div><div style="font-size:13px;font-weight:600;color:#1e2230">Responsable péda.</div><div style="font-size:11px;color:#8A90A2">Prune</div></div></div>
+          <div style="display:flex;align-items:center;gap:11px;border:1.5px solid #E6E8EF;border-radius:10px;padding:9px 11px"><span style="width:30px;height:30px;border-radius:8px;background:oklch(0.65 0.13 65)"></span><div><div style="font-size:13px;font-weight:600;color:#1e2230">Animateur péda.</div><div style="font-size:11px;color:#8A90A2">Ambre</div></div></div>
+          <div style="display:flex;align-items:center;gap:11px;border:1.5px solid #E6E8EF;border-radius:10px;padding:9px 11px"><span style="width:30px;height:30px;border-radius:8px;background:oklch(0.52 0.07 250)"></span><div><div style="font-size:13px;font-weight:600;color:#1e2230">Admin financier</div><div style="font-size:11px;color:#8A90A2">Ardoise</div></div></div>
+        </div>
+        <div style="font-size:12px;color:#6b7280;margin-top:14px;line-height:1.5">Le layout, la typo et la base neutre restent <b>identiques</b> pour les 6 rôles. Seul l'accent (boutons, état actif, liens, en-tête) change → on sait instantanément « dans quel espace » on est, sans casser l'unité.</div>
+      </div>
+      <!-- typographie -->
+      <div>
+        <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;color:#1e2230;margin-bottom:14px">Typographie</div>
+        <div style="border:1.5px solid #E6E8EF;border-radius:10px;padding:14px 16px;margin-bottom:12px">
+          <div style="font-size:11px;color:#8A90A2;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Titres — Bricolage Grotesque</div>
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:26px;color:#1e2230;line-height:1.1">Bonjour, Léa</div>
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:600;font-size:16px;color:#3a3a3a">Prochain cours · Progression</div>
+        </div>
+        <div style="border:1.5px solid #E6E8EF;border-radius:10px;padding:14px 16px">
+          <div style="font-size:11px;color:#8A90A2;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Texte & interface — Hanken Grotesk</div>
+          <div style="font-family:'Hanken Grotesk',sans-serif;font-size:13.5px;color:#3a3a3a;line-height:1.55">Lisible à toutes les tailles, neutre et moderne. Chiffres clairs : 0 1 2 3 4 5 6 7 8 9.</div>
+        </div>
+        <div style="font-size:12px;color:#6b7280;margin-top:13px;line-height:1.5">Pairing moderne et sobre, loin des polices « par défaut ». Bricolage donne du caractère aux titres, Hanken assure la lisibilité de l'interface.</div>
+      </div>
+    </div>
+    <!-- principes -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:24px;padding-top:20px;border-top:1.5px dashed #d8d8de">
+      <span style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:14px;color:#1e2230;margin-right:6px;align-self:center">Principes :</span>
+      <span style="padding:7px 14px;border:1.5px solid #2b2b2b;border-radius:20px;font-size:12.5px">Sobriété & espaces généreux</span>
+      <span style="padding:7px 14px;border:1.5px solid #2b2b2b;border-radius:20px;font-size:12.5px">1 action principale par écran</span>
+      <span style="padding:7px 14px;border:1.5px solid #2b2b2b;border-radius:20px;font-size:12.5px">Un seul accent actif à la fois</span>
+      <span style="padding:7px 14px;border:1.5px solid #2b2b2b;border-radius:20px;font-size:12.5px">Hiérarchie claire avant la densité</span>
+      <span style="padding:7px 14px;border:1.5px solid #2b2b2b;border-radius:20px;font-size:12.5px">Unité multi-rôles</span>
+    </div>
+  </div>
+</div>
+
+<!-- post-it next steps -->
+<div style="position:absolute;left:1900px;top:1200px;width:250px;background:#fef4a8;padding:16px 17px;font-family:'Hanken Grotesk',sans-serif;font-size:13px;line-height:1.55;color:#3a3320;box-shadow:0 2px 6px rgba(0,0,0,.12);transform:rotate(1.2deg)">
+  <b>Et après ?</b><br>1. Tu choisis une direction (A, B ou C).<br>2. Je passe la vue élève en <b>haute-fidélité</b> avec cette charte.<br>3. On décline ensuite parent / prof / responsable / animateur / admin.
+</div>
+</x-dc>
+</body>
+</html>

@@ -4,7 +4,7 @@ import {
   fetchParentLinkRequests,
   approveParentLinkRequest,
   rejectParentLinkRequest,
-  ParentLinkRequest,
+  type ParentLinkRequest,
 } from '../api/parentLinkRequest'
 
 export default function ParentLinkRequestsInboxPage() {
@@ -100,7 +100,9 @@ export default function ParentLinkRequestsInboxPage() {
                       Demande de rattachement
                     </p>
                     <p className="text-sm text-gray-600 mt-0.5">
-                      Parent : <span className="font-mono text-xs">{request.parentId}</span>
+                      {request.direction === 'student_initiated'
+                        ? `Élève : ELV-${request.studentId.slice(0, 8)}`
+                        : `Parent : PAR-${request.parentId.slice(0, 8)}`}
                     </p>
                     <p className="text-xs text-gray-400 mt-1">
                       Reçue le{' '}

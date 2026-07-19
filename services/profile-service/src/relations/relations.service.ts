@@ -145,6 +145,27 @@ export class RelationsService {
   }
 
   /**
+   * List all financeurs (parents) linked to a given student.
+   * Symmetric counterpart of getStudentsByFinanceOwner.
+   * Accessible to the student themselves, RP, TI, and AdministrateurFinancier.
+   */
+  async getFinanceOwnersByStudent(studentId: string, actor: Actor) {
+    const privilegedRoles = [
+      UserRole.RESPONSABLE_PEDAGOGIQUE,
+      UserRole.TECHNICIEN_INFORMATIQUE,
+      UserRole.ADMINISTRATEUR_FINANCIER,
+    ];
+
+    if (!privilegedRoles.includes(actor.role) && actor.id !== studentId) {
+      throw new ForbiddenException(
+        'Vous ne pouvez consulter que vos propres financeurs rattachés',
+      );
+    }
+
+    return this.financeRepo.find({ where: { studentId }, order: { createdAt: 'ASC' } });
+  }
+
+  /**
    * Assign a RP or AP as coordinator for a student (PROF-BR-004 / responsibility 4).
    * Restricted to RP only.
    */

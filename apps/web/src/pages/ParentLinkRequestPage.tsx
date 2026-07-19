@@ -3,8 +3,8 @@ import Layout from '../components/Layout'
 import {
   createParentLinkRequest,
   fetchParentLinkRequests,
-  ParentLinkRequest,
-  ParentLinkRequestStatus,
+  type ParentLinkRequest,
+  type ParentLinkRequestStatus,
 } from '../api/parentLinkRequest'
 
 const STATUS_LABELS: Record<ParentLinkRequestStatus, string> = {
@@ -139,7 +139,7 @@ export default function ParentLinkRequestPage() {
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-gray-800 truncate">
-                      Élève : <span className="font-mono">{request.studentId}</span>
+                      Élève : ELV-{request.studentId.slice(0, 8)}
                     </p>
                     <p className="text-xs text-gray-400 mt-0.5">
                       Envoyée le{' '}

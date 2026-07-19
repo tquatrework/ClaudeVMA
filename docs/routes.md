@@ -91,6 +91,7 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 | Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
 |---|---|---|---|---|---|
 | POST | /relations/finance-owner-student | 🔒 | responsable_pedagogique | Lier un parent financeur à un élève | `201 {financeOwnerId, studentId, createdAt}` · `400` body incomplet · `401` · `403` · `409` doublon |
+| GET | /relations/finance-owner-student/by-student/:studentId | 🔒 | eleve (soi-même), responsable_pedagogique, administrateur_financier, technicien_informatique | Lister les financeurs rattachés à un élève (symétrique) | `200 [{financeOwnerId, studentId, createdAt}]` · `401` · `403` |
 | GET | /relations/finance-owner-student/:financeOwnerId | 🔒 | parent_financeur (soi-même), responsable_pedagogique, administrateur_financier, technicien_informatique | Lister les élèves rattachés à un financeur | `200 [{financeOwnerId, studentId, createdAt}]` · `401` · `403` |
 | POST | /relations/teacher-student | 🔒 | responsable_pedagogique | Lier un formateur à un élève (avec flag professeur principal) | `201 {teacherId, studentId, isPrincipalTeacher, createdAt}` · `400` · `401` · `403` · `409` doublon |
 | POST | /relations/pedagogical-coordinator | 🔒 | responsable_pedagogique | Lier un RP ou AP comme coordinateur pédagogique d'un élève | `201 {coordinatorId, studentId, coordinatorRole, createdAt}` · `400` rôle invalide · `401` · `403` · `409` doublon |
@@ -117,10 +118,11 @@ Statuts : `pending` → `approved` (lien finance-owner-student créé) / `reject
 
 | Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
 |---|---|---|---|---|---|
-| POST | /parent-link-requests | 🔒 | `parent_financeur` | Soumet une demande de rattachement | Body : `{ studentLoginIdentifier }` · `201 { id, parentId, studentId, status: "pending", requestedAt }` · `400` identifiant non trouvé ou compte non élève · `404` identifiant élève introuvable · `409` demande pending déjà en cours |
-| GET | /parent-link-requests | 🔒 | `parent_financeur` (ses demandes), `eleve` (demandes le ciblant), `responsable_pedagogique`, `technicien_informatique` (toutes) | Liste filtrée selon le rôle | `200 [{ id, parentId, studentId, status, requestedAt, processedAt, processedBy }]` |
-| POST | /parent-link-requests/:id/approve | 🔒 | `eleve` (uniquement si ciblé), `responsable_pedagogique`, `technicien_informatique` | Approuve → crée le lien finance-owner-student | `200 { id, status: "approved", processedAt, processedBy }` · `403` · `404` |
-| POST | /parent-link-requests/:id/reject | 🔒 | `eleve` (uniquement si ciblé), `responsable_pedagogique`, `technicien_informatique` | Rejette la demande | `200 { id, status: "rejected", processedAt, processedBy }` · `403` · `404` |
+| POST | /parent-link-requests | 🔒 | `parent_financeur` | Soumet une demande de rattachement (direction: parent_initiated) | Body : `{ studentLoginIdentifier }` · `201 { id, parentId, studentId, status: "pending", direction: "parent_initiated", requestedAt }` · `400` identifiant non trouvé ou compte non élève · `404` identifiant élève introuvable · `409` demande pending déjà en cours |
+| POST | /parent-link-requests/student-initiated | 🔒 | `eleve` | L'élève invite son parent (direction: student_initiated) | Body : `{ parentLoginIdentifier }` · `201 { id, parentId, studentId, status: "pending", direction: "student_initiated", requestedAt }` · `400` identifiant non trouvé ou compte non parent_financeur · `404` identifiant parent introuvable · `409` demande pending déjà en cours |
+| GET | /parent-link-requests | 🔒 | `parent_financeur` (ses demandes, les deux directions), `eleve` (demandes le ciblant + ses invitations), `responsable_pedagogique`, `technicien_informatique` (toutes) | Liste filtrée selon le rôle | `200 [{ id, parentId, studentId, status, direction, requestedAt, processedAt, processedBy }]` |
+| POST | /parent-link-requests/:id/approve | 🔒 | `eleve` (si parent_initiated, uniquement si ciblé), `parent_financeur` (si student_initiated, uniquement si ciblé), `responsable_pedagogique`, `technicien_informatique` | Approuve → crée le lien finance-owner-student | `200 { id, status: "approved", processedAt, processedBy }` · `403` · `404` |
+| POST | /parent-link-requests/:id/reject | 🔒 | `eleve` (si parent_initiated, uniquement si ciblé), `parent_financeur` (si student_initiated, uniquement si ciblé), `responsable_pedagogique`, `technicien_informatique` | Rejette la demande | `200 { id, status: "rejected", processedAt, processedBy }` · `403` · `404` |
 
 ### Événements publiés
 

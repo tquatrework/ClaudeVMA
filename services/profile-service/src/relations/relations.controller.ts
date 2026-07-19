@@ -50,6 +50,23 @@ export class RelationsController {
     return this.relationsService.linkFinanceOwnerToStudent(dto, req.user);
   }
 
+  @Get('finance-owner-student/by-student/:studentId')
+  @ApiOperation({
+    summary: 'List financeurs of a student',
+    description:
+      'Returns all financeurs (parents) linked to the given student. ' +
+      'Accessible to the student themselves, RP, AdministrateurFinancier and TI.',
+  })
+  @ApiParam({ name: 'studentId', description: 'Student (élève) UUID' })
+  @ApiResponse({ status: 200, description: 'List of financeur–student links' })
+  @ApiResponse({ status: 403, description: 'Forbidden — insufficient rights' })
+  getFinanceOwnersByStudent(
+    @Param('studentId', ParseUUIDPipe) studentId: string,
+    @Request() req,
+  ) {
+    return this.relationsService.getFinanceOwnersByStudent(studentId, req.user);
+  }
+
   @Get('finance-owner-student/:financeOwnerId')
   @ApiOperation({
     summary: 'List students of a financeur',

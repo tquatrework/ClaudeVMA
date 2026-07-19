@@ -95,6 +95,29 @@ Le rôle `parent_financeur` peut être lié à plusieurs élèves. Deux contexte
 - Ajouter une option "Tous" uniquement si le module le permet techniquement (ex. calendrier peut agréger, archives non).
 - Par défaut, sélectionner le premier élève lié.
 
+## Page Profil — règles obligatoires
+
+### Structure en onglets
+La page profil (`ProfilePage`) doit afficher son contenu sous forme d'**onglets distincts**, dans cet ordre :
+
+1. **Profil administratif** — onglet actif par défaut
+2. **Profil pédagogique**
+3. **Parents financeurs** (rôle `eleve`) ou **Mes élèves / enfants** (rôle `parent_financeur`)
+4. **Confidentialité**
+5. **Documents légaux**
+
+Les onglets 3, 4 et 5 ne s'affichent que si le rôle de l'utilisateur y a accès.
+Chaque onglet est un panneau indépendant ; on ne déroule pas tout en vertical.
+
+### Données human-friendly dans les onglets profil
+Tout élément affiché dans les onglets profil doit être humainement lisible :
+- Un parent financeur → affiché avec son **prénom + nom**, jamais son UUID ni son loginIdentifier brut.
+- Un élève rattaché → **prénom + nom**.
+- Un statut → libellé métier lisible ("En attente", "Validé", etc.), pas une valeur d'enum technique.
+- Une date → format `JJ/MM/AAAA` ou relatif ("Il y a 2 jours"), jamais ISO brut.
+
+Lorsque l'API retourne seulement un id, le front enrichit en appelant `GET /profiles/:id` pour obtenir prénom + nom avant affichage.
+
 ## Factorisation et maintenabilité — règles permanentes
 
 ### Principe général

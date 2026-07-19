@@ -9,8 +9,13 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { ParentLinkRequest, ParentLinkRequestStatus } from './entities/parent-link-request.entity';
+import {
+  ParentLinkRequest,
+  ParentLinkRequestDirection,
+  ParentLinkRequestStatus,
+} from './entities/parent-link-request.entity';
 import { CreateParentLinkRequestDto } from './dto/create-parent-link-request.dto';
+import { CreateStudentInitiatedLinkRequestDto } from './dto/create-student-initiated-link-request.dto';
 import { StudentPedagogicalProfile } from '../profiles/entities/student-pedagogical-profile.entity';
 import { FinanceOwnerStudentLink } from '../relations/entities/finance-owner-student-link.entity';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -67,6 +72,7 @@ export class ParentLinkRequestsService {
       parentId: actor.id,
       studentId: resolvedStudentId,
       status: ParentLinkRequestStatus.PENDING,
+      direction: ParentLinkRequestDirection.PARENT_INITIATED,
     });
     const savedRequest = await this.requestRepo.save(newRequest);
 
@@ -79,13 +85,62 @@ export class ParentLinkRequestsService {
   }
 
   /**
+   * Soumet une demande de rattachement initiée par un élève vers son parent.
+   * Réservé au rôle ELEVE.
+   * Résout le parentLoginIdentifier en UUID via identity-access-service (interne).
+   * Retourne 404 si l'identifiant parent est introuvable.
+   * Retourne 400 si l'identifiant ne correspond pas à un compte parent_financeur.
+   * Retourne 409 si une demande en attente existe déjà pour cette paire élève–parent.
+   * Déclenche une notification best-effort au parent.
+   */
+  async createStudentInitiatedRequest(
+    dto: CreateStudentInitiatedLinkRequestDto,
+    actor: Actor,
+  ): Promise<ParentLinkRequest> {
+    if (actor.role !== UserRole.ELEVE) {
+      throw new ForbiddenException('Seul un élève peut initier une demande de rattachement vers un parent');
+    }
+
+    const resolvedParentId = await this.resolveParentIdFromLoginIdentifier(dto.parentLoginIdentifier);
+
+    const pendingRequest = await this.requestRepo.findOne({
+      where: {
+        parentId: resolvedParentId,
+        studentId: actor.id,
+        status: ParentLinkRequestStatus.PENDING,
+      },
+    });
+    if (pendingRequest) {
+      throw new ConflictException(
+        'Une demande de rattachement en attente existe déjà pour cette paire élève–parent',
+      );
+    }
+
+    const newRequest = this.requestRepo.create({
+      parentId: resolvedParentId,
+      studentId: actor.id,
+      status: ParentLinkRequestStatus.PENDING,
+      direction: ParentLinkRequestDirection.STUDENT_INITIATED,
+    });
+    const savedRequest = await this.requestRepo.save(newRequest);
+
+    await this.notifyUser(
+      resolvedParentId,
+      'Un élève vous invite à être rattaché à son compte. Vérifiez vos demandes de rattachement.',
+    );
+
+    return savedRequest;
+  }
+
+  /**
    * List parent-link requests filtered by role:
-   * - PARENT_FINANCEUR: only their own requests
-   * - ELEVE: only requests targeting them
+   * - PARENT_FINANCEUR: leurs propres demandes (parent_initiated) + demandes student_initiated où ils sont parentId
+   * - ELEVE: demandes les ciblant (parent_initiated où ils sont studentId) + leurs propres demandes student_initiated
    * - RP or TI: all requests
    */
   async listRequests(actor: Actor): Promise<ParentLinkRequest[]> {
     if (actor.role === UserRole.PARENT_FINANCEUR) {
+      // Parent sees all requests where they appear as parentId (both directions)
       return this.requestRepo.find({
         where: { parentId: actor.id },
         order: { requestedAt: 'DESC' },
@@ -93,6 +148,7 @@ export class ParentLinkRequestsService {
     }
 
     if (actor.role === UserRole.ELEVE) {
+      // Student sees all requests where they appear as studentId (both directions)
       return this.requestRepo.find({
         where: { studentId: actor.id },
         order: { requestedAt: 'DESC' },
@@ -143,11 +199,18 @@ export class ParentLinkRequestsService {
     linkRequest.processedBy = actor.id;
     const savedRequest = await this.requestRepo.save(linkRequest);
 
-    // Best-effort notification to the parent
-    await this.notifyUser(
-      linkRequest.parentId,
-      'Votre demande de rattachement à un élève a été approuvée.',
-    );
+    // Best-effort notification to the initiator (opposite side depending on direction)
+    if (linkRequest.direction === ParentLinkRequestDirection.PARENT_INITIATED) {
+      await this.notifyUser(
+        linkRequest.parentId,
+        'Votre demande de rattachement à un élève a été approuvée.',
+      );
+    } else {
+      await this.notifyUser(
+        linkRequest.studentId,
+        'Votre invitation de rattachement a été acceptée par le parent.',
+      );
+    }
 
     return savedRequest;
   }
@@ -170,11 +233,18 @@ export class ParentLinkRequestsService {
     linkRequest.processedBy = actor.id;
     const savedRequest = await this.requestRepo.save(linkRequest);
 
-    // Best-effort notification to the parent
-    await this.notifyUser(
-      linkRequest.parentId,
-      'Votre demande de rattachement à un élève a été rejetée.',
-    );
+    // Best-effort notification to the initiator (opposite side depending on direction)
+    if (linkRequest.direction === ParentLinkRequestDirection.PARENT_INITIATED) {
+      await this.notifyUser(
+        linkRequest.parentId,
+        'Votre demande de rattachement à un élève a été rejetée.',
+      );
+    } else {
+      await this.notifyUser(
+        linkRequest.studentId,
+        'Votre invitation de rattachement a été refusée par le parent.',
+      );
+    }
 
     return savedRequest;
   }
@@ -193,7 +263,12 @@ export class ParentLinkRequestsService {
 
   /**
    * Verifies that the actor has rights to approve or reject the given request.
-   * Only the targeted élève (matching studentId), RP, or TI may process requests.
+   *
+   * For parent_initiated requests:
+   *   Only the targeted élève (matching studentId), RP, or TI may process requests.
+   *
+   * For student_initiated requests:
+   *   Only the targeted parent (matching parentId), RP, or TI may process requests.
    */
   private assertCanProcessRequest(linkRequest: ParentLinkRequest, actor: Actor): void {
     const privilegedRoles = [
@@ -203,11 +278,67 @@ export class ParentLinkRequestsService {
 
     if (privilegedRoles.includes(actor.role)) return;
 
-    if (actor.role === UserRole.ELEVE && actor.id === linkRequest.studentId) return;
+    if (linkRequest.direction === ParentLinkRequestDirection.PARENT_INITIATED) {
+      if (actor.role === UserRole.ELEVE && actor.id === linkRequest.studentId) return;
+      throw new ForbiddenException(
+        'Seul l\'élève ciblé, un responsable_pedagogique ou un technicien_informatique peut traiter cette demande',
+      );
+    }
 
-    throw new ForbiddenException(
-      'Only the targeted élève, a responsable_pedagogique, or a technicien_informatique may process this request',
+    if (linkRequest.direction === ParentLinkRequestDirection.STUDENT_INITIATED) {
+      if (actor.role === UserRole.PARENT_FINANCEUR && actor.id === linkRequest.parentId) return;
+      throw new ForbiddenException(
+        'Seul le parent ciblé, un responsable_pedagogique ou un technicien_informatique peut traiter cette demande',
+      );
+    }
+
+    throw new ForbiddenException('Direction de demande non reconnue');
+  }
+
+  /**
+   * Résout un loginIdentifier parent_financeur en UUID via identity-access-service.
+   * Lève NotFoundException si l'identifiant est introuvable (404 distant).
+   * Lève BadRequestException si le compte trouvé n'est pas de rôle 'parent_financeur'.
+   */
+  private async resolveParentIdFromLoginIdentifier(parentLoginIdentifier: string): Promise<string> {
+    const identityServiceUrl = this.configService.get<string>(
+      'IDENTITY_ACCESS_SERVICE_URL',
+      'http://identity-access-service:3001',
     );
+    const internalSecret = this.configService.get<string>('INTERNAL_SECRET', '');
+
+    let response: Response;
+    try {
+      response = await fetch(
+        `${identityServiceUrl}/internal/accounts/by-login-identifier?loginIdentifier=${encodeURIComponent(parentLoginIdentifier)}`,
+        {
+          method: 'GET',
+          headers: { 'X-Internal-Secret': internalSecret },
+        },
+      );
+    } catch (networkError) {
+      this.logger.error(
+        `Impossible de joindre identity-access-service pour résoudre le loginIdentifier parent : ${(networkError as Error).message}`,
+      );
+      throw new BadRequestException('Service d\'identité temporairement indisponible, veuillez réessayer.');
+    }
+
+    if (response.status === 404) {
+      throw new NotFoundException('Identifiant parent introuvable');
+    }
+
+    if (!response.ok) {
+      this.logger.error(`identity-access-service a retourné HTTP ${response.status} pour loginIdentifier ${parentLoginIdentifier}`);
+      throw new BadRequestException('Erreur lors de la résolution de l\'identifiant parent.');
+    }
+
+    const accountData = await response.json() as { userId: string; role: string };
+
+    if (accountData.role !== 'parent_financeur') {
+      throw new BadRequestException('Cet identifiant ne correspond pas à un compte parent_financeur');
+    }
+
+    return accountData.userId;
   }
 
   /**

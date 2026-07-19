@@ -17,6 +17,7 @@ import {
 } from '@nestjs/swagger';
 import { ParentLinkRequestsService } from './parent-link-requests.service';
 import { CreateParentLinkRequestDto } from './dto/create-parent-link-request.dto';
+import { CreateStudentInitiatedLinkRequestDto } from './dto/create-student-initiated-link-request.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -71,9 +72,35 @@ export class ParentLinkRequestsController {
     return this.parentLinkRequestsService.listRequests(req.user);
   }
 
+  @Post('student-initiated')
+  @Roles(UserRole.ELEVE)
+  @ApiOperation({
+    summary: 'Inviter un parent financeur (flux élève)',
+    description:
+      "Permet à un élève d'inviter son parent_financeur à se rattacher à son compte, " +
+      "en fournissant le loginIdentifier du parent. " +
+      "Crée une ParentLinkRequest avec direction='student_initiated'. " +
+      "Retourne 404 si l'identifiant parent est introuvable. " +
+      "Retourne 400 si l'identifiant ne correspond pas à un compte parent_financeur. " +
+      "Retourne 409 si une demande en attente existe déjà pour cette paire. " +
+      "Déclenche une notification best-effort au parent.",
+  })
+  @ApiResponse({ status: 201, description: "Invitation de rattachement créée" })
+  @ApiResponse({ status: 400, description: "Identifiant non parent_financeur ou erreur de résolution" })
+  @ApiResponse({ status: 403, description: "Interdit — réservé au rôle eleve" })
+  @ApiResponse({ status: 404, description: "Identifiant parent introuvable" })
+  @ApiResponse({ status: 409, description: "Une demande en attente existe déjà pour cette paire" })
+  createStudentInitiatedRequest(
+    @Body() dto: CreateStudentInitiatedLinkRequestDto,
+    @Request() req,
+  ) {
+    return this.parentLinkRequestsService.createStudentInitiatedRequest(dto, req.user);
+  }
+
   @Post(':id/approve')
   @Roles(
     UserRole.ELEVE,
+    UserRole.PARENT_FINANCEUR,
     UserRole.RESPONSABLE_PEDAGOGIQUE,
     UserRole.TECHNICIEN_INFORMATIQUE,
   )
@@ -99,6 +126,7 @@ export class ParentLinkRequestsController {
   @Post(':id/reject')
   @Roles(
     UserRole.ELEVE,
+    UserRole.PARENT_FINANCEUR,
     UserRole.RESPONSABLE_PEDAGOGIQUE,
     UserRole.TECHNICIEN_INFORMATIQUE,
   )

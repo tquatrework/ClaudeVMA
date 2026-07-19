@@ -113,6 +113,13 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
         { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
         { label: 'Mémo', path: '/memos', icon: '💡' },
         { label: 'Carnet personnel', path: '/notebook/', icon: '📓' },
+        { label: 'Stats / Archives', path: '/archives', icon: '🗂️' },
+      ],
+    },
+    {
+      groupLabel: 'Famille',
+      items: [
+        { label: 'Mes parents financeurs', path: '/parent-link-requests/inbox', icon: '👨‍👩‍👧' },
       ],
     },
     {

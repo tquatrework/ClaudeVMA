@@ -199,7 +199,6 @@ export default function ProfilePage() {
             <TabPanel tabId={TAB_ADMIN} activeTab={activeTab}>
               <div className="space-y-6">
                 <ProfileSection
-                  title="Profil administratif"
                   data={profile.administrativeProfile}
                   emptyMessage="Aucune donnée administrative"
                 />
@@ -345,7 +344,6 @@ export default function ProfilePage() {
             <TabPanel tabId={TAB_PEDAGOGIQUE} activeTab={activeTab}>
               <div className="space-y-6">
                 <ProfileSection
-                  title="Profil pédagogique"
                   data={profile.pedagogicalProfile}
                   emptyMessage="Aucune donnée pédagogique"
                 />
@@ -425,14 +423,14 @@ function ProfileSection({
   data,
   emptyMessage,
 }: {
-  title: string
+  title?: string
   data?: Record<string, unknown>
   emptyMessage: string
 }) {
   if (!data || Object.keys(data).length === 0) {
     return (
       <div className="bg-white border border-gray-200 rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-gray-800 mb-2">{title}</h2>
+        {title && <h2 className="text-lg font-semibold text-gray-800 mb-2">{title}</h2>}
         <p className="text-gray-400 text-sm">{emptyMessage}</p>
       </div>
     )
@@ -440,7 +438,7 @@ function ProfileSection({
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-6">
-      <h2 className="text-lg font-semibold text-gray-800 mb-4">{title}</h2>
+      {title && <h2 className="text-lg font-semibold text-gray-800 mb-4">{title}</h2>}
       <dl className="space-y-3">
         {Object.entries(data)
           .filter(([, value]) => value !== null && value !== undefined && value !== '')

@@ -368,14 +368,26 @@ describe('PedagogicalArchivePage', () => {
     })
   })
 
-  it('affiche une erreur 404 si l\'élève est introuvable', async () => {
+  it("une réponse 404 des archives n'affiche PAS d'erreur plein-page et garde la page utilisable", async () => {
+    // docs/routes.md ne documente pas de 404 "élève introuvable" sur ces routes :
+    // un 404 signifie "pas encore d'archives", pas "élève inexistant". La page doit
+    // rester visible (en-tête, onglets) et chaque onglet doit afficher son propre état vide.
     mockFetchPedagogicalArchives.mockRejectedValue({ response: { status: 404 } })
     mockFetchArchiveTimeline.mockRejectedValue({ response: { status: 404 } })
 
     renderArchivePage()
 
+    // L'en-tête et les onglets restent visibles — pas de message plein-page trompeur
     await waitFor(() => {
-      expect(screen.getByText('Élève introuvable.')).toBeDefined()
+      expect(screen.getByRole('heading', { name: 'Stats / Archives' })).toBeDefined()
+      expect(screen.getByRole('button', { name: 'Archives' })).toBeDefined()
+    })
+    expect(screen.queryByText('Élève introuvable.')).toBeNull()
+
+    // L'onglet Archives affiche son état vide dédié
+    await userEvent.click(screen.getByRole('button', { name: 'Archives' }))
+    await waitFor(() => {
+      expect(screen.getByText(/Aucune archive disponible/)).toBeDefined()
     })
   })
 

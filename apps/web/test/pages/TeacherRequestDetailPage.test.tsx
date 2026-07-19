@@ -197,7 +197,7 @@ describe('TeacherRequestDetailPage', () => {
 
       await waitFor(() => {
         expect(mockApiClient.patch).toHaveBeenCalledWith(
-          `/teacher-requests/requests/${REQUEST_ID}/status`,
+          `/teacher-requests/${REQUEST_ID}/status`,
           { status: 'accepted' },
         )
       })

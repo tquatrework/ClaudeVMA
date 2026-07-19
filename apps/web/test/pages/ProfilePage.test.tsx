@@ -11,7 +11,7 @@
  * - Can add an internal note via POST /profiles/:userId/internal-notes
  */
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -94,8 +94,10 @@ describe('ProfilePage', () => {
     renderProfilePage()
 
     await waitFor(() => {
-      expect(screen.getByText('Profil administratif')).toBeDefined()
-      expect(screen.getByText('Profil pédagogique')).toBeDefined()
+      // Les onglets "Profil administratif" et "Profil pédagogique" apparaissent dans la barre de navigation
+      const adminTabs = screen.getAllByText('Profil administratif')
+      expect(adminTabs.length).toBeGreaterThanOrEqual(1)
+      expect(screen.getByRole('tab', { name: 'Profil pédagogique' })).toBeDefined()
     })
   })
 
@@ -107,8 +109,16 @@ describe('ProfilePage', () => {
 
     renderProfilePage()
 
+    // Onglet "Profil administratif" actif par défaut — vérifier les champs admin
     await waitFor(() => {
       expect(screen.getByText('Marie')).toBeDefined()
+    })
+
+    // Naviguer vers l'onglet "Profil pédagogique" pour voir les données pédagogiques
+    const pedagogiqueTab = await screen.findByRole('tab', { name: 'Profil pédagogique' })
+    fireEvent.click(pedagogiqueTab)
+
+    await waitFor(() => {
       expect(screen.getByText('Terminale')).toBeDefined()
     })
   })

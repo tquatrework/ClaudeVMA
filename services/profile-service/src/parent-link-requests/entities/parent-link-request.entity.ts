@@ -11,21 +11,28 @@ export enum ParentLinkRequestStatus {
   REJECTED = 'rejected',
 }
 
+export enum ParentLinkRequestDirection {
+  PARENT_INITIATED = 'parent_initiated',
+  STUDENT_INITIATED = 'student_initiated',
+}
+
 /**
- * Represents a request by a parent/financeur to be linked to a student.
- * The parent provides the studentId (communicated out-of-band).
- * The student, RP, or TI can approve or reject the request.
+ * Represents a request to link a parent_financeur to a student (élève).
+ *
+ * Two directions are supported:
+ * - parent_initiated: the parent submits a request; the student (or RP/TI) approves.
+ * - student_initiated: the student invites their parent; the parent (or RP/TI) approves.
  */
 @Entity('parent_link_requests')
 export class ParentLinkRequest {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  /** UUID of the parent_financeur who submits the request */
+  /** UUID of the parent_financeur involved in this request */
   @Column('uuid', { name: 'parent_id' })
   parentId: string;
 
-  /** UUID of the student (élève) targeted by the request */
+  /** UUID of the student (élève) involved in this request */
   @Column('uuid', { name: 'student_id' })
   studentId: string;
 
@@ -35,6 +42,19 @@ export class ParentLinkRequest {
     default: ParentLinkRequestStatus.PENDING,
   })
   status: ParentLinkRequestStatus;
+
+  /**
+   * Indicates who initiated the request.
+   * parent_initiated: parent sent the request, student must approve.
+   * student_initiated: student sent the request, parent must approve.
+   */
+  @Column({
+    type: 'enum',
+    enum: ParentLinkRequestDirection,
+    name: 'direction',
+    default: ParentLinkRequestDirection.PARENT_INITIATED,
+  })
+  direction: ParentLinkRequestDirection;
 
   @CreateDateColumn({ name: 'requested_at' })
   requestedAt: Date;

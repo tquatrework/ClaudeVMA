@@ -65,7 +65,7 @@ function buildSampleItem(overrides: Partial<MemoItem> = {}): MemoItem {
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     ...overrides,
-  } as Memo;
+  } as MemoItem;
 }
 
 describe('MemoService', () => {

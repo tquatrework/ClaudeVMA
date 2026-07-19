@@ -16,6 +16,10 @@
  *   GET /students/:studentId/pedagogical-archives
  *   GET /students/:studentId/archive-timeline
  *   GET /archive-documents/:id/download
+ *
+ * Gestion des erreurs : 403 et erreurs génériques bloquent la page (message plein-page).
+ * 404 = "pas encore d'archives" (non documenté comme "élève introuvable" dans
+ * docs/routes.md) : ne bloque PAS la page, chaque onglet affiche son état vide.
  */
 
 import React, { useEffect, useState } from 'react'
@@ -34,6 +38,7 @@ import ArchiveTimeline from '../components/archive/ArchiveTimeline'
 import ArchiveItemDetail from '../components/archive/ArchiveItemDetail'
 import CourseSummaryArchiveView from '../components/archive/CourseSummaryArchiveView'
 import ProfileStatisticsPanel from './ProfileStatisticsPanel'
+import { ErrorMessage } from '../components/ui/ErrorMessage'
 
 interface StudentOption {
   studentId: string
@@ -119,7 +124,9 @@ export default function PedagogicalArchivePage() {
         if (statusCode === 403) {
           setLoadError('Accès refusé. Vous n\'êtes pas autorisé à consulter ces archives.')
         } else if (statusCode === 404) {
-          setLoadError('Élève introuvable.')
+          // 404 = pas encore d'archives (voir commentaire d'en-tête) : pas de blocage.
+          setArchiveItems([])
+          setTimelineEntries([])
         } else {
           setLoadError('Impossible de charger les archives pédagogiques.')
         }
@@ -163,7 +170,7 @@ export default function PedagogicalArchivePage() {
   if (loadError) {
     return (
       <Layout>
-        <p className="text-red-600">{loadError}</p>
+        <ErrorMessage message={loadError} />
       </Layout>
     )
   }

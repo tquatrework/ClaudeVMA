@@ -7,6 +7,11 @@
  * - Client selects a candidate and request closes (POST /teacher-requests/{id}/select)
  * - Stop collaboration form shown when collaborationId is present
  * - API errors displayed correctly
+ *
+ * La page charge le détail, change le statut et supprime via `src/api/teacherRequests`
+ * (mocké ci-dessous). TeacherCandidatesView et StopCollaborationRequestForm restent hors
+ * périmètre de la migration et continuent d'appeler `apiClient` directement — `apiClient`
+ * reste donc également mocké pour ces composants enfants.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -17,12 +22,16 @@ import TeacherRequestDetailPage from '../../src/pages/TeacherRequestDetailPage'
 
 vi.mock('../../src/hooks/useAuth')
 vi.mock('../../src/api/client')
+vi.mock('../../src/api/teacherRequests')
 
 import { useAuth } from '../../src/hooks/useAuth'
 import apiClient from '../../src/api/client'
+import { fetchTeacherRequest, updateTeacherRequestStatus } from '../../src/api/teacherRequests'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockApiClient = vi.mocked(apiClient)
+const mockFetchTeacherRequest = vi.mocked(fetchTeacherRequest)
+const mockUpdateTeacherRequestStatus = vi.mocked(updateTeacherRequestStatus)
 
 const STUDENT_USER = {
   id: 'student-001',
@@ -88,7 +97,7 @@ beforeEach(() => {
 describe('TeacherRequestDetailPage', () => {
   it('renders request details after loading', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: BASE_REQUEST })
+    mockFetchTeacherRequest.mockResolvedValue(BASE_REQUEST)
 
     renderDetailPage()
 
@@ -98,7 +107,7 @@ describe('TeacherRequestDetailPage', () => {
   })
 
   it('shows "Accès refusé" for 403 error', async () => {
-    mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 403 } })
+    mockFetchTeacherRequest.mockRejectedValue({ response: { status: 403 } })
 
     renderDetailPage()
 
@@ -108,7 +117,7 @@ describe('TeacherRequestDetailPage', () => {
   })
 
   it('shows "Demande introuvable" for 404 error', async () => {
-    mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 404 } })
+    mockFetchTeacherRequest.mockRejectedValue({ response: { status: 404 } })
 
     renderDetailPage()
 
@@ -123,7 +132,7 @@ describe('TeacherRequestDetailPage', () => {
     })
 
     it('shows "Accepter" and "Refuser" buttons for RP on pending request', async () => {
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: BASE_REQUEST })
+      mockFetchTeacherRequest.mockResolvedValue(BASE_REQUEST)
 
       renderDetailPage()
 
@@ -134,7 +143,7 @@ describe('TeacherRequestDetailPage', () => {
     })
 
     it('shows "Ajouter un candidat" button for RP on pending request', async () => {
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: BASE_REQUEST })
+      mockFetchTeacherRequest.mockResolvedValue(BASE_REQUEST)
 
       renderDetailPage()
 
@@ -144,7 +153,7 @@ describe('TeacherRequestDetailPage', () => {
     })
 
     it('RP adds a candidate via POST /teacher-requests/{id}/candidates', async () => {
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: BASE_REQUEST })
+      mockFetchTeacherRequest.mockResolvedValue(BASE_REQUEST)
       mockApiClient.post = vi.fn().mockResolvedValue({
         data: {
           candidates: [
@@ -182,10 +191,8 @@ describe('TeacherRequestDetailPage', () => {
     })
 
     it('RP updates status to accepted', async () => {
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: BASE_REQUEST })
-      mockApiClient.patch = vi.fn().mockResolvedValue({
-        data: { ...BASE_REQUEST, status: 'accepted' },
-      })
+      mockFetchTeacherRequest.mockResolvedValue(BASE_REQUEST)
+      mockUpdateTeacherRequestStatus.mockResolvedValue({ ...BASE_REQUEST, status: 'accepted' })
 
       renderDetailPage()
 
@@ -196,10 +203,9 @@ describe('TeacherRequestDetailPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /^accepter$/i }))
 
       await waitFor(() => {
-        expect(mockApiClient.patch).toHaveBeenCalledWith(
-          `/teacher-requests/${REQUEST_ID}/status`,
-          { status: 'accepted' },
-        )
+        expect(mockUpdateTeacherRequestStatus).toHaveBeenCalledWith(REQUEST_ID, {
+          status: 'accepted',
+        })
       })
     })
   })
@@ -221,7 +227,7 @@ describe('TeacherRequestDetailPage', () => {
           },
         ],
       }
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: requestWithOwnCandidate })
+      mockFetchTeacherRequest.mockResolvedValue(requestWithOwnCandidate)
 
       renderDetailPage()
 
@@ -243,7 +249,7 @@ describe('TeacherRequestDetailPage', () => {
           },
         ],
       }
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: requestWithOwnCandidate })
+      mockFetchTeacherRequest.mockResolvedValue(requestWithOwnCandidate)
       mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
 
       renderDetailPage()
@@ -274,7 +280,7 @@ describe('TeacherRequestDetailPage', () => {
           },
         ],
       }
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: requestWithOwnCandidate })
+      mockFetchTeacherRequest.mockResolvedValue(requestWithOwnCandidate)
       mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
 
       renderDetailPage()
@@ -311,7 +317,7 @@ describe('TeacherRequestDetailPage', () => {
           },
         ],
       }
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: requestWithAcceptedCandidate })
+      mockFetchTeacherRequest.mockResolvedValue(requestWithAcceptedCandidate)
 
       renderDetailPage()
 
@@ -332,7 +338,7 @@ describe('TeacherRequestDetailPage', () => {
           },
         ],
       }
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: requestWithAcceptedCandidate })
+      mockFetchTeacherRequest.mockResolvedValue(requestWithAcceptedCandidate)
       mockApiClient.post = vi.fn().mockResolvedValue({ data: { status: 'accepted' } })
 
       renderDetailPage()
@@ -363,7 +369,7 @@ describe('TeacherRequestDetailPage', () => {
           },
         ],
       }
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: requestWithAcceptedCandidate })
+      mockFetchTeacherRequest.mockResolvedValue(requestWithAcceptedCandidate)
       mockApiClient.post = vi.fn().mockResolvedValue({ data: { status: 'accepted' } })
 
       renderDetailPage()
@@ -392,7 +398,7 @@ describe('TeacherRequestDetailPage', () => {
         ...BASE_REQUEST,
         collaborationId: 'collab-001',
       }
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: requestWithCollaboration })
+      mockFetchTeacherRequest.mockResolvedValue(requestWithCollaboration)
 
       renderDetailPage()
 
@@ -406,7 +412,7 @@ describe('TeacherRequestDetailPage', () => {
         ...BASE_REQUEST,
         collaborationId: 'collab-001',
       }
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: requestWithCollaboration })
+      mockFetchTeacherRequest.mockResolvedValue(requestWithCollaboration)
 
       renderDetailPage()
 
@@ -424,7 +430,7 @@ describe('TeacherRequestDetailPage', () => {
         ...BASE_REQUEST,
         collaborationId: 'collab-001',
       }
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: requestWithCollaboration })
+      mockFetchTeacherRequest.mockResolvedValue(requestWithCollaboration)
       mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
 
       renderDetailPage()

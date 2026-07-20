@@ -14,24 +14,11 @@
  */
 import React, { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import apiClient from '../api/client'
 import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
-import TeacherCandidatesView, {
-  type TeacherCandidate,
-} from '../components/teacher-requests/TeacherCandidatesView'
+import { useTeacherRequestDetail } from '../hooks/teacher-requests/useTeacherRequestDetail'
+import TeacherCandidatesView from '../components/teacher-requests/TeacherCandidatesView'
 import StopCollaborationRequestForm from '../components/teacher-requests/StopCollaborationRequestForm'
-
-interface TeacherRequest {
-  id: string
-  status: string
-  createdAt: string
-  description?: string
-  studentId?: string
-  teacherId?: string
-  collaborationId?: string
-  candidates?: TeacherCandidate[]
-}
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'En attente',
@@ -63,68 +50,47 @@ export default function TeacherRequestDetailPage() {
   const { user, hasRole } = useAuth()
   const navigate = useNavigate()
 
-  const [request, setRequest] = useState<TeacherRequest | null>(null)
-  const [candidates, setCandidates] = useState<TeacherCandidate[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const {
+    request,
+    isLoading,
+    loadError,
+    candidates,
+    setCandidates,
+    updateStatus,
+    isUpdatingStatus,
+    statusError,
+    overrideStatus,
+    deleteRequest,
+    deleteError,
+  } = useTeacherRequestDetail(requestId)
+
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [isShowingStopForm, setIsShowingStopForm] = useState(false)
+
+  const errorMessage = statusError ?? deleteError ?? loadError
+  const [isErrorDismissed, setIsErrorDismissed] = useState(false)
+  useEffect(() => {
+    setIsErrorDismissed(false)
+  }, [errorMessage])
 
   const isResponsablePedagogique = hasRole('responsable_pedagogique')
   const isFormateur = hasRole('formateur')
   const isClient = hasRole('eleve', 'parent_financeur')
   const canDelete = hasRole('eleve', 'parent_financeur', 'responsable_pedagogique', 'technicien_informatique')
 
-  useEffect(() => {
-    if (!requestId) return
-    apiClient
-      .get<TeacherRequest>(`/teacher-requests/${requestId}`)
-      .then(({ data }) => {
-        setRequest(data)
-        setCandidates(data.candidates ?? [])
-      })
-      .catch((error: unknown) => {
-        const statusCode = (error as { response?: { status?: number } })?.response?.status
-        if (statusCode === 403) setErrorMessage('Accès refusé')
-        else if (statusCode === 404) setErrorMessage('Demande introuvable')
-        else setErrorMessage('Erreur lors du chargement')
-      })
-      .finally(() => setIsLoading(false))
-  }, [requestId])
-
-  const updateStatus = async (newStatus: string) => {
-    if (!requestId) return
-    setIsUpdatingStatus(true)
-    setErrorMessage(null)
-    try {
-      const { data } = await apiClient.patch<TeacherRequest>(
-        `/teacher-requests/${requestId}/status`,
-        { status: newStatus },
-      )
-      setRequest(data)
-      const statusLabel = STATUS_LABELS[data.status] ?? data.status
+  const handleStatusChange = async (newStatus: string) => {
+    const updated = await updateStatus(newStatus)
+    if (updated) {
+      const statusLabel = STATUS_LABELS[updated.status] ?? updated.status
       setSuccessMessage(`Statut mis à jour : ${statusLabel}`)
-    } catch (error: unknown) {
-      const apiMessage =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la mise à jour'
-      setErrorMessage(apiMessage)
-    } finally {
-      setIsUpdatingStatus(false)
     }
   }
 
   const handleDelete = async () => {
     if (!requestId || !window.confirm('Supprimer définitivement cette demande ?')) return
-    try {
-      await apiClient.delete(`/teacher-requests/${requestId}`)
+    const success = await deleteRequest()
+    if (success) {
       navigate('/teacher-requests')
-    } catch (error: unknown) {
-      const apiMessage =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la suppression'
-      setErrorMessage(apiMessage)
     }
   }
 
@@ -134,7 +100,7 @@ export default function TeacherRequestDetailPage() {
   }
 
   const handleRequestStatusChange = (newStatus: string) => {
-    setRequest((previous) => (previous ? { ...previous, status: newStatus } : previous))
+    overrideStatus(newStatus)
     setSuccessMessage('Formateur sélectionné — demande clôturée')
   }
 
@@ -158,11 +124,11 @@ export default function TeacherRequestDetailPage() {
 
         {isLoading && <p className="text-gray-400 text-sm">Chargement…</p>}
 
-        {errorMessage && (
+        {errorMessage && !isErrorDismissed && (
           <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-center justify-between">
             <span>{errorMessage}</span>
             <button
-              onClick={() => setErrorMessage(null)}
+              onClick={() => setIsErrorDismissed(true)}
               className="text-red-400 hover:text-red-600 ml-3"
             >
               ✕
@@ -226,14 +192,14 @@ export default function TeacherRequestDetailPage() {
                 <div className="pt-4 flex flex-wrap gap-3 border-t border-gray-100">
                   <button
                     disabled={isUpdatingStatus}
-                    onClick={() => updateStatus('accepted')}
+                    onClick={() => handleStatusChange('accepted')}
                     className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 disabled:opacity-50"
                   >
                     Accepter
                   </button>
                   <button
                     disabled={isUpdatingStatus}
-                    onClick={() => updateStatus('declined')}
+                    onClick={() => handleStatusChange('declined')}
                     className="bg-red-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-600 disabled:opacity-50"
                   >
                     Refuser
@@ -246,7 +212,7 @@ export default function TeacherRequestDetailPage() {
                 <div className="pt-4 border-t border-gray-100">
                   <button
                     disabled={isUpdatingStatus}
-                    onClick={() => updateStatus('cancelled')}
+                    onClick={() => handleStatusChange('cancelled')}
                     className="text-sm text-red-500 hover:underline disabled:opacity-50"
                   >
                     Annuler la demande

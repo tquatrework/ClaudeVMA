@@ -8,6 +8,12 @@
  * - Formateur sees the inbox panel
  * - Request list displayed after load
  * - API error is displayed
+ *
+ * La page charge sa propre liste via `fetchTeacherRequests` (src/api/teacherRequests,
+ * mocké ci-dessous). RpTeacherSearchWorkspace et TeacherRequestInbox restent hors
+ * périmètre de la migration et continuent d'appeler `apiClient` directement (tout
+ * comme SpecificTeacherRequestForm et ChangePrincipalTeacherDialog pour la création) —
+ * `apiClient` reste donc également mocké pour ces composants enfants.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -18,12 +24,15 @@ import TeacherRequestPage from '../../src/pages/TeacherRequestPage'
 
 vi.mock('../../src/hooks/useAuth')
 vi.mock('../../src/api/client')
+vi.mock('../../src/api/teacherRequests')
 
 import { useAuth } from '../../src/hooks/useAuth'
 import apiClient from '../../src/api/client'
+import { fetchTeacherRequests } from '../../src/api/teacherRequests'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockApiClient = vi.mocked(apiClient)
+const mockFetchTeacherRequests = vi.mocked(fetchTeacherRequests)
 
 const STUDENT_USER = {
   id: 'student-001',
@@ -93,6 +102,7 @@ const SAMPLE_REQUESTS = [
 beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue(buildAuthMock())
+  mockFetchTeacherRequests.mockResolvedValue([])
 })
 
 describe('TeacherRequestPage', () => {
@@ -102,16 +112,12 @@ describe('TeacherRequestPage', () => {
     })
 
     it('shows the page title', async () => {
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-
       renderPage()
 
       expect(screen.getByText('Demandes professeur')).toBeDefined()
     })
 
     it('shows "Nouvelle demande" button', async () => {
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-
       renderPage()
 
       await waitFor(() => {
@@ -120,8 +126,6 @@ describe('TeacherRequestPage', () => {
     })
 
     it('shows "Changer le prof principal" button for student', async () => {
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-
       renderPage()
 
       await waitFor(() => {
@@ -130,8 +134,6 @@ describe('TeacherRequestPage', () => {
     })
 
     it('shows specific request form when clicking "Nouvelle demande"', async () => {
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-
       renderPage()
 
       await waitFor(() => {
@@ -153,7 +155,6 @@ describe('TeacherRequestPage', () => {
         sector: 'Générale',
       }
 
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
       mockApiClient.post = vi.fn().mockResolvedValue({ data: createdRequest })
 
       renderPage()
@@ -198,7 +199,6 @@ describe('TeacherRequestPage', () => {
         sector: 'Générale',
       }
 
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
       mockApiClient.post = vi.fn().mockResolvedValue({ data: createdRequest })
 
       renderPage()
@@ -228,8 +228,6 @@ describe('TeacherRequestPage', () => {
     })
 
     it('opens PP change dialog when clicking "Changer le prof principal"', async () => {
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-
       renderPage()
 
       await waitFor(() => {
@@ -242,7 +240,7 @@ describe('TeacherRequestPage', () => {
     })
 
     it('displays request list from GET /teacher-requests', async () => {
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_REQUESTS })
+      mockFetchTeacherRequests.mockResolvedValue(SAMPLE_REQUESTS)
 
       renderPage()
 
@@ -253,7 +251,7 @@ describe('TeacherRequestPage', () => {
     })
 
     it('shows API error when loading fails', async () => {
-      mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 500 } })
+      mockFetchTeacherRequests.mockRejectedValue({ response: { status: 500 } })
 
       renderPage()
 
@@ -269,8 +267,6 @@ describe('TeacherRequestPage', () => {
     })
 
     it('shows "Changer le prof principal" button for parent', async () => {
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-
       renderPage()
 
       await waitFor(() => {
@@ -285,7 +281,6 @@ describe('TeacherRequestPage', () => {
         createdAt: new Date().toISOString(),
       }
 
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
       mockApiClient.post = vi.fn().mockResolvedValue({ data: ppChangeResponse })
 
       renderPage()
@@ -316,7 +311,6 @@ describe('TeacherRequestPage', () => {
         createdAt: new Date().toISOString(),
       }
 
-      mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
       mockApiClient.post = vi.fn().mockResolvedValue({ data: ppChangeResponse })
 
       renderPage()
@@ -357,7 +351,9 @@ describe('TeacherRequestPage', () => {
         description: 'Demande active',
       }
 
+      // RpTeacherSearchWorkspace (composant non migré) charge sa propre liste via apiClient.
       mockApiClient.get = vi.fn().mockResolvedValue({ data: [pendingRequest] })
+      mockFetchTeacherRequests.mockResolvedValue([pendingRequest])
 
       renderPage()
 
@@ -375,6 +371,7 @@ describe('TeacherRequestPage', () => {
     })
 
     it('shows teacher inbox section', async () => {
+      // TeacherRequestInbox (composant non migré) charge sa propre liste via apiClient.
       mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
 
       renderPage()

@@ -79,3 +79,21 @@ export interface VisibilityPreferences {
   showProgressToParents: boolean
   showCalendarToParents: boolean
 }
+
+/**
+ * Statut de validation d'un formateur (TeacherValidationPanel, RP/TI uniquement).
+ * Écart : `GET/PATCH /profiles/:teacherId/validation` n'apparaissent pas dans
+ * docs/routes.md (seul `POST /profiles/:teacherId/ap-status` y est documenté).
+ */
+export interface TeacherValidationStatus {
+  teacherId: string
+  validationStatus: 'pending' | 'in_review' | 'validated' | 'rejected'
+  validatedAt?: string
+  validatedBy?: string
+  rejectionReason?: string
+}
+
+export interface UpdateTeacherValidationPayload {
+  validationStatus: 'in_review' | 'validated' | 'rejected'
+  rejectionReason?: string
+}

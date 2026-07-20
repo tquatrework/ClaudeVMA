@@ -1,26 +1,18 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import apiClient from '../api/client'
 import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
+import { useTeacherRequests } from '../hooks/teacher-requests/useTeacherRequests'
+import type { TeacherRequestSummary } from '../types/teacherRequests'
 
-interface TeacherRequest {
-  id: string
-  status: 'pending' | 'accepted' | 'declined' | 'cancelled'
-  createdAt: string
-  description?: string
-  studentId?: string
-  studentName?: string
-}
-
-const STATUS_LABELS: Record<TeacherRequest['status'], string> = {
+const STATUS_LABELS: Record<string, string> = {
   pending: 'En attente',
   accepted: 'Acceptée',
   declined: 'Refusée',
   cancelled: 'Annulée',
 }
 
-const STATUS_COLORS: Record<TeacherRequest['status'], string> = {
+const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-700',
   accepted: 'bg-green-100 text-green-700',
   declined: 'bg-red-100 text-red-700',
@@ -28,62 +20,46 @@ const STATUS_COLORS: Record<TeacherRequest['status'], string> = {
 }
 
 export default function TeacherRequestsPage() {
-  const { user, hasRole } = useAuth()
-  const [requests, setRequests] = useState<TeacherRequest[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { hasRole } = useAuth()
+  const { requests, isLoadingRequests, loadError, submitRequest, isSubmittingRequest, submitError } =
+    useTeacherRequests()
 
   // Create form state
   const [isCreating, setIsCreating] = useState(false)
   const [newDescription, setNewDescription] = useState('')
   const [newStudentId, setNewStudentId] = useState('')
-  const [isSaving, setIsSaving] = useState(false)
 
   const canCreate = hasRole('eleve', 'parent_financeur', 'responsable_pedagogique')
 
+  const error = submitError ?? loadError
+  const [isErrorDismissed, setIsErrorDismissed] = useState(false)
   useEffect(() => {
-    apiClient
-      .get<TeacherRequest[]>('/teacher-requests')
-      .then(({ data }) => setRequests(Array.isArray(data) ? data : []))
-      .catch((err) => {
-        const status = err?.response?.status
-        if (status === 403) setError('Accès refusé')
-        else setError('Impossible de charger les demandes')
-      })
-      .finally(() => setIsLoading(false))
-  }, [])
+    setIsErrorDismissed(false)
+  }, [error])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newDescription.trim()) return
-    setIsSaving(true)
-    setError(null)
-    try {
-      const payload: Record<string, string> = { description: newDescription.trim() }
-      if (newStudentId.trim()) {
-        payload.studentId = newStudentId.trim()
-      }
-      const { data } = await apiClient.post<TeacherRequest>('/teacher-requests', payload)
-      setRequests((prev) => [data, ...prev])
+    const payload: { description: string; studentId?: string } = {
+      description: newDescription.trim(),
+    }
+    if (newStudentId.trim()) {
+      payload.studentId = newStudentId.trim()
+    }
+    const success = await submitRequest(payload)
+    if (success) {
       setNewDescription('')
       setNewStudentId('')
       setIsCreating(false)
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la création de la demande'
-      setError(message)
-    } finally {
-      setIsSaving(false)
     }
   }
 
-  const statusFilter = (status: TeacherRequest['status'] | 'all') => {
+  const statusFilter = (status: TeacherRequestSummary['status'] | 'all') => {
     if (status === 'all') return requests
     return requests.filter((r) => r.status === status)
   }
 
-  const [activeFilter, setActiveFilter] = useState<TeacherRequest['status'] | 'all'>('all')
+  const [activeFilter, setActiveFilter] = useState<TeacherRequestSummary['status'] | 'all'>('all')
   const visibleRequests = statusFilter(activeFilter)
 
   return (
@@ -106,10 +82,10 @@ export default function TeacherRequestsPage() {
           )}
         </div>
 
-        {error && (
+        {error && !isErrorDismissed && (
           <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-center justify-between">
             <span>{error}</span>
-            <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600 ml-3">
+            <button onClick={() => setIsErrorDismissed(true)} className="text-red-400 hover:text-red-600 ml-3">
               ✕
             </button>
           </div>
@@ -155,10 +131,10 @@ export default function TeacherRequestsPage() {
             <div className="flex gap-3">
               <button
                 type="submit"
-                disabled={isSaving || !newDescription.trim()}
+                disabled={isSubmittingRequest || !newDescription.trim()}
                 className="bg-indigo-600 text-white px-5 py-2 rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50"
               >
-                {isSaving ? 'Envoi…' : 'Soumettre la demande'}
+                {isSubmittingRequest ? 'Envoi…' : 'Soumettre la demande'}
               </button>
               <button
                 type="button"
@@ -176,7 +152,7 @@ export default function TeacherRequestsPage() {
         )}
 
         {/* Filter tabs */}
-        {!isLoading && requests.length > 0 && (
+        {!isLoadingRequests && requests.length > 0 && (
           <div className="flex gap-2 mb-4 flex-wrap">
             {(['all', 'pending', 'accepted', 'declined', 'cancelled'] as const).map((filterValue) => (
               <button
@@ -197,9 +173,9 @@ export default function TeacherRequestsPage() {
           </div>
         )}
 
-        {isLoading && <p className="text-gray-400 text-sm">Chargement…</p>}
+        {isLoadingRequests && <p className="text-gray-400 text-sm">Chargement…</p>}
 
-        {!isLoading && visibleRequests.length === 0 && (
+        {!isLoadingRequests && visibleRequests.length === 0 && (
           <div className="text-center py-12 bg-white border border-gray-200 rounded-xl">
             <p className="text-gray-400 text-sm">
               {activeFilter === 'all' ? 'Aucune demande' : `Aucune demande avec le statut « ${STATUS_LABELS[activeFilter]} »`}

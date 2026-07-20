@@ -15,13 +15,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import TeacherValidationPanel from '../../src/pages/TeacherValidationPanel'
 
 vi.mock('../../src/hooks/useAuth')
-vi.mock('../../src/api/client')
+vi.mock('../../src/api/teacherRequests')
 
 import { useAuth } from '../../src/hooks/useAuth'
-import apiClient from '../../src/api/client'
+import {
+  fetchTeacherValidationStatus,
+  updateTeacherValidationStatus,
+} from '../../src/api/teacherRequests'
 
 const mockUseAuth = vi.mocked(useAuth)
-const mockApiClient = vi.mocked(apiClient)
+const mockFetchTeacherValidationStatus = vi.mocked(fetchTeacherValidationStatus)
+const mockUpdateTeacherValidationStatus = vi.mocked(updateTeacherValidationStatus)
 
 const RP_USER = {
   id: 'rp-1',
@@ -95,13 +99,13 @@ describe('TeacherValidationPanel', () => {
   })
 
   it('shows loading state while fetching validation status', () => {
-    mockApiClient.get = vi.fn().mockReturnValue(new Promise(() => {}))
+    mockFetchTeacherValidationStatus.mockReturnValue(new Promise(() => {}))
     renderPanel()
     expect(screen.getByText('Chargement du statut…')).toBeDefined()
   })
 
   it('shows pending status and action buttons for RP', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: PENDING_VALIDATION })
+    mockFetchTeacherValidationStatus.mockResolvedValue(PENDING_VALIDATION)
     renderPanel()
 
     await waitFor(() => {
@@ -111,8 +115,8 @@ describe('TeacherValidationPanel', () => {
   })
 
   it('calls PATCH /profiles/:teacherId/validation with validated on approve click', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: IN_REVIEW_VALIDATION })
-    mockApiClient.patch = vi.fn().mockResolvedValue({ data: APPROVED_VALIDATION })
+    mockFetchTeacherValidationStatus.mockResolvedValue(IN_REVIEW_VALIDATION)
+    mockUpdateTeacherValidationStatus.mockResolvedValue(APPROVED_VALIDATION)
 
     renderPanel()
 
@@ -123,16 +127,15 @@ describe('TeacherValidationPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: /valider le formateur/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.patch).toHaveBeenCalledWith(
-        '/profiles/teacher-1/validation',
-        { validationStatus: 'validated' },
-      )
+      expect(mockUpdateTeacherValidationStatus).toHaveBeenCalledWith('teacher-1', {
+        validationStatus: 'validated',
+      })
     })
   })
 
   it('shows success message after approval', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: IN_REVIEW_VALIDATION })
-    mockApiClient.patch = vi.fn().mockResolvedValue({ data: APPROVED_VALIDATION })
+    mockFetchTeacherValidationStatus.mockResolvedValue(IN_REVIEW_VALIDATION)
+    mockUpdateTeacherValidationStatus.mockResolvedValue(APPROVED_VALIDATION)
 
     renderPanel()
 
@@ -148,7 +151,7 @@ describe('TeacherValidationPanel', () => {
   })
 
   it('shows rejection form when "Rejeter" is clicked', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: IN_REVIEW_VALIDATION })
+    mockFetchTeacherValidationStatus.mockResolvedValue(IN_REVIEW_VALIDATION)
     renderPanel()
 
     await waitFor(() => {
@@ -164,8 +167,8 @@ describe('TeacherValidationPanel', () => {
   })
 
   it('calls PATCH with rejected status and reason on rejection form submit', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: IN_REVIEW_VALIDATION })
-    mockApiClient.patch = vi.fn().mockResolvedValue({ data: REJECTED_VALIDATION })
+    mockFetchTeacherValidationStatus.mockResolvedValue(IN_REVIEW_VALIDATION)
+    mockUpdateTeacherValidationStatus.mockResolvedValue(REJECTED_VALIDATION)
 
     renderPanel()
 
@@ -178,15 +181,15 @@ describe('TeacherValidationPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: /confirmer le rejet/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.patch).toHaveBeenCalledWith(
-        '/profiles/teacher-1/validation',
-        { validationStatus: 'rejected', rejectionReason: 'Dossier incomplet' },
-      )
+      expect(mockUpdateTeacherValidationStatus).toHaveBeenCalledWith('teacher-1', {
+        validationStatus: 'rejected',
+        rejectionReason: 'Dossier incomplet',
+      })
     })
   })
 
   it('shows the rejection reason for an already-rejected teacher', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: REJECTED_VALIDATION })
+    mockFetchTeacherValidationStatus.mockResolvedValue(REJECTED_VALIDATION)
     renderPanel()
 
     await waitFor(() => {
@@ -195,7 +198,7 @@ describe('TeacherValidationPanel', () => {
   })
 
   it('shows "Validé" badge for a validated teacher', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: APPROVED_VALIDATION })
+    mockFetchTeacherValidationStatus.mockResolvedValue(APPROVED_VALIDATION)
     renderPanel()
 
     await waitFor(() => {
@@ -204,7 +207,7 @@ describe('TeacherValidationPanel', () => {
   })
 
   it('hides action buttons for already-validated teacher', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: APPROVED_VALIDATION })
+    mockFetchTeacherValidationStatus.mockResolvedValue(APPROVED_VALIDATION)
     renderPanel()
 
     await waitFor(() => {

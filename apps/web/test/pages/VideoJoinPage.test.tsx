@@ -5,6 +5,7 @@
  * 1. Élève ouvre la page de join depuis un événement calendrier
  * 2. Formateur ouvre la page de join pour sa propre session
  * 3. Parent ne peut pas accéder à la vue
+ * 4. Chargement puis erreur (403/404/générique)
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -14,13 +15,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import VideoJoinPage from '../../src/pages/VideoJoinPage'
 
 vi.mock('../../src/hooks/useAuth')
-vi.mock('../../src/api/client')
+vi.mock('../../src/api/video')
 
 import { useAuth } from '../../src/hooks/useAuth'
-import apiClient from '../../src/api/client'
+import { fetchRoomInfo, joinRoom } from '../../src/api/video'
 
 const mockUseAuth = vi.mocked(useAuth)
-const mockApiClient = vi.mocked(apiClient)
+const mockFetchRoomInfo = vi.mocked(fetchRoomInfo)
+const mockJoinRoom = vi.mocked(joinRoom)
 
 const STUDENT_USER = {
   id: 'student-1',
@@ -74,16 +76,15 @@ beforeEach(() => {
 // Test 1 — Élève ouvre la page de join depuis un événement calendrier
 // ---------------------------------------------------------------------------
 describe('VideoJoinPage — élève rejoint depuis un événement calendrier', () => {
-  it('affiche le bouton Rejoindre et appelle GET /video/rooms/:id/join', async () => {
+  it('affiche le bouton Rejoindre et appelle joinRoom(roomId) → GET /video/rooms/:id/join', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
 
-    mockApiClient.get = vi.fn()
-      .mockResolvedValueOnce({
-        data: { id: 'room-abc', status: 'active', calendarSessionId: 'cal-session-1' },
-      })
-      .mockResolvedValueOnce({
-        data: { joinUrl: 'https://meet.example.com/room-abc', token: 'tok-xyz' },
-      })
+    mockFetchRoomInfo.mockResolvedValue({
+      id: 'room-abc',
+      status: 'active',
+      calendarSessionId: 'cal-session-1',
+    })
+    mockJoinRoom.mockResolvedValue({ joinUrl: 'https://meet.example.com/room-abc', token: 'tok-xyz' })
 
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
 
@@ -98,7 +99,7 @@ describe('VideoJoinPage — élève rejoint depuis un événement calendrier', (
     await userEvent.click(screen.getByRole('button', { name: /rejoindre/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.get).toHaveBeenCalledWith('/video/rooms/room-abc/join')
+      expect(mockJoinRoom).toHaveBeenCalledWith('room-abc')
     })
 
     expect(openSpy).toHaveBeenCalledWith('https://meet.example.com/room-abc', '_blank')
@@ -109,9 +110,7 @@ describe('VideoJoinPage — élève rejoint depuis un événement calendrier', (
   it('affiche le chargement puis la vue de la salle', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
 
-    mockApiClient.get = vi.fn().mockResolvedValue({
-      data: { id: 'room-abc', status: 'active' },
-    })
+    mockFetchRoomInfo.mockResolvedValue({ id: 'room-abc', status: 'active' })
 
     renderVideoJoinPage('room-abc')
 
@@ -119,6 +118,49 @@ describe('VideoJoinPage — élève rejoint depuis un événement calendrier', (
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /rejoindre/i })).toBeDefined()
+    })
+  })
+
+  it('affiche une erreur si le chargement de la salle échoue (générique)', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
+
+    mockFetchRoomInfo.mockRejectedValue(new Error('network down'))
+
+    renderVideoJoinPage('room-abc')
+
+    await waitFor(() => {
+      expect(screen.getByText('Erreur lors du chargement de la salle')).toBeDefined()
+    })
+  })
+
+  it('affiche une erreur 404 si la salle est introuvable', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
+
+    mockFetchRoomInfo.mockRejectedValue({ response: { status: 404 } })
+
+    renderVideoJoinPage('room-abc')
+
+    await waitFor(() => {
+      expect(screen.getByText('Salle introuvable')).toBeDefined()
+    })
+  })
+
+  it("affiche une erreur si rejoindre la salle échoue (403)", async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
+
+    mockFetchRoomInfo.mockResolvedValue({ id: 'room-abc', status: 'active' })
+    mockJoinRoom.mockRejectedValue({ response: { status: 403 } })
+
+    renderVideoJoinPage('room-abc')
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /rejoindre/i })).toBeDefined()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /rejoindre/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText("Vous n'êtes pas autorisé à effectuer cette action.")).toBeDefined()
     })
   })
 })
@@ -130,9 +172,7 @@ describe('VideoJoinPage — formateur gère sa session', () => {
   it('affiche le bouton Rejoindre ET le lien Clôturer pour un formateur', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
 
-    mockApiClient.get = vi.fn().mockResolvedValue({
-      data: { id: 'room-abc', status: 'active' },
-    })
+    mockFetchRoomInfo.mockResolvedValue({ id: 'room-abc', status: 'active' })
 
     renderVideoJoinPage('room-abc')
 
@@ -146,9 +186,7 @@ describe('VideoJoinPage — formateur gère sa session', () => {
   it("n'affiche pas le lien Clôturer pour un élève", async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
 
-    mockApiClient.get = vi.fn().mockResolvedValue({
-      data: { id: 'room-abc', status: 'active' },
-    })
+    mockFetchRoomInfo.mockResolvedValue({ id: 'room-abc', status: 'active' })
 
     renderVideoJoinPage('room-abc')
 
@@ -162,9 +200,7 @@ describe('VideoJoinPage — formateur gère sa session', () => {
   it('affiche un lien vers les enregistrements quand la room est ended', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
 
-    mockApiClient.get = vi.fn().mockResolvedValue({
-      data: { id: 'room-abc', status: 'ended' },
-    })
+    mockFetchRoomInfo.mockResolvedValue({ id: 'room-abc', status: 'ended' })
 
     renderVideoJoinPage('room-abc')
 
@@ -183,14 +219,12 @@ describe('VideoJoinPage — accès parent refusé', () => {
   it("affiche le message d'accès refusé pour parent_financeur sans appel API", async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(PARENT_USER))
 
-    mockApiClient.get = vi.fn()
-
     renderVideoJoinPage('room-abc')
 
     expect(
       screen.getByText("Vous n'avez pas accès à cette session vidéo"),
     ).toBeDefined()
 
-    expect(mockApiClient.get).not.toHaveBeenCalled()
+    expect(mockFetchRoomInfo).not.toHaveBeenCalled()
   })
 })

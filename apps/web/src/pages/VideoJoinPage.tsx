@@ -1,25 +1,15 @@
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { useParams, Link } from 'react-router-dom'
-import apiClient from '../api/client'
 import { useAuth } from '../hooks/useAuth'
+import { useVideoJoin } from '../hooks/video/useVideoJoin'
 import Layout from '../components/Layout'
-
-interface RoomInfo {
-  id: string
-  status: 'active' | 'ended' | 'scheduled'
-  calendarSessionId?: string
-}
 
 export default function VideoJoinPage() {
   const { roomId } = useParams<{ roomId: string }>()
-  const { user, hasRole } = useAuth()
+  const { hasRole } = useAuth()
 
-  const [room, setRoom] = useState<RoomInfo | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [isJoining, setIsJoining] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const isParent = user?.role === 'parent_financeur'
+  // VID-FB-001 : le parent_financeur n'a jamais accès à la visio ni aux enregistrements.
+  const isParent = hasRole('parent_financeur')
   const canClose = hasRole(
     'formateur',
     'responsable_pedagogique',
@@ -27,35 +17,12 @@ export default function VideoJoinPage() {
     'technicien_informatique',
   )
 
-  useEffect(() => {
-    if (!roomId || isParent) return
-    apiClient
-      .get<RoomInfo>(`/video/rooms/${roomId}`)
-      .then(({ data }) => setRoom(data))
-      .catch((err) => {
-        const status = err?.response?.status
-        if (status === 403) setError("Vous n'êtes pas autorisé à accéder à cette salle")
-        else if (status === 404) setError('Salle introuvable')
-        else setError('Erreur lors du chargement de la salle')
-      })
-      .finally(() => setIsLoading(false))
-  }, [roomId, isParent])
+  const { room, isLoading, loadError, join, isJoining, joinError } = useVideoJoin(roomId, isParent)
 
   const handleJoin = async () => {
-    if (!roomId) return
-    setIsJoining(true)
-    setError(null)
-    try {
-      const { data: joinData } = await apiClient.get<{ joinUrl: string; token: string }>(
-        `/video/rooms/${roomId}/join`,
-      )
-      window.open(joinData.joinUrl, '_blank')
-    } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status
-      if (status === 403) setError('Accès refusé à cette salle')
-      else setError('Impossible de rejoindre la salle')
-    } finally {
-      setIsJoining(false)
+    const joinUrl = await join()
+    if (joinUrl) {
+      window.open(joinUrl, '_blank')
     }
   }
 
@@ -72,6 +39,8 @@ export default function VideoJoinPage() {
     )
   }
 
+  const error = loadError ?? joinError
+
   return (
     <Layout>
       <div className="max-w-xl">
@@ -80,11 +49,8 @@ export default function VideoJoinPage() {
         {isLoading && <p className="text-gray-400 text-sm">Chargement…</p>}
 
         {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-center justify-between">
-            <span>{error}</span>
-            <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600 ml-3">
-              ✕
-            </button>
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+            {error}
           </div>
         )}
 

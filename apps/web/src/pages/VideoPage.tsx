@@ -1,31 +1,32 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import apiClient from '../api/client'
 import { useAuth } from '../hooks/useAuth'
+import { useVideoRoom } from '../hooks/video/useVideoRoom'
 import Layout from '../components/Layout'
 import RecordingListPanel from '../components/video/RecordingListPanel'
 import CourseSummaryView from '../components/video/CourseSummaryView'
 import InVideoMemoDrawer from '../components/pedagogical-log/InVideoMemoDrawer'
-
-interface RoomInfo {
-  id: string
-  joinUrl?: string
-  status: 'active' | 'ended' | 'scheduled'
-  participants?: string[]
-  activityId?: string
-}
 
 export default function VideoPage() {
   const { roomId } = useParams<{ roomId: string }>()
   const navigate = useNavigate()
   const { user, hasRole } = useAuth()
 
-  const [room, setRoom] = useState<RoomInfo | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [isJoining, setIsJoining] = useState(false)
-  const [isClosing, setIsClosing] = useState(false)
-  const [attendanceRecorded, setAttendanceRecorded] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const {
+    room,
+    isLoading,
+    loadError,
+    join,
+    isJoining,
+    joinError,
+    attendanceRecorded,
+    attendanceError,
+    recordAttendanceNow,
+    close,
+    isClosing,
+    closeError,
+  } = useVideoRoom(roomId, user?.id)
+
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [isMemoDrawerOpen, setIsMemoDrawerOpen] = useState(false)
 
@@ -33,87 +34,29 @@ export default function VideoPage() {
   // Le bouton mémo est accessible à l'élève ET au formateur (drawer affiche readonly pour le formateur)
   const canOpenMemo = hasRole('eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique')
 
-  useEffect(() => {
-    if (!roomId) return
-    apiClient
-      .get<RoomInfo>(`/video/rooms/${roomId}`)
-      .then(({ data }) => setRoom(data))
-      .catch((err) => {
-        const status = err?.response?.status
-        if (status === 403) setError("Vous n'êtes pas autorisé à rejoindre cette salle")
-        else if (status === 404) setError('Salle introuvable')
-        else setError('Erreur lors du chargement de la salle')
-      })
-      .finally(() => setIsLoading(false))
-  }, [roomId])
+  // Erreur d'action affichée en priorité (clôture > rejointe > présence) — chacune est
+  // réinitialisée au début de sa propre tentative, donc ne reste visible que jusqu'au prochain essai.
+  const actionError = closeError ?? joinError ?? attendanceError
 
   const handleJoin = async () => {
-    if (!roomId) return
-    setIsJoining(true)
-    setError(null)
-    try {
-      // Get join URL
-      const { data: joinData } = await apiClient.get<{ joinUrl: string }>(
-        `/video/rooms/${roomId}/join`,
-      )
-
-      // Record attendance before redirecting
-      if (!attendanceRecorded) {
-        try {
-          await apiClient.post(`/video/rooms/${roomId}/attendance`, {
-            userId: user?.id,
-            joinedAt: new Date().toISOString(),
-          })
-          setAttendanceRecorded(true)
-        } catch {
-          // Attendance recording failure should not block joining
-        }
-      }
-
-      window.location.href = joinData.joinUrl
-    } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status
-      if (status === 403) setError('Accès refusé à cette salle')
-      else setError('Impossible de rejoindre la salle')
-      setIsJoining(false)
+    const joinUrl = await join()
+    if (joinUrl) {
+      window.location.href = joinUrl
     }
   }
 
   const handleRecordAttendance = async () => {
-    if (!roomId) return
-    setError(null)
-    try {
-      await apiClient.post(`/video/rooms/${roomId}/attendance`, {
-        userId: user?.id,
-        joinedAt: new Date().toISOString(),
-      })
-      setAttendanceRecorded(true)
-      setSuccessMessage('Présence enregistrée')
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        "Erreur lors de l'enregistrement de la présence"
-      setError(message)
-    }
+    const success = await recordAttendanceNow()
+    if (success) setSuccessMessage('Présence enregistrée')
   }
 
   const handleClose = async () => {
-    if (!roomId || !window.confirm('Clôturer définitivement la session ?')) return
-    setIsClosing(true)
-    setError(null)
-    try {
-      await apiClient.post(`/video/rooms/${roomId}/close`)
-      setRoom((prev) => (prev ? { ...prev, status: 'ended' } : prev))
+    if (!window.confirm('Clôturer définitivement la session ?')) return
+    const success = await close()
+    if (success) {
       setSuccessMessage('Session clôturée')
       // Navigate to dashboard after short delay
       setTimeout(() => navigate('/dashboard'), 2000)
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la clôture de la session'
-      setError(message)
-    } finally {
-      setIsClosing(false)
     }
   }
 
@@ -147,10 +90,15 @@ export default function VideoPage() {
 
         {isLoading && <p className="text-gray-400 text-sm">Chargement…</p>}
 
-        {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-center justify-between">
-            <span>{error}</span>
-            <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600 ml-3">✕</button>
+        {loadError && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+            {loadError}
+          </div>
+        )}
+
+        {actionError && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+            {actionError}
           </div>
         )}
 

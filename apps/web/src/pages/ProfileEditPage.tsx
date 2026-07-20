@@ -1,22 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import apiClient from '../api/client'
 import { useAuth } from '../hooks/useAuth'
+import { useProfileForm } from '../hooks/profile/useProfileForm'
 import Layout from '../components/Layout'
-
-interface AdminProfile {
-  firstName?: string
-  lastName?: string
-  phone?: string
-  address?: string
-}
-
-interface PedagogicalProfile {
-  level?: string
-  subjects?: string
-  goals?: string
-  notes?: string
-}
+import type { AdministrativeProfileFields, PedagogicalProfileFields } from '../types/profile'
 
 type ActiveTab = 'administrative' | 'pedagogical'
 
@@ -27,89 +14,70 @@ export default function ProfileEditPage() {
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('administrative')
 
-  // Administrative form
-  const [adminForm, setAdminForm] = useState<AdminProfile>({
+  const {
+    administrativeProfile,
+    pedagogicalProfile,
+    isLoading,
+    loadError,
+    saveAdministrative,
+    isSavingAdministrative,
+    administrativeSaveError,
+    savePedagogical,
+    isSavingPedagogical,
+    pedagogicalSaveError,
+  } = useProfileForm(userId)
+
+  const [adminForm, setAdminForm] = useState<AdministrativeProfileFields>({
     firstName: '',
     lastName: '',
     phone: '',
     address: '',
   })
-
-  // Pedagogical form
-  const [pedagogicalForm, setPedagogicalForm] = useState<PedagogicalProfile>({
+  const [pedagogicalForm, setPedagogicalForm] = useState<PedagogicalProfileFields>({
     level: '',
     subjects: '',
     goals: '',
     notes: '',
   })
-
-  const [isLoading, setIsLoading] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (administrativeProfile) {
+      setAdminForm((previous) => ({ ...previous, ...administrativeProfile }))
+    }
+    if (pedagogicalProfile) {
+      setPedagogicalForm((previous) => ({ ...previous, ...pedagogicalProfile }))
+    }
+  }, [administrativeProfile, pedagogicalProfile])
 
   const canEditPedagogical =
     hasRole('eleve', 'formateur') ||
     (hasRole('responsable_pedagogique') && userId !== user?.id) ||
     hasRole('technicien_informatique')
 
+  const isSaving = activeTab === 'administrative' ? isSavingAdministrative : isSavingPedagogical
+  const error =
+    activeTab === 'administrative'
+      ? administrativeSaveError ?? loadError
+      : pedagogicalSaveError ?? loadError
+
+  const [isErrorDismissed, setIsErrorDismissed] = useState(false)
   useEffect(() => {
-    if (!userId) return
-    apiClient
-      .get<{ administrativeProfile?: AdminProfile; pedagogicalProfile?: PedagogicalProfile }>(
-        `/profiles/${userId}`,
-      )
-      .then(({ data }) => {
-        if (data.administrativeProfile) {
-          setAdminForm({ ...adminForm, ...data.administrativeProfile })
-        }
-        if (data.pedagogicalProfile) {
-          setPedagogicalForm({ ...pedagogicalForm, ...data.pedagogicalProfile })
-        }
-      })
-      .catch((err) => {
-        const status = err?.response?.status
-        if (status === 403) setError('Accès refusé')
-        else setError('Impossible de charger le profil')
-      })
-      .finally(() => setIsLoading(false))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId])
+    setIsErrorDismissed(false)
+  }, [error])
 
   const handleAdminSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsSaving(true)
-    setError(null)
     setSuccessMessage(null)
-    try {
-      await apiClient.put(`/profiles/${userId}/administrative`, adminForm)
-      setSuccessMessage('Profil administratif mis à jour')
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la sauvegarde'
-      setError(message)
-    } finally {
-      setIsSaving(false)
-    }
+    const success = await saveAdministrative(adminForm)
+    if (success) setSuccessMessage('Profil administratif mis à jour')
   }
 
   const handlePedagogicalSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsSaving(true)
-    setError(null)
     setSuccessMessage(null)
-    try {
-      await apiClient.put(`/profiles/${userId}/pedagogical`, pedagogicalForm)
-      setSuccessMessage('Profil pédagogique mis à jour')
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la sauvegarde'
-      setError(message)
-    } finally {
-      setIsSaving(false)
-    }
+    const success = await savePedagogical(pedagogicalForm)
+    if (success) setSuccessMessage('Profil pédagogique mis à jour')
   }
 
   if (isLoading) {
@@ -134,10 +102,10 @@ export default function ProfileEditPage() {
 
         <h1 className="text-2xl font-bold text-gray-900 mb-6">Modifier le profil</h1>
 
-        {error && (
+        {error && !isErrorDismissed && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center justify-between">
             <span>{error}</span>
-            <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600 ml-3">✕</button>
+            <button onClick={() => setIsErrorDismissed(true)} className="text-red-400 hover:text-red-600 ml-3">✕</button>
           </div>
         )}
 

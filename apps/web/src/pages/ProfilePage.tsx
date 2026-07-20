@@ -1,14 +1,13 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import apiClient from '../api/client'
 import { useAuth } from '../hooks/useAuth'
+import { useProfileDetails } from '../hooks/profile/useProfileDetails'
 import Layout from '../components/Layout'
 import TeacherValidationPanel from './TeacherValidationPanel'
 import ProfileStatisticsPanel from './ProfileStatisticsPanel'
 import ParentFinanceurSection from '../components/profile/ParentFinanceurSection'
 import LinkedStudentsSection from '../components/profile/LinkedStudentsSection'
 import { Tabs, TabPanel, type TabDefinition } from '../components/ui/Tabs'
-import type { Profile, InternalNote, TeacherStudentRelation } from '../types/profile'
 
 // ─── IDs d'onglets ────────────────────────────────────────────────────────────
 
@@ -24,18 +23,11 @@ export default function ProfilePage() {
   const { userId } = useParams<{ userId: string }>()
   const { user, hasRole } = useAuth()
 
-  const [profile, setProfile] = useState<Profile | null>(null)
-  const [teacherRelations, setTeacherRelations] = useState<TeacherStudentRelation[]>([])
-  const [internalNotes, setInternalNotes] = useState<InternalNote[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<string>(TAB_ADMIN)
 
   // Internal note form state
   const [newNoteContent, setNewNoteContent] = useState('')
   const [isAddingNote, setIsAddingNote] = useState(false)
-  const [isSavingNote, setIsSavingNote] = useState(false)
-  const [noteSaveError, setNoteSaveError] = useState<string | null>(null)
 
   const isViewingOwnProfile = user?.id === userId
   const canSeeInternalNotes = hasRole('responsable_pedagogique', 'administrateur_financier')
@@ -91,60 +83,26 @@ export default function ProfilePage() {
 
   // ─── Chargement des données ──────────────────────────────────────────────────
 
-  useEffect(() => {
-    if (!userId) return
-    setIsLoading(true)
-
-    const profileRequest = apiClient
-      .get<Profile>(`/profiles/${userId}`)
-      .then(({ data }) => setProfile(data))
-      .catch((err) => {
-        const status = err?.response?.status
-        if (status === 403) setLoadError('Accès refusé')
-        else if (status === 404) setLoadError('Profil introuvable')
-        else setLoadError('Erreur lors du chargement du profil')
-      })
-
-    const relationsRequest = canSeeRelations
-      ? apiClient
-          .get<TeacherStudentRelation[]>(`/relations/teacher-student/${userId}`)
-          .then(({ data }) => setTeacherRelations(Array.isArray(data) ? data : []))
-          .catch(() => { /* non-bloquant */ })
-      : Promise.resolve()
-
-    const notesRequest = canSeeInternalNotes
-      ? apiClient
-          .get<InternalNote[]>(`/profiles/${userId}/internal-notes`)
-          .then(({ data }) => setInternalNotes(Array.isArray(data) ? data : []))
-          .catch(() => { /* non-bloquant */ })
-      : Promise.resolve()
-
-    Promise.allSettled([profileRequest, relationsRequest, notesRequest]).finally(() =>
-      setIsLoading(false),
-    )
-  }, [userId, canSeeInternalNotes, canSeeRelations])
+  const {
+    profile,
+    teacherRelations,
+    internalNotes,
+    isLoading,
+    loadError,
+    addNote,
+    isSavingNote,
+    noteSaveError,
+  } = useProfileDetails(userId, canSeeRelations, canSeeInternalNotes)
 
   // ─── Ajout de note interne ───────────────────────────────────────────────────
 
   const handleAddNote = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (!userId || !newNoteContent.trim()) return
-    setIsSavingNote(true)
-    setNoteSaveError(null)
-    try {
-      const { data } = await apiClient.post<InternalNote>(`/profiles/${userId}/internal-notes`, {
-        content: newNoteContent.trim(),
-      })
-      setInternalNotes((previous) => [data, ...previous])
+    if (!newNoteContent.trim()) return
+    const success = await addNote(newNoteContent.trim())
+    if (success) {
       setNewNoteContent('')
       setIsAddingNote(false)
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        "Erreur lors de l'ajout de la note"
-      setNoteSaveError(message)
-    } finally {
-      setIsSavingNote(false)
     }
   }
 

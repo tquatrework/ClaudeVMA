@@ -2,8 +2,8 @@
  * Tests for ProfileVisibilitySettingsPage
  *
  * Covers:
- * - Student can view own visibility preferences via GET /profiles/:userId/visibility-preferences
- * - Student edits and saves preferences via PATCH /profiles/:userId/visibility-preferences
+ * - Student can view own visibility preferences via fetchVisibilityPreferences(userId)
+ * - Student edits and saves preferences via updateVisibilityPreferences(userId, payload)
  * - Loading state displayed while fetching
  * - Error state on forbidden access
  * - Non-owner non-RP user cannot access (Accès refusé)
@@ -17,13 +17,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import ProfileVisibilitySettingsPage from '../../src/pages/ProfileVisibilitySettingsPage'
 
 vi.mock('../../src/hooks/useAuth')
-vi.mock('../../src/api/client')
+vi.mock('../../src/api/profile')
 
 import { useAuth } from '../../src/hooks/useAuth'
-import apiClient from '../../src/api/client'
+import { fetchVisibilityPreferences, updateVisibilityPreferences } from '../../src/api/profile'
 
 const mockUseAuth = vi.mocked(useAuth)
-const mockApiClient = vi.mocked(apiClient)
+const mockFetchVisibilityPreferences = vi.mocked(fetchVisibilityPreferences)
+const mockUpdateVisibilityPreferences = vi.mocked(updateVisibilityPreferences)
 
 const STUDENT_USER = {
   id: 'student-1',
@@ -86,13 +87,13 @@ beforeEach(() => {
 
 describe('ProfileVisibilitySettingsPage', () => {
   it('shows loading state while fetching preferences', () => {
-    mockApiClient.get = vi.fn().mockReturnValue(new Promise(() => {}))
+    mockFetchVisibilityPreferences.mockReturnValue(new Promise(() => {}))
     renderPage()
     expect(screen.getByText('Chargement…')).toBeDefined()
   })
 
   it('renders the visibility settings form for own profile', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_PREFERENCES })
+    mockFetchVisibilityPreferences.mockResolvedValue(SAMPLE_PREFERENCES)
     renderPage('student-1')
 
     await waitFor(() => {
@@ -103,7 +104,7 @@ describe('ProfileVisibilitySettingsPage', () => {
   })
 
   it('pre-fills checkboxes from loaded preferences', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_PREFERENCES })
+    mockFetchVisibilityPreferences.mockResolvedValue(SAMPLE_PREFERENCES)
     renderPage('student-1')
 
     await waitFor(() => {
@@ -118,9 +119,9 @@ describe('ProfileVisibilitySettingsPage', () => {
     })
   })
 
-  it('calls PATCH /profiles/:userId/visibility-preferences on save', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_PREFERENCES })
-    mockApiClient.patch = vi.fn().mockResolvedValue({ data: {} })
+  it('calls updateVisibilityPreferences(userId, payload) on save', async () => {
+    mockFetchVisibilityPreferences.mockResolvedValue(SAMPLE_PREFERENCES)
+    mockUpdateVisibilityPreferences.mockResolvedValue(SAMPLE_PREFERENCES)
 
     renderPage('student-1')
 
@@ -131,16 +132,16 @@ describe('ProfileVisibilitySettingsPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /enregistrer/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.patch).toHaveBeenCalledWith(
-        '/profiles/student-1/visibility-preferences',
+      expect(mockUpdateVisibilityPreferences).toHaveBeenCalledWith(
+        'student-1',
         expect.objectContaining({ showPhoneToTeachers: true }),
       )
     })
   })
 
   it('shows success message after saving', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_PREFERENCES })
-    mockApiClient.patch = vi.fn().mockResolvedValue({ data: {} })
+    mockFetchVisibilityPreferences.mockResolvedValue(SAMPLE_PREFERENCES)
+    mockUpdateVisibilityPreferences.mockResolvedValue(SAMPLE_PREFERENCES)
 
     renderPage('student-1')
 
@@ -156,8 +157,8 @@ describe('ProfileVisibilitySettingsPage', () => {
   })
 
   it('shows error message on save failure', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_PREFERENCES })
-    mockApiClient.patch = vi.fn().mockRejectedValue({
+    mockFetchVisibilityPreferences.mockResolvedValue(SAMPLE_PREFERENCES)
+    mockUpdateVisibilityPreferences.mockRejectedValue({
       response: { data: { message: 'Erreur serveur' } },
     })
 
@@ -175,7 +176,7 @@ describe('ProfileVisibilitySettingsPage', () => {
   })
 
   it('toggles a checkbox when clicked', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_PREFERENCES })
+    mockFetchVisibilityPreferences.mockResolvedValue(SAMPLE_PREFERENCES)
     renderPage('student-1')
 
     await waitFor(() => {
@@ -196,7 +197,7 @@ describe('ProfileVisibilitySettingsPage', () => {
   it('shows "Accès refusé" for unauthorized users (parent viewing another profile)', () => {
     // Parent user viewing someone else's profile — not own and not RP/TI
     mockUseAuth.mockReturnValue(buildAuthMock(PARENT_USER))
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_PREFERENCES })
+    mockFetchVisibilityPreferences.mockResolvedValue(SAMPLE_PREFERENCES)
 
     renderPage('student-1') // parent-1 viewing student-1's profile
 
@@ -205,7 +206,7 @@ describe('ProfileVisibilitySettingsPage', () => {
 
   it('allows RP to access visibility settings of any student', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_PREFERENCES })
+    mockFetchVisibilityPreferences.mockResolvedValue(SAMPLE_PREFERENCES)
 
     renderPage('student-1')
 

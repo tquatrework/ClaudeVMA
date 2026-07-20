@@ -1,16 +1,6 @@
-import React, { useEffect, useState } from 'react'
-import apiClient from '../api/client'
+import React from 'react'
 import { useAuth } from '../hooks/useAuth'
-
-interface PedagogicalStatistics {
-  totalSessionsAttended?: number
-  totalHoursLearned?: number
-  averageSessionDurationMinutes?: number
-  lastSessionDate?: string
-  subjectsStudied?: string[]
-  currentLevel?: string
-  progressScore?: number
-}
+import { useProfileStatistics } from '../hooks/profile/useProfileStatistics'
 
 interface Props {
   userId: string
@@ -22,10 +12,6 @@ interface Props {
  */
 export default function ProfileStatisticsPanel({ userId }: Props) {
   const { user, hasRole } = useAuth()
-
-  const [statistics, setStatistics] = useState<PedagogicalStatistics | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [hasError, setHasError] = useState(false)
 
   const isViewingOwnProfile = user?.id === userId
   const canViewStatistics =
@@ -39,17 +25,7 @@ export default function ProfileStatisticsPanel({ userId }: Props) {
       'administrateur_financier',
     )
 
-  useEffect(() => {
-    if (!userId || !canViewStatistics) return
-
-    setIsLoading(true)
-    setHasError(false)
-    apiClient
-      .get<PedagogicalStatistics>(`/profiles/${userId}/statistics`)
-      .then(({ data }) => setStatistics(data))
-      .catch(() => setHasError(true))
-      .finally(() => setIsLoading(false))
-  }, [userId, canViewStatistics])
+  const { statistics, isLoading, hasError } = useProfileStatistics(userId, canViewStatistics)
 
   if (!canViewStatistics) return null
 

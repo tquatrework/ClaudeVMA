@@ -1,16 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import apiClient from '../api/client'
 import { useAuth } from '../hooks/useAuth'
+import { useProfileVisibility } from '../hooks/profile/useProfileVisibility'
 import Layout from '../components/Layout'
-
-interface VisibilityPreferences {
-  showEmailToTeachers: boolean
-  showPhoneToTeachers: boolean
-  showAddressToTeachers: boolean
-  showProgressToParents: boolean
-  showCalendarToParents: boolean
-}
+import type { VisibilityPreferences } from '../types/profile'
 
 const DEFAULT_PREFERENCES: VisibilityPreferences = {
   showEmailToTeachers: false,
@@ -37,35 +30,35 @@ export default function ProfileVisibilitySettingsPage() {
   const navigate = useNavigate()
   const { user, hasRole } = useAuth()
 
-  const [preferences, setPreferences] = useState<VisibilityPreferences>(DEFAULT_PREFERENCES)
-  const [isLoading, setIsLoading] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
-
   const isViewingOwnProfile = user?.id === userId
   const canAccess =
     isViewingOwnProfile ||
     hasRole('responsable_pedagogique', 'technicien_informatique')
 
-  useEffect(() => {
-    if (!userId || !canAccess) return
+  const {
+    preferences: loadedPreferences,
+    isLoading,
+    loadError,
+    save,
+    isSaving,
+    saveError,
+  } = useProfileVisibility(userId, canAccess)
 
-    setIsLoading(true)
-    apiClient
-      .get<VisibilityPreferences>(`/profiles/${userId}/visibility-preferences`)
-      .then(({ data }) => {
-        setPreferences({ ...DEFAULT_PREFERENCES, ...data })
-      })
-      .catch((err) => {
-        const status = err?.response?.status
-        if (status === 403) setErrorMessage('Accès refusé')
-        else if (status === 404) setErrorMessage('Préférences introuvables')
-        else setErrorMessage('Erreur lors du chargement des préférences')
-      })
-      .finally(() => setIsLoading(false))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId])
+  const [preferences, setPreferences] = useState<VisibilityPreferences>(DEFAULT_PREFERENCES)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (loadedPreferences) {
+      setPreferences({ ...DEFAULT_PREFERENCES, ...loadedPreferences })
+    }
+  }, [loadedPreferences])
+
+  const errorMessage = saveError ?? loadError
+
+  const [isErrorDismissed, setIsErrorDismissed] = useState(false)
+  useEffect(() => {
+    setIsErrorDismissed(false)
+  }, [errorMessage])
 
   const handleToggle = (preferenceKey: keyof VisibilityPreferences) => {
     setPreferences((prev) => ({ ...prev, [preferenceKey]: !prev[preferenceKey] }))
@@ -73,23 +66,9 @@ export default function ProfileVisibilitySettingsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!userId) return
-
-    setIsSaving(true)
-    setErrorMessage(null)
     setSuccessMessage(null)
-
-    try {
-      await apiClient.patch(`/profiles/${userId}/visibility-preferences`, preferences)
-      setSuccessMessage('Préférences de confidentialité enregistrées')
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        "Erreur lors de l'enregistrement"
-      setErrorMessage(message)
-    } finally {
-      setIsSaving(false)
-    }
+    const success = await save(preferences)
+    if (success) setSuccessMessage('Préférences de confidentialité enregistrées')
   }
 
   if (!canAccess) {
@@ -127,11 +106,11 @@ export default function ProfileVisibilitySettingsPage() {
           Choisissez quelles informations sont visibles selon votre rôle.
         </p>
 
-        {errorMessage && (
+        {errorMessage && !isErrorDismissed && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center justify-between">
             <span>{errorMessage}</span>
             <button
-              onClick={() => setErrorMessage(null)}
+              onClick={() => setIsErrorDismissed(true)}
               className="text-red-400 hover:text-red-600 ml-3"
             >
               ✕

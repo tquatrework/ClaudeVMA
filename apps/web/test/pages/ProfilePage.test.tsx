@@ -2,13 +2,19 @@
  * Tests for ProfilePage
  *
  * Covers:
- * - Fetches profile via GET /profiles/:userId
+ * - Fetches profile via fetchProfile(userId)
  * - Loading state
  * - Error states (403, 404, 500)
  * - Shows edit button for own profile or privileged roles
  * - Internal notes section shown only for RP / administrateur_financier
  * - Teacher relations section shown for authorised roles
- * - Can add an internal note via POST /profiles/:userId/internal-notes
+ * - Can add an internal note via createInternalNote(userId, content)
+ *
+ * Note : `TeacherValidationPanel` (RP/TI) et `ProfileStatisticsPanel` (onglet
+ * pédagogique) sont montés en tant qu'enfants de ProfilePage mais ne font pas
+ * partie de ce lot de migration — leurs dépendances (`api/client`,
+ * `fetchProfileStatistics`) sont mockées ici uniquement pour éviter tout appel
+ * réseau réel pendant ces tests, sans changer leur comportement.
  */
 
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
@@ -19,12 +25,21 @@ import ProfilePage from '../../src/pages/ProfilePage'
 
 vi.mock('../../src/hooks/useAuth')
 vi.mock('../../src/api/client')
+vi.mock('../../src/api/profile')
+vi.mock('../../src/api/relations')
 
 import { useAuth } from '../../src/hooks/useAuth'
 import apiClient from '../../src/api/client'
+import { fetchProfile, fetchInternalNotes, createInternalNote, fetchProfileStatistics } from '../../src/api/profile'
+import { fetchTeacherStudentRelations } from '../../src/api/relations'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockApiClient = vi.mocked(apiClient)
+const mockFetchProfile = vi.mocked(fetchProfile)
+const mockFetchInternalNotes = vi.mocked(fetchInternalNotes)
+const mockCreateInternalNote = vi.mocked(createInternalNote)
+const mockFetchProfileStatistics = vi.mocked(fetchProfileStatistics)
+const mockFetchTeacherStudentRelations = vi.mocked(fetchTeacherStudentRelations)
 
 const STUDENT_USER = {
   id: 'student-1',
@@ -74,11 +89,16 @@ const SAMPLE_PROFILE = {
 beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue(buildAuthMock())
+  // Dépendance non migrée (TeacherValidationPanel) — évite tout appel réseau réel.
+  mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+  mockFetchTeacherStudentRelations.mockResolvedValue([])
+  mockFetchInternalNotes.mockResolvedValue([])
+  mockFetchProfileStatistics.mockResolvedValue({})
 })
 
 describe('ProfilePage', () => {
   it('shows loading state while fetching', () => {
-    mockApiClient.get = vi.fn().mockReturnValue(new Promise(() => {}))
+    mockFetchProfile.mockReturnValue(new Promise(() => {}))
 
     renderProfilePage()
 
@@ -86,10 +106,7 @@ describe('ProfilePage', () => {
   })
 
   it('renders administrative and pedagogical profile sections', async () => {
-    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
-      if (url === '/profiles/student-1') return Promise.resolve({ data: SAMPLE_PROFILE })
-      return Promise.resolve({ data: [] })
-    })
+    mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
 
     renderProfilePage()
 
@@ -102,10 +119,7 @@ describe('ProfilePage', () => {
   })
 
   it('displays field values from the profile', async () => {
-    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
-      if (url === '/profiles/student-1') return Promise.resolve({ data: SAMPLE_PROFILE })
-      return Promise.resolve({ data: [] })
-    })
+    mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
 
     renderProfilePage()
 
@@ -124,7 +138,7 @@ describe('ProfilePage', () => {
   })
 
   it('shows "Profil introuvable" for 404 error', async () => {
-    mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 404 } })
+    mockFetchProfile.mockRejectedValue({ response: { status: 404 } })
 
     renderProfilePage()
 
@@ -134,7 +148,7 @@ describe('ProfilePage', () => {
   })
 
   it('shows "Accès refusé" for 403 error', async () => {
-    mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 403 } })
+    mockFetchProfile.mockRejectedValue({ response: { status: 403 } })
 
     renderProfilePage()
 
@@ -144,10 +158,7 @@ describe('ProfilePage', () => {
   })
 
   it('shows edit button when viewing own profile as élève', async () => {
-    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
-      if (url === '/profiles/student-1') return Promise.resolve({ data: SAMPLE_PROFILE })
-      return Promise.resolve({ data: [] })
-    })
+    mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
 
     renderProfilePage('student-1')
 
@@ -157,10 +168,7 @@ describe('ProfilePage', () => {
   })
 
   it('does NOT show internal notes section for élève role', async () => {
-    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
-      if (url === '/profiles/student-1') return Promise.resolve({ data: SAMPLE_PROFILE })
-      return Promise.resolve({ data: [] })
-    })
+    mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
 
     renderProfilePage()
 
@@ -171,16 +179,12 @@ describe('ProfilePage', () => {
 
   it('shows internal notes section for RP role', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+    mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
 
     const internalNotes = [
       { id: 'note-1', authorId: 'rp-1', content: 'Élève en difficulté', createdAt: new Date().toISOString() },
     ]
-
-    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
-      if (url === '/profiles/student-1') return Promise.resolve({ data: SAMPLE_PROFILE })
-      if (url.includes('/internal-notes')) return Promise.resolve({ data: internalNotes })
-      return Promise.resolve({ data: [] })
-    })
+    mockFetchInternalNotes.mockResolvedValue(internalNotes)
 
     renderProfilePage()
 
@@ -190,8 +194,10 @@ describe('ProfilePage', () => {
     })
   })
 
-  it('allows RP to add an internal note via POST', async () => {
+  it('allows RP to add an internal note via createInternalNote', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+    mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+    mockFetchInternalNotes.mockResolvedValue([])
 
     const newNote = {
       id: 'note-new',
@@ -199,13 +205,7 @@ describe('ProfilePage', () => {
       content: 'Nouveau suivi nécessaire',
       createdAt: new Date().toISOString(),
     }
-
-    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
-      if (url === '/profiles/student-1') return Promise.resolve({ data: SAMPLE_PROFILE })
-      if (url.includes('/internal-notes')) return Promise.resolve({ data: [] })
-      return Promise.resolve({ data: [] })
-    })
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: newNote })
+    mockCreateInternalNote.mockResolvedValue(newNote)
 
     renderProfilePage()
 
@@ -223,15 +223,14 @@ describe('ProfilePage', () => {
     await userEvent.click(screen.getByRole('button', { name: /ajouter$/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith(
-        '/profiles/student-1/internal-notes',
-        { content: 'Nouveau suivi nécessaire' },
-      )
+      expect(mockCreateInternalNote).toHaveBeenCalledWith('student-1', 'Nouveau suivi nécessaire')
     })
   })
 
   it('shows the new note in the list after adding it', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+    mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+    mockFetchInternalNotes.mockResolvedValue([])
 
     const newNote = {
       id: 'note-new',
@@ -239,13 +238,7 @@ describe('ProfilePage', () => {
       content: 'Suivi trimestriel',
       createdAt: new Date().toISOString(),
     }
-
-    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
-      if (url === '/profiles/student-1') return Promise.resolve({ data: SAMPLE_PROFILE })
-      if (url.includes('/internal-notes')) return Promise.resolve({ data: [] })
-      return Promise.resolve({ data: [] })
-    })
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: newNote })
+    mockCreateInternalNote.mockResolvedValue(newNote)
 
     renderProfilePage()
 

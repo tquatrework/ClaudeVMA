@@ -2,9 +2,9 @@
  * Tests pour AfFinanceDashboardPage (Phase 9)
  *
  * Couvre :
- * - Redirection vers /forbidden pour les non-AF
- * - Affichage des événements financiers
- * - Modification des paramètres de rémunération
+ * - Redirection vers /forbidden pour les non-AF (sans appel réseau)
+ * - Affichage des événements financiers (chargement / succès / vide / erreur)
+ * - Modification des paramètres de rémunération (succès / erreur)
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -14,13 +14,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import AfFinanceDashboardPage from '../../src/pages/AfFinanceDashboardPage'
 
 vi.mock('../../src/hooks/useAuth')
-vi.mock('../../src/api/client')
+vi.mock('../../src/api/finance')
 
 import { useAuth } from '../../src/hooks/useAuth'
-import apiClient from '../../src/api/client'
+import { fetchFinanceEvents, updateRewardSettings } from '../../src/api/finance'
 
 const mockUseAuth = vi.mocked(useAuth)
-const mockApiClient = vi.mocked(apiClient)
+const mockFetchFinanceEvents = vi.mocked(fetchFinanceEvents)
+const mockUpdateRewardSettings = vi.mocked(updateRewardSettings)
 
 const AF_USER = {
   id: 'af-1',
@@ -82,19 +83,20 @@ beforeEach(() => {
 })
 
 describe('AfFinanceDashboardPage', () => {
-  it('redirige vers /forbidden pour un non-AF', async () => {
+  it('redirige vers /forbidden pour un non-AF sans appeler l\'API', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
 
     renderAfDashboard()
 
     await waitFor(() => {
       expect(screen.getByText('Accès interdit')).toBeDefined()
     })
+
+    expect(mockFetchFinanceEvents).not.toHaveBeenCalled()
   })
 
   it('affiche l\'en-tête pour un AF', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchFinanceEvents.mockResolvedValue([])
 
     renderAfDashboard()
 
@@ -103,10 +105,12 @@ describe('AfFinanceDashboardPage', () => {
     })
   })
 
-  it('affiche les événements financiers récents', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_EVENTS })
+  it('affiche le chargement puis les événements financiers récents', async () => {
+    mockFetchFinanceEvents.mockResolvedValue(SAMPLE_EVENTS)
 
     renderAfDashboard()
+
+    expect(screen.getByText('Chargement…')).toBeDefined()
 
     await waitFor(() => {
       expect(screen.getByText('PaymentConfirmed')).toBeDefined()
@@ -115,7 +119,7 @@ describe('AfFinanceDashboardPage', () => {
   })
 
   it('affiche "Aucun événement" si la liste est vide', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchFinanceEvents.mockResolvedValue([])
 
     renderAfDashboard()
 
@@ -124,8 +128,20 @@ describe('AfFinanceDashboardPage', () => {
     })
   })
 
+  it('affiche une erreur si le chargement des événements échoue', async () => {
+    mockFetchFinanceEvents.mockRejectedValue({ response: { status: 500 } })
+
+    renderAfDashboard()
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Le serveur rencontre un problème. Veuillez réessayer plus tard.'),
+      ).toBeDefined()
+    })
+  })
+
   it('affiche les paramètres de rémunération', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchFinanceEvents.mockResolvedValue([])
 
     renderAfDashboard()
 
@@ -135,8 +151,8 @@ describe('AfFinanceDashboardPage', () => {
   })
 
   it('l\'AF peut modifier les paramètres de rémunération', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-    mockApiClient.patch = vi.fn().mockResolvedValue({ data: {} })
+    mockFetchFinanceEvents.mockResolvedValue([])
+    mockUpdateRewardSettings.mockResolvedValue(undefined)
 
     renderAfDashboard()
 
@@ -153,10 +169,41 @@ describe('AfFinanceDashboardPage', () => {
     await userEvent.click(screen.getByText('Enregistrer'))
 
     await waitFor(() => {
-      expect(mockApiClient.patch).toHaveBeenCalledWith(
-        '/financial-settings/rewards',
+      expect(mockUpdateRewardSettings).toHaveBeenCalledWith(
         expect.objectContaining({ pointsPerEuro: expect.any(Number) }),
       )
     })
+
+    await waitFor(() => {
+      expect(screen.getByText('Paramètres mis à jour.')).toBeDefined()
+    })
+  })
+
+  it('affiche une erreur si la mise à jour des paramètres de rémunération échoue', async () => {
+    mockFetchFinanceEvents.mockResolvedValue([])
+    mockUpdateRewardSettings.mockRejectedValue({ response: { status: 500 } })
+
+    renderAfDashboard()
+
+    await waitFor(() => {
+      screen.getByText('Modifier')
+    })
+
+    await userEvent.click(screen.getByText('Modifier'))
+
+    await waitFor(() => {
+      screen.getByText('Enregistrer')
+    })
+
+    await userEvent.click(screen.getByText('Enregistrer'))
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Le serveur rencontre un problème. Veuillez réessayer plus tard.'),
+      ).toBeDefined()
+    })
+
+    // Le formulaire d'édition reste ouvert en cas d'échec
+    expect(screen.getByText('Enregistrer')).toBeDefined()
   })
 })

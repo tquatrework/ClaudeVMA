@@ -6,24 +6,12 @@
 import React, { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { useFinanceDashboard } from '../hooks/finance/useFinanceDashboard'
 import DashboardShell from '../components/dashboard/DashboardShell'
 import type { NavItem } from '../types/navigation'
-import apiClient from '../api/client'
 import { getRailGroupsForRole } from '../navigation/navigationConfig'
 import { useCanAccess } from '../navigation/navigationFilters'
 import '../styles/tokens.css'
-
-interface FinanceEvent {
-  id: string
-  eventType: string
-  payload?: Record<string, unknown>
-  occurredAt: string
-}
-
-interface RewardSettings {
-  pointsPerEuro?: number
-  bonusMultiplier?: number
-}
 
 // Tous les items de topbar potentiels pour l'AF — filtrés dynamiquement
 const ALL_TOP_NAV_ITEMS: NavItem[] = [
@@ -57,45 +45,37 @@ export default function AfFinanceDashboardPage() {
   // Rail gauche depuis la config centralisée (déjà scopé par rôle)
   const railGroups = user ? getRailGroupsForRole(user.role) : []
 
-  const [financeEvents, setFinanceEvents] = useState<FinanceEvent[]>([])
-  const [isLoadingEvents, setIsLoadingEvents] = useState(true)
-  const [rewardSettings, setRewardSettings] = useState<RewardSettings>({ pointsPerEuro: 1 })
-  const [isEditingRewards, setIsEditingRewards] = useState(false)
-  const [editedPointsPerEuro, setEditedPointsPerEuro] = useState(1)
-  const [isSavingRewards, setIsSavingRewards] = useState(false)
-  const [rewardSaveError, setRewardSaveError] = useState<string | null>(null)
-  const [rewardSaveSuccess, setRewardSaveSuccess] = useState(false)
+  const isAf = hasRole('administrateur_financier')
 
   useEffect(() => {
-    if (!hasRole('administrateur_financier')) {
+    if (!isAf) {
       navigate('/forbidden', { replace: true })
-      return
     }
+  }, [isAf, navigate])
 
-    apiClient
-      .get<FinanceEvent[]>('/finance-events')
-      .then(({ data }) => setFinanceEvents(Array.isArray(data) ? data : []))
-      .catch(() => {})
-      .finally(() => setIsLoadingEvents(false))
-  }, [hasRole, navigate])
+  const {
+    financeEvents,
+    isLoadingEvents,
+    eventsError,
+    rewardSettings,
+    saveRewardSettings,
+    isSavingRewards,
+    rewardSaveError,
+    rewardSaveSuccess,
+    resetRewardSaveSuccess,
+  } = useFinanceDashboard(isAf)
+
+  const [isEditingRewards, setIsEditingRewards] = useState(false)
+  const [editedPointsPerEuro, setEditedPointsPerEuro] = useState(1)
 
   const handleSaveRewards = async () => {
-    setIsSavingRewards(true)
-    setRewardSaveError(null)
-    setRewardSaveSuccess(false)
-    try {
-      await apiClient.patch('/financial-settings/rewards', { pointsPerEuro: editedPointsPerEuro })
-      setRewardSettings({ pointsPerEuro: editedPointsPerEuro })
+    const success = await saveRewardSettings(editedPointsPerEuro)
+    if (success) {
       setIsEditingRewards(false)
-      setRewardSaveSuccess(true)
-    } catch {
-      setRewardSaveError('Impossible de mettre à jour les paramètres.')
-    } finally {
-      setIsSavingRewards(false)
     }
   }
 
-  if (!hasRole('administrateur_financier')) return null
+  if (!isAf) return null
 
   // TODO: brancher API KPIs financiers
   const kpiCards = [
@@ -242,7 +222,7 @@ export default function AfFinanceDashboardPage() {
                 onClick={() => {
                   setEditedPointsPerEuro(rewardSettings.pointsPerEuro ?? 1)
                   setIsEditingRewards(true)
-                  setRewardSaveSuccess(false)
+                  resetRewardSaveSuccess()
                 }}
                 style={{
                   fontSize: '12px',
@@ -357,6 +337,8 @@ export default function AfFinanceDashboardPage() {
 
           {isLoadingEvents ? (
             <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Chargement…</p>
+          ) : eventsError ? (
+            <p style={{ fontSize: '13px', color: '#dc2626' }}>{eventsError}</p>
           ) : financeEvents.length === 0 ? (
             <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
               Aucun événement financier récent.

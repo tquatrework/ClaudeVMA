@@ -7,6 +7,7 @@
  * - Soumission d'une demande avec description et montant
  * - L'AF valide une demande via POST /teacher-payment-requests/:id/validate
  * - Affichage des statuts (pending, validated)
+ * - Chargement, erreur de chargement, erreur de soumission, erreur de validation
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -16,13 +17,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import TeacherPaymentRequestPage from '../../src/pages/TeacherPaymentRequestPage'
 
 vi.mock('../../src/hooks/useAuth')
-vi.mock('../../src/api/client')
+vi.mock('../../src/api/finance')
 
 import { useAuth } from '../../src/hooks/useAuth'
-import apiClient from '../../src/api/client'
+import {
+  fetchTeacherPaymentRequests,
+  createTeacherPaymentRequest,
+  validateTeacherPaymentRequest,
+} from '../../src/api/finance'
 
 const mockUseAuth = vi.mocked(useAuth)
-const mockApiClient = vi.mocked(apiClient)
+const mockFetchTeacherPaymentRequests = vi.mocked(fetchTeacherPaymentRequests)
+const mockCreateTeacherPaymentRequest = vi.mocked(createTeacherPaymentRequest)
+const mockValidateTeacherPaymentRequest = vi.mocked(validateTeacherPaymentRequest)
 
 const TEACHER_USER = {
   id: 'teacher-1',
@@ -85,7 +92,7 @@ beforeEach(() => {
 
 describe('TeacherPaymentRequestPage', () => {
   it('le formateur voit le bouton "Nouvelle demande"', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchTeacherPaymentRequests.mockResolvedValue([])
 
     renderPage()
 
@@ -94,20 +101,32 @@ describe('TeacherPaymentRequestPage', () => {
     })
   })
 
-  it('affiche "Aucune demande de paiement" si la liste est vide', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+  it('affiche le chargement puis "Aucune demande de paiement" si la liste est vide', async () => {
+    mockFetchTeacherPaymentRequests.mockResolvedValue([])
 
     renderPage()
+
+    expect(screen.getByText('Chargement…')).toBeDefined()
 
     await waitFor(() => {
       expect(screen.getByText('Aucune demande de paiement.')).toBeDefined()
     })
   })
 
-  it('affiche les demandes existantes avec leur statut', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({
-      data: [PENDING_REQUEST, VALIDATED_REQUEST],
+  it('affiche une erreur si le chargement des demandes échoue', async () => {
+    mockFetchTeacherPaymentRequests.mockRejectedValue({ response: { status: 500 } })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Le serveur rencontre un problème. Veuillez réessayer plus tard.'),
+      ).toBeDefined()
     })
+  })
+
+  it('affiche les demandes existantes avec leur statut', async () => {
+    mockFetchTeacherPaymentRequests.mockResolvedValue([PENDING_REQUEST, VALIDATED_REQUEST])
 
     renderPage()
 
@@ -119,14 +138,12 @@ describe('TeacherPaymentRequestPage', () => {
   })
 
   it('le formateur peut soumettre une nouvelle demande', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-    mockApiClient.post = vi.fn().mockResolvedValue({
-      data: {
-        ...PENDING_REQUEST,
-        id: 'req-new',
-        description: 'Cours de maths avancé',
-        amountCents: 7500,
-      },
+    mockFetchTeacherPaymentRequests.mockResolvedValue([])
+    mockCreateTeacherPaymentRequest.mockResolvedValue({
+      ...PENDING_REQUEST,
+      id: 'req-new',
+      description: 'Cours de maths avancé',
+      amountCents: 7500,
     })
 
     renderPage()
@@ -154,16 +171,56 @@ describe('TeacherPaymentRequestPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /soumettre la demande/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith(
-        '/teacher-payment-requests',
+      expect(mockCreateTeacherPaymentRequest).toHaveBeenCalledWith(
         expect.objectContaining({ description: 'Cours de maths avancé' }),
       )
     })
+
+    await waitFor(() => {
+      expect(screen.getByText('Demande soumise avec succès.')).toBeDefined()
+    })
+  })
+
+  it('affiche une erreur si la soumission de la demande échoue', async () => {
+    mockFetchTeacherPaymentRequests.mockResolvedValue([])
+    mockCreateTeacherPaymentRequest.mockRejectedValue({ response: { status: 400 } })
+
+    renderPage()
+
+    await waitFor(() => {
+      screen.getByText('Nouvelle demande')
+    })
+
+    await userEvent.click(screen.getByText('Nouvelle demande'))
+
+    await waitFor(() => {
+      screen.getByPlaceholderText(/décrivez la prestation/i)
+    })
+
+    await userEvent.type(
+      screen.getByPlaceholderText(/décrivez la prestation/i),
+      'Cours de maths avancé',
+    )
+
+    const amountInput = screen.getByRole('spinbutton') as HTMLInputElement
+    await userEvent.clear(amountInput)
+    await userEvent.type(amountInput, '7500')
+
+    await userEvent.click(screen.getByRole('button', { name: /soumettre la demande/i }))
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("La demande n'a pas pu être traitée. Vérifiez les informations saisies."),
+      ).toBeDefined()
+    })
+
+    // Le formulaire reste ouvert en cas d'échec
+    expect(screen.getByText('Nouvelle demande de paiement')).toBeDefined()
   })
 
   it('l\'AF voit le bouton "Valider" sur les demandes en attente', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(AF_USER))
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [PENDING_REQUEST] })
+    mockFetchTeacherPaymentRequests.mockResolvedValue([PENDING_REQUEST])
 
     renderPage()
 
@@ -174,10 +231,8 @@ describe('TeacherPaymentRequestPage', () => {
 
   it('l\'AF valide une demande via POST /validate', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(AF_USER))
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [PENDING_REQUEST] })
-    mockApiClient.post = vi.fn().mockResolvedValue({
-      data: { ...PENDING_REQUEST, status: 'validated' },
-    })
+    mockFetchTeacherPaymentRequests.mockResolvedValue([PENDING_REQUEST])
+    mockValidateTeacherPaymentRequest.mockResolvedValue({ ...PENDING_REQUEST, status: 'validated' })
 
     renderPage()
 
@@ -188,15 +243,40 @@ describe('TeacherPaymentRequestPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /valider/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith(
-        `/teacher-payment-requests/${PENDING_REQUEST.id}/validate`,
-      )
+      expect(mockValidateTeacherPaymentRequest).toHaveBeenCalledWith(PENDING_REQUEST.id)
     })
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Validée').length).toBeGreaterThan(0)
+    })
+  })
+
+  it('affiche une erreur si la validation échoue (non-bloquant pour la liste)', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(AF_USER))
+    mockFetchTeacherPaymentRequests.mockResolvedValue([PENDING_REQUEST])
+    mockValidateTeacherPaymentRequest.mockRejectedValue({ response: { status: 403 } })
+
+    renderPage()
+
+    await waitFor(() => {
+      screen.getByRole('button', { name: /valider/i })
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /valider/i }))
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Vous n'êtes pas autorisé à effectuer cette action."),
+      ).toBeDefined()
+    })
+
+    // La demande reste visible avec son statut d'origine
+    expect(screen.getAllByText('En attente').length).toBeGreaterThan(0)
   })
 
   it('l\'AF ne voit pas le bouton "Nouvelle demande"', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(AF_USER))
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchTeacherPaymentRequests.mockResolvedValue([])
 
     renderPage()
 

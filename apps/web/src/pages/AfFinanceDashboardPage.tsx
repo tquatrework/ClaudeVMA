@@ -93,54 +93,30 @@ export default function AfFinanceDashboardPage() {
       userRole="Administrateur financier"
     >
       {/* Salutation */}
-      <div style={{ marginBottom: '24px' }}>
-        <h1
-          style={{
-            fontFamily: 'var(--font-heading)',
-            fontSize: '24px',
-            fontWeight: 700,
-            color: 'var(--color-ink)',
-            margin: 0,
-          }}
-        >
+      <div className="mb-6">
+        <h1 className="font-[var(--font-heading)] text-[24px] font-bold text-[color:var(--color-ink)] m-0">
           Bonjour, {firstName}
         </h1>
-        <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
+        <p className="text-[13px] text-[color:var(--color-text-secondary)] mt-1">
           Espace administrateur financier
         </p>
       </div>
 
       {/* KPIs */}
-      <div
-        style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '28px' }}
-        className="vm-af-kpis"
-      >
+      <div className="grid grid-cols-3 gap-3 mb-7 vm-af-kpis">
         {kpiCards.map((kpi) => (
           <div
             key={kpi.label}
-            style={{
-              background: 'var(--color-white)',
-              border: '1px solid var(--color-surface)',
-              borderRadius: 'var(--radius-card)',
-              boxShadow: 'var(--shadow-card)',
-              padding: '20px',
-            }}
+            style={{ boxShadow: 'var(--shadow-card)' }}
+            className="bg-[var(--color-white)] border border-[var(--color-surface)] rounded-[var(--radius-card)] p-5"
           >
-            <p
-              style={{
-                fontSize: '28px',
-                fontFamily: 'var(--font-heading)',
-                fontWeight: 700,
-                color: 'var(--accent)',
-                margin: '0 0 4px',
-              }}
-            >
+            <p className="text-[28px] font-[var(--font-heading)] font-bold text-[color:var(--accent)] mb-1">
               {kpi.value}
             </p>
-            <p style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)', margin: '0 0 2px' }}>
+            <p className="text-[13px] font-semibold text-[color:var(--color-ink)] mb-0.5">
               {kpi.label}
             </p>
-            <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: 0 }}>
+            <p className="text-[11px] text-[color:var(--color-text-secondary)] m-0">
               {kpi.description}
             </p>
           </div>
@@ -148,41 +124,17 @@ export default function AfFinanceDashboardPage() {
       </div>
 
       {/* Actions rapides */}
-      <div style={{ marginBottom: '28px' }}>
-        <h2
-          style={{
-            fontFamily: 'var(--font-heading)',
-            fontSize: '15px',
-            fontWeight: 600,
-            color: 'var(--color-ink)',
-            marginBottom: '12px',
-          }}
-        >
+      <div className="mb-7">
+        <h2 className="font-[var(--font-heading)] text-[15px] font-semibold text-[color:var(--color-ink)] mb-3">
           Actions rapides
         </h2>
-        <div
-          style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}
-          className="vm-af-actions"
-        >
+        <div className="grid grid-cols-3 gap-2.5 vm-af-actions">
           {visibleQuickActions.map((action) => (
             <Link
               key={action.path}
               to={action.path}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '14px 12px',
-                background: 'var(--color-white)',
-                border: '1px solid var(--color-surface)',
-                borderRadius: 'var(--radius-card)',
-                boxShadow: 'var(--shadow-card)',
-                fontSize: '13px',
-                fontWeight: 500,
-                color: 'var(--color-ink)',
-                textDecoration: 'none',
-                textAlign: 'center',
-              }}
+              style={{ boxShadow: 'var(--shadow-card)' }}
+              className="flex items-center justify-center py-3.5 px-3 bg-[var(--color-white)] border border-[var(--color-surface)] rounded-[var(--radius-card)] text-[13px] font-medium text-[color:var(--color-ink)] no-underline text-center"
             >
               {action.label}
             </Link>
@@ -191,30 +143,14 @@ export default function AfFinanceDashboardPage() {
       </div>
 
       {/* Grille : Paramètres rémunération + Événements récents */}
-      <div
-        style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '24px' }}
-        className="vm-grid-af"
-      >
+      <div className="grid grid-cols-[1fr_2fr] gap-6 vm-grid-af">
         {/* Paramètres rémunération */}
         <div
-          style={{
-            background: 'var(--color-white)',
-            border: '1px solid var(--color-surface)',
-            borderRadius: 'var(--radius-card)',
-            boxShadow: 'var(--shadow-card)',
-            padding: '20px',
-          }}
+          style={{ boxShadow: 'var(--shadow-card)' }}
+          className="bg-[var(--color-white)] border border-[var(--color-surface)] rounded-[var(--radius-card)] p-5"
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3
-              style={{
-                fontFamily: 'var(--font-heading)',
-                fontSize: '15px',
-                fontWeight: 600,
-                color: 'var(--color-ink)',
-                margin: 0,
-              }}
-            >
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-[var(--font-heading)] text-[15px] font-semibold text-[color:var(--color-ink)] m-0">
               Rémunération
             </h3>
             {!isEditingRewards && (
@@ -224,14 +160,7 @@ export default function AfFinanceDashboardPage() {
                   setIsEditingRewards(true)
                   resetRewardSaveSuccess()
                 }}
-                style={{
-                  fontSize: '12px',
-                  color: 'var(--accent)',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: 0,
-                }}
+                className="text-[12px] text-[color:var(--accent)] bg-transparent border-none cursor-pointer p-0"
               >
                 Modifier
               </button>
@@ -239,14 +168,14 @@ export default function AfFinanceDashboardPage() {
           </div>
 
           {rewardSaveSuccess && (
-            <p style={{ fontSize: '12px', color: '#16a34a', marginBottom: '12px' }}>
+            <p className="text-[12px] text-green-600 mb-3">
               Paramètres mis à jour.
             </p>
           )}
 
           {isEditingRewards ? (
             <div>
-              <label style={{ display: 'block', fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '6px' }}>
+              <label className="block text-[12px] text-[color:var(--color-text-secondary)] mb-1.5">
                 Points crédités par euro
               </label>
               <input
@@ -255,47 +184,23 @@ export default function AfFinanceDashboardPage() {
                 onChange={(event) => setEditedPointsPerEuro(Number(event.target.value))}
                 min={0}
                 step={0.1}
-                style={{
-                  border: '1px solid var(--color-surface)',
-                  borderRadius: 'var(--radius-field)',
-                  padding: '8px 12px',
-                  fontSize: '14px',
-                  width: '100px',
-                  outline: 'none',
-                  marginBottom: '12px',
-                  display: 'block',
-                }}
+                className="border border-[var(--color-surface)] rounded-[var(--radius-field)] py-2 px-3 text-[14px] w-[100px] outline-none mb-3 block"
               />
               {rewardSaveError && (
-                <p style={{ fontSize: '12px', color: '#dc2626', marginBottom: '8px' }}>{rewardSaveError}</p>
+                <p className="text-[12px] text-red-600 mb-2">{rewardSaveError}</p>
               )}
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div className="flex gap-2">
                 <button
                   onClick={handleSaveRewards}
                   disabled={isSavingRewards}
-                  style={{
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    color: '#fff',
-                    background: 'var(--accent)',
-                    border: 'none',
-                    borderRadius: 'var(--radius-field)',
-                    padding: '7px 14px',
-                    cursor: 'pointer',
-                    opacity: isSavingRewards ? 0.6 : 1,
-                  }}
+                  style={{ opacity: isSavingRewards ? 0.6 : 1 }}
+                  className="text-[12px] font-semibold text-white bg-[var(--accent)] border-none rounded-[var(--radius-field)] py-[7px] px-3.5 cursor-pointer"
                 >
                   {isSavingRewards ? '…' : 'Enregistrer'}
                 </button>
                 <button
                   onClick={() => setIsEditingRewards(false)}
-                  style={{
-                    fontSize: '12px',
-                    color: 'var(--color-text-secondary)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                  }}
+                  className="text-[12px] text-[color:var(--color-text-secondary)] bg-transparent border-none cursor-pointer"
                 >
                   Annuler
                 </button>
@@ -303,10 +208,10 @@ export default function AfFinanceDashboardPage() {
             </div>
           ) : (
             <div>
-              <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+              <p className="text-[13px] text-[color:var(--color-text-secondary)] mb-1">
                 Taux actuel
               </p>
-              <p style={{ fontSize: '24px', fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--accent)', margin: 0 }}>
+              <p className="text-[24px] font-[var(--font-heading)] font-bold text-[color:var(--accent)] m-0">
                 {rewardSettings.pointsPerEuro ?? 1} pt/€
               </p>
             </div>
@@ -315,60 +220,40 @@ export default function AfFinanceDashboardPage() {
 
         {/* Événements financiers récents */}
         <div
-          style={{
-            background: 'var(--color-white)',
-            border: '1px solid var(--color-surface)',
-            borderRadius: 'var(--radius-card)',
-            boxShadow: 'var(--shadow-card)',
-            padding: '20px',
-          }}
+          style={{ boxShadow: 'var(--shadow-card)' }}
+          className="bg-[var(--color-white)] border border-[var(--color-surface)] rounded-[var(--radius-card)] p-5"
         >
-          <h3
-            style={{
-              fontFamily: 'var(--font-heading)',
-              fontSize: '15px',
-              fontWeight: 600,
-              color: 'var(--color-ink)',
-              margin: '0 0 16px',
-            }}
-          >
+          <h3 className="font-[var(--font-heading)] text-[15px] font-semibold text-[color:var(--color-ink)] mb-4">
             Derniers mouvements
           </h3>
 
           {isLoadingEvents ? (
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Chargement…</p>
+            <p className="text-[13px] text-[color:var(--color-text-secondary)]">Chargement…</p>
           ) : eventsError ? (
-            <p style={{ fontSize: '13px', color: '#dc2626' }}>{eventsError}</p>
+            <p className="text-[13px] text-red-600">{eventsError}</p>
           ) : financeEvents.length === 0 ? (
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+            <p className="text-[13px] text-[color:var(--color-text-secondary)]">
               Aucun événement financier récent.
             </p>
           ) : (
-            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+            <ul className="list-none m-0 p-0">
               {financeEvents.slice(0, 12).map((financeEvent) => (
                 <li
                   key={financeEvent.id}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'flex-start',
-                    padding: '10px 0',
-                    borderBottom: '1px solid var(--color-surface)',
-                    gap: '12px',
-                  }}
+                  className="flex justify-between items-start py-2.5 border-b border-[var(--color-surface)] gap-3"
                 >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-ink)', margin: '0 0 2px' }}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-medium text-[color:var(--color-ink)] mb-0.5">
                       {financeEvent.eventType}
                     </p>
                     {financeEvent.payload && (
-                      <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <p className="text-[11px] text-[color:var(--color-text-secondary)] m-0 overflow-hidden text-ellipsis whitespace-nowrap">
                         {JSON.stringify(financeEvent.payload).slice(0, 60)}
                         {JSON.stringify(financeEvent.payload).length > 60 ? '…' : ''}
                       </p>
                     )}
                   </div>
-                  <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', flexShrink: 0 }}>
+                  <span className="text-[11px] text-[color:var(--color-text-secondary)] shrink-0">
                     {new Date(financeEvent.occurredAt).toLocaleString('fr-FR', {
                       day: '2-digit',
                       month: '2-digit',

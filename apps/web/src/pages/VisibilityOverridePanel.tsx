@@ -19,6 +19,7 @@ import {
   type VisibilityOverrideTarget,
   type CreateVisibilityOverridePayload,
 } from '../api/adminObservability'
+import { getErrorMessage } from '../utils/apiError'
 
 const TARGET_TYPE_LABELS: Record<VisibilityOverrideTarget, string> = {
   account: 'Compte',
@@ -32,6 +33,7 @@ export default function VisibilityOverridePanel() {
   const [activeOverrides, setActiveOverrides] = useState<VisibilityOverride[]>([])
   const [isCreating, setIsCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [shouldShowForm, setShouldShowForm] = useState(false)
 
   // Formulaire
@@ -86,11 +88,13 @@ export default function VisibilityOverridePanel() {
   }
 
   const handleDeleteOverride = async (overrideId: string) => {
+    setDeleteError(null)
     try {
       await deleteVisibilityOverride(overrideId)
       setActiveOverrides((previous) => previous.filter((override) => override.id !== overrideId))
-    } catch {
-      // L'erreur est silencieuse — l'item reste dans la liste
+    } catch (error: unknown) {
+      // Non-bloquant : l'item reste dans la liste, l'échec est juste rendu visible.
+      setDeleteError(getErrorMessage(error, 'Impossible de lever ce masquage. Réessayez.'))
     }
   }
 
@@ -233,6 +237,7 @@ export default function VisibilityOverridePanel() {
         )}
 
         {/* Liste des overrides actifs */}
+        {deleteError && <p className="text-red-600 text-sm">{deleteError}</p>}
         <VisibilityOverrideList
           overrideList={activeOverrides}
           onDeleteOverride={handleDeleteOverride}

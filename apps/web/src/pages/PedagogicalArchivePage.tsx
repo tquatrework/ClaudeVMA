@@ -39,6 +39,7 @@ import ArchiveItemDetail from '../components/archive/ArchiveItemDetail'
 import CourseSummaryArchiveView from '../components/archive/CourseSummaryArchiveView'
 import ProfileStatisticsPanel from './ProfileStatisticsPanel'
 import { ErrorMessage } from '../components/ui/ErrorMessage'
+import { getErrorMessage } from '../utils/apiError'
 
 interface StudentOption {
   studentId: string
@@ -58,6 +59,7 @@ export default function PedagogicalArchivePage() {
 
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
   const [isDownloadingDocument, setIsDownloadingDocument] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('statistics')
 
@@ -140,6 +142,7 @@ export default function PedagogicalArchivePage() {
 
   const handleDownloadDocument = async (documentId: string) => {
     setIsDownloadingDocument(true)
+    setDownloadError(null)
     try {
       const blobData = await downloadArchiveDocument(documentId)
       const blobUrl = URL.createObjectURL(blobData)
@@ -148,8 +151,9 @@ export default function PedagogicalArchivePage() {
       anchor.download = `archive-${documentId}`
       anchor.click()
       URL.revokeObjectURL(blobUrl)
-    } catch {
-      // non-bloquant : le téléchargement silencieux échoue sans bloquer la page
+    } catch (error: unknown) {
+      // Non-bloquant : la page reste utilisable, l'échec est juste rendu visible.
+      setDownloadError(getErrorMessage(error, 'Impossible de télécharger ce document.'))
     } finally {
       setIsDownloadingDocument(false)
     }
@@ -275,7 +279,8 @@ export default function PedagogicalArchivePage() {
             </div>
 
             {/* Panneau droit — détail */}
-            <div>
+            <div className="space-y-3">
+              {downloadError && <ErrorMessage message={downloadError} onClose={() => setDownloadError(null)} />}
               {selectedArchiveItem ? (
                 <ArchiveItemDetail
                   archiveItem={selectedArchiveItem}

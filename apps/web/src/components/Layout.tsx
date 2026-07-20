@@ -64,33 +64,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div
-      className={`vm-shell ${accentClass}`}
-      style={{
-        minHeight: '100vh',
-        background: 'var(--color-bg)',
-        color: 'var(--color-ink)',
-        fontFamily: 'var(--font-body)',
-        display: 'flex',
-        flexDirection: 'column',
-      }}
+      className={`vm-shell ${accentClass} min-h-screen bg-[var(--color-bg)] text-[color:var(--color-ink)] font-[var(--font-body)] flex flex-col`}
     >
       {/* ── Bannière consentement ───────────────────────────── */}
       {hasConsentWarning && (
-        <div
-          style={{
-            background: '#fefce8',
-            borderBottom: '1px solid #fde68a',
-            padding: '8px 24px',
-            textAlign: 'center',
-            fontSize: '13px',
-            color: '#92400e',
-          }}
-        >
+        <div className="bg-yellow-50 border-b border-amber-200 py-2 px-6 text-center text-[var(--font-size-body-sm)] text-amber-800">
           Votre compte n'est pas encore activé.{' '}
-          <Link
-            to="/consents"
-            style={{ textDecoration: 'underline', fontWeight: 600 }}
-          >
+          <Link to="/consents" className="underline font-semibold">
             Signer les consentements
           </Link>{' '}
           pour activer votre espace.
@@ -98,69 +78,38 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       )}
 
       {/* ── TOP BAR ────────────────────────────────────────── */}
+      {/* box-shadow gardé en inline : la syntaxe Tailwind shadow-[var(...)] interprète
+          une valeur commençant par var( comme une couleur de teinte, pas comme le
+          box-shadow complet — cf. valeurs "shadow-card" définies dans tokens.css */}
       <header
-        style={{
-          height: 'var(--topbar-height)',
-          background: 'var(--color-white)',
-          borderBottom: '1px solid var(--color-surface)',
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 24px',
-          gap: '20px',
-          position: 'sticky',
-          top: 0,
-          zIndex: 100,
-          flexShrink: 0,
-          boxShadow: 'var(--shadow-card)',
-        }}
+        style={{ boxShadow: 'var(--shadow-card)' }}
+        className="h-[var(--topbar-height)] bg-[var(--color-white)] border-b border-[var(--color-surface)] flex items-center px-6 gap-5 sticky top-0 z-[100] shrink-0"
       >
         {/* Logo */}
         <Link
           to="/dashboard"
-          style={{
-            fontFamily: 'var(--font-heading)',
-            fontWeight: 700,
-            fontSize: '18px',
-            color: 'var(--accent)',
-            textDecoration: 'none',
-            flexShrink: 0,
-            letterSpacing: '-0.3px',
-          }}
+          className="font-[var(--font-heading)] font-bold text-[18px] text-[color:var(--accent)] no-underline shrink-0 tracking-[-0.3px]"
         >
           VisioMath
         </Link>
 
         {/* Navigation principale desktop */}
         {isAuthenticated && (
-          <nav
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '2px',
-              flex: 1,
-              overflowX: 'auto',
-            }}
-            className="vm-topnav-desktop"
-          >
+          <nav className="flex items-center gap-0.5 flex-1 overflow-x-auto vm-topnav-desktop">
             {visibleTopNavItems.map((navItem) => (
               <Link
                 key={navItem.path}
                 to={navItem.path}
                 style={{
-                  fontSize: '13px',
                   fontWeight: isActivePath(navItem.path) ? 600 : 500,
                   color: isActivePath(navItem.path)
                     ? 'var(--accent)'
                     : 'var(--color-text-secondary)',
-                  textDecoration: 'none',
-                  padding: '6px 10px',
-                  borderRadius: 'var(--radius-field)',
                   background: isActivePath(navItem.path)
                     ? 'var(--accent-alpha-10, rgba(91,108,240,0.10))'
                     : 'transparent',
-                  whiteSpace: 'nowrap',
-                  transition: 'color 0.15s, background 0.15s',
                 }}
+                className="text-[13px] no-underline py-1.5 px-2.5 rounded-[var(--radius-field)] whitespace-nowrap transition-colors duration-150 ease-in-out"
               >
                 {navItem.label}
               </Link>
@@ -170,86 +119,30 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Identité + déconnexion */}
         {isAuthenticated && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              flexShrink: 0,
-              marginLeft: 'auto',
-            }}
-          >
+          <div className="flex items-center gap-2.5 shrink-0 ml-auto">
             {/* Icône notifications */}
             <Link
               to="/notifications"
               title="Notifications"
               aria-label="Notifications"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '30px',
-                height: '30px',
-                borderRadius: 'var(--radius-field)',
-                color: 'var(--color-text-secondary)',
-                textDecoration: 'none',
-                fontSize: '17px',
-                transition: 'color 0.15s',
-                flexShrink: 0,
-              }}
+              className="flex items-center justify-center w-[30px] h-[30px] rounded-[var(--radius-field)] text-[color:var(--color-text-secondary)] no-underline text-[17px] transition-colors duration-150 ease-in-out shrink-0"
             >
               🔔
             </Link>
 
             <Link
               to={user ? `/profiles/${user.id}` : '/dashboard'}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                textDecoration: 'none',
-              }}
+              className="flex items-center gap-2 no-underline"
             >
               {/* Avatar */}
-              <div
-                style={{
-                  width: '30px',
-                  height: '30px',
-                  borderRadius: '50%',
-                  background: 'var(--accent)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#fff',
-                  fontWeight: 700,
-                  fontSize: '13px',
-                  flexShrink: 0,
-                }}
-              >
+              <div className="w-[30px] h-[30px] rounded-full bg-[var(--accent)] flex items-center justify-center text-white font-bold text-[13px] shrink-0">
                 {userAvatarLetter}
               </div>
-              <span
-                style={{
-                  fontSize: '13px',
-                  fontWeight: 500,
-                  color: 'var(--color-ink)',
-                }}
-                className="vm-avatar-name"
-              >
+              <span className="text-[13px] font-medium text-[color:var(--color-ink)] vm-avatar-name">
                 {userName}
               </span>
               {user?.validationStatus === 'pending' && (
-                <span
-                  style={{
-                    fontSize: '11px',
-                    background: '#fef3c7',
-                    color: '#92400e',
-                    padding: '2px 8px',
-                    borderRadius: 'var(--radius-pill)',
-                    fontWeight: 600,
-                  }}
-                  className="vm-avatar-name"
-                >
+                <span className="text-[11px] bg-amber-100 text-amber-800 py-0.5 px-2 rounded-[var(--radius-pill)] font-semibold vm-avatar-name">
                   non activé
                 </span>
               )}
@@ -257,17 +150,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
             <button
               onClick={handleLogout}
-              style={{
-                fontSize: '12px',
-                color: 'var(--color-text-secondary)',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                padding: '4px 8px',
-                borderRadius: 'var(--radius-field)',
-                transition: 'color 0.15s',
-              }}
-              className="vm-avatar-name"
+              className="text-[12px] text-[color:var(--color-text-secondary)] bg-transparent border-none cursor-pointer py-1 px-2 rounded-[var(--radius-field)] transition-colors duration-150 ease-in-out vm-avatar-name"
             >
               Déconnexion
             </button>
@@ -275,42 +158,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             {/* Burger mobile */}
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                display: 'none',
-                flexDirection: 'column',
-                gap: '4px',
-                padding: '4px',
-              }}
+              className="bg-transparent border-none cursor-pointer hidden flex-col gap-1 p-1 vm-burger"
               aria-label="Menu"
-              className="vm-burger"
             >
-              <span
-                style={{
-                  display: 'block',
-                  width: '20px',
-                  height: '2px',
-                  background: 'var(--color-ink)',
-                }}
-              />
-              <span
-                style={{
-                  display: 'block',
-                  width: '20px',
-                  height: '2px',
-                  background: 'var(--color-ink)',
-                }}
-              />
-              <span
-                style={{
-                  display: 'block',
-                  width: '20px',
-                  height: '2px',
-                  background: 'var(--color-ink)',
-                }}
-              />
+              <span className="block w-5 h-0.5 bg-[var(--color-ink)]" />
+              <span className="block w-5 h-0.5 bg-[var(--color-ink)]" />
+              <span className="block w-5 h-0.5 bg-[var(--color-ink)]" />
             </button>
           </div>
         )}
@@ -318,48 +171,26 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* ── Menu mobile top ─────────────────────────────────── */}
       {isAuthenticated && isMobileMenuOpen && (
-        <div
-          style={{
-            background: 'var(--color-white)',
-            borderBottom: '1px solid var(--color-surface)',
-            padding: '12px 24px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '2px',
-            zIndex: 99,
-          }}
-          className="vm-mobile-menu"
-        >
+        <div className="bg-[var(--color-white)] border-b border-[var(--color-surface)] py-3 px-6 flex flex-col gap-0.5 z-[99] vm-mobile-menu">
           {visibleTopNavItems.map((navItem) => (
             <Link
               key={navItem.path}
               to={navItem.path}
               onClick={() => setIsMobileMenuOpen(false)}
               style={{
-                fontSize: '14px',
                 fontWeight: isActivePath(navItem.path) ? 600 : 400,
                 color: isActivePath(navItem.path)
                   ? 'var(--accent)'
                   : 'var(--color-ink)',
-                textDecoration: 'none',
-                padding: '10px 0',
-                borderBottom: '1px solid var(--color-surface)',
               }}
+              className="text-sm no-underline py-2.5 border-b border-[var(--color-surface)]"
             >
               {navItem.label}
             </Link>
           ))}
           <button
             onClick={handleLogout}
-            style={{
-              fontSize: '14px',
-              color: '#ef4444',
-              background: 'none',
-              border: 'none',
-              textAlign: 'left',
-              padding: '10px 0',
-              cursor: 'pointer',
-            }}
+            className="text-sm text-red-500 bg-transparent border-none text-left py-2.5 cursor-pointer"
           >
             Déconnexion
           </button>
@@ -367,34 +198,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       )}
 
       {/* ── CORPS : RAIL + ZONE CENTRALE ────────────────────── */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div className="flex flex-1 overflow-hidden">
 
         {/* RAIL gauche */}
         {isAuthenticated && railGroups.length > 0 && (
-          <aside
-            style={{
-              width: 'var(--rail-width)',
-              flexShrink: 0,
-              background: 'var(--color-white)',
-              borderRight: '1px solid var(--color-surface)',
-              overflowY: 'auto',
-              padding: '20px 0',
-            }}
-            className="vm-rail"
-          >
+          <aside className="w-[var(--rail-width)] shrink-0 bg-[var(--color-white)] border-r border-[var(--color-surface)] overflow-y-auto py-5 vm-rail">
             {railGroups.map((group) => (
-              <div key={group.groupLabel} style={{ marginBottom: '24px' }}>
-                <p
-                  style={{
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    color: 'var(--color-text-secondary)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.08em',
-                    padding: '0 16px',
-                    marginBottom: '4px',
-                  }}
-                >
+              <div key={group.groupLabel} className="mb-6">
+                <p className="text-[10px] font-semibold text-[color:var(--color-text-secondary)] uppercase tracking-[0.08em] px-4 mb-1">
                   {group.groupLabel}
                 </p>
                 {group.items.map((railItem) => (
@@ -402,26 +213,20 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     key={railItem.path + railItem.label}
                     to={railItem.path}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '8px 16px',
-                      fontSize: '13px',
                       fontWeight: isActivePath(railItem.path) ? 600 : 400,
                       color: isActivePath(railItem.path)
                         ? 'var(--accent)'
                         : 'var(--color-ink)',
-                      textDecoration: 'none',
                       background: isActivePath(railItem.path)
                         ? 'var(--accent-alpha-10, rgba(91,108,240,0.10))'
                         : 'transparent',
                       borderLeft: isActivePath(railItem.path)
                         ? '3px solid var(--accent)'
                         : '3px solid transparent',
-                      transition: 'background 0.15s',
                     }}
+                    className="flex items-center gap-2 py-2 px-4 text-[13px] no-underline transition-[background] duration-150 ease-in-out"
                   >
-                    <span style={{ fontSize: '16px', flexShrink: 0 }}>
+                    <span className="text-[16px] shrink-0">
                       {railItem.icon}
                     </span>
                     <span className="vm-rail-label">{railItem.label}</span>
@@ -434,36 +239,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Tiroir rail mobile */}
         {isMobileRailOpen && railGroups.length > 0 && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              zIndex: 200,
-              display: 'flex',
-            }}
-          >
+          <div className="fixed inset-0 z-[200] flex">
             <div
-              style={{
-                width: '240px',
-                background: 'var(--color-white)',
-                boxShadow: 'var(--shadow-card-hover)',
-                overflowY: 'auto',
-                padding: '20px 0',
-              }}
+              style={{ boxShadow: 'var(--shadow-card-hover)' }}
+              className="w-[240px] bg-[var(--color-white)] overflow-y-auto py-5"
             >
               {railGroups.map((group) => (
-                <div key={group.groupLabel} style={{ marginBottom: '24px' }}>
-                  <p
-                    style={{
-                      fontSize: '10px',
-                      fontWeight: 600,
-                      color: 'var(--color-text-secondary)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.08em',
-                      padding: '0 16px',
-                      marginBottom: '4px',
-                    }}
-                  >
+                <div key={group.groupLabel} className="mb-6">
+                  <p className="text-[10px] font-semibold text-[color:var(--color-text-secondary)] uppercase tracking-[0.08em] px-4 mb-1">
                     {group.groupLabel}
                   </p>
                   {group.items.map((railItem) => (
@@ -472,22 +255,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       to={railItem.path}
                       onClick={() => setIsMobileRailOpen(false)}
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        padding: '10px 16px',
-                        fontSize: '14px',
                         fontWeight: isActivePath(railItem.path) ? 600 : 400,
                         color: isActivePath(railItem.path)
                           ? 'var(--accent)'
                           : 'var(--color-ink)',
-                        textDecoration: 'none',
                         borderLeft: isActivePath(railItem.path)
                           ? '3px solid var(--accent)'
                           : '3px solid transparent',
                       }}
+                      className="flex items-center gap-2 py-2.5 px-4 text-sm no-underline"
                     >
-                      <span style={{ fontSize: '16px' }}>{railItem.icon}</span>
+                      <span className="text-[16px]">{railItem.icon}</span>
                       {railItem.label}
                     </Link>
                   ))}
@@ -495,53 +273,26 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               ))}
               <button
                 onClick={() => setIsMobileRailOpen(false)}
-                style={{
-                  margin: '0 16px',
-                  fontSize: '12px',
-                  color: 'var(--color-text-secondary)',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '8px 0',
-                }}
+                className="mx-4 text-[12px] text-[color:var(--color-text-secondary)] bg-transparent border-none cursor-pointer py-2"
               >
                 Fermer
               </button>
             </div>
             {/* Overlay */}
             <div
-              style={{ flex: 1, background: 'rgba(30,34,48,0.3)' }}
+              className="flex-1 bg-[rgba(30,34,48,0.3)]"
               onClick={() => setIsMobileRailOpen(false)}
             />
           </div>
         )}
 
         {/* ZONE CONTENU */}
-        <main
-          style={{
-            flex: 1,
-            overflowY: 'auto',
-            background: 'var(--color-bg)',
-            padding: '24px',
-          }}
-          className="vm-main"
-        >
+        <main className="flex-1 overflow-y-auto bg-[var(--color-bg)] p-6 vm-main">
           {/* Bouton ouvrir rail mobile (affiché seulement si rail existe) */}
           {isAuthenticated && railGroups.length > 0 && (
             <button
               onClick={() => setIsMobileRailOpen(true)}
-              style={{
-                display: 'none',
-                marginBottom: '16px',
-                fontSize: '12px',
-                color: 'var(--accent)',
-                background: 'none',
-                border: '1px solid var(--color-surface)',
-                borderRadius: 'var(--radius-field)',
-                padding: '6px 12px',
-                cursor: 'pointer',
-              }}
-              className="vm-rail-toggle"
+              className="hidden mb-4 text-[12px] text-[color:var(--accent)] bg-transparent border border-[var(--color-surface)] rounded-[var(--radius-field)] py-1.5 px-3 cursor-pointer vm-rail-toggle"
             >
               Menu outils
             </button>
@@ -552,16 +303,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* ── Footer ─────────────────────────────────────────── */}
-      <footer
-        style={{
-          padding: '12px 24px',
-          textAlign: 'center',
-          fontSize: '12px',
-          color: 'var(--color-text-secondary)',
-          borderTop: '1px solid var(--color-surface)',
-          background: 'var(--color-white)',
-        }}
-      >
+      <footer className="py-3 px-6 text-center text-[12px] text-[color:var(--color-text-secondary)] border-t border-[var(--color-surface)] bg-[var(--color-white)]">
         VisioMath © 2026
       </footer>
 

@@ -1,5 +1,4 @@
-import React, { useEffect, useState } from 'react'
-import apiClient from '../api/client'
+import React, { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
 import {
@@ -14,20 +13,12 @@ import EventCreateDialog from '../components/calendar/EventCreateDialog'
 import InvitationBanner from '../components/calendar/InvitationBanner'
 import CancellationRequestDialog from '../components/calendar/CancellationRequestDialog'
 import ReminderSettingsPanel from '../components/calendar/ReminderSettingsPanel'
-
-interface InvitationEntry {
-  event: CalendarEvent
-  status: InviteeStatus
-}
+import { useCalendarEvents } from '../hooks/calendar/useCalendarEvents'
 
 type ViewMode = 'upcoming' | 'past'
 
 export default function CalendarPage() {
   const { user, hasRole } = useAuth()
-
-  const [events, setEvents] = useState<CalendarEvent[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const [activeViewMode, setActiveViewMode] = useState<ViewMode>('upcoming')
   const [filterEventType, setFilterEventType] = useState<EventType | ''>('')
@@ -37,64 +28,32 @@ export default function CalendarPage() {
   const [cancellationTarget, setCancellationTarget] = useState<CalendarEvent | null>(null)
   const [expandedReminderEventId, setExpandedReminderEventId] = useState<string | null>(null)
 
-  const [invitations, setInvitations] = useState<InvitationEntry[]>([])
+  const {
+    events,
+    invitations,
+    isLoading,
+    errorMessage,
+    dismissError,
+    addEvent,
+    updateInvitationStatus,
+    markEventCancelled,
+  } = useCalendarEvents(user?.id, filterEventType, filterPersonId)
 
   const canCreateEvent =
     user !== null && (ALLOWED_EVENT_TYPES_BY_ROLE[user.role] ?? []).length > 0
 
-  useEffect(() => {
-    if (!user) return
-
-    const queryParams = new URLSearchParams()
-    if (filterEventType) queryParams.set('type', filterEventType)
-    if (filterPersonId.trim()) queryParams.set('personId', filterPersonId.trim())
-
-    const queryString = queryParams.toString()
-    const endpoint = `/calendars/${user.id}/events${queryString ? `?${queryString}` : ''}`
-
-    setIsLoading(true)
-    apiClient
-      .get<CalendarEvent[]>(endpoint)
-      .then(({ data }) => {
-        const fetchedEvents = Array.isArray(data) ? data : []
-        setEvents(fetchedEvents)
-
-        const pendingInvitations: InvitationEntry[] = fetchedEvents
-          .filter((event) => event.eventType === 'invitation' || event.inviteeStatus !== undefined)
-          .map((event) => ({
-            event,
-            status: event.inviteeStatus ?? 'pending',
-          }))
-        setInvitations(pendingInvitations)
-      })
-      .catch((err) => {
-        const status = err?.response?.status
-        if (status === 403) setErrorMessage('Accès refusé')
-        else setErrorMessage('Impossible de charger le calendrier')
-      })
-      .finally(() => setIsLoading(false))
-  }, [user, filterEventType, filterPersonId])
-
   const handleEventCreated = (newEvent: CalendarEvent) => {
-    setEvents((prev) => [newEvent, ...prev])
+    addEvent(newEvent)
     setIsCreateDialogOpen(false)
   }
 
   const handleInvitationStatusChange = (eventId: string, newStatus: InviteeStatus) => {
-    setInvitations((prev) =>
-      prev
-        .map((inv) => (inv.event.id === eventId ? { ...inv, status: newStatus } : inv))
-        .filter((inv) => inv.status !== 'declined'),
-    )
+    updateInvitationStatus(eventId, newStatus)
   }
 
   const handleCancellationDone = () => {
     if (cancellationTarget) {
-      setEvents((prev) =>
-        prev.map((event) =>
-          event.id === cancellationTarget.id ? { ...event, status: 'cancelled' } : event,
-        ),
-      )
+      markEventCancelled(cancellationTarget.id)
     }
     setCancellationTarget(null)
   }
@@ -145,7 +104,7 @@ export default function CalendarPage() {
           <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-center justify-between">
             <span>{errorMessage}</span>
             <button
-              onClick={() => setErrorMessage(null)}
+              onClick={dismissError}
               className="text-red-400 hover:text-red-600 ml-3"
             >
               ✕

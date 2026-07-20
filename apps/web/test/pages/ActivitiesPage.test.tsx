@@ -19,13 +19,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import ActivitiesPage from '../../src/pages/ActivitiesPage'
 
 vi.mock('../../src/hooks/useAuth')
-vi.mock('../../src/api/client')
+vi.mock('../../src/api/calendar')
 
 import { useAuth } from '../../src/hooks/useAuth'
-import apiClient from '../../src/api/client'
+import { fetchActivitySessions } from '../../src/api/calendar'
 
 const mockUseAuth = vi.mocked(useAuth)
-const mockApiClient = vi.mocked(apiClient)
+const mockFetchActivitySessions = vi.mocked(fetchActivitySessions)
 
 const STUDENT_USER = {
   id: 'student-1',
@@ -91,7 +91,7 @@ beforeEach(() => {
 
 describe('ActivitiesPage', () => {
   it('shows loading state while fetching', () => {
-    mockApiClient.get = vi.fn().mockReturnValue(new Promise(() => {}))
+    mockFetchActivitySessions.mockReturnValue(new Promise(() => {}))
 
     renderActivities()
 
@@ -99,7 +99,7 @@ describe('ActivitiesPage', () => {
   })
 
   it('renders list of activities with their titles', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_ACTIVITIES })
+    mockFetchActivitySessions.mockResolvedValue(SAMPLE_ACTIVITIES)
 
     renderActivities()
 
@@ -111,7 +111,7 @@ describe('ActivitiesPage', () => {
   })
 
   it('shows summary stat cards when activities are present', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_ACTIVITIES })
+    mockFetchActivitySessions.mockResolvedValue(SAMPLE_ACTIVITIES)
 
     renderActivities()
 
@@ -126,7 +126,7 @@ describe('ActivitiesPage', () => {
   })
 
   it('shows empty state when no activities exist', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchActivitySessions.mockResolvedValue([])
 
     renderActivities()
 
@@ -137,9 +137,7 @@ describe('ActivitiesPage', () => {
 
   it('shows empty state for a filtered status with no matches', async () => {
     // Only completed activities, no cancelled ones
-    mockApiClient.get = vi.fn().mockResolvedValue({
-      data: [SAMPLE_ACTIVITIES[0]], // only 'completed'
-    })
+    mockFetchActivitySessions.mockResolvedValue([SAMPLE_ACTIVITIES[0]])
 
     renderActivities()
 
@@ -156,7 +154,7 @@ describe('ActivitiesPage', () => {
   })
 
   it('filters to show only scheduled activities when clicking the filter', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_ACTIVITIES })
+    mockFetchActivitySessions.mockResolvedValue(SAMPLE_ACTIVITIES)
 
     renderActivities()
 
@@ -173,7 +171,7 @@ describe('ActivitiesPage', () => {
   })
 
   it('shows error message on API failure', async () => {
-    mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 500 } })
+    mockFetchActivitySessions.mockRejectedValue({ response: { status: 500 } })
 
     renderActivities()
 
@@ -183,7 +181,7 @@ describe('ActivitiesPage', () => {
   })
 
   it('shows "Accès refusé" on 403 error', async () => {
-    mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 403 } })
+    mockFetchActivitySessions.mockRejectedValue({ response: { status: 403 } })
 
     renderActivities()
 
@@ -193,7 +191,7 @@ describe('ActivitiesPage', () => {
   })
 
   it('shows a retry button on error', async () => {
-    mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 500 } })
+    mockFetchActivitySessions.mockRejectedValue({ response: { status: 500 } })
 
     renderActivities()
 
@@ -203,16 +201,14 @@ describe('ActivitiesPage', () => {
   })
 
   it('fetches with studentId query param for élève role', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchActivitySessions.mockResolvedValue([])
 
     renderActivities()
 
     await waitFor(() => {
-      const calendarCall = vi.mocked(mockApiClient.get).mock.calls.find(
-        ([url]) => typeof url === 'string' && url.includes('/calendar'),
+      expect(mockFetchActivitySessions).toHaveBeenCalledWith(
+        expect.objectContaining({ studentId: 'student-1' }),
       )
-      expect(calendarCall).toBeDefined()
-      expect(calendarCall![0]).toContain('studentId=student-1')
     })
   })
 })

@@ -8,6 +8,12 @@
  * 4. InvitationBanner — refuser une invitation retire l'élément
  * 5. Créer un rappel personnel (rôle élève)
  * 6. Tests additionnels : états de chargement, erreurs, création d'événement
+ *
+ * Depuis le lot 8 (calendar/dashboard), la lecture des événements passe par
+ * `src/api/calendar.ts` (fonction `fetchOwnerEvents`) au lieu d'`apiClient` directement.
+ * `apiClient` reste mocké car les composants enfants (EventCreateDialog, InvitationBanner,
+ * CancellationRequestDialog, ReminderSettingsPanel) l'utilisent toujours directement — ils
+ * sont hors périmètre de ce lot.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -18,12 +24,15 @@ import CalendarPage from '../../src/pages/CalendarPage'
 
 vi.mock('../../src/hooks/useAuth')
 vi.mock('../../src/api/client')
+vi.mock('../../src/api/calendar')
 
 import { useAuth } from '../../src/hooks/useAuth'
 import apiClient from '../../src/api/client'
+import { fetchOwnerEvents } from '../../src/api/calendar'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockApiClient = vi.mocked(apiClient)
+const mockFetchOwnerEvents = vi.mocked(fetchOwnerEvents)
 
 const TEACHER_USER = {
   id: 'teacher-1',
@@ -80,12 +89,12 @@ describe('CalendarPage — chargement des événements', () => {
         title: 'Cours de mathématiques',
         startAt: FUTURE_ISO_1,
         endAt: FUTURE_ISO_2,
-        eventType: 'cours',
+        eventType: 'cours' as const,
         status: 'scheduled',
       },
     ]
 
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: fetchedEvents })
+    mockFetchOwnerEvents.mockResolvedValue(fetchedEvents)
 
     renderCalendar()
 
@@ -95,9 +104,7 @@ describe('CalendarPage — chargement des événements', () => {
       expect(screen.getByText('Cours de mathématiques')).toBeDefined()
     })
 
-    expect(mockApiClient.get).toHaveBeenCalledWith(
-      expect.stringContaining('/calendars/teacher-1/events'),
-    )
+    expect(mockFetchOwnerEvents).toHaveBeenCalledWith('teacher-1', expect.any(Object))
   })
 
   it('affiche les événements passés dans la vue passés', async () => {
@@ -107,12 +114,12 @@ describe('CalendarPage — chargement des événements', () => {
         title: 'Ancien cours',
         startAt: PAST_ISO_1,
         endAt: PAST_ISO_2,
-        eventType: 'cours',
+        eventType: 'cours' as const,
         status: 'completed',
       },
     ]
 
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: fetchedEvents })
+    mockFetchOwnerEvents.mockResolvedValue(fetchedEvents)
 
     renderCalendar()
 
@@ -128,7 +135,7 @@ describe('CalendarPage — chargement des événements', () => {
   })
 
   it('affiche l\'état vide quand aucun événement', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchOwnerEvents.mockResolvedValue([])
 
     renderCalendar()
 
@@ -138,7 +145,7 @@ describe('CalendarPage — chargement des événements', () => {
   })
 
   it('affiche l\'erreur d\'accès refusé pour une réponse 403', async () => {
-    mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 403 } })
+    mockFetchOwnerEvents.mockRejectedValue({ response: { status: 403 } })
 
     renderCalendar()
 
@@ -148,7 +155,7 @@ describe('CalendarPage — chargement des événements', () => {
   })
 
   it('affiche l\'erreur générique pour une erreur 500', async () => {
-    mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 500 } })
+    mockFetchOwnerEvents.mockRejectedValue({ response: { status: 500 } })
 
     renderCalendar()
 
@@ -163,7 +170,7 @@ describe('CalendarPage — chargement des événements', () => {
 // ---------------------------------------------------------------------------
 describe('CalendarPage — filtrage par type d\'événement', () => {
   it('ajoute le paramètre type dans l\'URL quand un type est sélectionné', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchOwnerEvents.mockResolvedValue([])
 
     renderCalendar()
 
@@ -177,14 +184,15 @@ describe('CalendarPage — filtrage par type d\'événement', () => {
     )
 
     await waitFor(() => {
-      expect(mockApiClient.get).toHaveBeenCalledWith(
-        expect.stringContaining('type=cours'),
+      expect(mockFetchOwnerEvents).toHaveBeenCalledWith(
+        'teacher-1',
+        expect.objectContaining({ type: 'cours' }),
       )
     })
   })
 
   it('recharge sans filtre quand "Tous les types" est sélectionné', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchOwnerEvents.mockResolvedValue([])
 
     renderCalendar()
 
@@ -203,8 +211,8 @@ describe('CalendarPage — filtrage par type d\'événement', () => {
     )
 
     await waitFor(() => {
-      const lastCall = vi.mocked(mockApiClient.get).mock.calls.at(-1)
-      expect(lastCall![0]).not.toContain('type=')
+      const lastCall = mockFetchOwnerEvents.mock.calls.at(-1)
+      expect(lastCall![1]?.type).toBeUndefined()
     })
   })
 })
@@ -220,12 +228,12 @@ describe('InvitationBanner — accepter une invitation', () => {
         title: 'Réunion pédagogique',
         startAt: FUTURE_ISO_1,
         endAt: FUTURE_ISO_2,
-        eventType: 'invitation',
-        inviteeStatus: 'pending',
+        eventType: 'invitation' as const,
+        inviteeStatus: 'pending' as const,
       },
     ]
 
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: fetchedEvents })
+    mockFetchOwnerEvents.mockResolvedValue(fetchedEvents)
     mockApiClient.post = vi.fn().mockResolvedValue({ data: { status: 'accepted' } })
 
     renderCalendar()
@@ -257,12 +265,12 @@ describe('InvitationBanner — refuser une invitation', () => {
         title: 'Cours optionnel',
         startAt: FUTURE_ISO_1,
         endAt: FUTURE_ISO_2,
-        eventType: 'invitation',
-        inviteeStatus: 'pending',
+        eventType: 'invitation' as const,
+        inviteeStatus: 'pending' as const,
       },
     ]
 
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: fetchedEvents })
+    mockFetchOwnerEvents.mockResolvedValue(fetchedEvents)
     mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
 
     renderCalendar()
@@ -299,10 +307,10 @@ describe('CalendarPage (rôle élève) — créer un rappel personnel', () => {
       title: 'Révisions chapitre 3',
       startAt: FUTURE_ISO_1,
       endAt: FUTURE_ISO_2,
-      eventType: 'rappel',
+      eventType: 'rappel' as const,
     }
 
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchOwnerEvents.mockResolvedValue([])
     mockApiClient.post = vi.fn().mockResolvedValue({ data: futureRappel })
 
     renderCalendar()
@@ -353,10 +361,10 @@ describe('CalendarPage (rôle élève) — créer un rappel personnel', () => {
       title: 'Révision',
       startAt: FUTURE_ISO_1,
       endAt: FUTURE_ISO_2,
-      eventType: 'rappel',
+      eventType: 'rappel' as const,
     }
 
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [futureEvent] })
+    mockFetchOwnerEvents.mockResolvedValue([futureEvent])
     mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
 
     renderCalendar()
@@ -387,7 +395,7 @@ describe('CalendarPage (rôle élève) — créer un rappel personnel', () => {
 // ---------------------------------------------------------------------------
 describe('CalendarPage — contrôle d\'accès création d\'événement', () => {
   it('affiche le bouton "Nouvel événement" pour un formateur', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchOwnerEvents.mockResolvedValue([])
 
     renderCalendar()
 
@@ -398,7 +406,7 @@ describe('CalendarPage — contrôle d\'accès création d\'événement', () => 
 
   it('affiche le bouton pour un élève (peut créer des rappels)', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchOwnerEvents.mockResolvedValue([])
 
     renderCalendar()
 
@@ -418,10 +426,10 @@ describe('CalendarPage — demande d\'annulation', () => {
       title: 'Cours à annuler',
       startAt: FUTURE_ISO_1,
       endAt: FUTURE_ISO_2,
-      eventType: 'cours',
+      eventType: 'cours' as const,
     }
 
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [futureEvent] })
+    mockFetchOwnerEvents.mockResolvedValue([futureEvent])
     mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
 
     renderCalendar()

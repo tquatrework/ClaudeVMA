@@ -145,6 +145,16 @@ export async function deleteLogPage(logId: string): Promise<void> {
   await apiClient.delete(`/pedagogical-logs/${logId}`)
 }
 
+/**
+ * Liste les logs d'une séance (cahier de texte lié à une activité).
+ * Route : GET /logs/session/:sessionId
+ * Utilisé par ActivityDetailPage (chargement non bloquant).
+ */
+export async function fetchSessionLogs(sessionId: string): Promise<PedagogicalLogPage[]> {
+  const { data } = await apiClient.get<PedagogicalLogPage[]>(`/logs/session/${sessionId}`)
+  return Array.isArray(data) ? data : []
+}
+
 // ─── Mémo élève ───────────────────────────────────────────────────────────────
 
 /**

@@ -1,54 +1,36 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import apiClient from '../api/client'
 import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
-
-interface Activity {
-  id: string
-  title?: string
-  startAt: string
-  endAt: string
-  type?: string
-  studentId?: string
-  teacherId?: string
-  videoRoomId?: string
-  status?: string
-}
-
-interface LogEntry {
-  id: string
-  content: string
-  authorId: string
-  createdAt: string
-}
-
-interface VideoRoom {
-  id: string
-  status: string
-  joinUrl?: string
-}
+import { useActivityDetail } from '../hooks/calendar/useActivityDetail'
 
 export default function ActivityDetailPage() {
   const { activityId } = useParams<{ activityId: string }>()
-  const { user, hasRole } = useAuth()
+  const { hasRole } = useAuth()
   const navigate = useNavigate()
 
-  const [activity, setActivity] = useState<Activity | null>(null)
-  const [sessionLogs, setSessionLogs] = useState<LogEntry[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const {
+    activity,
+    sessionLogs,
+    isLoading,
+    error,
+    dismissError,
+    successMessage,
+    dismissSuccess,
+    saveEdit,
+    isSaving: isSavingEdit,
+    remove,
+    createVideoRoom,
+    isCreatingRoom: isCreatingRoomLoading,
+  } = useActivityDetail(activityId)
 
-  // Edit activity state
+  // Edit activity state (formulaire local, non fourni par le hook)
   const [isEditing, setIsEditing] = useState(false)
   const [editTitle, setEditTitle] = useState('')
   const [editStatus, setEditStatus] = useState('')
-  const [isSavingEdit, setIsSavingEdit] = useState(false)
 
-  // Video room creation state
+  // Video room creation confirmation state (étape locale avant l'appel réel)
   const [isCreatingRoom, setIsCreatingRoom] = useState(false)
-  const [isCreatingRoomLoading, setIsCreatingRoomLoading] = useState(false)
 
   const canEdit = hasRole('formateur', 'responsable_pedagogique', 'animateur_pedagogique', 'technicien_informatique')
   const canCreateRoom = hasRole('formateur', 'responsable_pedagogique', 'technicien_informatique')
@@ -56,86 +38,30 @@ export default function ActivityDetailPage() {
   const isParent = hasRole('parent_financeur')
 
   useEffect(() => {
-    if (!activityId) return
-
-    const activityRequest = apiClient
-      .get<Activity>(`/calendar/${activityId}`)
-      .then(({ data }) => {
-        setActivity(data)
-        setEditTitle(data.title ?? '')
-        setEditStatus(data.status ?? '')
-
-        // Load session logs
-        return apiClient
-          .get<LogEntry[]>(`/logs/session/${activityId}`)
-          .then(({ data: logData }) => setSessionLogs(Array.isArray(logData) ? logData : []))
-          .catch(() => { /* non-blocking */ })
-      })
-      .catch((err) => {
-        const status = err?.response?.status
-        if (status === 403) setError('Accès refusé')
-        else if (status === 404) setError('Activité introuvable')
-        else setError('Erreur lors du chargement')
-      })
-
-    Promise.allSettled([activityRequest]).finally(() => setIsLoading(false))
-  }, [activityId])
+    if (activity) {
+      setEditTitle(activity.title ?? '')
+      setEditStatus(activity.status ?? '')
+    }
+  }, [activity])
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!activityId) return
-    setIsSavingEdit(true)
-    setError(null)
-    try {
-      const payload: Record<string, unknown> = {}
-      if (editTitle.trim()) payload.title = editTitle.trim()
-      if (editStatus) payload.status = editStatus
-      const { data } = await apiClient.patch<Activity>(`/calendar/${activityId}`, payload)
-      setActivity(data)
-      setIsEditing(false)
-      setSuccessMessage('Activité mise à jour')
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la modification'
-      setError(message)
-    } finally {
-      setIsSavingEdit(false)
-    }
+    const payload: Record<string, string> = {}
+    if (editTitle.trim()) payload.title = editTitle.trim()
+    if (editStatus) payload.status = editStatus
+    const succeeded = await saveEdit(payload)
+    if (succeeded) setIsEditing(false)
   }
 
   const handleDelete = async () => {
-    if (!activityId || !window.confirm('Supprimer cette activité ?')) return
-    try {
-      await apiClient.delete(`/calendar/${activityId}`)
-      navigate('/calendar')
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la suppression'
-      setError(message)
-    }
+    if (!window.confirm('Supprimer cette activité ?')) return
+    const succeeded = await remove()
+    if (succeeded) navigate('/calendar')
   }
 
   const handleCreateVideoRoom = async () => {
-    if (!activityId) return
-    setIsCreatingRoomLoading(true)
-    setError(null)
-    try {
-      const { data } = await apiClient.post<VideoRoom>('/video/rooms', {
-        activityId,
-      })
-      setActivity((prev) => (prev ? { ...prev, videoRoomId: data.id } : prev))
-      setIsCreatingRoom(false)
-      setSuccessMessage('Salle de visio créée')
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la création de la salle'
-      setError(message)
-    } finally {
-      setIsCreatingRoomLoading(false)
-    }
+    const room = await createVideoRoom()
+    if (room) setIsCreatingRoom(false)
   }
 
   return (
@@ -164,14 +90,14 @@ export default function ActivityDetailPage() {
         {error && (
           <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-center justify-between">
             <span>{error}</span>
-            <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600 ml-3">✕</button>
+            <button onClick={dismissError} className="text-red-400 hover:text-red-600 ml-3">✕</button>
           </div>
         )}
 
         {successMessage && (
           <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-xl text-green-700 text-sm flex items-center justify-between">
             <span>{successMessage}</span>
-            <button onClick={() => setSuccessMessage(null)} className="text-green-400 hover:text-green-600 ml-3">✕</button>
+            <button onClick={dismissSuccess} className="text-green-400 hover:text-green-600 ml-3">✕</button>
           </div>
         )}
 

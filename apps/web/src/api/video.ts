@@ -9,6 +9,19 @@
 import apiClient from './client'
 import type { AttendancePayload, JoinRoomResult, VideoRoomInfo } from '../types/video'
 
+export interface CreateRoomPayload {
+  activityId: string
+}
+
+/**
+ * POST /video/rooms — Créer une salle vidéo rattachée à une activité.
+ * Utilisé par ActivityDetailPage.
+ */
+export async function createRoom(payload: CreateRoomPayload): Promise<VideoRoomInfo> {
+  const { data } = await apiClient.post<VideoRoomInfo>('/video/rooms', payload)
+  return data
+}
+
 /**
  * GET /video/rooms/:id — Lire les informations d'une salle
  */

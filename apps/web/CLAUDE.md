@@ -15,3 +15,6 @@ Ne pas connecter les services non développés.
 
 ## Design
 Garder le design simple au départ, mais propre.
+
+## Autre norme de code
+voir ./src/CLAUDE.md

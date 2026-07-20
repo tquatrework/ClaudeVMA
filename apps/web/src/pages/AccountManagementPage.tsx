@@ -1,100 +1,60 @@
 import React, { useState } from 'react'
-import apiClient from '../api/client'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
-
-type AccountStatus = 'active' | 'suspended' | 'pending'
-
-interface AccountStatusChangePayload {
-  accountId: string
-  newStatus: AccountStatus
-  statusReason: string
-}
-
-interface AccessRegeneratePayload {
-  accountId: string
-  regenerateReason: string
-}
+import { useAccountManagement } from '../hooks/accounts/useAccountManagement'
+import type { AccountStatus } from '../types/accounts'
 
 export default function AccountManagementPage() {
   const { hasRole } = useAuth()
+  const {
+    changeStatus,
+    isChangingStatus,
+    statusError,
+    regenerateAccess,
+    isRegeneratingAccess,
+    regenerateError,
+  } = useAccountManagement()
 
   // Status change form state
   const [statusAccountId, setStatusAccountId] = useState('')
   const [newAccountStatus, setNewAccountStatus] = useState<AccountStatus>('suspended')
   const [statusChangeReason, setStatusChangeReason] = useState('')
-  const [isStatusSubmitting, setIsStatusSubmitting] = useState(false)
   const [statusSuccessMessage, setStatusSuccessMessage] = useState<string | null>(null)
-  const [statusErrorMessage, setStatusErrorMessage] = useState<string | null>(null)
 
   // Regenerate access form state
   const [regenerateAccountId, setRegenerateAccountId] = useState('')
   const [regenerateReason, setRegenerateReason] = useState('')
-  const [isRegenerateSubmitting, setIsRegenerateSubmitting] = useState(false)
   const [regenerateSuccessMessage, setRegenerateSuccessMessage] = useState<string | null>(null)
-  const [regenerateErrorMessage, setRegenerateErrorMessage] = useState<string | null>(null)
 
   const isTechnicienInformatique = hasRole('technicien_informatique')
 
   const handleStatusChange = async (e: React.FormEvent) => {
     e.preventDefault()
-    setStatusErrorMessage(null)
     setStatusSuccessMessage(null)
-    setIsStatusSubmitting(true)
 
-    const payload: AccountStatusChangePayload = {
-      accountId: statusAccountId,
-      newStatus: newAccountStatus,
-      statusReason: statusChangeReason,
-    }
+    const accountId = statusAccountId
+    const success = await changeStatus(accountId, newAccountStatus, statusChangeReason)
 
-    try {
-      await apiClient.patch(`/accounts/${payload.accountId}/status`, {
-        status: payload.newStatus,
-        reason: payload.statusReason,
-      })
-      setStatusSuccessMessage(
-        `Statut du compte ${payload.accountId} mis à jour vers "${payload.newStatus}".`,
-      )
+    if (success) {
+      setStatusSuccessMessage(`Statut du compte ${accountId} mis à jour vers "${newAccountStatus}".`)
       setStatusAccountId('')
       setStatusChangeReason('')
-    } catch (err: unknown) {
-      const apiMessage =
-        (err as { response?: { data?: { message?: string } } })?.response?.data
-          ?.message ?? 'Erreur lors du changement de statut'
-      setStatusErrorMessage(apiMessage)
-    } finally {
-      setIsStatusSubmitting(false)
     }
   }
 
   const handleRegenerateAccess = async (e: React.FormEvent) => {
     e.preventDefault()
-    setRegenerateErrorMessage(null)
     setRegenerateSuccessMessage(null)
-    setIsRegenerateSubmitting(true)
 
-    const payload: AccessRegeneratePayload = {
-      accountId: regenerateAccountId,
-      regenerateReason: regenerateReason,
-    }
+    const accountId = regenerateAccountId
+    const success = await regenerateAccess(accountId, regenerateReason)
 
-    try {
-      await apiClient.post(`/accounts/${payload.accountId}/access/regenerate`, {
-        reason: payload.regenerateReason,
-      })
+    if (success) {
       setRegenerateSuccessMessage(
-        `Accès régénéré pour le compte ${payload.accountId}. Le lien a été envoyé à l'utilisateur.`,
+        `Accès régénéré pour le compte ${accountId}. Le lien a été envoyé à l'utilisateur.`,
       )
       setRegenerateAccountId('')
       setRegenerateReason('')
-    } catch (err: unknown) {
-      const apiMessage =
-        (err as { response?: { data?: { message?: string } } })?.response?.data
-          ?.message ?? "Erreur lors de la régénération de l'accès"
-      setRegenerateErrorMessage(apiMessage)
-    } finally {
-      setIsRegenerateSubmitting(false)
     }
   }
 
@@ -119,9 +79,9 @@ export default function AccountManagementPage() {
               {statusSuccessMessage}
             </div>
           )}
-          {statusErrorMessage && (
+          {statusError && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-              {statusErrorMessage}
+              {statusError}
             </div>
           )}
 
@@ -174,10 +134,10 @@ export default function AccountManagementPage() {
 
             <button
               type="submit"
-              disabled={isStatusSubmitting}
+              disabled={isChangingStatus}
               className="w-full bg-indigo-600 text-white py-2 rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
             >
-              {isStatusSubmitting ? 'Mise à jour…' : 'Appliquer le changement de statut'}
+              {isChangingStatus ? 'Mise à jour…' : 'Appliquer le changement de statut'}
             </button>
           </form>
         </section>
@@ -195,9 +155,9 @@ export default function AccountManagementPage() {
                 {regenerateSuccessMessage}
               </div>
             )}
-            {regenerateErrorMessage && (
+            {regenerateError && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                {regenerateErrorMessage}
+                {regenerateError}
               </div>
             )}
 
@@ -234,10 +194,10 @@ export default function AccountManagementPage() {
 
               <button
                 type="submit"
-                disabled={isRegenerateSubmitting}
+                disabled={isRegeneratingAccess}
                 className="w-full bg-orange-600 text-white py-2 rounded-lg font-medium hover:bg-orange-700 disabled:opacity-50 transition-colors"
               >
-                {isRegenerateSubmitting ? 'Traitement…' : "Régénérer l'accès"}
+                {isRegeneratingAccess ? 'Traitement…' : "Régénérer l'accès"}
               </button>
             </form>
           </section>

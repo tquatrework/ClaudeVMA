@@ -14,9 +14,9 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import PasswordResetPage from '../../src/pages/PasswordResetPage'
 
-vi.mock('../../src/api/client')
-import apiClient from '../../src/api/client'
-const mockApiClient = vi.mocked(apiClient)
+vi.mock('../../src/api/auth')
+import { requestPasswordReset } from '../../src/api/auth'
+const mockRequestPasswordReset = vi.mocked(requestPasswordReset)
 
 function renderPasswordResetPage() {
   return render(
@@ -47,8 +47,8 @@ describe('PasswordResetPage', () => {
     expect(screen.getByRole('link', { name: /retour à la connexion/i })).toBeDefined()
   })
 
-  it('calls POST /auth/password-reset/request with the loginIdentifier on submit', async () => {
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+  it('calls requestPasswordReset with the loginIdentifier on submit', async () => {
+    mockRequestPasswordReset.mockResolvedValue(undefined)
 
     renderPasswordResetPage()
 
@@ -56,14 +56,12 @@ describe('PasswordResetPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /envoyer le lien/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith('/auth/password-reset/request', {
-        loginIdentifier: 'user.test',
-      })
+      expect(mockRequestPasswordReset).toHaveBeenCalledWith('user.test')
     })
   })
 
   it('shows confirmation message after successful request', async () => {
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+    mockRequestPasswordReset.mockResolvedValue(undefined)
 
     renderPasswordResetPage()
 
@@ -76,7 +74,7 @@ describe('PasswordResetPage', () => {
   })
 
   it('shows a confirmation message after submitting', async () => {
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+    mockRequestPasswordReset.mockResolvedValue(undefined)
 
     renderPasswordResetPage()
 
@@ -89,7 +87,7 @@ describe('PasswordResetPage', () => {
   })
 
   it('displays API error message on failure', async () => {
-    mockApiClient.post = vi.fn().mockRejectedValue({
+    mockRequestPasswordReset.mockRejectedValue({
       response: { data: { message: 'Service temporairement indisponible' } },
     })
 
@@ -104,7 +102,7 @@ describe('PasswordResetPage', () => {
   })
 
   it('displays a generic error message when API returns no message', async () => {
-    mockApiClient.post = vi.fn().mockRejectedValue(new Error('Network Error'))
+    mockRequestPasswordReset.mockRejectedValue(new Error('Network Error'))
 
     renderPasswordResetPage()
 
@@ -117,9 +115,9 @@ describe('PasswordResetPage', () => {
   })
 
   it('disables the submit button while submitting', async () => {
-    let resolvePost!: () => void
-    mockApiClient.post = vi.fn().mockImplementation(
-      () => new Promise<{ data: object }>((resolve) => { resolvePost = () => resolve({ data: {} }) }),
+    let resolveRequest!: () => void
+    mockRequestPasswordReset.mockImplementation(
+      () => new Promise<void>((resolve) => { resolveRequest = () => resolve(undefined) }),
     )
 
     renderPasswordResetPage()
@@ -131,6 +129,6 @@ describe('PasswordResetPage', () => {
       expect(screen.getByRole('button', { name: /envoi/i }).hasAttribute('disabled')).toBe(true)
     })
 
-    resolvePost()
+    resolveRequest()
   })
 })

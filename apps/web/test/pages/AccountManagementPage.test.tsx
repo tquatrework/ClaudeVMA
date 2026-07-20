@@ -4,8 +4,8 @@
  * Covers:
  * - Form rendering for status change
  * - Regenerate access section only visible for TI
- * - Status change calls PATCH /accounts/:id/status
- * - Regenerate access calls POST /accounts/:id/access/regenerate
+ * - Status change calls changeAccountStatus(accountId, {status, reason})
+ * - Regenerate access calls regenerateAccountAccess(accountId, {reason})
  * - Success and error messages
  */
 
@@ -15,13 +15,14 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import AccountManagementPage from '../../src/pages/AccountManagementPage'
 
-vi.mock('../../src/api/client')
+vi.mock('../../src/api/accounts')
 vi.mock('../../src/hooks/useAuth')
 
-import apiClient from '../../src/api/client'
+import { changeAccountStatus, regenerateAccountAccess } from '../../src/api/accounts'
 import { useAuth } from '../../src/hooks/useAuth'
 
-const mockApiClient = vi.mocked(apiClient)
+const mockChangeAccountStatus = vi.mocked(changeAccountStatus)
+const mockRegenerateAccountAccess = vi.mocked(regenerateAccountAccess)
 const mockUseAuth = vi.mocked(useAuth)
 
 function renderAccountManagementPage() {
@@ -96,9 +97,9 @@ describe('AccountManagementPage', () => {
     expect(screen.queryByRole('button', { name: /régénérer l'accès/i })).toBeNull()
   })
 
-  it('calls PATCH /accounts/:id/status when changing status', async () => {
+  it('calls changeAccountStatus with the account id, status and reason', async () => {
     setupAuthAsRp()
-    mockApiClient.patch = vi.fn().mockResolvedValue({ data: {} })
+    mockChangeAccountStatus.mockResolvedValue(undefined)
     renderAccountManagementPage()
 
     // RP only has the status form — use label-based queries
@@ -112,7 +113,7 @@ describe('AccountManagementPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /appliquer le changement/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.patch).toHaveBeenCalledWith('/accounts/acc-uuid-123/status', {
+      expect(mockChangeAccountStatus).toHaveBeenCalledWith('acc-uuid-123', {
         status: 'suspended',
         reason: 'Comportement inapproprié',
       })
@@ -121,7 +122,7 @@ describe('AccountManagementPage', () => {
 
   it('shows success message after status change', async () => {
     setupAuthAsRp()
-    mockApiClient.patch = vi.fn().mockResolvedValue({ data: {} })
+    mockChangeAccountStatus.mockResolvedValue(undefined)
     renderAccountManagementPage()
 
     await userEvent.type(screen.getByLabelText(/identifiant du compte/i), 'acc-uuid-456')
@@ -134,9 +135,9 @@ describe('AccountManagementPage', () => {
     })
   })
 
-  it('calls POST /accounts/:id/access/regenerate for TI', async () => {
+  it('calls regenerateAccountAccess with the account id and reason for TI', async () => {
     setupAuthAsTi()
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+    mockRegenerateAccountAccess.mockResolvedValue(undefined)
     renderAccountManagementPage()
 
     // TI sees two "Identifiant du compte" inputs — use the second one via getAllByLabelText
@@ -149,7 +150,7 @@ describe('AccountManagementPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /régénérer l'accès/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith('/accounts/acc-uuid-789/access/regenerate', {
+      expect(mockRegenerateAccountAccess).toHaveBeenCalledWith('acc-uuid-789', {
         reason: 'Utilisateur bloqué sans raison',
       })
     })
@@ -157,7 +158,7 @@ describe('AccountManagementPage', () => {
 
   it('shows regenerate success message for TI', async () => {
     setupAuthAsTi()
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+    mockRegenerateAccountAccess.mockResolvedValue(undefined)
     renderAccountManagementPage()
 
     const accountIdInputs = screen.getAllByLabelText(/identifiant du compte/i)
@@ -173,7 +174,7 @@ describe('AccountManagementPage', () => {
 
   it('displays API error when status change fails', async () => {
     setupAuthAsRp()
-    mockApiClient.patch = vi.fn().mockRejectedValue({
+    mockChangeAccountStatus.mockRejectedValue({
       response: { data: { message: 'Compte introuvable' } },
     })
     renderAccountManagementPage()
@@ -182,6 +183,24 @@ describe('AccountManagementPage', () => {
     await userEvent.type(screen.getByLabelText(/motif \*/i), 'Test error')
 
     await userEvent.click(screen.getByRole('button', { name: /appliquer le changement/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Compte introuvable')).toBeDefined()
+    })
+  })
+
+  it('displays API error when regenerate access fails', async () => {
+    setupAuthAsTi()
+    mockRegenerateAccountAccess.mockRejectedValue({
+      response: { data: { message: 'Compte introuvable' } },
+    })
+    renderAccountManagementPage()
+
+    const accountIdInputs = screen.getAllByLabelText(/identifiant du compte/i)
+    await userEvent.type(accountIdInputs[1], 'unknown-uuid')
+    await userEvent.type(screen.getByLabelText(/motif de la réactivation/i), 'Test error')
+
+    await userEvent.click(screen.getByRole('button', { name: /régénérer l'accès/i }))
 
     await waitFor(() => {
       expect(screen.getByText('Compte introuvable')).toBeDefined()

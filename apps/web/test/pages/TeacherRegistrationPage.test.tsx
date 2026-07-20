@@ -5,7 +5,7 @@
  * - Form rendering (3-step wizard: administrative, pedagogical, RGPD)
  * - Step navigation (next and back)
  * - RGPD consent required before submission
- * - Calls POST /accounts/teachers on final submit
+ * - Calls registerTeacher on final submit
  * - Redirects to /login after success
  * - API error displayed
  */
@@ -16,9 +16,10 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import TeacherRegistrationPage from '../../src/pages/TeacherRegistrationPage'
 
-vi.mock('../../src/api/client')
-import apiClient from '../../src/api/client'
-const mockApiClient = vi.mocked(apiClient)
+vi.mock('../../src/api/accounts')
+import { registerTeacher, checkEmailAvailability } from '../../src/api/accounts'
+const mockRegisterTeacher = vi.mocked(registerTeacher)
+const mockCheckEmailAvailability = vi.mocked(checkEmailAvailability)
 
 function renderTeacherRegistrationPage() {
   return render(
@@ -44,6 +45,7 @@ async function fillAdministrativeStep(options: { confirmPassword?: string } = {}
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockCheckEmailAvailability.mockResolvedValue({ alreadyUsed: false, suggestedLoginIdentifier: '' })
 })
 
 describe('TeacherRegistrationPage', () => {
@@ -135,8 +137,8 @@ describe('TeacherRegistrationPage', () => {
     })
   })
 
-  it('calls POST /accounts/teachers with the correct payload', async () => {
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+  it('calls registerTeacher with the correct payload', async () => {
+    mockRegisterTeacher.mockResolvedValue(undefined)
     renderTeacherRegistrationPage()
 
     // Step 1
@@ -155,8 +157,7 @@ describe('TeacherRegistrationPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /soumettre ma candidature/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith(
-        '/accounts/teachers',
+      expect(mockRegisterTeacher).toHaveBeenCalledWith(
         expect.objectContaining({
           email: 'marc@teacher.com',
           password: 'password123',
@@ -169,7 +170,7 @@ describe('TeacherRegistrationPage', () => {
   })
 
   it('redirects to /login after successful submission', async () => {
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+    mockRegisterTeacher.mockResolvedValue(undefined)
     renderTeacherRegistrationPage()
 
     await fillAdministrativeStep()
@@ -190,7 +191,7 @@ describe('TeacherRegistrationPage', () => {
   })
 
   it('displays API error on failure', async () => {
-    mockApiClient.post = vi.fn().mockRejectedValue({
+    mockRegisterTeacher.mockRejectedValue({
       response: { data: { message: 'Email déjà utilisé' } },
     })
     renderTeacherRegistrationPage()
@@ -209,6 +210,31 @@ describe('TeacherRegistrationPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Email déjà utilisé')).toBeDefined()
+    })
+  })
+
+  it('surfaces a visible error when the email availability check fails, without blocking the wizard', async () => {
+    mockCheckEmailAvailability.mockRejectedValue({
+      response: { data: { message: "Vérification de l'email indisponible" } },
+    })
+    renderTeacherRegistrationPage()
+
+    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'marc@teacher.com')
+    await userEvent.tab()
+
+    await waitFor(() => {
+      expect(screen.getByText("Vérification de l'email indisponible")).toBeDefined()
+    })
+
+    // The nominal wizard flow must not be blocked by the check-email failure.
+    await userEvent.type(screen.getByPlaceholderText(/prénom/i), 'Marc')
+    await userEvent.type(screen.getByPlaceholderText(/nom de famille/i), 'Martin')
+    await userEvent.type(screen.getByPlaceholderText(/8 caractères minimum/i), 'password123')
+    await userEvent.type(screen.getByPlaceholderText(/répétez le mot de passe/i), 'password123')
+    await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /profil pédagogique/i })).toBeDefined()
     })
   })
 })

@@ -1,6 +1,7 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import apiClient from '../api/client'
+import { useCheckEmailAvailability } from '../hooks/accounts/useCheckEmailAvailability'
+import { useStudentRegistration } from '../hooks/accounts/useStudentRegistration'
 
 type WizardStep = 'administrative' | 'rgpd'
 
@@ -41,42 +42,38 @@ export default function StudentRegistrationPage() {
   const [currentStep, setCurrentStep] = useState<WizardStep>('administrative')
   const [administrativeData, setAdministrativeData] = useState<AdministrativeFormData>(INITIAL_ADMINISTRATIVE)
   const [rgpdData, setRgpdData] = useState<RgpdFormData>(INITIAL_RGPD)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isEmailAlreadyUsed, setIsEmailAlreadyUsed] = useState(false)
+  const [validationError, setValidationError] = useState<string | null>(null)
+  const {
+    alreadyUsed: isEmailAlreadyUsed,
+    suggestedLoginIdentifier,
+    error: checkEmailError,
+    checkEmail,
+  } = useCheckEmailAvailability()
+  const { register, isSubmitting, error: submitError } = useStudentRegistration()
+
+  const errorMessage = validationError ?? submitError
 
   const handleAdministrativeChange = (field: keyof AdministrativeFormData, value: string) => {
     setAdministrativeData((prev) => ({ ...prev, [field]: value }))
   }
 
-  const checkEmailAvailability = async (emailValue: string) => {
-    if (!emailValue) return
-    try {
-      const response = await apiClient.get<{ alreadyUsed: boolean; suggestedLoginIdentifier: string }>(
-        `/accounts/check-email?email=${encodeURIComponent(emailValue)}`
-      )
-      setIsEmailAlreadyUsed(response.data.alreadyUsed)
-      if (response.data.suggestedLoginIdentifier) {
-        setAdministrativeData((prev) => ({
-          ...prev,
-          loginIdentifier: response.data.suggestedLoginIdentifier,
-        }))
-      }
-    } catch {
-      // silencieux
+  // Reflète l'identifiant proposé par le serveur dès qu'il est disponible.
+  useEffect(() => {
+    if (suggestedLoginIdentifier) {
+      setAdministrativeData((prev) => ({ ...prev, loginIdentifier: suggestedLoginIdentifier }))
     }
-  }
+  }, [suggestedLoginIdentifier])
 
   const handleAdministrativeNext = (e: React.FormEvent) => {
     e.preventDefault()
-    setErrorMessage(null)
+    setValidationError(null)
 
     if (administrativeData.password !== administrativeData.passwordConfirm) {
-      setErrorMessage('Les mots de passe ne correspondent pas')
+      setValidationError('Les mots de passe ne correspondent pas')
       return
     }
     if (administrativeData.password.length < 8) {
-      setErrorMessage('Le mot de passe doit contenir au moins 8 caractères')
+      setValidationError('Le mot de passe doit contenir au moins 8 caractères')
       return
     }
 
@@ -85,41 +82,34 @@ export default function StudentRegistrationPage() {
 
   const handleFinalSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setErrorMessage(null)
+    setValidationError(null)
 
     if (!rgpdData.hasAcceptedRgpd || !rgpdData.hasAcceptedCgu) {
-      setErrorMessage('Vous devez accepter les consentements RGPD et CGU pour créer votre compte')
+      setValidationError('Vous devez accepter les consentements RGPD et CGU pour créer votre compte')
       return
     }
 
-    setIsSubmitting(true)
-    try {
-      await apiClient.post('/accounts/students', {
-        email: administrativeData.email,
-        loginIdentifier: administrativeData.loginIdentifier || undefined,
-        password: administrativeData.password,
-        firstName: administrativeData.firstName,
-        lastName: administrativeData.lastName,
-        birthDate: administrativeData.birthDate || undefined,
-        phoneNumber: administrativeData.phoneNumber || undefined,
-        consents: {
-          rgpd: rgpdData.hasAcceptedRgpd,
-          cgu: rgpdData.hasAcceptedCgu,
-        },
-      })
+    const success = await register({
+      email: administrativeData.email,
+      loginIdentifier: administrativeData.loginIdentifier || undefined,
+      password: administrativeData.password,
+      firstName: administrativeData.firstName,
+      lastName: administrativeData.lastName,
+      birthDate: administrativeData.birthDate || undefined,
+      phoneNumber: administrativeData.phoneNumber || undefined,
+      consents: {
+        rgpd: rgpdData.hasAcceptedRgpd,
+        cgu: rgpdData.hasAcceptedCgu,
+      },
+    })
+
+    if (success) {
       navigate('/login', {
         state: {
           message:
             'Compte élève créé. Veuillez vous connecter puis finaliser vos consentements.',
         },
       })
-    } catch (err: unknown) {
-      const apiMessage =
-        (err as { response?: { data?: { message?: string } } })?.response?.data
-          ?.message ?? 'Erreur lors de la création du compte'
-      setErrorMessage(apiMessage)
-    } finally {
-      setIsSubmitting(false)
     }
   }
 
@@ -214,11 +204,17 @@ export default function StudentRegistrationPage() {
                 required
                 value={administrativeData.email}
                 onChange={(e) => handleAdministrativeChange('email', e.target.value)}
-                onBlur={(e) => checkEmailAvailability(e.target.value)}
+                onBlur={(e) => checkEmail(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
                 placeholder="vous@exemple.fr"
               />
             </div>
+
+            {checkEmailError && (
+              <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-yellow-800 text-sm">
+                {checkEmailError}
+              </div>
+            )}
 
             {isEmailAlreadyUsed && (
               <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-yellow-800 text-sm">

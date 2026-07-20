@@ -1,6 +1,7 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import apiClient from '../api/client'
+import { useCheckEmailAvailability } from '../hooks/accounts/useCheckEmailAvailability'
+import { useParentRegistration } from '../hooks/accounts/useParentRegistration'
 
 interface ParentFormData {
   email: string
@@ -19,64 +20,53 @@ const INITIAL_FORM_DATA: ParentFormData = {
 export default function ParentRegistrationPage() {
   const navigate = useNavigate()
   const [formData, setFormData] = useState<ParentFormData>(INITIAL_FORM_DATA)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isEmailAlreadyUsed, setIsEmailAlreadyUsed] = useState(false)
+  const [validationError, setValidationError] = useState<string | null>(null)
+  const {
+    alreadyUsed: isEmailAlreadyUsed,
+    suggestedLoginIdentifier,
+    error: checkEmailError,
+    checkEmail,
+  } = useCheckEmailAvailability()
+  const { register, isSubmitting, error: submitError } = useParentRegistration()
+
+  const errorMessage = validationError ?? submitError
 
   const handleFieldChange = (field: keyof ParentFormData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
-  const checkEmailAvailability = async (emailValue: string) => {
-    if (!emailValue) return
-    try {
-      const response = await apiClient.get<{ alreadyUsed: boolean; suggestedLoginIdentifier: string }>(
-        `/accounts/check-email?email=${encodeURIComponent(emailValue)}`
-      )
-      setIsEmailAlreadyUsed(response.data.alreadyUsed)
-      if (response.data.suggestedLoginIdentifier) {
-        setFormData((prev) => ({
-          ...prev,
-          loginIdentifier: response.data.suggestedLoginIdentifier,
-        }))
-      }
-    } catch {
-      // silencieux
+  // Reflète l'identifiant proposé par le serveur dès qu'il est disponible.
+  useEffect(() => {
+    if (suggestedLoginIdentifier) {
+      setFormData((prev) => ({ ...prev, loginIdentifier: suggestedLoginIdentifier }))
     }
-  }
+  }, [suggestedLoginIdentifier])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setErrorMessage(null)
+    setValidationError(null)
 
     if (formData.password !== formData.confirmPassword) {
-      setErrorMessage('Les mots de passe ne correspondent pas')
+      setValidationError('Les mots de passe ne correspondent pas')
       return
     }
     if (formData.password.length < 8) {
-      setErrorMessage('Le mot de passe doit contenir au moins 8 caractères')
+      setValidationError('Le mot de passe doit contenir au moins 8 caractères')
       return
     }
 
-    setIsSubmitting(true)
-    try {
-      await apiClient.post('/accounts/parents', {
-        email: formData.email,
-        loginIdentifier: formData.loginIdentifier || undefined,
-        password: formData.password,
-      })
+    const success = await register({
+      email: formData.email,
+      loginIdentifier: formData.loginIdentifier || undefined,
+      password: formData.password,
+    })
+
+    if (success) {
       navigate('/login', {
         state: {
           message: 'Compte Parent / Financeur créé. Veuillez vous connecter.',
         },
       })
-    } catch (err: unknown) {
-      const apiMessage =
-        (err as { response?: { data?: { message?: string } } })?.response?.data
-          ?.message ?? 'Erreur lors de la création du compte'
-      setErrorMessage(apiMessage)
-    } finally {
-      setIsSubmitting(false)
     }
   }
 
@@ -103,11 +93,17 @@ export default function ParentRegistrationPage() {
               required
               value={formData.email}
               onChange={(e) => handleFieldChange('email', e.target.value)}
-              onBlur={(e) => checkEmailAvailability(e.target.value)}
+              onBlur={(e) => checkEmail(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
               placeholder="vous@exemple.fr"
             />
           </div>
+
+          {checkEmailError && (
+            <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-yellow-800 text-sm">
+              {checkEmailError}
+            </div>
+          )}
 
           {isEmailAlreadyUsed && (
             <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-yellow-800 text-sm">

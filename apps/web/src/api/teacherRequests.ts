@@ -80,6 +80,23 @@ export async function deleteTeacherRequest(requestId: string): Promise<void> {
   await apiClient.delete(`/teacher-requests/${requestId}`)
 }
 
+/**
+ * GET /requests — Compter les demandes en attente pour RpDashboardPage.
+ *
+ * Écart signalé (non documenté dans docs/routes.md, comportement runtime préservé tel quel) :
+ * RpDashboardPage appelle historiquement `/requests`, alors que le reste de ce module
+ * (fetchTeacherRequests ci-dessus) appelle `/teacher-requests`. Reproduit à l'identique —
+ * non corrigé dans ce lot structurel.
+ */
+export async function fetchTeacherRequestsForDashboard(): Promise<
+  TeacherRequestSummary[] | { data: TeacherRequestSummary[] }
+> {
+  const { data } = await apiClient.get<TeacherRequestSummary[] | { data: TeacherRequestSummary[] }>(
+    '/requests',
+  )
+  return data
+}
+
 // ─── Validation formateur (TeacherValidationPanel) ──────────────────────────────
 
 /**

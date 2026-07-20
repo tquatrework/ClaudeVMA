@@ -3,54 +3,27 @@
  * Accent : Vert oklch(0.60 0.12 155)
  */
 
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import DashboardShell from '../components/dashboard/DashboardShell'
-import apiClient from '../api/client'
 import '../styles/tokens.css'
-import type { CalendarEvent } from '../types/calendar'
-import type { DashboardNotification } from '../types/dashboard'
 import { formatEventDate, formatShortDate } from '../utils/dateFormat'
-import { normalizeListResponse, getFutureEvents } from '../utils/dashboardFormat'
 import { getRailGroupsForRole, filterTopNavItems } from '../navigation/navigationConfig'
 import { ActivityFeed } from '../components/ui/ActivityFeed'
 import { PageTitle } from '../components/ui/PageTitle'
+import { useUpcomingCourses } from '../hooks/dashboard/useUpcomingCourses'
+import { useDashboardNotifications } from '../hooks/dashboard/useDashboardNotifications'
 
 export default function ProfesseurDashboardPage() {
   const { user, hasRole } = useAuth()
   const firstName = user?.loginIdentifier ?? 'vous'
 
-  const [nextCourse, setNextCourse] = useState<CalendarEvent | null>(null)
-  const [upcomingCourses, setUpcomingCourses] = useState<CalendarEvent[]>([])
-  const [notifications, setNotifications] = useState<DashboardNotification[]>([])
-  const [isLoadingCourses, setIsLoadingCourses] = useState(true)
-  const [isLoadingNotifications, setIsLoadingNotifications] = useState(true)
+  const { nextCourse, upcomingCourses, isLoadingCourses } = useUpcomingCourses(user?.id, 4)
+  const { notifications, isLoadingNotifications } = useDashboardNotifications(6)
 
   const topNavItems = filterTopNavItems('formateur', hasRole)
   const railGroups = getRailGroupsForRole('formateur')
-
-  useEffect(() => {
-    if (!user) return
-
-    apiClient
-      .get<CalendarEvent[]>(`/calendars/${user.id}/events`)
-      .then(({ data }) => {
-        const futureEvents = getFutureEvents(Array.isArray(data) ? data : [])
-        setNextCourse(futureEvents[0] ?? null)
-        setUpcomingCourses(futureEvents.slice(1, 5))
-      })
-      .catch(() => {})
-      .finally(() => setIsLoadingCourses(false))
-
-    apiClient
-      .get<{ data?: DashboardNotification[] } | DashboardNotification[]>('/notifications')
-      .then(({ data }) => {
-        setNotifications(normalizeListResponse(data).slice(0, 6))
-      })
-      .catch(() => {})
-      .finally(() => setIsLoadingNotifications(false))
-  }, [user])
 
   return (
     <DashboardShell

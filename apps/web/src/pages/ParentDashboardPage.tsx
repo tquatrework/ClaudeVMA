@@ -3,26 +3,14 @@
  * Accent : Cyan oklch(0.60 0.12 210)
  */
 
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import DashboardShell from '../components/dashboard/DashboardShell'
-import { fetchLinkedStudents, fetchStudentProfile } from '../api/relations'
-import apiClient from '../api/client'
 import '../styles/tokens.css'
-import type { CalendarEvent } from '../types/calendar'
-import { getFutureEvents } from '../utils/dashboardFormat'
 import { getRailGroupsForRole, filterTopNavItems } from '../navigation/navigationConfig'
 import { PageTitle } from '../components/ui/PageTitle'
-
-interface StudentCard {
-  studentId: string
-  displayName: string
-  loginIdentifier: string | null
-  nextCourse: CalendarEvent | null
-  creditBalance: number | null
-  lastActivityLabel: string | null
-}
+import { useParentDashboard } from '../hooks/dashboard/useParentDashboard'
 
 export default function ParentDashboardPage() {
   const { user, hasRole } = useAuth()
@@ -31,55 +19,7 @@ export default function ParentDashboardPage() {
   const topNavItems = filterTopNavItems('parent_financeur', hasRole)
   const railGroups = getRailGroupsForRole('parent_financeur')
 
-  const [studentCards, setStudentCards] = useState<StudentCard[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-
-  useEffect(() => {
-    if (!user) return
-
-    fetchLinkedStudents(user.id)
-      .then(async (links) => {
-        const studentCardList = await Promise.all(
-          links.map(async (link) => {
-            const studentCard: StudentCard = {
-              studentId: link.studentId,
-              displayName: 'Élève',
-              loginIdentifier: null,
-              nextCourse: null,
-              creditBalance: null,
-              lastActivityLabel: null,
-            }
-
-            try {
-              const profileData = await fetchStudentProfile(link.studentId)
-              const firstName = profileData.administrativeProfile?.firstName ?? ''
-              const lastName = profileData.administrativeProfile?.lastName ?? ''
-              const resolvedName = [firstName, lastName].filter(Boolean).join(' ')
-              studentCard.displayName = resolvedName || profileData.loginIdentifier || 'Élève inconnu'
-              studentCard.loginIdentifier = profileData.loginIdentifier ?? null
-            } catch {
-              studentCard.displayName = 'Élève inconnu'
-            }
-
-            // TODO: brancher API calendrier par élève
-            try {
-              const { data: calendarEvents } = await apiClient.get<CalendarEvent[]>(
-                `/calendars/${link.studentId}/events`,
-              )
-              const futureEvents = getFutureEvents(Array.isArray(calendarEvents) ? calendarEvents : [])
-              studentCard.nextCourse = futureEvents[0] ?? null
-            } catch {
-              // calendrier indisponible pour cet élève
-            }
-
-            return studentCard
-          }),
-        )
-        setStudentCards(studentCardList)
-      })
-      .catch(() => {})
-      .finally(() => setIsLoading(false))
-  }, [user])
+  const { studentCards, isLoading } = useParentDashboard(user?.id)
 
   return (
     <DashboardShell
@@ -247,6 +187,8 @@ export default function ParentDashboardPage() {
                         })}
                       </span>
                     </p>
+                  ) : studentCard.calendarError ? (
+                    <p style={{ fontSize: '13px', color: '#b91c1c' }}>{studentCard.calendarError}</p>
                   ) : (
                     <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
                       Aucun cours à venir

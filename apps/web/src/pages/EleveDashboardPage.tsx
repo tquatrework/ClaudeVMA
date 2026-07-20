@@ -11,22 +11,21 @@
  *   - Fil d'activité
  */
 
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import DashboardShell from '../components/dashboard/DashboardShell'
-import apiClient from '../api/client'
 import '../styles/tokens.css'
-import type { CalendarEvent } from '../types/calendar'
-import type { DashboardNotification, DashboardContact } from '../types/dashboard'
 import { formatCountdown, formatEventDate, formatShortDate } from '../utils/dateFormat'
-import { normalizeListResponse, getFutureEvents } from '../utils/dashboardFormat'
 import { getRailGroupsForRole, filterTopNavItems } from '../navigation/navigationConfig'
 import { DashboardCard, DashboardSectionTitle, DashboardCardLabel } from '../components/ui/DashboardCard'
 import { ActivityFeed } from '../components/ui/ActivityFeed'
 import { ImportantContacts } from '../components/ui/ImportantContacts'
 import { PageTitle } from '../components/ui/PageTitle'
 import { useRoleAccent } from '../hooks/useRoleAccent'
+import { useUpcomingCourses } from '../hooks/dashboard/useUpcomingCourses'
+import { useDashboardNotifications } from '../hooks/dashboard/useDashboardNotifications'
+import { useDashboardContacts } from '../hooks/dashboard/useDashboardContacts'
 
 // Alias pour la rétrocompatibilité interne
 const Card = DashboardCard
@@ -35,18 +34,13 @@ const SectionTitle = DashboardSectionTitle
 // ─── Composant principal ────────────────────────────────────
 
 export default function EleveDashboardPage() {
-  const { user } = useAuth()
+  const { user, hasRole } = useAuth()
   const firstName = user?.loginIdentifier ?? 'vous'
 
-  const [nextCourse, setNextCourse] = useState<CalendarEvent | null>(null)
-  const [upcomingCourses, setUpcomingCourses] = useState<CalendarEvent[]>([])
-  const [notifications, setNotifications] = useState<DashboardNotification[]>([])
-  const [contacts, setContacts] = useState<DashboardContact[]>([])
-  const [isLoadingCourses, setIsLoadingCourses] = useState(true)
-  const [isLoadingNotifications, setIsLoadingNotifications] = useState(true)
-  const [isLoadingContacts, setIsLoadingContacts] = useState(true)
+  const { nextCourse, upcomingCourses, isLoadingCourses } = useUpcomingCourses(user?.id, 3)
+  const { notifications, isLoadingNotifications } = useDashboardNotifications(5)
+  const { contacts, isLoadingContacts } = useDashboardContacts(5)
 
-  const { hasRole } = useAuth()
   const topNavItems = filterTopNavItems('eleve', hasRole)
 
   // Rail avec chemin carnet personnel résolu
@@ -59,40 +53,6 @@ export default function EleveDashboardPage() {
         ),
       }))
     : baseRailGroups
-
-  useEffect(() => {
-    if (!user) return
-
-    // Calendrier
-    apiClient
-      .get<CalendarEvent[]>(`/calendars/${user.id}/events`)
-      .then(({ data }) => {
-        const futureEvents = getFutureEvents(Array.isArray(data) ? data : [])
-        setNextCourse(futureEvents[0] ?? null)
-        setUpcomingCourses(futureEvents.slice(1, 4))
-      })
-      .catch(() => {})
-      .finally(() => setIsLoadingCourses(false))
-
-    // Notifications
-    apiClient
-      .get<{ data?: DashboardNotification[] } | DashboardNotification[]>('/notifications')
-      .then(({ data }) => {
-        setNotifications(normalizeListResponse(data).slice(0, 5))
-      })
-      .catch(() => {})
-      .finally(() => setIsLoadingNotifications(false))
-
-    // Contacts
-    apiClient
-      .get<DashboardContact[]>('/contacts')
-      .then(({ data }) => {
-        const contactList = Array.isArray(data) ? data : []
-        setContacts(contactList.filter((contact) => contact.status === 'active').slice(0, 5))
-      })
-      .catch(() => {})
-      .finally(() => setIsLoadingContacts(false))
-  }, [user])
 
   // Détecter le professeur principal parmi les contacts
   const principalTeacher = contacts.find(

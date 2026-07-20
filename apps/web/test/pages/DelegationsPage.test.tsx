@@ -3,11 +3,14 @@
  *
  * Covers:
  * - Page renders with title and "Nouvelle délégation" button
- * - Loads and displays delegations via GET /delegations
+ * - Loads and displays delegations via fetchDelegations (src/api/communication)
  * - Shows empty state when no delegations
  * - Shows error when loading fails
- * - Creates a delegation via POST /delegations
+ * - Creates a delegation via createDelegation
  * - Shows success message and reloads the list after creation
+ *
+ * Écart signalé (non touché ici) : /delegations n'est documenté dans aucune section de
+ * docs/routes.md — comportement runtime préservé tel quel, voir src/api/communication.ts.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -16,14 +19,15 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import DelegationsPage from '../../src/pages/DelegationsPage'
 
-vi.mock('../../src/api/client')
+vi.mock('../../src/api/communication')
 vi.mock('../../src/hooks/useAuth')
 
-import apiClient from '../../src/api/client'
 import { useAuth } from '../../src/hooks/useAuth'
+import { fetchDelegations, createDelegation } from '../../src/api/communication'
 
-const mockApiClient = vi.mocked(apiClient)
 const mockUseAuth = vi.mocked(useAuth)
+const mockFetchDelegations = vi.mocked(fetchDelegations)
+const mockCreateDelegation = vi.mocked(createDelegation)
 
 const sampleDelegations = [
   {
@@ -74,32 +78,41 @@ beforeEach(() => {
 
 describe('DelegationsPage', () => {
   it('renders the page title heading', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchDelegations.mockResolvedValue([])
     renderDelegationsPage()
 
     expect(screen.getByRole('heading', { name: /délégations/i })).toBeDefined()
   })
 
   it('shows a "Nouvelle délégation" button', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchDelegations.mockResolvedValue([])
     renderDelegationsPage()
 
     expect(screen.getByRole('button', { name: /nouvelle délégation/i })).toBeDefined()
   })
 
-  it('loads and displays delegation list via GET /delegations', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: sampleDelegations })
+  it('loads and displays delegation list via fetchDelegations', async () => {
+    mockFetchDelegations.mockResolvedValue(sampleDelegations)
     renderDelegationsPage()
 
     await waitFor(() => {
-      expect(mockApiClient.get).toHaveBeenCalledWith('/delegations')
+      expect(mockFetchDelegations).toHaveBeenCalled()
       expect(screen.getByText('suspend_account')).toBeDefined()
       expect(screen.getByText('change_role')).toBeDefined()
     })
   })
 
+  it('handles the enveloped { data: [...] } response form', async () => {
+    mockFetchDelegations.mockResolvedValue({ data: sampleDelegations })
+    renderDelegationsPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('suspend_account')).toBeDefined()
+    })
+  })
+
   it('shows empty state when no delegations', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchDelegations.mockResolvedValue([])
     renderDelegationsPage()
 
     await waitFor(() => {
@@ -108,7 +121,7 @@ describe('DelegationsPage', () => {
   })
 
   it('shows error message when loading fails', async () => {
-    mockApiClient.get = vi.fn().mockRejectedValue(new Error('Network Error'))
+    mockFetchDelegations.mockRejectedValue(new Error('Network Error'))
     renderDelegationsPage()
 
     await waitFor(() => {
@@ -117,7 +130,7 @@ describe('DelegationsPage', () => {
   })
 
   it('shows delegation status labels', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: sampleDelegations })
+    mockFetchDelegations.mockResolvedValue(sampleDelegations)
     renderDelegationsPage()
 
     await waitFor(() => {
@@ -127,7 +140,7 @@ describe('DelegationsPage', () => {
   })
 
   it('opens the create delegation form when clicking "Nouvelle délégation"', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchDelegations.mockResolvedValue([])
     renderDelegationsPage()
 
     await userEvent.click(screen.getByRole('button', { name: /nouvelle délégation/i }))
@@ -136,9 +149,9 @@ describe('DelegationsPage', () => {
     expect(screen.getByPlaceholderText(/uuid du compte visé/i)).toBeDefined()
   })
 
-  it('calls POST /delegations with correct payload', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+  it('calls createDelegation with correct payload', async () => {
+    mockFetchDelegations.mockResolvedValue([])
+    mockCreateDelegation.mockResolvedValue(undefined)
     renderDelegationsPage()
 
     await userEvent.click(screen.getByRole('button', { name: /nouvelle délégation/i }))
@@ -153,7 +166,7 @@ describe('DelegationsPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /soumettre la demande/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith('/delegations', {
+      expect(mockCreateDelegation).toHaveBeenCalledWith({
         targetAccountId: 'acc-target-001',
         action: 'suspend_account',
         reason: 'Comportement signalé par utilisateur',
@@ -162,8 +175,8 @@ describe('DelegationsPage', () => {
   })
 
   it('shows success message and hides form after creation', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+    mockFetchDelegations.mockResolvedValue([])
+    mockCreateDelegation.mockResolvedValue(undefined)
     renderDelegationsPage()
 
     await userEvent.click(screen.getByRole('button', { name: /nouvelle délégation/i }))
@@ -179,8 +192,28 @@ describe('DelegationsPage', () => {
     })
   })
 
+  it('shows error message when creation fails', async () => {
+    mockFetchDelegations.mockResolvedValue([])
+    mockCreateDelegation.mockRejectedValue({
+      response: { data: { message: 'Action non autorisée pour ce rôle' } },
+    })
+    renderDelegationsPage()
+
+    await userEvent.click(screen.getByRole('button', { name: /nouvelle délégation/i }))
+
+    await userEvent.type(screen.getByPlaceholderText(/uuid du compte visé/i), 'acc-target-001')
+    await userEvent.type(screen.getByPlaceholderText(/ex: suspend_account/i), 'suspend_account')
+    await userEvent.type(screen.getByPlaceholderText(/expliquez pourquoi/i), 'Raison valide')
+
+    await userEvent.click(screen.getByRole('button', { name: /soumettre la demande/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Action non autorisée pour ce rôle')).toBeDefined()
+    })
+  })
+
   it('closes the form when clicking "Annuler"', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchDelegations.mockResolvedValue([])
     renderDelegationsPage()
 
     await userEvent.click(screen.getByRole('button', { name: /nouvelle délégation/i }))

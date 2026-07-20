@@ -1,18 +1,9 @@
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { useParams, Link } from 'react-router-dom'
-import apiClient from '../api/client'
 import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
-
-interface Incident {
-  id: string
-  title: string
-  description?: string
-  status: 'open' | 'in_progress' | 'resolved' | 'closed'
-  createdAt: string
-  updatedAt?: string
-  reporterId?: string
-}
+import { useIncidentDetail } from '../hooks/communication/useIncidentDetail'
+import type { Incident } from '../api/communication'
 
 const STATUS_OPTIONS: Array<{ value: Incident['status']; label: string }> = [
   { value: 'open', label: 'Ouvert' },
@@ -31,47 +22,14 @@ const STATUS_COLORS: Record<Incident['status'], string> = {
 export default function IncidentDetailPage() {
   const { incidentId } = useParams<{ incidentId: string }>()
   const { hasRole } = useAuth()
-  const [incident, setIncident] = useState<Incident | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [isUpdating, setIsUpdating] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const { incident, isLoading, loadError, updateStatus, isUpdating, updateError, successMessage } =
+    useIncidentDetail(incidentId)
 
   const canUpdateStatus = hasRole('technicien_informatique', 'responsable_pedagogique')
+  const error = loadError ?? updateError
 
-  useEffect(() => {
-    if (!incidentId) return
-    apiClient
-      .get<Incident>(`/incidents/${incidentId}`)
-      .then(({ data }) => setIncident(data))
-      .catch((err) => {
-        const status = err?.response?.status
-        if (status === 403) setError('Accès refusé')
-        else if (status === 404) setError('Incident introuvable')
-        else setError('Erreur lors du chargement')
-      })
-      .finally(() => setIsLoading(false))
-  }, [incidentId])
-
-  const handleStatusChange = async (newStatus: Incident['status']) => {
-    if (!incidentId) return
-    setIsUpdating(true)
-    setError(null)
-    setSuccessMessage(null)
-    try {
-      const { data } = await apiClient.put<Incident>(`/incidents/${incidentId}/status`, {
-        status: newStatus,
-      })
-      setIncident(data)
-      setSuccessMessage('Statut mis à jour')
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la mise à jour du statut'
-      setError(message)
-    } finally {
-      setIsUpdating(false)
-    }
+  const handleStatusChange = (newStatus: Incident['status']) => {
+    void updateStatus(newStatus)
   }
 
   return (

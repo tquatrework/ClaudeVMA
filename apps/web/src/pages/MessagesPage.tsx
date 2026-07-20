@@ -1,23 +1,7 @@
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import apiClient from '../api/client'
 import Layout from '../components/Layout'
-
-interface Message {
-  id: string
-  senderId: string
-  content: string
-  read: boolean
-  createdAt: string
-}
-
-interface Conversation {
-  id: string
-  participantId?: string
-  participantEmail?: string
-  lastMessage?: string
-  unreadCount: number
-}
+import { useMessages } from '../hooks/communication/useMessages'
 
 interface LocationState {
   initialContactId?: string
@@ -28,117 +12,57 @@ export default function MessagesPage() {
   const location = useLocation()
   const locationState = (location.state ?? {}) as LocationState
 
-  const [conversations, setConversations] = useState<Conversation[]>([])
-  const [selectedConvId, setSelectedConvId] = useState<string | null>(null)
-  const [messages, setMessages] = useState<Message[]>([])
-  const [newMessageContent, setNewMessageContent] = useState('')
-  const [isLoading, setIsLoading] = useState(true)
-  const [isSending, setIsSending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const {
+    conversations,
+    isLoadingConversations,
+    conversationsError,
+    selectedConversationId,
+    messages,
+    conversationError,
+    selectConversation,
+    sendMessage,
+    isSending,
+    sendError,
+    createConversation,
+    isCreatingConversation,
+    createConversationError,
+  } = useMessages()
 
-  // Create conversation state — pre-filled when navigating from ContactsPage
+  const [newMessageContent, setNewMessageContent] = useState('')
   const [isCreatingConv, setIsCreatingConv] = useState(!!locationState.initialContactId)
-  const [newConvParticipantId, setNewConvParticipantId] = useState(locationState.initialContactId ?? '')
-  const [isCreatingConvLoading, setIsCreatingConvLoading] = useState(false)
-  const [createConvError, setCreateConvError] = useState<string | null>(null)
+  const [newConvParticipantId, setNewConvParticipantId] = useState(
+    locationState.initialContactId ?? '',
+  )
+  const [isErrorDismissed, setIsErrorDismissed] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  const error = conversationsError ?? conversationError ?? sendError
+
   useEffect(() => {
-    apiClient
-      .get<Conversation[]>('/conversations')
-      .then(({ data }) => setConversations(Array.isArray(data) ? data : []))
-      .catch(() => setError('Impossible de charger les messages'))
-      .finally(() => setIsLoading(false))
-  }, [])
+    setIsErrorDismissed(false)
+  }, [error])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const loadConversation = async (convId: string) => {
-    setSelectedConvId(convId)
-    setError(null)
-    try {
-      const { data } = await apiClient.get<Message[]>(`/messages/conversation/${convId}`)
-      const messageList = Array.isArray(data) ? data : []
-      setMessages(messageList)
-
-      // Mark unread messages as read
-      const unreadMessages = messageList.filter((m) => !m.read)
-      if (unreadMessages.length > 0) {
-        await Promise.allSettled(
-          unreadMessages.map((m) => apiClient.patch(`/messages/${m.id}/read`)),
-        )
-        setMessages((prev) => prev.map((m) => ({ ...m, read: true })))
-        setConversations((prev) =>
-          prev.map((conv) =>
-            conv.id === convId ? { ...conv, unreadCount: 0 } : conv,
-          ),
-        )
-      }
-    } catch {
-      setError('Impossible de charger la conversation')
-    }
-  }
-
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedConvId || !newMessageContent.trim()) return
-    setIsSending(true)
-    try {
-      const { data } = await apiClient.post<Message>(
-        `/conversations/${selectedConvId}/messages`,
-        { content: newMessageContent.trim() },
-      )
-      setMessages((prev) => [...prev, data])
-      setNewMessageContent('')
-      // Update last message in conversations list
-      setConversations((prev) =>
-        prev.map((conv) =>
-          conv.id === selectedConvId
-            ? { ...conv, lastMessage: newMessageContent.trim() }
-            : conv,
-        ),
-      )
-    } catch (err: unknown) {
-      const httpStatus =
-        (err as { response?: { status?: number } })?.response?.status
-      if (httpStatus === 413) {
-        setError('La pièce jointe est trop volumineuse (413)')
-      } else {
-        setError("Erreur lors de l'envoi du message")
-      }
-    } finally {
-      setIsSending(false)
-    }
+    const sent = await sendMessage(newMessageContent)
+    if (sent) setNewMessageContent('')
   }
 
   const handleCreateConversation = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newConvParticipantId.trim()) return
-    setIsCreatingConvLoading(true)
-    setCreateConvError(null)
-    try {
-      const { data } = await apiClient.post<Conversation>('/conversations', {
-        participantId: newConvParticipantId.trim(),
-      })
-      setConversations((prev) => [data, ...prev])
+    const conversation = await createConversation(newConvParticipantId)
+    if (conversation) {
       setNewConvParticipantId('')
       setIsCreatingConv(false)
-      // Auto-select new conversation
-      await loadConversation(data.id)
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Impossible de créer la conversation'
-      setCreateConvError(message)
-    } finally {
-      setIsCreatingConvLoading(false)
     }
   }
 
-  const selectedConversation = conversations.find((conv) => conv.id === selectedConvId)
+  const selectedConversation = conversations.find((conv) => conv.id === selectedConversationId)
 
   return (
     <Layout>
@@ -153,10 +77,15 @@ export default function MessagesPage() {
           </button>
         </div>
 
-        {error && (
+        {error && !isErrorDismissed && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center justify-between">
             <span>{error}</span>
-            <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600 ml-3">✕</button>
+            <button
+              onClick={() => setIsErrorDismissed(true)}
+              className="text-red-400 hover:text-red-600 ml-3"
+            >
+              ✕
+            </button>
           </div>
         )}
 
@@ -175,9 +104,9 @@ export default function MessagesPage() {
                 Contact sélectionné : {locationState.initialContactLabel}
               </p>
             )}
-            {createConvError && (
+            {createConversationError && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                {createConvError}
+                {createConversationError}
               </div>
             )}
             <div>
@@ -196,17 +125,16 @@ export default function MessagesPage() {
             <div className="flex gap-3">
               <button
                 type="submit"
-                disabled={isCreatingConvLoading || !newConvParticipantId.trim()}
+                disabled={isCreatingConversation || !newConvParticipantId.trim()}
                 className="bg-indigo-600 text-white px-5 py-2 rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50"
               >
-                {isCreatingConvLoading ? 'Création…' : 'Démarrer la conversation'}
+                {isCreatingConversation ? 'Création…' : 'Démarrer la conversation'}
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setIsCreatingConv(false)
                   setNewConvParticipantId('')
-                  setCreateConvError(null)
                 }}
                 className="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm hover:bg-gray-200"
               >
@@ -225,8 +153,8 @@ export default function MessagesPage() {
               </p>
             </div>
             <div className="flex-1 overflow-y-auto">
-              {isLoading && <p className="p-4 text-gray-400 text-sm">Chargement…</p>}
-              {!isLoading && conversations.length === 0 && (
+              {isLoadingConversations && <p className="p-4 text-gray-400 text-sm">Chargement…</p>}
+              {!isLoadingConversations && conversations.length === 0 && (
                 <div className="p-4 text-center">
                   <p className="text-gray-400 text-sm">Aucune conversation</p>
                   <button
@@ -240,13 +168,16 @@ export default function MessagesPage() {
               {conversations.map((conv) => (
                 <button
                   key={conv.id}
-                  onClick={() => loadConversation(conv.id)}
+                  onClick={() => selectConversation(conv.id)}
                   className={`w-full text-left px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors ${
-                    selectedConvId === conv.id ? 'bg-indigo-50 border-l-2 border-l-indigo-500' : ''
+                    selectedConversationId === conv.id
+                      ? 'bg-indigo-50 border-l-2 border-l-indigo-500'
+                      : ''
                   }`}
                 >
                   <p className="text-sm font-medium text-gray-800 truncate">
-                    {conv.participantEmail ?? (conv.participantId ? `${conv.participantId.slice(0, 10)}…` : 'Conversation')}
+                    {conv.participantEmail ??
+                      (conv.participantId ? `${conv.participantId.slice(0, 10)}…` : 'Conversation')}
                   </p>
                   {conv.lastMessage && (
                     <p className="text-xs text-gray-500 truncate mt-0.5">{conv.lastMessage}</p>
@@ -263,7 +194,7 @@ export default function MessagesPage() {
 
           {/* Message thread */}
           <div className="flex-1 flex flex-col bg-white border border-gray-200 rounded-xl overflow-hidden">
-            {!selectedConvId ? (
+            {!selectedConversationId ? (
               <div className="flex-1 flex flex-col items-center justify-center text-gray-400 text-sm gap-2">
                 <span>Sélectionnez une conversation</span>
                 <span className="text-xs text-gray-300">ou créez-en une nouvelle</span>

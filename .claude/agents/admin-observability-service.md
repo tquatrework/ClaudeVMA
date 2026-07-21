@@ -1,6 +1,7 @@
 ---
+name: admin-observability-service
 description: Travaille sur le service admin-observability-service
-tools: read, write, bash, edit
+tools: Read, Write, Bash, Edit
 isolation: worktree
 ---
 

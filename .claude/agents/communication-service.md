@@ -1,6 +1,7 @@
 ---
+name: communication-service
 description: Travaille sur le service communication-service
-tools: read, write, bash, edit
+tools: Read, Write, Bash, Edit
 isolation: worktree
 ---
 

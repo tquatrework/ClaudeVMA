@@ -1,6 +1,7 @@
 ---
+name: test-writer
 description: Écrit et maintient les tests à partir des critères d'acceptance
-tools: read, write, bash
+tools: Read, Write, Bash
 isolation: worktree
 ---
 Tu es spécialisé dans l'écriture de tests.

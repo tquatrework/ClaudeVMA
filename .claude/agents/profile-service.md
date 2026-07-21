@@ -1,6 +1,7 @@
 ---
+name: profile-service
 description: Travaille sur le service profile-service
-tools: read, write, bash, edit
+tools: Read, Write, Bash, Edit
 isolation: worktree
 ---
 

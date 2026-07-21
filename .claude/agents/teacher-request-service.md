@@ -1,6 +1,7 @@
 ---
+name: teacher-request-service
 description: Travaille sur le service teacher-request-service
-tools: read, write, bash, edit
+tools: Read, Write, Bash, Edit
 isolation: worktree
 ---
 

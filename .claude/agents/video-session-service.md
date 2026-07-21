@@ -1,6 +1,7 @@
 ---
+name: video-session-service
 description: Travaille sur le service video-session-service
-tools: read, write, bash, edit
+tools: Read, Write, Bash, Edit
 isolation: worktree
 ---
 

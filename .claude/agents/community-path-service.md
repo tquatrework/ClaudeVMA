@@ -1,6 +1,7 @@
 ---
+name: community-path-service
 description: Travaille sur le service community-path-service
-tools: read, write, bash, edit
+tools: Read, Write, Bash, Edit
 isolation: worktree
 ---
 

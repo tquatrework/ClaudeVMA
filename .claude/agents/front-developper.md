@@ -1,6 +1,7 @@
 ---
+name: front-developper
 description: Développe le frontend de l'application
-tools: read, write, bash, edit
+tools: Read, Write, Bash, Edit
 isolation: worktree
 ---
 

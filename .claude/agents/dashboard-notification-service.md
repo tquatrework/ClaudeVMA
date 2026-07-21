@@ -1,6 +1,7 @@
 ---
+name: dashboard-notification-service
 description: Travaille sur le service dashboard-notification-service
-tools: read, write, bash, edit
+tools: Read, Write, Bash, Edit
 isolation: worktree
 ---
 

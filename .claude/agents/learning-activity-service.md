@@ -1,6 +1,7 @@
 ---
+name: learning-activity-service
 description: Travaille sur le service learning-activity-service
-tools: read, write, bash, edit
+tools: Read, Write, Bash, Edit
 isolation: worktree
 ---
 

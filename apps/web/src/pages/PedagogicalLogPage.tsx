@@ -25,6 +25,8 @@ import {
   type CreateLogPagePayload,
 } from '../api/pedagogicalLog'
 import SpecialLogPageVisibilityDialog from '../components/pedagogical-log/SpecialLogPageVisibilityDialog'
+import { NewLogPageForm } from '../components/pedagogical-log/NewLogPageForm'
+import { PedagogicalLogEntryItem } from '../components/pedagogical-log/PedagogicalLogEntryItem'
 
 export default function PedagogicalLogPage() {
   const { studentId } = useParams<{ studentId: string }>()
@@ -185,55 +187,16 @@ export default function PedagogicalLogPage() {
 
         {/* New entry form — visible to formateurs, RP, AP, TI */}
         {canWrite && (
-          <div className="mb-6 space-y-3">
-            <form
-              onSubmit={handleAddPage}
-              className="bg-white border border-gray-200 rounded-xl p-4 space-y-3 shadow-sm"
-            >
-              <h2 className="text-sm font-semibold text-gray-700">Nouvelle entrée</h2>
-
-              <div>
-                <label htmlFor="visibility-select" className="block text-xs text-gray-500 mb-1">
-                  Visibilité
-                </label>
-                <select
-                  id="visibility-select"
-                  value={selectedVisibility}
-                  onChange={(e) => setSelectedVisibility(e.target.value as LogVisibility)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                >
-                  <option value="eleve_parent_formateur">Élève + Parent + Formateur</option>
-                  <option value="eleve_formateur">Élève + Formateur</option>
-                  <option value="formateur_rp">Formateur + RP uniquement</option>
-                </select>
-              </div>
-
-              <textarea
-                value={newContent}
-                onChange={(e) => setNewContent(e.target.value)}
-                placeholder="Décrivez la séance, les notions abordées, les difficultés observées…"
-                rows={4}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
-              />
-              <button
-                type="submit"
-                disabled={isSaving || !newContent.trim()}
-                className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {isSaving ? 'Ajout…' : 'Ajouter une entrée'}
-              </button>
-            </form>
-
-            {/* RP special page button */}
-            {isResponsablePedagogique && (
-              <button
-                onClick={() => setIsSpecialPageDialogOpen(true)}
-                className="text-sm text-purple-600 border border-purple-200 px-4 py-2 rounded-lg hover:bg-purple-50 transition-colors"
-              >
-                Créer une page spéciale (RP)
-              </button>
-            )}
-          </div>
+          <NewLogPageForm
+            newContent={newContent}
+            onNewContentChange={setNewContent}
+            selectedVisibility={selectedVisibility}
+            onVisibilityChange={setSelectedVisibility}
+            isSaving={isSaving}
+            onSubmit={handleAddPage}
+            isResponsablePedagogique={isResponsablePedagogique}
+            onOpenSpecialPageDialog={() => setIsSpecialPageDialogOpen(true)}
+          />
         )}
 
         {isLoading && <p className="text-gray-400 text-sm">Chargement…</p>}
@@ -251,75 +214,22 @@ export default function PedagogicalLogPage() {
 
         <ul className="space-y-3">
           {logPages.map((logPage) => (
-            <li
+            <PedagogicalLogEntryItem
               key={logPage.id}
-              className={`bg-white border rounded-xl p-4 ${
-                logPage.isSpecialPage ? 'border-purple-200 bg-purple-50' : 'border-gray-200'
-              }`}
-            >
-              {editingLogId === logPage.id ? (
-                <div className="space-y-3">
-                  <textarea
-                    value={editContent}
-                    onChange={(e) => setEditContent(e.target.value)}
-                    rows={4}
-                    className="w-full border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
-                  />
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => handleSaveEdit(logPage.id)}
-                      disabled={isSavingEdit || !editContent.trim()}
-                      className="bg-indigo-600 text-white px-4 py-1.5 rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50"
-                    >
-                      {isSavingEdit ? 'Sauvegarde…' : 'Enregistrer'}
-                    </button>
-                    <button
-                      onClick={cancelEdit}
-                      className="bg-gray-100 text-gray-700 px-4 py-1.5 rounded-lg text-sm hover:bg-gray-200"
-                    >
-                      Annuler
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {logPage.isSpecialPage && (
-                    <span className="inline-block text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full mb-2">
-                      Page spéciale{logPage.hiddenFromStudent ? ' — masquée à l\'élève' : ''}
-                    </span>
-                  )}
-                  <p className="text-sm text-gray-800 whitespace-pre-wrap">{logPage.content}</p>
-                  <div className="flex items-center justify-between mt-3">
-                    <div className="text-xs text-gray-400 space-x-2">
-                      <span>{new Date(logPage.createdAt).toLocaleString('fr-FR')}</span>
-                      <span className="text-gray-300">·</span>
-                      <span className="italic">{logPage.authorRole}</span>
-                      <span className="text-gray-300">·</span>
-                      <span className="italic">{visibilityLabel[logPage.visibility]}</span>
-                    </div>
-                    <div className="flex gap-2">
-                      {canEditPage(logPage) && (
-                        <button
-                          onClick={() => startEdit(logPage)}
-                          className="text-xs text-indigo-500 hover:underline"
-                        >
-                          Modifier
-                        </button>
-                      )}
-                      {canDeletePage(logPage) && (
-                        <button
-                          onClick={() => handleDeletePage(logPage.id)}
-                          disabled={deletingLogId === logPage.id}
-                          className="text-xs text-red-400 hover:underline disabled:opacity-50"
-                        >
-                          {deletingLogId === logPage.id ? 'Suppression…' : 'Supprimer'}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
-            </li>
+              logPage={logPage}
+              visibilityLabel={visibilityLabel}
+              isEditing={editingLogId === logPage.id}
+              editContent={editContent}
+              onEditContentChange={setEditContent}
+              onStartEdit={() => startEdit(logPage)}
+              onCancelEdit={cancelEdit}
+              onSaveEdit={() => handleSaveEdit(logPage.id)}
+              isSavingEdit={isSavingEdit}
+              canEdit={canEditPage(logPage)}
+              canDelete={canDeletePage(logPage)}
+              onDelete={() => handleDeletePage(logPage.id)}
+              isDeleting={deletingLogId === logPage.id}
+            />
           ))}
         </ul>
       </div>

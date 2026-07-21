@@ -190,5 +190,70 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-07-21" label="Fix finance prod + migration des composants hors-pages (PR #48, même branche)">
+      <context>
+        Deux morceaux de travail supplémentaires sur `refactor/normalize-react-conventions` (PR #48),
+        après la session ci-dessus : (1) correction de 404 réels côté finance-credit-service, et
+        (2) extension de la convention "hook → api" (initialement limitée à src/pages/) aux composants
+        de src/components/, à la demande explicite de l'utilisateur. Rapport complet :
+        .claude/reports/front-2026-07-21.md.
+      </context>
+
+      <decision id="finance-404-fix">
+        <title>4 appels finance en 404 garanti corrigés (préfixe gateway /finance/ manquant)</title>
+        <description>
+          La gateway nginx ne route que `/api/v1/finance/*` vers finance-credit-service. Dans
+          src/api/finance.ts, fetchFinanceEvents, updateRewardSettings, createTeacherPaymentRequest et
+          validateTeacherPaymentRequest omettaient ce préfixe et échouaient en 404 avant d'atteindre le
+          backend. Commit `e379929`.
+          Gap produit distinct, non corrigeable côté front : aucun endpoint backend ne liste toutes les
+          demandes de paiement formateur — seul `GET /finance/teacher-payment-requests/by-teacher/:teacherId`
+          existe. fetchTeacherPaymentRequests a été réécrit pour appeler cet endpoint avec l'id du
+          formateur courant ; pour le rôle administrateur_financier (qui a besoin d'une vue globale
+          inexistante côté backend), la page TeacherPaymentRequestPage affiche désormais un état explicite
+          "fonctionnalité indisponible" au lieu d'un appel voué à échouer silencieusement.
+          `docs/routes.md` (section finance-credit-service) corrigé en conséquence : ajout de
+          `GET /finance-events` (non documenté), correction de `PATCH /financial-settings/rewards` (le
+          contrôleur `/settings` documenté n'existe pas), et clarification teacher-payment-requests
+          (liste par formateur uniquement, `POST .../validate` au lieu de `PATCH .../status` qui
+          n'existe pas). Commit `54a7ef7`.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="components-apiclient-migration">
+        <title>Migration des 17 composants hors-pages important encore apiClient (4 lots par domaine)</title>
+        <description>
+          La règle stricte "page → hook → api" du CLAUDE.md ne visait littéralement que src/pages/ ;
+          l'utilisateur a demandé d'étendre la migration aux composants dans le même esprit. Fait en
+          4 commits par domaine, en réutilisant les modules src/api/&lt;domaine&gt;.ts existants et en
+          créant de nouveaux hooks dans src/hooks/&lt;domaine&gt;/ :
+          - `1913cc9` calendar (5) : AvailabilityEditor, CancellationRequestDialog, EventCreateDialog,
+            InvitationBanner, ReminderSettingsPanel.
+          - `6ce2111` teacher-requests (6) : ChangePrincipalTeacherDialog, RpTeacherSearchWorkspace,
+            SpecificTeacherRequestForm, StopCollaborationRequestForm, TeacherCandidatesView,
+            TeacherRequestInbox.
+          - `8e472db` video (4) : CourseSummaryView, RecordingCommentTimeline, RecordingListPanel,
+            UpcomingCourseJoinButton.
+          - `19aad6a` admin (2) : WorkflowCommandPanel, WorkflowEventsPanel.
+          Routes, méthodes HTTP et comportements d'erreur préexistants reproduits à l'identique (aucun
+          changement de comportement runtime, seulement de structure). Confirmé par grep final :
+          src/components/ ne contient plus aucun import apiClient.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <openPoints>
+        <item id="af-teacher-payment-requests-global-list-gap">
+          Gap produit ouvert : aucun endpoint backend finance-credit-service ne permet à
+          l'administrateur_financier de lister toutes les demandes de paiement formateur (seul
+          `GET .../by-teacher/:teacherId` existe). La page affiche un état "indisponible" explicite en
+          attendant un arbitrage (nouvel endpoint côté finance-credit-service, ou re-scope de la
+          fonctionnalité). À traiter par le subagent responsable de finance-credit-service et/ou
+          frontend-react-app selon la décision produit.
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

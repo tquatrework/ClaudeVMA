@@ -12,8 +12,12 @@
  */
 
 import apiClient from './client'
-import type { CalendarEvent as OwnerCalendarEvent } from '../components/calendar/calendarTypes'
-import type { CalendarEvent, ActivitySession } from '../types/calendar'
+import type {
+  CalendarEvent as OwnerCalendarEvent,
+  EventType,
+  ReminderDelay,
+} from '../components/calendar/calendarTypes'
+import type { CalendarEvent, ActivitySession, AvailabilitySlot } from '../types/calendar'
 
 // ─── Calendrier (CalendarPage) ─────────────────────────────────────────────────
 
@@ -108,4 +112,95 @@ export async function updateActivity(
  */
 export async function deleteActivity(activityId: string): Promise<void> {
   await apiClient.delete(`/calendar/${activityId}`)
+}
+
+// ─── Disponibilités (AvailabilityEditor) ───────────────────────────────────────
+
+/**
+ * GET /calendars/:ownerId/availability — Lit les créneaux de disponibilité d'un calendrier.
+ * Utilisé par AvailabilityEditor.
+ */
+export async function fetchAvailability(ownerId: string): Promise<AvailabilitySlot[]> {
+  const { data } = await apiClient.get<AvailabilitySlot[]>(`/calendars/${ownerId}/availability`)
+  return Array.isArray(data) ? data : []
+}
+
+// ─── Création d'événement (EventCreateDialog) ──────────────────────────────────
+
+export interface CreateOwnerEventPayload {
+  title?: string
+  startAt: string
+  endAt: string
+  eventType: EventType
+  description?: string
+  inviteeIds?: string[]
+}
+
+/**
+ * POST /calendars/:ownerId/events — Crée un événement selon les droits du rôle courant.
+ * Utilisé par EventCreateDialog.
+ */
+export async function createOwnerEvent(
+  ownerId: string,
+  payload: CreateOwnerEventPayload,
+): Promise<OwnerCalendarEvent> {
+  const { data } = await apiClient.post<OwnerCalendarEvent>(
+    `/calendars/${ownerId}/events`,
+    payload,
+  )
+  return data
+}
+
+// ─── Invitations (InvitationBanner) ─────────────────────────────────────────────
+
+/**
+ * POST /events/:id/invitees/:userId/accept — Accepte une invitation. Utilisé par
+ * InvitationBanner.
+ */
+export async function acceptEventInvitation(eventId: string, userId: string): Promise<void> {
+  await apiClient.post(`/events/${eventId}/invitees/${userId}/accept`)
+}
+
+/**
+ * POST /events/:id/invitees/:userId/decline — Refuse une invitation (retire l'invité).
+ * Utilisé par InvitationBanner.
+ */
+export async function declineEventInvitation(eventId: string, userId: string): Promise<void> {
+  await apiClient.post(`/events/${eventId}/invitees/${userId}/decline`)
+}
+
+// ─── Annulation (CancellationRequestDialog) ─────────────────────────────────────
+
+export interface RequestCancellationPayload {
+  reason?: string
+}
+
+export interface RequestCancellationResult {
+  status?: string
+}
+
+/**
+ * POST /events/:id/cancel-request — Demande ou applique une annulation (immédiate si ≥48h
+ * avant l'événement, sinon `status: pending_approval` si <48h). Utilisé par
+ * CancellationRequestDialog.
+ */
+export async function requestEventCancellation(
+  eventId: string,
+  payload: RequestCancellationPayload,
+): Promise<RequestCancellationResult> {
+  const { data } = await apiClient.post<RequestCancellationResult>(
+    `/events/${eventId}/cancel-request`,
+    payload,
+  )
+  return data
+}
+
+// ─── Rappels (ReminderSettingsPanel) ────────────────────────────────────────────
+
+/**
+ * POST /events/:id/reminders — Configure le délai de rappel d'un événement. Utilisé par
+ * ReminderSettingsPanel.
+ */
+export async function setEventReminder(eventId: string, delay: ReminderDelay): Promise<void> {
+  await apiClient.post(`/events/${eventId}/reminders`, { delay })
 }

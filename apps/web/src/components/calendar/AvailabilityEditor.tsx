@@ -1,40 +1,22 @@
-import React, { useEffect, useState } from 'react'
-import apiClient from '../../api/client'
-
-interface AvailabilitySlot {
-  id: string
-  dayOfWeek?: string
-  startTime?: string
-  endTime?: string
-  date?: string
-  label?: string
-}
+import React from 'react'
+import { useAvailabilitySlots } from '../../hooks/calendar/useAvailabilitySlots'
 
 interface AvailabilityEditorProps {
   ownerId: string
 }
 
 export default function AvailabilityEditor({ ownerId }: AvailabilityEditorProps) {
-  const [availabilitySlots, setAvailabilitySlots] = useState<AvailabilitySlot[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-
-  useEffect(() => {
-    apiClient
-      .get<AvailabilitySlot[]>(`/calendars/${ownerId}/availability`)
-      .then(({ data }) => setAvailabilitySlots(Array.isArray(data) ? data : []))
-      .catch(() => setErrorMessage('Impossible de charger les disponibilités'))
-      .finally(() => setIsLoading(false))
-  }, [ownerId])
+  const { data, isLoading, error } = useAvailabilitySlots(ownerId)
+  const availabilitySlots = data ?? []
 
   if (isLoading) {
     return <p className="text-sm text-gray-400">Chargement des disponibilités…</p>
   }
 
-  if (errorMessage) {
+  if (error) {
     return (
       <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-        {errorMessage}
+        {error}
       </div>
     )
   }

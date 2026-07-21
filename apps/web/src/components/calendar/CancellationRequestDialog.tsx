@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import apiClient from '../../api/client'
+import React from 'react'
+import { useCancellationRequest } from '../../hooks/calendar/useCancellationRequest'
 
 interface CancellationRequestDialogProps {
   eventId: string
@@ -14,37 +14,12 @@ export default function CancellationRequestDialog({
   onCancelled,
   onClose,
 }: CancellationRequestDialogProps) {
-  const [reason, setReason] = useState('')
-  const [isSaving, setIsSaving] = useState(false)
-  const [isPendingApproval, setIsPendingApproval] = useState(false)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const { reason, setReason, isSaving, isPendingApproval, errorMessage, submit } =
+    useCancellationRequest(eventId, onCancelled)
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
-    setIsSaving(true)
-    setErrorMessage(null)
-
-    try {
-      const payload: Record<string, unknown> = {}
-      if (reason.trim()) payload.reason = reason.trim()
-
-      const { data } = await apiClient.post<{ status?: string }>(
-        `/events/${eventId}/cancel-request`,
-        payload,
-      )
-
-      if (data?.status === 'pending_approval') {
-        setIsPendingApproval(true)
-      } else {
-        onCancelled()
-      }
-    } catch (err: unknown) {
-      const apiMessage =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      setErrorMessage(apiMessage ?? "Erreur lors de la demande d'annulation")
-    } finally {
-      setIsSaving(false)
-    }
+    await submit()
   }
 
   return (

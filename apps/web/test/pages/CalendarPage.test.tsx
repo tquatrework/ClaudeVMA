@@ -11,9 +11,9 @@
  *
  * Depuis le lot 8 (calendar/dashboard), la lecture des événements passe par
  * `src/api/calendar.ts` (fonction `fetchOwnerEvents`) au lieu d'`apiClient` directement.
- * `apiClient` reste mocké car les composants enfants (EventCreateDialog, InvitationBanner,
- * CancellationRequestDialog, ReminderSettingsPanel) l'utilisent toujours directement — ils
- * sont hors périmètre de ce lot.
+ * Depuis le lot calendar (composants métier), les composants enfants (EventCreateDialog,
+ * InvitationBanner, CancellationRequestDialog, ReminderSettingsPanel) sont eux aussi passés à
+ * `src/api/calendar.ts` — `apiClient` n'est plus mocké ici, seules les fonctions typées le sont.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -23,16 +23,25 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import CalendarPage from '../../src/pages/CalendarPage'
 
 vi.mock('../../src/hooks/useAuth')
-vi.mock('../../src/api/client')
 vi.mock('../../src/api/calendar')
 
 import { useAuth } from '../../src/hooks/useAuth'
-import apiClient from '../../src/api/client'
-import { fetchOwnerEvents } from '../../src/api/calendar'
+import {
+  fetchOwnerEvents,
+  acceptEventInvitation,
+  declineEventInvitation,
+  createOwnerEvent,
+  setEventReminder,
+  requestEventCancellation,
+} from '../../src/api/calendar'
 
 const mockUseAuth = vi.mocked(useAuth)
-const mockApiClient = vi.mocked(apiClient)
 const mockFetchOwnerEvents = vi.mocked(fetchOwnerEvents)
+const mockAcceptEventInvitation = vi.mocked(acceptEventInvitation)
+const mockDeclineEventInvitation = vi.mocked(declineEventInvitation)
+const mockCreateOwnerEvent = vi.mocked(createOwnerEvent)
+const mockSetEventReminder = vi.mocked(setEventReminder)
+const mockRequestEventCancellation = vi.mocked(requestEventCancellation)
 
 const TEACHER_USER = {
   id: 'teacher-1',
@@ -234,7 +243,7 @@ describe('InvitationBanner — accepter une invitation', () => {
     ]
 
     mockFetchOwnerEvents.mockResolvedValue(fetchedEvents)
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: { status: 'accepted' } })
+    mockAcceptEventInvitation.mockResolvedValue(undefined)
 
     renderCalendar()
 
@@ -247,9 +256,7 @@ describe('InvitationBanner — accepter une invitation', () => {
     await userEvent.click(screen.getByRole('button', { name: /accepter/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith(
-        `/events/inv-evt-1/invitees/teacher-1/accept`,
-      )
+      expect(mockAcceptEventInvitation).toHaveBeenCalledWith('inv-evt-1', 'teacher-1')
     })
   })
 })
@@ -271,7 +278,7 @@ describe('InvitationBanner — refuser une invitation', () => {
     ]
 
     mockFetchOwnerEvents.mockResolvedValue(fetchedEvents)
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+    mockDeclineEventInvitation.mockResolvedValue(undefined)
 
     renderCalendar()
 
@@ -284,9 +291,7 @@ describe('InvitationBanner — refuser une invitation', () => {
     await userEvent.click(screen.getByRole('button', { name: /refuser/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith(
-        `/events/inv-evt-2/invitees/teacher-1/decline`,
-      )
+      expect(mockDeclineEventInvitation).toHaveBeenCalledWith('inv-evt-2', 'teacher-1')
     })
 
     await waitFor(() => {
@@ -311,7 +316,7 @@ describe('CalendarPage (rôle élève) — créer un rappel personnel', () => {
     }
 
     mockFetchOwnerEvents.mockResolvedValue([])
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: futureRappel })
+    mockCreateOwnerEvent.mockResolvedValue(futureRappel)
 
     renderCalendar()
 
@@ -346,8 +351,8 @@ describe('CalendarPage (rôle élève) — créer un rappel personnel', () => {
     await userEvent.click(screen.getByRole('button', { name: /créer$/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith(
-        `/calendars/student-1/events`,
+      expect(mockCreateOwnerEvent).toHaveBeenCalledWith(
+        'student-1',
         expect.objectContaining({ eventType: 'rappel' }),
       )
     })
@@ -365,7 +370,7 @@ describe('CalendarPage (rôle élève) — créer un rappel personnel', () => {
     }
 
     mockFetchOwnerEvents.mockResolvedValue([futureEvent])
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+    mockSetEventReminder.mockResolvedValue(undefined)
 
     renderCalendar()
 
@@ -382,10 +387,7 @@ describe('CalendarPage (rôle élève) — créer un rappel personnel', () => {
     await userEvent.click(screen.getByRole('button', { name: /enregistrer le rappel/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith(
-        `/events/evt-student-1/reminders`,
-        expect.objectContaining({ delay: expect.any(String) }),
-      )
+      expect(mockSetEventReminder).toHaveBeenCalledWith('evt-student-1', expect.any(String))
     })
   })
 })
@@ -430,7 +432,7 @@ describe('CalendarPage — demande d\'annulation', () => {
     }
 
     mockFetchOwnerEvents.mockResolvedValue([futureEvent])
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+    mockRequestEventCancellation.mockResolvedValue({})
 
     renderCalendar()
 
@@ -451,8 +453,8 @@ describe('CalendarPage — demande d\'annulation', () => {
     await userEvent.click(dialogSubmitButton)
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith(
-        `/events/evt-cancel-1/cancel-request`,
+      expect(mockRequestEventCancellation).toHaveBeenCalledWith(
+        'evt-cancel-1',
         expect.any(Object),
       )
     })

@@ -2,12 +2,12 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-vi.mock('../../../src/api/client')
-import apiClient from '../../../src/api/client'
+vi.mock('../../../src/api/calendar')
+import { setEventReminder } from '../../../src/api/calendar'
 
 import ReminderSettingsPanel from '../../../src/components/calendar/ReminderSettingsPanel'
 
-const mockApiClient = vi.mocked(apiClient)
+const mockSetEventReminder = vi.mocked(setEventReminder)
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -34,7 +34,7 @@ describe('ReminderSettingsPanel', () => {
   })
 
   it('appelle POST /events/:id/reminders avec le bon delay à la soumission', async () => {
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+    mockSetEventReminder.mockResolvedValue(undefined)
 
     render(<ReminderSettingsPanel eventId="evt-reminder-2" />)
 
@@ -43,14 +43,12 @@ describe('ReminderSettingsPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: /enregistrer le rappel/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith('/events/evt-reminder-2/reminders', {
-        delay: '1hour',
-      })
+      expect(mockSetEventReminder).toHaveBeenCalledWith('evt-reminder-2', '1hour')
     })
   })
 
   it('affiche un message de succès après une réponse positive de l\'API', async () => {
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+    mockSetEventReminder.mockResolvedValue(undefined)
 
     render(<ReminderSettingsPanel eventId="evt-reminder-3" />)
 
@@ -58,6 +56,18 @@ describe('ReminderSettingsPanel', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/rappel configuré/i)).toBeDefined()
+    })
+  })
+
+  it('affiche un message d\'erreur si la configuration échoue', async () => {
+    mockSetEventReminder.mockRejectedValue(new Error('network down'))
+
+    render(<ReminderSettingsPanel eventId="evt-reminder-4" />)
+
+    await userEvent.click(screen.getByRole('button', { name: /enregistrer le rappel/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Impossible de configurer le rappel.')).toBeDefined()
     })
   })
 })

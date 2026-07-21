@@ -34,3 +34,18 @@ export interface ActivitySession {
   teacherId?: string
   videoRoomId?: string
 }
+
+/**
+ * Créneau de disponibilité d'un calendrier — soit récurrent (`dayOfWeek` + `startTime`/`endTime`),
+ * soit ponctuel (`date`), soit un simple libellé (`label`).
+ *
+ * Source API : GET /calendars/:ownerId/availability. Utilisé par AvailabilityEditor.
+ */
+export interface AvailabilitySlot {
+  id: string
+  dayOfWeek?: string
+  startTime?: string
+  endTime?: string
+  date?: string
+  label?: string
+}

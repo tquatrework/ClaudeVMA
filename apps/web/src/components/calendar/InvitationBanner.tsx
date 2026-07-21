@@ -1,7 +1,6 @@
-import React, { useState } from 'react'
-import apiClient from '../../api/client'
+import React from 'react'
 import { CalendarEvent, InviteeStatus } from './calendarTypes'
-import { getErrorMessage } from '../../utils/apiError'
+import { useInvitationActions } from '../../hooks/calendar/useInvitationActions'
 
 interface InvitationEntry {
   event: CalendarEvent
@@ -21,58 +20,12 @@ export default function InvitationBanner({
 }: InvitationBannerProps) {
   const pendingInvitations = invitations.filter((inv) => inv.status === 'pending')
 
-  const [processingIds, setProcessingIds] = useState<Set<string>>(new Set())
-  const [actionErrors, setActionErrors] = useState<Record<string, string>>({})
+  const { processingIds, actionErrors, handleAccept, handleDecline } = useInvitationActions(
+    userId,
+    onStatusChange,
+  )
 
   if (pendingInvitations.length === 0) return null
-
-  const handleAccept = async (eventId: string) => {
-    setProcessingIds((prev) => new Set(prev).add(eventId))
-    setActionErrors((prev) => {
-      const { [eventId]: _removed, ...rest } = prev
-      return rest
-    })
-    try {
-      await apiClient.post(`/events/${eventId}/invitees/${userId}/accept`)
-      onStatusChange(eventId, 'accepted')
-    } catch (error: unknown) {
-      // Non-bloquant — l'utilisateur peut réessayer, l'échec est juste rendu visible.
-      setActionErrors((prev) => ({
-        ...prev,
-        [eventId]: getErrorMessage(error, "Impossible d'accepter l'invitation."),
-      }))
-    } finally {
-      setProcessingIds((prev) => {
-        const updated = new Set(prev)
-        updated.delete(eventId)
-        return updated
-      })
-    }
-  }
-
-  const handleDecline = async (eventId: string) => {
-    setProcessingIds((prev) => new Set(prev).add(eventId))
-    setActionErrors((prev) => {
-      const { [eventId]: _removed, ...rest } = prev
-      return rest
-    })
-    try {
-      await apiClient.post(`/events/${eventId}/invitees/${userId}/decline`)
-      onStatusChange(eventId, 'declined')
-    } catch (error: unknown) {
-      // Non-bloquant — l'utilisateur peut réessayer, l'échec est juste rendu visible.
-      setActionErrors((prev) => ({
-        ...prev,
-        [eventId]: getErrorMessage(error, "Impossible de refuser l'invitation."),
-      }))
-    } finally {
-      setProcessingIds((prev) => {
-        const updated = new Set(prev)
-        updated.delete(eventId)
-        return updated
-      })
-    }
-  }
 
   return (
     <section

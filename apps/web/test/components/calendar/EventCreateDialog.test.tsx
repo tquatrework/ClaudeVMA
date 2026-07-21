@@ -2,13 +2,13 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-vi.mock('../../../src/api/client')
-import apiClient from '../../../src/api/client'
+vi.mock('../../../src/api/calendar')
+import { createOwnerEvent } from '../../../src/api/calendar'
 
 import EventCreateDialog from '../../../src/components/calendar/EventCreateDialog'
 import type { CalendarEvent } from '../../../src/components/calendar/calendarTypes'
 
-const mockApiClient = vi.mocked(apiClient)
+const mockCreateOwnerEvent = vi.mocked(createOwnerEvent)
 
 const START_DATETIME = '2030-08-10T09:00'
 const END_DATETIME = '2030-08-10T10:00'
@@ -69,7 +69,7 @@ describe('EventCreateDialog', () => {
       endAt: new Date(END_DATETIME).toISOString(),
       eventType: 'cours',
     }
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: createdEvent })
+    mockCreateOwnerEvent.mockResolvedValue(createdEvent)
 
     renderDialog({ ownerId: 'owner-99', userRole: 'formateur' })
 
@@ -95,8 +95,8 @@ describe('EventCreateDialog', () => {
     await userEvent.click(screen.getByRole('button', { name: /créer$/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith(
-        '/calendars/owner-99/events',
+      expect(mockCreateOwnerEvent).toHaveBeenCalledWith(
+        'owner-99',
         expect.objectContaining({
           startAt: new Date(START_DATETIME).toISOString(),
           endAt: new Date(END_DATETIME).toISOString(),
@@ -115,7 +115,7 @@ describe('EventCreateDialog', () => {
       endAt: new Date(END_DATETIME).toISOString(),
       eventType: 'cours',
     }
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: createdEvent })
+    mockCreateOwnerEvent.mockResolvedValue(createdEvent)
 
     renderDialog({ ownerId: 'owner-99', userRole: 'formateur', onCreated: handleCreated })
 

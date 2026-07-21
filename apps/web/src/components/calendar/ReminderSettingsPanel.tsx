@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
-import apiClient from '../../api/client'
 import { ReminderDelay } from './calendarTypes'
+import { useReminderSettings } from '../../hooks/calendar/useReminderSettings'
 
 const REMINDER_DELAY_LABELS: Record<ReminderDelay, string> = {
   '1week': '1 semaine avant',
@@ -16,26 +16,24 @@ interface ReminderSettingsPanelProps {
 
 export default function ReminderSettingsPanel({ eventId }: ReminderSettingsPanelProps) {
   const [selectedDelay, setSelectedDelay] = useState<ReminderDelay>('1day')
-  const [isSaving, setIsSaving] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
+  const { isSaving, save } = useReminderSettings(eventId)
+
   const handleSave = async () => {
-    setIsSaving(true)
     setSuccessMessage(null)
     setErrorMessage(null)
 
-    try {
-      await apiClient.post(`/events/${eventId}/reminders`, { delay: selectedDelay })
+    const succeeded = await save(selectedDelay)
+    if (succeeded) {
       setSuccessMessage(
         selectedDelay === 'none'
           ? 'Rappel supprimé.'
           : `Rappel configuré : ${REMINDER_DELAY_LABELS[selectedDelay]}`,
       )
-    } catch {
+    } else {
       setErrorMessage('Impossible de configurer le rappel.')
-    } finally {
-      setIsSaving(false)
     }
   }
 

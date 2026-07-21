@@ -5,12 +5,7 @@
  * Appelle POST /api/v1/teacher-collaborations/{id}/stop-request.
  */
 import React, { useState } from 'react'
-import apiClient from '../../api/client'
-
-interface StopCollaborationPayload {
-  reason?: string
-  noticePeriodDays?: number
-}
+import { useStopCollaborationRequest } from '../../hooks/teacher-requests/useStopCollaborationRequest'
 
 interface StopCollaborationRequestFormProps {
   collaborationId: string
@@ -31,31 +26,18 @@ export default function StopCollaborationRequestForm({
 }: StopCollaborationRequestFormProps) {
   const [reason, setReason] = useState('')
   const [noticePeriodDays, setNoticePeriodDays] = useState<number>(14)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  const { isSubmitting, errorMessage, clearError, submit } =
+    useStopCollaborationRequest(collaborationId)
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
-    setIsSubmitting(true)
-    setErrorMessage(null)
 
-    const payload: StopCollaborationPayload = { noticePeriodDays }
+    const payload: { reason?: string; noticePeriodDays?: number } = { noticePeriodDays }
     if (reason.trim()) payload.reason = reason.trim()
 
-    try {
-      await apiClient.post(
-        `/teacher-collaborations/${collaborationId}/stop-request`,
-        payload,
-      )
-      onSuccess()
-    } catch (error: unknown) {
-      const apiMessage =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        "Erreur lors de la soumission de la demande d'arrêt"
-      setErrorMessage(apiMessage)
-    } finally {
-      setIsSubmitting(false)
-    }
+    const succeeded = await submit(payload)
+    if (succeeded) onSuccess()
   }
 
   return (
@@ -77,7 +59,7 @@ export default function StopCollaborationRequestForm({
           <span>{errorMessage}</span>
           <button
             type="button"
-            onClick={() => setErrorMessage(null)}
+            onClick={clearError}
             className="text-red-400 hover:text-red-600 ml-3"
           >
             ✕

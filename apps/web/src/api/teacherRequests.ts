@@ -2,15 +2,28 @@
  * Module API — demandes professeur (teacher-request-service)
  * Toutes les requêtes passent par apiClient (base /api/v1).
  *
- * Écart signalé (non documenté dans docs/routes.md, comportement runtime préservé
- * tel quel — voir rapport de migration du lot) :
+ * Écarts signalés (non documentés dans docs/routes.md, comportements runtime préservés
+ * tel quels — voir rapport de migration du lot) :
  * - GET/PATCH /profiles/:teacherId/validation (utilisé par TeacherValidationPanel ;
  *   seul `POST /profiles/:teacherId/ap-status` est documenté pour profile-service).
+ * - POST /teacher-requests/pp-change (ChangePrincipalTeacherDialog).
+ * - POST /teacher-collaborations/:id/stop-request (StopCollaborationRequestForm) —
+ *   `teacher-collaborations` n'apparaît nulle part dans docs/routes.md.
+ * - POST /teacher-requests/:id/proposals, POST /proposals/:id/accept|decline,
+ *   POST /teacher-requests/:id/select (TeacherCandidatesView, TeacherRequestInbox) —
+ *   seules les routes `/requests` (CRUD de base) sont documentées pour
+ *   teacher-request-service ; candidats/propositions/sélection en sont absents.
  */
 
 import apiClient from './client'
+import type { TeacherCandidate } from '../components/teacher-requests/TeacherCandidatesView'
 import type {
   CreateTeacherRequestPayload,
+  PpChangeRequestPayload,
+  PpChangeResponse,
+  SpecificTeacherRequestCreated,
+  SpecificTeacherRequestPayload,
+  StopCollaborationPayload,
   TeacherRequestDetail,
   TeacherRequestSummary,
   UpdateTeacherRequestStatusPayload,
@@ -122,4 +135,87 @@ export async function updateTeacherValidationStatus(
     payload,
   )
   return data
+}
+
+// ─── Changement de professeur principal (ChangePrincipalTeacherDialog) ─────────
+
+/**
+ * POST /teacher-requests/pp-change
+ */
+export async function createPpChangeRequest(
+  payload: PpChangeRequestPayload,
+): Promise<PpChangeResponse> {
+  const { data } = await apiClient.post<PpChangeResponse>('/teacher-requests/pp-change', payload)
+  return data
+}
+
+// ─── Demande professeur spécifique (SpecificTeacherRequestForm) ────────────────
+
+/**
+ * POST /teacher-requests
+ * Variante « sujet/niveau/filière » de SpecificTeacherRequestForm — même route que
+ * createTeacherRequest ci-dessus, mais payload/réponse de forme différente.
+ */
+export async function createSpecificTeacherRequest(
+  payload: SpecificTeacherRequestPayload,
+): Promise<SpecificTeacherRequestCreated> {
+  const { data } = await apiClient.post<SpecificTeacherRequestCreated>('/teacher-requests', payload)
+  return data
+}
+
+// ─── Arrêt de collaboration (StopCollaborationRequestForm) ─────────────────────
+
+/**
+ * POST /teacher-collaborations/:id/stop-request
+ */
+export async function requestCollaborationStop(
+  collaborationId: string,
+  payload: StopCollaborationPayload,
+): Promise<void> {
+  await apiClient.post(`/teacher-collaborations/${collaborationId}/stop-request`, payload)
+}
+
+// ─── Candidats / propositions (TeacherCandidatesView, TeacherRequestInbox) ─────
+
+/**
+ * POST /teacher-requests/:id/proposals
+ * Ajoute un candidat formateur à une demande (RP). Retourne `data.candidates` tel
+ * quel (potentiellement `undefined`) — l'appelant reproduit le fallback historique
+ * `data.candidates ?? candidates`.
+ */
+export async function addTeacherCandidate(
+  requestId: string,
+  teacherId: string,
+): Promise<TeacherCandidate[] | undefined> {
+  const { data } = await apiClient.post<{ candidates: TeacherCandidate[] }>(
+    `/teacher-requests/${requestId}/proposals`,
+    { teacherId },
+  )
+  return data.candidates
+}
+
+/**
+ * POST /proposals/:id/accept ou POST /proposals/:id/decline
+ * Réponse du formateur à une proposition, ou réponse d'inbox — même route sous-jacente.
+ */
+export async function respondToTeacherProposal(
+  proposalId: string,
+  responseStatus: 'accepted' | 'declined',
+): Promise<void> {
+  const action = responseStatus === 'accepted' ? 'accept' : 'decline'
+  await apiClient.post(`/proposals/${proposalId}/${action}`, {})
+}
+
+/**
+ * POST /teacher-requests/:id/select
+ * Sélection d'un candidat par le client (élève/parent) — clôture la demande.
+ */
+export async function selectTeacherCandidate(
+  requestId: string,
+  proposalId: string,
+): Promise<string> {
+  const { data } = await apiClient.post<{ status: string }>(`/teacher-requests/${requestId}/select`, {
+    proposalId,
+  })
+  return data.status
 }

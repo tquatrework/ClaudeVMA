@@ -8,10 +8,10 @@
  * - Stop collaboration form shown when collaborationId is present
  * - API errors displayed correctly
  *
- * La page charge le détail, change le statut et supprime via `src/api/teacherRequests`
- * (mocké ci-dessous). TeacherCandidatesView et StopCollaborationRequestForm restent hors
- * périmètre de la migration et continuent d'appeler `apiClient` directement — `apiClient`
- * reste donc également mocké pour ces composants enfants.
+ * La page et tous ses composants enfants (TeacherCandidatesView,
+ * StopCollaborationRequestForm) passent désormais par `src/api/teacherRequests`
+ * (mocké ci-dessous) — plus aucun import direct d'`apiClient` dans ce sous-arbre
+ * (lot teacher-requests, hors-pages).
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -21,17 +21,25 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import TeacherRequestDetailPage from '../../src/pages/TeacherRequestDetailPage'
 
 vi.mock('../../src/hooks/useAuth')
-vi.mock('../../src/api/client')
 vi.mock('../../src/api/teacherRequests')
 
 import { useAuth } from '../../src/hooks/useAuth'
-import apiClient from '../../src/api/client'
-import { fetchTeacherRequest, updateTeacherRequestStatus } from '../../src/api/teacherRequests'
+import {
+  fetchTeacherRequest,
+  updateTeacherRequestStatus,
+  addTeacherCandidate,
+  respondToTeacherProposal,
+  selectTeacherCandidate,
+  requestCollaborationStop,
+} from '../../src/api/teacherRequests'
 
 const mockUseAuth = vi.mocked(useAuth)
-const mockApiClient = vi.mocked(apiClient)
 const mockFetchTeacherRequest = vi.mocked(fetchTeacherRequest)
 const mockUpdateTeacherRequestStatus = vi.mocked(updateTeacherRequestStatus)
+const mockAddTeacherCandidate = vi.mocked(addTeacherCandidate)
+const mockRespondToTeacherProposal = vi.mocked(respondToTeacherProposal)
+const mockSelectTeacherCandidate = vi.mocked(selectTeacherCandidate)
+const mockRequestCollaborationStop = vi.mocked(requestCollaborationStop)
 
 const STUDENT_USER = {
   id: 'student-001',
@@ -154,18 +162,14 @@ describe('TeacherRequestDetailPage', () => {
 
     it('RP adds a candidate via POST /teacher-requests/{id}/candidates', async () => {
       mockFetchTeacherRequest.mockResolvedValue(BASE_REQUEST)
-      mockApiClient.post = vi.fn().mockResolvedValue({
-        data: {
-          candidates: [
-            {
-              id: 'candidate-001',
-              teacherId: 'teacher-999',
-              status: 'pending',
-              addedAt: new Date().toISOString(),
-            },
-          ],
+      mockAddTeacherCandidate.mockResolvedValue([
+        {
+          id: 'candidate-001',
+          teacherId: 'teacher-999',
+          status: 'pending',
+          addedAt: new Date().toISOString(),
         },
-      })
+      ])
 
       renderDetailPage()
 
@@ -183,10 +187,7 @@ describe('TeacherRequestDetailPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /^ajouter$/i }))
 
       await waitFor(() => {
-        expect(mockApiClient.post).toHaveBeenCalledWith(
-          `/teacher-requests/${REQUEST_ID}/proposals`,
-          { teacherId: 'teacher-999' },
-        )
+        expect(mockAddTeacherCandidate).toHaveBeenCalledWith(REQUEST_ID, 'teacher-999')
       })
     })
 
@@ -250,7 +251,7 @@ describe('TeacherRequestDetailPage', () => {
         ],
       }
       mockFetchTeacherRequest.mockResolvedValue(requestWithOwnCandidate)
-      mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+      mockRespondToTeacherProposal.mockResolvedValue(undefined)
 
       renderDetailPage()
 
@@ -261,10 +262,7 @@ describe('TeacherRequestDetailPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /^accepter$/i }))
 
       await waitFor(() => {
-        expect(mockApiClient.post).toHaveBeenCalledWith(
-          `/proposals/candidate-own/accept`,
-          {},
-        )
+        expect(mockRespondToTeacherProposal).toHaveBeenCalledWith('candidate-own', 'accepted')
       })
     })
 
@@ -281,7 +279,7 @@ describe('TeacherRequestDetailPage', () => {
         ],
       }
       mockFetchTeacherRequest.mockResolvedValue(requestWithOwnCandidate)
-      mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+      mockRespondToTeacherProposal.mockResolvedValue(undefined)
 
       renderDetailPage()
 
@@ -292,10 +290,7 @@ describe('TeacherRequestDetailPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /refuser/i }))
 
       await waitFor(() => {
-        expect(mockApiClient.post).toHaveBeenCalledWith(
-          `/proposals/candidate-own/decline`,
-          {},
-        )
+        expect(mockRespondToTeacherProposal).toHaveBeenCalledWith('candidate-own', 'declined')
       })
     })
   })
@@ -339,7 +334,7 @@ describe('TeacherRequestDetailPage', () => {
         ],
       }
       mockFetchTeacherRequest.mockResolvedValue(requestWithAcceptedCandidate)
-      mockApiClient.post = vi.fn().mockResolvedValue({ data: { status: 'accepted' } })
+      mockSelectTeacherCandidate.mockResolvedValue('accepted')
 
       renderDetailPage()
 
@@ -350,10 +345,7 @@ describe('TeacherRequestDetailPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /^choisir$/i }))
 
       await waitFor(() => {
-        expect(mockApiClient.post).toHaveBeenCalledWith(
-          `/teacher-requests/${REQUEST_ID}/select`,
-          { proposalId: 'candidate-accepted' },
-        )
+        expect(mockSelectTeacherCandidate).toHaveBeenCalledWith(REQUEST_ID, 'candidate-accepted')
       })
     })
 
@@ -370,7 +362,7 @@ describe('TeacherRequestDetailPage', () => {
         ],
       }
       mockFetchTeacherRequest.mockResolvedValue(requestWithAcceptedCandidate)
-      mockApiClient.post = vi.fn().mockResolvedValue({ data: { status: 'accepted' } })
+      mockSelectTeacherCandidate.mockResolvedValue('accepted')
 
       renderDetailPage()
 
@@ -431,7 +423,7 @@ describe('TeacherRequestDetailPage', () => {
         collaborationId: 'collab-001',
       }
       mockFetchTeacherRequest.mockResolvedValue(requestWithCollaboration)
-      mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+      mockRequestCollaborationStop.mockResolvedValue(undefined)
 
       renderDetailPage()
 
@@ -444,8 +436,8 @@ describe('TeacherRequestDetailPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /confirmer la demande/i }))
 
       await waitFor(() => {
-        expect(mockApiClient.post).toHaveBeenCalledWith(
-          '/teacher-collaborations/collab-001/stop-request',
+        expect(mockRequestCollaborationStop).toHaveBeenCalledWith(
+          'collab-001',
           expect.objectContaining({ noticePeriodDays: 14 }),
         )
       })

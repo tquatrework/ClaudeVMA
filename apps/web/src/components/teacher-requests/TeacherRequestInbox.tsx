@@ -6,85 +6,25 @@
  *
  * Le formateur répond via POST /api/v1/teacher-requests/{id}/responses.
  */
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { Link } from 'react-router-dom'
-import apiClient from '../../api/client'
-
-interface TeacherRequestForInbox {
-  id: string
-  status: string
-  createdAt: string
-  description?: string
-  studentId?: string
-  candidateId?: string
-}
+import { useTeacherRequestInbox } from '../../hooks/teacher-requests/useTeacherRequestInbox'
 
 interface TeacherRequestInboxProps {
   currentTeacherId: string
 }
 
 export default function TeacherRequestInbox({ currentTeacherId }: TeacherRequestInboxProps) {
-  const [inboxRequests, setInboxRequests] = useState<TeacherRequestForInbox[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
-
-  useEffect(() => {
-    apiClient
-      .get<TeacherRequestForInbox[] | { data: TeacherRequestForInbox[] }>('/teacher-requests')
-      .then(({ data }) => {
-        const requestList = Array.isArray(data) ? data : (data as { data: TeacherRequestForInbox[] }).data ?? []
-        // Filter requests where the teacher is a pending candidate
-        const relevantRequests = requestList.filter(
-          (request) =>
-            request.status === 'pending' ||
-            request.status === 'candidates_selected',
-        )
-        setInboxRequests(relevantRequests)
-      })
-      .catch((error: unknown) => {
-        const statusCode = (error as { response?: { status?: number } })?.response?.status
-        if (statusCode === 403) {
-          setErrorMessage('Accès refusé')
-        } else {
-          setErrorMessage('Impossible de charger les demandes')
-        }
-      })
-      .finally(() => setIsLoading(false))
-  }, [currentTeacherId])
-
-  const handleRespond = async (
-    requestId: string,
-    candidateId: string | undefined,
-    responseStatus: 'accepted' | 'declined',
-  ) => {
-    setProcessingRequestId(requestId)
-    setErrorMessage(null)
-
-    try {
-      const responseAction = responseStatus === 'accepted' ? 'accept' : 'decline'
-      // candidateId is the proposal ID when available; fallback to requestId-based path
-      const proposalId = candidateId ?? requestId
-      await apiClient.post(`/proposals/${proposalId}/${responseAction}`, {})
-
-      setInboxRequests((previous) =>
-        previous.filter((request) => request.id !== requestId),
-      )
-      setSuccessMessage(
-        responseStatus === 'accepted'
-          ? 'Demande acceptée — vous serez contacté prochainement'
-          : 'Demande refusée',
-      )
-    } catch (error: unknown) {
-      const apiMessage =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la réponse'
-      setErrorMessage(apiMessage)
-    } finally {
-      setProcessingRequestId(null)
-    }
-  }
+  const {
+    inboxRequests,
+    isLoading,
+    errorMessage,
+    clearErrorMessage,
+    processingRequestId,
+    successMessage,
+    clearSuccessMessage,
+    handleRespond,
+  } = useTeacherRequestInbox(currentTeacherId)
 
   if (isLoading) {
     return (
@@ -111,7 +51,7 @@ export default function TeacherRequestInbox({ currentTeacherId }: TeacherRequest
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center justify-between">
           <span>{errorMessage}</span>
           <button
-            onClick={() => setErrorMessage(null)}
+            onClick={clearErrorMessage}
             className="text-red-400 hover:text-red-600 ml-2"
           >
             ✕
@@ -123,7 +63,7 @@ export default function TeacherRequestInbox({ currentTeacherId }: TeacherRequest
         <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm flex items-center justify-between">
           <span>{successMessage}</span>
           <button
-            onClick={() => setSuccessMessage(null)}
+            onClick={clearSuccessMessage}
             className="text-green-400 hover:text-green-600 ml-2"
           >
             ✕

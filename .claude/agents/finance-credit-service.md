@@ -1,6 +1,7 @@
 ---
+name: finance-credit-service
 description: Travaille sur le service finance-credit-service
-tools: read, write, bash, edit
+tools: Read, Write, Bash, Edit
 isolation: worktree
 ---
 

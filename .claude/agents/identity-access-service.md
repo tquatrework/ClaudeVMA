@@ -1,6 +1,7 @@
 ---
+name: identity-access-service
 description: Travaille sur le service identity-access-service
-tools: read, write, bash, edit
+tools: Read, Write, Bash, Edit
 isolation: worktree
 ---
 

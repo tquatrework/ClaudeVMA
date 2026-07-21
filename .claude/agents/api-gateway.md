@@ -1,6 +1,7 @@
 ---
+name: api-gateway
 description: Travaille sur le service api-gateway
-tools: read, write, bash, edit
+tools: Read, Write, Bash, Edit
 isolation: worktree
 ---
 

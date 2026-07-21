@@ -8,6 +8,9 @@ import ProfileStatisticsPanel from './ProfileStatisticsPanel'
 import ParentFinanceurSection from '../components/profile/ParentFinanceurSection'
 import LinkedStudentsSection from '../components/profile/LinkedStudentsSection'
 import { Tabs, TabPanel, type TabDefinition } from '../components/ui/Tabs'
+import { InternalNotesPanel } from '../components/profile/InternalNotesPanel'
+import { LinkedTeachersPanel } from '../components/profile/LinkedTeachersPanel'
+import { ProfileSection } from '../components/profile/ProfileSection'
 
 // ─── IDs d'onglets ────────────────────────────────────────────────────────────
 
@@ -24,10 +27,6 @@ export default function ProfilePage() {
   const { user, hasRole } = useAuth()
 
   const [activeTab, setActiveTab] = useState<string>(TAB_ADMIN)
-
-  // Internal note form state
-  const [newNoteContent, setNewNoteContent] = useState('')
-  const [isAddingNote, setIsAddingNote] = useState(false)
 
   const isViewingOwnProfile = user?.id === userId
   const canSeeInternalNotes = hasRole('responsable_pedagogique', 'administrateur_financier')
@@ -93,18 +92,6 @@ export default function ProfilePage() {
     isSavingNote,
     noteSaveError,
   } = useProfileDetails(userId, canSeeRelations, canSeeInternalNotes)
-
-  // ─── Ajout de note interne ───────────────────────────────────────────────────
-
-  const handleAddNote = async (event: React.FormEvent) => {
-    event.preventDefault()
-    if (!newNoteContent.trim()) return
-    const success = await addNote(newNoteContent.trim())
-    if (success) {
-      setNewNoteContent('')
-      setIsAddingNote(false)
-    }
-  }
 
   // ─── Construction de la liste d'onglets ─────────────────────────────────────
 
@@ -188,112 +175,17 @@ export default function ProfilePage() {
 
                 {/* Formateurs liés — visible pour RP, AP, TI, AF, formateur */}
                 {canSeeRelations && (
-                  <div className="bg-white border border-gray-200 rounded-xl p-6">
-                    <h2 className="text-lg font-semibold text-gray-800 mb-4">Formateurs liés</h2>
-                    {teacherRelations.length === 0 ? (
-                      <p className="text-gray-400 text-sm">Aucun formateur lié</p>
-                    ) : (
-                      <ul className="space-y-2">
-                        {teacherRelations.map((relation) => (
-                          <li
-                            key={relation.teacherId}
-                            className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0"
-                          >
-                            <Link
-                              to={`/profiles/${relation.teacherId}`}
-                              className="text-sm text-indigo-600 hover:underline font-mono"
-                            >
-                              {relation.teacherId.slice(0, 12)}…
-                            </Link>
-                            {relation.isPrincipalTeacher && (
-                              <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
-                                Professeur principal
-                              </span>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
+                  <LinkedTeachersPanel teacherRelations={teacherRelations} />
                 )}
 
                 {/* Notes internes — RP / administrateur financier */}
                 {canSeeInternalNotes && (
-                  <div className="bg-white border border-amber-200 rounded-xl p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <h2 className="text-lg font-semibold text-gray-800">
-                        Notes internes
-                        <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
-                          Confidentiel
-                        </span>
-                      </h2>
-                      {!isAddingNote && (
-                        <button
-                          onClick={() => setIsAddingNote(true)}
-                          className="text-sm text-indigo-600 hover:underline"
-                        >
-                          Ajouter une note
-                        </button>
-                      )}
-                    </div>
-
-                    {noteSaveError && (
-                      <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                        {noteSaveError}
-                      </div>
-                    )}
-
-                    {isAddingNote && (
-                      <form onSubmit={handleAddNote} className="mb-4 space-y-3">
-                        <textarea
-                          required
-                          value={newNoteContent}
-                          onChange={(e) => setNewNoteContent(e.target.value)}
-                          placeholder="Note interne (invisible pour l'élève, le parent et le formateur)…"
-                          rows={3}
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
-                        />
-                        <div className="flex gap-3">
-                          <button
-                            type="submit"
-                            disabled={isSavingNote || !newNoteContent.trim()}
-                            className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50"
-                          >
-                            {isSavingNote ? 'Ajout…' : 'Ajouter'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsAddingNote(false)
-                              setNewNoteContent('')
-                            }}
-                            className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm hover:bg-gray-200"
-                          >
-                            Annuler
-                          </button>
-                        </div>
-                      </form>
-                    )}
-
-                    {internalNotes.length === 0 && !isAddingNote ? (
-                      <p className="text-gray-400 text-sm">Aucune note interne</p>
-                    ) : (
-                      <ul className="space-y-3">
-                        {internalNotes.map((note) => (
-                          <li
-                            key={note.id}
-                            className="p-3 bg-amber-50 border border-amber-100 rounded-lg"
-                          >
-                            <p className="text-sm text-gray-800 whitespace-pre-wrap">{note.content}</p>
-                            <p className="text-xs text-gray-400 mt-2">
-                              {new Date(note.createdAt).toLocaleString('fr-FR')}
-                              {note.authorId && ` · par ${note.authorId.slice(0, 8)}…`}
-                            </p>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
+                  <InternalNotesPanel
+                    internalNotes={internalNotes}
+                    addNote={addNote}
+                    isSavingNote={isSavingNote}
+                    noteSaveError={noteSaveError}
+                  />
                 )}
               </div>
             </TabPanel>
@@ -371,46 +263,5 @@ export default function ProfilePage() {
         )}
       </div>
     </Layout>
-  )
-}
-
-// ─── Composant interne : section de profil ─────────────────────────────────────
-
-function ProfileSection({
-  title,
-  data,
-  emptyMessage,
-}: {
-  title?: string
-  data?: Record<string, unknown>
-  emptyMessage: string
-}) {
-  if (!data || Object.keys(data).length === 0) {
-    return (
-      <div className="bg-white border border-gray-200 rounded-xl p-6">
-        {title && <h2 className="text-lg font-semibold text-gray-800 mb-2">{title}</h2>}
-        <p className="text-gray-400 text-sm">{emptyMessage}</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="bg-white border border-gray-200 rounded-xl p-6">
-      {title && <h2 className="text-lg font-semibold text-gray-800 mb-4">{title}</h2>}
-      <dl className="space-y-3">
-        {Object.entries(data)
-          .filter(([, value]) => value !== null && value !== undefined && value !== '')
-          .map(([key, value]) => (
-            <div key={key} className="flex gap-4">
-              <dt className="text-sm font-medium text-gray-500 w-36 shrink-0 capitalize">
-                {key.replace(/([A-Z])/g, ' $1').toLowerCase()}
-              </dt>
-              <dd className="text-sm text-gray-800 flex-1">
-                {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-              </dd>
-            </div>
-          ))}
-      </dl>
-    </div>
   )
 }

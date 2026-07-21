@@ -13,30 +13,57 @@ export interface UseTeacherPaymentRequestsResult {
   isLoadingRequests: boolean
   loadError: string | null
 
-  /** POST /teacher-payment-requests — préfixe la liste avec la demande créée (optimiste). */
+  /**
+   * true lorsque la liste ne peut pas être chargée pour le rôle courant. Seul
+   * `GET /finance/teacher-payment-requests/by-teacher/:teacherId` existe côté backend : il n'y a
+   * aucun endpoint de liste globale (utilisable par l'administrateur financier par exemple).
+   * Dans ce cas, aucun appel réseau n'est déclenché — la page doit afficher un état explicite
+   * plutôt qu'une liste vide silencieuse.
+   */
+  isListUnavailableForRole: boolean
+
+  /** POST /finance/teacher-payment-requests — préfixe la liste avec la demande créée (optimiste). */
   submitRequest: (payload: CreateTeacherPaymentRequestPayload) => Promise<boolean>
   isSubmittingRequest: boolean
   submitError: string | null
 
-  /** POST /teacher-payment-requests/:id/validate — remplace la demande dans la liste. */
+  /** POST /finance/teacher-payment-requests/:id/validate — remplace la demande dans la liste. */
   validateRequest: (requestId: string) => Promise<boolean>
   validatingRequestId: string | null
   validateError: string | null
 }
 
 /**
- * useTeacherPaymentRequests — charge les demandes de paiement formateur (filtrées côté serveur
- * selon le rôle : formateur voit les siennes, AF voit tout) et expose la soumission (formateur)
- * et la validation (AF).
+ * useTeacherPaymentRequests — charge les demandes de paiement du formateur courant via
+ * `GET /finance/teacher-payment-requests/by-teacher/:teacherId` (seul endpoint de lecture
+ * existant côté backend) et expose la soumission (formateur) et la validation (AF, sur un id
+ * de demande connu par un autre biais tant qu'aucun endpoint de liste globale n'existe).
+ *
+ * Pour tout rôle autre que formateur (notamment administrateur_financier), aucun appel réseau
+ * n'est effectué : `isListUnavailableForRole` vaut `true` — ne pas fabriquer un endpoint qui
+ * n'existe pas côté backend.
  *
  * Les demandes ajoutées ou validées sont fusionnées localement par-dessus la liste chargée, à
  * l'image de `useProfileDetails.addNote` — pas de rechargement complet après écriture, pour
  * reproduire le comportement préexistant (mise à jour optimiste sans rafraîchissement réseau).
+ *
+ * @param isFormateurRole rôle formateur de l'utilisateur courant (seul rôle pouvant lister ses
+ *   propres demandes aujourd'hui).
+ * @param currentTeacherId id de l'utilisateur courant, utilisé comme `teacherId` dans l'appel
+ *   `by-teacher/:teacherId` lorsque `isFormateurRole` est vrai.
  */
-export function useTeacherPaymentRequests(): UseTeacherPaymentRequestsResult {
+export function useTeacherPaymentRequests(
+  isFormateurRole: boolean,
+  currentTeacherId: string | undefined,
+): UseTeacherPaymentRequestsResult {
+  const canListRequests = isFormateurRole && Boolean(currentTeacherId)
+
   const { data, isLoading, error: loadError } = useAsyncData(
-    () => fetchTeacherPaymentRequests(),
-    [],
+    () =>
+      canListRequests
+        ? fetchTeacherPaymentRequests(currentTeacherId as string)
+        : Promise.resolve([]),
+    [canListRequests, currentTeacherId],
     { fallbackErrorMessage: 'Erreur lors du chargement des demandes de paiement' },
   )
 
@@ -92,6 +119,7 @@ export function useTeacherPaymentRequests(): UseTeacherPaymentRequestsResult {
     paymentRequests,
     isLoadingRequests: isLoading,
     loadError,
+    isListUnavailableForRole: !canListRequests,
     submitRequest,
     isSubmittingRequest,
     submitError,

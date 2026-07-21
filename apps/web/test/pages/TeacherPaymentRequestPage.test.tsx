@@ -3,11 +3,12 @@
  *
  * Couvre :
  * - Le formateur voit le bouton "Nouvelle demande" et peut soumettre
- * - L'AF voit le bouton "Valider" sur les demandes en attente
+ * - Le formateur charge ses propres demandes via by-teacher/:teacherId (son propre id)
  * - Soumission d'une demande avec description et montant
- * - L'AF valide une demande via POST /teacher-payment-requests/:id/validate
  * - Affichage des statuts (pending, validated)
- * - Chargement, erreur de chargement, erreur de soumission, erreur de validation
+ * - Chargement, erreur de chargement, erreur de soumission
+ * - L'AF ne déclenche aucun appel réseau de liste et voit un état "indisponible" explicite
+ *   (il n'existe aucun endpoint de liste globale côté backend — cf. src/api/finance.ts)
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -98,6 +99,16 @@ describe('TeacherPaymentRequestPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Nouvelle demande')).toBeDefined()
+    })
+  })
+
+  it('le formateur charge ses propres demandes via by-teacher/:teacherId (son propre id)', async () => {
+    mockFetchTeacherPaymentRequests.mockResolvedValue([])
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(mockFetchTeacherPaymentRequests).toHaveBeenCalledWith(TEACHER_USER.id)
     })
   })
 
@@ -218,65 +229,27 @@ describe('TeacherPaymentRequestPage', () => {
     expect(screen.getByText('Nouvelle demande de paiement')).toBeDefined()
   })
 
-  it('l\'AF voit le bouton "Valider" sur les demandes en attente', async () => {
+  it('l\'AF ne déclenche aucun appel réseau et voit un état "indisponible" au lieu d\'une liste vide', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(AF_USER))
-    mockFetchTeacherPaymentRequests.mockResolvedValue([PENDING_REQUEST])
 
     renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /valider/i })).toBeDefined()
-    })
-  })
-
-  it('l\'AF valide une demande via POST /validate', async () => {
-    mockUseAuth.mockReturnValue(buildAuthMock(AF_USER))
-    mockFetchTeacherPaymentRequests.mockResolvedValue([PENDING_REQUEST])
-    mockValidateTeacherPaymentRequest.mockResolvedValue({ ...PENDING_REQUEST, status: 'validated' })
-
-    renderPage()
-
-    await waitFor(() => {
-      screen.getByRole('button', { name: /valider/i })
-    })
-
-    await userEvent.click(screen.getByRole('button', { name: /valider/i }))
-
-    await waitFor(() => {
-      expect(mockValidateTeacherPaymentRequest).toHaveBeenCalledWith(PENDING_REQUEST.id)
-    })
-
-    await waitFor(() => {
-      expect(screen.getAllByText('Validée').length).toBeGreaterThan(0)
-    })
-  })
-
-  it('affiche une erreur si la validation échoue (non-bloquant pour la liste)', async () => {
-    mockUseAuth.mockReturnValue(buildAuthMock(AF_USER))
-    mockFetchTeacherPaymentRequests.mockResolvedValue([PENDING_REQUEST])
-    mockValidateTeacherPaymentRequest.mockRejectedValue({ response: { status: 403 } })
-
-    renderPage()
-
-    await waitFor(() => {
-      screen.getByRole('button', { name: /valider/i })
-    })
-
-    await userEvent.click(screen.getByRole('button', { name: /valider/i }))
 
     await waitFor(() => {
       expect(
-        screen.getByText("Vous n'êtes pas autorisé à effectuer cette action."),
+        screen.getByText(/nécessite un endpoint backend de liste globale/i),
       ).toBeDefined()
     })
 
-    // La demande reste visible avec son statut d'origine
-    expect(screen.getAllByText('En attente').length).toBeGreaterThan(0)
+    // Aucun appel réseau : il n'existe aucun endpoint de liste globale côté backend, on ne
+    // simule pas une liste vide qui masquerait le vrai problème.
+    expect(mockFetchTeacherPaymentRequests).not.toHaveBeenCalled()
+
+    // Sans liste, aucun bouton "Valider" ne peut être affiché
+    expect(screen.queryByRole('button', { name: /valider/i })).toBeNull()
   })
 
   it('l\'AF ne voit pas le bouton "Nouvelle demande"', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(AF_USER))
-    mockFetchTeacherPaymentRequests.mockResolvedValue([])
 
     renderPage()
 

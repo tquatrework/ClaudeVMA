@@ -16,19 +16,23 @@ import { useTeacherPaymentRequests } from '../hooks/finance/useTeacherPaymentReq
 import type { TeacherPaymentRequest } from '../api/finance'
 
 export default function TeacherPaymentRequestPage() {
-  const { hasRole } = useAuth()
+  const { user, hasRole } = useAuth()
+
+  const isFormateur = hasRole('formateur')
+  const isAF = hasRole('administrateur_financier')
 
   const {
     paymentRequests,
     isLoadingRequests,
     loadError,
+    isListUnavailableForRole,
     submitRequest,
     isSubmittingRequest,
     submitError,
     validateRequest,
     validatingRequestId,
     validateError,
-  } = useTeacherPaymentRequests()
+  } = useTeacherPaymentRequests(isFormateur, user?.id)
 
   // Form state (formateur)
   const [isFormOpen, setIsFormOpen] = useState(false)
@@ -36,9 +40,6 @@ export default function TeacherPaymentRequestPage() {
   const [requestDescription, setRequestDescription] = useState('')
   const [invoiceReference, setInvoiceReference] = useState('')
   const [submitSuccess, setSubmitSuccess] = useState(false)
-
-  const isFormateur = hasRole('formateur')
-  const isAF = hasRole('administrateur_financier')
 
   const handleSubmitRequest = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -182,6 +183,11 @@ export default function TeacherPaymentRequestPage() {
             <p className="text-gray-400 text-sm">Chargement…</p>
           ) : loadError ? (
             <p className="text-red-600 text-sm">{loadError}</p>
+          ) : isListUnavailableForRole ? (
+            <p className="text-gray-500 text-sm">
+              La validation groupée des demandes nécessite un endpoint backend de liste globale
+              qui n'existe pas encore côté finance-credit-service. Contactez l'équipe technique.
+            </p>
           ) : paymentRequests.length === 0 ? (
             <p className="text-gray-400 text-sm">Aucune demande de paiement.</p>
           ) : (

@@ -141,66 +141,78 @@ export async function fetchFinancialArchives(ownerId: string): Promise<Financial
 }
 
 /**
- * GET /finance-events
+ * GET /finance/finance-events
  *
- * ÉCART docs/routes.md : cette route n'est documentée pour aucun microservice
- * (ni sous /finance/, ni ailleurs). Comportement préexistant reproduit tel quel
- * (hors périmètre de ce lot — ne pas corriger sans arbitrage).
+ * Correction (bug de production) : la gateway nginx (`gateway/api-gateway/nginx.conf`) ne route
+ * que `^~ /api/v1/finance/` (avec le slash) vers finance-credit-service ; l'appel précédent
+ * omettait ce préfixe et renvoyait systématiquement un 404 avant même d'atteindre le backend.
+ * Le contrôleur backend réel est `@Controller('finance-events')`, donc le chemin ci-dessous,
+ * une fois préfixé par le gateway, atteint bien le contrôleur.
  */
 export async function fetchFinanceEvents(): Promise<FinanceEvent[]> {
-  const { data } = await apiClient.get<FinanceEvent[]>('/finance-events')
+  const { data } = await apiClient.get<FinanceEvent[]>('/finance/finance-events')
   return Array.isArray(data) ? data : []
 }
 
 /**
- * PATCH /financial-settings/rewards
+ * PATCH /finance/financial-settings/rewards
  *
- * ÉCART docs/routes.md : la route documentée pour finance-credit-service est
- * `PATCH /finance/settings` (préfixe `/finance` + chemin `/settings`), pas
- * `/financial-settings/rewards`. Comportement préexistant reproduit tel quel
- * (hors périmètre de ce lot — ne pas corriger sans arbitrage).
+ * Correction (bug de production) : préfixe `/finance/` manquant (même cause que
+ * `fetchFinanceEvents` ci-dessus — 404 garanti côté gateway). Contrôleur backend réel :
+ * `@Controller('financial-settings')` + `@Patch('rewards')`, confirmé exact une fois préfixé.
  */
 export async function updateRewardSettings(payload: UpdateRewardSettingsPayload): Promise<void> {
-  await apiClient.patch('/financial-settings/rewards', payload)
+  await apiClient.patch('/finance/financial-settings/rewards', payload)
 }
 
 /**
- * GET /teacher-payment-requests
+ * GET /finance/teacher-payment-requests/by-teacher/:teacherId
  *
- * ÉCART docs/routes.md : la route documentée est `/finance/teacher-payment-requests`
- * (préfixe `/finance` manquant ici). Comportement préexistant reproduit tel quel
- * (hors périmètre de ce lot — ne pas corriger sans arbitrage).
+ * Correction (bug de production) : l'ancien appel `GET /teacher-payment-requests` (sans préfixe
+ * `/finance/` ni paramètre) n'existe pas côté backend, même préfixé — le contrôleur
+ * `teacher-payment-requests` n'expose aucune liste globale. Le seul endpoint de lecture réel est
+ * `GET /teacher-payment-requests/by-teacher/:teacherId` (liste les demandes d'un formateur donné).
+ * Décision produit : le front s'adapte à l'existant plutôt que d'appeler un endpoint inexistant.
+ * Réservé au rôle formateur (consultation de ses propres demandes) ; il n'existe à ce jour aucun
+ * endpoint de liste globale utilisable par l'administrateur financier.
  */
-export async function fetchTeacherPaymentRequests(): Promise<TeacherPaymentRequest[]> {
-  const { data } = await apiClient.get<TeacherPaymentRequest[]>('/teacher-payment-requests')
+export async function fetchTeacherPaymentRequests(
+  teacherId: string,
+): Promise<TeacherPaymentRequest[]> {
+  const { data } = await apiClient.get<TeacherPaymentRequest[]>(
+    `/finance/teacher-payment-requests/by-teacher/${teacherId}`,
+  )
   return Array.isArray(data) ? data : []
 }
 
 /**
- * POST /teacher-payment-requests
+ * POST /finance/teacher-payment-requests
  *
- * ÉCART docs/routes.md : même écart de préfixe que ci-dessus (`/finance` manquant).
- * Comportement préexistant reproduit tel quel (hors périmètre de ce lot).
+ * Correction (bug de production) : préfixe `/finance/` manquant (même cause que ci-dessus).
+ * Contrôleur backend réel : `@Controller('teacher-payment-requests')` + `@Post()`, confirmé
+ * exact une fois préfixé.
  */
 export async function createTeacherPaymentRequest(
   payload: CreateTeacherPaymentRequestPayload,
 ): Promise<TeacherPaymentRequest> {
-  const { data } = await apiClient.post<TeacherPaymentRequest>('/teacher-payment-requests', payload)
+  const { data } = await apiClient.post<TeacherPaymentRequest>(
+    '/finance/teacher-payment-requests',
+    payload,
+  )
   return data
 }
 
 /**
- * POST /teacher-payment-requests/:id/validate
+ * POST /finance/teacher-payment-requests/:id/validate
  *
- * ÉCART docs/routes.md : la route documentée est `PATCH /finance/teacher-payment-requests/:id/status`
- * (verbe HTTP, chemin et préfixe différents). Comportement préexistant reproduit
- * tel quel (hors périmètre de ce lot — ne pas corriger sans arbitrage).
+ * Correction (bug de production) : préfixe `/finance/` manquant (même cause que ci-dessus).
+ * Contrôleur backend réel : `@Post(':id/validate')`, confirmé exact une fois préfixé.
  */
 export async function validateTeacherPaymentRequest(
   requestId: string,
 ): Promise<TeacherPaymentRequest> {
   const { data } = await apiClient.post<TeacherPaymentRequest>(
-    `/teacher-payment-requests/${requestId}/validate`,
+    `/finance/teacher-payment-requests/${requestId}/validate`,
   )
   return data
 }

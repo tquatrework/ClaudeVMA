@@ -5,6 +5,8 @@ import { useAuth } from '../../hooks/useAuth'
 // Re-export des types centralisés pour la rétrocompatibilité
 export type { NavItem, RailItem, RailGroup } from '../../types/navigation'
 import type { NavItem, RailGroup } from '../../types/navigation'
+import { DashboardMobileRailDrawer } from './DashboardMobileRailDrawer'
+import { DashboardMobileTopMenu } from './DashboardMobileTopMenu'
 
 interface DashboardShellProps {
   accentClass: string
@@ -167,28 +169,12 @@ export default function DashboardShell({
 
       {/* Menu mobile top */}
       {isMobileMenuOpen && (
-        <div className="bg-[var(--color-white)] border-b border-[var(--color-surface)] py-3 px-5 flex flex-col gap-0.5 z-[99] vm-mobile-menu">
-          {topNavItems.map((navItem) => (
-            <Link
-              key={navItem.path}
-              to={navItem.path}
-              onClick={() => setIsMobileMenuOpen(false)}
-              style={{
-                fontWeight: isActive(navItem.path) ? 600 : 400,
-                color: isActive(navItem.path) ? 'var(--accent)' : 'var(--color-ink)',
-              }}
-              className="text-sm no-underline py-[11px] border-b border-[var(--color-surface)] flex items-center gap-2.5"
-            >
-              {navItem.label}
-            </Link>
-          ))}
-          <button
-            onClick={handleLogout}
-            className="text-sm text-red-500 bg-transparent border-none text-left py-[11px] cursor-pointer"
-          >
-            Déconnexion
-          </button>
-        </div>
+        <DashboardMobileTopMenu
+          topNavItems={topNavItems}
+          isActive={isActive}
+          onNavigate={() => setIsMobileMenuOpen(false)}
+          onLogout={handleLogout}
+        />
       )}
 
       {/* CORPS : RAIL + ZONE CENTRALE */}
@@ -244,55 +230,11 @@ export default function DashboardShell({
 
         {/* Tiroir rail mobile */}
         {isMobileRailOpen && (
-          <div className="fixed inset-0 z-[200] flex">
-            <div
-              style={{ boxShadow: 'var(--shadow-card-hover)' }}
-              className="w-[260px] bg-[var(--color-white)] overflow-y-auto py-4"
-            >
-              {/* En-tête tiroir mobile */}
-              <div className="flex items-center justify-between px-4 pb-4 border-b border-[var(--color-surface)] mb-2">
-                <span className="font-[var(--font-heading)] font-bold text-[16px] text-[color:var(--accent)]">
-                  Outils
-                </span>
-                <button
-                  onClick={() => setIsMobileRailOpen(false)}
-                  className="bg-transparent border-none cursor-pointer text-[18px] text-[color:var(--color-text-secondary)] p-1 leading-none"
-                  aria-label="Fermer le menu outils"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {railGroups.map((group) => (
-                <div key={group.groupLabel} className="mb-5">
-                  <p className="text-[10px] font-bold text-[color:var(--color-text-secondary)] uppercase tracking-[0.08em] px-4 mb-1">
-                    {group.groupLabel}
-                  </p>
-                  {group.items.map((railItem) => (
-                    <Link
-                      key={`${railItem.path}-${railItem.label}`}
-                      to={railItem.path}
-                      onClick={() => setIsMobileRailOpen(false)}
-                      style={{
-                        fontWeight: isActive(railItem.path) ? 600 : 400,
-                        color: isActive(railItem.path) ? 'var(--accent)' : 'var(--color-ink)',
-                        borderLeft: isActive(railItem.path) ? '3px solid var(--accent)' : '3px solid transparent',
-                        background: isActive(railItem.path) ? 'var(--accent-alpha-10, rgba(91,108,240,0.10))' : 'transparent',
-                      }}
-                      className="flex items-center gap-2.5 py-[11px] px-4 text-sm no-underline"
-                    >
-                      {railItem.icon && <span className="text-[17px]">{railItem.icon}</span>}
-                      {railItem.label}
-                    </Link>
-                  ))}
-                </div>
-              ))}
-            </div>
-            <div
-              className="flex-1 bg-[rgba(30,34,48,0.3)]"
-              onClick={() => setIsMobileRailOpen(false)}
-            />
-          </div>
+          <DashboardMobileRailDrawer
+            railGroups={railGroups}
+            isActive={isActive}
+            onClose={() => setIsMobileRailOpen(false)}
+          />
         )}
 
         {/* ZONE CENTRALE */}

@@ -19,6 +19,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useRoleAccent } from '../hooks/useRoleAccent'
 import { filterTopNavItems, getRailGroupsForRole } from '../navigation/navigationConfig'
 import type { UserRole } from '../context/AuthContext'
+import { MobileRailDrawer } from './layout/MobileRailDrawer'
 
 /* ─────────────────────────────────────────────────────────
    Composant principal
@@ -239,51 +240,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Tiroir rail mobile */}
         {isMobileRailOpen && railGroups.length > 0 && (
-          <div className="fixed inset-0 z-[200] flex">
-            <div
-              style={{ boxShadow: 'var(--shadow-card-hover)' }}
-              className="w-[240px] bg-[var(--color-white)] overflow-y-auto py-5"
-            >
-              {railGroups.map((group) => (
-                <div key={group.groupLabel} className="mb-6">
-                  <p className="text-[10px] font-semibold text-[color:var(--color-text-secondary)] uppercase tracking-[0.08em] px-4 mb-1">
-                    {group.groupLabel}
-                  </p>
-                  {group.items.map((railItem) => (
-                    <Link
-                      key={railItem.path + railItem.label}
-                      to={railItem.path}
-                      onClick={() => setIsMobileRailOpen(false)}
-                      style={{
-                        fontWeight: isActivePath(railItem.path) ? 600 : 400,
-                        color: isActivePath(railItem.path)
-                          ? 'var(--accent)'
-                          : 'var(--color-ink)',
-                        borderLeft: isActivePath(railItem.path)
-                          ? '3px solid var(--accent)'
-                          : '3px solid transparent',
-                      }}
-                      className="flex items-center gap-2 py-2.5 px-4 text-sm no-underline"
-                    >
-                      <span className="text-[16px]">{railItem.icon}</span>
-                      {railItem.label}
-                    </Link>
-                  ))}
-                </div>
-              ))}
-              <button
-                onClick={() => setIsMobileRailOpen(false)}
-                className="mx-4 text-[12px] text-[color:var(--color-text-secondary)] bg-transparent border-none cursor-pointer py-2"
-              >
-                Fermer
-              </button>
-            </div>
-            {/* Overlay */}
-            <div
-              className="flex-1 bg-[rgba(30,34,48,0.3)]"
-              onClick={() => setIsMobileRailOpen(false)}
-            />
-          </div>
+          <MobileRailDrawer
+            railGroups={railGroups}
+            isActivePath={isActivePath}
+            onClose={() => setIsMobileRailOpen(false)}
+          />
         )}
 
         {/* ZONE CONTENU */}

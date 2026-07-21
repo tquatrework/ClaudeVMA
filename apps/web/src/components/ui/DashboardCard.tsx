@@ -16,13 +16,14 @@ interface DashboardCardProps {
 export function DashboardCard({ children, style, className }: DashboardCardProps) {
   return (
     <div
-      className={className}
+      className={`bg-[var(--color-white)] border border-[var(--color-surface)] rounded-[var(--radius-card)] p-5 ${className ?? ''}`}
+      // box-shadow gardé en inline : la syntaxe Tailwind shadow-[var(...)] interprète
+      // une valeur commençant par var( comme une couleur de teinte, pas comme le
+      // box-shadow complet — cf. valeurs "shadow-card" définies dans tokens.css.
+      // `style` reste par ailleurs le point d'extension public du composant (ex.
+      // surcharge ponctuelle de padding par un appelant).
       style={{
-        background: 'var(--color-white)',
-        border: '1px solid var(--color-surface)',
-        borderRadius: 'var(--radius-card)',
         boxShadow: 'var(--shadow-card)',
-        padding: '20px',
         ...style,
       }}
     >
@@ -41,15 +42,7 @@ interface DashboardSectionTitleProps {
  */
 export function DashboardSectionTitle({ children }: DashboardSectionTitleProps) {
   return (
-    <h3
-      style={{
-        fontFamily: 'var(--font-heading)',
-        fontSize: '15px',
-        fontWeight: 600,
-        color: 'var(--color-ink)',
-        margin: '0 0 14px',
-      }}
-    >
+    <h3 className="font-[var(--font-heading)] text-[15px] font-semibold text-[color:var(--color-ink)] mb-3.5">
       {children}
     </h3>
   )
@@ -64,16 +57,7 @@ interface DashboardCardLabelProps {
  */
 export function DashboardCardLabel({ children }: DashboardCardLabelProps) {
   return (
-    <p
-      style={{
-        fontSize: '10px',
-        fontWeight: 700,
-        color: 'var(--color-text-secondary)',
-        textTransform: 'uppercase',
-        letterSpacing: '0.08em',
-        marginBottom: '10px',
-      }}
-    >
+    <p className="text-[10px] font-bold text-[color:var(--color-text-secondary)] uppercase tracking-[0.08em] mb-2.5">
       {children}
     </p>
   )

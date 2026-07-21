@@ -5,7 +5,7 @@
  * - Form rendering (step 1: administrative, step 2: RGPD)
  * - Password mismatch validation
  * - Progress through wizard steps
- * - Successful registration calls POST /accounts/students and redirects to /login
+ * - Successful registration calls registerStudent and redirects to /login
  * - RGPD consent validation (both required)
  * - API error displayed
  */
@@ -16,9 +16,10 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import StudentRegistrationPage from '../../src/pages/StudentRegistrationPage'
 
-vi.mock('../../src/api/client')
-import apiClient from '../../src/api/client'
-const mockApiClient = vi.mocked(apiClient)
+vi.mock('../../src/api/accounts')
+import { registerStudent, checkEmailAvailability } from '../../src/api/accounts'
+const mockRegisterStudent = vi.mocked(registerStudent)
+const mockCheckEmailAvailability = vi.mocked(checkEmailAvailability)
 
 function renderStudentRegistrationPage() {
   return render(
@@ -44,6 +45,7 @@ async function fillAdministrativeStep(options: { confirmPassword?: string } = {}
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockCheckEmailAvailability.mockResolvedValue({ alreadyUsed: false, suggestedLoginIdentifier: '' })
 })
 
 describe('StudentRegistrationPage', () => {
@@ -98,8 +100,8 @@ describe('StudentRegistrationPage', () => {
     })
   })
 
-  it('does not call POST /accounts/students when RGPD consents are not accepted', async () => {
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+  it('does not call registerStudent when RGPD consents are not accepted', async () => {
+    mockRegisterStudent.mockResolvedValue(undefined)
     renderStudentRegistrationPage()
 
     await fillAdministrativeStep()
@@ -111,12 +113,12 @@ describe('StudentRegistrationPage', () => {
 
     // The form has required checkboxes, so the API must NOT be called
     await waitFor(() => {
-      expect(mockApiClient.post).not.toHaveBeenCalled()
+      expect(mockRegisterStudent).not.toHaveBeenCalled()
     })
   })
 
-  it('calls POST /accounts/students with the correct payload on final submit', async () => {
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+  it('calls registerStudent with the correct payload on final submit', async () => {
+    mockRegisterStudent.mockResolvedValue(undefined)
     renderStudentRegistrationPage()
 
     // Step 1
@@ -131,8 +133,7 @@ describe('StudentRegistrationPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith(
-        '/accounts/students',
+      expect(mockRegisterStudent).toHaveBeenCalledWith(
         expect.objectContaining({
           email: 'alice@test.com',
           password: 'password123',
@@ -145,7 +146,7 @@ describe('StudentRegistrationPage', () => {
   })
 
   it('redirects to /login after successful registration', async () => {
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+    mockRegisterStudent.mockResolvedValue(undefined)
     renderStudentRegistrationPage()
 
     await fillAdministrativeStep()
@@ -163,7 +164,7 @@ describe('StudentRegistrationPage', () => {
   })
 
   it('displays API error on submission failure', async () => {
-    mockApiClient.post = vi.fn().mockRejectedValue({
+    mockRegisterStudent.mockRejectedValue({
       response: { data: { message: 'Email déjà utilisé' } },
     })
     renderStudentRegistrationPage()
@@ -179,6 +180,31 @@ describe('StudentRegistrationPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Email déjà utilisé')).toBeDefined()
+    })
+  })
+
+  it('surfaces a visible error when the email availability check fails, without blocking the wizard', async () => {
+    mockCheckEmailAvailability.mockRejectedValue({
+      response: { data: { message: "Vérification de l'email indisponible" } },
+    })
+    renderStudentRegistrationPage()
+
+    await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'alice@test.com')
+    await userEvent.tab()
+
+    await waitFor(() => {
+      expect(screen.getByText("Vérification de l'email indisponible")).toBeDefined()
+    })
+
+    // The nominal wizard flow must not be blocked by the check-email failure.
+    await userEvent.type(screen.getByPlaceholderText(/prénom/i), 'Alice')
+    await userEvent.type(screen.getByPlaceholderText(/nom de famille/i), 'Dupont')
+    await userEvent.type(screen.getByPlaceholderText(/8 caractères minimum/i), 'password123')
+    await userEvent.type(screen.getByPlaceholderText(/répétez le mot de passe/i), 'password123')
+    await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /consentements rgpd/i })).toBeDefined()
     })
   })
 })

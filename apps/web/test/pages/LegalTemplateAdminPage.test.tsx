@@ -16,15 +16,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import LegalTemplateAdminPage from '../../src/pages/LegalTemplateAdminPage'
 
 vi.mock('../../src/hooks/useAuth')
-vi.mock('../../src/api/client')
 vi.mock('../../src/api/legal')
 
 import { useAuth } from '../../src/hooks/useAuth'
-import apiClient from '../../src/api/client'
-import { createLegalTemplate, updateLegalTemplate } from '../../src/api/legal'
+import { createLegalTemplate, fetchLegalTemplates, updateLegalTemplate } from '../../src/api/legal'
 
 const mockUseAuth = vi.mocked(useAuth)
-const mockApiClient = vi.mocked(apiClient)
+const mockFetchLegalTemplates = vi.mocked(fetchLegalTemplates)
 const mockCreateLegalTemplate = vi.mocked(createLegalTemplate)
 const mockUpdateLegalTemplate = vi.mocked(updateLegalTemplate)
 
@@ -80,7 +78,7 @@ const SAMPLE_TEMPLATE = {
 beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue(buildAuthMock())
-  mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+  mockFetchLegalTemplates.mockResolvedValue([])
   mockCreateLegalTemplate.mockResolvedValue({ ...SAMPLE_TEMPLATE, id: 'tmpl-new' })
   mockUpdateLegalTemplate.mockResolvedValue({ ...SAMPLE_TEMPLATE, version: 2 })
 })
@@ -116,7 +114,7 @@ describe('LegalTemplateAdminPage', () => {
   })
 
   it('affiche les modèles existants', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [SAMPLE_TEMPLATE] })
+    mockFetchLegalTemplates.mockResolvedValue([SAMPLE_TEMPLATE])
 
     renderPage()
 
@@ -166,7 +164,7 @@ describe('LegalTemplateAdminPage', () => {
   })
 
   it('l\'AF peut modifier un modèle existant', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [SAMPLE_TEMPLATE] })
+    mockFetchLegalTemplates.mockResolvedValue([SAMPLE_TEMPLATE])
     mockUpdateLegalTemplate.mockResolvedValue({ ...SAMPLE_TEMPLATE, version: 2 })
 
     renderPage()
@@ -188,6 +186,16 @@ describe('LegalTemplateAdminPage', () => {
         SAMPLE_TEMPLATE.id,
         expect.any(Object),
       )
+    })
+  })
+
+  it('affiche une erreur si le chargement des modèles échoue', async () => {
+    mockFetchLegalTemplates.mockRejectedValue({ response: { status: 500 } })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Le serveur rencontre un problème. Veuillez réessayer plus tard.')).toBeDefined()
     })
   })
 

@@ -1,29 +1,19 @@
 import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
-import apiClient from '../api/client'
+import { usePasswordReset } from '../hooks/auth/usePasswordReset'
 
 type RequestStep = 'form' | 'sent'
 
 export default function PasswordResetPage() {
   const [loginIdentifier, setLoginIdentifier] = useState('')
   const [step, setStep] = useState<RequestStep>('form')
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const { requestReset, isSubmitting, error: errorMessage } = usePasswordReset()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setErrorMessage(null)
-    setIsSubmitting(true)
-    try {
-      await apiClient.post('/auth/password-reset/request', { loginIdentifier })
+    const success = await requestReset(loginIdentifier)
+    if (success) {
       setStep('sent')
-    } catch (err: unknown) {
-      const apiMessage =
-        (err as { response?: { data?: { message?: string } } })?.response?.data
-          ?.message ?? 'Erreur lors de la demande de réinitialisation'
-      setErrorMessage(apiMessage)
-    } finally {
-      setIsSubmitting(false)
     }
   }
 

@@ -3,23 +3,16 @@
  * Accent : Prune oklch(0.58 0.13 330)
  */
 
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import DashboardShell from '../components/dashboard/DashboardShell'
-import apiClient from '../api/client'
 import '../styles/tokens.css'
-import type { DashboardNotification } from '../types/dashboard'
-import { normalizeListResponse } from '../utils/dashboardFormat'
 import { getRailGroupsForRole, filterTopNavItems } from '../navigation/navigationConfig'
 import { ActivityFeed } from '../components/ui/ActivityFeed'
 import { PageTitle } from '../components/ui/PageTitle'
-
-interface TeacherRequest {
-  id: string
-  status: string
-  createdAt: string
-}
+import { useDashboardNotifications } from '../hooks/dashboard/useDashboardNotifications'
+import { usePendingTeacherRequestCount } from '../hooks/dashboard/usePendingTeacherRequestCount'
 
 interface ActionItem {
   label: string
@@ -32,36 +25,11 @@ export default function RpDashboardPage() {
   const { user, hasRole } = useAuth()
   const firstName = user?.loginIdentifier ?? 'vous'
 
-  const [pendingRequestCount, setPendingRequestCount] = useState<number | null>(null)
-  const [notifications, setNotifications] = useState<DashboardNotification[]>([])
-  const [isLoadingRequests, setIsLoadingRequests] = useState(true)
-  const [isLoadingNotifications, setIsLoadingNotifications] = useState(true)
+  const { pendingRequestCount, isLoadingRequests } = usePendingTeacherRequestCount()
+  const { notifications, isLoadingNotifications } = useDashboardNotifications(8)
 
   const topNavItems = filterTopNavItems('responsable_pedagogique', hasRole)
   const railGroups = getRailGroupsForRole('responsable_pedagogique')
-
-  useEffect(() => {
-    if (!user) return
-
-    apiClient
-      .get<TeacherRequest[]>('/requests')
-      .then(({ data }) => {
-        const pendingCount = (Array.isArray(data) ? data : []).filter(
-          (request) => request.status === 'pending',
-        ).length
-        setPendingRequestCount(pendingCount)
-      })
-      .catch(() => setPendingRequestCount(0))
-      .finally(() => setIsLoadingRequests(false))
-
-    apiClient
-      .get<{ data?: DashboardNotification[] } | DashboardNotification[]>('/notifications')
-      .then(({ data }) => {
-        setNotifications(normalizeListResponse(data).slice(0, 8))
-      })
-      .catch(() => {})
-      .finally(() => setIsLoadingNotifications(false))
-  }, [user])
 
   const actionItems: ActionItem[] = [
     {

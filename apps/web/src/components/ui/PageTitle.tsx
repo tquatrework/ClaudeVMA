@@ -15,20 +15,12 @@ interface PageTitleProps {
 
 export function PageTitle({ title, subtitle }: PageTitleProps) {
   return (
-    <div style={{ marginBottom: '24px' }}>
-      <h1
-        style={{
-          fontFamily: 'var(--font-heading)',
-          fontSize: '24px',
-          fontWeight: 700,
-          color: 'var(--color-ink)',
-          margin: 0,
-        }}
-      >
+    <div className="mb-6">
+      <h1 className="font-[var(--font-heading)] text-[24px] font-bold text-[color:var(--color-ink)] m-0">
         {title}
       </h1>
       {subtitle && (
-        <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
+        <p className="text-[13px] text-[color:var(--color-text-secondary)] mt-1">
           {subtitle}
         </p>
       )}

@@ -39,13 +39,15 @@ import ArchiveItemDetail from '../components/archive/ArchiveItemDetail'
 import CourseSummaryArchiveView from '../components/archive/CourseSummaryArchiveView'
 import ProfileStatisticsPanel from './ProfileStatisticsPanel'
 import { ErrorMessage } from '../components/ui/ErrorMessage'
+import { getErrorMessage } from '../utils/apiError'
+import { ArchiveTabsNav, type ArchiveActiveTab } from '../components/archive/ArchiveTabsNav'
 
 interface StudentOption {
   studentId: string
   displayName: string
 }
 
-type ActiveTab = 'statistics' | 'timeline' | 'summaries'
+type ActiveTab = ArchiveActiveTab
 
 export default function PedagogicalArchivePage() {
   const { studentId } = useParams<{ studentId: string }>()
@@ -58,6 +60,7 @@ export default function PedagogicalArchivePage() {
 
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
   const [isDownloadingDocument, setIsDownloadingDocument] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('statistics')
 
@@ -140,6 +143,7 @@ export default function PedagogicalArchivePage() {
 
   const handleDownloadDocument = async (documentId: string) => {
     setIsDownloadingDocument(true)
+    setDownloadError(null)
     try {
       const blobData = await downloadArchiveDocument(documentId)
       const blobUrl = URL.createObjectURL(blobData)
@@ -148,8 +152,9 @@ export default function PedagogicalArchivePage() {
       anchor.download = `archive-${documentId}`
       anchor.click()
       URL.revokeObjectURL(blobUrl)
-    } catch {
-      // non-bloquant : le téléchargement silencieux échoue sans bloquer la page
+    } catch (error: unknown) {
+      // Non-bloquant : la page reste utilisable, l'échec est juste rendu visible.
+      setDownloadError(getErrorMessage(error, 'Impossible de télécharger ce document.'))
     } finally {
       setIsDownloadingDocument(false)
     }
@@ -218,41 +223,7 @@ export default function PedagogicalArchivePage() {
         )}
 
         {/* Onglets */}
-        <div className="flex gap-1 border-b border-gray-200">
-          <button
-            type="button"
-            onClick={() => setActiveTab('statistics')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'statistics'
-                ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Statistiques
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('timeline')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'timeline'
-                ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Archives
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('summaries')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'summaries'
-                ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Résumés de cours
-          </button>
-        </div>
+        <ArchiveTabsNav activeTab={activeTab} onTabChange={setActiveTab} />
 
         {/* Onglet Statistiques pédagogiques */}
         {activeTab === 'statistics' && (
@@ -275,7 +246,8 @@ export default function PedagogicalArchivePage() {
             </div>
 
             {/* Panneau droit — détail */}
-            <div>
+            <div className="space-y-3">
+              {downloadError && <ErrorMessage message={downloadError} onClose={() => setDownloadError(null)} />}
               {selectedArchiveItem ? (
                 <ArchiveItemDetail
                   archiveItem={selectedArchiveItem}

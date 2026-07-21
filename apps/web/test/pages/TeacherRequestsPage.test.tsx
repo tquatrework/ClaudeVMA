@@ -19,13 +19,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import TeacherRequestsPage from '../../src/pages/TeacherRequestsPage'
 
 vi.mock('../../src/hooks/useAuth')
-vi.mock('../../src/api/client')
+vi.mock('../../src/api/teacherRequests')
 
 import { useAuth } from '../../src/hooks/useAuth'
-import apiClient from '../../src/api/client'
+import { fetchTeacherRequests, createTeacherRequest } from '../../src/api/teacherRequests'
 
 const mockUseAuth = vi.mocked(useAuth)
-const mockApiClient = vi.mocked(apiClient)
+const mockFetchTeacherRequests = vi.mocked(fetchTeacherRequests)
+const mockCreateTeacherRequest = vi.mocked(createTeacherRequest)
 
 const STUDENT_USER = {
   id: 'student-1',
@@ -89,7 +90,7 @@ beforeEach(() => {
 
 describe('TeacherRequestsPage', () => {
   it('shows loading state while fetching', () => {
-    mockApiClient.get = vi.fn().mockReturnValue(new Promise(() => {}))
+    mockFetchTeacherRequests.mockReturnValue(new Promise(() => {}))
 
     renderTeacherRequests()
 
@@ -97,7 +98,7 @@ describe('TeacherRequestsPage', () => {
   })
 
   it('renders a list of teacher requests', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_REQUESTS })
+    mockFetchTeacherRequests.mockResolvedValue(SAMPLE_REQUESTS)
 
     renderTeacherRequests()
 
@@ -109,7 +110,7 @@ describe('TeacherRequestsPage', () => {
   })
 
   it('shows request descriptions', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_REQUESTS })
+    mockFetchTeacherRequests.mockResolvedValue(SAMPLE_REQUESTS)
 
     renderTeacherRequests()
 
@@ -119,7 +120,7 @@ describe('TeacherRequestsPage', () => {
   })
 
   it('shows empty state when no requests exist', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchTeacherRequests.mockResolvedValue([])
 
     renderTeacherRequests()
 
@@ -129,7 +130,7 @@ describe('TeacherRequestsPage', () => {
   })
 
   it('shows API error when requests fail to load', async () => {
-    mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 500 } })
+    mockFetchTeacherRequests.mockRejectedValue({ response: { status: 500 } })
 
     renderTeacherRequests()
 
@@ -139,7 +140,7 @@ describe('TeacherRequestsPage', () => {
   })
 
   it('shows "Accès refusé" for 403 error', async () => {
-    mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 403 } })
+    mockFetchTeacherRequests.mockRejectedValue({ response: { status: 403 } })
 
     renderTeacherRequests()
 
@@ -149,7 +150,7 @@ describe('TeacherRequestsPage', () => {
   })
 
   it('shows filter tabs after requests are loaded', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_REQUESTS })
+    mockFetchTeacherRequests.mockResolvedValue(SAMPLE_REQUESTS)
 
     renderTeacherRequests()
 
@@ -161,7 +162,7 @@ describe('TeacherRequestsPage', () => {
   })
 
   it('filters requests by "pending" status when filter button is clicked', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_REQUESTS })
+    mockFetchTeacherRequests.mockResolvedValue(SAMPLE_REQUESTS)
 
     renderTeacherRequests()
 
@@ -181,9 +182,7 @@ describe('TeacherRequestsPage', () => {
 
   it('shows empty filtered state when no requests match the filter', async () => {
     // Only pending, no cancelled
-    mockApiClient.get = vi.fn().mockResolvedValue({
-      data: [SAMPLE_REQUESTS[0]], // only pending
-    })
+    mockFetchTeacherRequests.mockResolvedValue([SAMPLE_REQUESTS[0]])
 
     renderTeacherRequests()
 
@@ -199,7 +198,7 @@ describe('TeacherRequestsPage', () => {
   })
 
   it('shows "Nouvelle demande" button for élève role', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchTeacherRequests.mockResolvedValue([])
 
     renderTeacherRequests()
 
@@ -210,7 +209,7 @@ describe('TeacherRequestsPage', () => {
 
   it('hides "Nouvelle demande" button for formateur role', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchTeacherRequests.mockResolvedValue([])
 
     renderTeacherRequests()
 
@@ -220,7 +219,7 @@ describe('TeacherRequestsPage', () => {
   })
 
   it('shows the create form when clicking "Nouvelle demande"', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchTeacherRequests.mockResolvedValue([])
 
     renderTeacherRequests()
 
@@ -241,8 +240,8 @@ describe('TeacherRequestsPage', () => {
       description: 'Aide en analyse',
     }
 
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: newRequest })
+    mockFetchTeacherRequests.mockResolvedValue([])
+    mockCreateTeacherRequest.mockResolvedValue(newRequest)
 
     renderTeacherRequests()
 
@@ -260,7 +259,7 @@ describe('TeacherRequestsPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /soumettre la demande/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith('/teacher-requests', {
+      expect(mockCreateTeacherRequest).toHaveBeenCalledWith({
         description: 'Aide en analyse',
       })
     })
@@ -274,8 +273,8 @@ describe('TeacherRequestsPage', () => {
       description: 'Aide en analyse',
     }
 
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: newRequest })
+    mockFetchTeacherRequests.mockResolvedValue([])
+    mockCreateTeacherRequest.mockResolvedValue(newRequest)
 
     renderTeacherRequests()
 

@@ -1,12 +1,12 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-vi.mock('../../../src/api/client')
-import apiClient from '../../../src/api/client'
+vi.mock('../../../src/api/calendar')
+import { fetchAvailability } from '../../../src/api/calendar'
 
 import AvailabilityEditor from '../../../src/components/calendar/AvailabilityEditor'
 
-const mockApiClient = vi.mocked(apiClient)
+const mockFetchAvailability = vi.mocked(fetchAvailability)
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -27,7 +27,7 @@ describe('AvailabilityEditor', () => {
       },
     ]
 
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: availabilitySlots })
+    mockFetchAvailability.mockResolvedValue(availabilitySlots)
 
     render(<AvailabilityEditor ownerId="owner-33" />)
 
@@ -39,16 +39,26 @@ describe('AvailabilityEditor', () => {
       expect(screen.getByText('Samedi matin uniquement')).toBeDefined()
     })
 
-    expect(mockApiClient.get).toHaveBeenCalledWith('/calendars/owner-33/availability')
+    expect(mockFetchAvailability).toHaveBeenCalledWith('owner-33')
   })
 
   it('affiche l\'état vide si aucun créneau de disponibilité n\'est retourné', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchAvailability.mockResolvedValue([])
 
     render(<AvailabilityEditor ownerId="owner-empty" />)
 
     await waitFor(() => {
       expect(screen.getByText('Aucun créneau de disponibilité renseigné')).toBeDefined()
+    })
+  })
+
+  it('affiche un message d\'erreur si le chargement échoue', async () => {
+    mockFetchAvailability.mockRejectedValue(new Error('network down'))
+
+    render(<AvailabilityEditor ownerId="owner-fail" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Impossible de charger les disponibilités')).toBeDefined()
     })
   })
 })

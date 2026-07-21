@@ -29,6 +29,7 @@ import {
   type Evaluation,
   type DifficultyLevel,
 } from '../api/contentCatalog'
+import { EvaluationCreateForm } from '../components/content-catalog/EvaluationCreateForm'
 
 export default function EvaluationCatalogPage() {
   const { hasRole } = useAuth()
@@ -154,146 +155,26 @@ export default function EvaluationCatalogPage() {
 
         {/* Formulaire de création */}
         {shouldShowCreateForm && (
-          <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
-            <h2 className="text-base font-semibold text-gray-800">Créer une évaluation</h2>
-            <p className="text-sm text-gray-500">
-              La solution est obligatoire et ne sera pas publiée directement à l'élève.
-            </p>
-
-            <form onSubmit={handleCreateEvaluation} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="eval-title" className="block text-sm text-gray-700 mb-1">
-                    Titre <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="eval-title"
-                    type="text"
-                    required
-                    value={newTitle}
-                    onChange={(e) => setNewTitle(e.target.value)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    disabled={isCreating}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="eval-subject" className="block text-sm text-gray-700 mb-1">
-                    Matière <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="eval-subject"
-                    type="text"
-                    required
-                    value={newSubject}
-                    onChange={(e) => setNewSubject(e.target.value)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    disabled={isCreating}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="eval-level" className="block text-sm text-gray-700 mb-1">
-                    Niveau <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="eval-level"
-                    type="text"
-                    required
-                    value={newLevel}
-                    onChange={(e) => setNewLevel(e.target.value)}
-                    placeholder="ex: Terminale, 3ème…"
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    disabled={isCreating}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="eval-difficulty" className="block text-sm text-gray-700 mb-1">
-                    Difficulté
-                  </label>
-                  <select
-                    id="eval-difficulty"
-                    value={newDifficulty}
-                    onChange={(e) => setNewDifficulty(e.target.value as DifficultyLevel)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    disabled={isCreating}
-                  >
-                    <option value="facile">Facile</option>
-                    <option value="moyen">Moyen</option>
-                    <option value="difficile">Difficile</option>
-                  </select>
-                </div>
-                <div>
-                  <label htmlFor="eval-duration" className="block text-sm text-gray-700 mb-1">
-                    Durée (minutes)
-                  </label>
-                  <input
-                    id="eval-duration"
-                    type="number"
-                    min={1}
-                    value={newDurationMinutes}
-                    onChange={(e) =>
-                      setNewDurationMinutes(e.target.value ? Number(e.target.value) : '')
-                    }
-                    placeholder="ex: 60"
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    disabled={isCreating}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="eval-description" className="block text-sm text-gray-700 mb-1">
-                  Énoncé <span className="text-red-500">*</span>
-                </label>
-                <textarea
-                  id="eval-description"
-                  required
-                  rows={4}
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
-                  disabled={isCreating}
-                />
-              </div>
-
-              <div>
-                <label htmlFor="eval-solution" className="block text-sm text-gray-700 mb-1">
-                  Solution <span className="text-red-500">*</span>
-                  <span className="ml-1 text-xs text-gray-400">(non visible par l'élève)</span>
-                </label>
-                <textarea
-                  id="eval-solution"
-                  required
-                  rows={4}
-                  value={newSolution}
-                  onChange={(e) => setNewSolution(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
-                  disabled={isCreating}
-                />
-              </div>
-
-              {createError && (
-                <p className="text-red-600 text-sm">{createError}</p>
-              )}
-
-              <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShouldShowCreateForm(false)}
-                  disabled={isCreating}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 disabled:opacity-50 transition-colors"
-                >
-                  Annuler
-                </button>
-                <button
-                  type="submit"
-                  disabled={isCreating}
-                  className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {isCreating ? 'Création…' : 'Créer l\'évaluation'}
-                </button>
-              </div>
-            </form>
-          </div>
+          <EvaluationCreateForm
+            newTitle={newTitle}
+            newDescription={newDescription}
+            newSubject={newSubject}
+            newLevel={newLevel}
+            newDifficulty={newDifficulty}
+            newSolution={newSolution}
+            newDurationMinutes={newDurationMinutes}
+            isCreating={isCreating}
+            createError={createError}
+            onTitleChange={setNewTitle}
+            onDescriptionChange={setNewDescription}
+            onSubjectChange={setNewSubject}
+            onLevelChange={setNewLevel}
+            onDifficultyChange={setNewDifficulty}
+            onSolutionChange={setNewSolution}
+            onDurationMinutesChange={setNewDurationMinutes}
+            onSubmit={handleCreateEvaluation}
+            onCancel={() => setShouldShowCreateForm(false)}
+          />
         )}
 
         {/* Liste des évaluations */}

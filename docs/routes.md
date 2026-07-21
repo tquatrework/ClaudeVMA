@@ -482,24 +482,47 @@ Via gateway : `GET /api/v1/finance/financial-archives/:ownerId` → backend reç
 
 Les archives sont triées par `occurredAt DESC`. Types d'items : `payment` · `invoice` · `ledger_entry`.
 
-### Paramètres financiers
+### Paramètres financiers (rewards)
 
-Via gateway : `/api/v1/finance/settings` → backend reçoit `/settings`
+> Corrigé le 2026-07-21 : la version précédente de cette section documentait un contrôleur
+> `/settings` qui n'existe pas dans le code. Le contrôleur réel est `financial-settings`.
 
-| Méthode | Chemin (backend) | Description | Auth | Rôles autorisés | Réponse attendue |
-|---|---|---|---|---|---|
-| GET | /settings | Lire les paramètres financiers globaux | 🔒 | administrateur_financier, technicien_informatique | `200 {settings}` · `401` · `403` |
-| PATCH | /settings | Modifier les paramètres financiers | 🔒 | administrateur_financier | `200 {settings}` · `400` · `401` · `403` |
+Via gateway : `GET/PATCH /api/v1/finance/financial-settings` → backend reçoit `/financial-settings` · `PATCH /api/v1/finance/financial-settings/rewards` → backend reçoit `/financial-settings/rewards`
+
+| Méthode | Chemin (backend) | Description | Auth | Rôles autorisés | Body / Params | Réponse attendue |
+|---|---|---|---|---|---|---|
+| GET | /financial-settings/rewards | Lire les paramètres de valorisation (points par euro, etc.) | 🔒 | administrateur_financier, technicien_informatique | — | `200 {...}` · `401` · `403` |
+| PATCH | /financial-settings/rewards | Modifier les paramètres de valorisation | 🔒 | administrateur_financier | `{settings: [{settingKey, label, value, description?}], correlationId?}` — `settingKey` inclut notamment `points_per_euro` | `200 {...}` · `400` · `401` · `403` |
+
+### Événements financiers
+
+> Ajouté le 2026-07-21 : route existante côté backend (`FinanceEventsController`), absente de
+> cette documentation jusqu'ici.
+
+Via gateway : `GET /api/v1/finance/finance-events` → backend reçoit `GET /finance-events`
+
+| Méthode | Chemin (backend) | Description | Auth | Rôles autorisés | Body / Params | Réponse attendue |
+|---|---|---|---|---|---|---|
+| GET | /finance-events | Lister les événements financiers | 🔒 | administrateur_financier, technicien_informatique | Query : `ownerId?` | `200 [{id, eventType, payload?, occurredAt}]` · `401` · `403` |
 
 ### Demandes de paiement formateur
+
+> Corrigé le 2026-07-21 : la liste globale (`GET /teacher-payment-requests` sans paramètre)
+> et la validation via `PATCH .../status` documentées précédemment n'existent pas dans le code.
+> Seule une liste **par formateur** existe ; il n'y a aujourd'hui aucun endpoint permettant à
+> l'administrateur financier de lister toutes les demandes en attente tous formateurs confondus —
+> c'est un gap produit réel, pas seulement documentaire (suivi côté front : le rôle AF affiche un
+> état "fonctionnalité indisponible" plutôt qu'un appel voué à échouer).
 
 Via gateway : `/api/v1/finance/teacher-payment-requests` → backend reçoit `/teacher-payment-requests`
 
 | Méthode | Chemin (backend) | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /teacher-payment-requests | Lister les demandes de rémunération | 🔒 | formateur (ses propres), administrateur_financier, technicien_informatique | `200 [{id, teacherId, amountCents, status, ...}]` · `401` · `403` |
+| GET | /teacher-payment-requests/by-teacher/:teacherId | Lister les demandes de rémunération d'un formateur donné | 🔒 | formateur (soi-même) | `200 [{id, teacherId, amountCents, status, ...}]` · `401` · `403` |
 | POST | /teacher-payment-requests | Créer une demande de rémunération | 🔒 | formateur | `201 {id, teacherId, amountCents, status, createdAt}` · `400` · `401` · `403` |
-| PATCH | /teacher-payment-requests/:id/status | Valider ou rejeter une demande | 🔒 | administrateur_financier | `200 {id, status}` · `401` · `403` · `404` |
+| POST | /teacher-payment-requests/:id/validate | Valider une demande | 🔒 | administrateur_financier | `200 {id, status}` · `401` · `403` · `404` |
+
+**Gap produit ouvert** : pas de route de liste globale/toutes-demandes-en-attente pour l'AF/TI — à arbitrer (nouvel endpoint backend `GET /teacher-payment-requests` avec filtrage par statut, ou autre mécanisme) avant que la validation groupée par l'AF soit réellement utilisable.
 
 ### Healthcheck
 

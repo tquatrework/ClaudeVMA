@@ -21,72 +21,36 @@ export function ImportantContacts({ contacts, isLoading }: ImportantContactsProp
       <DashboardSectionTitle>Contacts importants</DashboardSectionTitle>
 
       {isLoading ? (
-        <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Chargement…</p>
+        <p className="text-[13px] text-[color:var(--color-text-secondary)]">Chargement…</p>
       ) : contacts.length === 0 ? (
         <div>
-          <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '12px' }}>
+          <p className="text-[13px] text-[color:var(--color-text-secondary)] mb-3">
             Aucun contact pour l'instant.
           </p>
-          <Link
-            to="/contacts"
-            style={{ fontSize: '12px', color: 'var(--accent)', textDecoration: 'none' }}
-          >
+          <Link to="/contacts" className="text-[12px] text-[color:var(--accent)] no-underline">
             Gérer les contacts →
           </Link>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div className="flex flex-col gap-2.5">
           {contacts.map((contact) => (
-            <div key={contact.id} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div
-                style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '50%',
-                  background: 'var(--accent-alpha-10, rgba(91,108,240,0.10))',
-                  border: '1px solid var(--color-surface)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'var(--accent)',
-                  fontWeight: 700,
-                  fontSize: '13px',
-                  flexShrink: 0,
-                }}
-              >
+            <div key={contact.id} className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-[var(--accent-alpha-10)] border border-[var(--color-surface)] flex items-center justify-center text-[color:var(--accent)] font-bold text-[13px] shrink-0">
                 {getAvatarLetter(contact.displayName)}
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p
-                  style={{
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    color: 'var(--color-ink)',
-                    margin: 0,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-medium text-[color:var(--color-ink)] m-0 overflow-hidden text-ellipsis whitespace-nowrap">
                   {contact.displayName ?? contact.email ?? 'Contact'}
                 </p>
                 {contact.role && (
-                  <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: 0 }}>
+                  <p className="text-[11px] text-[color:var(--color-text-secondary)] m-0">
                     {contact.role}
                   </p>
                 )}
               </div>
               <Link
                 to="/messages"
-                style={{
-                  fontSize: '11px',
-                  color: 'var(--accent)',
-                  border: '1px solid var(--color-surface)',
-                  borderRadius: 'var(--radius-pill)',
-                  padding: '3px 8px',
-                  textDecoration: 'none',
-                  flexShrink: 0,
-                }}
+                className="text-[11px] text-[color:var(--accent)] border border-[var(--color-surface)] rounded-[var(--radius-pill)] py-[3px] px-2 no-underline shrink-0"
               >
                 Écrire
               </Link>
@@ -94,7 +58,7 @@ export function ImportantContacts({ contacts, isLoading }: ImportantContactsProp
           ))}
           <Link
             to="/contacts"
-            style={{ fontSize: '12px', color: 'var(--accent)', textDecoration: 'none', marginTop: '4px' }}
+            className="text-[12px] text-[color:var(--accent)] no-underline mt-1"
           >
             Tous les contacts →
           </Link>

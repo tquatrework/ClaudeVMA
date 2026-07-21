@@ -2,13 +2,17 @@
  * Tests for MessagesPage
  *
  * Covers:
- * - Conversation list loading from GET /conversations
+ * - Conversation list loading via fetchConversations (src/api/communication)
  * - Empty state when no conversations
- * - Selecting a conversation loads messages via GET /messages/conversation/:id
- * - Unread messages are marked read (PATCH /messages/:id/read)
- * - Sending a message calls POST /conversations/:id/messages
- * - Creating a new conversation calls POST /conversations
+ * - Selecting a conversation loads messages via fetchConversationMessages
+ * - Unread messages are marked read (markMessageAsRead)
+ * - Sending a message calls sendMessage
+ * - Creating a new conversation calls createConversation
  * - Error state when conversations fail to load
+ *
+ * La page consomme désormais `useMessages` (src/hooks/communication/useMessages), qui
+ * s'appuie sur `src/api/communication` — mocké ci-dessous, plus d'appel direct à
+ * `apiClient` dans cette page.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -18,13 +22,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import MessagesPage from '../../src/pages/MessagesPage'
 
 vi.mock('../../src/hooks/useAuth')
-vi.mock('../../src/api/client')
+vi.mock('../../src/api/communication')
 
 import { useAuth } from '../../src/hooks/useAuth'
-import apiClient from '../../src/api/client'
+import {
+  fetchConversations,
+  fetchConversationMessages,
+  markMessageAsRead,
+  sendMessage,
+  createConversation,
+} from '../../src/api/communication'
 
 const mockUseAuth = vi.mocked(useAuth)
-const mockApiClient = vi.mocked(apiClient)
+const mockFetchConversations = vi.mocked(fetchConversations)
+const mockFetchConversationMessages = vi.mocked(fetchConversationMessages)
+const mockMarkMessageAsRead = vi.mocked(markMessageAsRead)
+const mockSendMessage = vi.mocked(sendMessage)
+const mockCreateConversation = vi.mocked(createConversation)
 
 const AUTH_USER = {
   user: {
@@ -51,7 +65,7 @@ function renderMessages() {
 
 const SAMPLE_CONVERSATIONS = [
   { id: 'conv-1', participantEmail: 'prof@test.com', lastMessage: 'Bonjour', unreadCount: 2 },
-  { id: 'conv-2', participantEmail: 'parent@test.com', lastMessage: null, unreadCount: 0 },
+  { id: 'conv-2', participantEmail: 'parent@test.com', unreadCount: 0 },
 ]
 
 const SAMPLE_MESSAGES = [
@@ -62,11 +76,12 @@ const SAMPLE_MESSAGES = [
 beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue(AUTH_USER)
+  mockMarkMessageAsRead.mockResolvedValue(undefined)
 })
 
 describe('MessagesPage', () => {
   it('shows loading indicator while fetching conversations', () => {
-    mockApiClient.get = vi.fn().mockReturnValue(new Promise(() => {}))
+    mockFetchConversations.mockReturnValue(new Promise(() => {}))
 
     renderMessages()
 
@@ -74,7 +89,7 @@ describe('MessagesPage', () => {
   })
 
   it('renders conversation list', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_CONVERSATIONS })
+    mockFetchConversations.mockResolvedValue(SAMPLE_CONVERSATIONS)
 
     renderMessages()
 
@@ -85,7 +100,7 @@ describe('MessagesPage', () => {
   })
 
   it('shows empty state when no conversations exist', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchConversations.mockResolvedValue([])
 
     renderMessages()
 
@@ -95,7 +110,7 @@ describe('MessagesPage', () => {
   })
 
   it('shows error when conversations fail to load', async () => {
-    mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 500 } })
+    mockFetchConversations.mockRejectedValue({ response: { status: 500 } })
 
     renderMessages()
 
@@ -105,7 +120,7 @@ describe('MessagesPage', () => {
   })
 
   it('shows unread count badge for conversations with unread messages', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_CONVERSATIONS })
+    mockFetchConversations.mockResolvedValue(SAMPLE_CONVERSATIONS)
 
     renderMessages()
 
@@ -116,12 +131,10 @@ describe('MessagesPage', () => {
   })
 
   it('loads messages when a conversation is selected', async () => {
-    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
-      if (url === '/conversations') return Promise.resolve({ data: SAMPLE_CONVERSATIONS })
-      if (url === '/messages/conversation/conv-1') return Promise.resolve({ data: SAMPLE_MESSAGES })
-      return Promise.resolve({ data: [] })
-    })
-    mockApiClient.patch = vi.fn().mockResolvedValue({ data: {} })
+    mockFetchConversations.mockResolvedValue(SAMPLE_CONVERSATIONS)
+    mockFetchConversationMessages.mockImplementation((conversationId: string) =>
+      conversationId === 'conv-1' ? Promise.resolve(SAMPLE_MESSAGES) : Promise.resolve([]),
+    )
 
     renderMessages()
 
@@ -137,13 +150,11 @@ describe('MessagesPage', () => {
     })
   })
 
-  it('calls PATCH /messages/:id/read for unread messages when opening a conversation', async () => {
-    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
-      if (url === '/conversations') return Promise.resolve({ data: SAMPLE_CONVERSATIONS })
-      if (url === '/messages/conversation/conv-1') return Promise.resolve({ data: SAMPLE_MESSAGES })
-      return Promise.resolve({ data: [] })
-    })
-    mockApiClient.patch = vi.fn().mockResolvedValue({ data: {} })
+  it('calls markMessageAsRead for unread messages when opening a conversation', async () => {
+    mockFetchConversations.mockResolvedValue(SAMPLE_CONVERSATIONS)
+    mockFetchConversationMessages.mockImplementation((conversationId: string) =>
+      conversationId === 'conv-1' ? Promise.resolve(SAMPLE_MESSAGES) : Promise.resolve([]),
+    )
 
     renderMessages()
 
@@ -154,12 +165,12 @@ describe('MessagesPage', () => {
     await userEvent.click(screen.getByText('prof@test.com'))
 
     await waitFor(() => {
-      // msg-1 is unread — should trigger PATCH
-      expect(mockApiClient.patch).toHaveBeenCalledWith('/messages/msg-1/read')
+      // msg-1 is unread — should trigger a read call
+      expect(mockMarkMessageAsRead).toHaveBeenCalledWith('msg-1')
     })
   })
 
-  it('sends a message via POST /conversations/:id/messages', async () => {
+  it('sends a message via sendMessage(conversationId, payload)', async () => {
     const sentMessage = {
       id: 'msg-3',
       senderId: 'user-1',
@@ -168,13 +179,9 @@ describe('MessagesPage', () => {
       createdAt: new Date().toISOString(),
     }
 
-    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
-      if (url === '/conversations') return Promise.resolve({ data: SAMPLE_CONVERSATIONS })
-      if (url === '/messages/conversation/conv-1') return Promise.resolve({ data: [] })
-      return Promise.resolve({ data: [] })
-    })
-    mockApiClient.patch = vi.fn().mockResolvedValue({ data: {} })
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: sentMessage })
+    mockFetchConversations.mockResolvedValue(SAMPLE_CONVERSATIONS)
+    mockFetchConversationMessages.mockResolvedValue([])
+    mockSendMessage.mockResolvedValue(sentMessage)
 
     renderMessages()
 
@@ -192,10 +199,7 @@ describe('MessagesPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /envoyer/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith(
-        '/conversations/conv-1/messages',
-        { content: 'Nouvelle réponse' },
-      )
+      expect(mockSendMessage).toHaveBeenCalledWith('conv-1', { content: 'Nouvelle réponse' })
     })
   })
 
@@ -208,12 +212,9 @@ describe('MessagesPage', () => {
       createdAt: new Date().toISOString(),
     }
 
-    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
-      if (url === '/conversations') return Promise.resolve({ data: SAMPLE_CONVERSATIONS })
-      return Promise.resolve({ data: [] })
-    })
-    mockApiClient.patch = vi.fn().mockResolvedValue({ data: {} })
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: sentMessage })
+    mockFetchConversations.mockResolvedValue(SAMPLE_CONVERSATIONS)
+    mockFetchConversationMessages.mockResolvedValue([])
+    mockSendMessage.mockResolvedValue(sentMessage)
 
     renderMessages()
 
@@ -240,13 +241,9 @@ describe('MessagesPage', () => {
 
   // Spec 4 — Phase 8: si l'envoi retourne 413, afficher un message d'erreur d'attachement
   it('message send supports text and small attachment error state — shows 413 attachment error', async () => {
-    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
-      if (url === '/conversations') return Promise.resolve({ data: SAMPLE_CONVERSATIONS })
-      if (url === '/messages/conversation/conv-1') return Promise.resolve({ data: [] })
-      return Promise.resolve({ data: [] })
-    })
-    mockApiClient.patch = vi.fn().mockResolvedValue({ data: {} })
-    mockApiClient.post = vi.fn().mockRejectedValue({ response: { status: 413 } })
+    mockFetchConversations.mockResolvedValue(SAMPLE_CONVERSATIONS)
+    mockFetchConversationMessages.mockResolvedValue([])
+    mockSendMessage.mockRejectedValue({ response: { status: 413 } })
 
     renderMessages()
 
@@ -268,19 +265,16 @@ describe('MessagesPage', () => {
     })
   })
 
-  it('creates a new conversation via POST /conversations', async () => {
+  it('creates a new conversation via createConversation', async () => {
     const newConversation = {
       id: 'conv-new',
       participantEmail: 'contact@test.com',
       unreadCount: 0,
     }
 
-    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
-      if (url === '/conversations') return Promise.resolve({ data: [] })
-      if (url === '/messages/conversation/conv-new') return Promise.resolve({ data: [] })
-      return Promise.resolve({ data: [] })
-    })
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: newConversation })
+    mockFetchConversations.mockResolvedValue([])
+    mockFetchConversationMessages.mockResolvedValue([])
+    mockCreateConversation.mockResolvedValue(newConversation)
 
     renderMessages()
 
@@ -298,38 +292,7 @@ describe('MessagesPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /démarrer la conversation/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith('/conversations', {
-        participantId: 'contact-uuid-123',
-      })
-    })
-  })
-
-  it('message send supports text and small attachment error state — shows 413 attachment error', async () => {
-    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
-      if (url === '/conversations') return Promise.resolve({ data: SAMPLE_CONVERSATIONS })
-      if (url === '/messages/conversation/conv-1') return Promise.resolve({ data: [] })
-      return Promise.resolve({ data: [] })
-    })
-    mockApiClient.patch = vi.fn().mockResolvedValue({ data: {} })
-    mockApiClient.post = vi.fn().mockRejectedValue({ response: { status: 413 } })
-
-    renderMessages()
-
-    await waitFor(() => {
-      screen.getByText('prof@test.com')
-    })
-
-    await userEvent.click(screen.getByText('prof@test.com'))
-
-    await waitFor(() => {
-      screen.getByPlaceholderText('Votre message…')
-    })
-
-    await userEvent.type(screen.getByPlaceholderText('Votre message…'), 'Message avec pièce jointe')
-    await userEvent.click(screen.getByRole('button', { name: /envoyer/i }))
-
-    await waitFor(() => {
-      expect(screen.getByText(/pièce jointe est trop volumineuse/i)).toBeDefined()
+      expect(mockCreateConversation).toHaveBeenCalledWith({ participantId: 'contact-uuid-123' })
     })
   })
 })

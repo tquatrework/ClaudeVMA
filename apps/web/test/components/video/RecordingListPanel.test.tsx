@@ -13,11 +13,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import RecordingListPanel from '../../../src/components/video/RecordingListPanel'
 
 vi.mock('../../../src/hooks/useAuth')
-vi.mock('../../../src/api/client')
+vi.mock('../../../src/api/video')
 
-import apiClient from '../../../src/api/client'
+import { fetchRecordings } from '../../../src/api/video'
 
-const mockApiClient = vi.mocked(apiClient)
+const mockFetchRecordings = vi.mocked(fetchRecordings)
 
 function renderPanel(roomId: string, userRole: string) {
   return render(
@@ -36,12 +36,10 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 describe('RecordingListPanel — accès parent refusé', () => {
   it("affiche le message d'accès refusé pour parent_financeur sans appel API", () => {
-    mockApiClient.get = vi.fn()
-
     renderPanel('room-abc', 'parent_financeur')
 
     expect(screen.getByText('Accès non autorisé aux enregistrements')).toBeDefined()
-    expect(mockApiClient.get).not.toHaveBeenCalled()
+    expect(mockFetchRecordings).not.toHaveBeenCalled()
   })
 })
 
@@ -50,7 +48,7 @@ describe('RecordingListPanel — accès parent refusé', () => {
 // ---------------------------------------------------------------------------
 describe('RecordingListPanel — état vide', () => {
   it('affiche le message "Aucun enregistrement disponible" quand la liste est vide', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+    mockFetchRecordings.mockResolvedValue([])
 
     renderPanel('room-abc', 'formateur')
 
@@ -58,7 +56,17 @@ describe('RecordingListPanel — état vide', () => {
       expect(screen.getByText('Aucun enregistrement disponible')).toBeDefined()
     })
 
-    expect(mockApiClient.get).toHaveBeenCalledWith('/video/rooms/room-abc/recordings')
+    expect(mockFetchRecordings).toHaveBeenCalledWith('room-abc')
+  })
+
+  it('affiche une erreur si le chargement échoue', async () => {
+    mockFetchRecordings.mockRejectedValue({ response: { status: 500 } })
+
+    renderPanel('room-abc', 'formateur')
+
+    await waitFor(() => {
+      expect(screen.getByText('Impossible de charger les enregistrements')).toBeDefined()
+    })
   })
 })
 
@@ -76,7 +84,7 @@ describe('RecordingListPanel — enregistrements expirés', () => {
       },
     ]
 
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: expiredRecordings })
+    mockFetchRecordings.mockResolvedValue(expiredRecordings)
 
     renderPanel('room-abc', 'formateur')
 
@@ -97,7 +105,7 @@ describe('RecordingListPanel — enregistrements expirés', () => {
       },
     ]
 
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: activeRecordings })
+    mockFetchRecordings.mockResolvedValue(activeRecordings)
 
     renderPanel('room-abc', 'eleve')
 
@@ -124,7 +132,7 @@ describe('RecordingListPanel — enregistrements expirés', () => {
       },
     ]
 
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: mixedRecordings })
+    mockFetchRecordings.mockResolvedValue(mixedRecordings)
 
     renderPanel('room-abc', 'responsable_pedagogique')
 

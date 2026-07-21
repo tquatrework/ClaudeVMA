@@ -16,19 +16,12 @@ import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
-import apiClient from '../api/client'
+import { useTeacherRequestSummaries } from '../hooks/teacher-requests/useTeacherRequestSummaries'
+import type { TeacherRequestSummary } from '../types/teacherRequests'
 import SpecificTeacherRequestForm from '../components/teacher-requests/SpecificTeacherRequestForm'
 import ChangePrincipalTeacherDialog from '../components/teacher-requests/ChangePrincipalTeacherDialog'
 import RpTeacherSearchWorkspace from '../components/teacher-requests/RpTeacherSearchWorkspace'
 import TeacherRequestInbox from '../components/teacher-requests/TeacherRequestInbox'
-
-interface TeacherRequestSummary {
-  id: string
-  status: 'pending' | 'accepted' | 'declined' | 'cancelled' | 'candidates_selected'
-  createdAt: string
-  description?: string
-  studentId?: string
-}
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'En attente',
@@ -49,9 +42,13 @@ const STATUS_COLORS: Record<string, string> = {
 export default function TeacherRequestPage() {
   const { user, hasRole } = useAuth()
 
-  const [requests, setRequests] = useState<TeacherRequestSummary[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const { requests, isLoading, loadError, addRequestLocally } = useTeacherRequestSummaries()
+
+  const [isErrorDismissed, setIsErrorDismissed] = useState(false)
+  useEffect(() => {
+    setIsErrorDismissed(false)
+  }, [loadError])
+
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   const [isShowingRequestForm, setIsShowingRequestForm] = useState(false)
@@ -65,28 +62,13 @@ export default function TeacherRequestPage() {
   const canCreateRequest = isEleve || isParentFinanceur || isResponsablePedagogique
   const canRequestPpChange = isEleve || isParentFinanceur
 
-  useEffect(() => {
-    apiClient
-      .get<TeacherRequestSummary[] | { data: TeacherRequestSummary[] }>('/teacher-requests')
-      .then(({ data }) => {
-        const requestList = Array.isArray(data)
-          ? data
-          : (data as { data: TeacherRequestSummary[] }).data ?? []
-        setRequests(requestList)
-      })
-      .catch((error: unknown) => {
-        const statusCode = (error as { response?: { status?: number } })?.response?.status
-        if (statusCode === 403) {
-          setErrorMessage('Accès refusé')
-        } else {
-          setErrorMessage('Impossible de charger les demandes')
-        }
-      })
-      .finally(() => setIsLoading(false))
-  }, [])
-
-  const handleRequestCreated = (newRequest: { id: string; status: string; createdAt: string; description?: string }) => {
-    setRequests((previous) => [newRequest as TeacherRequestSummary, ...previous])
+  const handleRequestCreated = (newRequest: {
+    id: string
+    status: string
+    createdAt: string
+    description?: string
+  }) => {
+    addRequestLocally(newRequest as TeacherRequestSummary)
     setIsShowingRequestForm(false)
     setSuccessMessage('Votre demande a bien été soumise')
   }
@@ -129,11 +111,11 @@ export default function TeacherRequestPage() {
         </div>
 
         {/* Alerts */}
-        {errorMessage && (
+        {loadError && !isErrorDismissed && (
           <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-center justify-between">
-            <span>{errorMessage}</span>
+            <span>{loadError}</span>
             <button
-              onClick={() => setErrorMessage(null)}
+              onClick={() => setIsErrorDismissed(true)}
               className="text-red-400 hover:text-red-600 ml-3"
             >
               ✕
@@ -191,7 +173,7 @@ export default function TeacherRequestPage() {
               <p className="text-gray-400 text-sm">Chargement…</p>
             )}
 
-            {!isLoading && requests.length === 0 && !errorMessage && (
+            {!isLoading && requests.length === 0 && !loadError && (
               <div className="text-center py-12 bg-white border border-gray-200 rounded-xl">
                 <p className="text-gray-500 text-sm font-medium">
                   {isEleve || isParentFinanceur

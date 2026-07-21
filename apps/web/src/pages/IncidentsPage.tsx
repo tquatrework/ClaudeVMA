@@ -1,17 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import apiClient from '../api/client'
 import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
-
-interface Incident {
-  id: string
-  title: string
-  description?: string
-  status: 'open' | 'in_progress' | 'resolved' | 'closed'
-  createdAt: string
-  reporterId?: string
-}
+import { useIncidents } from '../hooks/communication/useIncidents'
+import type { Incident } from '../api/communication'
 
 const STATUS_LABELS: Record<Incident['status'], string> = {
   open: 'Ouvert',
@@ -29,51 +21,40 @@ const STATUS_COLORS: Record<Incident['status'], string> = {
 
 export default function IncidentsPage() {
   const { hasRole } = useAuth()
-  const [incidents, setIncidents] = useState<Incident[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { incidents, isLoading, error: loadError, createIncident, isSaving, createError } =
+    useIncidents()
 
-  // Create form state
   const [isCreating, setIsCreating] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [newDescription, setNewDescription] = useState('')
-  const [isSaving, setIsSaving] = useState(false)
+  const [isErrorDismissed, setIsErrorDismissed] = useState(false)
 
-  const canCreateIncident = hasRole('technicien_informatique', 'eleve', 'formateur', 'parent_financeur', 'responsable_pedagogique', 'animateur_pedagogique')
+  const canCreateIncident = hasRole(
+    'technicien_informatique',
+    'eleve',
+    'formateur',
+    'parent_financeur',
+    'responsable_pedagogique',
+    'animateur_pedagogique',
+  )
+
+  const error = createError ?? loadError
 
   useEffect(() => {
-    apiClient
-      .get<Incident[]>('/incidents')
-      .then(({ data }) => setIncidents(data))
-      .catch((err) => {
-        const status = err?.response?.status
-        if (status === 403) setError('Accès refusé')
-        else setError('Impossible de charger les incidents')
-      })
-      .finally(() => setIsLoading(false))
-  }, [])
+    setIsErrorDismissed(false)
+  }, [error])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newTitle.trim()) return
-    setIsSaving(true)
-    setError(null)
-    try {
-      const { data } = await apiClient.post<Incident>('/incidents', {
-        title: newTitle.trim(),
-        description: newDescription.trim() || undefined,
-      })
-      setIncidents((prev) => [data, ...prev])
+    const created = await createIncident({
+      title: newTitle.trim(),
+      description: newDescription.trim() || undefined,
+    })
+    if (created) {
       setNewTitle('')
       setNewDescription('')
       setIsCreating(false)
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        "Erreur lors de la création de l'incident"
-      setError(message)
-    } finally {
-      setIsSaving(false)
     }
   }
 
@@ -95,10 +76,13 @@ export default function IncidentsPage() {
           )}
         </div>
 
-        {error && (
+        {error && !isErrorDismissed && (
           <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-center justify-between">
             <span>{error}</span>
-            <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600 ml-3">
+            <button
+              onClick={() => setIsErrorDismissed(true)}
+              className="text-red-400 hover:text-red-600 ml-3"
+            >
               ✕
             </button>
           </div>
@@ -161,7 +145,7 @@ export default function IncidentsPage() {
 
         {isLoading && <p className="text-gray-400 text-sm">Chargement…</p>}
 
-        {!isLoading && !error && incidents.length === 0 && (
+        {!isLoading && !loadError && incidents.length === 0 && (
           <div className="text-center py-12 bg-white border border-gray-200 rounded-xl">
             <p className="text-gray-400 text-sm">Aucun incident déclaré</p>
             {canCreateIncident && (

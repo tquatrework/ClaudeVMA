@@ -9,85 +9,61 @@
  * - administrateur_financier : valider ou refuser
  */
 
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
-import apiClient from '../api/client'
-
-interface TeacherPaymentRequest {
-  id: string
-  teacherId: string
-  amountCents: number
-  description: string
-  invoiceReference?: string
-  status: 'pending' | 'validated' | 'rejected'
-  createdAt: string
-}
+import { useTeacherPaymentRequests } from '../hooks/finance/useTeacherPaymentRequests'
+import type { TeacherPaymentRequest } from '../api/finance'
 
 export default function TeacherPaymentRequestPage() {
   const { user, hasRole } = useAuth()
 
-  const [paymentRequests, setPaymentRequests] = useState<TeacherPaymentRequest[]>([])
-  const [isLoadingRequests, setIsLoadingRequests] = useState(true)
+  const isFormateur = hasRole('formateur')
+  const isAF = hasRole('administrateur_financier')
+
+  const {
+    paymentRequests,
+    isLoadingRequests,
+    loadError,
+    isListUnavailableForRole,
+    submitRequest,
+    isSubmittingRequest,
+    submitError,
+    validateRequest,
+    validatingRequestId,
+    validateError,
+  } = useTeacherPaymentRequests(isFormateur, user?.id)
 
   // Form state (formateur)
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [requestAmountCents, setRequestAmountCents] = useState(0)
   const [requestDescription, setRequestDescription] = useState('')
   const [invoiceReference, setInvoiceReference] = useState('')
-  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitSuccess, setSubmitSuccess] = useState(false)
-
-  const isFormateur = hasRole('formateur')
-  const isAF = hasRole('administrateur_financier')
-
-  useEffect(() => {
-    apiClient
-      .get<TeacherPaymentRequest[]>('/teacher-payment-requests')
-      .then(({ data }) => setPaymentRequests(Array.isArray(data) ? data : []))
-      .catch(() => { /* non-bloquant */ })
-      .finally(() => setIsLoadingRequests(false))
-  }, [user])
 
   const handleSubmitRequest = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!requestDescription.trim() || requestAmountCents <= 0) return
 
-    setIsSubmittingRequest(true)
-    setSubmitError(null)
     setSubmitSuccess(false)
 
-    try {
-      const { data } = await apiClient.post<TeacherPaymentRequest>('/teacher-payment-requests', {
-        amountCents: requestAmountCents,
-        description: requestDescription.trim(),
-        invoiceReference: invoiceReference.trim() || undefined,
-      })
-      setPaymentRequests((previous) => [data, ...previous])
+    const success = await submitRequest({
+      amountCents: requestAmountCents,
+      description: requestDescription.trim(),
+      invoiceReference: invoiceReference.trim() || undefined,
+    })
+
+    if (success) {
       setIsFormOpen(false)
       setRequestAmountCents(0)
       setRequestDescription('')
       setInvoiceReference('')
       setSubmitSuccess(true)
-    } catch {
-      setSubmitError('Impossible de soumettre la demande de paiement.')
-    } finally {
-      setIsSubmittingRequest(false)
     }
   }
 
   const handleValidateRequest = async (requestId: string) => {
-    try {
-      const { data } = await apiClient.post<TeacherPaymentRequest>(
-        `/teacher-payment-requests/${requestId}/validate`,
-      )
-      setPaymentRequests((previous) =>
-        previous.map((request) => (request.id === requestId ? data : request)),
-      )
-    } catch {
-      /* non-bloquant */
-    }
+    await validateRequest(requestId)
   }
 
   const STATUS_LABELS: Record<TeacherPaymentRequest['status'], string> = {
@@ -194,10 +170,24 @@ export default function TeacherPaymentRequestPage() {
           </section>
         )}
 
+        {/* Erreur de validation (AF) */}
+        {validateError && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            {validateError}
+          </div>
+        )}
+
         {/* Liste des demandes */}
         <section>
           {isLoadingRequests ? (
             <p className="text-gray-400 text-sm">Chargement…</p>
+          ) : loadError ? (
+            <p className="text-red-600 text-sm">{loadError}</p>
+          ) : isListUnavailableForRole ? (
+            <p className="text-gray-500 text-sm">
+              La validation groupée des demandes nécessite un endpoint backend de liste globale
+              qui n'existe pas encore côté finance-credit-service. Contactez l'équipe technique.
+            </p>
           ) : paymentRequests.length === 0 ? (
             <p className="text-gray-400 text-sm">Aucune demande de paiement.</p>
           ) : (
@@ -234,9 +224,10 @@ export default function TeacherPaymentRequestPage() {
                       {isAF && paymentRequest.status === 'pending' && (
                         <button
                           onClick={() => handleValidateRequest(paymentRequest.id)}
-                          className="block w-full mt-1 text-xs bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700"
+                          disabled={validatingRequestId === paymentRequest.id}
+                          className="block w-full mt-1 text-xs bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 disabled:opacity-50"
                         >
-                          Valider
+                          {validatingRequestId === paymentRequest.id ? 'Validation…' : 'Valider'}
                         </button>
                       )}
                     </div>

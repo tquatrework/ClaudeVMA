@@ -9,11 +9,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import RecordingCommentTimeline from '../../../src/components/video/RecordingCommentTimeline'
 
 vi.mock('../../../src/hooks/useAuth')
-vi.mock('../../../src/api/client')
+vi.mock('../../../src/api/video')
 
-import apiClient from '../../../src/api/client'
+import { addRecordingComment } from '../../../src/api/video'
 
-const mockApiClient = vi.mocked(apiClient)
+const mockAddRecordingComment = vi.mocked(addRecordingComment)
 
 function renderTimeline(recordingId: string, userRole: string) {
   const onClose = vi.fn()
@@ -54,7 +54,12 @@ describe('RecordingCommentTimeline — formulaire commentaire', () => {
   })
 
   it('envoie le commentaire et le liste dans la timeline', async () => {
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+    mockAddRecordingComment.mockResolvedValue({
+      id: 'comment-1',
+      timestampSeconds: 0,
+      content: 'Excellent exemple ici',
+      createdAt: '2026-07-21T10:00:00.000Z',
+    })
 
     renderTimeline('rec-123', 'formateur')
 
@@ -62,7 +67,7 @@ describe('RecordingCommentTimeline — formulaire commentaire', () => {
     await userEvent.click(screen.getByRole('button', { name: /envoyer/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith('/recordings/rec-123/comments', {
+      expect(mockAddRecordingComment).toHaveBeenCalledWith('rec-123', {
         timestampSeconds: 0,
         content: 'Excellent exemple ici',
       })
@@ -70,6 +75,19 @@ describe('RecordingCommentTimeline — formulaire commentaire', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Excellent exemple ici')).toBeDefined()
+    })
+  })
+
+  it('affiche une erreur fixe si l\'envoi échoue', async () => {
+    mockAddRecordingComment.mockRejectedValue({ response: { status: 400 } })
+
+    renderTimeline('rec-123', 'eleve')
+
+    await userEvent.type(screen.getByLabelText('Commentaire'), 'Un commentaire')
+    await userEvent.click(screen.getByRole('button', { name: /envoyer/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText("Impossible d'envoyer le commentaire")).toBeDefined()
     })
   })
 

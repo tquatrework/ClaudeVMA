@@ -9,11 +9,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import CourseSummaryView from '../../../src/components/video/CourseSummaryView'
 
 vi.mock('../../../src/hooks/useAuth')
-vi.mock('../../../src/api/client')
+vi.mock('../../../src/api/video')
 
-import apiClient from '../../../src/api/client'
+import { publishCourseSummary } from '../../../src/api/video'
 
-const mockApiClient = vi.mocked(apiClient)
+const mockPublishCourseSummary = vi.mocked(publishCourseSummary)
 
 function renderSummaryView(roomId: string, userRole: string, roomStatus: string) {
   return render(
@@ -64,7 +64,15 @@ describe('CourseSummaryView — publication du résumé', () => {
   })
 
   it('publie le résumé et affiche la confirmation', async () => {
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+    mockPublishCourseSummary.mockResolvedValue({
+      id: 'summary-1',
+      roomId: 'room-abc',
+      authorId: 'teacher-1',
+      content: 'Nous avons étudié les fractions',
+      isPermanent: true,
+      publishedAt: '2026-07-21T10:00:00.000Z',
+      createdAt: '2026-07-21T10:00:00.000Z',
+    })
 
     renderSummaryView('room-abc', 'formateur', 'ended')
 
@@ -75,13 +83,27 @@ describe('CourseSummaryView — publication du résumé', () => {
     await userEvent.click(screen.getByRole('button', { name: /publier le résumé/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith('/video/rooms/room-abc/summary', {
-        content: 'Nous avons étudié les fractions',
-      })
+      expect(mockPublishCourseSummary).toHaveBeenCalledWith(
+        'room-abc',
+        'Nous avons étudié les fractions',
+      )
     })
 
     await waitFor(() => {
       expect(screen.getByText('Résumé publié avec succès')).toBeDefined()
+    })
+  })
+
+  it('affiche une erreur si la publication échoue', async () => {
+    mockPublishCourseSummary.mockRejectedValue({ response: { status: 500 } })
+
+    renderSummaryView('room-abc', 'formateur', 'ended')
+
+    await userEvent.type(screen.getByLabelText('Résumé de cours'), 'Contenu')
+    await userEvent.click(screen.getByRole('button', { name: /publier le résumé/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Impossible de publier le résumé')).toBeDefined()
     })
   })
 

@@ -6,50 +6,48 @@
  */
 
 import React, { useState } from 'react'
-import apiClient from '../../api/client'
 import { ErrorMessage } from '../ui/ErrorMessage'
+import { useWorkflowCommand } from '../../hooks/admin/useWorkflowCommand'
 
 export function WorkflowCommandPanel() {
   const [commandTargetService, setCommandTargetService] = useState('')
   const [commandAction, setCommandAction] = useState('')
   const [commandPayload, setCommandPayload] = useState('{}')
   const [commandIdempotencyKey, setCommandIdempotencyKey] = useState('')
-  const [isSendingCommand, setIsSendingCommand] = useState(false)
   const [commandResult, setCommandResult] = useState<string | null>(null)
-  const [commandError, setCommandError] = useState<string | null>(null)
+  const [payloadParseError, setPayloadParseError] = useState<string | null>(null)
+
+  const { sendCommand, isSendingCommand, commandError, resetCommandError } = useWorkflowCommand()
 
   const handleSendCommand = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!commandTargetService.trim() || !commandAction.trim()) return
-    setIsSendingCommand(true)
-    setCommandError(null)
+    setPayloadParseError(null)
     setCommandResult(null)
 
-    let parsedPayload: unknown = {}
+    let parsedPayload: Record<string, unknown> = {}
     try {
       parsedPayload = JSON.parse(commandPayload)
     } catch {
-      setCommandError('Le payload doit être un JSON valide')
-      setIsSendingCommand(false)
+      setPayloadParseError('Le payload doit être un JSON valide')
       return
     }
 
-    try {
-      const { data } = await apiClient.post('/orchestration/commands', {
-        targetService: commandTargetService.trim(),
-        action: commandAction.trim(),
-        payload: parsedPayload,
-        idempotencyKey: commandIdempotencyKey.trim() || crypto.randomUUID(),
-      })
-      setCommandResult(JSON.stringify(data, null, 2))
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        "Erreur lors de l'envoi de la commande"
-      setCommandError(message)
-    } finally {
-      setIsSendingCommand(false)
+    const result = await sendCommand({
+      targetService: commandTargetService.trim(),
+      action: commandAction.trim(),
+      payload: parsedPayload,
+      idempotencyKey: commandIdempotencyKey.trim() || crypto.randomUUID(),
+    })
+    if (result) {
+      setCommandResult(JSON.stringify(result, null, 2))
     }
+  }
+
+  const commandDisplayedError = payloadParseError ?? commandError
+  const handleCloseError = () => {
+    setPayloadParseError(null)
+    resetCommandError()
   }
 
   return (
@@ -62,8 +60,8 @@ export function WorkflowCommandPanel() {
         </p>
       </div>
 
-      {commandError && (
-        <ErrorMessage message={commandError} onClose={() => setCommandError(null)} />
+      {commandDisplayedError && (
+        <ErrorMessage message={commandDisplayedError} onClose={handleCloseError} />
       )}
 
       {commandResult && (

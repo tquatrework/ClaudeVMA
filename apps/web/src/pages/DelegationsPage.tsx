@@ -1,25 +1,7 @@
-import React, { useEffect, useState } from 'react'
-import apiClient from '../api/client'
+import React, { useState } from 'react'
 import Layout from '../components/Layout'
-
-type DelegationStatus = 'pending' | 'approved' | 'rejected' | 'executed'
-
-interface Delegation {
-  id: string
-  requesterId: string
-  targetAccountId: string
-  action: string
-  status: DelegationStatus
-  reason: string
-  createdAt: string
-  resolvedAt?: string
-}
-
-interface CreateDelegationPayload {
-  targetAccountId: string
-  action: string
-  delegationReason: string
-}
+import { useDelegations } from '../hooks/communication/useDelegations'
+import type { DelegationStatus } from '../api/communication'
 
 const STATUS_LABELS: Record<DelegationStatus, string> = {
   pending: 'En attente',
@@ -36,68 +18,35 @@ const STATUS_COLORS: Record<DelegationStatus, string> = {
 }
 
 export default function DelegationsPage() {
-  const [delegationList, setDelegationList] = useState<Delegation[]>([])
-  const [isLoadingDelegations, setIsLoadingDelegations] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const {
+    delegations,
+    isLoading: isLoadingDelegations,
+    error: loadError,
+    createDelegation,
+    isCreating,
+    createError: createErrorMessage,
+    createSuccessMessage,
+    resetCreateFeedback,
+  } = useDelegations()
 
   // Create delegation form state
   const [targetAccountId, setTargetAccountId] = useState('')
   const [delegationAction, setDelegationAction] = useState('')
   const [delegationReason, setDelegationReason] = useState('')
-  const [isCreating, setIsCreating] = useState(false)
-  const [createSuccessMessage, setCreateSuccessMessage] = useState<string | null>(null)
-  const [createErrorMessage, setCreateErrorMessage] = useState<string | null>(null)
   const [showCreateForm, setShowCreateForm] = useState(false)
-
-  const loadDelegations = async () => {
-    setIsLoadingDelegations(true)
-    setLoadError(null)
-    try {
-      const { data } = await apiClient.get<Delegation[] | { data: Delegation[] }>('/delegations')
-      const delegations = Array.isArray(data) ? data : data.data
-      setDelegationList(delegations)
-    } catch {
-      setLoadError('Impossible de charger les délégations')
-    } finally {
-      setIsLoadingDelegations(false)
-    }
-  }
-
-  useEffect(() => {
-    loadDelegations()
-  }, [])
 
   const handleCreateDelegation = async (e: React.FormEvent) => {
     e.preventDefault()
-    setCreateErrorMessage(null)
-    setCreateSuccessMessage(null)
-    setIsCreating(true)
-
-    const payload: CreateDelegationPayload = {
+    const created = await createDelegation({
       targetAccountId,
       action: delegationAction,
-      delegationReason: delegationReason,
-    }
-
-    try {
-      await apiClient.post('/delegations', {
-        targetAccountId: payload.targetAccountId,
-        action: payload.action,
-        reason: payload.delegationReason,
-      })
-      setCreateSuccessMessage('Demande de délégation créée avec succès.')
+      reason: delegationReason,
+    })
+    if (created) {
       setTargetAccountId('')
       setDelegationAction('')
       setDelegationReason('')
       setShowCreateForm(false)
-      await loadDelegations()
-    } catch (err: unknown) {
-      const apiMessage =
-        (err as { response?: { data?: { message?: string } } })?.response?.data
-          ?.message ?? 'Erreur lors de la création de la délégation'
-      setCreateErrorMessage(apiMessage)
-    } finally {
-      setIsCreating(false)
     }
   }
 
@@ -124,8 +73,7 @@ export default function DelegationsPage() {
           <button
             onClick={() => {
               setShowCreateForm(!showCreateForm)
-              setCreateErrorMessage(null)
-              setCreateSuccessMessage(null)
+              resetCreateFeedback()
             }}
             className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
           >
@@ -217,14 +165,14 @@ export default function DelegationsPage() {
           <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
             {loadError}
           </div>
-        ) : delegationList.length === 0 ? (
+        ) : delegations.length === 0 ? (
           <div className="text-center py-12 text-gray-400">
             <p className="text-lg font-medium">Aucune délégation</p>
             <p className="text-sm mt-1">Les demandes de délégation apparaîtront ici.</p>
           </div>
         ) : (
           <div className="space-y-3">
-            {delegationList.map((delegation) => (
+            {delegations.map((delegation) => (
               <div
                 key={delegation.id}
                 className="bg-white border border-gray-200 rounded-xl p-4 hover:border-indigo-200 transition-colors"

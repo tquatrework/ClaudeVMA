@@ -11,22 +11,21 @@
  *   - Fil d'activité
  */
 
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import DashboardShell from '../components/dashboard/DashboardShell'
-import apiClient from '../api/client'
 import '../styles/tokens.css'
-import type { CalendarEvent } from '../types/calendar'
-import type { DashboardNotification, DashboardContact } from '../types/dashboard'
 import { formatCountdown, formatEventDate, formatShortDate } from '../utils/dateFormat'
-import { normalizeListResponse, getFutureEvents } from '../utils/dashboardFormat'
 import { getRailGroupsForRole, filterTopNavItems } from '../navigation/navigationConfig'
 import { DashboardCard, DashboardSectionTitle, DashboardCardLabel } from '../components/ui/DashboardCard'
 import { ActivityFeed } from '../components/ui/ActivityFeed'
 import { ImportantContacts } from '../components/ui/ImportantContacts'
 import { PageTitle } from '../components/ui/PageTitle'
 import { useRoleAccent } from '../hooks/useRoleAccent'
+import { useUpcomingCourses } from '../hooks/dashboard/useUpcomingCourses'
+import { useDashboardNotifications } from '../hooks/dashboard/useDashboardNotifications'
+import { useDashboardContacts } from '../hooks/dashboard/useDashboardContacts'
 
 // Alias pour la rétrocompatibilité interne
 const Card = DashboardCard
@@ -35,18 +34,13 @@ const SectionTitle = DashboardSectionTitle
 // ─── Composant principal ────────────────────────────────────
 
 export default function EleveDashboardPage() {
-  const { user } = useAuth()
+  const { user, hasRole } = useAuth()
   const firstName = user?.loginIdentifier ?? 'vous'
 
-  const [nextCourse, setNextCourse] = useState<CalendarEvent | null>(null)
-  const [upcomingCourses, setUpcomingCourses] = useState<CalendarEvent[]>([])
-  const [notifications, setNotifications] = useState<DashboardNotification[]>([])
-  const [contacts, setContacts] = useState<DashboardContact[]>([])
-  const [isLoadingCourses, setIsLoadingCourses] = useState(true)
-  const [isLoadingNotifications, setIsLoadingNotifications] = useState(true)
-  const [isLoadingContacts, setIsLoadingContacts] = useState(true)
+  const { nextCourse, upcomingCourses, isLoadingCourses } = useUpcomingCourses(user?.id, 3)
+  const { notifications, isLoadingNotifications } = useDashboardNotifications(5)
+  const { contacts, isLoadingContacts } = useDashboardContacts(5)
 
-  const { hasRole } = useAuth()
   const topNavItems = filterTopNavItems('eleve', hasRole)
 
   // Rail avec chemin carnet personnel résolu
@@ -59,40 +53,6 @@ export default function EleveDashboardPage() {
         ),
       }))
     : baseRailGroups
-
-  useEffect(() => {
-    if (!user) return
-
-    // Calendrier
-    apiClient
-      .get<CalendarEvent[]>(`/calendars/${user.id}/events`)
-      .then(({ data }) => {
-        const futureEvents = getFutureEvents(Array.isArray(data) ? data : [])
-        setNextCourse(futureEvents[0] ?? null)
-        setUpcomingCourses(futureEvents.slice(1, 4))
-      })
-      .catch(() => {})
-      .finally(() => setIsLoadingCourses(false))
-
-    // Notifications
-    apiClient
-      .get<{ data?: DashboardNotification[] } | DashboardNotification[]>('/notifications')
-      .then(({ data }) => {
-        setNotifications(normalizeListResponse(data).slice(0, 5))
-      })
-      .catch(() => {})
-      .finally(() => setIsLoadingNotifications(false))
-
-    // Contacts
-    apiClient
-      .get<DashboardContact[]>('/contacts')
-      .then(({ data }) => {
-        const contactList = Array.isArray(data) ? data : []
-        setContacts(contactList.filter((contact) => contact.status === 'active').slice(0, 5))
-      })
-      .catch(() => {})
-      .finally(() => setIsLoadingContacts(false))
-  }, [user])
 
   // Détecter le professeur principal parmi les contacts
   const principalTeacher = contacts.find(
@@ -115,89 +75,42 @@ export default function EleveDashboardPage() {
       <PageTitle title={`Bonjour, ${firstName}`} subtitle="Voici votre espace élève" />
 
       {/* ── LIGNE 1 : Professeur attitré + Prochain cours ─── */}
-      <div
-        style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px', marginBottom: '20px' }}
-        className="vm-grid-hero"
-      >
+      <div className="grid grid-cols-[1fr_2fr] gap-4 mb-5 vm-grid-hero">
         {/* Carte professeur attitré */}
         <Card>
-          <p
-            style={{
-              fontSize: '10px',
-              fontWeight: 700,
-              color: 'var(--color-text-secondary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              marginBottom: '12px',
-            }}
-          >
+          <p className="text-[10px] font-bold text-[color:var(--color-text-secondary)] uppercase tracking-[0.08em] mb-3">
             Mon professeur
           </p>
 
           {principalTeacher ? (
             <div>
               {/* Avatar + nom */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
-                <div
-                  style={{
-                    width: '44px',
-                    height: '44px',
-                    borderRadius: '50%',
-                    background: 'var(--accent-alpha-15, rgba(91,108,240,0.15))',
-                    border: '2px solid var(--accent)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'var(--accent)',
-                    fontWeight: 700,
-                    fontSize: '18px',
-                    flexShrink: 0,
-                  }}
-                >
+              <div className="flex items-center gap-3 mb-3.5">
+                <div className="w-11 h-11 rounded-full bg-[var(--accent-alpha-15)] border-2 border-[var(--accent)] flex items-center justify-center text-[color:var(--accent)] font-bold text-[18px] shrink-0">
                   {(principalTeacher.displayName ?? '?').charAt(0).toUpperCase()}
                 </div>
                 <div>
-                  <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-ink)', margin: 0 }}>
+                  <p className="text-[14px] font-semibold text-[color:var(--color-ink)] m-0">
                     {principalTeacher.displayName ?? 'Formateur'}
                   </p>
-                  <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: '2px 0 0' }}>
+                  <p className="text-[12px] text-[color:var(--color-text-secondary)] mt-0.5 mb-0">
                     Mathématiques
                   </p>
                 </div>
               </div>
 
               {/* Actions */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div className="flex flex-col gap-2">
                 <Link
                   to={`/profiles/${principalTeacher.id}`}
-                  style={{
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    color: 'var(--accent)',
-                    border: '1px solid var(--color-surface)',
-                    borderRadius: 'var(--radius-field)',
-                    padding: '7px 12px',
-                    textDecoration: 'none',
-                    textAlign: 'center',
-                    display: 'block',
-                  }}
+                  className="text-[12px] font-medium text-[color:var(--accent)] border border-[var(--color-surface)] rounded-[var(--radius-field)] py-[7px] px-3 no-underline text-center block"
                 >
                   Voir le profil
                 </Link>
                 {isVisioSoon && nextCourse && (
                   <Link
                     to={`/activities/${nextCourse.id}`}
-                    style={{
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: '#fff',
-                      background: 'var(--accent)',
-                      borderRadius: 'var(--radius-field)',
-                      padding: '7px 12px',
-                      textDecoration: 'none',
-                      textAlign: 'center',
-                      display: 'block',
-                    }}
+                    className="text-[12px] font-semibold text-white bg-[var(--accent)] rounded-[var(--radius-field)] py-[7px] px-3 no-underline text-center block"
                   >
                     Rejoindre la visio
                   </Link>
@@ -205,44 +118,16 @@ export default function EleveDashboardPage() {
               </div>
             </div>
           ) : (
-            <div style={{ textAlign: 'center', padding: '8px 0' }}>
-              <div
-                style={{
-                  width: '44px',
-                  height: '44px',
-                  borderRadius: '50%',
-                  background: 'var(--color-surface)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  margin: '0 auto 12px',
-                  fontSize: '20px',
-                }}
-              >
+            <div className="text-center py-2">
+              <div className="w-11 h-11 rounded-full bg-[var(--color-surface)] flex items-center justify-center mx-auto mb-3 text-[20px]">
                 ?
               </div>
-              <p
-                style={{
-                  fontSize: '13px',
-                  color: 'var(--color-text-secondary)',
-                  marginBottom: '14px',
-                  lineHeight: 1.4,
-                }}
-              >
+              <p className="text-[13px] text-[color:var(--color-text-secondary)] mb-3.5 leading-[1.4]">
                 Vous n'avez pas pour l'instant de professeur attitré
               </p>
               <Link
                 to="/teacher-requests"
-                style={{
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#fff',
-                  background: 'var(--accent)',
-                  borderRadius: 'var(--radius-field)',
-                  padding: '8px 14px',
-                  textDecoration: 'none',
-                  display: 'inline-block',
-                }}
+                className="text-[12px] font-semibold text-white bg-[var(--accent)] rounded-[var(--radius-field)] py-2 px-3.5 no-underline inline-block"
               >
                 Demander un professeur
               </Link>
@@ -252,76 +137,34 @@ export default function EleveDashboardPage() {
 
         {/* Hero — Prochain cours */}
         <Card style={{ padding: '24px' }}>
-          <p
-            style={{
-              fontSize: '10px',
-              fontWeight: 700,
-              color: 'var(--color-text-secondary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              marginBottom: '10px',
-            }}
-          >
+          <p className="text-[10px] font-bold text-[color:var(--color-text-secondary)] uppercase tracking-[0.08em] mb-2.5">
             Prochain cours
           </p>
 
           {isLoadingCourses ? (
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Chargement…</p>
+            <p className="text-[13px] text-[color:var(--color-text-secondary)]">Chargement…</p>
           ) : nextCourse ? (
             <div>
-              <h2
-                style={{
-                  fontFamily: 'var(--font-heading)',
-                  fontSize: '20px',
-                  fontWeight: 700,
-                  color: 'var(--color-ink)',
-                  margin: '0 0 4px',
-                }}
-              >
+              <h2 className="font-[var(--font-heading)] text-[20px] font-bold text-[color:var(--color-ink)] mb-1">
                 {nextCourse.title ?? 'Séance de mathématiques'}
               </h2>
-              <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', margin: '0 0 16px' }}>
+              <p className="text-[13px] text-[color:var(--color-text-secondary)] mb-4">
                 {formatEventDate(nextCourse.startAt)}
               </p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <div className="flex items-center gap-2.5 flex-wrap">
+                {/* background gardé en inline : valeur color-mix() calculée, pas un token statique */}
                 <span
-                  style={{
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
-                    color: 'var(--accent)',
-                    borderRadius: 'var(--radius-pill)',
-                    padding: '4px 12px',
-                  }}
+                  style={{ background: 'color-mix(in srgb, var(--accent) 12%, transparent)' }}
+                  className="text-[12px] font-semibold text-[color:var(--accent)] rounded-[var(--radius-pill)] py-1 px-3"
                 >
                   {formatCountdown(nextCourse.startAt)}
                 </span>
-                <span
-                  style={{
-                    fontSize: '12px',
-                    background: 'var(--color-surface)',
-                    color: 'var(--color-text-secondary)',
-                    borderRadius: 'var(--radius-pill)',
-                    padding: '4px 12px',
-                  }}
-                >
+                <span className="text-[12px] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] rounded-[var(--radius-pill)] py-1 px-3">
                   visio
                 </span>
                 <Link
                   to={`/activities/${nextCourse.id}`}
-                  style={{
-                    marginLeft: 'auto',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    color: '#fff',
-                    background: 'var(--accent)',
-                    borderRadius: 'var(--radius-pill)',
-                    padding: '8px 20px',
-                    textDecoration: 'none',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                  }}
+                  className="ml-auto text-[13px] font-semibold text-white bg-[var(--accent)] rounded-[var(--radius-pill)] py-2 px-5 no-underline inline-flex items-center gap-1.5"
                 >
                   ▶ Rejoindre
                 </Link>
@@ -329,43 +172,21 @@ export default function EleveDashboardPage() {
 
               {/* Prochains cours */}
               {upcomingCourses.length > 0 && (
-                <div
-                  style={{
-                    marginTop: '16px',
-                    paddingTop: '14px',
-                    borderTop: '1px solid var(--color-surface)',
-                  }}
-                >
-                  <p
-                    style={{
-                      fontSize: '10px',
-                      fontWeight: 700,
-                      color: 'var(--color-text-secondary)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.08em',
-                      marginBottom: '8px',
-                    }}
-                  >
+                <div className="mt-4 pt-3.5 border-t border-[var(--color-surface)]">
+                  <p className="text-[10px] font-bold text-[color:var(--color-text-secondary)] uppercase tracking-[0.08em] mb-2">
                     À venir
                   </p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div className="flex flex-col gap-1">
                     {upcomingCourses.map((courseEvent) => (
                       <Link
                         key={courseEvent.id}
                         to={`/activities/${courseEvent.id}`}
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          padding: '6px 0',
-                          borderBottom: '1px solid var(--color-surface)',
-                          textDecoration: 'none',
-                        }}
+                        className="flex justify-between items-center py-1.5 border-b border-[var(--color-surface)] no-underline"
                       >
-                        <span style={{ fontSize: '13px', color: 'var(--color-ink)' }}>
+                        <span className="text-[13px] text-[color:var(--color-ink)]">
                           {courseEvent.title ?? 'Séance'}
                         </span>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                        <span className="text-[11px] text-[color:var(--color-text-secondary)]">
                           {formatShortDate(courseEvent.startAt)}
                         </span>
                       </Link>
@@ -375,22 +196,14 @@ export default function EleveDashboardPage() {
               )}
             </div>
           ) : (
-            <div style={{ textAlign: 'center', padding: '16px 0' }}>
-              <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: '16px' }}>
+            <div className="text-center py-4">
+              <p className="text-[14px] text-[color:var(--color-text-secondary)] mb-4">
                 Aucun cours à venir
               </p>
               {!isLoadingContacts && principalTeacher === null && (
                 <Link
                   to="/contacts"
-                  style={{
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    color: 'var(--accent)',
-                    border: '1px solid var(--accent)',
-                    borderRadius: 'var(--radius-pill)',
-                    padding: '8px 20px',
-                    textDecoration: 'none',
-                  }}
+                  className="text-[13px] font-medium text-[color:var(--accent)] border border-[var(--accent)] rounded-[var(--radius-pill)] py-2 px-5 no-underline"
                 >
                   Demander un professeur
                 </Link>
@@ -401,34 +214,31 @@ export default function EleveDashboardPage() {
       </div>
 
       {/* ── LIGNE 2 : Travail en cours | À ne pas oublier ── */}
-      <div
-        style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}
-        className="vm-grid-work"
-      >
+      <div className="grid grid-cols-2 gap-4 mb-5 vm-grid-work">
         {/* Travail en cours */}
         <Card>
           <SectionTitle>Travail en cours</SectionTitle>
 
-          <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '16px' }}>
+          <p className="text-[13px] text-[color:var(--color-text-secondary)] mb-4">
             Aucun travail en cours pour l'instant.
           </p>
 
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <div className="flex gap-2 flex-wrap">
             <Link
               to="/content/exercises"
-              style={{ fontSize: '12px', color: 'var(--accent)', textDecoration: 'none' }}
+              className="text-[12px] text-[color:var(--accent)] no-underline"
             >
               Exercices →
             </Link>
             <Link
               to="/content/evaluations"
-              style={{ fontSize: '12px', color: 'var(--accent)', textDecoration: 'none' }}
+              className="text-[12px] text-[color:var(--accent)] no-underline"
             >
               Évaluations →
             </Link>
             <Link
               to="/community/paths"
-              style={{ fontSize: '12px', color: 'var(--accent)', textDecoration: 'none' }}
+              className="text-[12px] text-[color:var(--accent)] no-underline"
             >
               Parcours →
             </Link>
@@ -439,18 +249,13 @@ export default function EleveDashboardPage() {
         <Card>
           <SectionTitle>À ne pas oublier</SectionTitle>
 
-          <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '14px' }}>
+          <p className="text-[13px] text-[color:var(--color-text-secondary)] mb-3.5">
             Aucun rappel pour l'instant.
           </p>
 
           <Link
             to="/calendar"
-            style={{
-              display: 'inline-block',
-              fontSize: '12px',
-              color: 'var(--accent)',
-              textDecoration: 'none',
-            }}
+            className="inline-block text-[12px] text-[color:var(--accent)] no-underline"
           >
             Voir le calendrier →
           </Link>
@@ -458,10 +263,7 @@ export default function EleveDashboardPage() {
       </div>
 
       {/* ── LIGNE 3 : Contacts importants + Fil d'activité ─ */}
-      <div
-        style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px' }}
-        className="vm-grid-bottom"
-      >
+      <div className="grid grid-cols-[1fr_2fr] gap-4 vm-grid-bottom">
         <Card>
           <ImportantContacts contacts={contacts} isLoading={isLoadingContacts} />
         </Card>

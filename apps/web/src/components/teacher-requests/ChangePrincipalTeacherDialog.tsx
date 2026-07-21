@@ -5,20 +5,8 @@
  * de professeur principal via POST /api/v1/teacher-requests/pp-change.
  */
 import React, { useState } from 'react'
-import apiClient from '../../api/client'
-
-interface PpChangePayload {
-  studentId: string
-  currentTeacherId?: string
-  requestedTeacherId?: string
-  reason?: string
-}
-
-interface PpChangeResponse {
-  id: string
-  status: string
-  createdAt: string
-}
+import { useChangePrincipalTeacherRequest } from '../../hooks/teacher-requests/useChangePrincipalTeacherRequest'
+import type { PpChangeResponse } from '../../types/teacherRequests'
 
 interface ChangePrincipalTeacherDialogProps {
   studentId: string
@@ -34,33 +22,20 @@ export default function ChangePrincipalTeacherDialog({
   const [currentTeacherId, setCurrentTeacherId] = useState('')
   const [requestedTeacherId, setRequestedTeacherId] = useState('')
   const [reason, setReason] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  const { isSubmitting, errorMessage, clearError, submit } =
+    useChangePrincipalTeacherRequest(studentId)
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
-    setIsSubmitting(true)
-    setErrorMessage(null)
 
-    const payload: PpChangePayload = { studentId }
+    const payload: { currentTeacherId?: string; requestedTeacherId?: string; reason?: string } = {}
     if (currentTeacherId.trim()) payload.currentTeacherId = currentTeacherId.trim()
     if (requestedTeacherId.trim()) payload.requestedTeacherId = requestedTeacherId.trim()
     if (reason.trim()) payload.reason = reason.trim()
 
-    try {
-      const { data } = await apiClient.post<PpChangeResponse>(
-        '/teacher-requests/pp-change',
-        payload,
-      )
-      onSuccess(data)
-    } catch (error: unknown) {
-      const apiMessage =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la soumission de la demande'
-      setErrorMessage(apiMessage)
-    } finally {
-      setIsSubmitting(false)
-    }
+    const created = await submit(payload)
+    if (created) onSuccess(created)
   }
 
   return (
@@ -74,7 +49,7 @@ export default function ChangePrincipalTeacherDialog({
           <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center justify-between">
             <span>{errorMessage}</span>
             <button
-              onClick={() => setErrorMessage(null)}
+              onClick={clearError}
               className="text-red-400 hover:text-red-600 ml-3"
             >
               ✕

@@ -9,17 +9,12 @@
  * - Modifier un modèle existant (incrémente la version)
  */
 
-import React, { useState, useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
-import {
-  createLegalTemplate,
-  updateLegalTemplate,
-  type LegalTemplate,
-  type LegalDocumentType,
-} from '../api/legal'
-import apiClient from '../api/client'
+import { useLegalTemplates } from '../hooks/legal/useLegalTemplates'
+import type { LegalDocumentType } from '../api/legal'
 
 const DOCUMENT_TYPE_OPTIONS: { value: LegalDocumentType; label: string }[] = [
   { value: 'MANDAT_CLIENT', label: 'Mandat client' },
@@ -29,106 +24,76 @@ const DOCUMENT_TYPE_OPTIONS: { value: LegalDocumentType; label: string }[] = [
 export default function LegalTemplateAdminPage() {
   const { hasRole } = useAuth()
   const navigate = useNavigate()
+  const isFinancialAdmin = hasRole('administrateur_financier')
 
-  const [legalTemplates, setLegalTemplates] = useState<LegalTemplate[]>([])
-  const [isLoadingTemplates, setIsLoadingTemplates] = useState(true)
+  const {
+    legalTemplates,
+    isLoadingTemplates,
+    templatesError,
+    createTemplate,
+    isCreatingTemplate,
+    createError,
+    updateTemplate,
+    isUpdatingTemplate,
+    updateError,
+  } = useLegalTemplates(isFinancialAdmin)
 
   // Create form state
   const [isCreating, setIsCreating] = useState(false)
   const [newTemplateTitle, setNewTemplateTitle] = useState('')
   const [newTemplateDocumentType, setNewTemplateDocumentType] = useState<LegalDocumentType>('MANDAT_CLIENT')
   const [newTemplateContent, setNewTemplateContent] = useState('')
-  const [isSubmittingCreate, setIsSubmittingCreate] = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
   const [createSuccess, setCreateSuccess] = useState(false)
 
   // Edit state
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [editContent, setEditContent] = useState('')
-  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false)
-  const [editError, setEditError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!hasRole('administrateur_financier')) {
+    if (!isFinancialAdmin) {
       navigate('/forbidden', { replace: true })
-      return
     }
-
-    // Chargement des modèles (endpoint à définir selon l'implémentation backend)
-    apiClient
-      .get<LegalTemplate[]>('/legal-templates')
-      .then(({ data }) => setLegalTemplates(Array.isArray(data) ? data : []))
-      .catch(() => { /* non-bloquant si endpoint non encore disponible */ })
-      .finally(() => setIsLoadingTemplates(false))
-  }, [hasRole, navigate])
+  }, [isFinancialAdmin, navigate])
 
   const handleCreateTemplate = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!newTemplateTitle.trim() || !newTemplateContent.trim()) return
 
-    setIsSubmittingCreate(true)
-    setCreateError(null)
     setCreateSuccess(false)
 
-    try {
-      const createdTemplate = await createLegalTemplate({
-        title: newTemplateTitle.trim(),
-        documentType: newTemplateDocumentType,
-        content: newTemplateContent.trim(),
-      })
-      setLegalTemplates((previous) => [createdTemplate, ...previous])
+    const created = await createTemplate({
+      title: newTemplateTitle.trim(),
+      documentType: newTemplateDocumentType,
+      content: newTemplateContent.trim(),
+    })
+
+    if (created) {
       setIsCreating(false)
       setNewTemplateTitle('')
       setNewTemplateContent('')
       setCreateSuccess(true)
-    } catch (error: unknown) {
-      const statusCode = (error as { response?: { status?: number } })?.response?.status
-      if (statusCode === 403) {
-        setCreateError('Seul l\'administrateur financier peut créer des modèles légaux.')
-      } else {
-        setCreateError('Impossible de créer le modèle légal.')
-      }
-    } finally {
-      setIsSubmittingCreate(false)
     }
   }
 
-  const handleOpenEdit = (template: LegalTemplate) => {
+  const handleOpenEdit = (template: { id: string; title: string; content: string }) => {
     setEditingTemplateId(template.id)
     setEditTitle(template.title)
     setEditContent(template.content)
-    setEditError(null)
   }
 
   const handleSaveEdit = async (templateId: string) => {
-    setIsSubmittingEdit(true)
-    setEditError(null)
+    const updated = await updateTemplate(templateId, {
+      title: editTitle.trim() || undefined,
+      content: editContent.trim() || undefined,
+    })
 
-    try {
-      const updatedTemplate = await updateLegalTemplate(templateId, {
-        title: editTitle.trim() || undefined,
-        content: editContent.trim() || undefined,
-      })
-      setLegalTemplates((previous) =>
-        previous.map((template) =>
-          template.id === templateId ? updatedTemplate : template,
-        ),
-      )
+    if (updated) {
       setEditingTemplateId(null)
-    } catch (error: unknown) {
-      const statusCode = (error as { response?: { status?: number } })?.response?.status
-      if (statusCode === 403) {
-        setEditError('Seul l\'administrateur financier peut modifier des modèles légaux.')
-      } else {
-        setEditError('Impossible de modifier le modèle légal.')
-      }
-    } finally {
-      setIsSubmittingEdit(false)
     }
   }
 
-  if (!hasRole('administrateur_financier')) {
+  if (!isFinancialAdmin) {
     return null
   }
 
@@ -208,13 +173,13 @@ export default function LegalTemplateAdminPage() {
                 <button
                   type="submit"
                   disabled={
-                    isSubmittingCreate ||
+                    isCreatingTemplate ||
                     !newTemplateTitle.trim() ||
                     !newTemplateContent.trim()
                   }
                   className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 disabled:opacity-50"
                 >
-                  {isSubmittingCreate ? 'Création…' : 'Créer le modèle'}
+                  {isCreatingTemplate ? 'Création…' : 'Créer le modèle'}
                 </button>
                 <button
                   type="button"
@@ -231,6 +196,9 @@ export default function LegalTemplateAdminPage() {
         {/* Liste des modèles existants */}
         <section>
           <h2 className="text-base font-semibold text-gray-700 mb-3">Modèles existants</h2>
+          {templatesError && (
+            <p className="text-xs text-red-600 mb-3">{templatesError}</p>
+          )}
           {isLoadingTemplates ? (
             <p className="text-gray-400 text-sm">Chargement…</p>
           ) : legalTemplates.length === 0 ? (
@@ -289,17 +257,17 @@ export default function LegalTemplateAdminPage() {
                             className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-full font-mono focus:outline-none focus:ring-2 focus:ring-indigo-300"
                           />
                         </div>
-                        {editError && <p className="text-xs text-red-600">{editError}</p>}
+                        {updateError && <p className="text-xs text-red-600">{updateError}</p>}
                         <p className="text-xs text-gray-400">
                           La modification incrémente automatiquement la version du modèle.
                         </p>
                         <div className="flex gap-2">
                           <button
                             onClick={() => handleSaveEdit(legalTemplate.id)}
-                            disabled={isSubmittingEdit}
+                            disabled={isUpdatingTemplate}
                             className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50"
                           >
-                            {isSubmittingEdit ? 'Enregistrement…' : 'Enregistrer les modifications'}
+                            {isUpdatingTemplate ? 'Enregistrement…' : 'Enregistrer les modifications'}
                           </button>
                           <button
                             onClick={() => setEditingTemplateId(null)}

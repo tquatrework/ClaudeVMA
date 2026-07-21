@@ -3,54 +3,27 @@
  * Accent : Vert oklch(0.60 0.12 155)
  */
 
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import DashboardShell from '../components/dashboard/DashboardShell'
-import apiClient from '../api/client'
 import '../styles/tokens.css'
-import type { CalendarEvent } from '../types/calendar'
-import type { DashboardNotification } from '../types/dashboard'
 import { formatEventDate, formatShortDate } from '../utils/dateFormat'
-import { normalizeListResponse, getFutureEvents } from '../utils/dashboardFormat'
 import { getRailGroupsForRole, filterTopNavItems } from '../navigation/navigationConfig'
 import { ActivityFeed } from '../components/ui/ActivityFeed'
 import { PageTitle } from '../components/ui/PageTitle'
+import { useUpcomingCourses } from '../hooks/dashboard/useUpcomingCourses'
+import { useDashboardNotifications } from '../hooks/dashboard/useDashboardNotifications'
 
 export default function ProfesseurDashboardPage() {
   const { user, hasRole } = useAuth()
   const firstName = user?.loginIdentifier ?? 'vous'
 
-  const [nextCourse, setNextCourse] = useState<CalendarEvent | null>(null)
-  const [upcomingCourses, setUpcomingCourses] = useState<CalendarEvent[]>([])
-  const [notifications, setNotifications] = useState<DashboardNotification[]>([])
-  const [isLoadingCourses, setIsLoadingCourses] = useState(true)
-  const [isLoadingNotifications, setIsLoadingNotifications] = useState(true)
+  const { nextCourse, upcomingCourses, isLoadingCourses } = useUpcomingCourses(user?.id, 4)
+  const { notifications, isLoadingNotifications } = useDashboardNotifications(6)
 
   const topNavItems = filterTopNavItems('formateur', hasRole)
   const railGroups = getRailGroupsForRole('formateur')
-
-  useEffect(() => {
-    if (!user) return
-
-    apiClient
-      .get<CalendarEvent[]>(`/calendars/${user.id}/events`)
-      .then(({ data }) => {
-        const futureEvents = getFutureEvents(Array.isArray(data) ? data : [])
-        setNextCourse(futureEvents[0] ?? null)
-        setUpcomingCourses(futureEvents.slice(1, 5))
-      })
-      .catch(() => {})
-      .finally(() => setIsLoadingCourses(false))
-
-    apiClient
-      .get<{ data?: DashboardNotification[] } | DashboardNotification[]>('/notifications')
-      .then(({ data }) => {
-        setNotifications(normalizeListResponse(data).slice(0, 6))
-      })
-      .catch(() => {})
-      .finally(() => setIsLoadingNotifications(false))
-  }, [user])
 
   return (
     <DashboardShell
@@ -65,82 +38,39 @@ export default function ProfesseurDashboardPage() {
 
       {/* HERO — Prochain cours */}
       <div
-        style={{
-          background: 'var(--color-white)',
-          border: '1px solid var(--color-surface)',
-          borderRadius: 'var(--radius-card)',
-          boxShadow: 'var(--shadow-card)',
-          padding: '24px',
-          marginBottom: '24px',
-        }}
+        style={{ boxShadow: 'var(--shadow-card)' }}
+        className="bg-[var(--color-white)] border border-[var(--color-surface)] rounded-[var(--radius-card)] p-6 mb-6"
       >
         {isLoadingCourses ? (
-          <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Chargement…</p>
+          <p className="text-[13px] text-[color:var(--color-text-secondary)]">Chargement…</p>
         ) : nextCourse ? (
           <div>
-            <p
-              style={{
-                fontSize: '11px',
-                fontWeight: 600,
-                color: 'var(--color-text-secondary)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
-                marginBottom: '8px',
-              }}
-            >
+            <p className="text-[11px] font-semibold text-[color:var(--color-text-secondary)] uppercase tracking-[0.06em] mb-2">
               Prochain cours
             </p>
-            <h2
-              style={{
-                fontFamily: 'var(--font-heading)',
-                fontSize: '20px',
-                fontWeight: 700,
-                color: 'var(--color-ink)',
-                margin: '0 0 4px',
-              }}
-            >
+            <h2 className="font-[var(--font-heading)] text-[20px] font-bold text-[color:var(--color-ink)] mb-1">
               {nextCourse.title ?? 'Séance de cours'}
             </h2>
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', margin: '0 0 16px' }}>
+            <p className="text-[13px] text-[color:var(--color-text-secondary)] mb-4">
               {formatEventDate(nextCourse.startAt)}
             </p>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div className="flex items-center gap-3 flex-wrap">
               <Link
                 to={`/activities/${nextCourse.id}`}
-                style={{
-                  marginLeft: 'auto',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  color: '#fff',
-                  background: 'var(--accent)',
-                  borderRadius: 'var(--radius-pill)',
-                  padding: '8px 20px',
-                  textDecoration: 'none',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
+                className="ml-auto text-[13px] font-semibold text-white bg-[var(--accent)] rounded-[var(--radius-pill)] py-2 px-5 no-underline inline-flex items-center gap-1.5"
               >
                 ▶ Démarrer la visio
               </Link>
             </div>
           </div>
         ) : (
-          <div style={{ textAlign: 'center', padding: '12px 0' }}>
-            <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: '16px' }}>
+          <div className="text-center py-3">
+            <p className="text-[14px] text-[color:var(--color-text-secondary)] mb-4">
               Aucun cours planifié
             </p>
             <Link
               to="/calendar"
-              style={{
-                fontSize: '13px',
-                fontWeight: 500,
-                color: 'var(--accent)',
-                border: '1px solid var(--accent)',
-                borderRadius: 'var(--radius-pill)',
-                padding: '8px 20px',
-                textDecoration: 'none',
-              }}
+              className="text-[13px] font-medium text-[color:var(--accent)] border border-[var(--accent)] rounded-[var(--radius-pill)] py-2 px-5 no-underline"
             >
               Voir le calendrier
             </Link>
@@ -149,69 +79,42 @@ export default function ProfesseurDashboardPage() {
       </div>
 
       {/* Grille : Fil activité + À venir */}
-      <div
-        style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: '24px' }}
-        className="vm-grid-prof"
-      >
+      <div className="grid grid-cols-[3fr_2fr] gap-6 vm-grid-prof">
         {/* Fil d'activité */}
         <div
-          style={{
-            background: 'var(--color-white)',
-            border: '1px solid var(--color-surface)',
-            borderRadius: 'var(--radius-card)',
-            boxShadow: 'var(--shadow-card)',
-            padding: '20px',
-          }}
+          style={{ boxShadow: 'var(--shadow-card)' }}
+          className="bg-[var(--color-white)] border border-[var(--color-surface)] rounded-[var(--radius-card)] p-5"
         >
           <ActivityFeed notifications={notifications} isLoading={isLoadingNotifications} />
         </div>
 
         {/* Cours de la semaine */}
         <div
-          style={{
-            background: 'var(--color-white)',
-            border: '1px solid var(--color-surface)',
-            borderRadius: 'var(--radius-card)',
-            boxShadow: 'var(--shadow-card)',
-            padding: '20px',
-          }}
+          style={{ boxShadow: 'var(--shadow-card)' }}
+          className="bg-[var(--color-white)] border border-[var(--color-surface)] rounded-[var(--radius-card)] p-5"
         >
-          <h3
-            style={{
-              fontFamily: 'var(--font-heading)',
-              fontSize: '15px',
-              fontWeight: 600,
-              color: 'var(--color-ink)',
-              margin: '0 0 16px',
-            }}
-          >
+          <h3 className="font-[var(--font-heading)] text-[15px] font-semibold text-[color:var(--color-ink)] mb-4">
             Cette semaine
           </h3>
 
           {isLoadingCourses ? (
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Chargement…</p>
+            <p className="text-[13px] text-[color:var(--color-text-secondary)]">Chargement…</p>
           ) : upcomingCourses.length === 0 ? (
-            <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+            <p className="text-[13px] text-[color:var(--color-text-secondary)]">
               Aucun cours à venir cette semaine
             </p>
           ) : (
-            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+            <ul className="list-none m-0 p-0">
               {upcomingCourses.map((courseEvent) => (
-                <li key={courseEvent.id} style={{ marginBottom: '0' }}>
+                <li key={courseEvent.id} className="mb-0">
                   <Link
                     to={`/activities/${courseEvent.id}`}
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      padding: '10px 0',
-                      borderBottom: '1px solid var(--color-surface)',
-                      textDecoration: 'none',
-                    }}
+                    className="flex flex-col py-2.5 border-b border-[var(--color-surface)] no-underline"
                   >
-                    <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-ink)' }}>
+                    <span className="text-[13px] font-medium text-[color:var(--color-ink)]">
                       {courseEvent.title ?? 'Séance'}
                     </span>
-                    <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                    <span className="text-[11px] text-[color:var(--color-text-secondary)] mt-0.5">
                       {formatShortDate(courseEvent.startAt)}
                     </span>
                   </Link>
@@ -222,37 +125,18 @@ export default function ProfesseurDashboardPage() {
 
           <Link
             to="/calendar"
-            style={{
-              display: 'inline-block',
-              marginTop: '16px',
-              fontSize: '12px',
-              color: 'var(--accent)',
-              textDecoration: 'none',
-            }}
+            className="inline-block mt-4 text-[12px] text-[color:var(--accent)] no-underline"
           >
             Voir le calendrier complet →
           </Link>
 
           {/* Lien vers demandes ouvertes */}
-          <div
-            style={{
-              marginTop: '20px',
-              paddingTop: '16px',
-              borderTop: '1px solid var(--color-surface)',
-            }}
-          >
+          <div className="mt-5 pt-4 border-t border-[var(--color-surface)]">
+            {/* background gardé en inline : valeur color-mix() calculée, pas un token statique */}
             <Link
               to="/open-activities"
-              style={{
-                display: 'block',
-                fontSize: '13px',
-                fontWeight: 500,
-                color: 'var(--accent)',
-                textDecoration: 'none',
-                padding: '10px 14px',
-                background: 'color-mix(in srgb, var(--accent) 10%, transparent)',
-                borderRadius: 'var(--radius-field)',
-              }}
+              style={{ background: 'color-mix(in srgb, var(--accent) 10%, transparent)' }}
+              className="block text-[13px] font-medium text-[color:var(--accent)] no-underline py-2.5 px-3.5 rounded-[var(--radius-field)]"
             >
               Voir les activités sans formateur →
             </Link>

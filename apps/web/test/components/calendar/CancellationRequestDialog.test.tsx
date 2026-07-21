@@ -2,12 +2,12 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-vi.mock('../../../src/api/client')
-import apiClient from '../../../src/api/client'
+vi.mock('../../../src/api/calendar')
+import { requestEventCancellation } from '../../../src/api/calendar'
 
 import CancellationRequestDialog from '../../../src/components/calendar/CancellationRequestDialog'
 
-const mockApiClient = vi.mocked(apiClient)
+const mockRequestEventCancellation = vi.mocked(requestEventCancellation)
 
 function renderDialog(
   overrides: Partial<{
@@ -44,7 +44,7 @@ describe('CancellationRequestDialog', () => {
   })
 
   it('appelle POST /events/:id/cancel-request à la soumission du formulaire', async () => {
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+    mockRequestEventCancellation.mockResolvedValue({})
 
     renderDialog({ eventId: 'evt-test-99' })
 
@@ -55,8 +55,8 @@ describe('CancellationRequestDialog', () => {
     await userEvent.click(submitButton)
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith(
-        '/events/evt-test-99/cancel-request',
+      expect(mockRequestEventCancellation).toHaveBeenCalledWith(
+        'evt-test-99',
         expect.objectContaining({ reason: 'Indisponibilité imprévue' }),
       )
     })
@@ -64,7 +64,7 @@ describe('CancellationRequestDialog', () => {
 
   it('appelle onCancelled après une réponse API sans pending_approval', async () => {
     const handleCancelled = vi.fn()
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: { status: 'cancelled' } })
+    mockRequestEventCancellation.mockResolvedValue({ status: 'cancelled' })
 
     renderDialog({ onCancelled: handleCancelled })
 
@@ -76,7 +76,7 @@ describe('CancellationRequestDialog', () => {
   })
 
   it('affiche le message d\'attente d\'approbation si le status est pending_approval', async () => {
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: { status: 'pending_approval' } })
+    mockRequestEventCancellation.mockResolvedValue({ status: 'pending_approval' })
 
     renderDialog()
 

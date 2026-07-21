@@ -25,6 +25,7 @@ import {
   type ContentComment,
 } from '../api/contentCatalog'
 import ContentCommentsPanel from '../components/content-catalog/ContentCommentsPanel'
+import { TutorialCreateForm } from '../components/content-catalog/TutorialCreateForm'
 
 export default function TutorialCatalogPage() {
   const { hasRole } = useAuth()
@@ -145,108 +146,22 @@ export default function TutorialCatalogPage() {
 
         {/* Formulaire de création */}
         {shouldShowCreateForm && (
-          <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
-            <h2 className="text-base font-semibold text-gray-800">Créer un tutoriel</h2>
-
-            <form onSubmit={handleCreateTutorial} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="tuto-title" className="block text-sm text-gray-700 mb-1">
-                    Titre <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="tuto-title"
-                    type="text"
-                    required
-                    value={newTitle}
-                    onChange={(e) => setNewTitle(e.target.value)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    disabled={isCreating}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="tuto-subject" className="block text-sm text-gray-700 mb-1">
-                    Matière <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="tuto-subject"
-                    type="text"
-                    required
-                    value={newSubject}
-                    onChange={(e) => setNewSubject(e.target.value)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    disabled={isCreating}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="tuto-level" className="block text-sm text-gray-700 mb-1">
-                    Niveau <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="tuto-level"
-                    type="text"
-                    required
-                    value={newLevel}
-                    onChange={(e) => setNewLevel(e.target.value)}
-                    placeholder="ex: Terminale, 3ème…"
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    disabled={isCreating}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="tuto-video-url" className="block text-sm text-gray-700 mb-1">
-                    URL vidéo (optionnel)
-                  </label>
-                  <input
-                    id="tuto-video-url"
-                    type="url"
-                    value={newVideoUrl}
-                    onChange={(e) => setNewVideoUrl(e.target.value)}
-                    placeholder="https://…"
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    disabled={isCreating}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="tuto-description" className="block text-sm text-gray-700 mb-1">
-                  Description <span className="text-red-500">*</span>
-                </label>
-                <textarea
-                  id="tuto-description"
-                  required
-                  rows={3}
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
-                  disabled={isCreating}
-                />
-              </div>
-
-              {createError && (
-                <p className="text-red-600 text-sm">{createError}</p>
-              )}
-
-              <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShouldShowCreateForm(false)}
-                  disabled={isCreating}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 disabled:opacity-50 transition-colors"
-                >
-                  Annuler
-                </button>
-                <button
-                  type="submit"
-                  disabled={isCreating}
-                  className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {isCreating ? 'Création…' : 'Créer le tutoriel'}
-                </button>
-              </div>
-            </form>
-          </div>
+          <TutorialCreateForm
+            newTitle={newTitle}
+            newDescription={newDescription}
+            newSubject={newSubject}
+            newLevel={newLevel}
+            newVideoUrl={newVideoUrl}
+            isCreating={isCreating}
+            createError={createError}
+            onTitleChange={setNewTitle}
+            onDescriptionChange={setNewDescription}
+            onSubjectChange={setNewSubject}
+            onLevelChange={setNewLevel}
+            onVideoUrlChange={setNewVideoUrl}
+            onSubmit={handleCreateTutorial}
+            onCancel={() => setShouldShowCreateForm(false)}
+          />
         )}
 
         {/* Grille tutoriels + détail */}

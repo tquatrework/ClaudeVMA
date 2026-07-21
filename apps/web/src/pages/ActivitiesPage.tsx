@@ -1,20 +1,9 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
-import apiClient from '../api/client'
 import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
-
-interface ActivitySession {
-  id: string
-  title?: string
-  startAt: string
-  endAt: string
-  type?: string
-  status?: string
-  studentId?: string
-  teacherId?: string
-  videoRoomId?: string
-}
+import { useActivitySessions } from '../hooks/calendar/useActivitySessions'
+import type { ActivitySession } from '../types/calendar'
 
 type ActivityFilterStatus = 'all' | 'scheduled' | 'ongoing' | 'completed' | 'cancelled'
 
@@ -40,37 +29,17 @@ const TYPE_LABELS: Record<string, string> = {
 }
 
 export default function ActivitiesPage() {
-  const { user } = useAuth()
-  const [activitySessions, setActivitySessions] = useState<ActivitySession[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [fetchError, setFetchError] = useState<string | null>(null)
+  const { user, hasRole } = useAuth()
   const [statusFilter, setStatusFilter] = useState<ActivityFilterStatus>('all')
 
-  useEffect(() => {
-    if (!user) return
+  const {
+    data,
+    isLoading,
+    error: fetchError,
+    refetch,
+  } = useActivitySessions(user?.id, hasRole('formateur'), hasRole('eleve'))
 
-    const calendarQueryParam =
-      user.role === 'formateur'
-        ? `teacherId=${user.id}`
-        : user.role === 'eleve'
-          ? `studentId=${user.id}`
-          : ''
-
-    apiClient
-      .get<ActivitySession[]>(`/calendar${calendarQueryParam ? `?${calendarQueryParam}` : ''}`)
-      .then(({ data }) => {
-        setActivitySessions(Array.isArray(data) ? data : [])
-      })
-      .catch((err) => {
-        const httpStatus = err?.response?.status
-        if (httpStatus === 403) {
-          setFetchError('Accès refusé')
-        } else {
-          setFetchError('Impossible de charger les activités')
-        }
-      })
-      .finally(() => setIsLoading(false))
-  }, [user])
+  const activitySessions = data ?? []
 
   const filteredSessions = activitySessions.filter((session) => {
     if (statusFilter === 'all') return true
@@ -140,22 +109,7 @@ export default function ActivitiesPage() {
           <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-center justify-between">
             <span>{fetchError}</span>
             <button
-              onClick={() => {
-                setFetchError(null)
-                setIsLoading(true)
-                if (!user) return
-                const calendarQueryParam =
-                  user.role === 'formateur'
-                    ? `teacherId=${user.id}`
-                    : user.role === 'eleve'
-                      ? `studentId=${user.id}`
-                      : ''
-                apiClient
-                  .get<ActivitySession[]>(`/calendar${calendarQueryParam ? `?${calendarQueryParam}` : ''}`)
-                  .then(({ data }) => setActivitySessions(Array.isArray(data) ? data : []))
-                  .catch(() => setFetchError('Impossible de charger les activités'))
-                  .finally(() => setIsLoading(false))
-              }}
+              onClick={refetch}
               className="text-red-500 hover:text-red-700 underline ml-3 text-xs"
             >
               Réessayer

@@ -185,6 +185,35 @@ export async function resumeWorkflow(
   return data
 }
 
+/**
+ * Forme aplatie historiquement attendue par AgreementsPage pour une instance de
+ * workflow en attente d'arbitrage utilisateur.
+ *
+ * Écart préexistant, non corrigé ici : `GET /orchestration/workflows/:workflowInstanceId`
+ * est documenté (et consommé par `fetchWorkflowInstance` / WorkflowTimeline) sous la forme
+ * imbriquée `{instance, steps, status}`, mais AgreementsPage lit directement
+ * `workflowInstanceId`/`status`/`reason` à la racine de la réponse.
+ */
+export interface WorkflowArbitrationInstance {
+  workflowInstanceId: string
+  status: string
+  reason?: string
+}
+
+/**
+ * GET /orchestration/workflows/:workflowInstanceId
+ * Même route que `fetchWorkflowInstance`, mais typée selon la forme aplatie
+ * consommée par AgreementsPage (voir `WorkflowArbitrationInstance`).
+ */
+export async function fetchWorkflowArbitrationInstance(
+  workflowInstanceId: string,
+): Promise<WorkflowArbitrationInstance> {
+  const { data } = await apiClient.get<WorkflowArbitrationInstance>(
+    `/orchestration/workflows/${workflowInstanceId}`,
+  )
+  return data
+}
+
 // ─── API — Commandes ──────────────────────────────────────────────────────────
 
 /**

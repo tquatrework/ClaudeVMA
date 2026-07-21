@@ -4,6 +4,7 @@
  * Provides:
  * - `renderWithProviders`: wraps a component in AuthContext + MemoryRouter
  * - `mockAuthUser`: build a typed AuthUser fixture
+ * - `makeApiError`: build an axios-shaped rejection to mock `src/api/*` failures
  * - Vitest mock for `../hooks/useAuth` — import and configure per test
  */
 
@@ -41,6 +42,33 @@ export function makeUseAuthReturn(userOverrides: Partial<AuthUser> = {}, authOve
       (['responsable_pedagogique', 'animateur_pedagogique', 'technicien_informatique', 'administrateur_financier'] as UserRole[]).includes(user.role),
     ),
     ...authOverrides,
+  }
+}
+
+// ------------------------------------------------------------------
+// API error mock helper
+// ------------------------------------------------------------------
+
+interface MockApiError {
+  response: {
+    status: number
+    data?: { message: string }
+  }
+}
+
+/**
+ * Construit une erreur de forme axios (`{ response: { status, data } }`) pour simuler, dans un
+ * test, le rejet d'un appel `src/api/*` — cohérent avec le mapping statut → message de
+ * `getErrorMessage` (`src/utils/apiError.ts`).
+ *
+ * Exemple : `vi.mocked(fetchExercises).mockRejectedValueOnce(makeApiError(403))`
+ */
+export function makeApiError(status: number, message?: string): MockApiError {
+  return {
+    response: {
+      status,
+      ...(message ? { data: { message } } : {}),
+    },
   }
 }
 

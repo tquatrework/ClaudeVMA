@@ -24,14 +24,8 @@ import {
   type FinancialArchiveItem,
   type PaymentMethod,
 } from '../api/finance'
-
-const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
-  cb: 'Carte bancaire',
-  virement: 'Virement',
-  paypal: 'PayPal',
-}
-
-const PAYMENT_METHOD_OPTIONS: PaymentMethod[] = ['cb', 'virement', 'paypal']
+import { PaymentMethodEditor } from '../components/finance/PaymentMethodEditor'
+import { RegistrationPaymentSection } from '../components/finance/RegistrationPaymentSection'
 
 export default function FinancialProfilePage() {
   const { ownerId } = useParams<{ ownerId: string }>()
@@ -216,139 +210,36 @@ export default function FinancialProfilePage() {
           </div>
 
           {/* Moyen de paiement */}
-          <div className="border-t border-gray-100 pt-4">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-700">Moyen de paiement</h3>
-              {canEdit && !isEditingProfile && (
-                <button
-                  onClick={() => setIsEditingProfile(true)}
-                  className="text-xs text-indigo-600 hover:underline"
-                >
-                  Modifier
-                </button>
-              )}
-            </div>
-            {isEditingProfile ? (
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">Méthode</label>
-                  <select
-                    value={selectedPaymentMethod}
-                    onChange={(event) => setSelectedPaymentMethod(event.target.value as PaymentMethod)}
-                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-full max-w-xs focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                  >
-                    <option value="">— Sélectionner —</option>
-                    {PAYMENT_METHOD_OPTIONS.map((method) => (
-                      <option key={method} value={method}>
-                        {PAYMENT_METHOD_LABELS[method]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">Référence (optionnel)</label>
-                  <input
-                    type="text"
-                    value={paymentReference}
-                    onChange={(event) => setPaymentReference(event.target.value)}
-                    placeholder="ex: IBAN, référence PayPal…"
-                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-full max-w-xs focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                  />
-                </div>
-                {saveProfileError && (
-                  <p className="text-xs text-red-600">{saveProfileError}</p>
-                )}
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleProfileSave}
-                    disabled={isSavingProfile || !selectedPaymentMethod}
-                    className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-                  >
-                    {isSavingProfile ? 'Enregistrement…' : 'Enregistrer'}
-                  </button>
-                  <button
-                    onClick={() => setIsEditingProfile(false)}
-                    className="text-xs text-gray-600 hover:text-gray-800"
-                  >
-                    Annuler
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-gray-800">
-                {financialProfile.paymentMethod
-                  ? PAYMENT_METHOD_LABELS[financialProfile.paymentMethod]
-                  : <span className="text-gray-400 italic">Non renseigné</span>}
-                {financialProfile.paymentReference && (
-                  <span className="text-gray-500 ml-2">({financialProfile.paymentReference})</span>
-                )}
-              </p>
-            )}
-          </div>
+          <PaymentMethodEditor
+            currentPaymentMethod={financialProfile.paymentMethod}
+            currentPaymentReference={financialProfile.paymentReference}
+            canEdit={canEdit}
+            isEditingProfile={isEditingProfile}
+            onStartEdit={() => setIsEditingProfile(true)}
+            selectedPaymentMethod={selectedPaymentMethod}
+            onPaymentMethodChange={setSelectedPaymentMethod}
+            paymentReference={paymentReference}
+            onPaymentReferenceChange={setPaymentReference}
+            saveProfileError={saveProfileError}
+            isSavingProfile={isSavingProfile}
+            onSave={handleProfileSave}
+            onCancelEdit={() => setIsEditingProfile(false)}
+          />
         </section>
 
         {/* Paiement d'inscription */}
         {!isMembre && (user?.id === resolvedOwnerId || hasRole('administrateur_financier')) && (
-          <section className="bg-white border border-yellow-200 rounded-xl p-6 space-y-4">
-            <h2 className="text-base font-semibold text-gray-700">Activer votre compte</h2>
-            <p className="text-sm text-gray-600">
-              Votre compte est actuellement en mode <strong>limité</strong>.
-              Un paiement d'inscription est nécessaire pour accéder aux fonctionnalités complètes.
-            </p>
-
-            {paymentSuccessMessage && (
-              <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
-                {paymentSuccessMessage}
-              </div>
-            )}
-
-            {paymentError && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-                {paymentError}
-              </div>
-            )}
-
-            {!isPaymentFormOpen ? (
-              <button
-                onClick={() => setIsPaymentFormOpen(true)}
-                className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700"
-              >
-                Procéder au paiement d'inscription
-              </button>
-            ) : (
-              <form onSubmit={handlePaymentSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">Montant (centimes)</label>
-                  <input
-                    type="number"
-                    value={selectedPaymentAmountCents}
-                    onChange={(event) => setSelectedPaymentAmountCents(Number(event.target.value))}
-                    min={1}
-                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                  />
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {(selectedPaymentAmountCents / 100).toFixed(2)} €
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    disabled={isSubmittingPayment}
-                    className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 disabled:opacity-50"
-                  >
-                    {isSubmittingPayment ? 'Paiement en cours…' : 'Confirmer le paiement'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsPaymentFormOpen(false)}
-                    className="text-sm text-gray-600 hover:text-gray-800 px-3 py-2"
-                  >
-                    Annuler
-                  </button>
-                </div>
-              </form>
-            )}
-          </section>
+          <RegistrationPaymentSection
+            paymentSuccessMessage={paymentSuccessMessage}
+            paymentError={paymentError}
+            isPaymentFormOpen={isPaymentFormOpen}
+            onOpenPaymentForm={() => setIsPaymentFormOpen(true)}
+            selectedPaymentAmountCents={selectedPaymentAmountCents}
+            onAmountChange={setSelectedPaymentAmountCents}
+            isSubmittingPayment={isSubmittingPayment}
+            onSubmit={handlePaymentSubmit}
+            onCancel={() => setIsPaymentFormOpen(false)}
+          />
         )}
 
         {/* Archives financières */}

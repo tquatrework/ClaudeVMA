@@ -2,13 +2,13 @@
  * Tests for ProfileEditPage
  *
  * Covers:
- * - Loads current profile via GET /profiles/:userId
+ * - Loads current profile via fetchProfile(userId)
  * - Pre-fills administrative form fields with loaded data
- * - Submits administrative changes via PUT /profiles/:userId/administrative
+ * - Submits administrative changes via updateAdministrativeProfile(userId, payload)
  * - Shows success message on save
  * - Shows error message on save failure
  * - Tab navigation between administrative and pedagogical forms
- * - Pedagogical form submits via PUT /profiles/:userId/pedagogical
+ * - Pedagogical form submits via updatePedagogicalProfile(userId, payload)
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -18,13 +18,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import ProfileEditPage from '../../src/pages/ProfileEditPage'
 
 vi.mock('../../src/hooks/useAuth')
-vi.mock('../../src/api/client')
+vi.mock('../../src/api/profile')
 
 import { useAuth } from '../../src/hooks/useAuth'
-import apiClient from '../../src/api/client'
+import { fetchProfile, updateAdministrativeProfile, updatePedagogicalProfile } from '../../src/api/profile'
 
 const mockUseAuth = vi.mocked(useAuth)
-const mockApiClient = vi.mocked(apiClient)
+const mockFetchProfile = vi.mocked(fetchProfile)
+const mockUpdateAdministrativeProfile = vi.mocked(updateAdministrativeProfile)
+const mockUpdatePedagogicalProfile = vi.mocked(updatePedagogicalProfile)
 
 const STUDENT_USER = {
   id: 'student-1',
@@ -57,6 +59,7 @@ function renderEditPage(userId = 'student-1') {
 }
 
 const EXISTING_PROFILE = {
+  userId: 'student-1',
   administrativeProfile: {
     firstName: 'Alice',
     lastName: 'Martin',
@@ -78,7 +81,7 @@ beforeEach(() => {
 
 describe('ProfileEditPage', () => {
   it('shows loading state while fetching the profile', () => {
-    mockApiClient.get = vi.fn().mockReturnValue(new Promise(() => {}))
+    mockFetchProfile.mockReturnValue(new Promise(() => {}))
 
     renderEditPage()
 
@@ -86,7 +89,7 @@ describe('ProfileEditPage', () => {
   })
 
   it('pre-fills the administrative form with existing data', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: EXISTING_PROFILE })
+    mockFetchProfile.mockResolvedValue(EXISTING_PROFILE)
 
     renderEditPage()
 
@@ -96,9 +99,9 @@ describe('ProfileEditPage', () => {
     })
   })
 
-  it('calls PUT /profiles/:userId/administrative on admin form submit', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: EXISTING_PROFILE })
-    mockApiClient.put = vi.fn().mockResolvedValue({ data: {} })
+  it('calls updateAdministrativeProfile on admin form submit', async () => {
+    mockFetchProfile.mockResolvedValue(EXISTING_PROFILE)
+    mockUpdateAdministrativeProfile.mockResolvedValue({})
 
     renderEditPage()
 
@@ -109,16 +112,16 @@ describe('ProfileEditPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /enregistrer/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.put).toHaveBeenCalledWith(
-        '/profiles/student-1/administrative',
+      expect(mockUpdateAdministrativeProfile).toHaveBeenCalledWith(
+        'student-1',
         expect.objectContaining({ firstName: 'Alice' }),
       )
     })
   })
 
   it('shows success message after saving admin profile', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: EXISTING_PROFILE })
-    mockApiClient.put = vi.fn().mockResolvedValue({ data: {} })
+    mockFetchProfile.mockResolvedValue(EXISTING_PROFILE)
+    mockUpdateAdministrativeProfile.mockResolvedValue({})
 
     renderEditPage()
 
@@ -134,8 +137,8 @@ describe('ProfileEditPage', () => {
   })
 
   it('shows error message when save fails', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: EXISTING_PROFILE })
-    mockApiClient.put = vi.fn().mockRejectedValue({
+    mockFetchProfile.mockResolvedValue(EXISTING_PROFILE)
+    mockUpdateAdministrativeProfile.mockRejectedValue({
       response: { data: { message: 'Données invalides' } },
     })
 
@@ -153,7 +156,7 @@ describe('ProfileEditPage', () => {
   })
 
   it('shows the pedagogical tab for élève role', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: EXISTING_PROFILE })
+    mockFetchProfile.mockResolvedValue(EXISTING_PROFILE)
 
     renderEditPage()
 
@@ -163,7 +166,7 @@ describe('ProfileEditPage', () => {
   })
 
   it('switches to pedagogical tab on click', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: EXISTING_PROFILE })
+    mockFetchProfile.mockResolvedValue(EXISTING_PROFILE)
 
     renderEditPage()
 
@@ -178,9 +181,9 @@ describe('ProfileEditPage', () => {
     })
   })
 
-  it('calls PUT /profiles/:userId/pedagogical on pedagogical form submit', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: EXISTING_PROFILE })
-    mockApiClient.put = vi.fn().mockResolvedValue({ data: {} })
+  it('calls updatePedagogicalProfile on pedagogical form submit', async () => {
+    mockFetchProfile.mockResolvedValue(EXISTING_PROFILE)
+    mockUpdatePedagogicalProfile.mockResolvedValue({})
 
     renderEditPage()
 
@@ -199,16 +202,16 @@ describe('ProfileEditPage', () => {
     await userEvent.click(saveButtons[0])
 
     await waitFor(() => {
-      expect(mockApiClient.put).toHaveBeenCalledWith(
-        '/profiles/student-1/pedagogical',
+      expect(mockUpdatePedagogicalProfile).toHaveBeenCalledWith(
+        'student-1',
         expect.objectContaining({ level: 'Terminale' }),
       )
     })
   })
 
   it('shows success message after saving pedagogical profile', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: EXISTING_PROFILE })
-    mockApiClient.put = vi.fn().mockResolvedValue({ data: {} })
+    mockFetchProfile.mockResolvedValue(EXISTING_PROFILE)
+    mockUpdatePedagogicalProfile.mockResolvedValue({})
 
     renderEditPage()
 
@@ -231,7 +234,7 @@ describe('ProfileEditPage', () => {
   })
 
   it('navigates back to profile page when clicking "Retour"', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: EXISTING_PROFILE })
+    mockFetchProfile.mockResolvedValue(EXISTING_PROFILE)
 
     renderEditPage()
 

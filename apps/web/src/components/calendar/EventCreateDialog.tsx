@@ -1,11 +1,11 @@
 import React, { useState } from 'react'
-import apiClient from '../../api/client'
 import {
   CalendarEvent,
   EventType,
   EVENT_TYPE_LABELS,
   ALLOWED_EVENT_TYPES_BY_ROLE,
 } from './calendarTypes'
+import { useEventCreate } from '../../hooks/calendar/useEventCreate'
 
 interface EventCreateDialogProps {
   ownerId: string
@@ -27,8 +27,10 @@ export default function EventCreateDialog({
   const [endAt, setEndAt] = useState('')
   const [selectedEventType, setSelectedEventType] = useState<EventType>(allowedTypes[0] ?? 'rappel')
   const [description, setDescription] = useState('')
-  const [isSaving, setIsSaving] = useState(false)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [validationError, setValidationError] = useState<string | null>(null)
+
+  const { isSaving, errorMessage, submit } = useEventCreate(ownerId)
+  const displayedError = validationError ?? errorMessage
 
   const isEndAfterStart = !startAt || !endAt || new Date(endAt) > new Date(startAt)
 
@@ -36,34 +38,27 @@ export default function EventCreateDialog({
     event.preventDefault()
     if (!startAt || !endAt) return
     if (!isEndAfterStart) {
-      setErrorMessage('La fin doit être après le début.')
+      setValidationError('La fin doit être après le début.')
       return
     }
+    setValidationError(null)
 
-    setIsSaving(true)
-    setErrorMessage(null)
-
-    try {
-      const payload: Record<string, unknown> = {
-        startAt: new Date(startAt).toISOString(),
-        endAt: new Date(endAt).toISOString(),
-        eventType: selectedEventType,
-      }
-      if (title.trim()) payload.title = title.trim()
-      if (description.trim()) payload.description = description.trim()
-
-      const { data } = await apiClient.post<CalendarEvent>(
-        `/calendars/${ownerId}/events`,
-        payload,
-      )
-      onCreated(data)
-    } catch (err: unknown) {
-      const apiMessage =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      setErrorMessage(apiMessage ?? "Erreur lors de la création de l'événement")
-    } finally {
-      setIsSaving(false)
+    const payload: {
+      startAt: string
+      endAt: string
+      eventType: EventType
+      title?: string
+      description?: string
+    } = {
+      startAt: new Date(startAt).toISOString(),
+      endAt: new Date(endAt).toISOString(),
+      eventType: selectedEventType,
     }
+    if (title.trim()) payload.title = title.trim()
+    if (description.trim()) payload.description = description.trim()
+
+    const created = await submit(payload)
+    if (created) onCreated(created)
   }
 
   return (
@@ -86,9 +81,9 @@ export default function EventCreateDialog({
           </button>
         </div>
 
-        {errorMessage && (
+        {displayedError && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-            {errorMessage}
+            {displayedError}
           </div>
         )}
 

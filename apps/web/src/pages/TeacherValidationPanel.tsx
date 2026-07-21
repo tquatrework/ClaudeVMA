@@ -1,14 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import apiClient from '../api/client'
 import { useAuth } from '../hooks/useAuth'
-
-interface TeacherValidationStatus {
-  teacherId: string
-  validationStatus: 'pending' | 'in_review' | 'validated' | 'rejected'
-  validatedAt?: string
-  validatedBy?: string
-  rejectionReason?: string
-}
+import { useTeacherValidation } from '../hooks/teacher-requests/useTeacherValidation'
 
 interface Props {
   teacherId: string
@@ -21,95 +13,52 @@ interface Props {
 export default function TeacherValidationPanel({ teacherId }: Props) {
   const { hasRole } = useAuth()
 
-  const [validationStatus, setValidationStatus] = useState<TeacherValidationStatus | null>(null)
-  const [isLoadingStatus, setIsLoadingStatus] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
-  const [isTakingCharge, setIsTakingCharge] = useState(false)
-  const [rejectionReason, setRejectionReason] = useState('')
-  const [showRejectionForm, setShowRejectionForm] = useState(false)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
-
   const canValidate = hasRole('responsable_pedagogique', 'technicien_informatique')
 
-  useEffect(() => {
-    if (!canValidate) return
+  const {
+    validationStatus,
+    isLoadingStatus,
+    takeCharge,
+    isTakingCharge,
+    approve,
+    reject,
+    isSaving,
+    actionError,
+  } = useTeacherValidation(teacherId, canValidate)
 
-    setIsLoadingStatus(true)
-    apiClient
-      .get<TeacherValidationStatus>(`/profiles/${teacherId}/validation`)
-      .then(({ data }) => setValidationStatus(data))
-      .catch(() => {
-        // Non-bloquant : le statut reste null si erreur
-      })
-      .finally(() => setIsLoadingStatus(false))
-  }, [teacherId, canValidate])
+  const [rejectionReason, setRejectionReason] = useState('')
+  const [showRejectionForm, setShowRejectionForm] = useState(false)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+
+  const [isErrorDismissed, setIsErrorDismissed] = useState(false)
+  useEffect(() => {
+    setIsErrorDismissed(false)
+  }, [actionError])
 
   const handleTakeCharge = async () => {
-    setIsTakingCharge(true)
-    setErrorMessage(null)
     setSuccessMessage(null)
-    try {
-      const { data } = await apiClient.patch<TeacherValidationStatus>(
-        `/profiles/${teacherId}/validation`,
-        { validationStatus: 'in_review' },
-      )
-      setValidationStatus(data)
-      setSuccessMessage('Dossier pris en charge — entretien en cours')
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la prise en charge'
-      setErrorMessage(message)
-    } finally {
-      setIsTakingCharge(false)
-    }
+    const success = await takeCharge()
+    if (success) setSuccessMessage('Dossier pris en charge — entretien en cours')
   }
 
   const handleApprove = async () => {
-    setIsSaving(true)
-    setErrorMessage(null)
     setSuccessMessage(null)
-    try {
-      const { data } = await apiClient.patch<TeacherValidationStatus>(
-        `/profiles/${teacherId}/validation`,
-        { validationStatus: 'validated' },
-      )
-      setValidationStatus(data)
+    const success = await approve()
+    if (success) {
       setSuccessMessage('Formateur validé avec succès')
       setShowRejectionForm(false)
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la validation'
-      setErrorMessage(message)
-    } finally {
-      setIsSaving(false)
     }
   }
 
   const handleReject = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!rejectionReason.trim()) return
-    setIsSaving(true)
-    setErrorMessage(null)
     setSuccessMessage(null)
-    try {
-      const { data } = await apiClient.patch<TeacherValidationStatus>(
-        `/profiles/${teacherId}/validation`,
-        { validationStatus: 'rejected', rejectionReason: rejectionReason.trim() },
-      )
-      setValidationStatus(data)
+    const success = await reject(rejectionReason.trim())
+    if (success) {
       setSuccessMessage('Formateur rejeté')
       setShowRejectionForm(false)
       setRejectionReason('')
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors du rejet'
-      setErrorMessage(message)
-    } finally {
-      setIsSaving(false)
     }
   }
 
@@ -138,11 +87,11 @@ export default function TeacherValidationPanel({ teacherId }: Props) {
         </span>
       </h2>
 
-      {errorMessage && (
+      {actionError && !isErrorDismissed && (
         <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center justify-between">
-          <span>{errorMessage}</span>
+          <span>{actionError}</span>
           <button
-            onClick={() => setErrorMessage(null)}
+            onClick={() => setIsErrorDismissed(true)}
             className="text-red-400 hover:text-red-600 ml-3"
           >
             ✕

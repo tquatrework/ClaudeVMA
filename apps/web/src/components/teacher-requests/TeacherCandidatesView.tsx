@@ -8,7 +8,7 @@
  * Formateur : peut répondre via POST /api/v1/teacher-requests/{id}/responses
  */
 import React, { useState } from 'react'
-import apiClient from '../../api/client'
+import { useTeacherCandidates } from '../../hooks/teacher-requests/useTeacherCandidates'
 
 export interface TeacherCandidate {
   id: string
@@ -44,34 +44,28 @@ export default function TeacherCandidatesView({
 }: TeacherCandidatesViewProps) {
   const [isAddingCandidate, setIsAddingCandidate] = useState(false)
   const [candidateTeacherId, setCandidateTeacherId] = useState('')
-  const [isSubmittingCandidate, setIsSubmittingCandidate] = useState(false)
-  const [processingCandidateId, setProcessingCandidateId] = useState<string | null>(null)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+
+  const {
+    isSubmittingCandidate,
+    processingCandidateId,
+    errorMessage,
+    successMessage,
+    clearError,
+    clearSuccess,
+    addCandidate,
+    respondAsTeacher,
+    selectCandidate,
+  } = useTeacherCandidates(requestId)
 
   const handleAddCandidate = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!candidateTeacherId.trim()) return
 
-    setIsSubmittingCandidate(true)
-    setErrorMessage(null)
-
-    try {
-      const { data } = await apiClient.post<{ candidates: TeacherCandidate[] }>(
-        `/teacher-requests/${requestId}/proposals`,
-        { teacherId: candidateTeacherId.trim() },
-      )
-      onCandidatesUpdated(data.candidates ?? candidates)
+    const updatedCandidates = await addCandidate(candidateTeacherId.trim())
+    if (updatedCandidates !== null) {
+      onCandidatesUpdated(updatedCandidates ?? candidates)
       setCandidateTeacherId('')
       setIsAddingCandidate(false)
-      setSuccessMessage('Candidat ajouté avec succès')
-    } catch (error: unknown) {
-      const apiMessage =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        "Erreur lors de l'ajout du candidat"
-      setErrorMessage(apiMessage)
-    } finally {
-      setIsSubmittingCandidate(false)
     }
   }
 
@@ -79,49 +73,21 @@ export default function TeacherCandidatesView({
     candidateId: string,
     responseStatus: 'accepted' | 'declined',
   ) => {
-    setProcessingCandidateId(candidateId)
-    setErrorMessage(null)
-
-    try {
-      const responseAction = responseStatus === 'accepted' ? 'accept' : 'decline'
-      await apiClient.post(`/proposals/${candidateId}/${responseAction}`, {})
+    const succeeded = await respondAsTeacher(candidateId, responseStatus)
+    if (succeeded) {
       const updatedCandidates = candidates.map((candidate) =>
         candidate.id === candidateId
           ? { ...candidate, status: responseStatus }
           : candidate,
       )
       onCandidatesUpdated(updatedCandidates)
-      setSuccessMessage(
-        responseStatus === 'accepted' ? 'Demande acceptée' : 'Demande refusée',
-      )
-    } catch (error: unknown) {
-      const apiMessage =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la réponse'
-      setErrorMessage(apiMessage)
-    } finally {
-      setProcessingCandidateId(null)
     }
   }
 
   const handleSelectCandidate = async (candidateId: string) => {
-    setProcessingCandidateId(candidateId)
-    setErrorMessage(null)
-
-    try {
-      const { data } = await apiClient.post<{ status: string }>(
-        `/teacher-requests/${requestId}/select`,
-        { proposalId: candidateId },
-      )
-      onRequestStatusChange(data.status ?? 'accepted')
-      setSuccessMessage('Formateur sélectionné — demande clôturée')
-    } catch (error: unknown) {
-      const apiMessage =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la sélection'
-      setErrorMessage(apiMessage)
-    } finally {
-      setProcessingCandidateId(null)
+    const status = await selectCandidate(candidateId)
+    if (status !== null) {
+      onRequestStatusChange(status)
     }
   }
 
@@ -147,7 +113,7 @@ export default function TeacherCandidatesView({
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center justify-between">
           <span>{errorMessage}</span>
           <button
-            onClick={() => setErrorMessage(null)}
+            onClick={clearError}
             className="text-red-400 hover:text-red-600 ml-2"
           >
             ✕
@@ -159,7 +125,7 @@ export default function TeacherCandidatesView({
         <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm flex items-center justify-between">
           <span>{successMessage}</span>
           <button
-            onClick={() => setSuccessMessage(null)}
+            onClick={clearSuccess}
             className="text-green-400 hover:text-green-600 ml-2"
           >
             ✕

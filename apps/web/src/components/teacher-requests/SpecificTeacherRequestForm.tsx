@@ -6,33 +6,15 @@
  * Appelle POST /api/v1/teacher-requests.
  */
 import React, { useState } from 'react'
-import apiClient from '../../api/client'
-
-interface TeacherRequestPayload {
-  subject: string
-  level: string
-  sector: string
-  message?: string
-  studentId?: string
-}
-
-interface TeacherRequestCreated {
-  id: string
-  status: string
-  createdAt: string
-  subject: string
-  level: string
-  sector: string
-  message?: string
-  studentId?: string
-}
+import { useSpecificTeacherRequestSubmit } from '../../hooks/teacher-requests/useSpecificTeacherRequestSubmit'
+import type { SpecificTeacherRequestCreated } from '../../types/teacherRequests'
 
 interface SpecificTeacherRequestFormProps {
   /** Pré-rempli si l'utilisateur est un parent soumettant pour un élève lié */
   defaultStudentId?: string
   /** Si true, affiche le champ ID élève */
   showStudentIdField?: boolean
-  onSuccess: (createdRequest: TeacherRequestCreated) => void
+  onSuccess: (createdRequest: SpecificTeacherRequestCreated) => void
   onCancel: () => void
 }
 
@@ -47,8 +29,8 @@ export default function SpecificTeacherRequestForm({
   const [sector, setSector] = useState('')
   const [message, setMessage] = useState('')
   const [studentId, setStudentId] = useState(defaultStudentId)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  const { isSubmitting, errorMessage, clearError, submit } = useSpecificTeacherRequestSubmit()
 
   const isFormValid = subject.trim() !== '' && level.trim() !== '' && sector.trim() !== ''
 
@@ -56,10 +38,13 @@ export default function SpecificTeacherRequestForm({
     event.preventDefault()
     if (!isFormValid) return
 
-    setIsSubmitting(true)
-    setErrorMessage(null)
-
-    const payload: TeacherRequestPayload = {
+    const payload: {
+      subject: string
+      level: string
+      sector: string
+      message?: string
+      studentId?: string
+    } = {
       subject: subject.trim(),
       level: level.trim(),
       sector: sector.trim(),
@@ -67,17 +52,8 @@ export default function SpecificTeacherRequestForm({
     if (message.trim()) payload.message = message.trim()
     if (studentId.trim()) payload.studentId = studentId.trim()
 
-    try {
-      const { data } = await apiClient.post<TeacherRequestCreated>('/teacher-requests', payload)
-      onSuccess(data)
-    } catch (error: unknown) {
-      const apiMessage =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la création de la demande'
-      setErrorMessage(apiMessage)
-    } finally {
-      setIsSubmitting(false)
-    }
+    const created = await submit(payload)
+    if (created) onSuccess(created)
   }
 
   return (
@@ -94,7 +70,7 @@ export default function SpecificTeacherRequestForm({
           <span>{errorMessage}</span>
           <button
             type="button"
-            onClick={() => setErrorMessage(null)}
+            onClick={clearError}
             className="text-red-400 hover:text-red-600 ml-3"
           >
             ✕

@@ -2,7 +2,7 @@
  * Tests for ProfileStatisticsPanel
  *
  * Covers:
- * - Fetches stats via GET /profiles/:userId/statistics
+ * - Fetches stats via fetchProfileStatistics(userId)
  * - Displays statistics values when loaded
  * - Shows "non disponible" message on error
  * - Not rendered for roles without access (eleve viewing another student)
@@ -15,13 +15,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import ProfileStatisticsPanel from '../../src/pages/ProfileStatisticsPanel'
 
 vi.mock('../../src/hooks/useAuth')
-vi.mock('../../src/api/client')
+vi.mock('../../src/api/profile')
 
 import { useAuth } from '../../src/hooks/useAuth'
-import apiClient from '../../src/api/client'
+import { fetchProfileStatistics } from '../../src/api/profile'
 
 const mockUseAuth = vi.mocked(useAuth)
-const mockApiClient = vi.mocked(apiClient)
+const mockFetchProfileStatistics = vi.mocked(fetchProfileStatistics)
 
 const STUDENT_USER = {
   id: 'student-1',
@@ -77,7 +77,7 @@ describe('ProfileStatisticsPanel', () => {
   it('renders for a student viewing their own profile', async () => {
     // student-1 viewing their own profile
     mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_STATISTICS })
+    mockFetchProfileStatistics.mockResolvedValue(SAMPLE_STATISTICS)
 
     render(<ProfileStatisticsPanel userId="student-1" />)
 
@@ -86,20 +86,20 @@ describe('ProfileStatisticsPanel', () => {
     })
   })
 
-  it('fetches stats via GET /profiles/:userId/statistics', async () => {
+  it('fetches stats via fetchProfileStatistics(userId)', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_STATISTICS })
+    mockFetchProfileStatistics.mockResolvedValue(SAMPLE_STATISTICS)
 
     render(<ProfileStatisticsPanel userId="student-1" />)
 
     await waitFor(() => {
-      expect(mockApiClient.get).toHaveBeenCalledWith('/profiles/student-1/statistics')
+      expect(mockFetchProfileStatistics).toHaveBeenCalledWith('student-1')
     })
   })
 
   it('displays all statistics values when loaded', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: SAMPLE_STATISTICS })
+    mockFetchProfileStatistics.mockResolvedValue(SAMPLE_STATISTICS)
 
     render(<ProfileStatisticsPanel userId="student-1" />)
 
@@ -115,7 +115,7 @@ describe('ProfileStatisticsPanel', () => {
 
   it('shows "non disponible" message on fetch error', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
-    mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 500 } })
+    mockFetchProfileStatistics.mockRejectedValue({ response: { status: 500 } })
 
     render(<ProfileStatisticsPanel userId="student-1" />)
 
@@ -126,7 +126,7 @@ describe('ProfileStatisticsPanel', () => {
 
   it('shows empty message when stats object exists but has no values', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: {} })
+    mockFetchProfileStatistics.mockResolvedValue({})
 
     render(<ProfileStatisticsPanel userId="student-1" />)
 

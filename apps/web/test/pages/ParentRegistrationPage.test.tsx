@@ -5,8 +5,9 @@
  * - Form rendering (email, password, confirmPassword)
  * - Password mismatch validation
  * - Password too short validation
- * - Successful registration calls POST /accounts/parents and redirects to /login
- * - API error displayed in form
+ * - Successful registration calls registerParent and redirects to /login
+ * - API error displayed
+ * - check-email failure is now surfaced (no longer swallowed silently)
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -15,9 +16,10 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import ParentRegistrationPage from '../../src/pages/ParentRegistrationPage'
 
-vi.mock('../../src/api/client')
-import apiClient from '../../src/api/client'
-const mockApiClient = vi.mocked(apiClient)
+vi.mock('../../src/api/accounts')
+import { registerParent, checkEmailAvailability } from '../../src/api/accounts'
+const mockRegisterParent = vi.mocked(registerParent)
+const mockCheckEmailAvailability = vi.mocked(checkEmailAvailability)
 
 function renderParentRegistrationPage() {
   return render(
@@ -44,6 +46,7 @@ async function fillForm(options: { password?: string; confirmPassword?: string }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockCheckEmailAvailability.mockResolvedValue({ alreadyUsed: false, suggestedLoginIdentifier: '' })
 })
 
 describe('ParentRegistrationPage', () => {
@@ -79,23 +82,24 @@ describe('ParentRegistrationPage', () => {
     })
   })
 
-  it('calls POST /accounts with correct payload on valid submit', async () => {
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+  it('calls registerParent with correct payload on valid submit', async () => {
+    mockRegisterParent.mockResolvedValue(undefined)
     renderParentRegistrationPage()
 
     await fillForm()
     await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith('/accounts/parents', {
+      expect(mockRegisterParent).toHaveBeenCalledWith({
         email: 'parent@test.com',
+        loginIdentifier: undefined,
         password: 'password123',
       })
     })
   })
 
   it('redirects to /login after successful registration', async () => {
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: {} })
+    mockRegisterParent.mockResolvedValue(undefined)
     renderParentRegistrationPage()
 
     await fillForm()
@@ -107,7 +111,7 @@ describe('ParentRegistrationPage', () => {
   })
 
   it('displays API error message on submission failure', async () => {
-    mockApiClient.post = vi.fn().mockRejectedValue({
+    mockRegisterParent.mockRejectedValue({
       response: { data: { message: 'Email déjà utilisé' } },
     })
     renderParentRegistrationPage()
@@ -121,7 +125,7 @@ describe('ParentRegistrationPage', () => {
   })
 
   it('displays a generic error message when API response has no message', async () => {
-    mockApiClient.post = vi.fn().mockRejectedValue(new Error('Network error'))
+    mockRegisterParent.mockRejectedValue(new Error('Network error'))
     renderParentRegistrationPage()
 
     await fillForm()
@@ -129,6 +133,37 @@ describe('ParentRegistrationPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/erreur lors de la création du compte/i)).toBeDefined()
+    })
+  })
+
+  it('surfaces a visible error when the email availability check fails, without blocking the form', async () => {
+    mockCheckEmailAvailability.mockRejectedValue({
+      response: { data: { message: "Vérification de l'email indisponible" } },
+    })
+    mockRegisterParent.mockResolvedValue(undefined)
+    renderParentRegistrationPage()
+
+    const emailInput = screen.getByPlaceholderText(/vous@exemple\.fr/i)
+    await userEvent.type(emailInput, 'parent@test.com')
+    await userEvent.tab() // triggers onBlur
+
+    await waitFor(() => {
+      expect(screen.getByText("Vérification de l'email indisponible")).toBeDefined()
+    })
+
+    // The nominal flow must not be blocked by the check-email failure.
+    await userEvent.type(
+      screen.getByPlaceholderText(/8 caractères minimum/i),
+      'password123',
+    )
+    await userEvent.type(
+      screen.getByPlaceholderText(/répétez le mot de passe/i),
+      'password123',
+    )
+    await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+
+    await waitFor(() => {
+      expect(mockRegisterParent).toHaveBeenCalled()
     })
   })
 })

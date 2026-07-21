@@ -1,13 +1,7 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import apiClient from '../api/client'
 import Layout from '../components/Layout'
-
-interface WorkflowInstance {
-  workflowInstanceId: string
-  status: string
-  reason?: string
-}
+import { useAgreementWorkflow } from '../hooks/teacher-requests/useAgreementWorkflow'
 
 /**
  * Page d'accord/refus utilisateur pour une modification nécessitant validation (FRONT-BR-009).
@@ -16,42 +10,17 @@ interface WorkflowInstance {
 export default function AgreementsPage() {
   const { requestId } = useParams<{ requestId: string }>()
   const navigate = useNavigate()
-  const [instance, setInstance] = useState<WorkflowInstance | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+
+  const { instance, isLoading, loadError, respond, isProcessing, respondError } =
+    useAgreementWorkflow(requestId)
+
   const [done, setDone] = useState(false)
 
-  useEffect(() => {
-    if (!requestId) return
-    apiClient
-      .get<WorkflowInstance>(`/orchestration/workflows/${requestId}`)
-      .then(({ data }) => setInstance(data))
-      .catch((err) => {
-        const status = err?.response?.status
-        if (status === 404) setError('Demande introuvable ou déjà traitée')
-        else setError('Impossible de charger la demande')
-      })
-      .finally(() => setIsLoading(false))
-  }, [requestId])
+  const error = respondError ?? loadError
 
-  const respond = async (decision: 'accept' | 'refuse') => {
-    if (!requestId) return
-    setIsProcessing(true)
-    try {
-      if (decision === 'accept') {
-        await apiClient.post(`/orchestration/workflows/${requestId}/resume`)
-      } else {
-        await apiClient.post(`/orchestration/workflows/${requestId}/suspend`, {
-          reason: 'Refusé par l\'utilisateur',
-        })
-      }
-      setDone(true)
-    } catch {
-      setError('Erreur lors du traitement de votre réponse')
-    } finally {
-      setIsProcessing(false)
-    }
+  const handleRespond = async (decision: 'accept' | 'refuse') => {
+    const success = await respond(decision)
+    if (success) setDone(true)
   }
 
   return (
@@ -99,14 +68,14 @@ export default function AgreementsPage() {
             <div className="pt-4 border-t border-gray-100 flex gap-3">
               <button
                 disabled={isProcessing}
-                onClick={() => respond('accept')}
+                onClick={() => handleRespond('accept')}
                 className="bg-green-600 text-white px-6 py-2 rounded-lg text-sm hover:bg-green-700 disabled:opacity-50"
               >
                 Accepter
               </button>
               <button
                 disabled={isProcessing}
-                onClick={() => respond('refuse')}
+                onClick={() => handleRespond('refuse')}
                 className="bg-red-500 text-white px-6 py-2 rounded-lg text-sm hover:bg-red-600 disabled:opacity-50"
               >
                 Refuser

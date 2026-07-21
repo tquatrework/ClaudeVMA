@@ -91,6 +91,15 @@ export async function signLegalDocument(
 }
 
 /**
+ * GET /legal-templates
+ * Liste les modèles légaux existants.
+ */
+export async function fetchLegalTemplates(): Promise<LegalTemplate[]> {
+  const { data } = await apiClient.get<LegalTemplate[]>('/legal-templates')
+  return Array.isArray(data) ? data : []
+}
+
+/**
  * POST /legal-templates
  * Créer un modèle légal. AF uniquement (LDS-BR-001).
  */

@@ -5,18 +5,9 @@
  * Affiche les demandes en attente avec des actions de gestion rapide.
  * Utilisé dans TeacherRequestsPage pour les RP.
  */
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { Link } from 'react-router-dom'
-import apiClient from '../../api/client'
-
-interface TeacherRequestSummary {
-  id: string
-  status: 'pending' | 'accepted' | 'declined' | 'cancelled' | 'candidates_selected'
-  createdAt: string
-  description?: string
-  studentId?: string
-  candidatesCount?: number
-}
+import { useRpTeacherSearchWorkspace } from '../../hooks/teacher-requests/useRpTeacherSearchWorkspace'
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'En attente',
@@ -35,32 +26,7 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 export default function RpTeacherSearchWorkspace() {
-  const [pendingRequests, setPendingRequests] = useState<TeacherRequestSummary[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-
-  useEffect(() => {
-    apiClient
-      .get<TeacherRequestSummary[] | { data: TeacherRequestSummary[] }>('/teacher-requests')
-      .then(({ data }) => {
-        const requestList = Array.isArray(data) ? data : (data as { data: TeacherRequestSummary[] }).data ?? []
-        // RP workspace focuses on active demands needing attention
-        const actionableRequests = requestList.filter(
-          (request) =>
-            request.status === 'pending' || request.status === 'candidates_selected',
-        )
-        setPendingRequests(actionableRequests)
-      })
-      .catch((error: unknown) => {
-        const statusCode = (error as { response?: { status?: number } })?.response?.status
-        if (statusCode === 403) {
-          setErrorMessage('Accès refusé')
-        } else {
-          setErrorMessage('Impossible de charger les demandes')
-        }
-      })
-      .finally(() => setIsLoading(false))
-  }, [])
+  const { pendingRequests, isLoading, errorMessage } = useRpTeacherSearchWorkspace()
 
   if (isLoading) {
     return (

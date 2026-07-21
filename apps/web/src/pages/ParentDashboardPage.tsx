@@ -3,26 +3,14 @@
  * Accent : Cyan oklch(0.60 0.12 210)
  */
 
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import DashboardShell from '../components/dashboard/DashboardShell'
-import { fetchLinkedStudents, fetchStudentProfile } from '../api/relations'
-import apiClient from '../api/client'
 import '../styles/tokens.css'
-import type { CalendarEvent } from '../types/calendar'
-import { getFutureEvents } from '../utils/dashboardFormat'
 import { getRailGroupsForRole, filterTopNavItems } from '../navigation/navigationConfig'
 import { PageTitle } from '../components/ui/PageTitle'
-
-interface StudentCard {
-  studentId: string
-  displayName: string
-  loginIdentifier: string | null
-  nextCourse: CalendarEvent | null
-  creditBalance: number | null
-  lastActivityLabel: string | null
-}
+import { useParentDashboard } from '../hooks/dashboard/useParentDashboard'
 
 export default function ParentDashboardPage() {
   const { user, hasRole } = useAuth()
@@ -31,55 +19,7 @@ export default function ParentDashboardPage() {
   const topNavItems = filterTopNavItems('parent_financeur', hasRole)
   const railGroups = getRailGroupsForRole('parent_financeur')
 
-  const [studentCards, setStudentCards] = useState<StudentCard[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-
-  useEffect(() => {
-    if (!user) return
-
-    fetchLinkedStudents(user.id)
-      .then(async (links) => {
-        const studentCardList = await Promise.all(
-          links.map(async (link) => {
-            const studentCard: StudentCard = {
-              studentId: link.studentId,
-              displayName: 'Élève',
-              loginIdentifier: null,
-              nextCourse: null,
-              creditBalance: null,
-              lastActivityLabel: null,
-            }
-
-            try {
-              const profileData = await fetchStudentProfile(link.studentId)
-              const firstName = profileData.administrativeProfile?.firstName ?? ''
-              const lastName = profileData.administrativeProfile?.lastName ?? ''
-              const resolvedName = [firstName, lastName].filter(Boolean).join(' ')
-              studentCard.displayName = resolvedName || profileData.loginIdentifier || 'Élève inconnu'
-              studentCard.loginIdentifier = profileData.loginIdentifier ?? null
-            } catch {
-              studentCard.displayName = 'Élève inconnu'
-            }
-
-            // TODO: brancher API calendrier par élève
-            try {
-              const { data: calendarEvents } = await apiClient.get<CalendarEvent[]>(
-                `/calendars/${link.studentId}/events`,
-              )
-              const futureEvents = getFutureEvents(Array.isArray(calendarEvents) ? calendarEvents : [])
-              studentCard.nextCourse = futureEvents[0] ?? null
-            } catch {
-              // calendrier indisponible pour cet élève
-            }
-
-            return studentCard
-          }),
-        )
-        setStudentCards(studentCardList)
-      })
-      .catch(() => {})
-      .finally(() => setIsLoading(false))
-  }, [user])
+  const { studentCards, isLoading } = useParentDashboard(user?.id)
 
   return (
     <DashboardShell
@@ -93,15 +33,7 @@ export default function ParentDashboardPage() {
       <PageTitle title={`Bonjour, ${firstName}`} subtitle="Vue d'ensemble de vos élèves" />
 
       {/* Actions rapides */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: '12px',
-          marginBottom: '28px',
-        }}
-        className="vm-quick-grid"
-      >
+      <div className="grid grid-cols-3 gap-3 mb-7 vm-quick-grid">
         {[
           { label: 'Calendrier', path: '/calendar' },
           { label: 'Finances', path: '/finance' },
@@ -110,22 +42,8 @@ export default function ParentDashboardPage() {
           <Link
             key={quickAction.path}
             to={quickAction.path}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '14px 12px',
-              background: 'var(--color-white)',
-              border: '1px solid var(--color-surface)',
-              borderRadius: 'var(--radius-card)',
-              boxShadow: 'var(--shadow-card)',
-              fontSize: '13px',
-              fontWeight: 500,
-              color: 'var(--color-ink)',
-              textDecoration: 'none',
-              textAlign: 'center',
-              transition: 'box-shadow 0.15s',
-            }}
+            style={{ boxShadow: 'var(--shadow-card)' }}
+            className="flex items-center justify-center py-3.5 px-3 bg-[var(--color-white)] border border-[var(--color-surface)] rounded-[var(--radius-card)] text-[13px] font-medium text-[color:var(--color-ink)] no-underline text-center transition-shadow duration-150"
           >
             {quickAction.label}
           </Link>
@@ -134,88 +52,43 @@ export default function ParentDashboardPage() {
 
       {/* Cards élèves */}
       <div>
-        <h2
-          style={{
-            fontFamily: 'var(--font-heading)',
-            fontSize: '15px',
-            fontWeight: 600,
-            color: 'var(--color-ink)',
-            marginBottom: '16px',
-          }}
-        >
+        <h2 className="font-[var(--font-heading)] text-[15px] font-semibold text-[color:var(--color-ink)] mb-4">
           Mes élèves
         </h2>
 
         {isLoading ? (
-          <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Chargement…</p>
+          <p className="text-[13px] text-[color:var(--color-text-secondary)]">Chargement…</p>
         ) : studentCards.length === 0 ? (
-          <div
-            style={{
-              background: 'var(--color-white)',
-              border: '1px solid var(--color-surface)',
-              borderRadius: 'var(--radius-card)',
-              padding: '32px',
-              textAlign: 'center',
-            }}
-          >
-            <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: '16px' }}>
+          <div className="bg-[var(--color-white)] border border-[var(--color-surface)] rounded-[var(--radius-card)] p-8 text-center">
+            <p className="text-[14px] text-[color:var(--color-text-secondary)] mb-4">
               Aucun élève rattaché à votre compte.
             </p>
             <Link
               to="/parent-link-requests"
-              style={{
-                fontSize: '13px',
-                fontWeight: 600,
-                color: '#fff',
-                background: 'var(--accent)',
-                borderRadius: 'var(--radius-pill)',
-                padding: '8px 20px',
-                textDecoration: 'none',
-              }}
+              className="text-[13px] font-semibold text-white bg-[var(--accent)] rounded-[var(--radius-pill)] py-2 px-5 no-underline"
             >
               Rattacher un élève
             </Link>
           </div>
         ) : (
-          <div
-            style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}
-          >
+          <div className="grid grid-cols-[repeat(auto-fill,_minmax(300px,_1fr))] gap-4">
             {studentCards.map((studentCard) => (
               <div
                 key={studentCard.studentId}
-                style={{
-                  background: 'var(--color-white)',
-                  border: '1px solid var(--color-surface)',
-                  borderRadius: 'var(--radius-card)',
-                  boxShadow: 'var(--shadow-card)',
-                  padding: '20px',
-                }}
+                style={{ boxShadow: 'var(--shadow-card)' }}
+                className="bg-[var(--color-white)] border border-[var(--color-surface)] rounded-[var(--radius-card)] p-5"
               >
                 {/* En-tête carte */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-                  <div
-                    style={{
-                      width: '40px',
-                      height: '40px',
-                      borderRadius: '50%',
-                      background: 'var(--accent)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: '#fff',
-                      fontWeight: 700,
-                      fontSize: '16px',
-                      flexShrink: 0,
-                    }}
-                  >
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-full bg-[var(--accent)] flex items-center justify-center text-white font-bold text-[16px] shrink-0">
                     {studentCard.displayName.charAt(0).toUpperCase()}
                   </div>
                   <div>
-                    <p style={{ fontSize: '15px', fontWeight: 600, color: 'var(--color-ink)', margin: 0 }}>
+                    <p className="text-[15px] font-semibold text-[color:var(--color-ink)] m-0">
                       {studentCard.displayName}
                     </p>
                     {studentCard.loginIdentifier && (
-                      <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: 0 }}>
+                      <p className="text-[11px] text-[color:var(--color-text-secondary)] m-0">
                         {studentCard.loginIdentifier}
                       </p>
                     )}
@@ -223,21 +96,14 @@ export default function ParentDashboardPage() {
                 </div>
 
                 {/* Prochain cours */}
-                <div
-                  style={{
-                    padding: '12px',
-                    background: 'var(--color-bg)',
-                    borderRadius: 'var(--radius-field)',
-                    marginBottom: '12px',
-                  }}
-                >
-                  <p style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+                <div className="p-3 bg-[var(--color-bg)] rounded-[var(--radius-field)] mb-3">
+                  <p className="text-[11px] font-semibold text-[color:var(--color-text-secondary)] mb-1">
                     PROCHAIN COURS
                   </p>
                   {studentCard.nextCourse ? (
-                    <p style={{ fontSize: '13px', color: 'var(--color-ink)', fontWeight: 500 }}>
+                    <p className="text-[13px] text-[color:var(--color-ink)] font-medium">
                       {studentCard.nextCourse.title ?? 'Séance programmée'}{' '}
-                      <span style={{ color: 'var(--color-text-secondary)', fontWeight: 400 }}>
+                      <span className="text-[color:var(--color-text-secondary)] font-normal">
                         — {new Date(studentCard.nextCourse.startAt).toLocaleDateString('fr-FR', {
                           weekday: 'short',
                           day: 'numeric',
@@ -247,54 +113,32 @@ export default function ParentDashboardPage() {
                         })}
                       </span>
                     </p>
+                  ) : studentCard.calendarError ? (
+                    <p className="text-[13px] text-red-700">{studentCard.calendarError}</p>
                   ) : (
-                    <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+                    <p className="text-[13px] text-[color:var(--color-text-secondary)]">
                       Aucun cours à venir
                     </p>
                   )}
                 </div>
 
                 {/* Actions */}
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <div className="flex gap-2 flex-wrap">
                   <Link
                     to={`/profiles/${studentCard.studentId}`}
-                    style={{
-                      fontSize: '12px',
-                      color: 'var(--accent)',
-                      border: '1px solid var(--color-surface)',
-                      borderRadius: 'var(--radius-pill)',
-                      padding: '5px 12px',
-                      textDecoration: 'none',
-                      fontWeight: 500,
-                    }}
+                    className="text-[12px] text-[color:var(--accent)] border border-[var(--color-surface)] rounded-[var(--radius-pill)] py-[5px] px-3 no-underline font-medium"
                   >
                     Profil
                   </Link>
                   <Link
                     to={`/calendar?studentId=${studentCard.studentId}`}
-                    style={{
-                      fontSize: '12px',
-                      color: 'var(--accent)',
-                      border: '1px solid var(--color-surface)',
-                      borderRadius: 'var(--radius-pill)',
-                      padding: '5px 12px',
-                      textDecoration: 'none',
-                      fontWeight: 500,
-                    }}
+                    className="text-[12px] text-[color:var(--accent)] border border-[var(--color-surface)] rounded-[var(--radius-pill)] py-[5px] px-3 no-underline font-medium"
                   >
                     Calendrier
                   </Link>
                   <Link
                     to={`/pedagogical-log?studentId=${studentCard.studentId}`}
-                    style={{
-                      fontSize: '12px',
-                      color: 'var(--accent)',
-                      border: '1px solid var(--color-surface)',
-                      borderRadius: 'var(--radius-pill)',
-                      padding: '5px 12px',
-                      textDecoration: 'none',
-                      fontWeight: 500,
-                    }}
+                    className="text-[12px] text-[color:var(--accent)] border border-[var(--color-surface)] rounded-[var(--radius-pill)] py-[5px] px-3 no-underline font-medium"
                   >
                     Cahier
                   </Link>

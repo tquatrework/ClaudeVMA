@@ -28,6 +28,8 @@ import {
   type OpenActivity,
   type OpenActivityStatus,
 } from '../api/learningActivity'
+import { OpenActivityAcceptDialog } from '../components/learning-activity/OpenActivityAcceptDialog'
+import { OpenActivityActionsPanel } from '../components/learning-activity/OpenActivityActionsPanel'
 
 export default function OpenActivityDetailPage() {
   const { activityId } = useParams<{ activityId: string }>()
@@ -251,79 +253,23 @@ export default function OpenActivityDetailPage() {
             </div>
           )}
 
-          {/* Actions formateur */}
-          {isActivityAcceptable && !acceptSuccessMessage && (
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={() => setShouldShowAcceptDialog(true)}
-                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
-              >
-                Prendre cette activité
-              </button>
-            </div>
-          )}
-
-          {/* Actions RP/AP */}
-          {canEdit && !isActivityCancelled && (
-            <div className="pt-2 flex gap-3">
-              <button
-                type="button"
-                onClick={() => setShouldShowEditForm(!shouldShowEditForm)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
-              >
-                Modifier
-              </button>
-              {!isActivityFilled && (
-                <button
-                  type="button"
-                  onClick={handleCancelActivity}
-                  disabled={isUpdating}
-                  className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100 disabled:opacity-50 transition-colors"
-                >
-                  {isUpdating ? 'Annulation…' : 'Annuler l\'activité'}
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Formulaire de modification */}
-          {shouldShowEditForm && (
-            <form onSubmit={handleUpdateDeadline} className="space-y-3 pt-2 border-t border-gray-100">
-              <h3 className="text-sm font-semibold text-gray-700">Modifier la date limite</h3>
-              <div>
-                <label htmlFor="edit-deadline" className="block text-sm text-gray-700 mb-1">
-                  Date limite
-                </label>
-                <input
-                  id="edit-deadline"
-                  type="date"
-                  value={editDeadline}
-                  onChange={(e) => setEditDeadline(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  disabled={isUpdating}
-                />
-              </div>
-              {updateError && <p className="text-red-600 text-sm">{updateError}</p>}
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShouldShowEditForm(false)}
-                  disabled={isUpdating}
-                  className="px-3 py-1.5 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 disabled:opacity-50"
-                >
-                  Annuler
-                </button>
-                <button
-                  type="submit"
-                  disabled={isUpdating}
-                  className="px-3 py-1.5 text-sm text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
-                >
-                  {isUpdating ? 'Enregistrement…' : 'Enregistrer'}
-                </button>
-              </div>
-            </form>
-          )}
+          <OpenActivityActionsPanel
+            isActivityAcceptable={isActivityAcceptable}
+            acceptSuccessMessage={acceptSuccessMessage}
+            onOpenAcceptDialog={() => setShouldShowAcceptDialog(true)}
+            canEdit={canEdit}
+            isActivityCancelled={isActivityCancelled}
+            isActivityFilled={isActivityFilled}
+            shouldShowEditForm={shouldShowEditForm}
+            onToggleEditForm={() => setShouldShowEditForm(!shouldShowEditForm)}
+            onCancelActivity={handleCancelActivity}
+            isUpdating={isUpdating}
+            editDeadline={editDeadline}
+            onEditDeadlineChange={setEditDeadline}
+            updateError={updateError}
+            onSubmitEditForm={handleUpdateDeadline}
+            onCancelEditForm={() => setShouldShowEditForm(false)}
+          />
         </div>
 
         {/* Dialog d'acceptation */}
@@ -344,79 +290,5 @@ export default function OpenActivityDetailPage() {
         )}
       </div>
     </Layout>
-  )
-}
-
-// ─── Sous-composant : dialog de confirmation d'acceptation ────────────────────
-
-interface OpenActivityAcceptDialogProps {
-  activityTitle: string
-  acceptMessage: string
-  isAccepting: boolean
-  acceptError: string | null
-  onMessageChange: (value: string) => void
-  onConfirm: () => void
-  onCancel: () => void
-}
-
-export function OpenActivityAcceptDialog({
-  activityTitle,
-  acceptMessage,
-  isAccepting,
-  acceptError,
-  onMessageChange,
-  onConfirm,
-  onCancel,
-}: OpenActivityAcceptDialogProps) {
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
-        <h2 className="text-base font-semibold text-gray-900">Confirmer la prise d'activité</h2>
-        <p className="text-sm text-gray-600">
-          Vous êtes sur le point de prendre l'activité :{' '}
-          <span className="font-medium text-gray-800">« {activityTitle} »</span>
-        </p>
-        <p className="text-xs text-gray-500">
-          Un événement sera automatiquement ajouté à votre calendrier (ou simulé en environnement
-          de test).
-        </p>
-
-        <div>
-          <label htmlFor="accept-message" className="block text-sm text-gray-700 mb-1">
-            Message au RP (optionnel)
-          </label>
-          <textarea
-            id="accept-message"
-            rows={3}
-            value={acceptMessage}
-            onChange={(e) => onMessageChange(e.target.value)}
-            placeholder="Précisez vos disponibilités ou ajoutez un commentaire…"
-            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-            disabled={isAccepting}
-          />
-        </div>
-
-        {acceptError && <p className="text-red-600 text-sm">{acceptError}</p>}
-
-        <div className="flex justify-end gap-3 pt-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={isAccepting}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 disabled:opacity-50 transition-colors"
-          >
-            Annuler
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={isAccepting}
-            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {isAccepting ? 'Confirmation…' : 'Confirmer'}
-          </button>
-        </div>
-      </div>
-    </div>
   )
 }

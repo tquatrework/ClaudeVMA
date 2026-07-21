@@ -13,17 +13,7 @@ export default function DashboardPage() {
 
   if (isLoading) {
     return (
-      <div
-        style={{
-          minHeight: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontFamily: 'system-ui, sans-serif',
-          color: '#8A90A2',
-          fontSize: '14px',
-        }}
-      >
+      <div className="min-h-screen flex items-center justify-center font-[system-ui,_sans-serif] text-[color:#8A90A2] text-[14px]">
         Chargement…
       </div>
     )

@@ -2,13 +2,14 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-vi.mock('../../../src/api/client')
-import apiClient from '../../../src/api/client'
+vi.mock('../../../src/api/calendar')
+import { acceptEventInvitation, declineEventInvitation } from '../../../src/api/calendar'
 
 import InvitationBanner from '../../../src/components/calendar/InvitationBanner'
 import type { CalendarEvent, InviteeStatus } from '../../../src/components/calendar/calendarTypes'
 
-const mockApiClient = vi.mocked(apiClient)
+const mockAcceptEventInvitation = vi.mocked(acceptEventInvitation)
+const mockDeclineEventInvitation = vi.mocked(declineEventInvitation)
 
 interface InvitationEntry {
   event: CalendarEvent
@@ -73,7 +74,7 @@ describe('InvitationBanner', () => {
 
   it('appelle POST /events/:id/invitees/:userId/accept et onStatusChange lors du clic Accepter', async () => {
     const handleStatusChange = vi.fn()
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: { status: 'accepted' } })
+    mockAcceptEventInvitation.mockResolvedValue(undefined)
 
     render(
       <InvitationBanner
@@ -86,16 +87,14 @@ describe('InvitationBanner', () => {
     await userEvent.click(screen.getByRole('button', { name: /accepter/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith(
-        '/events/evt-invite-1/invitees/user-42/accept',
-      )
+      expect(mockAcceptEventInvitation).toHaveBeenCalledWith('evt-invite-1', 'user-42')
       expect(handleStatusChange).toHaveBeenCalledWith('evt-invite-1', 'accepted')
     })
   })
 
   it('appelle POST /events/:id/invitees/:userId/decline et onStatusChange lors du clic Refuser', async () => {
     const handleStatusChange = vi.fn()
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: { status: 'declined' } })
+    mockDeclineEventInvitation.mockResolvedValue(undefined)
 
     render(
       <InvitationBanner
@@ -108,9 +107,7 @@ describe('InvitationBanner', () => {
     await userEvent.click(screen.getByRole('button', { name: /refuser/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith(
-        '/events/evt-invite-1/invitees/user-42/decline',
-      )
+      expect(mockDeclineEventInvitation).toHaveBeenCalledWith('evt-invite-1', 'user-42')
       expect(handleStatusChange).toHaveBeenCalledWith('evt-invite-1', 'declined')
     })
   })

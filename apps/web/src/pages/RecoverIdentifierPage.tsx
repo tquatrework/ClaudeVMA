@@ -1,29 +1,19 @@
 import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
-import apiClient from '../api/client'
+import { useRecoverIdentifier } from '../hooks/auth/useRecoverIdentifier'
 
 type PageStep = 'form' | 'sent'
 
 export default function RecoverIdentifierPage() {
   const [email, setEmail] = useState('')
   const [step, setStep] = useState<PageStep>('form')
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const { requestRecovery, isSubmitting, error: errorMessage } = useRecoverIdentifier()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setErrorMessage(null)
-    setIsSubmitting(true)
-    try {
-      await apiClient.post('/auth/recover-identifier', { email })
+    const success = await requestRecovery(email)
+    if (success) {
       setStep('sent')
-    } catch (err: unknown) {
-      const apiMessage =
-        (err as { response?: { data?: { message?: string } } })?.response?.data
-          ?.message ?? 'Erreur lors de la demande de récupération'
-      setErrorMessage(apiMessage)
-    } finally {
-      setIsSubmitting(false)
     }
   }
 

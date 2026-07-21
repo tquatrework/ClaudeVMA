@@ -1,11 +1,6 @@
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { useNavigate } from 'react-router-dom'
-import apiClient from '../../api/client'
-
-interface RoomStatusInfo {
-  id: string
-  status: 'active' | 'ended' | 'scheduled'
-}
+import { useUpcomingCourseRoomStatus } from '../../hooks/video/useUpcomingCourseRoomStatus'
 
 interface UpcomingCourseJoinButtonProps {
   roomId: string
@@ -29,16 +24,7 @@ export default function UpcomingCourseJoinButton({
   calendarEventTitle,
 }: UpcomingCourseJoinButtonProps) {
   const navigate = useNavigate()
-  const [roomStatus, setRoomStatus] = useState<RoomStatusInfo | null>(null)
-
-  useEffect(() => {
-    apiClient
-      .get<RoomStatusInfo>(`/video/rooms/${roomId}`)
-      .then(({ data }) => setRoomStatus(data))
-      .catch(() => {
-        // Status badge is optional — silently ignore errors
-      })
-  }, [roomId])
+  const roomStatus = useUpcomingCourseRoomStatus(roomId)
 
   const handleJoin = () => {
     navigate(`/video/${roomId}`)

@@ -8,42 +8,19 @@
  *   GET  /orchestration/events/:correlationId
  */
 
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
-import apiClient from '../api/client'
 import Layout from '../components/Layout'
-import { StatusBadge } from '../components/ui/StatusBadge'
 import { ErrorMessage } from '../components/ui/ErrorMessage'
 import { WorkflowCommandPanel } from '../components/admin/WorkflowCommandPanel'
 import { WorkflowEventsPanel } from '../components/admin/WorkflowEventsPanel'
-import { formatLocalDateTime } from '../utils/dateFormat'
-
-interface WorkflowType {
-  id: string
-  name: string
-  phase?: string
-  stepCount?: number
-}
-
-interface WorkflowInstance {
-  workflowInstanceId: string
-  workflowType: string
-  status: string
-  startedAt: string
-  correlationId: string
-}
+import { WorkflowInstancesPanel, type WorkflowInstance } from '../components/admin/WorkflowInstancesPanel'
+import { useWorkflowActivity } from '../hooks/admin/useWorkflowActivity'
+import type { WorkflowType } from '../api/orchestration'
 
 type ActivePanel = 'workflows' | 'commands' | 'events'
 
-const WORKFLOW_STATUS_BADGE_CLASSES: Record<string, string> = {
-  in_progress: 'bg-blue-100 text-blue-700',
-  completed: 'bg-green-100 text-green-700',
-  failed: 'bg-red-100 text-red-700',
-  needs_arbitration: 'bg-yellow-100 text-yellow-700',
-  suspended: 'bg-gray-100 text-gray-500',
-}
-
-const WORKFLOW_TYPES = [
+const WORKFLOW_TYPES: WorkflowType[] = [
   'student-onboarding',
   'teacher-onboarding',
   'teacher-request-to-assignment',
@@ -51,61 +28,50 @@ const WORKFLOW_TYPES = [
 ]
 
 export default function AdminActivityPage() {
+  const {
+    availableWorkflowTypes,
+    isLoadingWorkflowTypes,
+    workflowTypesError,
+    launchWorkflow,
+    isLaunchingWorkflow,
+    launchError,
+    resetLaunchError,
+  } = useWorkflowActivity()
+
   const [activePanel, setActivePanel] = useState<ActivePanel>('workflows')
-  const [workflowInstances, setWorkflowInstances] = useState<WorkflowInstance[]>([])
-  const [availableWorkflowTypes, setAvailableWorkflowTypes] = useState<WorkflowType[]>([])
-  const [isLoadingWorkflows, setIsLoadingWorkflows] = useState(true)
-  const [workflowError, setWorkflowError] = useState<string | null>(null)
+
+  // Aucune route de listing des instances de workflow n'existe côté orchestration-service
+  // (seule /workflows/:workflowInstanceId permet de lire une instance précise) : cette liste
+  // reste locale et vide, à l'identique du comportement préexistant.
+  const [workflowInstances] = useState<WorkflowInstance[]>([])
 
   const [isStartingWorkflow, setIsStartingWorkflow] = useState(false)
-  const [selectedWorkflowType, setSelectedWorkflowType] = useState(WORKFLOW_TYPES[0])
+  const [selectedWorkflowType, setSelectedWorkflowType] = useState<WorkflowType>(WORKFLOW_TYPES[0])
   const [workflowPayload, setWorkflowPayload] = useState('{}')
-  const [isLaunchingWorkflow, setIsLaunchingWorkflow] = useState(false)
   const [workflowStartResult, setWorkflowStartResult] = useState<string | null>(null)
-  const [workflowStartError, setWorkflowStartError] = useState<string | null>(null)
-
-  useEffect(() => {
-    apiClient
-      .get<WorkflowType[]>('/orchestration/workflows')
-      .then(({ data }) => {
-        if (Array.isArray(data)) setAvailableWorkflowTypes(data)
-      })
-      .catch(() => { /* non-blocking */ })
-
-    setIsLoadingWorkflows(false)
-  }, [])
+  const [payloadParseError, setPayloadParseError] = useState<string | null>(null)
 
   const handleStartWorkflow = async (event: React.FormEvent) => {
     event.preventDefault()
-    setIsLaunchingWorkflow(true)
-    setWorkflowStartError(null)
+    setPayloadParseError(null)
     setWorkflowStartResult(null)
 
-    let parsedPayload: unknown = {}
+    let parsedPayload: Record<string, unknown> = {}
     try {
       parsedPayload = JSON.parse(workflowPayload)
     } catch {
-      setWorkflowStartError('Le payload doit être un JSON valide')
-      setIsLaunchingWorkflow(false)
+      setPayloadParseError('Le payload doit être un JSON valide')
       return
     }
 
-    try {
-      const { data } = await apiClient.post(
-        `/orchestration/workflows/${selectedWorkflowType}/start`,
-        { workflowType: selectedWorkflowType, payload: parsedPayload },
-      )
-      setWorkflowStartResult(JSON.stringify(data, null, 2))
+    const result = await launchWorkflow(selectedWorkflowType, parsedPayload)
+    if (result) {
+      setWorkflowStartResult(JSON.stringify(result, null, 2))
       setIsStartingWorkflow(false)
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors du déclenchement du workflow'
-      setWorkflowStartError(message)
-    } finally {
-      setIsLaunchingWorkflow(false)
     }
   }
+
+  const workflowStartError = payloadParseError ?? launchError
 
   return (
     <Layout>
@@ -152,11 +118,17 @@ export default function AdminActivityPage() {
         {activePanel === 'workflows' && (
           <div className="space-y-6">
             {/* Types disponibles */}
-            {availableWorkflowTypes.length > 0 && (
-              <div>
-                <h2 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">
-                  Types de workflows disponibles
-                </h2>
+            <div>
+              <h2 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">
+                Types de workflows disponibles
+              </h2>
+              {isLoadingWorkflowTypes ? (
+                <p className="text-gray-400 text-sm">Chargement…</p>
+              ) : workflowTypesError ? (
+                <ErrorMessage message={workflowTypesError} />
+              ) : availableWorkflowTypes.length === 0 ? (
+                <p className="text-gray-400 text-sm">Aucun type de workflow disponible.</p>
+              ) : (
                 <div className="flex flex-wrap gap-2">
                   {availableWorkflowTypes.map((workflowType) => (
                     <span
@@ -172,8 +144,8 @@ export default function AdminActivityPage() {
                     </span>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Déclencher un workflow */}
             <div>
@@ -192,7 +164,10 @@ export default function AdminActivityPage() {
               {workflowStartError && (
                 <ErrorMessage
                   message={workflowStartError}
-                  onClose={() => setWorkflowStartError(null)}
+                  onClose={() => {
+                    setPayloadParseError(null)
+                    resetLaunchError()
+                  }}
                   className="mb-3"
                 />
               )}
@@ -217,7 +192,7 @@ export default function AdminActivityPage() {
                     </label>
                     <select
                       value={selectedWorkflowType}
-                      onChange={(e) => setSelectedWorkflowType(e.target.value)}
+                      onChange={(e) => setSelectedWorkflowType(e.target.value as WorkflowType)}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
                     >
                       {WORKFLOW_TYPES.map((workflowTypeName) => (
@@ -250,67 +225,7 @@ export default function AdminActivityPage() {
             </div>
 
             {/* Instances actives */}
-            <div>
-              <h2 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">
-                Instances actives
-              </h2>
-              {isLoadingWorkflows && <p className="text-gray-400 text-sm">Chargement…</p>}
-              {workflowError && <ErrorMessage message={workflowError} />}
-              {!isLoadingWorkflows && workflowInstances.length === 0 && (
-                <div className="text-center py-8 bg-white border border-gray-200 rounded-xl">
-                  <p className="text-gray-400 text-sm">Aucune instance de workflow active</p>
-                  <p className="text-xs text-gray-300 mt-1">
-                    Déclenchez un workflow ci-dessus pour le voir apparaître ici
-                  </p>
-                </div>
-              )}
-              {workflowInstances.length > 0 && (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm bg-white border border-gray-200 rounded-xl overflow-hidden">
-                    <thead className="bg-gray-50 text-gray-600 text-xs uppercase tracking-wide">
-                      <tr>
-                        <th className="px-4 py-3 text-left">Type</th>
-                        <th className="px-4 py-3 text-left">Statut</th>
-                        <th className="px-4 py-3 text-left">Démarré le</th>
-                        <th className="px-4 py-3 text-left">Correlation ID</th>
-                        <th className="px-4 py-3 text-left">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {workflowInstances.map((workflowInstance) => (
-                        <tr key={workflowInstance.workflowInstanceId} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 font-medium text-gray-800">
-                            {workflowInstance.workflowType}
-                          </td>
-                          <td className="px-4 py-3">
-                            <StatusBadge
-                              status={workflowInstance.status}
-                              badgeClasses={WORKFLOW_STATUS_BADGE_CLASSES}
-                            />
-                          </td>
-                          <td className="px-4 py-3 text-gray-600">
-                            {formatLocalDateTime(workflowInstance.startedAt)}
-                          </td>
-                          <td className="px-4 py-3 text-gray-400 font-mono text-xs">
-                            {workflowInstance.correlationId?.slice(0, 12)}…
-                          </td>
-                          <td className="px-4 py-3">
-                            {workflowInstance.status === 'needs_arbitration' && (
-                              <Link
-                                to={`/agreements/${workflowInstance.workflowInstanceId}`}
-                                className="text-xs text-indigo-600 hover:underline"
-                              >
-                                Arbitrer
-                              </Link>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+            <WorkflowInstancesPanel instances={workflowInstances} />
           </div>
         )}
 

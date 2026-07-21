@@ -3,39 +3,24 @@
  * Accent : Ambre oklch(0.65 0.13 65)
  */
 
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import DashboardShell from '../components/dashboard/DashboardShell'
-import apiClient from '../api/client'
 import '../styles/tokens.css'
-import type { DashboardNotification } from '../types/dashboard'
-import { normalizeListResponse } from '../utils/dashboardFormat'
 import { getRailGroupsForRole, filterTopNavItems } from '../navigation/navigationConfig'
 import { ActivityFeed } from '../components/ui/ActivityFeed'
 import { PageTitle } from '../components/ui/PageTitle'
+import { useDashboardNotifications } from '../hooks/dashboard/useDashboardNotifications'
 
 export default function ApDashboardPage() {
   const { user, hasRole } = useAuth()
   const firstName = user?.loginIdentifier ?? 'vous'
 
-  const [notifications, setNotifications] = useState<DashboardNotification[]>([])
-  const [isLoadingNotifications, setIsLoadingNotifications] = useState(true)
+  const { notifications, isLoadingNotifications } = useDashboardNotifications(6)
 
   const topNavItems = filterTopNavItems('animateur_pedagogique', hasRole)
   const railGroups = getRailGroupsForRole('animateur_pedagogique')
-
-  useEffect(() => {
-    if (!user) return
-
-    apiClient
-      .get<{ data?: DashboardNotification[] } | DashboardNotification[]>('/notifications')
-      .then(({ data }) => {
-        setNotifications(normalizeListResponse(data).slice(0, 6))
-      })
-      .catch(() => {})
-      .finally(() => setIsLoadingNotifications(false))
-  }, [user])
 
   return (
     <DashboardShell

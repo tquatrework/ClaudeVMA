@@ -1,45 +1,26 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import apiClient from '../api/client'
 import { useAuth } from '../hooks/useAuth'
+import { useConsents } from '../hooks/accounts/useConsents'
+import type { ConsentType } from '../types/accounts'
 import Layout from '../components/Layout'
 
-interface Consent {
-  consentType: string
-  signedAt: string
-}
-
-const REQUIRED_TYPES = ['rgpd', 'cgu'] as const
+const REQUIRED_TYPES: readonly ConsentType[] = ['rgpd', 'cgu']
 
 export default function ConsentsPage() {
   const navigate = useNavigate()
   const { refreshUser } = useAuth()
-  const [signed, setSigned] = useState<string[]>([])
   const [marketing, setMarketing] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const {
+    signedTypes: signed,
+    isLoading,
+    loadError,
+    sign,
+    isSaving,
+    signError,
+  } = useConsents()
 
-  useEffect(() => {
-    apiClient
-      .get<Consent[]>('/consents')
-      .then(({ data }) => setSigned(data.map((c) => c.consentType)))
-      .catch(() => setError('Impossible de charger les consentements'))
-      .finally(() => setIsLoading(false))
-  }, [])
-
-  const sign = async (type: string) => {
-    setIsSaving(true)
-    try {
-      await apiClient.post('/consents', { consentType: type })
-      setSigned((prev) => [...prev, type])
-    } catch {
-      setError('Erreur lors de la signature')
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
+  const error = loadError ?? signError
   const allRequiredSigned = REQUIRED_TYPES.every((t) => signed.includes(t))
 
   if (isLoading) {

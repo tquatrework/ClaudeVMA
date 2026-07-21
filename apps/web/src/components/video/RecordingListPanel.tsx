@@ -1,13 +1,6 @@
-import React, { useEffect, useState } from 'react'
-import apiClient from '../../api/client'
+import React, { useState } from 'react'
+import { useRecordingList } from '../../hooks/video/useRecordingList'
 import RecordingCommentTimeline from './RecordingCommentTimeline'
-
-interface Recording {
-  id: string
-  downloadUrl?: string
-  expiresAt?: string
-  isExpired: boolean
-}
 
 interface RecordingListPanelProps {
   roomId: string
@@ -15,25 +8,10 @@ interface RecordingListPanelProps {
 }
 
 export default function RecordingListPanel({ roomId, userRole }: RecordingListPanelProps) {
-  const [recordings, setRecordings] = useState<Recording[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [selectedRecordingId, setSelectedRecordingId] = useState<string | null>(null)
 
   const isParent = userRole === 'parent_financeur'
-
-  useEffect(() => {
-    if (isParent) {
-      setIsLoading(false)
-      return
-    }
-
-    apiClient
-      .get<Recording[]>(`/video/rooms/${roomId}/recordings`)
-      .then(({ data }) => setRecordings(data))
-      .catch(() => setError('Impossible de charger les enregistrements'))
-      .finally(() => setIsLoading(false))
-  }, [roomId, isParent])
+  const { recordings, isLoading, error } = useRecordingList(roomId, isParent)
 
   if (isParent) {
     return (

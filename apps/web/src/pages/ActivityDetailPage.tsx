@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
 import { useActivityDetail } from '../hooks/calendar/useActivityDetail'
+import { ActivityEditForm } from '../components/calendar/ActivityEditForm'
 
 export default function ActivityDetailPage() {
   const { activityId } = useParams<{ activityId: string }>()
@@ -106,47 +107,15 @@ export default function ActivityDetailPage() {
             {/* Activity detail card */}
             <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
               {isEditing ? (
-                <form onSubmit={handleSaveEdit} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Titre</label>
-                    <input
-                      type="text"
-                      value={editTitle}
-                      onChange={(e) => setEditTitle(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Statut</label>
-                    <select
-                      value={editStatus}
-                      onChange={(e) => setEditStatus(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                    >
-                      <option value="">— Inchangé —</option>
-                      <option value="scheduled">Planifiée</option>
-                      <option value="ongoing">En cours</option>
-                      <option value="completed">Terminée</option>
-                      <option value="cancelled">Annulée</option>
-                    </select>
-                  </div>
-                  <div className="flex gap-3">
-                    <button
-                      type="submit"
-                      disabled={isSavingEdit}
-                      className="bg-indigo-600 text-white px-5 py-2 rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50"
-                    >
-                      {isSavingEdit ? 'Sauvegarde…' : 'Enregistrer'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsEditing(false)}
-                      className="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm hover:bg-gray-200"
-                    >
-                      Annuler
-                    </button>
-                  </div>
-                </form>
+                <ActivityEditForm
+                  editTitle={editTitle}
+                  onEditTitleChange={setEditTitle}
+                  editStatus={editStatus}
+                  onEditStatusChange={setEditStatus}
+                  isSaving={isSavingEdit}
+                  onSubmit={handleSaveEdit}
+                  onCancel={() => setIsEditing(false)}
+                />
               ) : (
                 <>
                   <DetailRow

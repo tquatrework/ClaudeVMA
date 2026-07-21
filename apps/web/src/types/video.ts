@@ -29,3 +29,36 @@ export interface AttendancePayload {
   userId?: string
   joinedAt: string
 }
+
+/** Élément de GET /video/rooms/:roomId/recordings */
+export interface VideoRecording {
+  id: string
+  downloadUrl?: string
+  expiresAt?: string
+  isExpired: boolean
+}
+
+/** Commentaire horodaté sur un enregistrement (POST /recordings/:recordingId/comments) */
+export interface RecordingComment {
+  id: string
+  timestampSeconds: number
+  content: string
+  createdAt: string
+}
+
+/** Corps de POST /recordings/:recordingId/comments */
+export interface RecordingCommentPayload {
+  timestampSeconds: number
+  content: string
+}
+
+/** Réponse de POST /video/rooms/:roomId/summary */
+export interface CourseSummary {
+  id: string
+  roomId: string
+  authorId: string
+  content: string
+  isPermanent: boolean
+  publishedAt: string
+  createdAt: string
+}

@@ -1,12 +1,5 @@
-import React, { useState } from 'react'
-import apiClient from '../../api/client'
-
-interface Comment {
-  id: string
-  timestampSeconds: number
-  content: string
-  createdAt: string
-}
+import React from 'react'
+import { useRecordingComments } from '../../hooks/video/useRecordingComments'
 
 interface RecordingCommentTimelineProps {
   recordingId: string
@@ -19,11 +12,16 @@ export default function RecordingCommentTimeline({
   userRole,
   onClose,
 }: RecordingCommentTimelineProps) {
-  const [comments, setComments] = useState<Comment[]>([])
-  const [timestampSeconds, setTimestampSeconds] = useState<number>(0)
-  const [content, setContent] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const {
+    comments,
+    timestampSeconds,
+    setTimestampSeconds,
+    content,
+    setContent,
+    isSubmitting,
+    error,
+    submitComment,
+  } = useRecordingComments(recordingId)
 
   const isParent = userRole === 'parent_financeur'
 
@@ -39,27 +37,7 @@ export default function RecordingCommentTimeline({
     event.preventDefault()
     if (!content.trim()) return
 
-    setIsSubmitting(true)
-    setError(null)
-    try {
-      await apiClient.post(`/recordings/${recordingId}/comments`, {
-        timestampSeconds,
-        content: content.trim(),
-      })
-      const newComment: Comment = {
-        id: `local-${Date.now()}`,
-        timestampSeconds,
-        content: content.trim(),
-        createdAt: new Date().toISOString(),
-      }
-      setComments((prev) => [...prev, newComment])
-      setContent('')
-      setTimestampSeconds(0)
-    } catch {
-      setError('Impossible d\'envoyer le commentaire')
-    } finally {
-      setIsSubmitting(false)
-    }
+    await submitComment()
   }
 
   const formatTimestamp = (seconds: number): string => {

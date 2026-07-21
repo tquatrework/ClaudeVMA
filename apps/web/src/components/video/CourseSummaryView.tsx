@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import apiClient from '../../api/client'
+import { useCourseSummaryPublish } from '../../hooks/video/useCourseSummaryPublish'
 
 interface CourseSummaryViewProps {
   roomId: string
@@ -11,9 +11,7 @@ const ROLES_ALLOWED_TO_PUBLISH_SUMMARY = ['formateur', 'responsable_pedagogique'
 
 export default function CourseSummaryView({ roomId, userRole, roomStatus }: CourseSummaryViewProps) {
   const [summaryContent, setSummaryContent] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isPublished, setIsPublished] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { isSubmitting, isPublished, error, publish } = useCourseSummaryPublish(roomId)
 
   const canPublishSummary =
     ROLES_ALLOWED_TO_PUBLISH_SUMMARY.includes(userRole) && roomStatus === 'ended'
@@ -39,18 +37,7 @@ export default function CourseSummaryView({ roomId, userRole, roomStatus }: Cour
     event.preventDefault()
     if (!summaryContent.trim()) return
 
-    setIsSubmitting(true)
-    setError(null)
-    try {
-      await apiClient.post(`/video/rooms/${roomId}/summary`, {
-        content: summaryContent.trim(),
-      })
-      setIsPublished(true)
-    } catch {
-      setError('Impossible de publier le résumé')
-    } finally {
-      setIsSubmitting(false)
-    }
+    await publish(summaryContent.trim())
   }
 
   return (

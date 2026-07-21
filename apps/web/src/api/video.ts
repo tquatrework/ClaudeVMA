@@ -7,7 +7,15 @@
  */
 
 import apiClient from './client'
-import type { AttendancePayload, JoinRoomResult, VideoRoomInfo } from '../types/video'
+import type {
+  AttendancePayload,
+  CourseSummary,
+  JoinRoomResult,
+  RecordingComment,
+  RecordingCommentPayload,
+  VideoRecording,
+  VideoRoomInfo,
+} from '../types/video'
 
 export interface CreateRoomPayload {
   activityId: string
@@ -50,4 +58,39 @@ export async function recordAttendance(roomId: string, payload: AttendancePayloa
  */
 export async function closeRoom(roomId: string): Promise<void> {
   await apiClient.post(`/video/rooms/${roomId}/close`)
+}
+
+/**
+ * GET /video/rooms/:roomId/recordings — Lister les enregistrements visibles.
+ * Utilisé par RecordingListPanel (parent_financeur refusé côté serveur, VID-FB-001/VID-AC-001).
+ */
+export async function fetchRecordings(roomId: string): Promise<VideoRecording[]> {
+  const { data } = await apiClient.get<VideoRecording[]>(`/video/rooms/${roomId}/recordings`)
+  return data
+}
+
+/**
+ * POST /recordings/:recordingId/comments — Ajouter un commentaire horodaté sur un enregistrement.
+ * Utilisé par RecordingCommentTimeline.
+ */
+export async function addRecordingComment(
+  recordingId: string,
+  payload: RecordingCommentPayload,
+): Promise<RecordingComment> {
+  const { data } = await apiClient.post<RecordingComment>(
+    `/recordings/${recordingId}/comments`,
+    payload,
+  )
+  return data
+}
+
+/**
+ * POST /video/rooms/:roomId/summary — Publier le résumé de cours (permanent, VID-AC-002).
+ * Utilisé par CourseSummaryView.
+ */
+export async function publishCourseSummary(roomId: string, content: string): Promise<CourseSummary> {
+  const { data } = await apiClient.post<CourseSummary>(`/video/rooms/${roomId}/summary`, {
+    content,
+  })
+  return data
 }

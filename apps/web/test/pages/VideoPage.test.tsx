@@ -10,9 +10,9 @@
  * 5. Clôturer la session (rôles autorisés uniquement)
  * 6. Boutons Mémo / Clôturer visibles selon le rôle
  *
- * `RecordingListPanel` et `CourseSummaryView` (dépendances non migrées dans ce lot) mockent
- * `src/api/client` uniquement pour éviter tout appel réseau réel pendant ces tests, sans
- * changer leur comportement.
+ * `RecordingListPanel` et `CourseSummaryView` (montés comme enfants de VideoPage) consomment
+ * désormais `src/api/video` — mocké ici comme le reste du module pour éviter tout appel réseau
+ * réel pendant ces tests, sans changer leur comportement.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -22,19 +22,23 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import VideoPage from '../../src/pages/VideoPage'
 
 vi.mock('../../src/hooks/useAuth')
-vi.mock('../../src/api/client')
 vi.mock('../../src/api/video')
 
 import { useAuth } from '../../src/hooks/useAuth'
-import apiClient from '../../src/api/client'
-import { fetchRoomInfo, joinRoom, recordAttendance, closeRoom } from '../../src/api/video'
+import {
+  fetchRoomInfo,
+  joinRoom,
+  recordAttendance,
+  closeRoom,
+  fetchRecordings,
+} from '../../src/api/video'
 
 const mockUseAuth = vi.mocked(useAuth)
-const mockApiClient = vi.mocked(apiClient)
 const mockFetchRoomInfo = vi.mocked(fetchRoomInfo)
 const mockJoinRoom = vi.mocked(joinRoom)
 const mockRecordAttendance = vi.mocked(recordAttendance)
 const mockCloseRoom = vi.mocked(closeRoom)
+const mockFetchRecordings = vi.mocked(fetchRecordings)
 
 const STUDENT_USER = {
   id: 'student-1',
@@ -75,8 +79,9 @@ function renderVideoPage(roomId = 'room-abc') {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  // Dépendances non migrées (RecordingListPanel, CourseSummaryView) — évite tout appel réseau réel.
-  mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+  // RecordingListPanel (enfant de VideoPage) charge les enregistrements au montage — liste vide
+  // par défaut pour éviter tout appel réseau réel pendant ces tests.
+  mockFetchRecordings.mockResolvedValue([])
 })
 
 // ---------------------------------------------------------------------------

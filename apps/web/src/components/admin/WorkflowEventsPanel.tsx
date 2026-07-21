@@ -6,48 +6,17 @@
  */
 
 import React, { useState } from 'react'
-import apiClient from '../../api/client'
 import { ErrorMessage } from '../ui/ErrorMessage'
 import { formatLocalDateTime } from '../../utils/dateFormat'
-
-interface IntegrationEvent {
-  eventId?: string
-  eventType: string
-  occurredAt: string
-  payload?: Record<string, unknown>
-}
-
-interface EventsResponse {
-  correlationId: string
-  count: number
-  events: IntegrationEvent[]
-}
+import { useWorkflowEventsSearch } from '../../hooks/admin/useWorkflowEventsSearch'
 
 export function WorkflowEventsPanel() {
   const [correlationIdSearch, setCorrelationIdSearch] = useState('')
-  const [eventsResult, setEventsResult] = useState<EventsResponse | null>(null)
-  const [isSearchingEvents, setIsSearchingEvents] = useState(false)
-  const [eventsError, setEventsError] = useState<string | null>(null)
+  const { eventsResult, isSearchingEvents, eventsError, searchEvents } = useWorkflowEventsSearch()
 
-  const handleSearchEvents = async (event: React.FormEvent) => {
+  const handleSearchEvents = (event: React.FormEvent) => {
     event.preventDefault()
-    if (!correlationIdSearch.trim()) return
-    setIsSearchingEvents(true)
-    setEventsError(null)
-    setEventsResult(null)
-
-    try {
-      const { data } = await apiClient.get<EventsResponse>(
-        `/orchestration/events/${correlationIdSearch.trim()}`,
-      )
-      setEventsResult(data)
-    } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status
-      if (status === 404) setEventsError('Aucun événement trouvé pour ce correlationId')
-      else setEventsError('Erreur lors de la recherche des événements')
-    } finally {
-      setIsSearchingEvents(false)
-    }
+    searchEvents(correlationIdSearch)
   }
 
   return (
@@ -78,9 +47,7 @@ export function WorkflowEventsPanel() {
         </button>
       </form>
 
-      {eventsError && (
-        <ErrorMessage message={eventsError} onClose={() => setEventsError(null)} />
-      )}
+      {eventsError && <ErrorMessage message={eventsError} />}
 
       {eventsResult && (
         <div>
@@ -95,9 +62,9 @@ export function WorkflowEventsPanel() {
             <p className="text-gray-400 text-sm">Aucun événement trouvé</p>
           ) : (
             <ul className="space-y-3">
-              {eventsResult.events.map((integrationEvent, eventIndex) => (
+              {eventsResult.events.map((integrationEvent) => (
                 <li
-                  key={integrationEvent.eventId ?? eventIndex}
+                  key={integrationEvent.id}
                   className="bg-white border border-gray-200 rounded-xl p-4"
                 >
                   <div className="flex items-start justify-between gap-3 mb-2">

@@ -5,9 +5,9 @@ import {
   Delete,
   Patch,
   Param,
+  ParseUUIDPipe,
   Body,
   UseGuards,
-  Req,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -19,8 +19,11 @@ import {
   ApiParam,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { ContactService } from './contact.service';
 import { UpdateVisibilityDto } from './dto/update-visibility.dto';
+import { ContactResponseDto } from './dto/contact-response.dto';
 
 /**
  * Public contact routes for the authenticated user.
@@ -44,10 +47,11 @@ export class ContactController {
       'Returns all active, non-expired contacts authorized for the current user. ' +
       'COM-BR-010: contact list is computed from profile-service business relations, not freely entered.',
   })
-  @ApiResponse({ status: 200, description: 'List of authorized contacts' })
+  @ApiResponse({ status: 200, description: 'List of authorized contacts', type: [ContactResponseDto] })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  listContacts(@Req() req: any) {
-    return this.contactService.listContacts(req.user.id);
+  async listContacts(@CurrentUser() actor: AuthenticatedUser): Promise<ContactResponseDto[]> {
+    const contacts = await this.contactService.listContacts(actor.id);
+    return contacts.map((contact) => ContactResponseDto.fromEntity(contact));
   }
 
   @Post(':id/activate')
@@ -58,11 +62,15 @@ export class ContactController {
       'Transitions a contact from status "precontact" to "active", ' +
       'making it available for messaging.',
   })
-  @ApiResponse({ status: 200, description: 'Contact activated' })
+  @ApiResponse({ status: 200, description: 'Contact activated', type: ContactResponseDto })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Contact not found for this user' })
-  activateContact(@Param('id') contactPolicyId: string, @Req() req: any) {
-    return this.contactService.activateContact(req.user.id, contactPolicyId);
+  async activateContact(
+    @Param('id', ParseUUIDPipe) contactPolicyId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<ContactResponseDto> {
+    const contact = await this.contactService.activateContact(actor.id, contactPolicyId);
+    return ContactResponseDto.fromEntity(contact);
   }
 
   @Delete(':id')
@@ -79,8 +87,11 @@ export class ContactController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Contact is mandatory and cannot be removed' })
   @ApiResponse({ status: 404, description: 'Contact not found for this user' })
-  async removeContact(@Param('id') contactPolicyId: string, @Req() req: any): Promise<void> {
-    await this.contactService.removeContact(req.user.id, contactPolicyId);
+  async removeContact(
+    @Param('id', ParseUUIDPipe) contactPolicyId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<void> {
+    await this.contactService.removeContact(actor.id, contactPolicyId);
   }
 
   @Patch(':id/visibility')
@@ -91,19 +102,20 @@ export class ContactController {
       'Sets the display preference of a contact to "visible" or "hidden". ' +
       'Hidden contacts remain authorized for messaging but are filtered from the default list view.',
   })
-  @ApiResponse({ status: 200, description: 'Visibility updated' })
+  @ApiResponse({ status: 200, description: 'Visibility updated', type: ContactResponseDto })
   @ApiResponse({ status: 400, description: 'Invalid visibility value' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Contact not found for this user' })
-  updateVisibility(
-    @Param('id') contactPolicyId: string,
+  async updateVisibility(
+    @Param('id', ParseUUIDPipe) contactPolicyId: string,
     @Body() updateVisibilityDto: UpdateVisibilityDto,
-    @Req() req: any,
-  ) {
-    return this.contactService.updateVisibility(
-      req.user.id,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<ContactResponseDto> {
+    const contact = await this.contactService.updateVisibility(
+      actor.id,
       contactPolicyId,
       updateVisibilityDto.visibility,
     );
+    return ContactResponseDto.fromEntity(contact);
   }
 }

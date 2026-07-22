@@ -5,6 +5,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { AuthenticatedUser } from '../types/authenticated-user.type';
+import { UserRole } from '../enums/user-role.enum';
 
 export interface JwtPayload {
   sub: string;
@@ -47,14 +49,15 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Invalid token type');
     }
 
-    request.user = {
+    const authenticatedUser: AuthenticatedUser = {
       id: payload.sub,
       loginIdentifier: payload.loginIdentifier,
       email: payload.email,
-      role: payload.role,
+      role: payload.role as UserRole,
       validationStatus: payload.validationStatus,
       jti: payload.jti,
     };
+    request.user = authenticatedUser;
 
     return true;
   }

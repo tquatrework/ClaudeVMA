@@ -5,8 +5,8 @@ import {
   Put,
   Body,
   Param,
+  ParseUUIDPipe,
   UseGuards,
-  Req,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -18,10 +18,13 @@ import {
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { UserRole } from '../common/enums/user-role.enum';
 import { IncidentService } from './incident.service';
 import { CreateIncidentDto } from './dto/create-incident.dto';
 import { UpdateIncidentStatusDto } from './dto/update-incident-status.dto';
+import { IncidentResponseDto } from './dto/incident-response.dto';
 
 /**
  * Incident routes (docs/services/communication-service.md)
@@ -49,12 +52,16 @@ export class IncidentController {
       'A dedicated conversation marked as incident=true is created. ' +
       'COM-RA-006: reserved to TI.',
   })
-  @ApiResponse({ status: 201, description: 'Incident created' })
+  @ApiResponse({ status: 201, description: 'Incident created', type: IncidentResponseDto })
   @ApiResponse({ status: 400, description: 'Validation error' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden — TI role required' })
-  create(@Body() dto: CreateIncidentDto, @Req() req: any) {
-    return this.incidentService.create(dto, req.user.id);
+  async create(
+    @Body() dto: CreateIncidentDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<IncidentResponseDto> {
+    const incident = await this.incidentService.create(dto, actor.id);
+    return IncidentResponseDto.fromEntity(incident);
   }
 
   @Get()
@@ -63,23 +70,25 @@ export class IncidentController {
     summary: 'List all incident threads',
     description: 'Returns all incident threads, ordered by creation date. COM-RA-006: TI only.',
   })
-  @ApiResponse({ status: 200, description: 'Incident list' })
+  @ApiResponse({ status: 200, description: 'Incident list', type: [IncidentResponseDto] })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden — TI role required' })
-  findAll() {
-    return this.incidentService.findAll();
+  async findAll(): Promise<IncidentResponseDto[]> {
+    const incidents = await this.incidentService.findAll();
+    return incidents.map((incident) => IncidentResponseDto.fromEntity(incident));
   }
 
   @Get(':id')
   @Roles(UserRole.TECHNICIEN_INFORMATIQUE)
   @ApiParam({ name: 'id', description: 'Incident UUID' })
   @ApiOperation({ summary: 'Get incident detail', description: 'COM-RA-006: TI only.' })
-  @ApiResponse({ status: 200, description: 'Incident found' })
+  @ApiResponse({ status: 200, description: 'Incident found', type: IncidentResponseDto })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden — TI role required' })
   @ApiResponse({ status: 404, description: 'Incident not found' })
-  findOne(@Param('id') id: string) {
-    return this.incidentService.findOne(id);
+  async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<IncidentResponseDto> {
+    const incident = await this.incidentService.findOne(id);
+    return IncidentResponseDto.fromEntity(incident);
   }
 
   @Put(':id/status')
@@ -92,16 +101,17 @@ export class IncidentController {
       'Valid values: open, in_progress, resolved, closed. ' +
       'COM-RA-006: TI only.',
   })
-  @ApiResponse({ status: 200, description: 'Status updated' })
+  @ApiResponse({ status: 200, description: 'Status updated', type: IncidentResponseDto })
   @ApiResponse({ status: 400, description: 'Invalid status value' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden — TI role required' })
   @ApiResponse({ status: 404, description: 'Incident not found' })
-  updateStatus(
-    @Param('id') id: string,
+  async updateStatus(
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateIncidentStatusDto,
-    @Req() req: any,
-  ) {
-    return this.incidentService.updateStatus(id, dto, req.user.id, req.user.role);
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<IncidentResponseDto> {
+    const incident = await this.incidentService.updateStatus(id, dto, actor.id, actor.role);
+    return IncidentResponseDto.fromEntity(incident);
   }
 }

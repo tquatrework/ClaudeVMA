@@ -10,12 +10,13 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { AppModule } from '../../../src/app.module';
 import * as jwt from 'jsonwebtoken';
-import { TEST_JWT_SECRET } from '../env.setup';
+import { TEST_JWT_SECRET, TEST_INTERNAL_SECRET } from '../env.setup';
+import { ContactPolicy } from '../../../src/contact/entities/contact-policy.entity';
 
-export { TEST_JWT_SECRET };
+export { TEST_JWT_SECRET, TEST_INTERNAL_SECRET };
 
 /**
  * Build and start a test application instance backed by a local PostgreSQL database.
@@ -58,6 +59,16 @@ export function makeJwt(
     secret,
     { expiresIn: '1h' },
   );
+}
+
+/**
+ * Direct repository access for test-only seeding/state manipulation
+ * (e.g. flipping `mandatory`/`status` on a ContactPolicy) that the public
+ * API intentionally does not expose.
+ */
+export function getContactPolicyRepository(app: INestApplication): Repository<ContactPolicy> {
+  const dataSource = app.get<DataSource>(getDataSourceToken());
+  return dataSource.getRepository(ContactPolicy);
 }
 
 /**

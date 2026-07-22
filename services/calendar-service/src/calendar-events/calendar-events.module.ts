@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CalendarEventsController } from './calendar-events.controller';
+import { EventInvitationsController } from './event-invitations.controller';
+import { EventCancellationsController } from './event-cancellations.controller';
+import { EventRemindersController } from './event-reminders.controller';
+import { CalendarVisibilityGrantsController } from './calendar-visibility-grants.controller';
 import { CalendarEventsService } from './calendar-events.service';
 import { CalendarEvent } from './entities/calendar-event.entity';
 import { EventInvitation } from './entities/event-invitation.entity';
@@ -22,7 +26,13 @@ import { SecurityModule } from '../security/security.module';
     SecurityModule,
     EventsModule,
   ],
-  controllers: [CalendarEventsController],
+  controllers: [
+    CalendarEventsController,
+    EventInvitationsController,
+    EventCancellationsController,
+    EventRemindersController,
+    CalendarVisibilityGrantsController,
+  ],
   providers: [CalendarEventsService],
   exports: [CalendarEventsService],
 })

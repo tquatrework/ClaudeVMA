@@ -169,13 +169,16 @@ export class CalendarEventsService {
 
   /**
    * Accept an invitation for an event.
+   * Only the invitee themselves may accept their own invitation.
    * Publishes InvitationAccepted domain event.
    */
   async acceptInvitation(
     eventId: string,
     userId: string,
+    actorId: string,
     correlationId?: string,
   ): Promise<EventInvitation> {
+    this.assertActorIsInvitee(userId, actorId);
     const invitation = await this.findInvitationOrFail(eventId, userId);
 
     if (invitation.status !== InvitationStatus.PENDING) {
@@ -198,14 +201,17 @@ export class CalendarEventsService {
 
   /**
    * Decline an invitation for an event.
+   * Only the invitee themselves may decline their own invitation.
    * The invitation record is marked declined (effectively removing the event from the invitee's view).
    * Publishes InvitationDeclined domain event.
    */
   async declineInvitation(
     eventId: string,
     userId: string,
+    actorId: string,
     correlationId?: string,
   ): Promise<EventInvitation> {
+    this.assertActorIsInvitee(userId, actorId);
     const invitation = await this.findInvitationOrFail(eventId, userId);
 
     if (invitation.status !== InvitationStatus.PENDING) {
@@ -388,6 +394,15 @@ export class CalendarEventsService {
       throw new NotFoundException(`Event ${eventId} not found`);
     }
     return calendarEvent;
+  }
+
+  /**
+   * Only the invitee themselves may accept or decline their own invitation.
+   */
+  private assertActorIsInvitee(userId: string, actorId: string): void {
+    if (actorId !== userId) {
+      throw new ForbiddenException('You can only respond to your own invitations');
+    }
   }
 
   private async findInvitationOrFail(eventId: string, inviteeId: string): Promise<EventInvitation> {

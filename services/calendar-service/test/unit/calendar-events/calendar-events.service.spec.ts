@@ -218,7 +218,7 @@ describe('CalendarEventsService', () => {
       mockInvitationRepo.findOne.mockResolvedValue(pendingInvitation);
       mockInvitationRepo.save.mockResolvedValue({ ...pendingInvitation, status: InvitationStatus.ACCEPTED });
 
-      const result = await service.acceptInvitation('evt-1', 'user-1');
+      const result = await service.acceptInvitation('evt-1', 'user-1', 'user-1');
       expect(result.status).toBe(InvitationStatus.ACCEPTED);
       expect(mockEventsService.publish).toHaveBeenCalledWith(
         'InvitationAccepted',
@@ -227,24 +227,31 @@ describe('CalendarEventsService', () => {
       );
     });
 
+    it('throws ForbiddenException when actor is not the invitee', async () => {
+      await expect(
+        service.acceptInvitation('evt-1', 'user-1', 'someone-else'),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockInvitationRepo.findOne).not.toHaveBeenCalled();
+    });
+
     it('throws NotFoundException when invitation does not exist', async () => {
       mockInvitationRepo.findOne.mockResolvedValue(null);
 
-      await expect(service.acceptInvitation('evt-unknown', 'user-1')).rejects.toThrow(NotFoundException);
+      await expect(service.acceptInvitation('evt-unknown', 'user-1', 'user-1')).rejects.toThrow(NotFoundException);
     });
 
     it('throws ConflictException when invitation is already accepted', async () => {
       const acceptedInvitation = { id: 'inv-2', eventId: 'evt-1', inviteeId: 'user-1', status: InvitationStatus.ACCEPTED } as EventInvitation;
       mockInvitationRepo.findOne.mockResolvedValue(acceptedInvitation);
 
-      await expect(service.acceptInvitation('evt-1', 'user-1')).rejects.toThrow(ConflictException);
+      await expect(service.acceptInvitation('evt-1', 'user-1', 'user-1')).rejects.toThrow(ConflictException);
     });
 
     it('throws ConflictException when invitation is already declined', async () => {
       const declinedInvitation = { id: 'inv-3', eventId: 'evt-1', inviteeId: 'user-1', status: InvitationStatus.DECLINED } as EventInvitation;
       mockInvitationRepo.findOne.mockResolvedValue(declinedInvitation);
 
-      await expect(service.acceptInvitation('evt-1', 'user-1')).rejects.toThrow(ConflictException);
+      await expect(service.acceptInvitation('evt-1', 'user-1', 'user-1')).rejects.toThrow(ConflictException);
     });
   });
 
@@ -258,7 +265,7 @@ describe('CalendarEventsService', () => {
       mockInvitationRepo.findOne.mockResolvedValue(pendingInvitation);
       mockInvitationRepo.save.mockResolvedValue({ ...pendingInvitation, status: InvitationStatus.DECLINED });
 
-      const result = await service.declineInvitation('evt-1', 'user-1');
+      const result = await service.declineInvitation('evt-1', 'user-1', 'user-1');
       expect(result.status).toBe(InvitationStatus.DECLINED);
       expect(mockEventsService.publish).toHaveBeenCalledWith(
         'InvitationDeclined',
@@ -267,16 +274,23 @@ describe('CalendarEventsService', () => {
       );
     });
 
+    it('throws ForbiddenException when actor is not the invitee', async () => {
+      await expect(
+        service.declineInvitation('evt-1', 'user-1', 'someone-else'),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockInvitationRepo.findOne).not.toHaveBeenCalled();
+    });
+
     it('throws NotFoundException when invitation does not exist', async () => {
       mockInvitationRepo.findOne.mockResolvedValue(null);
-      await expect(service.declineInvitation('evt-unknown', 'user-1')).rejects.toThrow(NotFoundException);
+      await expect(service.declineInvitation('evt-unknown', 'user-1', 'user-1')).rejects.toThrow(NotFoundException);
     });
 
     it('throws ConflictException when invitation is already processed', async () => {
       const acceptedInvitation = { id: 'inv-2', eventId: 'evt-1', inviteeId: 'user-1', status: InvitationStatus.ACCEPTED } as EventInvitation;
       mockInvitationRepo.findOne.mockResolvedValue(acceptedInvitation);
 
-      await expect(service.declineInvitation('evt-1', 'user-1')).rejects.toThrow(ConflictException);
+      await expect(service.declineInvitation('evt-1', 'user-1', 'user-1')).rejects.toThrow(ConflictException);
     });
   });
 

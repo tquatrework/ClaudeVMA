@@ -3,10 +3,9 @@ import {
   Get,
   Put,
   Param,
+  ParseUUIDPipe,
   Body,
   UseGuards,
-  Req,
-  Headers,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -19,9 +18,14 @@ import {
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CorrelationId } from '../common/decorators/correlation-id.decorator';
+import { CurrentUser } from '../common/current-user.decorator';
+import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 import { UserRole } from '../common/enums/user-role.enum';
 import { CalendarsService } from './calendars.service';
 import { UpdateAvailabilityDto } from './dto/update-availability.dto';
+import { Calendar } from './entities/calendar.entity';
+import { PaymentScheduleEntry } from './entities/payment-schedule-entry.entity';
 
 @ApiTags('calendars')
 @ApiBearerAuth()
@@ -46,16 +50,11 @@ export class CalendarsController {
   @ApiResponse({ status: 403, description: 'Forbidden — CAL-FB-001' })
   @ApiResponse({ status: 404, description: 'Not found' })
   getCalendar(
-    @Param('ownerId') ownerId: string,
-    @Req() req: any,
-    @Headers('x-correlation-id') correlationId?: string,
-  ) {
-    return this.calendarsService.getCalendar(
-      ownerId,
-      req.user.id,
-      req.user.role,
-      correlationId,
-    );
+    @Param('ownerId', ParseUUIDPipe) ownerId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+    @CorrelationId() correlationId?: string,
+  ): Promise<Calendar & { paymentEntries?: PaymentScheduleEntry[] }> {
+    return this.calendarsService.getCalendar(ownerId, actor.id, actor.role, correlationId);
   }
 
   @Put(':ownerId/availability')
@@ -74,17 +73,11 @@ export class CalendarsController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden — CAL-FB-001' })
   updateAvailability(
-    @Param('ownerId') ownerId: string,
+    @Param('ownerId', ParseUUIDPipe) ownerId: string,
     @Body() dto: UpdateAvailabilityDto,
-    @Req() req: any,
-    @Headers('x-correlation-id') correlationId?: string,
-  ) {
-    return this.calendarsService.updateAvailability(
-      ownerId,
-      dto,
-      req.user.id,
-      req.user.role,
-      correlationId,
-    );
+    @CurrentUser() actor: AuthenticatedUser,
+    @CorrelationId() correlationId?: string,
+  ): Promise<Calendar> {
+    return this.calendarsService.updateAvailability(ownerId, dto, actor.id, actor.role, correlationId);
   }
 }

@@ -1,8 +1,11 @@
-import { Controller, Post, Param, Body, Logger, HttpCode, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiHeader } from '@nestjs/swagger';
+import { Controller, Post, Param, Body, Req, Logger, HttpCode, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiHeader, ApiBody } from '@nestjs/swagger';
+import { Request } from 'express';
 import { EventService } from '../event/event.service';
 import { EventDirection } from '../event/entities/integration-event.entity';
 import { WebhookSecretGuard } from '../common/guards/webhook-secret.guard';
+import { WebhookCallbackDto } from './dto/webhook-callback.dto';
+import { CallbackReceivedResponseDto } from './dto/callback-received-response.dto';
 import { v4 as uuidv4 } from 'uuid';
 
 @ApiTags('callbacks')
@@ -21,17 +24,26 @@ export class CallbackController {
   })
   @ApiParam({ name: 'provider', description: 'Identifiant du provider', example: 'video-provider' })
   @ApiHeader({ name: 'X-Webhook-Secret', description: 'Secret partagé provider/service', required: true })
-  @ApiResponse({ status: 200, description: 'Webhook reçu' })
+  @ApiBody({
+    type: WebhookCallbackDto,
+    description: 'Champs reconnus par l\'orchestrateur ; le payload complet propre au provider est conservé tel quel pour l\'archivage.',
+  })
+  @ApiResponse({ status: 200, description: 'Webhook reçu', type: CallbackReceivedResponseDto })
   @ApiResponse({ status: 403, description: 'Secret invalide ou absent' })
-  async receive(@Param('provider') provider: string, @Body() body: Record<string, any>) {
-    const correlationId = body.correlationId ?? body.correlation_id ?? uuidv4();
-    const eventType = body.eventType ?? body.event_type ?? `${provider}.callback`;
+  async receive(
+    @Param('provider') provider: string,
+    @Body() dto: WebhookCallbackDto,
+    @Req() req: Request,
+  ): Promise<CallbackReceivedResponseDto> {
+    const rawPayload = (req.body ?? {}) as Record<string, unknown>;
+    const correlationId = dto.correlationId ?? dto.correlation_id ?? uuidv4();
+    const eventType = dto.eventType ?? dto.event_type ?? `${provider}.callback`;
 
     await this.eventService.record(
       eventType,
       correlationId,
       EventDirection.CONSUMED,
-      body,
+      rawPayload,
       provider,
     );
 

@@ -5,6 +5,7 @@ import { ParentLinkRequestsService } from './parent-link-requests.service';
 import { ParentLinkRequest } from './entities/parent-link-request.entity';
 import { ProfilesModule } from '../profiles/profiles.module';
 import { RelationsModule } from '../relations/relations.module';
+import { ClientsModule } from '../common/clients/clients.module';
 
 /**
  * Owns ParentLinkRequest only. StudentPedagogicalProfile (profiles feature) and
@@ -19,6 +20,7 @@ import { RelationsModule } from '../relations/relations.module';
     TypeOrmModule.forFeature([ParentLinkRequest]),
     ProfilesModule,
     RelationsModule,
+    ClientsModule,
   ],
   controllers: [ParentLinkRequestsController],
   providers: [ParentLinkRequestsService],

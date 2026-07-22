@@ -6,7 +6,6 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { ParentLinkRequestsService } from '../../../src/parent-link-requests/parent-link-requests.service';
 import {
   ParentLinkRequest,
@@ -15,8 +14,14 @@ import {
 } from '../../../src/parent-link-requests/entities/parent-link-request.entity';
 import { ProfilesService } from '../../../src/profiles/profiles.service';
 import { RelationsService } from '../../../src/relations/relations.service';
+import {
+  IdentityAccessClient,
+  IdentityAccessNotFoundError,
+  IdentityAccessUnavailableError,
+} from '../../../src/common/clients/identity-access.client';
+import { DashboardNotificationClient } from '../../../src/common/clients/dashboard-notification.client';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
-import { Actor } from '../../../src/profiles/profiles.service';
+import { Actor } from '../../../src/common/types/actor.type';
 
 const makeActor = (role: UserRole, id = 'actor-uuid'): Actor => ({ id, role });
 
@@ -44,28 +49,8 @@ describe('ParentLinkRequestsService', () => {
   let requestRepo: any;
   let profilesService: any;
   let relationsService: any;
-  let configService: any;
-
-  const mockFetchSuccess = (responseData: object, status = 200) => {
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: status >= 200 && status < 300,
-      status,
-      json: jest.fn().mockResolvedValue(responseData),
-    } as unknown as Response);
-  };
-
-  const mockFetchNotFound = () => {
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: false,
-      status: 404,
-      json: jest.fn().mockResolvedValue({ message: 'Identifiant élève introuvable' }),
-    } as unknown as Response);
-  };
-
-  const mockFetchNetworkError = () => {
-    global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
-  };
-
+  let identityAccessClient: any;
+  let dashboardNotificationClient: any;
 
   beforeEach(async () => {
     requestRepo = {
@@ -92,8 +77,13 @@ describe('ParentLinkRequestsService', () => {
       })),
     };
 
-    configService = {
-      get: jest.fn().mockReturnValue(undefined),
+    // Défaut : résout un compte élève valide (utilisé par createRequest).
+    identityAccessClient = {
+      findAccountByLoginIdentifier: jest.fn().mockResolvedValue(makeIdentityResponse()),
+    };
+
+    dashboardNotificationClient = {
+      notify: jest.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -102,18 +92,12 @@ describe('ParentLinkRequestsService', () => {
         { provide: getRepositoryToken(ParentLinkRequest), useValue: requestRepo },
         { provide: ProfilesService, useValue: profilesService },
         { provide: RelationsService, useValue: relationsService },
-        { provide: ConfigService, useValue: configService },
+        { provide: IdentityAccessClient, useValue: identityAccessClient },
+        { provide: DashboardNotificationClient, useValue: dashboardNotificationClient },
       ],
     }).compile();
 
     service = module.get<ParentLinkRequestsService>(ParentLinkRequestsService);
-
-    // Réinitialiser fetch par défaut : retourne un compte élève valide
-    mockFetchSuccess(makeIdentityResponse());
-  });
-
-  afterEach(() => {
-    jest.restoreAllMocks();
   });
 
   // ---------------------------------------------------------------------------
@@ -141,13 +125,17 @@ describe('ParentLinkRequestsService', () => {
     });
 
     it('lève 404 quand identity-access-service retourne 404 pour le loginIdentifier', async () => {
-      mockFetchNotFound();
+      identityAccessClient.findAccountByLoginIdentifier.mockRejectedValue(
+        new IdentityAccessNotFoundError('not found'),
+      );
       const actor = makeActor(UserRole.PARENT_FINANCEUR);
       await expect(service.createRequest(dto, actor)).rejects.toThrow(NotFoundException);
     });
 
     it('lève 400 quand le compte trouvé n\'est pas de rôle eleve', async () => {
-      mockFetchSuccess(makeIdentityResponse({ role: 'formateur' }));
+      identityAccessClient.findAccountByLoginIdentifier.mockResolvedValue(
+        makeIdentityResponse({ role: 'formateur' }),
+      );
       const actor = makeActor(UserRole.PARENT_FINANCEUR);
       await expect(service.createRequest(dto, actor)).rejects.toThrow(BadRequestException);
     });
@@ -172,18 +160,17 @@ describe('ParentLinkRequestsService', () => {
     });
 
     it('lève 400 en cas d\'erreur réseau vers identity-access-service', async () => {
-      mockFetchNetworkError();
+      identityAccessClient.findAccountByLoginIdentifier.mockRejectedValue(
+        new IdentityAccessUnavailableError('network error'),
+      );
       const actor = makeActor(UserRole.PARENT_FINANCEUR);
       await expect(service.createRequest(dto, actor)).rejects.toThrow(BadRequestException);
     });
 
-    it('appelle identity-access-service avec le bon loginIdentifier encodé', async () => {
+    it('appelle IdentityAccessClient avec le bon loginIdentifier', async () => {
       const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
       await service.createRequest(dto, actor);
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('eleve.dupont.2024'),
-        expect.objectContaining({ method: 'GET' }),
-      );
+      expect(identityAccessClient.findAccountByLoginIdentifier).toHaveBeenCalledWith('eleve.dupont.2024');
     });
   });
 
@@ -444,7 +431,7 @@ describe('ParentLinkRequestsService', () => {
     const parentIdentityResponse = { userId: 'parent-uuid', role: 'parent_financeur' };
 
     beforeEach(() => {
-      mockFetchSuccess(parentIdentityResponse);
+      identityAccessClient.findAccountByLoginIdentifier.mockResolvedValue(parentIdentityResponse);
     });
 
     it('un élève peut initier une demande de rattachement vers un parent', async () => {
@@ -468,13 +455,15 @@ describe('ParentLinkRequestsService', () => {
     });
 
     it('lève 404 quand identity-access-service retourne 404 pour le loginIdentifier parent', async () => {
-      mockFetchNotFound();
+      identityAccessClient.findAccountByLoginIdentifier.mockRejectedValue(
+        new IdentityAccessNotFoundError('not found'),
+      );
       const actor = makeActor(UserRole.ELEVE, 'student-uuid');
       await expect(service.createStudentInitiatedRequest(studentInitiatedDto, actor)).rejects.toThrow(NotFoundException);
     });
 
     it('lève 400 quand le compte trouvé n\'est pas de rôle parent_financeur', async () => {
-      mockFetchSuccess({ userId: 'other-uuid', role: 'formateur' });
+      identityAccessClient.findAccountByLoginIdentifier.mockResolvedValue({ userId: 'other-uuid', role: 'formateur' });
       const actor = makeActor(UserRole.ELEVE, 'student-uuid');
       await expect(service.createStudentInitiatedRequest(studentInitiatedDto, actor)).rejects.toThrow(BadRequestException);
     });
@@ -488,18 +477,17 @@ describe('ParentLinkRequestsService', () => {
     });
 
     it('lève 400 en cas d\'erreur réseau vers identity-access-service', async () => {
-      mockFetchNetworkError();
+      identityAccessClient.findAccountByLoginIdentifier.mockRejectedValue(
+        new IdentityAccessUnavailableError('network error'),
+      );
       const actor = makeActor(UserRole.ELEVE, 'student-uuid');
       await expect(service.createStudentInitiatedRequest(studentInitiatedDto, actor)).rejects.toThrow(BadRequestException);
     });
 
-    it('appelle identity-access-service avec le bon loginIdentifier parent encodé', async () => {
+    it('appelle IdentityAccessClient avec le bon loginIdentifier parent', async () => {
       const actor = makeActor(UserRole.ELEVE, 'student-uuid');
       await service.createStudentInitiatedRequest(studentInitiatedDto, actor);
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('parent.dupont.2024'),
-        expect.objectContaining({ method: 'GET' }),
-      );
+      expect(identityAccessClient.findAccountByLoginIdentifier).toHaveBeenCalledWith('parent.dupont.2024');
     });
   });
 });

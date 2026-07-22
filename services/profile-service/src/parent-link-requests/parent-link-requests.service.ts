@@ -4,11 +4,9 @@ import {
   ConflictException,
   ForbiddenException,
   NotFoundException,
-  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ConfigService } from '@nestjs/config';
 import {
   ParentLinkRequest,
   ParentLinkRequestDirection,
@@ -18,19 +16,24 @@ import { CreateParentLinkRequestDto } from './dto/create-parent-link-request.dto
 import { CreateStudentInitiatedLinkRequestDto } from './dto/create-student-initiated-link-request.dto';
 import { ProfilesService } from '../profiles/profiles.service';
 import { RelationsService } from '../relations/relations.service';
+import {
+  IdentityAccessClient,
+  IdentityAccessNotFoundError,
+  IdentityAccessUnavailableError,
+} from '../common/clients/identity-access.client';
+import { DashboardNotificationClient } from '../common/clients/dashboard-notification.client';
 import { UserRole } from '../common/enums/user-role.enum';
-import { Actor } from '../profiles/profiles.service';
+import { Actor } from '../common/types/actor.type';
 
 @Injectable()
 export class ParentLinkRequestsService {
-  private readonly logger = new Logger(ParentLinkRequestsService.name);
-
   constructor(
     @InjectRepository(ParentLinkRequest)
     private readonly requestRepo: Repository<ParentLinkRequest>,
     private readonly profilesService: ProfilesService,
     private readonly relationsService: RelationsService,
-    private readonly configService: ConfigService,
+    private readonly identityAccessClient: IdentityAccessClient,
+    private readonly dashboardNotificationClient: DashboardNotificationClient,
   ) {}
 
   /**
@@ -288,118 +291,76 @@ export class ParentLinkRequestsService {
   }
 
   /**
-   * Résout un loginIdentifier parent_financeur en UUID via identity-access-service.
+   * Résout un loginIdentifier parent_financeur en UUID via le client typé
+   * IdentityAccessClient (services-convention : appels interservices via un
+   * client typé avec timeout).
    * Lève NotFoundException si l'identifiant est introuvable (404 distant).
-   * Lève BadRequestException si le compte trouvé n'est pas de rôle 'parent_financeur'.
+   * Lève BadRequestException si le compte trouvé n'est pas de rôle
+   * 'parent_financeur' ou si identity-access-service est indisponible.
    */
   private async resolveParentIdFromLoginIdentifier(parentLoginIdentifier: string): Promise<string> {
-    const identityServiceUrl = this.configService.get<string>(
-      'IDENTITY_ACCESS_SERVICE_URL',
-      'http://identity-access-service:3001',
+    const account = await this.findAccountByLoginIdentifier(
+      parentLoginIdentifier,
+      'Identifiant parent introuvable',
+      'Service d\'identité temporairement indisponible, veuillez réessayer.',
     );
-    const internalSecret = this.configService.get<string>('INTERNAL_SECRET', '');
 
-    let response: Response;
-    try {
-      response = await fetch(
-        `${identityServiceUrl}/internal/accounts/by-login-identifier?loginIdentifier=${encodeURIComponent(parentLoginIdentifier)}`,
-        {
-          method: 'GET',
-          headers: { 'X-Internal-Secret': internalSecret },
-        },
-      );
-    } catch (networkError) {
-      this.logger.error(
-        `Impossible de joindre identity-access-service pour résoudre le loginIdentifier parent : ${(networkError as Error).message}`,
-      );
-      throw new BadRequestException('Service d\'identité temporairement indisponible, veuillez réessayer.');
-    }
-
-    if (response.status === 404) {
-      throw new NotFoundException('Identifiant parent introuvable');
-    }
-
-    if (!response.ok) {
-      this.logger.error(`identity-access-service a retourné HTTP ${response.status} pour loginIdentifier ${parentLoginIdentifier}`);
-      throw new BadRequestException('Erreur lors de la résolution de l\'identifiant parent.');
-    }
-
-    const accountData = await response.json() as { userId: string; role: string };
-
-    if (accountData.role !== 'parent_financeur') {
+    if (account.role !== 'parent_financeur') {
       throw new BadRequestException('Cet identifiant ne correspond pas à un compte parent_financeur');
     }
 
-    return accountData.userId;
+    return account.userId;
   }
 
   /**
-   * Résout un loginIdentifier élève en UUID via identity-access-service.
+   * Résout un loginIdentifier élève en UUID via le client typé
+   * IdentityAccessClient.
    * Lève NotFoundException si l'identifiant est introuvable (404 distant).
-   * Lève BadRequestException si le compte trouvé n'est pas de rôle 'eleve'.
+   * Lève BadRequestException si le compte trouvé n'est pas de rôle 'eleve'
+   * ou si identity-access-service est indisponible.
    */
   private async resolveStudentIdFromLoginIdentifier(studentLoginIdentifier: string): Promise<string> {
-    const identityServiceUrl = this.configService.get<string>(
-      'IDENTITY_ACCESS_SERVICE_URL',
-      'http://identity-access-service:3001',
+    const account = await this.findAccountByLoginIdentifier(
+      studentLoginIdentifier,
+      'Identifiant élève introuvable',
+      'Service d\'identité temporairement indisponible, veuillez réessayer.',
     );
-    const internalSecret = this.configService.get<string>('INTERNAL_SECRET', '');
 
-    let response: Response;
-    try {
-      response = await fetch(
-        `${identityServiceUrl}/internal/accounts/by-login-identifier?loginIdentifier=${encodeURIComponent(studentLoginIdentifier)}`,
-        {
-          method: 'GET',
-          headers: { 'X-Internal-Secret': internalSecret },
-        },
-      );
-    } catch (networkError) {
-      this.logger.error(
-        `Impossible de joindre identity-access-service pour résoudre le loginIdentifier : ${(networkError as Error).message}`,
-      );
-      throw new BadRequestException('Service d\'identité temporairement indisponible, veuillez réessayer.');
-    }
-
-    if (response.status === 404) {
-      throw new NotFoundException('Identifiant élève introuvable');
-    }
-
-    if (!response.ok) {
-      this.logger.error(`identity-access-service a retourné HTTP ${response.status} pour loginIdentifier ${studentLoginIdentifier}`);
-      throw new BadRequestException('Erreur lors de la résolution de l\'identifiant élève.');
-    }
-
-    const accountData = await response.json() as { userId: string; role: string };
-
-    if (accountData.role !== 'eleve') {
+    if (account.role !== 'eleve') {
       throw new BadRequestException('Cet identifiant ne correspond pas à un compte élève');
     }
 
-    return accountData.userId;
+    return account.userId;
   }
 
   /**
-   * Best-effort HTTP notification to dashboard-notification-service using native fetch.
-   * Logs and continues on failure — never throws.
+   * Shared lookup + error-mapping helper: translates the client's typed
+   * transport errors into this feature's own business exceptions
+   * (NotFoundException / BadRequestException).
+   */
+  private async findAccountByLoginIdentifier(
+    loginIdentifier: string,
+    notFoundMessage: string,
+    unavailableMessage: string,
+  ): Promise<{ userId: string; role: string }> {
+    try {
+      return await this.identityAccessClient.findAccountByLoginIdentifier(loginIdentifier);
+    } catch (error) {
+      if (error instanceof IdentityAccessNotFoundError) {
+        throw new NotFoundException(notFoundMessage);
+      }
+      if (error instanceof IdentityAccessUnavailableError) {
+        throw new BadRequestException(unavailableMessage);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Best-effort notification via the typed DashboardNotificationClient
+   * adapter. Never throws.
    */
   private async notifyUser(userId: string, message: string): Promise<void> {
-    const dashboardServiceUrl = this.configService.get<string>('DASHBOARD_NOTIFICATION_SERVICE_URL');
-    if (!dashboardServiceUrl) {
-      this.logger.warn('DASHBOARD_NOTIFICATION_SERVICE_URL not set — skipping notification');
-      return;
-    }
-
-    try {
-      await fetch(`${dashboardServiceUrl}/internal/notify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, message }),
-      });
-    } catch (notificationError) {
-      this.logger.warn(
-        `Failed to notify user ${userId} via dashboard-notification-service: ${(notificationError as Error).message}`,
-      );
-    }
+    await this.dashboardNotificationClient.notify(userId, message);
   }
 }

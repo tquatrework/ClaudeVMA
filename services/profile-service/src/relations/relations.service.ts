@@ -13,7 +13,7 @@ import { CreateTeacherStudentLinkDto } from './dto/create-teacher-student-link.d
 import { CreatePedagogicalCoordinatorLinkDto } from './dto/create-pedagogical-coordinator-link.dto';
 import { EventsService } from '../events/events.service';
 import { UserRole } from '../common/enums/user-role.enum';
-import { Actor } from '../profiles/profiles.service';
+import { Actor } from '../common/types/actor.type';
 
 @Injectable()
 export class RelationsService {

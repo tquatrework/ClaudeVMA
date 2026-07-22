@@ -12,6 +12,7 @@ import { TeacherValidation } from './entities/teacher-validation.entity';
 import { ProfileVisibilityPreference } from './entities/profile-visibility-preference.entity';
 import { EventsModule } from '../events/events.module';
 import { RelationsModule } from '../relations/relations.module';
+import { ClientsModule } from '../common/clients/clients.module';
 
 /**
  * Owns AdministrativeProfile, StudentPedagogicalProfile, TeacherPedagogicalProfile,
@@ -36,6 +37,7 @@ import { RelationsModule } from '../relations/relations.module';
     ]),
     RelationsModule,
     EventsModule,
+    ClientsModule,
   ],
   controllers: [ProfilesController, ProfileInternalNotesController, TeacherValidationController],
   providers: [ProfilesService],

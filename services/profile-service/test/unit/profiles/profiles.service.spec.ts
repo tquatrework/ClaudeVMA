@@ -1,7 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
+import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { ProfilesService, Actor } from '../../../src/profiles/profiles.service';
 import { AdministrativeProfile } from '../../../src/profiles/entities/administrative-profile.entity';
 import { StudentPedagogicalProfile } from '../../../src/profiles/entities/student-pedagogical-profile.entity';
@@ -11,6 +10,11 @@ import { TeacherValidation } from '../../../src/profiles/entities/teacher-valida
 import { ProfileVisibilityPreference } from '../../../src/profiles/entities/profile-visibility-preference.entity';
 import { RelationsService } from '../../../src/relations/relations.service';
 import { EventsService } from '../../../src/events/events.service';
+import {
+  IdentityAccessClient,
+  IdentityAccessNotFoundError,
+  IdentityAccessUnavailableError,
+} from '../../../src/common/clients/identity-access.client';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
 
 const makeActor = (role: UserRole, id = 'actor-uuid'): Actor => ({ id, role });
@@ -25,19 +29,22 @@ describe('ProfilesService', () => {
   let visibilityPrefRepo: any;
   let relationsService: any;
   let eventsService: any;
-  let configService: any;
-  let mockFetch: jest.Mock;
+  let identityAccessClient: any;
+  let dataSource: any;
 
   beforeEach(async () => {
-    mockFetch = jest.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ userId: 'student-uuid', loginIdentifier: 'alice.martin', role: 'eleve' }),
-    });
-    global.fetch = mockFetch;
+    identityAccessClient = {
+      findAccountByUserId: jest.fn().mockResolvedValue({
+        userId: 'student-uuid',
+        loginIdentifier: 'alice.martin',
+        role: 'eleve',
+      }),
+      findAccountByLoginIdentifier: jest.fn(),
+    };
 
     adminRepo = {
       findOne: jest.fn().mockResolvedValue(null),
+      find: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockImplementation((dto) => dto),
       save: jest.fn().mockImplementation(async (entity) => ({ ...entity, updatedAt: new Date() })),
     };
@@ -64,6 +71,7 @@ describe('ProfilesService', () => {
 
     teacherValidationRepo = {
       findOne: jest.fn().mockResolvedValue(null),
+      find: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockImplementation((dto) => dto),
       save: jest.fn().mockImplementation(async (entity) => ({ id: 'validation-uuid', ...entity, updatedAt: new Date() })),
     };
@@ -79,8 +87,24 @@ describe('ProfilesService', () => {
       isFinanceOwnerLinkedToStudent: jest.fn().mockResolvedValue(false),
     };
     eventsService = { publish: jest.fn() };
-    configService = {
-      get: jest.fn().mockImplementation((key: string, defaultValue?: string) => defaultValue ?? ''),
+
+    // Fake DataSource.transaction: runs the callback with a manager whose
+    // getRepository() resolves to the same repo mocks used outside the
+    // transaction, so assertions on adminRepo/studentPedaRepo/teacherPedaRepo
+    // keep working transparently whether or not a given code path goes
+    // through a transaction.
+    dataSource = {
+      transaction: jest.fn().mockImplementation(async (runInTransaction: (manager: unknown) => Promise<unknown>) => {
+        const manager = {
+          getRepository: (entity: unknown) => {
+            if (entity === AdministrativeProfile) return adminRepo;
+            if (entity === StudentPedagogicalProfile) return studentPedaRepo;
+            if (entity === TeacherPedagogicalProfile) return teacherPedaRepo;
+            throw new Error('No repository mock configured for this entity in the fake transaction manager');
+          },
+        };
+        return runInTransaction(manager);
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -94,7 +118,8 @@ describe('ProfilesService', () => {
         { provide: getRepositoryToken(ProfileVisibilityPreference), useValue: visibilityPrefRepo },
         { provide: RelationsService, useValue: relationsService },
         { provide: EventsService, useValue: eventsService },
-        { provide: ConfigService, useValue: configService },
+        { provide: IdentityAccessClient, useValue: identityAccessClient },
+        { provide: getDataSourceToken(), useValue: dataSource },
       ],
     }).compile();
 
@@ -123,10 +148,10 @@ describe('ProfilesService', () => {
 
     it('includes loginIdentifier from identity-access-service', async () => {
       adminRepo.findOne.mockResolvedValue(mockAdminProfile);
-      mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({ userId: 'student-uuid', loginIdentifier: 'alice.martin', role: 'eleve' }),
+      identityAccessClient.findAccountByUserId.mockResolvedValue({
+        userId: 'student-uuid',
+        loginIdentifier: 'alice.martin',
+        role: 'eleve',
       });
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
       const result = await service.getProfile('student-uuid', actor);
@@ -135,7 +160,9 @@ describe('ProfilesService', () => {
 
     it('returns loginIdentifier null when identity-access-service returns 404', async () => {
       adminRepo.findOne.mockResolvedValue(mockAdminProfile);
-      mockFetch.mockResolvedValue({ ok: false, status: 404 });
+      identityAccessClient.findAccountByUserId.mockRejectedValue(
+        new IdentityAccessNotFoundError('not found'),
+      );
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
       const result = await service.getProfile('student-uuid', actor);
       expect(result).toHaveProperty('loginIdentifier', null);
@@ -143,7 +170,9 @@ describe('ProfilesService', () => {
 
     it('returns loginIdentifier null on network error (graceful degradation)', async () => {
       adminRepo.findOne.mockResolvedValue(mockAdminProfile);
-      mockFetch.mockRejectedValue(new Error('ECONNREFUSED'));
+      identityAccessClient.findAccountByUserId.mockRejectedValue(
+        new IdentityAccessUnavailableError('ECONNREFUSED'),
+      );
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
       const result = await service.getProfile('student-uuid', actor);
       expect(result).toHaveProperty('loginIdentifier', null);
@@ -228,6 +257,20 @@ describe('ProfilesService', () => {
       expect(result).toHaveProperty('pedagogical', minimalStudentPeda);
 
       expect(result.userId).toBe(eleveId);
+
+      // Both writes are atomic: a single DataSource.transaction call wraps them
+      // (services-convention: multi-write operations use DataSource.transaction).
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not open a transaction when no lazy-init write is needed', async () => {
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      adminRepo.findOne.mockResolvedValue({ userId: 'student-uuid' });
+      studentPedaRepo.findOne.mockResolvedValue({ userId: 'student-uuid', niveauScolaire: 'Terminale' });
+
+      await service.getProfile('student-uuid', actor);
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
     });
 
     it('does not create student peda profile for élève when one already exists', async () => {
@@ -828,6 +871,59 @@ describe('ProfilesService', () => {
       await expect(
         service.updateTeacherValidation('teacher-uuid', { status: 'validated' }, actor),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // listTeachersPendingValidation
+  // ---------------------------------------------------------------------------
+  describe('listTeachersPendingValidation', () => {
+    it('RP can list pending teachers, enriched with a single batched admin-profile query (no N+1)', async () => {
+      teacherValidationRepo.find.mockResolvedValue([
+        { id: 'v1', teacherId: 'teacher-1', status: 'pending', createdAt: new Date('2026-01-01') },
+        { id: 'v2', teacherId: 'teacher-2', status: 'pending', createdAt: new Date('2026-01-02') },
+      ]);
+      adminRepo.find.mockResolvedValue([
+        { userId: 'teacher-1', firstName: 'Alice', lastName: 'Martin' },
+        { userId: 'teacher-2', firstName: 'Bob', lastName: 'Dupont' },
+      ]);
+
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await service.listTeachersPendingValidation(actor);
+
+      expect(adminRepo.find).toHaveBeenCalledTimes(1);
+      expect(adminRepo.findOne).not.toHaveBeenCalled();
+      expect(result).toEqual([
+        { id: 'v1', teacherId: 'teacher-1', firstName: 'Alice', lastName: 'Martin', createdAt: new Date('2026-01-01') },
+        { id: 'v2', teacherId: 'teacher-2', firstName: 'Bob', lastName: 'Dupont', createdAt: new Date('2026-01-02') },
+      ]);
+    });
+
+    it('returns null firstName/lastName when no administrative profile exists for a pending teacher', async () => {
+      teacherValidationRepo.find.mockResolvedValue([
+        { id: 'v1', teacherId: 'teacher-1', status: 'pending', createdAt: new Date('2026-01-01') },
+      ]);
+      adminRepo.find.mockResolvedValue([]);
+
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await service.listTeachersPendingValidation(actor);
+
+      expect(result).toEqual([
+        { id: 'v1', teacherId: 'teacher-1', firstName: null, lastName: null, createdAt: new Date('2026-01-01') },
+      ]);
+    });
+
+    it('does not query administrative profiles when there is no pending validation', async () => {
+      teacherValidationRepo.find.mockResolvedValue([]);
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await service.listTeachersPendingValidation(actor);
+      expect(adminRepo.find).not.toHaveBeenCalled();
+      expect(result).toEqual([]);
+    });
+
+    it('throws 403 for a non-RP actor', async () => {
+      const actor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE);
+      await expect(service.listTeachersPendingValidation(actor)).rejects.toThrow(ForbiddenException);
     });
   });
 

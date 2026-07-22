@@ -42,8 +42,7 @@ describe('EventCancellationsController', () => {
       expect(mockCalendarEventsService.requestCancellation).toHaveBeenCalledWith(
         'evt-3',
         cancelRequestDto,
-        'teacher-1',
-        UserRole.FORMATEUR,
+        actor,
         undefined,
       );
       expect(result).toEqual(cancellationResult);
@@ -58,8 +57,7 @@ describe('EventCancellationsController', () => {
       expect(mockCalendarEventsService.requestCancellation).toHaveBeenCalledWith(
         'evt-3',
         cancelRequestDto,
-        'teacher-1',
-        UserRole.FORMATEUR,
+        actor,
         correlationId,
       );
     });
@@ -73,8 +71,7 @@ describe('EventCancellationsController', () => {
       expect(mockCalendarEventsService.requestCancellation).toHaveBeenCalledWith(
         'evt-3',
         cancelRequestDto,
-        'rp-1',
-        UserRole.RESPONSABLE_PEDAGOGIQUE,
+        rpActor,
         undefined,
       );
     });

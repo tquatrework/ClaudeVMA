@@ -54,12 +54,6 @@ export class EventRemindersController {
     @CurrentUser() actor: AuthenticatedUser,
     @CorrelationId() correlationId?: string,
   ): Promise<ReminderRule> {
-    return this.calendarEventsService.configureReminder(
-      eventId,
-      dto,
-      actor.id,
-      actor.role,
-      correlationId,
-    );
+    return this.calendarEventsService.configureReminder(eventId, dto, actor, correlationId);
   }
 }

@@ -53,6 +53,6 @@ export class RemindersController {
     @CurrentUser() actor: AuthenticatedUser,
     @CorrelationId() correlationId?: string,
   ): Promise<Reminder> {
-    return this.remindersService.create(dto, actor.id, correlationId);
+    return this.remindersService.create(dto, actor, correlationId);
   }
 }

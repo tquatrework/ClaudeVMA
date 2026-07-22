@@ -47,8 +47,7 @@ describe('CalendarEventsController', () => {
 
       expect(mockCalendarEventsService.listEvents).toHaveBeenCalledWith(
         'owner-1',
-        'user-1',
-        UserRole.FORMATEUR,
+        actor,
         listEventsQuery,
         undefined,
       );
@@ -63,8 +62,7 @@ describe('CalendarEventsController', () => {
 
       expect(mockCalendarEventsService.listEvents).toHaveBeenCalledWith(
         'owner-1',
-        'user-1',
-        UserRole.FORMATEUR,
+        actor,
         listEventsQuery,
         correlationId,
       );
@@ -78,8 +76,7 @@ describe('CalendarEventsController', () => {
 
       expect(mockCalendarEventsService.listEvents).toHaveBeenCalledWith(
         'owner-2',
-        'parent-2',
-        UserRole.PARENT_FINANCEUR,
+        parentActor,
         {},
         undefined,
       );
@@ -108,8 +105,7 @@ describe('CalendarEventsController', () => {
       expect(mockCalendarEventsService.createEvent).toHaveBeenCalledWith(
         'teacher-1',
         createEventDto,
-        'teacher-1',
-        UserRole.FORMATEUR,
+        actor,
         undefined,
       );
       expect(result).toEqual(createdEvent);
@@ -124,8 +120,7 @@ describe('CalendarEventsController', () => {
       expect(mockCalendarEventsService.createEvent).toHaveBeenCalledWith(
         'teacher-1',
         createEventDto,
-        'teacher-1',
-        UserRole.FORMATEUR,
+        actor,
         correlationId,
       );
     });
@@ -139,8 +134,7 @@ describe('CalendarEventsController', () => {
       expect(mockCalendarEventsService.createEvent).toHaveBeenCalledWith(
         'rp-1',
         createEventDto,
-        'rp-1',
-        UserRole.RESPONSABLE_PEDAGOGIQUE,
+        rpActor,
         undefined,
       );
     });

@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Reminder } from './entities/reminder.entity';
 import { CreateReminderDto } from './dto/create-reminder.dto';
 import { EventsService } from '../events/events.service';
+import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 
 @Injectable()
 export class RemindersService {
@@ -19,7 +20,7 @@ export class RemindersService {
    */
   async create(
     dto: CreateReminderDto,
-    creatorId: string,
+    actor: AuthenticatedUser,
     correlationId?: string,
   ): Promise<Reminder> {
     const reminder = await this.reminderRepo.save(
@@ -39,7 +40,7 @@ export class RemindersService {
         ownerId: reminder.ownerId,
         activityId: reminder.activityId,
         remindAt: reminder.remindAt,
-        createdBy: creatorId,
+        createdBy: actor.id,
       },
       correlationId,
     );

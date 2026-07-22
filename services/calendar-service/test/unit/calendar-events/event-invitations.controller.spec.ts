@@ -33,7 +33,7 @@ describe('EventInvitationsController', () => {
     const actor: AuthenticatedUser = { id: 'invitee-1', role: UserRole.ELEVE };
     const acceptedInvitation = { id: 'inv-1', eventId: 'evt-1', inviteeId: 'invitee-1', status: 'ACCEPTED' };
 
-    it('calls service.acceptInvitation with eventId, userId, actor.id and correlationId and returns the result', async () => {
+    it('calls service.acceptInvitation with eventId, userId, actor and correlationId and returns the result', async () => {
       mockCalendarEventsService.acceptInvitation.mockResolvedValue(acceptedInvitation);
 
       const result = await controller.acceptInvitation('evt-1', 'invitee-1', actor, undefined);
@@ -41,7 +41,7 @@ describe('EventInvitationsController', () => {
       expect(mockCalendarEventsService.acceptInvitation).toHaveBeenCalledWith(
         'evt-1',
         'invitee-1',
-        'invitee-1',
+        actor,
         undefined,
       );
       expect(result).toEqual(acceptedInvitation);
@@ -56,12 +56,12 @@ describe('EventInvitationsController', () => {
       expect(mockCalendarEventsService.acceptInvitation).toHaveBeenCalledWith(
         'evt-1',
         'invitee-1',
-        'invitee-1',
+        actor,
         correlationId,
       );
     });
 
-    it('delegates ownership validation to the service (passes actor.id even when different from the route userId)', async () => {
+    it('delegates ownership validation to the service (passes actor unchanged even when different from the route userId)', async () => {
       const differentActor: AuthenticatedUser = { id: 'other-user', role: UserRole.ELEVE };
       mockCalendarEventsService.acceptInvitation.mockRejectedValue(new Error('ForbiddenException'));
 
@@ -72,7 +72,7 @@ describe('EventInvitationsController', () => {
       expect(mockCalendarEventsService.acceptInvitation).toHaveBeenCalledWith(
         'evt-1',
         'invitee-1',
-        'other-user',
+        differentActor,
         undefined,
       );
     });
@@ -82,7 +82,7 @@ describe('EventInvitationsController', () => {
     const actor: AuthenticatedUser = { id: 'invitee-2', role: UserRole.FORMATEUR };
     const declinedInvitation = { id: 'inv-2', eventId: 'evt-2', inviteeId: 'invitee-2', status: 'DECLINED' };
 
-    it('calls service.declineInvitation with eventId, userId, actor.id and correlationId and returns the result', async () => {
+    it('calls service.declineInvitation with eventId, userId, actor and correlationId and returns the result', async () => {
       mockCalendarEventsService.declineInvitation.mockResolvedValue(declinedInvitation);
 
       const result = await controller.declineInvitation('evt-2', 'invitee-2', actor, undefined);
@@ -90,7 +90,7 @@ describe('EventInvitationsController', () => {
       expect(mockCalendarEventsService.declineInvitation).toHaveBeenCalledWith(
         'evt-2',
         'invitee-2',
-        'invitee-2',
+        actor,
         undefined,
       );
       expect(result).toEqual(declinedInvitation);
@@ -105,12 +105,12 @@ describe('EventInvitationsController', () => {
       expect(mockCalendarEventsService.declineInvitation).toHaveBeenCalledWith(
         'evt-2',
         'invitee-2',
-        'invitee-2',
+        actor,
         correlationId,
       );
     });
 
-    it('delegates ownership validation to the service (passes actor.id even when different from the route userId)', async () => {
+    it('delegates ownership validation to the service (passes actor unchanged even when different from the route userId)', async () => {
       const attackerActor: AuthenticatedUser = { id: 'attacker-user', role: UserRole.FORMATEUR };
       mockCalendarEventsService.declineInvitation.mockRejectedValue(new Error('ForbiddenException'));
 
@@ -121,7 +121,7 @@ describe('EventInvitationsController', () => {
       expect(mockCalendarEventsService.declineInvitation).toHaveBeenCalledWith(
         'evt-2',
         'invitee-2',
-        'attacker-user',
+        attackerActor,
         undefined,
       );
     });

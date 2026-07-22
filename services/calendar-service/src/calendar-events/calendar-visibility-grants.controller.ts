@@ -59,13 +59,7 @@ export class CalendarVisibilityGrantsController {
     @CurrentUser() actor: AuthenticatedUser,
     @CorrelationId() correlationId?: string,
   ): Promise<CalendarVisibilityGrant> {
-    return this.calendarEventsService.createVisibilityGrant(
-      ownerId,
-      dto,
-      actor.id,
-      actor.role,
-      correlationId,
-    );
+    return this.calendarEventsService.createVisibilityGrant(ownerId, dto, actor, correlationId);
   }
 
   @Delete(':granteeId')

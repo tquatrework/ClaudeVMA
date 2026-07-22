@@ -55,7 +55,7 @@ export class ActivitiesController {
     @CurrentUser() actor: AuthenticatedUser,
     @CorrelationId() correlationId?: string,
   ): Promise<ScheduledActivity> {
-    return this.activitiesService.create(dto, actor.id, actor.role, correlationId);
+    return this.activitiesService.create(dto, actor, correlationId);
   }
 
   @Put(':activityId')
@@ -78,7 +78,7 @@ export class ActivitiesController {
     @CurrentUser() actor: AuthenticatedUser,
     @CorrelationId() correlationId?: string,
   ): Promise<ScheduledActivity> {
-    return this.activitiesService.update(activityId, dto, actor.id, actor.role, correlationId);
+    return this.activitiesService.update(activityId, dto, actor, correlationId);
   }
 
   @Get(':activityId')
@@ -92,6 +92,6 @@ export class ActivitiesController {
     @Param('activityId', ParseUUIDPipe) activityId: string,
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<ScheduledActivity> {
-    return this.activitiesService.findOne(activityId, actor.id, actor.role);
+    return this.activitiesService.findOne(activityId, actor);
   }
 }

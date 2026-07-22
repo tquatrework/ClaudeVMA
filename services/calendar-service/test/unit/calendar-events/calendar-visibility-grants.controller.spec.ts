@@ -43,8 +43,7 @@ describe('CalendarVisibilityGrantsController', () => {
       expect(mockCalendarEventsService.createVisibilityGrant).toHaveBeenCalledWith(
         'owner-1',
         createVisibilityGrantDto,
-        'rp-1',
-        UserRole.RESPONSABLE_PEDAGOGIQUE,
+        actor,
         undefined,
       );
       expect(result).toEqual(createdGrant);
@@ -59,8 +58,7 @@ describe('CalendarVisibilityGrantsController', () => {
       expect(mockCalendarEventsService.createVisibilityGrant).toHaveBeenCalledWith(
         'owner-1',
         createVisibilityGrantDto,
-        'rp-1',
-        UserRole.RESPONSABLE_PEDAGOGIQUE,
+        actor,
         correlationId,
       );
     });
@@ -74,8 +72,7 @@ describe('CalendarVisibilityGrantsController', () => {
       expect(mockCalendarEventsService.createVisibilityGrant).toHaveBeenCalledWith(
         'owner-2',
         createVisibilityGrantDto,
-        'rp-2',
-        UserRole.RESPONSABLE_PEDAGOGIQUE,
+        anotherRpActor,
         undefined,
       );
     });

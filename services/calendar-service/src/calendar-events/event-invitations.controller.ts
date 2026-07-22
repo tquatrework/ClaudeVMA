@@ -54,7 +54,7 @@ export class EventInvitationsController {
     @CurrentUser() actor: AuthenticatedUser,
     @CorrelationId() correlationId?: string,
   ): Promise<EventInvitation> {
-    return this.calendarEventsService.acceptInvitation(eventId, userId, actor.id, correlationId);
+    return this.calendarEventsService.acceptInvitation(eventId, userId, actor, correlationId);
   }
 
   @Post('decline')
@@ -80,6 +80,6 @@ export class EventInvitationsController {
     @CurrentUser() actor: AuthenticatedUser,
     @CorrelationId() correlationId?: string,
   ): Promise<EventInvitation> {
-    return this.calendarEventsService.declineInvitation(eventId, userId, actor.id, correlationId);
+    return this.calendarEventsService.declineInvitation(eventId, userId, actor, correlationId);
   }
 }

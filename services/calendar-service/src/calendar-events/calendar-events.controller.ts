@@ -62,13 +62,7 @@ export class CalendarEventsController {
     @CurrentUser() actor: AuthenticatedUser,
     @CorrelationId() correlationId?: string,
   ): Promise<CalendarEvent[]> {
-    return this.calendarEventsService.listEvents(
-      ownerId,
-      actor.id,
-      actor.role,
-      query,
-      correlationId,
-    );
+    return this.calendarEventsService.listEvents(ownerId, actor, query, correlationId);
   }
 
   @Post()
@@ -96,12 +90,6 @@ export class CalendarEventsController {
     @CurrentUser() actor: AuthenticatedUser,
     @CorrelationId() correlationId?: string,
   ): Promise<CalendarEvent> {
-    return this.calendarEventsService.createEvent(
-      ownerId,
-      dto,
-      actor.id,
-      actor.role,
-      correlationId,
-    );
+    return this.calendarEventsService.createEvent(ownerId, dto, actor, correlationId);
   }
 }

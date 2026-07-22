@@ -54,7 +54,7 @@ export class CalendarsController {
     @CurrentUser() actor: AuthenticatedUser,
     @CorrelationId() correlationId?: string,
   ): Promise<Calendar & { paymentEntries?: PaymentScheduleEntry[] }> {
-    return this.calendarsService.getCalendar(ownerId, actor.id, actor.role, correlationId);
+    return this.calendarsService.getCalendar(ownerId, actor, correlationId);
   }
 
   @Put(':ownerId/availability')
@@ -78,6 +78,6 @@ export class CalendarsController {
     @CurrentUser() actor: AuthenticatedUser,
     @CorrelationId() correlationId?: string,
   ): Promise<Calendar> {
-    return this.calendarsService.updateAvailability(ownerId, dto, actor.id, actor.role, correlationId);
+    return this.calendarsService.updateAvailability(ownerId, dto, actor, correlationId);
   }
 }

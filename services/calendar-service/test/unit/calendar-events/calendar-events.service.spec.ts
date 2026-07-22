@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
+import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
 import {
   ForbiddenException,
   NotFoundException,
@@ -13,6 +13,7 @@ import { ReminderRule, ReminderDelay } from '../../../src/calendar-events/entiti
 import { CalendarVisibilityGrant } from '../../../src/calendar-events/entities/calendar-visibility-grant.entity';
 import { EventsService } from '../../../src/events/events.service';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
+import { AuthenticatedUser } from '../../../src/common/interfaces/authenticated-user.interface';
 
 const mockEventRepo = {
   findOne: jest.fn(),
@@ -50,6 +51,23 @@ const mockGrantRepo = {
 
 const mockEventsService = { publish: jest.fn() };
 
+/**
+ * The transaction manager exposes the same repositories used outside a
+ * transaction, so the existing mocks can be reused inside `manager.getRepository(...)`.
+ */
+const mockManager = {
+  getRepository: jest.fn((entity: unknown) => {
+    if (entity === CalendarEvent) return mockEventRepo;
+    if (entity === EventInvitation) return mockInvitationRepo;
+    if (entity === CancellationRequest) return mockCancellationRepo;
+    throw new Error(`Unexpected entity requested from transaction manager: ${entity}`);
+  }),
+};
+
+const mockDataSource = {
+  transaction: jest.fn(async (callback: (manager: unknown) => unknown) => callback(mockManager)),
+};
+
 describe('CalendarEventsService', () => {
   let service: CalendarEventsService;
 
@@ -62,6 +80,7 @@ describe('CalendarEventsService', () => {
         { provide: getRepositoryToken(CancellationRequest), useValue: mockCancellationRepo },
         { provide: getRepositoryToken(ReminderRule), useValue: mockReminderRuleRepo },
         { provide: getRepositoryToken(CalendarVisibilityGrant), useValue: mockGrantRepo },
+        { provide: getDataSourceToken(), useValue: mockDataSource },
         { provide: EventsService, useValue: mockEventsService },
       ],
     }).compile();
@@ -88,16 +107,18 @@ describe('CalendarEventsService', () => {
     it('returns events for the calendar owner', async () => {
       const calendarEvents = [{ id: 'evt-1', ownerId: 'user-1', eventType: EventType.COURS }] as CalendarEvent[];
       mockEventRepo.createQueryBuilder.mockReturnValue(buildQueryBuilder(calendarEvents));
+      const actor: AuthenticatedUser = { id: 'user-1', role: UserRole.ELEVE };
 
-      const results = await service.listEvents('user-1', 'user-1', UserRole.ELEVE, {});
+      const results = await service.listEvents('user-1', actor, {});
       expect(results).toHaveLength(1);
     });
 
     it('allows RP to read any calendar (privileged role)', async () => {
       const calendarEvents = [{ id: 'evt-2', ownerId: 'user-2', eventType: EventType.COURS }] as CalendarEvent[];
       mockEventRepo.createQueryBuilder.mockReturnValue(buildQueryBuilder(calendarEvents));
+      const actor: AuthenticatedUser = { id: 'rp-id', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
 
-      const results = await service.listEvents('user-2', 'rp-id', UserRole.RESPONSABLE_PEDAGOGIQUE, {});
+      const results = await service.listEvents('user-2', actor, {});
       expect(results).toHaveLength(1);
     });
 
@@ -105,24 +126,25 @@ describe('CalendarEventsService', () => {
       mockGrantRepo.findOne.mockResolvedValue({ id: 'grant-1', ownerId: 'user-3', granteeId: 'other-user' });
       const calendarEvents = [{ id: 'evt-3', ownerId: 'user-3', eventType: EventType.COURS }] as CalendarEvent[];
       mockEventRepo.createQueryBuilder.mockReturnValue(buildQueryBuilder(calendarEvents));
+      const actor: AuthenticatedUser = { id: 'other-user', role: UserRole.FORMATEUR };
 
-      const results = await service.listEvents('user-3', 'other-user', UserRole.FORMATEUR, {});
+      const results = await service.listEvents('user-3', actor, {});
       expect(results).toHaveLength(1);
     });
 
     it('throws ForbiddenException when no access and no grant', async () => {
       mockGrantRepo.findOne.mockResolvedValue(null);
+      const actor: AuthenticatedUser = { id: 'stranger-id', role: UserRole.FORMATEUR };
 
-      await expect(
-        service.listEvents('owner-id', 'stranger-id', UserRole.FORMATEUR, {}),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(service.listEvents('owner-id', actor, {})).rejects.toThrow(ForbiddenException);
     });
 
     it('PARENT_FINANCEUR can access calendar events (filtered to FINANCIER by service)', async () => {
       const financialEvents = [{ id: 'evt-f', ownerId: 'parent-1', eventType: EventType.FINANCIER }] as CalendarEvent[];
       mockEventRepo.createQueryBuilder.mockReturnValue(buildQueryBuilder(financialEvents));
+      const actor: AuthenticatedUser = { id: 'parent-1', role: UserRole.PARENT_FINANCEUR };
 
-      const results = await service.listEvents('some-owner', 'parent-1', UserRole.PARENT_FINANCEUR, {});
+      const results = await service.listEvents('some-owner', actor, {});
       expect(results).toHaveLength(1);
     });
   });
@@ -144,9 +166,11 @@ describe('CalendarEventsService', () => {
       mockEventRepo.create.mockReturnValue(savedEvent);
       mockEventRepo.save.mockResolvedValue(savedEvent);
       mockEventRepo.findOne.mockResolvedValue(savedEvent);
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
 
-      const result = await service.createEvent('teacher-1', validDto, 'teacher-1', UserRole.FORMATEUR);
+      const result = await service.createEvent('teacher-1', validDto, actor);
       expect(result.id).toBe('evt-1');
+      expect(mockDataSource.transaction).toHaveBeenCalledTimes(1);
       expect(mockEventsService.publish).toHaveBeenCalledWith(
         'CalendarEventCreated',
         expect.objectContaining({ eventId: 'evt-1', ownerId: 'teacher-1' }),
@@ -160,27 +184,26 @@ describe('CalendarEventsService', () => {
       mockEventRepo.create.mockReturnValue(savedEvent);
       mockEventRepo.save.mockResolvedValue(savedEvent);
       mockEventRepo.findOne.mockResolvedValue(savedEvent);
+      const actor: AuthenticatedUser = { id: 'student-1', role: UserRole.ELEVE };
 
-      const result = await service.createEvent('student-1', dto, 'student-1', UserRole.ELEVE);
+      const result = await service.createEvent('student-1', dto, actor);
       expect(result.id).toBe('evt-2');
     });
 
     it('throws ForbiddenException when ELEVE tries to create a COURS event', async () => {
-      await expect(
-        service.createEvent('student-1', validDto, 'student-1', UserRole.ELEVE),
-      ).rejects.toThrow(ForbiddenException);
+      const actor: AuthenticatedUser = { id: 'student-1', role: UserRole.ELEVE };
+      await expect(service.createEvent('student-1', validDto, actor)).rejects.toThrow(ForbiddenException);
+      expect(mockDataSource.transaction).not.toHaveBeenCalled();
     });
 
     it('throws ForbiddenException when PARENT_FINANCEUR tries to create any event', async () => {
-      await expect(
-        service.createEvent('parent-1', validDto, 'parent-1', UserRole.PARENT_FINANCEUR),
-      ).rejects.toThrow(ForbiddenException);
+      const actor: AuthenticatedUser = { id: 'parent-1', role: UserRole.PARENT_FINANCEUR };
+      await expect(service.createEvent('parent-1', validDto, actor)).rejects.toThrow(ForbiddenException);
     });
 
     it('throws ForbiddenException when ADMINISTRATEUR_FINANCIER tries to create any event', async () => {
-      await expect(
-        service.createEvent('af-1', validDto, 'af-1', UserRole.ADMINISTRATEUR_FINANCIER),
-      ).rejects.toThrow(ForbiddenException);
+      const actor: AuthenticatedUser = { id: 'af-1', role: UserRole.ADMINISTRATEUR_FINANCIER };
+      await expect(service.createEvent('af-1', validDto, actor)).rejects.toThrow(ForbiddenException);
     });
 
     it('RP can create any event type', async () => {
@@ -189,8 +212,9 @@ describe('CalendarEventsService', () => {
       mockEventRepo.create.mockReturnValue(savedEvent);
       mockEventRepo.save.mockResolvedValue(savedEvent);
       mockEventRepo.findOne.mockResolvedValue(savedEvent);
+      const actor: AuthenticatedUser = { id: 'rp-1', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
 
-      const result = await service.createEvent('rp-1', financierDto, 'rp-1', UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await service.createEvent('rp-1', financierDto, actor);
       expect(result.id).toBe('evt-3');
     });
 
@@ -202,8 +226,9 @@ describe('CalendarEventsService', () => {
       mockEventRepo.findOne.mockResolvedValue(savedEvent);
       mockInvitationRepo.create.mockImplementation((dto) => dto);
       mockInvitationRepo.save.mockResolvedValue([]);
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
 
-      await service.createEvent('teacher-1', dtoWithInvitees, 'teacher-1', UserRole.FORMATEUR);
+      await service.createEvent('teacher-1', dtoWithInvitees, actor);
       expect(mockInvitationRepo.create).toHaveBeenCalledTimes(2);
     });
   });
@@ -217,8 +242,9 @@ describe('CalendarEventsService', () => {
       const pendingInvitation = { id: 'inv-1', eventId: 'evt-1', inviteeId: 'user-1', status: InvitationStatus.PENDING } as EventInvitation;
       mockInvitationRepo.findOne.mockResolvedValue(pendingInvitation);
       mockInvitationRepo.save.mockResolvedValue({ ...pendingInvitation, status: InvitationStatus.ACCEPTED });
+      const actor: AuthenticatedUser = { id: 'user-1', role: UserRole.ELEVE };
 
-      const result = await service.acceptInvitation('evt-1', 'user-1', 'user-1');
+      const result = await service.acceptInvitation('evt-1', 'user-1', actor);
       expect(result.status).toBe(InvitationStatus.ACCEPTED);
       expect(mockEventsService.publish).toHaveBeenCalledWith(
         'InvitationAccepted',
@@ -228,30 +254,32 @@ describe('CalendarEventsService', () => {
     });
 
     it('throws ForbiddenException when actor is not the invitee', async () => {
-      await expect(
-        service.acceptInvitation('evt-1', 'user-1', 'someone-else'),
-      ).rejects.toThrow(ForbiddenException);
+      const actor: AuthenticatedUser = { id: 'someone-else', role: UserRole.ELEVE };
+      await expect(service.acceptInvitation('evt-1', 'user-1', actor)).rejects.toThrow(ForbiddenException);
       expect(mockInvitationRepo.findOne).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundException when invitation does not exist', async () => {
       mockInvitationRepo.findOne.mockResolvedValue(null);
+      const actor: AuthenticatedUser = { id: 'user-1', role: UserRole.ELEVE };
 
-      await expect(service.acceptInvitation('evt-unknown', 'user-1', 'user-1')).rejects.toThrow(NotFoundException);
+      await expect(service.acceptInvitation('evt-unknown', 'user-1', actor)).rejects.toThrow(NotFoundException);
     });
 
     it('throws ConflictException when invitation is already accepted', async () => {
       const acceptedInvitation = { id: 'inv-2', eventId: 'evt-1', inviteeId: 'user-1', status: InvitationStatus.ACCEPTED } as EventInvitation;
       mockInvitationRepo.findOne.mockResolvedValue(acceptedInvitation);
+      const actor: AuthenticatedUser = { id: 'user-1', role: UserRole.ELEVE };
 
-      await expect(service.acceptInvitation('evt-1', 'user-1', 'user-1')).rejects.toThrow(ConflictException);
+      await expect(service.acceptInvitation('evt-1', 'user-1', actor)).rejects.toThrow(ConflictException);
     });
 
     it('throws ConflictException when invitation is already declined', async () => {
       const declinedInvitation = { id: 'inv-3', eventId: 'evt-1', inviteeId: 'user-1', status: InvitationStatus.DECLINED } as EventInvitation;
       mockInvitationRepo.findOne.mockResolvedValue(declinedInvitation);
+      const actor: AuthenticatedUser = { id: 'user-1', role: UserRole.ELEVE };
 
-      await expect(service.acceptInvitation('evt-1', 'user-1', 'user-1')).rejects.toThrow(ConflictException);
+      await expect(service.acceptInvitation('evt-1', 'user-1', actor)).rejects.toThrow(ConflictException);
     });
   });
 
@@ -264,8 +292,9 @@ describe('CalendarEventsService', () => {
       const pendingInvitation = { id: 'inv-1', eventId: 'evt-1', inviteeId: 'user-1', status: InvitationStatus.PENDING } as EventInvitation;
       mockInvitationRepo.findOne.mockResolvedValue(pendingInvitation);
       mockInvitationRepo.save.mockResolvedValue({ ...pendingInvitation, status: InvitationStatus.DECLINED });
+      const actor: AuthenticatedUser = { id: 'user-1', role: UserRole.ELEVE };
 
-      const result = await service.declineInvitation('evt-1', 'user-1', 'user-1');
+      const result = await service.declineInvitation('evt-1', 'user-1', actor);
       expect(result.status).toBe(InvitationStatus.DECLINED);
       expect(mockEventsService.publish).toHaveBeenCalledWith(
         'InvitationDeclined',
@@ -275,22 +304,23 @@ describe('CalendarEventsService', () => {
     });
 
     it('throws ForbiddenException when actor is not the invitee', async () => {
-      await expect(
-        service.declineInvitation('evt-1', 'user-1', 'someone-else'),
-      ).rejects.toThrow(ForbiddenException);
+      const actor: AuthenticatedUser = { id: 'someone-else', role: UserRole.ELEVE };
+      await expect(service.declineInvitation('evt-1', 'user-1', actor)).rejects.toThrow(ForbiddenException);
       expect(mockInvitationRepo.findOne).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundException when invitation does not exist', async () => {
       mockInvitationRepo.findOne.mockResolvedValue(null);
-      await expect(service.declineInvitation('evt-unknown', 'user-1', 'user-1')).rejects.toThrow(NotFoundException);
+      const actor: AuthenticatedUser = { id: 'user-1', role: UserRole.ELEVE };
+      await expect(service.declineInvitation('evt-unknown', 'user-1', actor)).rejects.toThrow(NotFoundException);
     });
 
     it('throws ConflictException when invitation is already processed', async () => {
       const acceptedInvitation = { id: 'inv-2', eventId: 'evt-1', inviteeId: 'user-1', status: InvitationStatus.ACCEPTED } as EventInvitation;
       mockInvitationRepo.findOne.mockResolvedValue(acceptedInvitation);
+      const actor: AuthenticatedUser = { id: 'user-1', role: UserRole.ELEVE };
 
-      await expect(service.declineInvitation('evt-1', 'user-1', 'user-1')).rejects.toThrow(ConflictException);
+      await expect(service.declineInvitation('evt-1', 'user-1', actor)).rejects.toThrow(ConflictException);
     });
   });
 
@@ -318,9 +348,11 @@ describe('CalendarEventsService', () => {
       mockCancellationRepo.create.mockReturnValue(savedRequest);
       mockCancellationRepo.save.mockResolvedValue(savedRequest);
       mockEventRepo.save.mockResolvedValue({ ...calendarEvent, status: CalendarEventStatus.CANCELLED });
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
 
-      const result = await service.requestCancellation('evt-1', {}, 'teacher-1', UserRole.FORMATEUR);
+      const result = await service.requestCancellation('evt-1', {}, actor);
       expect(result.status).toBe(CancellationStatus.APPROVED);
+      expect(mockDataSource.transaction).toHaveBeenCalledTimes(1);
       expect(mockEventRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({ status: CalendarEventStatus.CANCELLED }),
       );
@@ -349,8 +381,9 @@ describe('CalendarEventsService', () => {
       } as CancellationRequest;
       mockCancellationRepo.create.mockReturnValue(savedRequest);
       mockCancellationRepo.save.mockResolvedValue(savedRequest);
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
 
-      const result = await service.requestCancellation('evt-2', {}, 'teacher-1', UserRole.FORMATEUR);
+      const result = await service.requestCancellation('evt-2', {}, actor);
       expect(result.status).toBe(CancellationStatus.PENDING_APPROVAL);
       // Event should NOT be auto-cancelled
       expect(mockEventRepo.save).not.toHaveBeenCalled();
@@ -375,10 +408,9 @@ describe('CalendarEventsService', () => {
       mockCancellationRepo.create.mockReturnValue(savedRequest);
       mockCancellationRepo.save.mockResolvedValue(savedRequest);
       mockEventRepo.save.mockResolvedValue({ ...calendarEvent, status: CalendarEventStatus.CANCELLED });
+      const actor: AuthenticatedUser = { id: 'rp-1', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
 
-      await expect(
-        service.requestCancellation('evt-3', {}, 'rp-1', UserRole.RESPONSABLE_PEDAGOGIQUE),
-      ).resolves.toBeDefined();
+      await expect(service.requestCancellation('evt-3', {}, actor)).resolves.toBeDefined();
     });
 
     it('throws ForbiddenException when non-creator tries to cancel (CAL-FB-001)', async () => {
@@ -389,17 +421,16 @@ describe('CalendarEventsService', () => {
         status: CalendarEventStatus.ACTIVE,
       } as CalendarEvent;
       mockEventRepo.findOne.mockResolvedValue(calendarEvent);
+      const actor: AuthenticatedUser = { id: 'other-user', role: UserRole.ELEVE };
 
-      await expect(
-        service.requestCancellation('evt-4', {}, 'other-user', UserRole.ELEVE),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(service.requestCancellation('evt-4', {}, actor)).rejects.toThrow(ForbiddenException);
+      expect(mockDataSource.transaction).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundException when event does not exist', async () => {
       mockEventRepo.findOne.mockResolvedValue(null);
-      await expect(
-        service.requestCancellation('unknown-evt', {}, 'teacher-1', UserRole.FORMATEUR),
-      ).rejects.toThrow(NotFoundException);
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+      await expect(service.requestCancellation('unknown-evt', {}, actor)).rejects.toThrow(NotFoundException);
     });
 
     it('throws ConflictException when event is already cancelled', async () => {
@@ -410,10 +441,9 @@ describe('CalendarEventsService', () => {
         status: CalendarEventStatus.CANCELLED,
       } as CalendarEvent;
       mockEventRepo.findOne.mockResolvedValue(calendarEvent);
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
 
-      await expect(
-        service.requestCancellation('evt-5', {}, 'teacher-1', UserRole.FORMATEUR),
-      ).rejects.toThrow(ConflictException);
+      await expect(service.requestCancellation('evt-5', {}, actor)).rejects.toThrow(ConflictException);
     });
   });
 
@@ -429,8 +459,9 @@ describe('CalendarEventsService', () => {
       const savedRule = { id: 'rule-1', eventId: 'evt-1', ownerId: 'user-1', delay: ReminderDelay.ONE_HOUR } as ReminderRule;
       mockReminderRuleRepo.create.mockReturnValue(savedRule);
       mockReminderRuleRepo.save.mockResolvedValue(savedRule);
+      const actor: AuthenticatedUser = { id: 'user-1', role: UserRole.FORMATEUR };
 
-      const result = await service.configureReminder('evt-1', { delay: ReminderDelay.ONE_HOUR }, 'user-1', UserRole.FORMATEUR);
+      const result = await service.configureReminder('evt-1', { delay: ReminderDelay.ONE_HOUR }, actor);
       expect(result.delay).toBe(ReminderDelay.ONE_HOUR);
     });
 
@@ -442,8 +473,9 @@ describe('CalendarEventsService', () => {
       const savedRule = { id: 'rule-1', eventId: 'evt-1', ownerId: 'user-1', delay: ReminderDelay.ONE_HOUR } as ReminderRule;
       mockReminderRuleRepo.create.mockReturnValue(savedRule);
       mockReminderRuleRepo.save.mockResolvedValue(savedRule);
+      const actor: AuthenticatedUser = { id: 'user-1', role: UserRole.ELEVE };
 
-      const result = await service.configureReminder('evt-1', { delay: ReminderDelay.ONE_HOUR }, 'user-1', UserRole.ELEVE);
+      const result = await service.configureReminder('evt-1', { delay: ReminderDelay.ONE_HOUR }, actor);
       expect(result.delay).toBe(ReminderDelay.ONE_HOUR);
     });
 
@@ -454,8 +486,9 @@ describe('CalendarEventsService', () => {
       const savedRule = { id: 'rule-1', eventId: 'evt-1', ownerId: 'rp-1', delay: ReminderDelay.ONE_DAY } as ReminderRule;
       mockReminderRuleRepo.create.mockReturnValue(savedRule);
       mockReminderRuleRepo.save.mockResolvedValue(savedRule);
+      const actor: AuthenticatedUser = { id: 'rp-1', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
 
-      const result = await service.configureReminder('evt-1', { delay: ReminderDelay.ONE_DAY }, 'rp-1', UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await service.configureReminder('evt-1', { delay: ReminderDelay.ONE_DAY }, actor);
       expect(result.delay).toBe(ReminderDelay.ONE_DAY);
     });
 
@@ -463,9 +496,10 @@ describe('CalendarEventsService', () => {
       const calendarEvent = { id: 'evt-1', creatorId: 'organizer-1' } as CalendarEvent;
       mockEventRepo.findOne.mockResolvedValue(calendarEvent);
       mockInvitationRepo.findOne.mockResolvedValue(null);
+      const actor: AuthenticatedUser = { id: 'unrelated-user', role: UserRole.ELEVE };
 
       await expect(
-        service.configureReminder('evt-1', { delay: ReminderDelay.ONE_HOUR }, 'unrelated-user', UserRole.ELEVE),
+        service.configureReminder('evt-1', { delay: ReminderDelay.ONE_HOUR }, actor),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -473,9 +507,10 @@ describe('CalendarEventsService', () => {
       const calendarEvent = { id: 'evt-1', creatorId: 'organizer-1' } as CalendarEvent;
       mockEventRepo.findOne.mockResolvedValue(calendarEvent);
       mockInvitationRepo.findOne.mockResolvedValue({ inviteeId: 'user-1', status: InvitationStatus.DECLINED });
+      const actor: AuthenticatedUser = { id: 'user-1', role: UserRole.ELEVE };
 
       await expect(
-        service.configureReminder('evt-1', { delay: ReminderDelay.ONE_HOUR }, 'user-1', UserRole.ELEVE),
+        service.configureReminder('evt-1', { delay: ReminderDelay.ONE_HOUR }, actor),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -483,16 +518,18 @@ describe('CalendarEventsService', () => {
       const calendarEvent = { id: 'evt-1', creatorId: 'user-1' } as CalendarEvent;
       mockEventRepo.findOne.mockResolvedValue(calendarEvent);
       mockReminderRuleRepo.delete.mockResolvedValue({});
+      const actor: AuthenticatedUser = { id: 'user-1', role: UserRole.ELEVE };
 
-      const result = await service.configureReminder('evt-1', { delay: ReminderDelay.NONE }, 'user-1', UserRole.ELEVE);
+      const result = await service.configureReminder('evt-1', { delay: ReminderDelay.NONE }, actor);
       expect(result.delay).toBe(ReminderDelay.NONE);
       expect(mockReminderRuleRepo.save).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundException when event does not exist', async () => {
       mockEventRepo.findOne.mockResolvedValue(null);
+      const actor: AuthenticatedUser = { id: 'user-1', role: UserRole.FORMATEUR };
       await expect(
-        service.configureReminder('unknown-evt', { delay: ReminderDelay.ONE_DAY }, 'user-1', UserRole.FORMATEUR),
+        service.configureReminder('unknown-evt', { delay: ReminderDelay.ONE_DAY }, actor),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -507,33 +544,26 @@ describe('CalendarEventsService', () => {
       const savedGrant = { id: 'grant-1', ownerId: 'user-1', granteeId: 'user-2', grantedBy: 'rp-1' } as CalendarVisibilityGrant;
       mockGrantRepo.create.mockReturnValue(savedGrant);
       mockGrantRepo.save.mockResolvedValue(savedGrant);
+      const actor: AuthenticatedUser = { id: 'rp-1', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
 
-      const result = await service.createVisibilityGrant(
-        'user-1',
-        { granteeId: 'user-2' },
-        'rp-1',
-        UserRole.RESPONSABLE_PEDAGOGIQUE,
-      );
+      const result = await service.createVisibilityGrant('user-1', { granteeId: 'user-2' }, actor);
       expect(result.id).toBe('grant-1');
     });
 
     it('returns existing grant instead of creating duplicate', async () => {
       const existingGrant = { id: 'grant-1', ownerId: 'user-1', granteeId: 'user-2', grantedBy: 'rp-1' } as CalendarVisibilityGrant;
       mockGrantRepo.findOne.mockResolvedValue(existingGrant);
+      const actor: AuthenticatedUser = { id: 'rp-1', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
 
-      const result = await service.createVisibilityGrant(
-        'user-1',
-        { granteeId: 'user-2' },
-        'rp-1',
-        UserRole.RESPONSABLE_PEDAGOGIQUE,
-      );
+      const result = await service.createVisibilityGrant('user-1', { granteeId: 'user-2' }, actor);
       expect(result.id).toBe('grant-1');
       expect(mockGrantRepo.save).not.toHaveBeenCalled();
     });
 
     it('throws ForbiddenException when non-RP tries to create a grant', async () => {
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
       await expect(
-        service.createVisibilityGrant('user-1', { granteeId: 'user-2' }, 'teacher-1', UserRole.FORMATEUR),
+        service.createVisibilityGrant('user-1', { granteeId: 'user-2' }, actor),
       ).rejects.toThrow(ForbiddenException);
     });
   });

@@ -57,12 +57,6 @@ export class EventCancellationsController {
     @CurrentUser() actor: AuthenticatedUser,
     @CorrelationId() correlationId?: string,
   ): Promise<CancellationRequest> {
-    return this.calendarEventsService.requestCancellation(
-      eventId,
-      dto,
-      actor.id,
-      actor.role,
-      correlationId,
-    );
+    return this.calendarEventsService.requestCancellation(eventId, dto, actor, correlationId);
   }
 }

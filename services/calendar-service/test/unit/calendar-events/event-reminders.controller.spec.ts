@@ -43,8 +43,7 @@ describe('EventRemindersController', () => {
       expect(mockCalendarEventsService.configureReminder).toHaveBeenCalledWith(
         'evt-4',
         configureReminderDto,
-        'user-3',
-        UserRole.ELEVE,
+        actor,
         undefined,
       );
       expect(result).toEqual(reminderResult);
@@ -59,8 +58,7 @@ describe('EventRemindersController', () => {
       expect(mockCalendarEventsService.configureReminder).toHaveBeenCalledWith(
         'evt-4',
         configureReminderDto,
-        'user-3',
-        UserRole.ELEVE,
+        actor,
         correlationId,
       );
     });
@@ -75,8 +73,7 @@ describe('EventRemindersController', () => {
       expect(mockCalendarEventsService.configureReminder).toHaveBeenCalledWith(
         'evt-4',
         oneDayReminderDto,
-        'teacher-99',
-        UserRole.FORMATEUR,
+        teacherActor,
         undefined,
       );
     });

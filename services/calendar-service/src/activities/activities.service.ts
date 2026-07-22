@@ -11,6 +11,7 @@ import { CreateActivityDto } from './dto/create-activity.dto';
 import { UpdateActivityDto } from './dto/update-activity.dto';
 import { EventsService } from '../events/events.service';
 import { UserRole } from '../common/enums/user-role.enum';
+import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 
 @Injectable()
 export class ActivitiesService {
@@ -29,18 +30,17 @@ export class ActivitiesService {
    */
   async create(
     dto: CreateActivityDto,
-    creatorId: string,
-    creatorRole: string,
+    actor: AuthenticatedUser,
     correlationId?: string,
   ): Promise<ScheduledActivity> {
-    this.validateActivityCreation(dto, creatorRole);
+    this.validateActivityCreation(dto, actor.role);
 
     const activity = await this.activityRepo.save(
       this.activityRepo.create({
         title: dto.title,
         type: dto.type,
-        creatorId,
-        creatorRole,
+        creatorId: actor.id,
+        creatorRole: actor.role,
         participantIds: dto.participantIds,
         startTime: new Date(dto.startTime),
         endTime: new Date(dto.endTime),
@@ -54,7 +54,7 @@ export class ActivitiesService {
       {
         activityId: activity.id,
         type: activity.type,
-        creatorId,
+        creatorId: actor.id,
         participantIds: activity.participantIds,
         startTime: activity.startTime,
       },
@@ -71,12 +71,11 @@ export class ActivitiesService {
   async update(
     activityId: string,
     dto: UpdateActivityDto,
-    requesterId: string,
-    requesterRole: string,
+    actor: AuthenticatedUser,
     correlationId?: string,
   ): Promise<ScheduledActivity> {
     const activity = await this.findOneOrFail(activityId);
-    this.assertCanModifyActivity(activity, requesterId, requesterRole);
+    this.assertCanModifyActivity(activity, actor);
 
     // CAL-FB-002: if participantIds updated, must remain non-empty (validated by DTO)
     const updated = await this.activityRepo.save({
@@ -92,7 +91,7 @@ export class ActivitiesService {
       {
         activityId: updated.id,
         changes: Object.keys(dto),
-        updatedBy: requesterId,
+        updatedBy: actor.id,
       },
       correlationId ?? dto.correlationId,
     );
@@ -100,9 +99,9 @@ export class ActivitiesService {
     return updated;
   }
 
-  async findOne(activityId: string, requesterId: string, requesterRole: string): Promise<ScheduledActivity> {
+  async findOne(activityId: string, actor: AuthenticatedUser): Promise<ScheduledActivity> {
     const activity = await this.findOneOrFail(activityId);
-    this.assertCanReadActivity(activity, requesterId, requesterRole);
+    this.assertCanReadActivity(activity, actor);
     return activity;
   }
 
@@ -128,7 +127,7 @@ export class ActivitiesService {
    * CAL-FB-003: AP can only propose pedagogical meetings to teachers in their scope
    *   (scope enforcement is caller-side for Phase 1; the type constraint is enforced here).
    */
-  private validateActivityCreation(dto: CreateActivityDto, creatorRole: string): void {
+  private validateActivityCreation(dto: CreateActivityDto, creatorRole: UserRole): void {
     if (dto.participantIds.length === 0) {
       throw new BadRequestException('CAL-FB-002: At least one participant is required');
     }
@@ -148,36 +147,28 @@ export class ActivitiesService {
    * IDOR guard: user can read an activity only if they are the creator,
    * a declared participant, or hold an internal privileged role (RP, TI, AF).
    */
-  private assertCanReadActivity(
-    activity: ScheduledActivity,
-    requesterId: string,
-    requesterRole: string,
-  ): void {
-    const readRoles: string[] = [
+  private assertCanReadActivity(activity: ScheduledActivity, actor: AuthenticatedUser): void {
+    const readRoles: UserRole[] = [
       UserRole.RESPONSABLE_PEDAGOGIQUE,
       UserRole.TECHNICIEN_INFORMATIQUE,
       UserRole.ADMINISTRATEUR_FINANCIER,
     ];
-    if (activity.creatorId === requesterId) return;
-    if (activity.participantIds.includes(requesterId)) return;
-    if (readRoles.includes(requesterRole)) return;
+    if (activity.creatorId === actor.id) return;
+    if (activity.participantIds.includes(actor.id)) return;
+    if (readRoles.includes(actor.role)) return;
     throw new ForbiddenException('Access to this activity is not allowed');
   }
 
   /**
    * CAL-FB-001: Only creator, RP, or TI can update an activity.
    */
-  private assertCanModifyActivity(
-    activity: ScheduledActivity,
-    requesterId: string,
-    requesterRole: string,
-  ): void {
-    const writeRoles: string[] = [
+  private assertCanModifyActivity(activity: ScheduledActivity, actor: AuthenticatedUser): void {
+    const writeRoles: UserRole[] = [
       UserRole.RESPONSABLE_PEDAGOGIQUE,
       UserRole.TECHNICIEN_INFORMATIQUE,
     ];
-    if (activity.creatorId === requesterId) return;
-    if (writeRoles.includes(requesterRole)) return;
+    if (activity.creatorId === actor.id) return;
+    if (writeRoles.includes(actor.role)) return;
     throw new ForbiddenException(
       'CAL-FB-001: Only the creator, RP, or TI can modify this activity',
     );

@@ -60,7 +60,7 @@ export class IncidentController {
     @Body() dto: CreateIncidentDto,
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<IncidentResponseDto> {
-    const incident = await this.incidentService.create(dto, actor.id);
+    const incident = await this.incidentService.create(dto, actor);
     return IncidentResponseDto.fromEntity(incident);
   }
 
@@ -109,9 +109,8 @@ export class IncidentController {
   async updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateIncidentStatusDto,
-    @CurrentUser() actor: AuthenticatedUser,
   ): Promise<IncidentResponseDto> {
-    const incident = await this.incidentService.updateStatus(id, dto, actor.id, actor.role);
+    const incident = await this.incidentService.updateStatus(id, dto);
     return IncidentResponseDto.fromEntity(incident);
   }
 }

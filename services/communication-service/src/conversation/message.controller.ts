@@ -49,7 +49,7 @@ export class MessageController {
     @Param('conversationId', ParseUUIDPipe) conversationId: string,
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<MessageResponseDto[]> {
-    const messages = await this.conversationService.getMessages(conversationId, actor.id);
+    const messages = await this.conversationService.getMessages(conversationId, actor);
     return messages.map((message) => MessageResponseDto.fromEntity(message));
   }
 
@@ -68,7 +68,7 @@ export class MessageController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<MessageResponseDto> {
-    const message = await this.conversationService.markAsRead(id, actor.id);
+    const message = await this.conversationService.markAsRead(id, actor);
     return MessageResponseDto.fromEntity(message);
   }
 }

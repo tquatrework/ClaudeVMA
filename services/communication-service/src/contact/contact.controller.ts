@@ -50,7 +50,7 @@ export class ContactController {
   @ApiResponse({ status: 200, description: 'List of authorized contacts', type: [ContactResponseDto] })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async listContacts(@CurrentUser() actor: AuthenticatedUser): Promise<ContactResponseDto[]> {
-    const contacts = await this.contactService.listContacts(actor.id);
+    const contacts = await this.contactService.listContacts(actor);
     return contacts.map((contact) => ContactResponseDto.fromEntity(contact));
   }
 
@@ -69,7 +69,7 @@ export class ContactController {
     @Param('id', ParseUUIDPipe) contactPolicyId: string,
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<ContactResponseDto> {
-    const contact = await this.contactService.activateContact(actor.id, contactPolicyId);
+    const contact = await this.contactService.activateContact(actor, contactPolicyId);
     return ContactResponseDto.fromEntity(contact);
   }
 
@@ -91,7 +91,7 @@ export class ContactController {
     @Param('id', ParseUUIDPipe) contactPolicyId: string,
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<void> {
-    await this.contactService.removeContact(actor.id, contactPolicyId);
+    await this.contactService.removeContact(actor, contactPolicyId);
   }
 
   @Patch(':id/visibility')
@@ -112,7 +112,7 @@ export class ContactController {
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<ContactResponseDto> {
     const contact = await this.contactService.updateVisibility(
-      actor.id,
+      actor,
       contactPolicyId,
       updateVisibilityDto.visibility,
     );

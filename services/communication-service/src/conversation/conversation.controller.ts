@@ -52,11 +52,11 @@ export class ConversationController {
   async listConversations(
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<ConversationResponseDto[]> {
-    const conversations = await this.conversationService.findAll(actor.id);
+    const conversations = await this.conversationService.findAll(actor);
     return conversations.map((conversation) => ConversationResponseDto.fromEntity(conversation));
   }
 
-  // Droits contextuels vérifiés dans le service (contact autorisé via ContactService.isAuthorized — COM-BR-010, COM-FB-002)
+  // Droits contextuels vérifiés dans le service (contact autorisé via ContactService.findUnauthorizedContacts — COM-BR-010, COM-FB-002)
   @Post()
   @ApiOperation({
     summary: 'Create a conversation',
@@ -73,7 +73,7 @@ export class ConversationController {
     @Body() dto: CreateConversationDto,
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<ConversationResponseDto> {
-    const conversation = await this.conversationService.create(dto, actor.id);
+    const conversation = await this.conversationService.create(dto, actor);
     return ConversationResponseDto.fromEntity(conversation);
   }
 
@@ -96,7 +96,7 @@ export class ConversationController {
     @Body() dto: SendMessageDto,
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<MessageResponseDto> {
-    const message = await this.conversationService.sendMessage(conversationId, dto, actor.id);
+    const message = await this.conversationService.sendMessage(conversationId, dto, actor);
     return MessageResponseDto.fromEntity(message);
   }
 }

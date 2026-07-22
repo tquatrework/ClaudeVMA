@@ -35,7 +35,7 @@ export class InternalController {
     @Headers('x-internal-secret') secret: string,
     @Body() dto: SyncContactsDto,
   ): Promise<void> {
-    const expected = this.config.get<string>('INTERNAL_SECRET');
+    const expected = this.config.getOrThrow<string>('INTERNAL_SECRET');
     if (!secret || secret !== expected) {
       throw new UnauthorizedException('Invalid internal secret');
     }

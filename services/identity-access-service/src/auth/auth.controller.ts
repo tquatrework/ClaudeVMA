@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, UseGuards, Request, Ip, Headers } from '@nestjs/common';
+import { Controller, Post, Body, Get, UseGuards, Ip, Headers } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
@@ -8,6 +8,11 @@ import { RecoverIdentifierDto } from './dto/recover-identifier.dto';
 import { SendVerificationEmailDto } from './dto/send-verification-email.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { TokenResponseDto, CurrentUserResponseDto } from './dto/token-response.dto';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { MessageResponseDto } from '../common/dto/message-response.dto';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -27,7 +32,7 @@ export class AuthController {
     @Body() dto: LoginDto,
     @Ip() ipAddress: string,
     @Headers('user-agent') userAgent: string,
-  ) {
+  ): Promise<TokenResponseDto> {
     return this.authService.login(dto, ipAddress, userAgent);
   }
 
@@ -37,8 +42,8 @@ export class AuthController {
   @ApiOperation({ summary: 'Déconnexion', description: 'Révoque la session courante — le refresh token devient invalide.' })
   @ApiResponse({ status: 200, description: 'Session révoquée' })
   @ApiResponse({ status: 401, description: 'Token manquant ou invalide' })
-  async logout(@Request() req) {
-    await this.authService.logout(req.user.jti);
+  async logout(@CurrentUser() actor: AuthenticatedUser): Promise<MessageResponseDto> {
+    await this.authService.logout(actor.jti);
     return { message: 'Session revoked' };
   }
 
@@ -46,8 +51,8 @@ export class AuthController {
   @ApiOperation({ summary: 'Rafraîchissement de token', description: 'Échange un refresh token valide contre une nouvelle paire de tokens.' })
   @ApiResponse({ status: 200, description: 'Nouvelle paire de tokens émise' })
   @ApiResponse({ status: 401, description: 'Refresh token invalide, expiré ou révoqué' })
-  refresh(@Body('refresh_token') refreshToken: string) {
-    return this.authService.refresh(refreshToken);
+  refresh(@Body() dto: RefreshTokenDto): Promise<TokenResponseDto> {
+    return this.authService.refresh(dto.refresh_token);
   }
 
   @Get('me')
@@ -56,15 +61,14 @@ export class AuthController {
   @ApiOperation({ summary: 'Utilisateur courant', description: 'Retourne l\'identité et le statut de validation de l\'utilisateur authentifié.' })
   @ApiResponse({ status: 200, description: 'Identité de l\'utilisateur courant' })
   @ApiResponse({ status: 401, description: 'Token manquant ou invalide' })
-  me(@Request() req) {
-    const currentUser = req.user;
+  me(@CurrentUser() actor: AuthenticatedUser): CurrentUserResponseDto {
     return {
-      id: currentUser.id,
-      loginIdentifier: currentUser.loginIdentifier,
-      email: currentUser.email,
-      role: currentUser.role,
-      validationStatus: currentUser.validationStatus,
-      consentSigned: currentUser.consentSigned,
+      id: actor.id,
+      loginIdentifier: actor.loginIdentifier,
+      email: actor.email,
+      role: actor.role,
+      validationStatus: actor.validationStatus,
+      consentSigned: actor.consentSigned,
     };
   }
 
@@ -78,7 +82,7 @@ export class AuthController {
       'Répond toujours 200 pour ne pas révéler si l\'adresse existe ou si elle est déjà vérifiée.',
   })
   @ApiResponse({ status: 201, description: 'Demande acceptée — un email sera envoyé si le compte existe et n\'est pas encore vérifié' })
-  sendVerificationEmail(@Body() dto: SendVerificationEmailDto) {
+  sendVerificationEmail(@Body() dto: SendVerificationEmailDto): Promise<MessageResponseDto> {
     return this.authService.sendVerificationEmail(dto.email);
   }
 
@@ -89,7 +93,7 @@ export class AuthController {
   })
   @ApiResponse({ status: 201, description: 'Email vérifié avec succès' })
   @ApiResponse({ status: 400, description: 'Token invalide ou expiré' })
-  verifyEmail(@Body() dto: VerifyEmailDto) {
+  verifyEmail(@Body() dto: VerifyEmailDto): Promise<MessageResponseDto> {
     return this.authService.verifyEmail(dto.token);
   }
 
@@ -103,7 +107,7 @@ export class AuthController {
       'Répond toujours 200 pour ne pas révéler si l\'adresse est enregistrée.',
   })
   @ApiResponse({ status: 201, description: 'Demande acceptée — identifiant(s) envoyé(s) si l\'adresse est connue' })
-  recoverIdentifier(@Body() dto: RecoverIdentifierDto, @Ip() ipAddress: string) {
+  recoverIdentifier(@Body() dto: RecoverIdentifierDto, @Ip() ipAddress: string): Promise<MessageResponseDto> {
     return this.authService.recoverIdentifier(dto.email, ipAddress);
   }
 
@@ -117,7 +121,7 @@ export class AuthController {
       'Répond toujours 200 pour ne pas révéler si l\'identifiant existe.',
   })
   @ApiResponse({ status: 201, description: 'Demande acceptée — lien de réinitialisation envoyé si l\'identifiant est connu' })
-  forgotPassword(@Body() dto: PasswordResetRequestDto, @Ip() ipAddress: string) {
+  forgotPassword(@Body() dto: PasswordResetRequestDto, @Ip() ipAddress: string): Promise<MessageResponseDto> {
     return this.authService.requestPasswordReset(dto.loginIdentifier, ipAddress);
   }
 
@@ -130,7 +134,7 @@ export class AuthController {
       'Un lien de reset est envoyé à l\'email associé au compte.',
   })
   @ApiResponse({ status: 201, description: 'Demande acceptée — lien envoyé si l\'identifiant est connu' })
-  requestPasswordReset(@Body() dto: PasswordResetRequestDto, @Ip() ipAddress: string) {
+  requestPasswordReset(@Body() dto: PasswordResetRequestDto, @Ip() ipAddress: string): Promise<MessageResponseDto> {
     return this.authService.requestPasswordReset(dto.loginIdentifier, ipAddress);
   }
 
@@ -141,7 +145,7 @@ export class AuthController {
   })
   @ApiResponse({ status: 201, description: 'Mot de passe réinitialisé — reconnexion requise' })
   @ApiResponse({ status: 400, description: 'Token invalide ou expiré' })
-  resetPassword(@Body() dto: ResetPasswordDto) {
+  resetPassword(@Body() dto: ResetPasswordDto): Promise<MessageResponseDto> {
     return this.authService.resetPassword(dto.token, dto.newPassword);
   }
 }

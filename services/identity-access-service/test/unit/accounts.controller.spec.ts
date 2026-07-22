@@ -1,9 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { AccountsController } from '../../src/accounts/accounts.controller';
 import { AccountsService } from '../../src/accounts/accounts.service';
 import { UserRole, ValidationStatus } from '../../src/auth/entities/user.entity';
-import { AccountStatusValue } from '../../src/accounts/dto/update-account-status.dto';
+import { makeAuthenticatedUser } from './helpers/authenticated-user.factory';
 
 const makePublicAccount = (overrides = {}) => ({
   id: 'user-uuid',
@@ -20,17 +20,12 @@ const mockAccountsService = {
   createAccount: jest.fn(),
   createStudentAccount: jest.fn(),
   createTeacherAccount: jest.fn(),
-  getAccount: jest.fn(),
+  createParentAccount: jest.fn(),
   updateMe: jest.fn(),
-  updateRoles: jest.fn(),
-  validateAccount: jest.fn(),
-  suspendAccount: jest.fn(),
-  updateAccountStatus: jest.fn(),
-  regenerateAccess: jest.fn(),
-  getAuditLogs: jest.fn(),
+  checkEmail: jest.fn(),
 };
 
-describe('AccountsController', () => {
+describe('AccountsController (self-service)', () => {
   let controller: AccountsController;
 
   beforeEach(async () => {
@@ -154,13 +149,13 @@ describe('AccountsController', () => {
   // ── PATCH /accounts/me ──────────────────────────────────────────────────────
 
   describe('PATCH /accounts/me — updateMe', () => {
-    const authenticatedRequest = { user: { id: 'user-uuid', role: UserRole.ELEVE } };
+    const actor = makeAuthenticatedUser({ id: 'user-uuid', role: UserRole.ELEVE });
 
     it('updates email when a valid new email is provided', async () => {
       const updatedAccount = makePublicAccount({ email: 'newemail@example.com' });
       mockAccountsService.updateMe.mockResolvedValue(updatedAccount);
 
-      const result = await controller.updateMe({ email: 'newemail@example.com' }, authenticatedRequest);
+      const result = await controller.updateMe({ email: 'newemail@example.com' }, actor);
 
       expect(result.email).toBe('newemail@example.com');
       expect(mockAccountsService.updateMe).toHaveBeenCalledWith('user-uuid', { email: 'newemail@example.com' });
@@ -170,7 +165,7 @@ describe('AccountsController', () => {
       const updatedAccount = makePublicAccount();
       mockAccountsService.updateMe.mockResolvedValue(updatedAccount);
 
-      const result = await controller.updateMe({ password: 'newPassword123' }, authenticatedRequest);
+      const result = await controller.updateMe({ password: 'newPassword123' }, actor);
 
       expect(result).not.toHaveProperty('passwordHash');
       expect(mockAccountsService.updateMe).toHaveBeenCalledWith('user-uuid', { password: 'newPassword123' });
@@ -180,7 +175,7 @@ describe('AccountsController', () => {
       mockAccountsService.updateMe.mockRejectedValue(new ConflictException('Email already in use'));
 
       await expect(
-        controller.updateMe({ email: 'taken@example.com' }, authenticatedRequest),
+        controller.updateMe({ email: 'taken@example.com' }, actor),
       ).rejects.toThrow(ConflictException);
     });
 
@@ -188,221 +183,22 @@ describe('AccountsController', () => {
       const updatedAccount = makePublicAccount();
       mockAccountsService.updateMe.mockResolvedValue(updatedAccount);
 
-      await controller.updateMe({}, authenticatedRequest);
+      await controller.updateMe({}, actor);
 
       expect(mockAccountsService.updateMe).toHaveBeenCalledWith('user-uuid', {});
     });
   });
 
-  // ── GET /accounts/:accountId ─────────────────────────────────────────────────
+  // ── GET /accounts/check-email ────────────────────────────────────────────────
 
-  describe('GET /accounts/:accountId — getAccount', () => {
-    it('returns account details for a valid ID', async () => {
-      const account = makePublicAccount();
-      mockAccountsService.getAccount.mockResolvedValue(account);
+  describe('GET /accounts/check-email — checkEmail', () => {
+    it('returns availability and a suggested login identifier', async () => {
+      mockAccountsService.checkEmail.mockResolvedValue({ alreadyUsed: true, suggestedLoginIdentifier: 'test.user.2' });
 
-      const result = await controller.getAccount('user-uuid');
+      const result = await controller.checkEmail('test@example.com');
 
-      expect(result).toEqual(account);
-      expect(mockAccountsService.getAccount).toHaveBeenCalledWith('user-uuid');
-    });
-
-    it('propagates 404 when account is not found', async () => {
-      mockAccountsService.getAccount.mockRejectedValue(new NotFoundException('Account not found'));
-
-      await expect(controller.getAccount('ghost-uuid')).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  // ── PUT /accounts/:accountId/roles ──────────────────────────────────────────
-
-  describe('PUT /accounts/:accountId/roles — updateRoles', () => {
-    const rpRequest = { user: { id: 'rp-uuid', role: UserRole.RESPONSABLE_PEDAGOGIQUE } };
-
-    it('allows RP to assign animateur_pedagogique role', async () => {
-      const updatedAccount = makePublicAccount({ role: UserRole.ANIMATEUR_PEDAGOGIQUE });
-      mockAccountsService.updateRoles.mockResolvedValue(updatedAccount);
-
-      const result = await controller.updateRoles(
-        'user-uuid',
-        { role: UserRole.ANIMATEUR_PEDAGOGIQUE },
-        rpRequest,
-      );
-
-      expect(result.role).toBe(UserRole.ANIMATEUR_PEDAGOGIQUE);
-      expect(mockAccountsService.updateRoles).toHaveBeenCalledWith(
-        'user-uuid',
-        { role: UserRole.ANIMATEUR_PEDAGOGIQUE },
-        rpRequest.user,
-      );
-    });
-
-    it('propagates 403 when actor has insufficient role', async () => {
-      mockAccountsService.updateRoles.mockRejectedValue(new ForbiddenException('Only RP or TI can assign internal roles'));
-      const eleveRequest = { user: { id: 'eleve-uuid', role: UserRole.ELEVE } };
-
-      await expect(
-        controller.updateRoles('user-uuid', { role: UserRole.ANIMATEUR_PEDAGOGIQUE }, eleveRequest),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('propagates 404 when target account does not exist', async () => {
-      mockAccountsService.updateRoles.mockRejectedValue(new NotFoundException('Account not found'));
-
-      await expect(
-        controller.updateRoles('ghost-uuid', { role: UserRole.ELEVE }, rpRequest),
-      ).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  // ── PUT /accounts/:accountId/validate ───────────────────────────────────────
-
-  describe('PUT /accounts/:accountId/validate — validateAccount', () => {
-    it('validates an account when RP calls the endpoint', async () => {
-      const activeAccount = makePublicAccount({ validationStatus: ValidationStatus.ACTIVE });
-      mockAccountsService.validateAccount.mockResolvedValue(activeAccount);
-      const rpRequest = { user: { id: 'rp-uuid', role: UserRole.RESPONSABLE_PEDAGOGIQUE } };
-
-      const result = await controller.validateAccount('user-uuid', rpRequest);
-
-      expect(result.validationStatus).toBe(ValidationStatus.ACTIVE);
-      expect(mockAccountsService.validateAccount).toHaveBeenCalledWith('user-uuid', rpRequest.user);
-    });
-
-    it('propagates 403 when consents are not yet signed (IAM-FB-003)', async () => {
-      mockAccountsService.validateAccount.mockRejectedValue(
-        new ForbiddenException('Account cannot be validated before mandatory consents are signed (IAM-FB-003)'),
-      );
-      const rpRequest = { user: { id: 'rp-uuid', role: UserRole.RESPONSABLE_PEDAGOGIQUE } };
-
-      await expect(controller.validateAccount('user-uuid', rpRequest)).rejects.toThrow(ForbiddenException);
-    });
-  });
-
-  // ── PUT /accounts/:accountId/suspend ────────────────────────────────────────
-
-  describe('PUT /accounts/:accountId/suspend — suspendAccount', () => {
-    it('suspends an account when TI calls the endpoint', async () => {
-      const suspendedAccount = makePublicAccount({ validationStatus: ValidationStatus.SUSPENDED, isActive: false });
-      mockAccountsService.suspendAccount.mockResolvedValue(suspendedAccount);
-      const tiRequest = { user: { id: 'ti-uuid', role: UserRole.TECHNICIEN_INFORMATIQUE } };
-
-      const result = await controller.suspendAccount('user-uuid', tiRequest);
-
-      expect(result.validationStatus).toBe(ValidationStatus.SUSPENDED);
-      expect(mockAccountsService.suspendAccount).toHaveBeenCalledWith('user-uuid', tiRequest.user);
-    });
-
-    it('propagates 403 when non-TI actor tries to suspend', async () => {
-      mockAccountsService.suspendAccount.mockRejectedValue(new ForbiddenException('Only TI can suspend accounts'));
-      const rpRequest = { user: { id: 'rp-uuid', role: UserRole.RESPONSABLE_PEDAGOGIQUE } };
-
-      await expect(controller.suspendAccount('user-uuid', rpRequest)).rejects.toThrow(ForbiddenException);
-    });
-  });
-
-  // ── PATCH /accounts/:accountId/status ───────────────────────────────────────
-
-  describe('PATCH /accounts/:accountId/status — updateAccountStatus', () => {
-    it('sets status to validated when RP calls with validated status and consents signed', async () => {
-      const activeAccount = makePublicAccount({ validationStatus: ValidationStatus.ACTIVE });
-      mockAccountsService.updateAccountStatus.mockResolvedValue(activeAccount);
-      const rpRequest = { user: { id: 'rp-uuid', role: UserRole.RESPONSABLE_PEDAGOGIQUE } };
-
-      const result = await controller.updateAccountStatus(
-        'user-uuid',
-        { status: AccountStatusValue.VALIDATED },
-        rpRequest,
-      );
-
-      expect(result.validationStatus).toBe(ValidationStatus.ACTIVE);
-    });
-
-    it('propagates 403 when non-RP/TI tries to change status', async () => {
-      mockAccountsService.updateAccountStatus.mockRejectedValue(new ForbiddenException('Only TI or RP can change account status'));
-      const eleveRequest = { user: { id: 'eleve-uuid', role: UserRole.ELEVE } };
-
-      await expect(
-        controller.updateAccountStatus('user-uuid', { status: AccountStatusValue.VALIDATED }, eleveRequest),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('propagates 403 when RP tries to set suspended status (TI only)', async () => {
-      mockAccountsService.updateAccountStatus.mockRejectedValue(new ForbiddenException('Only TI can suspend accounts'));
-      const rpRequest = { user: { id: 'rp-uuid', role: UserRole.RESPONSABLE_PEDAGOGIQUE } };
-
-      await expect(
-        controller.updateAccountStatus('user-uuid', { status: AccountStatusValue.SUSPENDED }, rpRequest),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('allows TI to suspend an account via status endpoint', async () => {
-      const suspendedAccount = makePublicAccount({ validationStatus: ValidationStatus.SUSPENDED });
-      mockAccountsService.updateAccountStatus.mockResolvedValue(suspendedAccount);
-      const tiRequest = { user: { id: 'ti-uuid', role: UserRole.TECHNICIEN_INFORMATIQUE } };
-
-      const result = await controller.updateAccountStatus(
-        'user-uuid',
-        { status: AccountStatusValue.SUSPENDED },
-        tiRequest,
-      );
-
-      expect(result.validationStatus).toBe(ValidationStatus.SUSPENDED);
-    });
-
-    it('propagates 404 when account does not exist', async () => {
-      mockAccountsService.updateAccountStatus.mockRejectedValue(new NotFoundException('Account not found'));
-      const tiRequest = { user: { id: 'ti-uuid', role: UserRole.TECHNICIEN_INFORMATIQUE } };
-
-      await expect(
-        controller.updateAccountStatus('ghost-uuid', { status: AccountStatusValue.VALIDATED }, tiRequest),
-      ).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  // ── POST /accounts/:accountId/access/regenerate ─────────────────────────────
-
-  describe('POST /accounts/:accountId/access/regenerate — regenerateAccess', () => {
-    it('regenerates access for a suspended account when TI calls the endpoint', async () => {
-      mockAccountsService.regenerateAccess.mockResolvedValue({
-        message: 'Access regenerated for account user-uuid. All existing sessions should be revoked by the client.',
-      });
-      const tiRequest = { user: { id: 'ti-uuid', role: UserRole.TECHNICIEN_INFORMATIQUE } };
-
-      const result = await controller.regenerateAccess('user-uuid', tiRequest);
-
-      expect(result.message).toContain('Access regenerated');
-      expect(mockAccountsService.regenerateAccess).toHaveBeenCalledWith('user-uuid', tiRequest.user);
-    });
-
-    it('propagates 403 when non-TI calls regenerateAccess', async () => {
-      mockAccountsService.regenerateAccess.mockRejectedValue(
-        new ForbiddenException('Only TI can regenerate account access'),
-      );
-      const rpRequest = { user: { id: 'rp-uuid', role: UserRole.RESPONSABLE_PEDAGOGIQUE } };
-
-      await expect(controller.regenerateAccess('user-uuid', rpRequest)).rejects.toThrow(ForbiddenException);
-    });
-
-    it('propagates 404 when target account does not exist', async () => {
-      mockAccountsService.regenerateAccess.mockRejectedValue(new NotFoundException('Account not found'));
-      const tiRequest = { user: { id: 'ti-uuid', role: UserRole.TECHNICIEN_INFORMATIQUE } };
-
-      await expect(controller.regenerateAccess('ghost-uuid', tiRequest)).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  // ── GET /accounts/:accountId/audit ──────────────────────────────────────────
-
-  describe('GET /accounts/:accountId/audit — getAuditLogs', () => {
-    it('returns audit log entries for a given account', async () => {
-      const auditEntries = [{ id: 'audit-uuid', action: 'ROLE_CHANGED', targetUserId: 'user-uuid' }];
-      mockAccountsService.getAuditLogs.mockResolvedValue(auditEntries);
-
-      const result = await controller.getAuditLogs('user-uuid');
-
-      expect(result).toEqual(auditEntries);
-      expect(mockAccountsService.getAuditLogs).toHaveBeenCalledWith('user-uuid');
+      expect(result).toEqual({ alreadyUsed: true, suggestedLoginIdentifier: 'test.user.2' });
+      expect(mockAccountsService.checkEmail).toHaveBeenCalledWith('test@example.com');
     });
   });
 });

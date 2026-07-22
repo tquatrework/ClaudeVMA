@@ -1,38 +1,27 @@
-import {
-  Controller,
-  Post,
-  Get,
-  Put,
-  Patch,
-  Param,
-  Query,
-  Body,
-  UseGuards,
-  Request,
-  Ip,
-  ParseUUIDPipe,
-} from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiBearerAuth,
-  ApiParam,
-  ApiQuery,
-} from '@nestjs/swagger';
+import { Controller, Post, Get, Patch, Body, Query, Ip } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AccountsService } from './accounts.service';
 import { CreateAccountDto } from './dto/create-account.dto';
-import { UpdateRolesDto } from './dto/update-roles.dto';
 import { CreateStudentAccountDto } from './dto/create-student-account.dto';
 import { CreateTeacherAccountDto } from './dto/create-teacher-account.dto';
 import { CreateParentAccountDto } from './dto/create-parent-account.dto';
-import { UpdateAccountStatusDto } from './dto/update-account-status.dto';
 import { UpdateMeDto } from './dto/update-me.dto';
-import { RolesGuard } from '../common/guards/roles.guard';
-import { Roles } from '../common/decorators/roles.decorator';
-import { UserRole } from '../auth/entities/user.entity';
+import {
+  AccountResponseDto,
+  CheckEmailResponseDto,
+  StudentAccountCreationResponseDto,
+} from './dto/account-response.dto';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../common/types/authenticated-user';
 
+/**
+ * Racine de ressource `accounts` — volet self-service : inscription (publique)
+ * et mise à jour de son propre compte. Le volet administration (RP/TI) est sur
+ * AccountsAdminController, dans le même module, pour respecter la limite de
+ * taille de fichier (controllers-convention).
+ */
 @ApiTags('accounts')
 @Controller('accounts')
 export class AccountsController {
@@ -46,7 +35,7 @@ export class AccountsController {
   @ApiResponse({ status: 201, description: 'Account created — status PENDING. emailAlreadyUsed:true if email was already registered.' })
   @ApiResponse({ status: 409, description: 'Login identifier already taken' })
   @ApiResponse({ status: 403, description: 'Attempt to self-register with an internal role' })
-  createAccount(@Body() dto: CreateAccountDto, @Ip() ipAddress: string) {
+  createAccount(@Body() dto: CreateAccountDto, @Ip() ipAddress: string): Promise<AccountResponseDto> {
     return this.accountsService.createAccount(dto, ipAddress);
   }
 
@@ -60,7 +49,10 @@ export class AccountsController {
   @ApiResponse({ status: 201, description: 'Student (and optionally parent) account created — status PENDING. emailAlreadyUsed:true if email was already registered.' })
   @ApiResponse({ status: 409, description: 'Login identifier already taken, or multiple parent accounts share the given parentEmail' })
   @ApiResponse({ status: 404, description: 'parentLoginIdentifier not found' })
-  createStudentAccount(@Body() dto: CreateStudentAccountDto, @Ip() ipAddress: string) {
+  createStudentAccount(
+    @Body() dto: CreateStudentAccountDto,
+    @Ip() ipAddress: string,
+  ): Promise<StudentAccountCreationResponseDto> {
     return this.accountsService.createStudentAccount(dto, ipAddress);
   }
 
@@ -73,7 +65,7 @@ export class AccountsController {
   })
   @ApiResponse({ status: 201, description: 'Teacher account created — status PENDING (non_approved). emailAlreadyUsed:true if email was already registered.' })
   @ApiResponse({ status: 409, description: 'Login identifier already taken' })
-  createTeacherAccount(@Body() dto: CreateTeacherAccountDto, @Ip() ipAddress: string) {
+  createTeacherAccount(@Body() dto: CreateTeacherAccountDto, @Ip() ipAddress: string): Promise<AccountResponseDto> {
     return this.accountsService.createTeacherAccount(dto, ipAddress);
   }
 
@@ -86,7 +78,7 @@ export class AccountsController {
   })
   @ApiResponse({ status: 201, description: 'Parent account created — status PENDING' })
   @ApiResponse({ status: 409, description: 'Email already in use' })
-  createParentAccount(@Body() dto: CreateParentAccountDto, @Ip() ipAddress: string) {
+  createParentAccount(@Body() dto: CreateParentAccountDto, @Ip() ipAddress: string): Promise<AccountResponseDto> {
     return this.accountsService.createParentAccount(dto, ipAddress);
   }
 
@@ -103,8 +95,8 @@ export class AccountsController {
   @ApiResponse({ status: 400, description: 'Validation error — invalid email, identifier too short or password too short' })
   @ApiResponse({ status: 401, description: 'Unauthorized — JWT required' })
   @ApiResponse({ status: 409, description: 'Login identifier already in use' })
-  updateMe(@Body() dto: UpdateMeDto, @Request() req) {
-    return this.accountsService.updateMe(req.user.id, dto);
+  updateMe(@Body() dto: UpdateMeDto, @CurrentUser() actor: AuthenticatedUser): Promise<AccountResponseDto> {
+    return this.accountsService.updateMe(actor.id, dto);
   }
 
   @Get('check-email')
@@ -116,126 +108,7 @@ export class AccountsController {
   })
   @ApiQuery({ name: 'email', required: true, description: 'Email address to check' })
   @ApiResponse({ status: 200, description: 'Check result — alreadyUsed and suggestedLoginIdentifier' })
-  checkEmail(@Query('email') email: string) {
+  checkEmail(@Query('email') email: string): Promise<CheckEmailResponseDto> {
     return this.accountsService.checkEmail(email);
-  }
-
-  @Get(':accountId')
-  @ApiBearerAuth()
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.TECHNICIEN_INFORMATIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.ADMINISTRATEUR_FINANCIER)
-  @ApiOperation({ summary: 'Get account', description: 'Retrieve account details — TI, RP, AdministrateurFinancier only' })
-  @ApiParam({ name: 'accountId', description: 'Account UUID' })
-  @ApiResponse({ status: 200, description: 'Account details' })
-  @ApiResponse({ status: 404, description: 'Account not found' })
-  getAccount(@Param('accountId', ParseUUIDPipe) accountId: string) {
-    return this.accountsService.getAccount(accountId);
-  }
-
-  @Put(':accountId/roles')
-  @ApiBearerAuth()
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE)
-  @ApiOperation({
-    summary: 'Update role',
-    description: 'Assign a new role to an account. Only RP or TI can perform this. Every change is audit-logged.',
-  })
-  @ApiParam({ name: 'accountId', description: 'Account UUID' })
-  @ApiResponse({ status: 200, description: 'Role updated — change is audited' })
-  @ApiResponse({ status: 403, description: 'Forbidden — insufficient role' })
-  @ApiResponse({ status: 404, description: 'Account not found' })
-  updateRoles(
-    @Param('accountId', ParseUUIDPipe) accountId: string,
-    @Body() dto: UpdateRolesDto,
-    @Request() req,
-  ) {
-    return this.accountsService.updateRoles(accountId, dto, req.user);
-  }
-
-  @Put(':accountId/validate')
-  @ApiBearerAuth()
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE)
-  @ApiOperation({
-    summary: 'Validate account',
-    description: 'Set account status to ACTIVE. Requires that mandatory consents have been signed.',
-  })
-  @ApiParam({ name: 'accountId', description: 'Account UUID' })
-  @ApiResponse({ status: 200, description: 'Account validated' })
-  @ApiResponse({ status: 403, description: 'Consents not yet signed or insufficient role' })
-  validateAccount(
-    @Param('accountId', ParseUUIDPipe) accountId: string,
-    @Request() req,
-  ) {
-    return this.accountsService.validateAccount(accountId, req.user);
-  }
-
-  @Put(':accountId/suspend')
-  @ApiBearerAuth()
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.TECHNICIEN_INFORMATIQUE)
-  @ApiOperation({ summary: 'Suspend account', description: 'Deactivate an account. TI only.' })
-  @ApiParam({ name: 'accountId', description: 'Account UUID' })
-  @ApiResponse({ status: 200, description: 'Account suspended' })
-  @ApiResponse({ status: 403, description: 'TI role required' })
-  suspendAccount(
-    @Param('accountId', ParseUUIDPipe) accountId: string,
-    @Request() req,
-  ) {
-    return this.accountsService.suspendAccount(accountId, req.user);
-  }
-
-  @Patch(':accountId/status')
-  @ApiBearerAuth()
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE)
-  @ApiOperation({
-    summary: 'Update account status',
-    description:
-      'Change the business status of an account: limited, member, non_approved, validated or suspended. ' +
-      'Only TI can set suspended. Only RP or TI can change status. Every change is audit-logged.',
-  })
-  @ApiParam({ name: 'accountId', description: 'Account UUID' })
-  @ApiResponse({ status: 200, description: 'Status updated — change is audited' })
-  @ApiResponse({ status: 403, description: 'Insufficient role or consent not signed' })
-  @ApiResponse({ status: 404, description: 'Account not found' })
-  updateAccountStatus(
-    @Param('accountId', ParseUUIDPipe) accountId: string,
-    @Body() dto: UpdateAccountStatusDto,
-    @Request() req,
-  ) {
-    return this.accountsService.updateAccountStatus(accountId, dto, req.user);
-  }
-
-  @Post(':accountId/access/regenerate')
-  @ApiBearerAuth()
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.TECHNICIEN_INFORMATIQUE)
-  @ApiOperation({
-    summary: 'Regenerate account access (TI only)',
-    description:
-      'Reactivate a suspended or blocked account and revoke all existing sessions. ' +
-      'Does NOT delete any business data. TI only. Every action is audit-logged.',
-  })
-  @ApiParam({ name: 'accountId', description: 'Account UUID' })
-  @ApiResponse({ status: 201, description: 'Access regenerated — all prior sessions revoked' })
-  @ApiResponse({ status: 403, description: 'TI role required' })
-  @ApiResponse({ status: 404, description: 'Account not found' })
-  regenerateAccess(
-    @Param('accountId', ParseUUIDPipe) accountId: string,
-    @Request() req,
-  ) {
-    return this.accountsService.regenerateAccess(accountId, req.user);
-  }
-
-  @Get(':accountId/audit')
-  @ApiBearerAuth()
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE)
-  @ApiOperation({ summary: 'Get audit log', description: 'List all audited changes for an account — RP or TI only' })
-  @ApiParam({ name: 'accountId', description: 'Account UUID' })
-  @ApiResponse({ status: 200, description: 'Audit log entries' })
-  getAuditLogs(@Param('accountId', ParseUUIDPipe) accountId: string) {
-    return this.accountsService.getAuditLogs(accountId);
   }
 }

@@ -25,6 +25,7 @@ import { UpdateAccountStatusDto, AccountStatusValue } from './dto/update-account
 import { UpdateMeDto } from './dto/update-me.dto';
 import { EventsService } from '../events/events.service';
 import { ConfigService } from '@nestjs/config';
+import { Actor } from '../common/types/actor';
 
 @Injectable()
 export class AccountsService {
@@ -158,7 +159,7 @@ export class AccountsService {
     return this.toPublic(updatedAccount);
   }
 
-  async updateRoles(accountId: string, dto: UpdateRolesDto, actor: User) {
+  async updateRoles(accountId: string, dto: UpdateRolesDto, actor: Actor) {
     const targetAccount = await this.findOrFail(accountId);
 
     const canAssignInternal = [
@@ -194,7 +195,7 @@ export class AccountsService {
     return this.toPublic(targetAccount);
   }
 
-  async validateAccount(accountId: string, actor: User) {
+  async validateAccount(accountId: string, actor: Actor) {
     const targetAccount = await this.findOrFail(accountId);
 
     const canValidate = [
@@ -225,7 +226,7 @@ export class AccountsService {
     return this.toPublic(targetAccount);
   }
 
-  async suspendAccount(accountId: string, actor: User) {
+  async suspendAccount(accountId: string, actor: Actor) {
     if (actor.role !== UserRole.TECHNICIEN_INFORMATIQUE) {
       throw new ForbiddenException('Only TI can suspend accounts');
     }
@@ -457,7 +458,7 @@ export class AccountsService {
    * - member / validated     → ACTIVE  + isActive = true
    * - suspended              → SUSPENDED + isActive = false (TI only)
    */
-  async updateAccountStatus(accountId: string, dto: UpdateAccountStatusDto, actor: User) {
+  async updateAccountStatus(accountId: string, dto: UpdateAccountStatusDto, actor: Actor) {
     const isTI = actor.role === UserRole.TECHNICIEN_INFORMATIQUE;
     const isRP = actor.role === UserRole.RESPONSABLE_PEDAGOGIQUE;
 
@@ -518,7 +519,7 @@ export class AccountsService {
    * Reactivates account and revokes all prior sessions.
    * Does NOT delete any business data.
    */
-  async regenerateAccess(accountId: string, actor: User) {
+  async regenerateAccess(accountId: string, actor: Actor) {
     if (actor.role !== UserRole.TECHNICIEN_INFORMATIQUE) {
       throw new ForbiddenException('Only TI can regenerate account access');
     }

@@ -1,8 +1,11 @@
-import { Controller, Post, Get, Body, UseGuards, Request, Ip } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards, Ip } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { ConsentsService } from './consents.service';
 import { CreateConsentDto } from './dto/create-consent.dto';
+import { ConsentRecord } from './entities/consent-record.entity';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../common/types/authenticated-user';
 
 @ApiTags('consents')
 @ApiBearerAuth()
@@ -20,16 +23,16 @@ export class ConsentsController {
   @ApiResponse({ status: 409, description: 'Consent of this type already signed' })
   signConsent(
     @Body() dto: CreateConsentDto,
-    @Request() req,
+    @CurrentUser() actor: AuthenticatedUser,
     @Ip() ipAddress: string,
-  ) {
-    return this.consentsService.signConsent(req.user.id, dto, ipAddress);
+  ): Promise<ConsentRecord> {
+    return this.consentsService.signConsent(actor.id, dto, ipAddress);
   }
 
   @Get()
   @ApiOperation({ summary: 'List my consents', description: 'Return all consents signed by the authenticated user' })
   @ApiResponse({ status: 200, description: 'List of consent records' })
-  getMyConsents(@Request() req) {
-    return this.consentsService.getConsents(req.user.id);
+  getMyConsents(@CurrentUser() actor: AuthenticatedUser): Promise<ConsentRecord[]> {
+    return this.consentsService.getConsents(actor.id);
   }
 }

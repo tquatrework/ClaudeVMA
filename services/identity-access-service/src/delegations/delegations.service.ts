@@ -6,17 +6,12 @@ import { UserRole } from '../auth/entities/user.entity';
 import { CreateDelegationDto } from './dto/create-delegation.dto';
 import { EventsService } from '../events/events.service';
 import { AccountsService } from '../accounts/accounts.service';
+import { Actor } from '../common/types/actor';
 
 const DELEGATION_ALLOWED_ROLES: UserRole[] = [
   UserRole.RESPONSABLE_PEDAGOGIQUE,
   UserRole.TECHNICIEN_INFORMATIQUE,
 ];
-
-/** Acteur minimal requis par ce service — évite de dépendre de l'entité User. */
-interface DelegationActor {
-  id: string;
-  role: UserRole;
-}
 
 @Injectable()
 export class DelegationsService {
@@ -27,7 +22,7 @@ export class DelegationsService {
     private readonly accountsService: AccountsService,
   ) {}
 
-  async createDelegation(dto: CreateDelegationDto, actor: DelegationActor): Promise<DelegatedAccessRequest> {
+  async createDelegation(dto: CreateDelegationDto, actor: Actor): Promise<DelegatedAccessRequest> {
     if (!DELEGATION_ALLOWED_ROLES.includes(actor.role)) {
       throw new ForbiddenException('Only RP or TI can create delegation requests');
     }
@@ -68,7 +63,7 @@ export class DelegationsService {
     return delegation;
   }
 
-  async listDelegations(actor: DelegationActor): Promise<DelegatedAccessRequest[]> {
+  async listDelegations(actor: Actor): Promise<DelegatedAccessRequest[]> {
     if (!DELEGATION_ALLOWED_ROLES.includes(actor.role)) {
       throw new ForbiddenException('Only RP or TI can list delegation requests');
     }

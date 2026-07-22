@@ -3,16 +3,11 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { DelegationsController } from '../../src/delegations/delegations.controller';
 import { DelegationsService } from '../../src/delegations/delegations.service';
 import { DelegationStatus } from '../../src/delegations/entities/delegated-access-request.entity';
-import { UserRole, ValidationStatus } from '../../src/auth/entities/user.entity';
+import { UserRole } from '../../src/auth/entities/user.entity';
+import { makeAuthenticatedUser } from './helpers/authenticated-user.factory';
 
-const makeActor = (role: UserRole, id = 'actor-uuid') => ({
-  id,
-  email: 'actor@test.com',
-  role,
-  validationStatus: ValidationStatus.ACTIVE,
-  consentSigned: true,
-  isActive: true,
-});
+const makeActor = (role: UserRole, id = 'actor-uuid') =>
+  makeAuthenticatedUser({ id, email: 'actor@test.com', role });
 
 const makeDelegation = (overrides = {}) => ({
   id: 'delegation-uuid',
@@ -58,19 +53,19 @@ describe('DelegationsController', () => {
       const delegation = makeDelegation();
       mockDelegationsService.createDelegation.mockResolvedValue(delegation);
 
-      const rpRequest = { user: makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE) };
-      const result = await controller.createDelegation(delegationDto, rpRequest);
+      const rpActor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await controller.createDelegation(delegationDto, rpActor);
 
       expect(result).toEqual(delegation);
-      expect(mockDelegationsService.createDelegation).toHaveBeenCalledWith(delegationDto, rpRequest.user);
+      expect(mockDelegationsService.createDelegation).toHaveBeenCalledWith(delegationDto, rpActor);
     });
 
     it('creates a delegation request for a TI actor', async () => {
       const delegation = makeDelegation({ actorId: 'ti-uuid' });
       mockDelegationsService.createDelegation.mockResolvedValue(delegation);
 
-      const tiRequest = { user: makeActor(UserRole.TECHNICIEN_INFORMATIQUE, 'ti-uuid') };
-      const result = await controller.createDelegation(delegationDto, tiRequest);
+      const tiActor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE, 'ti-uuid');
+      const result = await controller.createDelegation(delegationDto, tiActor);
 
       expect(result.actorId).toBe('ti-uuid');
     });
@@ -79,19 +74,19 @@ describe('DelegationsController', () => {
       mockDelegationsService.createDelegation.mockRejectedValue(
         new ForbiddenException('Only RP or TI can create delegation requests'),
       );
-      const eleveRequest = { user: makeActor(UserRole.ELEVE) };
+      const eleveActor = makeActor(UserRole.ELEVE);
 
-      await expect(controller.createDelegation(delegationDto, eleveRequest)).rejects.toThrow(ForbiddenException);
+      await expect(controller.createDelegation(delegationDto, eleveActor)).rejects.toThrow(ForbiddenException);
     });
 
     it('propagates 404 when the target user does not exist', async () => {
       mockDelegationsService.createDelegation.mockRejectedValue(
         new NotFoundException('Target account ghost-uuid not found'),
       );
-      const rpRequest = { user: makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE) };
+      const rpActor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
 
       await expect(
-        controller.createDelegation({ ...delegationDto, targetUserId: 'ghost-uuid' }, rpRequest),
+        controller.createDelegation({ ...delegationDto, targetUserId: 'ghost-uuid' }, rpActor),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -99,8 +94,8 @@ describe('DelegationsController', () => {
       const delegation = makeDelegation({ status: DelegationStatus.PENDING });
       mockDelegationsService.createDelegation.mockResolvedValue(delegation);
 
-      const rpRequest = { user: makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE) };
-      const result = await controller.createDelegation(delegationDto, rpRequest);
+      const rpActor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await controller.createDelegation(delegationDto, rpActor);
 
       expect(result.status).toBe(DelegationStatus.PENDING);
     });
@@ -113,19 +108,19 @@ describe('DelegationsController', () => {
       const delegations = [makeDelegation()];
       mockDelegationsService.listDelegations.mockResolvedValue(delegations);
 
-      const rpRequest = { user: makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE) };
-      const result = await controller.listDelegations(rpRequest);
+      const rpActor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await controller.listDelegations(rpActor);
 
       expect(result).toEqual(delegations);
-      expect(mockDelegationsService.listDelegations).toHaveBeenCalledWith(rpRequest.user);
+      expect(mockDelegationsService.listDelegations).toHaveBeenCalledWith(rpActor);
     });
 
     it('returns delegation list for a TI actor', async () => {
       const delegations = [makeDelegation({ actorId: 'ti-uuid' })];
       mockDelegationsService.listDelegations.mockResolvedValue(delegations);
 
-      const tiRequest = { user: makeActor(UserRole.TECHNICIEN_INFORMATIQUE, 'ti-uuid') };
-      const result = await controller.listDelegations(tiRequest);
+      const tiActor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE, 'ti-uuid');
+      const result = await controller.listDelegations(tiActor);
 
       expect(result).toHaveLength(1);
     });
@@ -133,8 +128,8 @@ describe('DelegationsController', () => {
     it('returns an empty list when actor has no delegations', async () => {
       mockDelegationsService.listDelegations.mockResolvedValue([]);
 
-      const rpRequest = { user: makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE) };
-      const result = await controller.listDelegations(rpRequest);
+      const rpActor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await controller.listDelegations(rpActor);
 
       expect(result).toEqual([]);
     });
@@ -143,9 +138,9 @@ describe('DelegationsController', () => {
       mockDelegationsService.listDelegations.mockRejectedValue(
         new ForbiddenException('Only RP or TI can list delegation requests'),
       );
-      const eleveRequest = { user: makeActor(UserRole.ELEVE) };
+      const eleveActor = makeActor(UserRole.ELEVE);
 
-      await expect(controller.listDelegations(eleveRequest)).rejects.toThrow(ForbiddenException);
+      await expect(controller.listDelegations(eleveActor)).rejects.toThrow(ForbiddenException);
     });
   });
 });

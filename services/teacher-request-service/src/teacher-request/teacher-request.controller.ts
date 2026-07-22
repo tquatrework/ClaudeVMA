@@ -1,28 +1,10 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Patch,
-  Delete,
-  Body,
-  Param,
-  HttpCode,
-  HttpStatus,
-  UseGuards,
-} from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiBearerAuth,
-  ApiParam,
-} from '@nestjs/swagger';
+import { Controller, Get, Post, Patch, Delete, Body, Param, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 
 import { TeacherRequestService } from './teacher-request.service';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { CreateProposalDto } from './dto/create-proposal.dto';
-import { CreateTerminationDto } from './dto/create-termination.dto';
 import { CreatePpChangeDto } from './dto/create-pp-change.dto';
 import { PublishSelectedCandidatesDto } from './dto/publish-selected-candidates.dto';
 import { SelectCandidateDto } from './dto/select-candidate.dto';
@@ -154,7 +136,7 @@ export class TeacherRequestController {
     return this.service.selectCandidate(requestId, dto, user);
   }
 
-  // ── Proposal sub-routes ───────────────────────────────────────────────────
+  // ── Proposal sub-route (nested under a request) ──────────────────────────
 
   @Post(':requestId/proposals')
   @ApiTags('proposals')
@@ -171,104 +153,5 @@ export class TeacherRequestController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.service.createProposal(requestId, dto, user);
-  }
-}
-
-// ── /proposals routes ────────────────────────────────────────────────────────
-@ApiTags('proposals')
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
-@Controller('proposals')
-export class ProposalController {
-  constructor(private readonly service: TeacherRequestService) {}
-
-  @Post(':proposalId/accept')
-  @ApiOperation({
-    summary: 'Accept a proposal (FORMATEUR only)',
-    description: 'Creates an assignment and marks proposal ACCEPTED.',
-  })
-  @ApiParam({ name: 'proposalId', description: 'TeacherProposal UUID' })
-  @ApiResponse({ status: 201, description: 'Assignment created' })
-  @ApiResponse({ status: 403, description: 'Forbidden — proposal not addressed to this teacher' })
-  acceptProposal(@Param('proposalId') proposalId: string, @CurrentUser() user: JwtPayload) {
-    return this.service.acceptProposal(proposalId, user);
-  }
-
-  @Post(':proposalId/decline')
-  @ApiOperation({
-    summary: 'Decline a proposal (FORMATEUR only)',
-    description: 'Marks proposal DECLINED. Only the teacher the proposal was sent to can decline it.',
-  })
-  @ApiParam({ name: 'proposalId', description: 'TeacherProposal UUID' })
-  @ApiResponse({ status: 201, description: 'Proposal declined' })
-  @ApiResponse({ status: 400, description: 'Proposal is no longer pending' })
-  @ApiResponse({ status: 403, description: 'Forbidden — proposal not addressed to this teacher' })
-  @ApiResponse({ status: 404, description: 'Proposal not found' })
-  declineProposal(@Param('proposalId') proposalId: string, @CurrentUser() user: JwtPayload) {
-    return this.service.declineProposal(proposalId, user);
-  }
-}
-
-// ── /collaborations routes ────────────────────────────────────────────────────
-@ApiTags('collaborations')
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
-@Controller('collaborations')
-export class CollaborationController {
-  constructor(private readonly service: TeacherRequestService) {}
-
-  @Post(':assignmentId/stop-request')
-  @ApiOperation({
-    summary: 'Request collaboration stop (FORMATEUR only)',
-    description: 'Teacher requests to end an active collaboration with a notice date.',
-  })
-  @ApiParam({ name: 'assignmentId', description: 'Assignment UUID' })
-  @ApiResponse({ status: 201, description: 'Stop request created' })
-  @ApiResponse({ status: 400, description: 'Assignment is not active' })
-  @ApiResponse({ status: 403, description: 'Forbidden — not the assigned teacher' })
-  @ApiResponse({ status: 404, description: 'Assignment not found' })
-  createCollaborationStopRequest(
-    @Param('assignmentId') assignmentId: string,
-    @Body() dto: CreateTerminationDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.service.createCollaborationStopRequest(assignmentId, dto, user);
-  }
-}
-
-// ── /assignments routes ───────────────────────────────────────────────────────
-@ApiTags('assignments')
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
-@Controller('assignments')
-export class AssignmentController {
-  constructor(private readonly service: TeacherRequestService) {}
-
-  @Post(':assignmentId/main-teacher')
-  @ApiOperation({
-    summary: 'Designate main teacher',
-    description: 'RP or ELEVE sets the main teacher for an assignment.',
-  })
-  @ApiParam({ name: 'assignmentId', description: 'Assignment UUID' })
-  @ApiResponse({ status: 201, description: 'Main teacher flag set' })
-  @ApiResponse({ status: 403, description: 'Forbidden' })
-  setMainTeacher(@Param('assignmentId') assignmentId: string, @CurrentUser() user: JwtPayload) {
-    return this.service.setMainTeacher(assignmentId, user);
-  }
-
-  @Post(':assignmentId/termination')
-  @ApiOperation({
-    summary: 'Request assignment termination (FORMATEUR only)',
-    description: 'Teacher requests to end relation with a notice date.',
-  })
-  @ApiParam({ name: 'assignmentId', description: 'Assignment UUID' })
-  @ApiResponse({ status: 201, description: 'Termination request created' })
-  @ApiResponse({ status: 403, description: 'Forbidden — not the teacher on this assignment' })
-  createTermination(
-    @Param('assignmentId') assignmentId: string,
-    @Body() dto: CreateTerminationDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.service.createTermination(assignmentId, dto, user);
   }
 }

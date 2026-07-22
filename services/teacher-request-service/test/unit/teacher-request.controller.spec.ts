@@ -2,12 +2,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
-import {
-  TeacherRequestController,
-  ProposalController,
-  AssignmentController,
-  CollaborationController,
-} from '../../src/teacher-request/teacher-request.controller';
+import { TeacherRequestController } from '../../src/teacher-request/teacher-request.controller';
+import { ProposalController } from '../../src/teacher-request/proposal.controller';
+import { AssignmentController } from '../../src/teacher-request/assignment.controller';
+import { CollaborationController } from '../../src/teacher-request/collaboration.controller';
 import { TeacherRequestService } from '../../src/teacher-request/teacher-request.service';
 import { JwtAuthGuard } from '../../src/common/jwt.guard';
 import { RequestStatus, RequestType } from '../../src/teacher-request/entities/teacher-request.entity';

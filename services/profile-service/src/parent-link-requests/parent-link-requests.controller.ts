@@ -5,7 +5,6 @@ import {
   Param,
   Body,
   UseGuards,
-  Request,
   ParseUUIDPipe,
 } from '@nestjs/common';
 import {
@@ -21,6 +20,8 @@ import { CreateStudentInitiatedLinkRequestDto } from './dto/create-student-initi
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { UserRole } from '../common/enums/user-role.enum';
 
 @ApiTags('parent-link-requests')
@@ -47,8 +48,11 @@ export class ParentLinkRequestsController {
   @ApiResponse({ status: 403, description: 'Interdit — réservé au rôle parent_financeur' })
   @ApiResponse({ status: 404, description: "Identifiant élève introuvable" })
   @ApiResponse({ status: 409, description: 'Une demande en attente existe déjà pour cette paire' })
-  createRequest(@Body() dto: CreateParentLinkRequestDto, @Request() req) {
-    return this.parentLinkRequestsService.createRequest(dto, req.user);
+  createRequest(
+    @Body() dto: CreateParentLinkRequestDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<ParentLinkRequestsService['createRequest']>>> {
+    return this.parentLinkRequestsService.createRequest(dto, actor);
   }
 
   @Get()
@@ -68,8 +72,10 @@ export class ParentLinkRequestsController {
   })
   @ApiResponse({ status: 200, description: 'List of parent-link requests' })
   @ApiResponse({ status: 403, description: 'Forbidden — insufficient role' })
-  listRequests(@Request() req) {
-    return this.parentLinkRequestsService.listRequests(req.user);
+  listRequests(
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<ParentLinkRequestsService['listRequests']>>> {
+    return this.parentLinkRequestsService.listRequests(actor);
   }
 
   @Post('student-initiated')
@@ -92,9 +98,9 @@ export class ParentLinkRequestsController {
   @ApiResponse({ status: 409, description: "Une demande en attente existe déjà pour cette paire" })
   createStudentInitiatedRequest(
     @Body() dto: CreateStudentInitiatedLinkRequestDto,
-    @Request() req,
-  ) {
-    return this.parentLinkRequestsService.createStudentInitiatedRequest(dto, req.user);
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<ParentLinkRequestsService['createStudentInitiatedRequest']>>> {
+    return this.parentLinkRequestsService.createStudentInitiatedRequest(dto, actor);
   }
 
   @Post(':id/approve')
@@ -119,8 +125,11 @@ export class ParentLinkRequestsController {
   @ApiResponse({ status: 403, description: 'Forbidden — eleve must be the targeted student' })
   @ApiResponse({ status: 404, description: 'Request not found' })
   @ApiResponse({ status: 409, description: 'Request is not pending' })
-  approveRequest(@Param('id', ParseUUIDPipe) requestId: string, @Request() req) {
-    return this.parentLinkRequestsService.approveRequest(requestId, req.user);
+  approveRequest(
+    @Param('id', ParseUUIDPipe) requestId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<ParentLinkRequestsService['approveRequest']>>> {
+    return this.parentLinkRequestsService.approveRequest(requestId, actor);
   }
 
   @Post(':id/reject')
@@ -145,7 +154,10 @@ export class ParentLinkRequestsController {
   @ApiResponse({ status: 403, description: 'Forbidden — eleve must be the targeted student' })
   @ApiResponse({ status: 404, description: 'Request not found' })
   @ApiResponse({ status: 409, description: 'Request is not pending' })
-  rejectRequest(@Param('id', ParseUUIDPipe) requestId: string, @Request() req) {
-    return this.parentLinkRequestsService.rejectRequest(requestId, req.user);
+  rejectRequest(
+    @Param('id', ParseUUIDPipe) requestId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<ParentLinkRequestsService['rejectRequest']>>> {
+    return this.parentLinkRequestsService.rejectRequest(requestId, actor);
   }
 }

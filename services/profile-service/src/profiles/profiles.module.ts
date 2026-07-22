@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ProfilesController } from './profiles.controller';
+import { ProfileInternalNotesController } from './profile-internal-notes.controller';
+import { TeacherValidationController } from './teacher-validation.controller';
 import { ProfilesService } from './profiles.service';
 import { AdministrativeProfile } from './entities/administrative-profile.entity';
 import { StudentPedagogicalProfile } from './entities/student-pedagogical-profile.entity';
@@ -35,7 +37,7 @@ import { RelationsModule } from '../relations/relations.module';
     RelationsModule,
     EventsModule,
   ],
-  controllers: [ProfilesController],
+  controllers: [ProfilesController, ProfileInternalNotesController, TeacherValidationController],
   providers: [ProfilesService],
   exports: [ProfilesService],
 })

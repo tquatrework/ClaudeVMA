@@ -5,21 +5,20 @@ import { NotificationModule } from './notification/notification.module';
 import { HealthModule } from './health/health.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { InternalModule } from './internal/internal.module';
-import { Notification } from './notification/entities/notification.entity';
-import { DashboardPreference } from './dashboard/entities/dashboard-preference.entity';
-import { DashboardWidgetState } from './dashboard/entities/dashboard-widget-state.entity';
-import { NotificationSubscription } from './dashboard/entities/notification-subscription.entity';
+import { validateEnvironment } from './config/env.validation';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
-        url: config.get<string>('DATABASE_URL'),
-        entities: [Notification, DashboardPreference, DashboardWidgetState, NotificationSubscription],
-        synchronize: config.get<string>('NODE_ENV') !== 'production',
+        url: config.getOrThrow<string>('DATABASE_URL'),
+        autoLoadEntities: true,
+        // Ephemeral test databases may rely on synchronize for schema setup;
+        // every other environment must use migrations.
+        synchronize: config.get<string>('NODE_ENV') === 'test',
       }),
       inject: [ConfigService],
     }),

@@ -1,10 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { ConflictException } from '@nestjs/common';
 import { ConsentsService } from '../../src/consents/consents.service';
 import { ConsentRecord, ConsentType } from '../../src/consents/entities/consent-record.entity';
 import { EventsService } from '../../src/events/events.service';
 import { AccountsService } from '../../src/accounts/accounts.service';
+import { buildTransactionalDataSourceMock } from './helpers/mock-transactional-data-source';
 
 describe('ConsentsService', () => {
   let service: ConsentsService;
@@ -24,12 +26,15 @@ describe('ConsentsService', () => {
       activateAfterMandatoryConsents: jest.fn().mockResolvedValue(undefined),
     };
 
+    const dataSourceMock = buildTransactionalDataSourceMock([[ConsentRecord, consentRepo]]);
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ConsentsService,
         { provide: getRepositoryToken(ConsentRecord), useValue: consentRepo },
         { provide: EventsService, useValue: { publish: jest.fn() } },
         { provide: AccountsService, useValue: accountsService },
+        { provide: DataSource, useValue: dataSourceMock },
       ],
     }).compile();
 
@@ -51,7 +56,7 @@ describe('ConsentsService', () => {
       ).rejects.toThrow(ConflictException);
     });
 
-    it('delegates account activation to AccountsService once RGPD and CGU are both signed', async () => {
+    it('delegates account activation to AccountsService (same transaction manager) once RGPD and CGU are both signed', async () => {
       consentRepo.find.mockResolvedValue([
         { consentType: ConsentType.RGPD },
         { consentType: ConsentType.CGU },
@@ -59,7 +64,7 @@ describe('ConsentsService', () => {
 
       await service.signConsent('user-uuid', { consentType: ConsentType.CGU });
 
-      expect(accountsService.activateAfterMandatoryConsents).toHaveBeenCalledWith('user-uuid');
+      expect(accountsService.activateAfterMandatoryConsents).toHaveBeenCalledWith('user-uuid', expect.anything());
     });
 
     it('does not delegate activation when only one required consent is present', async () => {

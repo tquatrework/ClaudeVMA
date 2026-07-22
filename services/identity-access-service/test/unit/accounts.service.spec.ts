@@ -1,11 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AccountsService } from '../../src/accounts/accounts.service';
 import { User, UserRole, ValidationStatus } from '../../src/auth/entities/user.entity';
 import { AuditLog } from '../../src/accounts/entities/audit-log.entity';
 import { EventsService } from '../../src/events/events.service';
+import { buildTransactionalDataSourceMock } from './helpers/mock-transactional-data-source';
 
 const makeUser = (overrides: Partial<User> = {}): User => ({
   id: 'user-uuid',
@@ -54,6 +56,11 @@ describe('AccountsService', () => {
 
     eventsService = { publish: jest.fn() };
 
+    const dataSourceMock = buildTransactionalDataSourceMock([
+      [User, userRepo],
+      [AuditLog, auditRepo],
+    ]);
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AccountsService,
@@ -64,6 +71,7 @@ describe('AccountsService', () => {
           provide: ConfigService,
           useValue: { get: jest.fn((key: string, defaultValue?: unknown) => defaultValue ?? null) },
         },
+        { provide: DataSource, useValue: dataSourceMock },
       ],
     }).compile();
 

@@ -1,11 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { DelegationsService } from '../../src/delegations/delegations.service';
 import { DelegatedAccessRequest, DelegationStatus } from '../../src/delegations/entities/delegated-access-request.entity';
 import { UserRole } from '../../src/auth/entities/user.entity';
 import { EventsService } from '../../src/events/events.service';
 import { AccountsService } from '../../src/accounts/accounts.service';
+import { buildTransactionalDataSourceMock } from './helpers/mock-transactional-data-source';
 
 const makeActor = (overrides: Partial<{ id: string; role: UserRole }> = {}) => ({
   id: 'actor-uuid',
@@ -31,12 +33,15 @@ describe('DelegationsService', () => {
       recordAudit: jest.fn().mockResolvedValue(undefined),
     };
 
+    const dataSourceMock = buildTransactionalDataSourceMock([[DelegatedAccessRequest, delegationRepo]]);
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DelegationsService,
         { provide: getRepositoryToken(DelegatedAccessRequest), useValue: delegationRepo },
         { provide: EventsService, useValue: { publish: jest.fn() } },
         { provide: AccountsService, useValue: accountsService },
+        { provide: DataSource, useValue: dataSourceMock },
       ],
     }).compile();
 
@@ -59,6 +64,7 @@ describe('DelegationsService', () => {
       expect(result.status).toBe(DelegationStatus.PENDING);
       expect(accountsService.recordAudit).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'DELEGATION_CREATED', targetUserId: 'target-uuid' }),
+        expect.anything(),
       );
       expect(eventsService.publish).toHaveBeenCalledWith('DelegatedAccessGranted', expect.any(Object));
     });

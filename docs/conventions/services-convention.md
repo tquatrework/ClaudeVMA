@@ -14,6 +14,12 @@ On parle ici des fichiers services, présent en parrallèle des fichiers modules
 - Les listes sont bornées et ordonnées ; éviter les requêtes N+1 et le retour direct d'entités sensibles.
 - À partir de 300 lignes, de dix méthodes publiques ou de plus de quatre repositories, réévaluer et documenter la cohésion du service.
 - Toute modification d'un cas d'usage ajoute ou met à jour les tests de succès, accès refusé, invariant, échec et transaction pertinents.
+
+### Exception documentée — payloads de routage pur
+
+- `orchestration-service` fait exception à l'interdiction du payload non typé pour le seul cas du routage transverse : il relaie des payloads métier vers d'autres services sans en connaître ni en interpréter le détail (cf. `docs/microservices.md`, responsabilités de l'orchestrateur).
+- Cette exception ne couvre que le corps opaque transmis tel quel à un service cible ; toute donnée lue, dérivée ou utilisée par `orchestration-service` lui-même (correlationId, clé d'idempotence, statut, etc.) reste strictement typée.
+- Aucun autre service ne peut invoquer cette exception sans mise à jour explicite de cette convention.
 ```
 
 ## 17. Checklist de revue

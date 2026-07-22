@@ -16,8 +16,8 @@ import {
 } from './entities/parent-link-request.entity';
 import { CreateParentLinkRequestDto } from './dto/create-parent-link-request.dto';
 import { CreateStudentInitiatedLinkRequestDto } from './dto/create-student-initiated-link-request.dto';
-import { StudentPedagogicalProfile } from '../profiles/entities/student-pedagogical-profile.entity';
-import { FinanceOwnerStudentLink } from '../relations/entities/finance-owner-student-link.entity';
+import { ProfilesService } from '../profiles/profiles.service';
+import { RelationsService } from '../relations/relations.service';
 import { UserRole } from '../common/enums/user-role.enum';
 import { Actor } from '../profiles/profiles.service';
 
@@ -28,10 +28,8 @@ export class ParentLinkRequestsService {
   constructor(
     @InjectRepository(ParentLinkRequest)
     private readonly requestRepo: Repository<ParentLinkRequest>,
-    @InjectRepository(StudentPedagogicalProfile)
-    private readonly studentPedaRepo: Repository<StudentPedagogicalProfile>,
-    @InjectRepository(FinanceOwnerStudentLink)
-    private readonly financeLinkRepo: Repository<FinanceOwnerStudentLink>,
+    private readonly profilesService: ProfilesService,
+    private readonly relationsService: RelationsService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -50,8 +48,8 @@ export class ParentLinkRequestsService {
 
     const resolvedStudentId = await this.resolveStudentIdFromLoginIdentifier(dto.studentLoginIdentifier);
 
-    const studentProfile = await this.studentPedaRepo.findOne({ where: { userId: resolvedStudentId } });
-    if (!studentProfile) {
+    const hasStudentProfile = await this.profilesService.studentPedagogicalProfileExists(resolvedStudentId);
+    if (!hasStudentProfile) {
       throw new BadRequestException('Aucun profil élève trouvé pour cet identifiant.');
     }
 
@@ -183,16 +181,10 @@ export class ParentLinkRequestsService {
     }
 
     // Create the actual finance-owner–student link if it does not already exist
-    const existingLink = await this.financeLinkRepo.findOne({
-      where: { financeOwnerId: linkRequest.parentId, studentId: linkRequest.studentId },
-    });
-    if (!existingLink) {
-      const newLink = this.financeLinkRepo.create({
-        financeOwnerId: linkRequest.parentId,
-        studentId: linkRequest.studentId,
-      });
-      await this.financeLinkRepo.save(newLink);
-    }
+    await this.relationsService.ensureFinanceOwnerStudentLink(
+      linkRequest.parentId,
+      linkRequest.studentId,
+    );
 
     linkRequest.status = ParentLinkRequestStatus.APPROVED;
     linkRequest.processedAt = new Date();

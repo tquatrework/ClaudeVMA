@@ -13,8 +13,7 @@ import { TeacherPedagogicalProfile } from './entities/teacher-pedagogical-profil
 import { InternalProfileNote } from './entities/internal-profile-note.entity';
 import { TeacherValidation } from './entities/teacher-validation.entity';
 import { ProfileVisibilityPreference } from './entities/profile-visibility-preference.entity';
-import { TeacherStudentLink } from '../relations/entities/teacher-student-link.entity';
-import { FinanceOwnerStudentLink } from '../relations/entities/finance-owner-student-link.entity';
+import { RelationsService } from '../relations/relations.service';
 import { UpdateAdministrativeProfileDto } from './dto/update-administrative-profile.dto';
 import {
   UpdateStudentPedagogicalProfileDto,
@@ -69,10 +68,7 @@ export class ProfilesService {
     private readonly teacherValidationRepo: Repository<TeacherValidation>,
     @InjectRepository(ProfileVisibilityPreference)
     private readonly visibilityPrefRepo: Repository<ProfileVisibilityPreference>,
-    @InjectRepository(TeacherStudentLink)
-    private readonly teacherLinkRepo: Repository<TeacherStudentLink>,
-    @InjectRepository(FinanceOwnerStudentLink)
-    private readonly financeLinkRepo: Repository<FinanceOwnerStudentLink>,
+    private readonly relationsService: RelationsService,
     private readonly events: EventsService,
     private readonly configService: ConfigService,
   ) {}
@@ -557,6 +553,84 @@ export class ProfilesService {
   }
 
   // ---------------------------------------------------------------------------
+  // System bootstrap ports — consumed by InternalController/InternalService
+  // (account onboarding, no human actor — authorization is enforced upstream
+  // by InternalGuard/X-Internal-Secret) and by ParentLinkRequestsService.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Idempotent creation of the administrative profile for onboarding flows.
+   * Does nothing (returns the existing profile) if one already exists.
+   */
+  async bootstrapAdministrativeProfile(input: {
+    userId: string;
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+    birthDate?: string;
+  }): Promise<AdministrativeProfile> {
+    let profile = await this.adminRepo.findOne({ where: { userId: input.userId } });
+    if (!profile) {
+      profile = this.adminRepo.create({
+        userId: input.userId,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        telephone: input.phone ?? undefined,
+        dateNaissance: input.birthDate,
+      });
+      profile = await this.adminRepo.save(profile);
+    }
+    return profile;
+  }
+
+  /**
+   * Idempotent creation of the student pedagogical profile for onboarding flows.
+   */
+  async bootstrapStudentPedagogicalProfile(input: {
+    userId: string;
+    level?: string;
+  }): Promise<StudentPedagogicalProfile> {
+    let profile = await this.studentPedaRepo.findOne({ where: { userId: input.userId } });
+    if (!profile) {
+      profile = this.studentPedaRepo.create({ userId: input.userId, niveauScolaire: input.level });
+      profile = await this.studentPedaRepo.save(profile);
+    }
+    return profile;
+  }
+
+  /**
+   * Idempotent creation of the teacher pedagogical profile for onboarding flows.
+   */
+  async bootstrapTeacherPedagogicalProfile(input: {
+    userId: string;
+    subjects?: string[];
+    levels?: string[];
+    bio?: string;
+  }): Promise<TeacherPedagogicalProfile> {
+    let profile = await this.teacherPedaRepo.findOne({ where: { userId: input.userId } });
+    if (!profile) {
+      profile = this.teacherPedaRepo.create({
+        userId: input.userId,
+        matieresEnseignees: input.subjects,
+        niveauxEnseignes: input.levels,
+        experiencePedagogique: input.bio,
+      });
+      profile = await this.teacherPedaRepo.save(profile);
+    }
+    return profile;
+  }
+
+  /**
+   * Read-only port used by ParentLinkRequestsService.createRequest to check
+   * that a resolved userId has a student pedagogical profile, without
+   * injecting StudentPedagogicalProfile's repository outside this feature.
+   */
+  async studentPedagogicalProfileExists(userId: string): Promise<boolean> {
+    const profile = await this.studentPedaRepo.findOne({ where: { userId } });
+    return !!profile;
+  }
+
+  // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
 
@@ -569,10 +643,8 @@ export class ProfilesService {
     if (actor.id === userId) return;
 
     if (actor.role === UserRole.FORMATEUR) {
-      const link = await this.teacherLinkRepo.findOne({
-        where: { teacherId: actor.id, studentId: userId },
-      });
-      if (!link) {
+      const isLinked = await this.relationsService.isTeacherLinkedToStudent(actor.id, userId);
+      if (!isLinked) {
         throw new ForbiddenException(
           'A formateur may only view profiles of students they are linked to (PROF-FB-003)',
         );
@@ -581,10 +653,8 @@ export class ProfilesService {
     }
 
     if (actor.role === UserRole.PARENT_FINANCEUR) {
-      const link = await this.financeLinkRepo.findOne({
-        where: { financeOwnerId: actor.id, studentId: userId },
-      });
-      if (!link) {
+      const isLinked = await this.relationsService.isFinanceOwnerLinkedToStudent(actor.id, userId);
+      if (!isLinked) {
         throw new ForbiddenException(
           'A parent may only view profiles of students they are linked to (PROF-RA-002)',
         );

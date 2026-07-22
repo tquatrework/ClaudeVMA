@@ -1,26 +1,21 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { AdministrativeProfile } from '../profiles/entities/administrative-profile.entity';
-import { StudentPedagogicalProfile } from '../profiles/entities/student-pedagogical-profile.entity';
-import { TeacherPedagogicalProfile } from '../profiles/entities/teacher-pedagogical-profile.entity';
-import { FinanceOwnerStudentLink } from '../relations/entities/finance-owner-student-link.entity';
-import { TeacherStudentLink } from '../relations/entities/teacher-student-link.entity';
-import { PedagogicalCoordinatorLink } from '../relations/entities/pedagogical-coordinator-link.entity';
+import { ProfilesModule } from '../profiles/profiles.module';
+import { RelationsModule } from '../relations/relations.module';
 import { InternalController } from './internal.controller';
 import { InternalService } from './internal.service';
 import { InternalGuard } from './internal.guard';
 
+/**
+ * Owns no entities. This module is a system-to-system adapter consumed by
+ * orchestration-service (protected by InternalGuard/X-Internal-Secret) that
+ * bootstraps profiles and relations during account onboarding. It never
+ * injects AdministrativeProfile, StudentPedagogicalProfile,
+ * TeacherPedagogicalProfile, FinanceOwnerStudentLink, TeacherStudentLink or
+ * PedagogicalCoordinatorLink repositories directly — it imports ProfilesModule
+ * and RelationsModule and consumes their exported services.
+ */
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([
-      AdministrativeProfile,
-      StudentPedagogicalProfile,
-      TeacherPedagogicalProfile,
-      FinanceOwnerStudentLink,
-      TeacherStudentLink,
-      PedagogicalCoordinatorLink,
-    ]),
-  ],
+  imports: [ProfilesModule, RelationsModule],
   controllers: [InternalController],
   providers: [InternalService, InternalGuard],
 })

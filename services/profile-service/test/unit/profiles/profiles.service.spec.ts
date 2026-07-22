@@ -9,8 +9,7 @@ import { TeacherPedagogicalProfile } from '../../../src/profiles/entities/teache
 import { InternalProfileNote } from '../../../src/profiles/entities/internal-profile-note.entity';
 import { TeacherValidation } from '../../../src/profiles/entities/teacher-validation.entity';
 import { ProfileVisibilityPreference } from '../../../src/profiles/entities/profile-visibility-preference.entity';
-import { TeacherStudentLink } from '../../../src/relations/entities/teacher-student-link.entity';
-import { FinanceOwnerStudentLink } from '../../../src/relations/entities/finance-owner-student-link.entity';
+import { RelationsService } from '../../../src/relations/relations.service';
 import { EventsService } from '../../../src/events/events.service';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
 
@@ -24,8 +23,7 @@ describe('ProfilesService', () => {
   let noteRepo: any;
   let teacherValidationRepo: any;
   let visibilityPrefRepo: any;
-  let teacherLinkRepo: any;
-  let financeLinkRepo: any;
+  let relationsService: any;
   let eventsService: any;
   let configService: any;
   let mockFetch: jest.Mock;
@@ -76,8 +74,10 @@ describe('ProfilesService', () => {
       save: jest.fn().mockImplementation(async (entity) => ({ ...entity, updatedAt: new Date() })),
     };
 
-    teacherLinkRepo = { findOne: jest.fn().mockResolvedValue(null) };
-    financeLinkRepo = { findOne: jest.fn().mockResolvedValue(null) };
+    relationsService = {
+      isTeacherLinkedToStudent: jest.fn().mockResolvedValue(false),
+      isFinanceOwnerLinkedToStudent: jest.fn().mockResolvedValue(false),
+    };
     eventsService = { publish: jest.fn() };
     configService = {
       get: jest.fn().mockImplementation((key: string, defaultValue?: string) => defaultValue ?? ''),
@@ -92,8 +92,7 @@ describe('ProfilesService', () => {
         { provide: getRepositoryToken(InternalProfileNote), useValue: noteRepo },
         { provide: getRepositoryToken(TeacherValidation), useValue: teacherValidationRepo },
         { provide: getRepositoryToken(ProfileVisibilityPreference), useValue: visibilityPrefRepo },
-        { provide: getRepositoryToken(TeacherStudentLink), useValue: teacherLinkRepo },
-        { provide: getRepositoryToken(FinanceOwnerStudentLink), useValue: financeLinkRepo },
+        { provide: RelationsService, useValue: relationsService },
         { provide: EventsService, useValue: eventsService },
         { provide: ConfigService, useValue: configService },
       ],
@@ -158,15 +157,16 @@ describe('ProfilesService', () => {
     it('allows formateur to view linked student profile (PROF-FB-003)', async () => {
       adminRepo.findOne.mockResolvedValue(mockAdminProfile);
       const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
-      teacherLinkRepo.findOne.mockResolvedValue({ teacherId: 'teacher-uuid', studentId: 'student-uuid' });
+      relationsService.isTeacherLinkedToStudent.mockResolvedValue(true);
 
       const result = await service.getProfile('student-uuid', actor);
       expect(result.userId).toBe('student-uuid');
+      expect(relationsService.isTeacherLinkedToStudent).toHaveBeenCalledWith('teacher-uuid', 'student-uuid');
     });
 
     it('throws 403 when formateur views non-linked student (PROF-FB-003)', async () => {
       const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
-      teacherLinkRepo.findOne.mockResolvedValue(null);
+      relationsService.isTeacherLinkedToStudent.mockResolvedValue(false);
 
       await expect(service.getProfile('student-uuid', actor)).rejects.toThrow(ForbiddenException);
     });
@@ -174,15 +174,16 @@ describe('ProfilesService', () => {
     it('allows parent_financeur to view linked student profile (PROF-RA-002)', async () => {
       adminRepo.findOne.mockResolvedValue(mockAdminProfile);
       const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
-      financeLinkRepo.findOne.mockResolvedValue({ financeOwnerId: 'parent-uuid', studentId: 'student-uuid' });
+      relationsService.isFinanceOwnerLinkedToStudent.mockResolvedValue(true);
 
       const result = await service.getProfile('student-uuid', actor);
       expect(result.userId).toBe('student-uuid');
+      expect(relationsService.isFinanceOwnerLinkedToStudent).toHaveBeenCalledWith('parent-uuid', 'student-uuid');
     });
 
     it('throws 403 when parent_financeur views non-linked student (PROF-RA-002)', async () => {
       const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
-      financeLinkRepo.findOne.mockResolvedValue(null);
+      relationsService.isFinanceOwnerLinkedToStudent.mockResolvedValue(false);
 
       await expect(service.getProfile('student-uuid', actor)).rejects.toThrow(ForbiddenException);
     });
@@ -982,6 +983,83 @@ describe('ProfilesService', () => {
       await expect(
         service.updateVisibilityPreferences('student-uuid', { hideDifficultiesFromContacts: true }, actor),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // System bootstrap ports — consumed by InternalService / ParentLinkRequestsService
+  // ---------------------------------------------------------------------------
+  describe('bootstrapAdministrativeProfile', () => {
+    it('creates a minimal administrative profile for a new user', async () => {
+      const dto = { userId: 'new-uuid', firstName: 'Marie', lastName: 'Dupont', phone: '+33600000001' };
+      const result = await service.bootstrapAdministrativeProfile(dto);
+      expect(adminRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'new-uuid', firstName: 'Marie', lastName: 'Dupont', telephone: '+33600000001' }),
+      );
+      expect(adminRepo.save).toHaveBeenCalled();
+      expect(result).toHaveProperty('userId', 'new-uuid');
+    });
+
+    it('is idempotent: does not duplicate when profile already exists', async () => {
+      const existing = { userId: 'existing-uuid', firstName: 'Marie' };
+      adminRepo.findOne.mockResolvedValue(existing);
+      const result = await service.bootstrapAdministrativeProfile({ userId: 'existing-uuid' });
+      expect(adminRepo.save).not.toHaveBeenCalled();
+      expect(result).toBe(existing);
+    });
+  });
+
+  describe('bootstrapStudentPedagogicalProfile', () => {
+    it('creates a student pedagogical profile mapping level to niveauScolaire', async () => {
+      const result = await service.bootstrapStudentPedagogicalProfile({ userId: 'student-uuid', level: 'Terminale' });
+      expect(studentPedaRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'student-uuid', niveauScolaire: 'Terminale' }),
+      );
+      expect(result).toHaveProperty('userId', 'student-uuid');
+    });
+
+    it('is idempotent: does not duplicate when profile already exists', async () => {
+      const existing = { userId: 'student-uuid', niveauScolaire: 'Terminale' };
+      studentPedaRepo.findOne.mockResolvedValue(existing);
+      const result = await service.bootstrapStudentPedagogicalProfile({ userId: 'student-uuid' });
+      expect(studentPedaRepo.save).not.toHaveBeenCalled();
+      expect(result).toBe(existing);
+    });
+  });
+
+  describe('bootstrapTeacherPedagogicalProfile', () => {
+    it('creates a teacher pedagogical profile mapping subjects/levels/bio', async () => {
+      const dto = { userId: 'teacher-uuid', subjects: ['Mathématiques'], levels: ['Lycée'], bio: '5 ans' };
+      const result = await service.bootstrapTeacherPedagogicalProfile(dto);
+      expect(teacherPedaRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'teacher-uuid',
+          matieresEnseignees: ['Mathématiques'],
+          niveauxEnseignes: ['Lycée'],
+          experiencePedagogique: '5 ans',
+        }),
+      );
+      expect(result).toHaveProperty('userId', 'teacher-uuid');
+    });
+
+    it('is idempotent: does not duplicate when profile already exists', async () => {
+      const existing = { userId: 'teacher-uuid' };
+      teacherPedaRepo.findOne.mockResolvedValue(existing);
+      const result = await service.bootstrapTeacherPedagogicalProfile({ userId: 'teacher-uuid' });
+      expect(teacherPedaRepo.save).not.toHaveBeenCalled();
+      expect(result).toBe(existing);
+    });
+  });
+
+  describe('studentPedagogicalProfileExists', () => {
+    it('returns true when a student pedagogical profile exists', async () => {
+      studentPedaRepo.findOne.mockResolvedValue({ userId: 'student-uuid' });
+      await expect(service.studentPedagogicalProfileExists('student-uuid')).resolves.toBe(true);
+    });
+
+    it('returns false when no student pedagogical profile exists', async () => {
+      studentPedaRepo.findOne.mockResolvedValue(null);
+      await expect(service.studentPedagogicalProfileExists('unknown-uuid')).resolves.toBe(false);
     });
   });
 });

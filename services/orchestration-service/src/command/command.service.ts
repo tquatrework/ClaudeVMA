@@ -6,6 +6,7 @@ import { IntegrationCommand } from './entities/integration-command.entity';
 import { HttpClientService } from '../http-client/http-client.service';
 import { IdempotencyService } from '../idempotency/idempotency.service';
 import { DispatchCommandDto } from './dto/dispatch-command.dto';
+import { MAX_CORRELATION_RESULTS } from '../common/constants/pagination.constant';
 
 @Injectable()
 export class CommandService {
@@ -56,6 +57,10 @@ export class CommandService {
   }
 
   async findByCorrelation(correlationId: string): Promise<IntegrationCommand[]> {
-    return this.repo.find({ where: { correlationId }, order: { createdAt: 'ASC' } });
+    return this.repo.find({
+      where: { correlationId },
+      order: { createdAt: 'ASC' },
+      take: MAX_CORRELATION_RESULTS,
+    });
   }
 }

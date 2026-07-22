@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CorrelationTrace } from './entities/correlation-trace.entity';
+import { MAX_CORRELATION_RESULTS } from '../common/constants/pagination.constant';
 
 @Injectable()
 export class CorrelationTraceService {
@@ -30,6 +31,10 @@ export class CorrelationTraceService {
   }
 
   async findByCorrelation(correlationId: string): Promise<CorrelationTrace[]> {
-    return this.repo.find({ where: { correlationId }, order: { occurredAt: 'ASC' } });
+    return this.repo.find({
+      where: { correlationId },
+      order: { occurredAt: 'ASC' },
+      take: MAX_CORRELATION_RESULTS,
+    });
   }
 }

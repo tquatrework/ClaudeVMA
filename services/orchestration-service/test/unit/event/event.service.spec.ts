@@ -82,6 +82,7 @@ describe('EventService', () => {
       expect(repo.find).toHaveBeenCalledWith({
         where: { correlationId: 'corr-3' },
         order: { occurredAt: 'ASC' },
+        take: 500,
       });
       expect(result).toEqual(events);
     });

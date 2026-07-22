@@ -3,31 +3,14 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConflictException } from '@nestjs/common';
 import { ConsentsService } from '../../src/consents/consents.service';
 import { ConsentRecord, ConsentType } from '../../src/consents/entities/consent-record.entity';
-import { User, UserRole, ValidationStatus } from '../../src/auth/entities/user.entity';
 import { EventsService } from '../../src/events/events.service';
-
-const mockUser: User = {
-  id: 'user-uuid',
-  loginIdentifier: 'test.user',
-  email: 'test@test.com',
-  passwordHash: 'h',
-  role: UserRole.ELEVE,
-  validationStatus: ValidationStatus.PENDING,
-  consentSigned: false,
-  firstName: null,
-  lastName: null,
-  phone: null,
-  isActive: true,
-  emailVerified: false,
-  createdAt: new Date(),
-  updatedAt: new Date(),
-};
+import { AccountsService } from '../../src/accounts/accounts.service';
 
 describe('ConsentsService', () => {
   let service: ConsentsService;
   let consentRepo: any;
-  let userRepo: any;
   let eventsService: EventsService;
+  let accountsService: { activateAfterMandatoryConsents: jest.Mock };
 
   beforeEach(async () => {
     consentRepo = {
@@ -37,17 +20,16 @@ describe('ConsentsService', () => {
       save: jest.fn().mockImplementation(async (entity) => ({ id: 'consent-uuid', ...entity })),
     };
 
-    userRepo = {
-      findOne: jest.fn().mockResolvedValue({ ...mockUser }),
-      save: jest.fn().mockResolvedValue(undefined),
+    accountsService = {
+      activateAfterMandatoryConsents: jest.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ConsentsService,
         { provide: getRepositoryToken(ConsentRecord), useValue: consentRepo },
-        { provide: getRepositoryToken(User), useValue: userRepo },
         { provide: EventsService, useValue: { publish: jest.fn() } },
+        { provide: AccountsService, useValue: accountsService },
       ],
     }).compile();
 
@@ -69,7 +51,7 @@ describe('ConsentsService', () => {
       ).rejects.toThrow(ConflictException);
     });
 
-    it('activates account after both RGPD and CGU are signed', async () => {
+    it('delegates account activation to AccountsService once RGPD and CGU are both signed', async () => {
       consentRepo.find.mockResolvedValue([
         { consentType: ConsentType.RGPD },
         { consentType: ConsentType.CGU },
@@ -77,20 +59,15 @@ describe('ConsentsService', () => {
 
       await service.signConsent('user-uuid', { consentType: ConsentType.CGU });
 
-      expect(userRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          consentSigned: true,
-          validationStatus: ValidationStatus.ACTIVE,
-        }),
-      );
+      expect(accountsService.activateAfterMandatoryConsents).toHaveBeenCalledWith('user-uuid');
     });
 
-    it('does not activate account when only one required consent is present', async () => {
+    it('does not delegate activation when only one required consent is present', async () => {
       consentRepo.find.mockResolvedValue([{ consentType: ConsentType.RGPD }]);
 
       await service.signConsent('user-uuid', { consentType: ConsentType.RGPD });
 
-      expect(userRepo.save).not.toHaveBeenCalled();
+      expect(accountsService.activateAfterMandatoryConsents).not.toHaveBeenCalled();
     });
   });
 

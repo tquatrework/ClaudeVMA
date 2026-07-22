@@ -11,6 +11,7 @@ import { EmailVerificationToken } from '../../src/auth/entities/email-verificati
 import { IdentifierRecoveryToken } from '../../src/auth/entities/identifier-recovery-token.entity';
 import { EventsService } from '../../src/events/events.service';
 import { MailService } from '../../src/mail/mail.service';
+import { AccountsService } from '../../src/accounts/accounts.service';
 import * as bcrypt from 'bcryptjs';
 
 const mockUser: User = {
@@ -32,7 +33,15 @@ const mockUser: User = {
 
 describe('AuthService', () => {
   let service: AuthService;
-  let userRepo: any;
+  let accountsService: {
+    findCredentialsByLoginIdentifier: jest.Mock;
+    findActiveAccountById: jest.Mock;
+    findAccountByEmail: jest.Mock;
+    findAccountsByEmail: jest.Mock;
+    findAccountByLoginIdentifier: jest.Mock;
+    markEmailVerified: jest.Mock;
+    updatePasswordHash: jest.Mock;
+  };
   let sessionRepo: any;
   let resetTokenRepo: any;
   let emailVerifTokenRepo: any;
@@ -44,16 +53,14 @@ describe('AuthService', () => {
     const hashedPw = await bcrypt.hash('password123', 10);
     const userWithHash = { ...mockUser, passwordHash: hashedPw };
 
-    userRepo = {
-      createQueryBuilder: jest.fn().mockReturnValue({
-        addSelect: jest.fn().mockReturnThis(),
-        where: jest.fn().mockReturnThis(),
-        getOne: jest.fn().mockResolvedValue(userWithHash),
-      }),
-      findOne: jest.fn().mockResolvedValue(mockUser),
-      find: jest.fn().mockResolvedValue([mockUser]),
-      save: jest.fn().mockResolvedValue(mockUser),
-      update: jest.fn().mockResolvedValue(undefined),
+    accountsService = {
+      findCredentialsByLoginIdentifier: jest.fn().mockResolvedValue(userWithHash),
+      findActiveAccountById: jest.fn().mockResolvedValue(mockUser),
+      findAccountByEmail: jest.fn().mockResolvedValue(mockUser),
+      findAccountsByEmail: jest.fn().mockResolvedValue([mockUser]),
+      findAccountByLoginIdentifier: jest.fn().mockResolvedValue(mockUser),
+      markEmailVerified: jest.fn().mockResolvedValue(undefined),
+      updatePasswordHash: jest.fn().mockResolvedValue(undefined),
     };
 
     sessionRepo = {
@@ -108,7 +115,6 @@ describe('AuthService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
-        { provide: getRepositoryToken(User), useValue: userRepo },
         { provide: getRepositoryToken(LoginSession), useValue: sessionRepo },
         { provide: getRepositoryToken(PasswordResetToken), useValue: resetTokenRepo },
         { provide: getRepositoryToken(EmailVerificationToken), useValue: emailVerifTokenRepo },
@@ -124,10 +130,12 @@ describe('AuthService', () => {
           provide: ConfigService,
           useValue: {
             get: jest.fn((key: string, defaultValue?: unknown) => defaultValue ?? 'secret'),
+            getOrThrow: jest.fn((key: string) => 'secret'),
           },
         },
         { provide: EventsService, useValue: { publish: jest.fn() } },
         { provide: MailService, useValue: mailService },
+        { provide: AccountsService, useValue: accountsService },
       ],
     }).compile();
 
@@ -142,14 +150,11 @@ describe('AuthService', () => {
       expect(result).toHaveProperty('refresh_token');
       expect(result.user.loginIdentifier).toBe('test.user');
       expect(result.user.email).toBe('test@example.com');
+      expect(accountsService.findCredentialsByLoginIdentifier).toHaveBeenCalledWith('test.user');
     });
 
     it('throws 401 when user not found', async () => {
-      userRepo.createQueryBuilder.mockReturnValue({
-        addSelect: jest.fn().mockReturnThis(),
-        where: jest.fn().mockReturnThis(),
-        getOne: jest.fn().mockResolvedValue(null),
-      });
+      accountsService.findCredentialsByLoginIdentifier.mockResolvedValue(null);
       await expect(service.login({ loginIdentifier: 'unknown.user', password: 'password123' })).rejects.toThrow(
         UnauthorizedException,
       );
@@ -162,10 +167,11 @@ describe('AuthService', () => {
     });
 
     it('throws 401 when account is inactive', async () => {
-      userRepo.createQueryBuilder.mockReturnValue({
-        addSelect: jest.fn().mockReturnThis(),
-        where: jest.fn().mockReturnThis(),
-        getOne: jest.fn().mockResolvedValue({ ...mockUser, isActive: false }),
+      const hashedPw = await bcrypt.hash('password123', 10);
+      accountsService.findCredentialsByLoginIdentifier.mockResolvedValue({
+        ...mockUser,
+        passwordHash: hashedPw,
+        isActive: false,
       });
       await expect(service.login({ loginIdentifier: 'test.user', password: 'password123' })).rejects.toThrow(
         UnauthorizedException,
@@ -188,6 +194,7 @@ describe('AuthService', () => {
       const result = await service.refresh('valid-refresh-token');
       expect(result).toHaveProperty('access_token');
       expect(sessionRepo.update).toHaveBeenCalled();
+      expect(accountsService.findActiveAccountById).toHaveBeenCalledWith('user-uuid');
     });
 
     it('throws 401 for invalid token type', async () => {
@@ -214,11 +221,16 @@ describe('AuthService', () => {
       });
       await expect(service.refresh('any')).rejects.toThrow(UnauthorizedException);
     });
+
+    it('throws 401 when account is no longer active', async () => {
+      accountsService.findActiveAccountById.mockResolvedValue({ ...mockUser, isActive: false });
+      await expect(service.refresh('any')).rejects.toThrow(UnauthorizedException);
+    });
   });
 
   describe('sendVerificationEmail', () => {
     it('envoie un email et crée un token quand le compte existe et n\'est pas vérifié', async () => {
-      userRepo.findOne.mockResolvedValue({ ...mockUser, emailVerified: false });
+      accountsService.findAccountByEmail.mockResolvedValue({ ...mockUser, emailVerified: false });
       const result = await service.sendVerificationEmail('test@example.com');
       expect(result.message).toBeDefined();
       expect(mailService.sendEmailVerification).toHaveBeenCalledWith(
@@ -230,14 +242,14 @@ describe('AuthService', () => {
     });
 
     it('ne fait rien si le compte n\'existe pas (réponse neutre)', async () => {
-      userRepo.findOne.mockResolvedValue(null);
+      accountsService.findAccountByEmail.mockResolvedValue(null);
       const result = await service.sendVerificationEmail('unknown@example.com');
       expect(result.message).toBeDefined();
       expect(mailService.sendEmailVerification).not.toHaveBeenCalled();
     });
 
     it('ne fait rien si l\'email est déjà vérifié (réponse neutre)', async () => {
-      userRepo.findOne.mockResolvedValue({ ...mockUser, emailVerified: true });
+      accountsService.findAccountByEmail.mockResolvedValue({ ...mockUser, emailVerified: true });
       const result = await service.sendVerificationEmail('test@example.com');
       expect(result.message).toBeDefined();
       expect(mailService.sendEmailVerification).not.toHaveBeenCalled();
@@ -252,7 +264,7 @@ describe('AuthService', () => {
         'email-token-uuid',
         expect.objectContaining({ usedAt: expect.any(Date) }),
       );
-      expect(userRepo.update).toHaveBeenCalledWith('user-uuid', { emailVerified: true });
+      expect(accountsService.markEmailVerified).toHaveBeenCalledWith('user-uuid');
     });
 
     it('lance BadRequestException pour un token expiré', async () => {
@@ -285,7 +297,7 @@ describe('AuthService', () => {
 
   describe('recoverIdentifier', () => {
     it('envoie les identifiants par email quand des comptes sont trouvés', async () => {
-      userRepo.find.mockResolvedValue([mockUser]);
+      accountsService.findAccountsByEmail.mockResolvedValue([mockUser]);
       const result = await service.recoverIdentifier('test@example.com');
       expect(result.message).toBeDefined();
       expect(mailService.sendIdentifierRecovery).toHaveBeenCalledWith(
@@ -295,7 +307,7 @@ describe('AuthService', () => {
     });
 
     it('ne fait rien si aucun compte n\'est associé à l\'email (réponse neutre)', async () => {
-      userRepo.find.mockResolvedValue([]);
+      accountsService.findAccountsByEmail.mockResolvedValue([]);
       const result = await service.recoverIdentifier('unknown@example.com');
       expect(result.message).toBeDefined();
       expect(mailService.sendIdentifierRecovery).not.toHaveBeenCalled();
@@ -304,7 +316,7 @@ describe('AuthService', () => {
 
   describe('requestPasswordReset', () => {
     it('envoie un email de reset et crée un token quand l\'utilisateur existe', async () => {
-      userRepo.findOne.mockResolvedValue(mockUser);
+      accountsService.findAccountByLoginIdentifier.mockResolvedValue(mockUser);
       const result = await service.requestPasswordReset('test.user');
       expect(result.message).toBeDefined();
       expect(mailService.sendPasswordReset).toHaveBeenCalledWith(
@@ -316,7 +328,7 @@ describe('AuthService', () => {
     });
 
     it('retourne la même réponse neutre si l\'identifiant n\'existe pas (anti-énumération)', async () => {
-      userRepo.findOne.mockResolvedValue(null);
+      accountsService.findAccountByLoginIdentifier.mockResolvedValue(null);
       const result = await service.requestPasswordReset('unknown.user');
       expect(result.message).toBeDefined();
       expect(mailService.sendPasswordReset).not.toHaveBeenCalled();
@@ -335,9 +347,9 @@ describe('AuthService', () => {
         { userId: 'user-uuid' },
         expect.objectContaining({ revokedAt: expect.any(Date) }),
       );
-      expect(userRepo.update).toHaveBeenCalledWith(
+      expect(accountsService.updatePasswordHash).toHaveBeenCalledWith(
         'user-uuid',
-        expect.objectContaining({ passwordHash: expect.any(String) }),
+        expect.any(String),
       );
     });
 
@@ -366,22 +378,6 @@ describe('AuthService', () => {
     it('lance BadRequestException si le token n\'existe pas', async () => {
       resetTokenRepo.findOne.mockResolvedValue(null);
       await expect(service.resetPassword('unknown-token', 'newpass')).rejects.toThrow(BadRequestException);
-    });
-  });
-
-  describe('regenerateAccess', () => {
-    const tiActor = { ...mockUser, id: 'ti-uuid', role: UserRole.TECHNICIEN_INFORMATIQUE };
-
-    it('réactive un compte suspendu et retourne un message de succès', async () => {
-      userRepo.findOne.mockResolvedValue({ ...mockUser, isActive: false, validationStatus: 'suspended' });
-      const result = await service.regenerateAccess('user-uuid', tiActor as any);
-      expect(result.message).toContain('Access regenerated');
-      expect(sessionRepo.update).toHaveBeenCalled();
-    });
-
-    it('throws 401 quand le compte cible n\'existe pas', async () => {
-      userRepo.findOne.mockResolvedValue(null);
-      await expect(service.regenerateAccess('ghost-uuid', tiActor as any)).rejects.toThrow(UnauthorizedException);
     });
   });
 });

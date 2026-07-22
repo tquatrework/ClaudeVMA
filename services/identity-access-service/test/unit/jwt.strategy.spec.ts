@@ -1,9 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { UnauthorizedException } from '@nestjs/common';
 import { JwtStrategy } from '../../src/auth/strategies/jwt.strategy';
 import { User, UserRole, ValidationStatus } from '../../src/auth/entities/user.entity';
+import { AccountsService } from '../../src/accounts/accounts.service';
 
 /** Minimal valid JWT payload matching JwtPayload interface */
 const buildValidPayload = (overrides: Partial<Record<string, unknown>> = {}) => ({
@@ -36,24 +36,25 @@ const buildActiveUser = (overrides: Partial<User> = {}): User => ({
 
 describe('JwtStrategy', () => {
   let jwtStrategy: JwtStrategy;
-  let userRepo: { findOne: jest.Mock };
+  let accountsService: { findActiveAccountById: jest.Mock };
 
   beforeEach(async () => {
-    userRepo = {
-      findOne: jest.fn().mockResolvedValue(buildActiveUser()),
+    accountsService = {
+      findActiveAccountById: jest.fn().mockResolvedValue(buildActiveUser()),
     };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         JwtStrategy,
         {
-          provide: getRepositoryToken(User),
-          useValue: userRepo,
+          provide: AccountsService,
+          useValue: accountsService,
         },
         {
           provide: ConfigService,
           useValue: {
             get: jest.fn().mockReturnValue('test-jwt-secret'),
+            getOrThrow: jest.fn().mockReturnValue('test-jwt-secret'),
           },
         },
       ],
@@ -75,11 +76,11 @@ describe('JwtStrategy', () => {
       });
     });
 
-    it('interroge le repository avec le sub du payload', async () => {
+    it('interroge AccountsService avec le sub du payload', async () => {
       const payload = buildValidPayload();
       await jwtStrategy.validate(payload as any);
 
-      expect(userRepo.findOne).toHaveBeenCalledWith({ where: { id: 'user-uuid-123' } });
+      expect(accountsService.findActiveAccountById).toHaveBeenCalledWith('user-uuid-123');
     });
 
     it('propage le jti issu du payload dans le user retourné', async () => {
@@ -101,30 +102,30 @@ describe('JwtStrategy', () => {
       await expect(jwtStrategy.validate(payloadWithoutType as any)).rejects.toThrow(UnauthorizedException);
     });
 
-    it('ne consulte pas le repository si le type est invalide', async () => {
+    it('ne consulte pas AccountsService si le type est invalide', async () => {
       const refreshPayload = buildValidPayload({ type: 'refresh' });
       await expect(jwtStrategy.validate(refreshPayload as any)).rejects.toThrow(UnauthorizedException);
-      expect(userRepo.findOne).not.toHaveBeenCalled();
+      expect(accountsService.findActiveAccountById).not.toHaveBeenCalled();
     });
   });
 
   describe('validate — user introuvable ou inactif', () => {
     it('lève UnauthorizedException quand le user est introuvable en base', async () => {
-      userRepo.findOne.mockResolvedValue(null);
+      accountsService.findActiveAccountById.mockResolvedValue(null);
       const payload = buildValidPayload();
 
       await expect(jwtStrategy.validate(payload as any)).rejects.toThrow(UnauthorizedException);
     });
 
     it('lève UnauthorizedException quand le user est inactif (isActive = false)', async () => {
-      userRepo.findOne.mockResolvedValue(buildActiveUser({ isActive: false }));
+      accountsService.findActiveAccountById.mockResolvedValue(buildActiveUser({ isActive: false }));
       const payload = buildValidPayload();
 
       await expect(jwtStrategy.validate(payload as any)).rejects.toThrow(UnauthorizedException);
     });
 
     it('ne retourne rien si le user est suspendu et inactif', async () => {
-      userRepo.findOne.mockResolvedValue(
+      accountsService.findActiveAccountById.mockResolvedValue(
         buildActiveUser({ isActive: false, validationStatus: ValidationStatus.SUSPENDED }),
       );
       const payload = buildValidPayload();

@@ -8,7 +8,13 @@ export class InternalGuard implements CanActivate {
   constructor(private readonly config: ConfigService) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const expected = this.config.get<string>("INTERNAL_SECRET");
+    let expected: string;
+    try {
+      expected = this.config.getOrThrow<string>("INTERNAL_SECRET");
+    } catch {
+      this.logger.error("INTERNAL_SECRET is not configured — denying all internal requests (S3)");
+      throw new UnauthorizedException("Internal endpoints are disabled: INTERNAL_SECRET not configured");
+    }
     if (!expected) {
       this.logger.error("INTERNAL_SECRET is not configured — denying all internal requests (S3)");
       throw new UnauthorizedException("Internal endpoints are disabled: INTERNAL_SECRET not configured");

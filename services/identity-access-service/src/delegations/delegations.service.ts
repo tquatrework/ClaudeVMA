@@ -2,33 +2,38 @@ import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/commo
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DelegatedAccessRequest, DelegationStatus } from './entities/delegated-access-request.entity';
-import { User, UserRole } from '../auth/entities/user.entity';
-import { AuditLog } from '../accounts/entities/audit-log.entity';
+import { UserRole } from '../auth/entities/user.entity';
 import { CreateDelegationDto } from './dto/create-delegation.dto';
 import { EventsService } from '../events/events.service';
+import { AccountsService } from '../accounts/accounts.service';
 
 const DELEGATION_ALLOWED_ROLES: UserRole[] = [
   UserRole.RESPONSABLE_PEDAGOGIQUE,
   UserRole.TECHNICIEN_INFORMATIQUE,
 ];
 
+/** Acteur minimal requis par ce service — évite de dépendre de l'entité User. */
+interface DelegationActor {
+  id: string;
+  role: UserRole;
+}
+
 @Injectable()
 export class DelegationsService {
   constructor(
     @InjectRepository(DelegatedAccessRequest)
     private readonly delegationRepo: Repository<DelegatedAccessRequest>,
-    @InjectRepository(User) private readonly userRepo: Repository<User>,
-    @InjectRepository(AuditLog) private readonly auditRepo: Repository<AuditLog>,
     private readonly eventsService: EventsService,
+    private readonly accountsService: AccountsService,
   ) {}
 
-  async createDelegation(dto: CreateDelegationDto, actor: User): Promise<DelegatedAccessRequest> {
+  async createDelegation(dto: CreateDelegationDto, actor: DelegationActor): Promise<DelegatedAccessRequest> {
     if (!DELEGATION_ALLOWED_ROLES.includes(actor.role)) {
       throw new ForbiddenException('Only RP or TI can create delegation requests');
     }
 
-    const targetUser = await this.userRepo.findOne({ where: { id: dto.targetUserId } });
-    if (!targetUser) {
+    const targetAccountExists = await this.accountsService.accountExists(dto.targetUserId);
+    if (!targetAccountExists) {
       throw new NotFoundException(`Target account ${dto.targetUserId} not found`);
     }
 
@@ -42,19 +47,17 @@ export class DelegationsService {
       }),
     );
 
-    await this.auditRepo.save(
-      this.auditRepo.create({
-        targetUserId: dto.targetUserId,
-        actorId: actor.id,
-        action: 'DELEGATION_CREATED',
-        oldValue: null,
-        newValue: {
-          delegationId: delegation.id,
-          actionDescription: dto.actionDescription,
-          reason: dto.reason,
-        },
-      }),
-    );
+    await this.accountsService.recordAudit({
+      targetUserId: dto.targetUserId,
+      actorId: actor.id,
+      action: 'DELEGATION_CREATED',
+      oldValue: null,
+      newValue: {
+        delegationId: delegation.id,
+        actionDescription: dto.actionDescription,
+        reason: dto.reason,
+      },
+    });
 
     this.eventsService.publish('DelegatedAccessGranted', {
       delegationId: delegation.id,
@@ -65,7 +68,7 @@ export class DelegationsService {
     return delegation;
   }
 
-  async listDelegations(actor: User): Promise<DelegatedAccessRequest[]> {
+  async listDelegations(actor: DelegationActor): Promise<DelegatedAccessRequest[]> {
     if (!DELEGATION_ALLOWED_ROLES.includes(actor.role)) {
       throw new ForbiddenException('Only RP or TI can list delegation requests');
     }

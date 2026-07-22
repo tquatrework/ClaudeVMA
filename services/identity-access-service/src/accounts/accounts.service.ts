@@ -573,6 +573,92 @@ export class AccountsService {
     return { userId: user.id, loginIdentifier: user.loginIdentifier, role: user.role };
   }
 
+  // ---------------------------------------------------------------------------
+  // Ports exposés aux autres features (identity-access-service possède seul
+  // l'entité User et l'entité AuditLog — cf. modules-convention). AuthModule,
+  // ConsentsModule et DelegationsModule consomment ces méthodes typées au lieu
+  // d'injecter directement un repository qui ne leur appartient pas.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Authentification — retourne le compte avec le hash de mot de passe inclus
+   * (colonne `select: false` par défaut). Consommé uniquement par AuthService.login().
+   */
+  async findCredentialsByLoginIdentifier(loginIdentifier: string): Promise<User | null> {
+    return this.userRepo
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('user.loginIdentifier = :loginIdentifier', { loginIdentifier })
+      .getOne();
+  }
+
+  /** Récupère un compte par id, sans le hash de mot de passe. */
+  async findActiveAccountById(userId: string): Promise<User | null> {
+    return this.userRepo.findOne({ where: { id: userId } });
+  }
+
+  /** Récupère un compte par identifiant de connexion, sans le hash de mot de passe. */
+  async findAccountByLoginIdentifier(loginIdentifier: string): Promise<User | null> {
+    return this.userRepo.findOne({ where: { loginIdentifier } });
+  }
+
+  /** Récupère un compte par email. */
+  async findAccountByEmail(email: string): Promise<User | null> {
+    return this.userRepo.findOne({ where: { email } });
+  }
+
+  /** Récupère tous les comptes partageant un même email (récupération d'identifiant). */
+  async findAccountsByEmail(email: string): Promise<User[]> {
+    return this.userRepo.find({ where: { email } });
+  }
+
+  /** Marque l'email d'un compte comme vérifié. */
+  async markEmailVerified(userId: string): Promise<void> {
+    await this.userRepo.update(userId, { emailVerified: true });
+  }
+
+  /** Met à jour le hash de mot de passe d'un compte (réinitialisation de mot de passe). */
+  async updatePasswordHash(userId: string, passwordHash: string): Promise<void> {
+    await this.userRepo.update(userId, { passwordHash });
+  }
+
+  /**
+   * Applique l'effet de bord métier de la complétion des consentements obligatoires
+   * (IAM-FB-003) : active le compte s'il est encore en attente. ConsentsService reste
+   * seul responsable de déterminer si tous les consentements requis sont signés — il
+   * appelle cette méthode uniquement lorsque c'est le cas.
+   */
+  async activateAfterMandatoryConsents(userId: string): Promise<void> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user || user.consentSigned) return;
+
+    user.consentSigned = true;
+    if (user.validationStatus === ValidationStatus.PENDING) {
+      user.validationStatus = ValidationStatus.ACTIVE;
+    }
+    await this.userRepo.save(user);
+  }
+
+  /** Vérifie l'existence d'un compte sans en exposer le détail — utilisé par DelegationsService. */
+  async accountExists(userId: string): Promise<boolean> {
+    const matchingAccountsCount = await this.userRepo.count({ where: { id: userId } });
+    return matchingAccountsCount > 0;
+  }
+
+  /**
+   * Point d'accès unique à AuditLog (entité possédée par AccountsModule) pour les
+   * autres features qui doivent tracer une action sur un compte (ex: DelegationsService).
+   */
+  async recordAudit(entry: {
+    targetUserId: string;
+    actorId: string;
+    action: string;
+    oldValue: Record<string, unknown> | null;
+    newValue: Record<string, unknown> | null;
+  }): Promise<void> {
+    await this.auditRepo.save(this.auditRepo.create(entry));
+  }
+
   /**
    * Envoie une notification au dashboard-notification-service pour informer le RP
    * qu'un nouveau formateur est en attente de validation.

@@ -1,17 +1,17 @@
 import { Injectable, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ConsentRecord, ConsentType, REQUIRED_CONSENTS } from './entities/consent-record.entity';
-import { User, ValidationStatus } from '../auth/entities/user.entity';
+import { ConsentRecord, REQUIRED_CONSENTS } from './entities/consent-record.entity';
 import { CreateConsentDto } from './dto/create-consent.dto';
 import { EventsService } from '../events/events.service';
+import { AccountsService } from '../accounts/accounts.service';
 
 @Injectable()
 export class ConsentsService {
   constructor(
     @InjectRepository(ConsentRecord) private readonly consentRepo: Repository<ConsentRecord>,
-    @InjectRepository(User) private readonly userRepo: Repository<User>,
     private readonly eventsService: EventsService,
+    private readonly accountsService: AccountsService,
   ) {}
 
   async signConsent(userId: string, dto: CreateConsentDto, ipAddress?: string) {
@@ -35,7 +35,7 @@ export class ConsentsService {
       version: record.version,
     });
 
-    await this.activateIfReady(userId);
+    await this.activateAccountIfReady(userId);
 
     return record;
   }
@@ -44,21 +44,19 @@ export class ConsentsService {
     return this.consentRepo.find({ where: { userId }, order: { signedAt: 'ASC' } });
   }
 
-  /** Activates account once all required consents are present (IAM-FB-003) */
-  private async activateIfReady(userId: string): Promise<void> {
+  /**
+   * Vérifie si tous les consentements obligatoires (IAM-FB-003) sont signés.
+   * ConsentsService reste seul responsable de cette invariance (il possède
+   * ConsentRecord) ; l'effet sur le compte (User, possédé par AccountsModule)
+   * est délégué à AccountsService.
+   */
+  private async activateAccountIfReady(userId: string): Promise<void> {
     const signedConsentRecords = await this.consentRepo.find({ where: { userId } });
     const signedConsentTypes = signedConsentRecords.map((consentRecord) => consentRecord.consentType);
 
     const allRequired = REQUIRED_CONSENTS.every((requiredType) => signedConsentTypes.includes(requiredType));
     if (!allRequired) return;
 
-    const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (!user || user.consentSigned) return;
-
-    user.consentSigned = true;
-    if (user.validationStatus === ValidationStatus.PENDING) {
-      user.validationStatus = ValidationStatus.ACTIVE;
-    }
-    await this.userRepo.save(user);
+    await this.accountsService.activateAfterMandatoryConsents(userId);
   }
 }

@@ -34,8 +34,16 @@ describe('AccountsService', () => {
   beforeEach(async () => {
     userRepo = {
       findOne: jest.fn().mockResolvedValue(null),
+      find: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockImplementation((entity) => entity),
       save: jest.fn().mockImplementation(async (user) => ({ id: 'user-uuid', ...user })),
+      update: jest.fn().mockResolvedValue(undefined),
+      count: jest.fn().mockResolvedValue(0),
+      createQueryBuilder: jest.fn().mockReturnValue({
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(null),
+      }),
     };
 
     auditRepo = {
@@ -343,6 +351,127 @@ describe('AccountsService', () => {
       userRepo.findOne.mockResolvedValue(null);
       const actor = makeUser({ role: UserRole.TECHNICIEN_INFORMATIQUE });
       await expect(service.regenerateAccess('ghost-uuid', actor)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ── Ports exposés aux autres features (modules-convention) ──────────────────
+
+  describe('findCredentialsByLoginIdentifier', () => {
+    it('returns the user including the password hash', async () => {
+      const target = makeUser();
+      userRepo.createQueryBuilder.mockReturnValue({
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(target),
+      });
+
+      const result = await service.findCredentialsByLoginIdentifier('test.user');
+      expect(result).toEqual(target);
+    });
+
+    it('returns null when no account matches the login identifier', async () => {
+      const result = await service.findCredentialsByLoginIdentifier('unknown.user');
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('findActiveAccountById', () => {
+    it('returns the account when found', async () => {
+      const target = makeUser();
+      userRepo.findOne.mockResolvedValue(target);
+      const result = await service.findActiveAccountById('user-uuid');
+      expect(result).toEqual(target);
+    });
+
+    it('returns null when the account does not exist', async () => {
+      userRepo.findOne.mockResolvedValue(null);
+      const result = await service.findActiveAccountById('ghost-uuid');
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('findAccountByEmail / findAccountsByEmail', () => {
+    it('returns a single account matching the email', async () => {
+      const target = makeUser();
+      userRepo.findOne.mockResolvedValue(target);
+      const result = await service.findAccountByEmail('test@example.com');
+      expect(result).toEqual(target);
+    });
+
+    it('returns an empty array when no account matches the email', async () => {
+      userRepo.find.mockResolvedValue([]);
+      const result = await service.findAccountsByEmail('unknown@example.com');
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('markEmailVerified', () => {
+    it('updates emailVerified to true for the given user', async () => {
+      await service.markEmailVerified('user-uuid');
+      expect(userRepo.update).toHaveBeenCalledWith('user-uuid', { emailVerified: true });
+    });
+  });
+
+  describe('updatePasswordHash', () => {
+    it('updates the password hash for the given user', async () => {
+      await service.updatePasswordHash('user-uuid', 'new-hash');
+      expect(userRepo.update).toHaveBeenCalledWith('user-uuid', { passwordHash: 'new-hash' });
+    });
+  });
+
+  describe('activateAfterMandatoryConsents', () => {
+    it('activates a pending account and marks consentSigned', async () => {
+      const target = makeUser({ consentSigned: false, validationStatus: ValidationStatus.PENDING });
+      userRepo.findOne.mockResolvedValue(target);
+
+      await service.activateAfterMandatoryConsents('user-uuid');
+
+      expect(userRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ consentSigned: true, validationStatus: ValidationStatus.ACTIVE }),
+      );
+    });
+
+    it('does nothing when the account is already marked as consentSigned', async () => {
+      const target = makeUser({ consentSigned: true });
+      userRepo.findOne.mockResolvedValue(target);
+
+      await service.activateAfterMandatoryConsents('user-uuid');
+
+      expect(userRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the account does not exist', async () => {
+      userRepo.findOne.mockResolvedValue(null);
+
+      await service.activateAfterMandatoryConsents('ghost-uuid');
+
+      expect(userRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('accountExists', () => {
+    it('returns true when at least one account matches the id', async () => {
+      userRepo.count.mockResolvedValue(1);
+      await expect(service.accountExists('user-uuid')).resolves.toBe(true);
+    });
+
+    it('returns false when no account matches the id', async () => {
+      userRepo.count.mockResolvedValue(0);
+      await expect(service.accountExists('ghost-uuid')).resolves.toBe(false);
+    });
+  });
+
+  describe('recordAudit', () => {
+    it('persists an audit entry via the AuditLog repository owned by this module', async () => {
+      await service.recordAudit({
+        targetUserId: 'target-uuid',
+        actorId: 'actor-uuid',
+        action: 'DELEGATION_CREATED',
+        oldValue: null,
+        newValue: { foo: 'bar' },
+      });
+
+      expect(auditRepo.save).toHaveBeenCalled();
     });
   });
 });

@@ -9,8 +9,6 @@ import { DashboardService } from './dashboard.service';
 import { UpdatePreferencesDto } from './dto/update-preferences.dto';
 import { DashboardResponseDto } from './dto/dashboard-response.dto';
 import { DashboardPreferenceResponseDto } from './dto/dashboard-preference-response.dto';
-import { DashboardWidgetDto } from './dto/dashboard-widget.dto';
-import { NotificationResponseDto } from '../notification/dto/notification-response.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 
@@ -31,18 +29,8 @@ export class DashboardController {
   })
   @ApiResponse({ status: 200, description: 'Dashboard returned', type: DashboardResponseDto })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async getMyDashboard(@CurrentUser() user: AuthUser): Promise<DashboardResponseDto> {
-    const dashboard = await this.service.getMyDashboard(user.id, user.role);
-
-    const response = new DashboardResponseDto();
-    response.userId = dashboard.userId;
-    response.role = dashboard.role;
-    response.widgets = dashboard.widgets.map((widget) => DashboardWidgetDto.fromWidget(widget));
-    response.notifications = dashboard.notifications.map((notification) =>
-      NotificationResponseDto.fromEntity(notification),
-    );
-    response.generatedAt = dashboard.generatedAt;
-    return response;
+  getMyDashboard(@CurrentUser() user: AuthUser): Promise<DashboardResponseDto> {
+    return this.service.getMyDashboard({ id: user.id, role: user.role });
   }
 
   @Put('me/preferences')
@@ -53,11 +41,10 @@ export class DashboardController {
   @ApiResponse({ status: 200, description: 'Preferences saved', type: DashboardPreferenceResponseDto })
   @ApiResponse({ status: 400, description: 'Validation error' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async updatePreferences(
+  updatePreferences(
     @CurrentUser() user: AuthUser,
     @Body() dto: UpdatePreferencesDto,
   ): Promise<DashboardPreferenceResponseDto> {
-    const preference = await this.service.updatePreferences(user.id, user.role, dto);
-    return DashboardPreferenceResponseDto.fromEntity(preference);
+    return this.service.updatePreferences({ id: user.id, role: user.role }, dto);
   }
 }

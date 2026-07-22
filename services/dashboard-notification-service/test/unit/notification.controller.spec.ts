@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { CanActivate, NotFoundException } from '@nestjs/common';
 import { NotificationController } from '../../src/notification/notification.controller';
 import { NotificationService } from '../../src/notification/notification.service';
-import { NotificationType } from '../../src/notification/entities/notification.entity';
 import { AuthUser } from '../../src/common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../src/common/guards/jwt-auth.guard';
 
@@ -43,109 +42,55 @@ describe('NotificationController', () => {
   });
 
   describe('findAll', () => {
-    it('delegates to the service with the actor id and query', async () => {
-      const actor = buildAuthUser();
-      service.findByUser.mockResolvedValue({ data: [], meta: { total: 0, page: 1, limit: 20, pages: 0 } });
+    it('delegates to the service with a typed Actor and the validated query', async () => {
+      const user = buildAuthUser();
+      const expectedResponse = { data: [], meta: { total: 0, page: 1, limit: 20, pages: 0 } };
+      service.findByUser.mockResolvedValue(expectedResponse);
 
-      await controller.findAll(actor, { page: 1, limit: 20 });
+      const result = await controller.findAll(user, { page: 1, limit: 20 });
 
-      expect(service.findByUser).toHaveBeenCalledWith(actor.id, { page: 1, limit: 20 });
-    });
-
-    it('returns a paginated response with explicit notification DTOs', async () => {
-      const actor = buildAuthUser();
-      const notification = {
-        id: 'notif-1',
-        userId: actor.id,
-        type: NotificationType.SYSTEM,
-        title: 'Titre',
-        message: 'Message',
-        isRead: false,
-        metadata: null,
-        createdAt: new Date('2024-01-01T00:00:00.000Z'),
-      };
-      service.findByUser.mockResolvedValue({
-        data: [notification],
-        meta: { total: 1, page: 1, limit: 20, pages: 1 },
-      });
-
-      const result = await controller.findAll(actor, { page: 1, limit: 20 });
-
-      expect(result.data).toEqual([notification]);
-      expect(result.meta).toEqual({ total: 1, page: 1, limit: 20, pages: 1 });
+      expect(service.findByUser).toHaveBeenCalledWith({ id: user.id, role: user.role }, { page: 1, limit: 20 });
+      expect(result).toBe(expectedResponse);
     });
   });
 
   describe('markAsRead', () => {
-    it('delegates to the service with notification id and actor id', async () => {
-      const actor = buildAuthUser();
-      service.markAsRead.mockResolvedValue({
-        id: 'notif-1',
-        userId: actor.id,
-        type: NotificationType.SYSTEM,
-        title: 'Titre',
-        message: 'Message',
-        isRead: true,
-        metadata: null,
-        createdAt: new Date('2024-01-01T00:00:00.000Z'),
-      });
+    it('delegates to the service with the notification id and a typed Actor', async () => {
+      const user = buildAuthUser();
+      const expectedResponse = { id: 'notif-1', userId: user.id, isRead: true };
+      service.markAsRead.mockResolvedValue(expectedResponse);
 
-      await controller.markAsRead('notif-1', actor);
+      const result = await controller.markAsRead('notif-1', user);
 
-      expect(service.markAsRead).toHaveBeenCalledWith('notif-1', actor.id);
-    });
-
-    it('returns the notification as an explicit response DTO', async () => {
-      const actor = buildAuthUser();
-      const notification = {
-        id: 'notif-1',
-        userId: actor.id,
-        type: NotificationType.SYSTEM,
-        title: 'Titre',
-        message: 'Message',
-        isRead: true,
-        metadata: null,
-        createdAt: new Date('2024-01-01T00:00:00.000Z'),
-      };
-      service.markAsRead.mockResolvedValue(notification);
-
-      const result = await controller.markAsRead('notif-1', actor);
-
-      expect(result).toEqual(notification);
+      expect(service.markAsRead).toHaveBeenCalledWith('notif-1', { id: user.id, role: user.role });
+      expect(result).toBe(expectedResponse);
     });
 
     it('propagates NotFoundException when the notification cannot be marked as read', async () => {
-      const actor = buildAuthUser();
+      const user = buildAuthUser();
       service.markAsRead.mockRejectedValue(new NotFoundException('Notification notif-1 not found'));
 
-      await expect(controller.markAsRead('notif-1', actor)).rejects.toThrow(NotFoundException);
+      await expect(controller.markAsRead('notif-1', user)).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('remove', () => {
-    it('delegates to the service with notification id and actor id', async () => {
-      const actor = buildAuthUser();
-      service.remove.mockResolvedValue({ deleted: true });
+    it('delegates to the service with the notification id and a typed Actor', async () => {
+      const user = buildAuthUser();
+      const expectedResponse = { deleted: true };
+      service.remove.mockResolvedValue(expectedResponse);
 
-      await controller.remove('notif-1', actor);
+      const result = await controller.remove('notif-1', user);
 
-      expect(service.remove).toHaveBeenCalledWith('notif-1', actor.id);
-    });
-
-    it('returns a deletion confirmation', async () => {
-      const actor = buildAuthUser();
-      service.remove.mockResolvedValue({ deleted: true });
-
-      const result = await controller.remove('notif-1', actor);
-
-      expect(result).toEqual({ deleted: true });
+      expect(service.remove).toHaveBeenCalledWith('notif-1', { id: user.id, role: user.role });
+      expect(result).toBe(expectedResponse);
     });
 
     it('propagates NotFoundException for a non-existent notification', async () => {
-      const actor = buildAuthUser();
+      const user = buildAuthUser();
       service.remove.mockRejectedValue(new NotFoundException('Notification notif-1 not found'));
 
-      await expect(controller.remove('notif-1', actor)).rejects.toThrow(NotFoundException);
+      await expect(controller.remove('notif-1', user)).rejects.toThrow(NotFoundException);
     });
   });
 });

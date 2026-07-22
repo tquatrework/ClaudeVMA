@@ -36,9 +36,8 @@ export class InternalController {
   })
   @ApiResponse({ status: 201, description: 'Dashboard initialized', type: DashboardPreferenceResponseDto })
   @ApiResponse({ status: 401, description: 'Missing or invalid X-Internal-Secret' })
-  async initializeDashboard(@Body() dto: InitializeDashboardDto): Promise<DashboardPreferenceResponseDto> {
-    const preference = await this.dashboardService.initializeDashboard(dto.userId, dto.role);
-    return DashboardPreferenceResponseDto.fromEntity(preference);
+  initializeDashboard(@Body() dto: InitializeDashboardDto): Promise<DashboardPreferenceResponseDto> {
+    return this.dashboardService.initializeDashboard({ id: dto.userId, role: dto.role });
   }
 
   @Post('notify')
@@ -61,13 +60,12 @@ export class InternalController {
 
     const userId = dto.targetUserId ?? `role:${dto.targetRole}`;
 
-    const notification = await this.notificationService.create({
+    return this.notificationService.create({
       userId,
       type: dto.type as NotificationType,
       title: dto.title,
       message: dto.message,
       metadata: dto.metadata,
     });
-    return NotificationResponseDto.fromEntity(notification);
   }
 }

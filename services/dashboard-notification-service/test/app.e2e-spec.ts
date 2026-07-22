@@ -1,3 +1,4 @@
+import './e2e-env.setup';
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
@@ -7,8 +8,8 @@ import { AppModule } from '../src/app.module';
 import { Notification, NotificationType } from '../src/notification/entities/notification.entity';
 import { DashboardPreference } from '../src/dashboard/entities/dashboard-preference.entity';
 
-const INTERNAL_SECRET = 'test-internal-secret';
-const JWT_SECRET = 'test-jwt-secret';
+const INTERNAL_SECRET = process.env.INTERNAL_SECRET as string;
+const JWT_SECRET = process.env.JWT_SECRET as string;
 
 function makeAccessToken(jwtService: JwtService, overrides: Record<string, unknown> = {}) {
   return jwtService.sign(
@@ -32,11 +33,9 @@ describe('Dashboard Notification Service (e2e)', () => {
   let preferenceRepo: any;
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? 'postgres://postgres:postgres@localhost:5432/dashboard_notification_test';
-    process.env.JWT_SECRET = JWT_SECRET;
-    process.env.INTERNAL_SECRET = INTERNAL_SECRET;
-    process.env.NODE_ENV = 'test';
-
+    // Env variables are set by test/e2e-env.setup.ts, imported above before
+    // AppModule so its startup validation (src/config/env.validation.ts)
+    // sees them.
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();

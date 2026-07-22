@@ -50,7 +50,7 @@ describe('InternalController', () => {
 
       const result = await internalController.initializeDashboard({ userId, role });
 
-      expect(dashboardService.initializeDashboard).toHaveBeenCalledWith(userId, role);
+      expect(dashboardService.initializeDashboard).toHaveBeenCalledWith({ id: userId, role });
       expect(result).toEqual(expectedResult);
     });
   });
@@ -67,9 +67,6 @@ describe('InternalController', () => {
       const createdNotification = {
         id: 'notif-001',
         userId: targetUserId,
-        // Simulates a persistence layer returning extra internal fields —
-        // the response DTO mapping must not leak them.
-        targetUserId,
         type: dto.type,
         title: dto.title,
         message: dto.message,
@@ -78,6 +75,9 @@ describe('InternalController', () => {
         createdAt: new Date('2024-01-01T00:00:00.000Z'),
       };
 
+      // NotificationService.create already returns the explicit response DTO
+      // shape (see notification.service.spec.ts) — the controller is a thin
+      // passthrough and must not reshape it further.
       notificationService.create.mockResolvedValue(createdNotification);
 
       const result = await internalController.notify(dto);
@@ -89,19 +89,7 @@ describe('InternalController', () => {
         message: dto.message,
         metadata: undefined,
       });
-      // The response DTO only exposes the stable notification contract —
-      // it must not leak incidental fields from the internal call payload.
-      expect(result).toEqual({
-        id: createdNotification.id,
-        userId: createdNotification.userId,
-        type: createdNotification.type,
-        title: createdNotification.title,
-        message: createdNotification.message,
-        isRead: createdNotification.isRead,
-        metadata: createdNotification.metadata,
-        createdAt: createdNotification.createdAt,
-      });
-      expect(result).not.toHaveProperty('targetUserId');
+      expect(result).toEqual(createdNotification);
     });
 
     it('creates a notification for a targetRole using role: prefix', async () => {

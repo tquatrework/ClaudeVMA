@@ -42,16 +42,11 @@ export class NotificationController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiResponse({ status: 200, description: 'Paginated notification list', type: PaginatedNotificationsResponseDto })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async findAll(
+  findAll(
     @CurrentUser() user: AuthUser,
     @Query() query: ListNotificationsDto,
   ): Promise<PaginatedNotificationsResponseDto> {
-    const result = await this.service.findByUser(user.id, query);
-
-    const response = new PaginatedNotificationsResponseDto();
-    response.data = result.data.map((notification) => NotificationResponseDto.fromEntity(notification));
-    response.meta = result.meta;
-    return response;
+    return this.service.findByUser({ id: user.id, role: user.role }, query);
   }
 
   @Post(':notificationId/read')
@@ -64,12 +59,11 @@ export class NotificationController {
   @ApiResponse({ status: 200, description: 'Notification marked as read', type: NotificationResponseDto })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Notification not found' })
-  async markAsRead(
+  markAsRead(
     @Param('notificationId', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
   ): Promise<NotificationResponseDto> {
-    const notification = await this.service.markAsRead(id, user.id);
-    return NotificationResponseDto.fromEntity(notification);
+    return this.service.markAsRead(id, { id: user.id, role: user.role });
   }
 
   @Delete(':id')
@@ -85,6 +79,6 @@ export class NotificationController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
   ): Promise<DeleteNotificationResponseDto> {
-    return this.service.remove(id, user.id);
+    return this.service.remove(id, { id: user.id, role: user.role });
   }
 }

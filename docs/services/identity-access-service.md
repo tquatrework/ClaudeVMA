@@ -92,8 +92,171 @@
           Risque : incohérence partielle si un save() intermediaire echoue.
           Scope volontairement limite lors de la session du 2026-06-28 — a traiter dans une session ulterieure.
         </description>
-        <status>open</status>
+        <status>resolved</status>
+        <resolvedIn>session 2026-07-22 — voir decision S-conventions-services</resolvedIn>
       </technicalDebt>
+    </session>
+
+    <session date="2026-07-22">
+      <title>Mise en conformite avec les 3 conventions NestJS (modules, controllers, services)</title>
+      <context>
+        Application de docs/conventions/modules-convention.md, controllers-convention.md et
+        services-convention.md a identity-access-service. Trois commits separes, tests unitaires
+        relances apres chaque etape (176/176 passants a la fin de la session).
+      </context>
+
+      <decision id="S-conventions-modules">
+        <title>Etape 1 — Convention modules</title>
+        <files>
+          <file>src/app.module.ts</file>
+          <file>src/config/env.validation.ts (nouveau)</file>
+          <file>src/auth/auth.module.ts</file>
+          <file>src/auth/auth.service.ts</file>
+          <file>src/auth/strategies/jwt.strategy.ts</file>
+          <file>src/consents/consents.module.ts</file>
+          <file>src/consents/consents.service.ts</file>
+          <file>src/delegations/delegations.module.ts</file>
+          <file>src/delegations/delegations.service.ts</file>
+          <file>src/internal/internal.guard.ts</file>
+          <file>src/health/health.controller.ts</file>
+        </files>
+        <description>
+          User et AuditLog sont desormais possedes uniquement par AccountsModule : AuthModule,
+          ConsentsModule et DelegationsModule n'injectent plus leurs repositories directement et
+          consomment AccountsService (ports typés dedies : findCredentialsByLoginIdentifier,
+          findActiveAccountById, findAccountByLoginIdentifier, findAccountByEmail,
+          findAccountsByEmail, markEmailVerified, updatePasswordHash,
+          activateAfterMandatoryConsents, accountExists, recordAudit).
+          Suppression du code mort AuthService.regenerateAccess (doublon non branche de
+          AccountsService.regenerateAccess).
+          AppModule : validation obligatoire au demarrage de DATABASE_URL, JWT_SECRET et
+          INTERNAL_SECRET (src/config/env.validation.ts + ConfigService.getOrThrow), 
+          autoLoadEntities: true a la place de la liste d'entites dupliquee.
+          synchronize limite a NODE_ENV=test (environnement ephemere) — desactive partout
+          ailleurs, y compris en developpement (cf. point ouvert TD-baseline-migration ci-dessous).
+          Suppression des exports AuthService/JwtModule (aucun consommateur externe reel).
+          Correction du nom de service retourne par GET /health (etait "auth-service").
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="S-conventions-controllers">
+        <title>Etape 2 — Convention controllers</title>
+        <files>
+          <file>src/common/decorators/current-user.decorator.ts (nouveau)</file>
+          <file>src/common/types/authenticated-user.ts (nouveau)</file>
+          <file>src/common/types/actor.ts (nouveau)</file>
+          <file>src/common/dto/message-response.dto.ts (nouveau)</file>
+          <file>src/accounts/accounts.controller.ts</file>
+          <file>src/accounts/accounts-admin.controller.ts (nouveau)</file>
+          <file>src/accounts/dto/account-response.dto.ts (nouveau)</file>
+          <file>src/auth/auth.controller.ts</file>
+          <file>src/auth/dto/refresh-token.dto.ts (nouveau)</file>
+          <file>src/auth/dto/token-response.dto.ts (nouveau)</file>
+          <file>src/consents/consents.controller.ts</file>
+          <file>src/delegations/delegations.controller.ts</file>
+          <file>src/internal/internal.controller.ts</file>
+          <file>src/internal/dto/list-accounts-query.dto.ts (nouveau)</file>
+          <file>src/internal/dto/create-account-response.dto.ts (nouveau)</file>
+        </files>
+        <description>
+          @CurrentUser() + AuthenticatedUser remplacent tous les @Request()/req.user non types.
+          Actor (id + role) introduit comme type minimal consomme par les services — 
+          AuthenticatedUser en est un sur-ensemble compatible.
+          DTO de validation ajoutes : RefreshTokenDto (POST /auth/refresh lisait
+          @Body('refresh_token') sans validation), ListAccountsQueryDto (GET /internal/accounts,
+          @Query('role') non valide). ParseUUIDPipe ajoute sur
+          GET /internal/accounts/by-user-id/:userId.
+          Types de retour explicites sur toutes les methodes de controleur.
+          AccountsController separe en AccountsController (self-service) et
+          AccountsAdminController (RP/TI), meme racine `accounts` — le fichier original
+          depassait la limite de 250 lignes une fois l'acteur type et les types de retour ajoutes.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="S-conventions-services">
+        <title>Etape 3 — Convention services</title>
+        <files>
+          <file>src/accounts/accounts.service.ts</file>
+          <file>src/consents/consents.service.ts</file>
+          <file>src/delegations/delegations.service.ts</file>
+        </files>
+        <description>
+          DataSource.transaction pour toute ecriture atomique multiple :
+          updateRoles/validateAccount/suspendAccount/updateAccountStatus/regenerateAccess
+          (User + AuditLog), createStudentAccount (eleve + parent optionnel — corrige au passage
+          un bug ou un eleve pouvait etre cree sans rollback si la resolution du parent echouait
+          ensuite). Transactions cross-feature respectant la propriete des entites : 
+          ConsentsService.signConsent et DelegationsService.createDelegation passent desormais
+          le meme EntityManager a AccountsService via un parametre optionnel sur
+          recordAudit()/activateAfterMandatoryConsents(). Les evenements metier sont publies
+          apres resolution de la transaction (apres commit), jamais avant/pendant.
+          Listes bornees et ordonnees : listAccounts, getAuditLogs, listDelegations (200 lignes
+          par defaut). Suppression d'un import mort (SELF_REGISTRATION_ROLES) dans AccountsService.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <openItem id="TD-accounts-service-cohesion">
+        <title>AccountsService depasse les seuils de cohesion (services-convention)</title>
+        <description>
+          25 methodes publiques, ~700 lignes, 2 repositories (sous le seuil de 4) mais bien
+          au-dela des seuils de reevaluation (300 lignes / 10 methodes publiques). Le service
+          mele desormais le cycle de vie du compte (creation, roles, statut, audit) et des
+          ports de lecture/ecriture consommes par AuthModule, ConsentsModule et
+          DelegationsModule suite a la convention modules (proprietaire unique de User et
+          AuditLog). Piste recommandee pour une session ulterieure : extraire un service de
+          "ports" dedie (lectures pour Auth/Consents/Delegations) et/ou un module Audit
+          separe possedant AuditLog, avec validation contre une base reelle avant de
+          restructurer davantage (non traite dans cette passe pour limiter le risque de
+          regression sans environnement de test d'integration).
+        </description>
+        <status>open</status>
+      </openItem>
+
+      <openItem id="TD-baseline-migration">
+        <title>Aucune migration de base creant le schema initial</title>
+        <description>
+          synchronize n'est desormais actif qu'en environnement de test ephemere (NODE_ENV=test),
+          conformement a modules-convention. Or aucune migration ne cree les tables de base
+          (users, login_sessions, password_reset_tokens, email_verification_tokens,
+          identifier_recovery_tokens, audit_logs, consent_records, delegated_access_requests) :
+          les 3 migrations existantes ne font que des evolutions incrementales sur un schema
+          suppose deja present (cree jusqu'ici via synchronize:true en developpement).
+          Consequence : une base de developpement ou de production fraiche n'aura plus aucune
+          table si on ne fait tourner que `migration:run`. Ecrire une migration baseline
+          necessite une validation contre une instance Postgres reelle, non disponible dans
+          cet environnement de travail — a traiter avant le prochain deploiement sur une base
+          vierge.
+        </description>
+        <status>open</status>
+      </openItem>
+
+      <openItem id="TD-interservice-client">
+        <title>Appel interservice non conforme aux principes de correlation/idempotence</title>
+        <description>
+          AccountsService.notifyDashboardTeacherPending utilise un fetch() brut vers
+          dashboard-notification-service, sans propagation de x-correlation-id ni cle
+          d'idempotence (cf. docs/microservices.md, principes transverses). Le service ne
+          possede par ailleurs aucune plomberie de correlation ID (pas d'intercepteur/middleware
+          extrayant x-correlation-id des requetes entrantes). Hors perimetre des 3 conventions
+          modules/controllers/services traitees dans cette session ; a adresser dans une session
+          dediee a l'observabilite/correlation transverse.
+        </description>
+        <status>open</status>
+      </openItem>
+
+      <openItem id="TD-clAUDE-md-profile-service-reference">
+        <title>CLAUDE.md du service reference profile-service.md au lieu de identity-access-service.md</title>
+        <description>
+          services/identity-access-service/CLAUDE.md contient `@docs/services/profile-service.md
+          pour le contexte service` — reference visiblement erronee (copier-coller d'un autre
+          service). A corriger en `@docs/services/identity-access-service.md`. Signale sans
+          correction automatique : modification hors perimetre explicite de la tache demandee.
+        </description>
+        <status>open</status>
+      </openItem>
     </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

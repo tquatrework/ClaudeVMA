@@ -4,7 +4,7 @@ import { WorkflowController } from '../../../src/workflow/workflow.controller';
 import { WorkflowEngineService } from '../../../src/workflow/workflow-engine.service';
 import { WORKFLOW_DEFINITIONS } from '../../../src/workflow/definitions';
 import { WorkflowStatus } from '../../../src/common/enums/workflow-status.enum';
-import { JwtAuthGuard } from '../../../src/common/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../../../src/security/jwt-auth.guard';
 
 const makeEngineMock = () => ({
   startWorkflow: jest.fn(),

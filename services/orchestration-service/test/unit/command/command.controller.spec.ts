@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CommandController } from '../../../src/command/command.controller';
 import { CommandService } from '../../../src/command/command.service';
-import { JwtAuthGuard } from '../../../src/common/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../../../src/security/jwt-auth.guard';
 
 const makeCommandServiceMock = () => ({
   dispatch: jest.fn(),

@@ -8,7 +8,7 @@ import { IsString, IsNotEmpty, IsOptional, IsBoolean } from 'class-validator';
 import { WorkflowEngineService } from './workflow-engine.service';
 import { StartWorkflowDto } from './dto/start-workflow.dto';
 import { WORKFLOW_DEFINITIONS } from './definitions';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../security/jwt-auth.guard';
 
 class SuspendDto {
   @IsString() @IsNotEmpty() reason: string;

@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { EventController } from '../../../src/event/event.controller';
 import { EventService } from '../../../src/event/event.service';
 import { EventDirection } from '../../../src/event/entities/integration-event.entity';
-import { JwtAuthGuard } from '../../../src/common/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../../../src/security/jwt-auth.guard';
 
 const makeEventServiceMock = () => ({
   findByCorrelation: jest.fn(),

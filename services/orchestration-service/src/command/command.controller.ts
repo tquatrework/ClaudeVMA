@@ -2,7 +2,7 @@ import { Controller, Post, Body, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { CommandService } from './command.service';
 import { DispatchCommandDto } from './dto/dispatch-command.dto';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../security/jwt-auth.guard';
 
 @ApiTags('commands')
 @ApiBearerAuth()

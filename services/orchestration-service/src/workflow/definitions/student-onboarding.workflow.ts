@@ -1,9 +1,11 @@
 import { WorkflowDefinition } from './workflow-definition.interface';
+import { StudentOnboardingStartPayloadDto } from '../dto/payloads/student-onboarding-start-payload.dto';
 
 export const studentOnboardingWorkflow: WorkflowDefinition = {
   id: 'student-onboarding',
   name: 'Inscription et activation élève',
   phase: 1,
+  startPayloadValidationClass: StudentOnboardingStartPayloadDto,
   steps: [
     {
       order: 1,
@@ -16,6 +18,8 @@ export const studentOnboardingWorkflow: WorkflowDefinition = {
         password: context.payload.password,
         role: 'eleve',
         consents: context.payload.consents,
+        firstName: context.payload.firstName,
+        lastName: context.payload.lastName,
       }),
       compensationAction: 'delete-account',
       buildCompensationPayload: (context) => ({

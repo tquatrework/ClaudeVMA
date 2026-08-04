@@ -1,9 +1,11 @@
 import { WorkflowDefinition } from './workflow-definition.interface';
+import { TeacherOnboardingStartPayloadDto } from '../dto/payloads/teacher-onboarding-start-payload.dto';
 
 export const teacherOnboardingWorkflow: WorkflowDefinition = {
   id: 'teacher-onboarding',
   name: 'Inscription et validation formateur',
   phase: 1,
+  startPayloadValidationClass: TeacherOnboardingStartPayloadDto,
   steps: [
     {
       order: 1,
@@ -15,6 +17,8 @@ export const teacherOnboardingWorkflow: WorkflowDefinition = {
         password: context.payload.password,
         role: 'formateur',
         consents: context.payload.consents,
+        firstName: context.payload.firstName,
+        lastName: context.payload.lastName,
       }),
     },
     {

@@ -15,6 +15,7 @@ import { EventDirection } from '../event/entities/integration-event.entity';
 import { CorrelationTraceService } from '../correlation/correlation-trace.service';
 import { WORKFLOW_DEFINITIONS } from './definitions';
 import { WorkflowContext } from './definitions/workflow-definition.interface';
+import { WorkflowPayloadValidatorService } from './workflow-payload-validator.service';
 
 @Injectable()
 export class WorkflowEngineService {
@@ -35,6 +36,7 @@ export class WorkflowEngineService {
     private readonly idempotency: IdempotencyService,
     private readonly eventService: EventService,
     private readonly correlationTrace: CorrelationTraceService,
+    private readonly payloadValidator: WorkflowPayloadValidatorService,
   ) {}
 
   async startWorkflow(
@@ -45,6 +47,11 @@ export class WorkflowEngineService {
   ): Promise<WorkflowInstance> {
     const definition = WORKFLOW_DEFINITIONS[workflowType];
     if (!definition) throw new Error(`Unknown workflow type: ${workflowType}`);
+
+    // Le payload doit être validé avant toute écriture (instance/étapes) ou
+    // appel à un service cible : un payload incomplet doit échouer proprement
+    // dès l'entrée, jamais silencieusement plus loin dans la chaîne.
+    await this.payloadValidator.validateStartPayload(definition, payload);
 
     const resolvedCorrelationId = correlationId ?? uuidv4();
 

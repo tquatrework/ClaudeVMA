@@ -26,4 +26,11 @@ export interface WorkflowDefinition {
   name: string;
   phase: number;
   steps: WorkflowStepDefinition[];
+  /**
+   * Classe class-validator optionnelle validant la forme du `payload` de
+   * démarrage (`POST /workflows/:workflowId/start`). Absente pour les
+   * workflows dont le payload de démarrage reste un routage pur (cf.
+   * l'exception documentée dans `docs/conventions/services-convention.md`).
+   */
+  startPayloadValidationClass?: new () => object;
 }

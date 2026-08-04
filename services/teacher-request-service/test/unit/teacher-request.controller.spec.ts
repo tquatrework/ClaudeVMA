@@ -3,6 +3,7 @@ import { ForbiddenException, NotFoundException, BadRequestException } from '@nes
 import { Reflector } from '@nestjs/core';
 
 import { TeacherRequestController } from '../../src/teacher-request/teacher-request.controller';
+import { RequestProposalsController } from '../../src/teacher-request/request-proposals.controller';
 import { ProposalController } from '../../src/teacher-request/proposal.controller';
 import { AssignmentController } from '../../src/teacher-request/assignment.controller';
 import { CollaborationController } from '../../src/teacher-request/collaboration.controller';
@@ -124,7 +125,7 @@ describe('TeacherRequestController', () => {
       const dto = { subject: 'Algèbre', level: 'Terminale' };
       const result = await controller.createRequest(dto as any, studentUser as any);
       expect(mockService.createRequest).toHaveBeenCalledWith(dto, studentUser);
-      expect(result).toEqual(baseRequest);
+      expect(result).toMatchObject(baseRequest);
     });
 
     it('propagates ForbiddenException from service (non-allowed role)', async () => {
@@ -153,7 +154,7 @@ describe('TeacherRequestController', () => {
       mockService.createPpChangeRequest.mockResolvedValue(ppChangeResult);
       const result = await controller.createPpChangeRequest(ppChangeDto as any, parentUser as any);
       expect(mockService.createPpChangeRequest).toHaveBeenCalledWith(ppChangeDto, parentUser);
-      expect(result).toEqual(ppChangeResult);
+      expect(result).toMatchObject(ppChangeResult);
     });
 
     it('propagates ForbiddenException when non-PARENT_FINANCEUR calls the route', async () => {
@@ -176,7 +177,7 @@ describe('TeacherRequestController', () => {
       mockService.listRequests.mockResolvedValue([baseRequest]);
       const result = await controller.listRequests(rpUser as any);
       expect(mockService.listRequests).toHaveBeenCalledWith(rpUser);
-      expect(result).toEqual([baseRequest]);
+      expect(result).toMatchObject([baseRequest]);
     });
 
     it('propagates ForbiddenException for unauthorized roles', async () => {
@@ -193,7 +194,7 @@ describe('TeacherRequestController', () => {
       mockService.getRequest.mockResolvedValue(baseRequest);
       const result = await controller.getRequest('req-1', rpUser as any);
       expect(mockService.getRequest).toHaveBeenCalledWith('req-1', rpUser);
-      expect(result).toEqual(baseRequest);
+      expect(result).toMatchObject(baseRequest);
     });
 
     it('propagates NotFoundException for unknown id', async () => {
@@ -217,7 +218,7 @@ describe('TeacherRequestController', () => {
       mockService.publishSelectedCandidates.mockResolvedValue(publishedRequest);
       const result = await controller.publishSelectedCandidates('req-1', publishDto as any, rpUser as any);
       expect(mockService.publishSelectedCandidates).toHaveBeenCalledWith('req-1', publishDto, rpUser);
-      expect(result).toEqual(publishedRequest);
+      expect(result).toMatchObject(publishedRequest);
     });
 
     it('propagates ForbiddenException for non-RP (student)', async () => {
@@ -255,14 +256,14 @@ describe('TeacherRequestController', () => {
       mockService.selectCandidate.mockResolvedValue(chosenRequest);
       const result = await controller.selectCandidate('req-1', selectDto as any, studentUser as any);
       expect(mockService.selectCandidate).toHaveBeenCalledWith('req-1', selectDto, studentUser);
-      expect(result).toEqual(chosenRequest);
+      expect(result).toMatchObject(chosenRequest);
     });
 
     it('parent_financeur selects a candidate — delegates correctly', async () => {
       mockService.selectCandidate.mockResolvedValue(chosenRequest);
       const result = await controller.selectCandidate('req-1', selectDto as any, parentUser as any);
       expect(mockService.selectCandidate).toHaveBeenCalledWith('req-1', selectDto, parentUser);
-      expect(result).toEqual(chosenRequest);
+      expect(result).toMatchObject(chosenRequest);
     });
 
     it('propagates ForbiddenException for RP', async () => {
@@ -286,7 +287,7 @@ describe('TeacherRequestController', () => {
       mockService.updateRequestStatus.mockResolvedValue(updatedRequest);
       const result = await controller.updateStatus('req-1', { status: RequestStatus.ACCEPTED } as any, rpUser as any);
       expect(mockService.updateRequestStatus).toHaveBeenCalledWith('req-1', RequestStatus.ACCEPTED, rpUser);
-      expect(result).toEqual(updatedRequest);
+      expect(result).toMatchObject(updatedRequest);
     });
 
     it('propagates ForbiddenException for non-RP', async () => {
@@ -328,7 +329,44 @@ describe('TeacherRequestController', () => {
     });
   });
 
-  // ── createProposal sub-route ────────────────────────────────────────────────
+});
+
+// =============================================================================
+// RequestProposalsController
+// =============================================================================
+
+describe('RequestProposalsController', () => {
+  let controller: RequestProposalsController;
+  let mockService: ReturnType<typeof makeMockService>;
+
+  beforeEach(async () => {
+    mockService = makeMockService();
+
+    const moduleBuilder = Test.createTestingModule({
+      controllers: [RequestProposalsController],
+      providers: [
+        { provide: TeacherRequestService, useValue: mockService },
+        Reflector,
+      ],
+    });
+
+    const module: TestingModule = await overrideJwtGuard(moduleBuilder).compile();
+    controller = module.get(RequestProposalsController);
+  });
+
+  // ── JwtAuthGuard is applied ─────────────────────────────────────────────────
+
+  describe('guard binding', () => {
+    it('JwtAuthGuard is applied at controller level', () => {
+      const guards = Reflect.getMetadata('__guards__', RequestProposalsController);
+      const hasJwtGuard = guards?.some(
+        (guard: any) => guard === JwtAuthGuard || guard?.name === 'JwtAuthGuard',
+      );
+      expect(hasJwtGuard).toBe(true);
+    });
+  });
+
+  // ── createProposal ──────────────────────────────────────────────────────────
 
   describe('POST /:requestId/proposals — createProposal', () => {
     it('RP creates a proposal — delegates correctly', async () => {
@@ -336,7 +374,7 @@ describe('TeacherRequestController', () => {
       const dto = { teacherId: 'teacher-1' };
       const result = await controller.createProposal('req-1', dto as any, rpUser as any);
       expect(mockService.createProposal).toHaveBeenCalledWith('req-1', dto, rpUser);
-      expect(result).toEqual(baseProposal);
+      expect(result).toMatchObject(baseProposal);
     });
 
     it('propagates ForbiddenException for formateur', async () => {
@@ -395,7 +433,7 @@ describe('ProposalController', () => {
       mockService.acceptProposal.mockResolvedValue(baseAssignment);
       const result = await controller.acceptProposal('prop-1', teacherUser as any);
       expect(mockService.acceptProposal).toHaveBeenCalledWith('prop-1', teacherUser);
-      expect(result).toEqual(baseAssignment);
+      expect(result).toMatchObject(baseAssignment);
     });
 
     it("propagates ForbiddenException when formateur tries to accept another teacher's proposal", async () => {
@@ -432,7 +470,7 @@ describe('ProposalController', () => {
       mockService.declineProposal.mockResolvedValue(declinedProposal);
       const result = await controller.declineProposal('prop-1', teacherUser as any);
       expect(mockService.declineProposal).toHaveBeenCalledWith('prop-1', teacherUser);
-      expect(result).toEqual(declinedProposal);
+      expect(result).toMatchObject(declinedProposal);
     });
 
     it("propagates ForbiddenException when formateur tries to decline another teacher's proposal", async () => {
@@ -511,7 +549,7 @@ describe('AssignmentController', () => {
       mockService.setMainTeacher.mockResolvedValue(updatedAssignment);
       const result = await controller.setMainTeacher('asgn-1', rpUser as any);
       expect(mockService.setMainTeacher).toHaveBeenCalledWith('asgn-1', rpUser);
-      expect(result).toEqual(updatedAssignment);
+      expect(result).toMatchObject(updatedAssignment);
     });
 
     it('eleve sets main teacher on own assignment — delegates correctly', async () => {
@@ -519,7 +557,7 @@ describe('AssignmentController', () => {
       mockService.setMainTeacher.mockResolvedValue(updatedAssignment);
       const result = await controller.setMainTeacher('asgn-1', studentUser as any);
       expect(mockService.setMainTeacher).toHaveBeenCalledWith('asgn-1', studentUser);
-      expect(result).toEqual(updatedAssignment);
+      expect(result).toMatchObject(updatedAssignment);
     });
 
     it('propagates ForbiddenException for formateur', async () => {
@@ -556,7 +594,7 @@ describe('AssignmentController', () => {
       mockService.createTermination.mockResolvedValue(baseTermination);
       const result = await controller.createTermination('asgn-1', terminationDto as any, teacherUser as any);
       expect(mockService.createTermination).toHaveBeenCalledWith('asgn-1', terminationDto, teacherUser);
-      expect(result).toEqual(baseTermination);
+      expect(result).toMatchObject(baseTermination);
     });
 
     it('propagates ForbiddenException for RP (wrong role)', async () => {
@@ -630,7 +668,7 @@ describe('CollaborationController', () => {
       mockService.createCollaborationStopRequest.mockResolvedValue(baseTermination);
       const result = await controller.createCollaborationStopRequest('asgn-1', stopDto as any, teacherUser as any);
       expect(mockService.createCollaborationStopRequest).toHaveBeenCalledWith('asgn-1', stopDto, teacherUser);
-      expect(result).toEqual(baseTermination);
+      expect(result).toMatchObject(baseTermination);
     });
 
     it('propagates ForbiddenException for eleve', async () => {

@@ -6,6 +6,7 @@ import { TeacherProposal } from './entities/teacher-proposal.entity';
 import { Assignment } from './entities/assignment.entity';
 import { TerminationRequest } from './entities/termination-request.entity';
 import { TeacherRequestController } from './teacher-request.controller';
+import { RequestProposalsController } from './request-proposals.controller';
 import { ProposalController } from './proposal.controller';
 import { AssignmentController } from './assignment.controller';
 import { CollaborationController } from './collaboration.controller';
@@ -18,7 +19,13 @@ import { SecurityModule } from '../security/security.module';
     TypeOrmModule.forFeature([TeacherRequest, TeacherProposal, Assignment, TerminationRequest]),
     SecurityModule,
   ],
-  controllers: [TeacherRequestController, ProposalController, AssignmentController, CollaborationController],
+  controllers: [
+    TeacherRequestController,
+    RequestProposalsController,
+    ProposalController,
+    AssignmentController,
+    CollaborationController,
+  ],
   providers: [TeacherRequestService, EventsService],
 })
 export class TeacherRequestModule {}

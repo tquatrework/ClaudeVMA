@@ -3,12 +3,13 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
 import { JwtAuthGuard } from '../common/jwt.guard';
+import { RolesGuard } from '../common/roles.guard';
 
 /**
  * Local security module for teacher-request-service.
- * JWT verification and the auth guard are configured exactly once here;
- * any feature module that needs authentication imports SecurityModule
- * instead of re-registering JwtModule.
+ * JWT verification and the auth/role guards are configured exactly once
+ * here; any feature module that needs authentication imports SecurityModule
+ * instead of re-registering JwtModule or redeclaring the guards.
  */
 @Module({
   imports: [
@@ -20,7 +21,7 @@ import { JwtAuthGuard } from '../common/jwt.guard';
       inject: [ConfigService],
     }),
   ],
-  providers: [JwtAuthGuard],
-  exports: [JwtAuthGuard, JwtModule],
+  providers: [JwtAuthGuard, RolesGuard],
+  exports: [JwtAuthGuard, RolesGuard, JwtModule],
 })
 export class SecurityModule {}

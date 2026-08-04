@@ -29,17 +29,22 @@ Réponse login/refresh : `{access_token, refresh_token, user: {id, email, role, 
 | Méthode | Chemin | Description | Auth | Rôles | Body |
 |---|---|---|---|---|---|
 | GET | /accounts/check-email | Vérifier la disponibilité d'un email | Non | — | Query: `email` |
-| POST | /accounts | Créer un compte générique (auto-inscription) | Non | — | `{email, password, role?}` |
-| POST | /accounts/students | Créer un compte élève (+ parent optionnel) | Non | — | `{email, password, isMember?, parentEmail?, parentPassword?}` |
-| POST | /accounts/teachers | Créer un compte formateur | Non | — | `{email, password, cvReference?}` |
-| POST | /accounts/parents | Créer un compte parent / financeur | Non | — | `{email, password}` |
+| POST | /accounts | Créer un compte générique (auto-inscription) | Non | — | `{email, password, firstName, lastName, role?}` |
+| POST | /accounts/students | Créer un compte élève (+ parent optionnel) | Non | — | `{email, password, firstName, lastName, isMember?, parentEmail?, parentPassword?, parentFirstName?, parentLastName?}` |
+| POST | /accounts/teachers | Créer un compte formateur | Non | — | `{email, password, firstName, lastName, cvReference?}` |
+| POST | /accounts/parents | Créer un compte parent / financeur | Non | — | `{email, password, firstName, lastName}` |
 | GET | /accounts/:accountId | Lire un compte | 🔒 | TI, RP, AdministrateurFinancier | — |
 | PUT | /accounts/:accountId/roles | Changer le rôle | 🔒 | RP, TI | `{role}` |
 | PUT | /accounts/:accountId/validate | Valider un compte | 🔒 | RP, TI | — |
 | PUT | /accounts/:accountId/suspend | Suspendre un compte | 🔒 | TI | — |
 | GET | /accounts/:accountId/audit | Journal d'audit | 🔒 | RP, TI | — |
 
+`firstName` et `lastName` sont obligatoires (chaînes non vides, 100 caractères max) sur les quatre routes de création de compte ci-dessus — `400` si absents ou vides.
+Sur `POST /accounts/students`, `parentFirstName` et `parentLastName` deviennent obligatoires uniquement si `parentEmail` est fourni (`400` sinon) ; ils sont ignorés si `parentEmail` est absent.
+
 Règles métier : seuls `eleve`, `parent_financeur` et `formateur` peuvent être auto-inscrits (IAM-FB-002). La validation nécessite les consentements RGPD+CGU signés (IAM-FB-003).
+
+Réponse (comptes) : `{id, loginIdentifier, email, role, firstName, lastName, validationStatus, consentSigned, isActive, createdAt}` (`emailAlreadyUsed`/`suggestedLoginIdentifier` optionnels). `POST /accounts/students` renvoie `{student, parent}` avec `parent` au même format (+ `created: boolean`) ou `null`.
 
 ### Consentements RGPD
 
@@ -58,8 +63,14 @@ Types : `rgpd` (requis), `cgu` (requis), `marketing` (optionnel). Une fois RGPD+
 | Méthode | Chemin | Description | Header requis |
 |---|---|---|---|
 | POST | /internal/create-account | Créer un compte depuis un service interne | `X-Internal-Secret` |
+| GET | /internal/accounts | Lister les comptes (filtre `role?`) | `X-Internal-Secret` |
+| GET | /internal/accounts/by-login-identifier | Résoudre un compte par `loginIdentifier` | `X-Internal-Secret` |
+| GET | /internal/accounts/by-user-id/:userId | Résoudre un compte par `userId` (consommée par profile-service) | `X-Internal-Secret` |
 
-Réponse : `{accountId, email, role}`
+Body `POST /internal/create-account` : `{email, password, firstName, lastName, role?}` — mêmes règles de validation que `POST /accounts` (`firstName`/`lastName` obligatoires depuis la mise en conformité prénom/nom).
+
+Réponse `POST /internal/create-account` : `{accountId, email, role}`
+Réponse `GET /internal/accounts/by-user-id/:userId` : `{userId, loginIdentifier, role, firstName, lastName}`
 
 ### Événements publiés
 

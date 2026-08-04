@@ -258,5 +258,70 @@
         <status>open</status>
       </openItem>
     </session>
+
+    <session date="2026-08-04">
+      <title>firstName/lastName obligatoires a la creation de compte (decision PO)</title>
+      <context>
+        Investigation croisee : 0 compte sur 15 en base n'avait de prenom/nom renseigne car
+        aucune route d'inscription ne les collectait — les colonnes users.first_name/last_name
+        existaient mais etaient mortes (jamais ecrites). Decision PO : les rendre obligatoires
+        des la creation de compte sur les 4 routes d'inscription et la route interne
+        d'onboarding. Coordonne en parallele avec profile-service, orchestration-service et le
+        frontend (meme chantier).
+      </context>
+      <decision id="S-firstname-lastname-required">
+        <title>firstName/lastName obligatoires sur toutes les routes de creation de compte</title>
+        <files>
+          <file>src/accounts/dto/create-account.dto.ts</file>
+          <file>src/accounts/dto/create-student-account.dto.ts</file>
+          <file>src/accounts/dto/create-teacher-account.dto.ts</file>
+          <file>src/accounts/dto/create-parent-account.dto.ts</file>
+          <file>src/accounts/dto/account-response.dto.ts</file>
+          <file>src/accounts/accounts.service.ts</file>
+          <file>test/unit/accounts.service.spec.ts</file>
+          <file>test/unit/accounts.controller.spec.ts</file>
+          <file>test/unit/create-account.dto.spec.ts (nouveau)</file>
+          <file>test/app.e2e-spec.ts</file>
+        </files>
+        <description>
+          firstName et lastName (@IsString @IsNotEmpty @MaxLength(100)) ajoutes comme champs
+          obligatoires sur CreateAccountDto, CreateStudentAccountDto, CreateTeacherAccountDto et
+          CreateParentAccountDto — donc sur POST /accounts, POST /accounts/students,
+          POST /accounts/teachers, POST /accounts/parents et POST /internal/create-account (qui
+          reutilise CreateAccountDto, aucune modification de code necessaire pour cette derniere,
+          seulement heritee de la validation du DTO partage).
+          Cas conditionnel sur CreateStudentAccountDto : parentFirstName/parentLastName
+          deviennent obligatoires uniquement si parentEmail est fourni, via
+          @ValidateIf((dto) => !!dto.parentEmail) — ignores sinon.
+          Cablage jusqu'a la persistance : accounts.service.ts ecrit desormais firstName/lastName
+          dans users.first_name/last_name sur les 5 chemins de creation (createAccount,
+          createStudentAccount [eleve + parent optionnel cree], createTeacherAccount,
+          createParentAccount) — ces colonnes etaient mortes avant cette session.
+          Exposition : AccountResponseDto (toPublic()) et la reponse de
+          GET /internal/accounts/by-user-id/:userId (consommee par profile-service) exposent
+          desormais firstName/lastName (string | null cote by-user-id, coherent avec le type de
+          colonne nullable — non-null en pratique pour tout compte cree apres cette session).
+          Effet de bord positif : AccountsService.notifyDashboardTeacherPending et
+          MailService.sendEmailVerification/sendPasswordReset consommaient deja
+          user.firstName/lastName mais recevaient toujours null/chaine vide faute d'ecriture —
+          desormais alimentes correctement, sans changement de code sur ces points.
+          docs/routes.md (racine) mis a jour : tableaux Comptes et API interne
+          identity-access-service, formats de reponse et regle de validation conditionnelle
+          documentes.
+        </description>
+        <status>resolved</status>
+      </decision>
+      <openItem id="TD-update-me-no-name-fields">
+        <title>PATCH /accounts/me ne permet pas de corriger firstName/lastName apres coup</title>
+        <description>
+          Hors perimetre de cette session (portait uniquement sur les 4 routes de creation +
+          la route interne). UpdateMeDto ne couvre encore que email/loginIdentifier/password —
+          un utilisateur ne peut pas corriger un prenom/nom mal saisi a l'inscription sans
+          passer par une action RP/TI. A evaluer dans une session ulterieure si le besoin
+          remonte du front ou du produit.
+        </description>
+        <status>open</status>
+      </openItem>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

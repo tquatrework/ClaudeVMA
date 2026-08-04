@@ -9,6 +9,8 @@ const makePublicAccount = (overrides = {}) => ({
   id: 'user-uuid',
   email: 'test@example.com',
   role: UserRole.ELEVE,
+  firstName: 'Jean',
+  lastName: 'Dupont',
   validationStatus: ValidationStatus.PENDING,
   consentSigned: false,
   isActive: true,
@@ -47,13 +49,13 @@ describe('AccountsController (self-service)', () => {
       mockAccountsService.createAccount.mockResolvedValue(createdAccount);
 
       const result = await controller.createAccount(
-        { email: 'test@example.com', password: 'password123' },
+        { email: 'test@example.com', password: 'password123', firstName: 'Jean', lastName: 'Dupont' },
         '127.0.0.1',
       );
 
       expect(result).toEqual(createdAccount);
       expect(mockAccountsService.createAccount).toHaveBeenCalledWith(
-        { email: 'test@example.com', password: 'password123' },
+        { email: 'test@example.com', password: 'password123', firstName: 'Jean', lastName: 'Dupont' },
         '127.0.0.1',
       );
     });
@@ -62,7 +64,10 @@ describe('AccountsController (self-service)', () => {
       mockAccountsService.createAccount.mockRejectedValue(new ConflictException('Email already in use'));
 
       await expect(
-        controller.createAccount({ email: 'existing@test.com', password: 'password123' }, '127.0.0.1'),
+        controller.createAccount(
+          { email: 'existing@test.com', password: 'password123', firstName: 'Jean', lastName: 'Dupont' },
+          '127.0.0.1',
+        ),
       ).rejects.toThrow(ConflictException);
     });
 
@@ -73,7 +78,13 @@ describe('AccountsController (self-service)', () => {
 
       await expect(
         controller.createAccount(
-          { email: 'hack@test.com', password: 'password123', role: UserRole.TECHNICIEN_INFORMATIQUE },
+          {
+            email: 'hack@test.com',
+            password: 'password123',
+            firstName: 'Jean',
+            lastName: 'Dupont',
+            role: UserRole.TECHNICIEN_INFORMATIQUE,
+          },
           '127.0.0.1',
         ),
       ).rejects.toThrow(ForbiddenException);
@@ -88,7 +99,7 @@ describe('AccountsController (self-service)', () => {
       mockAccountsService.createStudentAccount.mockResolvedValue(studentResult);
 
       const result = await controller.createStudentAccount(
-        { email: 'student@test.com', password: 'password123' },
+        { email: 'student@test.com', password: 'password123', firstName: 'Lucas', lastName: 'Petit' },
         '127.0.0.1',
       );
 
@@ -104,7 +115,16 @@ describe('AccountsController (self-service)', () => {
       mockAccountsService.createStudentAccount.mockResolvedValue(studentResult);
 
       const result = await controller.createStudentAccount(
-        { email: 'student@test.com', password: 'password123', parentEmail: 'parent@test.com', parentPassword: 'parentpass123' },
+        {
+          email: 'student@test.com',
+          password: 'password123',
+          firstName: 'Lucas',
+          lastName: 'Petit',
+          parentEmail: 'parent@test.com',
+          parentPassword: 'parentpass123',
+          parentFirstName: 'Nathalie',
+          parentLastName: 'Petit',
+        },
         '127.0.0.1',
       );
 
@@ -116,7 +136,10 @@ describe('AccountsController (self-service)', () => {
       mockAccountsService.createStudentAccount.mockRejectedValue(new ConflictException('Email already in use'));
 
       await expect(
-        controller.createStudentAccount({ email: 'existing@test.com', password: 'password123' }, '127.0.0.1'),
+        controller.createStudentAccount(
+          { email: 'existing@test.com', password: 'password123', firstName: 'Lucas', lastName: 'Petit' },
+          '127.0.0.1',
+        ),
       ).rejects.toThrow(ConflictException);
     });
   });
@@ -129,7 +152,7 @@ describe('AccountsController (self-service)', () => {
       mockAccountsService.createTeacherAccount.mockResolvedValue(teacherAccount);
 
       const result = await controller.createTeacherAccount(
-        { email: 'teacher@test.com', password: 'password123' },
+        { email: 'teacher@test.com', password: 'password123', firstName: 'Marie', lastName: 'Martin' },
         '127.0.0.1',
       );
 
@@ -141,7 +164,10 @@ describe('AccountsController (self-service)', () => {
       mockAccountsService.createTeacherAccount.mockRejectedValue(new ConflictException('Email already in use'));
 
       await expect(
-        controller.createTeacherAccount({ email: 'existing@test.com', password: 'password123' }, '127.0.0.1'),
+        controller.createTeacherAccount(
+          { email: 'existing@test.com', password: 'password123', firstName: 'Marie', lastName: 'Martin' },
+          '127.0.0.1',
+        ),
       ).rejects.toThrow(ConflictException);
     });
   });

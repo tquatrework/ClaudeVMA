@@ -119,6 +119,8 @@ export class AccountsService {
       email: dto.email,
       passwordHash,
       role,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
       validationStatus: ValidationStatus.PENDING,
       consentSigned: false,
     });
@@ -375,6 +377,8 @@ export class AccountsService {
         email: dto.email,
         passwordHash: studentPasswordHash,
         role: UserRole.ELEVE,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
         validationStatus: ValidationStatus.PENDING,
         consentSigned: false,
       });
@@ -402,6 +406,8 @@ export class AccountsService {
             email: dto.parentEmail,
             passwordHash: parentPasswordHash,
             role: UserRole.PARENT_FINANCEUR,
+            firstName: dto.parentFirstName,
+            lastName: dto.parentLastName,
             validationStatus: ValidationStatus.PENDING,
             consentSigned: false,
           });
@@ -466,6 +472,8 @@ export class AccountsService {
       email: dto.email,
       passwordHash,
       role: UserRole.FORMATEUR,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
       validationStatus: ValidationStatus.PENDING,
       consentSigned: false,
     });
@@ -508,6 +516,8 @@ export class AccountsService {
       email: dto.email,
       passwordHash,
       role: UserRole.PARENT_FINANCEUR,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
       validationStatus: ValidationStatus.PENDING,
       consentSigned: false,
     });
@@ -662,10 +672,22 @@ export class AccountsService {
     return { userId: user.id, role: user.role };
   }
 
-  async findByUserId(userId: string): Promise<{ userId: string; loginIdentifier: string; role: string }> {
+  async findByUserId(userId: string): Promise<{
+    userId: string;
+    loginIdentifier: string;
+    role: string;
+    firstName: string | null;
+    lastName: string | null;
+  }> {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('Compte introuvable');
-    return { userId: user.id, loginIdentifier: user.loginIdentifier, role: user.role };
+    return {
+      userId: user.id,
+      loginIdentifier: user.loginIdentifier,
+      role: user.role,
+      firstName: user.firstName,
+      lastName: user.lastName,
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -815,6 +837,8 @@ export class AccountsService {
       loginIdentifier: user.loginIdentifier,
       email: user.email,
       role: user.role,
+      firstName: user.firstName,
+      lastName: user.lastName,
       validationStatus: user.validationStatus,
       consentSigned: user.consentSigned,
       isActive: user.isActive,

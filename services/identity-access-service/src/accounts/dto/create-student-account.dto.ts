@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength, IsOptional, IsBoolean } from 'class-validator';
+import { IsEmail, IsString, MinLength, MaxLength, IsNotEmpty, IsOptional, IsBoolean, ValidateIf } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateStudentAccountDto {
@@ -10,6 +10,18 @@ export class CreateStudentAccountDto {
   @IsString()
   @MinLength(8)
   password: string;
+
+  @ApiProperty({ example: 'Lucas', description: 'Student first name' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  firstName: string;
+
+  @ApiProperty({ example: 'Petit', description: 'Student last name' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  lastName: string;
 
   @ApiPropertyOptional({
     example: 'jean.dupont',
@@ -53,4 +65,24 @@ export class CreateStudentAccountDto {
   @IsString()
   @MinLength(8)
   parentPassword?: string;
+
+  @ApiPropertyOptional({
+    example: 'Nathalie',
+    description: 'Parent first name. Required when parentEmail is provided.',
+  })
+  @ValidateIf((dto: CreateStudentAccountDto) => !!dto.parentEmail)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  parentFirstName?: string;
+
+  @ApiPropertyOptional({
+    example: 'Petit',
+    description: 'Parent last name. Required when parentEmail is provided.',
+  })
+  @ValidateIf((dto: CreateStudentAccountDto) => !!dto.parentEmail)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  parentLastName?: string;
 }

@@ -100,6 +100,24 @@ describe('[E2E] Internal routes', () => {
 
       expect(res.status).toBe(400);
     });
+
+    it('firstName manquant → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-student-profiles')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.student2, lastName: 'Dupont' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('lastName manquant → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-student-profiles')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.student2, firstName: 'Alice' });
+
+      expect(res.status).toBe(400);
+    });
   });
 
   // ──────────────────────────────────────────────────────────────
@@ -137,6 +155,24 @@ describe('[E2E] Internal routes', () => {
         .post('/internal/create-teacher-profiles')
         .set('x-internal-secret', INTERNAL_SECRET)
         .send({ firstName: 'Test' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('firstName manquant → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-teacher-profiles')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.unknown, lastName: 'Martin' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('lastName manquant → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-teacher-profiles')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.unknown, firstName: 'Bob' });
 
       expect(res.status).toBe(400);
     });

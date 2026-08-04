@@ -195,6 +195,38 @@ describe('[E2E] Profiles', () => {
 
       expect(res.status).toBe(401);
     });
+
+    it('firstName vide (\'\') → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/administrative`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ firstName: '' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('lastName vide (\'\') → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/administrative`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ lastName: '' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('firstName absent du body → 200, le champ existant n\'est pas modifié', async () => {
+      const before = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.student1}`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/administrative`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ telephone: '0611223344' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.firstName).toBe(before.body.administrativeProfile?.firstName ?? 'Alice');
+    });
   });
 
   // ──────────────────────────────────────────────────────────────

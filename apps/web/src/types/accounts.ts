@@ -13,6 +13,8 @@ export interface RegisterParentPayload {
   email: string
   loginIdentifier?: string
   password: string
+  firstName: string
+  lastName: string
 }
 
 export interface RegistrationConsents {

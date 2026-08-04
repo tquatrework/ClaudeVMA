@@ -4,6 +4,8 @@ import { useCheckEmailAvailability } from '../hooks/accounts/useCheckEmailAvaila
 import { useParentRegistration } from '../hooks/accounts/useParentRegistration'
 
 interface ParentFormData {
+  firstName: string
+  lastName: string
   email: string
   loginIdentifier: string
   password: string
@@ -11,6 +13,8 @@ interface ParentFormData {
 }
 
 const INITIAL_FORM_DATA: ParentFormData = {
+  firstName: '',
+  lastName: '',
   email: '',
   loginIdentifier: '',
   password: '',
@@ -46,6 +50,10 @@ export default function ParentRegistrationPage() {
     e.preventDefault()
     setValidationError(null)
 
+    if (!formData.firstName.trim() || !formData.lastName.trim()) {
+      setValidationError('Le prénom et le nom sont requis')
+      return
+    }
     if (formData.password !== formData.confirmPassword) {
       setValidationError('Les mots de passe ne correspondent pas')
       return
@@ -59,6 +67,8 @@ export default function ParentRegistrationPage() {
       email: formData.email,
       loginIdentifier: formData.loginIdentifier || undefined,
       password: formData.password,
+      firstName: formData.firstName,
+      lastName: formData.lastName,
     })
 
     if (success) {
@@ -84,6 +94,31 @@ export default function ParentRegistrationPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Prénom *</label>
+              <input
+                type="text"
+                required
+                value={formData.firstName}
+                onChange={(e) => handleFieldChange('firstName', e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                placeholder="Prénom"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nom *</label>
+              <input
+                type="text"
+                required
+                value={formData.lastName}
+                onChange={(e) => handleFieldChange('lastName', e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                placeholder="Nom de famille"
+              />
+            </div>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Adresse e-mail *

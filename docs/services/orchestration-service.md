@@ -154,3 +154,98 @@ et `docs/conventions/services-convention.md`. Trois commits séparés, un par co
 - Le test e2e `test/e2e/callbacks.e2e-spec.ts` échoue en local (7 tests, 403 au lieu de 200) car
   `test/e2e/helpers/app.helper.ts` ne positionne pas `WEBHOOK_SECRET` dans `setTestEnv()` — gap
   préexistant, non introduit par cette session, non corrigé (hors périmètre des 3 conventions).
+
+## firstName/lastName obligatoires sur l'onboarding — session 2026-08-04
+
+Décision produit : `firstName`/`lastName` deviennent obligatoires dès la création de compte, sur
+toute la chaîne d'onboarding. Travail coordonné avec `identity-access-service` (routes de création
+de compte, publiques et `POST /internal/create-account`) et `profile-service` (`POST
+/internal/create-student-profiles` / `POST /internal/create-teacher-profiles`), qui portent la même
+contrainte de leur côté.
+
+### Validation d'entrée des workflows `student-onboarding` et `teacher-onboarding`
+
+- Nouveau champ optionnel `startPayloadValidationClass` sur `WorkflowDefinition`
+  (`src/workflow/definitions/workflow-definition.interface.ts`) : référence une classe
+  class-validator décrivant les seuls champs du `payload` de démarrage effectivement lus/dérivés
+  par orchestration-service lui-même. Les workflows qui n'en déclarent pas gardent un payload de
+  routage pur, non interprété (exception documentée dans
+  `docs/conventions/services-convention.md`).
+- Nouveau service `WorkflowPayloadValidatorService`
+  (`src/workflow/workflow-payload-validator.service.ts`) : valide le `payload` via
+  `class-transformer`/`class-validator` et lève une `BadRequestException` (400) listant les champs
+  manquants. Appelé en tout début de `WorkflowEngineService.startWorkflow()`, **avant** la
+  transaction qui crée l'instance/les étapes et avant tout appel HTTP sortant — un payload
+  incomplet échoue donc proprement dès l'entrée, jamais silencieusement plus loin dans la chaîne.
+- Nouveaux DTOs de payload (`src/workflow/dto/payloads/`) :
+  - `StudentOnboardingStartPayloadDto` : `firstName`/`lastName` obligatoires ; `parentAccountId`
+    optionnel ; `parentFirstName`/`parentLastName` obligatoires **uniquement si**
+    `parentAccountId` est fourni (`@ValidateIf`), même logique conditionnelle que côté
+    identity-access-service.
+  - `TeacherOnboardingStartPayloadDto` : `firstName`/`lastName` obligatoires.
+- `studentOnboardingWorkflow` et `teacherOnboardingWorkflow` déclarent désormais
+  `startPayloadValidationClass` pointant vers ces DTOs.
+
+### Propagation à travers les étapes existantes
+
+- `student-onboarding` step 1 (`create-student-account` → `identity-access-service`) : ajoute
+  `firstName`/`lastName` au payload sortant (absents auparavant) ; ajoute conditionnellement
+  `parentFirstName`/`parentLastName` lorsque `parentAccountId` est fourni.
+- `student-onboarding` step 2 (`create-student-profiles` → `profile-service`) : propageait déjà
+  `firstName`/`lastName` — inchangé, pattern existant repris pour les autres étapes.
+- `student-onboarding` step 3 (`link-parent` → `profile-service`) : ajoute
+  `parentFirstName`/`parentLastName` au payload sortant, en plus de `studentId`/`financeOwnerId`.
+- `teacher-onboarding` step 1 (`create-teacher-account` → `identity-access-service`) : ajoute
+  `firstName`/`lastName` au payload sortant (absents auparavant).
+- `teacher-onboarding` step 2 (`create-teacher-profiles` → `profile-service`) : propageait déjà
+  `firstName`/`lastName` — inchangé.
+- Pattern de propagation entre étapes (`context.stepOutputs['<step-name>']?.champ` pour les données
+  produites par une étape précédente, `context.payload.<champ>` pour les données du payload de
+  démarrage) : **inchangé**, conforme à l'existant (`workflow-engine.service.ts` alimente
+  `context.stepOutputs` avec la sortie de chaque étape complétée avant d'appeler `buildPayload` de
+  l'étape suivante). Aucune adaptation du moteur n'a été nécessaire pour la propagation elle-même —
+  seule la validation d'entrée est une capacité nouvelle.
+
+### Point à arbitrer — hypothèse sur les champs parent
+
+- Le workflow `student-onboarding` ne modélisait, avant cette session, qu'un seul mécanisme
+  "parent" : `parentAccountId`, un identifiant de compte **déjà existant**, utilisé uniquement par
+  l'étape optionnelle `link-parent` (`profile-service`). Il n'existe aucun concept de création de
+  compte parent *inline* dans ce workflow (contrairement à `identity-access-service` qui documente
+  `POST /accounts/students` avec `parentEmail`/`parentPassword` optionnels — cf. `docs/routes.md`).
+- La consigne de session demandait de rendre `parentFirstName`/`parentLastName` conditionnellement
+  obligatoires "si un parent est créé en même temps" et de les transmettre à l'appel interne
+  `identity-access-service`. En l'absence d'un champ `parentEmail`/équivalent dans ce workflow, j'ai
+  choisi de déclencher cette conditionnalité sur la présence de `parentAccountId` (seul signal
+  "parent" existant) et de propager `parentFirstName`/`parentLastName` à la fois vers
+  `identity-access-service` (step 1) et `profile-service` (step 3, `link-parent`), en plus de
+  `firstName`/`lastName`. C'est un choix défendable mais non vérifié auprès du contrat réel de
+  `POST /internal/create-account` (je n'ai pas accès au code source d'identity-access-service) : si
+  cette route n'accepte/n'utilise pas ces champs pour un compte élève, ils resteront simplement
+  ignorés côté payload de routage opaque, sans effet de bord. **À confirmer avec l'agent
+  identity-access-service ou l'orchestrateur** si le contrat réel diverge de cette hypothèse.
+
+### Tests
+
+- `test/unit/workflow/workflow-payload-validator.service.spec.ts` (nouveau) : couvre les deux DTOs
+  (succès, champs manquants, conditionnalité parent) et le cas d'un workflow sans classe de
+  validation (payload non interprété, toujours résolu).
+- `test/unit/workflow/student-onboarding.workflow.spec.ts` et
+  `test/unit/workflow/teacher-onboarding.workflow.spec.ts` (nouveaux) : couvrent la propagation de
+  `firstName`/`lastName`/champs parent à travers les étapes, sur le modèle de
+  `content-correction.workflow.spec.ts`.
+- `test/unit/workflow/workflow-engine.service.spec.ts` : nouveau mock
+  `WorkflowPayloadValidatorService` (injecté), nouveaux cas "validation appelée avant toute
+  écriture" et "échec de validation → aucune instance persistée, aucun événement publié".
+- `test/e2e/workflows.e2e-spec.ts` : tous les payloads `student-onboarding`/`teacher-onboarding`
+  incluent désormais `firstName`/`lastName` ; nouveaux cas 400 pour payload sans nom et pour
+  `parentAccountId` fourni sans noms parent.
+- `test/e2e/events.e2e-spec.ts` : le payload de son `beforeAll` (démarrage d'un
+  `student-onboarding` pour obtenir un `correlationId` connu) ne contenait pas `firstName`/
+  `lastName` — corrigé, sinon le démarrage échouait en 400 et aucun événement `WorkflowStarted`
+  n'était enregistré (la suite échouait pour une cause indépendante de cette session mais révélée
+  par le nouveau contrôle d'entrée).
+- Suite complète : 130 tests unitaires passent, e2e : 42/49 passent, les 7 échecs restants sont le
+  gap `WEBHOOK_SECRET` pré-existant de `test/e2e/callbacks.e2e-spec.ts` documenté ci-dessus
+  (confirmé identique avant cette session via `git stash`), non lié à ce changement.
+- `npm run build` (`nest build`) passe sans erreur TypeScript.

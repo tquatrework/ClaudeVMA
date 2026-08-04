@@ -35,7 +35,12 @@ describe('[E2E] GET /events/:correlationId', () => {
       .set('Authorization', `Bearer ${RP_TOKEN}`)
       .send({
         workflowType: 'student-onboarding',
-        payload: { email: `events-test-${Date.now()}@test.com`, password: 'P@ss1' },
+        payload: {
+          email: `events-test-${Date.now()}@test.com`,
+          password: 'P@ss1',
+          firstName: 'Jean',
+          lastName: 'Dupont',
+        },
         correlationId: knownCorrelationId,
       });
 

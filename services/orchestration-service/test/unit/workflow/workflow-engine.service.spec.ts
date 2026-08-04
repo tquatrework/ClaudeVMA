@@ -1,7 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { BadRequestException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { WorkflowEngineService } from '../../../src/workflow/workflow-engine.service';
+import { WORKFLOW_DEFINITIONS } from '../../../src/workflow/definitions';
 import { WorkflowInstance } from '../../../src/workflow/entities/workflow-instance.entity';
 import { WorkflowStep } from '../../../src/workflow/entities/workflow-step.entity';
 import { CompensationAction } from '../../../src/workflow/entities/compensation-action.entity';
@@ -10,6 +12,7 @@ import { HttpClientService } from '../../../src/http-client/http-client.service'
 import { IdempotencyService } from '../../../src/idempotency/idempotency.service';
 import { EventService } from '../../../src/event/event.service';
 import { CorrelationTraceService } from '../../../src/correlation/correlation-trace.service';
+import { WorkflowPayloadValidatorService } from '../../../src/workflow/workflow-payload-validator.service';
 import { WorkflowStatus } from '../../../src/common/enums/workflow-status.enum';
 import { StepStatus } from '../../../src/common/enums/step-status.enum';
 
@@ -37,6 +40,10 @@ const makeEventServiceMock = () => ({
 
 const makeCorrelationTraceMock = () => ({
   record: jest.fn().mockResolvedValue(undefined),
+});
+
+const makePayloadValidatorMock = () => ({
+  validateStartPayload: jest.fn().mockResolvedValue(undefined),
 });
 
 /**
@@ -71,6 +78,7 @@ describe('WorkflowEngineService', () => {
   let idempotency: ReturnType<typeof makeIdempotencyMock>;
   let eventService: ReturnType<typeof makeEventServiceMock>;
   let correlationTrace: ReturnType<typeof makeCorrelationTraceMock>;
+  let payloadValidator: ReturnType<typeof makePayloadValidatorMock>;
 
   beforeEach(async () => {
     const instanceRepoMock = makeRepoMock();
@@ -88,6 +96,7 @@ describe('WorkflowEngineService', () => {
         { provide: IdempotencyService, useFactory: makeIdempotencyMock },
         { provide: EventService, useFactory: makeEventServiceMock },
         { provide: CorrelationTraceService, useFactory: makeCorrelationTraceMock },
+        { provide: WorkflowPayloadValidatorService, useFactory: makePayloadValidatorMock },
       ],
     }).compile();
 
@@ -100,6 +109,7 @@ describe('WorkflowEngineService', () => {
     idempotency = module.get(IdempotencyService);
     eventService = module.get(EventService);
     correlationTrace = module.get(CorrelationTraceService);
+    payloadValidator = module.get(WorkflowPayloadValidatorService);
   });
 
   describe('startWorkflow', () => {
@@ -154,6 +164,36 @@ describe('WorkflowEngineService', () => {
         engine.startWorkflow('student-onboarding', { email: 'err@b.com' }),
       ).rejects.toThrow('db unavailable');
 
+      expect(eventService.record).not.toHaveBeenCalled();
+    });
+
+    it('validates the payload via WorkflowPayloadValidatorService before persisting anything — ORCH-WF-ENGINE-011', async () => {
+      instanceRepo.save.mockResolvedValue({
+        id: 'inst-valid', correlationId: 'corr-valid',
+        status: WorkflowStatus.IN_PROGRESS, payload: {}, context: {},
+      });
+      stepRepo.save.mockResolvedValue([]);
+      const definition = WORKFLOW_DEFINITIONS['student-onboarding'];
+
+      await engine.startWorkflow('student-onboarding', { firstName: 'Jean', lastName: 'Dupont' });
+
+      expect(payloadValidator.validateStartPayload).toHaveBeenCalledWith(
+        definition,
+        { firstName: 'Jean', lastName: 'Dupont' },
+      );
+    });
+
+    it('rejects the workflow start and never persists an instance when the payload is invalid', async () => {
+      payloadValidator.validateStartPayload.mockRejectedValueOnce(
+        new BadRequestException('firstName est requis'),
+      );
+
+      await expect(engine.startWorkflow('student-onboarding', {})).rejects.toThrow(
+        'firstName est requis',
+      );
+
+      expect(instanceRepo.save).not.toHaveBeenCalled();
+      expect(stepRepo.save).not.toHaveBeenCalled();
       expect(eventService.record).not.toHaveBeenCalled();
     });
   });

@@ -106,6 +106,48 @@ describe('[E2E] Workflows', () => {
       expect(res.status).toBe(400);
     });
 
+    it('returns 400 when firstName/lastName are missing from a student-onboarding payload', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/workflows/student-onboarding/start')
+        .set('Authorization', `Bearer ${RP_TOKEN}`)
+        .send({
+          workflowType: 'student-onboarding',
+          payload: { email: `no-name-${Date.now()}@test.com`, password: 'P@ss1' },
+        });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when firstName/lastName are missing from a teacher-onboarding payload', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/workflows/teacher-onboarding/start')
+        .set('Authorization', `Bearer ${RP_TOKEN}`)
+        .send({
+          workflowType: 'teacher-onboarding',
+          payload: { email: `no-name-t-${Date.now()}@test.com`, password: 'P@ss1' },
+        });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when parentAccountId is provided without parentFirstName/parentLastName', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/workflows/student-onboarding/start')
+        .set('Authorization', `Bearer ${RP_TOKEN}`)
+        .send({
+          workflowType: 'student-onboarding',
+          payload: {
+            email: `parent-missing-${Date.now()}@test.com`,
+            password: 'P@ss1',
+            firstName: 'Jean',
+            lastName: 'Dupont',
+            parentAccountId: 'parent-1',
+          },
+        });
+
+      expect(res.status).toBe(400);
+    });
+
     it('starts student-onboarding workflow and returns instance info', async () => {
       const correlationId = uuidv4();
       const res = await request(app.getHttpServer())
@@ -188,7 +230,12 @@ describe('[E2E] Workflows', () => {
         .set('Authorization', `Bearer ${RP_TOKEN}`)
         .send({
           workflowType: 'student-onboarding',
-          payload: { email: `x-${Date.now()}@test.com`, password: 'P@ss1' },
+          payload: {
+            email: `x-${Date.now()}@test.com`,
+            password: 'P@ss1',
+            firstName: 'Jean',
+            lastName: 'Dupont',
+          },
         });
 
       expect(res.status).toBe(201);
@@ -202,7 +249,12 @@ describe('[E2E] Workflows', () => {
         .set('Authorization', `Bearer ${RP_TOKEN}`)
         .send({
           workflowType: 'student-onboarding',
-          payload: { email: `corr-${Date.now()}@test.com`, password: 'P@ss1' },
+          payload: {
+            email: `corr-${Date.now()}@test.com`,
+            password: 'P@ss1',
+            firstName: 'Jean',
+            lastName: 'Dupont',
+          },
           correlationId,
         });
 
@@ -225,7 +277,12 @@ describe('[E2E] Workflows', () => {
         .set('Authorization', `Bearer ${RP_TOKEN}`)
         .send({
           workflowType: 'student-onboarding',
-          payload: { email: `get-test-${Date.now()}@test.com`, password: 'P@ss1' },
+          payload: {
+            email: `get-test-${Date.now()}@test.com`,
+            password: 'P@ss1',
+            firstName: 'Jean',
+            lastName: 'Dupont',
+          },
         });
       instanceId = res.body.workflowInstanceId;
     });
@@ -281,7 +338,12 @@ describe('[E2E] Workflows', () => {
         .set('Authorization', `Bearer ${RP_TOKEN}`)
         .send({
           workflowType: 'student-onboarding',
-          payload: { email: `suspend-${Date.now()}@test.com`, password: 'P@ss1' },
+          payload: {
+            email: `suspend-${Date.now()}@test.com`,
+            password: 'P@ss1',
+            firstName: 'Jean',
+            lastName: 'Dupont',
+          },
         });
       instanceId = res.body.workflowInstanceId;
     });
@@ -329,7 +391,12 @@ describe('[E2E] Workflows', () => {
         .set('Authorization', `Bearer ${RP_TOKEN}`)
         .send({
           workflowType: 'student-onboarding',
-          payload: { email: `resume-${Date.now()}@test.com`, password: 'P@ss1' },
+          payload: {
+            email: `resume-${Date.now()}@test.com`,
+            password: 'P@ss1',
+            firstName: 'Jean',
+            lastName: 'Dupont',
+          },
         });
       instanceId = startRes.body.workflowInstanceId;
 
@@ -365,7 +432,12 @@ describe('[E2E] Workflows', () => {
         .set('Authorization', `Bearer ${makeJwt(IDS.ti, 'technicien_informatique')}`)
         .send({
           workflowType: 'student-onboarding',
-          payload: { email: `ti-resume-${Date.now()}@test.com`, password: 'P@ss1' },
+          payload: {
+            email: `ti-resume-${Date.now()}@test.com`,
+            password: 'P@ss1',
+            firstName: 'Jean',
+            lastName: 'Dupont',
+          },
         });
       const tiInstanceId = startRes.body.workflowInstanceId;
 

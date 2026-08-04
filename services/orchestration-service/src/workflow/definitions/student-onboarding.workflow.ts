@@ -1,9 +1,11 @@
 import { WorkflowDefinition } from './workflow-definition.interface';
+import { StudentOnboardingStartPayloadDto } from '../dto/payloads/student-onboarding-start-payload.dto';
 
 export const studentOnboardingWorkflow: WorkflowDefinition = {
   id: 'student-onboarding',
   name: 'Inscription et activation élève',
   phase: 1,
+  startPayloadValidationClass: StudentOnboardingStartPayloadDto,
   steps: [
     {
       order: 1,
@@ -16,6 +18,16 @@ export const studentOnboardingWorkflow: WorkflowDefinition = {
         password: context.payload.password,
         role: 'eleve',
         consents: context.payload.consents,
+        firstName: context.payload.firstName,
+        lastName: context.payload.lastName,
+        // Champs parent transmis uniquement lorsqu'un parent est concerné par
+        // cette inscription (mêmes conditions que la validation d'entrée).
+        ...(context.payload.parentAccountId
+          ? {
+              parentFirstName: context.payload.parentFirstName,
+              parentLastName: context.payload.parentLastName,
+            }
+          : {}),
       }),
       compensationAction: 'delete-account',
       buildCompensationPayload: (context) => ({
@@ -49,6 +61,8 @@ export const studentOnboardingWorkflow: WorkflowDefinition = {
       buildPayload: (context) => ({
         studentId: context.stepOutputs['create-student-account']?.accountId,
         financeOwnerId: context.payload.parentAccountId,
+        parentFirstName: context.payload.parentFirstName,
+        parentLastName: context.payload.parentLastName,
       }),
     },
     {

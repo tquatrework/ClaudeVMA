@@ -74,8 +74,15 @@ export class IdentityAccessClient {
         signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
       });
     } catch (networkError) {
-      this.logger.warn(
-        `Impossible de joindre identity-access-service (${path}) : ${(networkError as Error).message}`,
+      // Unreachable host, DNS failure or timeout: this is an infrastructure/config
+      // problem (wrong IDENTITY_ACCESS_SERVICE_URL, network partition…), not a
+      // business "account not found". Logged at error level so it surfaces in
+      // observability instead of silently degrading (see profiles.service.ts
+      // fetchLoginIdentifier, which turns this into a null and never fails the
+      // caller).
+      this.logger.error(
+        `Impossible de joindre identity-access-service (${path}) : ${(networkError as Error).message}. ` +
+          'Vérifier IDENTITY_ACCESS_SERVICE_URL et la disponibilité réseau.',
       );
       throw new IdentityAccessUnavailableError('identity-access-service unreachable or timed out');
     }
@@ -85,7 +92,15 @@ export class IdentityAccessClient {
     }
 
     if (!response.ok) {
-      this.logger.warn(`identity-access-service a retourné HTTP ${response.status} pour ${path}`);
+      // A non-404 non-2xx status (in particular 401/403) most often signals a
+      // configuration mismatch — e.g. INTERNAL_SECRET differing between this
+      // service and identity-access-service — rather than a transient issue.
+      // Logged at error level (not warn) so it is not confused with the
+      // expected 404 "not found" case and stays visible in observability.
+      this.logger.error(
+        `identity-access-service a retourné HTTP ${response.status} pour ${path}. ` +
+          'Vérifier INTERNAL_SECRET et la configuration réseau entre les deux services.',
+      );
       throw new IdentityAccessUnavailableError(`identity-access-service returned HTTP ${response.status}`);
     }
 

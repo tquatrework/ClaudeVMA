@@ -5,7 +5,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
+import { AuthenticatedUser } from '../types/authenticated-user.type';
+import { UserRole } from '../enums/user-role.enum';
 
 export interface JwtPayload {
   sub: string;
@@ -19,14 +20,13 @@ export interface JwtPayload {
 
 /**
  * Guard that manually verifies the Bearer JWT using @nestjs/jwt.
+ * The signing secret is configured once, in SecurityModule (JwtModule.registerAsync),
+ * so this guard does not read configuration itself.
  * The decoded payload is attached to request.user.
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(
-    private readonly jwtService: JwtService,
-    private readonly config: ConfigService,
-  ) {}
+  constructor(private readonly jwtService: JwtService) {}
 
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest();
@@ -40,9 +40,7 @@ export class JwtAuthGuard implements CanActivate {
     let payload: JwtPayload;
 
     try {
-      payload = this.jwtService.verify<JwtPayload>(token, {
-        secret: this.config.get<string>('JWT_SECRET'),
-      });
+      payload = this.jwtService.verify<JwtPayload>(token);
     } catch {
       throw new UnauthorizedException('Invalid or expired token');
     }
@@ -51,14 +49,15 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Invalid token type');
     }
 
-    request.user = {
+    const authenticatedUser: AuthenticatedUser = {
       id: payload.sub,
       loginIdentifier: payload.loginIdentifier,
       email: payload.email,
-      role: payload.role,
+      role: payload.role as UserRole,
       validationStatus: payload.validationStatus,
       jti: payload.jti,
     };
+    request.user = authenticatedUser;
 
     return true;
   }

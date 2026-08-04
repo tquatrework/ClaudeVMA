@@ -8,25 +8,26 @@ import { DelegationsModule } from './delegations/delegations.module';
 import { EventsModule } from './events/events.module';
 import { HealthModule } from './health/health.module';
 import { InternalModule } from './internal/internal.module';
-import { User } from './auth/entities/user.entity';
-import { LoginSession } from './auth/entities/login-session.entity';
-import { PasswordResetToken } from './auth/entities/password-reset-token.entity';
-import { EmailVerificationToken } from './auth/entities/email-verification-token.entity';
-import { IdentifierRecoveryToken } from './auth/entities/identifier-recovery-token.entity';
-import { AuditLog } from './accounts/entities/audit-log.entity';
-import { ConsentRecord } from './consents/entities/consent-record.entity';
-import { DelegatedAccessRequest } from './delegations/entities/delegated-access-request.entity';
+import { validateEnvironment } from './config/env.validation';
+
+/**
+ * Environnement considéré comme "test éphémère" au sens de la convention modules :
+ * seul ce cas autorise la synchronisation automatique du schéma (base jetable, recréée
+ * à chaque exécution). Tout autre environnement (development compris) doit passer par
+ * les migrations TypeORM.
+ */
+const EPHEMERAL_TEST_NODE_ENV = 'test';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
-        url: config.get<string>('DATABASE_URL'),
-        entities: [User, LoginSession, PasswordResetToken, EmailVerificationToken, IdentifierRecoveryToken, AuditLog, ConsentRecord, DelegatedAccessRequest],
-        synchronize: config.get<string>('NODE_ENV') !== 'production',
+        url: config.getOrThrow<string>('DATABASE_URL'),
+        autoLoadEntities: true,
+        synchronize: config.get<string>('NODE_ENV') === EPHEMERAL_TEST_NODE_ENV,
         logging: config.get<string>('NODE_ENV') === 'development',
       }),
       inject: [ConfigService],

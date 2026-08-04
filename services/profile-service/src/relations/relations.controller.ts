@@ -5,7 +5,6 @@ import {
   Param,
   Body,
   UseGuards,
-  Request,
   ParseUUIDPipe,
 } from '@nestjs/common';
 import {
@@ -19,6 +18,8 @@ import { RelationsService } from './relations.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { UserRole } from '../common/enums/user-role.enum';
 import { CreateFinanceOwnerStudentLinkDto } from './dto/create-finance-owner-student-link.dto';
 import { CreateTeacherStudentLinkDto } from './dto/create-teacher-student-link.dto';
@@ -45,9 +46,9 @@ export class RelationsController {
   @ApiResponse({ status: 409, description: 'Link already exists' })
   linkFinanceOwnerToStudent(
     @Body() dto: CreateFinanceOwnerStudentLinkDto,
-    @Request() req,
-  ) {
-    return this.relationsService.linkFinanceOwnerToStudent(dto, req.user);
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<RelationsService['linkFinanceOwnerToStudent']>>> {
+    return this.relationsService.linkFinanceOwnerToStudent(dto, actor);
   }
 
   @Get('finance-owner-student/by-student/:studentId')
@@ -62,9 +63,9 @@ export class RelationsController {
   @ApiResponse({ status: 403, description: 'Forbidden — insufficient rights' })
   getFinanceOwnersByStudent(
     @Param('studentId', ParseUUIDPipe) studentId: string,
-    @Request() req,
-  ) {
-    return this.relationsService.getFinanceOwnersByStudent(studentId, req.user);
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<RelationsService['getFinanceOwnersByStudent']>>> {
+    return this.relationsService.getFinanceOwnersByStudent(studentId, actor);
   }
 
   @Get('finance-owner-student/:financeOwnerId')
@@ -79,9 +80,9 @@ export class RelationsController {
   @ApiResponse({ status: 403, description: 'Forbidden — insufficient rights' })
   getStudentsByFinanceOwner(
     @Param('financeOwnerId', ParseUUIDPipe) financeOwnerId: string,
-    @Request() req,
-  ) {
-    return this.relationsService.getStudentsByFinanceOwner(financeOwnerId, req.user);
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<RelationsService['getStudentsByFinanceOwner']>>> {
+    return this.relationsService.getStudentsByFinanceOwner(financeOwnerId, actor);
   }
 
   @Post('teacher-student')
@@ -99,9 +100,9 @@ export class RelationsController {
   @ApiResponse({ status: 409, description: 'Link already exists' })
   linkTeacherToStudent(
     @Body() dto: CreateTeacherStudentLinkDto,
-    @Request() req,
-  ) {
-    return this.relationsService.linkTeacherToStudent(dto, req.user);
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<RelationsService['linkTeacherToStudent']>>> {
+    return this.relationsService.linkTeacherToStudent(dto, actor);
   }
 
   @Get('teacher-student/:studentId')
@@ -118,9 +119,9 @@ export class RelationsController {
   @ApiResponse({ status: 403, description: 'Forbidden — insufficient rights' })
   getTeachersByStudent(
     @Param('studentId', ParseUUIDPipe) studentId: string,
-    @Request() req,
-  ) {
-    return this.relationsService.getTeachersByStudent(studentId, req.user);
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<RelationsService['getTeachersByStudent']>>> {
+    return this.relationsService.getTeachersByStudent(studentId, actor);
   }
 
   @Post('pedagogical-coordinator')
@@ -136,9 +137,9 @@ export class RelationsController {
   @ApiResponse({ status: 409, description: 'Link already exists' })
   linkPedagogicalCoordinator(
     @Body() dto: CreatePedagogicalCoordinatorLinkDto,
-    @Request() req,
-  ) {
-    return this.relationsService.linkPedagogicalCoordinator(dto, req.user);
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<RelationsService['linkPedagogicalCoordinator']>>> {
+    return this.relationsService.linkPedagogicalCoordinator(dto, actor);
   }
 
   @Get('pedagogical-coordinator/:coordinatorId')
@@ -153,8 +154,8 @@ export class RelationsController {
   @ApiResponse({ status: 403, description: 'Forbidden — insufficient rights' })
   getStudentsByCoordinator(
     @Param('coordinatorId', ParseUUIDPipe) coordinatorId: string,
-    @Request() req,
-  ) {
-    return this.relationsService.getStudentsByCoordinator(coordinatorId, req.user);
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<RelationsService['getStudentsByCoordinator']>>> {
+    return this.relationsService.getStudentsByCoordinator(coordinatorId, actor);
   }
 }

@@ -2,16 +2,11 @@ import {
   Controller,
   Get,
   Post,
-  Delete,
   Param,
+  ParseUUIDPipe,
   Body,
   Query,
   UseGuards,
-  Req,
-  Headers,
-  HttpCode,
-  HttpStatus,
-  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -24,24 +19,30 @@ import {
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CorrelationId } from '../common/decorators/correlation-id.decorator';
+import { CurrentUser } from '../common/current-user.decorator';
+import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 import { UserRole } from '../common/enums/user-role.enum';
 import { CalendarEventsService } from './calendar-events.service';
 import { CreateCalendarEventDto } from './dto/create-calendar-event.dto';
 import { ListEventsQueryDto } from './dto/list-events-query.dto';
-import { CancelRequestDto } from './dto/cancel-request.dto';
-import { ConfigureReminderDto } from './dto/configure-reminder.dto';
-import { CreateVisibilityGrantDto } from './dto/create-visibility-grant.dto';
+import { CalendarEvent } from './entities/calendar-event.entity';
 
+/**
+ * Resource root: calendar events (`/calendars/{ownerId}/events`).
+ * Invitations, cancellations, reminders and visibility grants are exposed
+ * by their own dedicated controllers (see event-invitations.controller.ts,
+ * event-cancellations.controller.ts, event-reminders.controller.ts,
+ * calendar-visibility-grants.controller.ts).
+ */
 @ApiTags('calendar-events')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Controller()
+@Controller('calendars/:ownerId/events')
 export class CalendarEventsController {
   constructor(private readonly calendarEventsService: CalendarEventsService) {}
 
-  // ── /calendars/{ownerId}/events ──────────────────────────────────────────
-
-  @Get('calendars/:ownerId/events')
+  @Get()
   @Roles(UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE, UserRole.ADMINISTRATEUR_FINANCIER) // accès filtré par ownership/filtrage dans le service
   @ApiParam({ name: 'ownerId', description: 'Calendar owner user ID' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
@@ -56,21 +57,15 @@ export class CalendarEventsController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden — insufficient access to this calendar' })
   listEvents(
-    @Param('ownerId') ownerId: string,
+    @Param('ownerId', ParseUUIDPipe) ownerId: string,
     @Query() query: ListEventsQueryDto,
-    @Req() req: any,
-    @Headers('x-correlation-id') correlationId?: string,
-  ) {
-    return this.calendarEventsService.listEvents(
-      ownerId,
-      req.user.id,
-      req.user.role,
-      query,
-      correlationId,
-    );
+    @CurrentUser() actor: AuthenticatedUser,
+    @CorrelationId() correlationId?: string,
+  ): Promise<CalendarEvent[]> {
+    return this.calendarEventsService.listEvents(ownerId, actor, query, correlationId);
   }
 
-  @Post('calendars/:ownerId/events')
+  @Post()
   @Roles(UserRole.ELEVE, UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE)
   @ApiParam({ name: 'ownerId', description: 'Calendar owner user ID' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
@@ -90,204 +85,11 @@ export class CalendarEventsController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden — role not allowed to create this event type' })
   createEvent(
-    @Param('ownerId') ownerId: string,
+    @Param('ownerId', ParseUUIDPipe) ownerId: string,
     @Body() dto: CreateCalendarEventDto,
-    @Req() req: any,
-    @Headers('x-correlation-id') correlationId?: string,
-  ) {
-    return this.calendarEventsService.createEvent(
-      ownerId,
-      dto,
-      req.user.id,
-      req.user.role,
-      correlationId,
-    );
-  }
-
-  // ── /events/{id}/invitees/{userId} ────────────────────────────────────────
-
-  @Post('events/:id/invitees/:userId/accept')
-  @Roles(UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE, UserRole.ADMINISTRATEUR_FINANCIER) // accès filtré dans le service
-  @ApiParam({ name: 'id', description: 'Event UUID' })
-  @ApiParam({ name: 'userId', description: 'Invitee user ID' })
-  @ApiHeader({ name: 'x-correlation-id', required: false })
-  @ApiOperation({
-    summary: 'Accept an event invitation',
-    description:
-      'Marks the invitation as accepted. ' +
-      'The requesting user must be the invitee. ' +
-      'Publishes InvitationAccepted event.',
-  })
-  @ApiResponse({ status: 201, description: 'Invitation accepted — emits InvitationAccepted event' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 404, description: 'Event or invitation not found' })
-  @ApiResponse({ status: 409, description: 'Invitation already processed' })
-  acceptInvitation(
-    @Param('id') eventId: string,
-    @Param('userId') userId: string,
-    @Req() req: any,
-    @Headers('x-correlation-id') correlationId?: string,
-  ) {
-    if (req.user.id !== userId) {
-      throw new ForbiddenException('You can only accept your own invitations');
-    }
-    return this.calendarEventsService.acceptInvitation(eventId, userId, correlationId);
-  }
-
-  @Post('events/:id/invitees/:userId/decline')
-  @Roles(UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE, UserRole.ADMINISTRATEUR_FINANCIER) // accès filtré dans le service
-  @ApiParam({ name: 'id', description: 'Event UUID' })
-  @ApiParam({ name: 'userId', description: 'Invitee user ID' })
-  @ApiHeader({ name: 'x-correlation-id', required: false })
-  @ApiOperation({
-    summary: 'Decline an event invitation',
-    description:
-      'Marks the invitation as declined. ' +
-      'A declined invitation removes the event from the invitee\'s calendar view. ' +
-      'Publishes InvitationDeclined event.',
-  })
-  @ApiResponse({ status: 201, description: 'Invitation declined — emits InvitationDeclined event' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 404, description: 'Event or invitation not found' })
-  @ApiResponse({ status: 409, description: 'Invitation already processed' })
-  declineInvitation(
-    @Param('id') eventId: string,
-    @Param('userId') userId: string,
-    @Req() req: any,
-    @Headers('x-correlation-id') correlationId?: string,
-  ) {
-    if (req.user.id !== userId) {
-      throw new ForbiddenException('You can only decline your own invitations');
-    }
-    return this.calendarEventsService.declineInvitation(eventId, userId, correlationId);
-  }
-
-  // ── /events/{id}/cancel-request ──────────────────────────────────────────
-
-  @Post('events/:id/cancel-request')
-  @Roles(UserRole.ELEVE, UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE) // accès filtré dans le service
-  @ApiParam({ name: 'id', description: 'Event UUID' })
-  @ApiHeader({ name: 'x-correlation-id', required: false })
-  @ApiOperation({
-    summary: 'Request or apply event cancellation',
-    description:
-      'Requests cancellation of an event. ' +
-      'Business rule: if the event starts within 48h, the request status is PENDING_APPROVAL. ' +
-      'Otherwise cancellation is applied immediately (APPROVED). ' +
-      'Only the event creator, RP, or TI can cancel. ' +
-      'Publishes CancellationRequested event.',
-  })
-  @ApiResponse({ status: 201, description: 'Cancellation request created — emits CancellationRequested event' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden — only creator, RP or TI can cancel' })
-  @ApiResponse({ status: 404, description: 'Event not found' })
-  @ApiResponse({ status: 409, description: 'Event already cancelled' })
-  requestCancellation(
-    @Param('id') eventId: string,
-    @Body() dto: CancelRequestDto,
-    @Req() req: any,
-    @Headers('x-correlation-id') correlationId?: string,
-  ) {
-    return this.calendarEventsService.requestCancellation(
-      eventId,
-      dto,
-      req.user.id,
-      req.user.role,
-      correlationId,
-    );
-  }
-
-  // ── /events/{id}/reminders ────────────────────────────────────────────────
-
-  @Post('events/:id/reminders')
-  @Roles(UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE, UserRole.ADMINISTRATEUR_FINANCIER) // accès filtré par ownership dans le service
-  @ApiParam({ name: 'id', description: 'Event UUID' })
-  @ApiHeader({ name: 'x-correlation-id', required: false })
-  @ApiOperation({
-    summary: 'Configure a reminder rule for an event',
-    description:
-      'Sets a reminder rule for the requesting user on a specific event. ' +
-      'Valid delays: 1week, 1day, 1hour, 15min, none. ' +
-      'Choosing "none" removes any existing reminder rule.',
-  })
-  @ApiResponse({ status: 201, description: 'Reminder rule configured' })
-  @ApiResponse({ status: 400, description: 'Validation error — invalid delay value' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 404, description: 'Event not found' })
-  configureReminder(
-    @Param('id') eventId: string,
-    @Body() dto: ConfigureReminderDto,
-    @Req() req: any,
-    @Headers('x-correlation-id') correlationId?: string,
-  ) {
-    return this.calendarEventsService.configureReminder(
-      eventId,
-      dto,
-      req.user.id,
-      req.user.role,
-      correlationId,
-    );
-  }
-
-  // ── /calendars/{ownerId}/availability (GET) ───────────────────────────────
-
-  // ── /calendars/{ownerId}/grants ──────────────────────────────────────────
-
-  @Post('calendars/:ownerId/grants')
-  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE)
-  @ApiParam({ name: 'ownerId', description: 'Calendar owner user ID' })
-  @ApiHeader({ name: 'x-correlation-id', required: false })
-  @ApiOperation({
-    summary: 'Grant calendar visibility to a user (RP only)',
-    description:
-      'Creates a CalendarVisibilityGrant allowing the grantee to read the owner\'s calendar. ' +
-      'Only RESPONSABLE_PEDAGOGIQUE can call this endpoint.',
-  })
-  @ApiResponse({ status: 201, description: 'Visibility grant created' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden — only RP can grant visibility' })
-  createVisibilityGrant(
-    @Param('ownerId') ownerId: string,
-    @Body() dto: CreateVisibilityGrantDto,
-    @Req() req: any,
-    @Headers('x-correlation-id') correlationId?: string,
-  ) {
-    return this.calendarEventsService.createVisibilityGrant(
-      ownerId,
-      dto,
-      req.user.id,
-      req.user.role,
-      correlationId,
-    );
-  }
-
-  @Delete('calendars/:ownerId/grants/:granteeId')
-  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE)
-  @HttpCode(HttpStatus.OK)
-  @ApiParam({ name: 'ownerId', description: 'Calendar owner user ID' })
-  @ApiParam({ name: 'granteeId', description: 'User whose access to revoke' })
-  @ApiHeader({ name: 'x-correlation-id', required: false })
-  @ApiOperation({
-    summary: 'Revoke calendar visibility grant (RP only)',
-    description:
-      'Removes the CalendarVisibilityGrant for the specified grantee on the owner\'s calendar. ' +
-      'Only RESPONSABLE_PEDAGOGIQUE can call this endpoint.',
-  })
-  @ApiResponse({ status: 200, description: 'Visibility grant revoked' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden — only RP can revoke visibility' })
-  @ApiResponse({ status: 404, description: 'Grant not found' })
-  revokeVisibilityGrant(
-    @Param('ownerId') ownerId: string,
-    @Param('granteeId') granteeId: string,
-    @Req() req: any,
-    @Headers('x-correlation-id') correlationId?: string,
-  ) {
-    return this.calendarEventsService.revokeVisibilityGrant(
-      ownerId,
-      granteeId,
-      req.user.role,
-      correlationId,
-    );
+    @CurrentUser() actor: AuthenticatedUser,
+    @CorrelationId() correlationId?: string,
+  ): Promise<CalendarEvent> {
+    return this.calendarEventsService.createEvent(ownerId, dto, actor, correlationId);
   }
 }

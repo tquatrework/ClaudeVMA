@@ -801,4 +801,54 @@ describe('[E2E] Communication Service', () => {
       expect(res.status).toBe(404);
     });
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // ParseUUIDPipe — paramètres UUID invalides (controllers-convention)
+  // Avant la convention, un id malformé remontait tel quel au service/repository ;
+  // désormais chaque paramètre d'id utilise ParseUUIDPipe → 400 immédiat.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('ParseUUIDPipe — identifiants malformés → 400', () => {
+    it('POST /conversations/:id/messages avec id non UUID → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/conversations/not-a-uuid/messages')
+        .set('Authorization', `Bearer ${student1Token}`)
+        .send({ content: 'test' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('GET /messages/conversation/:id avec id non UUID → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/messages/conversation/not-a-uuid')
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      expect(res.status).toBe(400);
+    });
+
+    it('PATCH /messages/:id/read avec id non UUID → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/messages/not-a-uuid/read')
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      expect(res.status).toBe(400);
+    });
+
+    it('GET /incidents/:id avec id non UUID → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/incidents/not-a-uuid')
+        .set('Authorization', `Bearer ${tiToken}`);
+
+      expect(res.status).toBe(400);
+    });
+
+    it('PUT /incidents/:id/status avec id non UUID → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .put('/incidents/not-a-uuid/status')
+        .set('Authorization', `Bearer ${tiToken}`)
+        .send({ status: 'closed' });
+
+      expect(res.status).toBe(400);
+    });
+  });
 });

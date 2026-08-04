@@ -6,17 +6,22 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { ParentLinkRequestsService } from '../../../src/parent-link-requests/parent-link-requests.service';
 import {
   ParentLinkRequest,
   ParentLinkRequestDirection,
   ParentLinkRequestStatus,
 } from '../../../src/parent-link-requests/entities/parent-link-request.entity';
-import { StudentPedagogicalProfile } from '../../../src/profiles/entities/student-pedagogical-profile.entity';
-import { FinanceOwnerStudentLink } from '../../../src/relations/entities/finance-owner-student-link.entity';
+import { ProfilesService } from '../../../src/profiles/profiles.service';
+import { RelationsService } from '../../../src/relations/relations.service';
+import {
+  IdentityAccessClient,
+  IdentityAccessNotFoundError,
+  IdentityAccessUnavailableError,
+} from '../../../src/common/clients/identity-access.client';
+import { DashboardNotificationClient } from '../../../src/common/clients/dashboard-notification.client';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
-import { Actor } from '../../../src/profiles/profiles.service';
+import { Actor } from '../../../src/common/types/actor.type';
 
 const makeActor = (role: UserRole, id = 'actor-uuid'): Actor => ({ id, role });
 
@@ -42,30 +47,10 @@ const makeIdentityResponse = (overrides: Partial<{ userId: string; role: string 
 describe('ParentLinkRequestsService', () => {
   let service: ParentLinkRequestsService;
   let requestRepo: any;
-  let studentPedaRepo: any;
-  let financeLinkRepo: any;
-  let configService: any;
-
-  const mockFetchSuccess = (responseData: object, status = 200) => {
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: status >= 200 && status < 300,
-      status,
-      json: jest.fn().mockResolvedValue(responseData),
-    } as unknown as Response);
-  };
-
-  const mockFetchNotFound = () => {
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: false,
-      status: 404,
-      json: jest.fn().mockResolvedValue({ message: 'Identifiant élève introuvable' }),
-    } as unknown as Response);
-  };
-
-  const mockFetchNetworkError = () => {
-    global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
-  };
-
+  let profilesService: any;
+  let relationsService: any;
+  let identityAccessClient: any;
+  let dashboardNotificationClient: any;
 
   beforeEach(async () => {
     requestRepo = {
@@ -79,42 +64,40 @@ describe('ParentLinkRequestsService', () => {
       })),
     };
 
-    studentPedaRepo = {
-      findOne: jest.fn().mockResolvedValue({ userId: 'student-uuid' }),
+    profilesService = {
+      studentPedagogicalProfileExists: jest.fn().mockResolvedValue(true),
     };
 
-    financeLinkRepo = {
-      findOne: jest.fn().mockResolvedValue(null),
-      create: jest.fn().mockImplementation((dto) => ({ ...dto })),
-      save: jest.fn().mockImplementation(async (entity) => ({
+    relationsService = {
+      ensureFinanceOwnerStudentLink: jest.fn().mockImplementation(async (financeOwnerId, studentId) => ({
         id: 'link-uuid',
+        financeOwnerId,
+        studentId,
         createdAt: new Date(),
-        ...entity,
       })),
     };
 
-    configService = {
-      get: jest.fn().mockReturnValue(undefined),
+    // Défaut : résout un compte élève valide (utilisé par createRequest).
+    identityAccessClient = {
+      findAccountByLoginIdentifier: jest.fn().mockResolvedValue(makeIdentityResponse()),
+    };
+
+    dashboardNotificationClient = {
+      notify: jest.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ParentLinkRequestsService,
         { provide: getRepositoryToken(ParentLinkRequest), useValue: requestRepo },
-        { provide: getRepositoryToken(StudentPedagogicalProfile), useValue: studentPedaRepo },
-        { provide: getRepositoryToken(FinanceOwnerStudentLink), useValue: financeLinkRepo },
-        { provide: ConfigService, useValue: configService },
+        { provide: ProfilesService, useValue: profilesService },
+        { provide: RelationsService, useValue: relationsService },
+        { provide: IdentityAccessClient, useValue: identityAccessClient },
+        { provide: DashboardNotificationClient, useValue: dashboardNotificationClient },
       ],
     }).compile();
 
     service = module.get<ParentLinkRequestsService>(ParentLinkRequestsService);
-
-    // Réinitialiser fetch par défaut : retourne un compte élève valide
-    mockFetchSuccess(makeIdentityResponse());
-  });
-
-  afterEach(() => {
-    jest.restoreAllMocks();
   });
 
   // ---------------------------------------------------------------------------
@@ -142,19 +125,23 @@ describe('ParentLinkRequestsService', () => {
     });
 
     it('lève 404 quand identity-access-service retourne 404 pour le loginIdentifier', async () => {
-      mockFetchNotFound();
+      identityAccessClient.findAccountByLoginIdentifier.mockRejectedValue(
+        new IdentityAccessNotFoundError('not found'),
+      );
       const actor = makeActor(UserRole.PARENT_FINANCEUR);
       await expect(service.createRequest(dto, actor)).rejects.toThrow(NotFoundException);
     });
 
     it('lève 400 quand le compte trouvé n\'est pas de rôle eleve', async () => {
-      mockFetchSuccess(makeIdentityResponse({ role: 'formateur' }));
+      identityAccessClient.findAccountByLoginIdentifier.mockResolvedValue(
+        makeIdentityResponse({ role: 'formateur' }),
+      );
       const actor = makeActor(UserRole.PARENT_FINANCEUR);
       await expect(service.createRequest(dto, actor)).rejects.toThrow(BadRequestException);
     });
 
     it('lève 400 quand le profil pédagogique élève est absent en base', async () => {
-      studentPedaRepo.findOne.mockResolvedValue(null);
+      profilesService.studentPedagogicalProfileExists.mockResolvedValue(false);
       const actor = makeActor(UserRole.PARENT_FINANCEUR);
       await expect(service.createRequest(dto, actor)).rejects.toThrow(BadRequestException);
     });
@@ -173,18 +160,17 @@ describe('ParentLinkRequestsService', () => {
     });
 
     it('lève 400 en cas d\'erreur réseau vers identity-access-service', async () => {
-      mockFetchNetworkError();
+      identityAccessClient.findAccountByLoginIdentifier.mockRejectedValue(
+        new IdentityAccessUnavailableError('network error'),
+      );
       const actor = makeActor(UserRole.PARENT_FINANCEUR);
       await expect(service.createRequest(dto, actor)).rejects.toThrow(BadRequestException);
     });
 
-    it('appelle identity-access-service avec le bon loginIdentifier encodé', async () => {
+    it('appelle IdentityAccessClient avec le bon loginIdentifier', async () => {
       const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
       await service.createRequest(dto, actor);
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('eleve.dupont.2024'),
-        expect.objectContaining({ method: 'GET' }),
-      );
+      expect(identityAccessClient.findAccountByLoginIdentifier).toHaveBeenCalledWith('eleve.dupont.2024');
     });
   });
 
@@ -253,7 +239,7 @@ describe('ParentLinkRequestsService', () => {
 
       expect(result).toHaveProperty('status', ParentLinkRequestStatus.APPROVED);
       expect(result).toHaveProperty('processedBy', 'student-uuid');
-      expect(financeLinkRepo.save).toHaveBeenCalled();
+      expect(relationsService.ensureFinanceOwnerStudentLink).toHaveBeenCalledWith('parent-uuid', 'student-uuid');
     });
 
     it('le RP peut approuver n\'importe quelle demande', async () => {
@@ -308,14 +294,19 @@ describe('ParentLinkRequestsService', () => {
       await expect(service.approveRequest('request-uuid', actor)).rejects.toThrow(ConflictException);
     });
 
-    it('ne crée pas de doublon de lien financier si un lien existe déjà', async () => {
+    it('délègue la création idempotente du lien financier à RelationsService', async () => {
       requestRepo.findOne.mockResolvedValue(makeRequest());
-      financeLinkRepo.findOne.mockResolvedValue({ id: 'existing-link' });
+      relationsService.ensureFinanceOwnerStudentLink.mockResolvedValue({
+        id: 'existing-link',
+        financeOwnerId: 'parent-uuid',
+        studentId: 'student-uuid',
+      });
 
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
       await service.approveRequest('request-uuid', actor);
 
-      expect(financeLinkRepo.save).not.toHaveBeenCalled();
+      expect(relationsService.ensureFinanceOwnerStudentLink).toHaveBeenCalledWith('parent-uuid', 'student-uuid');
+      expect(relationsService.ensureFinanceOwnerStudentLink).toHaveBeenCalledTimes(1);
     });
 
     it('le parent ciblé peut approuver une demande student_initiated', async () => {
@@ -330,7 +321,7 @@ describe('ParentLinkRequestsService', () => {
 
       expect(result).toHaveProperty('status', ParentLinkRequestStatus.APPROVED);
       expect(result).toHaveProperty('processedBy', 'parent-uuid');
-      expect(financeLinkRepo.save).toHaveBeenCalled();
+      expect(relationsService.ensureFinanceOwnerStudentLink).toHaveBeenCalledWith('parent-uuid', 'student-uuid');
     });
 
     it('lève 403 quand le parent n\'est pas le parent ciblé (student_initiated)', async () => {
@@ -369,7 +360,7 @@ describe('ParentLinkRequestsService', () => {
 
       expect(result).toHaveProperty('status', ParentLinkRequestStatus.REJECTED);
       expect(result).toHaveProperty('processedBy', 'student-uuid');
-      expect(financeLinkRepo.save).not.toHaveBeenCalled();
+      expect(relationsService.ensureFinanceOwnerStudentLink).not.toHaveBeenCalled();
     });
 
     it('le RP peut rejeter n\'importe quelle demande', async () => {
@@ -414,7 +405,7 @@ describe('ParentLinkRequestsService', () => {
       requestRepo.findOne.mockResolvedValue(makeRequest());
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
       await service.rejectRequest('request-uuid', actor);
-      expect(financeLinkRepo.save).not.toHaveBeenCalled();
+      expect(relationsService.ensureFinanceOwnerStudentLink).not.toHaveBeenCalled();
     });
 
     it('le parent ciblé peut rejeter une demande student_initiated', async () => {
@@ -428,7 +419,7 @@ describe('ParentLinkRequestsService', () => {
       const result = await service.rejectRequest('request-uuid', actor);
 
       expect(result).toHaveProperty('status', ParentLinkRequestStatus.REJECTED);
-      expect(financeLinkRepo.save).not.toHaveBeenCalled();
+      expect(relationsService.ensureFinanceOwnerStudentLink).not.toHaveBeenCalled();
     });
   });
 
@@ -440,7 +431,7 @@ describe('ParentLinkRequestsService', () => {
     const parentIdentityResponse = { userId: 'parent-uuid', role: 'parent_financeur' };
 
     beforeEach(() => {
-      mockFetchSuccess(parentIdentityResponse);
+      identityAccessClient.findAccountByLoginIdentifier.mockResolvedValue(parentIdentityResponse);
     });
 
     it('un élève peut initier une demande de rattachement vers un parent', async () => {
@@ -464,13 +455,15 @@ describe('ParentLinkRequestsService', () => {
     });
 
     it('lève 404 quand identity-access-service retourne 404 pour le loginIdentifier parent', async () => {
-      mockFetchNotFound();
+      identityAccessClient.findAccountByLoginIdentifier.mockRejectedValue(
+        new IdentityAccessNotFoundError('not found'),
+      );
       const actor = makeActor(UserRole.ELEVE, 'student-uuid');
       await expect(service.createStudentInitiatedRequest(studentInitiatedDto, actor)).rejects.toThrow(NotFoundException);
     });
 
     it('lève 400 quand le compte trouvé n\'est pas de rôle parent_financeur', async () => {
-      mockFetchSuccess({ userId: 'other-uuid', role: 'formateur' });
+      identityAccessClient.findAccountByLoginIdentifier.mockResolvedValue({ userId: 'other-uuid', role: 'formateur' });
       const actor = makeActor(UserRole.ELEVE, 'student-uuid');
       await expect(service.createStudentInitiatedRequest(studentInitiatedDto, actor)).rejects.toThrow(BadRequestException);
     });
@@ -484,18 +477,17 @@ describe('ParentLinkRequestsService', () => {
     });
 
     it('lève 400 en cas d\'erreur réseau vers identity-access-service', async () => {
-      mockFetchNetworkError();
+      identityAccessClient.findAccountByLoginIdentifier.mockRejectedValue(
+        new IdentityAccessUnavailableError('network error'),
+      );
       const actor = makeActor(UserRole.ELEVE, 'student-uuid');
       await expect(service.createStudentInitiatedRequest(studentInitiatedDto, actor)).rejects.toThrow(BadRequestException);
     });
 
-    it('appelle identity-access-service avec le bon loginIdentifier parent encodé', async () => {
+    it('appelle IdentityAccessClient avec le bon loginIdentifier parent', async () => {
       const actor = makeActor(UserRole.ELEVE, 'student-uuid');
       await service.createStudentInitiatedRequest(studentInitiatedDto, actor);
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('parent.dupont.2024'),
-        expect.objectContaining({ method: 'GET' }),
-      );
+      expect(identityAccessClient.findAccountByLoginIdentifier).toHaveBeenCalledWith('parent.dupont.2024');
     });
   });
 });

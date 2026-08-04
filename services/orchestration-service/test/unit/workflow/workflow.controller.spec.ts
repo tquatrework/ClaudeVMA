@@ -4,13 +4,24 @@ import { WorkflowController } from '../../../src/workflow/workflow.controller';
 import { WorkflowEngineService } from '../../../src/workflow/workflow-engine.service';
 import { WORKFLOW_DEFINITIONS } from '../../../src/workflow/definitions';
 import { WorkflowStatus } from '../../../src/common/enums/workflow-status.enum';
-import { JwtAuthGuard } from '../../../src/common/guards/jwt-auth.guard';
+import { StepStatus } from '../../../src/common/enums/step-status.enum';
+import { JwtAuthGuard } from '../../../src/security/jwt-auth.guard';
+import { AuthenticatedUser } from '../../../src/common/interfaces/authenticated-user.interface';
 
 const makeEngineMock = () => ({
   startWorkflow: jest.fn(),
   getInstance: jest.fn(),
   suspendForArbitration: jest.fn().mockResolvedValue(undefined),
   resumeAfterArbitration: jest.fn().mockResolvedValue(undefined),
+});
+
+const makeActor = (id: string): AuthenticatedUser => ({
+  id,
+  loginIdentifier: `${id}@visiomath.fr`,
+  email: `${id}@visiomath.fr`,
+  role: 'responsable_pedagogique',
+  validationStatus: 'validated',
+  jti: `jti-${id}`,
 });
 
 describe('WorkflowController', () => {
@@ -44,7 +55,7 @@ describe('WorkflowController', () => {
       const result = await controller.start(
         'student-onboarding',
         { workflowType: 'student-onboarding', payload: { email: 'a@b.com' } },
-        { user: { id: 'user-1' } },
+        makeActor('user-1'),
       );
 
       expect(result.workflowInstanceId).toBe('inst-1');
@@ -55,11 +66,11 @@ describe('WorkflowController', () => {
 
     it('throws NotFoundException for an unknown workflow type — ORCH-WF-002', async () => {
       await expect(
-        controller.start('unknown-workflow', { workflowType: 'unknown-workflow', payload: {} }, {}),
+        controller.start('unknown-workflow', { workflowType: 'unknown-workflow', payload: {} }, undefined),
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('uses initiatedBy from JWT user when not in body — ORCH-WF-003', async () => {
+    it('uses initiatedBy from JWT actor when not in body — ORCH-WF-003', async () => {
       engine.startWorkflow.mockResolvedValue({
         id: 'inst-2',
         workflowType: 'student-onboarding',
@@ -71,7 +82,7 @@ describe('WorkflowController', () => {
       await controller.start(
         'student-onboarding',
         { workflowType: 'student-onboarding', payload: {} },
-        { user: { id: 'user-jwt' } },
+        makeActor('user-jwt'),
       );
 
       expect(engine.startWorkflow).toHaveBeenCalledWith(
@@ -88,13 +99,35 @@ describe('WorkflowController', () => {
       const mockData = {
         id: 'inst-3',
         workflowType: 'teacher-onboarding',
-        steps: [{ id: 's1' }, { id: 's2' }],
+        correlationId: 'corr-3',
+        status: WorkflowStatus.IN_PROGRESS,
+        error: null,
+        initiatedBy: 'rp-1',
+        createdAt: new Date('2024-01-01T00:00:00Z'),
+        steps: [
+          {
+            id: 's1', stepOrder: 1, stepName: 'create-teacher-account',
+            targetService: 'identity-access-service', action: 'create-account',
+            status: StepStatus.COMPLETED, output: {}, error: null,
+            startedAt: null, completedAt: null,
+          },
+          {
+            id: 's2', stepOrder: 2, stepName: 'create-teacher-profiles',
+            targetService: 'profile-service', action: 'create-teacher-profiles',
+            status: StepStatus.PENDING, output: null, error: null,
+            startedAt: null, completedAt: null,
+          },
+        ],
       };
       engine.getInstance.mockResolvedValue(mockData);
 
       const result = await controller.getOne('inst-3');
 
-      expect(result).toEqual(mockData);
+      expect(result.id).toBe('inst-3');
+      expect(result.workflowType).toBe('teacher-onboarding');
+      expect(result.steps).toHaveLength(2);
+      expect(result.steps[0].stepName).toBe('create-teacher-account');
+      expect(result.steps[1].stepName).toBe('create-teacher-profiles');
       expect(engine.getInstance).toHaveBeenCalledWith('inst-3');
     });
 
@@ -110,7 +143,7 @@ describe('WorkflowController', () => {
       const result = await controller.suspend(
         'inst-4',
         { reason: 'accord utilisateur requis' },
-        { user: { id: 'rp-1' } },
+        makeActor('rp-1'),
       );
 
       expect(engine.suspendForArbitration).toHaveBeenCalledWith(
@@ -131,7 +164,7 @@ describe('WorkflowController', () => {
       const result = await controller.resume(
         'inst-5',
         { tiOverride: true },
-        { user: { id: 'ti-1' } },
+        makeActor('ti-1'),
       );
 
       expect(engine.resumeAfterArbitration).toHaveBeenCalledWith('inst-5', 'ti-1', true);
@@ -143,7 +176,7 @@ describe('WorkflowController', () => {
     });
 
     it('resumes without tiOverride by default — ORCH-WF-008', async () => {
-      const result = await controller.resume('inst-6', {}, { user: { id: 'rp-2' } });
+      const result = await controller.resume('inst-6', {}, makeActor('rp-2'));
 
       expect(engine.resumeAfterArbitration).toHaveBeenCalledWith('inst-6', 'rp-2', false);
       expect(result.tiOverride).toBe(false);

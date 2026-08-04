@@ -4,10 +4,9 @@ import {
   Put,
   Get,
   Param,
+  ParseUUIDPipe,
   Body,
   UseGuards,
-  Req,
-  Headers,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -20,10 +19,14 @@ import {
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CorrelationId } from '../common/decorators/correlation-id.decorator';
+import { CurrentUser } from '../common/current-user.decorator';
+import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 import { UserRole } from '../common/enums/user-role.enum';
 import { ActivitiesService } from './activities.service';
 import { CreateActivityDto } from './dto/create-activity.dto';
 import { UpdateActivityDto } from './dto/update-activity.dto';
+import { ScheduledActivity } from './entities/scheduled-activity.entity';
 
 @ApiTags('activities')
 @ApiBearerAuth()
@@ -49,10 +52,10 @@ export class ActivitiesController {
   @ApiResponse({ status: 403, description: 'Forbidden — CAL-FB-003' })
   createActivity(
     @Body() dto: CreateActivityDto,
-    @Req() req: any,
-    @Headers('x-correlation-id') correlationId?: string,
-  ) {
-    return this.activitiesService.create(dto, req.user.id, req.user.role, correlationId);
+    @CurrentUser() actor: AuthenticatedUser,
+    @CorrelationId() correlationId?: string,
+  ): Promise<ScheduledActivity> {
+    return this.activitiesService.create(dto, actor, correlationId);
   }
 
   @Put(':activityId')
@@ -70,12 +73,12 @@ export class ActivitiesController {
   @ApiResponse({ status: 403, description: 'Forbidden — CAL-FB-001' })
   @ApiResponse({ status: 404, description: 'Activity not found' })
   updateActivity(
-    @Param('activityId') activityId: string,
+    @Param('activityId', ParseUUIDPipe) activityId: string,
     @Body() dto: UpdateActivityDto,
-    @Req() req: any,
-    @Headers('x-correlation-id') correlationId?: string,
-  ) {
-    return this.activitiesService.update(activityId, dto, req.user.id, req.user.role, correlationId);
+    @CurrentUser() actor: AuthenticatedUser,
+    @CorrelationId() correlationId?: string,
+  ): Promise<ScheduledActivity> {
+    return this.activitiesService.update(activityId, dto, actor, correlationId);
   }
 
   @Get(':activityId')
@@ -85,7 +88,10 @@ export class ActivitiesController {
   @ApiResponse({ status: 200, description: 'Activity found' })
   @ApiResponse({ status: 404, description: 'Not found' })
   @ApiResponse({ status: 403, description: 'Forbidden — IDOR check' })
-  getActivity(@Param('activityId') activityId: string, @Req() req: any) {
-    return this.activitiesService.findOne(activityId, req.user.id, req.user.role);
+  getActivity(
+    @Param('activityId', ParseUUIDPipe) activityId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<ScheduledActivity> {
+    return this.activitiesService.findOne(activityId, actor);
   }
 }

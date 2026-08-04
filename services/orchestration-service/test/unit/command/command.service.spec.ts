@@ -148,6 +148,7 @@ describe('CommandService', () => {
       expect(repo.find).toHaveBeenCalledWith({
         where: { correlationId: 'corr-x' },
         order: { createdAt: 'ASC' },
+        take: 500,
       });
       expect(result).toEqual(commands);
     });

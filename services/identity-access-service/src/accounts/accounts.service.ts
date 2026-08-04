@@ -5,15 +5,14 @@ import {
   NotFoundException,
   Logger,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import {
   User,
   UserRole,
   ValidationStatus,
   INTERNAL_ROLES,
-  SELF_REGISTRATION_ROLES,
 } from '../auth/entities/user.entity';
 import { AuditLog } from './entities/audit-log.entity';
 import { CreateAccountDto } from './dto/create-account.dto';
@@ -25,6 +24,10 @@ import { UpdateAccountStatusDto, AccountStatusValue } from './dto/update-account
 import { UpdateMeDto } from './dto/update-me.dto';
 import { EventsService } from '../events/events.service';
 import { ConfigService } from '@nestjs/config';
+import { Actor } from '../common/types/actor';
+
+/** Nombre maximal d'enregistrements retournés par les listes non paginées explicitement. */
+const DEFAULT_LIST_LIMIT = 200;
 
 @Injectable()
 export class AccountsService {
@@ -35,6 +38,7 @@ export class AccountsService {
     @InjectRepository(AuditLog) private readonly auditRepo: Repository<AuditLog>,
     private readonly eventsService: EventsService,
     private readonly configService: ConfigService,
+    @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -47,8 +51,11 @@ export class AccountsService {
    * - Lower-cases and strips characters outside [a-z0-9.-]
    * - Collapses consecutive dots and trims leading/trailing dots
    * - Appends .2, .3, … until an available identifier is found
+   *
+   * Accepts an optional repository so callers running inside a transaction can
+   * pass the transactional repository and see uncommitted rows from the same transaction.
    */
-  private async generateLoginIdentifier(email: string): Promise<string> {
+  private async generateLoginIdentifier(email: string, userRepo: Repository<User> = this.userRepo): Promise<string> {
     const localPart = email.split('@')[0];
     let baseIdentifier = localPart
       .toLowerCase()
@@ -63,7 +70,7 @@ export class AccountsService {
     let candidateIdentifier = baseIdentifier;
     let collisionCounter = 1;
 
-    while (await this.userRepo.findOne({ where: { loginIdentifier: candidateIdentifier } })) {
+    while (await userRepo.findOne({ where: { loginIdentifier: candidateIdentifier } })) {
       collisionCounter += 1;
       candidateIdentifier = `${baseIdentifier}.${collisionCounter}`;
     }
@@ -76,15 +83,19 @@ export class AccountsService {
    * - If dto.loginIdentifier is provided, check it is free (409 if taken).
    * - Otherwise, auto-generate from the email.
    */
-  private async resolveLoginIdentifier(email: string, requestedIdentifier?: string): Promise<string> {
+  private async resolveLoginIdentifier(
+    email: string,
+    requestedIdentifier?: string,
+    userRepo: Repository<User> = this.userRepo,
+  ): Promise<string> {
     if (requestedIdentifier) {
-      const alreadyTaken = await this.userRepo.findOne({ where: { loginIdentifier: requestedIdentifier } });
+      const alreadyTaken = await userRepo.findOne({ where: { loginIdentifier: requestedIdentifier } });
       if (alreadyTaken) {
         throw new ConflictException(`Login identifier '${requestedIdentifier}' is already taken`);
       }
       return requestedIdentifier;
     }
-    return this.generateLoginIdentifier(email);
+    return this.generateLoginIdentifier(email, userRepo);
   }
 
   // ---------------------------------------------------------------------------
@@ -111,6 +122,8 @@ export class AccountsService {
       validationStatus: ValidationStatus.PENDING,
       consentSigned: false,
     });
+    // Écriture unique sur une seule entité : un DataSource.transaction n'est pas
+    // nécessaire (la ligne insérée par save() est déjà atomique et auto-commitée).
     const savedUser = await this.userRepo.save(newUser);
 
     this.eventsService.publish('AccountCreated', {
@@ -158,31 +171,42 @@ export class AccountsService {
     return this.toPublic(updatedAccount);
   }
 
-  async updateRoles(accountId: string, dto: UpdateRolesDto, actor: User) {
-    const targetAccount = await this.findOrFail(accountId);
+  /**
+   * Assigns a new role to an account. Écriture atomique (User + AuditLog) via
+   * DataSource.transaction ; l'événement métier n'est publié qu'après le commit.
+   */
+  async updateRoles(accountId: string, dto: UpdateRolesDto, actor: Actor) {
+    const { targetAccount, oldRole } = await this.dataSource.transaction(async (manager) => {
+      const userRepo = manager.getRepository(User);
+      const auditRepo = manager.getRepository(AuditLog);
 
-    const canAssignInternal = [
-      UserRole.RESPONSABLE_PEDAGOGIQUE,
-      UserRole.TECHNICIEN_INFORMATIQUE,
-    ].includes(actor.role);
+      const targetAccount = await this.findOrFail(accountId, userRepo);
 
-    if (INTERNAL_ROLES.includes(dto.role) && !canAssignInternal) {
-      throw new ForbiddenException('Only RP or TI can assign internal roles');
-    }
+      const canAssignInternal = [
+        UserRole.RESPONSABLE_PEDAGOGIQUE,
+        UserRole.TECHNICIEN_INFORMATIQUE,
+      ].includes(actor.role);
 
-    const oldRole = targetAccount.role;
-    targetAccount.role = dto.role;
-    await this.userRepo.save(targetAccount);
+      if (INTERNAL_ROLES.includes(dto.role) && !canAssignInternal) {
+        throw new ForbiddenException('Only RP or TI can assign internal roles');
+      }
 
-    await this.auditRepo.save(
-      this.auditRepo.create({
-        targetUserId: targetAccount.id,
-        actorId: actor.id,
-        action: 'ROLE_CHANGED',
-        oldValue: { role: oldRole },
-        newValue: { role: dto.role },
-      }),
-    );
+      const oldRole = targetAccount.role;
+      targetAccount.role = dto.role;
+      await userRepo.save(targetAccount);
+
+      await auditRepo.save(
+        auditRepo.create({
+          targetUserId: targetAccount.id,
+          actorId: actor.id,
+          action: 'ROLE_CHANGED',
+          oldValue: { role: oldRole },
+          newValue: { role: dto.role },
+        }),
+      );
+
+      return { targetAccount, oldRole };
+    });
 
     this.eventsService.publish('RoleChanged', {
       userId: targetAccount.id,
@@ -194,77 +218,109 @@ export class AccountsService {
     return this.toPublic(targetAccount);
   }
 
-  async validateAccount(accountId: string, actor: User) {
-    const targetAccount = await this.findOrFail(accountId);
+  /**
+   * Validates an account (IAM-FB-003). Écriture atomique (User + AuditLog) via
+   * DataSource.transaction ; l'événement métier n'est publié qu'après le commit.
+   */
+  async validateAccount(accountId: string, actor: Actor) {
+    const { targetAccount } = await this.dataSource.transaction(async (manager) => {
+      const userRepo = manager.getRepository(User);
+      const auditRepo = manager.getRepository(AuditLog);
 
-    const canValidate = [
-      UserRole.RESPONSABLE_PEDAGOGIQUE,
-      UserRole.TECHNICIEN_INFORMATIQUE,
-    ].includes(actor.role);
-    if (!canValidate) throw new ForbiddenException('Only RP or TI can validate accounts');
+      const targetAccount = await this.findOrFail(accountId, userRepo);
 
-    if (!targetAccount.consentSigned) {
-      throw new ForbiddenException('Account cannot be validated before mandatory consents are signed (IAM-FB-003)');
-    }
+      const canValidate = [
+        UserRole.RESPONSABLE_PEDAGOGIQUE,
+        UserRole.TECHNICIEN_INFORMATIQUE,
+      ].includes(actor.role);
+      if (!canValidate) throw new ForbiddenException('Only RP or TI can validate accounts');
 
-    targetAccount.validationStatus = ValidationStatus.ACTIVE;
-    await this.userRepo.save(targetAccount);
+      if (!targetAccount.consentSigned) {
+        throw new ForbiddenException('Account cannot be validated before mandatory consents are signed (IAM-FB-003)');
+      }
 
-    await this.auditRepo.save(
-      this.auditRepo.create({
-        targetUserId: targetAccount.id,
-        actorId: actor.id,
-        action: 'ACCOUNT_VALIDATED',
-        oldValue: { validationStatus: ValidationStatus.PENDING },
-        newValue: { validationStatus: ValidationStatus.ACTIVE },
-      }),
-    );
+      targetAccount.validationStatus = ValidationStatus.ACTIVE;
+      await userRepo.save(targetAccount);
+
+      await auditRepo.save(
+        auditRepo.create({
+          targetUserId: targetAccount.id,
+          actorId: actor.id,
+          action: 'ACCOUNT_VALIDATED',
+          oldValue: { validationStatus: ValidationStatus.PENDING },
+          newValue: { validationStatus: ValidationStatus.ACTIVE },
+        }),
+      );
+
+      return { targetAccount };
+    });
 
     this.eventsService.publish('AccountValidated', { userId: targetAccount.id, actorId: actor.id });
 
     return this.toPublic(targetAccount);
   }
 
-  async suspendAccount(accountId: string, actor: User) {
+  /**
+   * Suspends an account (TI only). Écriture atomique (User + AuditLog) via
+   * DataSource.transaction ; l'événement métier n'est publié qu'après le commit.
+   */
+  async suspendAccount(accountId: string, actor: Actor) {
     if (actor.role !== UserRole.TECHNICIEN_INFORMATIQUE) {
       throw new ForbiddenException('Only TI can suspend accounts');
     }
 
-    const targetAccount = await this.findOrFail(accountId);
-    const previousValidationStatus = targetAccount.validationStatus;
+    const { targetAccount } = await this.dataSource.transaction(async (manager) => {
+      const userRepo = manager.getRepository(User);
+      const auditRepo = manager.getRepository(AuditLog);
 
-    targetAccount.validationStatus = ValidationStatus.SUSPENDED;
-    targetAccount.isActive = false;
-    await this.userRepo.save(targetAccount);
+      const targetAccount = await this.findOrFail(accountId, userRepo);
+      const previousValidationStatus = targetAccount.validationStatus;
 
-    await this.auditRepo.save(
-      this.auditRepo.create({
-        targetUserId: targetAccount.id,
-        actorId: actor.id,
-        action: 'ACCOUNT_SUSPENDED',
-        oldValue: { validationStatus: previousValidationStatus },
-        newValue: { validationStatus: ValidationStatus.SUSPENDED },
-      }),
-    );
+      targetAccount.validationStatus = ValidationStatus.SUSPENDED;
+      targetAccount.isActive = false;
+      await userRepo.save(targetAccount);
+
+      await auditRepo.save(
+        auditRepo.create({
+          targetUserId: targetAccount.id,
+          actorId: actor.id,
+          action: 'ACCOUNT_SUSPENDED',
+          oldValue: { validationStatus: previousValidationStatus },
+          newValue: { validationStatus: ValidationStatus.SUSPENDED },
+        }),
+      );
+
+      return { targetAccount };
+    });
 
     this.eventsService.publish('AccountSuspended', { userId: targetAccount.id, actorId: actor.id });
 
     return this.toPublic(targetAccount);
   }
 
-  async getAuditLogs(accountId: string) {
+  /**
+   * Retourne les entrées d'audit d'un compte, bornées et ordonnées (services-convention).
+   */
+  async getAuditLogs(accountId: string): Promise<AuditLog[]> {
     await this.findOrFail(accountId);
     return this.auditRepo.find({
       where: { targetUserId: accountId },
       order: { createdAt: 'DESC' },
+      take: DEFAULT_LIST_LIMIT,
     });
   }
 
   /**
    * Retourne la liste de tous les comptes (usage interne uniquement).
    * Filtre optionnel par rôle. N'expose pas les données sensibles.
+   * Liste bornée et ordonnée (services-convention) ; `limit`/`offset` permettent
+   * une pagination explicite si un consommateur en a besoin.
    */
-  async listAccounts(filterRole?: UserRole): Promise<{
+  async listAccounts(
+    filterRole?: UserRole,
+    limit: number = DEFAULT_LIST_LIMIT,
+    offset = 0,
+  ): Promise<{
     userId: string;
     loginIdentifier: string;
     role: string;
@@ -274,7 +330,12 @@ export class AccountsService {
     phone: string | null;
   }[]> {
     const whereClause = filterRole ? { role: filterRole } : {};
-    const userList = await this.userRepo.find({ where: whereClause });
+    const userList = await this.userRepo.find({
+      where: whereClause,
+      order: { createdAt: 'ASC' },
+      take: limit,
+      skip: offset,
+    });
     return userList.map((user) => ({
       userId: user.id,
       loginIdentifier: user.loginIdentifier,
@@ -296,83 +357,97 @@ export class AccountsService {
    *       0 results → create new parent account
    *       1 result  → link that existing account
    *       2+ results → 409: ask to use parentLoginIdentifier instead
+   *
+   * La création de l'élève et la résolution du parent sont atomiques
+   * (DataSource.transaction) : si la résolution du parent échoue (404/409),
+   * le compte élève n'est pas créé.
    */
   async createStudentAccount(dto: CreateStudentAccountDto, ipAddress?: string) {
-    const studentLoginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier);
-    const studentEmailAlreadyUsed = !!(await this.userRepo.findOne({ where: { email: dto.email } }));
+    const result = await this.dataSource.transaction(async (manager) => {
+      const userRepo = manager.getRepository(User);
 
-    const studentPasswordHash = await bcrypt.hash(dto.password, 12);
-    const student = this.userRepo.create({
-      loginIdentifier: studentLoginIdentifier,
-      email: dto.email,
-      passwordHash: studentPasswordHash,
-      role: UserRole.ELEVE,
-      validationStatus: ValidationStatus.PENDING,
-      consentSigned: false,
+      const studentLoginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier, userRepo);
+      const studentEmailAlreadyUsed = !!(await userRepo.findOne({ where: { email: dto.email } }));
+
+      const studentPasswordHash = await bcrypt.hash(dto.password, 12);
+      const student = userRepo.create({
+        loginIdentifier: studentLoginIdentifier,
+        email: dto.email,
+        passwordHash: studentPasswordHash,
+        role: UserRole.ELEVE,
+        validationStatus: ValidationStatus.PENDING,
+        consentSigned: false,
+      });
+      const savedStudent = await userRepo.save(student);
+
+      let savedParent: User | null = null;
+      let parentCreated = false;
+
+      if (dto.parentLoginIdentifier) {
+        // Explicit identifier — find the account or fail
+        const existingParent = await userRepo.findOne({ where: { loginIdentifier: dto.parentLoginIdentifier } });
+        if (!existingParent) {
+          throw new NotFoundException(`No account found with loginIdentifier '${dto.parentLoginIdentifier}'`);
+        }
+        savedParent = existingParent;
+      } else if (dto.parentEmail) {
+        const matchingParents = await userRepo.find({ where: { email: dto.parentEmail } });
+
+        if (matchingParents.length === 0) {
+          // Create new parent account
+          const parentLoginIdentifier = await this.generateLoginIdentifier(dto.parentEmail, userRepo);
+          const parentPasswordHash = await bcrypt.hash(dto.parentPassword ?? dto.password, 12);
+          const parent = userRepo.create({
+            loginIdentifier: parentLoginIdentifier,
+            email: dto.parentEmail,
+            passwordHash: parentPasswordHash,
+            role: UserRole.PARENT_FINANCEUR,
+            validationStatus: ValidationStatus.PENDING,
+            consentSigned: false,
+          });
+          savedParent = await userRepo.save(parent);
+          parentCreated = true;
+        } else if (matchingParents.length === 1) {
+          // Link existing account
+          savedParent = matchingParents[0];
+        } else {
+          // Ambiguous — multiple accounts share this email
+          throw new ConflictException(
+            'Plusieurs comptes existent avec cet email parent. Utilisez parentLoginIdentifier à la place.',
+          );
+        }
+      }
+
+      return { savedStudent, studentEmailAlreadyUsed, studentLoginIdentifier, savedParent, parentCreated };
     });
-    const savedStudent = await this.userRepo.save(student);
 
     this.eventsService.publish('AccountCreated', {
-      userId: savedStudent.id,
-      loginIdentifier: savedStudent.loginIdentifier,
-      email: savedStudent.email,
-      role: savedStudent.role,
+      userId: result.savedStudent.id,
+      loginIdentifier: result.savedStudent.loginIdentifier,
+      email: result.savedStudent.email,
+      role: result.savedStudent.role,
       ipAddress,
     });
 
-    let savedParent: User | null = null;
-    let parentCreated = false;
-
-    if (dto.parentLoginIdentifier) {
-      // Explicit identifier — find the account or fail
-      const existingParent = await this.userRepo.findOne({ where: { loginIdentifier: dto.parentLoginIdentifier } });
-      if (!existingParent) {
-        throw new NotFoundException(`No account found with loginIdentifier '${dto.parentLoginIdentifier}'`);
-      }
-      savedParent = existingParent;
-    } else if (dto.parentEmail) {
-      const matchingParents = await this.userRepo.find({ where: { email: dto.parentEmail } });
-
-      if (matchingParents.length === 0) {
-        // Create new parent account
-        const parentLoginIdentifier = await this.generateLoginIdentifier(dto.parentEmail);
-        const parentPasswordHash = await bcrypt.hash(dto.parentPassword ?? dto.password, 12);
-        const parent = this.userRepo.create({
-          loginIdentifier: parentLoginIdentifier,
-          email: dto.parentEmail,
-          passwordHash: parentPasswordHash,
-          role: UserRole.PARENT_FINANCEUR,
-          validationStatus: ValidationStatus.PENDING,
-          consentSigned: false,
-        });
-        savedParent = await this.userRepo.save(parent);
-        parentCreated = true;
-
-        this.eventsService.publish('AccountCreated', {
-          userId: savedParent.id,
-          loginIdentifier: savedParent.loginIdentifier,
-          email: savedParent.email,
-          role: savedParent.role,
-          ipAddress,
-        });
-      } else if (matchingParents.length === 1) {
-        // Link existing account
-        savedParent = matchingParents[0];
-      } else {
-        // Ambiguous — multiple accounts share this email
-        throw new ConflictException(
-          'Plusieurs comptes existent avec cet email parent. Utilisez parentLoginIdentifier à la place.',
-        );
-      }
+    if (result.parentCreated && result.savedParent) {
+      this.eventsService.publish('AccountCreated', {
+        userId: result.savedParent.id,
+        loginIdentifier: result.savedParent.loginIdentifier,
+        email: result.savedParent.email,
+        role: result.savedParent.role,
+        ipAddress,
+      });
     }
 
     return {
       student: {
-        ...this.toPublic(savedStudent),
-        ...(studentEmailAlreadyUsed ? { emailAlreadyUsed: true, suggestedLoginIdentifier: studentLoginIdentifier } : {}),
+        ...this.toPublic(result.savedStudent),
+        ...(result.studentEmailAlreadyUsed
+          ? { emailAlreadyUsed: true, suggestedLoginIdentifier: result.studentLoginIdentifier }
+          : {}),
       },
-      parent: savedParent
-        ? { ...this.toPublic(savedParent), created: parentCreated }
+      parent: result.savedParent
+        ? { ...this.toPublic(result.savedParent), created: result.parentCreated }
         : null,
     };
   }
@@ -394,6 +469,7 @@ export class AccountsService {
       validationStatus: ValidationStatus.PENDING,
       consentSigned: false,
     });
+    // Écriture unique : pas de transaction nécessaire.
     const savedTeacher = await this.userRepo.save(teacher);
 
     this.eventsService.publish('AccountCreated', {
@@ -405,7 +481,8 @@ export class AccountsService {
       cvReference: dto.cvReference,
     });
 
-    // Notification non-bloquante au dashboard RP
+    // Notification non-bloquante au dashboard RP — effet post-commit, réalisée
+    // une fois la ligne du formateur durablement enregistrée.
     this.notifyDashboardTeacherPending(
       savedTeacher.id,
       savedTeacher.firstName ?? '',
@@ -434,6 +511,7 @@ export class AccountsService {
       validationStatus: ValidationStatus.PENDING,
       consentSigned: false,
     });
+    // Écriture unique : pas de transaction nécessaire.
     const savedParent = await this.userRepo.save(parent);
 
     this.eventsService.publish('AccountCreated', {
@@ -456,8 +534,11 @@ export class AccountsService {
    * - limited / non_approved → PENDING + isActive = true
    * - member / validated     → ACTIVE  + isActive = true
    * - suspended              → SUSPENDED + isActive = false (TI only)
+   *
+   * Écriture atomique (User + AuditLog) via DataSource.transaction ; l'événement
+   * métier n'est publié qu'après le commit.
    */
-  async updateAccountStatus(accountId: string, dto: UpdateAccountStatusDto, actor: User) {
+  async updateAccountStatus(accountId: string, dto: UpdateAccountStatusDto, actor: Actor) {
     const isTI = actor.role === UserRole.TECHNICIEN_INFORMATIQUE;
     const isRP = actor.role === UserRole.RESPONSABLE_PEDAGOGIQUE;
 
@@ -469,40 +550,47 @@ export class AccountsService {
       throw new ForbiddenException('Only TI can suspend accounts');
     }
 
-    const targetAccount = await this.findOrFail(accountId);
-    const previousValidationStatus = targetAccount.validationStatus;
+    const { targetAccount } = await this.dataSource.transaction(async (manager) => {
+      const userRepo = manager.getRepository(User);
+      const auditRepo = manager.getRepository(AuditLog);
 
-    switch (dto.status) {
-      case AccountStatusValue.LIMITED:
-      case AccountStatusValue.NON_APPROVED:
-        targetAccount.validationStatus = ValidationStatus.PENDING;
-        targetAccount.isActive = true;
-        break;
-      case AccountStatusValue.MEMBER:
-      case AccountStatusValue.VALIDATED:
-        if (!targetAccount.consentSigned && dto.status === AccountStatusValue.VALIDATED) {
-          throw new ForbiddenException('Account cannot be validated before mandatory consents are signed (IAM-FB-003)');
-        }
-        targetAccount.validationStatus = ValidationStatus.ACTIVE;
-        targetAccount.isActive = true;
-        break;
-      case AccountStatusValue.SUSPENDED:
-        targetAccount.validationStatus = ValidationStatus.SUSPENDED;
-        targetAccount.isActive = false;
-        break;
-    }
+      const targetAccount = await this.findOrFail(accountId, userRepo);
+      const previousValidationStatus = targetAccount.validationStatus;
 
-    await this.userRepo.save(targetAccount);
+      switch (dto.status) {
+        case AccountStatusValue.LIMITED:
+        case AccountStatusValue.NON_APPROVED:
+          targetAccount.validationStatus = ValidationStatus.PENDING;
+          targetAccount.isActive = true;
+          break;
+        case AccountStatusValue.MEMBER:
+        case AccountStatusValue.VALIDATED:
+          if (!targetAccount.consentSigned && dto.status === AccountStatusValue.VALIDATED) {
+            throw new ForbiddenException('Account cannot be validated before mandatory consents are signed (IAM-FB-003)');
+          }
+          targetAccount.validationStatus = ValidationStatus.ACTIVE;
+          targetAccount.isActive = true;
+          break;
+        case AccountStatusValue.SUSPENDED:
+          targetAccount.validationStatus = ValidationStatus.SUSPENDED;
+          targetAccount.isActive = false;
+          break;
+      }
 
-    await this.auditRepo.save(
-      this.auditRepo.create({
-        targetUserId: targetAccount.id,
-        actorId: actor.id,
-        action: 'STATUS_CHANGED',
-        oldValue: { validationStatus: previousValidationStatus },
-        newValue: { validationStatus: targetAccount.validationStatus, requestedStatus: dto.status },
-      }),
-    );
+      await userRepo.save(targetAccount);
+
+      await auditRepo.save(
+        auditRepo.create({
+          targetUserId: targetAccount.id,
+          actorId: actor.id,
+          action: 'STATUS_CHANGED',
+          oldValue: { validationStatus: previousValidationStatus },
+          newValue: { validationStatus: targetAccount.validationStatus, requestedStatus: dto.status },
+        }),
+      );
+
+      return { targetAccount };
+    });
 
     if (dto.status === AccountStatusValue.SUSPENDED) {
       this.eventsService.publish('AccountSuspended', { userId: targetAccount.id, actorId: actor.id });
@@ -517,32 +605,39 @@ export class AccountsService {
    * POST /accounts/{id}/access/regenerate — TI only.
    * Reactivates account and revokes all prior sessions.
    * Does NOT delete any business data.
+   * Écriture atomique (User + AuditLog) via DataSource.transaction ; l'événement
+   * métier n'est publié qu'après le commit.
    */
-  async regenerateAccess(accountId: string, actor: User) {
+  async regenerateAccess(accountId: string, actor: Actor) {
     if (actor.role !== UserRole.TECHNICIEN_INFORMATIQUE) {
       throw new ForbiddenException('Only TI can regenerate account access');
     }
 
-    const targetAccount = await this.findOrFail(accountId);
-    targetAccount.isActive = true;
+    await this.dataSource.transaction(async (manager) => {
+      const userRepo = manager.getRepository(User);
+      const auditRepo = manager.getRepository(AuditLog);
 
-    if (targetAccount.validationStatus === ValidationStatus.SUSPENDED) {
-      targetAccount.validationStatus = ValidationStatus.ACTIVE;
-    }
+      const targetAccount = await this.findOrFail(accountId, userRepo);
+      targetAccount.isActive = true;
 
-    await this.userRepo.save(targetAccount);
+      if (targetAccount.validationStatus === ValidationStatus.SUSPENDED) {
+        targetAccount.validationStatus = ValidationStatus.ACTIVE;
+      }
 
-    await this.auditRepo.save(
-      this.auditRepo.create({
-        targetUserId: targetAccount.id,
-        actorId: actor.id,
-        action: 'ACCESS_REGENERATED',
-        oldValue: { isActive: false },
-        newValue: { isActive: true },
-      }),
-    );
+      await userRepo.save(targetAccount);
 
-    this.eventsService.publish('AccessRegenerated', { userId: targetAccount.id, actorId: actor.id });
+      await auditRepo.save(
+        auditRepo.create({
+          targetUserId: targetAccount.id,
+          actorId: actor.id,
+          action: 'ACCESS_REGENERATED',
+          oldValue: { isActive: false },
+          newValue: { isActive: true },
+        }),
+      );
+    });
+
+    this.eventsService.publish('AccessRegenerated', { userId: accountId, actorId: actor.id });
 
     return { message: `Access regenerated for account ${accountId}. All existing sessions should be revoked by the client.` };
   }
@@ -571,6 +666,104 @@ export class AccountsService {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('Compte introuvable');
     return { userId: user.id, loginIdentifier: user.loginIdentifier, role: user.role };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Ports exposés aux autres features (identity-access-service possède seul
+  // l'entité User et l'entité AuditLog — cf. modules-convention). AuthModule,
+  // ConsentsModule et DelegationsModule consomment ces méthodes typées au lieu
+  // d'injecter directement un repository qui ne leur appartient pas. Celles qui
+  // écrivent acceptent un `EntityManager` optionnel afin de participer à une
+  // transaction ouverte par l'appelant (services-convention : toutes les
+  // écritures d'une opération atomique doivent passer par le même manager).
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Authentification — retourne le compte avec le hash de mot de passe inclus
+   * (colonne `select: false` par défaut). Consommé uniquement par AuthService.login().
+   */
+  async findCredentialsByLoginIdentifier(loginIdentifier: string): Promise<User | null> {
+    return this.userRepo
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('user.loginIdentifier = :loginIdentifier', { loginIdentifier })
+      .getOne();
+  }
+
+  /** Récupère un compte par id, sans le hash de mot de passe. */
+  async findActiveAccountById(userId: string): Promise<User | null> {
+    return this.userRepo.findOne({ where: { id: userId } });
+  }
+
+  /** Récupère un compte par identifiant de connexion, sans le hash de mot de passe. */
+  async findAccountByLoginIdentifier(loginIdentifier: string): Promise<User | null> {
+    return this.userRepo.findOne({ where: { loginIdentifier } });
+  }
+
+  /** Récupère un compte par email. */
+  async findAccountByEmail(email: string): Promise<User | null> {
+    return this.userRepo.findOne({ where: { email } });
+  }
+
+  /** Récupère tous les comptes partageant un même email (récupération d'identifiant). */
+  async findAccountsByEmail(email: string): Promise<User[]> {
+    return this.userRepo.find({ where: { email } });
+  }
+
+  /** Marque l'email d'un compte comme vérifié. */
+  async markEmailVerified(userId: string): Promise<void> {
+    await this.userRepo.update(userId, { emailVerified: true });
+  }
+
+  /** Met à jour le hash de mot de passe d'un compte (réinitialisation de mot de passe). */
+  async updatePasswordHash(userId: string, passwordHash: string): Promise<void> {
+    await this.userRepo.update(userId, { passwordHash });
+  }
+
+  /**
+   * Applique l'effet de bord métier de la complétion des consentements obligatoires
+   * (IAM-FB-003) : active le compte s'il est encore en attente. ConsentsService reste
+   * seul responsable de déterminer si tous les consentements requis sont signés — il
+   * appelle cette méthode uniquement lorsque c'est le cas, en lui passant le manager
+   * de sa propre transaction pour que les deux écritures (ConsentRecord + User)
+   * commitent ou échouent ensemble.
+   */
+  async activateAfterMandatoryConsents(userId: string, manager?: EntityManager): Promise<void> {
+    const userRepo = manager ? manager.getRepository(User) : this.userRepo;
+    const user = await userRepo.findOne({ where: { id: userId } });
+    if (!user || user.consentSigned) return;
+
+    user.consentSigned = true;
+    if (user.validationStatus === ValidationStatus.PENDING) {
+      user.validationStatus = ValidationStatus.ACTIVE;
+    }
+    await userRepo.save(user);
+  }
+
+  /** Vérifie l'existence d'un compte sans en exposer le détail — utilisé par DelegationsService. */
+  async accountExists(userId: string): Promise<boolean> {
+    const matchingAccountsCount = await this.userRepo.count({ where: { id: userId } });
+    return matchingAccountsCount > 0;
+  }
+
+  /**
+   * Point d'accès unique à AuditLog (entité possédée par AccountsModule) pour les
+   * autres features qui doivent tracer une action sur un compte (ex: DelegationsService).
+   * Accepte le manager de la transaction appelante pour que l'écriture d'audit
+   * commite ou échoue avec le reste de l'opération.
+   */
+  async recordAudit(
+    entry: {
+      targetUserId: string;
+      actorId: string;
+      action: string;
+      oldValue: Record<string, unknown> | null;
+      newValue: Record<string, unknown> | null;
+    },
+    manager?: EntityManager,
+  ): Promise<void> {
+    const auditRepo = manager ? manager.getRepository(AuditLog) : this.auditRepo;
+    await auditRepo.save(auditRepo.create(entry));
   }
 
   /**
@@ -610,8 +803,8 @@ export class AccountsService {
     });
   }
 
-  private async findOrFail(id: string): Promise<User> {
-    const user = await this.userRepo.findOne({ where: { id } });
+  private async findOrFail(id: string, userRepo: Repository<User> = this.userRepo): Promise<User> {
+    const user = await userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`Account ${id} not found`);
     return user;
   }

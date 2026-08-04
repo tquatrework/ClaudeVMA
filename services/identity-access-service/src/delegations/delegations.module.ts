@@ -3,12 +3,13 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { DelegationsController } from './delegations.controller';
 import { DelegationsService } from './delegations.service';
 import { DelegatedAccessRequest } from './entities/delegated-access-request.entity';
-import { User } from '../auth/entities/user.entity';
-import { AuditLog } from '../accounts/entities/audit-log.entity';
 import { EventsModule } from '../events/events.module';
+import { AccountsModule } from '../accounts/accounts.module';
 
+// `User` et `AuditLog` sont possédés par AccountsModule : DelegationsModule ne les
+// enregistre plus via TypeOrmModule.forFeature et consomme AccountsService à la place.
 @Module({
-  imports: [TypeOrmModule.forFeature([DelegatedAccessRequest, User, AuditLog]), EventsModule],
+  imports: [TypeOrmModule.forFeature([DelegatedAccessRequest]), EventsModule, AccountsModule],
   controllers: [DelegationsController],
   providers: [DelegationsService],
 })

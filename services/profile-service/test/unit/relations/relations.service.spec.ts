@@ -231,4 +231,101 @@ describe('RelationsService', () => {
       await expect(service.getStudentsByCoordinator('rp-uuid', actor)).rejects.toThrow(ForbiddenException);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Ports consumed by other features (profiles, parent-link-requests, internal)
+  // ---------------------------------------------------------------------------
+  describe('isTeacherLinkedToStudent', () => {
+    it('returns true when a link exists', async () => {
+      teacherRepo.findOne.mockResolvedValue({ teacherId: 'teacher-uuid', studentId: 'student-uuid' });
+      await expect(service.isTeacherLinkedToStudent('teacher-uuid', 'student-uuid')).resolves.toBe(true);
+    });
+
+    it('returns false when no link exists', async () => {
+      teacherRepo.findOne.mockResolvedValue(null);
+      await expect(service.isTeacherLinkedToStudent('teacher-uuid', 'student-uuid')).resolves.toBe(false);
+    });
+  });
+
+  describe('isFinanceOwnerLinkedToStudent', () => {
+    it('returns true when a link exists', async () => {
+      financeRepo.findOne.mockResolvedValue({ financeOwnerId: 'parent-uuid', studentId: 'student-uuid' });
+      await expect(service.isFinanceOwnerLinkedToStudent('parent-uuid', 'student-uuid')).resolves.toBe(true);
+    });
+
+    it('returns false when no link exists', async () => {
+      financeRepo.findOne.mockResolvedValue(null);
+      await expect(service.isFinanceOwnerLinkedToStudent('parent-uuid', 'student-uuid')).resolves.toBe(false);
+    });
+  });
+
+  describe('ensureFinanceOwnerStudentLink', () => {
+    it('creates the link when none exists', async () => {
+      const result = await service.ensureFinanceOwnerStudentLink('parent-uuid', 'student-uuid');
+      expect(financeRepo.save).toHaveBeenCalled();
+      expect(result).toHaveProperty('financeOwnerId', 'parent-uuid');
+    });
+
+    it('returns the existing link without creating a duplicate', async () => {
+      const existing = { id: 'existing-link', financeOwnerId: 'parent-uuid', studentId: 'student-uuid' };
+      financeRepo.findOne.mockResolvedValue(existing);
+      const result = await service.ensureFinanceOwnerStudentLink('parent-uuid', 'student-uuid');
+      expect(financeRepo.save).not.toHaveBeenCalled();
+      expect(result).toBe(existing);
+    });
+  });
+
+  describe('createFinanceOwnerStudentLinkForSystem', () => {
+    it('creates the link when none exists', async () => {
+      const result = await service.createFinanceOwnerStudentLinkForSystem('parent-uuid', 'student-uuid');
+      expect(financeRepo.save).toHaveBeenCalled();
+      expect(result).toHaveProperty('financeOwnerId', 'parent-uuid');
+    });
+
+    it('throws 409 when the link already exists', async () => {
+      financeRepo.findOne.mockResolvedValue({ id: 'existing-link' });
+      await expect(
+        service.createFinanceOwnerStudentLinkForSystem('parent-uuid', 'student-uuid'),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('createTeacherStudentLinkForSystem', () => {
+    it('creates the link with isPrincipalTeacher defaulting to false', async () => {
+      const result = await service.createTeacherStudentLinkForSystem('teacher-uuid', 'student-uuid');
+      expect(teacherRepo.save).toHaveBeenCalled();
+      expect(result).toHaveProperty('isPrincipalTeacher', false);
+    });
+
+    it('creates the link with isPrincipalTeacher set to true', async () => {
+      const result = await service.createTeacherStudentLinkForSystem('teacher-uuid', 'student-uuid', true);
+      expect(result).toHaveProperty('isPrincipalTeacher', true);
+    });
+
+    it('throws 409 when the link already exists', async () => {
+      teacherRepo.findOne.mockResolvedValue({ id: 'existing-link' });
+      await expect(
+        service.createTeacherStudentLinkForSystem('teacher-uuid', 'student-uuid'),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('createPedagogicalCoordinatorLinkForSystem', () => {
+    it('creates the coordinator link', async () => {
+      const result = await service.createPedagogicalCoordinatorLinkForSystem(
+        'rp-uuid',
+        'student-uuid',
+        'responsable_pedagogique',
+      );
+      expect(coordinatorRepo.save).toHaveBeenCalled();
+      expect(result).toHaveProperty('coordinatorId', 'rp-uuid');
+    });
+
+    it('throws 409 when the link already exists', async () => {
+      coordinatorRepo.findOne.mockResolvedValue({ id: 'existing-link' });
+      await expect(
+        service.createPedagogicalCoordinatorLinkForSystem('rp-uuid', 'student-uuid', 'responsable_pedagogique'),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
 });

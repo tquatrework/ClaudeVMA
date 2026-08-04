@@ -1,7 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { JwtModule } from '@nestjs/jwt';
-import { ConfigModule, ConfigService } from '@nestjs/config';
 import { WorkflowInstance } from './entities/workflow-instance.entity';
 import { WorkflowStep } from './entities/workflow-step.entity';
 import { CompensationAction } from './entities/compensation-action.entity';
@@ -16,11 +14,6 @@ import { CorrelationTraceModule } from '../correlation/correlation-trace.module'
 @Module({
   imports: [
     TypeOrmModule.forFeature([WorkflowInstance, WorkflowStep, CompensationAction, RetryPolicy]),
-    JwtModule.registerAsync({
-      imports: [ConfigModule],
-      useFactory: (config: ConfigService) => ({ secret: config.get<string>('JWT_SECRET') }),
-      inject: [ConfigService],
-    }),
     HttpClientModule,
     IdempotencyModule,
     EventModule,
@@ -28,6 +21,5 @@ import { CorrelationTraceModule } from '../correlation/correlation-trace.module'
   ],
   providers: [WorkflowEngineService],
   controllers: [WorkflowController],
-  exports: [WorkflowEngineService],
 })
 export class WorkflowModule {}

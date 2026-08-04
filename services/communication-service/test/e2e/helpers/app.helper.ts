@@ -1,79 +1,28 @@
 /**
  * Helper to bootstrap the NestJS application for e2e tests.
  *
- * Connects to a local PostgreSQL instance using variables from .env.test
- * (or environment variables already set by CI/CD).
- *
- * Default values (if .env.test is absent and no env vars are injected):
- *   TEST_DB_HOST     → localhost
- *   TEST_DB_PORT     → 5432
- *   TEST_DB_NAME     → communication_test
- *   TEST_DB_USER     → visiomath
- *   TEST_DB_PASSWORD → visiomath_secret
- *
- * JWT tokens are signed with the same JWT_SECRET defined below
- * so that JwtAuthGuard accepts them during tests.
+ * Environment variables (DATABASE_URL, JWT_SECRET, INTERNAL_SECRET, NODE_ENV)
+ * are prepared by `test/e2e/env.setup.ts` (Jest `setupFiles`), which runs
+ * before this file — and `src/app.module.ts` — are ever imported. This file
+ * only builds and tears down the Nest application.
  */
 
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { AppModule } from '../../../src/app.module';
 import * as jwt from 'jsonwebtoken';
+import { TEST_JWT_SECRET, TEST_INTERNAL_SECRET } from '../env.setup';
+import { ContactPolicy } from '../../../src/contact/entities/contact-policy.entity';
 
-export const TEST_JWT_SECRET = 'test_jwt_secret_for_e2e';
-
-function setStaticTestEnv(): void {
-  process.env.NODE_ENV = 'test';
-  process.env.JWT_SECRET = TEST_JWT_SECRET;
-  process.env.INTERNAL_SECRET = 'test_internal_secret';
-}
-
-function buildLocalDatabaseUrl(): string {
-  const host     = process.env.TEST_DB_HOST     ?? 'localhost';
-  const port     = process.env.TEST_DB_PORT     ?? '5432';
-  const name     = process.env.TEST_DB_NAME     ?? 'communication_test';
-  const user     = process.env.TEST_DB_USER     ?? 'visiomath';
-  const password = process.env.TEST_DB_PASSWORD ?? 'visiomath_secret';
-  return `postgresql://${user}:${password}@${host}:${port}/${name}`;
-}
-
-/**
- * Load .env.test from the service root into process.env.
- * Variables already present in the environment are NOT overwritten.
- */
-function loadDotEnvTest(): void {
-  const path = require('path') as typeof import('path');
-  const fs   = require('fs')   as typeof import('fs');
-
-  const envFile = path.resolve(__dirname, '../../../.env.test');
-  if (!fs.existsSync(envFile)) return;
-
-  const raw = fs.readFileSync(envFile, 'utf8');
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eqIdx = trimmed.indexOf('=');
-    if (eqIdx === -1) continue;
-    const key   = trimmed.slice(0, eqIdx).trim();
-    const value = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
-    if (!(key in process.env)) {
-      process.env[key] = value;
-    }
-  }
-}
+export { TEST_JWT_SECRET, TEST_INTERNAL_SECRET };
 
 /**
  * Build and start a test application instance backed by a local PostgreSQL database.
  * The schema is reset before each suite so tests stay independent.
  */
 export async function createTestApp(): Promise<INestApplication> {
-  loadDotEnvTest();
-  setStaticTestEnv();
-
-  process.env.DATABASE_URL = buildLocalDatabaseUrl();
-
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [AppModule],
   }).compile();
@@ -110,6 +59,16 @@ export function makeJwt(
     secret,
     { expiresIn: '1h' },
   );
+}
+
+/**
+ * Direct repository access for test-only seeding/state manipulation
+ * (e.g. flipping `mandatory`/`status` on a ContactPolicy) that the public
+ * API intentionally does not expose.
+ */
+export function getContactPolicyRepository(app: INestApplication): Repository<ContactPolicy> {
+  const dataSource = app.get<DataSource>(getDataSourceToken());
+  return dataSource.getRepository(ContactPolicy);
 }
 
 /**

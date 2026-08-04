@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { IntegrationEvent, EventDirection } from './entities/integration-event.entity';
+import { MAX_CORRELATION_RESULTS } from '../common/constants/pagination.constant';
 
 @Injectable()
 export class EventService {
@@ -40,6 +41,7 @@ export class EventService {
     return this.repo.find({
       where: { correlationId },
       order: { occurredAt: 'ASC' },
+      take: MAX_CORRELATION_RESULTS,
     });
   }
 }

@@ -48,6 +48,7 @@
     "moduleFileExtensions": ["js", "json", "ts"],
     "rootDir": ".",
     "testMatch": ["<rootDir>/test/unit/**/*.spec.ts"],
+    "setupFiles": ["<rootDir>/test/setup-env.ts"],
     "transform": { "^.+\\.(t|j)s$": "ts-jest" },
     "collectCoverageFrom": ["src/**/*.(t|j)s"],
     "coverageDirectory": "./coverage",

@@ -19,13 +19,22 @@ describe('InternalGuard', () => {
 
   beforeEach(async () => {
     configGetMock = jest.fn().mockReturnValue('super-secret-internal');
+    // Reproduit le comportement réel de ConfigService.getOrThrow : lève une erreur
+    // quand la valeur est undefined/null (le check de chaîne vide reste à la charge du guard).
+    const configGetOrThrowMock = jest.fn((key: string) => {
+      const value = configGetMock(key);
+      if (value === undefined || value === null) {
+        throw new Error(`Missing configuration key: ${key}`);
+      }
+      return value;
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         InternalGuard,
         {
           provide: ConfigService,
-          useValue: { get: configGetMock },
+          useValue: { get: configGetMock, getOrThrow: configGetOrThrowMock },
         },
       ],
     }).compile();
@@ -78,25 +87,21 @@ describe('InternalGuard', () => {
   });
 
   describe('INTERNAL_SECRET non configuré', () => {
-    it('retourne true (endpoint non protégé) quand INTERNAL_SECRET est absent de la config', () => {
+    it('lève UnauthorizedException (fail-closed) quand INTERNAL_SECRET est absent de la config', () => {
       configGetMock.mockReturnValue(undefined);
 
       const executionContext = buildMockExecutionContext({});
 
-      const result = internalGuard.canActivate(executionContext);
-
-      expect(result).toBe(true);
+      expect(() => internalGuard.canActivate(executionContext)).toThrow(UnauthorizedException);
     });
 
-    it('retourne true même sans header quand INTERNAL_SECRET est une chaîne vide', () => {
-      // Un secret vide est traité comme non configuré (falsy)
+    it('lève UnauthorizedException (fail-closed) quand INTERNAL_SECRET est une chaîne vide', () => {
+      // Un secret vide est traité comme non configuré (falsy) — accès refusé par sécurité (S3).
       configGetMock.mockReturnValue('');
 
       const executionContext = buildMockExecutionContext({});
 
-      const result = internalGuard.canActivate(executionContext);
-
-      expect(result).toBe(true);
+      expect(() => internalGuard.canActivate(executionContext)).toThrow(UnauthorizedException);
     });
   });
 });

@@ -3,8 +3,6 @@ import {
   Post,
   Body,
   UseGuards,
-  Req,
-  Headers,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -16,9 +14,13 @@ import {
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CorrelationId } from '../common/decorators/correlation-id.decorator';
+import { CurrentUser } from '../common/current-user.decorator';
+import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 import { UserRole } from '../common/enums/user-role.enum';
 import { RemindersService } from './reminders.service';
 import { CreateReminderDto } from './dto/create-reminder.dto';
+import { Reminder } from './entities/reminder.entity';
 
 @ApiTags('reminders')
 @ApiBearerAuth()
@@ -48,9 +50,9 @@ export class RemindersController {
   @ApiResponse({ status: 403, description: 'Insufficient role' })
   createReminder(
     @Body() dto: CreateReminderDto,
-    @Req() req: any,
-    @Headers('x-correlation-id') correlationId?: string,
-  ) {
-    return this.remindersService.create(dto, req.user.id, correlationId);
+    @CurrentUser() actor: AuthenticatedUser,
+    @CorrelationId() correlationId?: string,
+  ): Promise<Reminder> {
+    return this.remindersService.create(dto, actor, correlationId);
   }
 }

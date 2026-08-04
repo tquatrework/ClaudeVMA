@@ -94,6 +94,94 @@
           Etat : N1 resolu, aucun point en suspens sur les guards de ce service.
         </securityConvention>
       </session>
+
+      <session date="2026-07-22" label="Mise en conformite docs/conventions/*-convention.md (modules, controllers, services)">
+        <context>
+          Application des trois conventions obligatoires NestJS (modules-convention.md,
+          controllers-convention.md, services-convention.md) au service calendar-service,
+          en trois commits separes, tests relances a chaque etape (90-92 tests unitaires,
+          35 tests e2e contre une base Postgres locale calendar_test).
+        </context>
+
+        <changeset id="modules-convention">
+          <item>Suppression de src/calendar/ (module/controleur/service/dto/entite marques
+            @deprecated, non importes dans AppModule depuis la resolution du bug de securite
+            B1 du 2026-06-27) — plus aucun placeholder obsolete dans src.</item>
+          <item>Nouveau src/security/security.module.ts : JwtModule configure une seule fois
+            (JwtModule.registerAsync + ConfigService.getOrThrow('JWT_SECRET')),
+            JwtAuthGuard/RolesGuard declares comme providers d'un seul module et exportes ;
+            les 4 modules de feature (calendars, activities, reminders, calendar-events)
+            importent SecurityModule au lieu de dupliquer JwtModule.register({}).</item>
+          <item>Nouveau src/config/env.validation.ts (validateEnv) branche sur
+            ConfigModule.forRoot({ validate }) : echoue au demarrage si DATABASE_URL ou
+            JWT_SECRET est absent, au lieu de tolerer une valeur vide.</item>
+          <item>AppModule : TypeOrmModule.forRootAsync utilise desormais
+            autoLoadEntities: true et synchronize: false (avant : liste manuelle des 10
+            entites de toutes les features + synchronize conditionne par NODE_ENV) — AppModule
+            ne connait plus le detail des entites des features.</item>
+          <item>Nouveau test/setup-env.ts (jest setupFiles) : necessaire car
+            ConfigModule.forRoot({ validate }) s'execute de façon synchrone des l'import
+            d'AppModule, avant que test/e2e/helpers/app.helper.ts ait pu positionner les
+            variables d'environnement de test.</item>
+        </changeset>
+
+        <changeset id="controllers-convention">
+          <item>Nouveau src/common/interfaces/authenticated-user.interface.ts
+            (AuthenticatedUser) + @CurrentUser() typé, en remplacement de
+            @Req() req: any / req.user.id / req.user.role dans tous les controleurs.</item>
+          <item>Nouveau src/common/decorators/correlation-id.decorator.ts (@CorrelationId())
+            en remplacement de @Headers('x-correlation-id') repete sur chaque methode.</item>
+          <item>ParseUUIDPipe ajoute sur tous les parametres d'ID de route (ownerId,
+            activityId, id, userId, granteeId).</item>
+          <item>CalendarEventsController (293 lignes, 5 racines de ressource distinctes :
+            events, invitees, cancel-request, reminders, grants) scinde en 5 controleurs
+            mono-ressource : calendar-events.controller.ts (GET/POST
+            /calendars/:ownerId/events), event-invitations.controller.ts (accept/decline),
+            event-cancellations.controller.ts (cancel-request), event-reminders.controller.ts
+            (reminders), calendar-visibility-grants.controller.ts (grants). Tous restent
+            enregistres dans calendar-events.module.ts et consomment CalendarEventsService.</item>
+          <item>La verification « seul l'invite peut accepter/refuser sa propre invitation »
+            est deplacee du controleur vers CalendarEventsService.acceptInvitation /
+            declineInvitation (l'autorisation liee a la ressource reste cote service).</item>
+          <item>Type de retour explicite ajoute sur toutes les methodes de controleur.</item>
+        </changeset>
+
+        <changeset id="services-convention">
+          <item>Les 4 services (CalendarsService, ActivitiesService, RemindersService,
+            CalendarEventsService) acceptent desormais un acteur typé AuthenticatedUser au
+            lieu de paires (requesterId: string, requesterRole: string).</item>
+          <item>DataSource.transaction (meme EntityManager pour toutes les ecritures) ajoute
+            pour les 3 cas d'usage multi-ecritures : CalendarsService.updateAvailability
+            (creation lazy du calendrier + suppression/recreation des creneaux),
+            CalendarEventsService.createEvent (evenement + invitations),
+            CalendarEventsService.requestCancellation (demande d'annulation + mise a jour
+            conditionnelle du statut de l'evenement).</item>
+          <item>Les evenements de domaine (EventsService.publish) sont publies apres
+            resolution de la transaction, jamais a l'interieur.</item>
+          <item>CalendarEventsService reste a 5 repositories injectes (CalendarEvent,
+            EventInvitation, CancellationRequest, ReminderRule, CalendarVisibilityGrant) :
+            seuil de reevaluation de la convention services franchi, decision documentee
+            dans le code (aucune de ces entites n'a de cycle de vie independant de
+            CalendarEvent — cascade delete/save — donc pas de scission de service, seulement
+            des controleurs distincts par sous-ressource).</item>
+        </changeset>
+
+        <blockers>Aucun blocage rencontre. Aucune contradiction detectee entre les
+          conventions et les contraintes metier (disponibilites, activites, rappels,
+          projection d'evenements).</blockers>
+        <openPoints>
+          <item>Les methodes de service/controleur retournent encore directement des
+            entites TypeORM (Calendar, ScheduledActivity, CalendarEvent, EventInvitation,
+            CancellationRequest, ReminderRule, CalendarVisibilityGrant) plutot que des DTO de
+            reponse dedies. Aucune de ces entites n'expose de champ sensible aujourd'hui,
+            mais une extraction de DTO de reponse explicites reste un suivi possible pour
+            un decouplage complet vis-a-vis du schema de persistance.</item>
+          <item>Aucun test e2e ne couvre aujourd'hui les routes de calendar-events
+            (/calendars/:ownerId/events, /events/:id/invitees, /events/:id/cancel-request,
+            /events/:id/reminders, /calendars/:ownerId/grants) — seule la couverture
+            unitaire (controleur + service, avec guards mockes) existe pour ce perimetre.</item>
+        </openPoints>
+      </session>
     </technicalSessions>
   </service>
 </serviceFunctionalSpecification>

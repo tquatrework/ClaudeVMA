@@ -3,6 +3,7 @@ import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { AuthController } from '../../src/auth/auth.controller';
 import { AuthService } from '../../src/auth/auth.service';
 import { UserRole, ValidationStatus } from '../../src/auth/entities/user.entity';
+import { makeAuthenticatedUser } from './helpers/authenticated-user.factory';
 
 const mockTokenResponse = {
   access_token: 'signed-access-token',
@@ -73,8 +74,8 @@ describe('AuthController', () => {
     it('appelle logout avec le jti de l\'utilisateur authentifié', async () => {
       mockAuthService.logout.mockResolvedValue(undefined);
 
-      const mockRequest = { user: { jti: 'jti-uuid' } };
-      const result = await controller.logout(mockRequest);
+      const actor = makeAuthenticatedUser({ jti: 'jti-uuid' });
+      const result = await controller.logout(actor);
 
       expect(mockAuthService.logout).toHaveBeenCalledWith('jti-uuid');
       expect(result).toEqual({ message: 'Session revoked' });
@@ -90,7 +91,7 @@ describe('AuthController', () => {
       };
       mockAuthService.refresh.mockResolvedValue(newTokenResponse);
 
-      const result = await controller.refresh('valid-refresh-token');
+      const result = await controller.refresh({ refresh_token: 'valid-refresh-token' });
 
       expect(result).toHaveProperty('access_token');
       expect(mockAuthService.refresh).toHaveBeenCalledWith('valid-refresh-token');
@@ -99,24 +100,22 @@ describe('AuthController', () => {
     it('propage 401 quand le refresh token est invalide', async () => {
       mockAuthService.refresh.mockRejectedValue(new UnauthorizedException('Invalid refresh token'));
 
-      await expect(controller.refresh('bad-token')).rejects.toThrow(UnauthorizedException);
+      await expect(controller.refresh({ refresh_token: 'bad-token' })).rejects.toThrow(UnauthorizedException);
     });
   });
 
   describe('GET /auth/me', () => {
     it('retourne l\'identité de l\'utilisateur authentifié avec le loginIdentifier', () => {
-      const mockRequest = {
-        user: {
-          id: 'user-uuid',
-          loginIdentifier: 'test.user',
-          email: 'test@example.com',
-          role: UserRole.ELEVE,
-          validationStatus: ValidationStatus.ACTIVE,
-          consentSigned: true,
-        },
-      };
+      const actor = makeAuthenticatedUser({
+        id: 'user-uuid',
+        loginIdentifier: 'test.user',
+        email: 'test@example.com',
+        role: UserRole.ELEVE,
+        validationStatus: ValidationStatus.ACTIVE,
+        consentSigned: true,
+      });
 
-      const result = controller.me(mockRequest);
+      const result = controller.me(actor);
 
       expect(result).toEqual({
         id: 'user-uuid',
@@ -129,19 +128,14 @@ describe('AuthController', () => {
     });
 
     it('n\'expose pas le passwordHash dans la réponse', () => {
-      const mockRequest = {
-        user: {
-          id: 'user-uuid',
-          loginIdentifier: 'test.user',
-          email: 'test@example.com',
-          role: UserRole.ELEVE,
-          validationStatus: ValidationStatus.ACTIVE,
-          consentSigned: false,
-          passwordHash: 'secret-hash',
-        },
+      // `AuthenticatedUser` ne porte jamais de hash — on simule malgré tout une fuite
+      // accidentelle pour vérifier que la projection explicite de me() la filtre.
+      const actorWithLeakedHash = {
+        ...makeAuthenticatedUser({ id: 'user-uuid', consentSigned: false }),
+        passwordHash: 'secret-hash',
       };
 
-      const result = controller.me(mockRequest);
+      const result = controller.me(actorWithLeakedHash);
 
       expect(result).not.toHaveProperty('passwordHash');
     });

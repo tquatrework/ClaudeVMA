@@ -13,6 +13,8 @@ import { NotificationService } from '../notification/notification.service';
 import { InitializeDashboardDto } from './dto/initialize-dashboard.dto';
 import { InternalNotifyDto } from './dto/internal-notify.dto';
 import { NotificationType } from '../notification/entities/notification.entity';
+import { NotificationResponseDto } from '../notification/dto/notification-response.dto';
+import { DashboardPreferenceResponseDto } from '../dashboard/dto/dashboard-preference-response.dto';
 
 @ApiTags('internal')
 @ApiSecurity('x-internal-secret')
@@ -32,10 +34,10 @@ export class InternalController {
       'Called by orchestration-service during student or teacher onboarding. ' +
       'Creates default DashboardPreference. Idempotent — safe to call multiple times.',
   })
-  @ApiResponse({ status: 201, description: 'Dashboard initialized' })
+  @ApiResponse({ status: 201, description: 'Dashboard initialized', type: DashboardPreferenceResponseDto })
   @ApiResponse({ status: 401, description: 'Missing or invalid X-Internal-Secret' })
-  initializeDashboard(@Body() dto: InitializeDashboardDto) {
-    return this.dashboardService.initializeDashboard(dto.userId, dto.role);
+  initializeDashboard(@Body() dto: InitializeDashboardDto): Promise<DashboardPreferenceResponseDto> {
+    return this.dashboardService.initializeDashboard({ id: dto.userId, role: dto.role });
   }
 
   @Post('notify')
@@ -48,10 +50,10 @@ export class InternalController {
       'When targetRole is provided, a single notification record is created with userId set to the role value — ' +
       'the frontend filters by role until a full fan-out mechanism is in place.',
   })
-  @ApiResponse({ status: 201, description: 'Notification created' })
+  @ApiResponse({ status: 201, description: 'Notification created', type: NotificationResponseDto })
   @ApiResponse({ status: 400, description: 'Neither targetUserId nor targetRole provided' })
   @ApiResponse({ status: 401, description: 'Missing or invalid X-Internal-Secret' })
-  async notify(@Body() dto: InternalNotifyDto) {
+  async notify(@Body() dto: InternalNotifyDto): Promise<NotificationResponseDto> {
     if (!dto.targetUserId && !dto.targetRole) {
       throw new BadRequestException('Either targetUserId or targetRole must be provided');
     }

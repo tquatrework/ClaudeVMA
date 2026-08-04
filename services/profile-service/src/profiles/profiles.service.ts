@@ -4,17 +4,20 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { ConfigService } from '@nestjs/config';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { AdministrativeProfile } from './entities/administrative-profile.entity';
 import { StudentPedagogicalProfile } from './entities/student-pedagogical-profile.entity';
 import { TeacherPedagogicalProfile } from './entities/teacher-pedagogical-profile.entity';
 import { InternalProfileNote } from './entities/internal-profile-note.entity';
 import { TeacherValidation } from './entities/teacher-validation.entity';
 import { ProfileVisibilityPreference } from './entities/profile-visibility-preference.entity';
-import { TeacherStudentLink } from '../relations/entities/teacher-student-link.entity';
-import { FinanceOwnerStudentLink } from '../relations/entities/finance-owner-student-link.entity';
+import { RelationsService } from '../relations/relations.service';
+import {
+  IdentityAccessClient,
+  IdentityAccessNotFoundError,
+  IdentityAccessUnavailableError,
+} from '../common/clients/identity-access.client';
 import { UpdateAdministrativeProfileDto } from './dto/update-administrative-profile.dto';
 import {
   UpdateStudentPedagogicalProfileDto,
@@ -26,11 +29,9 @@ import { UpdateTeacherValidationDto } from './dto/update-teacher-validation.dto'
 import { UpdateVisibilityPreferenceDto } from './dto/update-visibility-preference.dto';
 import { EventsService } from '../events/events.service';
 import { UserRole } from '../common/enums/user-role.enum';
+import { Actor } from '../common/types/actor.type';
 
-export interface Actor {
-  id: string;
-  role: UserRole;
-}
+export { Actor };
 
 /**
  * Roles allowed to READ internal notes (PROF-FB-002):
@@ -69,12 +70,11 @@ export class ProfilesService {
     private readonly teacherValidationRepo: Repository<TeacherValidation>,
     @InjectRepository(ProfileVisibilityPreference)
     private readonly visibilityPrefRepo: Repository<ProfileVisibilityPreference>,
-    @InjectRepository(TeacherStudentLink)
-    private readonly teacherLinkRepo: Repository<TeacherStudentLink>,
-    @InjectRepository(FinanceOwnerStudentLink)
-    private readonly financeLinkRepo: Repository<FinanceOwnerStudentLink>,
+    private readonly relationsService: RelationsService,
     private readonly events: EventsService,
-    private readonly configService: ConfigService,
+    private readonly identityAccessClient: IdentityAccessClient,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -91,26 +91,44 @@ export class ProfilesService {
     let admin = await this.adminRepo.findOne({ where: { userId } });
     const studentPeda = await this.studentPedaRepo.findOne({ where: { userId } });
     const teacherPeda = await this.teacherPedaRepo.findOne({ where: { userId } });
+    let pedagogical = studentPeda ?? teacherPeda ?? null;
 
     // Lazy-create minimal profiles when none exist for a valid user.
     // A user that has passed JWT authentication is guaranteed to exist in
     // identity-access-service, so returning 404 here would be misleading.
-    if (!admin) {
-      const minimalAdminProfile = this.adminRepo.create({ userId });
-      admin = await this.adminRepo.save(minimalAdminProfile);
-    }
-
+    const needsAdminBootstrap = !admin;
     // For an ELEVE consulting their own profile, also create a minimal
     // student pedagogical profile if none exists yet (PROF-BR: lazy init).
     // For a FORMATEUR consulting their own profile, also create a minimal
     // teacher pedagogical profile if none exists yet (same lazy-init pattern).
-    let pedagogical = studentPeda ?? teacherPeda ?? null;
-    if (!pedagogical && actor.role === UserRole.ELEVE && actor.id === userId) {
-      const minimalStudentPeda = this.studentPedaRepo.create({ userId });
-      pedagogical = await this.studentPedaRepo.save(minimalStudentPeda);
-    } else if (!pedagogical && actor.role === UserRole.FORMATEUR && actor.id === userId) {
-      const minimalTeacherPeda = this.teacherPedaRepo.create({ userId });
-      pedagogical = await this.teacherPedaRepo.save(minimalTeacherPeda);
+    const needsStudentPedaBootstrap =
+      !pedagogical && actor.role === UserRole.ELEVE && actor.id === userId;
+    const needsTeacherPedaBootstrap =
+      !pedagogical && actor.role === UserRole.FORMATEUR && actor.id === userId;
+
+    // This lazy-init path can perform up to two independent writes
+    // (administrative + pedagogical profile creation). Both writes go through
+    // the same EntityManager inside a single transaction so that a user never
+    // ends up with a half-created profile (services-convention: "toute
+    // opération multi-écritures atomique utilise DataSource.transaction").
+    if (needsAdminBootstrap || needsStudentPedaBootstrap || needsTeacherPedaBootstrap) {
+      await this.dataSource.transaction(async (manager) => {
+        if (needsAdminBootstrap) {
+          const adminRepo = manager.getRepository(AdministrativeProfile);
+          const minimalAdminProfile = adminRepo.create({ userId });
+          admin = await adminRepo.save(minimalAdminProfile);
+        }
+
+        if (needsStudentPedaBootstrap) {
+          const studentPedaRepo = manager.getRepository(StudentPedagogicalProfile);
+          const minimalStudentPeda = studentPedaRepo.create({ userId });
+          pedagogical = await studentPedaRepo.save(minimalStudentPeda);
+        } else if (needsTeacherPedaBootstrap) {
+          const teacherPedaRepo = manager.getRepository(TeacherPedagogicalProfile);
+          const minimalTeacherPeda = teacherPedaRepo.create({ userId });
+          pedagogical = await teacherPedaRepo.save(minimalTeacherPeda);
+        }
+      });
     }
 
     const loginIdentifier = await this.fetchLoginIdentifier(userId);
@@ -446,22 +464,26 @@ export class ProfilesService {
       order: { createdAt: 'ASC' },
     });
 
-    const enrichedResults = await Promise.all(
-      pendingValidations.map(async (validation) => {
-        const adminProfile = await this.adminRepo.findOne({
-          where: { userId: validation.teacherId },
-        });
-        return {
-          id: validation.id,
-          teacherId: validation.teacherId,
-          firstName: adminProfile?.firstName ?? null,
-          lastName: adminProfile?.lastName ?? null,
-          createdAt: validation.createdAt,
-        };
-      }),
+    // Batch-fetch all administrative profiles in a single query instead of
+    // one findOne() per pending validation (services-convention: avoid N+1).
+    const teacherIds = pendingValidations.map((validation) => validation.teacherId);
+    const adminProfiles = teacherIds.length
+      ? await this.adminRepo.find({ where: { userId: In(teacherIds) } })
+      : [];
+    const adminProfileByTeacherId = new Map(
+      adminProfiles.map((adminProfile) => [adminProfile.userId, adminProfile]),
     );
 
-    return enrichedResults;
+    return pendingValidations.map((validation) => {
+      const adminProfile = adminProfileByTeacherId.get(validation.teacherId);
+      return {
+        id: validation.id,
+        teacherId: validation.teacherId,
+        firstName: adminProfile?.firstName ?? null,
+        lastName: adminProfile?.lastName ?? null,
+        createdAt: validation.createdAt,
+      };
+    });
   }
 
   /**
@@ -557,6 +579,84 @@ export class ProfilesService {
   }
 
   // ---------------------------------------------------------------------------
+  // System bootstrap ports — consumed by InternalController/InternalService
+  // (account onboarding, no human actor — authorization is enforced upstream
+  // by InternalGuard/X-Internal-Secret) and by ParentLinkRequestsService.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Idempotent creation of the administrative profile for onboarding flows.
+   * Does nothing (returns the existing profile) if one already exists.
+   */
+  async bootstrapAdministrativeProfile(input: {
+    userId: string;
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+    birthDate?: string;
+  }): Promise<AdministrativeProfile> {
+    let profile = await this.adminRepo.findOne({ where: { userId: input.userId } });
+    if (!profile) {
+      profile = this.adminRepo.create({
+        userId: input.userId,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        telephone: input.phone ?? undefined,
+        dateNaissance: input.birthDate,
+      });
+      profile = await this.adminRepo.save(profile);
+    }
+    return profile;
+  }
+
+  /**
+   * Idempotent creation of the student pedagogical profile for onboarding flows.
+   */
+  async bootstrapStudentPedagogicalProfile(input: {
+    userId: string;
+    level?: string;
+  }): Promise<StudentPedagogicalProfile> {
+    let profile = await this.studentPedaRepo.findOne({ where: { userId: input.userId } });
+    if (!profile) {
+      profile = this.studentPedaRepo.create({ userId: input.userId, niveauScolaire: input.level });
+      profile = await this.studentPedaRepo.save(profile);
+    }
+    return profile;
+  }
+
+  /**
+   * Idempotent creation of the teacher pedagogical profile for onboarding flows.
+   */
+  async bootstrapTeacherPedagogicalProfile(input: {
+    userId: string;
+    subjects?: string[];
+    levels?: string[];
+    bio?: string;
+  }): Promise<TeacherPedagogicalProfile> {
+    let profile = await this.teacherPedaRepo.findOne({ where: { userId: input.userId } });
+    if (!profile) {
+      profile = this.teacherPedaRepo.create({
+        userId: input.userId,
+        matieresEnseignees: input.subjects,
+        niveauxEnseignes: input.levels,
+        experiencePedagogique: input.bio,
+      });
+      profile = await this.teacherPedaRepo.save(profile);
+    }
+    return profile;
+  }
+
+  /**
+   * Read-only port used by ParentLinkRequestsService.createRequest to check
+   * that a resolved userId has a student pedagogical profile, without
+   * injecting StudentPedagogicalProfile's repository outside this feature.
+   */
+  async studentPedagogicalProfileExists(userId: string): Promise<boolean> {
+    const profile = await this.studentPedaRepo.findOne({ where: { userId } });
+    return !!profile;
+  }
+
+  // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
 
@@ -569,10 +669,8 @@ export class ProfilesService {
     if (actor.id === userId) return;
 
     if (actor.role === UserRole.FORMATEUR) {
-      const link = await this.teacherLinkRepo.findOne({
-        where: { teacherId: actor.id, studentId: userId },
-      });
-      if (!link) {
+      const isLinked = await this.relationsService.isTeacherLinkedToStudent(actor.id, userId);
+      if (!isLinked) {
         throw new ForbiddenException(
           'A formateur may only view profiles of students they are linked to (PROF-FB-003)',
         );
@@ -581,10 +679,8 @@ export class ProfilesService {
     }
 
     if (actor.role === UserRole.PARENT_FINANCEUR) {
-      const link = await this.financeLinkRepo.findOne({
-        where: { financeOwnerId: actor.id, studentId: userId },
-      });
-      if (!link) {
+      const isLinked = await this.relationsService.isFinanceOwnerLinkedToStudent(actor.id, userId);
+      if (!isLinked) {
         throw new ForbiddenException(
           'A parent may only view profiles of students they are linked to (PROF-RA-002)',
         );
@@ -649,43 +745,21 @@ export class ProfilesService {
   }
 
   /**
-   * Fetches loginIdentifier from identity-access-service for a given userId.
-   * Returns null on 404 or network error (graceful degradation — never throws).
+   * Fetches loginIdentifier from identity-access-service for a given userId,
+   * via the typed IdentityAccessClient adapter (services-convention: appels
+   * interservices via un client typé avec timeout).
+   * Returns null on 404 or network/timeout error (graceful degradation —
+   * never throws): a missing loginIdentifier must not break profile reads.
    */
   private async fetchLoginIdentifier(userId: string): Promise<string | null> {
-    const identityServiceUrl = this.configService.get<string>(
-      'IDENTITY_ACCESS_SERVICE_URL',
-      'http://identity-access-service:3001',
-    );
-    const internalSecret = this.configService.get<string>('INTERNAL_SECRET', '');
-
-    let response: Response;
     try {
-      response = await fetch(
-        `${identityServiceUrl}/internal/accounts/by-user-id/${userId}`,
-        {
-          method: 'GET',
-          headers: { 'X-Internal-Secret': internalSecret },
-          signal: AbortSignal.timeout(3000),
-        },
-      );
-    } catch (networkError) {
-      this.logger.warn(
-        `Impossible de joindre identity-access-service pour userId ${userId} : ${(networkError as Error).message}`,
-      );
-      return null;
-    }
-
-    if (!response.ok) {
-      if (response.status !== 404) {
-        this.logger.warn(
-          `identity-access-service a retourné HTTP ${response.status} pour userId ${userId}`,
-        );
+      const account = await this.identityAccessClient.findAccountByUserId(userId);
+      return account.loginIdentifier ?? null;
+    } catch (error) {
+      if (!(error instanceof IdentityAccessNotFoundError || error instanceof IdentityAccessUnavailableError)) {
+        throw error;
       }
       return null;
     }
-
-    const accountData = await response.json() as { userId: string; loginIdentifier: string; role: string };
-    return accountData.loginIdentifier ?? null;
   }
 }

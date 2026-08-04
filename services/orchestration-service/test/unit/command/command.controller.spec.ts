@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CommandController } from '../../../src/command/command.controller';
 import { CommandService } from '../../../src/command/command.service';
-import { JwtAuthGuard } from '../../../src/common/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../../../src/security/jwt-auth.guard';
 
 const makeCommandServiceMock = () => ({
   dispatch: jest.fn(),
@@ -25,19 +25,26 @@ describe('CommandController', () => {
   });
 
   describe('dispatch — POST /commands', () => {
-    it('delegates to CommandService.dispatch and returns the result (ORCH-CMD-001)', async () => {
+    it('delegates to CommandService.dispatch and returns the mapped result (ORCH-CMD-001)', async () => {
       const dto = {
         idempotencyKey: 'cmd-ctrl-1',
         targetService: 'profile-service',
         action: 'create-student-profiles',
         payload: { accountId: 'acc-1' },
       };
+      const createdAt = new Date('2024-01-01T00:00:00Z');
+      const dispatchedAt = new Date('2024-01-01T00:00:01Z');
       const expectedResult = {
         id: 'cmd-1',
-        dispatched: true,
+        targetService: 'profile-service',
+        action: 'create-student-profiles',
         idempotencyKey: 'cmd-ctrl-1',
+        correlationId: 'corr-cmd-1',
+        dispatched: true,
         result: { profileId: 'p-1' },
         error: null,
+        createdAt,
+        dispatchedAt,
       };
       commandService.dispatch.mockResolvedValue(expectedResult);
 
@@ -56,10 +63,15 @@ describe('CommandController', () => {
       };
       const failureResult = {
         id: 'cmd-2',
-        dispatched: false,
+        targetService: 'profile-service',
+        action: 'create-student-profiles',
         idempotencyKey: 'cmd-ctrl-fail',
+        correlationId: 'corr-cmd-2',
+        dispatched: false,
         result: null,
         error: 'Service unavailable',
+        createdAt: new Date('2024-01-01T00:00:00Z'),
+        dispatchedAt: new Date('2024-01-01T00:00:01Z'),
       };
       commandService.dispatch.mockResolvedValue(failureResult);
 
@@ -78,10 +90,15 @@ describe('CommandController', () => {
       };
       const cachedResult = {
         id: 'cmd-existing',
-        dispatched: true,
+        targetService: 'identity-access-service',
+        action: 'create-account',
         idempotencyKey: 'cmd-cached',
+        correlationId: 'corr-cmd-existing',
+        dispatched: true,
         result: { accountId: 'acc-existing' },
         error: null,
+        createdAt: new Date('2024-01-01T00:00:00Z'),
+        dispatchedAt: new Date('2024-01-01T00:00:01Z'),
       };
       commandService.dispatch.mockResolvedValue(cachedResult);
 

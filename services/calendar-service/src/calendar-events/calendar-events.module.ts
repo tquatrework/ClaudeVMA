@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { JwtModule } from '@nestjs/jwt';
 import { CalendarEventsController } from './calendar-events.controller';
+import { EventInvitationsController } from './event-invitations.controller';
+import { EventCancellationsController } from './event-cancellations.controller';
+import { EventRemindersController } from './event-reminders.controller';
+import { CalendarVisibilityGrantsController } from './calendar-visibility-grants.controller';
 import { CalendarEventsService } from './calendar-events.service';
 import { CalendarEvent } from './entities/calendar-event.entity';
 import { EventInvitation } from './entities/event-invitation.entity';
@@ -9,8 +12,7 @@ import { CancellationRequest } from './entities/cancellation-request.entity';
 import { ReminderRule } from './entities/reminder-rule.entity';
 import { CalendarVisibilityGrant } from './entities/calendar-visibility-grant.entity';
 import { EventsModule } from '../events/events.module';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../common/guards/roles.guard';
+import { SecurityModule } from '../security/security.module';
 
 @Module({
   imports: [
@@ -21,11 +23,17 @@ import { RolesGuard } from '../common/guards/roles.guard';
       ReminderRule,
       CalendarVisibilityGrant,
     ]),
-    JwtModule.register({}),
+    SecurityModule,
     EventsModule,
   ],
-  controllers: [CalendarEventsController],
-  providers: [CalendarEventsService, JwtAuthGuard, RolesGuard],
+  controllers: [
+    CalendarEventsController,
+    EventInvitationsController,
+    EventCancellationsController,
+    EventRemindersController,
+    CalendarVisibilityGrantsController,
+  ],
+  providers: [CalendarEventsService],
   exports: [CalendarEventsService],
 })
 export class CalendarEventsModule {}

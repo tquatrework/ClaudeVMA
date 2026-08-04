@@ -1,10 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DashboardPreference } from './entities/dashboard-preference.entity';
 import { DashboardWidgetState } from './entities/dashboard-widget-state.entity';
 import { NotificationService } from '../notification/notification.service';
 import { UpdatePreferencesDto } from './dto/update-preferences.dto';
+import { DashboardResponseDto } from './dto/dashboard-response.dto';
+import { DashboardPreferenceResponseDto } from './dto/dashboard-preference-response.dto';
+import { DashboardWidgetDto } from './dto/dashboard-widget.dto';
+import { Actor } from '../common/types/actor';
 
 const DEFAULT_WIDGET_CONFIGS: Record<string, Record<string, unknown>> = {
   eleve: {
@@ -55,26 +59,27 @@ export class DashboardService {
     private readonly notificationService: NotificationService,
   ) {}
 
-  async getMyDashboard(userId: string, role: string) {
-    const preference = await this.preferenceRepository.findOne({ where: { userId } });
+  /** Use case: build the actor's role-contextualised dashboard. */
+  async getMyDashboard(actor: Actor): Promise<DashboardResponseDto> {
+    const preference = await this.preferenceRepository.findOne({ where: { userId: actor.id } });
 
-    const widgetConfig = preference?.widgetConfig ?? DEFAULT_WIDGET_CONFIGS[role] ?? {};
+    const widgetConfig = preference?.widgetConfig ?? DEFAULT_WIDGET_CONFIGS[actor.role] ?? {};
 
-    const recentNotifications = await this.notificationService.findRecentByUser(userId, 10);
+    const recentNotifications = await this.notificationService.findRecentByUser(actor, 10);
 
-    const widgets = this.buildWidgets(role, widgetConfig);
+    const widgets = this.buildWidgets(actor.role, widgetConfig);
 
-    return {
-      userId,
-      role,
-      widgets,
-      notifications: recentNotifications,
-      generatedAt: new Date().toISOString(),
-    };
+    const response = new DashboardResponseDto();
+    response.userId = actor.id;
+    response.role = actor.role;
+    response.widgets = widgets;
+    response.notifications = recentNotifications;
+    response.generatedAt = new Date().toISOString();
+    return response;
   }
 
-  private buildWidgets(role: string, config: Record<string, unknown>): Record<string, unknown>[] {
-    const widgets: Record<string, unknown>[] = [];
+  private buildWidgets(role: string, config: Record<string, unknown>): DashboardWidgetDto[] {
+    const widgets: DashboardWidgetDto[] = [];
 
     if (config.showCalendar) {
       widgets.push({ type: 'calendar', label: 'Calendrier', ref: 'calendar-service' });
@@ -122,24 +127,40 @@ export class DashboardService {
     return widgets;
   }
 
-  async updatePreferences(userId: string, role: string, dto: UpdatePreferencesDto): Promise<DashboardPreference> {
-    let preference = await this.preferenceRepository.findOne({ where: { userId } });
+  /** Use case: save the actor's own widget configuration. */
+  async updatePreferences(actor: Actor, dto: UpdatePreferencesDto): Promise<DashboardPreferenceResponseDto> {
+    let preference = await this.preferenceRepository.findOne({ where: { userId: actor.id } });
     if (!preference) {
-      preference = this.preferenceRepository.create({ userId, role, widgetConfig: dto.widgetConfig });
+      preference = this.preferenceRepository.create({
+        userId: actor.id,
+        role: actor.role,
+        widgetConfig: dto.widgetConfig,
+      });
     } else {
       preference.widgetConfig = dto.widgetConfig;
     }
-    return this.preferenceRepository.save(preference);
+    const saved = await this.preferenceRepository.save(preference);
+    return DashboardPreferenceResponseDto.fromEntity(saved);
   }
 
-  async initializeDashboard(userId: string, role: string): Promise<DashboardPreference> {
-    const existing = await this.preferenceRepository.findOne({ where: { userId } });
+  /**
+   * Use case: create the default dashboard preference for a newly onboarded
+   * user. Called by orchestration-service — idempotent, safe to call more
+   * than once for the same target user.
+   */
+  async initializeDashboard(targetUser: Actor): Promise<DashboardPreferenceResponseDto> {
+    const existing = await this.preferenceRepository.findOne({ where: { userId: targetUser.id } });
     if (existing) {
-      return existing;
+      return DashboardPreferenceResponseDto.fromEntity(existing);
     }
-    const widgetConfig = DEFAULT_WIDGET_CONFIGS[role] ?? {};
-    const preference = this.preferenceRepository.create({ userId, role, widgetConfig });
-    return this.preferenceRepository.save(preference);
+    const widgetConfig = DEFAULT_WIDGET_CONFIGS[targetUser.role] ?? {};
+    const preference = this.preferenceRepository.create({
+      userId: targetUser.id,
+      role: targetUser.role,
+      widgetConfig,
+    });
+    const saved = await this.preferenceRepository.save(preference);
+    return DashboardPreferenceResponseDto.fromEntity(saved);
   }
 
   async getPreference(userId: string): Promise<DashboardPreference | null> {

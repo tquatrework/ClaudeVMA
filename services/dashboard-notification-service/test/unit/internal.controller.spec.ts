@@ -50,7 +50,7 @@ describe('InternalController', () => {
 
       const result = await internalController.initializeDashboard({ userId, role });
 
-      expect(dashboardService.initializeDashboard).toHaveBeenCalledWith(userId, role);
+      expect(dashboardService.initializeDashboard).toHaveBeenCalledWith({ id: userId, role });
       expect(result).toEqual(expectedResult);
     });
   });
@@ -64,9 +64,21 @@ describe('InternalController', () => {
         title: 'Nouvelle demande',
         message: 'Une demande professeur a été créée.',
       };
-      const expectedNotif = { id: 'notif-001', userId: targetUserId, ...dto };
+      const createdNotification = {
+        id: 'notif-001',
+        userId: targetUserId,
+        type: dto.type,
+        title: dto.title,
+        message: dto.message,
+        isRead: false,
+        metadata: null,
+        createdAt: new Date('2024-01-01T00:00:00.000Z'),
+      };
 
-      notificationService.create.mockResolvedValue(expectedNotif);
+      // NotificationService.create already returns the explicit response DTO
+      // shape (see notification.service.spec.ts) — the controller is a thin
+      // passthrough and must not reshape it further.
+      notificationService.create.mockResolvedValue(createdNotification);
 
       const result = await internalController.notify(dto);
 
@@ -77,7 +89,7 @@ describe('InternalController', () => {
         message: dto.message,
         metadata: undefined,
       });
-      expect(result).toEqual(expectedNotif);
+      expect(result).toEqual(createdNotification);
     });
 
     it('creates a notification for a targetRole using role: prefix', async () => {

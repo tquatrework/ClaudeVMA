@@ -13,7 +13,7 @@ import { CreateTeacherStudentLinkDto } from './dto/create-teacher-student-link.d
 import { CreatePedagogicalCoordinatorLinkDto } from './dto/create-pedagogical-coordinator-link.dto';
 import { EventsService } from '../events/events.service';
 import { UserRole } from '../common/enums/user-role.enum';
-import { Actor } from '../profiles/profiles.service';
+import { Actor } from '../common/types/actor.type';
 
 @Injectable()
 export class RelationsService {
@@ -207,5 +207,109 @@ export class RelationsService {
       throw new ForbiddenException('You may only list your own students');
     }
     return this.coordinatorRepo.find({ where: { coordinatorId }, order: { createdAt: 'ASC' } });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Ports consumed by other features (profiles, parent-link-requests, internal)
+  // ---------------------------------------------------------------------------
+  //
+  // These methods are the explicit ports through which other features consume
+  // TeacherStudentLink / FinanceOwnerStudentLink / PedagogicalCoordinatorLink
+  // capabilities without ever injecting these repositories directly
+  // (modules-convention & services-convention: "une feature n'accède qu'aux
+  // repositories des entités qu'elle possède").
+
+  /**
+   * Read-only port used by ProfilesService.assertReadAccess (PROF-FB-003):
+   * a formateur may only read profiles of students they are linked to.
+   */
+  async isTeacherLinkedToStudent(teacherId: string, studentId: string): Promise<boolean> {
+    const link = await this.teacherRepo.findOne({ where: { teacherId, studentId } });
+    return !!link;
+  }
+
+  /**
+   * Read-only port used by ProfilesService.assertReadAccess (PROF-RA-002):
+   * a parent_financeur may only read profiles of students they are linked to.
+   */
+  async isFinanceOwnerLinkedToStudent(financeOwnerId: string, studentId: string): Promise<boolean> {
+    const link = await this.financeRepo.findOne({ where: { financeOwnerId, studentId } });
+    return !!link;
+  }
+
+  /**
+   * Idempotent port used by ParentLinkRequestsService when a request is
+   * approved: creates the finance-owner–student link if it does not exist
+   * yet, or returns the existing one. Authorization is already enforced by
+   * ParentLinkRequestsService.assertCanProcessRequest, so no actor/role
+   * check is repeated here.
+   */
+  async ensureFinanceOwnerStudentLink(
+    financeOwnerId: string,
+    studentId: string,
+  ): Promise<FinanceOwnerStudentLink> {
+    const existing = await this.financeRepo.findOne({ where: { financeOwnerId, studentId } });
+    if (existing) return existing;
+
+    const link = this.financeRepo.create({ financeOwnerId, studentId });
+    return this.financeRepo.save(link);
+  }
+
+  /**
+   * System-triggered link creation used by InternalService during account
+   * onboarding (no human actor — authorization is enforced upstream by
+   * InternalGuard/X-Internal-Secret). Mirrors linkFinanceOwnerToStudent but
+   * without a role check or event publication, preserving the existing
+   * internal bootstrap contract (409 when the link already exists).
+   */
+  async createFinanceOwnerStudentLinkForSystem(
+    financeOwnerId: string,
+    studentId: string,
+  ): Promise<FinanceOwnerStudentLink> {
+    const existing = await this.financeRepo.findOne({ where: { financeOwnerId, studentId } });
+    if (existing) {
+      throw new ConflictException('This financeur is already linked to this student');
+    }
+
+    const link = this.financeRepo.create({ financeOwnerId, studentId });
+    return this.financeRepo.save(link);
+  }
+
+  /**
+   * System-triggered link creation used by InternalService during account
+   * onboarding (no human actor). Mirrors linkTeacherToStudent without a role
+   * check or event publication.
+   */
+  async createTeacherStudentLinkForSystem(
+    teacherId: string,
+    studentId: string,
+    isPrincipalTeacher = false,
+  ): Promise<TeacherStudentLink> {
+    const existing = await this.teacherRepo.findOne({ where: { teacherId, studentId } });
+    if (existing) {
+      throw new ConflictException('This teacher is already linked to this student');
+    }
+
+    const link = this.teacherRepo.create({ teacherId, studentId, isPrincipalTeacher });
+    return this.teacherRepo.save(link);
+  }
+
+  /**
+   * System-triggered link creation used by InternalService during account
+   * onboarding (no human actor). Mirrors linkPedagogicalCoordinator without a
+   * role check or event publication.
+   */
+  async createPedagogicalCoordinatorLinkForSystem(
+    coordinatorId: string,
+    studentId: string,
+    coordinatorRole: string,
+  ): Promise<PedagogicalCoordinatorLink> {
+    const existing = await this.coordinatorRepo.findOne({ where: { coordinatorId, studentId } });
+    if (existing) {
+      throw new ConflictException('This coordinator is already linked to this student');
+    }
+
+    const link = this.coordinatorRepo.create({ coordinatorId, studentId, coordinatorRole });
+    return this.coordinatorRepo.save(link);
   }
 }

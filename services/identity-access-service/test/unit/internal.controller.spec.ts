@@ -4,6 +4,7 @@ import { InternalController } from '../../src/internal/internal.controller';
 import { AccountsService } from '../../src/accounts/accounts.service';
 import { InternalGuard } from '../../src/internal/internal.guard';
 import { UserRole } from '../../src/auth/entities/user.entity';
+import { ListAccountsQueryDto } from '../../src/internal/dto/list-accounts-query.dto';
 
 const buildAccountSummary = (overrides: Partial<{
   userId: string;
@@ -27,12 +28,19 @@ const internalGuardAlwaysAllow: CanActivate = { canActivate: () => true };
 
 describe('InternalController — GET /internal/accounts', () => {
   let internalController: InternalController;
-  let accountsServiceMock: { listAccounts: jest.Mock; createAccount: jest.Mock };
+  let accountsServiceMock: {
+    listAccounts: jest.Mock;
+    createAccount: jest.Mock;
+    findByUserId: jest.Mock;
+    findByLoginIdentifier: jest.Mock;
+  };
 
   beforeEach(async () => {
     accountsServiceMock = {
       listAccounts: jest.fn(),
       createAccount: jest.fn(),
+      findByUserId: jest.fn(),
+      findByLoginIdentifier: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -57,7 +65,7 @@ describe('InternalController — GET /internal/accounts', () => {
       ];
       accountsServiceMock.listAccounts.mockResolvedValue(expectedAccountList);
 
-      const result = await internalController.listAccounts(undefined);
+      const result = await internalController.listAccounts({} as ListAccountsQueryDto);
 
       expect(result).toEqual(expectedAccountList);
       expect(accountsServiceMock.listAccounts).toHaveBeenCalledWith(undefined);
@@ -66,7 +74,7 @@ describe('InternalController — GET /internal/accounts', () => {
     it('retourne un tableau vide quand aucun compte n\'existe', async () => {
       accountsServiceMock.listAccounts.mockResolvedValue([]);
 
-      const result = await internalController.listAccounts(undefined);
+      const result = await internalController.listAccounts({} as ListAccountsQueryDto);
 
       expect(result).toEqual([]);
     });
@@ -77,7 +85,7 @@ describe('InternalController — GET /internal/accounts', () => {
       ];
       accountsServiceMock.listAccounts.mockResolvedValue(expectedAccountList);
 
-      const result = await internalController.listAccounts(undefined);
+      const result = await internalController.listAccounts({} as ListAccountsQueryDto);
 
       expect(result[0]).toHaveProperty('userId');
       expect(result[0]).toHaveProperty('role');
@@ -95,7 +103,7 @@ describe('InternalController — GET /internal/accounts', () => {
       ];
       accountsServiceMock.listAccounts.mockResolvedValue(expectedAccountList);
 
-      const result = await internalController.listAccounts(undefined);
+      const result = await internalController.listAccounts({} as ListAccountsQueryDto);
 
       expect(result[0]).toHaveProperty('firstName', null);
       expect(result[0]).toHaveProperty('lastName', null);
@@ -111,7 +119,7 @@ describe('InternalController — GET /internal/accounts', () => {
       ];
       accountsServiceMock.listAccounts.mockResolvedValue(eleveAccountList);
 
-      const result = await internalController.listAccounts(UserRole.ELEVE);
+      const result = await internalController.listAccounts({ role: UserRole.ELEVE });
 
       expect(accountsServiceMock.listAccounts).toHaveBeenCalledWith(UserRole.ELEVE);
       expect(result).toHaveLength(2);
@@ -124,7 +132,7 @@ describe('InternalController — GET /internal/accounts', () => {
       ];
       accountsServiceMock.listAccounts.mockResolvedValue(formateurAccountList);
 
-      const result = await internalController.listAccounts(UserRole.FORMATEUR);
+      const result = await internalController.listAccounts({ role: UserRole.FORMATEUR });
 
       expect(accountsServiceMock.listAccounts).toHaveBeenCalledWith(UserRole.FORMATEUR);
       expect(result).toHaveLength(1);
@@ -134,10 +142,36 @@ describe('InternalController — GET /internal/accounts', () => {
     it('retourne un tableau vide si aucun compte ne correspond au rôle filtré', async () => {
       accountsServiceMock.listAccounts.mockResolvedValue([]);
 
-      const result = await internalController.listAccounts(UserRole.ANIMATEUR_PEDAGOGIQUE);
+      const result = await internalController.listAccounts({ role: UserRole.ANIMATEUR_PEDAGOGIQUE });
 
       expect(accountsServiceMock.listAccounts).toHaveBeenCalledWith(UserRole.ANIMATEUR_PEDAGOGIQUE);
       expect(result).toEqual([]);
+    });
+  });
+
+  describe('GET /internal/accounts/by-user-id/:userId', () => {
+    it('délègue à AccountsService.findByUserId avec un UUID valide', async () => {
+      const expected = { userId: '87482274-1ef2-412a-827b-75fc48c28370', loginIdentifier: 'eleve.test', role: UserRole.ELEVE };
+      accountsServiceMock.findByUserId.mockResolvedValue(expected);
+
+      const result = await internalController.findByUserId('87482274-1ef2-412a-827b-75fc48c28370');
+
+      expect(result).toEqual(expected);
+      expect(accountsServiceMock.findByUserId).toHaveBeenCalledWith('87482274-1ef2-412a-827b-75fc48c28370');
+    });
+    // Note : la validation du format UUID est déléguée à ParseUUIDPipe (implémentation
+    // NestJS déjà testée en amont) — non ré-exercée ici au niveau de l'appel direct.
+  });
+
+  describe('GET /internal/accounts/by-login-identifier', () => {
+    it('délègue à AccountsService.findByLoginIdentifier', async () => {
+      const expected = { userId: 'uuid-1', role: UserRole.ELEVE };
+      accountsServiceMock.findByLoginIdentifier.mockResolvedValue(expected);
+
+      const result = await internalController.findByLoginIdentifier('eleve.test');
+
+      expect(result).toEqual(expected);
+      expect(accountsServiceMock.findByLoginIdentifier).toHaveBeenCalledWith('eleve.test');
     });
   });
 });

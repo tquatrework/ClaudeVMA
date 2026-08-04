@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { WorkflowEngineService } from '../../../src/workflow/workflow-engine.service';
 import { WorkflowInstance } from '../../../src/workflow/entities/workflow-instance.entity';
 import { WorkflowStep } from '../../../src/workflow/entities/workflow-step.entity';
@@ -38,6 +39,28 @@ const makeCorrelationTraceMock = () => ({
   record: jest.fn().mockResolvedValue(undefined),
 });
 
+/**
+ * DataSource.transaction() est utilisé par startWorkflow() pour persister
+ * l'instance et ses étapes de façon atomique. Le mock rejoue le callback en
+ * fournissant un "manager" dont getRepository() renvoie les mêmes mocks de
+ * repository que ceux injectés directement dans le service, afin que les
+ * assertions existantes sur instanceRepo/stepRepo restent valables.
+ */
+const makeDataSourceMock = (
+  instanceRepo: ReturnType<typeof makeRepoMock>,
+  stepRepo: ReturnType<typeof makeRepoMock>,
+) => ({
+  transaction: jest.fn(async (runInTransaction: (manager: unknown) => Promise<unknown>) =>
+    runInTransaction({
+      getRepository: (entity: unknown) => {
+        if (entity === WorkflowInstance) return instanceRepo;
+        if (entity === WorkflowStep) return stepRepo;
+        throw new Error('Unexpected entity requested from transaction manager');
+      },
+    }),
+  ),
+});
+
 describe('WorkflowEngineService', () => {
   let engine: WorkflowEngineService;
   let instanceRepo: ReturnType<typeof makeRepoMock>;
@@ -50,13 +73,17 @@ describe('WorkflowEngineService', () => {
   let correlationTrace: ReturnType<typeof makeCorrelationTraceMock>;
 
   beforeEach(async () => {
+    const instanceRepoMock = makeRepoMock();
+    const stepRepoMock = makeRepoMock();
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WorkflowEngineService,
-        { provide: getRepositoryToken(WorkflowInstance), useFactory: makeRepoMock },
-        { provide: getRepositoryToken(WorkflowStep), useFactory: makeRepoMock },
+        { provide: getRepositoryToken(WorkflowInstance), useValue: instanceRepoMock },
+        { provide: getRepositoryToken(WorkflowStep), useValue: stepRepoMock },
         { provide: getRepositoryToken(CompensationAction), useFactory: makeRepoMock },
         { provide: getRepositoryToken(RetryPolicy), useFactory: makeRepoMock },
+        { provide: DataSource, useValue: makeDataSourceMock(instanceRepoMock, stepRepoMock) },
         { provide: HttpClientService, useFactory: makeHttpClientMock },
         { provide: IdempotencyService, useFactory: makeIdempotencyMock },
         { provide: EventService, useFactory: makeEventServiceMock },
@@ -95,6 +122,39 @@ describe('WorkflowEngineService', () => {
       expect(eventService.record).toHaveBeenCalledWith(
         'WorkflowStarted', expect.any(String), expect.any(String), expect.any(Object),
       );
+    });
+
+    it('persists the instance and its steps atomically via DataSource.transaction — ORCH-WF-ENGINE-010', async () => {
+      instanceRepo.save.mockResolvedValue({
+        id: 'inst-tx', correlationId: 'corr-tx',
+        status: WorkflowStatus.IN_PROGRESS, payload: {}, context: {},
+      });
+      stepRepo.save.mockResolvedValue([{ id: 'step-tx-1' }]);
+      const dataSource = engine['dataSource'] as unknown as { transaction: jest.Mock };
+
+      await engine.startWorkflow('student-onboarding', { email: 'tx@b.com' });
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+      // Les deux écritures (instance + étapes) doivent être appelées à
+      // l'intérieur du même passage transactionnel, avant toute publication
+      // d'événement.
+      expect(instanceRepo.save).toHaveBeenCalled();
+      expect(stepRepo.save).toHaveBeenCalled();
+    });
+
+    it('does not publish WorkflowStarted before the transaction resolves — error case', async () => {
+      instanceRepo.save.mockResolvedValue({
+        id: 'inst-fail', correlationId: 'corr-fail',
+        status: WorkflowStatus.IN_PROGRESS, payload: {}, context: {},
+      });
+      const dataSource = engine['dataSource'] as unknown as { transaction: jest.Mock };
+      dataSource.transaction.mockRejectedValueOnce(new Error('db unavailable'));
+
+      await expect(
+        engine.startWorkflow('student-onboarding', { email: 'err@b.com' }),
+      ).rejects.toThrow('db unavailable');
+
+      expect(eventService.record).not.toHaveBeenCalled();
     });
   });
 
@@ -151,6 +211,25 @@ describe('WorkflowEngineService', () => {
       expect(eventService.record).toHaveBeenCalledWith(
         'WorkflowFailed', 'corr-2', expect.any(String), expect.any(Object),
       );
+      expect(eventService.record).toHaveBeenCalledWith(
+        'WorkflowCompensated', 'corr-2', expect.any(String), expect.any(Object),
+      );
+
+      // Les événements ne doivent être publiés qu'après le commit du
+      // changement d'état correspondant (jamais avant écriture).
+      const compensatingCallOrder = instanceRepo.update.mock.invocationCallOrder[0];
+      const workflowFailedCallOrder = eventService.record.mock.calls.findIndex(
+        (call) => call[0] === 'WorkflowFailed',
+      );
+      const workflowFailedOrder = eventService.record.mock.invocationCallOrder[workflowFailedCallOrder];
+      expect(compensatingCallOrder).toBeLessThan(workflowFailedOrder);
+
+      const compensatedCallOrder = instanceRepo.update.mock.invocationCallOrder[1];
+      const workflowCompensatedCallIndex = eventService.record.mock.calls.findIndex(
+        (call) => call[0] === 'WorkflowCompensated',
+      );
+      const workflowCompensatedOrder = eventService.record.mock.invocationCallOrder[workflowCompensatedCallIndex];
+      expect(compensatedCallOrder).toBeLessThan(workflowCompensatedOrder);
     });
 
     it('skips optional steps that fail and completes the workflow', async () => {

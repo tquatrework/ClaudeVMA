@@ -4,6 +4,7 @@ import { RemindersService } from '../../../src/reminders/reminders.service';
 import { Reminder } from '../../../src/reminders/entities/reminder.entity';
 import { EventsService } from '../../../src/events/events.service';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
+import { AuthenticatedUser } from '../../../src/common/interfaces/authenticated-user.interface';
 
 const mockReminderRepo = {
   create: jest.fn(),
@@ -50,7 +51,8 @@ describe('RemindersService', () => {
       mockReminderRepo.create.mockReturnValue(saved);
       mockReminderRepo.save.mockResolvedValue(saved);
 
-      const result = await service.create(dto, 'rp-user-1');
+      const actor: AuthenticatedUser = { id: 'rp-user-1', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
+      const result = await service.create(dto, actor);
 
       expect(result.id).toBe('rem-1');
       expect(mockEventsService.publish).toHaveBeenCalledWith(
@@ -80,7 +82,8 @@ describe('RemindersService', () => {
       mockReminderRepo.create.mockReturnValue(saved);
       mockReminderRepo.save.mockResolvedValue(saved);
 
-      const result = await service.create(dto, 'teacher-1', 'corr-abc');
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+      const result = await service.create(dto, actor, 'corr-abc');
       expect(result.activityId).toBe('act-uuid-1');
       expect(mockEventsService.publish).toHaveBeenCalledWith(
         'ReminderCreated',

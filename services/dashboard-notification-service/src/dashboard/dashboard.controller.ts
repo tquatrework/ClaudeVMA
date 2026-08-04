@@ -7,6 +7,8 @@ import {
 } from '@nestjs/swagger';
 import { DashboardService } from './dashboard.service';
 import { UpdatePreferencesDto } from './dto/update-preferences.dto';
+import { DashboardResponseDto } from './dto/dashboard-response.dto';
+import { DashboardPreferenceResponseDto } from './dto/dashboard-preference-response.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 
@@ -25,10 +27,10 @@ export class DashboardController {
       'Widget data is referenced by service name — the frontend fetches each widget data independently. ' +
       'DASH-FB-001: parent_financeur view never includes personal notebook data.',
   })
-  @ApiResponse({ status: 200, description: 'Dashboard returned' })
+  @ApiResponse({ status: 200, description: 'Dashboard returned', type: DashboardResponseDto })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  getMyDashboard(@CurrentUser() user: AuthUser) {
-    return this.service.getMyDashboard(user.id, user.role);
+  getMyDashboard(@CurrentUser() user: AuthUser): Promise<DashboardResponseDto> {
+    return this.service.getMyDashboard({ id: user.id, role: user.role });
   }
 
   @Put('me/preferences')
@@ -36,10 +38,13 @@ export class DashboardController {
     summary: 'Update my dashboard preferences',
     description: 'Saves the widget configuration for the authenticated user.',
   })
-  @ApiResponse({ status: 200, description: 'Preferences saved' })
+  @ApiResponse({ status: 200, description: 'Preferences saved', type: DashboardPreferenceResponseDto })
   @ApiResponse({ status: 400, description: 'Validation error' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  updatePreferences(@CurrentUser() user: AuthUser, @Body() dto: UpdatePreferencesDto) {
-    return this.service.updatePreferences(user.id, user.role, dto);
+  updatePreferences(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdatePreferencesDto,
+  ): Promise<DashboardPreferenceResponseDto> {
+    return this.service.updatePreferences({ id: user.id, role: user.role }, dto);
   }
 }

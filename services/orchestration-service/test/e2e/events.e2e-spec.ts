@@ -115,4 +115,16 @@ describe('[E2E] GET /events/:correlationId', () => {
     expect(res.body.count).toBe(0);
     expect(res.body.events).toEqual([]);
   });
+
+  // ──────────────────────────────────────────────────────────────
+  // Validation du paramètre — correlationId doit être un UUID (ParseUUIDPipe)
+  // ──────────────────────────────────────────────────────────────
+
+  it('returns 400 when correlationId is not a valid UUID', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/events/not-a-uuid')
+      .set('Authorization', `Bearer ${RP_TOKEN}`);
+
+    expect(res.status).toBe(400);
+  });
 });

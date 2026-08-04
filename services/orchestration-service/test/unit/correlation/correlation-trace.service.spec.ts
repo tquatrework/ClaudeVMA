@@ -81,6 +81,7 @@ describe('CorrelationTraceService', () => {
       expect(repo.find).toHaveBeenCalledWith({
         where: { correlationId: 'corr-4' },
         order: { occurredAt: 'ASC' },
+        take: 500,
       });
       expect(result).toEqual(traces);
     });

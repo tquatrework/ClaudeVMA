@@ -1,7 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { JwtModule } from '@nestjs/jwt';
-import { ConfigModule, ConfigService } from '@nestjs/config';
 import { RelationsController } from './relations.controller';
 import { RelationsService } from './relations.service';
 import { FinanceOwnerStudentLink } from './entities/finance-owner-student-link.entity';
@@ -9,16 +7,14 @@ import { TeacherStudentLink } from './entities/teacher-student-link.entity';
 import { PedagogicalCoordinatorLink } from './entities/pedagogical-coordinator-link.entity';
 import { EventsModule } from '../events/events.module';
 
+/**
+ * Owns FinanceOwnerStudentLink, TeacherStudentLink and PedagogicalCoordinatorLink.
+ * JWT/guards come from the global SecurityModule (see app.module.ts) — this
+ * module no longer configures its own JwtModule.
+ */
 @Module({
   imports: [
     TypeOrmModule.forFeature([FinanceOwnerStudentLink, TeacherStudentLink, PedagogicalCoordinatorLink]),
-    JwtModule.registerAsync({
-      imports: [ConfigModule],
-      useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET'),
-      }),
-      inject: [ConfigService],
-    }),
     EventsModule,
   ],
   controllers: [RelationsController],

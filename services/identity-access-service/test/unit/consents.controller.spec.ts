@@ -3,6 +3,7 @@ import { ConflictException } from '@nestjs/common';
 import { ConsentsController } from '../../src/consents/consents.controller';
 import { ConsentsService } from '../../src/consents/consents.service';
 import { ConsentType } from '../../src/consents/entities/consent-record.entity';
+import { makeAuthenticatedUser } from './helpers/authenticated-user.factory';
 
 const makeConsentRecord = (overrides = {}) => ({
   id: 'consent-uuid',
@@ -40,10 +41,10 @@ describe('ConsentsController', () => {
       const consentRecord = makeConsentRecord();
       mockConsentsService.signConsent.mockResolvedValue(consentRecord);
 
-      const mockRequest = { user: { id: 'user-uuid' } };
+      const actor = makeAuthenticatedUser({ id: 'user-uuid' });
       const result = await controller.signConsent(
         { consentType: ConsentType.RGPD },
-        mockRequest,
+        actor,
         '127.0.0.1',
       );
 
@@ -59,10 +60,10 @@ describe('ConsentsController', () => {
       const consentRecord = makeConsentRecord({ consentType: ConsentType.CGU });
       mockConsentsService.signConsent.mockResolvedValue(consentRecord);
 
-      const mockRequest = { user: { id: 'user-uuid' } };
+      const actor = makeAuthenticatedUser({ id: 'user-uuid' });
       const result = await controller.signConsent(
         { consentType: ConsentType.CGU },
-        mockRequest,
+        actor,
         '127.0.0.1',
       );
 
@@ -74,10 +75,10 @@ describe('ConsentsController', () => {
         new ConflictException('Consent rgpd already signed'),
       );
 
-      const mockRequest = { user: { id: 'user-uuid' } };
+      const actor = makeAuthenticatedUser({ id: 'user-uuid' });
 
       await expect(
-        controller.signConsent({ consentType: ConsentType.RGPD }, mockRequest, '127.0.0.1'),
+        controller.signConsent({ consentType: ConsentType.RGPD }, actor, '127.0.0.1'),
       ).rejects.toThrow(ConflictException);
     });
 
@@ -85,8 +86,8 @@ describe('ConsentsController', () => {
       const consentRecord = makeConsentRecord();
       mockConsentsService.signConsent.mockResolvedValue(consentRecord);
 
-      const mockRequest = { user: { id: 'jwt-user-uuid' } };
-      await controller.signConsent({ consentType: ConsentType.RGPD }, mockRequest, '127.0.0.1');
+      const actor = makeAuthenticatedUser({ id: 'jwt-user-uuid' });
+      await controller.signConsent({ consentType: ConsentType.RGPD }, actor, '127.0.0.1');
 
       expect(mockConsentsService.signConsent).toHaveBeenCalledWith(
         'jwt-user-uuid',
@@ -106,8 +107,8 @@ describe('ConsentsController', () => {
       ];
       mockConsentsService.getConsents.mockResolvedValue(consents);
 
-      const mockRequest = { user: { id: 'user-uuid' } };
-      const result = await controller.getMyConsents(mockRequest);
+      const actor = makeAuthenticatedUser({ id: 'user-uuid' });
+      const result = await controller.getMyConsents(actor);
 
       expect(result).toHaveLength(2);
       expect(mockConsentsService.getConsents).toHaveBeenCalledWith('user-uuid');
@@ -116,8 +117,8 @@ describe('ConsentsController', () => {
     it('returns an empty list when the user has not signed any consents', async () => {
       mockConsentsService.getConsents.mockResolvedValue([]);
 
-      const mockRequest = { user: { id: 'user-uuid' } };
-      const result = await controller.getMyConsents(mockRequest);
+      const actor = makeAuthenticatedUser({ id: 'user-uuid' });
+      const result = await controller.getMyConsents(actor);
 
       expect(result).toEqual([]);
     });
@@ -125,8 +126,8 @@ describe('ConsentsController', () => {
     it('uses the authenticated user id from the JWT token', async () => {
       mockConsentsService.getConsents.mockResolvedValue([]);
 
-      const mockRequest = { user: { id: 'jwt-user-uuid' } };
-      await controller.getMyConsents(mockRequest);
+      const actor = makeAuthenticatedUser({ id: 'jwt-user-uuid' });
+      await controller.getMyConsents(actor);
 
       expect(mockConsentsService.getConsents).toHaveBeenCalledWith('jwt-user-uuid');
     });

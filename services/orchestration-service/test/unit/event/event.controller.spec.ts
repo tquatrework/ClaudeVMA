@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { EventController } from '../../../src/event/event.controller';
 import { EventService } from '../../../src/event/event.service';
 import { EventDirection } from '../../../src/event/entities/integration-event.entity';
-import { JwtAuthGuard } from '../../../src/common/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../../../src/security/jwt-auth.guard';
 
 const makeEventServiceMock = () => ({
   findByCorrelation: jest.fn(),
@@ -27,11 +27,23 @@ describe('EventController', () => {
 
   describe('findByCorrelation — GET /events/:correlationId', () => {
     it('returns chronological events for a correlationId with count (ORCH-EVT-004)', async () => {
-      const correlationId = 'corr-events-1';
+      const correlationId = '11111111-1111-1111-1111-111111111111';
       const events = [
-        { id: 'e1', eventType: 'WorkflowStarted', correlationId, direction: EventDirection.PUBLISHED, occurredAt: new Date('2024-01-01T10:00:00Z') },
-        { id: 'e2', eventType: 'WorkflowStepCompleted', correlationId, direction: EventDirection.PUBLISHED, occurredAt: new Date('2024-01-01T10:01:00Z') },
-        { id: 'e3', eventType: 'WorkflowCompleted', correlationId, direction: EventDirection.PUBLISHED, occurredAt: new Date('2024-01-01T10:02:00Z') },
+        {
+          id: 'e1', eventType: 'WorkflowStarted', correlationId,
+          direction: EventDirection.PUBLISHED, occurredAt: new Date('2024-01-01T10:00:00Z'),
+          sourceService: null, payload: null, processed: false,
+        },
+        {
+          id: 'e2', eventType: 'WorkflowStepCompleted', correlationId,
+          direction: EventDirection.PUBLISHED, occurredAt: new Date('2024-01-01T10:01:00Z'),
+          sourceService: null, payload: null, processed: false,
+        },
+        {
+          id: 'e3', eventType: 'WorkflowCompleted', correlationId,
+          direction: EventDirection.PUBLISHED, occurredAt: new Date('2024-01-01T10:02:00Z'),
+          sourceService: null, payload: null, processed: false,
+        },
       ];
       eventService.findByCorrelation.mockResolvedValue(events);
 
@@ -44,7 +56,7 @@ describe('EventController', () => {
     });
 
     it('returns empty list and count 0 when no events match', async () => {
-      const correlationId = 'corr-no-events';
+      const correlationId = '22222222-2222-2222-2222-222222222222';
       eventService.findByCorrelation.mockResolvedValue([]);
 
       const result = await controller.findByCorrelation(correlationId);
@@ -55,10 +67,18 @@ describe('EventController', () => {
     });
 
     it('returns CONSUMED events alongside PUBLISHED events', async () => {
-      const correlationId = 'corr-mixed';
+      const correlationId = '33333333-3333-3333-3333-333333333333';
       const events = [
-        { id: 'e4', eventType: 'AccountCreated', correlationId, direction: EventDirection.CONSUMED, occurredAt: new Date() },
-        { id: 'e5', eventType: 'WorkflowStarted', correlationId, direction: EventDirection.PUBLISHED, occurredAt: new Date() },
+        {
+          id: 'e4', eventType: 'AccountCreated', correlationId,
+          direction: EventDirection.CONSUMED, occurredAt: new Date(),
+          sourceService: 'identity-access-service', payload: { accountId: 'acc-1' }, processed: true,
+        },
+        {
+          id: 'e5', eventType: 'WorkflowStarted', correlationId,
+          direction: EventDirection.PUBLISHED, occurredAt: new Date(),
+          sourceService: null, payload: null, processed: false,
+        },
       ];
       eventService.findByCorrelation.mockResolvedValue(events);
 

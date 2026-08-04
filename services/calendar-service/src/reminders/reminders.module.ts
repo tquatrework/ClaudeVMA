@@ -1,21 +1,19 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { JwtModule } from '@nestjs/jwt';
 import { RemindersController } from './reminders.controller';
 import { RemindersService } from './reminders.service';
 import { Reminder } from './entities/reminder.entity';
 import { EventsModule } from '../events/events.module';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../common/guards/roles.guard';
+import { SecurityModule } from '../security/security.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Reminder]),
-    JwtModule.register({}),
+    SecurityModule,
     EventsModule,
   ],
   controllers: [RemindersController],
-  providers: [RemindersService, JwtAuthGuard, RolesGuard],
+  providers: [RemindersService],
   exports: [RemindersService],
 })
 export class RemindersModule {}

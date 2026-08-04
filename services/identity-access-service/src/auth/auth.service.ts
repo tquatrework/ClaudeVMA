@@ -19,6 +19,7 @@ import { IdentifierRecoveryToken } from './entities/identifier-recovery-token.en
 import { LoginDto } from './dto/login.dto';
 import { EventsService } from '../events/events.service';
 import { MailService } from '../mail/mail.service';
+import { AccountsService } from '../accounts/accounts.service';
 
 interface JwtPayload {
   sub: string;
@@ -57,7 +58,6 @@ export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
   constructor(
-    @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(LoginSession) private readonly sessionRepo: Repository<LoginSession>,
     @InjectRepository(PasswordResetToken) private readonly resetTokenRepo: Repository<PasswordResetToken>,
     @InjectRepository(EmailVerificationToken) private readonly emailVerifTokenRepo: Repository<EmailVerificationToken>,
@@ -66,14 +66,11 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly eventsService: EventsService,
     private readonly mailService: MailService,
+    private readonly accountsService: AccountsService,
   ) {}
 
   async login(dto: LoginDto, ipAddress?: string, userAgent?: string) {
-    const user = await this.userRepo
-      .createQueryBuilder('user')
-      .addSelect('user.passwordHash')
-      .where('user.loginIdentifier = :loginIdentifier', { loginIdentifier: dto.loginIdentifier })
-      .getOne();
+    const user = await this.accountsService.findCredentialsByLoginIdentifier(dto.loginIdentifier);
 
     if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
 
@@ -102,7 +99,7 @@ export class AuthService {
       throw new UnauthorizedException('Session expired or revoked');
     }
 
-    const user = await this.userRepo.findOne({ where: { id: payload.sub } });
+    const user = await this.accountsService.findActiveAccountById(payload.sub);
     if (!user || !user.isActive) throw new UnauthorizedException();
 
     await this.sessionRepo.update(session.id, { revokedAt: new Date() });
@@ -117,7 +114,7 @@ export class AuthService {
    * Réponse neutre pour éviter l'énumération d'adresses.
    */
   async sendVerificationEmail(email: string): Promise<{ message: string }> {
-    const user = await this.userRepo.findOne({ where: { email } });
+    const user = await this.accountsService.findAccountByEmail(email);
 
     if (user && !user.emailVerified) {
       const rawToken = generateSecureToken();
@@ -156,7 +153,7 @@ export class AuthService {
     await this.emailVerifTokenRepo.update(verificationRecord.id, { usedAt: new Date() });
 
     // Marquer l'email comme vérifié
-    await this.userRepo.update(verificationRecord.userId, { emailVerified: true });
+    await this.accountsService.markEmailVerified(verificationRecord.userId);
 
     this.eventsService.publish('EmailVerified', {
       userId: verificationRecord.userId,
@@ -175,7 +172,7 @@ export class AuthService {
    * Réponse neutre pour éviter l'énumération d'adresses.
    */
   async recoverIdentifier(email: string, ipAddress?: string): Promise<{ message: string }> {
-    const matchingUsers = await this.userRepo.find({ where: { email } });
+    const matchingUsers = await this.accountsService.findAccountsByEmail(email);
 
     if (matchingUsers.length > 0) {
       const loginIdentifiers = matchingUsers.map((user) => user.loginIdentifier);
@@ -211,7 +208,7 @@ export class AuthService {
    * Réponse neutre pour éviter l'énumération d'identifiants.
    */
   async requestPasswordReset(loginIdentifier: string, ipAddress?: string): Promise<{ message: string }> {
-    const user = await this.userRepo.findOne({ where: { loginIdentifier } });
+    const user = await this.accountsService.findAccountByLoginIdentifier(loginIdentifier);
 
     if (user) {
       const rawToken = generateSecureToken();
@@ -257,7 +254,7 @@ export class AuthService {
 
     // Mettre à jour le mot de passe
     const newPasswordHash = await bcrypt.hash(newPassword, 12);
-    await this.userRepo.update(resetRecord.userId, { passwordHash: newPasswordHash });
+    await this.accountsService.updatePasswordHash(resetRecord.userId, newPasswordHash);
 
     this.eventsService.publish('PasswordReset', {
       userId: resetRecord.userId,
@@ -266,32 +263,6 @@ export class AuthService {
     this.logger.log(`Mot de passe réinitialisé pour l'utilisateur ${resetRecord.userId}`);
 
     return { message: 'Mot de passe réinitialisé avec succès. Veuillez vous reconnecter.' };
-  }
-
-  // ─── TI access regeneration ───────────────────────────────────────────────
-
-  /**
-   * TI-only : régénère l'accès d'un compte bloqué.
-   * Toutes les sessions existantes sont révoquées et le compte est réactivé.
-   */
-  async regenerateAccess(targetUserId: string, actor: User): Promise<{ message: string }> {
-    const targetUser = await this.userRepo.findOne({ where: { id: targetUserId } });
-    if (!targetUser) throw new UnauthorizedException(`Account ${targetUserId} not found`);
-
-    await this.sessionRepo.update(
-      { userId: targetUserId },
-      { revokedAt: new Date() },
-    );
-
-    targetUser.isActive = true;
-    await this.userRepo.save(targetUser);
-
-    this.eventsService.publish('AccessRegenerated', {
-      targetUserId,
-      actorId: actor.id,
-    });
-
-    return { message: `Access regenerated for account ${targetUserId}. All prior sessions revoked.` };
   }
 
   // ─── Token builder ────────────────────────────────────────────────────────

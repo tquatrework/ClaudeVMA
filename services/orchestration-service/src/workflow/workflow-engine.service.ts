@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { WorkflowInstance } from './entities/workflow-instance.entity';
 import { WorkflowStep } from './entities/workflow-step.entity';
@@ -29,6 +29,8 @@ export class WorkflowEngineService {
     private readonly compensationRepo: Repository<CompensationAction>,
     @InjectRepository(RetryPolicy)
     private readonly retryRepo: Repository<RetryPolicy>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
     private readonly httpClient: HttpClientService,
     private readonly idempotency: IdempotencyService,
     private readonly eventService: EventService,
@@ -46,30 +48,44 @@ export class WorkflowEngineService {
 
     const resolvedCorrelationId = correlationId ?? uuidv4();
 
-    const instance = this.instanceRepo.create({
-      workflowType,
-      correlationId: resolvedCorrelationId,
-      status: WorkflowStatus.IN_PROGRESS,
-      payload,
-      context: {},
-      initiatedBy,
-      currentStepIndex: 0,
+    // La création de l'instance et de ses étapes doit rester atomique : un
+    // crash entre les deux écritures laisserait un workflow "en cours" sans
+    // aucune étape à exécuter. Les deux repositories appartiennent tous les
+    // deux à la feature workflow, donc partager le même EntityManager de
+    // transaction ne viole pas les frontières de possession des entités.
+    const { instance, steps } = await this.dataSource.transaction(async (manager) => {
+      const instanceRepo = manager.getRepository(WorkflowInstance);
+      const stepRepo = manager.getRepository(WorkflowStep);
+
+      const instanceEntity = instanceRepo.create({
+        workflowType,
+        correlationId: resolvedCorrelationId,
+        status: WorkflowStatus.IN_PROGRESS,
+        payload,
+        context: {},
+        initiatedBy,
+        currentStepIndex: 0,
+      });
+      const savedInstance = await instanceRepo.save(instanceEntity);
+
+      const stepEntities = definition.steps.map((def) =>
+        stepRepo.create({
+          workflowInstanceId: savedInstance.id,
+          stepOrder: def.order,
+          stepName: def.name,
+          targetService: def.targetService,
+          action: def.action,
+          status: StepStatus.PENDING,
+          idempotencyKey: this.httpClient.buildStepIdempotencyKey(savedInstance.id, def.order),
+        }),
+      );
+      const savedSteps = await stepRepo.save(stepEntities);
+
+      return { instance: savedInstance, steps: savedSteps };
     });
-    await this.instanceRepo.save(instance);
 
-    const steps = definition.steps.map((def) =>
-      this.stepRepo.create({
-        workflowInstanceId: instance.id,
-        stepOrder: def.order,
-        stepName: def.name,
-        targetService: def.targetService,
-        action: def.action,
-        status: StepStatus.PENDING,
-        idempotencyKey: this.httpClient.buildStepIdempotencyKey(instance.id, def.order),
-      }),
-    );
-    await this.stepRepo.save(steps);
-
+    // Les événements et traces d'audit ne sont publiés qu'après le commit de
+    // la transaction ci-dessus (jamais avant, jamais dans la transaction).
     await this.eventService.record('WorkflowStarted', resolvedCorrelationId, EventDirection.PUBLISHED, {
       workflowInstanceId: instance.id,
       workflowType,
@@ -223,15 +239,16 @@ export class WorkflowEngineService {
         step.completedAt = new Date();
         await this.stepRepo.save(step);
 
+        // L'instance est mise à jour d'abord ; l'événement n'est publié
+        // qu'une fois ce changement d'état persisté (jamais avant écriture).
+        await this.instanceRepo.update(instanceId, {
+          status: WorkflowStatus.COMPENSATING,
+          error: `Step ${step.stepName} failed: ${lastError}`,
+        });
         await this.eventService.record('WorkflowFailed', instance.correlationId, EventDirection.PUBLISHED, {
           workflowInstanceId: instanceId,
           failedStep: step.stepName,
           error: lastError,
-        });
-
-        await this.instanceRepo.update(instanceId, {
-          status: WorkflowStatus.COMPENSATING,
-          error: `Step ${step.stepName} failed: ${lastError}`,
         });
         this.logger.error(`[${instance.correlationId}] Step ${step.stepName} failed — starting compensation`);
 
@@ -282,10 +299,10 @@ export class WorkflowEngineService {
       );
     }
 
+    await this.instanceRepo.update(instanceId, { status: WorkflowStatus.COMPENSATED });
     await this.eventService.record('WorkflowCompensated', correlationId, EventDirection.PUBLISHED, {
       workflowInstanceId: instanceId,
     });
-    await this.instanceRepo.update(instanceId, { status: WorkflowStatus.COMPENSATED });
   }
 
   async suspendForArbitration(instanceId: string, reason: string, actor?: string): Promise<void> {

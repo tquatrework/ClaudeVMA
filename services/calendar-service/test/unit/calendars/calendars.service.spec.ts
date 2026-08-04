@@ -1,12 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
+import { ForbiddenException } from '@nestjs/common';
 import { CalendarsService } from '../../../src/calendars/calendars.service';
 import { Calendar } from '../../../src/calendars/entities/calendar.entity';
 import { AvailabilitySlot, SlotRecurrence } from '../../../src/calendars/entities/availability-slot.entity';
 import { PaymentScheduleEntry } from '../../../src/calendars/entities/payment-schedule-entry.entity';
 import { EventsService } from '../../../src/events/events.service';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
+import { AuthenticatedUser } from '../../../src/common/interfaces/authenticated-user.interface';
 
 const mockCalendarRepo = {
   findOne: jest.fn(),
@@ -28,6 +29,22 @@ const mockEventsService = {
   publish: jest.fn(),
 };
 
+/**
+ * The transaction manager exposes the same repositories used outside a
+ * transaction, so the existing mocks can be reused inside `manager.getRepository(...)`.
+ */
+const mockManager = {
+  getRepository: jest.fn((entity: unknown) => {
+    if (entity === Calendar) return mockCalendarRepo;
+    if (entity === AvailabilitySlot) return mockSlotRepo;
+    throw new Error(`Unexpected entity requested from transaction manager: ${entity}`);
+  }),
+};
+
+const mockDataSource = {
+  transaction: jest.fn(async (callback: (manager: unknown) => unknown) => callback(mockManager)),
+};
+
 describe('CalendarsService', () => {
   let service: CalendarsService;
 
@@ -38,6 +55,7 @@ describe('CalendarsService', () => {
         { provide: getRepositoryToken(Calendar), useValue: mockCalendarRepo },
         { provide: getRepositoryToken(AvailabilitySlot), useValue: mockSlotRepo },
         { provide: getRepositoryToken(PaymentScheduleEntry), useValue: mockPaymentRepo },
+        { provide: getDataSourceToken(), useValue: mockDataSource },
         { provide: EventsService, useValue: mockEventsService },
       ],
     }).compile();
@@ -52,8 +70,9 @@ describe('CalendarsService', () => {
     it('returns calendar for its owner', async () => {
       const calendar = { id: 'cal-1', ownerId: 'user-1', availabilitySlots: [] };
       mockCalendarRepo.findOne.mockResolvedValue(calendar);
+      const actor: AuthenticatedUser = { id: 'user-1', role: UserRole.ELEVE };
 
-      const result = await service.getCalendar('user-1', 'user-1', UserRole.ELEVE);
+      const result = await service.getCalendar('user-1', actor);
       expect(result).toEqual(calendar);
     });
 
@@ -62,8 +81,9 @@ describe('CalendarsService', () => {
       const created = { id: 'cal-new', ownerId: 'user-2', availabilitySlots: [] };
       mockCalendarRepo.create.mockReturnValue(created);
       mockCalendarRepo.save.mockResolvedValue(created);
+      const actor: AuthenticatedUser = { id: 'user-2', role: UserRole.ELEVE };
 
-      const result = await service.getCalendar('user-2', 'user-2', UserRole.ELEVE);
+      const result = await service.getCalendar('user-2', actor);
       expect(result.ownerId).toBe('user-2');
       expect(result.availabilitySlots).toEqual([]);
     });
@@ -71,16 +91,14 @@ describe('CalendarsService', () => {
     it('allows RP to read another user calendar (CAL-FB-001 internal role)', async () => {
       const calendar = { id: 'cal-1', ownerId: 'student-1', availabilitySlots: [] };
       mockCalendarRepo.findOne.mockResolvedValue(calendar);
+      const actor: AuthenticatedUser = { id: 'rp-id', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
 
-      await expect(
-        service.getCalendar('student-1', 'rp-id', UserRole.RESPONSABLE_PEDAGOGIQUE),
-      ).resolves.toBeDefined();
+      await expect(service.getCalendar('student-1', actor)).resolves.toBeDefined();
     });
 
     it('throws ForbiddenException when non-owner with plain role reads another calendar (CAL-FB-001)', async () => {
-      await expect(
-        service.getCalendar('user-1', 'user-other', UserRole.ELEVE),
-      ).rejects.toThrow(ForbiddenException);
+      const actor: AuthenticatedUser = { id: 'user-other', role: UserRole.ELEVE };
+      await expect(service.getCalendar('user-1', actor)).rejects.toThrow(ForbiddenException);
     });
 
     it('returns payment entries for PARENT_FINANCEUR (CAL-BR-003)', async () => {
@@ -88,8 +106,9 @@ describe('CalendarsService', () => {
       mockCalendarRepo.findOne.mockResolvedValue(calendar);
       const entries = [{ id: 'pe-1', amount: 150, dueDate: new Date() }];
       mockPaymentRepo.find.mockResolvedValue(entries);
+      const actor: AuthenticatedUser = { id: 'parent-1', role: UserRole.PARENT_FINANCEUR };
 
-      const result = await service.getCalendar('parent-1', 'parent-1', UserRole.PARENT_FINANCEUR);
+      const result = await service.getCalendar('parent-1', actor);
       expect(result['paymentEntries']).toEqual(entries);
     });
   });
@@ -110,8 +129,10 @@ describe('CalendarsService', () => {
       mockSlotRepo.create.mockImplementation((s) => s);
       mockSlotRepo.save.mockResolvedValue([]);
       mockCalendarRepo.findOne.mockResolvedValue({ ...calendar, availabilitySlots: [] });
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
 
-      await service.updateAvailability('teacher-1', dto, 'teacher-1', UserRole.FORMATEUR);
+      await service.updateAvailability('teacher-1', dto, actor);
+      expect(mockDataSource.transaction).toHaveBeenCalledTimes(1);
       expect(mockEventsService.publish).toHaveBeenCalledWith(
         'AvailabilityUpdated',
         expect.objectContaining({ ownerId: 'teacher-1' }),
@@ -126,16 +147,16 @@ describe('CalendarsService', () => {
       mockSlotRepo.create.mockImplementation((s) => s);
       mockSlotRepo.save.mockResolvedValue([]);
       mockCalendarRepo.findOne.mockResolvedValue({ ...calendar, availabilitySlots: [] });
+      const actor: AuthenticatedUser = { id: 'rp-id', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
 
-      await expect(
-        service.updateAvailability('student-1', dto, 'rp-id', UserRole.RESPONSABLE_PEDAGOGIQUE),
-      ).resolves.toBeDefined();
+      await expect(service.updateAvailability('student-1', dto, actor)).resolves.toBeDefined();
     });
 
     it('throws ForbiddenException when AP tries to update another user availability (CAL-FB-001)', async () => {
-      await expect(
-        service.updateAvailability('student-1', dto, 'ap-id', UserRole.ANIMATEUR_PEDAGOGIQUE),
-      ).rejects.toThrow(ForbiddenException);
+      const actor: AuthenticatedUser = { id: 'ap-id', role: UserRole.ANIMATEUR_PEDAGOGIQUE };
+      await expect(service.updateAvailability('student-1', dto, actor)).rejects.toThrow(ForbiddenException);
+      // The transaction must never start when authorization fails upfront.
+      expect(mockDataSource.transaction).not.toHaveBeenCalled();
     });
 
     it('creates calendar lazily when updating availability', async () => {
@@ -147,8 +168,9 @@ describe('CalendarsService', () => {
       mockSlotRepo.create.mockImplementation((s) => s);
       mockSlotRepo.save.mockResolvedValue([]);
       mockCalendarRepo.findOne.mockResolvedValue({ ...created, availabilitySlots: [] });
+      const actor: AuthenticatedUser = { id: 'user-3', role: UserRole.ELEVE };
 
-      const result = await service.updateAvailability('user-3', dto, 'user-3', UserRole.ELEVE);
+      const result = await service.updateAvailability('user-3', dto, actor);
       expect(result).toBeDefined();
     });
   });

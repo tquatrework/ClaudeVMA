@@ -2,11 +2,10 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
-  BadRequestException,
   ConflictException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { CalendarEvent, EventType, CalendarEventStatus } from './entities/calendar-event.entity';
 import { EventInvitation, InvitationStatus } from './entities/event-invitation.entity';
 import { CancellationRequest, CancellationStatus } from './entities/cancellation-request.entity';
@@ -19,6 +18,7 @@ import { ConfigureReminderDto } from './dto/configure-reminder.dto';
 import { CreateVisibilityGrantDto } from './dto/create-visibility-grant.dto';
 import { EventsService } from '../events/events.service';
 import { UserRole } from '../common/enums/user-role.enum';
+import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 
 /** Milliseconds in 48 hours */
 const FORTY_EIGHT_HOURS_MS = 48 * 60 * 60 * 1000;
@@ -41,6 +41,24 @@ const CREATION_ALLOWED_TYPES: Record<string, EventType[]> = {
   [UserRole.TECHNICIEN_INFORMATIQUE]: [],
 };
 
+/**
+ * Owns the CalendarEvent aggregate and all its lifecycle-dependent
+ * sub-entities: EventInvitation, CancellationRequest, ReminderRule and
+ * CalendarVisibilityGrant. These five repositories are injected here
+ * (services-convention: "à partir de... plus de quatre repositories,
+ * réévaluer et documenter la cohésion du service").
+ *
+ * Cohesion justification: none of these entities has an existence or a
+ * lifecycle independent from the CalendarEvent they reference
+ * (`onDelete: CASCADE`, `cascade: true` on the CalendarEvent side) — they
+ * are not separate business capabilities, but sub-resources of a single
+ * "calendar event" aggregate exposed through dedicated controllers
+ * (event-invitations, event-cancellations, event-reminders,
+ * calendar-visibility-grants). Splitting the service would duplicate the
+ * aggregate's invariants across multiple services without a corresponding
+ * gain in isolation, since every sub-entity requires the parent
+ * CalendarEvent to exist and be looked up first.
+ */
 @Injectable()
 export class CalendarEventsService {
   constructor(
@@ -54,6 +72,8 @@ export class CalendarEventsService {
     private readonly reminderRuleRepo: Repository<ReminderRule>,
     @InjectRepository(CalendarVisibilityGrant)
     private readonly grantRepo: Repository<CalendarVisibilityGrant>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
     private readonly eventsService: EventsService,
   ) {}
 
@@ -70,12 +90,11 @@ export class CalendarEventsService {
    */
   async listEvents(
     ownerId: string,
-    requesterId: string,
-    requesterRole: string,
+    actor: AuthenticatedUser,
     query: ListEventsQueryDto,
     correlationId?: string,
   ): Promise<CalendarEvent[]> {
-    await this.assertCanReadEvents(ownerId, requesterId, requesterRole);
+    await this.assertCanReadEvents(ownerId, actor);
 
     const queryBuilder = this.eventRepo
       .createQueryBuilder('event')
@@ -84,8 +103,8 @@ export class CalendarEventsService {
 
     // Role-based type filtering
     if (
-      requesterRole === UserRole.PARENT_FINANCEUR ||
-      requesterRole === UserRole.ADMINISTRATEUR_FINANCIER
+      actor.role === UserRole.PARENT_FINANCEUR ||
+      actor.role === UserRole.ADMINISTRATEUR_FINANCIER
     ) {
       queryBuilder.andWhere('event.event_type = :type', { type: EventType.FINANCIER });
     } else if (query.type) {
@@ -105,77 +124,88 @@ export class CalendarEventsService {
   }
 
   /**
-   * Create a CalendarEvent for ownerId's calendar.
+   * Create a CalendarEvent for ownerId's calendar, along with its optional
+   * invitations, atomically (single transaction / single EntityManager).
    * Validates the requester's role against CREATION_ALLOWED_TYPES.
-   * Publishes CalendarEventCreated domain event.
+   * Publishes CalendarEventCreated domain event after commit.
    */
   async createEvent(
     ownerId: string,
     dto: CreateCalendarEventDto,
-    requesterId: string,
-    requesterRole: string,
+    actor: AuthenticatedUser,
     correlationId?: string,
   ): Promise<CalendarEvent> {
-    const allowedTypes = CREATION_ALLOWED_TYPES[requesterRole] ?? [];
+    const allowedTypes = CREATION_ALLOWED_TYPES[actor.role] ?? [];
     if (!allowedTypes.includes(dto.eventType)) {
       throw new ForbiddenException(
-        `Role ${requesterRole} is not allowed to create events of type ${dto.eventType}`,
+        `Role ${actor.role} is not allowed to create events of type ${dto.eventType}`,
       );
     }
 
-    const savedEvent = await this.eventRepo.save(
-      this.eventRepo.create({
-        ownerId,
-        title: dto.title,
-        eventType: dto.eventType,
-        creatorId: requesterId,
-        creatorRole: requesterRole,
-        startTime: new Date(dto.startTime),
-        endTime: new Date(dto.endTime),
-        description: dto.description ?? null,
-        targetRef: dto.targetRef ?? null,
-      }),
-    );
+    const createdEvent = await this.dataSource.transaction(async (manager) => {
+      const eventRepo = manager.getRepository(CalendarEvent);
+      const invitationRepo = manager.getRepository(EventInvitation);
 
-    if (dto.inviteeIds && dto.inviteeIds.length > 0) {
-      const invitations = dto.inviteeIds.map((inviteeId) =>
-        this.invitationRepo.create({
-          eventId: savedEvent.id,
-          inviteeId,
-          status: InvitationStatus.PENDING,
+      const savedEvent = await eventRepo.save(
+        eventRepo.create({
+          ownerId,
+          title: dto.title,
+          eventType: dto.eventType,
+          creatorId: actor.id,
+          creatorRole: actor.role,
+          startTime: new Date(dto.startTime),
+          endTime: new Date(dto.endTime),
+          description: dto.description ?? null,
+          targetRef: dto.targetRef ?? null,
         }),
       );
-      await this.invitationRepo.save(invitations);
-    }
 
+      if (dto.inviteeIds && dto.inviteeIds.length > 0) {
+        const invitations = dto.inviteeIds.map((inviteeId) =>
+          invitationRepo.create({
+            eventId: savedEvent.id,
+            inviteeId,
+            status: InvitationStatus.PENDING,
+          }),
+        );
+        await invitationRepo.save(invitations);
+      }
+
+      return eventRepo.findOne({
+        where: { id: savedEvent.id },
+        relations: ['invitations'],
+      });
+    });
+
+    // Published after commit — the transaction above has already resolved.
     this.eventsService.publish(
       'CalendarEventCreated',
       {
-        eventId: savedEvent.id,
+        eventId: createdEvent.id,
         ownerId,
-        eventType: savedEvent.eventType,
-        creatorId: requesterId,
-        startTime: savedEvent.startTime,
+        eventType: createdEvent.eventType,
+        creatorId: actor.id,
+        startTime: createdEvent.startTime,
         inviteeIds: dto.inviteeIds ?? [],
       },
       correlationId,
     );
 
-    return this.eventRepo.findOne({
-      where: { id: savedEvent.id },
-      relations: ['invitations'],
-    });
+    return createdEvent;
   }
 
   /**
    * Accept an invitation for an event.
+   * Only the invitee themselves may accept their own invitation.
    * Publishes InvitationAccepted domain event.
    */
   async acceptInvitation(
     eventId: string,
     userId: string,
+    actor: AuthenticatedUser,
     correlationId?: string,
   ): Promise<EventInvitation> {
+    this.assertActorIsInvitee(userId, actor);
     const invitation = await this.findInvitationOrFail(eventId, userId);
 
     if (invitation.status !== InvitationStatus.PENDING) {
@@ -198,14 +228,17 @@ export class CalendarEventsService {
 
   /**
    * Decline an invitation for an event.
+   * Only the invitee themselves may decline their own invitation.
    * The invitation record is marked declined (effectively removing the event from the invitee's view).
    * Publishes InvitationDeclined domain event.
    */
   async declineInvitation(
     eventId: string,
     userId: string,
+    actor: AuthenticatedUser,
     correlationId?: string,
   ): Promise<EventInvitation> {
+    this.assertActorIsInvitee(userId, actor);
     const invitation = await this.findInvitationOrFail(eventId, userId);
 
     if (invitation.status !== InvitationStatus.PENDING) {
@@ -227,21 +260,22 @@ export class CalendarEventsService {
   }
 
   /**
-   * Request or apply cancellation of an event.
+   * Request or apply cancellation of an event, atomically (single
+   * transaction / single EntityManager for the CancellationRequest write
+   * and the conditional CalendarEvent status update).
    * Business rule: if the event starts within 48h, status is PENDING_APPROVAL.
    * Otherwise status is APPROVED and the event is immediately cancelled.
-   * Publishes CancellationRequested domain event.
+   * Publishes CancellationRequested domain event after commit.
    */
   async requestCancellation(
     eventId: string,
     dto: CancelRequestDto,
-    requesterId: string,
-    requesterRole: string,
+    actor: AuthenticatedUser,
     correlationId?: string,
   ): Promise<CancellationRequest> {
     const calendarEvent = await this.findEventOrFail(eventId);
 
-    this.assertCanCancelEvent(calendarEvent, requesterId, requesterRole);
+    this.assertCanCancelEvent(calendarEvent, actor);
 
     if (calendarEvent.status === CalendarEventStatus.CANCELLED) {
       throw new ConflictException('Event is already cancelled');
@@ -254,28 +288,36 @@ export class CalendarEventsService {
       ? CancellationStatus.PENDING_APPROVAL
       : CancellationStatus.APPROVED;
 
-    const cancellationRequest = await this.cancellationRepo.save(
-      this.cancellationRepo.create({
-        eventId,
-        requesterId,
-        status: cancellationStatus,
-        reason: dto.reason ?? null,
-      }),
-    );
+    const cancellationRequest = await this.dataSource.transaction(async (manager) => {
+      const cancellationRepo = manager.getRepository(CancellationRequest);
+      const eventRepo = manager.getRepository(CalendarEvent);
 
-    // If approved automatically, mark the event as cancelled
-    if (cancellationStatus === CancellationStatus.APPROVED) {
-      await this.eventRepo.save({
-        ...calendarEvent,
-        status: CalendarEventStatus.CANCELLED,
-      });
-    }
+      const savedRequest = await cancellationRepo.save(
+        cancellationRepo.create({
+          eventId,
+          requesterId: actor.id,
+          status: cancellationStatus,
+          reason: dto.reason ?? null,
+        }),
+      );
 
+      // If approved automatically, mark the event as cancelled
+      if (cancellationStatus === CancellationStatus.APPROVED) {
+        await eventRepo.save({
+          ...calendarEvent,
+          status: CalendarEventStatus.CANCELLED,
+        });
+      }
+
+      return savedRequest;
+    });
+
+    // Published after commit — the transaction above has already resolved.
     this.eventsService.publish(
       'CancellationRequested',
       {
         eventId,
-        requesterId,
+        requesterId: actor.id,
         status: cancellationStatus,
         isWithin48Hours,
       },
@@ -293,22 +335,21 @@ export class CalendarEventsService {
   async configureReminder(
     eventId: string,
     dto: ConfigureReminderDto,
-    requesterId: string,
-    requesterRole: string,
+    actor: AuthenticatedUser,
     correlationId?: string,
   ): Promise<ReminderRule> {
     const calendarEvent = await this.findEventOrFail(eventId);
-    await this.assertUserCanAccessEvent(calendarEvent, requesterId, requesterRole);
+    await this.assertUserCanAccessEvent(calendarEvent, actor);
 
     // Remove existing rule for this user on this event (idempotent)
-    await this.reminderRuleRepo.delete({ eventId, ownerId: requesterId });
+    await this.reminderRuleRepo.delete({ eventId, ownerId: actor.id });
 
     if (dto.delay === ReminderDelay.NONE) {
       // "none" means no reminder — return a transient object for the response
       return Object.assign(new ReminderRule(), {
         id: null,
         eventId,
-        ownerId: requesterId,
+        ownerId: actor.id,
         delay: ReminderDelay.NONE,
         isSent: false,
       });
@@ -317,7 +358,7 @@ export class CalendarEventsService {
     const reminderRule = await this.reminderRuleRepo.save(
       this.reminderRuleRepo.create({
         eventId,
-        ownerId: requesterId,
+        ownerId: actor.id,
         delay: dto.delay,
         isSent: false,
       }),
@@ -333,11 +374,10 @@ export class CalendarEventsService {
   async createVisibilityGrant(
     ownerId: string,
     dto: CreateVisibilityGrantDto,
-    grantedBy: string,
-    requesterRole: string,
+    actor: AuthenticatedUser,
     correlationId?: string,
   ): Promise<CalendarVisibilityGrant> {
-    if (requesterRole !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+    if (actor.role !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
       throw new ForbiddenException('Only a RP can create calendar visibility grants');
     }
 
@@ -353,7 +393,7 @@ export class CalendarEventsService {
       this.grantRepo.create({
         ownerId,
         granteeId: dto.granteeId,
-        grantedBy,
+        grantedBy: actor.id,
       }),
     );
   }
@@ -364,10 +404,10 @@ export class CalendarEventsService {
   async revokeVisibilityGrant(
     ownerId: string,
     granteeId: string,
-    requesterRole: string,
+    actorRole: UserRole,
     correlationId?: string,
   ): Promise<{ revoked: boolean }> {
-    if (requesterRole !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+    if (actorRole !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
       throw new ForbiddenException('Only a RP can revoke calendar visibility grants');
     }
 
@@ -403,27 +443,32 @@ export class CalendarEventsService {
   }
 
   /**
+   * Only the invitee themselves may accept or decline their own invitation.
+   */
+  private assertActorIsInvitee(userId: string, actor: AuthenticatedUser): void {
+    if (actor.id !== userId) {
+      throw new ForbiddenException('You can only respond to your own invitations');
+    }
+  }
+
+  /**
    * Determine whether a user can read events for a given calendar owner.
    * Checks: is owner, has internal privileged role, or has a CalendarVisibilityGrant.
    */
-  private async assertCanReadEvents(
-    ownerId: string,
-    requesterId: string,
-    requesterRole: string,
-  ): Promise<void> {
-    if (requesterId === ownerId) return;
+  private async assertCanReadEvents(ownerId: string, actor: AuthenticatedUser): Promise<void> {
+    if (actor.id === ownerId) return;
 
-    const privilegedRoles: string[] = [
+    const privilegedRoles: UserRole[] = [
       UserRole.RESPONSABLE_PEDAGOGIQUE,
       UserRole.ANIMATEUR_PEDAGOGIQUE,
       UserRole.TECHNICIEN_INFORMATIQUE,
       UserRole.ADMINISTRATEUR_FINANCIER,
       UserRole.PARENT_FINANCEUR,
     ];
-    if (privilegedRoles.includes(requesterRole)) return;
+    if (privilegedRoles.includes(actor.role)) return;
 
     const visibilityGrant = await this.grantRepo.findOne({
-      where: { ownerId, granteeId: requesterId },
+      where: { ownerId, granteeId: actor.id },
     });
     if (visibilityGrant) return;
 
@@ -435,17 +480,13 @@ export class CalendarEventsService {
   /**
    * Only the event creator, RP, or TI can request cancellation.
    */
-  private assertCanCancelEvent(
-    calendarEvent: CalendarEvent,
-    requesterId: string,
-    requesterRole: string,
-  ): void {
-    const cancellationRoles: string[] = [
+  private assertCanCancelEvent(calendarEvent: CalendarEvent, actor: AuthenticatedUser): void {
+    const cancellationRoles: UserRole[] = [
       UserRole.RESPONSABLE_PEDAGOGIQUE,
       UserRole.TECHNICIEN_INFORMATIQUE,
     ];
-    if (calendarEvent.creatorId === requesterId) return;
-    if (cancellationRoles.includes(requesterRole)) return;
+    if (calendarEvent.creatorId === actor.id) return;
+    if (cancellationRoles.includes(actor.role)) return;
     throw new ForbiddenException('Only the event creator, RP, or TI can request cancellation');
   }
 
@@ -458,21 +499,20 @@ export class CalendarEventsService {
    */
   private async assertUserCanAccessEvent(
     calendarEvent: CalendarEvent,
-    requesterId: string,
-    requesterRole: string,
+    actor: AuthenticatedUser,
   ): Promise<void> {
-    if (calendarEvent.creatorId === requesterId) return;
+    if (calendarEvent.creatorId === actor.id) return;
 
-    const privilegedInternalRoles: string[] = [
+    const privilegedInternalRoles: UserRole[] = [
       UserRole.RESPONSABLE_PEDAGOGIQUE,
       UserRole.TECHNICIEN_INFORMATIQUE,
       UserRole.ANIMATEUR_PEDAGOGIQUE,
       UserRole.ADMINISTRATEUR_FINANCIER,
     ];
-    if (privilegedInternalRoles.includes(requesterRole)) return;
+    if (privilegedInternalRoles.includes(actor.role)) return;
 
     const invitation = await this.invitationRepo.findOne({
-      where: { eventId: calendarEvent.id, inviteeId: requesterId },
+      where: { eventId: calendarEvent.id, inviteeId: actor.id },
     });
     if (invitation && invitation.status !== InvitationStatus.DECLINED) return;
 

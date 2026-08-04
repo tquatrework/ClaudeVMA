@@ -1,23 +1,26 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { JwtModule } from '@nestjs/jwt';
-import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ParentLinkRequestsController } from './parent-link-requests.controller';
 import { ParentLinkRequestsService } from './parent-link-requests.service';
 import { ParentLinkRequest } from './entities/parent-link-request.entity';
-import { StudentPedagogicalProfile } from '../profiles/entities/student-pedagogical-profile.entity';
-import { FinanceOwnerStudentLink } from '../relations/entities/finance-owner-student-link.entity';
+import { ProfilesModule } from '../profiles/profiles.module';
+import { RelationsModule } from '../relations/relations.module';
+import { ClientsModule } from '../common/clients/clients.module';
 
+/**
+ * Owns ParentLinkRequest only. StudentPedagogicalProfile (profiles feature) and
+ * FinanceOwnerStudentLink (relations feature) are no longer registered here —
+ * ParentLinkRequestsService consumes ProfilesService and RelationsService
+ * instead of injecting their repositories directly.
+ *
+ * JWT/guards come from the global SecurityModule (see app.module.ts).
+ */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ParentLinkRequest, StudentPedagogicalProfile, FinanceOwnerStudentLink]),
-    JwtModule.registerAsync({
-      imports: [ConfigModule],
-      useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET'),
-      }),
-      inject: [ConfigService],
-    }),
+    TypeOrmModule.forFeature([ParentLinkRequest]),
+    ProfilesModule,
+    RelationsModule,
+    ClientsModule,
   ],
   controllers: [ParentLinkRequestsController],
   providers: [ParentLinkRequestsService],

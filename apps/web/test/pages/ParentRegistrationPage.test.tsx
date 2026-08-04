@@ -2,7 +2,8 @@
  * Tests for ParentRegistrationPage
  *
  * Covers:
- * - Form rendering (email, password, confirmPassword)
+ * - Form rendering (firstName, lastName, email, password, confirmPassword)
+ * - Missing firstName/lastName validation
  * - Password mismatch validation
  * - Password too short validation
  * - Successful registration calls registerParent and redirects to /login
@@ -32,7 +33,19 @@ function renderParentRegistrationPage() {
   )
 }
 
-async function fillForm(options: { password?: string; confirmPassword?: string } = {}) {
+async function fillForm(
+  options: {
+    firstName?: string
+    lastName?: string
+    password?: string
+    confirmPassword?: string
+    skipNames?: boolean
+  } = {},
+) {
+  if (!options.skipNames) {
+    await userEvent.type(screen.getByPlaceholderText(/^prénom$/i), options.firstName ?? 'Jean')
+    await userEvent.type(screen.getByPlaceholderText(/nom de famille/i), options.lastName ?? 'Dupont')
+  }
   await userEvent.type(screen.getByPlaceholderText(/vous@exemple\.fr/i), 'parent@test.com')
   await userEvent.type(
     screen.getByPlaceholderText(/8 caractères minimum/i),
@@ -54,10 +67,23 @@ describe('ParentRegistrationPage', () => {
     renderParentRegistrationPage()
 
     expect(screen.getByText(/créer un compte parent \/ financeur/i)).toBeDefined()
+    expect(screen.getByPlaceholderText(/^prénom$/i)).toBeDefined()
+    expect(screen.getByPlaceholderText(/nom de famille/i)).toBeDefined()
     expect(screen.getByPlaceholderText(/vous@exemple\.fr/i)).toBeDefined()
     expect(screen.getByPlaceholderText(/8 caractères minimum/i)).toBeDefined()
     expect(screen.getByPlaceholderText(/répétez le mot de passe/i)).toBeDefined()
     expect(screen.getByRole('button', { name: /créer mon compte/i })).toBeDefined()
+  })
+
+  it('does not call registerParent when firstName or lastName are missing', async () => {
+    renderParentRegistrationPage()
+
+    await fillForm({ skipNames: true })
+    await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+
+    await waitFor(() => {
+      expect(mockRegisterParent).not.toHaveBeenCalled()
+    })
   })
 
   it('shows error when passwords do not match', async () => {
@@ -94,6 +120,8 @@ describe('ParentRegistrationPage', () => {
         email: 'parent@test.com',
         loginIdentifier: undefined,
         password: 'password123',
+        firstName: 'Jean',
+        lastName: 'Dupont',
       })
     })
   })
@@ -152,6 +180,8 @@ describe('ParentRegistrationPage', () => {
     })
 
     // The nominal flow must not be blocked by the check-email failure.
+    await userEvent.type(screen.getByPlaceholderText(/^prénom$/i), 'Jean')
+    await userEvent.type(screen.getByPlaceholderText(/nom de famille/i), 'Dupont')
     await userEvent.type(
       screen.getByPlaceholderText(/8 caractères minimum/i),
       'password123',

@@ -220,6 +220,69 @@
           PUT sans le champ firstName -> 200, champ existant inchange.
         </testCoverage>
       </decision>
+      <decision id="C6" status="implemented" session="2026-08-04">
+        <title>Route interne create-administrative-profile : firstName/lastName obligatoires + upsert idempotent (fermeture du gap laisse ouvert par C5)</title>
+        <description>
+          Decision produit du PO : identity-access-service va appeler
+          profile-service juste apres la creation de tout compte (eleve,
+          formateur, parent, generique) pour synchroniser firstName/lastName
+          dans le profil administratif, via la route interne existante
+          POST /internal/create-administrative-profile (deja montee sur
+          InternalController, deja protegee par InternalGuard/X-Internal-Secret,
+          au meme titre que les autres routes /internal/*). Duplication de
+          firstName/lastName entre identity-access-service et profile-service
+          assumee par le PO (choix pragmatique).
+          Cette session ferme le gap identifie en C5 : src/internal/dto/
+          create-administrative-profile.dto.ts avait firstName/lastName en
+          @IsOptional(). Passes en @IsString() @IsNotEmpty() @MaxLength(100),
+          non optionnels, coherent avec create-student-profiles.dto.ts et
+          create-teacher-profiles.dto.ts (C5). InternalService.
+          createAdministrativeProfile typee en consequence (firstName/lastName
+          non optionnels dans la signature).
+          Idempotence / upsert : ProfilesService.bootstrapAdministrativeProfile
+          (partagee par les 3 routes de bootstrap : create-administrative-profile,
+          create-student-profiles, create-teacher-profiles) ne faisait que
+          creer-si-absent et renvoyer tel quel le profil existant sinon — un
+          rappel de la route sur un userId ayant deja une ligne
+          administrative_profiles (creee soit par le lazy-init defensif de
+          getProfile, soit par un premier appel de bootstrap) ne mettait donc
+          jamais a jour le nom. Corrige en upsert explicite : si le profil
+          n'existe pas, creation identique a avant ; s'il existe deja, les
+          champs fournis dans l'input (firstName, lastName, phone, birthDate)
+          ecrasent les valeurs existantes des qu'ils different, sans jamais
+          tenter de re-creer une ligne (pas de risque de violation de la
+          contrainte d'unicite sur userId, pas de doublon). Choix assume :
+          meme si une ligne existante avait deja un nom renseigne (ex.
+          modification manuelle entre-temps), l'appel de bootstrap ecrase avec
+          la valeur transmise par identity-access-service au moment de la
+          creation de compte — acceptable car ce bootstrap n'intervient qu'au
+          tout debut du cycle de vie du compte, immediatement apres sa creation.
+          Cette modification du comportement d'upsert est partagee par les 3
+          routes de bootstrap (administrative-profile, student-profiles,
+          teacher-profiles) puisqu'elles delegue toutes a la meme methode
+          bootstrapAdministrativeProfile ; comportement juge coherent et
+          souhaitable pour les 3 (memes garanties d'idempotence attendues).
+        </description>
+        <testCoverage>
+          npm test (unit, hors e2e) : 209/212 verts (memes 3 echecs preexistants
+          documentes en C5, non lies a ce changement — updateTeacherValidation).
+          Nouveaux tests unitaires : ProfilesService.bootstrapAdministrativeProfile
+          upsert sur profil existant vide (lazy-init) et upsert avec ecrasement
+          d'un nom deja renseigne (rappel de bootstrap) ; InternalService.
+          createAdministrativeProfile ajuste pour le typage firstName/lastName
+          obligatoires.
+          npm run test:e2e (USE_LOCAL_DB=true, testcontainers indisponible dans
+          cet environnement sandbox — meme limitation que C5) : 87/89 verts,
+          memes 2 echecs preexistants confirmes non lies (GET /profiles/:userId
+          profil inexistant renvoie 200 au lieu de 404 ; POST
+          /profiles/:userId/internal-notes refuse a l'administrateur financier).
+          test/e2e/internal.e2e-spec.ts : 29/29 verts, incluant les nouveaux cas
+          POST /internal/create-administrative-profile (nominal 201, idempotence/
+          upsert 201 avec nom mis a jour, userId/firstName/lastName manquant ou
+          vide -&gt; 400, sans X-Internal-Secret -&gt; 401/403).
+          npm run build : OK.
+        </testCoverage>
+      </decision>
       <openPoints>
         <item>
           3 tests preexistants echouent dans updateTeacherValidation

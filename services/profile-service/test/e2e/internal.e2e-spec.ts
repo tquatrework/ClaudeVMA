@@ -6,6 +6,7 @@
  * Utilisées par orchestration-service dans les workflows d'onboarding.
  *
  * Routes testées :
+ *   POST /internal/create-administrative-profile
  *   POST /internal/create-student-profiles
  *   POST /internal/create-teacher-profiles
  *   POST /internal/link-parent
@@ -61,6 +62,78 @@ describe('[E2E] Internal routes', () => {
         .send({ userId: IDS.student1, firstName: 'Test', lastName: 'Test' });
 
       // Sans x-internal-secret, doit être rejeté même avec un JWT
+      expect([401, 403]).toContain(res.status);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────
+  // POST /internal/create-administrative-profile
+  // ──────────────────────────────────────────────────────────────
+
+  describe('POST /internal/create-administrative-profile', () => {
+    it('Crée le profil administratif d\'un compte (élève, formateur, parent, générique) → 201', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.genericAccount1, firstName: 'Sophie', lastName: 'Bernard' });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('userId', IDS.genericAccount1);
+      expect(res.body).toHaveProperty('administrativeProfile');
+      expect(res.body.administrativeProfile).toMatchObject({ firstName: 'Sophie', lastName: 'Bernard' });
+    });
+
+    it('Idempotence : rappel sur un userId déjà pourvu d\'un profil met à jour le nom au lieu de planter → 201', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.genericAccount1, firstName: 'SophieBis', lastName: 'BernardBis' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.administrativeProfile).toMatchObject({ firstName: 'SophieBis', lastName: 'BernardBis' });
+    });
+
+    it('userId manquant → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ firstName: 'Sophie', lastName: 'Bernard' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('firstName manquant → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.genericAccount2, lastName: 'Bernard' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('lastName manquant → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.genericAccount2, firstName: 'Sophie' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('firstName vide → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.genericAccount2, firstName: '', lastName: 'Bernard' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('Sans header x-internal-secret → 401 ou 403', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .send({ userId: IDS.genericAccount2, firstName: 'Sophie', lastName: 'Bernard' });
+
       expect([401, 403]).toContain(res.status);
     });
   });

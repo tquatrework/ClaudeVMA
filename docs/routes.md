@@ -115,11 +115,16 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 
 | Méthode | Chemin | Description | Header requis |
 |---|---|---|---|
+| POST | /internal/create-administrative-profile | Créer (ou mettre à jour) le profil administratif d'un compte quelconque (élève, formateur, parent, générique) juste après sa création par identity-access-service. `firstName`/`lastName` obligatoires (`400` sinon). Upsert idempotent : si une ligne existe déjà pour `userId` (lazy-init via `getProfile`, ou rappel de la route), elle est mise à jour avec les valeurs reçues au lieu d'échouer sur la contrainte d'unicité — voir décision C6 dans `docs/services/profile-service.md` | `X-Internal-Secret` |
 | POST | /internal/create-student-profiles | Créer les profils initiaux d'un élève (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` |
 | POST | /internal/create-teacher-profiles | Créer les profils initiaux d'un formateur (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` |
 | POST | /internal/link-parent | Lier un parent financeur à un élève | `X-Internal-Secret` |
 | POST | /internal/create-teacher-student-relation | Créer la relation formateur-élève | `X-Internal-Secret` |
 | POST | /internal/link-coordinator | Lier un coordinateur pédagogique à un élève | `X-Internal-Secret` |
+
+Body `POST /internal/create-administrative-profile` : `{userId (uuid), firstName (obligatoire), lastName (obligatoire), phone?}`
+
+Réponse `POST /internal/create-administrative-profile` : `201 {userId, administrativeProfile}` · `400` si `userId`/`firstName`/`lastName` manquant ou vide · `401`/`403` sans `X-Internal-Secret`
 
 ### Demandes de rattachement parent↔élève
 

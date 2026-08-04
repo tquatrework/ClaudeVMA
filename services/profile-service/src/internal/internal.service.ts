@@ -23,8 +23,8 @@ export class InternalService {
 
   async createAdministrativeProfile(dto: {
     userId: string;
-    firstName?: string;
-    lastName?: string;
+    firstName: string;
+    lastName: string;
     phone?: string;
   }) {
     const administrativeProfile = await this.profilesService.bootstrapAdministrativeProfile(dto);

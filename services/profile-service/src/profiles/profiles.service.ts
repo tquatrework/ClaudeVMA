@@ -585,8 +585,19 @@ export class ProfilesService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Idempotent creation of the administrative profile for onboarding flows.
-   * Does nothing (returns the existing profile) if one already exists.
+   * Idempotent upsert of the administrative profile for onboarding flows.
+   *
+   * If no profile exists for userId, it is created.
+   * If a profile already exists (e.g. a minimal {userId} row created by the
+   * defensive lazy-init in getProfile() before the onboarding bootstrap call
+   * arrived, or this bootstrap call being replayed by the caller), the fields
+   * provided in input overwrite the existing ones instead of failing on the
+   * userId unique constraint or silently keeping a stale/empty name.
+   * This is safe because bootstrap calls only happen very early in the
+   * account lifecycle (identity-access-service calling right after account
+   * creation) — overwriting with the incoming value is the intended
+   * source-of-truth behavior at that point, even if the row was already
+   * populated by a previous bootstrap call or a lazy-init.
    */
   async bootstrapAdministrativeProfile(input: {
     userId: string;
@@ -604,9 +615,27 @@ export class ProfilesService {
         telephone: input.phone ?? undefined,
         dateNaissance: input.birthDate,
       });
-      profile = await this.adminRepo.save(profile);
+      return this.adminRepo.save(profile);
     }
-    return profile;
+
+    let hasChanges = false;
+    if (input.firstName !== undefined && profile.firstName !== input.firstName) {
+      profile.firstName = input.firstName;
+      hasChanges = true;
+    }
+    if (input.lastName !== undefined && profile.lastName !== input.lastName) {
+      profile.lastName = input.lastName;
+      hasChanges = true;
+    }
+    if (input.phone !== undefined && profile.telephone !== input.phone) {
+      profile.telephone = input.phone;
+      hasChanges = true;
+    }
+    if (input.birthDate !== undefined && profile.dateNaissance !== input.birthDate) {
+      profile.dateNaissance = input.birthDate;
+      hasChanges = true;
+    }
+    return hasChanges ? this.adminRepo.save(profile) : profile;
   }
 
   /**

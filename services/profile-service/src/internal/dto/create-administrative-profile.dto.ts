@@ -1,8 +1,8 @@
-import { IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class CreateAdministrativeProfileDto {
   @IsUUID() userId: string;
-  @IsOptional() @IsString() firstName?: string;
-  @IsOptional() @IsString() lastName?: string;
+  @IsString() @IsNotEmpty() @MaxLength(100) firstName: string;
+  @IsString() @IsNotEmpty() @MaxLength(100) lastName: string;
   @IsOptional() @IsString() phone?: string;
 }

@@ -750,16 +750,30 @@ export class ProfilesService {
    * interservices via un client typé avec timeout).
    * Returns null on 404 or network/timeout error (graceful degradation —
    * never throws): a missing loginIdentifier must not break profile reads.
+   *
+   * IdentityAccessUnavailableError (unreachable host, timeout, or non-2xx/404
+   * status such as a 401/403 from a misconfigured INTERNAL_SECRET) is a real
+   * infrastructure/config failure, not a legitimate "account not found" — it
+   * is logged at error level here (in addition to the client's own logging)
+   * so degrading to null stays visible in observability instead of silently
+   * looking like a missing account.
    */
   private async fetchLoginIdentifier(userId: string): Promise<string | null> {
     try {
       const account = await this.identityAccessClient.findAccountByUserId(userId);
       return account.loginIdentifier ?? null;
     } catch (error) {
-      if (!(error instanceof IdentityAccessNotFoundError || error instanceof IdentityAccessUnavailableError)) {
-        throw error;
+      if (error instanceof IdentityAccessUnavailableError) {
+        this.logger.error(
+          `loginIdentifier introuvable pour userId=${userId} : identity-access-service indisponible ou ` +
+            `mal configuré (${error.message}). Le profil est tout de même renvoyé, avec loginIdentifier=null.`,
+        );
+        return null;
       }
-      return null;
+      if (error instanceof IdentityAccessNotFoundError) {
+        return null;
+      }
+      throw error;
     }
   }
 }

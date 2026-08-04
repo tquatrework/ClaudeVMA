@@ -178,6 +178,43 @@ describe('ProfilesService', () => {
       expect(result).toHaveProperty('loginIdentifier', null);
     });
 
+    // Regression test: a real infrastructure/config failure between
+    // profile-service and identity-access-service (e.g. mismatched
+    // INTERNAL_SECRET causing a 401/403, wrong URL, DNS failure, timeout —
+    // all surfaced as IdentityAccessUnavailableError) must remain visible in
+    // logs even though the caller still degrades gracefully to
+    // loginIdentifier: null. It must not look like a routine 404 "account
+    // not found" (IdentityAccessNotFoundError), which is not logged as an
+    // error.
+    it('logs an error when loginIdentifier resolution fails due to a config/infra error (distinct from a plain 404)', async () => {
+      adminRepo.findOne.mockResolvedValue(mockAdminProfile);
+      const errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined);
+      identityAccessClient.findAccountByUserId.mockRejectedValue(
+        new IdentityAccessUnavailableError('identity-access-service returned HTTP 401'),
+      );
+
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await service.getProfile('student-uuid', actor);
+
+      expect(result).toHaveProperty('loginIdentifier', null);
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy.mock.calls[0][0]).toEqual(expect.stringContaining('student-uuid'));
+    });
+
+    it('does not log an error when loginIdentifier resolution fails with a plain 404 (expected case)', async () => {
+      adminRepo.findOne.mockResolvedValue(mockAdminProfile);
+      const errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined);
+      identityAccessClient.findAccountByUserId.mockRejectedValue(
+        new IdentityAccessNotFoundError('not found'),
+      );
+
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await service.getProfile('student-uuid', actor);
+
+      expect(result).toHaveProperty('loginIdentifier', null);
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+
     it('throws 403 when élève tries to view another profile', async () => {
       const actor = makeActor(UserRole.ELEVE, 'student-uuid');
       await expect(service.getProfile('other-uuid', actor)).rejects.toThrow(ForbiddenException);

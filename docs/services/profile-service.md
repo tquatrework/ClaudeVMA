@@ -137,6 +137,43 @@
           tsconfig.test.json (y compris e2e) : OK, aucune erreur de type.
         </testCoverage>
       </decision>
+      <decision id="C4" status="implemented">
+        <title>Investigation loginIdentifier=null signale par cross-check avec identity-access-service</title>
+        <description>
+          Signalement : GET /profiles/:userId retournait loginIdentifier=null pour un
+          userId donne alors qu'identity-access-service retournait bien un compte valide
+          via son endpoint interne. Reproduction en conditions reelles (JWT signe avec le
+          JWT_SECRET du stack docker compose local, appel direct au conteneur
+          visiomath_profile puis via le gateway) : la lecture retourne desormais
+          loginIdentifier correctement renseigne — la defaillance n'a pas pu etre
+          reproduite en direct dans cette session (probable derive de configuration
+          transitoire, deja resorbee par un redemarrage anterieur des conteneurs
+          identity-access-service/profile-service).
+          Le defaut structurel reste reel et corrige : IdentityAccessClient.fetchAccount
+          n'exposait qu'un logger.warn (voire aucun log cote ProfilesService) pour les
+          statuts non-2xx/non-404 et les erreurs reseau/timeout — une vraie panne de
+          configuration (ex. INTERNAL_SECRET desynchronise, mauvaise URL, DNS,
+          timeout) etait donc indiscernable en observabilite d'un simple 404 "compte
+          introuvable". IdentityAccessClient logue desormais en logger.error (au lieu de
+          warn) les statuts non-2xx/non-404 et les echecs reseau/timeout, avec un message
+          orientant vers INTERNAL_SECRET/IDENTITY_ACCESS_SERVICE_URL ; le 404 reste sans
+          log (cas metier attendu). ProfilesService.fetchLoginIdentifier logue en plus un
+          logger.error dedie (avec le userId) quand IdentityAccessUnavailableError est
+          intercepte, tout en conservant le comportement degrade existant (retour de
+          loginIdentifier=null sans jamais faire echouer la lecture du profil).
+          Tests de regression ajoutes : test/unit/common/identity-access.client.spec.ts
+          (nouveau, couvre 200/404/401/403/erreur reseau et l'absence vs presence de log
+          d'erreur) et deux nouveaux cas dans
+          test/unit/profiles/profiles.service.spec.ts verifiant que seule
+          IdentityAccessUnavailableError declenche un logger.error, jamais
+          IdentityAccessNotFoundError.
+        </description>
+        <testCoverage>
+          npm test (unitaire) : 207/210 verts — les 3 echecs restants sont le bug
+          preexistant deja documente dans l'openPoint updateTeacherValidation, non lie a
+          cette session. npm run build : OK.
+        </testCoverage>
+      </decision>
       <openPoints>
         <item>
           3 tests preexistants echouent dans updateTeacherValidation

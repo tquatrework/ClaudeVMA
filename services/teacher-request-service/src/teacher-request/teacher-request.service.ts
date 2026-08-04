@@ -3,7 +3,6 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
-  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, Not, Repository } from 'typeorm';
@@ -19,25 +18,28 @@ import { CreatePpChangeDto } from './dto/create-pp-change.dto';
 import { PublishSelectedCandidatesDto } from './dto/publish-selected-candidates.dto';
 import { SelectCandidateDto } from './dto/select-candidate.dto';
 import { EventsService } from './events.service';
+import { ProfileServiceClient } from './clients/profile-service.client';
 import { JwtPayload } from '../common/jwt.guard';
 import { UserRole } from '../common/user-role.enum';
-
-interface ProfileName {
-  firstName: string;
-  lastName: string;
-}
 
 export interface TeacherRequestWithNames extends TeacherRequest {
   studentName: string | null;
   teacherName: string | null;
 }
 
+/**
+ * Cohesion note (services-convention.md §"À partir de 300 lignes..."):
+ * this service intentionally owns four repositories (TeacherRequest,
+ * TeacherProposal, Assignment, TerminationRequest) because they form a
+ * single lifecycle aggregate — request → proposal → assignment →
+ * termination — with no independent existence or reuse outside this flow.
+ * Splitting them into separate services would force cross-service
+ * transactions for what are today atomic, same-aggregate writes (see
+ * createProposal, acceptProposal, createTermination,
+ * createCollaborationStopRequest below).
+ */
 @Injectable()
 export class TeacherRequestService {
-  private readonly logger = new Logger(TeacherRequestService.name);
-  private readonly profileServiceUrl: string =
-    process.env.PROFILE_SERVICE_URL ?? 'http://profile-service:3000';
-
   constructor(
     @InjectRepository(TeacherRequest) private readonly requestRepo: Repository<TeacherRequest>,
     @InjectRepository(TeacherProposal) private readonly proposalRepo: Repository<TeacherProposal>,
@@ -45,19 +47,8 @@ export class TeacherRequestService {
     @InjectRepository(TerminationRequest) private readonly terminationRepo: Repository<TerminationRequest>,
     private readonly events: EventsService,
     private readonly dataSource: DataSource,
+    private readonly profileServiceClient: ProfileServiceClient,
   ) {}
-
-  private async resolveProfileName(profileId: string): Promise<string | null> {
-    try {
-      const response = await fetch(`${this.profileServiceUrl}/profiles/${profileId}`);
-      if (!response.ok) return null;
-      const profile = (await response.json()) as ProfileName;
-      return `${profile.firstName} ${profile.lastName}`.trim() || null;
-    } catch (error) {
-      this.logger.warn(`Could not resolve profile name for id ${profileId}: ${(error as Error).message}`);
-      return null;
-    }
-  }
 
   private async enrichRequestsWithNames(
     requests: TeacherRequest[],
@@ -65,8 +56,10 @@ export class TeacherRequestService {
     return Promise.all(
       requests.map(async (request) => {
         const [studentName, teacherName] = await Promise.all([
-          this.resolveProfileName(request.studentId),
-          request.chosenTeacherId ? this.resolveProfileName(request.chosenTeacherId) : Promise.resolve(null),
+          this.profileServiceClient.resolveDisplayName(request.studentId),
+          request.chosenTeacherId
+            ? this.profileServiceClient.resolveDisplayName(request.chosenTeacherId)
+            : Promise.resolve(null),
         ]);
         return { ...request, studentName, teacherName };
       }),

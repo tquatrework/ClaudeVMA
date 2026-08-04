@@ -12,6 +12,7 @@ import { AssignmentController } from './assignment.controller';
 import { CollaborationController } from './collaboration.controller';
 import { TeacherRequestService } from './teacher-request.service';
 import { EventsService } from './events.service';
+import { ProfileServiceClient } from './clients/profile-service.client';
 import { SecurityModule } from '../security/security.module';
 
 @Module({
@@ -26,6 +27,6 @@ import { SecurityModule } from '../security/security.module';
     AssignmentController,
     CollaborationController,
   ],
-  providers: [TeacherRequestService, EventsService],
+  providers: [TeacherRequestService, EventsService, ProfileServiceClient],
 })
 export class TeacherRequestModule {}

@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString, ValidateIf } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 /**
  * Forme validée du `payload` attendu par `POST /workflows/student-onboarding/start`.
@@ -8,6 +8,13 @@ import { IsNotEmpty, IsOptional, IsString, ValidateIf } from 'class-validator';
  * payload (email, password, consents, birthDate, level, ...) reste opaque et
  * relayé tel quel, conformément à l'exception "payloads de routage pur" de
  * `docs/conventions/services-convention.md`.
+ *
+ * parentAccountId désigne un compte parent déjà existant (cf.
+ * `docs/microservices.md`, step 3 du workflow : "Lier le parent financeur si
+ * fourni" — pas une création). Ce parent a donc déjà fourni son propre
+ * prénom/nom lors de la création de SON compte ; aucun champ parentFirstName/
+ * parentLastName n'est donc requis ou lu ici : ce serait redondant et
+ * risquerait de faire diverger le nom déjà enregistré pour ce compte.
  */
 export class StudentOnboardingStartPayloadDto {
   @IsString({ message: 'firstName est requis' })
@@ -21,17 +28,4 @@ export class StudentOnboardingStartPayloadDto {
   @IsOptional()
   @IsString()
   parentAccountId?: string;
-
-  // Même logique conditionnelle que côté identity-access-service : requis
-  // uniquement lorsque des informations parent sont fournies dans ce workflow
-  // (matérialisées ici par la présence de parentAccountId).
-  @ValidateIf((payload: StudentOnboardingStartPayloadDto) => !!payload.parentAccountId)
-  @IsString({ message: 'parentFirstName est requis lorsque parentAccountId est fourni' })
-  @IsNotEmpty({ message: 'parentFirstName est requis lorsque parentAccountId est fourni' })
-  parentFirstName?: string;
-
-  @ValidateIf((payload: StudentOnboardingStartPayloadDto) => !!payload.parentAccountId)
-  @IsString({ message: 'parentLastName est requis lorsque parentAccountId est fourni' })
-  @IsNotEmpty({ message: 'parentLastName est requis lorsque parentAccountId est fourni' })
-  parentLastName?: string;
 }

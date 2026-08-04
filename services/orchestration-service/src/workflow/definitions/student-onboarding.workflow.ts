@@ -20,14 +20,6 @@ export const studentOnboardingWorkflow: WorkflowDefinition = {
         consents: context.payload.consents,
         firstName: context.payload.firstName,
         lastName: context.payload.lastName,
-        // Champs parent transmis uniquement lorsqu'un parent est concerné par
-        // cette inscription (mêmes conditions que la validation d'entrée).
-        ...(context.payload.parentAccountId
-          ? {
-              parentFirstName: context.payload.parentFirstName,
-              parentLastName: context.payload.parentLastName,
-            }
-          : {}),
       }),
       compensationAction: 'delete-account',
       buildCompensationPayload: (context) => ({
@@ -61,8 +53,6 @@ export const studentOnboardingWorkflow: WorkflowDefinition = {
       buildPayload: (context) => ({
         studentId: context.stepOutputs['create-student-account']?.accountId,
         financeOwnerId: context.payload.parentAccountId,
-        parentFirstName: context.payload.parentFirstName,
-        parentLastName: context.payload.parentLastName,
       }),
     },
     {

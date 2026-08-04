@@ -130,14 +130,14 @@ describe('[E2E] Workflows', () => {
       expect(res.status).toBe(400);
     });
 
-    it('returns 400 when parentAccountId is provided without parentFirstName/parentLastName', async () => {
+    it('accepts a student-onboarding payload with parentAccountId and no parent name (existing parent, linked by id only)', async () => {
       const res = await request(app.getHttpServer())
         .post('/workflows/student-onboarding/start')
         .set('Authorization', `Bearer ${RP_TOKEN}`)
         .send({
           workflowType: 'student-onboarding',
           payload: {
-            email: `parent-missing-${Date.now()}@test.com`,
+            email: `parent-link-${Date.now()}@test.com`,
             password: 'P@ss1',
             firstName: 'Jean',
             lastName: 'Dupont',
@@ -145,7 +145,7 @@ describe('[E2E] Workflows', () => {
           },
         });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(201);
     });
 
     it('starts student-onboarding workflow and returns instance info', async () => {

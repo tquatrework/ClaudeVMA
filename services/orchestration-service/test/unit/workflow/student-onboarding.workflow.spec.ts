@@ -28,26 +28,14 @@ describe('studentOnboardingWorkflow — ORCH-WF-STUDENT-001', () => {
     expect(payload.lastName).toBe('Dupont');
   });
 
-  it('step 1 does not include parent fields when no parentAccountId is provided', () => {
-    const step = studentOnboardingWorkflow.steps[0];
-    const payload = step.buildPayload(makeContext());
-    expect(payload).not.toHaveProperty('parentFirstName');
-    expect(payload).not.toHaveProperty('parentLastName');
-  });
-
-  it('step 1 propagates parent names to identity-access-service when parentAccountId is provided', () => {
+  it('step 1 never includes parent fields — parentAccountId only links an existing parent, it is not created here', () => {
     const step = studentOnboardingWorkflow.steps[0];
     const context = makeContext({
-      payload: {
-        ...makeContext().payload,
-        parentAccountId: 'parent-1',
-        parentFirstName: 'Marie',
-        parentLastName: 'Dupont',
-      },
+      payload: { ...makeContext().payload, parentAccountId: 'parent-1' },
     });
     const payload = step.buildPayload(context);
-    expect(payload.parentFirstName).toBe('Marie');
-    expect(payload.parentLastName).toBe('Dupont');
+    expect(payload).not.toHaveProperty('parentFirstName');
+    expect(payload).not.toHaveProperty('parentLastName');
   });
 
   it('step 2 (create-student-profiles) propagates firstName and lastName to profile-service', () => {
@@ -62,23 +50,18 @@ describe('studentOnboardingWorkflow — ORCH-WF-STUDENT-001', () => {
     expect(payload.lastName).toBe('Dupont');
   });
 
-  it('step 3 (link-parent) propagates parentFirstName/parentLastName alongside financeOwnerId', () => {
+  it('step 3 (link-parent) only sends studentId/financeOwnerId — it links an existing parent by id, no name needed', () => {
     const step = studentOnboardingWorkflow.steps[2];
     expect(step.targetService).toBe('profile-service');
     expect(step.optional).toBe(true);
     const context = makeContext({
-      payload: {
-        ...makeContext().payload,
-        parentAccountId: 'parent-1',
-        parentFirstName: 'Marie',
-        parentLastName: 'Dupont',
-      },
+      payload: { ...makeContext().payload, parentAccountId: 'parent-1' },
       stepOutputs: { 'create-student-account': { accountId: 'acc-1' } },
     });
     const payload = step.buildPayload(context);
     expect(payload.studentId).toBe('acc-1');
     expect(payload.financeOwnerId).toBe('parent-1');
-    expect(payload.parentFirstName).toBe('Marie');
-    expect(payload.parentLastName).toBe('Dupont');
+    expect(payload).not.toHaveProperty('parentFirstName');
+    expect(payload).not.toHaveProperty('parentLastName');
   });
 });

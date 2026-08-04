@@ -179,9 +179,8 @@ contrainte de leur côté.
   incomplet échoue donc proprement dès l'entrée, jamais silencieusement plus loin dans la chaîne.
 - Nouveaux DTOs de payload (`src/workflow/dto/payloads/`) :
   - `StudentOnboardingStartPayloadDto` : `firstName`/`lastName` obligatoires ; `parentAccountId`
-    optionnel ; `parentFirstName`/`parentLastName` obligatoires **uniquement si**
-    `parentAccountId` est fourni (`@ValidateIf`), même logique conditionnelle que côté
-    identity-access-service.
+    optionnel, sans autre exigence associée (cf. section "Correction" ci-dessous —
+    `parentAccountId` ne fait que lier un parent déjà existant, aucun nom parent n'est requis).
   - `TeacherOnboardingStartPayloadDto` : `firstName`/`lastName` obligatoires.
 - `studentOnboardingWorkflow` et `teacherOnboardingWorkflow` déclarent désormais
   `startPayloadValidationClass` pointant vers ces DTOs.
@@ -189,12 +188,14 @@ contrainte de leur côté.
 ### Propagation à travers les étapes existantes
 
 - `student-onboarding` step 1 (`create-student-account` → `identity-access-service`) : ajoute
-  `firstName`/`lastName` au payload sortant (absents auparavant) ; ajoute conditionnellement
-  `parentFirstName`/`parentLastName` lorsque `parentAccountId` est fourni.
+  `firstName`/`lastName` au payload sortant (absents auparavant). Aucun champ parent n'est envoyé
+  ici : cette étape crée uniquement le compte élève.
 - `student-onboarding` step 2 (`create-student-profiles` → `profile-service`) : propageait déjà
   `firstName`/`lastName` — inchangé, pattern existant repris pour les autres étapes.
-- `student-onboarding` step 3 (`link-parent` → `profile-service`) : ajoute
-  `parentFirstName`/`parentLastName` au payload sortant, en plus de `studentId`/`financeOwnerId`.
+- `student-onboarding` step 3 (`link-parent` → `profile-service`) : envoie uniquement
+  `studentId`/`financeOwnerId` (`parentAccountId`) — inchangé. Cette étape lie un identifiant de
+  compte parent déjà existant, elle n'a jamais eu besoin ni ne doit avoir besoin du nom du parent
+  (cf. section "Correction" ci-dessous).
 - `teacher-onboarding` step 1 (`create-teacher-account` → `identity-access-service`) : ajoute
   `firstName`/`lastName` au payload sortant (absents auparavant).
 - `teacher-onboarding` step 2 (`create-teacher-profiles` → `profile-service`) : propageait déjà
@@ -206,40 +207,43 @@ contrainte de leur côté.
   l'étape suivante). Aucune adaptation du moteur n'a été nécessaire pour la propagation elle-même —
   seule la validation d'entrée est une capacité nouvelle.
 
-### Point à arbitrer — hypothèse sur les champs parent
+### Correction — hypothèse sur les champs parent invalidée (2026-08-04, même session)
 
-- Le workflow `student-onboarding` ne modélisait, avant cette session, qu'un seul mécanisme
-  "parent" : `parentAccountId`, un identifiant de compte **déjà existant**, utilisé uniquement par
-  l'étape optionnelle `link-parent` (`profile-service`). Il n'existe aucun concept de création de
-  compte parent *inline* dans ce workflow (contrairement à `identity-access-service` qui documente
-  `POST /accounts/students` avec `parentEmail`/`parentPassword` optionnels — cf. `docs/routes.md`).
-- La consigne de session demandait de rendre `parentFirstName`/`parentLastName` conditionnellement
-  obligatoires "si un parent est créé en même temps" et de les transmettre à l'appel interne
-  `identity-access-service`. En l'absence d'un champ `parentEmail`/équivalent dans ce workflow, j'ai
-  choisi de déclencher cette conditionnalité sur la présence de `parentAccountId` (seul signal
-  "parent" existant) et de propager `parentFirstName`/`parentLastName` à la fois vers
-  `identity-access-service` (step 1) et `profile-service` (step 3, `link-parent`), en plus de
-  `firstName`/`lastName`. C'est un choix défendable mais non vérifié auprès du contrat réel de
-  `POST /internal/create-account` (je n'ai pas accès au code source d'identity-access-service) : si
-  cette route n'accepte/n'utilise pas ces champs pour un compte élève, ils resteront simplement
-  ignorés côté payload de routage opaque, sans effet de bord. **À confirmer avec l'agent
-  identity-access-service ou l'orchestrateur** si le contrat réel diverge de cette hypothèse.
+- Une première version de cette session avait ajouté une exigence conditionnelle
+  `parentFirstName`/`parentLastName` (obligatoires si `parentAccountId` fourni), propagée à la fois
+  vers `identity-access-service` (step 1, `create-student-account`) et `profile-service` (step 3,
+  `link-parent`). Cette hypothèse était documentée ci-dessus comme "à confirmer".
+- **Invalidée par le PO** : `parentAccountId` désigne un compte parent **déjà existant** — l'étape 3
+  ne fait que **lier** ce compte à l'élève (cf. `docs/microservices.md`, step 3 du workflow :
+  "Lier le parent financeur si fourni", pas "créer"). Ce parent a nécessairement déjà fourni son
+  propre prénom/nom lors de la création de SON compte (désormais obligatoire côté
+  identity-access-service). Redemander ces champs ici est redondant et risquait même de faire
+  diverger le nom déjà enregistré pour ce compte si une valeur différente était saisie.
+- **Correction appliquée** : suppression de la validation conditionnelle `parentFirstName`/
+  `parentLastName` (`StudentOnboardingStartPayloadDto`, plus de `@ValidateIf`) et de leur
+  propagation dans `buildPayload` des steps 1 et 3 de `studentOnboardingWorkflow`. `parentAccountId`
+  reste le seul champ parent du payload de démarrage, optionnel, sans exigence de nom associée. Les
+  steps 1 et 3 ne transmettent donc plus jamais de champ parent nommé — step 1 ne connaît que
+  `firstName`/`lastName` de l'élève, step 3 ne connaît que `studentId`/`financeOwnerId`
+  (`parentAccountId`).
 
 ### Tests
 
 - `test/unit/workflow/workflow-payload-validator.service.spec.ts` (nouveau) : couvre les deux DTOs
-  (succès, champs manquants, conditionnalité parent) et le cas d'un workflow sans classe de
-  validation (payload non interprété, toujours résolu).
+  (succès, champs manquants) et le cas d'un workflow sans classe de validation (payload non
+  interprété, toujours résolu). Couvre aussi le cas `parentAccountId` fourni seul (accepté, sans
+  exigence de nom parent).
 - `test/unit/workflow/student-onboarding.workflow.spec.ts` et
   `test/unit/workflow/teacher-onboarding.workflow.spec.ts` (nouveaux) : couvrent la propagation de
-  `firstName`/`lastName`/champs parent à travers les étapes, sur le modèle de
-  `content-correction.workflow.spec.ts`.
+  `firstName`/`lastName` à travers les étapes, sur le modèle de `content-correction.workflow.spec.ts`
+  ; couvrent aussi explicitement l'absence de tout champ parent nommé dans les payloads sortants des
+  steps 1 et 3 de `student-onboarding`, y compris quand `parentAccountId` est fourni.
 - `test/unit/workflow/workflow-engine.service.spec.ts` : nouveau mock
   `WorkflowPayloadValidatorService` (injecté), nouveaux cas "validation appelée avant toute
   écriture" et "échec de validation → aucune instance persistée, aucun événement publié".
 - `test/e2e/workflows.e2e-spec.ts` : tous les payloads `student-onboarding`/`teacher-onboarding`
-  incluent désormais `firstName`/`lastName` ; nouveaux cas 400 pour payload sans nom et pour
-  `parentAccountId` fourni sans noms parent.
+  incluent désormais `firstName`/`lastName` ; nouveaux cas 400 pour payload sans nom ; cas nominal
+  201 pour `parentAccountId` fourni sans nom parent (lien vers un compte déjà existant).
 - `test/e2e/events.e2e-spec.ts` : le payload de son `beforeAll` (démarrage d'un
   `student-onboarding` pour obtenir un `correlationId` connu) ne contenait pas `firstName`/
   `lastName` — corrigé, sinon le démarrage échouait en 400 et aucun événement `WorkflowStarted`

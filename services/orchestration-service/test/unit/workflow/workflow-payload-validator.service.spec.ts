@@ -57,7 +57,7 @@ describe('WorkflowPayloadValidatorService', () => {
       ).rejects.toThrow(/firstName est requis/);
     });
 
-    it('accepts a payload without parentAccountId and without parent names', async () => {
+    it('accepts a payload without parentAccountId', async () => {
       await expect(
         validator.validateStartPayload(studentOnboardingWorkflow, {
           firstName: 'Jean',
@@ -66,24 +66,12 @@ describe('WorkflowPayloadValidatorService', () => {
       ).resolves.toBeUndefined();
     });
 
-    it('requires parentFirstName and parentLastName when parentAccountId is provided', async () => {
+    it('accepts a payload with only parentAccountId — it links an existing parent by id, no name required', async () => {
       await expect(
         validator.validateStartPayload(studentOnboardingWorkflow, {
           firstName: 'Jean',
           lastName: 'Dupont',
           parentAccountId: 'parent-1',
-        }),
-      ).rejects.toThrow(/parentFirstName est requis|parentLastName est requis/);
-    });
-
-    it('accepts a payload with parentAccountId and both parent names', async () => {
-      await expect(
-        validator.validateStartPayload(studentOnboardingWorkflow, {
-          firstName: 'Jean',
-          lastName: 'Dupont',
-          parentAccountId: 'parent-1',
-          parentFirstName: 'Marie',
-          parentLastName: 'Dupont',
         }),
       ).resolves.toBeUndefined();
     });

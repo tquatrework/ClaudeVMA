@@ -417,7 +417,7 @@ Les routes de callbacks sont techniquement protégées par `auth_request` nginx,
 Types de workflows phase 1 : `student-onboarding`, `teacher-onboarding`, `teacher-request-to-assignment`, `scheduled-video-course`.
 
 Validation du `payload` de démarrage selon `workflowId` (`400` si invalide, avant tout appel aux services cibles) :
-- `student-onboarding` : `firstName`/`lastName` obligatoires. `parentAccountId` optionnel ; si fourni, `parentFirstName`/`parentLastName` deviennent obligatoires (même logique conditionnelle que `POST /accounts/students` côté identity-access-service).
+- `student-onboarding` : `firstName`/`lastName` obligatoires. `parentAccountId` optionnel — lie un compte parent **déjà existant** (le parent a fourni son propre prénom/nom lors de la création de son compte) ; aucun nom parent n'est requis ni transmis ici.
 - `teacher-onboarding` : `firstName`/`lastName` obligatoires.
 - Les autres types de workflow conservent un `payload` de routage pur, non validé par orchestration-service (il relaie le body métier tel quel aux services cibles).
 

@@ -1,24 +1,22 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigService } from '@nestjs/config';
 
+import { AppConfigModule } from './config/config.module';
 import { TeacherRequestModule } from './teacher-request/teacher-request.module';
 import { HealthModule } from './health/health.module';
-import { TeacherRequest } from './teacher-request/entities/teacher-request.entity';
-import { TeacherProposal } from './teacher-request/entities/teacher-proposal.entity';
-import { Assignment } from './teacher-request/entities/assignment.entity';
-import { TerminationRequest } from './teacher-request/entities/termination-request.entity';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    AppConfigModule,
     TypeOrmModule.forRootAsync({
-      imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
-        url: config.get<string>('DATABASE_URL'),
-        entities: [TeacherRequest, TeacherProposal, Assignment, TerminationRequest],
-        synchronize: config.get<string>('NODE_ENV') !== 'production',
+        url: config.getOrThrow<string>('DATABASE_URL'),
+        autoLoadEntities: true,
+        // Schema changes must go through migrations; synchronize is only
+        // enabled for the ephemeral NODE_ENV=test database used by e2e tests.
+        synchronize: config.get<string>('NODE_ENV') === 'test',
       }),
       inject: [ConfigService],
     }),

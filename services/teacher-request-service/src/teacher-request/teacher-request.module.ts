@@ -1,31 +1,32 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { JwtModule } from '@nestjs/jwt';
-import { ConfigModule, ConfigService } from '@nestjs/config';
 
 import { TeacherRequest } from './entities/teacher-request.entity';
 import { TeacherProposal } from './entities/teacher-proposal.entity';
 import { Assignment } from './entities/assignment.entity';
 import { TerminationRequest } from './entities/termination-request.entity';
-import { TeacherRequestController, ProposalController, AssignmentController, CollaborationController } from './teacher-request.controller';
+import { TeacherRequestController } from './teacher-request.controller';
+import { RequestProposalsController } from './request-proposals.controller';
+import { ProposalController } from './proposal.controller';
+import { AssignmentController } from './assignment.controller';
+import { CollaborationController } from './collaboration.controller';
 import { TeacherRequestService } from './teacher-request.service';
 import { EventsService } from './events.service';
-import { JwtAuthGuard } from '../common/jwt.guard';
+import { ProfileServiceClient } from './clients/profile-service.client';
+import { SecurityModule } from '../security/security.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([TeacherRequest, TeacherProposal, Assignment, TerminationRequest]),
-    JwtModule.registerAsync({
-      imports: [ConfigModule],
-      useFactory: (config: ConfigService) => {
-        const secret = config.get<string>('JWT_SECRET');
-        if (!secret) throw new Error('JWT_SECRET environment variable is required');
-        return { secret };
-      },
-      inject: [ConfigService],
-    }),
+    SecurityModule,
   ],
-  controllers: [TeacherRequestController, ProposalController, AssignmentController, CollaborationController],
-  providers: [TeacherRequestService, EventsService, JwtAuthGuard],
+  controllers: [
+    TeacherRequestController,
+    RequestProposalsController,
+    ProposalController,
+    AssignmentController,
+    CollaborationController,
+  ],
+  providers: [TeacherRequestService, EventsService, ProfileServiceClient],
 })
 export class TeacherRequestModule {}

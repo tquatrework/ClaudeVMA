@@ -9,6 +9,7 @@ import { TeacherProposal, ProposalStatus } from '../../src/teacher-request/entit
 import { Assignment, AssignmentStatus } from '../../src/teacher-request/entities/assignment.entity';
 import { TerminationRequest } from '../../src/teacher-request/entities/termination-request.entity';
 import { EventsService } from '../../src/teacher-request/events.service';
+import { ProfileServiceClient } from '../../src/teacher-request/clients/profile-service.client';
 import { UserRole } from '../../src/common/user-role.enum';
 
 const makeRepo = () => ({
@@ -44,6 +45,7 @@ describe('TeacherRequestService', () => {
   let terminationRepo: ReturnType<typeof makeRepo>;
   let dataSource: ReturnType<typeof makeDataSource>;
   let eventsService: { emit: jest.Mock };
+  let profileServiceClient: { resolveDisplayName: jest.Mock };
 
   beforeEach(async () => {
     requestRepo = makeRepo();
@@ -57,6 +59,7 @@ describe('TeacherRequestService', () => {
       TerminationRequest: terminationRepo,
     });
     eventsService = { emit: jest.fn() };
+    profileServiceClient = { resolveDisplayName: jest.fn().mockResolvedValue(null) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -67,6 +70,7 @@ describe('TeacherRequestService', () => {
         { provide: getRepositoryToken(TerminationRequest), useValue: terminationRepo },
         { provide: EventsService, useValue: eventsService },
         { provide: DataSource, useValue: dataSource },
+        { provide: ProfileServiceClient, useValue: profileServiceClient },
       ],
     }).compile();
 
@@ -150,6 +154,32 @@ describe('TeacherRequestService', () => {
     it('administrateur_financier throws ForbiddenException', async () => {
       await expect(service.listRequests(adminFinUser))
         .rejects.toThrow(ForbiddenException);
+    });
+
+    it('enriches results via ProfileServiceClient (typed interservice adapter)', async () => {
+      requestRepo.find.mockResolvedValueOnce([
+        { id: 'req-1', studentId: 'student-1', chosenTeacherId: 'teacher-1' },
+      ]);
+      profileServiceClient.resolveDisplayName
+        .mockResolvedValueOnce('Alice Dupont')
+        .mockResolvedValueOnce('Bob Martin');
+
+      const [enriched] = (await service.listRequests(rpUser)) as any[];
+
+      expect(profileServiceClient.resolveDisplayName).toHaveBeenCalledWith('student-1');
+      expect(profileServiceClient.resolveDisplayName).toHaveBeenCalledWith('teacher-1');
+      expect(enriched.studentName).toBe('Alice Dupont');
+      expect(enriched.teacherName).toBe('Bob Martin');
+    });
+
+    it('resolves names to null when ProfileServiceClient cannot resolve them (best-effort)', async () => {
+      requestRepo.find.mockResolvedValueOnce([{ id: 'req-1', studentId: 'student-1', chosenTeacherId: null }]);
+      profileServiceClient.resolveDisplayName.mockResolvedValueOnce(null);
+
+      const [enriched] = (await service.listRequests(rpUser)) as any[];
+
+      expect(enriched.studentName).toBeNull();
+      expect(enriched.teacherName).toBeNull();
     });
   });
 

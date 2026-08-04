@@ -174,6 +174,52 @@
           cette session. npm run build : OK.
         </testCoverage>
       </decision>
+      <decision id="C5" status="implemented" session="2026-08-04">
+        <title>firstName/lastName obligatoires a la creation de compte (decision produit PO)</title>
+        <description>
+          Suite a la decision produit rendant prenom/nom obligatoires des la creation
+          de compte (coordonnee avec identity-access-service et orchestration-service),
+          fermeture des deux gaps identifies dans profile-service :
+          (1) src/internal/dto/create-student-profiles.dto.ts et
+          create-teacher-profiles.dto.ts avaient firstName/lastName en @IsOptional(),
+          permettant un profil administratif vide des l'onboarding oriente. Passes en
+          @IsString() @IsNotEmpty() @MaxLength(100), non optionnels. Verifie que
+          InternalService.createStudentProfiles/createTeacherProfiles et
+          ProfilesService.bootstrapAdministrativeProfile persistent bien ces valeurs
+          sans les perdre (aucune modification necessaire sur ces deux fichiers,
+          simple verification).
+          (2) src/profiles/dto/update-administrative-profile.dto.ts (route PUT
+          /profiles/:userId/administrative) n'avait pas de @IsNotEmpty() sur
+          firstName/lastName : un client pouvait ecraser un nom existant avec une
+          chaine vide. Ajout de @IsNotEmpty() ; les deux champs restent @IsOptional()
+          au niveau du DTO (un client peut toujours omettre le champ pour ne pas le
+          modifier), mais une chaine vide explicite est desormais rejetee en 400.
+          Le chemin de lazy-init defensif dans ProfilesService.getProfile (creation
+          d'un profil minimal {userId} quand aucun profil n'existe pour un JWT valide)
+          n'a pas ete touche : il reste necessaire pour les comptes crees avant ce
+          changement et les cas limites, hors du flux d'onboarding normal.
+          src/internal/dto/create-administrative-profile.dto.ts (route
+          POST /internal/create-administrative-profile, utilisee separement du
+          bootstrap eleve/formateur, potentiellement pour d'autres roles) n'a
+          volontairement pas ete modifiee : hors perimetre explicite de cette
+          decision produit, a arbitrer si necessaire dans une session dediee.
+        </description>
+        <testCoverage>
+          npm test (unit, hors e2e) : 200/203 verts (memes 3 echecs preexistants
+          documentes ci-dessus, non lies a ce changement).
+          npm run test:e2e (via USE_LOCAL_DB=true, testcontainers indisponible dans
+          cet environnement sandbox) : 80/82 verts. Les 2 echecs restants
+          (GET /profiles/:userId profil inexistant renvoie 200 au lieu de 404 ;
+          POST /profiles/:userId/internal-notes refuse a l'administrateur financier)
+          sont confirmes preexistants sur la base (meme echec avant toute
+          modification de cette session), hors perimetre.
+          npm run build : OK.
+          Nouveaux tests e2e ajoutes : create-student-profiles et
+          create-teacher-profiles sans firstName/lastName -> 400 ; PUT
+          /profiles/:userId/administrative avec firstName ou lastName vide -> 400 ;
+          PUT sans le champ firstName -> 200, champ existant inchange.
+        </testCoverage>
+      </decision>
       <openPoints>
         <item>
           3 tests preexistants echouent dans updateTeacherValidation

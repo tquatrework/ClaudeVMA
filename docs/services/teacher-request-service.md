@@ -84,5 +84,108 @@
         </testCoverage>
       </decision>
     </technicalDecisions>
+    <technicalSessions>
+      <session date="2026-08-04" label="Mise en conformite docs/conventions/*-convention.md (modules, controllers, services)">
+        <context>
+          Reprise d'une session interrompue : le commit "refactor(teacher-request-service):
+          appliquer convention modules" (34a9f8c) etait deja propre et merge sur la branche
+          refactor/teacher-request-service-modules-convention. Le travail de l'etape
+          "controllers" avait ete recupere sous forme d'un commit "checkpoint(...): wip
+          convention controllers, non teste" a but conservatoire uniquement (session
+          precedente interrompue avant relecture et tests). Cette session relit, complete,
+          teste puis remplace ce checkpoint par un commit "controllers" propre, avant
+          d'enchainer sur l'etape "services". 164 tests unitaires + 34 tests e2e (base
+          Postgres locale teacher_request_test) verts a l'issue des deux commits.
+        </context>
+
+        <changeset id="modules-convention">
+          <item>Deja livre et non retouche dans cette session (commit 34a9f8c, anterieur) :
+            un controleur par fichier, SecurityModule local pour JWT/guards, validation
+            d'environnement centralisee (src/config/env.validation.ts), autoLoadEntities
+            + synchronize reserve au NODE_ENV=test.</item>
+        </changeset>
+
+        <changeset id="controllers-convention">
+          <item>Le checkpoint recupere etait globalement conforme (acteur type JwtPayload via
+            @CurrentUser(), RolesGuard declaratif via @Roles, ParseUUIDPipe sur tous les
+            parametres d'ID, DTO de reponse dedies AssignmentResponseDto /
+            TeacherProposalResponseDto / TeacherRequestResponseDto / TerminationResponseDto),
+            mais TeacherRequestController (racine /requests) exposait encore une route
+            imbriquee POST /requests/:requestId/proposals repondant avec un
+            TeacherProposalResponseDto — deux racines de ressource dans le meme fichier.</item>
+          <item>Extraction de cette route dans un nouveau RequestProposalsController
+            (@Controller('requests/:requestId/proposals')), sur le modele deja applique
+            dans calendar-service pour les sous-ressources imbriquees (event-invitations,
+            event-reminders, ...). TeacherRequestController ne porte plus que la racine
+            /requests ; ProposalController (racine /proposals) et AssignmentController /
+            CollaborationController restent inchanges (deja conformes, une racine par
+            fichier chacun).</item>
+          <item>Tests de controleur deplaces/completes en consequence
+            (RequestProposalsController testee isolement avec son propre guard binding),
+            tests HTTP de bout en bout deja presents dans le checkpoint (guards, pipes,
+            validation DTO, serialisation) verifies et conserves.</item>
+          <item>Correction d'un defaut d'amorcage des tests e2e, independant du travail de
+            checkpoint : test/e2e/helpers/app.helper.ts importe AppModule de facon statique,
+            ce qui declenche ConfigModule.forRoot()/validateEnv() des l'import — avant que
+            createTestApp() ait pu positionner DATABASE_URL/JWT_SECRET dans process.env.
+            Ajout de test/e2e/setup-env.ts comme setupFiles Jest (positionne les variables
+            avant tout import de fichier de test), meme mecanisme que celui deja en place
+            cote calendar-service.</item>
+        </changeset>
+
+        <changeset id="services-convention">
+          <item>TeacherRequestService respectait deja l'essentiel de la convention avant
+            cette session : acteur type JwtPayload (pas de req.user/any), DataSource.transaction
+            avec un seul EntityManager pour les 4 cas d'usage multi-ecritures (createProposal,
+            acceptProposal, createTermination, createCollaborationStopRequest — voir
+            technicalDecisions/T1 ci-dessus), evenements emis apres resolution de la
+            transaction.</item>
+          <item>Point non conforme corrige : resolveProfileName() appelait fetch() directement
+            depuis le service, sans timeout ni client type. Extraction dans
+            src/teacher-request/clients/profile-service.client.ts (ProfileServiceClient) :
+            timeout via AbortController (3s), en-tete x-correlation-id propage si fourni,
+            politique d'erreur best-effort (resout a null plutot que de faire echouer
+            listRequests — cet enrichissement de nom d'affichage n'est pas un invariant
+            metier de teacher-request-service).</item>
+          <item>Cohesion documentee dans le code (services-convention.md, seuil "plus de
+            quatre repositories") : TeacherRequestService reste a 4 repositories
+            (TeacherRequest, TeacherProposal, Assignment, TerminationRequest) car ils
+            forment un seul agregat de cycle de vie (demande -&gt; proposition -&gt;
+            affectation -&gt; resiliation), deja ecrit atomiquement via transaction — pas de
+            scission proposee.</item>
+          <item>Nettoyage : suppression de src/teacher-request/teacher-request.service.spec.ts,
+            fichier de test orphelin non couvert par testMatch (qui ne cible que
+            test/unit/**/*.spec.ts) et distance de la suite de reference
+            test/unit/teacher-request.service.spec.ts — laisse par erreur dans src/ lors
+            d'une session anterieure a la convention modules.</item>
+        </changeset>
+
+        <blockers>Aucun blocage rencontre. Aucune contradiction detectee entre les
+          conventions et les regles metier de demande/proposition/affectation/resiliation.</blockers>
+        <openPoints>
+          <item>Duplication metier preexistante, hors perimetre de cette session : les
+            methodes de service createTermination (route /assignments/:id/termination) et
+            createCollaborationStopRequest (route /collaborations/:id/stop-request)
+            implementent une logique quasi identique (creation d'une TerminationRequest +
+            passage de l'assignment a TERMINATION_REQUESTED). A clarifier avec le
+            responsable produit si ce sont deux fonctionnalites distinctes voulues ou un
+            doublon a fusionner.</item>
+          <item>docs/routes.md ne documente aujourd'hui que les routes /requests de base
+            (CRUD + status) pour teacher-request-service ; les routes /proposals,
+            /assignments, /collaborations, /requests/pp-change,
+            /requests/:id/selected-candidates, /requests/:id/select et
+            /requests/:requestId/proposals n'y figurent pas. Ecart preexistant a cette
+            session (aucune route n'a change de forme, seule leur repartition en fichiers
+            de controleur a change) — a corriger separement.</item>
+          <item>Le correlationId n'est pas encore extrait des requetes entrantes cote
+            controleur (pas de decorateur @CorrelationId() comme dans calendar-service) ;
+            ProfileServiceClient accepte deja un correlationId optionnel en parametre mais
+            rien ne l'alimente pour l'instant.</item>
+          <item>Les listes (listRequests) ne sont pas bornees (pas de pagination/take) —
+            comportement identique a celui herite de calendar-service au meme stade de
+            mise en conformite, non traite non plus a cette etape la-bas.</item>
+        </openPoints>
+      </session>
+    </technicalSessions>
   </service>
 </serviceFunctionalSpecification>

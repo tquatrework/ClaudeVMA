@@ -12,19 +12,9 @@ import {
   type ParentLinkRequest,
 } from '../../api/parentLinkRequest'
 import { fetchStudentProfile } from '../../api/relations'
+import { formatPersonDisplayName } from '../../utils/nameFormat'
 
-function formatFullName(
-  firstName?: string,
-  lastName?: string,
-  loginIdentifier?: string | null,
-  fallbackId?: string,
-): string {
-  if (firstName || lastName) {
-    return [firstName, lastName].filter(Boolean).join(' ')
-  }
-  if (loginIdentifier) return loginIdentifier
-  return fallbackId ? `Élève (${fallbackId.slice(0, 8)}…)` : 'Élève inconnu'
-}
+const STUDENT_GENERIC_LABEL = 'Élève'
 
 interface PendingStudentRequestsListProps {
   /** Appelé après acceptation d'une demande, pour rafraîchir la liste des élèves rattachés. */
@@ -55,18 +45,20 @@ export function PendingStudentRequestsList({ onApproved }: PendingStudentRequest
         studentInitiatedPending.map(async (request) => {
           try {
             const profile = await fetchStudentProfile(request.studentId)
-            names[request.studentId] = formatFullName(
+            names[request.studentId] = formatPersonDisplayName(
               profile.administrativeProfile?.firstName,
               profile.administrativeProfile?.lastName,
               profile.loginIdentifier,
               request.studentId,
+              STUDENT_GENERIC_LABEL,
             )
           } catch {
-            names[request.studentId] = formatFullName(
+            names[request.studentId] = formatPersonDisplayName(
               undefined,
               undefined,
               undefined,
               request.studentId,
+              STUDENT_GENERIC_LABEL,
             )
           }
         }),

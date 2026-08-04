@@ -9,6 +9,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react'
 import { fetchLinkedParents, fetchStudentProfile, type FinanceOwnerStudentLink } from '../../api/relations'
+import { formatPersonDisplayName } from '../../utils/nameFormat'
 import { InviteParentForm } from './InviteParentForm'
 import { PendingParentInvitationsList } from './PendingParentInvitationsList'
 
@@ -16,18 +17,7 @@ interface ParentFinanceurSectionProps {
   studentId: string
 }
 
-function formatFullName(
-  firstName?: string,
-  lastName?: string,
-  loginIdentifier?: string | null,
-  fallbackId?: string,
-): string {
-  if (firstName || lastName) {
-    return [firstName, lastName].filter(Boolean).join(' ')
-  }
-  if (loginIdentifier) return loginIdentifier
-  return fallbackId ? `Financeur (${fallbackId.slice(0, 8)}…)` : 'Financeur inconnu'
-}
+const FINANCE_OWNER_GENERIC_LABEL = 'Financeur'
 
 export default function ParentFinanceurSection({ studentId }: ParentFinanceurSectionProps) {
   // Sous-zone 1 — parents rattachés
@@ -49,18 +39,20 @@ export default function ParentFinanceurSection({ studentId }: ParentFinanceurSec
         parents.map(async (link) => {
           try {
             const profile = await fetchStudentProfile(link.financeOwnerId)
-            displayNames[link.financeOwnerId] = formatFullName(
+            displayNames[link.financeOwnerId] = formatPersonDisplayName(
               profile.administrativeProfile?.firstName,
               profile.administrativeProfile?.lastName,
               profile.loginIdentifier,
               link.financeOwnerId,
+              FINANCE_OWNER_GENERIC_LABEL,
             )
           } catch {
-            displayNames[link.financeOwnerId] = formatFullName(
+            displayNames[link.financeOwnerId] = formatPersonDisplayName(
               undefined,
               undefined,
               undefined,
               link.financeOwnerId,
+              FINANCE_OWNER_GENERIC_LABEL,
             )
           }
         }),
@@ -98,7 +90,14 @@ export default function ParentFinanceurSection({ studentId }: ParentFinanceurSec
                 className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0"
               >
                 <span className="text-sm text-gray-800 font-medium">
-                  {parentDisplayNames[link.financeOwnerId] ?? formatFullName(undefined, undefined, undefined, link.financeOwnerId)}
+                  {parentDisplayNames[link.financeOwnerId] ??
+                    formatPersonDisplayName(
+                      undefined,
+                      undefined,
+                      undefined,
+                      link.financeOwnerId,
+                      FINANCE_OWNER_GENERIC_LABEL,
+                    )}
                 </span>
                 <span className="text-xs text-gray-400">
                   Depuis le{' '}

@@ -12,19 +12,9 @@ import {
   type ParentLinkRequest,
 } from '../../api/parentLinkRequest'
 import { fetchStudentProfile } from '../../api/relations'
+import { formatPersonDisplayName } from '../../utils/nameFormat'
 
-function formatFullName(
-  firstName?: string,
-  lastName?: string,
-  loginIdentifier?: string | null,
-  fallbackId?: string,
-): string {
-  if (firstName || lastName) {
-    return [firstName, lastName].filter(Boolean).join(' ')
-  }
-  if (loginIdentifier) return loginIdentifier
-  return fallbackId ? `Financeur (${fallbackId.slice(0, 8)}…)` : 'Financeur inconnu'
-}
+const FINANCE_OWNER_GENERIC_LABEL = 'Financeur'
 
 interface PendingParentInvitationsListProps {
   /** Appelé après acceptation d'une invitation, pour rafraîchir la liste des parents rattachés. */
@@ -55,18 +45,20 @@ export function PendingParentInvitationsList({ onApproved }: PendingParentInvita
         parentInitiatedPending.map(async (request) => {
           try {
             const profile = await fetchStudentProfile(request.parentId)
-            names[request.parentId] = formatFullName(
+            names[request.parentId] = formatPersonDisplayName(
               profile.administrativeProfile?.firstName,
               profile.administrativeProfile?.lastName,
               profile.loginIdentifier,
               request.parentId,
+              FINANCE_OWNER_GENERIC_LABEL,
             )
           } catch {
-            names[request.parentId] = formatFullName(
+            names[request.parentId] = formatPersonDisplayName(
               undefined,
               undefined,
               undefined,
               request.parentId,
+              FINANCE_OWNER_GENERIC_LABEL,
             )
           }
         }),

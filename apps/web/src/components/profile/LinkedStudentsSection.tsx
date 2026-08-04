@@ -9,6 +9,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react'
 import { fetchLinkedStudents, fetchStudentProfile, type FinanceOwnerStudentLink } from '../../api/relations'
+import { formatPersonDisplayName } from '../../utils/nameFormat'
 import { InviteStudentForm } from './InviteStudentForm'
 import { PendingStudentRequestsList } from './PendingStudentRequestsList'
 
@@ -16,18 +17,7 @@ interface LinkedStudentsSectionProps {
   parentId: string
 }
 
-function formatFullName(
-  firstName?: string,
-  lastName?: string,
-  loginIdentifier?: string | null,
-  fallbackId?: string,
-): string {
-  if (firstName || lastName) {
-    return [firstName, lastName].filter(Boolean).join(' ')
-  }
-  if (loginIdentifier) return loginIdentifier
-  return fallbackId ? `Élève (${fallbackId.slice(0, 8)}…)` : 'Élève inconnu'
-}
+const STUDENT_GENERIC_LABEL = 'Élève'
 
 export default function LinkedStudentsSection({ parentId }: LinkedStudentsSectionProps) {
   // Sous-zone 1 — élèves rattachés
@@ -49,18 +39,20 @@ export default function LinkedStudentsSection({ parentId }: LinkedStudentsSectio
         students.map(async (link) => {
           try {
             const profile = await fetchStudentProfile(link.studentId)
-            displayNames[link.studentId] = formatFullName(
+            displayNames[link.studentId] = formatPersonDisplayName(
               profile.administrativeProfile?.firstName,
               profile.administrativeProfile?.lastName,
               profile.loginIdentifier,
               link.studentId,
+              STUDENT_GENERIC_LABEL,
             )
           } catch {
-            displayNames[link.studentId] = formatFullName(
+            displayNames[link.studentId] = formatPersonDisplayName(
               undefined,
               undefined,
               undefined,
               link.studentId,
+              STUDENT_GENERIC_LABEL,
             )
           }
         }),
@@ -98,7 +90,14 @@ export default function LinkedStudentsSection({ parentId }: LinkedStudentsSectio
                 className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0"
               >
                 <span className="text-sm text-gray-800 font-medium">
-                  {studentDisplayNames[link.studentId] ?? formatFullName(undefined, undefined, undefined, link.studentId)}
+                  {studentDisplayNames[link.studentId] ??
+                    formatPersonDisplayName(
+                      undefined,
+                      undefined,
+                      undefined,
+                      link.studentId,
+                      STUDENT_GENERIC_LABEL,
+                    )}
                 </span>
                 <span className="text-xs text-gray-400">
                   Depuis le{' '}

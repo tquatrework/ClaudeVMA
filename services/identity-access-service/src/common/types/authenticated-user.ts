@@ -7,15 +7,14 @@ import { Actor } from './actor';
  * qui n'exige que la forme minimale.
  * Ne contient jamais le hash de mot de passe (colonne `select: false`, jamais
  * chargée par le chemin d'authentification standard).
+ * Ne contient plus firstName/lastName/phone : ces champs sont la propriété
+ * exclusive de profile-service depuis le 2026-08-05.
  */
 export interface AuthenticatedUser extends Actor {
   loginIdentifier: string;
   email: string;
   validationStatus: ValidationStatus;
   consentSigned: boolean;
-  firstName: string | null;
-  lastName: string | null;
-  phone: string | null;
   isActive: boolean;
   emailVerified: boolean;
   createdAt: Date;

@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength, MaxLength, IsNotEmpty } from 'class-validator';
+import { IsEmail, IsString, MinLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateParentAccountDto {
@@ -10,16 +10,4 @@ export class CreateParentAccountDto {
   @IsString()
   @MinLength(8)
   password: string;
-
-  @ApiProperty({ example: 'Sophie', description: 'Parent first name' })
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
-  firstName: string;
-
-  @ApiProperty({ example: 'Bernard', description: 'Parent last name' })
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
-  lastName: string;
 }

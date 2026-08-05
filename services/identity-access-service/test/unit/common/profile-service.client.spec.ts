@@ -63,14 +63,14 @@ describe('ProfileServiceClient', () => {
       expect(errorSpy).not.toHaveBeenCalled();
     });
 
-    it('forwards phoneNumber when provided', async () => {
+    it('forwards phone when provided (field name imposed by the profile-service contract)', async () => {
       fetchMock.mockResolvedValue({ status: 201, ok: true });
 
       await client.createAdministrativeProfile({
         userId: 'user-uuid',
         firstName: 'Jean',
         lastName: 'Dupont',
-        phoneNumber: '+33 6 01 02 03 04',
+        phone: '+33 6 01 02 03 04',
       });
 
       expect(fetchMock).toHaveBeenCalledWith(
@@ -80,7 +80,7 @@ describe('ProfileServiceClient', () => {
             userId: 'user-uuid',
             firstName: 'Jean',
             lastName: 'Dupont',
-            phoneNumber: '+33 6 01 02 03 04',
+            phone: '+33 6 01 02 03 04',
           }),
         }),
       );

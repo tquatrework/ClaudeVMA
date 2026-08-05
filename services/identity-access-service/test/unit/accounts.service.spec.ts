@@ -760,7 +760,7 @@ describe('AccountsService', () => {
       });
     });
 
-    it('createAccount: forwards phoneNumber to profile-service when provided', async () => {
+    it('createAccount: forwards phoneNumber to profile-service as `phone` (contract field name)', async () => {
       await service.createAccount({
         email: 'store-phone@test.com',
         password: 'password123',
@@ -769,11 +769,14 @@ describe('AccountsService', () => {
         phoneNumber: '+33 6 01 02 03 04',
       });
 
+      // profile-service attend `phone`, pas `phoneNumber` (convention deja
+      // etablie sur ses autres routes internes) — seul le mapping au moment
+      // de l'appel change, le DTO d'entree public garde phoneNumber.
       expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith({
         userId: 'user-uuid',
         firstName: 'Jean',
         lastName: 'Dupont',
-        phoneNumber: '+33 6 01 02 03 04',
+        phone: '+33 6 01 02 03 04',
       });
     });
 

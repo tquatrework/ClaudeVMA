@@ -141,7 +141,12 @@ export class ProfilesService {
     };
   }
 
-  /** Update (upsert) the administrative profile for a user. */
+  /**
+   * Update (upsert) the administrative profile for a user.
+   * The public DTO exposes the canonical `phone` field name; it is mapped
+   * here onto the entity's `telephone` column (kept as-is to limit
+   * migration risk — see docs/services/profile-service.md).
+   */
   async updateAdministrativeProfile(
     userId: string,
     dto: UpdateAdministrativeProfileDto,
@@ -149,11 +154,17 @@ export class ProfilesService {
   ) {
     this.assertWriteAccess(userId, actor);
 
+    const { phone, ...rest } = dto;
+    const patch: Partial<AdministrativeProfile> = { ...rest };
+    if (phone !== undefined) {
+      patch.telephone = phone;
+    }
+
     let profile = await this.adminRepo.findOne({ where: { userId } });
     if (!profile) {
-      profile = this.adminRepo.create({ userId, ...dto });
+      profile = this.adminRepo.create({ userId, ...patch });
     } else {
-      Object.assign(profile, dto);
+      Object.assign(profile, patch);
     }
 
     const saved = await this.adminRepo.save(profile);

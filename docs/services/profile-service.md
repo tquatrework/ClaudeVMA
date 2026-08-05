@@ -220,7 +220,93 @@
           PUT sans le champ firstName -> 200, champ existant inchange.
         </testCoverage>
       </decision>
+      <decision id="C6" status="implemented" session="2026-08-05">
+        <title>Recuperation d'un patch abandonne (worktree orphelin) : harmonisation phone/telephone, forbidNonWhitelisted, bootstrap parent</title>
+        <description>
+          Contexte : un patch non commite a ete retrouve dans un worktree d'agent abandonne
+          (extrait en diff, deux fichiers nouveaux crees mais jamais `git add`es manquaient a
+          l'extraction : src/common/validators/phone.validator.ts et
+          src/internal/dto/create-parent-profile.dto.ts). Le message de la tache l'associait
+          au travail recent "firstName/lastName obligatoires" (decision C5) — verification
+          faite, ce patch ne touche aucune ligne firstName/lastName : c'est un chantier
+          distinct, probablement la tache suivante engagee dans ce worktree avant son abandon.
+          Trois volets ont ete identifies dans le patch, traites differemment :
+          (1) GARDE — Harmonisation du nom de champ telephone/phone. Avant cette session,
+          src/internal/dto/create-administrative-profile.dto.ts et tous les DTO internes
+          utilisaient deja `phone`, et ProfilesService.bootstrapAdministrativeProfile mappait
+          deja `input.phone` sur `AdministrativeProfile.telephone` — seul
+          UpdateAdministrativeProfileDto (route publique PUT /profiles/:userId/administrative)
+          etait reste sur l'ancien nom `telephone`. Cette incoherence etait un bug latent
+          reel, confirme en relisant test/e2e/profiles.e2e-spec.ts AVANT correction : un test
+          envoyait deja `{ phone: ..., city: ... }` (champs inexistants dans l'ancien DTO,
+          silencieusement ignores par `whitelist: true`) et un autre envoyait `{ telephone:
+          ... }` (le champ reellement attendu) — le test passait sans jamais verifier la
+          bonne assertion. Renomme en `phone?` dans UpdateAdministrativeProfileDto (mappe en
+          interne sur la colonne `telephone`, colonne DB non renommee pour limiter le risque
+          de migration).
+          (2) GARDE — `ValidationPipe` global passe a `forbidNonWhitelisted: true`
+          (src/main.ts et test/e2e/helpers/app.helper.ts) : un champ inconnu dans le body est
+          desormais rejete en 400 plutot que silencieusement ignore. C'est precisement ce
+          durcissement qui a revele le bug latent decrit au point (1) une fois applique aux
+          tests e2e (4 tests de profiles.e2e-spec.ts envoyaient `city`/`telephone` au lieu de
+          `ville`/`phone` et ne le detectaient pas) — corriges dans cette session.
+          (3) GARDE (perimetre reduit) — Ajout de POST /internal/create-parent-profile
+          (InternalController/InternalService/CreateParentProfileDto, ce dernier recree car
+          absent du diff extrait) : bootstrap idempotent du seul profil administratif d'un
+          parent_financeur, en miroir de create-student/teacher-profiles moins l'etape
+          pedagogique. firstName/lastName/phone laisses optionnels (aligne sur
+          CreateAdministrativeProfileDto, pas sur le pattern obligatoire de C5) car cette
+          route n'est appelee par aucun workflow orchestration-service documente a ce jour
+          (docs/microservices.md ne liste pas de workflow "parent-onboarding") — ajout par
+          symetrie/anticipation, sans effet de bord si non utilisee.
+          (4) RETIRE — Le patch original rendait `phone` obligatoire avec un format
+          francais valide par regex (`FRENCH_PHONE_REGEX`, fichier jamais commite) sur
+          CreateStudentProfilesDto, CreateTeacherProfilesDto ET
+          UpdateAdministrativeProfileDto. Cette regle n'est sanctionnee nulle part (ni
+          README.md, ni docs/architecture.md "Arbitrages rendus", ni docs/routes.md) et
+          aurait casse silencieusement de nombreux tests e2e existants
+          (test/e2e/internal.e2e-spec.ts cree des eleves/formateurs sans `phone` et attend
+          201) sans qu'aucun de ces tests n'ait ete mis a jour dans le patch — signe que ce
+          volet etait lui-meme inacheve/exploratoire au moment de l'abandon, distinct des
+          volets (1)-(3) qui etaient coherents et testes. Reverte integralement : `phone`
+          reste optionnel et sans contrainte de format sur les trois DTO concernes.
+          Decision produit a arbitrer explicitement si un format de telephone obligatoire est
+          souhaite (voir openPoints).
+        </description>
+        <testCoverage>
+          npm run build : OK. npx tsc --noEmit -p tsconfig.test.json : OK.
+          npm test (unitaire) : 209/212 verts — memes 3 echecs preexistants
+          documentes en C5/openPoints (updateTeacherValidation), non lies a cette session.
+          Nouveaux tests unitaires : InternalService.createParentProfile (delegation +
+          propagation d'erreur).
+          npm run test:e2e (USE_LOCAL_DB=true via un conteneur Postgres local docker,
+          --runInBand pour eviter une course de synchronize() entre suites paralleles sur
+          la meme base) : 84/86 verts — memes 2 echecs preexistants documentes en C5
+          (GET /profiles/:userId inexistant renvoie 200 au lieu de 404 ; POST
+          /profiles/:userId/internal-notes refuse a l'administrateur financier), non lies a
+          cette session. Nouveaux tests e2e : POST /internal/create-parent-profile (creation
+          201, idempotence, userId manquant -> 400, secret manquant -> 401/403) ; correction
+          de 4 tests profiles.e2e-spec.ts qui envoyaient des noms de champs obsoletes
+          (`city`/`telephone` au lieu de `ville`/`phone`), invisibles avant l'activation de
+          forbidNonWhitelisted.
+        </testCoverage>
+      </decision>
       <openPoints>
+        <item>
+          Format de telephone non valide : `phone` reste une simple chaine libre
+          (@IsString() @MaxLength) sur tous les DTO d'ecriture (creation eleve/formateur/
+          parent, mise a jour profil administratif). Le patch abandonne recupere en session
+          C6 proposait un format francais obligatoire par regex — volontairement non
+          repris (regle produit non sanctionnee, aurait casse le flux d'onboarding existant
+          sans phone). A statuer explicitement (obligatoire ? format international ?) avant
+          toute reprise.
+        </item>
+        <item>
+          POST /internal/create-parent-profile n'est appelee par aucun workflow
+          orchestration-service connu (voir docs/microservices.md) : ajoutee par symetrie
+          avec create-student/teacher-profiles, sans consommateur identifie a ce jour. A
+          confirmer ou retirer si elle reste non cablee au-dela d'une session ou deux.
+        </item>
         <item>
           3 tests preexistants echouent dans updateTeacherValidation
           (test/unit/profiles/profiles.service.spec.ts) : un bug preexistant dans

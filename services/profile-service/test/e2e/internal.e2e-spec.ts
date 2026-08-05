@@ -8,6 +8,7 @@
  * Routes testées :
  *   POST /internal/create-student-profiles
  *   POST /internal/create-teacher-profiles
+ *   POST /internal/create-parent-profile
  *   POST /internal/link-parent
  *   POST /internal/create-teacher-student-relation
  *   POST /internal/link-coordinator
@@ -175,6 +176,51 @@ describe('[E2E] Internal routes', () => {
         .send({ userId: IDS.unknown, firstName: 'Bob' });
 
       expect(res.status).toBe(400);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────
+  // POST /internal/create-parent-profile
+  // ──────────────────────────────────────────────────────────────
+
+  describe('POST /internal/create-parent-profile', () => {
+    it('Crée le profil administratif d\'un parent financeur → 201', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-parent-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.parent1, firstName: 'Nadia', lastName: 'Bernard' });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('userId', IDS.parent1);
+      expect(res.body).toHaveProperty('administrativeProfile');
+      // Un parent n'a pas de profil pédagogique.
+      expect(res.body).not.toHaveProperty('pedagogicalProfile');
+    });
+
+    it('Idempotence : appel en double sur le même userId ne plante pas → 200 ou 201', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-parent-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.parent1, firstName: 'Nadia', lastName: 'Bernard' });
+
+      expect([200, 201, 409]).toContain(res.status);
+    });
+
+    it('userId manquant → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-parent-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ firstName: 'Nadia', lastName: 'Bernard' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('Sans x-internal-secret → 401 ou 403', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-parent-profile')
+        .send({ userId: IDS.parent1, firstName: 'Nadia', lastName: 'Bernard' });
+
+      expect([401, 403]).toContain(res.status);
     });
   });
 

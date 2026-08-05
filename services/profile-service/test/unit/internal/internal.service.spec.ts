@@ -82,6 +82,28 @@ describe('InternalService', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // createParentProfile
+  // ---------------------------------------------------------------------------
+  describe('createParentProfile', () => {
+    it('delegates to ProfilesService.bootstrapAdministrativeProfile and shapes the response (no pedagogical profile)', async () => {
+      const dto = { userId: 'parent-uuid', firstName: 'Marie', lastName: 'Dupont', phone: '0601020304' };
+      const result = await service.createParentProfile(dto);
+      expect(profilesService.bootstrapAdministrativeProfile).toHaveBeenCalledWith(dto);
+      expect(result).toEqual({
+        userId: 'parent-uuid',
+        administrativeProfile: { userId: 'parent-uuid', firstName: 'Marie', lastName: 'Dupont' },
+      });
+    });
+
+    it('propagates errors raised by ProfilesService', async () => {
+      profilesService.bootstrapAdministrativeProfile.mockRejectedValue(new ConflictException('boom'));
+      await expect(
+        service.createParentProfile({ userId: 'parent-uuid' }),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // createStudentProfiles
   // ---------------------------------------------------------------------------
   describe('createStudentProfiles', () => {

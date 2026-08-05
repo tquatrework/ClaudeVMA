@@ -163,7 +163,7 @@ describe('[E2E] Profiles', () => {
       const res = await request(app.getHttpServer())
         .put(`/profiles/${IDS.student1}/administrative`)
         .set('Authorization', `Bearer ${studentToken}`)
-        .send({ phone: '0601020304', city: 'Paris' });
+        .send({ phone: '0601020304', ville: 'Paris' });
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('userId', IDS.student1);
@@ -173,7 +173,7 @@ describe('[E2E] Profiles', () => {
       const res = await request(app.getHttpServer())
         .put(`/profiles/${IDS.student1}/administrative`)
         .set('Authorization', `Bearer ${rpToken}`)
-        .send({ city: 'Lyon' });
+        .send({ ville: 'Lyon' });
 
       expect(res.status).toBe(200);
     });
@@ -183,7 +183,7 @@ describe('[E2E] Profiles', () => {
       const res = await request(app.getHttpServer())
         .put(`/profiles/${IDS.student1}/administrative`)
         .set('Authorization', `Bearer ${otherStudentToken}`)
-        .send({ city: 'Marseille' });
+        .send({ ville: 'Marseille' });
 
       expect(res.status).toBe(403);
     });
@@ -222,7 +222,7 @@ describe('[E2E] Profiles', () => {
       const res = await request(app.getHttpServer())
         .put(`/profiles/${IDS.student1}/administrative`)
         .set('Authorization', `Bearer ${studentToken}`)
-        .send({ telephone: '0611223344' });
+        .send({ phone: '0611223344' });
 
       expect(res.status).toBe(200);
       expect(res.body.firstName).toBe(before.body.administrativeProfile?.firstName ?? 'Alice');

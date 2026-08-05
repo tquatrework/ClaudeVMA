@@ -119,8 +119,6 @@ export class AccountsService {
       email: dto.email,
       passwordHash,
       role,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
       validationStatus: ValidationStatus.PENDING,
       consentSigned: false,
     });
@@ -327,9 +325,6 @@ export class AccountsService {
     loginIdentifier: string;
     role: string;
     email: string;
-    firstName: string | null;
-    lastName: string | null;
-    phone: string | null;
   }[]> {
     const whereClause = filterRole ? { role: filterRole } : {};
     const userList = await this.userRepo.find({
@@ -343,9 +338,6 @@ export class AccountsService {
       loginIdentifier: user.loginIdentifier,
       role: user.role,
       email: user.email,
-      firstName: user.firstName ?? null,
-      lastName: user.lastName ?? null,
-      phone: user.phone ?? null,
     }));
   }
 
@@ -377,8 +369,6 @@ export class AccountsService {
         email: dto.email,
         passwordHash: studentPasswordHash,
         role: UserRole.ELEVE,
-        firstName: dto.firstName,
-        lastName: dto.lastName,
         validationStatus: ValidationStatus.PENDING,
         consentSigned: false,
       });
@@ -406,8 +396,6 @@ export class AccountsService {
             email: dto.parentEmail,
             passwordHash: parentPasswordHash,
             role: UserRole.PARENT_FINANCEUR,
-            firstName: dto.parentFirstName,
-            lastName: dto.parentLastName,
             validationStatus: ValidationStatus.PENDING,
             consentSigned: false,
           });
@@ -472,8 +460,6 @@ export class AccountsService {
       email: dto.email,
       passwordHash,
       role: UserRole.FORMATEUR,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
       validationStatus: ValidationStatus.PENDING,
       consentSigned: false,
     });
@@ -491,11 +477,7 @@ export class AccountsService {
 
     // Notification non-bloquante au dashboard RP — effet post-commit, réalisée
     // une fois la ligne du formateur durablement enregistrée.
-    this.notifyDashboardTeacherPending(
-      savedTeacher.id,
-      savedTeacher.firstName ?? '',
-      savedTeacher.lastName ?? '',
-    );
+    this.notifyDashboardTeacherPending(savedTeacher.id, savedTeacher.loginIdentifier);
 
     return {
       ...this.toPublic(savedTeacher),
@@ -516,8 +498,6 @@ export class AccountsService {
       email: dto.email,
       passwordHash,
       role: UserRole.PARENT_FINANCEUR,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
       validationStatus: ValidationStatus.PENDING,
       consentSigned: false,
     });
@@ -676,8 +656,6 @@ export class AccountsService {
     userId: string;
     loginIdentifier: string;
     role: string;
-    firstName: string | null;
-    lastName: string | null;
   }> {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('Compte introuvable');
@@ -685,8 +663,6 @@ export class AccountsService {
       userId: user.id,
       loginIdentifier: user.loginIdentifier,
       role: user.role,
-      firstName: user.firstName,
-      lastName: user.lastName,
     };
   }
 
@@ -792,18 +768,19 @@ export class AccountsService {
    * Envoie une notification au dashboard-notification-service pour informer le RP
    * qu'un nouveau formateur est en attente de validation.
    * L'appel est non-bloquant : une erreur est loguée mais ne fait pas échouer la création de compte.
+   *
+   * Ne transmet plus de nom lisible (firstName/lastName) : ces champs sont
+   * désormais la propriété exclusive de profile-service (décision d'architecture
+   * du 2026-08-05). Seul loginIdentifier reste disponible ici comme repère humain
+   * — dashboard-notification-service devra résoudre l'affichage du nom complet
+   * via profile-service si un affichage plus riche est nécessaire (signalé à
+   * l'orchestrateur, hors périmètre de ce service).
    */
-  private notifyDashboardTeacherPending(
-    teacherId: string,
-    firstName: string,
-    lastName: string,
-  ): void {
+  private notifyDashboardTeacherPending(teacherId: string, loginIdentifier: string): void {
     const dashboardServiceUrl = this.configService.get<string>(
       'DASHBOARD_NOTIFICATION_SERVICE_URL',
       'http://dashboard-notification-service:3000',
     );
-
-    const teacherFullName = [firstName, lastName].filter(Boolean).join(' ') || 'Formateur inconnu';
 
     fetch(`${dashboardServiceUrl}/internal/notify`, {
       method: 'POST',
@@ -813,7 +790,7 @@ export class AccountsService {
         targetRole: 'responsable_pedagogique',
         payload: {
           teacherId,
-          teacherName: teacherFullName,
+          teacherLoginIdentifier: loginIdentifier,
           message: 'Nouveau formateur en attente de validation',
         },
       }),
@@ -837,8 +814,6 @@ export class AccountsService {
       loginIdentifier: user.loginIdentifier,
       email: user.email,
       role: user.role,
-      firstName: user.firstName,
-      lastName: user.lastName,
       validationStatus: user.validationStatus,
       consentSigned: user.consentSigned,
       isActive: user.isActive,

@@ -17,9 +17,6 @@ const makeUser = (overrides: Partial<User> = {}): User => ({
   role: UserRole.ELEVE,
   validationStatus: ValidationStatus.PENDING,
   consentSigned: false,
-  firstName: null,
-  lastName: null,
-  phone: null,
   isActive: true,
   emailVerified: false,
   createdAt: new Date(),
@@ -80,20 +77,15 @@ describe('AccountsService', () => {
 
   describe('createAccount', () => {
     it('creates an account with PENDING status', async () => {
-      const result = await service.createAccount({ email: 'new@test.com', password: 'password123', firstName: 'Jean', lastName: 'Dupont' });
+      const result = await service.createAccount({ email: 'new@test.com', password: 'password123' });
       expect(result).toHaveProperty('validationStatus', ValidationStatus.PENDING);
       expect(result).toHaveProperty('loginIdentifier');
     });
 
-    it('persists and returns firstName and lastName', async () => {
-      const result = await service.createAccount({
-        email: 'named@test.com',
-        password: 'password123',
-        firstName: 'Camille',
-        lastName: 'Lefevre',
-      });
-      expect(result).toHaveProperty('firstName', 'Camille');
-      expect(result).toHaveProperty('lastName', 'Lefevre');
+    it('does not expose firstName/lastName on the response (identity-access-service no longer owns these fields)', async () => {
+      const result = await service.createAccount({ email: 'named@test.com', password: 'password123' });
+      expect(result).not.toHaveProperty('firstName');
+      expect(result).not.toHaveProperty('lastName');
     });
 
     it('creates account even when email is already used, setting emailAlreadyUsed flag', async () => {
@@ -104,8 +96,6 @@ describe('AccountsService', () => {
       const result = await service.createAccount({
         email: 'test@example.com',
         password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
       });
       expect(result).toHaveProperty('emailAlreadyUsed', true);
       expect(result).toHaveProperty('suggestedLoginIdentifier');
@@ -117,8 +107,6 @@ describe('AccountsService', () => {
         service.createAccount({
           email: 'new@test.com',
           password: 'password123',
-          firstName: 'Jean',
-          lastName: 'Dupont',
           loginIdentifier: 'test.user',
         }),
       ).rejects.toThrow(ConflictException);
@@ -129,8 +117,6 @@ describe('AccountsService', () => {
         service.createAccount({
           email: 'hack@test.com',
           password: 'password123',
-          firstName: 'Jean',
-          lastName: 'Dupont',
           role: UserRole.TECHNICIEN_INFORMATIQUE,
         }),
       ).rejects.toThrow(ForbiddenException);
@@ -140,15 +126,13 @@ describe('AccountsService', () => {
       const result = await service.createAccount({
         email: 'teacher@test.com',
         password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
         role: UserRole.FORMATEUR,
       });
       expect(result.role).toBe(UserRole.FORMATEUR);
     });
 
     it('publishes AccountCreated with userId, email, loginIdentifier and role after account creation', async () => {
-      await service.createAccount({ email: 'new@test.com', password: 'password123', firstName: 'Jean', lastName: 'Dupont' });
+      await service.createAccount({ email: 'new@test.com', password: 'password123' });
       expect(eventsService.publish).toHaveBeenCalledWith('AccountCreated', expect.objectContaining({
         userId: 'user-uuid',
         email: 'new@test.com',
@@ -219,23 +203,19 @@ describe('AccountsService', () => {
       const result = await service.createStudentAccount({
         email: 'student@test.com',
         password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
       });
       expect(result.student).toHaveProperty('validationStatus', ValidationStatus.PENDING);
       expect(result.student.role).toBe(UserRole.ELEVE);
       expect(result.parent).toBeNull();
     });
 
-    it('persists and returns firstName and lastName for the student', async () => {
+    it('does not expose firstName/lastName on the student response', async () => {
       const result = await service.createStudentAccount({
         email: 'student2@test.com',
         password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
       });
-      expect(result.student).toHaveProperty('firstName', 'Lucas');
-      expect(result.student).toHaveProperty('lastName', 'Petit');
+      expect(result.student).not.toHaveProperty('firstName');
+      expect(result.student).not.toHaveProperty('lastName');
     });
 
     it('creates a parent account when parentEmail is provided and no existing parent matches', async () => {
@@ -245,18 +225,14 @@ describe('AccountsService', () => {
       const result = await service.createStudentAccount({
         email: 'student@test.com',
         password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
         parentEmail: 'parent@test.com',
         parentPassword: 'parentpass123',
-        parentFirstName: 'Nathalie',
-        parentLastName: 'Petit',
       });
       expect(result.student.role).toBe(UserRole.ELEVE);
       expect(result.parent).not.toBeNull();
       expect(result.parent!.role).toBe(UserRole.PARENT_FINANCEUR);
-      expect(result.parent).toHaveProperty('firstName', 'Nathalie');
-      expect(result.parent).toHaveProperty('lastName', 'Petit');
+      expect(result.parent).not.toHaveProperty('firstName');
+      expect(result.parent).not.toHaveProperty('lastName');
     });
 
     it('links existing parent account when exactly one account matches parentEmail', async () => {
@@ -265,11 +241,7 @@ describe('AccountsService', () => {
       const result = await service.createStudentAccount({
         email: 'student@test.com',
         password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
         parentEmail: 'parent@test.com',
-        parentFirstName: 'Nathalie',
-        parentLastName: 'Petit',
       });
       expect(result.parent!.id).toBe('parent-uuid');
       expect(result.parent!.created).toBe(false);
@@ -283,11 +255,7 @@ describe('AccountsService', () => {
         service.createStudentAccount({
           email: 'student@test.com',
           password: 'password123',
-          firstName: 'Lucas',
-          lastName: 'Petit',
           parentEmail: 'shared@test.com',
-          parentFirstName: 'Nathalie',
-          parentLastName: 'Petit',
         }),
       ).rejects.toThrow(ConflictException);
     });
@@ -298,8 +266,6 @@ describe('AccountsService', () => {
         service.createStudentAccount({
           email: 'new@test.com',
           password: 'password123',
-          firstName: 'Lucas',
-          lastName: 'Petit',
           loginIdentifier: 'test.user',
         }),
       ).rejects.toThrow(ConflictException);
@@ -309,8 +275,6 @@ describe('AccountsService', () => {
       await service.createStudentAccount({
         email: 'student@test.com',
         password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
       });
       expect(eventsService.publish).toHaveBeenCalledWith('AccountCreated', expect.objectContaining({
         userId: 'user-uuid',
@@ -324,12 +288,8 @@ describe('AccountsService', () => {
       await service.createStudentAccount({
         email: 'student@test.com',
         password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
         parentEmail: 'parent@test.com',
         parentPassword: 'parentpass123',
-        parentFirstName: 'Nathalie',
-        parentLastName: 'Petit',
       });
       const publishCalls = eventsService.publish.mock.calls.filter(
         ([eventType]) => eventType === 'AccountCreated',
@@ -350,23 +310,19 @@ describe('AccountsService', () => {
       const result = await service.createTeacherAccount({
         email: 'teacher@test.com',
         password: 'password123',
-        firstName: 'Marie',
-        lastName: 'Martin',
       });
       expect(result.role).toBe(UserRole.FORMATEUR);
       expect(result.validationStatus).toBe(ValidationStatus.PENDING);
       expect(result).toHaveProperty('loginIdentifier');
     });
 
-    it('persists and returns firstName and lastName', async () => {
+    it('does not expose firstName/lastName on the response', async () => {
       const result = await service.createTeacherAccount({
         email: 'teacher2@test.com',
         password: 'password123',
-        firstName: 'Marie',
-        lastName: 'Martin',
       });
-      expect(result).toHaveProperty('firstName', 'Marie');
-      expect(result).toHaveProperty('lastName', 'Martin');
+      expect(result).not.toHaveProperty('firstName');
+      expect(result).not.toHaveProperty('lastName');
     });
 
     it('creates account even when email is already used, setting emailAlreadyUsed flag', async () => {
@@ -376,8 +332,6 @@ describe('AccountsService', () => {
       const result = await service.createTeacherAccount({
         email: 'existing@test.com',
         password: 'password123',
-        firstName: 'Marie',
-        lastName: 'Martin',
       });
       expect(result).toHaveProperty('emailAlreadyUsed', true);
     });
@@ -388,8 +342,6 @@ describe('AccountsService', () => {
         service.createTeacherAccount({
           email: 'new@test.com',
           password: 'password123',
-          firstName: 'Marie',
-          lastName: 'Martin',
           loginIdentifier: 'test.user',
         }),
       ).rejects.toThrow(ConflictException);
@@ -399,8 +351,6 @@ describe('AccountsService', () => {
       await service.createTeacherAccount({
         email: 'teacher@test.com',
         password: 'password123',
-        firstName: 'Marie',
-        lastName: 'Martin',
       });
       expect(eventsService.publish).toHaveBeenCalledWith('AccountCreated', expect.objectContaining({
         userId: 'user-uuid',
@@ -411,25 +361,21 @@ describe('AccountsService', () => {
   });
 
   describe('createParentAccount', () => {
-    it('creates a parent account with PENDING status and persists firstName/lastName', async () => {
+    it('creates a parent account with PENDING status and does not expose firstName/lastName', async () => {
       const result = await service.createParentAccount({
         email: 'parent@test.com',
         password: 'password123',
-        firstName: 'Sophie',
-        lastName: 'Bernard',
       });
       expect(result.role).toBe(UserRole.PARENT_FINANCEUR);
       expect(result.validationStatus).toBe(ValidationStatus.PENDING);
-      expect(result).toHaveProperty('firstName', 'Sophie');
-      expect(result).toHaveProperty('lastName', 'Bernard');
+      expect(result).not.toHaveProperty('firstName');
+      expect(result).not.toHaveProperty('lastName');
     });
 
     it('publishes AccountCreated with userId and role PARENT_FINANCEUR', async () => {
       await service.createParentAccount({
         email: 'parent@test.com',
         password: 'password123',
-        firstName: 'Sophie',
-        lastName: 'Bernard',
       });
       expect(eventsService.publish).toHaveBeenCalledWith('AccountCreated', expect.objectContaining({
         userId: 'user-uuid',
@@ -499,8 +445,8 @@ describe('AccountsService', () => {
   });
 
   describe('findByUserId', () => {
-    it('returns firstName and lastName alongside userId, loginIdentifier and role', async () => {
-      const target = makeUser({ firstName: 'Camille', lastName: 'Lefevre' });
+    it('returns userId, loginIdentifier and role without firstName/lastName', async () => {
+      const target = makeUser();
       userRepo.findOne.mockResolvedValue(target);
 
       const result = await service.findByUserId('user-uuid');
@@ -509,8 +455,6 @@ describe('AccountsService', () => {
         userId: 'user-uuid',
         loginIdentifier: target.loginIdentifier,
         role: target.role,
-        firstName: 'Camille',
-        lastName: 'Lefevre',
       });
     });
 

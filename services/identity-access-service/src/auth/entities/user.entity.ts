@@ -31,6 +31,13 @@ export const SELF_REGISTRATION_ROLES: UserRole[] = [
   UserRole.FORMATEUR,
 ];
 
+/**
+ * users possede exclusivement l'identite/authentification (email, mot de passe,
+ * role, statuts, consentement). firstName/lastName/phone appartiennent
+ * desormais exclusivement a profile-service (decision d'architecture du
+ * 2026-08-05) - ne jamais les reintroduire ici, y compris via des DTO
+ * internes ou des colonnes nullable "au cas ou".
+ */
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn('uuid')
@@ -59,15 +66,6 @@ export class User {
   /** True once all required RGPD consents have been recorded (IAM-FB-003) */
   @Column({ name: 'consent_signed', default: false })
   consentSigned: boolean;
-
-  @Column({ name: 'first_name', nullable: true, type: 'varchar', length: 100 })
-  firstName: string | null;
-
-  @Column({ name: 'last_name', nullable: true, type: 'varchar', length: 100 })
-  lastName: string | null;
-
-  @Column({ name: 'phone', nullable: true, type: 'varchar', length: 30 })
-  phone: string | null;
 
   @Column({ name: 'is_active', default: true })
   isActive: boolean;

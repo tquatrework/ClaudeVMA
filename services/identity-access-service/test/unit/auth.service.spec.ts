@@ -22,9 +22,6 @@ const mockUser: User = {
   role: UserRole.ELEVE,
   validationStatus: ValidationStatus.ACTIVE,
   consentSigned: true,
-  firstName: null,
-  lastName: null,
-  phone: null,
   isActive: true,
   emailVerified: false,
   createdAt: new Date(),
@@ -235,7 +232,6 @@ describe('AuthService', () => {
       expect(result.message).toBeDefined();
       expect(mailService.sendEmailVerification).toHaveBeenCalledWith(
         'test@example.com',
-        null,
         expect.any(String),
       );
       expect(emailVerifTokenRepo.save).toHaveBeenCalled();
@@ -321,7 +317,6 @@ describe('AuthService', () => {
       expect(result.message).toBeDefined();
       expect(mailService.sendPasswordReset).toHaveBeenCalledWith(
         'test@example.com',
-        null,
         expect.any(String),
       );
       expect(resetTokenRepo.save).toHaveBeenCalled();

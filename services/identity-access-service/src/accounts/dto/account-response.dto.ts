@@ -6,8 +6,6 @@ export interface AccountResponseDto {
   loginIdentifier: string;
   email: string;
   role: UserRole;
-  firstName: string | null;
-  lastName: string | null;
   validationStatus: ValidationStatus;
   consentSigned: boolean;
   isActive: boolean;

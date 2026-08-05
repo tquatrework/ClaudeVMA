@@ -126,7 +126,7 @@ export class AuthService {
         this.emailVerifTokenRepo.create({ userId: user.id, tokenHash, expiresAt }),
       );
 
-      await this.mailService.sendEmailVerification(user.email, user.firstName, rawToken);
+      await this.mailService.sendEmailVerification(user.email, rawToken);
 
       this.logger.log(`Email de vérification envoyé pour l'utilisateur ${user.id}`);
     }
@@ -220,7 +220,7 @@ export class AuthService {
         this.resetTokenRepo.create({ userId: user.id, tokenHash, expiresAt }),
       );
 
-      await this.mailService.sendPasswordReset(user.email, user.firstName, rawToken);
+      await this.mailService.sendPasswordReset(user.email, rawToken);
 
       this.eventsService.publish('PasswordResetRequested', {
         userId: user.id,

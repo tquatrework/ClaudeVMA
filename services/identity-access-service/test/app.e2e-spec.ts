@@ -71,8 +71,11 @@ describe('Identity Access Service (e2e)', () => {
         expect(res.body.lastName).toBeUndefined();
         expect(res.body.validationStatus).toBe('pending');
         expect(res.body.consentSigned).toBe(false);
+        // profile-service attend `phone`, pas `phoneNumber` (le DTO d'entree
+        // public d'identity-access-service garde phoneNumber, seul le mapping
+        // au moment de cet appel change).
         expect(profileServiceClientStub.createAdministrativeProfile).toHaveBeenCalledWith(
-          expect.objectContaining({ firstName: 'Jean', lastName: 'Dupont', phoneNumber: '+33 6 01 02 03 04' }),
+          expect.objectContaining({ firstName: 'Jean', lastName: 'Dupont', phone: '+33 6 01 02 03 04' }),
         );
       });
   });

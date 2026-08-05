@@ -106,9 +106,12 @@ Après validation de forme (DTO) et avant de retourner `201`, identity-access-se
 sortant, **dans la même transaction locale** que la création du ou des comptes :
 
 1. `POST /internal/create-administrative-profile` sur profile-service avec `{userId, firstName,
-   lastName, phoneNumber?}` (header `X-Internal-Secret`) — une fois par compte nouvellement créé
+   lastName, phone?}` (header `X-Internal-Secret`) — une fois par compte nouvellement créé
    (jamais pour un compte parent/élève simplement **lié** à un compte préexistant : son profil existant
-   n'est jamais écrasé par les champs saisis côté élève/parent lors de la liaison).
+   n'est jamais écrasé par les champs saisis côté élève/parent lors de la liaison). Le champ est nommé
+   `phone` côté profile-service (convention déjà établie sur ses autres routes internes) alors que le DTO
+   d'entrée public d'identity-access-service utilise `phoneNumber` — seul le mapping effectué au moment
+   de cet appel sortant fait la conversion de nom.
 2. Si un élève et un parent financeur sont créés/liés dans le même appel (`POST /accounts/students`
    avec `parentLoginIdentifier`/`parentEmail`, ou `POST /accounts/parents` avec
    `studentLoginIdentifier`/`studentEmail`) : `POST /internal/link-parent` sur profile-service avec
@@ -168,7 +171,7 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 | POST | /internal/create-administrative-profile | Créer (ou mettre à jour) le profil administratif d'un compte quelconque (élève, formateur, parent, générique) juste après sa création par identity-access-service. Body : `{userId, firstName, lastName, phone?}`. `firstName`/`lastName` obligatoires (`400` sinon), `phone` optionnel mais validé (`@IsNotEmpty @MaxLength(20)` si fourni). **Seul point d'écriture** pour firstName/lastName/phone : identity-access-service ne persiste plus ces champs lui-même et appelle cette route de façon obligatoire (non best-effort) à chaque création de compte. Upsert idempotent : si une ligne existe déjà pour `userId` (lazy-init via `getProfile`, ou rappel de la route), elle est mise à jour avec les valeurs reçues (y compris `phone`) au lieu d'échouer sur la contrainte d'unicité — voir décision C6/C7/C8 dans `docs/services/profile-service.md`. Erreurs de validation → `400` explicite (distinct d'un `5xx`) | `X-Internal-Secret` |
 | POST | /internal/create-student-profiles | Créer les profils initiaux d'un élève (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` |
 | POST | /internal/create-teacher-profiles | Créer les profils initiaux d'un formateur (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` |
-| POST | /internal/create-administrative-profile | Créer/mettre à jour le profil administratif minimal d'un compte (upsert par `userId`) — utilisée par identity-access-service comme unique écriture de `firstName`/`lastName`/`phoneNumber` à la création de compte (décision du 2026-08-05, voir section identity-access-service) | `X-Internal-Secret` |
+| POST | /internal/create-administrative-profile | Créer/mettre à jour le profil administratif minimal d'un compte (upsert par `userId`) — `{userId, firstName, lastName, phone?}` — utilisée par identity-access-service comme unique écriture de `firstName`/`lastName`/`phone` à la création de compte (décision du 2026-08-05, voir section identity-access-service ; le DTO d'entrée d'identity-access-service utilise `phoneNumber`, mappé vers `phone` au moment de l'appel) | `X-Internal-Secret` |
 | POST | /internal/link-parent | Lier un parent financeur à un élève (idempotent par paire `studentId`/`financeOwnerId`) — utilisée par identity-access-service pour la liaison automatique élève+parent créés/liés dans le même appel de création de compte | `X-Internal-Secret` |
 | POST | /internal/create-teacher-student-relation | Créer la relation formateur-élève | `X-Internal-Secret` |
 | POST | /internal/link-coordinator | Lier un coordinateur pédagogique à un élève | `X-Internal-Secret` |

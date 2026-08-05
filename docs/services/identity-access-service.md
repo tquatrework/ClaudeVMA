@@ -403,7 +403,7 @@
         </files>
         <description>
           ProfileServiceClient (adaptateur typé, services-convention) expose
-          createAdministrativeProfile({userId, firstName, lastName, phoneNumber?}) et
+          createAdministrativeProfile({userId, firstName, lastName, phone?}) et
           linkParentToStudent({studentId, financeOwnerId}), appelant respectivement
           POST /internal/create-administrative-profile et POST /internal/link-parent sur
           profile-service (X-Internal-Secret, timeout 3s). Contrairement a la tentative
@@ -493,21 +493,20 @@
       </openItem>
 
       <openItem id="TD-profile-service-contract-confirmation">
-        <title>Contrat POST /internal/create-administrative-profile cote profile-service a reconfirmer en integration</title>
+        <title>Contrat POST /internal/create-administrative-profile cote profile-service — nom de champ corrige</title>
         <description>
-          Le corps envoye est desormais {userId, firstName, lastName, phoneNumber?} (ajout de
-          phoneNumber par rapport a la version anterieure {userId, firstName, lastName} qui
-          existait deja cote profile-service selon docs/routes.md/historique). L'acceptation et
-          la persistance effective de phoneNumber par profile-service n'ont pas pu etre
-          verifiees directement (regle projet : ne jamais lire le code source d'un autre
-          service) — fiabilite du champ phoneNumber annoncee par l'orchestrateur pour cette
-          session, a confirmer en integration reelle avant mise en production. Si
-          phoneNumber n'est pas encore persiste cote profile-service, l'appel reste neanmoins
-          sans risque (propriete additionnelle ignoree par un DTO NestJS sans whitelist stricte
-          sur cette route specifique, a verifier) mais la donnee serait alors perdue silencieusement
-          malgre l'intention de cette session.
+          Le corps envoye est {userId, firstName, lastName, phone?}. Version initiale de cette
+          session envoyait par erreur phoneNumber ; corrige suite a un retour explicite de
+          l'orchestrateur (coordination avec l'agent profile-service) indiquant que profile-service
+          attend `phone` — convention deja etablie sur ses autres routes internes
+          (create-student-profiles.dto.ts, create-teacher-profiles.dto.ts,
+          update-administrative-profile.dto.ts). Le DTO d'entree public d'identity-access-service
+          (CreateAccountDto et les 3 autres) garde `phoneNumber` ; seul le mapping effectue dans
+          AccountsService.persistAdministrativeProfile()/ProfileServiceClient.createAdministrativeProfile
+          convertit vers `phone` au moment de l'appel sortant. Corrige et teste (voir tests
+          ProfileServiceClient et AccountsService) dans un commit de fix rapide sur la meme branche.
         </description>
-        <status>open</status>
+        <status>resolved</status>
       </openItem>
     </session>
   </implementationNotes>

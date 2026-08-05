@@ -3,11 +3,20 @@ import { ConfigService } from '@nestjs/config';
 
 const DEFAULT_TIMEOUT_MS = 3000;
 
+/**
+ * `phone` (et non `phoneNumber`) : nom de champ imposé par le contrat de
+ * profile-service, cohérent avec les autres routes internes existantes
+ * (create-student-profiles.dto.ts, create-teacher-profiles.dto.ts,
+ * update-administrative-profile.dto.ts). Le DTO d'entrée public
+ * d'identity-access-service garde `phoneNumber` (ex: CreateAccountDto) — seul
+ * le mapping effectué au moment de cet appel change de nom, voir
+ * AccountsService.persistAdministrativeProfile.
+ */
 export interface CreateAdministrativeProfileInput {
   userId: string;
   firstName: string;
   lastName: string;
-  phoneNumber?: string | null;
+  phone?: string | null;
 }
 
 export interface LinkParentToStudentInput {

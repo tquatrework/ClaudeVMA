@@ -964,7 +964,10 @@ export class AccountsService {
         userId,
         firstName,
         lastName,
-        ...(phoneNumber ? { phoneNumber } : {}),
+        // Mapping de nom de champ : phoneNumber côté DTO d'entrée
+        // d'identity-access-service → phone côté contrat profile-service
+        // (convention déjà établie sur ses autres routes internes).
+        ...(phoneNumber ? { phone: phoneNumber } : {}),
       });
     } catch (profileError) {
       throw new ServiceUnavailableException(

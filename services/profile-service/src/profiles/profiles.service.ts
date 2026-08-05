@@ -598,6 +598,14 @@ export class ProfilesService {
    * creation) — overwriting with the incoming value is the intended
    * source-of-truth behavior at that point, even if the row was already
    * populated by a previous bootstrap call or a lazy-init.
+   *
+   * As of the identity-access-service migration that removes firstName/
+   * lastName/phone from its own `user` table, this method (via
+   * POST /internal/create-administrative-profile) is the only place these
+   * three fields are persisted for a user — identity-access-service's call
+   * is now mandatory, not best-effort. firstName/lastName are required at
+   * the DTO level; phone stays optional (not every onboarding flow collects
+   * it) but is upserted with the same reliability when provided.
    */
   async bootstrapAdministrativeProfile(input: {
     userId: string;

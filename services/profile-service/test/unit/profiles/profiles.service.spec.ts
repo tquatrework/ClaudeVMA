@@ -1172,6 +1172,45 @@ describe('ProfilesService', () => {
       expect(result).toHaveProperty('firstName', 'NewFirst');
       expect(result).toHaveProperty('lastName', 'NewLast');
     });
+
+    it('upserts: updates phone (telephone) on an already-existing profile, alongside the name', async () => {
+      const existing = {
+        userId: 'existing-uuid',
+        firstName: 'Marie',
+        lastName: 'Dupont',
+        telephone: '+33600000001',
+      };
+      adminRepo.findOne.mockResolvedValue(existing);
+      adminRepo.save.mockImplementation(async (entity) => entity);
+      const result = await service.bootstrapAdministrativeProfile({
+        userId: 'existing-uuid',
+        firstName: 'Marie',
+        lastName: 'Dupont',
+        phone: '+33600000002',
+      });
+      expect(adminRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'existing-uuid', telephone: '+33600000002' }),
+      );
+      expect(result).toHaveProperty('telephone', '+33600000002');
+    });
+
+    it('does not call save when the incoming phone matches the existing one (no spurious writes)', async () => {
+      const existing = {
+        userId: 'existing-uuid',
+        firstName: 'Marie',
+        lastName: 'Dupont',
+        telephone: '+33600000001',
+      };
+      adminRepo.findOne.mockResolvedValue(existing);
+      const result = await service.bootstrapAdministrativeProfile({
+        userId: 'existing-uuid',
+        firstName: 'Marie',
+        lastName: 'Dupont',
+        phone: '+33600000001',
+      });
+      expect(adminRepo.save).not.toHaveBeenCalled();
+      expect(result).toBe(existing);
+    });
   });
 
   describe('bootstrapStudentPedagogicalProfile', () => {

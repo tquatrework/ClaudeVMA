@@ -129,12 +129,66 @@ describe('[E2E] Internal routes', () => {
       expect(res.status).toBe(400);
     });
 
+    it('phone vide (chaîne) → 400 (erreur de validation explicite, distincte d\'une erreur serveur)', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.genericAccount2, firstName: 'Sophie', lastName: 'Bernard', phone: '' });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty('statusCode', 400);
+      expect(res.body).toHaveProperty('message');
+    });
+
+    it('phone trop long (> 20 caractères) → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({
+          userId: IDS.genericAccount2,
+          firstName: 'Sophie',
+          lastName: 'Bernard',
+          phone: '0'.repeat(21),
+        });
+
+      expect(res.status).toBe(400);
+    });
+
     it('Sans header x-internal-secret → 401 ou 403', async () => {
       const res = await request(app.getHttpServer())
         .post('/internal/create-administrative-profile')
         .send({ userId: IDS.genericAccount2, firstName: 'Sophie', lastName: 'Bernard' });
 
       expect([401, 403]).toContain(res.status);
+    });
+
+    it('Persiste le champ phone (colonne telephone) à la création → 201', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.genericAccount2, firstName: 'Sophie', lastName: 'Bernard', phone: '+33601020304' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.administrativeProfile).toMatchObject({
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+        telephone: '+33601020304',
+      });
+    });
+
+    it('Idempotence : rappel avec un phone différent met à jour le numéro → 201', async () => {
+      await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.genericAccount2, firstName: 'Sophie', lastName: 'Bernard', phone: '+33601020304' });
+
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.genericAccount2, firstName: 'Sophie', lastName: 'Bernard', phone: '+33609080706' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.administrativeProfile).toMatchObject({ telephone: '+33609080706' });
     });
   });
 

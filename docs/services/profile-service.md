@@ -283,7 +283,120 @@
           npm run build : OK.
         </testCoverage>
       </decision>
+      <decision id="C7" status="implemented" session="2026-08-05">
+        <title>create-administrative-profile devient l'unique point d'ecriture firstName/lastName/phone ; suppression de la route interne redondante create-parent-profile</title>
+        <description>
+          Contexte : une branche parallele non fusionnee (worktree-agent-
+          a0726e615442ed62d, commit 131c267) fermait deja le gap laisse ouvert
+          par C5/C6 : POST /internal/create-administrative-profile avait
+          firstName/lastName en @IsOptional() alors que create-student-profiles/
+          create-teacher-profiles les avaient deja rendus obligatoires.
+          Recuperee dans master via cherry-pick (commit 94f5e72) : DTO passe en
+          @IsString() @IsNotEmpty() @MaxLength(100) sur firstName/lastName ;
+          ProfilesService.bootstrapAdministrativeProfile transforme d'un
+          create-si-absent en veritable upsert (les champs fournis, y compris
+          phone, ecrasent les valeurs existantes des qu'ils different, sans
+          jamais tenter de re-creer une ligne).
+          En parallele, une PR ouverte (#59, branche
+          fix/profile-service-internal-mandatory-names) avait ajoute une route
+          POST /internal/create-parent-profile en doublon strict de
+          create-administrative-profile (meme appel a
+          bootstrapAdministrativeProfile, aucune logique metier propre au
+          parent, aucun appelant identifie). Route retiree directement sur la
+          branche de la PR (controller, service, DTO, tests e2e/unitaires,
+          entree docs/routes.md) avant fusion, avec commit dedie expliquant le
+          doublon — PR#59 elle-meme reste ouverte pour ses autres changements
+          (harmonisation phone/telephone sur PUT /profiles/:userId/administrative,
+          forbidNonWhitelisted global), hors perimetre de cette session.
+          Clarification produit recue en cours de session : identity-access-service ne persiste plus du
+          tout firstName/lastName/phone dans sa propre table `user` ; l'appel a
+          POST /internal/create-administrative-profile devient obligatoire (non
+          best-effort) a chaque creation de compte, et cette route devient donc
+          la SEULE copie de ces trois champs (plus une simple synchronisation
+          secondaire). Consequences appliquees :
+          (1) phone reste @IsOptional() (tous les flux de creation de compte ne
+          collectent pas un telephone, ex. RP/TI/administrateur financier) mais
+          gagne @IsNotEmpty() @MaxLength(20) — coherent avec le champ telephone
+          de update-administrative-profile.dto.ts — pour rejeter une chaine
+          vide ou un input demesure en 400 explicite plutot que de le persister
+          tel quel ou de planter en 500.
+          (2) bootstrapAdministrativeProfile (deja upsert depuis 94f5e72) gere
+          phone au meme titre que firstName/lastName : nouveaux tests
+          unitaires couvrant la mise a jour de telephone sur un profil existant
+          et l'absence d'ecriture (adminRepo.save non appele) quand la valeur
+          transmise est identique a l'existante.
+          (3) Nouveaux tests e2e sur create-administrative-profile : persistance
+          de phone a la creation, mise a jour de phone lors d'un rappel
+          (idempotence), phone vide -&gt; 400, phone &gt; 20 caracteres -&gt; 400.
+          (4) docs/routes.md : entree create-administrative-profile enrichie
+          (contrat body complet, statut "seul point d'ecriture", comportement
+          d'erreur 400 vs 5xx).
+          Convention nom de champ : `phone` (pas `phoneNumber`) cote
+          profile-service, en coherence avec les DTO internes existants
+          (create-student-profiles.dto.ts, create-teacher-profiles.dto.ts) et
+          avec update-administrative-profile.dto.ts depuis l'harmonisation de
+          la PR#59 (`phone` en entree, mappe sur la colonne `telephone` en
+          base) — a utiliser tel quel par identity-access-service.
+          Verification (sans modification, hors perimetre) du mecanisme de
+          liaison finance-owner-student "systeme" reutilise par
+          identity-access-service pour l'auto-liaison eleve/parent a la
+          creation : RelationsService.createFinanceOwnerStudentLinkForSystem
+          (InternalController POST /internal/link-parent) ne verifie aucun role
+          d'acteur et ne publie aucun evenement (contrairement a
+          linkFinanceOwnerToStudent, la variante humaine avec flux
+          d'approbation RP/AdministrateurFinancier qui publie
+          StudentLinkedToFinanceOwner) — comportement voulu, confirme par
+          lecture de code. Point d'attention (non bloquant, comportement deja
+          teste et documente comme intentionnel dans
+          test/unit/relations/relations.service.spec.ts, donc non modifie) :
+          contrairement a bootstrapAdministrativeProfile, cette methode n'est
+          pas un no-op silencieux en cas de rappel sur le meme couple — un
+          deuxieme appel leve une ConflictException (409), y compris pour les
+          methodes soeurs createTeacherStudentLinkForSystem/
+          createPedagogicalCoordinatorLinkForSystem. C'est une idempotence
+          "d'etat" (le lien final est identique, jamais de doublon, jamais de
+          crash 5xx) et non une idempotence "de reponse" (200 silencieux) :
+          l'appelant (identity-access-service ou l'orchestrateur en cas de
+          retry) doit traiter un 409 sur cette route comme "deja lie" et non
+          comme un echec — a signaler explicitement au moment du branchement
+          cote identity-access-service.
+        </description>
+        <testCoverage>
+          npm test (unit, hors e2e) : 211/214 verts (memes 3 echecs
+          preexistants documentes en C4/C5/C6, non lies a cette session —
+          updateTeacherValidation). npm run build : OK.
+          npm run test:e2e : NON EXECUTABLE dans cet environnement sandbox
+          cette session (Docker local avec content-store corrompu — echec au
+          pull de l'image postgres, conteneur visiomath_postgres existant
+          irrecuperable ; confirme non lie a cette session en reproduisant le
+          meme comportement sur un clone propre de master). Testcontainers
+          indisponible egalement (limitation deja documentee en C5/C6). Les
+          nouveaux tests e2e ont ete relus manuellement et suivent exactement
+          le patron des tests e2e existants sur cette meme route
+          (create-administrative-profile) qui, eux, ont ete verifies verts en
+          C6 (29/29) dans un environnement avec Testcontainers fonctionnel.
+          A rejouer avec npm run test:e2e (USE_LOCAL_DB=true ou Testcontainers)
+          des qu'un environnement Docker fonctionnel est disponible.
+        </testCoverage>
+      </decision>
       <openPoints>
+        <item>
+          npm run test:e2e non executable dans l'environnement sandbox de la
+          session du 2026-08-05 : Docker local corrompu (content-store
+          containerd), aucune image postgres en cache, pull reseau impossible.
+          Sessions precedentes (C5/C6) utilisaient le fallback USE_LOCAL_DB=true
+          avec succes ; a reessayer sur un environnement Docker sain.
+        </item>
+        <item>
+          Idempotence "de reponse" (200/201 silencieux) vs idempotence "d'etat"
+          (409 explicite, jamais de doublon) sur les methodes *ForSystem de
+          RelationsService (createFinanceOwnerStudentLinkForSystem et les 2
+          methodes soeurs) : comportement intentionnel et deja teste, mais
+          l'appelant (identity-access-service pour l'auto-liaison eleve/parent
+          a la creation) doit explicitement traiter le 409 comme "deja lie" et
+          non comme une erreur bloquante lors d'un retry. A confirmer cote
+          identity-access-service au moment de l'integration.
+        </item>
         <item>
           3 tests preexistants echouent dans updateTeacherValidation
           (test/unit/profiles/profiles.service.spec.ts) : un bug preexistant dans

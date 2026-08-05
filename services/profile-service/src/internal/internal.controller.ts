@@ -5,7 +5,6 @@ import { InternalService } from './internal.service';
 import { CreateAdministrativeProfileDto } from './dto/create-administrative-profile.dto';
 import { CreateStudentProfilesDto } from './dto/create-student-profiles.dto';
 import { CreateTeacherProfilesDto } from './dto/create-teacher-profiles.dto';
-import { CreateParentProfileDto } from './dto/create-parent-profile.dto';
 import { LinkParentDto } from './dto/link-parent.dto';
 import { CreateTeacherStudentRelationDto } from './dto/create-teacher-student-relation.dto';
 import { LinkCoordinatorDto } from './dto/link-coordinator.dto';
@@ -40,13 +39,6 @@ export class InternalController {
     @Body() dto: CreateTeacherProfilesDto,
   ): Promise<Awaited<ReturnType<InternalService['createTeacherProfiles']>>> {
     return this.internalService.createTeacherProfiles(dto);
-  }
-
-  @Post('create-parent-profile')
-  createParentProfile(
-    @Body() dto: CreateParentProfileDto,
-  ): Promise<Awaited<ReturnType<InternalService['createParentProfile']>>> {
-    return this.internalService.createParentProfile(dto);
   }
 
   @Post('link-parent')

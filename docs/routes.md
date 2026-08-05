@@ -117,7 +117,6 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 |---|---|---|---|
 | POST | /internal/create-student-profiles | Créer les profils initiaux d'un élève (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` |
 | POST | /internal/create-teacher-profiles | Créer les profils initiaux d'un formateur (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` |
-| POST | /internal/create-parent-profile | Créer (bootstrap idempotent) le profil administratif d'un parent financeur — pas de profil pédagogique. Ajoutée le 2026-08-05, `firstName`/`lastName`/`phone` optionnels (miroir de `/internal/create-administrative-profile`) ; **non encore appelée par orchestration-service** (aucun workflow `parent-onboarding` documenté à ce jour), ajoutée par anticipation/symétrie. | `X-Internal-Secret` |
 | POST | /internal/link-parent | Lier un parent financeur à un élève | `X-Internal-Secret` |
 | POST | /internal/create-teacher-student-relation | Créer la relation formateur-élève | `X-Internal-Secret` |
 | POST | /internal/link-coordinator | Lier un coordinateur pédagogique à un élève | `X-Internal-Secret` |

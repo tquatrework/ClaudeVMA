@@ -68,22 +68,6 @@ export class InternalService {
     };
   }
 
-  /**
-   * Bootstrap a parent_financeur's administrative profile during
-   * parent-onboarding. A parent has no pedagogical profile (mirrors
-   * createStudentProfiles/createTeacherProfiles, minus the pedagogical
-   * bootstrap step).
-   */
-  async createParentProfile(dto: {
-    userId: string;
-    firstName?: string;
-    lastName?: string;
-    phone?: string;
-  }) {
-    const administrativeProfile = await this.profilesService.bootstrapAdministrativeProfile(dto);
-    return { userId: dto.userId, administrativeProfile };
-  }
-
   async linkParent(dto: { studentId: string; financeOwnerId: string }) {
     await this.relationsService.createFinanceOwnerStudentLinkForSystem(
       dto.financeOwnerId,

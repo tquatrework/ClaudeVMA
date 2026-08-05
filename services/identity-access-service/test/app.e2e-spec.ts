@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
 import { AppModule } from '../src/app.module';
+import { ProfileServiceClient, ProfileServiceUnavailableError } from '../src/common/clients/profile-service.client';
 
 describe('Identity Access Service (e2e)', () => {
   let app: INestApplication;
@@ -9,10 +10,26 @@ describe('Identity Access Service (e2e)', () => {
   const testEmail = `test-${timestamp}@example.com`;
   const testPassword = 'password123';
 
+  // profile-service n'est pas disponible dans cet environnement de test e2e.
+  // Depuis le 2026-08-05, identity-access-service ne stocke plus firstName/
+  // lastName/phone localement : ProfileServiceClient est l'unique lieu
+  // d'écriture de ces données, et un appel réel échouerait systématiquement.
+  // On stub le client pour tester le comportement HTTP propre de
+  // identity-access-service (les échecs/rollback de ProfileServiceClient sont
+  // couverts par ailleurs par accounts.service.spec.ts et
+  // profile-service.client.spec.ts).
+  const profileServiceClientStub = {
+    createAdministrativeProfile: jest.fn().mockResolvedValue(undefined),
+    linkParentToStudent: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(ProfileServiceClient)
+      .useValue(profileServiceClientStub)
+      .compile();
 
     app = module.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
@@ -23,6 +40,11 @@ describe('Identity Access Service (e2e)', () => {
     await app.close();
   });
 
+  beforeEach(() => {
+    profileServiceClientStub.createAdministrativeProfile.mockReset().mockResolvedValue(undefined);
+    profileServiceClientStub.linkParentToStudent.mockReset().mockResolvedValue(undefined);
+  });
+
   it('GET /health → 200', () => {
     return request(app.getHttpServer())
       .get('/health')
@@ -30,10 +52,16 @@ describe('Identity Access Service (e2e)', () => {
       .expect((res) => expect(res.body.status).toBe('ok'));
   });
 
-  it('POST /accounts → 201 (account created in PENDING status, no firstName/lastName)', () => {
+  it('POST /accounts → 201 (account created, firstName/lastName/phoneNumber forwarded to profile-service, not exposed locally)', () => {
     return request(app.getHttpServer())
       .post('/accounts')
-      .send({ email: testEmail, password: testPassword })
+      .send({
+        email: testEmail,
+        password: testPassword,
+        firstName: 'Jean',
+        lastName: 'Dupont',
+        phoneNumber: '+33 6 01 02 03 04',
+      })
       .expect(201)
       .expect((res) => {
         expect(res.body.id).toBeDefined();
@@ -43,6 +71,50 @@ describe('Identity Access Service (e2e)', () => {
         expect(res.body.lastName).toBeUndefined();
         expect(res.body.validationStatus).toBe('pending');
         expect(res.body.consentSigned).toBe(false);
+        expect(profileServiceClientStub.createAdministrativeProfile).toHaveBeenCalledWith(
+          expect.objectContaining({ firstName: 'Jean', lastName: 'Dupont', phoneNumber: '+33 6 01 02 03 04' }),
+        );
+      });
+  });
+
+  it('POST /accounts without firstName/lastName → 400', () => {
+    return request(app.getHttpServer())
+      .post('/accounts')
+      .send({ email: `no-name-${timestamp}@example.com`, password: testPassword })
+      .expect(400);
+  });
+
+  it('POST /accounts with an invalid phoneNumber → 400', () => {
+    return request(app.getHttpServer())
+      .post('/accounts')
+      .send({
+        email: `bad-phone-${timestamp}@example.com`,
+        password: testPassword,
+        firstName: 'Jean',
+        lastName: 'Dupont',
+        phoneNumber: 'not-a-phone!!',
+      })
+      .expect(400);
+  });
+
+  it('POST /accounts → 503 and no account left behind when profile-service is unavailable', async () => {
+    const failingEmail = `profile-down-${timestamp}@example.com`;
+    profileServiceClientStub.createAdministrativeProfile.mockRejectedValueOnce(
+      new ProfileServiceUnavailableError('profile-service unreachable'),
+    );
+
+    await request(app.getHttpServer())
+      .post('/accounts')
+      .send({ email: failingEmail, password: testPassword, firstName: 'Jean', lastName: 'Dupont' })
+      .expect(503);
+
+    // The email must be free again — the transaction was rolled back.
+    return request(app.getHttpServer())
+      .get('/accounts/check-email')
+      .query({ email: failingEmail })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.alreadyUsed).toBe(false);
       });
   });
 
@@ -50,7 +122,7 @@ describe('Identity Access Service (e2e)', () => {
     const studentEmail = `student-${timestamp}@example.com`;
     return request(app.getHttpServer())
       .post('/accounts/students')
-      .send({ email: studentEmail, password: testPassword })
+      .send({ email: studentEmail, password: testPassword, firstName: 'Lucas', lastName: 'Petit' })
       .expect(201)
       .expect((res) => {
         expect(res.body.student).toBeDefined();
@@ -62,22 +134,51 @@ describe('Identity Access Service (e2e)', () => {
       });
   });
 
-  it('POST /accounts/students with parentEmail → 201 (parent account created, no name required)', () => {
+  it('POST /accounts/students without firstName/lastName → 400', () => {
+    return request(app.getHttpServer())
+      .post('/accounts/students')
+      .send({ email: `student-noname-${timestamp}@example.com`, password: testPassword })
+      .expect(400);
+  });
+
+  it('POST /accounts/students with parentEmail but without parentFirstName/parentLastName → 400', () => {
+    const studentEmail = `student-noparentnames-${timestamp}@example.com`;
+    return request(app.getHttpServer())
+      .post('/accounts/students')
+      .send({
+        email: studentEmail,
+        password: testPassword,
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        parentEmail: `parent-noname-${timestamp}@example.com`,
+        parentPassword: testPassword,
+      })
+      .expect(400);
+  });
+
+  it('POST /accounts/students with parentEmail, parentFirstName and parentLastName → 201, and the parent is linked as finance owner', () => {
     const studentEmail = `student-withparent-${timestamp}@example.com`;
     return request(app.getHttpServer())
       .post('/accounts/students')
       .send({
         email: studentEmail,
         password: testPassword,
+        firstName: 'Lucas',
+        lastName: 'Petit',
         parentEmail: `parent-named-${timestamp}@example.com`,
         parentPassword: testPassword,
+        parentFirstName: 'Nathalie',
+        parentLastName: 'Petit',
       })
       .expect(201)
       .expect((res) => {
         expect(res.body.parent).toBeDefined();
-        expect(res.body.parent.role).toBe('parent_financeur');
         expect(res.body.parent.firstName).toBeUndefined();
         expect(res.body.parent.lastName).toBeUndefined();
+        expect(profileServiceClientStub.linkParentToStudent).toHaveBeenCalledWith({
+          studentId: res.body.student.id,
+          financeOwnerId: res.body.parent.id,
+        });
       });
   });
 
@@ -85,7 +186,7 @@ describe('Identity Access Service (e2e)', () => {
     const teacherEmail = `teacher-${timestamp}@example.com`;
     return request(app.getHttpServer())
       .post('/accounts/teachers')
-      .send({ email: teacherEmail, password: testPassword })
+      .send({ email: teacherEmail, password: testPassword, firstName: 'Marie', lastName: 'Martin' })
       .expect(201)
       .expect((res) => {
         expect(res.body.id).toBeDefined();
@@ -101,15 +202,58 @@ describe('Identity Access Service (e2e)', () => {
     const parentEmail = `parent-${timestamp}@example.com`;
     return request(app.getHttpServer())
       .post('/accounts/parents')
-      .send({ email: parentEmail, password: testPassword })
+      .send({ email: parentEmail, password: testPassword, firstName: 'Sophie', lastName: 'Bernard' })
       .expect(201)
       .expect((res) => {
-        expect(res.body.id).toBeDefined();
-        expect(res.body.email).toBe(parentEmail);
-        expect(res.body.role).toBe('parent_financeur');
-        expect(res.body.firstName).toBeUndefined();
-        expect(res.body.lastName).toBeUndefined();
-        expect(res.body.validationStatus).toBe('pending');
+        expect(res.body.parent).toBeDefined();
+        expect(res.body.parent.email).toBe(parentEmail);
+        expect(res.body.parent.role).toBe('parent_financeur');
+        expect(res.body.parent.firstName).toBeUndefined();
+        expect(res.body.parent.lastName).toBeUndefined();
+        expect(res.body.parent.validationStatus).toBe('pending');
+        expect(res.body.student).toBeNull();
+      });
+  });
+
+  it('POST /accounts/parents with studentEmail but without studentFirstName/studentLastName → 400', () => {
+    const parentEmail = `parent-nostudentnames-${timestamp}@example.com`;
+    return request(app.getHttpServer())
+      .post('/accounts/parents')
+      .send({
+        email: parentEmail,
+        password: testPassword,
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+        studentEmail: `student-noname-${timestamp}@example.com`,
+        studentPassword: testPassword,
+      })
+      .expect(400);
+  });
+
+  it('POST /accounts/parents with studentEmail, studentFirstName and studentLastName → 201, and the student is linked as financed student', () => {
+    const parentEmail = `parent-withstudent-${timestamp}@example.com`;
+    return request(app.getHttpServer())
+      .post('/accounts/parents')
+      .send({
+        email: parentEmail,
+        password: testPassword,
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+        studentEmail: `student-named-${timestamp}@example.com`,
+        studentPassword: testPassword,
+        studentFirstName: 'Lucas',
+        studentLastName: 'Petit',
+      })
+      .expect(201)
+      .expect((res) => {
+        expect(res.body.student).toBeDefined();
+        expect(res.body.student.created).toBe(true);
+        expect(res.body.student.firstName).toBeUndefined();
+        expect(res.body.student.lastName).toBeUndefined();
+        expect(profileServiceClientStub.linkParentToStudent).toHaveBeenCalledWith({
+          studentId: res.body.student.id,
+          financeOwnerId: res.body.parent.id,
+        });
       });
   });
 

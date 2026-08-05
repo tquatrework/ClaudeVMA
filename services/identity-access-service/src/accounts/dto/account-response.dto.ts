@@ -20,6 +20,15 @@ export interface StudentAccountCreationResponseDto {
   parent: (AccountResponseDto & { created: boolean }) | null;
 }
 
+/**
+ * Réponse de création d'un compte parent, avec compte élève optionnel lié ou créé
+ * (symétrique de StudentAccountCreationResponseDto).
+ */
+export interface ParentAccountCreationResponseDto {
+  parent: AccountResponseDto;
+  student: (AccountResponseDto & { created: boolean }) | null;
+}
+
 /** Réponse de GET /accounts/check-email. */
 export interface CheckEmailResponseDto {
   alreadyUsed: boolean;

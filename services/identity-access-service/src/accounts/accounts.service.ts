@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   NotFoundException,
+  ServiceUnavailableException,
   Logger,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
@@ -25,6 +26,7 @@ import { UpdateMeDto } from './dto/update-me.dto';
 import { EventsService } from '../events/events.service';
 import { ConfigService } from '@nestjs/config';
 import { Actor } from '../common/types/actor';
+import { ProfileServiceClient } from '../common/clients/profile-service.client';
 
 /** Nombre maximal d'enregistrements retournés par les listes non paginées explicitement. */
 const DEFAULT_LIST_LIMIT = 200;
@@ -38,6 +40,7 @@ export class AccountsService {
     @InjectRepository(AuditLog) private readonly auditRepo: Repository<AuditLog>,
     private readonly eventsService: EventsService,
     private readonly configService: ConfigService,
+    private readonly profileServiceClient: ProfileServiceClient,
     @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
@@ -102,6 +105,16 @@ export class AccountsService {
   // Public API
   // ---------------------------------------------------------------------------
 
+  /**
+   * firstName/lastName/phoneNumber sont saisis ici mais ne sont jamais écrits dans
+   * `users` (voir user.entity.ts) : ils sont transmis à profile-service via
+   * persistAdministrativeProfile(), seul lieu de stockage depuis le 2026-08-05.
+   * Toute la méthode est enveloppée dans une DataSource.transaction pour que
+   * l'échec de cet appel externe annule aussi l'insertion locale (rollback
+   * automatique) plutôt que de laisser un compte sans aucune trace de son
+   * identité (voir openItem TD-profile-call-in-transaction dans
+   * docs/services/identity-access-service.md pour le compromis assumé).
+   */
   async createAccount(dto: CreateAccountDto, ipAddress?: string) {
     const role = dto.role ?? UserRole.ELEVE;
 
@@ -109,22 +122,27 @@ export class AccountsService {
       throw new ForbiddenException('Cannot self-register with an internal role (IAM-FB-002)');
     }
 
-    const loginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier);
+    const { savedUser, emailAlreadyUsed, loginIdentifier } = await this.dataSource.transaction(async (manager) => {
+      const userRepo = manager.getRepository(User);
 
-    const emailAlreadyUsed = !!(await this.userRepo.findOne({ where: { email: dto.email } }));
+      const loginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier, userRepo);
+      const emailAlreadyUsed = !!(await userRepo.findOne({ where: { email: dto.email } }));
 
-    const passwordHash = await bcrypt.hash(dto.password, 12);
-    const newUser = this.userRepo.create({
-      loginIdentifier,
-      email: dto.email,
-      passwordHash,
-      role,
-      validationStatus: ValidationStatus.PENDING,
-      consentSigned: false,
+      const passwordHash = await bcrypt.hash(dto.password, 12);
+      const newUser = userRepo.create({
+        loginIdentifier,
+        email: dto.email,
+        passwordHash,
+        role,
+        validationStatus: ValidationStatus.PENDING,
+        consentSigned: false,
+      });
+      const savedUser = await userRepo.save(newUser);
+
+      await this.persistAdministrativeProfile(savedUser.id, dto.firstName, dto.lastName, dto.phoneNumber);
+
+      return { savedUser, emailAlreadyUsed, loginIdentifier };
     });
-    // Écriture unique sur une seule entité : un DataSource.transaction n'est pas
-    // nécessaire (la ligne insérée par save() est déjà atomique et auto-commitée).
-    const savedUser = await this.userRepo.save(newUser);
 
     this.eventsService.publish('AccountCreated', {
       userId: savedUser.id,
@@ -315,6 +333,8 @@ export class AccountsService {
    * Filtre optionnel par rôle. N'expose pas les données sensibles.
    * Liste bornée et ordonnée (services-convention) ; `limit`/`offset` permettent
    * une pagination explicite si un consommateur en a besoin.
+   * Ne contient plus firstName/lastName/phone (propriété exclusive de
+   * profile-service depuis le 2026-08-05).
    */
   async listAccounts(
     filterRole?: UserRole,
@@ -352,9 +372,17 @@ export class AccountsService {
    *       1 result  → link that existing account
    *       2+ results → 409: ask to use parentLoginIdentifier instead
    *
-   * La création de l'élève et la résolution du parent sont atomiques
-   * (DataSource.transaction) : si la résolution du parent échoue (404/409),
-   * le compte élève n'est pas créé.
+   * La création de l'élève, la résolution du parent, le stockage des profils
+   * administratifs (firstName/lastName/phone → profile-service) et la liaison
+   * financeur/élève automatique sont toutes réalisées dans la même
+   * DataSource.transaction : un échec à n'importe quelle étape (parent
+   * introuvable, email ambigu, profile-service indisponible) annule
+   * intégralement la création (élève ET parent éventuel).
+   *
+   * Règle produit du 2026-08-05 : quand élève et parent sont associés dans le
+   * même appel (parentLoginIdentifier ou parentEmail fourni), la liaison
+   * financeur/élève est immédiate et implicite, sans flow de demande — voir
+   * ProfileServiceClient.linkParentToStudent.
    */
   async createStudentAccount(dto: CreateStudentAccountDto, ipAddress?: string) {
     const result = await this.dataSource.transaction(async (manager) => {
@@ -412,6 +440,19 @@ export class AccountsService {
         }
       }
 
+      // Stockage des profils administratifs (profile-service = unique source de
+      // vérité). Seul le compte tout juste créé (élève ; parent uniquement si
+      // parentCreated) fournit des firstName/lastName fiables issus de ce même
+      // appel — un parent lié à un compte préexistant conserve son profil déjà
+      // enregistré, jamais écrasé par les champs saisis par l'élève ici.
+      await this.persistAdministrativeProfile(savedStudent.id, dto.firstName, dto.lastName, dto.phoneNumber);
+      if (parentCreated && savedParent) {
+        await this.persistAdministrativeProfile(savedParent.id, dto.parentFirstName as string, dto.parentLastName as string);
+      }
+      if (savedParent) {
+        await this.linkParentAsFinanceOwner(savedStudent.id, savedParent.id);
+      }
+
       return { savedStudent, studentEmailAlreadyUsed, studentLoginIdentifier, savedParent, parentCreated };
     });
 
@@ -451,20 +492,27 @@ export class AccountsService {
    * The teacher remains pending until RP validates after interview/test, contract and financial info.
    */
   async createTeacherAccount(dto: CreateTeacherAccountDto, ipAddress?: string) {
-    const loginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier);
-    const emailAlreadyUsed = !!(await this.userRepo.findOne({ where: { email: dto.email } }));
+    const { savedTeacher, emailAlreadyUsed, loginIdentifier } = await this.dataSource.transaction(async (manager) => {
+      const userRepo = manager.getRepository(User);
 
-    const passwordHash = await bcrypt.hash(dto.password, 12);
-    const teacher = this.userRepo.create({
-      loginIdentifier,
-      email: dto.email,
-      passwordHash,
-      role: UserRole.FORMATEUR,
-      validationStatus: ValidationStatus.PENDING,
-      consentSigned: false,
+      const loginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier, userRepo);
+      const emailAlreadyUsed = !!(await userRepo.findOne({ where: { email: dto.email } }));
+
+      const passwordHash = await bcrypt.hash(dto.password, 12);
+      const teacher = userRepo.create({
+        loginIdentifier,
+        email: dto.email,
+        passwordHash,
+        role: UserRole.FORMATEUR,
+        validationStatus: ValidationStatus.PENDING,
+        consentSigned: false,
+      });
+      const savedTeacher = await userRepo.save(teacher);
+
+      await this.persistAdministrativeProfile(savedTeacher.id, dto.firstName, dto.lastName, dto.phoneNumber);
+
+      return { savedTeacher, emailAlreadyUsed, loginIdentifier };
     });
-    // Écriture unique : pas de transaction nécessaire.
-    const savedTeacher = await this.userRepo.save(teacher);
 
     this.eventsService.publish('AccountCreated', {
       userId: savedTeacher.id,
@@ -476,8 +524,10 @@ export class AccountsService {
     });
 
     // Notification non-bloquante au dashboard RP — effet post-commit, réalisée
-    // une fois la ligne du formateur durablement enregistrée.
-    this.notifyDashboardTeacherPending(savedTeacher.id, savedTeacher.loginIdentifier);
+    // une fois la ligne du formateur durablement enregistrée. firstName/lastName
+    // du dto (saisie de la requête, jamais persistés localement) restent
+    // disponibles en mémoire à ce stade pour un message plus lisible.
+    this.notifyDashboardTeacherPending(savedTeacher.id, dto.firstName, dto.lastName);
 
     return {
       ...this.toPublic(savedTeacher),
@@ -486,35 +536,119 @@ export class AccountsService {
   }
 
   /**
-   * Creates a standalone parent financeur account.
+   * Creates a parent financeur account.
+   * Optionally links or creates a student (eleve) account in the same call — symétrique de
+   * createStudentAccount (parentLoginIdentifier/parentEmail côté élève), décision produit du
+   * 2026-08-05 : un parent qui s'inscrit en connaissant déjà les identifiants de son enfant
+   * doit pouvoir créer/lier les deux comptes en un seul appel, avec liaison financeur/élève
+   * immédiate et implicite (pas de flow de demande dans ce cas précis).
+   *
+   * Student resolution rules (identique à la résolution du parent côté createStudentAccount) :
+   *   - studentLoginIdentifier provided → find by loginIdentifier (404 if not found)
+   *   - studentEmail provided only:
+   *       0 results → create new student account
+   *       1 result  → link that existing account
+   *       2+ results → 409: ask to use studentLoginIdentifier instead
+   *
+   * Mêmes garanties d'atomicité que createStudentAccount (une seule
+   * DataSource.transaction couvrant la création du parent, la résolution de
+   * l'élève, le stockage des profils administratifs et la liaison automatique).
    */
   async createParentAccount(dto: CreateParentAccountDto, ipAddress?: string) {
-    const loginIdentifier = await this.resolveLoginIdentifier(dto.email, undefined);
-    const emailAlreadyUsed = !!(await this.userRepo.findOne({ where: { email: dto.email } }));
+    const result = await this.dataSource.transaction(async (manager) => {
+      const userRepo = manager.getRepository(User);
 
-    const passwordHash = await bcrypt.hash(dto.password, 12);
-    const parent = this.userRepo.create({
-      loginIdentifier,
-      email: dto.email,
-      passwordHash,
-      role: UserRole.PARENT_FINANCEUR,
-      validationStatus: ValidationStatus.PENDING,
-      consentSigned: false,
+      const parentLoginIdentifier = await this.resolveLoginIdentifier(dto.email, undefined, userRepo);
+      const parentEmailAlreadyUsed = !!(await userRepo.findOne({ where: { email: dto.email } }));
+
+      const parentPasswordHash = await bcrypt.hash(dto.password, 12);
+      const parent = userRepo.create({
+        loginIdentifier: parentLoginIdentifier,
+        email: dto.email,
+        passwordHash: parentPasswordHash,
+        role: UserRole.PARENT_FINANCEUR,
+        validationStatus: ValidationStatus.PENDING,
+        consentSigned: false,
+      });
+      const savedParent = await userRepo.save(parent);
+
+      let savedStudent: User | null = null;
+      let studentCreated = false;
+
+      if (dto.studentLoginIdentifier) {
+        // Explicit identifier — find the account or fail
+        const existingStudent = await userRepo.findOne({ where: { loginIdentifier: dto.studentLoginIdentifier } });
+        if (!existingStudent) {
+          throw new NotFoundException(`No account found with loginIdentifier '${dto.studentLoginIdentifier}'`);
+        }
+        savedStudent = existingStudent;
+      } else if (dto.studentEmail) {
+        const matchingStudents = await userRepo.find({ where: { email: dto.studentEmail } });
+
+        if (matchingStudents.length === 0) {
+          // Create new student account
+          const studentLoginIdentifier = await this.generateLoginIdentifier(dto.studentEmail, userRepo);
+          const studentPasswordHash = await bcrypt.hash(dto.studentPassword ?? dto.password, 12);
+          const student = userRepo.create({
+            loginIdentifier: studentLoginIdentifier,
+            email: dto.studentEmail,
+            passwordHash: studentPasswordHash,
+            role: UserRole.ELEVE,
+            validationStatus: ValidationStatus.PENDING,
+            consentSigned: false,
+          });
+          savedStudent = await userRepo.save(student);
+          studentCreated = true;
+        } else if (matchingStudents.length === 1) {
+          // Link existing account
+          savedStudent = matchingStudents[0];
+        } else {
+          // Ambiguous — multiple accounts share this email
+          throw new ConflictException(
+            'Plusieurs comptes existent avec cet email élève. Utilisez studentLoginIdentifier à la place.',
+          );
+        }
+      }
+
+      await this.persistAdministrativeProfile(savedParent.id, dto.firstName, dto.lastName, dto.phoneNumber);
+      if (studentCreated && savedStudent) {
+        await this.persistAdministrativeProfile(savedStudent.id, dto.studentFirstName as string, dto.studentLastName as string);
+      }
+      if (savedStudent) {
+        await this.linkParentAsFinanceOwner(savedStudent.id, savedParent.id);
+      }
+
+      return { savedParent, parentEmailAlreadyUsed, parentLoginIdentifier, savedStudent, studentCreated };
     });
-    // Écriture unique : pas de transaction nécessaire.
-    const savedParent = await this.userRepo.save(parent);
 
     this.eventsService.publish('AccountCreated', {
-      userId: savedParent.id,
-      loginIdentifier: savedParent.loginIdentifier,
-      email: savedParent.email,
-      role: savedParent.role,
+      userId: result.savedParent.id,
+      loginIdentifier: result.savedParent.loginIdentifier,
+      email: result.savedParent.email,
+      role: result.savedParent.role,
       ipAddress,
     });
 
+    if (result.studentCreated && result.savedStudent) {
+      this.eventsService.publish('AccountCreated', {
+        userId: result.savedStudent.id,
+        loginIdentifier: result.savedStudent.loginIdentifier,
+        email: result.savedStudent.email,
+        role: result.savedStudent.role,
+        ipAddress,
+      });
+    }
+
     return {
-      ...this.toPublic(savedParent),
-      ...(emailAlreadyUsed ? { emailAlreadyUsed: true, suggestedLoginIdentifier: loginIdentifier } : {}),
+      parent: {
+        ...this.toPublic(result.savedParent),
+        ...(result.parentEmailAlreadyUsed
+          ? { emailAlreadyUsed: true, suggestedLoginIdentifier: result.parentLoginIdentifier }
+          : {}),
+      },
+      student: result.savedStudent
+        ? { ...this.toPublic(result.savedStudent), created: result.studentCreated }
+        : null,
     };
   }
 
@@ -768,19 +902,18 @@ export class AccountsService {
    * Envoie une notification au dashboard-notification-service pour informer le RP
    * qu'un nouveau formateur est en attente de validation.
    * L'appel est non-bloquant : une erreur est loguée mais ne fait pas échouer la création de compte.
-   *
-   * Ne transmet plus de nom lisible (firstName/lastName) : ces champs sont
-   * désormais la propriété exclusive de profile-service (décision d'architecture
-   * du 2026-08-05). Seul loginIdentifier reste disponible ici comme repère humain
-   * — dashboard-notification-service devra résoudre l'affichage du nom complet
-   * via profile-service si un affichage plus riche est nécessaire (signalé à
-   * l'orchestrateur, hors périmètre de ce service).
    */
-  private notifyDashboardTeacherPending(teacherId: string, loginIdentifier: string): void {
+  private notifyDashboardTeacherPending(
+    teacherId: string,
+    firstName: string,
+    lastName: string,
+  ): void {
     const dashboardServiceUrl = this.configService.get<string>(
       'DASHBOARD_NOTIFICATION_SERVICE_URL',
       'http://dashboard-notification-service:3000',
     );
+
+    const teacherFullName = [firstName, lastName].filter(Boolean).join(' ') || 'Formateur inconnu';
 
     fetch(`${dashboardServiceUrl}/internal/notify`, {
       method: 'POST',
@@ -790,7 +923,7 @@ export class AccountsService {
         targetRole: 'responsable_pedagogique',
         payload: {
           teacherId,
-          teacherLoginIdentifier: loginIdentifier,
+          teacherName: teacherFullName,
           message: 'Nouveau formateur en attente de validation',
         },
       }),
@@ -800,6 +933,65 @@ export class AccountsService {
         `Impossible de notifier le dashboard pour le formateur ${teacherId} : ${notificationError.message}`,
       );
     });
+  }
+
+  /**
+   * Enregistre le profil administratif (firstName/lastName/phone) d'un compte
+   * nouvellement créé auprès de profile-service — unique lieu de stockage de ces
+   * données depuis la décision d'architecture du 2026-08-05
+   * (identity-access-service ne les persiste plus du tout localement, voir
+   * user.entity.ts). Doit être appelée à l'intérieur de la même
+   * DataSource.transaction que la création du compte : si l'appel échoue
+   * (réseau, timeout, HTTP non-2xx), l'exception ServiceUnavailableException
+   * levée ici fait échouer toute la transaction (rollback automatique de la
+   * ligne `users` tout juste insérée) plutôt que de créer un compte "orphelin"
+   * sans aucune trace de son identité dans le système.
+   *
+   * Compromis assumé : la connexion DB de la transaction reste ouverte pendant
+   * l'appel réseau (borné à 3s par ProfileServiceClient) — acceptable au volume
+   * de la phase 1, à revisiter (ex: saga/outbox) si le volume augmente
+   * significativement. Voir openItem correspondant dans
+   * docs/services/identity-access-service.md.
+   */
+  private async persistAdministrativeProfile(
+    userId: string,
+    firstName: string,
+    lastName: string,
+    phoneNumber?: string,
+  ): Promise<void> {
+    try {
+      await this.profileServiceClient.createAdministrativeProfile({
+        userId,
+        firstName,
+        lastName,
+        ...(phoneNumber ? { phoneNumber } : {}),
+      });
+    } catch (profileError) {
+      throw new ServiceUnavailableException(
+        "Impossible de finaliser la création du compte : le profil utilisateur (nom, prénom, téléphone) n'a " +
+          'pas pu être enregistré car profile-service est indisponible ou en erreur. Aucune donnée n\'a été ' +
+          `conservée, veuillez réessayer. Détail : ${(profileError as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * Crée le lien financeur/élève (finance-owner-student) lorsqu'un élève et un
+   * parent financeur sont créés ou associés dans le même appel de création de
+   * compte (createStudentAccount avec parentLoginIdentifier/parentEmail, ou
+   * createParentAccount avec studentLoginIdentifier/studentEmail — décision
+   * produit du 2026-08-05). Mêmes garanties d'atomicité que
+   * persistAdministrativeProfile ci-dessus.
+   */
+  private async linkParentAsFinanceOwner(studentId: string, financeOwnerId: string): Promise<void> {
+    try {
+      await this.profileServiceClient.linkParentToStudent({ studentId, financeOwnerId });
+    } catch (linkError) {
+      throw new ServiceUnavailableException(
+        'Impossible de finaliser la création des comptes : la liaison financeur/élève a échoué car ' +
+          `profile-service est indisponible ou en erreur. Veuillez réessayer. Détail : ${(linkError as Error).message}`,
+      );
+    }
   }
 
   private async findOrFail(id: string, userRepo: Repository<User> = this.userRepo): Promise<User> {

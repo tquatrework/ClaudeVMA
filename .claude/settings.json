@@ -47,7 +47,9 @@
       "Bash(cd * && npx tsc --noEmit *)",
       "Bash(cd * && npx tsc --noEmit)",
       "Bash(git fetch *)",
-      "Bash(git fetch)"
+      "Bash(git fetch)",
+      "Write(.claude/reports/**)",
+      "Edit(.claude/reports/**)"
     ]
   }
 }

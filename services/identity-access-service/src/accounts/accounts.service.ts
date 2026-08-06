@@ -106,14 +106,11 @@ export class AccountsService {
   // ---------------------------------------------------------------------------
 
   /**
-   * firstName/lastName/phoneNumber sont saisis ici mais ne sont jamais écrits dans
-   * `users` (voir user.entity.ts) : ils sont transmis à profile-service via
-   * persistAdministrativeProfile(), seul lieu de stockage depuis le 2026-08-05.
-   * Toute la méthode est enveloppée dans une DataSource.transaction pour que
-   * l'échec de cet appel externe annule aussi l'insertion locale (rollback
-   * automatique) plutôt que de laisser un compte sans aucune trace de son
-   * identité (voir openItem TD-profile-call-in-transaction dans
-   * docs/services/identity-access-service.md pour le compromis assumé).
+   * firstName/lastName/phone n'ont plus leur place ici : identity-access-service
+   * ne les collecte plus du tout (arbitrage d'architecture du 2026-08-06,
+   * propriété exclusive de profile-service). Écriture unique sur une seule
+   * entité : un DataSource.transaction n'est pas nécessaire (la ligne insérée
+   * par save() est déjà atomique et auto-commitée).
    */
   async createAccount(dto: CreateAccountDto, ipAddress?: string) {
     const role = dto.role ?? UserRole.ELEVE;
@@ -122,27 +119,19 @@ export class AccountsService {
       throw new ForbiddenException('Cannot self-register with an internal role (IAM-FB-002)');
     }
 
-    const { savedUser, emailAlreadyUsed, loginIdentifier } = await this.dataSource.transaction(async (manager) => {
-      const userRepo = manager.getRepository(User);
+    const loginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier);
+    const emailAlreadyUsed = !!(await this.userRepo.findOne({ where: { email: dto.email } }));
 
-      const loginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier, userRepo);
-      const emailAlreadyUsed = !!(await userRepo.findOne({ where: { email: dto.email } }));
-
-      const passwordHash = await bcrypt.hash(dto.password, 12);
-      const newUser = userRepo.create({
-        loginIdentifier,
-        email: dto.email,
-        passwordHash,
-        role,
-        validationStatus: ValidationStatus.PENDING,
-        consentSigned: false,
-      });
-      const savedUser = await userRepo.save(newUser);
-
-      await this.persistAdministrativeProfile(savedUser.id, dto.firstName, dto.lastName, dto.phoneNumber);
-
-      return { savedUser, emailAlreadyUsed, loginIdentifier };
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+    const newUser = this.userRepo.create({
+      loginIdentifier,
+      email: dto.email,
+      passwordHash,
+      role,
+      validationStatus: ValidationStatus.PENDING,
+      consentSigned: false,
     });
+    const savedUser = await this.userRepo.save(newUser);
 
     this.eventsService.publish('AccountCreated', {
       userId: savedUser.id,
@@ -372,17 +361,23 @@ export class AccountsService {
    *       1 result  → link that existing account
    *       2+ results → 409: ask to use parentLoginIdentifier instead
    *
-   * La création de l'élève, la résolution du parent, le stockage des profils
-   * administratifs (firstName/lastName/phone → profile-service) et la liaison
+   * La création de l'élève, la résolution du parent et la liaison
    * financeur/élève automatique sont toutes réalisées dans la même
    * DataSource.transaction : un échec à n'importe quelle étape (parent
-   * introuvable, email ambigu, profile-service indisponible) annule
-   * intégralement la création (élève ET parent éventuel).
+   * introuvable, email ambigu, profile-service indisponible pour la liaison)
+   * annule intégralement la création (élève ET parent éventuel).
    *
-   * Règle produit du 2026-08-05 : quand élève et parent sont associés dans le
-   * même appel (parentLoginIdentifier ou parentEmail fourni), la liaison
-   * financeur/élève est immédiate et implicite, sans flow de demande — voir
-   * ProfileServiceClient.linkParentToStudent.
+   * Règle produit du 2026-08-05 (toujours valable, indépendante de la
+   * propriété des champs d'identité) : quand élève et parent sont associés
+   * dans le même appel (parentLoginIdentifier ou parentEmail fourni), la
+   * liaison financeur/élève est immédiate et implicite, sans flow de demande
+   * — voir ProfileServiceClient.linkParentToStudent.
+   *
+   * Ne collecte plus firstName/lastName/phone (arbitrage d'architecture du
+   * 2026-08-06, propriété exclusive de profile-service) : un compte créé ou
+   * lié ici (élève et/ou parent) n'a donc aucun profil administratif tant que
+   * profile-service n'en reçoit pas un par un autre canal (front,
+   * orchestration-service).
    */
   async createStudentAccount(dto: CreateStudentAccountDto, ipAddress?: string) {
     const result = await this.dataSource.transaction(async (manager) => {
@@ -440,15 +435,6 @@ export class AccountsService {
         }
       }
 
-      // Stockage des profils administratifs (profile-service = unique source de
-      // vérité). Seul le compte tout juste créé (élève ; parent uniquement si
-      // parentCreated) fournit des firstName/lastName fiables issus de ce même
-      // appel — un parent lié à un compte préexistant conserve son profil déjà
-      // enregistré, jamais écrasé par les champs saisis par l'élève ici.
-      await this.persistAdministrativeProfile(savedStudent.id, dto.firstName, dto.lastName, dto.phoneNumber);
-      if (parentCreated && savedParent) {
-        await this.persistAdministrativeProfile(savedParent.id, dto.parentFirstName as string, dto.parentLastName as string);
-      }
       if (savedParent) {
         await this.linkParentAsFinanceOwner(savedStudent.id, savedParent.id);
       }
@@ -490,29 +476,24 @@ export class AccountsService {
   /**
    * Creates a teacher account (formateur role) in PENDING status.
    * The teacher remains pending until RP validates after interview/test, contract and financial info.
+   * Ne collecte plus firstName/lastName/phone (arbitrage d'architecture du
+   * 2026-08-06, propriété exclusive de profile-service). Écriture unique :
+   * pas de transaction nécessaire.
    */
   async createTeacherAccount(dto: CreateTeacherAccountDto, ipAddress?: string) {
-    const { savedTeacher, emailAlreadyUsed, loginIdentifier } = await this.dataSource.transaction(async (manager) => {
-      const userRepo = manager.getRepository(User);
+    const loginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier);
+    const emailAlreadyUsed = !!(await this.userRepo.findOne({ where: { email: dto.email } }));
 
-      const loginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier, userRepo);
-      const emailAlreadyUsed = !!(await userRepo.findOne({ where: { email: dto.email } }));
-
-      const passwordHash = await bcrypt.hash(dto.password, 12);
-      const teacher = userRepo.create({
-        loginIdentifier,
-        email: dto.email,
-        passwordHash,
-        role: UserRole.FORMATEUR,
-        validationStatus: ValidationStatus.PENDING,
-        consentSigned: false,
-      });
-      const savedTeacher = await userRepo.save(teacher);
-
-      await this.persistAdministrativeProfile(savedTeacher.id, dto.firstName, dto.lastName, dto.phoneNumber);
-
-      return { savedTeacher, emailAlreadyUsed, loginIdentifier };
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+    const teacher = this.userRepo.create({
+      loginIdentifier,
+      email: dto.email,
+      passwordHash,
+      role: UserRole.FORMATEUR,
+      validationStatus: ValidationStatus.PENDING,
+      consentSigned: false,
     });
+    const savedTeacher = await this.userRepo.save(teacher);
 
     this.eventsService.publish('AccountCreated', {
       userId: savedTeacher.id,
@@ -523,11 +504,11 @@ export class AccountsService {
       cvReference: dto.cvReference,
     });
 
-    // Notification non-bloquante au dashboard RP — effet post-commit, réalisée
-    // une fois la ligne du formateur durablement enregistrée. firstName/lastName
-    // du dto (saisie de la requête, jamais persistés localement) restent
-    // disponibles en mémoire à ce stade pour un message plus lisible.
-    this.notifyDashboardTeacherPending(savedTeacher.id, dto.firstName, dto.lastName);
+    // Notification non-bloquante au dashboard RP. N'utilise plus firstName/
+    // lastName (identity-access-service ne les collecte plus) : l'email
+    // identifie le formateur de façon fiable et disponible sans appel réseau
+    // supplémentaire vers profile-service.
+    this.notifyDashboardTeacherPending(savedTeacher.id, savedTeacher.email);
 
     return {
       ...this.toPublic(savedTeacher),
@@ -552,7 +533,10 @@ export class AccountsService {
    *
    * Mêmes garanties d'atomicité que createStudentAccount (une seule
    * DataSource.transaction couvrant la création du parent, la résolution de
-   * l'élève, le stockage des profils administratifs et la liaison automatique).
+   * l'élève et la liaison automatique).
+   *
+   * Ne collecte plus firstName/lastName/phone (arbitrage d'architecture du
+   * 2026-08-06, propriété exclusive de profile-service).
    */
   async createParentAccount(dto: CreateParentAccountDto, ipAddress?: string) {
     const result = await this.dataSource.transaction(async (manager) => {
@@ -610,10 +594,6 @@ export class AccountsService {
         }
       }
 
-      await this.persistAdministrativeProfile(savedParent.id, dto.firstName, dto.lastName, dto.phoneNumber);
-      if (studentCreated && savedStudent) {
-        await this.persistAdministrativeProfile(savedStudent.id, dto.studentFirstName as string, dto.studentLastName as string);
-      }
       if (savedStudent) {
         await this.linkParentAsFinanceOwner(savedStudent.id, savedParent.id);
       }
@@ -902,18 +882,15 @@ export class AccountsService {
    * Envoie une notification au dashboard-notification-service pour informer le RP
    * qu'un nouveau formateur est en attente de validation.
    * L'appel est non-bloquant : une erreur est loguée mais ne fait pas échouer la création de compte.
+   * N'utilise plus firstName/lastName (identity-access-service ne les collecte
+   * plus, arbitrage d'architecture du 2026-08-06) : l'email identifie le
+   * formateur de façon fiable sans appel supplémentaire vers profile-service.
    */
-  private notifyDashboardTeacherPending(
-    teacherId: string,
-    firstName: string,
-    lastName: string,
-  ): void {
+  private notifyDashboardTeacherPending(teacherId: string, email: string): void {
     const dashboardServiceUrl = this.configService.get<string>(
       'DASHBOARD_NOTIFICATION_SERVICE_URL',
       'http://dashboard-notification-service:3000',
     );
-
-    const teacherFullName = [firstName, lastName].filter(Boolean).join(' ') || 'Formateur inconnu';
 
     fetch(`${dashboardServiceUrl}/internal/notify`, {
       method: 'POST',
@@ -923,7 +900,7 @@ export class AccountsService {
         targetRole: 'responsable_pedagogique',
         payload: {
           teacherId,
-          teacherName: teacherFullName,
+          teacherEmail: email,
           message: 'Nouveau formateur en attente de validation',
         },
       }),
@@ -936,55 +913,13 @@ export class AccountsService {
   }
 
   /**
-   * Enregistre le profil administratif (firstName/lastName/phone) d'un compte
-   * nouvellement créé auprès de profile-service — unique lieu de stockage de ces
-   * données depuis la décision d'architecture du 2026-08-05
-   * (identity-access-service ne les persiste plus du tout localement, voir
-   * user.entity.ts). Doit être appelée à l'intérieur de la même
-   * DataSource.transaction que la création du compte : si l'appel échoue
-   * (réseau, timeout, HTTP non-2xx), l'exception ServiceUnavailableException
-   * levée ici fait échouer toute la transaction (rollback automatique de la
-   * ligne `users` tout juste insérée) plutôt que de créer un compte "orphelin"
-   * sans aucune trace de son identité dans le système.
-   *
-   * Compromis assumé : la connexion DB de la transaction reste ouverte pendant
-   * l'appel réseau (borné à 3s par ProfileServiceClient) — acceptable au volume
-   * de la phase 1, à revisiter (ex: saga/outbox) si le volume augmente
-   * significativement. Voir openItem correspondant dans
-   * docs/services/identity-access-service.md.
-   */
-  private async persistAdministrativeProfile(
-    userId: string,
-    firstName: string,
-    lastName: string,
-    phoneNumber?: string,
-  ): Promise<void> {
-    try {
-      await this.profileServiceClient.createAdministrativeProfile({
-        userId,
-        firstName,
-        lastName,
-        // Mapping de nom de champ : phoneNumber côté DTO d'entrée
-        // d'identity-access-service → phone côté contrat profile-service
-        // (convention déjà établie sur ses autres routes internes).
-        ...(phoneNumber ? { phone: phoneNumber } : {}),
-      });
-    } catch (profileError) {
-      throw new ServiceUnavailableException(
-        "Impossible de finaliser la création du compte : le profil utilisateur (nom, prénom, téléphone) n'a " +
-          'pas pu être enregistré car profile-service est indisponible ou en erreur. Aucune donnée n\'a été ' +
-          `conservée, veuillez réessayer. Détail : ${(profileError as Error).message}`,
-      );
-    }
-  }
-
-  /**
    * Crée le lien financeur/élève (finance-owner-student) lorsqu'un élève et un
    * parent financeur sont créés ou associés dans le même appel de création de
    * compte (createStudentAccount avec parentLoginIdentifier/parentEmail, ou
    * createParentAccount avec studentLoginIdentifier/studentEmail — décision
-   * produit du 2026-08-05). Mêmes garanties d'atomicité que
-   * persistAdministrativeProfile ci-dessus.
+   * produit du 2026-08-05). N'échange aucune donnée d'identité
+   * (firstName/lastName/phone) : seuls les identifiants techniques
+   * (studentId, financeOwnerId) sont transmis.
    */
   private async linkParentAsFinanceOwner(studentId: string, financeOwnerId: string): Promise<void> {
     try {

@@ -30,7 +30,7 @@ describe('AccountsService', () => {
   let userRepo: any;
   let auditRepo: any;
   let eventsService: { publish: jest.Mock };
-  let profileServiceClient: { createAdministrativeProfile: jest.Mock; linkParentToStudent: jest.Mock };
+  let profileServiceClient: { linkParentToStudent: jest.Mock };
 
   beforeEach(async () => {
     userRepo = {
@@ -55,7 +55,6 @@ describe('AccountsService', () => {
 
     eventsService = { publish: jest.fn() };
     profileServiceClient = {
-      createAdministrativeProfile: jest.fn().mockResolvedValue(undefined),
       linkParentToStudent: jest.fn().mockResolvedValue(undefined),
     };
 
@@ -87,22 +86,19 @@ describe('AccountsService', () => {
       const result = await service.createAccount({
         email: 'new@test.com',
         password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
       });
       expect(result).toHaveProperty('validationStatus', ValidationStatus.PENDING);
       expect(result).toHaveProperty('loginIdentifier');
     });
 
-    it('does not expose firstName/lastName on the response (identity-access-service no longer owns these fields)', async () => {
+    it('does not expose firstName/lastName/phone on the response (identity-access-service no longer owns these fields)', async () => {
       const result = await service.createAccount({
         email: 'named@test.com',
         password: 'password123',
-        firstName: 'Camille',
-        lastName: 'Lefevre',
       });
       expect(result).not.toHaveProperty('firstName');
       expect(result).not.toHaveProperty('lastName');
+      expect(result).not.toHaveProperty('phone');
     });
 
     it('creates account even when email is already used, setting emailAlreadyUsed flag', async () => {
@@ -113,8 +109,6 @@ describe('AccountsService', () => {
       const result = await service.createAccount({
         email: 'test@example.com',
         password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
       });
       expect(result).toHaveProperty('emailAlreadyUsed', true);
       expect(result).toHaveProperty('suggestedLoginIdentifier');
@@ -126,8 +120,6 @@ describe('AccountsService', () => {
         service.createAccount({
           email: 'new@test.com',
           password: 'password123',
-          firstName: 'Jean',
-          lastName: 'Dupont',
           loginIdentifier: 'test.user',
         }),
       ).rejects.toThrow(ConflictException);
@@ -138,8 +130,6 @@ describe('AccountsService', () => {
         service.createAccount({
           email: 'hack@test.com',
           password: 'password123',
-          firstName: 'Jean',
-          lastName: 'Dupont',
           role: UserRole.TECHNICIEN_INFORMATIQUE,
         }),
       ).rejects.toThrow(ForbiddenException);
@@ -149,8 +139,6 @@ describe('AccountsService', () => {
       const result = await service.createAccount({
         email: 'teacher@test.com',
         password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
         role: UserRole.FORMATEUR,
       });
       expect(result.role).toBe(UserRole.FORMATEUR);
@@ -160,8 +148,6 @@ describe('AccountsService', () => {
       await service.createAccount({
         email: 'new@test.com',
         password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
       });
       expect(eventsService.publish).toHaveBeenCalledWith('AccountCreated', expect.objectContaining({
         userId: 'user-uuid',
@@ -233,23 +219,20 @@ describe('AccountsService', () => {
       const result = await service.createStudentAccount({
         email: 'student@test.com',
         password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
       });
       expect(result.student).toHaveProperty('validationStatus', ValidationStatus.PENDING);
       expect(result.student.role).toBe(UserRole.ELEVE);
       expect(result.parent).toBeNull();
     });
 
-    it('does not expose firstName/lastName on the student response', async () => {
+    it('does not expose firstName/lastName/phone on the student response', async () => {
       const result = await service.createStudentAccount({
         email: 'student2@test.com',
         password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
       });
       expect(result.student).not.toHaveProperty('firstName');
       expect(result.student).not.toHaveProperty('lastName');
+      expect(result.student).not.toHaveProperty('phone');
     });
 
     it('creates a parent account when parentEmail is provided and no existing parent matches', async () => {
@@ -259,12 +242,8 @@ describe('AccountsService', () => {
       const result = await service.createStudentAccount({
         email: 'student@test.com',
         password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
         parentEmail: 'parent@test.com',
         parentPassword: 'parentpass123',
-        parentFirstName: 'Nathalie',
-        parentLastName: 'Petit',
       });
       expect(result.student.role).toBe(UserRole.ELEVE);
       expect(result.parent).not.toBeNull();
@@ -279,11 +258,7 @@ describe('AccountsService', () => {
       const result = await service.createStudentAccount({
         email: 'student@test.com',
         password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
         parentEmail: 'parent@test.com',
-        parentFirstName: 'Nathalie',
-        parentLastName: 'Petit',
       });
       expect(result.parent!.id).toBe('parent-uuid');
       expect(result.parent!.created).toBe(false);
@@ -297,11 +272,7 @@ describe('AccountsService', () => {
         service.createStudentAccount({
           email: 'student@test.com',
           password: 'password123',
-          firstName: 'Lucas',
-          lastName: 'Petit',
           parentEmail: 'shared@test.com',
-          parentFirstName: 'Nathalie',
-          parentLastName: 'Petit',
         }),
       ).rejects.toThrow(ConflictException);
     });
@@ -312,8 +283,6 @@ describe('AccountsService', () => {
         service.createStudentAccount({
           email: 'new@test.com',
           password: 'password123',
-          firstName: 'Lucas',
-          lastName: 'Petit',
           loginIdentifier: 'test.user',
         }),
       ).rejects.toThrow(ConflictException);
@@ -323,8 +292,6 @@ describe('AccountsService', () => {
       await service.createStudentAccount({
         email: 'student@test.com',
         password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
       });
       expect(eventsService.publish).toHaveBeenCalledWith('AccountCreated', expect.objectContaining({
         userId: 'user-uuid',
@@ -338,12 +305,8 @@ describe('AccountsService', () => {
       await service.createStudentAccount({
         email: 'student@test.com',
         password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
         parentEmail: 'parent@test.com',
         parentPassword: 'parentpass123',
-        parentFirstName: 'Nathalie',
-        parentLastName: 'Petit',
       });
       const publishCalls = eventsService.publish.mock.calls.filter(
         ([eventType]) => eventType === 'AccountCreated',
@@ -364,23 +327,20 @@ describe('AccountsService', () => {
       const result = await service.createTeacherAccount({
         email: 'teacher@test.com',
         password: 'password123',
-        firstName: 'Marie',
-        lastName: 'Martin',
       });
       expect(result.role).toBe(UserRole.FORMATEUR);
       expect(result.validationStatus).toBe(ValidationStatus.PENDING);
       expect(result).toHaveProperty('loginIdentifier');
     });
 
-    it('does not expose firstName/lastName on the response', async () => {
+    it('does not expose firstName/lastName/phone on the response', async () => {
       const result = await service.createTeacherAccount({
         email: 'teacher2@test.com',
         password: 'password123',
-        firstName: 'Marie',
-        lastName: 'Martin',
       });
       expect(result).not.toHaveProperty('firstName');
       expect(result).not.toHaveProperty('lastName');
+      expect(result).not.toHaveProperty('phone');
     });
 
     it('creates account even when email is already used, setting emailAlreadyUsed flag', async () => {
@@ -390,8 +350,6 @@ describe('AccountsService', () => {
       const result = await service.createTeacherAccount({
         email: 'existing@test.com',
         password: 'password123',
-        firstName: 'Marie',
-        lastName: 'Martin',
       });
       expect(result).toHaveProperty('emailAlreadyUsed', true);
     });
@@ -402,8 +360,6 @@ describe('AccountsService', () => {
         service.createTeacherAccount({
           email: 'new@test.com',
           password: 'password123',
-          firstName: 'Marie',
-          lastName: 'Martin',
           loginIdentifier: 'test.user',
         }),
       ).rejects.toThrow(ConflictException);
@@ -413,8 +369,6 @@ describe('AccountsService', () => {
       await service.createTeacherAccount({
         email: 'teacher@test.com',
         password: 'password123',
-        firstName: 'Marie',
-        lastName: 'Martin',
       });
       expect(eventsService.publish).toHaveBeenCalledWith('AccountCreated', expect.objectContaining({
         userId: 'user-uuid',
@@ -425,17 +379,16 @@ describe('AccountsService', () => {
   });
 
   describe('createParentAccount', () => {
-    it('creates a parent account with PENDING status and does not expose firstName/lastName', async () => {
+    it('creates a parent account with PENDING status and does not expose firstName/lastName/phone', async () => {
       const result = await service.createParentAccount({
         email: 'parent@test.com',
         password: 'password123',
-        firstName: 'Sophie',
-        lastName: 'Bernard',
       });
       expect(result.parent.role).toBe(UserRole.PARENT_FINANCEUR);
       expect(result.parent.validationStatus).toBe(ValidationStatus.PENDING);
       expect(result.parent).not.toHaveProperty('firstName');
       expect(result.parent).not.toHaveProperty('lastName');
+      expect(result.parent).not.toHaveProperty('phone');
       expect(result.student).toBeNull();
     });
 
@@ -443,8 +396,6 @@ describe('AccountsService', () => {
       await service.createParentAccount({
         email: 'parent@test.com',
         password: 'password123',
-        firstName: 'Sophie',
-        lastName: 'Bernard',
       });
       expect(eventsService.publish).toHaveBeenCalledWith('AccountCreated', expect.objectContaining({
         userId: 'user-uuid',
@@ -458,12 +409,8 @@ describe('AccountsService', () => {
       const result = await service.createParentAccount({
         email: 'parent@test.com',
         password: 'password123',
-        firstName: 'Sophie',
-        lastName: 'Bernard',
         studentEmail: 'student@test.com',
         studentPassword: 'studentpass123',
-        studentFirstName: 'Lucas',
-        studentLastName: 'Petit',
       });
       expect(result.parent.role).toBe(UserRole.PARENT_FINANCEUR);
       expect(result.student).not.toBeNull();
@@ -477,8 +424,6 @@ describe('AccountsService', () => {
       const result = await service.createParentAccount({
         email: 'parent@test.com',
         password: 'password123',
-        firstName: 'Sophie',
-        lastName: 'Bernard',
         studentEmail: 'student@test.com',
       });
       expect(result.student!.id).toBe('student-uuid');
@@ -493,8 +438,6 @@ describe('AccountsService', () => {
         service.createParentAccount({
           email: 'parent@test.com',
           password: 'password123',
-          firstName: 'Sophie',
-          lastName: 'Bernard',
           studentEmail: 'shared@test.com',
         }),
       ).rejects.toThrow(ConflictException);
@@ -506,8 +449,6 @@ describe('AccountsService', () => {
         service.createParentAccount({
           email: 'parent@test.com',
           password: 'password123',
-          firstName: 'Sophie',
-          lastName: 'Bernard',
           studentLoginIdentifier: 'unknown.student',
         }),
       ).rejects.toThrow(NotFoundException);
@@ -518,12 +459,8 @@ describe('AccountsService', () => {
       await service.createParentAccount({
         email: 'parent@test.com',
         password: 'password123',
-        firstName: 'Sophie',
-        lastName: 'Bernard',
         studentEmail: 'student@test.com',
         studentPassword: 'studentpass123',
-        studentFirstName: 'Lucas',
-        studentLastName: 'Petit',
       });
       expect(profileServiceClient.linkParentToStudent).toHaveBeenCalledWith({
         studentId: 'user-uuid',
@@ -535,8 +472,6 @@ describe('AccountsService', () => {
       await service.createParentAccount({
         email: 'parent@test.com',
         password: 'password123',
-        firstName: 'Sophie',
-        lastName: 'Bernard',
       });
       expect(profileServiceClient.linkParentToStudent).not.toHaveBeenCalled();
     });
@@ -742,199 +677,9 @@ describe('AccountsService', () => {
     });
   });
 
-  // ── Stockage du profil administratif via profile-service (décision du 2026-08-05) ──
-
-  describe('administrative profile storage via profile-service', () => {
-    it('createAccount: calls profile-service with {userId, firstName, lastName} after creating the account', async () => {
-      await service.createAccount({
-        email: 'store@test.com',
-        password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
-      });
-
-      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith({
-        userId: 'user-uuid',
-        firstName: 'Jean',
-        lastName: 'Dupont',
-      });
-    });
-
-    it('createAccount: forwards phoneNumber to profile-service as `phone` (contract field name)', async () => {
-      await service.createAccount({
-        email: 'store-phone@test.com',
-        password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
-        phoneNumber: '+33 6 01 02 03 04',
-      });
-
-      // profile-service attend `phone`, pas `phoneNumber` (convention deja
-      // etablie sur ses autres routes internes) — seul le mapping au moment
-      // de l'appel change, le DTO d'entree public garde phoneNumber.
-      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith({
-        userId: 'user-uuid',
-        firstName: 'Jean',
-        lastName: 'Dupont',
-        phone: '+33 6 01 02 03 04',
-      });
-    });
-
-    it('createAccount: fails the account creation with 503 when profile-service is unavailable, and no account is left behind', async () => {
-      profileServiceClient.createAdministrativeProfile.mockRejectedValueOnce(
-        new Error('profile-service unreachable or timed out'),
-      );
-
-      await expect(
-        service.createAccount({
-          email: 'resilient@test.com',
-          password: 'password123',
-          firstName: 'Jean',
-          lastName: 'Dupont',
-        }),
-      ).rejects.toThrow(ServiceUnavailableException);
-
-      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalled();
-      // AccountCreated must not be published for a rolled-back account.
-      expect(eventsService.publish).not.toHaveBeenCalled();
-    });
-
-    it('createTeacherAccount: calls profile-service with the teacher userId/firstName/lastName', async () => {
-      await service.createTeacherAccount({
-        email: 'teacher-store@test.com',
-        password: 'password123',
-        firstName: 'Marie',
-        lastName: 'Martin',
-      });
-
-      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith({
-        userId: 'user-uuid',
-        firstName: 'Marie',
-        lastName: 'Martin',
-      });
-    });
-
-    it('createTeacherAccount: fails with 503 when profile-service is unavailable', async () => {
-      profileServiceClient.createAdministrativeProfile.mockRejectedValueOnce(new Error('timeout'));
-
-      await expect(
-        service.createTeacherAccount({
-          email: 'teacher-fail@test.com',
-          password: 'password123',
-          firstName: 'Marie',
-          lastName: 'Martin',
-        }),
-      ).rejects.toThrow(ServiceUnavailableException);
-    });
-
-    it('createParentAccount: calls profile-service with the parent userId/firstName/lastName', async () => {
-      await service.createParentAccount({
-        email: 'parent-store@test.com',
-        password: 'password123',
-        firstName: 'Sophie',
-        lastName: 'Bernard',
-      });
-
-      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith({
-        userId: 'user-uuid',
-        firstName: 'Sophie',
-        lastName: 'Bernard',
-      });
-    });
-
-    it('createParentAccount: fails with 503 when profile-service is unavailable', async () => {
-      profileServiceClient.createAdministrativeProfile.mockRejectedValueOnce(new Error('timeout'));
-
-      await expect(
-        service.createParentAccount({
-          email: 'parent-fail@test.com',
-          password: 'password123',
-          firstName: 'Sophie',
-          lastName: 'Bernard',
-        }),
-      ).rejects.toThrow(ServiceUnavailableException);
-    });
-
-    it('createStudentAccount: calls profile-service for the student, and for the parent when parentEmail triggers creation', async () => {
-      userRepo.find = jest.fn().mockResolvedValue([]); // no existing parent → parent created
-      await service.createStudentAccount({
-        email: 'student-store@test.com',
-        password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
-        parentEmail: 'parent-store@test.com',
-        parentPassword: 'parentpass123',
-        parentFirstName: 'Nathalie',
-        parentLastName: 'Petit',
-      });
-
-      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith(
-        expect.objectContaining({ firstName: 'Lucas', lastName: 'Petit' }),
-      );
-      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith(
-        expect.objectContaining({ firstName: 'Nathalie', lastName: 'Petit' }),
-      );
-      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledTimes(2);
-    });
-
-    it('createStudentAccount: calls profile-service only for the student when no parent is involved', async () => {
-      await service.createStudentAccount({
-        email: 'student-only@test.com',
-        password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
-      });
-
-      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledTimes(1);
-      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith(
-        expect.objectContaining({ firstName: 'Lucas', lastName: 'Petit' }),
-      );
-    });
-
-    it('createStudentAccount: does not call profile-service for an existing linked parent (their profile is not overwritten)', async () => {
-      const existingParent = makeUser({ id: 'parent-uuid', loginIdentifier: 'parent.user', email: 'parent@test.com', role: UserRole.PARENT_FINANCEUR });
-      userRepo.find = jest.fn().mockResolvedValue([existingParent]);
-
-      await service.createStudentAccount({
-        email: 'student-linked@test.com',
-        password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
-        parentEmail: 'parent@test.com',
-        parentFirstName: 'Nathalie',
-        parentLastName: 'Petit',
-      });
-
-      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledTimes(1);
-      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith(
-        expect.objectContaining({ firstName: 'Lucas', lastName: 'Petit' }),
-      );
-    });
-
-    it('createStudentAccount: fails with 503 and rolls back both accounts when profile-service is unavailable for the parent', async () => {
-      userRepo.find = jest.fn().mockResolvedValue([]);
-      profileServiceClient.createAdministrativeProfile
-        .mockResolvedValueOnce(undefined) // student profile succeeds
-        .mockRejectedValueOnce(new Error('timeout')); // parent profile fails
-
-      await expect(
-        service.createStudentAccount({
-          email: 'student-rollback@test.com',
-          password: 'password123',
-          firstName: 'Lucas',
-          lastName: 'Petit',
-          parentEmail: 'parent-rollback@test.com',
-          parentPassword: 'parentpass123',
-          parentFirstName: 'Nathalie',
-          parentLastName: 'Petit',
-        }),
-      ).rejects.toThrow(ServiceUnavailableException);
-
-      expect(eventsService.publish).not.toHaveBeenCalled();
-    });
-  });
-
   // ── Liaison financeur/élève automatique (décision produit du 2026-08-05) ──
+  // Ne porte aucune donnée d'identité (firstName/lastName/phone) : seuls des
+  // identifiants techniques (studentId, financeOwnerId) sont échangés.
 
   describe('automatic finance-owner-student link', () => {
     it('createStudentAccount: calls profile-service to link the student to the newly created parent', async () => {
@@ -942,12 +687,8 @@ describe('AccountsService', () => {
       await service.createStudentAccount({
         email: 'student-link@test.com',
         password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
         parentEmail: 'parent-link@test.com',
         parentPassword: 'parentpass123',
-        parentFirstName: 'Nathalie',
-        parentLastName: 'Petit',
       });
 
       expect(profileServiceClient.linkParentToStudent).toHaveBeenCalledWith({
@@ -963,11 +704,7 @@ describe('AccountsService', () => {
       await service.createStudentAccount({
         email: 'student-link2@test.com',
         password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
         parentEmail: 'parent@test.com',
-        parentFirstName: 'Nathalie',
-        parentLastName: 'Petit',
       });
 
       expect(profileServiceClient.linkParentToStudent).toHaveBeenCalledWith({
@@ -980,8 +717,6 @@ describe('AccountsService', () => {
       await service.createStudentAccount({
         email: 'student-nolink@test.com',
         password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
       });
 
       expect(profileServiceClient.linkParentToStudent).not.toHaveBeenCalled();
@@ -995,12 +730,8 @@ describe('AccountsService', () => {
         service.createStudentAccount({
           email: 'student-linkfail@test.com',
           password: 'password123',
-          firstName: 'Lucas',
-          lastName: 'Petit',
           parentEmail: 'parent-linkfail@test.com',
           parentPassword: 'parentpass123',
-          parentFirstName: 'Nathalie',
-          parentLastName: 'Petit',
         }),
       ).rejects.toThrow(ServiceUnavailableException);
 

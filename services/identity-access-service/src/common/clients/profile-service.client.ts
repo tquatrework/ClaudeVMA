@@ -3,22 +3,6 @@ import { ConfigService } from '@nestjs/config';
 
 const DEFAULT_TIMEOUT_MS = 3000;
 
-/**
- * `phone` (et non `phoneNumber`) : nom de champ imposé par le contrat de
- * profile-service, cohérent avec les autres routes internes existantes
- * (create-student-profiles.dto.ts, create-teacher-profiles.dto.ts,
- * update-administrative-profile.dto.ts). Le DTO d'entrée public
- * d'identity-access-service garde `phoneNumber` (ex: CreateAccountDto) — seul
- * le mapping effectué au moment de cet appel change de nom, voir
- * AccountsService.persistAdministrativeProfile.
- */
-export interface CreateAdministrativeProfileInput {
-  userId: string;
-  firstName: string;
-  lastName: string;
-  phone?: string | null;
-}
-
 export interface LinkParentToStudentInput {
   studentId: string;
   financeOwnerId: string;
@@ -27,15 +11,6 @@ export interface LinkParentToStudentInput {
 /**
  * Erreur levée par ProfileServiceClient lorsque profile-service est injoignable,
  * en timeout, ou renvoie une erreur HTTP non-2xx.
- *
- * identity-access-service ne stocke plus firstName/lastName/phone localement
- * (décision d'architecture du 2026-08-05 : voir user.entity.ts). profile-service
- * est l'unique lieu de stockage de ces données saisies à l'inscription — ce
- * n'est donc plus une "synchronisation best-effort d'une copie" (approche
- * abandonnée), mais l'écriture primaire elle-même. Un échec ici est par
- * conséquent traité comme un échec métier de la création de compte par
- * AccountsService (rollback transactionnel de la ligne `users` tout juste
- * insérée), et non comme un avertissement journalisé silencieusement.
  */
 export class ProfileServiceUnavailableError extends Error {
   constructor(message: string) {
@@ -47,9 +22,23 @@ export class ProfileServiceUnavailableError extends Error {
 /**
  * Typed adapter for interservice calls to profile-service (services-convention:
  * "les appels interservices passent par des clients/adaptateurs typés avec
- * timeout, correlation ID, politique d'erreur et idempotence"). Symétrique de
- * IdentityAccessClient côté profile-service
- * (services/profile-service/src/common/clients/identity-access.client.ts).
+ * timeout, correlation ID, politique d'erreur et idempotence").
+ *
+ * Ne porte plus aucune écriture de firstName/lastName/phone : depuis
+ * l'arbitrage d'architecture du 2026-08-06 (docs/architecture.md >
+ * "Arbitrages rendus"), ces champs sont exclusivement collectés et stockés
+ * par profile-service — identity-access-service ne les collecte plus du tout
+ * (ni à la création de compte, ni ailleurs) et n'a donc plus besoin de les
+ * transmettre. Ce client ne conserve que linkParentToStudent (relation
+ * finance-owner-student), qui ne porte aucune donnée d'identité.
+ *
+ * Aucune méthode de lecture n'a été ajoutée : le contrat interne de
+ * profile-service (docs/routes.md > profile-service) n'expose pas de route
+ * GET pour récupérer firstName/lastName/phone, et aucun consommateur
+ * d'identity-access-service n'en a besoin aujourd'hui (MailService envoie des
+ * emails avec une salutation générique, la notification dashboard formateur
+ * utilise l'email). À réévaluer si un besoin de lecture apparaît et si
+ * profile-service expose la route correspondante.
  */
 @Injectable()
 export class ProfileServiceClient {
@@ -58,31 +47,12 @@ export class ProfileServiceClient {
   constructor(private readonly configService: ConfigService) {}
 
   /**
-   * Stocke le profil administratif (firstName/lastName/phone) d'un utilisateur
-   * nouvellement créé — seule écriture de ces données, profile-service ne
-   * possédant pas de copie locale côté identity-access-service. Route interne
-   * idempotente côté profile-service (upsert par userId).
-   */
-  async createAdministrativeProfile(
-    input: CreateAdministrativeProfileInput,
-    correlationId?: string,
-  ): Promise<void> {
-    await this.post(
-      '/internal/create-administrative-profile',
-      input,
-      correlationId,
-      `la création du profil administratif de l'utilisateur ${input.userId}`,
-    );
-  }
-
-  /**
    * Crée le lien financeur/élève (finance-owner-student) lorsqu'un élève et un
    * parent financeur sont créés ou associés dans le même appel de création de
-   * compte (décision produit du 2026-08-05 : pas de flow de demande dans ce cas
-   * précis, la liaison est immédiate et implicite). Appelle la route système
-   * idempotente `POST /internal/link-parent` de profile-service
-   * (relationsService.createFinanceOwnerStudentLinkForSystem), qui ne publie
-   * pas d'événement métier (lien créé par le système, pas par une action RP).
+   * compte. Appelle la route système idempotente `POST /internal/link-parent`
+   * de profile-service (relationsService.createFinanceOwnerStudentLinkForSystem),
+   * qui ne publie pas d'événement métier (lien créé par le système, pas par
+   * une action RP).
    */
   async linkParentToStudent(
     input: LinkParentToStudentInput,

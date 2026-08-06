@@ -107,6 +107,17 @@ describe('ParentLinkRequestPage', () => {
 
       expect(screen.getByRole('button', { name: /envoyer la demande/i })).toBeDefined()
     })
+
+    it('shows a "Créer un compte élève" link opening /register/student in a new tab', async () => {
+      mockFetchParentLinkRequests.mockResolvedValue([])
+
+      renderPage()
+
+      const createStudentLink = screen.getByRole('link', { name: 'Créer un compte élève' })
+      expect(createStudentLink.getAttribute('href')).toBe('/register/student')
+      expect(createStudentLink.getAttribute('target')).toBe('_blank')
+      expect(createStudentLink.getAttribute('rel')).toBe('noopener noreferrer')
+    })
   })
 
   describe('Successful submission', () => {

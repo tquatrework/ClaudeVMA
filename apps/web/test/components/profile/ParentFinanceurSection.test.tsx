@@ -10,6 +10,7 @@
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import ParentFinanceurSection from '../../../src/components/profile/ParentFinanceurSection'
 
@@ -25,6 +26,14 @@ const mockFetchParentLinkRequests = vi.mocked(fetchParentLinkRequests)
 
 const STUDENT_ID = 'student-1'
 const FINANCE_OWNER_ID = 'ee7c85dc-1234-4abc-9def-000000000000'
+
+function renderSection(studentId: string = STUDENT_ID) {
+  return render(
+    <MemoryRouter>
+      <ParentFinanceurSection studentId={studentId} />
+    </MemoryRouter>,
+  )
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -43,7 +52,7 @@ describe('ParentFinanceurSection', () => {
       administrativeProfile: { firstName: 'Marie', lastName: 'Dupont' },
     })
 
-    render(<ParentFinanceurSection studentId={STUDENT_ID} />)
+    renderSection()
 
     await waitFor(() => {
       expect(screen.getByText('Marie Dupont (ID : marie.dupont)')).toBeDefined()
@@ -65,7 +74,7 @@ describe('ParentFinanceurSection', () => {
         administrativeProfile: {},
       })
 
-      render(<ParentFinanceurSection studentId={STUDENT_ID} />)
+      renderSection()
 
       await waitFor(() => {
         expect(screen.getByText(`Financeur (ID : ${FINANCE_OWNER_ID})`)).toBeDefined()
@@ -85,7 +94,7 @@ describe('ParentFinanceurSection', () => {
       administrativeProfile: {},
     })
 
-    render(<ParentFinanceurSection studentId={STUDENT_ID} />)
+    renderSection()
 
     await waitFor(() => {
       expect(screen.getByText('Financeur (ID : marie.dupont)')).toBeDefined()
@@ -95,7 +104,7 @@ describe('ParentFinanceurSection', () => {
   it('affiche un message quand aucun parent financeur n\'est rattaché', async () => {
     mockFetchLinkedParents.mockResolvedValue([])
 
-    render(<ParentFinanceurSection studentId={STUDENT_ID} />)
+    renderSection()
 
     await waitFor(() => {
       expect(screen.getByText('Aucun parent financeur rattaché pour l\'instant.')).toBeDefined()
@@ -105,10 +114,25 @@ describe('ParentFinanceurSection', () => {
   it('affiche un message d\'erreur si le chargement des parents échoue', async () => {
     mockFetchLinkedParents.mockRejectedValue(new Error('network error'))
 
-    render(<ParentFinanceurSection studentId={STUDENT_ID} />)
+    renderSection()
 
     await waitFor(() => {
       expect(screen.getByText('Impossible de charger vos parents financeurs.')).toBeDefined()
     })
+  })
+
+  it('affiche un lien "Créer un nouveau compte parent" ouvrant /register/parent dans un nouvel onglet', async () => {
+    mockFetchLinkedParents.mockResolvedValue([])
+
+    renderSection()
+
+    await waitFor(() => {
+      expect(screen.getByText('Aucun parent financeur rattaché pour l\'instant.')).toBeDefined()
+    })
+
+    const createParentLink = screen.getByRole('link', { name: 'Créer un nouveau compte parent' })
+    expect(createParentLink.getAttribute('href')).toBe('/register/parent')
+    expect(createParentLink.getAttribute('target')).toBe('_blank')
+    expect(createParentLink.getAttribute('rel')).toBe('noopener noreferrer')
   })
 })

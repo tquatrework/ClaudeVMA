@@ -1,10 +1,7 @@
-import { IsEmail, IsString, MinLength, IsOptional } from 'class-validator';
+import { IsEmail, IsString, MinLength, MaxLength, IsNotEmpty, IsOptional, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { PHONE_NUMBER_REGEX } from './phone-number.validator';
 
-/**
- * firstName/lastName/phone appartiennent exclusivement à profile-service
- * (arbitrage d'architecture du 2026-08-06) : non collectés ici.
- */
 export class CreateTeacherAccountDto {
   @ApiProperty({ example: 'formateur@example.com', description: 'Teacher email address' })
   @IsEmail()
@@ -14,6 +11,27 @@ export class CreateTeacherAccountDto {
   @IsString()
   @MinLength(8)
   password: string;
+
+  @ApiProperty({ example: 'Marie', description: 'Teacher first name (forwarded to profile-service, not stored locally)' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  firstName: string;
+
+  @ApiProperty({ example: 'Martin', description: 'Teacher last name (forwarded to profile-service, not stored locally)' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  lastName: string;
+
+  @ApiPropertyOptional({
+    example: '+33 6 01 02 03 04',
+    description: 'Teacher phone number (optional, forwarded to profile-service, not stored locally)',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(PHONE_NUMBER_REGEX, { message: 'phoneNumber must be a valid phone number (digits, spaces, +, -, ., parentheses, 6 to 30 characters)' })
+  phoneNumber?: string;
 
   @ApiPropertyOptional({
     example: 'marie.martin',

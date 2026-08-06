@@ -6,6 +6,7 @@
  * Utilisées par orchestration-service dans les workflows d'onboarding.
  *
  * Routes testées :
+ *   POST /internal/create-administrative-profile
  *   POST /internal/create-student-profiles
  *   POST /internal/create-teacher-profiles
  *   POST /internal/link-parent
@@ -62,6 +63,132 @@ describe('[E2E] Internal routes', () => {
 
       // Sans x-internal-secret, doit être rejeté même avec un JWT
       expect([401, 403]).toContain(res.status);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────
+  // POST /internal/create-administrative-profile
+  // ──────────────────────────────────────────────────────────────
+
+  describe('POST /internal/create-administrative-profile', () => {
+    it('Crée le profil administratif d\'un compte (élève, formateur, parent, générique) → 201', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.genericAccount1, firstName: 'Sophie', lastName: 'Bernard' });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('userId', IDS.genericAccount1);
+      expect(res.body).toHaveProperty('administrativeProfile');
+      expect(res.body.administrativeProfile).toMatchObject({ firstName: 'Sophie', lastName: 'Bernard' });
+    });
+
+    it('Idempotence : rappel sur un userId déjà pourvu d\'un profil met à jour le nom au lieu de planter → 201', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.genericAccount1, firstName: 'SophieBis', lastName: 'BernardBis' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.administrativeProfile).toMatchObject({ firstName: 'SophieBis', lastName: 'BernardBis' });
+    });
+
+    it('userId manquant → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ firstName: 'Sophie', lastName: 'Bernard' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('firstName manquant → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.genericAccount2, lastName: 'Bernard' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('lastName manquant → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.genericAccount2, firstName: 'Sophie' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('firstName vide → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.genericAccount2, firstName: '', lastName: 'Bernard' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('phone vide (chaîne) → 400 (erreur de validation explicite, distincte d\'une erreur serveur)', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.genericAccount2, firstName: 'Sophie', lastName: 'Bernard', phone: '' });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty('statusCode', 400);
+      expect(res.body).toHaveProperty('message');
+    });
+
+    it('phone trop long (> 20 caractères) → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({
+          userId: IDS.genericAccount2,
+          firstName: 'Sophie',
+          lastName: 'Bernard',
+          phone: '0'.repeat(21),
+        });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('Sans header x-internal-secret → 401 ou 403', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .send({ userId: IDS.genericAccount2, firstName: 'Sophie', lastName: 'Bernard' });
+
+      expect([401, 403]).toContain(res.status);
+    });
+
+    it('Persiste le champ phone (colonne telephone) à la création → 201', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.genericAccount2, firstName: 'Sophie', lastName: 'Bernard', phone: '+33601020304' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.administrativeProfile).toMatchObject({
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+        telephone: '+33601020304',
+      });
+    });
+
+    it('Idempotence : rappel avec un phone différent met à jour le numéro → 201', async () => {
+      await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.genericAccount2, firstName: 'Sophie', lastName: 'Bernard', phone: '+33601020304' });
+
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.genericAccount2, firstName: 'Sophie', lastName: 'Bernard', phone: '+33609080706' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.administrativeProfile).toMatchObject({ telephone: '+33609080706' });
     });
   });
 

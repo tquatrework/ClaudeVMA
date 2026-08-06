@@ -115,11 +115,14 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 
 | Méthode | Chemin | Description | Header requis |
 |---|---|---|---|
+| POST | /internal/create-administrative-profile | Créer (ou mettre à jour) le profil administratif d'un compte quelconque (élève, formateur, parent, générique) juste après sa création par identity-access-service. Body : `{userId, firstName, lastName, phone?}`. `firstName`/`lastName` obligatoires (`400` sinon), `phone` optionnel mais validé (`@IsNotEmpty @MaxLength(20)` si fourni). **Seul point d'écriture** pour firstName/lastName/phone : identity-access-service ne persiste plus ces champs lui-même et appelle cette route de façon obligatoire (non best-effort) à chaque création de compte. Upsert idempotent : si une ligne existe déjà pour `userId` (lazy-init via `getProfile`, ou rappel de la route), elle est mise à jour avec les valeurs reçues (y compris `phone`) au lieu d'échouer sur la contrainte d'unicité — voir décision C6/C7/C8 dans `docs/services/profile-service.md`. Erreurs de validation → `400` explicite (distinct d'un `5xx`) | `X-Internal-Secret` |
 | POST | /internal/create-student-profiles | Créer les profils initiaux d'un élève (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` |
 | POST | /internal/create-teacher-profiles | Créer les profils initiaux d'un formateur (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` |
 | POST | /internal/link-parent | Lier un parent financeur à un élève | `X-Internal-Secret` |
 | POST | /internal/create-teacher-student-relation | Créer la relation formateur-élève | `X-Internal-Secret` |
 | POST | /internal/link-coordinator | Lier un coordinateur pédagogique à un élève | `X-Internal-Secret` |
+
+Note : `PUT /profiles/:userId/administrative` expose également `phone` (et non plus `telephone`), aligné sur les DTO internes ci-dessus ; `phone` est mappé en interne sur la colonne `telephone` en base. `ValidationPipe` global : `forbidNonWhitelisted: true` (tout champ inconnu dans un body → `400` explicite au lieu d'être silencieusement ignoré).
 
 ### Demandes de rattachement parent↔élève
 

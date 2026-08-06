@@ -118,7 +118,9 @@ export async function createTestApp(): Promise<INestApplication> {
   }).compile();
 
   const app = moduleFixture.createNestApplication();
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
+  app.useGlobalPipes(
+    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+  );
   await app.init();
 
   // TODO: remove when Testcontainers has Docker permissions
@@ -202,5 +204,7 @@ export const IDS = {
   ap1:      '00000000-0000-4000-8000-000000000031',
   adminFin: '00000000-0000-4000-8000-000000000040',
   ti:       '00000000-0000-4000-8000-000000000050',
+  genericAccount1: '00000000-0000-4000-8000-000000000060',
+  genericAccount2: '00000000-0000-4000-8000-000000000061',
   unknown:  '00000000-0000-4000-8000-999999999999',
 };

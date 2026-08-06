@@ -163,7 +163,7 @@ describe('[E2E] Profiles', () => {
       const res = await request(app.getHttpServer())
         .put(`/profiles/${IDS.student1}/administrative`)
         .set('Authorization', `Bearer ${studentToken}`)
-        .send({ phone: '0601020304', city: 'Paris' });
+        .send({ phone: '0601020304', ville: 'Paris' });
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('userId', IDS.student1);
@@ -173,7 +173,7 @@ describe('[E2E] Profiles', () => {
       const res = await request(app.getHttpServer())
         .put(`/profiles/${IDS.student1}/administrative`)
         .set('Authorization', `Bearer ${rpToken}`)
-        .send({ city: 'Lyon' });
+        .send({ ville: 'Lyon' });
 
       expect(res.status).toBe(200);
     });
@@ -183,7 +183,7 @@ describe('[E2E] Profiles', () => {
       const res = await request(app.getHttpServer())
         .put(`/profiles/${IDS.student1}/administrative`)
         .set('Authorization', `Bearer ${otherStudentToken}`)
-        .send({ city: 'Marseille' });
+        .send({ ville: 'Marseille' });
 
       expect(res.status).toBe(403);
     });
@@ -222,7 +222,7 @@ describe('[E2E] Profiles', () => {
       const res = await request(app.getHttpServer())
         .put(`/profiles/${IDS.student1}/administrative`)
         .set('Authorization', `Bearer ${studentToken}`)
-        .send({ telephone: '0611223344' });
+        .send({ phone: '0611223344' });
 
       expect(res.status).toBe(200);
       expect(res.body.firstName).toBe(before.body.administrativeProfile?.firstName ?? 'Alice');
@@ -238,7 +238,7 @@ describe('[E2E] Profiles', () => {
       const res = await request(app.getHttpServer())
         .put(`/profiles/${IDS.student1}/pedagogical`)
         .set('Authorization', `Bearer ${studentToken}`)
-        .send({ level: '3eme', objectives: 'Reussir le brevet' });
+        .send({ niveauScolaire: '3eme', objectifsPedagogiques: 'Reussir le brevet' });
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('userId', IDS.student1);
@@ -248,7 +248,7 @@ describe('[E2E] Profiles', () => {
       const res = await request(app.getHttpServer())
         .put(`/profiles/${IDS.teacher1}/pedagogical`)
         .set('Authorization', `Bearer ${teacher1Token}`)
-        .send({ experience: '5 ans', specialties: ['algebre', 'geometrie'] });
+        .send({ experiencePedagogique: '5 ans', matieresEnseignees: ['algebre', 'geometrie'] });
 
       expect(res.status).toBe(200);
     });
@@ -257,7 +257,7 @@ describe('[E2E] Profiles', () => {
       const res = await request(app.getHttpServer())
         .put(`/profiles/${IDS.student1}/pedagogical`)
         .set('Authorization', `Bearer ${teacher1Token}`)
-        .send({ level: '2nde' });
+        .send({ niveauScolaire: '2nde' });
 
       expect(res.status).toBe(403);
     });

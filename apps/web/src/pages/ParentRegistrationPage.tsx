@@ -1,7 +1,14 @@
 import React, { useEffect, useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useCheckEmailAvailability } from '../hooks/accounts/useCheckEmailAvailability'
 import { useParentRegistration } from '../hooks/accounts/useParentRegistration'
+import { LinkedAccountSection } from '../components/accounts/LinkedAccountSection'
+import {
+  INITIAL_LINKED_ACCOUNT_DATA,
+  buildLinkedAccountFields,
+  validateLinkedAccountData,
+  type LinkedAccountFormData,
+} from '../utils/accountLinking'
 
 interface ParentFormData {
   firstName: string
@@ -23,7 +30,14 @@ const INITIAL_FORM_DATA: ParentFormData = {
 
 export default function ParentRegistrationPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  // Arrivée depuis le profil d'un élève existant (bouton "Créer un nouveau compte
+  // parent") : l'élève est déjà identifié, la liaison est automatique (voir docs/routes.md).
+  const lockedStudentLoginIdentifier = searchParams.get('studentLoginIdentifier')
   const [formData, setFormData] = useState<ParentFormData>(INITIAL_FORM_DATA)
+  const [linkedStudentData, setLinkedStudentData] = useState<LinkedAccountFormData>(
+    INITIAL_LINKED_ACCOUNT_DATA,
+  )
   const [validationError, setValidationError] = useState<string | null>(null)
   const {
     alreadyUsed: isEmailAlreadyUsed,
@@ -63,12 +77,23 @@ export default function ParentRegistrationPage() {
       return
     }
 
+    const linkedAccountError = validateLinkedAccountData(
+      'student',
+      linkedStudentData,
+      lockedStudentLoginIdentifier,
+    )
+    if (linkedAccountError) {
+      setValidationError(linkedAccountError)
+      return
+    }
+
     const success = await register({
       email: formData.email,
       loginIdentifier: formData.loginIdentifier || undefined,
       password: formData.password,
       firstName: formData.firstName,
       lastName: formData.lastName,
+      ...buildLinkedAccountFields('student', linkedStudentData, lockedStudentLoginIdentifier),
     })
 
     if (success) {
@@ -196,6 +221,13 @@ export default function ParentRegistrationPage() {
               placeholder="Répétez le mot de passe"
             />
           </div>
+
+          <LinkedAccountSection
+            relation="student"
+            data={linkedStudentData}
+            onChange={setLinkedStudentData}
+            lockedLoginIdentifier={lockedStudentLoginIdentifier}
+          />
 
           <button
             type="submit"

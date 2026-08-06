@@ -21,9 +21,9 @@ import { registerStudent, checkEmailAvailability } from '../../src/api/accounts'
 const mockRegisterStudent = vi.mocked(registerStudent)
 const mockCheckEmailAvailability = vi.mocked(checkEmailAvailability)
 
-function renderStudentRegistrationPage() {
+function renderStudentRegistrationPage(initialEntry: string = '/register/student') {
   return render(
-    <MemoryRouter initialEntries={['/register/student']}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path="/register/student" element={<StudentRegistrationPage />} />
         <Route path="/login" element={<div>Login Page</div>} />
@@ -205,6 +205,128 @@ describe('StudentRegistrationPage', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /consentements rgpd/i })).toBeDefined()
+    })
+  })
+
+  describe('Linked parent account (LinkedAccountSection)', () => {
+    it('renders the "link a parent" section with no mode selected by default', () => {
+      renderStudentRegistrationPage()
+
+      expect(screen.getByText(/lier un compte parent financeur \(optionnel\)/i)).toBeDefined()
+      expect(screen.getByRole('radio', { name: /ne rien lier maintenant/i })).toHaveProperty('checked', true)
+    })
+
+    it('does not send any parent-linking field when nothing is filled (nominal, non-regression)', async () => {
+      mockRegisterStudent.mockResolvedValue(undefined)
+      renderStudentRegistrationPage()
+
+      await fillAdministrativeStep()
+      await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+      await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
+
+      const checkboxes = screen.getAllByRole('checkbox')
+      await userEvent.click(checkboxes[0])
+      await userEvent.click(checkboxes[1])
+      await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+
+      await waitFor(() => {
+        expect(mockRegisterStudent).toHaveBeenCalled()
+      })
+      const payload = mockRegisterStudent.mock.calls[0][0]
+      expect(payload.parentLoginIdentifier).toBeUndefined()
+      expect(payload.parentEmail).toBeUndefined()
+    })
+
+    it('sends parentLoginIdentifier when linking to an existing parent account', async () => {
+      mockRegisterStudent.mockResolvedValue(undefined)
+      renderStudentRegistrationPage()
+
+      await fillAdministrativeStep()
+      await userEvent.click(screen.getByRole('radio', { name: /lier un compte parent financeur existant/i }))
+      await userEvent.type(
+        screen.getByLabelText(/identifiant parent financeur/i),
+        'marie.dupont',
+      )
+      await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+      await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
+
+      const checkboxes = screen.getAllByRole('checkbox')
+      await userEvent.click(checkboxes[0])
+      await userEvent.click(checkboxes[1])
+      await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+
+      await waitFor(() => {
+        expect(mockRegisterStudent).toHaveBeenCalledWith(
+          expect.objectContaining({ parentLoginIdentifier: 'marie.dupont' }),
+        )
+      })
+    })
+
+    it('blocks advancing to step 2 when "existing" is selected without an identifier', async () => {
+      renderStudentRegistrationPage()
+
+      await fillAdministrativeStep()
+      await userEvent.click(screen.getByRole('radio', { name: /lier un compte parent financeur existant/i }))
+      await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText(/identifiant du parent financeur à lier/i)).toBeDefined()
+        // still on step 1
+        expect(screen.getByPlaceholderText(/vous@exemple\.fr/i)).toBeDefined()
+      })
+    })
+
+    it('sends parentEmail/parentFirstName/parentLastName when creating a new linked parent account', async () => {
+      mockRegisterStudent.mockResolvedValue(undefined)
+      renderStudentRegistrationPage()
+
+      await fillAdministrativeStep()
+      await userEvent.click(
+        screen.getByRole('radio', { name: /créer un nouveau compte parent financeur lié/i }),
+      )
+      await userEvent.type(screen.getByLabelText(/prénom parent financeur/i), 'Marie')
+      await userEvent.type(screen.getByLabelText(/^nom parent financeur$/i), 'Dupont')
+      await userEvent.type(screen.getByLabelText(/email parent financeur/i), 'marie@test.com')
+      await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+      await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
+
+      const checkboxes = screen.getAllByRole('checkbox')
+      await userEvent.click(checkboxes[0])
+      await userEvent.click(checkboxes[1])
+      await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+
+      await waitFor(() => {
+        expect(mockRegisterStudent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            parentEmail: 'marie@test.com',
+            parentFirstName: 'Marie',
+            parentLastName: 'Dupont',
+          }),
+        )
+      })
+    })
+
+    it('locks the parent link to ?parentLoginIdentifier= from the URL, with no mode choice', async () => {
+      mockRegisterStudent.mockResolvedValue(undefined)
+      renderStudentRegistrationPage('/register/student?parentLoginIdentifier=marie.dupont')
+
+      expect(screen.getByText(/lié automatiquement/i)).toBeDefined()
+      expect(screen.queryByRole('radio', { name: /ne rien lier maintenant/i })).toBeNull()
+
+      await fillAdministrativeStep()
+      await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+      await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
+
+      const checkboxes = screen.getAllByRole('checkbox')
+      await userEvent.click(checkboxes[0])
+      await userEvent.click(checkboxes[1])
+      await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+
+      await waitFor(() => {
+        expect(mockRegisterStudent).toHaveBeenCalledWith(
+          expect.objectContaining({ parentLoginIdentifier: 'marie.dupont' }),
+        )
+      })
     })
   })
 })

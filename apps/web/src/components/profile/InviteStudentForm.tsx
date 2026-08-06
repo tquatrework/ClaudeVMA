@@ -8,8 +8,16 @@
 import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { createParentLinkRequest } from '../../api/parentLinkRequest'
+import { useAuth } from '../../hooks/useAuth'
 
 export function InviteStudentForm() {
+  const { user } = useAuth()
+  // Transmet l'identifiant du parent en cours (soi-même) pour lier automatiquement
+  // le nouveau compte élève créé — voir LinkedAccountSection sur ParentRegistrationPage.
+  const createStudentAccountLink = user?.loginIdentifier
+    ? `/register/student?parentLoginIdentifier=${encodeURIComponent(user.loginIdentifier)}`
+    : '/register/student'
+
   const [studentFirstNameInput, setStudentFirstNameInput] = useState('')
   const [studentLastNameInput, setStudentLastNameInput] = useState('')
   const [studentLoginIdentifierInput, setStudentLoginIdentifierInput] = useState('')
@@ -130,7 +138,7 @@ export function InviteStudentForm() {
           </button>
 
           <Link
-            to="/register/student"
+            to={createStudentAccountLink}
             target="_blank"
             rel="noopener noreferrer"
             className="border border-indigo-300 text-indigo-700 text-sm px-5 py-2 rounded-lg hover:bg-indigo-50 transition-colors"

@@ -7,6 +7,7 @@ import {
   type ParentLinkRequest,
   type ParentLinkRequestStatus,
 } from '../api/parentLinkRequest'
+import { useAuth } from '../hooks/useAuth'
 
 const STATUS_LABELS: Record<ParentLinkRequestStatus, string> = {
   pending: 'En attente',
@@ -21,6 +22,12 @@ const STATUS_BADGE_CLASSES: Record<ParentLinkRequestStatus, string> = {
 }
 
 export default function ParentLinkRequestPage() {
+  const { user } = useAuth()
+  // Transmet l'identifiant du parent connecté (soi-même) pour lier automatiquement
+  // le nouveau compte élève créé — voir LinkedAccountSection sur StudentRegistrationPage.
+  const createStudentAccountLink = user?.loginIdentifier
+    ? `/register/student?parentLoginIdentifier=${encodeURIComponent(user.loginIdentifier)}`
+    : '/register/student'
   const [studentLoginIdentifierInput, setStudentLoginIdentifierInput] = useState('')
   const [existingRequests, setExistingRequests] = useState<ParentLinkRequest[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -121,7 +128,7 @@ export default function ParentLinkRequestPage() {
               </button>
 
               <Link
-                to="/register/student"
+                to={createStudentAccountLink}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="border border-indigo-300 text-indigo-700 text-sm px-5 py-2 rounded-lg hover:bg-indigo-50 transition-colors"

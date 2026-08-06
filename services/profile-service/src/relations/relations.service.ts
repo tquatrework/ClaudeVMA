@@ -14,6 +14,10 @@ import { CreatePedagogicalCoordinatorLinkDto } from './dto/create-pedagogical-co
 import { EventsService } from '../events/events.service';
 import { UserRole } from '../common/enums/user-role.enum';
 import { Actor } from '../common/types/actor.type';
+import {
+  AdministrativeName,
+  AdministrativeProfileLookupService,
+} from '../profiles/administrative-profile-lookup.service';
 
 @Injectable()
 export class RelationsService {
@@ -25,6 +29,7 @@ export class RelationsService {
     @InjectRepository(PedagogicalCoordinatorLink)
     private readonly coordinatorRepo: Repository<PedagogicalCoordinatorLink>,
     private readonly events: EventsService,
+    private readonly administrativeProfileLookup: AdministrativeProfileLookupService,
   ) {}
 
   /**
@@ -59,6 +64,8 @@ export class RelationsService {
   /**
    * List all students linked to a financeur.
    * Accessible to RP, AdministrateurFinancier, and the financeur themselves.
+   * Each item is enriched with the student's name (studentName), resolved
+   * from AdministrativeProfileLookupService — see attachStudentNames.
    */
   async getStudentsByFinanceOwner(financeOwnerId: string, actor: Actor) {
     const allowed = [
@@ -70,7 +77,8 @@ export class RelationsService {
       throw new ForbiddenException('You may only list your own linked students');
     }
 
-    return this.financeRepo.find({ where: { financeOwnerId }, order: { createdAt: 'ASC' } });
+    const links = await this.financeRepo.find({ where: { financeOwnerId }, order: { createdAt: 'ASC' } });
+    return this.attachStudentNames(links);
   }
 
   /**
@@ -148,6 +156,10 @@ export class RelationsService {
    * List all financeurs (parents) linked to a given student.
    * Symmetric counterpart of getStudentsByFinanceOwner.
    * Accessible to the student themselves, RP, TI, and AdministrateurFinancier.
+   * Each item is enriched with the financeur's name (financeOwnerName),
+   * resolved from AdministrativeProfileLookupService — see
+   * attachFinanceOwnerNames. Fixes a bug where the finance-owners tab on a
+   * student's profile only ever showed the financeur's raw UUID.
    */
   async getFinanceOwnersByStudent(studentId: string, actor: Actor) {
     const privilegedRoles = [
@@ -162,7 +174,8 @@ export class RelationsService {
       );
     }
 
-    return this.financeRepo.find({ where: { studentId }, order: { createdAt: 'ASC' } });
+    const links = await this.financeRepo.find({ where: { studentId }, order: { createdAt: 'ASC' } });
+    return this.attachFinanceOwnerNames(links);
   }
 
   /**
@@ -311,5 +324,41 @@ export class RelationsService {
 
     const link = this.coordinatorRepo.create({ coordinatorId, studentId, coordinatorRole });
     return this.coordinatorRepo.save(link);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Response enrichment helpers (name resolution for relation list endpoints)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Attaches studentName (firstName/lastName) to each finance-owner→student
+   * link, resolved in a single batched query (services-convention: avoid
+   * N+1). A student without an administrative profile — or without a
+   * firstName/lastName on it — never fails the request: studentName is
+   * simply null (link has no administrative profile at all) or
+   * { firstName: null, lastName: null } (profile exists, name missing).
+   */
+  private async attachStudentNames<T extends { studentId: string }>(
+    links: T[],
+  ): Promise<(T & { studentName: AdministrativeName | null })[]> {
+    const names = await this.administrativeProfileLookup.findNamesByUserIds(
+      links.map((link) => link.studentId),
+    );
+    return links.map((link) => ({ ...link, studentName: names.get(link.studentId) ?? null }));
+  }
+
+  /**
+   * Attaches financeOwnerName (firstName/lastName) to each
+   * finance-owner→student link, resolved in a single batched query
+   * (services-convention: avoid N+1). Same null-safety guarantee as
+   * attachStudentNames.
+   */
+  private async attachFinanceOwnerNames<T extends { financeOwnerId: string }>(
+    links: T[],
+  ): Promise<(T & { financeOwnerName: AdministrativeName | null })[]> {
+    const names = await this.administrativeProfileLookup.findNamesByUserIds(
+      links.map((link) => link.financeOwnerId),
+    );
+    return links.map((link) => ({ ...link, financeOwnerName: names.get(link.financeOwnerId) ?? null }));
   }
 }

@@ -56,10 +56,12 @@ export class RelationsController {
     summary: 'List financeurs of a student',
     description:
       'Returns all financeurs (parents) linked to the given student. ' +
-      'Accessible to the student themselves, RP, AdministrateurFinancier and TI.',
+      'Accessible to the student themselves, RP, AdministrateurFinancier and TI. ' +
+      'Each item includes financeOwnerName ({firstName, lastName} or null) ' +
+      "resolved from the financeur's administrative profile.",
   })
   @ApiParam({ name: 'studentId', description: 'Student (élève) UUID' })
-  @ApiResponse({ status: 200, description: 'List of financeur–student links' })
+  @ApiResponse({ status: 200, description: 'List of financeur–student links, enriched with financeOwnerName' })
   @ApiResponse({ status: 403, description: 'Forbidden — insufficient rights' })
   getFinanceOwnersByStudent(
     @Param('studentId', ParseUUIDPipe) studentId: string,
@@ -73,10 +75,11 @@ export class RelationsController {
     summary: 'List students of a financeur',
     description:
       'Returns all élève linked to the given financeur. ' +
-      'Accessible to RP, AdministrateurFinancier, TI and the financeur themselves.',
+      'Accessible to RP, AdministrateurFinancier, TI and the financeur themselves. ' +
+      "Each item includes studentName ({firstName, lastName} or null) resolved from the student's administrative profile.",
   })
   @ApiParam({ name: 'financeOwnerId', description: 'Financeur UUID' })
-  @ApiResponse({ status: 200, description: 'List of financeur–student links' })
+  @ApiResponse({ status: 200, description: 'List of financeur–student links, enriched with studentName' })
   @ApiResponse({ status: 403, description: 'Forbidden — insufficient rights' })
   getStudentsByFinanceOwner(
     @Param('financeOwnerId', ParseUUIDPipe) financeOwnerId: string,

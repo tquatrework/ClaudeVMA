@@ -293,6 +293,76 @@
           npm run build : OK (nest build sans erreur).
         </testCoverage>
       </decision>
+      <decision id="C7" status="implemented" session="2026-08-06">
+        <title>Bug urgent — onglet "Parents financeurs" affichait l'UUID du financeur au lieu de son nom (enrichissement GET /relations/finance-owner-student/*)</title>
+        <description>
+          Signalement utilisateur (repete 3 jours) : sur la fiche eleve, l'onglet
+          "Parents financeurs" affichait "Financeur (ID : ee7c85dc-...)" au lieu du
+          prenom/nom. Root cause confirmee : GET /relations/finance-owner-student/
+          by-student/:studentId et GET /relations/finance-owner-student/:financeOwnerId
+          ne renvoyaient jamais que les UUID (financeOwnerId/studentId/createdAt), sans
+          jointure vers administrative_profiles — pas un bug d'affichage front.
+          Nouveau fichier src/profiles/administrative-profile-lookup.service.ts
+          (AdministrativeProfileLookupService, provider + export de ProfilesModule) :
+          port de lecture etroit, findNamesByUserIds(userIds) -> Map&lt;userId,
+          {firstName, lastName}&gt;, fetch batch unique (In()) pour eviter le N+1,
+          userId absent de la Map si aucun profil administratif n'existe (jamais
+          d'erreur). Extrait en provider dedie plutot qu'en methode de ProfilesService
+          car ProfilesService depend deja de RelationsService : une dependance inverse
+          RelationsService -> ProfilesService aurait cree un cycle de providers ;
+          AdministrativeProfileLookupService n'a aucune dependance vers
+          RelationsService, donc RelationsModule peut importer ProfilesModule sans
+          cycle de providers (seul le cycle d'import de modules subsiste, resolu par
+          forwardRef() des deux cotes — ProfilesModule <-> RelationsModule — documente
+          dans les deux fichiers module).
+          RelationsService.getStudentsByFinanceOwner et .getFinanceOwnersByStudent
+          enrichissent desormais chaque lien via deux helpers prives
+          (attachStudentNames / attachFinanceOwnerNames) qui appellent
+          findNamesByUserIds une seule fois pour toute la liste (pas de N+1).
+          Nouveaux champs de reponse (docs/routes.md mis a jour) :
+          financeOwnerName sur GET .../by-student/:studentId, studentName sur
+          GET .../:financeOwnerId — tous deux `{firstName: string|null, lastName:
+          string|null} | null` (null si le profil administratif de l'autre partie
+          n'existe pas du tout ; objet avec des null internes si le profil existe
+          mais sans nom saisi). Aucun champ retire, retro-compatible.
+        </description>
+        <testCoverage>
+          npm test (unit) : 226 tests, 223 verts — memes 3 echecs preexistants
+          documentes dans l'openPoint updateTeacherValidation, non lies a cette
+          session (memes echecs sur master avant modification). 13 nouveaux tests
+          unitaires verts (5 sur AdministrativeProfileLookupService : dedup,
+          batch unique, absence => cle absente de la Map, null normalise ; 8 sur
+          RelationsService : enrichissement getStudentsByFinanceOwner/
+          getFinanceOwnersByStudent, y compris cas profil administratif absent et
+          cas profil present sans nom).
+          npm run test:e2e (USE_LOCAL_DB=true, base dediee `profile_test` du
+          conteneur PostgreSQL local docker-compose, --runInBand) : 99 tests, 97
+          verts — memes 2 echecs preexistants confirmes non lies (GET
+          /profiles/:userId profil inexistant renvoie 200 au lieu de 404 ; POST
+          /profiles/:userId/internal-notes refuse a l'administrateur financier).
+          6 nouveaux tests e2e verts sur les deux endpoints enrichis.
+          npm run build : OK.
+          Verification en conditions reelles (hors suite automatisee) : image
+          Docker reconstruite depuis le code de cette session
+          (profile-service-verify:latest), conteneur temporaire lance sur le
+          reseau claudevma_visiomath_network, connecte a la base Postgres reelle
+          de dev (visiomath_profile, lecture seule pour cette verification,
+          aucune ecriture). Appel direct de GET /relations/finance-owner-student/
+          by-student/87482274-... (le studentId reel du bug signale) : reponse
+          contient desormais "financeOwnerName":{"firstName":"maman","lastName":
+          "deuxenfants"} pour financeOwnerId=ee7c85dc-21d6-4e0f-9454-876dab201c08
+          (l'UUID exact cite dans le signalement utilisateur). Verification
+          symetrique sur GET /relations/finance-owner-student/ee7c85dc-... :
+          "studentName":{"firstName":"eleve","lastName":"seconde"}. Conteneur de
+          verification arrete et supprime immediatement apres controle ; le
+          conteneur visiomath_profile reellement deploye (utilise par les autres
+          agents en cours) n'a pas ete touche — le nouveau code n'est donc pas
+          encore deploye dessus, uniquement verifie hors-ligne sur une image
+          jumelle. Redeploiement (rebuild + up du service profile-service dans
+          docker-compose) a faire separement, hors perimetre de cette session de
+          codage.
+        </testCoverage>
+      </decision>
       <openPoints>
         <item>
           Idempotence "de reponse" (200/201 silencieux) vs idempotence "d'etat" (409

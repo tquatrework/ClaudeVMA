@@ -87,22 +87,26 @@ describe('AccountsService', () => {
       const result = await service.createAccount({
         email: 'new@test.com',
         password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
       });
       expect(result).toHaveProperty('validationStatus', ValidationStatus.PENDING);
       expect(result).toHaveProperty('loginIdentifier');
     });
 
-    it('does not expose firstName/lastName on the response (identity-access-service no longer owns these fields)', async () => {
+    it('does not expose firstName/lastName on the response (identity-access-service does not own these fields)', async () => {
       const result = await service.createAccount({
         email: 'named@test.com',
         password: 'password123',
-        firstName: 'Camille',
-        lastName: 'Lefevre',
       });
       expect(result).not.toHaveProperty('firstName');
       expect(result).not.toHaveProperty('lastName');
+    });
+
+    it('does not call profile-service (generic route, not used by self-registration front)', async () => {
+      await service.createAccount({
+        email: 'no-relay@test.com',
+        password: 'password123',
+      });
+      expect(profileServiceClient.createAdministrativeProfile).not.toHaveBeenCalled();
     });
 
     it('creates account even when email is already used, setting emailAlreadyUsed flag', async () => {
@@ -113,8 +117,6 @@ describe('AccountsService', () => {
       const result = await service.createAccount({
         email: 'test@example.com',
         password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
       });
       expect(result).toHaveProperty('emailAlreadyUsed', true);
       expect(result).toHaveProperty('suggestedLoginIdentifier');
@@ -126,8 +128,6 @@ describe('AccountsService', () => {
         service.createAccount({
           email: 'new@test.com',
           password: 'password123',
-          firstName: 'Jean',
-          lastName: 'Dupont',
           loginIdentifier: 'test.user',
         }),
       ).rejects.toThrow(ConflictException);
@@ -138,8 +138,6 @@ describe('AccountsService', () => {
         service.createAccount({
           email: 'hack@test.com',
           password: 'password123',
-          firstName: 'Jean',
-          lastName: 'Dupont',
           role: UserRole.TECHNICIEN_INFORMATIQUE,
         }),
       ).rejects.toThrow(ForbiddenException);
@@ -149,8 +147,6 @@ describe('AccountsService', () => {
       const result = await service.createAccount({
         email: 'teacher@test.com',
         password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
         role: UserRole.FORMATEUR,
       });
       expect(result.role).toBe(UserRole.FORMATEUR);
@@ -160,8 +156,6 @@ describe('AccountsService', () => {
       await service.createAccount({
         email: 'new@test.com',
         password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
       });
       expect(eventsService.publish).toHaveBeenCalledWith('AccountCreated', expect.objectContaining({
         userId: 'user-uuid',
@@ -745,60 +739,6 @@ describe('AccountsService', () => {
   // ── Stockage du profil administratif via profile-service (décision du 2026-08-05) ──
 
   describe('administrative profile storage via profile-service', () => {
-    it('createAccount: calls profile-service with {userId, firstName, lastName} after creating the account', async () => {
-      await service.createAccount({
-        email: 'store@test.com',
-        password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
-      });
-
-      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith({
-        userId: 'user-uuid',
-        firstName: 'Jean',
-        lastName: 'Dupont',
-      });
-    });
-
-    it('createAccount: forwards phoneNumber to profile-service as `phone` (contract field name)', async () => {
-      await service.createAccount({
-        email: 'store-phone@test.com',
-        password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
-        phoneNumber: '+33 6 01 02 03 04',
-      });
-
-      // profile-service attend `phone`, pas `phoneNumber` (convention deja
-      // etablie sur ses autres routes internes) — seul le mapping au moment
-      // de l'appel change, le DTO d'entree public garde phoneNumber.
-      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith({
-        userId: 'user-uuid',
-        firstName: 'Jean',
-        lastName: 'Dupont',
-        phone: '+33 6 01 02 03 04',
-      });
-    });
-
-    it('createAccount: fails the account creation with 503 when profile-service is unavailable, and no account is left behind', async () => {
-      profileServiceClient.createAdministrativeProfile.mockRejectedValueOnce(
-        new Error('profile-service unreachable or timed out'),
-      );
-
-      await expect(
-        service.createAccount({
-          email: 'resilient@test.com',
-          password: 'password123',
-          firstName: 'Jean',
-          lastName: 'Dupont',
-        }),
-      ).rejects.toThrow(ServiceUnavailableException);
-
-      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalled();
-      // AccountCreated must not be published for a rolled-back account.
-      expect(eventsService.publish).not.toHaveBeenCalled();
-    });
-
     it('createTeacherAccount: calls profile-service with the teacher userId/firstName/lastName', async () => {
       await service.createTeacherAccount({
         email: 'teacher-store@test.com',

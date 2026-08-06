@@ -36,7 +36,6 @@ export class AccountsController {
   @ApiResponse({ status: 201, description: 'Account created — status PENDING. emailAlreadyUsed:true if email was already registered.' })
   @ApiResponse({ status: 409, description: 'Login identifier already taken' })
   @ApiResponse({ status: 403, description: 'Attempt to self-register with an internal role' })
-  @ApiResponse({ status: 503, description: 'profile-service unavailable — account creation rolled back, no data was lost' })
   createAccount(@Body() dto: CreateAccountDto, @Ip() ipAddress: string): Promise<AccountResponseDto> {
     return this.accountsService.createAccount(dto, ipAddress);
   }

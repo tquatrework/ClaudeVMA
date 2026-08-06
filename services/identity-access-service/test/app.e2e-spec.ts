@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
 import { AppModule } from '../src/app.module';
-import { ProfileServiceClient, ProfileServiceUnavailableError } from '../src/common/clients/profile-service.client';
+import { ProfileServiceClient } from '../src/common/clients/profile-service.client';
 
 describe('Identity Access Service (e2e)', () => {
   let app: INestApplication;
@@ -52,15 +52,12 @@ describe('Identity Access Service (e2e)', () => {
       .expect((res) => expect(res.body.status).toBe('ok'));
   });
 
-  it('POST /accounts → 201 (account created, firstName/lastName/phoneNumber forwarded to profile-service, not exposed locally)', () => {
+  it('POST /accounts → 201 (generic route, does not collect nor forward firstName/lastName/phone)', () => {
     return request(app.getHttpServer())
       .post('/accounts')
       .send({
         email: testEmail,
         password: testPassword,
-        firstName: 'Jean',
-        lastName: 'Dupont',
-        phoneNumber: '+33 6 01 02 03 04',
       })
       .expect(201)
       .expect((res) => {
@@ -71,54 +68,20 @@ describe('Identity Access Service (e2e)', () => {
         expect(res.body.lastName).toBeUndefined();
         expect(res.body.validationStatus).toBe('pending');
         expect(res.body.consentSigned).toBe(false);
-        // profile-service attend `phone`, pas `phoneNumber` (le DTO d'entree
-        // public d'identity-access-service garde phoneNumber, seul le mapping
-        // au moment de cet appel change).
-        expect(profileServiceClientStub.createAdministrativeProfile).toHaveBeenCalledWith(
-          expect.objectContaining({ firstName: 'Jean', lastName: 'Dupont', phone: '+33 6 01 02 03 04' }),
-        );
+        expect(profileServiceClientStub.createAdministrativeProfile).not.toHaveBeenCalled();
       });
   });
 
-  it('POST /accounts without firstName/lastName → 400', () => {
-    return request(app.getHttpServer())
-      .post('/accounts')
-      .send({ email: `no-name-${timestamp}@example.com`, password: testPassword })
-      .expect(400);
-  });
-
-  it('POST /accounts with an invalid phoneNumber → 400', () => {
+  it('POST /accounts with firstName/lastName → 400 (unknown fields rejected, whitelist:true)', () => {
     return request(app.getHttpServer())
       .post('/accounts')
       .send({
-        email: `bad-phone-${timestamp}@example.com`,
+        email: `rejected-name-${timestamp}@example.com`,
         password: testPassword,
         firstName: 'Jean',
         lastName: 'Dupont',
-        phoneNumber: 'not-a-phone!!',
       })
       .expect(400);
-  });
-
-  it('POST /accounts → 503 and no account left behind when profile-service is unavailable', async () => {
-    const failingEmail = `profile-down-${timestamp}@example.com`;
-    profileServiceClientStub.createAdministrativeProfile.mockRejectedValueOnce(
-      new ProfileServiceUnavailableError('profile-service unreachable'),
-    );
-
-    await request(app.getHttpServer())
-      .post('/accounts')
-      .send({ email: failingEmail, password: testPassword, firstName: 'Jean', lastName: 'Dupont' })
-      .expect(503);
-
-    // The email must be free again — the transaction was rolled back.
-    return request(app.getHttpServer())
-      .get('/accounts/check-email')
-      .query({ email: failingEmail })
-      .expect(200)
-      .expect((res) => {
-        expect(res.body.alreadyUsed).toBe(false);
-      });
   });
 
   it('POST /accounts/students without JWT → 201 (public route, no token required)', () => {

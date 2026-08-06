@@ -1,6 +1,5 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { CreateAccountDto } from '../../src/accounts/dto/create-account.dto';
 import { CreateStudentAccountDto } from '../../src/accounts/dto/create-student-account.dto';
 import { CreateTeacherAccountDto } from '../../src/accounts/dto/create-teacher-account.dto';
 import { CreateParentAccountDto } from '../../src/accounts/dto/create-parent-account.dto';
@@ -14,8 +13,10 @@ import { CreateParentAccountDto } from '../../src/accounts/dto/create-parent-acc
  * profile-service (validation de forme inchangée, seule la destination du
  * stockage change — voir AccountsService.persistAdministrativeProfile).
  * Ces tests couvrent la validation de forme portée par les DTO pour les
- * quatre routes de création de compte, y compris les cas conditionnels
- * parentFirstName/parentLastName et studentFirstName/studentLastName.
+ * trois routes d'auto-inscription directe par rôle (students/teachers/parents),
+ * y compris les cas conditionnels parentFirstName/parentLastName et
+ * studentFirstName/studentLastName. La route générique `POST /accounts`
+ * (CreateAccountDto) ne collecte pas ces champs — voir create-account.dto.ts.
  */
 describe('Create account DTOs — firstName/lastName/phoneNumber validation', () => {
   const expectNoErrorsOn = async (properties: string[], errors: import('class-validator').ValidationError[]) => {
@@ -23,120 +24,6 @@ describe('Create account DTOs — firstName/lastName/phoneNumber validation', ()
       expect(errors.find((error) => error.property === property)).toBeUndefined();
     }
   };
-
-  describe('CreateAccountDto', () => {
-    it('passes validation with valid firstName and lastName', async () => {
-      const dto = plainToInstance(CreateAccountDto, {
-        email: 'eleve@example.com',
-        password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
-      });
-      const errors = await validate(dto);
-      await expectNoErrorsOn(['firstName', 'lastName'], errors);
-    });
-
-    it('fails validation when firstName is missing', async () => {
-      const dto = plainToInstance(CreateAccountDto, {
-        email: 'eleve@example.com',
-        password: 'password123',
-        lastName: 'Dupont',
-      });
-      const errors = await validate(dto);
-      expect(errors.find((error) => error.property === 'firstName')).toBeDefined();
-    });
-
-    it('fails validation when lastName is missing', async () => {
-      const dto = plainToInstance(CreateAccountDto, {
-        email: 'eleve@example.com',
-        password: 'password123',
-        firstName: 'Jean',
-      });
-      const errors = await validate(dto);
-      expect(errors.find((error) => error.property === 'lastName')).toBeDefined();
-    });
-
-    it('fails validation when firstName is an empty string', async () => {
-      const dto = plainToInstance(CreateAccountDto, {
-        email: 'eleve@example.com',
-        password: 'password123',
-        firstName: '',
-        lastName: 'Dupont',
-      });
-      const errors = await validate(dto);
-      expect(errors.find((error) => error.property === 'firstName')).toBeDefined();
-    });
-
-    it('fails validation when lastName exceeds 100 characters', async () => {
-      const dto = plainToInstance(CreateAccountDto, {
-        email: 'eleve@example.com',
-        password: 'password123',
-        firstName: 'Jean',
-        lastName: 'a'.repeat(101),
-      });
-      const errors = await validate(dto);
-      expect(errors.find((error) => error.property === 'lastName')).toBeDefined();
-    });
-
-    it('passes validation without phoneNumber (optional field)', async () => {
-      const dto = plainToInstance(CreateAccountDto, {
-        email: 'eleve@example.com',
-        password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
-      });
-      const errors = await validate(dto);
-      await expectNoErrorsOn(['phoneNumber'], errors);
-    });
-
-    it('passes validation with a valid international phoneNumber', async () => {
-      const dto = plainToInstance(CreateAccountDto, {
-        email: 'eleve@example.com',
-        password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
-        phoneNumber: '+33 6 01 02 03 04',
-      });
-      const errors = await validate(dto);
-      await expectNoErrorsOn(['phoneNumber'], errors);
-    });
-
-    it('passes validation with a valid local phoneNumber', async () => {
-      const dto = plainToInstance(CreateAccountDto, {
-        email: 'eleve@example.com',
-        password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
-        phoneNumber: '06 01 02 03 04',
-      });
-      const errors = await validate(dto);
-      await expectNoErrorsOn(['phoneNumber'], errors);
-    });
-
-    it('fails validation when phoneNumber contains letters', async () => {
-      const dto = plainToInstance(CreateAccountDto, {
-        email: 'eleve@example.com',
-        password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
-        phoneNumber: 'not-a-phone-number!!',
-      });
-      const errors = await validate(dto);
-      expect(errors.find((error) => error.property === 'phoneNumber')).toBeDefined();
-    });
-
-    it('fails validation when phoneNumber is too short', async () => {
-      const dto = plainToInstance(CreateAccountDto, {
-        email: 'eleve@example.com',
-        password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
-        phoneNumber: '06',
-      });
-      const errors = await validate(dto);
-      expect(errors.find((error) => error.property === 'phoneNumber')).toBeDefined();
-    });
-  });
 
   describe('CreateTeacherAccountDto', () => {
     it('passes validation with valid firstName and lastName', async () => {

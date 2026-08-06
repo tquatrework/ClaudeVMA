@@ -47,13 +47,13 @@ describe('AccountsController (self-service)', () => {
       mockAccountsService.createAccount.mockResolvedValue(createdAccount);
 
       const result = await controller.createAccount(
-        { email: 'test@example.com', password: 'password123', firstName: 'Jean', lastName: 'Dupont' },
+        { email: 'test@example.com', password: 'password123' },
         '127.0.0.1',
       );
 
       expect(result).toEqual(createdAccount);
       expect(mockAccountsService.createAccount).toHaveBeenCalledWith(
-        { email: 'test@example.com', password: 'password123', firstName: 'Jean', lastName: 'Dupont' },
+        { email: 'test@example.com', password: 'password123' },
         '127.0.0.1',
       );
     });
@@ -63,7 +63,7 @@ describe('AccountsController (self-service)', () => {
 
       await expect(
         controller.createAccount(
-          { email: 'existing@test.com', password: 'password123', firstName: 'Jean', lastName: 'Dupont' },
+          { email: 'existing@test.com', password: 'password123' },
           '127.0.0.1',
         ),
       ).rejects.toThrow(ConflictException);
@@ -79,8 +79,6 @@ describe('AccountsController (self-service)', () => {
           {
             email: 'hack@test.com',
             password: 'password123',
-            firstName: 'Jean',
-            lastName: 'Dupont',
             role: UserRole.TECHNICIEN_INFORMATIQUE,
           },
           '127.0.0.1',

@@ -509,5 +509,84 @@
         <status>resolved</status>
       </openItem>
     </session>
+
+    <session date="2026-08-06">
+      <title>Retrait trop large corrige — retour du relais firstName/lastName/phone limite aux 3 routes d'auto-inscription directe</title>
+      <context>
+        Une session anterieure du meme jour (branche non fusionnee dans master,
+        `refactor/identity-access-remove-name-fields-v2`) avait interprete l'arbitrage
+        d'architecture du 2026-08-06 ("firstName/lastName/phone appartiennent exclusivement a
+        profile-service") comme un retrait TOTAL : les 4 routes de creation de compte (dont
+        POST /accounts) avaient ete privees de ces champs en entree, et l'appel sortant vers
+        profile-service (ProfileServiceClient.createAdministrativeProfile,
+        AccountsService.persistAdministrativeProfile) avait ete integralement supprime. Consequence
+        detectee : le front (ParentRegistrationPage/StudentRegistrationPage/TeacherRegistrationPage,
+        qui appellent POST /accounts/parents, /accounts/students et /accounts/teachers directement,
+        hors orchestration-service) n'avait plus aucun moyen de faire creer un profil administratif
+        a l'inscription — un compte se creait desormais sans aucun profil, cassant le parcours
+        d'inscription reel. Precision explicite du PO : l'arbitrage "profile-service proprietaire
+        exclusif" porte sur la PERSISTANCE (identity-access-service ne stocke jamais ces champs
+        localement, migration de suppression des colonnes conservee), pas sur la collecte en entree
+        des 3 routes d'auto-inscription directe par role — celles-ci doivent continuer a relayer
+        firstName/lastName/phone a profile-service, exactement comme dans la session du 2026-08-05
+        ci-dessus (etat intermediaire), MAIS restreint a ces 3 routes uniquement (pas
+        POST /accounts generique, pas POST /internal/create-account consomme par
+        orchestration-service qui transmet deja ces champs separement et directement a
+        profile-service dans les workflows student-onboarding/teacher-onboarding).
+      </context>
+
+      <decision id="S-scope-relay-to-three-self-registration-routes">
+        <title>Relais firstName/lastName/phone restaure sur POST /accounts/students, /teachers, /parents uniquement</title>
+        <files>
+          <file>src/accounts/dto/create-student-account.dto.ts</file>
+          <file>src/accounts/dto/create-teacher-account.dto.ts</file>
+          <file>src/accounts/dto/create-parent-account.dto.ts</file>
+          <file>src/accounts/dto/create-account.dto.ts</file>
+          <file>src/accounts/dto/phone-number.validator.ts (restaure)</file>
+          <file>src/accounts/accounts.service.ts</file>
+          <file>src/accounts/accounts.controller.ts</file>
+          <file>src/common/clients/profile-service.client.ts</file>
+          <file>src/common/clients/clients.module.ts (restaure)</file>
+          <file>src/accounts/accounts.module.ts</file>
+          <file>test/app.e2e-spec.ts</file>
+          <file>test/unit/accounts.service.spec.ts</file>
+          <file>test/unit/accounts.controller.spec.ts</file>
+          <file>test/unit/create-account.dto.spec.ts</file>
+          <file>test/unit/common/profile-service.client.spec.ts</file>
+        </files>
+        <description>
+          Restauration du contenu de la session du 2026-08-05 (ProfileServiceClient.
+          createAdministrativeProfile, AccountsService.persistAdministrativeProfile appele dans la
+          DataSource.transaction de creation de compte, rollback 503 en cas d'echec de
+          profile-service) sur les 3 routes createStudentAccount/createTeacherAccount/
+          createParentAccount SEULEMENT. CreateAccountDto (POST /accounts, route generique non
+          utilisee par le front) et POST /internal/create-account (qui reutilise CreateAccountDto,
+          consomme par orchestration-service) restent SANS firstName/lastName/phoneNumber — envoyer
+          ces champs y renvoie 400 (whitelist:true). createAccount() redevient une ecriture unique
+          sans DataSource.transaction (plus d'appel a profile-service a proteger). La migration
+          1754400000000-drop-name-and-phone-columns.ts (colonnes users.first_name/last_name/phone)
+          est conservee telle quelle : ce retour en arriere partiel ne touche jamais a la
+          persistance locale, uniquement a la collecte en entree + au relais sortant sur 3 routes
+          precises.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <openItem id="TD-e2e-still-not-executed">
+        <title>Suite e2e (test/app.e2e-spec.ts) toujours non executee contre une vraie base dans cette session</title>
+        <description>
+          Meme limitation que la session du 2026-08-05 (openItem TD-e2e-not-executed-in-session) :
+          aucun Postgres accessible dans cet environnement de travail (ni service local sur 5432,
+          ni conteneur docker demarrable). Validation effectuee : suite unitaire complete
+          (225/225 tests verts apres mise a jour de test/unit/accounts.service.spec.ts,
+          test/unit/accounts.controller.spec.ts et test/unit/create-account.dto.spec.ts pour retirer
+          firstName/lastName des appels a createAccount()/POST /accounts uniquement) + `nest build`
+          reussi. test/app.e2e-spec.ts a ete mis a jour (POST /accounts sans ces champs, 400 si
+          envoyes ; POST /accounts/students, /teachers, /parents inchanges, ils les attendaient deja)
+          mais reste non execute contre une vraie base.
+        </description>
+        <status>open</status>
+      </openItem>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

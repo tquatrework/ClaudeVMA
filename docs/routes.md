@@ -26,20 +26,26 @@ Réponse login/refresh : `{access_token, refresh_token, user: {id, email, role, 
 
 ### Comptes
 
-> Décision d'architecture du 2026-08-05 : `firstName`/`lastName`/`phoneNumber` restent des champs de
-> saisie obligatoires/optionnels sur les routes ci-dessous (validation de forme inchangée), mais ne sont
-> **plus persistés localement** par identity-access-service (colonnes `first_name`/`last_name`/`phone`
-> supprimées de `users`). Ils sont transmis synchroniquement à profile-service au moment de la création
-> de compte via `POST /internal/create-administrative-profile` (voir plus bas) — profile-service est
-> désormais l'unique source de vérité pour ces données. Si cet appel échoue, la création de compte
-> échoue elle-même (`503`, transaction locale annulée) : voir la section dédiée ci-dessous.
+> Décision d'architecture du 2026-08-06 (précision apportée après un premier revirement trop large du
+> 2026-08-05/2026-08-06, voir `docs/architecture.md` > "Arbitrages rendus") : `firstName`/`lastName`/`phone`
+> restent la propriété exclusive de profile-service — identity-access-service ne les persiste **jamais**
+> localement (colonnes `first_name`/`last_name`/`phone` supprimées de `users`, aucun consommateur
+> interne n'y a accès). Seules les **3 routes d'auto-inscription directe par rôle** ci-dessous
+> (`POST /accounts/students`, `POST /accounts/teachers`, `POST /accounts/parents` — celles utilisées par
+> le front d'inscription) acceptent `firstName`/`lastName`/`phoneNumber` en entrée, uniquement pour les
+> relayer immédiatement à profile-service via `POST /internal/create-administrative-profile` (voir plus
+> bas), dans la même transaction locale que la création de compte. La route générique
+> `POST /accounts` et la route interne `POST /internal/create-account` (utilisée par
+> orchestration-service dans les workflows `student-onboarding`/`teacher-onboarding`, qui transmet ces
+> champs séparément et directement à profile-service) **ne collectent pas** ces champs — les envoyer
+> renvoie `400` (champs non reconnus rejetés par `whitelist: true`, jamais silencieusement ignorés).
 
 | Méthode | Chemin | Description | Auth | Rôles | Body |
 |---|---|---|---|---|---|
 | GET | /accounts/check-email | Vérifier la disponibilité d'un email | Non | — | Query: `email` |
-| POST | /accounts | Créer un compte générique (auto-inscription) | Non | — | `{email, password, firstName, lastName, phoneNumber?, role?}` |
-| POST | /accounts/students | Créer un compte élève (+ parent optionnel) | Non | — | `{email, password, firstName, lastName, phoneNumber?, isMember?, parentLoginIdentifier?, parentEmail?, parentPassword?, parentFirstName?, parentLastName?}` |
-| POST | /accounts/teachers | Créer un compte formateur | Non | — | `{email, password, firstName, lastName, phoneNumber?, cvReference?}` |
+| POST | /accounts | Créer un compte générique (auto-inscription, non utilisée par le front) | Non | — | `{email, password, role?, loginIdentifier?}` |
+| POST | /accounts/students | Créer un compte élève (+ parent optionnel) | Non | — | `{email, password, firstName, lastName, phoneNumber?, loginIdentifier?, isMember?, parentLoginIdentifier?, parentEmail?, parentPassword?, parentFirstName?, parentLastName?}` |
+| POST | /accounts/teachers | Créer un compte formateur | Non | — | `{email, password, firstName, lastName, phoneNumber?, loginIdentifier?, cvReference?}` |
 | POST | /accounts/parents | Créer un compte parent / financeur (+ élève optionnel) | Non | — | `{email, password, firstName, lastName, phoneNumber?, studentLoginIdentifier?, studentEmail?, studentPassword?, studentFirstName?, studentLastName?}` |
 | GET | /accounts/:accountId | Lire un compte | 🔒 | TI, RP, AdministrateurFinancier | — |
 | PUT | /accounts/:accountId/roles | Changer le rôle | 🔒 | RP, TI | `{role}` |
@@ -47,8 +53,10 @@ Réponse login/refresh : `{access_token, refresh_token, user: {id, email, role, 
 | PUT | /accounts/:accountId/suspend | Suspendre un compte | 🔒 | TI | — |
 | GET | /accounts/:accountId/audit | Journal d'audit | 🔒 | RP, TI | — |
 
-`firstName` et `lastName` sont obligatoires (chaînes non vides, 100 caractères max) sur les quatre routes de création de compte ci-dessus — `400` si absents ou vides.
-`phoneNumber` est optionnel sur les quatre routes (chiffres/espaces/`+`/`-`/`.`/parenthèses, 6 à 30 caractères — `400` si format invalide).
+`firstName` et `lastName` sont obligatoires (chaînes non vides, 100 caractères max) sur les 3 routes
+d'auto-inscription directe ci-dessus (`students`/`teachers`/`parents`) — `400` si absents ou vides.
+`phoneNumber` y est optionnel (chiffres/espaces/`+`/`-`/`.`/parenthèses, 6 à 30 caractères — `400` si
+format invalide). `POST /accounts` ne les accepte pas du tout (`400` si envoyés, whitelist stricte).
 
 **`POST /accounts/students` — élève + parent dans le même appel :**
 - `parentLoginIdentifier` : lie un compte parent **existant** par identifiant (`404` si introuvable). Prioritaire sur `parentEmail`.
@@ -63,11 +71,11 @@ Réponse login/refresh : `{access_token, refresh_token, user: {id, email, role, 
 
 Règles métier : seuls `eleve`, `parent_financeur` et `formateur` peuvent être auto-inscrits (IAM-FB-002). La validation nécessite les consentements RGPD+CGU signés (IAM-FB-003).
 
-Réponse (compte simple) : `{id, loginIdentifier, email, role, validationStatus, consentSigned, isActive, createdAt}` (`emailAlreadyUsed`/`suggestedLoginIdentifier` optionnels — **ne contient plus `firstName`/`lastName`/`phone`**, propriété exclusive de profile-service).
+Réponse (compte simple) : `{id, loginIdentifier, email, role, validationStatus, consentSigned, isActive, createdAt}` (`emailAlreadyUsed`/`suggestedLoginIdentifier` optionnels — **ne contient jamais `firstName`/`lastName`/`phone`**, propriété exclusive de profile-service, même sur les 3 routes qui les collectent en entrée).
 Réponse `POST /accounts/students` : `{student, parent}` où `student` est au format ci-dessus et `parent` est soit `null`, soit `{...student-like, created: boolean}` (`created: true` si un nouveau compte parent a été créé, `false` s'il a été lié à un compte existant).
 Réponse `POST /accounts/parents` : `{parent, student}`, symétrique — `parent` au format ci-dessus, `student` soit `null` soit `{..., created: boolean}`.
 
-`503 Service Unavailable` sur les 4 routes de création : profile-service indisponible ou en erreur lors du stockage du profil administratif (ou de la liaison financeur/élève) — la création de compte est **intégralement annulée** (transaction locale rollback), aucun compte orphelin n'est laissé en base. Le client peut réessayer l'appel tel quel.
+`503 Service Unavailable` sur `POST /accounts/students`, `POST /accounts/teachers` et `POST /accounts/parents` uniquement : profile-service indisponible ou en erreur lors du stockage du profil administratif (ou de la liaison financeur/élève) — la création de compte est **intégralement annulée** (transaction locale rollback), aucun compte orphelin n'est laissé en base. Le client peut réessayer l'appel tel quel. `POST /accounts` n'appelle jamais profile-service et ne renvoie donc pas ce statut.
 
 ### Consentements RGPD
 
@@ -90,20 +98,27 @@ Types : `rgpd` (requis), `cgu` (requis), `marketing` (optionnel). Une fois RGPD+
 | GET | /internal/accounts/by-login-identifier | Résoudre un compte par `loginIdentifier` | `X-Internal-Secret` |
 | GET | /internal/accounts/by-user-id/:userId | Résoudre un compte par `userId` | `X-Internal-Secret` |
 
-Body `POST /internal/create-account` : `{email, password, firstName, lastName, phoneNumber?, role?}` — mêmes règles de validation que `POST /accounts` (`firstName`/`lastName` obligatoires ; `phoneNumber` optionnel ; ni l'un ni l'autre n'est stocké localement, voir plus haut).
+Body `POST /internal/create-account` : `{email, password, role?, loginIdentifier?}` — réutilise
+`CreateAccountDto`, donc **mêmes règles de validation que `POST /accounts`** : n'accepte pas
+`firstName`/`lastName`/`phoneNumber` (`400` si envoyés). C'est la route consommée par
+orchestration-service dans les workflows `student-onboarding`/`teacher-onboarding` : ces workflows
+transmettent `firstName`/`lastName` séparément et directement à profile-service (jamais via cette
+route) — voir la section orchestration-service et `docs/architecture.md` > "Arbitrages rendus".
 
 Réponse `POST /internal/create-account` : `{accountId, email, role}`
-Réponse `GET /internal/accounts/by-user-id/:userId` : `{userId, loginIdentifier, role}` — **ne contient plus `firstName`/`lastName`/`phone`** depuis le 2026-08-05 (identity-access-service ne les possède plus ; un consommateur qui avait besoin de ces champs via cette route doit désormais les demander à profile-service).
+Réponse `GET /internal/accounts/by-user-id/:userId` : `{userId, loginIdentifier, role}` — **ne contient jamais `firstName`/`lastName`/`phone`** (identity-access-service ne les possède pas ; un consommateur qui a besoin de ces champs doit les demander à profile-service).
 
 ### Appel sortant vers profile-service (écriture primaire, pas une synchronisation)
 
-> Décision d'architecture du 2026-08-05 — succède et remplace une tentative antérieure de
-> "synchronisation best-effort d'une copie locale" (jamais mergée en l'état) : identity-access-service
-> ne conserve **aucune** copie de `firstName`/`lastName`/`phone`. profile-service en est l'unique
-> propriétaire.
+> Décision d'architecture du 2026-08-06 : identity-access-service ne conserve **aucune** copie de
+> `firstName`/`lastName`/`phone` — profile-service en est l'unique propriétaire. Seules les 3 routes
+> d'auto-inscription directe par rôle (`students`/`teachers`/`parents`) déclenchent cet appel sortant ;
+> `POST /accounts` et `POST /internal/create-account` ne le déclenchent jamais (ils ne collectent pas
+> ces champs).
 
-Après validation de forme (DTO) et avant de retourner `201`, identity-access-service appelle en
-sortant, **dans la même transaction locale** que la création du ou des comptes :
+Après validation de forme (DTO) et avant de retourner `201`, `POST /accounts/students`,
+`POST /accounts/teachers` et `POST /accounts/parents` appellent en sortant, **dans la même transaction
+locale** que la création du ou des comptes :
 
 1. `POST /internal/create-administrative-profile` sur profile-service avec `{userId, firstName,
    lastName, phone?}` (header `X-Internal-Secret`) — une fois par compte nouvellement créé
@@ -118,12 +133,12 @@ sortant, **dans la même transaction locale** que la création du ou des comptes
    `{studentId, financeOwnerId}` (header `X-Internal-Secret`) — crée la relation finance-owner-student
    immédiatement, sans flow de demande.
 
-Ces appels sont **bloquants et obligatoires** (contrairement à l'ancienne approche best-effort
-abandonnée) : toute erreur (réseau, timeout 3s, HTTP non-2xx) fait échouer toute la transaction locale
-— rollback du ou des comptes tout juste insérés — et la route retourne `503` au client. Aucun compte
-n'est donc jamais créé sans que son profil administratif ne soit durablement enregistré côté
-profile-service. Idempotence côté profile-service : `create-administrative-profile` est un upsert par
-`userId`, `link-parent` est idempotent par paire `(studentId, financeOwnerId)`.
+Ces appels sont **bloquants et obligatoires** sur ces 3 routes : toute erreur (réseau, timeout 3s, HTTP
+non-2xx) fait échouer toute la transaction locale — rollback du ou des comptes tout juste insérés — et
+la route retourne `503` au client. Aucun compte créé par l'une de ces 3 routes ne l'est donc jamais sans
+que son profil administratif ne soit durablement enregistré côté profile-service. Idempotence côté
+profile-service : `create-administrative-profile` est un upsert par `userId`, `link-parent` est
+idempotent par paire `(studentId, financeOwnerId)`.
 
 ### Événements publiés
 

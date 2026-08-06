@@ -106,14 +106,11 @@ export class AccountsService {
   // ---------------------------------------------------------------------------
 
   /**
-   * firstName/lastName/phoneNumber sont saisis ici mais ne sont jamais écrits dans
-   * `users` (voir user.entity.ts) : ils sont transmis à profile-service via
-   * persistAdministrativeProfile(), seul lieu de stockage depuis le 2026-08-05.
-   * Toute la méthode est enveloppée dans une DataSource.transaction pour que
-   * l'échec de cet appel externe annule aussi l'insertion locale (rollback
-   * automatique) plutôt que de laisser un compte sans aucune trace de son
-   * identité (voir openItem TD-profile-call-in-transaction dans
-   * docs/services/identity-access-service.md pour le compromis assumé).
+   * Route générique (`POST /accounts`, non utilisée par le front
+   * d'auto-inscription) : ne collecte pas firstName/lastName/phone et
+   * n'appelle donc pas profile-service. Écriture unique sur une seule entité :
+   * un DataSource.transaction n'est pas nécessaire (la ligne insérée par
+   * save() est déjà atomique et auto-commitée).
    */
   async createAccount(dto: CreateAccountDto, ipAddress?: string) {
     const role = dto.role ?? UserRole.ELEVE;
@@ -122,27 +119,19 @@ export class AccountsService {
       throw new ForbiddenException('Cannot self-register with an internal role (IAM-FB-002)');
     }
 
-    const { savedUser, emailAlreadyUsed, loginIdentifier } = await this.dataSource.transaction(async (manager) => {
-      const userRepo = manager.getRepository(User);
+    const loginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier);
+    const emailAlreadyUsed = !!(await this.userRepo.findOne({ where: { email: dto.email } }));
 
-      const loginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier, userRepo);
-      const emailAlreadyUsed = !!(await userRepo.findOne({ where: { email: dto.email } }));
-
-      const passwordHash = await bcrypt.hash(dto.password, 12);
-      const newUser = userRepo.create({
-        loginIdentifier,
-        email: dto.email,
-        passwordHash,
-        role,
-        validationStatus: ValidationStatus.PENDING,
-        consentSigned: false,
-      });
-      const savedUser = await userRepo.save(newUser);
-
-      await this.persistAdministrativeProfile(savedUser.id, dto.firstName, dto.lastName, dto.phoneNumber);
-
-      return { savedUser, emailAlreadyUsed, loginIdentifier };
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+    const newUser = this.userRepo.create({
+      loginIdentifier,
+      email: dto.email,
+      passwordHash,
+      role,
+      validationStatus: ValidationStatus.PENDING,
+      consentSigned: false,
     });
+    const savedUser = await this.userRepo.save(newUser);
 
     this.eventsService.publish('AccountCreated', {
       userId: savedUser.id,

@@ -1,14 +1,18 @@
-import { IsEmail, IsString, MinLength, MaxLength, IsNotEmpty, IsEnum, IsOptional, Matches } from 'class-validator';
+import { IsEmail, IsString, MinLength, IsEnum, IsOptional } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole, SELF_REGISTRATION_ROLES } from '../../auth/entities/user.entity';
-import { PHONE_NUMBER_REGEX } from './phone-number.validator';
 
 /**
- * firstName/lastName/phoneNumber restent des champs de saisie obligatoires/optionnels
- * à l'inscription (validation inchangée), mais ne sont plus persistés localement par
- * identity-access-service depuis le 2026-08-05 : AccountsService les transmet
- * directement à profile-service (seul lieu de stockage) au moment de la création
- * de compte, voir AccountsService.persistAdministrativeProfile.
+ * Décision du 2026-08-06 (précision apportée après un premier revirement trop
+ * large, voir docs/architecture.md > "Arbitrages rendus") : firstName/lastName/
+ * phone restent la propriété exclusive de profile-service et ne sont jamais
+ * persistés localement. Cette route générique (`POST /accounts`, non utilisée
+ * par le front d'auto-inscription) ne les collecte pas. Les 3 routes
+ * d'auto-inscription directe dédiées par rôle (`POST /accounts/students`,
+ * `POST /accounts/teachers`, `POST /accounts/parents`) les acceptent en
+ * revanche, uniquement pour les relayer immédiatement à profile-service — voir
+ * create-student-account.dto.ts, create-teacher-account.dto.ts et
+ * create-parent-account.dto.ts.
  */
 export class CreateAccountDto {
   @ApiProperty({ example: 'eleve@example.com' })
@@ -19,27 +23,6 @@ export class CreateAccountDto {
   @IsString()
   @MinLength(8)
   password: string;
-
-  @ApiProperty({ example: 'Jean', description: 'Account holder first name (forwarded to profile-service, not stored locally)' })
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
-  firstName: string;
-
-  @ApiProperty({ example: 'Dupont', description: 'Account holder last name (forwarded to profile-service, not stored locally)' })
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
-  lastName: string;
-
-  @ApiPropertyOptional({
-    example: '+33 6 01 02 03 04',
-    description: 'Account holder phone number (optional, forwarded to profile-service, not stored locally)',
-  })
-  @IsOptional()
-  @IsString()
-  @Matches(PHONE_NUMBER_REGEX, { message: 'phoneNumber must be a valid phone number (digits, spaces, +, -, ., parentheses, 6 to 30 characters)' })
-  phoneNumber?: string;
 
   @ApiPropertyOptional({
     enum: SELF_REGISTRATION_ROLES,

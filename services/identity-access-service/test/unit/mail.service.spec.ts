@@ -45,29 +45,22 @@ describe('MailService', () => {
 
   describe('sendEmailVerification', () => {
     it('envoie un email de vérification avec le bon sujet et le lien correct', async () => {
-      await service.sendEmailVerification('eleve@example.com', 'Jean', 'raw-token-abc');
+      await service.sendEmailVerification('eleve@example.com', 'raw-token-abc');
 
       expect(mockSendMail).toHaveBeenCalledTimes(1);
       const callArgs = mockSendMail.mock.calls[0][0];
       expect(callArgs.to).toBe('eleve@example.com');
       expect(callArgs.subject).toContain('Vérifiez votre adresse email');
       expect(callArgs.html).toContain('https://visioprof.fr/verify-email?token=raw-token-abc');
-      expect(callArgs.html).toContain('Jean');
+      expect(callArgs.html).toContain('Bonjour');
       expect(callArgs.from).toContain('contact@visioprof.fr');
-    });
-
-    it('utilise "Utilisateur" comme nom si firstName est null', async () => {
-      await service.sendEmailVerification('eleve@example.com', null, 'raw-token-abc');
-
-      const callArgs = mockSendMail.mock.calls[0][0];
-      expect(callArgs.html).toContain('Utilisateur');
     });
 
     it('ne propage pas une erreur SMTP (log silencieux)', async () => {
       mockSendMail.mockRejectedValue(new Error('SMTP connection refused'));
 
       await expect(
-        service.sendEmailVerification('test@example.com', null, 'token-xyz'),
+        service.sendEmailVerification('test@example.com', 'token-xyz'),
       ).resolves.not.toThrow();
     });
   });
@@ -95,28 +88,21 @@ describe('MailService', () => {
 
   describe('sendPasswordReset', () => {
     it('envoie un email de reset avec le bon lien', async () => {
-      await service.sendPasswordReset('formateur@example.com', 'Marie', 'reset-token-xyz');
+      await service.sendPasswordReset('formateur@example.com', 'reset-token-xyz');
 
       expect(mockSendMail).toHaveBeenCalledTimes(1);
       const callArgs = mockSendMail.mock.calls[0][0];
       expect(callArgs.to).toBe('formateur@example.com');
       expect(callArgs.subject).toContain('Réinitialisation');
       expect(callArgs.html).toContain('https://visioprof.fr/reset-password?token=reset-token-xyz');
-      expect(callArgs.html).toContain('Marie');
-    });
-
-    it('utilise "Utilisateur" comme nom si firstName est null', async () => {
-      await service.sendPasswordReset('formateur@example.com', null, 'reset-token-xyz');
-
-      const callArgs = mockSendMail.mock.calls[0][0];
-      expect(callArgs.html).toContain('Utilisateur');
+      expect(callArgs.html).toContain('Bonjour');
     });
 
     it('ne propage pas une erreur SMTP (log silencieux)', async () => {
       mockSendMail.mockRejectedValue(new Error('Authentication failed'));
 
       await expect(
-        service.sendPasswordReset('test@example.com', null, 'token-xyz'),
+        service.sendPasswordReset('test@example.com', 'token-xyz'),
       ).resolves.not.toThrow();
     });
   });

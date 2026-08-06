@@ -3,7 +3,9 @@ import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 /**
  * Forme validée du `payload` attendu par `POST /workflows/student-onboarding/start`.
  * Ne couvre que les champs lus/dérivés par orchestration-service lui-même
- * (firstName/lastName propagés à identity-access-service ET profile-service,
+ * (firstName/lastName propagés exclusivement à profile-service — identity-access-service
+ * n'accepte plus ces champs à la création de compte, cf. `docs/architecture.md`
+ * "Arbitrages rendus" du 2026-08-06 —,
  * parentAccountId utilisé par l'étape optionnelle link-parent) — le reste du
  * payload (email, password, consents, birthDate, level, ...) reste opaque et
  * relayé tel quel, conformément à l'exception "payloads de routage pur" de

@@ -6,8 +6,6 @@ export interface AccountResponseDto {
   loginIdentifier: string;
   email: string;
   role: UserRole;
-  firstName: string | null;
-  lastName: string | null;
   validationStatus: ValidationStatus;
   consentSigned: boolean;
   isActive: boolean;
@@ -20,6 +18,15 @@ export interface AccountResponseDto {
 export interface StudentAccountCreationResponseDto {
   student: AccountResponseDto;
   parent: (AccountResponseDto & { created: boolean }) | null;
+}
+
+/**
+ * Réponse de création d'un compte parent, avec compte élève optionnel lié ou créé
+ * (symétrique de StudentAccountCreationResponseDto).
+ */
+export interface ParentAccountCreationResponseDto {
+  parent: AccountResponseDto;
+  student: (AccountResponseDto & { created: boolean }) | null;
 }
 
 /** Réponse de GET /accounts/check-email. */

@@ -12,6 +12,7 @@ import {
   AccountResponseDto,
   CheckEmailResponseDto,
   StudentAccountCreationResponseDto,
+  ParentAccountCreationResponseDto,
 } from './dto/account-response.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -49,6 +50,7 @@ export class AccountsController {
   @ApiResponse({ status: 201, description: 'Student (and optionally parent) account created — status PENDING. emailAlreadyUsed:true if email was already registered.' })
   @ApiResponse({ status: 409, description: 'Login identifier already taken, or multiple parent accounts share the given parentEmail' })
   @ApiResponse({ status: 404, description: 'parentLoginIdentifier not found' })
+  @ApiResponse({ status: 503, description: 'profile-service unavailable — account creation rolled back, no data was lost' })
   createStudentAccount(
     @Body() dto: CreateStudentAccountDto,
     @Ip() ipAddress: string,
@@ -65,6 +67,7 @@ export class AccountsController {
   })
   @ApiResponse({ status: 201, description: 'Teacher account created — status PENDING (non_approved). emailAlreadyUsed:true if email was already registered.' })
   @ApiResponse({ status: 409, description: 'Login identifier already taken' })
+  @ApiResponse({ status: 503, description: 'profile-service unavailable — account creation rolled back, no data was lost' })
   createTeacherAccount(@Body() dto: CreateTeacherAccountDto, @Ip() ipAddress: string): Promise<AccountResponseDto> {
     return this.accountsService.createTeacherAccount(dto, ipAddress);
   }
@@ -74,11 +77,20 @@ export class AccountsController {
     summary: 'Create parent financeur account',
     description:
       'Self-register as a parent_financeur. Allows a financing parent to create an account independently, ' +
-      'without going through the student registration flow. Account starts in PENDING status.',
+      'without going through the student registration flow. Optionally create a linked student (eleve) ' +
+      'account in the same call (studentLoginIdentifier or studentEmail) — symmetric to the parent linking ' +
+      'fields on POST /accounts/students. When a student is linked or created in the same call, the ' +
+      'finance-owner-student relation is created automatically (no approval flow). Account starts in ' +
+      'PENDING status.',
   })
-  @ApiResponse({ status: 201, description: 'Parent account created — status PENDING' })
-  @ApiResponse({ status: 409, description: 'Email already in use' })
-  createParentAccount(@Body() dto: CreateParentAccountDto, @Ip() ipAddress: string): Promise<AccountResponseDto> {
+  @ApiResponse({ status: 201, description: 'Parent (and optionally student) account created — status PENDING. emailAlreadyUsed:true if email was already registered.' })
+  @ApiResponse({ status: 409, description: 'Email already in use, or multiple student accounts share the given studentEmail' })
+  @ApiResponse({ status: 404, description: 'studentLoginIdentifier not found' })
+  @ApiResponse({ status: 503, description: 'profile-service unavailable — account creation rolled back, no data was lost' })
+  createParentAccount(
+    @Body() dto: CreateParentAccountDto,
+    @Ip() ipAddress: string,
+  ): Promise<ParentAccountCreationResponseDto> {
     return this.accountsService.createParentAccount(dto, ipAddress);
   }
 

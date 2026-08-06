@@ -1,12 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AccountsService } from '../../src/accounts/accounts.service';
 import { User, UserRole, ValidationStatus } from '../../src/auth/entities/user.entity';
 import { AuditLog } from '../../src/accounts/entities/audit-log.entity';
 import { EventsService } from '../../src/events/events.service';
+import { ProfileServiceClient } from '../../src/common/clients/profile-service.client';
 import { buildTransactionalDataSourceMock } from './helpers/mock-transactional-data-source';
 
 const makeUser = (overrides: Partial<User> = {}): User => ({
@@ -17,9 +18,6 @@ const makeUser = (overrides: Partial<User> = {}): User => ({
   role: UserRole.ELEVE,
   validationStatus: ValidationStatus.PENDING,
   consentSigned: false,
-  firstName: null,
-  lastName: null,
-  phone: null,
   isActive: true,
   emailVerified: false,
   createdAt: new Date(),
@@ -32,6 +30,7 @@ describe('AccountsService', () => {
   let userRepo: any;
   let auditRepo: any;
   let eventsService: { publish: jest.Mock };
+  let profileServiceClient: { createAdministrativeProfile: jest.Mock; linkParentToStudent: jest.Mock };
 
   beforeEach(async () => {
     userRepo = {
@@ -55,6 +54,10 @@ describe('AccountsService', () => {
     };
 
     eventsService = { publish: jest.fn() };
+    profileServiceClient = {
+      createAdministrativeProfile: jest.fn().mockResolvedValue(undefined),
+      linkParentToStudent: jest.fn().mockResolvedValue(undefined),
+    };
 
     const dataSourceMock = buildTransactionalDataSourceMock([
       [User, userRepo],
@@ -71,6 +74,7 @@ describe('AccountsService', () => {
           provide: ConfigService,
           useValue: { get: jest.fn((key: string, defaultValue?: unknown) => defaultValue ?? null) },
         },
+        { provide: ProfileServiceClient, useValue: profileServiceClient },
         { provide: DataSource, useValue: dataSourceMock },
       ],
     }).compile();
@@ -80,20 +84,29 @@ describe('AccountsService', () => {
 
   describe('createAccount', () => {
     it('creates an account with PENDING status', async () => {
-      const result = await service.createAccount({ email: 'new@test.com', password: 'password123', firstName: 'Jean', lastName: 'Dupont' });
+      const result = await service.createAccount({
+        email: 'new@test.com',
+        password: 'password123',
+      });
       expect(result).toHaveProperty('validationStatus', ValidationStatus.PENDING);
       expect(result).toHaveProperty('loginIdentifier');
     });
 
-    it('persists and returns firstName and lastName', async () => {
+    it('does not expose firstName/lastName on the response (identity-access-service does not own these fields)', async () => {
       const result = await service.createAccount({
         email: 'named@test.com',
         password: 'password123',
-        firstName: 'Camille',
-        lastName: 'Lefevre',
       });
-      expect(result).toHaveProperty('firstName', 'Camille');
-      expect(result).toHaveProperty('lastName', 'Lefevre');
+      expect(result).not.toHaveProperty('firstName');
+      expect(result).not.toHaveProperty('lastName');
+    });
+
+    it('does not call profile-service (generic route, not used by self-registration front)', async () => {
+      await service.createAccount({
+        email: 'no-relay@test.com',
+        password: 'password123',
+      });
+      expect(profileServiceClient.createAdministrativeProfile).not.toHaveBeenCalled();
     });
 
     it('creates account even when email is already used, setting emailAlreadyUsed flag', async () => {
@@ -104,8 +117,6 @@ describe('AccountsService', () => {
       const result = await service.createAccount({
         email: 'test@example.com',
         password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
       });
       expect(result).toHaveProperty('emailAlreadyUsed', true);
       expect(result).toHaveProperty('suggestedLoginIdentifier');
@@ -117,8 +128,6 @@ describe('AccountsService', () => {
         service.createAccount({
           email: 'new@test.com',
           password: 'password123',
-          firstName: 'Jean',
-          lastName: 'Dupont',
           loginIdentifier: 'test.user',
         }),
       ).rejects.toThrow(ConflictException);
@@ -129,8 +138,6 @@ describe('AccountsService', () => {
         service.createAccount({
           email: 'hack@test.com',
           password: 'password123',
-          firstName: 'Jean',
-          lastName: 'Dupont',
           role: UserRole.TECHNICIEN_INFORMATIQUE,
         }),
       ).rejects.toThrow(ForbiddenException);
@@ -140,15 +147,16 @@ describe('AccountsService', () => {
       const result = await service.createAccount({
         email: 'teacher@test.com',
         password: 'password123',
-        firstName: 'Jean',
-        lastName: 'Dupont',
         role: UserRole.FORMATEUR,
       });
       expect(result.role).toBe(UserRole.FORMATEUR);
     });
 
     it('publishes AccountCreated with userId, email, loginIdentifier and role after account creation', async () => {
-      await service.createAccount({ email: 'new@test.com', password: 'password123', firstName: 'Jean', lastName: 'Dupont' });
+      await service.createAccount({
+        email: 'new@test.com',
+        password: 'password123',
+      });
       expect(eventsService.publish).toHaveBeenCalledWith('AccountCreated', expect.objectContaining({
         userId: 'user-uuid',
         email: 'new@test.com',
@@ -227,15 +235,15 @@ describe('AccountsService', () => {
       expect(result.parent).toBeNull();
     });
 
-    it('persists and returns firstName and lastName for the student', async () => {
+    it('does not expose firstName/lastName on the student response', async () => {
       const result = await service.createStudentAccount({
         email: 'student2@test.com',
         password: 'password123',
         firstName: 'Lucas',
         lastName: 'Petit',
       });
-      expect(result.student).toHaveProperty('firstName', 'Lucas');
-      expect(result.student).toHaveProperty('lastName', 'Petit');
+      expect(result.student).not.toHaveProperty('firstName');
+      expect(result.student).not.toHaveProperty('lastName');
     });
 
     it('creates a parent account when parentEmail is provided and no existing parent matches', async () => {
@@ -255,8 +263,8 @@ describe('AccountsService', () => {
       expect(result.student.role).toBe(UserRole.ELEVE);
       expect(result.parent).not.toBeNull();
       expect(result.parent!.role).toBe(UserRole.PARENT_FINANCEUR);
-      expect(result.parent).toHaveProperty('firstName', 'Nathalie');
-      expect(result.parent).toHaveProperty('lastName', 'Petit');
+      expect(result.parent).not.toHaveProperty('firstName');
+      expect(result.parent).not.toHaveProperty('lastName');
     });
 
     it('links existing parent account when exactly one account matches parentEmail', async () => {
@@ -358,15 +366,15 @@ describe('AccountsService', () => {
       expect(result).toHaveProperty('loginIdentifier');
     });
 
-    it('persists and returns firstName and lastName', async () => {
+    it('does not expose firstName/lastName on the response', async () => {
       const result = await service.createTeacherAccount({
         email: 'teacher2@test.com',
         password: 'password123',
         firstName: 'Marie',
         lastName: 'Martin',
       });
-      expect(result).toHaveProperty('firstName', 'Marie');
-      expect(result).toHaveProperty('lastName', 'Martin');
+      expect(result).not.toHaveProperty('firstName');
+      expect(result).not.toHaveProperty('lastName');
     });
 
     it('creates account even when email is already used, setting emailAlreadyUsed flag', async () => {
@@ -411,17 +419,18 @@ describe('AccountsService', () => {
   });
 
   describe('createParentAccount', () => {
-    it('creates a parent account with PENDING status and persists firstName/lastName', async () => {
+    it('creates a parent account with PENDING status and does not expose firstName/lastName', async () => {
       const result = await service.createParentAccount({
         email: 'parent@test.com',
         password: 'password123',
         firstName: 'Sophie',
         lastName: 'Bernard',
       });
-      expect(result.role).toBe(UserRole.PARENT_FINANCEUR);
-      expect(result.validationStatus).toBe(ValidationStatus.PENDING);
-      expect(result).toHaveProperty('firstName', 'Sophie');
-      expect(result).toHaveProperty('lastName', 'Bernard');
+      expect(result.parent.role).toBe(UserRole.PARENT_FINANCEUR);
+      expect(result.parent.validationStatus).toBe(ValidationStatus.PENDING);
+      expect(result.parent).not.toHaveProperty('firstName');
+      expect(result.parent).not.toHaveProperty('lastName');
+      expect(result.student).toBeNull();
     });
 
     it('publishes AccountCreated with userId and role PARENT_FINANCEUR', async () => {
@@ -436,6 +445,94 @@ describe('AccountsService', () => {
         email: 'parent@test.com',
         role: UserRole.PARENT_FINANCEUR,
       }));
+    });
+
+    it('creates a student account when studentEmail is provided and no existing student matches', async () => {
+      userRepo.find = jest.fn().mockResolvedValue([]);
+      const result = await service.createParentAccount({
+        email: 'parent@test.com',
+        password: 'password123',
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+        studentEmail: 'student@test.com',
+        studentPassword: 'studentpass123',
+        studentFirstName: 'Lucas',
+        studentLastName: 'Petit',
+      });
+      expect(result.parent.role).toBe(UserRole.PARENT_FINANCEUR);
+      expect(result.student).not.toBeNull();
+      expect(result.student!.role).toBe(UserRole.ELEVE);
+      expect(result.student!.created).toBe(true);
+    });
+
+    it('links existing student account when exactly one account matches studentEmail', async () => {
+      const existingStudent = makeUser({ id: 'student-uuid', loginIdentifier: 'student.user', email: 'student@test.com', role: UserRole.ELEVE });
+      userRepo.find = jest.fn().mockResolvedValue([existingStudent]);
+      const result = await service.createParentAccount({
+        email: 'parent@test.com',
+        password: 'password123',
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+        studentEmail: 'student@test.com',
+      });
+      expect(result.student!.id).toBe('student-uuid');
+      expect(result.student!.created).toBe(false);
+    });
+
+    it('throws 409 when multiple accounts share the studentEmail', async () => {
+      const studentA = makeUser({ id: 'sa-uuid', loginIdentifier: 'student.a' });
+      const studentB = makeUser({ id: 'sb-uuid', loginIdentifier: 'student.b' });
+      userRepo.find = jest.fn().mockResolvedValue([studentA, studentB]);
+      await expect(
+        service.createParentAccount({
+          email: 'parent@test.com',
+          password: 'password123',
+          firstName: 'Sophie',
+          lastName: 'Bernard',
+          studentEmail: 'shared@test.com',
+        }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('throws 404 when studentLoginIdentifier does not match any account', async () => {
+      userRepo.findOne.mockResolvedValue(null);
+      await expect(
+        service.createParentAccount({
+          email: 'parent@test.com',
+          password: 'password123',
+          firstName: 'Sophie',
+          lastName: 'Bernard',
+          studentLoginIdentifier: 'unknown.student',
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('calls profile-service to link the parent as finance owner when a student is linked or created in the same call', async () => {
+      userRepo.find = jest.fn().mockResolvedValue([]);
+      await service.createParentAccount({
+        email: 'parent@test.com',
+        password: 'password123',
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+        studentEmail: 'student@test.com',
+        studentPassword: 'studentpass123',
+        studentFirstName: 'Lucas',
+        studentLastName: 'Petit',
+      });
+      expect(profileServiceClient.linkParentToStudent).toHaveBeenCalledWith({
+        studentId: 'user-uuid',
+        financeOwnerId: 'user-uuid',
+      });
+    });
+
+    it('does not call link-parent when no student is involved', async () => {
+      await service.createParentAccount({
+        email: 'parent@test.com',
+        password: 'password123',
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+      });
+      expect(profileServiceClient.linkParentToStudent).not.toHaveBeenCalled();
     });
   });
 
@@ -499,8 +596,8 @@ describe('AccountsService', () => {
   });
 
   describe('findByUserId', () => {
-    it('returns firstName and lastName alongside userId, loginIdentifier and role', async () => {
-      const target = makeUser({ firstName: 'Camille', lastName: 'Lefevre' });
+    it('returns userId, loginIdentifier and role without firstName/lastName', async () => {
+      const target = makeUser();
       userRepo.findOne.mockResolvedValue(target);
 
       const result = await service.findByUserId('user-uuid');
@@ -509,8 +606,6 @@ describe('AccountsService', () => {
         userId: 'user-uuid',
         loginIdentifier: target.loginIdentifier,
         role: target.role,
-        firstName: 'Camille',
-        lastName: 'Lefevre',
       });
     });
 
@@ -638,6 +733,218 @@ describe('AccountsService', () => {
       });
 
       expect(auditRepo.save).toHaveBeenCalled();
+    });
+  });
+
+  // ── Stockage du profil administratif via profile-service (décision du 2026-08-05) ──
+
+  describe('administrative profile storage via profile-service', () => {
+    it('createTeacherAccount: calls profile-service with the teacher userId/firstName/lastName', async () => {
+      await service.createTeacherAccount({
+        email: 'teacher-store@test.com',
+        password: 'password123',
+        firstName: 'Marie',
+        lastName: 'Martin',
+      });
+
+      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith({
+        userId: 'user-uuid',
+        firstName: 'Marie',
+        lastName: 'Martin',
+      });
+    });
+
+    it('createTeacherAccount: fails with 503 when profile-service is unavailable', async () => {
+      profileServiceClient.createAdministrativeProfile.mockRejectedValueOnce(new Error('timeout'));
+
+      await expect(
+        service.createTeacherAccount({
+          email: 'teacher-fail@test.com',
+          password: 'password123',
+          firstName: 'Marie',
+          lastName: 'Martin',
+        }),
+      ).rejects.toThrow(ServiceUnavailableException);
+    });
+
+    it('createParentAccount: calls profile-service with the parent userId/firstName/lastName', async () => {
+      await service.createParentAccount({
+        email: 'parent-store@test.com',
+        password: 'password123',
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+      });
+
+      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith({
+        userId: 'user-uuid',
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+      });
+    });
+
+    it('createParentAccount: fails with 503 when profile-service is unavailable', async () => {
+      profileServiceClient.createAdministrativeProfile.mockRejectedValueOnce(new Error('timeout'));
+
+      await expect(
+        service.createParentAccount({
+          email: 'parent-fail@test.com',
+          password: 'password123',
+          firstName: 'Sophie',
+          lastName: 'Bernard',
+        }),
+      ).rejects.toThrow(ServiceUnavailableException);
+    });
+
+    it('createStudentAccount: calls profile-service for the student, and for the parent when parentEmail triggers creation', async () => {
+      userRepo.find = jest.fn().mockResolvedValue([]); // no existing parent → parent created
+      await service.createStudentAccount({
+        email: 'student-store@test.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        parentEmail: 'parent-store@test.com',
+        parentPassword: 'parentpass123',
+        parentFirstName: 'Nathalie',
+        parentLastName: 'Petit',
+      });
+
+      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ firstName: 'Lucas', lastName: 'Petit' }),
+      );
+      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ firstName: 'Nathalie', lastName: 'Petit' }),
+      );
+      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledTimes(2);
+    });
+
+    it('createStudentAccount: calls profile-service only for the student when no parent is involved', async () => {
+      await service.createStudentAccount({
+        email: 'student-only@test.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+      });
+
+      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledTimes(1);
+      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ firstName: 'Lucas', lastName: 'Petit' }),
+      );
+    });
+
+    it('createStudentAccount: does not call profile-service for an existing linked parent (their profile is not overwritten)', async () => {
+      const existingParent = makeUser({ id: 'parent-uuid', loginIdentifier: 'parent.user', email: 'parent@test.com', role: UserRole.PARENT_FINANCEUR });
+      userRepo.find = jest.fn().mockResolvedValue([existingParent]);
+
+      await service.createStudentAccount({
+        email: 'student-linked@test.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        parentEmail: 'parent@test.com',
+        parentFirstName: 'Nathalie',
+        parentLastName: 'Petit',
+      });
+
+      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledTimes(1);
+      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ firstName: 'Lucas', lastName: 'Petit' }),
+      );
+    });
+
+    it('createStudentAccount: fails with 503 and rolls back both accounts when profile-service is unavailable for the parent', async () => {
+      userRepo.find = jest.fn().mockResolvedValue([]);
+      profileServiceClient.createAdministrativeProfile
+        .mockResolvedValueOnce(undefined) // student profile succeeds
+        .mockRejectedValueOnce(new Error('timeout')); // parent profile fails
+
+      await expect(
+        service.createStudentAccount({
+          email: 'student-rollback@test.com',
+          password: 'password123',
+          firstName: 'Lucas',
+          lastName: 'Petit',
+          parentEmail: 'parent-rollback@test.com',
+          parentPassword: 'parentpass123',
+          parentFirstName: 'Nathalie',
+          parentLastName: 'Petit',
+        }),
+      ).rejects.toThrow(ServiceUnavailableException);
+
+      expect(eventsService.publish).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Liaison financeur/élève automatique (décision produit du 2026-08-05) ──
+
+  describe('automatic finance-owner-student link', () => {
+    it('createStudentAccount: calls profile-service to link the student to the newly created parent', async () => {
+      userRepo.find = jest.fn().mockResolvedValue([]);
+      await service.createStudentAccount({
+        email: 'student-link@test.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        parentEmail: 'parent-link@test.com',
+        parentPassword: 'parentpass123',
+        parentFirstName: 'Nathalie',
+        parentLastName: 'Petit',
+      });
+
+      expect(profileServiceClient.linkParentToStudent).toHaveBeenCalledWith({
+        studentId: 'user-uuid',
+        financeOwnerId: 'user-uuid',
+      });
+    });
+
+    it('createStudentAccount: also links when the parent is an existing linked account (not newly created)', async () => {
+      const existingParent = makeUser({ id: 'parent-uuid', loginIdentifier: 'parent.user', email: 'parent@test.com', role: UserRole.PARENT_FINANCEUR });
+      userRepo.find = jest.fn().mockResolvedValue([existingParent]);
+
+      await service.createStudentAccount({
+        email: 'student-link2@test.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        parentEmail: 'parent@test.com',
+        parentFirstName: 'Nathalie',
+        parentLastName: 'Petit',
+      });
+
+      expect(profileServiceClient.linkParentToStudent).toHaveBeenCalledWith({
+        studentId: 'user-uuid',
+        financeOwnerId: 'parent-uuid',
+      });
+    });
+
+    it('createStudentAccount: does not call link-parent when no parent is involved', async () => {
+      await service.createStudentAccount({
+        email: 'student-nolink@test.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+      });
+
+      expect(profileServiceClient.linkParentToStudent).not.toHaveBeenCalled();
+    });
+
+    it('createStudentAccount: fails with 503 and rolls back both accounts when the link call fails', async () => {
+      userRepo.find = jest.fn().mockResolvedValue([]);
+      profileServiceClient.linkParentToStudent.mockRejectedValueOnce(new Error('timeout'));
+
+      await expect(
+        service.createStudentAccount({
+          email: 'student-linkfail@test.com',
+          password: 'password123',
+          firstName: 'Lucas',
+          lastName: 'Petit',
+          parentEmail: 'parent-linkfail@test.com',
+          parentPassword: 'parentpass123',
+          parentFirstName: 'Nathalie',
+          parentLastName: 'Petit',
+        }),
+      ).rejects.toThrow(ServiceUnavailableException);
+
+      expect(eventsService.publish).not.toHaveBeenCalled();
     });
   });
 });

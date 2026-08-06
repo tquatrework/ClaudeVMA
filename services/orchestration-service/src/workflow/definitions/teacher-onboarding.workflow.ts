@@ -17,8 +17,6 @@ export const teacherOnboardingWorkflow: WorkflowDefinition = {
         password: context.payload.password,
         role: 'formateur',
         consents: context.payload.consents,
-        firstName: context.payload.firstName,
-        lastName: context.payload.lastName,
       }),
     },
     {

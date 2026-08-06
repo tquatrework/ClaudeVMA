@@ -36,14 +36,15 @@ export class MailService {
   /**
    * Envoie un email de vérification d'adresse après inscription.
    * Le lien pointe vers le front avec le token en query param.
+   * identity-access-service ne possède plus firstName/lastName (propriété
+   * exclusive de profile-service depuis le 2026-08-05) : la salutation reste
+   * générique plutôt que personnalisée par prénom.
    */
   async sendEmailVerification(
     toEmail: string,
-    firstName: string | null,
     rawToken: string,
   ): Promise<void> {
     const verificationLink = `${this.frontBaseUrl}/verify-email?token=${rawToken}`;
-    const recipientName = firstName ?? 'Utilisateur';
 
     const htmlContent = `
 <!DOCTYPE html>
@@ -65,7 +66,7 @@ export class MailService {
           </tr>
           <tr>
             <td style="color: #333333; font-size: 16px; line-height: 1.6;">
-              <p>Bonjour ${recipientName},</p>
+              <p>Bonjour,</p>
               <p>Merci de vous être inscrit sur VisioProf. Pour activer votre compte, veuillez cliquer sur le bouton ci-dessous pour vérifier votre adresse email.</p>
               <p>Ce lien est valable <strong>24 heures</strong>.</p>
             </td>
@@ -174,14 +175,15 @@ export class MailService {
   /**
    * Envoie un email de réinitialisation de mot de passe.
    * Le lien pointe vers le front avec le token en query param.
+   * identity-access-service ne possède plus firstName/lastName (propriété
+   * exclusive de profile-service depuis le 2026-08-05) : la salutation reste
+   * générique plutôt que personnalisée par prénom.
    */
   async sendPasswordReset(
     toEmail: string,
-    firstName: string | null,
     rawToken: string,
   ): Promise<void> {
     const resetLink = `${this.frontBaseUrl}/reset-password?token=${rawToken}`;
-    const recipientName = firstName ?? 'Utilisateur';
 
     const htmlContent = `
 <!DOCTYPE html>
@@ -203,7 +205,7 @@ export class MailService {
           </tr>
           <tr>
             <td style="color: #333333; font-size: 16px; line-height: 1.6;">
-              <p>Bonjour ${recipientName},</p>
+              <p>Bonjour,</p>
               <p>Vous avez demandé la réinitialisation de votre mot de passe. Cliquez sur le bouton ci-dessous pour choisir un nouveau mot de passe.</p>
               <p>Ce lien est valable <strong>60 minutes</strong>.</p>
             </td>

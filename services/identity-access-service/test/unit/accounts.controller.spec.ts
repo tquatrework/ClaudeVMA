@@ -9,8 +9,6 @@ const makePublicAccount = (overrides = {}) => ({
   id: 'user-uuid',
   email: 'test@example.com',
   role: UserRole.ELEVE,
-  firstName: 'Jean',
-  lastName: 'Dupont',
   validationStatus: ValidationStatus.PENDING,
   consentSigned: false,
   isActive: true,
@@ -49,13 +47,13 @@ describe('AccountsController (self-service)', () => {
       mockAccountsService.createAccount.mockResolvedValue(createdAccount);
 
       const result = await controller.createAccount(
-        { email: 'test@example.com', password: 'password123', firstName: 'Jean', lastName: 'Dupont' },
+        { email: 'test@example.com', password: 'password123' },
         '127.0.0.1',
       );
 
       expect(result).toEqual(createdAccount);
       expect(mockAccountsService.createAccount).toHaveBeenCalledWith(
-        { email: 'test@example.com', password: 'password123', firstName: 'Jean', lastName: 'Dupont' },
+        { email: 'test@example.com', password: 'password123' },
         '127.0.0.1',
       );
     });
@@ -65,7 +63,7 @@ describe('AccountsController (self-service)', () => {
 
       await expect(
         controller.createAccount(
-          { email: 'existing@test.com', password: 'password123', firstName: 'Jean', lastName: 'Dupont' },
+          { email: 'existing@test.com', password: 'password123' },
           '127.0.0.1',
         ),
       ).rejects.toThrow(ConflictException);
@@ -81,8 +79,6 @@ describe('AccountsController (self-service)', () => {
           {
             email: 'hack@test.com',
             password: 'password123',
-            firstName: 'Jean',
-            lastName: 'Dupont',
             role: UserRole.TECHNICIEN_INFORMATIQUE,
           },
           '127.0.0.1',
@@ -166,6 +162,59 @@ describe('AccountsController (self-service)', () => {
       await expect(
         controller.createTeacherAccount(
           { email: 'existing@test.com', password: 'password123', firstName: 'Marie', lastName: 'Martin' },
+          '127.0.0.1',
+        ),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  // ── POST /accounts/parents ──────────────────────────────────────────────────
+
+  describe('POST /accounts/parents — createParentAccount', () => {
+    it('creates a parent account without a linked student', async () => {
+      const parentResult = { parent: makePublicAccount({ role: UserRole.PARENT_FINANCEUR }), student: null };
+      mockAccountsService.createParentAccount.mockResolvedValue(parentResult);
+
+      const result = await controller.createParentAccount(
+        { email: 'parent@test.com', password: 'password123', firstName: 'Sophie', lastName: 'Bernard' },
+        '127.0.0.1',
+      );
+
+      expect(result.parent.role).toBe(UserRole.PARENT_FINANCEUR);
+      expect(result.student).toBeNull();
+    });
+
+    it('creates a parent account with an optional linked student', async () => {
+      const parentResult = {
+        parent: makePublicAccount({ role: UserRole.PARENT_FINANCEUR }),
+        student: makePublicAccount({ id: 'student-uuid', email: 'student@test.com', role: UserRole.ELEVE }),
+      };
+      mockAccountsService.createParentAccount.mockResolvedValue(parentResult);
+
+      const result = await controller.createParentAccount(
+        {
+          email: 'parent@test.com',
+          password: 'password123',
+          firstName: 'Sophie',
+          lastName: 'Bernard',
+          studentEmail: 'student@test.com',
+          studentPassword: 'studentpass123',
+          studentFirstName: 'Lucas',
+          studentLastName: 'Petit',
+        },
+        '127.0.0.1',
+      );
+
+      expect(result.student).not.toBeNull();
+      expect(result.student!.role).toBe(UserRole.ELEVE);
+    });
+
+    it('propagates 409 when parent email is already taken', async () => {
+      mockAccountsService.createParentAccount.mockRejectedValue(new ConflictException('Email already in use'));
+
+      await expect(
+        controller.createParentAccount(
+          { email: 'existing@test.com', password: 'password123', firstName: 'Sophie', lastName: 'Bernard' },
           '127.0.0.1',
         ),
       ).rejects.toThrow(ConflictException);

@@ -320,6 +320,271 @@
           passer par une action RP/TI. A evaluer dans une session ulterieure si le besoin
           remonte du front ou du produit.
         </description>
+        <status>obsolete</status>
+        <obsoleteReason>
+          Rendu sans objet par la session du 2026-08-05 : firstName/lastName ne sont plus
+          persistes du tout par identity-access-service (voir session ci-dessous). La correction
+          d'un prenom/nom mal saisi est desormais entierement une responsabilite de
+          profile-service (PUT /profiles/:userId/administrative, deja documente dans
+          docs/routes.md), qui reste le proprietaire exclusif de la donnee.
+        </obsoleteReason>
+      </openItem>
+    </session>
+
+    <session date="2026-08-05">
+      <title>Retrait de firstName/lastName/phone d'identity-access-service — profile-service devient l'unique proprietaire ; liaison automatique financeur/eleve</title>
+      <context>
+        Poursuite directe de la session du 2026-08-04 (firstName/lastName obligatoires). Deux
+        chantiers distincts mais menes ensemble sur decision produit/architecture :
+        1) Une branche parallele avait tente une "synchronisation best-effort" de firstName/lastName
+           vers profile-service depuis identity-access-service (POST /internal/create-administrative-profile
+           en fetch() non bloquant, erreurs journalisees mais jamais remontees). Cette approche a ete
+           explicitement abandonnee en cours de session : elle duplique la donnee (source de verite
+           ambigue) et masque silencieusement les echecs d'ecriture. Remplacee par : identity-access-service
+           ne stocke plus AUCUNE copie locale de firstName/lastName/phone ; l'appel vers profile-service
+           devient l'ECRITURE PRIMAIRE (bloquante, obligatoire) plutot qu'une synchronisation d'une copie.
+        2) Ajout d'un champ phoneNumber (optionnel) collecte a l'inscription au meme titre que
+           firstName/lastName, avec le meme traitement (transmis a profile-service, jamais stocke
+           localement).
+        3) Ajout du support combine cote parent (POST /accounts/parents peut desormais creer/lier un
+           eleve dans le meme appel, symetrique de POST /accounts/students), avec liaison automatique
+           financeur/eleve (POST /internal/link-parent) quand eleve et parent sont associes dans le
+           meme appel de creation de compte, quel que soit le sens (via /accounts/students ou
+           /accounts/parents).
+        Repris a partir d'un commit de travail intermediaire (`refactor/identity-access-remove-name-fields`,
+        wip: retrait deja engage des colonnes/DTO mais sans encore l'appel obligatoire vers
+        profile-service ni le support combine parent-vers-eleve) plutot que depuis la branche de
+        synchronisation best-effort abandonnee.
+      </context>
+
+      <decision id="S-profile-service-sole-owner">
+        <title>profile-service devient l'unique proprietaire de firstName/lastName/phone</title>
+        <files>
+          <file>src/auth/entities/user.entity.ts</file>
+          <file>src/migrations/1754400000000-drop-name-and-phone-columns.ts (nouveau)</file>
+          <file>src/common/types/authenticated-user.ts</file>
+          <file>src/mail/mail.service.ts</file>
+          <file>src/auth/auth.service.ts</file>
+          <file>src/accounts/dto/account-response.dto.ts</file>
+          <file>src/accounts/dto/create-account.dto.ts</file>
+          <file>src/accounts/dto/create-student-account.dto.ts</file>
+          <file>src/accounts/dto/create-teacher-account.dto.ts</file>
+          <file>src/accounts/dto/create-parent-account.dto.ts</file>
+          <file>src/accounts/dto/phone-number.validator.ts (nouveau)</file>
+        </files>
+        <description>
+          Colonnes users.first_name/last_name/phone supprimees (migration DropNameAndPhoneColumns,
+          IF EXISTS/IF NOT EXISTS dans les deux sens car ces colonnes avaient ete introduites via
+          synchronize en developpement, jamais par une migration formelle — cf. openItem
+          TD-baseline-migration toujours ouvert). AuthenticatedUser, MailService (salutation
+          generique au lieu de personnalisee) et notifyDashboardTeacherPending (dashboard RP) ne
+          consomment plus ces champs depuis l'entite ; notifyDashboardTeacherPending recoit
+          desormais firstName/lastName directement depuis le DTO de la requete en cours (donnee
+          encore disponible en memoire au moment de l'appel, simplement jamais persistee).
+          firstName/lastName restent des champs de SAISIE obligatoires (validation de forme
+          inchangee, IsNotEmpty/MaxLength(100)) sur les 4 routes de creation + phoneNumber ajoute
+          comme champ optionnel (regex permissive PHONE_NUMBER_REGEX, 6-30 caracteres, factorisee
+          dans phone-number.validator.ts) — seule la destination du stockage change.
+          AccountResponseDto/toPublic() n'exposent plus firstName/lastName/phone (jamais).
+          GET /internal/accounts/by-user-id/:userId (consommee par profile-service par le passe)
+          ne renvoie plus ces champs non plus — verifier cote profile-service si un appelant en
+          dependait encore (signale, non corrige ici — hors perimetre de ce service).
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="S-mandatory-profile-write-with-rollback">
+        <title>Appel vers profile-service obligatoire et bloquant, avec rollback transactionnel</title>
+        <files>
+          <file>src/common/clients/profile-service.client.ts (nouveau)</file>
+          <file>src/common/clients/clients.module.ts (nouveau)</file>
+          <file>src/accounts/accounts.module.ts</file>
+          <file>src/accounts/accounts.service.ts</file>
+        </files>
+        <description>
+          ProfileServiceClient (adaptateur typé, services-convention) expose
+          createAdministrativeProfile({userId, firstName, lastName, phone?}) et
+          linkParentToStudent({studentId, financeOwnerId}), appelant respectivement
+          POST /internal/create-administrative-profile et POST /internal/link-parent sur
+          profile-service (X-Internal-Secret, timeout 3s). Contrairement a la tentative
+          abandonnee, ce client RELANCE une erreur typee (ProfileServiceUnavailableError) sur
+          tout echec (reseau/timeout/HTTP non-2xx) au lieu de l'avaler.
+          AccountsService.persistAdministrativeProfile()/linkParentAsFinanceOwner() catchent
+          cette erreur et la relancent en ServiceUnavailableException (503) — appelees a
+          l'INTERIEUR de la DataSource.transaction de creation de compte (createAccount,
+          createStudentAccount, createTeacherAccount, createParentAccount, toutes desormais
+          transactionnelles y compris les 3 qui ne l'etaient pas avant faute de deuxieme
+          ecriture locale). Un throw dans le callback de transaction declenche le rollback
+          automatique TypeORM de la ligne users tout juste inseree (et de la ligne parent/eleve
+          liee le cas echeant) : aucun compte n'est jamais laisse "orphelin" (cree localement
+          mais sans profil administratif). Les evenements AccountCreated ne sont publies
+          qu'apres le commit reussi de la transaction (donc apres le succes de l'appel
+          profile-service), coherent avec le principe existant "erreur metier jamais transformee
+          en succes technique" (docs/microservices.md).
+          Compromis assume et documente : la connexion DB de la transaction reste ouverte
+          pendant l'appel reseau (borne a 3s) — acceptable au volume de la phase 1, a revisiter
+          (saga/outbox) si le volume augmente significativement (voir openItem ci-dessous).
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="S-parent-combined-creation-and-auto-link">
+        <title>POST /accounts/parents : support combine parent+eleve, symetrique de POST /accounts/students ; liaison automatique financeur/eleve</title>
+        <files>
+          <file>src/accounts/dto/create-parent-account.dto.ts</file>
+          <file>src/accounts/dto/account-response.dto.ts</file>
+          <file>src/accounts/accounts.controller.ts</file>
+          <file>src/accounts/accounts.service.ts</file>
+        </files>
+        <description>
+          CreateParentAccountDto gagne studentLoginIdentifier/studentEmail/studentPassword/
+          studentFirstName/studentLastName (memes conventions de nommage/validation que le cote
+          eleve : studentFirstName/studentLastName obligatoires uniquement si studentEmail est
+          fourni via @ValidateIf, meme resolution 0/1/2+ comptes correspondants que
+          parentEmail cote CreateStudentAccountDto). Reponse POST /accounts/parents change de
+          forme : {parent, student} au lieu d'un objet compte plat (breaking change assume et
+          documente dans docs/routes.md — a repercuter cote front, cf. rapport de session).
+          Regle produit : quand un eleve et un parent financeur sont crees/lies dans le meme
+          appel de creation de compte (dans un sens OU dans l'autre), la relation
+          finance-owner-student est creee automatiquement et immediatement (pas de flow de
+          demande) via ProfileServiceClient.linkParentToStudent — y compris quand le compte
+          associe est un compte EXISTANT simplement lie (pas seulement quand il est cree), la
+          liaison automatique s'applique dans les deux cas. Le profil administratif
+          (firstName/lastName) d'un compte existant lie n'est jamais ecrase par les champs
+          saisis par l'autre partie.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <openItem id="TD-profile-call-in-transaction">
+        <title>Appel HTTP synchrone a l'interieur d'une transaction DB (connexion retenue pendant l'appel reseau)</title>
+        <description>
+          Compromis delibere de cette session : persistAdministrativeProfile()/
+          linkParentAsFinanceOwner() sont appelees a l'interieur du callback
+          DataSource.transaction() pour beneficier du rollback automatique TypeORM en cas
+          d'echec, plutot que d'implementer une suppression compensatoire manuelle apres coup.
+          Consequence connue : la connexion DB de la transaction reste ouverte pendant l'appel
+          reseau vers profile-service (borne a un timeout de 3s cote ProfileServiceClient).
+          Acceptable au volume attendu de la phase 1 (inscriptions, pas un flux a haut debit) ;
+          a revisiter si le volume augmente significativement (piste : saga/outbox pattern,
+          ou creation du compte local puis appel profile-service hors transaction avec
+          suppression compensatoire explicite en cas d'echec).
+        </description>
+        <status>open</status>
+      </openItem>
+
+      <openItem id="TD-e2e-not-executed-in-session">
+        <title>Suite e2e (test/app.e2e-spec.ts) non executee dans cet environnement de travail</title>
+        <description>
+          test/app.e2e-spec.ts necessite une base Postgres reelle (DATABASE_URL) et n'est
+          matchee par AUCUN script npm existant (test:e2e ne matche que test/e2e/**, pas
+          test/app.e2e-spec.ts — ecart preexistant a cette session, non introduit ici).
+          Tentative de demarrer un Postgres via Docker dans cet environnement : image
+          postgres:16-alpine indisponible et cache local containerd corrompu (blob introuvable),
+          aucun Postgres local en ecoute sur 5432 par ailleurs. Validation effectuee a la place :
+          suite unitaire complete (237/237 tests verts, incluant les scenarios de rollback
+          transactionnel et de creation combinee) + `tsc --noEmit` sans erreur sur l'ensemble du
+          projet (src + test, y compris test/app.e2e-spec.ts) + `nest build` reussi. Le fichier
+          e2e a ete mis a jour (override du provider ProfileServiceClient par un stub, nouveaux
+          scenarios 503/combine) mais reste non execute contre une vraie base — a valider avant
+          prochain deploiement ou dans un environnement dote d'un Postgres accessible.
+        </description>
+        <status>open</status>
+      </openItem>
+
+      <openItem id="TD-profile-service-contract-confirmation">
+        <title>Contrat POST /internal/create-administrative-profile cote profile-service — nom de champ corrige</title>
+        <description>
+          Le corps envoye est {userId, firstName, lastName, phone?}. Version initiale de cette
+          session envoyait par erreur phoneNumber ; corrige suite a un retour explicite de
+          l'orchestrateur (coordination avec l'agent profile-service) indiquant que profile-service
+          attend `phone` — convention deja etablie sur ses autres routes internes
+          (create-student-profiles.dto.ts, create-teacher-profiles.dto.ts,
+          update-administrative-profile.dto.ts). Le DTO d'entree public d'identity-access-service
+          (CreateAccountDto et les 3 autres) garde `phoneNumber` ; seul le mapping effectue dans
+          AccountsService.persistAdministrativeProfile()/ProfileServiceClient.createAdministrativeProfile
+          convertit vers `phone` au moment de l'appel sortant. Corrige et teste (voir tests
+          ProfileServiceClient et AccountsService) dans un commit de fix rapide sur la meme branche.
+        </description>
+        <status>resolved</status>
+      </openItem>
+    </session>
+
+    <session date="2026-08-06">
+      <title>Retrait trop large corrige — retour du relais firstName/lastName/phone limite aux 3 routes d'auto-inscription directe</title>
+      <context>
+        Une session anterieure du meme jour (branche non fusionnee dans master,
+        `refactor/identity-access-remove-name-fields-v2`) avait interprete l'arbitrage
+        d'architecture du 2026-08-06 ("firstName/lastName/phone appartiennent exclusivement a
+        profile-service") comme un retrait TOTAL : les 4 routes de creation de compte (dont
+        POST /accounts) avaient ete privees de ces champs en entree, et l'appel sortant vers
+        profile-service (ProfileServiceClient.createAdministrativeProfile,
+        AccountsService.persistAdministrativeProfile) avait ete integralement supprime. Consequence
+        detectee : le front (ParentRegistrationPage/StudentRegistrationPage/TeacherRegistrationPage,
+        qui appellent POST /accounts/parents, /accounts/students et /accounts/teachers directement,
+        hors orchestration-service) n'avait plus aucun moyen de faire creer un profil administratif
+        a l'inscription — un compte se creait desormais sans aucun profil, cassant le parcours
+        d'inscription reel. Precision explicite du PO : l'arbitrage "profile-service proprietaire
+        exclusif" porte sur la PERSISTANCE (identity-access-service ne stocke jamais ces champs
+        localement, migration de suppression des colonnes conservee), pas sur la collecte en entree
+        des 3 routes d'auto-inscription directe par role — celles-ci doivent continuer a relayer
+        firstName/lastName/phone a profile-service, exactement comme dans la session du 2026-08-05
+        ci-dessus (etat intermediaire), MAIS restreint a ces 3 routes uniquement (pas
+        POST /accounts generique, pas POST /internal/create-account consomme par
+        orchestration-service qui transmet deja ces champs separement et directement a
+        profile-service dans les workflows student-onboarding/teacher-onboarding).
+      </context>
+
+      <decision id="S-scope-relay-to-three-self-registration-routes">
+        <title>Relais firstName/lastName/phone restaure sur POST /accounts/students, /teachers, /parents uniquement</title>
+        <files>
+          <file>src/accounts/dto/create-student-account.dto.ts</file>
+          <file>src/accounts/dto/create-teacher-account.dto.ts</file>
+          <file>src/accounts/dto/create-parent-account.dto.ts</file>
+          <file>src/accounts/dto/create-account.dto.ts</file>
+          <file>src/accounts/dto/phone-number.validator.ts (restaure)</file>
+          <file>src/accounts/accounts.service.ts</file>
+          <file>src/accounts/accounts.controller.ts</file>
+          <file>src/common/clients/profile-service.client.ts</file>
+          <file>src/common/clients/clients.module.ts (restaure)</file>
+          <file>src/accounts/accounts.module.ts</file>
+          <file>test/app.e2e-spec.ts</file>
+          <file>test/unit/accounts.service.spec.ts</file>
+          <file>test/unit/accounts.controller.spec.ts</file>
+          <file>test/unit/create-account.dto.spec.ts</file>
+          <file>test/unit/common/profile-service.client.spec.ts</file>
+        </files>
+        <description>
+          Restauration du contenu de la session du 2026-08-05 (ProfileServiceClient.
+          createAdministrativeProfile, AccountsService.persistAdministrativeProfile appele dans la
+          DataSource.transaction de creation de compte, rollback 503 en cas d'echec de
+          profile-service) sur les 3 routes createStudentAccount/createTeacherAccount/
+          createParentAccount SEULEMENT. CreateAccountDto (POST /accounts, route generique non
+          utilisee par le front) et POST /internal/create-account (qui reutilise CreateAccountDto,
+          consomme par orchestration-service) restent SANS firstName/lastName/phoneNumber — envoyer
+          ces champs y renvoie 400 (whitelist:true). createAccount() redevient une ecriture unique
+          sans DataSource.transaction (plus d'appel a profile-service a proteger). La migration
+          1754400000000-drop-name-and-phone-columns.ts (colonnes users.first_name/last_name/phone)
+          est conservee telle quelle : ce retour en arriere partiel ne touche jamais a la
+          persistance locale, uniquement a la collecte en entree + au relais sortant sur 3 routes
+          precises.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <openItem id="TD-e2e-still-not-executed">
+        <title>Suite e2e (test/app.e2e-spec.ts) toujours non executee contre une vraie base dans cette session</title>
+        <description>
+          Meme limitation que la session du 2026-08-05 (openItem TD-e2e-not-executed-in-session) :
+          aucun Postgres accessible dans cet environnement de travail (ni service local sur 5432,
+          ni conteneur docker demarrable). Validation effectuee : suite unitaire complete
+          (225/225 tests verts apres mise a jour de test/unit/accounts.service.spec.ts,
+          test/unit/accounts.controller.spec.ts et test/unit/create-account.dto.spec.ts pour retirer
+          firstName/lastName des appels a createAccount()/POST /accounts uniquement) + `nest build`
+          reussi. test/app.e2e-spec.ts a ete mis a jour (POST /accounts sans ces champs, 400 si
+          envoyes ; POST /accounts/students, /teachers, /parents inchanges, ils les attendaient deja)
+          mais reste non execute contre une vraie base.
+        </description>
         <status>open</status>
       </openItem>
     </session>

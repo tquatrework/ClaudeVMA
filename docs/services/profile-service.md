@@ -220,7 +220,92 @@
           PUT sans le champ firstName -> 200, champ existant inchange.
         </testCoverage>
       </decision>
+      <decision id="C6" status="implemented" session="2026-08-06">
+        <title>Consolidation de 3 branches divergentes non fusionnees sur firstName/lastName/phone (profile-service) — POST /internal/create-administrative-profile devient l'unique point d'ecriture</title>
+        <description>
+          Contexte : suite a l'arbitrage d'architecture du 2026-08-06 (docs/architecture.md,
+          section "Arbitrages rendus") retirant firstName/lastName/phone de
+          identity-access-service au profit exclusif de profile-service, trois branches
+          locales jamais fusionnees avaient chacune tente de fermer le gap laisse ouvert par
+          C5 sur POST /internal/create-administrative-profile, en divergeant sans se voir :
+          feat/profile-service-mandatory-names (6c56e5f), fix/profile-service-internal-
+          mandatory-names (acd4e46 + son suivi distant e32764c) et
+          fix/profile-service-internal-profile-bootstrap (94f5e72 + 1e1cf51). Cette session
+          consolide les trois en une seule implementation coherente sur
+          refactor/consolidate-name-fields-ownership :
+          (1) feat/profile-service-mandatory-names (6c56e5f) etait entierement redondant :
+          son contenu (firstName/lastName obligatoires sur create-student-profiles.dto.ts,
+          create-teacher-profiles.dto.ts et update-administrative-profile.dto.ts) avait deja
+          ete integre sur master via le commit 9fa8d32 (#56). Verifie par diff explicite
+          (aucun delta src/ restant) ; rien a reprendre de cette branche.
+          (2) fix/profile-service-internal-profile-bootstrap (94f5e72 + 1e1cf51) : ferme le
+          gap C5 sur create-administrative-profile.dto.ts (firstName/lastName passes de
+          @IsOptional() a @IsString() @IsNotEmpty() @MaxLength(100)) et transforme
+          ProfilesService.bootstrapAdministrativeProfile d'un create-si-absent en veritable
+          upsert (les champs fournis — firstName, lastName, phone, birthDate — ecrasent les
+          valeurs existantes des qu'ils different, sans jamais tenter de re-creer une ligne,
+          donc sans risque de violation de la contrainte d'unicite userId). phone gagne
+          @IsNotEmpty() @MaxLength(20) quand fourni (reste @IsOptional() au niveau du champ :
+          tous les flux de creation de compte ne collectent pas de telephone).
+          (3) fix/profile-service-internal-mandatory-names (acd4e46, dont le suivi distant
+          e32764c) : harmonise le nom du champ telephone en `phone` sur
+          UpdateAdministrativeProfileDto (PUT /profiles/:userId/administrative), aligne sur
+          les DTO internes qui utilisaient deja ce nom ; mappe en interne sur la colonne
+          `telephone`. Active ValidationPipe({ forbidNonWhitelisted: true }) globalement
+          (main.ts + helper e2e). Cette activation a revele deux bugs latents distincts,
+          corriges dans cette session : profiles.e2e-spec.ts envoyait deja `phone`/`city`
+          (silencieusement ignores avant forbidNonWhitelisted, alors que `ville` est le nom
+          de champ reel) sur des tests PUT /administrative censes verifier 200 ; et deux
+          tests PUT /pedagogical envoyaient `level`/`objectives`/`experience`/`specialties`
+          au lieu des noms reels `niveauScolaire`/`objectifsPedagogiques`/
+          `experiencePedagogique`/`matieresEnseignees` — les deux corriges pour utiliser les
+          noms de champ canoniques.
+          Point d'arbitrage explicitement tranche (cf. consigne de la tache) : le commit
+          acd4e46 avait initialement ajoute POST /internal/create-parent-profile (bootstrap
+          idempotent miroir de create-student/teacher-profiles), route retiree ensuite par le
+          commit distant e32764c ("route interne redondante : meme appel a
+          bootstrapAdministrativeProfile, aucune logique metier propre au parent, aucun
+          appelant identifie — create-administrative-profile reste le point d'entree unique
+          pour tout role, y compris parent_financeur"). Cette session respecte ce retrait :
+          create-parent-profile.dto.ts n'est PAS reintroduit.
+          Aucun conflit reel entre les 3 branches n'a necessite d'arbitrage humain au-dela de
+          celui deja tranche par e32764c : les trois portaient sur des perimetres disjoints
+          ou strictement redondants (aucune modification contradictoire du meme comportement
+          sur le meme champ).
+        </description>
+        <testCoverage>
+          npm test (unit) : 214 tests, 211 verts — memes 3 echecs preexistants documentes
+          dans l'openPoint updateTeacherValidation, confirmes non lies a cette session
+          (memes echecs sur master avant modification, 207/210). 4 nouveaux tests unitaires
+          verts (upsert bootstrapAdministrativeProfile : creation, ecrasement nom existant,
+          mise a jour phone, no-op si phone identique).
+          npm run test:e2e (USE_LOCAL_DB=true avec conteneur PostgreSQL local dedie,
+          --runInBand — necessaire car les suites e2e partagent une base locale unique et
+          synchronize(true) en parallele produit des collisions de schema ; Testcontainers
+          indisponible dans cet environnement sandbox, meme limitation documentee depuis C5) :
+          93 tests, 91 verts — memes 2 echecs preexistants confirmes non lies (GET
+          /profiles/:userId profil inexistant renvoie 200 au lieu de 404 ; POST
+          /profiles/:userId/internal-notes refuse a l'administrateur financier), confirmes en
+          rejouant la meme suite sur l'etat pre-session (80/82, memes 2 echecs). 11 nouveaux
+          tests e2e verts (suite POST /internal/create-administrative-profile : creation,
+          upsert idempotent nom, validations 400 userId/firstName/lastName/phone manquants ou
+          invalides, securite 401/403, persistance et mise a jour de phone).
+          npm run build : OK (nest build sans erreur).
+        </testCoverage>
+      </decision>
       <openPoints>
+        <item>
+          Idempotence "de reponse" (200/201 silencieux) vs idempotence "d'etat" (409
+          explicite, jamais de doublon) sur les methodes *ForSystem de RelationsService
+          (createFinanceOwnerStudentLinkForSystem et les 2 methodes soeurs, utilisees par
+          POST /internal/link-parent, /internal/create-teacher-student-relation et
+          /internal/link-coordinator) : comportement intentionnel et deja teste (verifie par
+          lecture de code lors de cette session, non modifie), mais l'appelant
+          (identity-access-service pour l'auto-liaison eleve/parent a la creation, ou
+          orchestration-service en cas de retry) doit explicitement traiter un 409 sur ces
+          routes comme "deja lie" et non comme un echec bloquant. A confirmer explicitement
+          cote identity-access-service/orchestration-service au moment de l'integration.
+        </item>
         <item>
           3 tests preexistants echouent dans updateTeacherValidation
           (test/unit/profiles/profiles.service.spec.ts) : un bug preexistant dans

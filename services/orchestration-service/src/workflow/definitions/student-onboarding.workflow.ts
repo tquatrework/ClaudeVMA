@@ -18,8 +18,6 @@ export const studentOnboardingWorkflow: WorkflowDefinition = {
         password: context.payload.password,
         role: 'eleve',
         consents: context.payload.consents,
-        firstName: context.payload.firstName,
-        lastName: context.payload.lastName,
       }),
       compensationAction: 'delete-account',
       buildCompensationPayload: (context) => ({

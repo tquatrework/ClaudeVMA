@@ -253,3 +253,48 @@ contrainte de leur côté.
   gap `WEBHOOK_SECRET` pré-existant de `test/e2e/callbacks.e2e-spec.ts` documenté ci-dessus
   (confirmé identique avant cette session via `git stash`), non lié à ce changement.
 - `npm run build` (`nest build`) passe sans erreur TypeScript.
+
+## Retrait de firstName/lastName du payload identity-access-service — session 2026-08-06
+
+Contexte : arbitrage d'architecture du 2026-08-06 (`docs/architecture.md`, "Arbitrages rendus") —
+`firstName`/`lastName`/`phone` appartiennent désormais exclusivement à `profile-service`.
+`identity-access-service` a été nettoyé dans une session séparée (DTOs stricts, ces champs ne sont
+plus acceptés à la création de compte). La session 2026-08-04 ci-dessus (PR #57) avait ajouté
+`firstName`/`lastName` au payload sortant vers `identity-access-service` pour les steps
+`create-student-account` et `create-teacher-account` — cet ajout est désormais rejeté en amont
+(400) par `identity-access-service` et devait être retiré.
+
+### Changement
+
+- `src/workflow/definitions/student-onboarding.workflow.ts` : step 1 (`create-student-account` →
+  `identity-access-service`) ne construit plus `firstName`/`lastName` dans son `buildPayload` —
+  seuls `email`/`password`/`role`/`consents` sont envoyés. Step 2 (`create-student-profiles` →
+  `profile-service`) inchangé : reste le seul destinataire de `firstName`/`lastName` côté
+  onboarding élève.
+- `src/workflow/definitions/teacher-onboarding.workflow.ts` : même retrait pour step 1
+  (`create-teacher-account` → `identity-access-service`). Step 2 (`create-teacher-profiles` →
+  `profile-service`) inchangé.
+- `src/workflow/dto/payloads/student-onboarding-start-payload.dto.ts` : commentaire de tête corrigé
+  (mentionnait encore une propagation vers `identity-access-service`). `firstName`/`lastName`
+  restent des champs obligatoires du **payload de démarrage** côté client de l'orchestrateur (input
+  utilisateur, requis pour alimenter `profile-service` à l'étape 2) — seule leur propagation vers
+  `identity-access-service` a été retirée.
+- Aucun autre point du service (logs, événements `WorkflowStarted`/`WorkflowStepCompleted`, DTOs
+  partagés) ne réinjectait `firstName`/`lastName`/`phone` vers `identity-access-service` — vérifié
+  par recherche exhaustive (`grep -rn "firstName\|lastName\|phone" src/`) : les seules occurrences
+  restantes sont dans les deux fichiers de définition de workflow et leurs DTOs de payload de
+  démarrage, déjà couverts ci-dessus. `phone` n'a jamais été manipulé par ce service.
+
+### Tests
+
+- `test/unit/workflow/student-onboarding.workflow.spec.ts` et
+  `test/unit/workflow/teacher-onboarding.workflow.spec.ts` : le test "step 1 propagates
+  firstName/lastName to identity-access-service" est remplacé par un test inverse ("step 1 never
+  sends firstName/lastName to identity-access-service") vérifiant `not.toHaveProperty`.
+- Aucune autre régression : `npm run test` (19 suites, 128 tests unitaires + e2e confondus dans la
+  même commande faute de config `testMatch` par défaut distincte) passe intégralement après
+  correction. `npm run build` (`nest build`) passe sans erreur.
+
+### Points en suspens
+
+- Aucun. Le retrait est ciblé et confirmé sans effet de bord ailleurs dans le service.

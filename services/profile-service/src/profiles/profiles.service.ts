@@ -141,7 +141,12 @@ export class ProfilesService {
     };
   }
 
-  /** Update (upsert) the administrative profile for a user. */
+  /**
+   * Update (upsert) the administrative profile for a user.
+   * The public DTO exposes the canonical `phone` field name; it is mapped
+   * here onto the entity's `telephone` column (kept as-is to limit
+   * migration risk — see docs/services/profile-service.md).
+   */
   async updateAdministrativeProfile(
     userId: string,
     dto: UpdateAdministrativeProfileDto,
@@ -149,11 +154,17 @@ export class ProfilesService {
   ) {
     this.assertWriteAccess(userId, actor);
 
+    const { phone, ...rest } = dto;
+    const patch: Partial<AdministrativeProfile> = { ...rest };
+    if (phone !== undefined) {
+      patch.telephone = phone;
+    }
+
     let profile = await this.adminRepo.findOne({ where: { userId } });
     if (!profile) {
-      profile = this.adminRepo.create({ userId, ...dto });
+      profile = this.adminRepo.create({ userId, ...patch });
     } else {
-      Object.assign(profile, dto);
+      Object.assign(profile, patch);
     }
 
     const saved = await this.adminRepo.save(profile);
@@ -585,8 +596,27 @@ export class ProfilesService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Idempotent creation of the administrative profile for onboarding flows.
-   * Does nothing (returns the existing profile) if one already exists.
+   * Idempotent upsert of the administrative profile for onboarding flows.
+   *
+   * If no profile exists for userId, it is created.
+   * If a profile already exists (e.g. a minimal {userId} row created by the
+   * defensive lazy-init in getProfile() before the onboarding bootstrap call
+   * arrived, or this bootstrap call being replayed by the caller), the fields
+   * provided in input overwrite the existing ones instead of failing on the
+   * userId unique constraint or silently keeping a stale/empty name.
+   * This is safe because bootstrap calls only happen very early in the
+   * account lifecycle (identity-access-service calling right after account
+   * creation) — overwriting with the incoming value is the intended
+   * source-of-truth behavior at that point, even if the row was already
+   * populated by a previous bootstrap call or a lazy-init.
+   *
+   * As of the identity-access-service migration that removes firstName/
+   * lastName/phone from its own `user` table, this method (via
+   * POST /internal/create-administrative-profile) is the only place these
+   * three fields are persisted for a user — identity-access-service's call
+   * is now mandatory, not best-effort. firstName/lastName are required at
+   * the DTO level; phone stays optional (not every onboarding flow collects
+   * it) but is upserted with the same reliability when provided.
    */
   async bootstrapAdministrativeProfile(input: {
     userId: string;
@@ -604,9 +634,27 @@ export class ProfilesService {
         telephone: input.phone ?? undefined,
         dateNaissance: input.birthDate,
       });
-      profile = await this.adminRepo.save(profile);
+      return this.adminRepo.save(profile);
     }
-    return profile;
+
+    let hasChanges = false;
+    if (input.firstName !== undefined && profile.firstName !== input.firstName) {
+      profile.firstName = input.firstName;
+      hasChanges = true;
+    }
+    if (input.lastName !== undefined && profile.lastName !== input.lastName) {
+      profile.lastName = input.lastName;
+      hasChanges = true;
+    }
+    if (input.phone !== undefined && profile.telephone !== input.phone) {
+      profile.telephone = input.phone;
+      hasChanges = true;
+    }
+    if (input.birthDate !== undefined && profile.dateNaissance !== input.birthDate) {
+      profile.dateNaissance = input.birthDate;
+      hasChanges = true;
+    }
+    return hasChanges ? this.adminRepo.save(profile) : profile;
   }
 
   /**

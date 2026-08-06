@@ -21,11 +21,17 @@ export class UpdateAdministrativeProfileDto {
   @IsDateString()
   dateNaissance?: string;
 
-  @ApiPropertyOptional({ description: 'Phone number', example: '+33612345678' })
+  @ApiPropertyOptional({
+    description:
+      'Phone number. Canonical field name is `phone` (aligned with the internal bootstrap ' +
+      'DTOs and ProfilesService); it is mapped internally onto the `telephone` entity column.',
+    example: '+33612345678',
+  })
   @IsOptional()
+  @IsNotEmpty()
   @IsString()
   @MaxLength(20)
-  telephone?: string;
+  phone?: string;
 
   @ApiPropertyOptional({ description: 'Address line 1', example: '12 rue de la Paix' })
   @IsOptional()

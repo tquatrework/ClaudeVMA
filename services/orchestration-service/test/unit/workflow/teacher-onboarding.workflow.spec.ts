@@ -22,12 +22,12 @@ describe('teacherOnboardingWorkflow — ORCH-WF-TEACHER-001', () => {
     expect(teacherOnboardingWorkflow.startPayloadValidationClass).toBe(TeacherOnboardingStartPayloadDto);
   });
 
-  it('step 1 (create-teacher-account) propagates firstName and lastName to identity-access-service', () => {
+  it('step 1 (create-teacher-account) never sends firstName/lastName to identity-access-service — these fields belong exclusively to profile-service', () => {
     const step = teacherOnboardingWorkflow.steps[0];
     expect(step.targetService).toBe('identity-access-service');
     const payload = step.buildPayload(makeContext());
-    expect(payload.firstName).toBe('Marie');
-    expect(payload.lastName).toBe('Martin');
+    expect(payload).not.toHaveProperty('firstName');
+    expect(payload).not.toHaveProperty('lastName');
   });
 
   it('step 2 (create-teacher-profiles) propagates firstName and lastName to profile-service', () => {

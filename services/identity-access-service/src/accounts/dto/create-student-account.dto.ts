@@ -1,5 +1,6 @@
-import { IsEmail, IsString, MinLength, MaxLength, IsNotEmpty, IsOptional, IsBoolean, ValidateIf } from 'class-validator';
+import { IsEmail, IsString, MinLength, MaxLength, IsNotEmpty, IsOptional, IsBoolean, ValidateIf, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { PHONE_NUMBER_REGEX } from './phone-number.validator';
 
 export class CreateStudentAccountDto {
   @ApiProperty({ example: 'eleve@example.com', description: 'Student email address' })
@@ -11,17 +12,26 @@ export class CreateStudentAccountDto {
   @MinLength(8)
   password: string;
 
-  @ApiProperty({ example: 'Lucas', description: 'Student first name' })
+  @ApiProperty({ example: 'Lucas', description: 'Student first name (forwarded to profile-service, not stored locally)' })
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
   firstName: string;
 
-  @ApiProperty({ example: 'Petit', description: 'Student last name' })
+  @ApiProperty({ example: 'Petit', description: 'Student last name (forwarded to profile-service, not stored locally)' })
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
   lastName: string;
+
+  @ApiPropertyOptional({
+    example: '+33 6 01 02 03 04',
+    description: 'Student phone number (optional, forwarded to profile-service, not stored locally)',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(PHONE_NUMBER_REGEX, { message: 'phoneNumber must be a valid phone number (digits, spaces, +, -, ., parentheses, 6 to 30 characters)' })
+  phoneNumber?: string;
 
   @ApiPropertyOptional({
     example: 'jean.dupont',
@@ -68,7 +78,7 @@ export class CreateStudentAccountDto {
 
   @ApiPropertyOptional({
     example: 'Nathalie',
-    description: 'Parent first name. Required when parentEmail is provided.',
+    description: 'Parent first name. Required when parentEmail is provided (forwarded to profile-service, not stored locally).',
   })
   @ValidateIf((dto: CreateStudentAccountDto) => !!dto.parentEmail)
   @IsString()
@@ -78,7 +88,7 @@ export class CreateStudentAccountDto {
 
   @ApiPropertyOptional({
     example: 'Petit',
-    description: 'Parent last name. Required when parentEmail is provided.',
+    description: 'Parent last name. Required when parentEmail is provided (forwarded to profile-service, not stored locally).',
   })
   @ValidateIf((dto: CreateStudentAccountDto) => !!dto.parentEmail)
   @IsString()

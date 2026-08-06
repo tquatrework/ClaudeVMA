@@ -76,7 +76,7 @@ describe('InternalService', () => {
     it('propagates errors raised by ProfilesService', async () => {
       profilesService.bootstrapAdministrativeProfile.mockRejectedValue(new ConflictException('boom'));
       await expect(
-        service.createAdministrativeProfile({ userId: 'rp-uuid' }),
+        service.createAdministrativeProfile({ userId: 'rp-uuid', firstName: 'Jean', lastName: 'Martin' }),
       ).rejects.toThrow(ConflictException);
     });
   });

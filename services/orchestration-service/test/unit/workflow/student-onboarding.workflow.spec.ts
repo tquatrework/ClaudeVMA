@@ -20,12 +20,12 @@ describe('studentOnboardingWorkflow — ORCH-WF-STUDENT-001', () => {
     expect(studentOnboardingWorkflow.startPayloadValidationClass).toBe(StudentOnboardingStartPayloadDto);
   });
 
-  it('step 1 (create-student-account) propagates firstName and lastName to identity-access-service', () => {
+  it('step 1 (create-student-account) never sends firstName/lastName to identity-access-service — these fields belong exclusively to profile-service', () => {
     const step = studentOnboardingWorkflow.steps[0];
     expect(step.targetService).toBe('identity-access-service');
     const payload = step.buildPayload(makeContext());
-    expect(payload.firstName).toBe('Jean');
-    expect(payload.lastName).toBe('Dupont');
+    expect(payload).not.toHaveProperty('firstName');
+    expect(payload).not.toHaveProperty('lastName');
   });
 
   it('step 1 never includes parent fields — parentAccountId only links an existing parent, it is not created here', () => {

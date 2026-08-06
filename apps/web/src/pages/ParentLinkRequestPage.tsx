@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import Layout from '../components/Layout'
 import {
   createParentLinkRequest,
@@ -110,13 +111,24 @@ export default function ParentLinkRequestPage() {
               </div>
             )}
 
-            <button
-              type="submit"
-              disabled={isSubmitting || !studentLoginIdentifierInput.trim()}
-              className="bg-indigo-600 text-white text-sm px-5 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-            >
-              {isSubmitting ? 'Envoi…' : 'Envoyer la demande'}
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="submit"
+                disabled={isSubmitting || !studentLoginIdentifierInput.trim()}
+                className="bg-indigo-600 text-white text-sm px-5 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+              >
+                {isSubmitting ? 'Envoi…' : 'Envoyer la demande'}
+              </button>
+
+              <Link
+                to="/register/student"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="border border-indigo-300 text-indigo-700 text-sm px-5 py-2 rounded-lg hover:bg-indigo-50 transition-colors"
+              >
+                Créer un compte élève
+              </Link>
+            </div>
           </form>
         </div>
 

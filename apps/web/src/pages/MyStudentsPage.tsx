@@ -35,7 +35,7 @@ export default function MyStudentsPage() {
               const displayName =
                 [firstName, lastName].filter(Boolean).join(' ') || 'Élève sans nom renseigné'
               // Profil pédagogique non renseigné = état normal, pas une erreur.
-              const level = profile.pedagogical?.niveauScolaire ?? null
+              const level = profile.pedagogical?.level ?? null
               return {
                 studentId: link.studentId,
                 displayName,

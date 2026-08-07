@@ -22,7 +22,8 @@ export interface StudentProfile {
     lastName?: string
   } | null
   pedagogical?: {
-    niveauScolaire?: string
+    /** Niveau scolaire de l'élève — `level`, pas `niveauScolaire` (docs/routes.md). */
+    level?: string
   } | null
 }
 

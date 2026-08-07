@@ -1,11 +1,16 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useProfileForm } from '../hooks/profile/useProfileForm'
 import Layout from '../components/Layout'
+import { AdministrativeProfileForm } from '../components/profile/AdministrativeProfileForm'
+import { PedagogicalProfileForm } from '../components/profile/PedagogicalProfileForm'
+import { resolvePedagogicalProfileKind } from '../utils/profileFields'
 import type { AdministrativeProfileFields, PedagogicalProfileFields } from '../types/profile'
 
 type ActiveTab = 'administrative' | 'pedagogical'
+
+const EMPTY_ADMINISTRATIVE_PROFILE: AdministrativeProfileFields = {}
 
 export default function ProfileEditPage() {
   const { userId } = useParams<{ userId: string }>()
@@ -27,35 +32,29 @@ export default function ProfileEditPage() {
     pedagogicalSaveError,
   } = useProfileForm(userId)
 
-  const [adminForm, setAdminForm] = useState<AdministrativeProfileFields>({
-    firstName: '',
-    lastName: '',
-    phone: '',
-    address: '',
-  })
-  const [pedagogicalForm, setPedagogicalForm] = useState<PedagogicalProfileFields>({
-    level: '',
-    subjects: '',
-    goals: '',
-    notes: '',
-  })
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (administrativeProfile) {
-      setAdminForm((previous) => ({ ...previous, ...administrativeProfile }))
-    }
-    if (pedagogicalProfile) {
-      setPedagogicalForm((previous) => ({ ...previous, ...pedagogicalProfile }))
-    }
-  }, [administrativeProfile, pedagogicalProfile])
 
   const canEditPedagogical =
     hasRole('eleve', 'formateur') ||
     (hasRole('responsable_pedagogique') && userId !== user?.id) ||
     hasRole('technicien_informatique')
 
-  const isSaving = activeTab === 'administrative' ? isSavingAdministrative : isSavingPedagogical
+  /**
+   * Forme du profil pédagogique à éditer. Le rôle du compte connecté ne sert de
+   * repli que sur son PROPRE profil : `GET /profiles/:userId` n'expose pas le rôle
+   * de la personne consultée, un RP/TI éditant un tiers au profil pédagogique
+   * encore vierge obtient donc `unknown`.
+   */
+  const isViewingOwnProfile = userId === user?.id
+  const pedagogicalKind = useMemo(
+    () =>
+      resolvePedagogicalProfileKind(
+        pedagogicalProfile,
+        isViewingOwnProfile ? user?.role : undefined,
+      ),
+    [pedagogicalProfile, isViewingOwnProfile, user?.role],
+  )
+
   const error =
     activeTab === 'administrative'
       ? administrativeSaveError ?? loadError
@@ -66,19 +65,19 @@ export default function ProfileEditPage() {
     setIsErrorDismissed(false)
   }, [error])
 
-  const handleAdminSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleAdminSubmit = async (payload: AdministrativeProfileFields) => {
     setSuccessMessage(null)
-    const success = await saveAdministrative(adminForm)
-    if (success) setSuccessMessage('Profil administratif mis à jour')
+    const isSaved = await saveAdministrative(payload)
+    if (isSaved) setSuccessMessage('Profil administratif mis à jour')
   }
 
-  const handlePedagogicalSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handlePedagogicalSubmit = async (payload: PedagogicalProfileFields) => {
     setSuccessMessage(null)
-    const success = await savePedagogical(pedagogicalForm)
-    if (success) setSuccessMessage('Profil pédagogique mis à jour')
+    const isSaved = await savePedagogical(payload)
+    if (isSaved) setSuccessMessage('Profil pédagogique mis à jour')
   }
+
+  const goBackToProfile = () => navigate(`/profiles/${userId}`)
 
   if (isLoading) {
     return (
@@ -92,10 +91,7 @@ export default function ProfileEditPage() {
     <Layout>
       <div className="max-w-xl">
         <div className="flex items-center gap-3 mb-6">
-          <button
-            onClick={() => navigate(`/profiles/${userId}`)}
-            className="text-sm text-indigo-600 hover:underline"
-          >
+          <button onClick={goBackToProfile} className="text-sm text-indigo-600 hover:underline">
             ← Retour au profil
           </button>
         </div>
@@ -105,14 +101,24 @@ export default function ProfileEditPage() {
         {error && !isErrorDismissed && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center justify-between">
             <span>{error}</span>
-            <button onClick={() => setIsErrorDismissed(true)} className="text-red-400 hover:text-red-600 ml-3">✕</button>
+            <button
+              onClick={() => setIsErrorDismissed(true)}
+              className="text-red-400 hover:text-red-600 ml-3"
+            >
+              ✕
+            </button>
           </div>
         )}
 
         {successMessage && (
           <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm flex items-center justify-between">
             <span>{successMessage}</span>
-            <button onClick={() => setSuccessMessage(null)} className="text-green-400 hover:text-green-600 ml-3">✕</button>
+            <button
+              onClick={() => setSuccessMessage(null)}
+              className="text-green-400 hover:text-green-600 ml-3"
+            >
+              ✕
+            </button>
           </div>
         )}
 
@@ -142,121 +148,35 @@ export default function ProfileEditPage() {
           )}
         </div>
 
-        {/* Administrative tab */}
         {activeTab === 'administrative' && (
-          <form onSubmit={handleAdminSubmit} className="space-y-4 bg-white border border-gray-200 rounded-xl p-6">
-            {(
-              [
-                { field: 'firstName' as const, label: 'Prénom', type: 'text', placeholder: 'Jean' },
-                { field: 'lastName' as const, label: 'Nom', type: 'text', placeholder: 'Dupont' },
-                { field: 'phone' as const, label: 'Téléphone', type: 'tel', placeholder: '06 12 34 56 78' },
-                { field: 'address' as const, label: 'Adresse', type: 'text', placeholder: '12 rue des Mathématiques, 75001 Paris' },
-              ]
-            ).map(({ field, label, type, placeholder }) => (
-              <div key={field}>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-                <input
-                  type={type}
-                  value={adminForm[field] ?? ''}
-                  onChange={(e) => setAdminForm({ ...adminForm, [field]: e.target.value })}
-                  placeholder={placeholder}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                />
-              </div>
-            ))}
-
-            <div className="flex gap-3 pt-2">
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm"
-              >
-                {isSaving ? 'Sauvegarde…' : 'Enregistrer'}
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate(`/profiles/${userId}`)}
-                className="bg-gray-100 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-200 text-sm"
-              >
-                Annuler
-              </button>
-            </div>
-          </form>
+          <AdministrativeProfileForm
+            profile={administrativeProfile ?? EMPTY_ADMINISTRATIVE_PROFILE}
+            isSaving={isSavingAdministrative}
+            onSubmit={handleAdminSubmit}
+            onCancel={goBackToProfile}
+          />
         )}
 
-        {/* Pedagogical tab */}
-        {activeTab === 'pedagogical' && canEditPedagogical && (
-          <form onSubmit={handlePedagogicalSubmit} className="space-y-4 bg-white border border-gray-200 rounded-xl p-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Niveau scolaire
-              </label>
-              <input
-                type="text"
-                value={pedagogicalForm.level ?? ''}
-                onChange={(e) => setPedagogicalForm({ ...pedagogicalForm, level: e.target.value })}
-                placeholder="Ex : Terminale, Licence 2, BTS…"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              />
-            </div>
+        {activeTab === 'pedagogical' && canEditPedagogical && pedagogicalKind !== 'unknown' && (
+          <PedagogicalProfileForm
+            kind={pedagogicalKind}
+            profile={pedagogicalProfile ?? null}
+            isSaving={isSavingPedagogical}
+            onSubmit={handlePedagogicalSubmit}
+            onCancel={goBackToProfile}
+          />
+        )}
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Matières concernées
-              </label>
-              <input
-                type="text"
-                value={pedagogicalForm.subjects ?? ''}
-                onChange={(e) => setPedagogicalForm({ ...pedagogicalForm, subjects: e.target.value })}
-                placeholder="Ex : Mathématiques, Physique-Chimie…"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              />
-              <p className="text-xs text-gray-400 mt-1">Séparez les matières par une virgule</p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Objectifs pédagogiques
-              </label>
-              <textarea
-                value={pedagogicalForm.goals ?? ''}
-                onChange={(e) => setPedagogicalForm({ ...pedagogicalForm, goals: e.target.value })}
-                placeholder="Ex : Rattraper les lacunes en algèbre, préparer le baccalauréat…"
-                rows={3}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Notes supplémentaires
-              </label>
-              <textarea
-                value={pedagogicalForm.notes ?? ''}
-                onChange={(e) => setPedagogicalForm({ ...pedagogicalForm, notes: e.target.value })}
-                placeholder="Informations complémentaires pour le formateur…"
-                rows={3}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
-              />
-            </div>
-
-            <div className="flex gap-3 pt-2">
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm"
-              >
-                {isSaving ? 'Sauvegarde…' : 'Enregistrer'}
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate(`/profiles/${userId}`)}
-                className="bg-gray-100 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-200 text-sm"
-              >
-                Annuler
-              </button>
-            </div>
-          </form>
+        {activeTab === 'pedagogical' && canEditPedagogical && pedagogicalKind === 'unknown' && (
+          <div className="bg-white border border-gray-200 rounded-xl p-6 text-sm text-gray-500">
+            <p>
+              Le profil pédagogique de cette personne n'a jamais été renseigné : sa forme (élève ou
+              formateur) ne peut pas être déterminée depuis cet écran.
+            </p>
+            <p className="mt-2">
+              Demandez à la personne concernée de le compléter depuis son propre profil.
+            </p>
+          </div>
         )}
       </div>
     </Layout>

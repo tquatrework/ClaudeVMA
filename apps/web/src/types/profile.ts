@@ -45,25 +45,87 @@ export interface CoordinatorRelation {
 }
 
 /**
- * Champs du profil administratif — utilisés par ProfileEditPage pour typer le
- * formulaire (au lieu de `Profile.administrative: Record<string, unknown>`,
- * gardé générique pour l'affichage en lecture seule sur ProfilePage).
+ * Champs du profil administratif — noms EXACTS acceptés en écriture par
+ * `PUT /profiles/:userId/administrative` et renvoyés dans le bloc `administrative`
+ * de `GET /profiles/:userId` (docs/routes.md § « Noms de champs des profils »).
+ *
+ * Liste exhaustive et fermée côté serveur : tout champ absent d'ici fait échouer
+ * la requête en `400` (`forbidNonWhitelisted`). Ne jamais y réintroduire `address`
+ * (l'adresse est découpée en `addressLine1` / `addressLine2`) ni un nom français.
  */
 export interface AdministrativeProfileFields {
   firstName?: string
   lastName?: string
+  birthDate?: string
   phone?: string
-  address?: string
+  addressLine1?: string
+  addressLine2?: string
+  postalCode?: string
+  city?: string
+  country?: string
+  avatarUrl?: string
+  department?: string
+  passions?: string[]
 }
 
 /**
- * Champs du profil pédagogique — utilisés par ProfileEditPage.
+ * Champs du profil pédagogique ÉLÈVE — `PUT /profiles/:userId/pedagogical`.
+ *
+ * `level`, `goals` et `specificNeeds` sont **discriminants** : leur présence dans
+ * le body cible le profil élève côté serveur. `subjects` ne discrimine jamais.
+ * Il n'existe pas de champ `notes` : le besoin correspondant est `specificNeeds`.
  */
-export interface PedagogicalProfileFields {
+export interface StudentPedagogicalProfileFields {
   level?: string
-  subjects?: string
   goals?: string
-  notes?: string
+  specificNeeds?: string
+  subjects?: string[]
+}
+
+/**
+ * Champs du profil pédagogique FORMATEUR — `PUT /profiles/:userId/pedagogical`.
+ *
+ * Forme distincte de celle de l'élève : `levels` au pluriel et en tableau,
+ * `experience`, `testResults`. Un body sans champ discriminant élève cible ce
+ * profil.
+ */
+export interface TeacherPedagogicalProfileFields {
+  levels?: string[]
+  experience?: string
+  testResults?: string
+  subjects?: string[]
+  isAnimateurPedagogique?: boolean
+}
+
+export type PedagogicalProfileFields =
+  | StudentPedagogicalProfileFields
+  | TeacherPedagogicalProfileFields
+
+/**
+ * Forme du profil pédagogique à éditer. `unknown` quand le front ne peut pas la
+ * déterminer (profil vierge d'un tiers dont le rôle n'est pas exposé par
+ * `GET /profiles/:userId`) : aucun formulaire n'est alors proposé, plutôt que de
+ * risquer d'écrire dans la mauvaise table.
+ */
+export type PedagogicalProfileKind = 'student' | 'teacher' | 'unknown'
+
+/**
+ * Valeurs de formulaire — les champs `string[]` de l'API (`subjects`, `levels`,
+ * `passions`) sont saisis en texte libre séparé par des virgules et convertis à
+ * la frontière API par `src/utils/profileFields.ts`.
+ */
+export interface StudentPedagogicalFormValues {
+  level: string
+  subjects: string
+  goals: string
+  specificNeeds: string
+}
+
+export interface TeacherPedagogicalFormValues {
+  levels: string
+  subjects: string
+  experience: string
+  testResults: string
 }
 
 /**

@@ -90,7 +90,8 @@ function renderProfilePage(userId = 'student-1') {
 const SAMPLE_PROFILE = {
   userId: 'student-1',
   administrative: { firstName: 'Marie', lastName: 'Dupont', phone: '0612345678' },
-  pedagogical: { level: 'Terminale', subjects: 'Mathématiques' },
+  // `subjects` est un `string[]` côté profile-service, jamais une chaîne.
+  pedagogical: { level: 'Terminale', subjects: ['Mathématiques', 'Physique-Chimie'] },
 }
 
 beforeEach(() => {
@@ -142,6 +143,8 @@ describe('ProfilePage', () => {
     await waitFor(() => {
       expect(screen.getByText('Terminale')).toBeDefined()
     })
+    // Un champ tableau s'affiche en liste lisible, jamais en JSON brut.
+    expect(screen.getByText('Mathématiques, Physique-Chimie')).toBeDefined()
   })
 
   it('shows "Profil introuvable" for 404 error', async () => {

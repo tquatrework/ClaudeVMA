@@ -156,7 +156,7 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 
 | Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /profiles/:userId | 🔒 | eleve (soi-même), formateur (contacts liés), parent_financeur (élèves liés), responsable_pedagogique, animateur_pedagogique, technicien_informatique, administrateur_financier | Lire un profil selon droits | `200 {userId, loginIdentifier, administrativeProfile, pedagogicalProfile}` (`loginIdentifier` peut être `null` si résolution impossible) · `401` sans token · `403` accès refusé · `404` profil inexistant |
+| GET | /profiles/:userId | 🔒 | eleve (soi-même), formateur (contacts liés), parent_financeur (élèves liés), responsable_pedagogique, animateur_pedagogique, technicien_informatique, administrateur_financier | Lire un profil selon droits. **Strictement en lecture seule** : cette route ne crée jamais rien en base (voir « Existence du profil administratif/pédagogique » dans `docs/architecture.md`) | `200 {userId, loginIdentifier, administrative, pedagogical}` — `loginIdentifier` peut être `null` si identity-access-service est injoignable ; `pedagogical` est `null` tant que l'utilisateur n'a pas renseigné son profil pédagogique (**état normal**, ce profil étant facultatif et créé au premier `PUT /profiles/:userId/pedagogical`) · `401` sans token · `403` accès refusé · `404` `userId` inconnu de identity-access-service · `500` compte existant mais sans profil administratif (incohérence de données, loguée côté serveur comme anomalie) |
 | PUT | /profiles/:userId/administrative | 🔒 | eleve (soi-même), responsable_pedagogique, technicien_informatique | Modifier le profil administratif (`firstName`/`lastName` restent optionnels pour ne pas modifier le champ, mais rejettent une chaîne vide) | `200 {userId, ...champsAdmin}` · `400` firstName/lastName vide · `401` · `403` · `404` |
 | PUT | /profiles/:userId/pedagogical | 🔒 | eleve (soi-même), formateur (soi-même), responsable_pedagogique, technicien_informatique | Modifier le profil pédagogique | `200 {userId, ...champsPedago}` · `401` · `403` · `404` |
 | POST | /profiles/:teacherId/ap-status | 🔒 | responsable_pedagogique | Promouvoir un formateur en Animateur Pédagogique | `201 {userId, isAnimateurPedagogique: true}` · `401` · `403` · `404` |
@@ -164,6 +164,30 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 | POST | /profiles/:userId/internal-notes | 🔒 | responsable_pedagogique, animateur_pedagogique | Créer une note interne confidentielle (non visible par l'élève, le parent/financeur ni le formateur) | `201 {id, authorId, content, createdAt}` · `400` body vide · `401` · `403` |
 | PUT | /profiles/:userId/internal-notes/:id | 🔒 | auteur, responsable_pedagogique | Modifier une note interne | `200 {id, authorId, content, updatedAt}` · `401` · `403` · `404` |
 | DELETE | /profiles/:userId/internal-notes/:id | 🔒 | responsable_pedagogique | Supprimer une note interne | `204` · `401` · `403` · `404` |
+
+### Validation des formateurs
+
+Machine à trois états : `pending` → `in_review` → `validated` | `rejected`.
+
+- `pending` : état initial d'un formateur nouvellement inscrit. L'absence d'enregistrement de validation équivaut à `pending`.
+- `in_review` : le RP a pris le dossier en charge et l'instruit.
+- `validated` / `rejected` : états terminaux.
+
+Transitions autorisées (toute autre transition, y compris vers le statut courant, → `403`) :
+
+| Transition | Rôle autorisé | Commentaire |
+|---|---|---|
+| `pending` → `in_review` | responsable_pedagogique | Prise en charge du dossier. Le TI ne peut pas le faire |
+| `in_review` → `validated` | responsable_pedagogique, technicien_informatique | Publie l'événement `TeacherValidated` |
+| `in_review` → `rejected` | responsable_pedagogique, technicien_informatique | Aucun événement publié |
+| `pending` → `validated` | technicien_informatique **uniquement** | Bypass administratif de l'étape `in_review`. Publie `TeacherValidated` |
+| `pending` → `rejected` | technicien_informatique **uniquement** | Bypass administratif de l'étape `in_review` |
+
+| Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /profiles/teachers/pending-validation | 🔒 | responsable_pedagogique | Lister les formateurs en attente de validation (statut `pending`), triés par ancienneté, enrichis du nom depuis le profil administratif | `200 [{id, teacherId, firstName, lastName, createdAt}]` (liste éventuellement vide ; `firstName`/`lastName` à `null` si aucun profil administratif) · `401` · `403` rôle ≠ RP |
+| PATCH | /profiles/:teacherId/validation | 🔒 | responsable_pedagogique, technicien_informatique | Changer le statut de validation d'un formateur. Body : `{status: "pending"\|"in_review"\|"validated"\|"rejected", comment?}` (`comment` ≤ 2000 caractères). Upsert : l'enregistrement est créé s'il n'existe pas encore | `200 {id, teacherId, status, validatedBy, validatorRole, comment, createdAt, updatedAt}` · `400` statut hors énumération · `401` · `403` rôle non autorisé **ou transition interdite pour ce rôle** (voir tableau ci-dessus) |
+| GET | /profiles/:teacherId/validation | 🔒 | responsable_pedagogique, technicien_informatique, administrateur_financier, formateur (soi-même) | Lire le statut de validation courant d'un formateur | `200 {id, teacherId, status, validatedBy, validatorRole, comment, createdAt, updatedAt}` ou `200 {teacherId, status: "pending"}` si aucun enregistrement n'existe encore · `401` · `403` autre formateur |
 
 ### Relations
 
@@ -183,7 +207,7 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 
 | Méthode | Chemin | Description | Header requis |
 |---|---|---|---|
-| POST | /internal/create-administrative-profile | Créer (ou mettre à jour) le profil administratif d'un compte quelconque (élève, formateur, parent, générique) juste après sa création par identity-access-service. Body : `{userId, firstName, lastName, phone?}`. `firstName`/`lastName` obligatoires (`400` sinon), `phone` optionnel mais validé (`@IsNotEmpty @MaxLength(20)` si fourni). **Seul point d'écriture** pour firstName/lastName/phone : identity-access-service ne persiste plus ces champs lui-même et appelle cette route de façon obligatoire (non best-effort) à chaque création de compte. Upsert idempotent : si une ligne existe déjà pour `userId` (lazy-init via `getProfile`, ou rappel de la route), elle est mise à jour avec les valeurs reçues (y compris `phone`) au lieu d'échouer sur la contrainte d'unicité — voir décision C6/C7/C8 dans `docs/services/profile-service.md`. Erreurs de validation → `400` explicite (distinct d'un `5xx`) | `X-Internal-Secret` |
+| POST | /internal/create-administrative-profile | Créer (ou mettre à jour) le profil administratif d'un compte quelconque (élève, formateur, parent, générique) juste après sa création par identity-access-service. Body : `{userId, firstName, lastName, phone?}`. `firstName`/`lastName` obligatoires (`400` sinon), `phone` optionnel mais validé (`@IsNotEmpty @MaxLength(20)` si fourni). **Seul point d'écriture** pour firstName/lastName/phone : identity-access-service ne persiste plus ces champs lui-même et appelle cette route de façon obligatoire (non best-effort) à chaque création de compte. **Seul point de création** d'un profil administratif : `GET /profiles/:userId` ne crée plus rien à la volée depuis l'arbitrage du 2026-08-07. Upsert idempotent : si une ligne existe déjà pour `userId` (rappel de la route, ou ligne héritée de l'ancien lazy-init), elle est mise à jour avec les valeurs reçues (y compris `phone`) au lieu d'échouer sur la contrainte d'unicité — voir décision C6/C7/C8 dans `docs/services/profile-service.md`. Erreurs de validation → `400` explicite (distinct d'un `5xx`) | `X-Internal-Secret` |
 | POST | /internal/create-student-profiles | Créer les profils initiaux d'un élève (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` |
 | POST | /internal/create-teacher-profiles | Créer les profils initiaux d'un formateur (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` |
 | POST | /internal/create-administrative-profile | Créer/mettre à jour le profil administratif minimal d'un compte (upsert par `userId`) — `{userId, firstName, lastName, phone?}` — utilisée par identity-access-service comme unique écriture de `firstName`/`lastName`/`phone` à la création de compte (décision du 2026-08-05, voir section identity-access-service ; le DTO d'entrée d'identity-access-service utilise `phoneNumber`, mappé vers `phone` au moment de l'appel) | `X-Internal-Secret` |

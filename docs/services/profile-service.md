@@ -47,6 +47,42 @@
       <endpoint method="PATCH" path="/teachers/{userId}/validation">Valider un formateur ou lui attribuer le statut AP.</endpoint>
       <endpoint method="GET" path="/profiles/{userId}/statistics">Lire les statistiques pedagogiques consolidees.</endpoint>
     </candidateApis>
+    <!--
+      Routes reellement implementees pour la validation formateur (voir
+      docs/routes.md, section "Validation des formateurs") :
+        GET   /profiles/teachers/pending-validation
+        PATCH /profiles/{teacherId}/validation
+        GET   /profiles/{teacherId}/validation
+      Le chemin candidat /teachers/{userId}/validation ci-dessus n'a jamais ete
+      implemente tel quel : tout vit sous la racine /profiles.
+    -->
+    <teacherValidationStateMachine documentedOn="2026-08-07">
+      <description>
+        Machine a trois etats du dossier de validation d'un formateur. Elle
+        etait implementee dans le code (assertValidationTransition) et dans le
+        front, mais n'apparaissait nulle part dans docs/ : elle est desormais
+        documentee ici et dans docs/routes.md.
+        L'absence d'enregistrement TeacherValidation equivaut au statut
+        'pending' (getTeacherValidation renvoie un objet synthetique).
+      </description>
+      <state id="pending" initial="true">Formateur inscrit, dossier non instruit.</state>
+      <state id="in_review">Dossier pris en charge et instruit par le RP.</state>
+      <state id="validated" terminal="true">Formateur valide. Publie l'evenement TeacherValidated.</state>
+      <state id="rejected" terminal="true">Formateur refuse. Aucun evenement publie.</state>
+      <transition from="pending" to="in_review" allowedRoles="responsable_pedagogique">
+        Prise en charge du dossier par le RP. Le TI ne peut pas effectuer cette transition.
+      </transition>
+      <transition from="in_review" to="validated" allowedRoles="responsable_pedagogique,technicien_informatique" />
+      <transition from="in_review" to="rejected" allowedRoles="responsable_pedagogique,technicien_informatique" />
+      <transition from="pending" to="validated" allowedRoles="technicien_informatique">
+        Bypass administratif de l'etape in_review, reserve au TI (regle de forcage TI).
+      </transition>
+      <transition from="pending" to="rejected" allowedRoles="technicien_informatique">
+        Bypass administratif de l'etape in_review, reserve au TI.
+      </transition>
+      <rule>Toute autre transition est refusee en 403, y compris une transition vers le statut courant.</rule>
+      <rule>Seuls le RP et le TI peuvent appeler PATCH /profiles/{teacherId}/validation ; les autres roles recoivent 403 avant meme l'evaluation de la transition.</rule>
+    </teacherValidationStateMachine>
     <dataEntities>
       <entity>AdministrativeProfile</entity>
       <entity>StudentPedagogicalProfile</entity>
@@ -313,7 +349,7 @@
           AdministrativeProfileLookupService n'a aucune dependance vers
           RelationsService, donc RelationsModule peut importer ProfilesModule sans
           cycle de providers (seul le cycle d'import de modules subsiste, resolu par
-          forwardRef() des deux cotes — ProfilesModule <-> RelationsModule — documente
+          forwardRef() des deux cotes — ProfilesModule &lt;-&gt; RelationsModule — documente
           dans les deux fichiers module).
           RelationsService.getStudentsByFinanceOwner et .getFinanceOwnersByStudent
           enrichissent desormais chaque lien via deux helpers prives
@@ -363,7 +399,154 @@
           codage.
         </testCoverage>
       </decision>
+      <decision id="C8" status="implemented" session="2026-08-07">
+        <title>GET /profiles/:userId devient strictement en lecture seule — suppression des 3 creations a la volee, machine de validation formateur documentee</title>
+        <filesTouched>
+          <file path="services/profile-service/src/profiles/profiles.service.ts">
+            getProfile reecrit (lecture seule) ; fetchLoginIdentifier remplace par
+            resolveAccount ; nouveau helper prive missingAdministrativeProfileError ;
+            DataSource retire des dependances injectees.
+          </file>
+          <file path="services/profile-service/src/profiles/profiles.controller.ts">
+            Swagger de GET /profiles/:userId : ajout du 500, precision du 404 et du
+            cas pedagogical: null.
+          </file>
+          <file path="services/profile-service/test/e2e/helpers/app.helper.ts">
+            Nouveau stub IdentityAccessClientStub + export identityAccessStub ;
+            overrideProvider(IdentityAccessClient) dans createTestApp ; nouveaux
+            fixtures IDS.accountWithoutAdminProfile et IDS.accountWithoutPedaProfile.
+          </file>
+          <file path="services/profile-service/test/e2e/profiles.e2e-spec.ts">
+            Suite "lecture sans creation a la volee" ; commentaire d'arbitrage en
+            attente sur le test PROF-BR-010.
+          </file>
+          <file path="services/profile-service/test/unit/profiles/profiles.service.spec.ts">
+            Tests de lazy-init remplaces par des garde-fous de non-ecriture ;
+            updateTeacherValidation reecrit sur la vraie machine a etats.
+          </file>
+          <file path="services/profile-service/package.json">Script test:e2e repare.</file>
+          <file path="docs/routes.md">GET /profiles/:userId + section "Validation des formateurs".</file>
+        </filesTouched>
+        <description>
+          Contexte : arbitrages d'architecture du 2026-08-07 (docs/architecture.md,
+          section "Arbitrages rendus") sur l'existence du profil administratif, le
+          caractere facultatif du profil pedagogique et les droits de lecture/ecriture.
+          (1) Les trois lazy-init de ProfilesService.getProfile sont supprimes :
+          creation d'un profil administratif minimal, creation d'un profil pedagogique
+          eleve quand l'eleve consultait son propre compte, creation d'un profil
+          pedagogique formateur dans le cas symetrique. Une consultation n'ecrit plus
+          jamais en base. Ces ecritures fantomes produisaient des lignes vides
+          indistinguables d'un vrai profil et masquaient les incoherences de donnees.
+          (2) Nouveaux codes de retour de GET /profiles/:userId : 404 si
+          identity-access-service ne connait pas le userId ; 500 si le compte existe
+          mais n'a aucun profil administratif (avec un log d'anomalie explicite
+          nommant le userId et orientant vers POST /internal/create-administrative-profile) ;
+          200 avec pedagogical: null si le profil pedagogique n'existe pas — etat
+          normal et non une anomalie.
+          (3) Point de vigilance central : le signal d'existence du compte reutilise
+          l'appel identityAccessClient.findAccountByUserId deja effectue pour
+          loginIdentifier, remonte avant la lecture des repositories. Aucun appel HTTP
+          supplementaire n'est ajoute. La taxonomie d'erreur du client typé est
+          exploitee de facon dissymetrique et volontaire : seule
+          IdentityAccessNotFoundError (404 du service distant) devient un 404 ;
+          IdentityAccessUnavailableError (hote injoignable, timeout, 401/403 de
+          configuration) conserve la degradation silencieuse existante
+          (loginIdentifier: null, profil quand meme servi). Sans cette dissymetrie,
+          une panne de identity-access-service ferait disparaitre d'un coup tous les
+          profils de la plateforme.
+          Cas limite tranche dans cette session, a faire valider : si le profil
+          administratif est absent ET que identity-access-service est injoignable, on
+          ne peut pas distinguer un compte inexistant d'une incoherence de donnees.
+          Le choix retenu est 500 (probleme cote serveur dans les deux cas), avec un
+          libelle de log distinct. L'alternative aurait ete 503.
+          (4) DataSource n'est plus injecte dans ProfilesService : la transaction
+          n'existait que pour rendre atomiques les deux ecritures du lazy-init.
+          (5) Tests e2e : un stub IdentityAccessClient en memoire remplace le client
+          reel via overrideProvider. Sans lui, aucun identity-access-service ne tourne
+          pendant les e2e et chaque lecture partait en timeout reseau de 3s, rendant
+          la distinction 404/500/200 intestable. Le comportement par defaut du stub
+          pour un userId ni enregistre ni marque inconnu est
+          IdentityAccessUnavailableError, soit exactement ce que produisait le client
+          reel auparavant : les suites qui ne s'interessent pas a identity-access
+          gardent leur semantique, sans le timeout. Le transport reel reste couvert
+          par test/unit/common/identity-access.client.spec.ts.
+          (6) Les 3 tests unitaires updateTeacherValidation en echec depuis plusieurs
+          sessions sont corriges : ils supposaient qu'un RP pouvait passer un dossier
+          de pending a validated/rejected directement. C'etaient les tests qui etaient
+          perimes, pas le code — la machine a etats est pending → in_review →
+          validated|rejected, le RP devant d'abord prendre le dossier en charge et
+          seul le TI pouvant court-circuiter l'etape. La couverture manquante est
+          ajoutee : le statut in_review n'etait jusqu'ici couvert par aucun test.
+          (7) Documentation : la machine a trois etats, implementee dans le code et
+          dans le front mais absente de docs/, est desormais decrite ici
+          (teacherValidationStateMachine) et dans docs/routes.md. Les trois routes de
+          validation formateur (PATCH /profiles/:teacherId/validation, GET
+          /profiles/:teacherId/validation, GET /profiles/teachers/pending-validation)
+          etaient absentes de docs/routes.md et y sont ajoutees.
+          (8) Correction incidente de docs/routes.md : la reponse de GET
+          /profiles/:userId y etait documentee comme
+          {userId, loginIdentifier, administrativeProfile, pedagogicalProfile} alors
+          que les cles reelles sont `administrative` et `pedagogical`. Le front
+          consomme les cles reelles ; c'etait la documentation qui etait fausse.
+          (9) Script npm run test:e2e repare (commit distinct) : il utilisait la config
+          jest de package.json avec un simple override de testMatch, ignorant la
+          moduleNameMapper et le testTimeout de test/jest-e2e.json, et lancait les
+          suites en parallele sur la base locale partagee ou synchronize(true) provoque
+          des collisions de schema. Il pointe desormais sur test/jest-e2e.json avec
+          --runInBand.
+          Hors perimetre, non touche : NOTES_WRITE_ROLES et le controleur de notes
+          internes (arbitrage PROF-BR-010 en attente, voir openPoints) ; le transport
+          du role dans CreateAdministrativeProfileDto (arbitre, traite dans une PR
+          separee) ; assertReadAccess (le droit de lecture relationnel est conforme a
+          l'arbitrage) ; aucun backfill de donnees (l'utilisateur a tranche que les
+          comptes sans profil pedagogique sont dans un etat legitime).
+        </description>
+        <testCoverage>
+          npm test (unit) : 237 tests, 237 verts — les 3 echecs updateTeacherValidation
+          documentes depuis la session 2026-07-22 sont resorbes.
+          npm run test:e2e (USE_LOCAL_DB=true, base profile_test du conteneur
+          PostgreSQL local, --runInBand desormais porte par le script) : 104 tests,
+          103 verts. Le seul echec restant est le test PROF-BR-010 laisse rouge a
+          dessein (arbitrage produit en attente, voir openPoints) ; l'echec e2e
+          "GET /profiles/:userId profil inexistant renvoie 200 au lieu de 404",
+          present depuis la session 2026-08-04, est corrige.
+          npm run build : OK. tsc --noEmit sur tsconfig.json : OK.
+        </testCoverage>
+      </decision>
       <openPoints>
+        <item priority="high" status="awaiting-arbitration">
+          PROF-BR-010 — droit d'ecriture des notes internes pour l'administrateur
+          financier : contradiction non tranchee entre docs/acceptance-criteria.md:37
+          (marque [SPEC] : "Un administrateur financier peut creer une note interne
+          sur les profils formateurs/financiers (→ 201)") et le code actuel, ou
+          NOTES_WRITE_ROLES ne contient que RP et AP et repond donc 403 a l'AF.
+          L'AF conserve en revanche le droit de LECTURE (NOTES_READ_ROLES), ce qui
+          rend l'asymetrie plausible comme choix volontaire cote code.
+          Le test e2e "[PROF-BR-010] Un administrateur financier peut ajouter une note
+          interne" est laisse EN ECHEC a dessein, avec un commentaire d'explication
+          au-dessus. Ni le test ni NOTES_WRITE_ROLES ne doivent etre modifies pour
+          "faire passer la suite" avant l'arbitrage. Selon la decision : soit ajouter
+          ADMINISTRATEUR_FINANCIER a NOTES_WRITE_ROLES, soit corriger
+          docs/acceptance-criteria.md:37 et transformer le test en attente de 403.
+        </item>
+        <item status="to-validate">
+          Cas limite tranche unilateralement dans la session 2026-08-07 (decision C8,
+          point 3) : profil administratif absent ET identity-access-service
+          injoignable. Impossible de distinguer un compte inexistant d'une incoherence
+          de donnees ; 500 a ete retenu (probleme serveur dans les deux cas) plutot
+          que 503. A confirmer.
+        </item>
+        <item>
+          Les comptes existants sans profil pedagogique (8 recenses) restent en l'etat :
+          l'utilisateur a explicitement tranche qu'il s'agit d'un etat legitime et
+          qu'aucun backfill ne doit etre fait. Le script
+          services/profile-service/scripts/backfill-profiles.ts n'a pas ete execute ni
+          modifie. En revanche, un compte sans profil ADMINISTRATIF renvoie desormais
+          500 : si de telles lignes existent en base de dev (heritees d'avant
+          l'obligation de creation a l'inscription), elles se manifesteront par des 500
+          a la lecture — c'est l'effet recherche, la correction se fait a la source via
+          POST /internal/create-administrative-profile.
+        </item>
         <item>
           Idempotence "de reponse" (200/201 silencieux) vs idempotence "d'etat" (409
           explicite, jamais de doublon) sur les methodes *ForSystem de RelationsService
@@ -376,14 +559,15 @@
           routes comme "deja lie" et non comme un echec bloquant. A confirmer explicitement
           cote identity-access-service/orchestration-service au moment de l'integration.
         </item>
-        <item>
-          3 tests preexistants echouent dans updateTeacherValidation
-          (test/unit/profiles/profiles.service.spec.ts) : un bug preexistant dans
-          assertValidationTransition empeche RP de faire pending-&gt;validated/rejected
-          directement (seul TI le peut selon le code actuel, alors que 3 tests attendent
-          que RP le puisse aussi). Confirme preexistant sur master (meme echec avant toute
-          modification de cette session). Hors perimetre de ce refactor de conventions ;
-          a traiter dans une tache de correction de bug dediee.
+        <item status="resolved" resolvedIn="C8" resolvedOn="2026-08-07">
+          RESOLU — 3 tests echouaient dans updateTeacherValidation
+          (test/unit/profiles/profiles.service.spec.ts). Le diagnostic initial
+          ("bug preexistant dans assertValidationTransition empechant RP de faire
+          pending-&gt;validated/rejected directement") etait inverse : le code avait
+          raison, ce sont les tests qui etaient perimes. La machine a etats est
+          pending → in_review → validated|rejected, le RP devant d'abord prendre le
+          dossier en charge. Tests reecrits sur les vraies transitions en session
+          2026-08-07 (decision C8).
         </item>
         <item>
           Transactions cross-service non appliquees : InternalService.createStudentProfiles/
@@ -412,14 +596,14 @@
           implementation plutot qu'a decider unilateralement ici.
         </item>
         <item>
-          ProfilesService depasse les seuils de la convention services (765 lignes, 6
-          repositories possedes + RelationsService injecte, alors que le seuil de vigilance
-          est 300 lignes / 4 repositories). Cohesion jugee acceptable pour la phase 1 (toutes
+          ProfilesService depasse les seuils de la convention services (851 lignes au
+          2026-08-07, 6 repositories possedes + RelationsService injecte, alors que le
+          seuil de vigilance est 300 lignes / 4 repositories). Cohesion jugee acceptable pour la phase 1 (toutes
           les entites possedees representent des vues etroitement liees du meme agregat
           "profil utilisateur" avec le meme modele d'autorisation par acteur), mais un
           decoupage en services plus fins (ex: InternalNotesService, TeacherValidationService),
           en miroir du decoupage deja fait sur les controleurs (decision C2), est recommande
-          en session dediee. RelationsService (315 lignes) est legerement au-dessus du seuil
+          en session dediee. RelationsService (364 lignes) est au-dessus du seuil
           de 300 lignes ; jugee non bloquant pour l'instant (3 repositories, cohesion claire).
         </item>
         <item>

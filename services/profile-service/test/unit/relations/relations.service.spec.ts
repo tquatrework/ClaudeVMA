@@ -8,6 +8,7 @@ import { PedagogicalCoordinatorLink } from '../../../src/relations/entities/peda
 import { EventsService } from '../../../src/events/events.service';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
 import { Actor } from '../../../src/profiles/profiles.service';
+import { AdministrativeProfileLookupService } from '../../../src/profiles/administrative-profile-lookup.service';
 
 const makeActor = (role: UserRole, id = 'actor-uuid'): Actor => ({ id, role });
 
@@ -17,6 +18,7 @@ describe('RelationsService', () => {
   let teacherRepo: any;
   let coordinatorRepo: any;
   let eventsService: any;
+  let administrativeProfileLookup: any;
 
   beforeEach(async () => {
     financeRepo = {
@@ -42,6 +44,10 @@ describe('RelationsService', () => {
 
     eventsService = { publish: jest.fn() };
 
+    administrativeProfileLookup = {
+      findNamesByUserIds: jest.fn().mockResolvedValue(new Map()),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         RelationsService,
@@ -49,6 +55,7 @@ describe('RelationsService', () => {
         { provide: getRepositoryToken(TeacherStudentLink), useValue: teacherRepo },
         { provide: getRepositoryToken(PedagogicalCoordinatorLink), useValue: coordinatorRepo },
         { provide: EventsService, useValue: eventsService },
+        { provide: AdministrativeProfileLookupService, useValue: administrativeProfileLookup },
       ],
     }).compile();
 
@@ -107,6 +114,81 @@ describe('RelationsService', () => {
     it('throws 403 when financeur tries to list another financeur students', async () => {
       const actor = makeActor(UserRole.PARENT_FINANCEUR, 'other-finance-uuid');
       await expect(service.getStudentsByFinanceOwner('finance-uuid', actor)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('enriches each item with studentName resolved from AdministrativeProfileLookupService', async () => {
+      financeRepo.find.mockResolvedValue([
+        { id: 'link-1', financeOwnerId: 'finance-uuid', studentId: 'student-1', createdAt: new Date() },
+        { id: 'link-2', financeOwnerId: 'finance-uuid', studentId: 'student-2', createdAt: new Date() },
+      ]);
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(
+        new Map([['student-1', { firstName: 'Alice', lastName: 'Dupont' }]]),
+      );
+
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await service.getStudentsByFinanceOwner('finance-uuid', actor);
+
+      expect(administrativeProfileLookup.findNamesByUserIds).toHaveBeenCalledWith(['student-1', 'student-2']);
+      expect(result[0]).toHaveProperty('studentName', { firstName: 'Alice', lastName: 'Dupont' });
+      // student-2 has no administrative profile row at all → null, request does not fail
+      expect(result[1]).toHaveProperty('studentName', null);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // getFinanceOwnersByStudent
+  // ---------------------------------------------------------------------------
+  describe('getFinanceOwnersByStudent', () => {
+    it('RP can list financeurs of any student', async () => {
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      await expect(service.getFinanceOwnersByStudent('student-uuid', actor)).resolves.toEqual([]);
+    });
+
+    it('student can list their own financeurs', async () => {
+      const actor = makeActor(UserRole.ELEVE, 'student-uuid');
+      await expect(service.getFinanceOwnersByStudent('student-uuid', actor)).resolves.toEqual([]);
+    });
+
+    it('throws 403 when student tries to list another student financeurs', async () => {
+      const actor = makeActor(UserRole.ELEVE, 'other-student-uuid');
+      await expect(service.getFinanceOwnersByStudent('student-uuid', actor)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws 403 for formateur', async () => {
+      const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+      await expect(service.getFinanceOwnersByStudent('student-uuid', actor)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('enriches each item with financeOwnerName resolved from AdministrativeProfileLookupService', async () => {
+      financeRepo.find.mockResolvedValue([
+        { id: 'link-1', financeOwnerId: 'finance-1', studentId: 'student-uuid', createdAt: new Date() },
+        { id: 'link-2', financeOwnerId: 'finance-2', studentId: 'student-uuid', createdAt: new Date() },
+      ]);
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(
+        new Map([['finance-1', { firstName: 'Jean', lastName: 'Martin' }]]),
+      );
+
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await service.getFinanceOwnersByStudent('student-uuid', actor);
+
+      expect(administrativeProfileLookup.findNamesByUserIds).toHaveBeenCalledWith(['finance-1', 'finance-2']);
+      expect(result[0]).toHaveProperty('financeOwnerName', { firstName: 'Jean', lastName: 'Martin' });
+      // finance-2 has no administrative profile row at all → null, request does not fail
+      expect(result[1]).toHaveProperty('financeOwnerName', null);
+    });
+
+    it('does not fail when the financeur profile exists but has no firstName/lastName', async () => {
+      financeRepo.find.mockResolvedValue([
+        { id: 'link-1', financeOwnerId: 'finance-1', studentId: 'student-uuid', createdAt: new Date() },
+      ]);
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(
+        new Map([['finance-1', { firstName: null, lastName: null }]]),
+      );
+
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await service.getFinanceOwnersByStudent('student-uuid', actor);
+
+      expect(result[0]).toHaveProperty('financeOwnerName', { firstName: null, lastName: null });
     });
   });
 

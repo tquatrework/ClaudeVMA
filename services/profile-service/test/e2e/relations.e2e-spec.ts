@@ -139,6 +139,78 @@ describe('[E2E] Relations', () => {
   });
 
   // ──────────────────────────────────────────────────────────────
+  // GET /relations/finance-owner-student/by-student/:studentId
+  // GET /relations/finance-owner-student/:financeOwnerId
+  // — enrichissement financeOwnerName / studentName (bug 2026-08-06 :
+  //   l'onglet "Parents financeurs" n'affichait que l'UUID du financeur)
+  // ──────────────────────────────────────────────────────────────
+
+  describe('GET /relations/finance-owner-student/by-student/:studentId — enrichissement financeOwnerName', () => {
+    it('inclut financeOwnerName {firstName, lastName} résolu depuis le profil administratif du financeur → 200', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/relations/finance-owner-student/by-student/${IDS.student1}`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      const link = res.body.find((item: any) => item.financeOwnerId === IDS.parent1);
+      expect(link).toBeDefined();
+      expect(link).toHaveProperty('financeOwnerName');
+      // IDS.parent1 has no administrative profile bootstrapped in this suite's
+      // beforeAll (only student1/2 and teacher1/2 are) → profile absent, so
+      // financeOwnerName must be null, never make the request fail.
+      expect(link.financeOwnerName).toBeNull();
+    });
+
+    it('Un RP peut aussi consulter la liste enrichie → 200', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/relations/finance-owner-student/by-student/${IDS.student1}`)
+        .set('Authorization', `Bearer ${rpToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toHaveProperty('financeOwnerName');
+    });
+
+    it('Sans token → 401', async () => {
+      const res = await request(app.getHttpServer()).get(
+        `/relations/finance-owner-student/by-student/${IDS.student1}`,
+      );
+      expect(res.status).toBe(401);
+    });
+  });
+
+  describe('GET /relations/finance-owner-student/:financeOwnerId — enrichissement studentName', () => {
+    it("inclut studentName {firstName, lastName} résolu depuis le profil administratif de l'élève → 200", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/relations/finance-owner-student/${IDS.parent1}`)
+        .set('Authorization', `Bearer ${parentToken}`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      const link = res.body.find((item: any) => item.studentId === IDS.student1);
+      expect(link).toBeDefined();
+      expect(link).toHaveProperty('studentName', { firstName: 'Alice', lastName: 'Dupont' });
+    });
+
+    it('Un TI peut aussi consulter la liste enrichie → 200', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/relations/finance-owner-student/${IDS.parent1}`)
+        .set('Authorization', `Bearer ${tiToken}`);
+
+      expect(res.status).toBe(200);
+      const link = res.body.find((item: any) => item.studentId === IDS.student1);
+      expect(link.studentName).toEqual({ firstName: 'Alice', lastName: 'Dupont' });
+    });
+
+    it('Sans token → 401', async () => {
+      const res = await request(app.getHttpServer()).get(
+        `/relations/finance-owner-student/${IDS.parent1}`,
+      );
+      expect(res.status).toBe(401);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────
   // POST /relations/teacher-student — PROF-BR-006 / PROF-BR-007
   // ──────────────────────────────────────────────────────────────
 

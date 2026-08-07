@@ -30,16 +30,12 @@ export default function MyStudentsPage() {
           links.map(async (link) => {
             try {
               const profile = await fetchStudentProfile(link.studentId)
-              const firstName = profile.administrativeProfile?.firstName ?? ''
-              const lastName = profile.administrativeProfile?.lastName ?? ''
+              const firstName = profile.administrative?.firstName ?? ''
+              const lastName = profile.administrative?.lastName ?? ''
               const displayName =
                 [firstName, lastName].filter(Boolean).join(' ') || 'Élève sans nom renseigné'
-              const pedagogicalProfile = profile.pedagogicalProfile
-              const level =
-                pedagogicalProfile?.level ??
-                pedagogicalProfile?.grade ??
-                pedagogicalProfile?.schoolYear ??
-                null
+              // Profil pédagogique non renseigné = état normal, pas une erreur.
+              const level = profile.pedagogical?.niveauScolaire ?? null
               return {
                 studentId: link.studentId,
                 displayName,

@@ -29,8 +29,8 @@ async function loadStudentCard(studentId: string): Promise<StudentCard> {
 
   try {
     const profileData = await fetchStudentProfile(studentId)
-    const firstName = profileData.administrativeProfile?.firstName ?? ''
-    const lastName = profileData.administrativeProfile?.lastName ?? ''
+    const firstName = profileData.administrative?.firstName ?? ''
+    const lastName = profileData.administrative?.lastName ?? ''
     const resolvedName = [firstName, lastName].filter(Boolean).join(' ')
     card.displayName = resolvedName || profileData.loginIdentifier || 'Élève inconnu'
     card.loginIdentifier = profileData.loginIdentifier ?? null

@@ -68,7 +68,8 @@ describe('LinkedStudentsSection', () => {
     mockFetchStudentProfile.mockResolvedValue({
       userId: STUDENT_ID,
       loginIdentifier: 'lucas.martin',
-      administrativeProfile: { firstName: 'Lucas', lastName: 'Martin' },
+      // Clé courte `administrative` = forme réelle de GET /profiles/:userId.
+      administrative: { firstName: 'Lucas', lastName: 'Martin' },
     })
 
     renderSection()

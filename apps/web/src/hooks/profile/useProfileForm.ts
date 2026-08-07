@@ -19,8 +19,10 @@ async function loadProfileFormData(userId: string | undefined): Promise<ProfileF
   try {
     const profile = await fetchProfile(userId)
     return {
-      administrativeProfile: (profile.administrativeProfile ?? {}) as AdministrativeProfileFields,
-      pedagogicalProfile: (profile.pedagogicalProfile ?? {}) as PedagogicalProfileFields,
+      // `administrative` / `pedagogical` : clés courtes de GET /profiles/:userId.
+      // `pedagogical: null` (profil non encore renseigné) est un état normal → {}.
+      administrativeProfile: (profile.administrative ?? {}) as AdministrativeProfileFields,
+      pedagogicalProfile: (profile.pedagogical ?? {}) as PedagogicalProfileFields,
     }
   } catch (caughtError) {
     const status = getErrorStatus(caughtError)

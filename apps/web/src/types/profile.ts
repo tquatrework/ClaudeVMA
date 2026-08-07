@@ -3,11 +3,24 @@
  * Partagés entre ProfilePage, ProfileEditPage, TeacherValidationPanel, etc.
  */
 
+/**
+ * Réponse de `GET /profiles/:userId` (profile-service).
+ *
+ * Les rubriques s'appellent `administrative` / `pedagogical` (clés courtes).
+ * Ne pas les confondre avec les routes internes
+ * `POST /internal/create-student-profiles` et `create-teacher-profiles`, qui
+ * renvoient les mêmes données sous les clés longues `administrativeProfile` /
+ * `pedagogicalProfile` — ces routes ne sont pas appelées par le front.
+ *
+ * `pedagogical: null` est un état NORMAL : l'utilisateur renseigne son profil
+ * pédagogique quand il le souhaite. À afficher comme « non renseigné », jamais
+ * comme une erreur.
+ */
 export interface Profile {
   userId: string
   loginIdentifier?: string | null
-  administrativeProfile?: Record<string, unknown>
-  pedagogicalProfile?: Record<string, unknown>
+  administrative?: Record<string, unknown> | null
+  pedagogical?: Record<string, unknown> | null
 }
 
 export interface InternalNote {
@@ -33,7 +46,7 @@ export interface CoordinatorRelation {
 
 /**
  * Champs du profil administratif — utilisés par ProfileEditPage pour typer le
- * formulaire (au lieu de `Profile.administrativeProfile: Record<string, unknown>`,
+ * formulaire (au lieu de `Profile.administrative: Record<string, unknown>`,
  * gardé générique pour l'affichage en lecture seule sur ProfilePage).
  */
 export interface AdministrativeProfileFields {

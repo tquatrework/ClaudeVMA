@@ -86,7 +86,7 @@ export default function PedagogicalArchivePage() {
           links.map(async (link) => {
             try {
               const profile = await fetchStudentProfile(link.studentId)
-              const adminProfile = profile.administrativeProfile as { firstName?: string; lastName?: string } | undefined
+              const adminProfile = profile.administrative
               const displayName =
                 adminProfile?.firstName && adminProfile?.lastName
                   ? `${adminProfile.firstName} ${adminProfile.lastName}`

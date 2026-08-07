@@ -1,61 +1,100 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString, IsArray, IsBoolean, MaxLength } from 'class-validator';
 
-/** DTO for updating a student's pedagogical profile */
-export class UpdateStudentPedagogicalProfileDto {
-  @ApiPropertyOptional({ description: 'School level (e.g. "3ème", "Terminale")', example: 'Terminale' })
+/**
+ * Body de PUT /profiles/:userId/pedagogical — DTO unique couvrant les champs
+ * élève ET formateur.
+ *
+ * Pourquoi une seule classe et non deux ? Le contrôleur typait auparavant le
+ * body en union TypeScript (`UpdateStudentPedagogicalProfileDto |
+ * UpdateTeacherPedagogicalProfileDto`). Une union n'existe pas à l'exécution :
+ * `ValidationPipe` ne pouvait résoudre aucun metatype et **désactivait
+ * totalement la validation** sur cette route. Conséquences constatées en
+ * conditions réelles : `whitelist`/`forbidNonWhitelisted` inopérants (un body
+ * entièrement inconnu renvoyait 200 au lieu de 400), et le corps brut atteignait
+ * le service. Une classe concrète unique rétablit la validation.
+ *
+ * Le service choisit ensuite la table cible (élève ou formateur) à partir des
+ * champs présents — voir ProfilesService.updatePedagogicalProfile.
+ */
+export class UpdatePedagogicalProfileDto {
+  // --- Champs du profil élève ----------------------------------------------
+
+  @ApiPropertyOptional({
+    description: 'Student only — school level being studied (e.g. "3ème", "Terminale")',
+    example: 'Terminale',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(100)
-  niveauScolaire?: string;
+  level?: string;
 
-  @ApiPropertyOptional({ description: 'Subjects being studied', example: ['Mathématiques', 'Physique'] })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  matieres?: string[];
-
-  @ApiPropertyOptional({ description: 'Pedagogical objectives', example: 'Préparer le bac S mention TB' })
+  @ApiPropertyOptional({
+    description: 'Student only — pedagogical goals',
+    example: 'Préparer le bac S mention TB',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(2000)
-  objectifsPedagogiques?: string;
+  goals?: string;
 
-  @ApiPropertyOptional({ description: 'Specific learning needs', example: 'Dyslexie légère' })
+  @ApiPropertyOptional({
+    description: 'Student only — specific learning needs',
+    example: 'Dyslexie légère',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(2000)
-  besoinsSpecifiques?: string;
-}
+  specificNeeds?: string;
 
-/** DTO for updating a teacher's pedagogical profile */
-export class UpdateTeacherPedagogicalProfileDto {
-  @ApiPropertyOptional({ description: 'School levels taught', example: ['Collège', 'Lycée'] })
+  // --- Champs du profil formateur ------------------------------------------
+
+  @ApiPropertyOptional({
+    description: 'Teacher only — school levels taught',
+    example: ['Collège', 'Lycée'],
+  })
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  niveauxEnseignes?: string[];
+  levels?: string[];
 
-  @ApiPropertyOptional({ description: 'Subjects taught', example: ['Mathématiques', 'Physique-Chimie'] })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  matieresEnseignees?: string[];
-
-  @ApiPropertyOptional({ description: 'Pedagogical experience description', example: '5 ans de cours particuliers au lycée' })
+  @ApiPropertyOptional({
+    description: 'Teacher only — pedagogical experience description',
+    example: '5 ans de cours particuliers au lycée',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(3000)
-  experiencePedagogique?: string;
+  experience?: string;
 
-  @ApiPropertyOptional({ description: 'Test and evaluation results summary', example: 'Score moyen 87/100' })
+  @ApiPropertyOptional({
+    description: 'Teacher only — test and evaluation results summary',
+    example: 'Score moyen 87/100',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(2000)
-  resultatsTests?: string;
+  testResults?: string;
 
-  @ApiPropertyOptional({ description: 'PROF-BR-008: whether the teacher is also an Animateur Pédagogique. Use POST /ap-status instead to promote.' })
+  @ApiPropertyOptional({
+    description:
+      'Teacher only — PROF-BR-008: whether the teacher is also an Animateur Pédagogique. ' +
+      'Use POST /profiles/:teacherId/ap-status instead to promote.',
+  })
   @IsOptional()
   @IsBoolean()
   isAnimateurPedagogique?: boolean;
+
+  // --- Champ commun aux deux profils ---------------------------------------
+
+  @ApiPropertyOptional({
+    description:
+      'Subjects — studied (student profile) or taught (teacher profile), depending on ' +
+      'which profile the payload targets. Always an array of strings.',
+    example: ['Mathématiques', 'Physique'],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  subjects?: string[];
 }

@@ -21,10 +21,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { UpdateAdministrativeProfileDto } from './dto/update-administrative-profile.dto';
-import {
-  UpdateStudentPedagogicalProfileDto,
-  UpdateTeacherPedagogicalProfileDto,
-} from './dto/update-pedagogical-profile.dto';
+import { UpdatePedagogicalProfileDto } from './dto/update-pedagogical-profile.dto';
 import { UpdateVisibilityPreferenceDto } from './dto/update-visibility-preference.dto';
 
 /**
@@ -82,10 +79,19 @@ export class ProfilesController {
     summary: 'Update administrative profile',
     description:
       'Upsert the administrative profile (name, address, phone, avatar…). ' +
-      'Users may update their own profile; RP, TI and AdministrateurFinancier may update any.',
+      'Users may update their own profile; RP, TI and AdministrateurFinancier may update any. ' +
+      'All field names are in English and match the response payload exactly: ' +
+      'firstName, lastName, birthDate, phone, addressLine1, addressLine2, postalCode, ' +
+      'city, country, avatarUrl, department, passions.',
   })
   @ApiParam({ name: 'userId', description: 'Target user UUID' })
   @ApiResponse({ status: 200, description: 'Updated administrative profile' })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Unknown field in the body (forbidNonWhitelisted), empty firstName/lastName, ' +
+      'or invalid field type',
+  })
   @ApiResponse({ status: 403, description: 'Forbidden — may only update own profile' })
   updateAdministrative(
     @Param('userId', ParseUUIDPipe) userId: string,
@@ -99,16 +105,22 @@ export class ProfilesController {
   @ApiOperation({
     summary: 'Update pedagogical profile',
     description:
-      'Upsert the pedagogical profile. Accepts student fields (niveauScolaire, matieres…) ' +
-      'or teacher fields (niveauxEnseignes, matieresEnseignees…) depending on the payload. ' +
+      'Upsert the pedagogical profile. The student profile is targeted when the body ' +
+      'carries at least one student-only field (level, goals, specificNeeds); otherwise ' +
+      'the teacher profile is targeted (levels, experience, testResults, ' +
+      'isAnimateurPedagogique). `subjects` exists on both and never discriminates. ' +
       'Users may update their own; RP and TI may update any.',
   })
   @ApiParam({ name: 'userId', description: 'Target user UUID' })
   @ApiResponse({ status: 200, description: 'Updated pedagogical profile' })
+  @ApiResponse({
+    status: 400,
+    description: 'Unknown field in the body (forbidNonWhitelisted) or invalid field type',
+  })
   @ApiResponse({ status: 403, description: 'Forbidden — may only update own profile' })
   updatePedagogical(
     @Param('userId', ParseUUIDPipe) userId: string,
-    @Body() dto: UpdateStudentPedagogicalProfileDto | UpdateTeacherPedagogicalProfileDto,
+    @Body() dto: UpdatePedagogicalProfileDto,
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<Awaited<ReturnType<ProfilesService['updatePedagogicalProfile']>>> {
     return this.profilesService.updatePedagogicalProfile(userId, dto, actor);

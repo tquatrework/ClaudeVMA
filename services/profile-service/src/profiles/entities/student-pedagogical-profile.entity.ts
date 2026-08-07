@@ -6,24 +6,33 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+/**
+ * Profil pédagogique d'un élève.
+ *
+ * Propriétés en anglais, noms de colonnes en base inchangés — voir la note de
+ * convention dans administrative-profile.entity.ts.
+ */
 @Entity('student_pedagogical_profiles')
 export class StudentPedagogicalProfile {
   /** userId from identity-access-service — one-to-one with eleve accounts */
   @PrimaryColumn('uuid')
   userId: string;
 
+  /** Niveau scolaire suivi (e.g. "3ème", "Terminale"). */
   @Column({ name: 'niveau_scolaire', nullable: true })
-  niveauScolaire: string;
+  level: string;
 
-  /** Comma-separated list of subjects or JSON array stored as text */
-  @Column({ type: 'simple-array', nullable: true })
-  matieres: string[];
+  /** Matières étudiées par l'élève. */
+  @Column({ name: 'matieres', type: 'simple-array', nullable: true })
+  subjects: string[];
 
+  /** Objectifs pédagogiques de l'élève. */
   @Column({ name: 'objectifs_pedagogiques', nullable: true, type: 'text' })
-  objectifsPedagogiques: string;
+  goals: string;
 
+  /** Besoins d'apprentissage spécifiques (aménagements, troubles…). */
   @Column({ name: 'besoins_specifiques', nullable: true, type: 'text' })
-  besoinsSpecifiques: string;
+  specificNeeds: string;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

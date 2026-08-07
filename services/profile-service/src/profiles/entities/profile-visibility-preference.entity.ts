@@ -17,8 +17,8 @@ export class ProfileVisibilityPreference {
   userId: string;
 
   /**
-   * When true, besoinsSpecifiques and objectifsPedagogiques are hidden
-   * from contacts other than the financeur and principal teacher (PP).
+   * When true, the student pedagogical profile's specificNeeds and goals are
+   * hidden from contacts other than the financeur and principal teacher (PP).
    */
   @Column({ name: 'hide_difficulties_from_contacts', default: false })
   hideDifficultiesFromContacts: boolean;

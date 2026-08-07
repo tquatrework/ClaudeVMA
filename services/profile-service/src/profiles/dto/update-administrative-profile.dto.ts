@@ -1,6 +1,15 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsNotEmpty, IsString, IsDateString, IsArray, MaxLength } from 'class-validator';
 
+/**
+ * Body de PUT /profiles/:userId/administrative.
+ *
+ * Tous les noms de champs sont en anglais et identiques aux propriétés de
+ * l'entité AdministrativeProfile (arbitrage du 2026-08-07). Le ValidationPipe
+ * global applique `forbidNonWhitelisted: true` : tout champ absent de ce DTO
+ * fait échouer la requête en 400 avec un message explicite, il n'est jamais
+ * silencieusement ignoré.
+ */
 export class UpdateAdministrativeProfileDto {
   @ApiPropertyOptional({ description: 'First name', example: 'Marie' })
   @IsOptional()
@@ -19,49 +28,49 @@ export class UpdateAdministrativeProfileDto {
   @ApiPropertyOptional({ description: 'Date of birth (ISO date)', example: '2005-06-15' })
   @IsOptional()
   @IsDateString()
-  dateNaissance?: string;
+  birthDate?: string;
 
-  @ApiPropertyOptional({
-    description:
-      'Phone number. Canonical field name is `phone` (aligned with the internal bootstrap ' +
-      'DTOs and ProfilesService); it is mapped internally onto the `telephone` entity column.',
-    example: '+33612345678',
-  })
+  @ApiPropertyOptional({ description: 'Phone number', example: '+33612345678' })
   @IsOptional()
   @IsNotEmpty()
   @IsString()
   @MaxLength(20)
   phone?: string;
 
-  @ApiPropertyOptional({ description: 'Address line 1', example: '12 rue de la Paix' })
+  @ApiPropertyOptional({
+    description:
+      'First address line (street number and name). This is a LINE of the address, ' +
+      'not the whole address — use addressLine2 for apartment/floor/building.',
+    example: '12 rue de la Paix',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(200)
-  adresseLigne1?: string;
+  addressLine1?: string;
 
-  @ApiPropertyOptional({ description: 'Address line 2 (apartment, floor…)', example: 'Apt 3B' })
+  @ApiPropertyOptional({ description: 'Second address line (apartment, floor…)', example: 'Apt 3B' })
   @IsOptional()
   @IsString()
   @MaxLength(200)
-  adresseLigne2?: string;
+  addressLine2?: string;
 
   @ApiPropertyOptional({ description: 'Postal code', example: '75001' })
   @IsOptional()
   @IsString()
   @MaxLength(20)
-  codePostal?: string;
+  postalCode?: string;
 
   @ApiPropertyOptional({ description: 'City', example: 'Paris' })
   @IsOptional()
   @IsString()
   @MaxLength(100)
-  ville?: string;
+  city?: string;
 
   @ApiPropertyOptional({ description: 'Country', example: 'France' })
   @IsOptional()
   @IsString()
   @MaxLength(100)
-  pays?: string;
+  country?: string;
 
   @ApiPropertyOptional({ description: 'Avatar image URL', example: 'https://cdn.visiomath.fr/avatars/abc.jpg' })
   @IsOptional()
@@ -69,11 +78,14 @@ export class UpdateAdministrativeProfileDto {
   @MaxLength(500)
   avatarUrl?: string;
 
-  @ApiPropertyOptional({ description: 'Department of residence (e.g. "75 - Paris")', example: '75 - Paris' })
+  @ApiPropertyOptional({
+    description: 'French administrative department of residence (e.g. "75 - Paris")',
+    example: '75 - Paris',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(100)
-  departement?: string;
+  department?: string;
 
   @ApiPropertyOptional({ description: 'Personal interests/hobbies', example: ['Musique', 'Randonnée'] })
   @IsOptional()

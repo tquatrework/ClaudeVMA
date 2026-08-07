@@ -15,6 +15,15 @@ export interface RegisterParentPayload {
   password: string
   firstName: string
   lastName: string
+  // Liaison optionnelle à un élève, dans le même appel POST /accounts/parents
+  // (voir docs/routes.md). `studentLoginIdentifier` lie un compte élève existant ;
+  // `studentEmail`+`studentFirstName`+`studentLastName` (+`studentPassword` optionnel)
+  // résout par email (crée ou lie selon le nombre de comptes trouvés).
+  studentLoginIdentifier?: string
+  studentEmail?: string
+  studentPassword?: string
+  studentFirstName?: string
+  studentLastName?: string
 }
 
 export interface RegistrationConsents {
@@ -31,6 +40,16 @@ export interface RegisterStudentPayload {
   birthDate?: string
   phoneNumber?: string
   consents: RegistrationConsents
+  // Liaison optionnelle à un parent financeur, dans le même appel
+  // POST /accounts/students (voir docs/routes.md). `parentLoginIdentifier` lie un
+  // compte parent existant ; `parentEmail`+`parentFirstName`+`parentLastName`
+  // (+`parentPassword` optionnel) résout par email (crée ou lie selon le nombre
+  // de comptes trouvés).
+  parentLoginIdentifier?: string
+  parentEmail?: string
+  parentPassword?: string
+  parentFirstName?: string
+  parentLastName?: string
 }
 
 export interface RegisterTeacherPayload {

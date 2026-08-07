@@ -7,6 +7,8 @@
  * - Cas limite : prénom/nom absents côté API → repli lisible avec identifiant
  *   de connexion ou identifiant technique, jamais "Financeur (uuid tronqué…)".
  * - États chargement et vide.
+ * - Lien "Créer un nouveau compte parent" ouvrant /register/parent (avec
+ *   `?studentLoginIdentifier=` de l'élève connecté) dans un nouvel onglet.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -16,13 +18,16 @@ import ParentFinanceurSection from '../../../src/components/profile/ParentFinanc
 
 vi.mock('../../../src/api/relations')
 vi.mock('../../../src/api/parentLinkRequest')
+vi.mock('../../../src/hooks/useAuth')
 
 import { fetchLinkedParents, fetchStudentProfile } from '../../../src/api/relations'
 import { fetchParentLinkRequests } from '../../../src/api/parentLinkRequest'
+import { useAuth } from '../../../src/hooks/useAuth'
 
 const mockFetchLinkedParents = vi.mocked(fetchLinkedParents)
 const mockFetchStudentProfile = vi.mocked(fetchStudentProfile)
 const mockFetchParentLinkRequests = vi.mocked(fetchParentLinkRequests)
+const mockUseAuth = vi.mocked(useAuth)
 
 const STUDENT_ID = 'student-1'
 const FINANCE_OWNER_ID = 'ee7c85dc-1234-4abc-9def-000000000000'
@@ -39,6 +44,22 @@ beforeEach(() => {
   vi.clearAllMocks()
   // Pas d'invitations en attente par défaut — non testé ici.
   mockFetchParentLinkRequests.mockResolvedValue([])
+  mockUseAuth.mockReturnValue({
+    user: {
+      id: STUDENT_ID,
+      loginIdentifier: 'lucas.martin',
+      email: 'lucas@test.com',
+      role: 'eleve',
+      validationStatus: 'active',
+    },
+    isAuthenticated: true,
+    isLoading: false,
+    login: vi.fn(),
+    logout: vi.fn(),
+    refreshUser: vi.fn(),
+    hasRole: vi.fn(() => false),
+    isInternalRole: vi.fn(() => false),
+  })
 })
 
 describe('ParentFinanceurSection', () => {
@@ -121,7 +142,7 @@ describe('ParentFinanceurSection', () => {
     })
   })
 
-  it('affiche un lien "Créer un nouveau compte parent" ouvrant /register/parent dans un nouvel onglet', async () => {
+  it('affiche un lien "Créer un nouveau compte parent" ouvrant /register/parent avec l\'élève en cours pré-lié, dans un nouvel onglet', async () => {
     mockFetchLinkedParents.mockResolvedValue([])
 
     renderSection()
@@ -131,7 +152,9 @@ describe('ParentFinanceurSection', () => {
     })
 
     const createParentLink = screen.getByRole('link', { name: 'Créer un nouveau compte parent' })
-    expect(createParentLink.getAttribute('href')).toBe('/register/parent')
+    expect(createParentLink.getAttribute('href')).toBe(
+      '/register/parent?studentLoginIdentifier=lucas.martin',
+    )
     expect(createParentLink.getAttribute('target')).toBe('_blank')
     expect(createParentLink.getAttribute('rel')).toBe('noopener noreferrer')
   })

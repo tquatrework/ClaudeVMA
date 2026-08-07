@@ -30,6 +30,7 @@ const mockCreateParentLinkRequest = vi.mocked(parentLinkRequestApi.createParentL
 const DEFAULT_AUTH = {
   user: {
     id: 'parent-001',
+    loginIdentifier: 'jean.parent',
     email: 'parent@test.com',
     role: 'parent_financeur' as const,
     validationStatus: 'active' as const,
@@ -108,13 +109,15 @@ describe('ParentLinkRequestPage', () => {
       expect(screen.getByRole('button', { name: /envoyer la demande/i })).toBeDefined()
     })
 
-    it('shows a "Créer un compte élève" link opening /register/student in a new tab', async () => {
+    it('shows a "Créer un compte élève" link opening /register/student with the current parent pre-linked, in a new tab', async () => {
       mockFetchParentLinkRequests.mockResolvedValue([])
 
       renderPage()
 
       const createStudentLink = screen.getByRole('link', { name: 'Créer un compte élève' })
-      expect(createStudentLink.getAttribute('href')).toBe('/register/student')
+      expect(createStudentLink.getAttribute('href')).toBe(
+        '/register/student?parentLoginIdentifier=jean.parent',
+      )
       expect(createStudentLink.getAttribute('target')).toBe('_blank')
       expect(createStudentLink.getAttribute('rel')).toBe('noopener noreferrer')
     })

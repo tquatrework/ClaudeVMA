@@ -25,6 +25,8 @@ interface StudentAdministrativeStepProps {
   checkEmailError: string | null
   isEmailAlreadyUsed: boolean
   onSubmit: (event: React.FormEvent) => void
+  /** Contenu additionnel inséré avant le bouton de soumission (ex. LinkedAccountSection). */
+  children?: React.ReactNode
 }
 
 export function StudentAdministrativeStep({
@@ -34,6 +36,7 @@ export function StudentAdministrativeStep({
   checkEmailError,
   isEmailAlreadyUsed,
   onSubmit,
+  children,
 }: StudentAdministrativeStepProps) {
   return (
     <form onSubmit={onSubmit} className="space-y-4">
@@ -166,6 +169,8 @@ export function StudentAdministrativeStep({
           placeholder="06 00 00 00 00"
         />
       </div>
+
+      {children}
 
       <button
         type="submit"

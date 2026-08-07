@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useCheckEmailAvailability } from '../hooks/accounts/useCheckEmailAvailability'
 import { useStudentRegistration } from '../hooks/accounts/useStudentRegistration'
 import { RegistrationProgressIndicator } from '../components/accounts/RegistrationProgressIndicator'
@@ -8,6 +8,13 @@ import {
   type StudentAdministrativeFormData,
 } from '../components/accounts/StudentAdministrativeStep'
 import { RegistrationRgpdStep } from '../components/accounts/RegistrationRgpdStep'
+import { LinkedAccountSection } from '../components/accounts/LinkedAccountSection'
+import {
+  INITIAL_LINKED_ACCOUNT_DATA,
+  buildLinkedAccountFields,
+  validateLinkedAccountData,
+  type LinkedAccountFormData,
+} from '../utils/accountLinking'
 
 type WizardStep = 'administrative' | 'rgpd'
 
@@ -41,9 +48,14 @@ const STEP_LABELS: Record<WizardStep, string> = {
 
 export default function StudentRegistrationPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  // Arrivée depuis le profil d'un parent existant (bouton "Créer un compte élève") :
+  // le parent est déjà identifié, la liaison est automatique (voir docs/routes.md).
+  const lockedParentLoginIdentifier = searchParams.get('parentLoginIdentifier')
   const [currentStep, setCurrentStep] = useState<WizardStep>('administrative')
   const [administrativeData, setAdministrativeData] = useState<StudentAdministrativeFormData>(INITIAL_ADMINISTRATIVE)
   const [rgpdData, setRgpdData] = useState<RgpdFormData>(INITIAL_RGPD)
+  const [linkedParentData, setLinkedParentData] = useState<LinkedAccountFormData>(INITIAL_LINKED_ACCOUNT_DATA)
   const [validationError, setValidationError] = useState<string | null>(null)
   const {
     alreadyUsed: isEmailAlreadyUsed,
@@ -79,6 +91,16 @@ export default function StudentRegistrationPage() {
       return
     }
 
+    const linkedAccountError = validateLinkedAccountData(
+      'parent',
+      linkedParentData,
+      lockedParentLoginIdentifier,
+    )
+    if (linkedAccountError) {
+      setValidationError(linkedAccountError)
+      return
+    }
+
     setCurrentStep('rgpd')
   }
 
@@ -103,6 +125,7 @@ export default function StudentRegistrationPage() {
         rgpd: rgpdData.hasAcceptedRgpd,
         cgu: rgpdData.hasAcceptedCgu,
       },
+      ...buildLinkedAccountFields('parent', linkedParentData, lockedParentLoginIdentifier),
     })
 
     if (success) {
@@ -141,7 +164,14 @@ export default function StudentRegistrationPage() {
             checkEmailError={checkEmailError}
             isEmailAlreadyUsed={isEmailAlreadyUsed}
             onSubmit={handleAdministrativeNext}
-          />
+          >
+            <LinkedAccountSection
+              relation="parent"
+              data={linkedParentData}
+              onChange={setLinkedParentData}
+              lockedLoginIdentifier={lockedParentLoginIdentifier}
+            />
+          </StudentAdministrativeStep>
         )}
 
         {currentStep === 'rgpd' && (

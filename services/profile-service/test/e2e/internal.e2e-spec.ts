@@ -162,7 +162,7 @@ describe('[E2E] Internal routes', () => {
       expect([401, 403]).toContain(res.status);
     });
 
-    it('Persiste le champ phone (colonne telephone) à la création → 201', async () => {
+    it('Persiste le champ phone (colonne `telephone` en base) à la création → 201', async () => {
       const res = await request(app.getHttpServer())
         .post('/internal/create-administrative-profile')
         .set('x-internal-secret', INTERNAL_SECRET)
@@ -172,7 +172,7 @@ describe('[E2E] Internal routes', () => {
       expect(res.body.administrativeProfile).toMatchObject({
         firstName: 'Sophie',
         lastName: 'Bernard',
-        telephone: '+33601020304',
+        phone: '+33601020304',
       });
     });
 
@@ -188,7 +188,7 @@ describe('[E2E] Internal routes', () => {
         .send({ userId: IDS.genericAccount2, firstName: 'Sophie', lastName: 'Bernard', phone: '+33609080706' });
 
       expect(res.status).toBe(201);
-      expect(res.body.administrativeProfile).toMatchObject({ telephone: '+33609080706' });
+      expect(res.body.administrativeProfile).toMatchObject({ phone: '+33609080706' });
     });
   });
 

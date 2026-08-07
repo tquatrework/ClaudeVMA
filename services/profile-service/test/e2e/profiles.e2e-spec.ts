@@ -259,7 +259,7 @@ describe('[E2E] Profiles', () => {
       const put = await request(app.getHttpServer())
         .put(`/profiles/${IDS.accountWithoutPedaProfile}/pedagogical`)
         .set('Authorization', `Bearer ${ownerToken}`)
-        .send({ niveauScolaire: '1ere' });
+        .send({ level: '1ere' });
       expect(put.status).toBe(200);
 
       const res = await request(app.getHttpServer())
@@ -267,7 +267,7 @@ describe('[E2E] Profiles', () => {
         .set('Authorization', `Bearer ${ownerToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.pedagogical).toMatchObject({ niveauScolaire: '1ere' });
+      expect(res.body.pedagogical).toMatchObject({ level: '1ere' });
     });
   });
 
@@ -280,7 +280,7 @@ describe('[E2E] Profiles', () => {
       const res = await request(app.getHttpServer())
         .put(`/profiles/${IDS.student1}/administrative`)
         .set('Authorization', `Bearer ${studentToken}`)
-        .send({ phone: '0601020304', ville: 'Paris' });
+        .send({ phone: '0601020304', city: 'Paris' });
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('userId', IDS.student1);
@@ -290,7 +290,7 @@ describe('[E2E] Profiles', () => {
       const res = await request(app.getHttpServer())
         .put(`/profiles/${IDS.student1}/administrative`)
         .set('Authorization', `Bearer ${rpToken}`)
-        .send({ ville: 'Lyon' });
+        .send({ city: 'Lyon' });
 
       expect(res.status).toBe(200);
     });
@@ -300,7 +300,7 @@ describe('[E2E] Profiles', () => {
       const res = await request(app.getHttpServer())
         .put(`/profiles/${IDS.student1}/administrative`)
         .set('Authorization', `Bearer ${otherStudentToken}`)
-        .send({ ville: 'Marseille' });
+        .send({ city: 'Marseille' });
 
       expect(res.status).toBe(403);
     });
@@ -344,6 +344,79 @@ describe('[E2E] Profiles', () => {
       expect(res.status).toBe(200);
       expect(res.body.firstName).toBe(before.body.administrativeProfile?.firstName ?? 'Alice');
     });
+
+    // ────────────────────────────────────────────────────────────
+    // Régression du 2026-08-07 — noms de champs en anglais.
+    // Le défaut d'origine : le serveur n'acceptait que `adresseLigne1`,
+    // `telephone`, `ville`… (français) alors que le front envoyait des noms
+    // anglais ; `forbidNonWhitelisted: true` faisait donc échouer en 400
+    // l'enregistrement complet du profil administratif, champ adresse compris.
+    // ────────────────────────────────────────────────────────────
+
+    it('Enregistre le bloc adresse complet en noms anglais → 200 et valeurs relues', async () => {
+      const addressPayload = {
+        addressLine1: '12 rue de la Paix',
+        addressLine2: 'Apt 3B',
+        postalCode: '75002',
+        city: 'Paris',
+        country: 'France',
+      };
+
+      const put = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/administrative`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send(addressPayload);
+
+      expect(put.status).toBe(200);
+      expect(put.body).toMatchObject(addressPayload);
+
+      // Relecture : les valeurs sont bien persistées, pas seulement renvoyées.
+      const read = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.student1}`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(read.status).toBe(200);
+      expect(read.body.administrative).toMatchObject(addressPayload);
+    });
+
+    it('Enregistre tous les autres champs administratifs en anglais → 200', async () => {
+      const payload = {
+        firstName: 'Alice',
+        lastName: 'Martin',
+        birthDate: '2008-04-12',
+        phone: '+33612345678',
+        avatarUrl: 'https://cdn.visiomath.fr/avatars/alice.jpg',
+        department: '75 - Paris',
+        passions: ['Musique', 'Randonnée'],
+      };
+
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/administrative`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send(payload);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject(payload);
+    });
+
+    it('Les anciens noms français ne sont plus acceptés → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/administrative`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ adresseLigne1: '12 rue de la Paix', ville: 'Paris', telephone: '0601020304' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('Un champ inconnu (`address`, envoyé par le front avant alignement) → 400 explicite', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/administrative`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ firstName: 'Alice', address: '12 rue de la Paix' });
+
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(res.body.message)).toContain('address');
+    });
   });
 
   // ──────────────────────────────────────────────────────────────
@@ -355,7 +428,7 @@ describe('[E2E] Profiles', () => {
       const res = await request(app.getHttpServer())
         .put(`/profiles/${IDS.student1}/pedagogical`)
         .set('Authorization', `Bearer ${studentToken}`)
-        .send({ niveauScolaire: '3eme', objectifsPedagogiques: 'Reussir le brevet' });
+        .send({ level: '3eme', goals: 'Reussir le brevet' });
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('userId', IDS.student1);
@@ -365,7 +438,7 @@ describe('[E2E] Profiles', () => {
       const res = await request(app.getHttpServer())
         .put(`/profiles/${IDS.teacher1}/pedagogical`)
         .set('Authorization', `Bearer ${teacher1Token}`)
-        .send({ experiencePedagogique: '5 ans', matieresEnseignees: ['algebre', 'geometrie'] });
+        .send({ experience: '5 ans', subjects: ['algebre', 'geometrie'] });
 
       expect(res.status).toBe(200);
     });
@@ -374,9 +447,90 @@ describe('[E2E] Profiles', () => {
       const res = await request(app.getHttpServer())
         .put(`/profiles/${IDS.student1}/pedagogical`)
         .set('Authorization', `Bearer ${teacher1Token}`)
-        .send({ niveauScolaire: '2nde' });
+        .send({ level: '2nde' });
 
       expect(res.status).toBe(403);
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Régression du 2026-08-07 — la validation était totalement inactive sur
+    // cette route : le body était typé en union TypeScript, qui n'existe pas à
+    // l'exécution. ValidationPipe ne résolvait aucun metatype, donc ni
+    // `whitelist` ni `forbidNonWhitelisted` ne s'appliquaient. Un body
+    // entièrement inconnu répondait 200 en créant un profil vide, et sur la
+    // mauvaise table (profil formateur pour un élève).
+    // ────────────────────────────────────────────────────────────
+
+    it('Un champ inconnu dans le body → 400 (la validation est bien active)', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/pedagogical`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ level: '3eme', notes: 'champ inexistant côté serveur' });
+
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(res.body.message)).toContain('notes');
+    });
+
+    it('Les anciens noms français ne sont plus acceptés → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/pedagogical`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ niveauScolaire: '3eme', objectifsPedagogiques: 'Reussir le brevet' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('`subjects` doit être un tableau, pas une chaîne → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/pedagogical`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ level: '3eme', subjects: 'Mathématiques' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('Enregistre tous les champs élève en anglais puis les relit → 200', async () => {
+      const payload = {
+        level: 'Terminale',
+        subjects: ['Mathématiques', 'Physique'],
+        goals: 'Préparer le bac mention TB',
+        specificNeeds: 'Dyslexie légère',
+      };
+
+      const put = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/pedagogical`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send(payload);
+
+      expect(put.status).toBe(200);
+      expect(put.body).toMatchObject(payload);
+
+      const read = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.student1}`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(read.status).toBe(200);
+      expect(read.body.pedagogical).toMatchObject(payload);
+    });
+
+    it('Enregistre tous les champs formateur en anglais → 200, sans champ élève parasite', async () => {
+      const payload = {
+        levels: ['Collège', 'Lycée'],
+        subjects: ['Mathématiques'],
+        experience: '5 ans de cours particuliers',
+        testResults: 'Score moyen 87/100',
+      };
+
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.teacher1}/pedagogical`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send(payload);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject(payload);
+      // Les champs exclusifs à l'élève ne doivent pas être greffés sur l'entité formateur.
+      expect(res.body).not.toHaveProperty('goals');
+      expect(res.body).not.toHaveProperty('specificNeeds');
     });
   });
 

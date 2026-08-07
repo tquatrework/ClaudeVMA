@@ -18,12 +18,12 @@ describe('InternalService', () => {
       })),
       bootstrapStudentPedagogicalProfile: jest.fn().mockImplementation(async (dto) => ({
         userId: dto.userId,
-        niveauScolaire: dto.level,
+        level: dto.level,
       })),
       bootstrapTeacherPedagogicalProfile: jest.fn().mockImplementation(async (dto) => ({
         userId: dto.userId,
-        matieresEnseignees: dto.subjects,
-        niveauxEnseignes: dto.levels,
+        subjects: dto.subjects,
+        levels: dto.levels,
       })),
     };
 
@@ -94,7 +94,7 @@ describe('InternalService', () => {
       expect(result).toEqual({
         userId: 'student-uuid',
         administrativeProfile: { userId: 'student-uuid', firstName: 'Alice', lastName: undefined },
-        pedagogicalProfile: { userId: 'student-uuid', niveauScolaire: 'Terminale' },
+        pedagogicalProfile: { userId: 'student-uuid', level: 'Terminale' },
       });
     });
   });
@@ -110,7 +110,7 @@ describe('InternalService', () => {
       expect(profilesService.bootstrapAdministrativeProfile).toHaveBeenCalledWith(dto);
       expect(profilesService.bootstrapTeacherPedagogicalProfile).toHaveBeenCalledWith(dto);
       expect(result).toHaveProperty('userId', 'teacher-uuid');
-      expect(result).toHaveProperty('pedagogicalProfile.matieresEnseignees', ['Mathématiques']);
+      expect(result).toHaveProperty('pedagogicalProfile.subjects', ['Mathématiques']);
     });
   });
 

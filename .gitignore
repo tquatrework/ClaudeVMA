@@ -39,3 +39,6 @@ coverage/
 
 # TypeScript
 *.tsbuildinfo
+
+# Worktrees des subagents Claude
+.claude/worktrees/

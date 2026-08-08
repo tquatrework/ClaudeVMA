@@ -83,9 +83,10 @@ function renderProfilePage(userId = 'student-1') {
 /**
  * Forme réelle de `GET /profiles/:userId` : rubriques `administrative` /
  * `pedagogical` (clés courtes). Ne pas réintroduire `administrativeProfile` /
- * `pedagogicalProfile` : ces clés longues appartiennent aux routes `/internal/*`,
- * que le front n'appelle pas. Une fixture aux clés longues rendrait ce test vert
- * alors que l'écran est vide en réalité.
+ * `pedagogicalProfile` : ces clés longues n'existent plus nulle part depuis
+ * l'arbitrage du 2026-08-08 (un seul nom par donnée, voir `docs/architecture.md`),
+ * y compris sur les routes `/internal/*` qui les portaient encore. Une fixture aux
+ * clés longues rendrait ce test vert alors que l'écran est vide en réalité.
  */
 const SAMPLE_PROFILE = {
   userId: 'student-1',

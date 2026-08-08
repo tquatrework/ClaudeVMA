@@ -81,9 +81,11 @@ function renderEditPage(userId = 'student-1') {
 /**
  * Forme réelle de `GET /profiles/:userId` : rubriques `administrative` /
  * `pedagogical` (clés courtes). Ne pas réintroduire les clés longues
- * `administrativeProfile` / `pedagogicalProfile` (routes `/internal/*`
- * uniquement) : le formulaire ne serait plus prérempli en réalité alors que ce
- * test resterait vert.
+ * `administrativeProfile` / `pedagogicalProfile` : elles n'existent plus nulle
+ * part depuis l'arbitrage du 2026-08-08 (un seul nom par donnée, voir
+ * `docs/architecture.md`), y compris sur les routes `/internal/*` qui les
+ * portaient encore. Sinon le formulaire ne serait plus prérempli en réalité
+ * alors que ce test resterait vert.
  *
  * Les NOMS DE CHAMPS ci-dessous sont ceux du serveur : l'adresse est découpée en
  * `addressLine1` / `addressLine2` (il n'existe pas de champ `address`), le champ

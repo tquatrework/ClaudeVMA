@@ -6,14 +6,14 @@ import { getErrorMessage, getErrorStatus } from '../../utils/apiError'
 import { pickAdministrativeFields } from '../../utils/profileFields'
 
 interface ProfileFormData {
-  administrativeProfile: AdministrativeProfileFields
+  administrative: AdministrativeProfileFields
   /**
    * Bloc `pedagogical` brut de `GET /profiles/:userId`. Sa forme (élève ou
    * formateur) n'est connue qu'après résolution par
    * `resolvePedagogicalProfileKind` : il reste donc non typé à ce niveau.
    * `null` = profil pédagogique jamais renseigné, état NORMAL.
    */
-  pedagogicalProfile: Record<string, unknown> | null
+  pedagogical: Record<string, unknown> | null
 }
 
 function pendingForever<T>(): Promise<T> {
@@ -30,10 +30,10 @@ async function loadProfileFormData(userId: string | undefined): Promise<ProfileF
       // Le bloc administratif est filtré sur les champs réacceptés en écriture :
       // le formulaire le renvoie intégralement au PUT, et tout champ inconnu y
       // déclencherait un 400 (forbidNonWhitelisted).
-      administrativeProfile: pickAdministrativeFields(profile.administrative),
+      administrative: pickAdministrativeFields(profile.administrative),
       // `pedagogical: null` (profil non encore renseigné) est un état NORMAL,
       // conservé tel quel : il sert à déterminer la forme du profil à éditer.
-      pedagogicalProfile: (profile.pedagogical ?? null) as Record<string, unknown> | null,
+      pedagogical: (profile.pedagogical ?? null) as Record<string, unknown> | null,
     }
   } catch (caughtError) {
     const status = getErrorStatus(caughtError)
@@ -43,8 +43,8 @@ async function loadProfileFormData(userId: string | undefined): Promise<ProfileF
 }
 
 export interface UseProfileFormResult {
-  administrativeProfile: AdministrativeProfileFields | undefined
-  pedagogicalProfile: Record<string, unknown> | null | undefined
+  administrative: AdministrativeProfileFields | undefined
+  pedagogical: Record<string, unknown> | null | undefined
   isLoading: boolean
   loadError: string | null
   saveAdministrative: (payload: AdministrativeProfileFields) => Promise<boolean>
@@ -110,8 +110,8 @@ export function useProfileForm(userId: string | undefined): UseProfileFormResult
   )
 
   return {
-    administrativeProfile: data?.administrativeProfile,
-    pedagogicalProfile: data?.pedagogicalProfile,
+    administrative: data?.administrative,
+    pedagogical: data?.pedagogical,
     isLoading,
     loadError,
     saveAdministrative,

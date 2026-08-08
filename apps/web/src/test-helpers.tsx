@@ -73,6 +73,38 @@ export function makeApiError(status: number, message?: string): MockApiError {
 }
 
 // ------------------------------------------------------------------
+// Garde-fou UX : aucun identifiant technique à l'écran
+// ------------------------------------------------------------------
+
+/**
+ * Détecte un UUID v4 canonique (8-4-4-4-12) dans un texte.
+ * Volontairement insensible à la casse et non ancré : on cherche un UUID
+ * *n'importe où* dans le rendu, y compris au milieu d'une phrase.
+ */
+export const UUID_PATTERN =
+  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+
+/**
+ * Assertion de non-régression sur la règle UX du projet : « les UUID peuvent être
+ * utilisés dans les URLs, les appels API, les logs ou les clés React, mais pas comme
+ * libellé principal à l'écran ».
+ *
+ * Vérifie le texte visible (`textContent`) d'un conteneur — les attributs `key`,
+ * `href` ou `data-*` ne sont pas concernés, seul ce que lit l'utilisateur l'est.
+ */
+export function expectNoTechnicalIdentifier(container: HTMLElement): void {
+  const visibleText = container.textContent ?? ''
+  const match = visibleText.match(UUID_PATTERN)
+  if (match) {
+    throw new Error(
+      `Un identifiant technique (UUID) est affiché à l'écran : "${match[0]}".\n` +
+        `Règle UX VisioMath : afficher un nom humain ou un repli lisible, jamais un UUID.\n` +
+        `Texte rendu : ${visibleText}`,
+    )
+  }
+}
+
+// ------------------------------------------------------------------
 // Render with MemoryRouter
 // ------------------------------------------------------------------
 

@@ -6,11 +6,9 @@
 /**
  * Réponse de `GET /profiles/:userId` (profile-service).
  *
- * Les rubriques s'appellent `administrative` / `pedagogical` (clés courtes).
- * Ne pas les confondre avec les routes internes
- * `POST /internal/create-student-profiles` et `create-teacher-profiles`, qui
- * renvoient les mêmes données sous les clés longues `administrativeProfile` /
- * `pedagogicalProfile` — ces routes ne sont pas appelées par le front.
+ * Les rubriques s'appellent `administrative` / `pedagogical`. C'est le seul nom de
+ * ces données dans le front — y compris pour les états locaux de formulaire
+ * (arbitrage : un seul nom par donnée, voir `docs/architecture.md`).
  *
  * `pedagogical: null` est un état NORMAL : l'utilisateur renseigne son profil
  * pédagogique quand il le souhaite. À afficher comme « non renseigné », jamais
@@ -21,6 +19,19 @@ export interface Profile {
   loginIdentifier?: string | null
   administrative?: Record<string, unknown> | null
   pedagogical?: Record<string, unknown> | null
+}
+
+/**
+ * Nom d'affichage d'une personne, tel que renvoyé par les routes de relations
+ * (`financeOwnerName` de `GET /relations/finance-owner-student/by-student/:studentId`,
+ * `studentName` de `GET /relations/finance-owner-student/:financeOwnerId`).
+ *
+ * `null` (l'objet entier) quand la personne n'a pas de profil administratif ;
+ * `firstName`/`lastName` peuvent être `null` individuellement.
+ */
+export interface PersonName {
+  firstName?: string | null
+  lastName?: string | null
 }
 
 export interface InternalNote {

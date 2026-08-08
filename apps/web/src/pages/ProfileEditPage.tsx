@@ -20,8 +20,8 @@ export default function ProfileEditPage() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('administrative')
 
   const {
-    administrativeProfile,
-    pedagogicalProfile,
+    administrative,
+    pedagogical,
     isLoading,
     loadError,
     saveAdministrative,
@@ -49,10 +49,10 @@ export default function ProfileEditPage() {
   const pedagogicalKind = useMemo(
     () =>
       resolvePedagogicalProfileKind(
-        pedagogicalProfile,
+        pedagogical,
         isViewingOwnProfile ? user?.role : undefined,
       ),
-    [pedagogicalProfile, isViewingOwnProfile, user?.role],
+    [pedagogical, isViewingOwnProfile, user?.role],
   )
 
   const error =
@@ -150,7 +150,7 @@ export default function ProfileEditPage() {
 
         {activeTab === 'administrative' && (
           <AdministrativeProfileForm
-            profile={administrativeProfile ?? EMPTY_ADMINISTRATIVE_PROFILE}
+            profile={administrative ?? EMPTY_ADMINISTRATIVE_PROFILE}
             isSaving={isSavingAdministrative}
             onSubmit={handleAdminSubmit}
             onCancel={goBackToProfile}
@@ -160,7 +160,7 @@ export default function ProfileEditPage() {
         {activeTab === 'pedagogical' && canEditPedagogical && pedagogicalKind !== 'unknown' && (
           <PedagogicalProfileForm
             kind={pedagogicalKind}
-            profile={pedagogicalProfile ?? null}
+            profile={pedagogical ?? null}
             isSaving={isSavingPedagogical}
             onSubmit={handlePedagogicalSubmit}
             onCancel={goBackToProfile}

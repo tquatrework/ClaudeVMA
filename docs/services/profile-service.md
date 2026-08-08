@@ -649,6 +649,86 @@
           encore ce code — redéploiement à faire séparément.
         </testCoverage>
       </decision>
+      <decision id="C10" status="implemented" session="2026-08-08">
+        <title>Suppression de la paire longue administrativeProfile/pedagogicalProfile sur les routes /internal/* — un seul nom par donnee</title>
+        <filesTouched>
+          <file path="services/profile-service/src/internal/internal.service.ts">
+            createAdministrativeProfile renvoie {userId, administrative} au lieu de
+            {userId, administrativeProfile} ; createStudentProfiles et createTeacherProfiles
+            renvoient {userId, administrative, pedagogical} au lieu de
+            {userId, administrativeProfile, pedagogicalProfile}. Aucun alias de compatibilite
+            ajoute. Le controleur n'a pas ete touche : ses types de retour sont derives du
+            service via Awaited&lt;ReturnType&lt;...&gt;&gt;, ils suivent automatiquement.
+          </file>
+          <file path="services/profile-service/test/unit/internal/internal.service.spec.ts">
+            Assertions alignees + nouveau describe « nommage des blocs de profil » qui verrouille
+            la liste exacte des cles de sortie et l'absence de la paire longue.
+          </file>
+          <file path="services/profile-service/test/e2e/internal.e2e-spec.ts">
+            Assertions alignees + nouveau describe de verrou (3 routes + une passe sur le corps
+            serialise). Le repli `res.body.pedagogicalProfile ?? res.body` du test
+            isAnimateurPedagogique a ete supprime : il masquait justement la forme de la reponse.
+          </file>
+          <file path="services/profile-service/test/e2e/profiles.e2e-spec.ts">
+            Derniere reference residuelle a la cle longue supprimee : l'assertion
+            `before.body.administrativeProfile?.firstName ?? 'Alice'` lisait une cle inexistante
+            sur GET /profiles/:userId et retombait systematiquement sur la valeur en dur, donc
+            passait quoi qu'il arrive. Remplacee par une lecture stricte de
+            `before.body.administrative.firstName`.
+          </file>
+          <file path="docs/routes.md">
+            Avertissement « a ne pas confondre avec administrativeProfile/pedagogicalProfile »
+            supprime de la ligne GET /profiles/:userId (devenu sans objet) ; section API interne
+            de profile-service dotee d'une colonne « Reponse attendue » (elle n'en avait aucune) ;
+            note obsolete du 2026-08-07 remplacee ; ligne dupliquee de
+            POST /internal/create-administrative-profile fusionnee ; correction de
+            POST /auth/login (voir description).
+          </file>
+        </filesTouched>
+        <description>
+          Arbitrage du 2026-08-08 (docs/architecture.md > « Arbitrages rendus ») : une meme donnee
+          porte un seul nom dans tout le systeme ; aucune route, publique ou interne, n'a le droit
+          d'exposer sa propre variante. Une documentation qui constate deux noms concurrents et se
+          contente d'avertir « a ne pas confondre » n'est pas conforme : l'ecart doit etre resorbe.
+          Nom retenu pour les blocs de profil : administrative / pedagogical, partout.
+          (1) CONTEXTE. La reconciliation du 2026-08-07 (decision C9 ci-dessus) avait aligne
+          GET /profiles/:userId sur les cles courtes mais laisse subsister la paire longue sur les
+          routes /internal/*. docs/routes.md enterinait explicitement cette divergence au lieu de la
+          resoudre. C'est cette seconde paire qui re-contaminait le front a chaque iteration.
+          (2) PAS D'ALIAS DE COMPATIBILITE. Demande explicitement, et justifie : il n'y a aucun
+          consommateur externe a menager (voir point 3), et un champ d'alias recreerait exactement
+          la situation de deux noms concurrents que l'arbitrage supprime.
+          (3) INVENTAIRE DES CONSOMMATEURS — aucun ne casse.
+          identity-access-service (services/identity-access-service/src/common/clients/
+          profile-service.client.ts) appelle create-administrative-profile et link-parent mais ses
+          deux methodes retournent Promise&lt;void&gt; : il ne lit que le code HTTP, jamais le corps.
+          scripts/maintenance/backfill-profiles.ts appelle les trois routes de creation et ne teste
+          que response.statusCode. orchestration-service route les actions
+          create-student-profiles / create-teacher-profiles / create-teacher-student-relation via
+          son moteur de workflow et stocke la sortie telle quelle, sans en lire ces cles.
+          Anomalie preexistante relevee au passage (NON corrigee ici, hors perimetre du service) :
+          teacher-onboarding.workflow.ts lit
+          context.stepOutputs['create-teacher-profiles']?.profileId, or `profileId` n'a jamais
+          figure dans la reponse de cette route — ni avant ni apres ce renommage. La valeur etait
+          donc deja undefined ; a traiter cote orchestration-service.
+          (4) CORRECTION INCIDENTE DE docs/routes.md, ligne POST /auth/login. Le body y etait
+          documente {email, password} alors que le serveur exige et que le front envoie
+          {loginIdentifier, password}. Arbitrage : email et loginIdentifier sont deux donnees
+          distinctes, il n'y a rien a renommer — c'etait la documentation qui etait fausse. Seule
+          la documentation a ete corrigee ; le code de identity-access-service n'a pas ete touche.
+        </description>
+        <testCoverage>
+          Unitaires : 240 tests, 7 suites, tous verts (npm test). E2E : 116/117 verts
+          (npm run test:e2e). L'unique echec, [PROF-BR-010] « Un administrateur financier peut
+          ajouter une note interne → 201 » (recu 403), est PREEXISTANT et sans lien : verifie en
+          rejouant ce test seul sur l'arbre remis a l'etat d'avant modification (git stash). Il
+          traduit la contradiction deja documentee en openPoints entre le test, qui attend que
+          l'AF puisse ecrire une note interne, et NOTES_WRITE_ROLES / docs/routes.md, qui
+          restreignent l'ecriture a RP et AP — arbitrage PROF-BR-010 toujours en attente.
+          Verrous ajoutes : 4 tests e2e et 3 tests unitaires echouent si administrativeProfile ou
+          pedagogicalProfile reapparait dans une reponse /internal/*, y compris sous forme d'alias.
+        </testCoverage>
+      </decision>
       <openPoints>
         <item priority="high" status="to-do" owner="front">
           Alignement du front sur les noms anglais (lot séparé, subagent front-developper).

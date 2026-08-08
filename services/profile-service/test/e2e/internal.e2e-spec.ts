@@ -79,8 +79,8 @@ describe('[E2E] Internal routes', () => {
 
       expect(res.status).toBe(201);
       expect(res.body).toHaveProperty('userId', IDS.genericAccount1);
-      expect(res.body).toHaveProperty('administrativeProfile');
-      expect(res.body.administrativeProfile).toMatchObject({ firstName: 'Sophie', lastName: 'Bernard' });
+      expect(res.body).toHaveProperty('administrative');
+      expect(res.body.administrative).toMatchObject({ firstName: 'Sophie', lastName: 'Bernard' });
     });
 
     it('Idempotence : rappel sur un userId déjà pourvu d\'un profil met à jour le nom au lieu de planter → 201', async () => {
@@ -90,7 +90,7 @@ describe('[E2E] Internal routes', () => {
         .send({ userId: IDS.genericAccount1, firstName: 'SophieBis', lastName: 'BernardBis' });
 
       expect(res.status).toBe(201);
-      expect(res.body.administrativeProfile).toMatchObject({ firstName: 'SophieBis', lastName: 'BernardBis' });
+      expect(res.body.administrative).toMatchObject({ firstName: 'SophieBis', lastName: 'BernardBis' });
     });
 
     it('userId manquant → 400', async () => {
@@ -169,7 +169,7 @@ describe('[E2E] Internal routes', () => {
         .send({ userId: IDS.genericAccount2, firstName: 'Sophie', lastName: 'Bernard', phone: '+33601020304' });
 
       expect(res.status).toBe(201);
-      expect(res.body.administrativeProfile).toMatchObject({
+      expect(res.body.administrative).toMatchObject({
         firstName: 'Sophie',
         lastName: 'Bernard',
         phone: '+33601020304',
@@ -188,7 +188,7 @@ describe('[E2E] Internal routes', () => {
         .send({ userId: IDS.genericAccount2, firstName: 'Sophie', lastName: 'Bernard', phone: '+33609080706' });
 
       expect(res.status).toBe(201);
-      expect(res.body.administrativeProfile).toMatchObject({ phone: '+33609080706' });
+      expect(res.body.administrative).toMatchObject({ phone: '+33609080706' });
     });
   });
 
@@ -206,8 +206,8 @@ describe('[E2E] Internal routes', () => {
       expect(res.status).toBe(201);
       expect(res.body).toHaveProperty('userId', IDS.student1);
       // Les deux types de profil doivent être créés ou confirmés
-      expect(res.body).toHaveProperty('administrativeProfile');
-      expect(res.body).toHaveProperty('pedagogicalProfile');
+      expect(res.body).toHaveProperty('administrative');
+      expect(res.body).toHaveProperty('pedagogical');
     });
 
     it('Idempotence : appel en double sur le même userId ne plante pas → 200 ou 201', async () => {
@@ -260,8 +260,8 @@ describe('[E2E] Internal routes', () => {
 
       expect(res.status).toBe(201);
       expect(res.body).toHaveProperty('userId', IDS.teacher1);
-      expect(res.body).toHaveProperty('administrativeProfile');
-      expect(res.body).toHaveProperty('pedagogicalProfile');
+      expect(res.body).toHaveProperty('administrative');
+      expect(res.body).toHaveProperty('pedagogical');
     });
 
     it('Le profil pédagogique formateur contient isAnimateurPedagogique à false par défaut', async () => {
@@ -271,8 +271,9 @@ describe('[E2E] Internal routes', () => {
         .send({ userId: IDS.teacher2, firstName: 'Carol', lastName: 'Robert' });
 
       expect(res.status).toBe(201);
-      const pedagogical = res.body.pedagogicalProfile ?? res.body;
-      expect(pedagogical).toMatchObject(
+      // Pas de repli `?? res.body` : la forme de la réponse est justement ce
+      // qu'on verrouille ici, un repli la rendrait indétectable.
+      expect(res.body.pedagogical).toMatchObject(
         expect.objectContaining({ isAnimateurPedagogique: false }),
       );
     });
@@ -427,6 +428,92 @@ describe('[E2E] Internal routes', () => {
         });
 
       expect(res.status).toBe(400);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────
+  // Verrou de nommage — arbitrage du 2026-08-08
+  // ──────────────────────────────────────────────────────────────
+
+  /**
+   * « Une même donnée porte un seul nom dans tout le système. Aucune route,
+   * publique ou interne, n'a le droit d'exposer sa propre variante. »
+   * (docs/architecture.md > "Arbitrages rendus", 2026-08-08)
+   *
+   * Les routes /internal/* renvoyaient historiquement `administrativeProfile`
+   * / `pedagogicalProfile` là où les routes publiques renvoient
+   * `administrative` / `pedagogical`. Cette paire longue a été supprimée sans
+   * alias. Ces tests échouent si elle réapparaît, y compris sous forme d'alias
+   * de compatibilité — c'est précisément ce qu'on interdit.
+   */
+  describe('Nommage des blocs de profil : `administrative` / `pedagogical` uniquement', () => {
+    const FORBIDDEN_KEYS = ['administrativeProfile', 'pedagogicalProfile'];
+
+    it('POST /internal/create-administrative-profile n\'expose pas la paire longue', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.parent1, firstName: 'Nadia', lastName: 'Leroy' });
+
+      expect(res.status).toBe(201);
+      expect(Object.keys(res.body)).toEqual(expect.arrayContaining(['administrative']));
+      for (const forbiddenKey of FORBIDDEN_KEYS) {
+        expect(res.body).not.toHaveProperty(forbiddenKey);
+      }
+    });
+
+    it('POST /internal/create-student-profiles n\'expose pas la paire longue', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-student-profiles')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.student2, firstName: 'Lina', lastName: 'Moreau' });
+
+      expect(res.status).toBe(201);
+      expect(Object.keys(res.body)).toEqual(
+        expect.arrayContaining(['administrative', 'pedagogical']),
+      );
+      for (const forbiddenKey of FORBIDDEN_KEYS) {
+        expect(res.body).not.toHaveProperty(forbiddenKey);
+      }
+    });
+
+    it('POST /internal/create-teacher-profiles n\'expose pas la paire longue', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-teacher-profiles')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.teacher2, firstName: 'Carol', lastName: 'Robert' });
+
+      expect(res.status).toBe(201);
+      expect(Object.keys(res.body)).toEqual(
+        expect.arrayContaining(['administrative', 'pedagogical']),
+      );
+      for (const forbiddenKey of FORBIDDEN_KEYS) {
+        expect(res.body).not.toHaveProperty(forbiddenKey);
+      }
+    });
+
+    it('aucune route /internal/* ne fait apparaître la paire longue, même en profondeur', async () => {
+      const responses = await Promise.all([
+        request(app.getHttpServer())
+          .post('/internal/create-administrative-profile')
+          .set('x-internal-secret', INTERNAL_SECRET)
+          .send({ userId: IDS.genericAccount1, firstName: 'Sophie', lastName: 'Bernard' }),
+        request(app.getHttpServer())
+          .post('/internal/create-student-profiles')
+          .set('x-internal-secret', INTERNAL_SECRET)
+          .send({ userId: IDS.student1, firstName: 'Alice', lastName: 'Dupont' }),
+        request(app.getHttpServer())
+          .post('/internal/create-teacher-profiles')
+          .set('x-internal-secret', INTERNAL_SECRET)
+          .send({ userId: IDS.teacher1, firstName: 'Bob', lastName: 'Martin' }),
+      ]);
+
+      for (const response of responses) {
+        const serializedBody = JSON.stringify(response.body);
+        for (const forbiddenKey of FORBIDDEN_KEYS) {
+          expect(serializedBody).not.toContain(forbiddenKey);
+        }
+      }
     });
   });
 });

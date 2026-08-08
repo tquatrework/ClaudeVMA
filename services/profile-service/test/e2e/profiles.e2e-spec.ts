@@ -342,7 +342,12 @@ describe('[E2E] Profiles', () => {
         .send({ phone: '0611223344' });
 
       expect(res.status).toBe(200);
-      expect(res.body.firstName).toBe(before.body.administrativeProfile?.firstName ?? 'Alice');
+      // Bloc `administrative`, sans repli : la clé longue `administrativeProfile`
+      // n'existe plus nulle part (arbitrage du 2026-08-08), et un `?? 'Alice'`
+      // laissait passer une lecture vide en la faisant ressembler à un succès.
+      const firstNameBefore = before.body.administrative.firstName;
+      expect(firstNameBefore).toBeTruthy();
+      expect(res.body.firstName).toBe(firstNameBefore);
     });
 
     // ────────────────────────────────────────────────────────────

@@ -51,5 +51,30 @@
       "Write(.claude/reports/**)",
       "Edit(.claude/reports/**)"
     ]
+  },
+
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-goal.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop-check-loose-ends.sh\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
   }
 }

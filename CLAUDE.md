@@ -4,6 +4,29 @@ Tu n'es pas lié au service métier `orchestration-service`.
 `orchestration-service` est un microservice comme les autres — 
 délègue son développement à son subagent.
 
+## Environnement — RÈGLE STRICTE
+Le projet tourne sur une **machine distante**. L'utilisateur n'a **jamais** accès à `localhost`.
+Ne lui propose donc jamais d'URL en `localhost` ou `127.0.0.1`, pour aucun service.
+L'application est accessible sur **https://claudevma.visioprof.fr**.
+
+Conséquence : « va regarder à l'écran » n'est pas une étape de validation sur ce projet.
+
+## Définition de « terminé » — RÈGLE STRICTE
+Une tâche est terminée quand **l'utilisateur a reçu une preuve** que son besoin est satisfait :
+capture d'écran, sortie de test jouée contre la pile réelle, réponse HTTP citée.
+
+Ne valent **pas** validation, et ne doivent jamais être présentés comme tels :
+- des tests unitaires verts — la suite front simule tout le réseau ;
+- une compilation qui passe ;
+- une PR ouverte.
+
+L'objectif métier courant est tenu à jour dans `.claude/CURRENT-GOAL.md` **pendant** le travail.
+Il est réinjecté à chaque démarrage de session par le hook `SessionStart`, pour qu'une reprise
+parte du besoin de l'utilisateur et non des artefacts laissés derrière.
+
+Le hook `Stop` signale tout travail en suspens avant de rendre la main : fichiers non committés,
+commits non poussés, PR non mergées, worktrees d'agents résiduels, objectif non validé.
+
 ## Contexte global
 @README.md
 @docs/microservices.md

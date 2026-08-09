@@ -1,27 +1,78 @@
+/**
+ * ConsentsPage — route `/consents`
+ *
+ * Affiche l'état courant de chaque consentement tel que le serveur le renvoie
+ * (`GET /consents`, toujours les trois types), et permet de le donner, de le retirer
+ * ou de le redonner.
+ *
+ * Deux règles gouvernent cet écran :
+ * - **On n'affiche que ce que le serveur dit.** Un consentement retiré s'affiche
+ *   « Retiré », jamais « Signé » ; la liste des consentements obligatoires et celle
+ *   des consentements retirables viennent de `isMandatory` / `isWithdrawable`, elles
+ *   ne sont pas redéduites ici.
+ * - **Un retrait est une action à conséquence** : il passe par une confirmation, et
+ *   son échec (`403` sur un consentement obligatoire, notamment) reste visible.
+ */
+
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useConsents } from '../hooks/accounts/useConsents'
-import type { ConsentType } from '../types/accounts'
+import type { ConsentState } from '../types/accounts'
 import Layout from '../components/Layout'
-
-const REQUIRED_TYPES: readonly ConsentType[] = ['rgpd', 'cgu']
+import { ConsentCard } from '../components/accounts/ConsentCard'
+import { ConsentWithdrawalDialog } from '../components/accounts/ConsentWithdrawalDialog'
+import { EmptyState } from '../components/ui/EmptyState'
+import { ErrorMessage } from '../components/ui/ErrorMessage'
+import { PageTitle } from '../components/ui/PageTitle'
+import { MANDATORY_CONSENT_WITHDRAWAL_MESSAGE } from '../utils/consents'
 
 export default function ConsentsPage() {
   const navigate = useNavigate()
   const { refreshUser } = useAuth()
-  const [marketing, setMarketing] = useState(false)
   const {
-    signedTypes: signed,
+    consents,
     isLoading,
     loadError,
-    sign,
+    grant,
+    withdraw,
     isSaving,
-    signError,
+    actionError,
+    actionSuccessMessage,
+    dismissActionFeedback,
+    hasGrantedAllMandatory,
   } = useConsents()
 
-  const error = loadError ?? signError
-  const allRequiredSigned = REQUIRED_TYPES.every((t) => signed.includes(t))
+  /** Consentement dont le retrait attend confirmation — `null` si aucune boîte ouverte. */
+  const [consentPendingWithdrawal, setConsentPendingWithdrawal] = useState<ConsentState | null>(
+    null,
+  )
+
+  const handleRequestWithdrawal = (consent: ConsentState) => {
+    dismissActionFeedback()
+    setConsentPendingWithdrawal(consent)
+  }
+
+  const handleConfirmWithdrawal = async () => {
+    if (!consentPendingWithdrawal) return
+    const isWithdrawn = await withdraw(consentPendingWithdrawal.consentType)
+    // En cas d'échec, la boîte reste ouverte pour porter le message de refus.
+    if (isWithdrawn) setConsentPendingWithdrawal(null)
+  }
+
+  const handleAccessWorkspace = async () => {
+    await refreshUser()
+    navigate('/dashboard')
+  }
+
+  /**
+   * Y a-t-il un consentement accordé que le serveur refuse de laisser retirer ?
+   * Si oui, on explique pourquoi et vers qui se tourner, plutôt que de laisser
+   * l'utilisateur chercher un bouton absent.
+   */
+  const hasLockedMandatoryConsent = consents.some(
+    (consent) => consent.isGranted && !consent.isWithdrawable,
+  )
 
   if (isLoading) {
     return (
@@ -34,94 +85,74 @@ export default function ConsentsPage() {
   return (
     <Layout>
       <div className="max-w-xl">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">Consentements RGPD / CGU</h1>
-
-        {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-            {error}
-          </div>
-        )}
+        <PageTitle
+          title="Consentements RGPD / CGU"
+          subtitle="Vous pouvez retirer un consentement optionnel à tout moment, et le redonner ensuite."
+        />
 
         <div className="space-y-4">
-          {REQUIRED_TYPES.map((type) => {
-            const isSigned = signed.includes(type)
-            return (
-              <div
-                key={type}
-                className={`p-4 border rounded-xl flex items-center justify-between ${
-                  isSigned ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'
-                }`}
-              >
-                <div>
-                  <p className="font-medium text-gray-800 uppercase text-sm">{type}</p>
-                  <p className="text-xs text-gray-500">
-                    {type === 'rgpd'
-                      ? 'Protection des données personnelles'
-                      : "Conditions générales d'utilisation"}
-                  </p>
-                </div>
-                {isSigned ? (
-                  <span className="text-green-600 text-sm font-medium">Signé</span>
-                ) : (
-                  <button
-                    disabled={isSaving}
-                    onClick={() => sign(type)}
-                    className="bg-indigo-600 text-white text-sm px-4 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-                  >
-                    Signer
-                  </button>
-                )}
-              </div>
-            )
-          })}
+          {loadError && <ErrorMessage message={loadError} />}
 
-          {/* Optional marketing consent */}
-          <div className="p-4 border border-gray-200 bg-white rounded-xl flex items-center justify-between">
-            <div>
-              <p className="font-medium text-gray-800 text-sm">Marketing (optionnel)</p>
-              <p className="text-xs text-gray-500">Recevoir des communications commerciales</p>
-            </div>
-            {signed.includes('marketing') ? (
-              <span className="text-green-600 text-sm font-medium">Signé</span>
-            ) : (
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={marketing}
-                  onChange={(e) => setMarketing(e.target.checked)}
-                  className="rounded"
-                />
-                Accepter
-              </label>
-            )}
-          </div>
+          {/* Le retour d'action de la boîte de dialogue s'affiche dans la boîte, pas ici. */}
+          {actionError && !consentPendingWithdrawal && (
+            <ErrorMessage message={actionError} onClose={dismissActionFeedback} />
+          )}
+
+          {actionSuccessMessage && (
+            <ErrorMessage
+              message={actionSuccessMessage}
+              variant="success"
+              onClose={dismissActionFeedback}
+            />
+          )}
+
+          {consents.length === 0 && !loadError && (
+            <EmptyState message="Aucun consentement n'est enregistré pour ce compte." />
+          )}
+
+          {consents.map((consent) => (
+            <ConsentCard
+              key={consent.consentType}
+              consent={consent}
+              isSaving={isSaving}
+              onGrant={(grantedConsent) => grant(grantedConsent.consentType)}
+              onRequestWithdrawal={handleRequestWithdrawal}
+            />
+          ))}
         </div>
 
-        {allRequiredSigned && (
+        {hasLockedMandatoryConsent && (
+          <p className="mt-4 text-xs text-gray-500">{MANDATORY_CONSENT_WITHDRAWAL_MESSAGE}</p>
+        )}
+
+        {hasGrantedAllMandatory && (
           <div className="mt-6">
             <p className="text-green-700 text-sm mb-3">
               Consentements obligatoires signés. Votre compte est actif.
             </p>
-            {marketing && !signed.includes('marketing') && (
-              <button
-                onClick={() => sign('marketing')}
-                className="mr-3 text-sm text-indigo-600 hover:underline"
-              >
-                Signer le consentement marketing
-              </button>
-            )}
             <button
-              onClick={async () => {
-                await refreshUser()
-                navigate('/dashboard')
-              }}
-              className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 text-sm"
+              type="button"
+              onClick={handleAccessWorkspace}
+              className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 text-sm transition-colors"
             >
               Accéder à mon espace
             </button>
           </div>
         )}
       </div>
+
+      {consentPendingWithdrawal && (
+        <ConsentWithdrawalDialog
+          consent={consentPendingWithdrawal}
+          isSubmitting={isSaving}
+          errorMessage={actionError}
+          onConfirm={handleConfirmWithdrawal}
+          onCancel={() => {
+            dismissActionFeedback()
+            setConsentPendingWithdrawal(null)
+          }}
+        />
+      )}
     </Layout>
   )
 }

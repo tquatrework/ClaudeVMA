@@ -8,8 +8,8 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react'
-import { fetchLinkedParents, fetchStudentProfile, type FinanceOwnerStudentLink } from '../../api/relations'
-import { formatPersonDisplayName } from '../../utils/nameFormat'
+import { fetchLinkedParents, type FinanceOwnerStudentLink } from '../../api/relations'
+import { formatPersonName } from '../../utils/nameFormat'
 import { InviteParentForm } from './InviteParentForm'
 import { PendingParentInvitationsList } from './PendingParentInvitationsList'
 
@@ -22,42 +22,18 @@ const FINANCE_OWNER_GENERIC_LABEL = 'Financeur'
 export default function ParentFinanceurSection({ studentId }: ParentFinanceurSectionProps) {
   // Sous-zone 1 — parents rattachés
   const [linkedParents, setLinkedParents] = useState<FinanceOwnerStudentLink[]>([])
-  const [parentDisplayNames, setParentDisplayNames] = useState<Record<string, string>>({})
   const [isLoadingLinkedParents, setIsLoadingLinkedParents] = useState(true)
   const [linkedParentsError, setLinkedParentsError] = useState<string | null>(null)
 
+  // Un seul appel : la route renvoie déjà `financeOwnerName` (prénom + nom résolus
+  // côté serveur). Surtout ne pas ré-enrichir via `GET /profiles/:financeOwnerId` —
+  // un élève n'a pas le droit de lire le profil de son parent (403), ce qui faisait
+  // autrefois retomber l'affichage sur l'UUID du financeur.
   const loadLinkedParents = useCallback(async () => {
     setIsLoadingLinkedParents(true)
     setLinkedParentsError(null)
     try {
-      const parents = await fetchLinkedParents(studentId)
-      setLinkedParents(parents)
-
-      // Enrichissement : récupérer prénom + nom de chaque parent via GET /profiles/:id
-      const displayNames: Record<string, string> = {}
-      await Promise.allSettled(
-        parents.map(async (link) => {
-          try {
-            const profile = await fetchStudentProfile(link.financeOwnerId)
-            displayNames[link.financeOwnerId] = formatPersonDisplayName(
-              profile.administrative?.firstName,
-              profile.administrative?.lastName,
-              profile.loginIdentifier,
-              link.financeOwnerId,
-              FINANCE_OWNER_GENERIC_LABEL,
-            )
-          } catch {
-            displayNames[link.financeOwnerId] = formatPersonDisplayName(
-              undefined,
-              undefined,
-              undefined,
-              link.financeOwnerId,
-              FINANCE_OWNER_GENERIC_LABEL,
-            )
-          }
-        }),
-      )
-      setParentDisplayNames(displayNames)
+      setLinkedParents(await fetchLinkedParents(studentId))
     } catch {
       setLinkedParentsError('Impossible de charger vos parents financeurs.')
     } finally {
@@ -90,14 +66,7 @@ export default function ParentFinanceurSection({ studentId }: ParentFinanceurSec
                 className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0"
               >
                 <span className="text-sm text-gray-800 font-medium">
-                  {parentDisplayNames[link.financeOwnerId] ??
-                    formatPersonDisplayName(
-                      undefined,
-                      undefined,
-                      undefined,
-                      link.financeOwnerId,
-                      FINANCE_OWNER_GENERIC_LABEL,
-                    )}
+                  {formatPersonName(link.financeOwnerName, FINANCE_OWNER_GENERIC_LABEL)}
                 </span>
                 <span className="text-xs text-gray-400">
                   Depuis le{' '}

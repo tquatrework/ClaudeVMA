@@ -1,10 +1,30 @@
 import apiClient from './client'
-import type { TeacherStudentRelation } from '../types/profile'
+import type { PersonName, TeacherStudentRelation } from '../types/profile'
 
+/**
+ * Lien financeur ↔ élève, tel que renvoyé par les deux routes de relations.
+ *
+ * Les deux routes renvoient **déjà** le nom de l'autre partie, résolu côté serveur
+ * depuis son profil administratif (docs/routes.md § profile-service > Relations) :
+ *   - `by-student/:studentId`   → `financeOwnerName`
+ *   - `:financeOwnerId`         → `studentName`
+ *
+ * Ces champs sont la SEULE source du nom à afficher. Ne jamais les ré-enrichir via
+ * `GET /profiles/:id` : un élève n'a pas le droit de lire le profil de son parent
+ * (403 « An élève may only view their own profile »), ce qui faisait autrefois
+ * retomber l'affichage sur l'UUID. Un seul appel réseau, pas de N+1.
+ *
+ * `financeOwnerName`/`studentName` valent `null` si la personne n'a pas de profil
+ * administratif — cas normal, à afficher comme un repli lisible, jamais comme un UUID.
+ */
 export interface FinanceOwnerStudentLink {
   financeOwnerId: string
   studentId: string
   createdAt: string
+  /** Présent sur `GET /relations/finance-owner-student/by-student/:studentId`. */
+  financeOwnerName?: PersonName | null
+  /** Présent sur `GET /relations/finance-owner-student/:financeOwnerId`. */
+  studentName?: PersonName | null
 }
 
 /**
@@ -22,7 +42,8 @@ export interface StudentProfile {
     lastName?: string
   } | null
   pedagogical?: {
-    niveauScolaire?: string
+    /** Niveau scolaire de l'élève — `level`, pas `niveauScolaire` (docs/routes.md). */
+    level?: string
   } | null
 }
 

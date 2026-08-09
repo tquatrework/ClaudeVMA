@@ -17,12 +17,18 @@ Statuts de validation : `pending` (avant consentements) → `active` (consenteme
 
 | Méthode | Chemin | Description | Auth | Body / Params |
 |---|---|---|---|---|
-| POST | /auth/login | Se connecter | Non | `{email, password}` |
+| POST | /auth/login | Se connecter | Non | `{loginIdentifier, password}` |
 | POST | /auth/logout | Révoquer la session courante | 🔒 | — |
 | POST | /auth/refresh | Nouveau token pair | Non | `{refresh_token}` |
 | GET | /auth/me | Identité courante | 🔒 | — |
 
 Réponse login/refresh : `{access_token, refresh_token, user: {id, email, role, validationStatus}}`
+
+> Corrigé le 2026-08-08 : cette ligne documentait `{email, password}` alors que le serveur exige — et
+> que le front envoie — `{loginIdentifier, password}`. `email` et `loginIdentifier` sont deux données
+> **distinctes** (un compte a un email et un identifiant de connexion propre), il n'y avait donc rien à
+> renommer : c'était la documentation qui était fausse. `email` reste présent dans la **réponse**,
+> comme donnée du compte.
 
 ### Comptes
 
@@ -156,14 +162,58 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 
 | Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /profiles/:userId | 🔒 | eleve (soi-même), formateur (contacts liés), parent_financeur (élèves liés), responsable_pedagogique, animateur_pedagogique, technicien_informatique, administrateur_financier | Lire un profil selon droits. **Strictement en lecture seule** : cette route ne crée jamais rien en base (voir « Existence du profil administratif/pédagogique » dans `docs/architecture.md`) | `200 {userId, loginIdentifier, administrative, pedagogical}` — **clés courtes**, à ne pas confondre avec `administrativeProfile`/`pedagogicalProfile` que renvoient les routes `/internal/*` ; `loginIdentifier` peut être `null` si identity-access-service est injoignable ; `pedagogical` est `null` tant que l'utilisateur n'a pas renseigné son profil pédagogique (**état normal**, ce profil étant facultatif et créé au premier `PUT /profiles/:userId/pedagogical`) · `401` sans token · `403` accès refusé · `404` `userId` inconnu de identity-access-service · `500` compte existant mais sans profil administratif (incohérence de données, loguée côté serveur comme anomalie) |
-| PUT | /profiles/:userId/administrative | 🔒 | eleve (soi-même), responsable_pedagogique, technicien_informatique | Modifier le profil administratif (`firstName`/`lastName` restent optionnels pour ne pas modifier le champ, mais rejettent une chaîne vide) | `200 {userId, ...champsAdmin}` · `400` firstName/lastName vide · `401` · `403` · `404` |
-| PUT | /profiles/:userId/pedagogical | 🔒 | eleve (soi-même), formateur (soi-même), responsable_pedagogique, technicien_informatique | Modifier le profil pédagogique | `200 {userId, ...champsPedago}` · `401` · `403` · `404` |
+| GET | /profiles/:userId | 🔒 | eleve (soi-même), formateur (contacts liés), parent_financeur (élèves liés), responsable_pedagogique, animateur_pedagogique, technicien_informatique, administrateur_financier | Lire un profil selon droits. **Strictement en lecture seule** : cette route ne crée jamais rien en base (voir « Existence du profil administratif/pédagogique » dans `docs/architecture.md`) | `200 {userId, loginIdentifier, administrative, pedagogical}` — `administrative`/`pedagogical` sont les **seuls** noms de ces blocs, ici comme sur les routes `/internal/*` (arbitrage du 2026-08-08) ; `loginIdentifier` peut être `null` si identity-access-service est injoignable ; `pedagogical` est `null` tant que l'utilisateur n'a pas renseigné son profil pédagogique (**état normal**, ce profil étant facultatif et créé au premier `PUT /profiles/:userId/pedagogical`) · `401` sans token · `403` accès refusé · `404` `userId` inconnu de identity-access-service · `500` compte existant mais sans profil administratif (incohérence de données, loguée côté serveur comme anomalie) |
+| PUT | /profiles/:userId/administrative | 🔒 | eleve (soi-même), responsable_pedagogique, technicien_informatique | Modifier le profil administratif (`firstName`/`lastName` restent optionnels pour ne pas modifier le champ, mais rejettent une chaîne vide). Champs acceptés : voir « Noms de champs des profils » ci-dessous | `200 {userId, ...champsAdmin}` · `400` firstName/lastName vide, champ inconnu, ou type invalide · `401` · `403` · `404` |
+| PUT | /profiles/:userId/pedagogical | 🔒 | eleve (soi-même), formateur (soi-même), responsable_pedagogique, technicien_informatique | Modifier le profil pédagogique. Le profil **élève** est ciblé dès que le body contient au moins un champ exclusif élève (`level`, `goals`, `specificNeeds`) ; sinon le profil **formateur** est ciblé. `subjects` existe sur les deux et ne discrimine jamais | `200 {userId, ...champsPedago}` · `400` champ inconnu ou type invalide · `401` · `403` · `404` |
 | POST | /profiles/:teacherId/ap-status | 🔒 | responsable_pedagogique | Promouvoir un formateur en Animateur Pédagogique | `201 {userId, isAnimateurPedagogique: true}` · `401` · `403` · `404` |
 | GET | /profiles/:userId/internal-notes | 🔒 | responsable_pedagogique, animateur_pedagogique, technicien_informatique, administrateur_financier | Lister les notes internes confidentielles (non visibles par l'élève, le parent/financeur ni le formateur) | `200 [{id, authorId, content, createdAt}]` · `401` · `403` |
 | POST | /profiles/:userId/internal-notes | 🔒 | responsable_pedagogique, animateur_pedagogique | Créer une note interne confidentielle (non visible par l'élève, le parent/financeur ni le formateur) | `201 {id, authorId, content, createdAt}` · `400` body vide · `401` · `403` |
 | PUT | /profiles/:userId/internal-notes/:id | 🔒 | auteur, responsable_pedagogique | Modifier une note interne | `200 {id, authorId, content, updatedAt}` · `401` · `403` · `404` |
 | DELETE | /profiles/:userId/internal-notes/:id | 🔒 | responsable_pedagogique | Supprimer une note interne | `204` · `401` · `403` · `404` |
+
+### Noms de champs des profils
+
+> Arbitrage du 2026-08-07 : **tous les noms de champs des profils sont en anglais**, à l'entrée
+> comme à la sortie. Les noms français qui circulaient auparavant (`telephone`, `adresseLigne1`,
+> `niveauScolaire`, `matieres`, `objectifsPedagogiques`…) ne sont **plus acceptés** et renvoient
+> désormais `400` (`forbidNonWhitelisted`). Les noms de **colonnes en base** restent inchangés :
+> ils sont mappés dans les entités et ne sont visibles d'aucun client.
+>
+> Ces listes sont exhaustives et identiques en écriture (`PUT`) et en lecture
+> (`GET /profiles/:userId`) : tout champ absent de ces tableaux fait échouer la requête en `400`.
+
+**Profil administratif** — `PUT /profiles/:userId/administrative`, bloc `administrative` de `GET /profiles/:userId`
+
+| Champ | Type | Remarque |
+|---|---|---|
+| `firstName` | `string` | Non vide si fourni (100 max) |
+| `lastName` | `string` | Non vide si fourni (100 max) |
+| `birthDate` | `string` | Date ISO (`2005-06-15`) |
+| `phone` | `string` | Non vide si fourni (20 max) |
+| `addressLine1` | `string` | **Première ligne** d'adresse (numéro et voie), pas l'adresse complète (200 max) |
+| `addressLine2` | `string` | Seconde ligne (appartement, étage, bâtiment…) (200 max) |
+| `postalCode` | `string` | 20 max |
+| `city` | `string` | 100 max |
+| `country` | `string` | 100 max |
+| `avatarUrl` | `string` | 500 max |
+| `department` | `string` | Département administratif français de résidence, e.g. `"75 - Paris"` (100 max) |
+| `passions` | `string[]` | Centres d'intérêt / hobbies |
+
+**Profil pédagogique** — `PUT /profiles/:userId/pedagogical`, bloc `pedagogical` de `GET /profiles/:userId`
+
+| Champ | Type | Profil | Remarque |
+|---|---|---|---|
+| `level` | `string` | Élève | Niveau scolaire suivi (100 max). **Discrimine** vers le profil élève |
+| `goals` | `string` | Élève | Objectifs pédagogiques (2000 max). **Discrimine** |
+| `specificNeeds` | `string` | Élève | Besoins d'apprentissage spécifiques (2000 max). **Discrimine** |
+| `levels` | `string[]` | Formateur | Niveaux enseignés |
+| `experience` | `string` | Formateur | Expérience pédagogique (3000 max) |
+| `testResults` | `string` | Formateur | Résultats de tests (2000 max) |
+| `isAnimateurPedagogique` | `boolean` | Formateur | Préférer `POST /profiles/:teacherId/ap-status` pour promouvoir |
+| `subjects` | `string[]` | Les deux | Matières étudiées (profil élève) ou enseignées (profil formateur). **Toujours un tableau**, jamais une chaîne. Ne discrimine jamais : un body ne contenant que `subjects` est ambigu et retombe sur le profil formateur |
+
+`GET /profiles/:userId` renvoie `pedagogical: null` tant qu'aucun profil pédagogique n'existe — état
+normal. Le premier `PUT` le crée sur la table correspondant au profil discriminé.
 
 ### Validation des formateurs
 
@@ -205,17 +255,38 @@ Transitions autorisées (toute autre transition, y compris vers le statut couran
 > Exclue de Swagger (`@ApiExcludeController`). Protégée par `X-Internal-Secret: <INTERNAL_SECRET>`.
 > Utilisée par orchestration-service dans les workflows d'onboarding.
 
-| Méthode | Chemin | Description | Header requis |
-|---|---|---|---|
-| POST | /internal/create-administrative-profile | Créer (ou mettre à jour) le profil administratif d'un compte quelconque (élève, formateur, parent, générique) juste après sa création par identity-access-service. Body : `{userId, firstName, lastName, phone?}`. `firstName`/`lastName` obligatoires (`400` sinon), `phone` optionnel mais validé (`@IsNotEmpty @MaxLength(20)` si fourni). **Seul point d'écriture** pour firstName/lastName/phone : identity-access-service ne persiste plus ces champs lui-même et appelle cette route de façon obligatoire (non best-effort) à chaque création de compte. **Seul point de création** d'un profil administratif : `GET /profiles/:userId` ne crée plus rien à la volée depuis l'arbitrage du 2026-08-07. Upsert idempotent : si une ligne existe déjà pour `userId` (rappel de la route, ou ligne héritée de l'ancien lazy-init), elle est mise à jour avec les valeurs reçues (y compris `phone`) au lieu d'échouer sur la contrainte d'unicité — voir décision C6/C7/C8 dans `docs/services/profile-service.md`. Erreurs de validation → `400` explicite (distinct d'un `5xx`) | `X-Internal-Secret` |
-| POST | /internal/create-student-profiles | Créer les profils initiaux d'un élève (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` |
-| POST | /internal/create-teacher-profiles | Créer les profils initiaux d'un formateur (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` |
-| POST | /internal/create-administrative-profile | Créer/mettre à jour le profil administratif minimal d'un compte (upsert par `userId`) — `{userId, firstName, lastName, phone?}` — utilisée par identity-access-service comme unique écriture de `firstName`/`lastName`/`phone` à la création de compte (décision du 2026-08-05, voir section identity-access-service ; le DTO d'entrée d'identity-access-service utilise `phoneNumber`, mappé vers `phone` au moment de l'appel) | `X-Internal-Secret` |
-| POST | /internal/link-parent | Lier un parent financeur à un élève (idempotent par paire `studentId`/`financeOwnerId`) — utilisée par identity-access-service pour la liaison automatique élève+parent créés/liés dans le même appel de création de compte | `X-Internal-Secret` |
-| POST | /internal/create-teacher-student-relation | Créer la relation formateur-élève | `X-Internal-Secret` |
-| POST | /internal/link-coordinator | Lier un coordinateur pédagogique à un élève | `X-Internal-Secret` |
+| Méthode | Chemin | Description | Header requis | Réponse attendue |
+|---|---|---|---|---|
+| POST | /internal/create-administrative-profile | Créer (ou mettre à jour) le profil administratif d'un compte quelconque (élève, formateur, parent, générique) juste après sa création par identity-access-service. Body : `{userId, firstName, lastName, phone?}`. `firstName`/`lastName` obligatoires (`400` sinon), `phone` optionnel mais validé (`@IsNotEmpty @MaxLength(20)` si fourni). **Seul point d'écriture** pour firstName/lastName/phone : identity-access-service ne persiste plus ces champs lui-même et appelle cette route de façon obligatoire (non best-effort) à chaque création de compte (le DTO d'entrée d'identity-access-service utilise `phoneNumber`, mappé vers `phone` au moment de l'appel). **Seul point de création** d'un profil administratif : `GET /profiles/:userId` ne crée plus rien à la volée depuis l'arbitrage du 2026-08-07. Upsert idempotent par `userId` : si une ligne existe déjà (rappel de la route, ou ligne héritée de l'ancien lazy-init), elle est mise à jour avec les valeurs reçues (y compris `phone`) au lieu d'échouer sur la contrainte d'unicité — voir décision C6/C7/C8 dans `docs/services/profile-service.md`. Erreurs de validation → `400` explicite (distinct d'un `5xx`) | `X-Internal-Secret` | `201 {userId, administrative}` · `400` validation · `401`/`403` secret absent ou invalide |
+| POST | /internal/create-student-profiles | Créer les profils initiaux d'un élève (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` | `201 {userId, administrative, pedagogical}` · `400` · `401`/`403` |
+| POST | /internal/create-teacher-profiles | Créer les profils initiaux d'un formateur (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` | `201 {userId, administrative, pedagogical}` · `400` · `401`/`403` |
+| POST | /internal/link-parent | Lier un parent financeur à un élève (idempotent par paire `studentId`/`financeOwnerId`) — utilisée par identity-access-service pour la liaison automatique élève+parent créés/liés dans le même appel de création de compte | `X-Internal-Secret` | `201 {linked: true, contacts: [financeOwnerId]}` · `401`/`403` |
+| POST | /internal/create-teacher-student-relation | Créer la relation formateur-élève | `X-Internal-Secret` | `201 {teacherId, studentId, isPrincipalTeacher}` · `409` doublon · `401`/`403` |
+| POST | /internal/link-coordinator | Lier un coordinateur pédagogique à un élève | `X-Internal-Secret` | `201 {coordinatorId, studentId, coordinatorRole}` · `400` rôle invalide · `409` doublon · `401`/`403` |
 
-Note : `PUT /profiles/:userId/administrative` expose également `phone` (et non plus `telephone`), aligné sur les DTO internes ci-dessus ; `phone` est mappé en interne sur la colonne `telephone` en base. `ValidationPipe` global : `forbidNonWhitelisted: true` (tout champ inconnu dans un body → `400` explicite au lieu d'être silencieusement ignoré).
+**Noms des blocs de profil — `administrative` / `pedagogical`, ici comme partout ailleurs.**
+
+> Arbitrage du 2026-08-08 (`docs/architecture.md` > « Arbitrages rendus ») : une même donnée porte un
+> seul nom dans tout le système ; aucune route, publique ou interne, n'expose sa propre variante.
+> Ces routes renvoyaient jusqu'ici `administrativeProfile`/`pedagogicalProfile` là où
+> `GET /profiles/:userId` renvoie `administrative`/`pedagogical`. **La paire longue a été supprimée**,
+> sans champ d'alias de compatibilité : un alias recréerait exactement la divergence que l'arbitrage
+> résorbe. C'est cette paire longue qui re-contaminait le front à chaque itération.
+>
+> Consommateurs : identity-access-service ignore le corps de réponse de ces routes (il ne lit que le
+> code HTTP) et n'est donc pas impacté ; le script `scripts/maintenance/backfill-profiles.ts` non plus.
+> Le workflow `teacher-onboarding` d'orchestration-service lit `profileId` dans la sortie de l'étape
+> `create-teacher-profiles` — ce champ **n'a jamais existé** dans la réponse ci-dessus (avant comme
+> après le renommage) : anomalie préexistante à traiter côté orchestration-service, sans lien avec
+> cet arbitrage.
+
+Les **noms de champs** à l'intérieur de ces blocs (`firstName`, `lastName`, `phone`, `birthDate`,
+`level`, `subjects`, `levels`, `bio`) étaient déjà en anglais et sont inchangés depuis l'alignement du
+2026-08-07, qui n'a porté que sur les routes publiques `PUT /profiles/:userId/administrative` et
+`PUT /profiles/:userId/pedagogical` (voir « Noms de champs des profils » plus haut).
+
+`ValidationPipe` global : `whitelist` + `forbidNonWhitelisted: true` + `transform` (tout champ
+inconnu dans un body → `400` explicite au lieu d'être silencieusement ignoré).
 
 ### Demandes de rattachement parent↔élève
 

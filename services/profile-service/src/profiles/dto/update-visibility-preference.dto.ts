@@ -4,7 +4,7 @@ import { IsBoolean, IsOptional } from 'class-validator';
 export class UpdateVisibilityPreferenceDto {
   @ApiPropertyOptional({
     description:
-      'When true, besoinsSpecifiques and objectifsPedagogiques are hidden ' +
+      "When true, the student pedagogical profile's specificNeeds and goals are hidden " +
       'from contacts other than the financeur and principal teacher (PROF-FN-004)',
     example: true,
   })

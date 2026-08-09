@@ -8,8 +8,8 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react'
-import { fetchLinkedStudents, fetchStudentProfile, type FinanceOwnerStudentLink } from '../../api/relations'
-import { formatPersonDisplayName } from '../../utils/nameFormat'
+import { fetchLinkedStudents, type FinanceOwnerStudentLink } from '../../api/relations'
+import { formatPersonName } from '../../utils/nameFormat'
 import { InviteStudentForm } from './InviteStudentForm'
 import { PendingStudentRequestsList } from './PendingStudentRequestsList'
 
@@ -22,42 +22,17 @@ const STUDENT_GENERIC_LABEL = 'Élève'
 export default function LinkedStudentsSection({ parentId }: LinkedStudentsSectionProps) {
   // Sous-zone 1 — élèves rattachés
   const [linkedStudents, setLinkedStudents] = useState<FinanceOwnerStudentLink[]>([])
-  const [studentDisplayNames, setStudentDisplayNames] = useState<Record<string, string>>({})
   const [isLoadingLinkedStudents, setIsLoadingLinkedStudents] = useState(true)
   const [linkedStudentsError, setLinkedStudentsError] = useState<string | null>(null)
 
+  // Un seul appel : la route renvoie déjà `studentName` (prénom + nom résolus côté
+  // serveur). Symétrique de ParentFinanceurSection — pas de ré-enrichissement N+1
+  // via `GET /profiles/:studentId`.
   const loadLinkedStudents = useCallback(async () => {
     setIsLoadingLinkedStudents(true)
     setLinkedStudentsError(null)
     try {
-      const students = await fetchLinkedStudents(parentId)
-      setLinkedStudents(students)
-
-      // Enrichissement : récupérer prénom + nom de chaque élève via GET /profiles/:id
-      const displayNames: Record<string, string> = {}
-      await Promise.allSettled(
-        students.map(async (link) => {
-          try {
-            const profile = await fetchStudentProfile(link.studentId)
-            displayNames[link.studentId] = formatPersonDisplayName(
-              profile.administrative?.firstName,
-              profile.administrative?.lastName,
-              profile.loginIdentifier,
-              link.studentId,
-              STUDENT_GENERIC_LABEL,
-            )
-          } catch {
-            displayNames[link.studentId] = formatPersonDisplayName(
-              undefined,
-              undefined,
-              undefined,
-              link.studentId,
-              STUDENT_GENERIC_LABEL,
-            )
-          }
-        }),
-      )
-      setStudentDisplayNames(displayNames)
+      setLinkedStudents(await fetchLinkedStudents(parentId))
     } catch {
       setLinkedStudentsError('Impossible de charger vos élèves rattachés.')
     } finally {
@@ -90,14 +65,7 @@ export default function LinkedStudentsSection({ parentId }: LinkedStudentsSectio
                 className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0"
               >
                 <span className="text-sm text-gray-800 font-medium">
-                  {studentDisplayNames[link.studentId] ??
-                    formatPersonDisplayName(
-                      undefined,
-                      undefined,
-                      undefined,
-                      link.studentId,
-                      STUDENT_GENERIC_LABEL,
-                    )}
+                  {formatPersonName(link.studentName, STUDENT_GENERIC_LABEL)}
                 </span>
                 <span className="text-xs text-gray-400">
                   Depuis le{' '}

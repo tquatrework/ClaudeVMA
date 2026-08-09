@@ -39,7 +39,12 @@ export function PendingStudentRequestsList({ onApproved }: PendingStudentRequest
       )
       setPendingStudentRequests(studentInitiatedPending)
 
-      // Enrichissement : récupérer prénom + nom de chaque élève demandeur
+      // Enrichissement : récupérer prénom + nom de chaque élève demandeur.
+      //
+      // ÉCART CONNU : `GET /parent-link-requests` ne renvoie que des ids, pas de nom
+      // résolu (contrairement aux routes de relations). Le repli en cas d'échec reste
+      // un libellé lisible — jamais l'UUID. Correctif durable : enrichir la route côté
+      // serveur avec un `studentName`, comme cela a été fait pour `financeOwnerName`.
       const names: Record<string, string> = {}
       await Promise.allSettled(
         studentInitiatedPending.map(async (request) => {
@@ -49,7 +54,6 @@ export function PendingStudentRequestsList({ onApproved }: PendingStudentRequest
               profile.administrative?.firstName,
               profile.administrative?.lastName,
               profile.loginIdentifier,
-              request.studentId,
               STUDENT_GENERIC_LABEL,
             )
           } catch {
@@ -57,7 +61,6 @@ export function PendingStudentRequestsList({ onApproved }: PendingStudentRequest
               undefined,
               undefined,
               undefined,
-              request.studentId,
               STUDENT_GENERIC_LABEL,
             )
           }

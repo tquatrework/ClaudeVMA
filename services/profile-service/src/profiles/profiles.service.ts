@@ -21,10 +21,7 @@ import {
   IdentityAccessUnavailableError,
 } from '../common/clients/identity-access.client';
 import { UpdateAdministrativeProfileDto } from './dto/update-administrative-profile.dto';
-import {
-  UpdateStudentPedagogicalProfileDto,
-  UpdateTeacherPedagogicalProfileDto,
-} from './dto/update-pedagogical-profile.dto';
+import { UpdatePedagogicalProfileDto } from './dto/update-pedagogical-profile.dto';
 import { CreateInternalNoteDto } from './dto/create-internal-note.dto';
 import { UpdateInternalNoteDto } from './dto/update-internal-note.dto';
 import { UpdateTeacherValidationDto } from './dto/update-teacher-validation.dto';
@@ -122,9 +119,11 @@ export class ProfilesService {
 
   /**
    * Update (upsert) the administrative profile for a user.
-   * The public DTO exposes the canonical `phone` field name; it is mapped
-   * here onto the entity's `telephone` column (kept as-is to limit
-   * migration risk — see docs/services/profile-service.md).
+   *
+   * Les noms de champs du DTO sont désormais strictement identiques à ceux de
+   * l'entité (tous en anglais) : aucun remappage n'est nécessaire ici, la
+   * correspondance vers les noms de colonnes français de la base est portée
+   * une seule fois par les `@Column({ name })` de l'entité.
    */
   async updateAdministrativeProfile(
     userId: string,
@@ -133,17 +132,11 @@ export class ProfilesService {
   ) {
     this.assertWriteAccess(userId, actor);
 
-    const { phone, ...rest } = dto;
-    const patch: Partial<AdministrativeProfile> = { ...rest };
-    if (phone !== undefined) {
-      patch.telephone = phone;
-    }
-
     let profile = await this.adminRepo.findOne({ where: { userId } });
     if (!profile) {
-      profile = this.adminRepo.create({ userId, ...patch });
+      profile = this.adminRepo.create({ userId, ...dto });
     } else {
-      Object.assign(profile, patch);
+      Object.assign(profile, dto);
     }
 
     const saved = await this.adminRepo.save(profile);
@@ -155,20 +148,33 @@ export class ProfilesService {
    * Update (upsert) the pedagogical profile for a user.
    * Accepts student or teacher-specific fields depending on the target's context.
    * RP and TI may update any user; a user may update their own profile.
+   *
+   * Le DTO unique porte les champs des deux profils ; seul le sous-ensemble
+   * pertinent est recopié sur l'entité choisie. Ce filtrage explicite remplace
+   * un `Object.assign(profile, dto)` global qui, avec un DTO commun, aurait
+   * greffé des propriétés étrangères sur l'entité — invisibles pour TypeORM au
+   * moment du save, mais renvoyées telles quelles dans la réponse HTTP.
    */
   async updatePedagogicalProfile(
     userId: string,
-    dto: UpdateStudentPedagogicalProfileDto | UpdateTeacherPedagogicalProfileDto,
+    dto: UpdatePedagogicalProfileDto,
     actor: Actor,
   ) {
     this.assertWriteAccess(userId, actor);
 
-    if (this.isStudentDto(dto)) {
+    if (this.isStudentPayload(dto)) {
+      const patch = this.pickDefined<StudentPedagogicalProfile>({
+        level: dto.level,
+        subjects: dto.subjects,
+        goals: dto.goals,
+        specificNeeds: dto.specificNeeds,
+      });
+
       let profile = await this.studentPedaRepo.findOne({ where: { userId } });
       if (!profile) {
-        profile = this.studentPedaRepo.create({ userId, ...dto });
+        profile = this.studentPedaRepo.create({ userId, ...patch });
       } else {
-        Object.assign(profile, dto);
+        Object.assign(profile, patch);
       }
       const saved = await this.studentPedaRepo.save(profile);
       this.events.publish('ProfileUpdated', { userId, actorId: actor.id, section: 'pedagogical-student' });
@@ -176,11 +182,19 @@ export class ProfilesService {
     }
 
     // Teacher profile
+    const patch = this.pickDefined<TeacherPedagogicalProfile>({
+      levels: dto.levels,
+      subjects: dto.subjects,
+      experience: dto.experience,
+      testResults: dto.testResults,
+      isAnimateurPedagogique: dto.isAnimateurPedagogique,
+    });
+
     let profile = await this.teacherPedaRepo.findOne({ where: { userId } });
     if (!profile) {
-      profile = this.teacherPedaRepo.create({ userId, ...dto });
+      profile = this.teacherPedaRepo.create({ userId, ...patch });
     } else {
-      Object.assign(profile, dto);
+      Object.assign(profile, patch);
     }
     const saved = await this.teacherPedaRepo.save(profile);
     this.events.publish('ProfileUpdated', { userId, actorId: actor.id, section: 'pedagogical-teacher' });
@@ -519,12 +533,12 @@ export class ProfilesService {
       profileType: studentProfile ? 'student' : 'teacher',
       statistics: studentProfile
         ? {
-            niveauScolaire: studentProfile.niveauScolaire,
-            matieres: studentProfile.matieres,
+            level: studentProfile.level,
+            subjects: studentProfile.subjects,
           }
         : {
-            niveauxEnseignes: teacherProfile.niveauxEnseignes,
-            matieresEnseignees: teacherProfile.matieresEnseignees,
+            levels: teacherProfile.levels,
+            subjects: teacherProfile.subjects,
             isAnimateurPedagogique: teacherProfile.isAnimateurPedagogique,
           },
     };
@@ -612,8 +626,8 @@ export class ProfilesService {
         userId: input.userId,
         firstName: input.firstName,
         lastName: input.lastName,
-        telephone: input.phone ?? undefined,
-        dateNaissance: input.birthDate,
+        phone: input.phone ?? undefined,
+        birthDate: input.birthDate,
       });
       return this.adminRepo.save(profile);
     }
@@ -627,12 +641,12 @@ export class ProfilesService {
       profile.lastName = input.lastName;
       hasChanges = true;
     }
-    if (input.phone !== undefined && profile.telephone !== input.phone) {
-      profile.telephone = input.phone;
+    if (input.phone !== undefined && profile.phone !== input.phone) {
+      profile.phone = input.phone;
       hasChanges = true;
     }
-    if (input.birthDate !== undefined && profile.dateNaissance !== input.birthDate) {
-      profile.dateNaissance = input.birthDate;
+    if (input.birthDate !== undefined && profile.birthDate !== input.birthDate) {
+      profile.birthDate = input.birthDate;
       hasChanges = true;
     }
     return hasChanges ? this.adminRepo.save(profile) : profile;
@@ -647,7 +661,7 @@ export class ProfilesService {
   }): Promise<StudentPedagogicalProfile> {
     let profile = await this.studentPedaRepo.findOne({ where: { userId: input.userId } });
     if (!profile) {
-      profile = this.studentPedaRepo.create({ userId: input.userId, niveauScolaire: input.level });
+      profile = this.studentPedaRepo.create({ userId: input.userId, level: input.level });
       profile = await this.studentPedaRepo.save(profile);
     }
     return profile;
@@ -666,9 +680,9 @@ export class ProfilesService {
     if (!profile) {
       profile = this.teacherPedaRepo.create({
         userId: input.userId,
-        matieresEnseignees: input.subjects,
-        niveauxEnseignes: input.levels,
-        experiencePedagogique: input.bio,
+        subjects: input.subjects,
+        levels: input.levels,
+        experience: input.bio,
       });
       profile = await this.teacherPedaRepo.save(profile);
     }
@@ -755,14 +769,29 @@ export class ProfilesService {
     }
   }
 
-  private isStudentDto(
-    dto: UpdateStudentPedagogicalProfileDto | UpdateTeacherPedagogicalProfileDto,
-  ): dto is UpdateStudentPedagogicalProfileDto {
+  /**
+   * Détermine si le body vise le profil pédagogique élève ou formateur.
+   * Seuls les champs exclusifs à l'élève discriminent (`subjects` existe sur
+   * les deux profils et ne peut donc rien trancher). Un body ne contenant que
+   * `subjects` reste ambigu et retombe sur le profil formateur — comportement
+   * identique à celui d'avant le renommage, à documenter côté appelant.
+   */
+  private isStudentPayload(dto: UpdatePedagogicalProfileDto): boolean {
     return (
-      'niveauScolaire' in dto ||
-      'objectifsPedagogiques' in dto ||
-      'besoinsSpecifiques' in dto
+      dto.level !== undefined ||
+      dto.goals !== undefined ||
+      dto.specificNeeds !== undefined
     );
+  }
+
+  /**
+   * Retire les clés `undefined` d'un patch partiel : sans ce filtrage, un champ
+   * absent du body écraserait la valeur existante en base avec `undefined`.
+   */
+  private pickDefined<T>(patch: Record<string, unknown>): Partial<T> {
+    return Object.fromEntries(
+      Object.entries(patch).filter(([, value]) => value !== undefined),
+    ) as Partial<T>;
   }
 
   private isPrivilegedRole(role: UserRole): boolean {

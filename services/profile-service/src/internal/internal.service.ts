@@ -13,6 +13,14 @@ import { RelationsService } from '../relations/relations.service';
  * Authorization for this whole module is enforced once at the HTTP boundary
  * by InternalGuard (X-Internal-Secret) — individual methods below do not take
  * an Actor because there is no human actor for a system-triggered bootstrap.
+ *
+ * Naming (arbitrage du 2026-08-08, docs/architecture.md > "Arbitrages rendus") :
+ * une même donnée porte un seul nom dans tout le système. Les blocs de profil
+ * s'appellent `administrative` / `pedagogical` PARTOUT — routes publiques comme
+ * routes `/internal/*`. La paire longue `administrativeProfile`/
+ * `pedagogicalProfile` que renvoyaient auparavant ces routes a été supprimée
+ * sans alias de compatibilité : un alias recréerait exactement la divergence
+ * que l'arbitrage résorbe.
  */
 @Injectable()
 export class InternalService {
@@ -27,8 +35,8 @@ export class InternalService {
     lastName: string;
     phone?: string;
   }) {
-    const administrativeProfile = await this.profilesService.bootstrapAdministrativeProfile(dto);
-    return { userId: dto.userId, administrativeProfile };
+    const administrative = await this.profilesService.bootstrapAdministrativeProfile(dto);
+    return { userId: dto.userId, administrative };
   }
 
   async createStudentProfiles(dto: {
@@ -39,13 +47,13 @@ export class InternalService {
     birthDate?: string;
     level?: string;
   }) {
-    const administrativeProfile = await this.profilesService.bootstrapAdministrativeProfile(dto);
-    const pedagogicalProfile = await this.profilesService.bootstrapStudentPedagogicalProfile(dto);
+    const administrative = await this.profilesService.bootstrapAdministrativeProfile(dto);
+    const pedagogical = await this.profilesService.bootstrapStudentPedagogicalProfile(dto);
 
     return {
       userId: dto.userId,
-      administrativeProfile,
-      pedagogicalProfile,
+      administrative,
+      pedagogical,
     };
   }
 
@@ -58,13 +66,13 @@ export class InternalService {
     levels?: string[];
     bio?: string;
   }) {
-    const administrativeProfile = await this.profilesService.bootstrapAdministrativeProfile(dto);
-    const pedagogicalProfile = await this.profilesService.bootstrapTeacherPedagogicalProfile(dto);
+    const administrative = await this.profilesService.bootstrapAdministrativeProfile(dto);
+    const pedagogical = await this.profilesService.bootstrapTeacherPedagogicalProfile(dto);
 
     return {
       userId: dto.userId,
-      administrativeProfile,
-      pedagogicalProfile,
+      administrative,
+      pedagogical,
     };
   }
 

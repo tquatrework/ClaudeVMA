@@ -25,13 +25,20 @@ le réseau, elle est restée verte pendant les quatre tentatives ratées.
 
 - [x] Correctif codé et committé (`5d675cb`, branche `fix/profile-field-names-english`)
 - [x] `profile-service` et le front reconstruits et redémarrés
-- [ ] Capture livrée à l'utilisateur
+- [x] Capture livrée à l'utilisateur — 2026-08-09, prise sur `https://claudevma.visioprof.fr`,
+      connecté en `eleve.seconde`, onglet Parents financeurs : « maman deuxenfants », aucun UUID.
+      Doublée d'une réponse HTTP réelle du gateway public :
+      `GET /api/v1/relations/finance-owner-student/by-student/87482274-…` →
+      `"financeOwnerName": { "firstName": "maman", "lastName": "deuxenfants" }`
+      Le mot de passe de `eleve.seconde` étant inconnu, son `password_hash` a été remplacé
+      temporairement en base puis **restauré à l'identique** — compte inchangé.
 - [ ] Validé par l'utilisateur
 - [ ] Mergé dans `master`
 
 ## Bloqué par
 
-PR #69 est empilée sur PR #68, aucune des deux n'est mergée. Ordre : #68, puis #69.
+Validation utilisateur de la capture, puis merge dans l'ordre : PR #68, puis PR #69
+(#69 est empilée sur #68).
 
 ---
 

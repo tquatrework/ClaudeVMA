@@ -1,5 +1,6 @@
 import {
   Injectable,
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
@@ -21,6 +22,12 @@ import { UpdateRolesDto } from './dto/update-roles.dto';
 import { CreateStudentAccountDto } from './dto/create-student-account.dto';
 import { CreateTeacherAccountDto } from './dto/create-teacher-account.dto';
 import { CreateParentAccountDto } from './dto/create-parent-account.dto';
+import {
+  LinkedAccountMode,
+  LinkedAccountFieldPrefix,
+  LinkedAccountIntent,
+  checkLinkedAccountIntent,
+} from './dto/linked-account-mode';
 import { UpdateAccountStatusDto, AccountStatusValue } from './dto/update-account-status.dto';
 import { UpdateMeDto } from './dto/update-me.dto';
 import { EventsService } from '../events/events.service';
@@ -99,6 +106,20 @@ export class AccountsService {
       return requestedIdentifier;
     }
     return this.generateLoginIdentifier(email, userRepo);
+  }
+
+  /**
+   * Vérifie que l'intention de liaison (rattacher un compte existant vs créer un
+   * compte lié) est explicite et cohérente avec les champs fournis.
+   * Lève un 400 listant toutes les violations plutôt que d'ignorer un champ
+   * sans effet — un champ saisi par l'utilisateur n'est jamais jeté en silence
+   * (arbitrage d'architecture du 2026-08-09).
+   */
+  private assertLinkedAccountIntent(fieldPrefix: LinkedAccountFieldPrefix, intent: LinkedAccountIntent): void {
+    const violations = checkLinkedAccountIntent(fieldPrefix, intent);
+    if (violations.length > 0) {
+      throw new BadRequestException(violations);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -352,28 +373,38 @@ export class AccountsService {
 
   /**
    * Creates a student account (eleve role).
-   * Optionally links or creates a parent financeur account in the same call.
+   * Optionally attaches an existing parent financeur account, or creates one in
+   * the same call — deux intentions distinctes portées par `parentAccountMode`
+   * (arbitrage d'architecture du 2026-08-09).
    *
    * Parent resolution rules:
-   *   - parentLoginIdentifier provided → find by loginIdentifier (404 if not found)
-   *   - parentEmail provided only:
-   *       0 results → create new parent account
-   *       1 result  → link that existing account
-   *       2+ results → 409: ask to use parentLoginIdentifier instead
+   *   - parentAccountMode='existing' → find by parentLoginIdentifier (404 if not found)
+   *   - parentAccountMode='new'      → create the parent account with the chosen
+   *                                    parentLoginIdentifier (409 if already taken).
+   *                                    L'identifiant n'est jamais dérivé de l'email.
+   *   - parentAccountMode absent ou 'none' → aucun compte lié.
    *
    * La création de l'élève, la résolution du parent, le stockage des profils
    * administratifs (firstName/lastName/phone → profile-service) et la liaison
    * financeur/élève automatique sont toutes réalisées dans la même
    * DataSource.transaction : un échec à n'importe quelle étape (parent
-   * introuvable, email ambigu, profile-service indisponible) annule
+   * introuvable, identifiant pris, profile-service indisponible) annule
    * intégralement la création (élève ET parent éventuel).
    *
    * Règle produit du 2026-08-05 : quand élève et parent sont associés dans le
-   * même appel (parentLoginIdentifier ou parentEmail fourni), la liaison
-   * financeur/élève est immédiate et implicite, sans flow de demande — voir
-   * ProfileServiceClient.linkParentToStudent.
+   * même appel, la liaison financeur/élève est immédiate et implicite, sans flow
+   * de demande — voir ProfileServiceClient.linkParentToStudent.
    */
   async createStudentAccount(dto: CreateStudentAccountDto, ipAddress?: string) {
+    this.assertLinkedAccountIntent('parent', {
+      mode: dto.parentAccountMode,
+      loginIdentifier: dto.parentLoginIdentifier,
+      email: dto.parentEmail,
+      password: dto.parentPassword,
+      firstName: dto.parentFirstName,
+      lastName: dto.parentLastName,
+    });
+
     const result = await this.dataSource.transaction(async (manager) => {
       const userRepo = manager.getRepository(User);
 
@@ -393,40 +424,36 @@ export class AccountsService {
 
       let savedParent: User | null = null;
       let parentCreated = false;
+      let parentEmailAlreadyUsed = false;
 
-      if (dto.parentLoginIdentifier) {
-        // Explicit identifier — find the account or fail
+      if (dto.parentAccountMode === LinkedAccountMode.EXISTING) {
+        // Rattachement d'un compte existant — identifié par son loginIdentifier uniquement
         const existingParent = await userRepo.findOne({ where: { loginIdentifier: dto.parentLoginIdentifier } });
         if (!existingParent) {
           throw new NotFoundException(`No account found with loginIdentifier '${dto.parentLoginIdentifier}'`);
         }
         savedParent = existingParent;
-      } else if (dto.parentEmail) {
-        const matchingParents = await userRepo.find({ where: { email: dto.parentEmail } });
+      } else if (dto.parentAccountMode === LinkedAccountMode.NEW) {
+        // Création du compte parent avec l'identifiant de connexion CHOISI (409 si pris)
+        const parentEmail = dto.parentEmail as string;
+        const parentLoginIdentifier = await this.resolveLoginIdentifier(
+          parentEmail,
+          dto.parentLoginIdentifier,
+          userRepo,
+        );
+        parentEmailAlreadyUsed = !!(await userRepo.findOne({ where: { email: parentEmail } }));
 
-        if (matchingParents.length === 0) {
-          // Create new parent account
-          const parentLoginIdentifier = await this.generateLoginIdentifier(dto.parentEmail, userRepo);
-          const parentPasswordHash = await bcrypt.hash(dto.parentPassword ?? dto.password, 12);
-          const parent = userRepo.create({
-            loginIdentifier: parentLoginIdentifier,
-            email: dto.parentEmail,
-            passwordHash: parentPasswordHash,
-            role: UserRole.PARENT_FINANCEUR,
-            validationStatus: ValidationStatus.PENDING,
-            consentSigned: false,
-          });
-          savedParent = await userRepo.save(parent);
-          parentCreated = true;
-        } else if (matchingParents.length === 1) {
-          // Link existing account
-          savedParent = matchingParents[0];
-        } else {
-          // Ambiguous — multiple accounts share this email
-          throw new ConflictException(
-            'Plusieurs comptes existent avec cet email parent. Utilisez parentLoginIdentifier à la place.',
-          );
-        }
+        const parentPasswordHash = await bcrypt.hash(dto.parentPassword ?? dto.password, 12);
+        const parent = userRepo.create({
+          loginIdentifier: parentLoginIdentifier,
+          email: parentEmail,
+          passwordHash: parentPasswordHash,
+          role: UserRole.PARENT_FINANCEUR,
+          validationStatus: ValidationStatus.PENDING,
+          consentSigned: false,
+        });
+        savedParent = await userRepo.save(parent);
+        parentCreated = true;
       }
 
       // Stockage des profils administratifs (profile-service = unique source de
@@ -442,7 +469,14 @@ export class AccountsService {
         await this.linkParentAsFinanceOwner(savedStudent.id, savedParent.id);
       }
 
-      return { savedStudent, studentEmailAlreadyUsed, studentLoginIdentifier, savedParent, parentCreated };
+      return {
+        savedStudent,
+        studentEmailAlreadyUsed,
+        studentLoginIdentifier,
+        savedParent,
+        parentCreated,
+        parentEmailAlreadyUsed,
+      };
     });
 
     this.eventsService.publish('AccountCreated', {
@@ -471,7 +505,11 @@ export class AccountsService {
           : {}),
       },
       parent: result.savedParent
-        ? { ...this.toPublic(result.savedParent), created: result.parentCreated }
+        ? {
+            ...this.toPublic(result.savedParent),
+            created: result.parentCreated,
+            ...(result.parentEmailAlreadyUsed ? { emailAlreadyUsed: true } : {}),
+          }
         : null,
     };
   }
@@ -533,21 +571,29 @@ export class AccountsService {
    * immédiate et implicite (pas de flow de demande dans ce cas précis).
    *
    * Student resolution rules (identique à la résolution du parent côté createStudentAccount) :
-   *   - studentLoginIdentifier provided → find by loginIdentifier (404 if not found)
-   *   - studentEmail provided only:
-   *       0 results → create new student account
-   *       1 result  → link that existing account
-   *       2+ results → 409: ask to use studentLoginIdentifier instead
+   *   - studentAccountMode='existing' → find by studentLoginIdentifier (404 if not found)
+   *   - studentAccountMode='new'      → create the student account with the chosen
+   *                                     studentLoginIdentifier (409 if already taken)
+   *   - studentAccountMode absent ou 'none' → aucun compte lié.
    *
    * Mêmes garanties d'atomicité que createStudentAccount (une seule
    * DataSource.transaction couvrant la création du parent, la résolution de
    * l'élève, le stockage des profils administratifs et la liaison automatique).
    */
   async createParentAccount(dto: CreateParentAccountDto, ipAddress?: string) {
+    this.assertLinkedAccountIntent('student', {
+      mode: dto.studentAccountMode,
+      loginIdentifier: dto.studentLoginIdentifier,
+      email: dto.studentEmail,
+      password: dto.studentPassword,
+      firstName: dto.studentFirstName,
+      lastName: dto.studentLastName,
+    });
+
     const result = await this.dataSource.transaction(async (manager) => {
       const userRepo = manager.getRepository(User);
 
-      const parentLoginIdentifier = await this.resolveLoginIdentifier(dto.email, undefined, userRepo);
+      const parentLoginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier, userRepo);
       const parentEmailAlreadyUsed = !!(await userRepo.findOne({ where: { email: dto.email } }));
 
       const parentPasswordHash = await bcrypt.hash(dto.password, 12);
@@ -563,40 +609,36 @@ export class AccountsService {
 
       let savedStudent: User | null = null;
       let studentCreated = false;
+      let studentEmailAlreadyUsed = false;
 
-      if (dto.studentLoginIdentifier) {
-        // Explicit identifier — find the account or fail
+      if (dto.studentAccountMode === LinkedAccountMode.EXISTING) {
+        // Rattachement d'un compte existant — identifié par son loginIdentifier uniquement
         const existingStudent = await userRepo.findOne({ where: { loginIdentifier: dto.studentLoginIdentifier } });
         if (!existingStudent) {
           throw new NotFoundException(`No account found with loginIdentifier '${dto.studentLoginIdentifier}'`);
         }
         savedStudent = existingStudent;
-      } else if (dto.studentEmail) {
-        const matchingStudents = await userRepo.find({ where: { email: dto.studentEmail } });
+      } else if (dto.studentAccountMode === LinkedAccountMode.NEW) {
+        // Création du compte élève avec l'identifiant de connexion CHOISI (409 si pris)
+        const studentEmail = dto.studentEmail as string;
+        const studentLoginIdentifier = await this.resolveLoginIdentifier(
+          studentEmail,
+          dto.studentLoginIdentifier,
+          userRepo,
+        );
+        studentEmailAlreadyUsed = !!(await userRepo.findOne({ where: { email: studentEmail } }));
 
-        if (matchingStudents.length === 0) {
-          // Create new student account
-          const studentLoginIdentifier = await this.generateLoginIdentifier(dto.studentEmail, userRepo);
-          const studentPasswordHash = await bcrypt.hash(dto.studentPassword ?? dto.password, 12);
-          const student = userRepo.create({
-            loginIdentifier: studentLoginIdentifier,
-            email: dto.studentEmail,
-            passwordHash: studentPasswordHash,
-            role: UserRole.ELEVE,
-            validationStatus: ValidationStatus.PENDING,
-            consentSigned: false,
-          });
-          savedStudent = await userRepo.save(student);
-          studentCreated = true;
-        } else if (matchingStudents.length === 1) {
-          // Link existing account
-          savedStudent = matchingStudents[0];
-        } else {
-          // Ambiguous — multiple accounts share this email
-          throw new ConflictException(
-            'Plusieurs comptes existent avec cet email élève. Utilisez studentLoginIdentifier à la place.',
-          );
-        }
+        const studentPasswordHash = await bcrypt.hash(dto.studentPassword ?? dto.password, 12);
+        const student = userRepo.create({
+          loginIdentifier: studentLoginIdentifier,
+          email: studentEmail,
+          passwordHash: studentPasswordHash,
+          role: UserRole.ELEVE,
+          validationStatus: ValidationStatus.PENDING,
+          consentSigned: false,
+        });
+        savedStudent = await userRepo.save(student);
+        studentCreated = true;
       }
 
       await this.persistAdministrativeProfile(savedParent.id, dto.firstName, dto.lastName, dto.phoneNumber);
@@ -607,7 +649,14 @@ export class AccountsService {
         await this.linkParentAsFinanceOwner(savedStudent.id, savedParent.id);
       }
 
-      return { savedParent, parentEmailAlreadyUsed, parentLoginIdentifier, savedStudent, studentCreated };
+      return {
+        savedParent,
+        parentEmailAlreadyUsed,
+        parentLoginIdentifier,
+        savedStudent,
+        studentCreated,
+        studentEmailAlreadyUsed,
+      };
     });
 
     this.eventsService.publish('AccountCreated', {
@@ -636,7 +685,11 @@ export class AccountsService {
           : {}),
       },
       student: result.savedStudent
-        ? { ...this.toPublic(result.savedStudent), created: result.studentCreated }
+        ? {
+            ...this.toPublic(result.savedStudent),
+            created: result.studentCreated,
+            ...(result.studentEmailAlreadyUsed ? { emailAlreadyUsed: true } : {}),
+          }
         : null,
     };
   }

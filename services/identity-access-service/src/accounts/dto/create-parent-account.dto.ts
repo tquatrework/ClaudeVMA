@@ -1,6 +1,7 @@
-import { IsEmail, IsString, MinLength, MaxLength, IsNotEmpty, IsOptional, ValidateIf, Matches } from 'class-validator';
+import { IsEmail, IsString, MinLength, MaxLength, IsNotEmpty, IsOptional, IsEnum, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PHONE_NUMBER_REGEX } from './phone-number.validator';
+import { LinkedAccountMode } from './linked-account-mode';
 
 export class CreateParentAccountDto {
   @ApiProperty({ example: 'parent@example.com', description: 'Parent financeur email address' })
@@ -34,10 +35,40 @@ export class CreateParentAccountDto {
   phoneNumber?: string;
 
   @ApiPropertyOptional({
+    example: 'sophie.bernard',
     description:
-      'Login identifier of an existing student (eleve) account to link as financed student. ' +
-      'Takes priority over studentEmail when both are provided. Symmetric to ' +
-      'parentLoginIdentifier on CreateStudentAccountDto.',
+      'Desired login identifier for the parent account. If omitted, one is generated from the email. ' +
+      'Same contract as POST /accounts/students and POST /accounts/teachers.',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  loginIdentifier?: string;
+
+  // ---------------------------------------------------------------------------
+  // Compte élève lié (optionnel) — intention explicite
+  // ---------------------------------------------------------------------------
+
+  @ApiPropertyOptional({
+    enum: LinkedAccountMode,
+    description:
+      'Intent for the linked student (eleve) account. Required as soon as any student* field is sent. ' +
+      "'existing' attaches an account already registered (identified by studentLoginIdentifier only); " +
+      "'new' creates the student account (studentLoginIdentifier, studentEmail, studentFirstName, studentLastName required); " +
+      "'none' (or omitted) links nothing. Any student* field without effect in the chosen mode is rejected (400), never ignored. " +
+      'Symmetric to parentAccountMode on POST /accounts/students.',
+  })
+  @IsOptional()
+  @IsEnum(LinkedAccountMode)
+  studentAccountMode?: LinkedAccountMode;
+
+  @ApiPropertyOptional({
+    example: 'lucas.petit',
+    description:
+      'Login identifier of the student (eleve) account. ' +
+      "With studentAccountMode='existing': identifier of the account to attach (404 if unknown). " +
+      "With studentAccountMode='new': login identifier chosen for the student account being created " +
+      '(409 if already taken). It is never derived from the email — the student must be able to log in with it.',
   })
   @IsOptional()
   @IsString()
@@ -45,18 +76,17 @@ export class CreateParentAccountDto {
   studentLoginIdentifier?: string;
 
   @ApiPropertyOptional({
-    description:
-      'Email of the student to associate at registration. ' +
-      'If 0 matching accounts exist, a new student account is created. ' +
-      'If exactly 1 matching account exists, it is linked. ' +
-      'If 2+ accounts share this email, use studentLoginIdentifier instead. ' +
-      'Symmetric to parentEmail on CreateStudentAccountDto.',
+    description: "Email of the student account to create. Only with studentAccountMode='new'.",
   })
   @IsOptional()
   @IsEmail()
   studentEmail?: string;
 
-  @ApiPropertyOptional({ description: 'Password for the new student account (used only when studentEmail triggers account creation)' })
+  @ApiPropertyOptional({
+    description:
+      "Password of the student account to create. Only with studentAccountMode='new'. " +
+      "When omitted, the parent's own password is reused for the student account.",
+  })
   @IsOptional()
   @IsString()
   @MinLength(8)
@@ -64,21 +94,23 @@ export class CreateParentAccountDto {
 
   @ApiPropertyOptional({
     example: 'Lucas',
-    description: 'Student first name. Required when studentEmail is provided (forwarded to profile-service, not stored locally).',
+    description:
+      "Student first name. Required with studentAccountMode='new' " +
+      '(forwarded to profile-service, not stored locally).',
   })
-  @ValidateIf((dto: CreateParentAccountDto) => !!dto.studentEmail)
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(100)
   studentFirstName?: string;
 
   @ApiPropertyOptional({
     example: 'Petit',
-    description: 'Student last name. Required when studentEmail is provided (forwarded to profile-service, not stored locally).',
+    description:
+      "Student last name. Required with studentAccountMode='new' " +
+      '(forwarded to profile-service, not stored locally).',
   })
-  @ValidateIf((dto: CreateParentAccountDto) => !!dto.studentEmail)
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(100)
   studentLastName?: string;
 }

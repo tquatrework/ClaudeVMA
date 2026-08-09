@@ -1,13 +1,20 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { ConflictException, ForbiddenException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AccountsService } from '../../src/accounts/accounts.service';
 import { User, UserRole, ValidationStatus } from '../../src/auth/entities/user.entity';
 import { AuditLog } from '../../src/accounts/entities/audit-log.entity';
 import { EventsService } from '../../src/events/events.service';
 import { ProfileServiceClient } from '../../src/common/clients/profile-service.client';
+import { LinkedAccountMode } from '../../src/accounts/dto/linked-account-mode';
 import { buildTransactionalDataSourceMock } from './helpers/mock-transactional-data-source';
 
 const makeUser = (overrides: Partial<User> = {}): User => ({
@@ -246,15 +253,14 @@ describe('AccountsService', () => {
       expect(result.student).not.toHaveProperty('lastName');
     });
 
-    it('creates a parent account when parentEmail is provided and no existing parent matches', async () => {
-      // findOne returns null for each loginIdentifier check and email dedup check
-      // find (for parentEmail lookup) returns empty array → create new parent
-      userRepo.find = jest.fn().mockResolvedValue([]);
+    it("creates the parent account with the chosen login identifier when parentAccountMode is 'new'", async () => {
       const result = await service.createStudentAccount({
         email: 'student@test.com',
         password: 'password123',
         firstName: 'Lucas',
         lastName: 'Petit',
+        parentAccountMode: LinkedAccountMode.NEW,
+        parentLoginIdentifier: 'choisi.par.utilisateur',
         parentEmail: 'parent@test.com',
         parentPassword: 'parentpass123',
         parentFirstName: 'Nathalie',
@@ -263,41 +269,121 @@ describe('AccountsService', () => {
       expect(result.student.role).toBe(UserRole.ELEVE);
       expect(result.parent).not.toBeNull();
       expect(result.parent!.role).toBe(UserRole.PARENT_FINANCEUR);
+      expect(result.parent!.created).toBe(true);
+      // L'identifiant saisi est celui du compte créé — jamais dérivé de l'email
+      expect(result.parent!.loginIdentifier).toBe('choisi.par.utilisateur');
       expect(result.parent).not.toHaveProperty('firstName');
       expect(result.parent).not.toHaveProperty('lastName');
     });
 
-    it('links existing parent account when exactly one account matches parentEmail', async () => {
+    it("attaches the existing parent account identified by parentLoginIdentifier when parentAccountMode is 'existing'", async () => {
       const existingParent = makeUser({ id: 'parent-uuid', loginIdentifier: 'parent.user', email: 'parent@test.com', role: UserRole.PARENT_FINANCEUR });
-      userRepo.find = jest.fn().mockResolvedValue([existingParent]);
+      userRepo.findOne = jest.fn().mockImplementation(async ({ where }: any) =>
+        where?.loginIdentifier === 'parent.user' ? existingParent : null,
+      );
       const result = await service.createStudentAccount({
         email: 'student@test.com',
         password: 'password123',
         firstName: 'Lucas',
         lastName: 'Petit',
-        parentEmail: 'parent@test.com',
-        parentFirstName: 'Nathalie',
-        parentLastName: 'Petit',
+        parentAccountMode: LinkedAccountMode.EXISTING,
+        parentLoginIdentifier: 'parent.user',
       });
       expect(result.parent!.id).toBe('parent-uuid');
       expect(result.parent!.created).toBe(false);
     });
 
-    it('throws 409 when multiple accounts share the parentEmail', async () => {
-      const parentA = makeUser({ id: 'pa-uuid', loginIdentifier: 'parent.a' });
-      const parentB = makeUser({ id: 'pb-uuid', loginIdentifier: 'parent.b' });
-      userRepo.find = jest.fn().mockResolvedValue([parentA, parentB]);
+    it("throws 404 when parentLoginIdentifier does not match any account in 'existing' mode", async () => {
       await expect(
         service.createStudentAccount({
           email: 'student@test.com',
           password: 'password123',
           firstName: 'Lucas',
           lastName: 'Petit',
-          parentEmail: 'shared@test.com',
+          parentAccountMode: LinkedAccountMode.EXISTING,
+          parentLoginIdentifier: 'unknown.parent',
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it("throws 409 when the chosen parentLoginIdentifier is already taken in 'new' mode", async () => {
+      userRepo.findOne = jest.fn().mockImplementation(async ({ where }: any) =>
+        where?.loginIdentifier === 'deja.pris' ? makeUser({ loginIdentifier: 'deja.pris' }) : null,
+      );
+      await expect(
+        service.createStudentAccount({
+          email: 'student@test.com',
+          password: 'password123',
+          firstName: 'Lucas',
+          lastName: 'Petit',
+          parentAccountMode: LinkedAccountMode.NEW,
+          parentLoginIdentifier: 'deja.pris',
+          parentEmail: 'parent@test.com',
           parentFirstName: 'Nathalie',
           parentLastName: 'Petit',
         }),
       ).rejects.toThrow(ConflictException);
+    });
+
+    it('throws 400 when parent fields are sent without parentAccountMode (no field is ever silently ignored)', async () => {
+      await expect(
+        service.createStudentAccount({
+          email: 'student@test.com',
+          password: 'password123',
+          firstName: 'Lucas',
+          lastName: 'Petit',
+          parentEmail: 'parent@test.com',
+          parentFirstName: 'Nathalie',
+          parentLastName: 'Petit',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("throws 400 when parentAccountMode is 'new' without a chosen parentLoginIdentifier", async () => {
+      await expect(
+        service.createStudentAccount({
+          email: 'student@test.com',
+          password: 'password123',
+          firstName: 'Lucas',
+          lastName: 'Petit',
+          parentAccountMode: LinkedAccountMode.NEW,
+          parentEmail: 'parent@test.com',
+          parentFirstName: 'Nathalie',
+          parentLastName: 'Petit',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("throws 400 when creation fields are sent with parentAccountMode 'existing'", async () => {
+      await expect(
+        service.createStudentAccount({
+          email: 'student@test.com',
+          password: 'password123',
+          firstName: 'Lucas',
+          lastName: 'Petit',
+          parentAccountMode: LinkedAccountMode.EXISTING,
+          parentLoginIdentifier: 'parent.user',
+          parentEmail: 'parent@test.com',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("flags emailAlreadyUsed on the created parent account when its email is already registered ('new' mode)", async () => {
+      userRepo.findOne = jest.fn().mockImplementation(async ({ where }: any) =>
+        where?.email === 'parent@test.com' ? makeUser({ email: 'parent@test.com' }) : null,
+      );
+      const result = await service.createStudentAccount({
+        email: 'student@test.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        parentAccountMode: LinkedAccountMode.NEW,
+        parentLoginIdentifier: 'nathalie.petit',
+        parentEmail: 'parent@test.com',
+        parentFirstName: 'Nathalie',
+        parentLastName: 'Petit',
+      });
+      expect(result.parent!.emailAlreadyUsed).toBe(true);
     });
 
     it('throws 409 when requested loginIdentifier is already taken', async () => {
@@ -327,13 +413,14 @@ describe('AccountsService', () => {
       }));
     });
 
-    it('publishes AccountCreated for both student and parent when parentEmail triggers new account creation', async () => {
-      userRepo.find = jest.fn().mockResolvedValue([]);
+    it("publishes AccountCreated for both student and parent when parentAccountMode is 'new'", async () => {
       await service.createStudentAccount({
         email: 'student@test.com',
         password: 'password123',
         firstName: 'Lucas',
         lastName: 'Petit',
+        parentAccountMode: LinkedAccountMode.NEW,
+        parentLoginIdentifier: 'nathalie.petit',
         parentEmail: 'parent@test.com',
         parentPassword: 'parentpass123',
         parentFirstName: 'Nathalie',
@@ -447,13 +534,50 @@ describe('AccountsService', () => {
       }));
     });
 
-    it('creates a student account when studentEmail is provided and no existing student matches', async () => {
-      userRepo.find = jest.fn().mockResolvedValue([]);
+    it('honours the loginIdentifier chosen by the parent (aligned with /accounts/students and /accounts/teachers)', async () => {
+      const result = await service.createParentAccount({
+        email: 'probea.parent@test.com',
+        password: 'password123',
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+        loginIdentifier: 'choisi.par.utilisateur',
+      });
+      expect(result.parent.loginIdentifier).toBe('choisi.par.utilisateur');
+    });
+
+    it('generates a login identifier from the email only when the parent did not choose one', async () => {
+      const result = await service.createParentAccount({
+        email: 'probea.parent@test.com',
+        password: 'password123',
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+      });
+      expect(result.parent.loginIdentifier).toBe('probea.parent');
+    });
+
+    it('throws 409 when the loginIdentifier chosen by the parent is already taken', async () => {
+      userRepo.findOne = jest.fn().mockImplementation(async ({ where }: any) =>
+        where?.loginIdentifier === 'deja.pris' ? makeUser({ loginIdentifier: 'deja.pris' }) : null,
+      );
+      await expect(
+        service.createParentAccount({
+          email: 'parent@test.com',
+          password: 'password123',
+          firstName: 'Sophie',
+          lastName: 'Bernard',
+          loginIdentifier: 'deja.pris',
+        }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it("creates the student account with the chosen login identifier when studentAccountMode is 'new'", async () => {
       const result = await service.createParentAccount({
         email: 'parent@test.com',
         password: 'password123',
         firstName: 'Sophie',
         lastName: 'Bernard',
+        studentAccountMode: LinkedAccountMode.NEW,
+        studentLoginIdentifier: 'lucas.petit',
         studentEmail: 'student@test.com',
         studentPassword: 'studentpass123',
         studentFirstName: 'Lucas',
@@ -463,38 +587,27 @@ describe('AccountsService', () => {
       expect(result.student).not.toBeNull();
       expect(result.student!.role).toBe(UserRole.ELEVE);
       expect(result.student!.created).toBe(true);
+      expect(result.student!.loginIdentifier).toBe('lucas.petit');
     });
 
-    it('links existing student account when exactly one account matches studentEmail', async () => {
+    it("attaches the existing student account identified by studentLoginIdentifier when studentAccountMode is 'existing'", async () => {
       const existingStudent = makeUser({ id: 'student-uuid', loginIdentifier: 'student.user', email: 'student@test.com', role: UserRole.ELEVE });
-      userRepo.find = jest.fn().mockResolvedValue([existingStudent]);
+      userRepo.findOne = jest.fn().mockImplementation(async ({ where }: any) =>
+        where?.loginIdentifier === 'student.user' ? existingStudent : null,
+      );
       const result = await service.createParentAccount({
         email: 'parent@test.com',
         password: 'password123',
         firstName: 'Sophie',
         lastName: 'Bernard',
-        studentEmail: 'student@test.com',
+        studentAccountMode: LinkedAccountMode.EXISTING,
+        studentLoginIdentifier: 'student.user',
       });
       expect(result.student!.id).toBe('student-uuid');
       expect(result.student!.created).toBe(false);
     });
 
-    it('throws 409 when multiple accounts share the studentEmail', async () => {
-      const studentA = makeUser({ id: 'sa-uuid', loginIdentifier: 'student.a' });
-      const studentB = makeUser({ id: 'sb-uuid', loginIdentifier: 'student.b' });
-      userRepo.find = jest.fn().mockResolvedValue([studentA, studentB]);
-      await expect(
-        service.createParentAccount({
-          email: 'parent@test.com',
-          password: 'password123',
-          firstName: 'Sophie',
-          lastName: 'Bernard',
-          studentEmail: 'shared@test.com',
-        }),
-      ).rejects.toThrow(ConflictException);
-    });
-
-    it('throws 404 when studentLoginIdentifier does not match any account', async () => {
+    it("throws 404 when studentLoginIdentifier does not match any account in 'existing' mode", async () => {
       userRepo.findOne.mockResolvedValue(null);
       await expect(
         service.createParentAccount({
@@ -502,18 +615,82 @@ describe('AccountsService', () => {
           password: 'password123',
           firstName: 'Sophie',
           lastName: 'Bernard',
+          studentAccountMode: LinkedAccountMode.EXISTING,
           studentLoginIdentifier: 'unknown.student',
         }),
       ).rejects.toThrow(NotFoundException);
     });
 
+    it("throws 409 when the chosen studentLoginIdentifier is already taken in 'new' mode", async () => {
+      userRepo.findOne = jest.fn().mockImplementation(async ({ where }: any) =>
+        where?.loginIdentifier === 'deja.pris' ? makeUser({ loginIdentifier: 'deja.pris' }) : null,
+      );
+      await expect(
+        service.createParentAccount({
+          email: 'parent@test.com',
+          password: 'password123',
+          firstName: 'Sophie',
+          lastName: 'Bernard',
+          studentAccountMode: LinkedAccountMode.NEW,
+          studentLoginIdentifier: 'deja.pris',
+          studentEmail: 'student@test.com',
+          studentFirstName: 'Lucas',
+          studentLastName: 'Petit',
+        }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('throws 400 when student fields are sent without studentAccountMode (no field is ever silently ignored)', async () => {
+      await expect(
+        service.createParentAccount({
+          email: 'parent@test.com',
+          password: 'password123',
+          firstName: 'Sophie',
+          lastName: 'Bernard',
+          studentEmail: 'student@test.com',
+          studentFirstName: 'Lucas',
+          studentLastName: 'Petit',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("throws 400 when studentAccountMode is 'new' without a chosen studentLoginIdentifier", async () => {
+      await expect(
+        service.createParentAccount({
+          email: 'parent@test.com',
+          password: 'password123',
+          firstName: 'Sophie',
+          lastName: 'Bernard',
+          studentAccountMode: LinkedAccountMode.NEW,
+          studentEmail: 'student@test.com',
+          studentFirstName: 'Lucas',
+          studentLastName: 'Petit',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("throws 400 when creation fields are sent with studentAccountMode 'existing'", async () => {
+      await expect(
+        service.createParentAccount({
+          email: 'parent@test.com',
+          password: 'password123',
+          firstName: 'Sophie',
+          lastName: 'Bernard',
+          studentAccountMode: LinkedAccountMode.EXISTING,
+          studentLoginIdentifier: 'student.user',
+          studentFirstName: 'Lucas',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
     it('calls profile-service to link the parent as finance owner when a student is linked or created in the same call', async () => {
-      userRepo.find = jest.fn().mockResolvedValue([]);
       await service.createParentAccount({
         email: 'parent@test.com',
         password: 'password123',
         firstName: 'Sophie',
         lastName: 'Bernard',
+        studentAccountMode: LinkedAccountMode.NEW,
+        studentLoginIdentifier: 'lucas.petit',
         studentEmail: 'student@test.com',
         studentPassword: 'studentpass123',
         studentFirstName: 'Lucas',
@@ -795,13 +972,14 @@ describe('AccountsService', () => {
       ).rejects.toThrow(ServiceUnavailableException);
     });
 
-    it('createStudentAccount: calls profile-service for the student, and for the parent when parentEmail triggers creation', async () => {
-      userRepo.find = jest.fn().mockResolvedValue([]); // no existing parent → parent created
+    it("createStudentAccount: calls profile-service for the student, and for the parent when parentAccountMode is 'new'", async () => {
       await service.createStudentAccount({
         email: 'student-store@test.com',
         password: 'password123',
         firstName: 'Lucas',
         lastName: 'Petit',
+        parentAccountMode: LinkedAccountMode.NEW,
+        parentLoginIdentifier: 'nathalie.petit',
         parentEmail: 'parent-store@test.com',
         parentPassword: 'parentpass123',
         parentFirstName: 'Nathalie',
@@ -831,18 +1009,19 @@ describe('AccountsService', () => {
       );
     });
 
-    it('createStudentAccount: does not call profile-service for an existing linked parent (their profile is not overwritten)', async () => {
+    it('createStudentAccount: does not call profile-service for an attached existing parent (their profile is not overwritten)', async () => {
       const existingParent = makeUser({ id: 'parent-uuid', loginIdentifier: 'parent.user', email: 'parent@test.com', role: UserRole.PARENT_FINANCEUR });
-      userRepo.find = jest.fn().mockResolvedValue([existingParent]);
+      userRepo.findOne = jest.fn().mockImplementation(async ({ where }: any) =>
+        where?.loginIdentifier === 'parent.user' ? existingParent : null,
+      );
 
       await service.createStudentAccount({
         email: 'student-linked@test.com',
         password: 'password123',
         firstName: 'Lucas',
         lastName: 'Petit',
-        parentEmail: 'parent@test.com',
-        parentFirstName: 'Nathalie',
-        parentLastName: 'Petit',
+        parentAccountMode: LinkedAccountMode.EXISTING,
+        parentLoginIdentifier: 'parent.user',
       });
 
       expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledTimes(1);
@@ -852,7 +1031,6 @@ describe('AccountsService', () => {
     });
 
     it('createStudentAccount: fails with 503 and rolls back both accounts when profile-service is unavailable for the parent', async () => {
-      userRepo.find = jest.fn().mockResolvedValue([]);
       profileServiceClient.createAdministrativeProfile
         .mockResolvedValueOnce(undefined) // student profile succeeds
         .mockRejectedValueOnce(new Error('timeout')); // parent profile fails
@@ -863,6 +1041,8 @@ describe('AccountsService', () => {
           password: 'password123',
           firstName: 'Lucas',
           lastName: 'Petit',
+          parentAccountMode: LinkedAccountMode.NEW,
+          parentLoginIdentifier: 'nathalie.petit',
           parentEmail: 'parent-rollback@test.com',
           parentPassword: 'parentpass123',
           parentFirstName: 'Nathalie',
@@ -878,12 +1058,13 @@ describe('AccountsService', () => {
 
   describe('automatic finance-owner-student link', () => {
     it('createStudentAccount: calls profile-service to link the student to the newly created parent', async () => {
-      userRepo.find = jest.fn().mockResolvedValue([]);
       await service.createStudentAccount({
         email: 'student-link@test.com',
         password: 'password123',
         firstName: 'Lucas',
         lastName: 'Petit',
+        parentAccountMode: LinkedAccountMode.NEW,
+        parentLoginIdentifier: 'nathalie.petit',
         parentEmail: 'parent-link@test.com',
         parentPassword: 'parentpass123',
         parentFirstName: 'Nathalie',
@@ -896,18 +1077,19 @@ describe('AccountsService', () => {
       });
     });
 
-    it('createStudentAccount: also links when the parent is an existing linked account (not newly created)', async () => {
+    it('createStudentAccount: also links when the parent is an attached existing account (not newly created)', async () => {
       const existingParent = makeUser({ id: 'parent-uuid', loginIdentifier: 'parent.user', email: 'parent@test.com', role: UserRole.PARENT_FINANCEUR });
-      userRepo.find = jest.fn().mockResolvedValue([existingParent]);
+      userRepo.findOne = jest.fn().mockImplementation(async ({ where }: any) =>
+        where?.loginIdentifier === 'parent.user' ? existingParent : null,
+      );
 
       await service.createStudentAccount({
         email: 'student-link2@test.com',
         password: 'password123',
         firstName: 'Lucas',
         lastName: 'Petit',
-        parentEmail: 'parent@test.com',
-        parentFirstName: 'Nathalie',
-        parentLastName: 'Petit',
+        parentAccountMode: LinkedAccountMode.EXISTING,
+        parentLoginIdentifier: 'parent.user',
       });
 
       expect(profileServiceClient.linkParentToStudent).toHaveBeenCalledWith({
@@ -928,7 +1110,6 @@ describe('AccountsService', () => {
     });
 
     it('createStudentAccount: fails with 503 and rolls back both accounts when the link call fails', async () => {
-      userRepo.find = jest.fn().mockResolvedValue([]);
       profileServiceClient.linkParentToStudent.mockRejectedValueOnce(new Error('timeout'));
 
       await expect(
@@ -937,6 +1118,8 @@ describe('AccountsService', () => {
           password: 'password123',
           firstName: 'Lucas',
           lastName: 'Petit',
+          parentAccountMode: LinkedAccountMode.NEW,
+          parentLoginIdentifier: 'nathalie.petit',
           parentEmail: 'parent-linkfail@test.com',
           parentPassword: 'parentpass123',
           parentFirstName: 'Nathalie',

@@ -10,7 +10,11 @@
     "test": "jest",
     "test:e2e": "jest --config test/jest-e2e.json --runInBand",
     "test:cov": "jest --coverage",
-    "backfill:profiles": "ts-node --transpile-only scripts/backfill-profiles.ts"
+    "backfill:profiles": "ts-node --transpile-only scripts/backfill-profiles.ts",
+    "migration:run": "typeorm -d dist/src/data-source.js migration:run",
+    "migration:revert": "typeorm -d dist/src/data-source.js migration:revert",
+    "migration:show": "typeorm -d dist/src/data-source.js migration:show",
+    "migration:generate": "typeorm -d dist/src/data-source.js migration:generate"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",
@@ -22,6 +26,7 @@
     "@nestjs/typeorm": "^10.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.0",
+    "dotenv": "^16.0.0",
     "pg": "^8.11.0",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.0",

@@ -40,8 +40,9 @@ serait une faute plus grave que son absence.
       - **non coché** → envoyé `rgpd, cgu` → 2 lignes, **aucune** ligne marketing,
         et le compte ressort quand même `active`.
       Case décochée par défaut dans les deux passages. Comptes d'essai supprimés.
-- [ ] Validé par l'utilisateur
-- [ ] Mergé dans master
+- [x] Validé par l'utilisateur — 2026-08-09
+- [x] Mergé dans master — PR #78, front reconstruit depuis `master` et redéployé.
+      Les deux cas rejoués sur cette version : coché → 3 lignes, non coché → 2 lignes.
 
 ## Bloqué par
 
@@ -85,8 +86,9 @@ données n'étaient stockées nulle part. À rebrancher sur `profile-service`.
 - [ ] Codé et committé
 - [ ] Déployé sur la pile réelle
 - [ ] Preuve livrée à l'utilisateur
-- [ ] Validé par l'utilisateur
-- [ ] Mergé dans master
+- [x] Validé par l'utilisateur — 2026-08-09
+- [x] Mergé dans master — PR #78, front reconstruit depuis `master` et redéployé.
+      Les deux cas rejoués sur cette version : coché → 3 lignes, non coché → 2 lignes.
 
 ## Bloqué par
 <rien, ou la dépendance précise>

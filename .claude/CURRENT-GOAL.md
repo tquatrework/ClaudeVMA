@@ -23,12 +23,14 @@ avant que l'utilisateur l'ait validée.**
 Point structurant soumis : « ordonnance » n'est pas le profil pédagogique mais un **troisième
 bloc**, rédigé par le RP sur le titulaire (d'où `rempli_par`). Trois blocs, donc, pas deux.
 
-Cinq questions posées à l'utilisateur, au point 10 du document :
-1. valide-t-il les trois blocs ?
-2. le titulaire lit-il son ordonnance ? (réponse possiblement différente élève / formateur)
-3. peut-il fournir l'entité `UserProfile`, non transmise, qui portait le profil administratif ?
-4. les données de facturation formateur : maintenant dans `finance-credit-service`, ou plus tard ?
-5. le socle de visibilité par défaut lui convient-il ?
+**Toutes les questions sont tranchées (2026-08-09).** Décisions consignées au §11 du document :
+- **deux blocs**, pas trois — les champs d'ordonnance rejoignent le profil pédagogique, mais
+  avec **deux routes d'écriture** pour que le titulaire ne rédige pas sa propre prescription ;
+- le titulaire **lit** sa prescription (élève comme formateur), sans pouvoir la modifier ;
+- `UserProfile` dépouillée : **rien à récupérer**, l'administratif actuel est déjà plus riche ;
+- **toute la finance est hors périmètre**, chantier séparé et ultérieur ;
+- socle de visibilité par défaut **validé** ;
+- **anglais dans le code, français à l'écran** — règle inscrite dans `docs/architecture.md`.
 
 ## Comment on saura que c'est fait
 
@@ -42,7 +44,7 @@ l'être — preuve jouée contre la pile réelle, pas des tests verts.
 
 - [x] Existant relevé (schéma en base + contrat Swagger de `profile-service`)
 - [x] Proposition rédigée — `docs/proposition-profils.md`
-- [ ] Proposition validée par l'utilisateur
+- [x] Questions tranchées par l'utilisateur — document mis à jour et republié
 - [ ] Codé et committé
 - [ ] Déployé sur la pile réelle
 - [ ] Preuve livrée à l'utilisateur
@@ -51,7 +53,7 @@ l'être — preuve jouée contre la pile réelle, pas des tests verts.
 
 ## Bloqué par
 
-Les réponses de l'utilisateur aux cinq questions ci-dessus.
+L'accord de l'utilisateur pour lancer l'implémentation. Le contenu, lui, ne fait plus débat.
 
 ---
 

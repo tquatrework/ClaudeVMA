@@ -249,4 +249,97 @@ describe('TeacherRegistrationPage', () => {
     })
     expect(screen.queryByText(/teachingSubjects/)).toBeNull()
   })
+
+  /**
+   * Consentement marketing — optionnel (docs/routes.md : `rgpd` requis, `cgu` requis,
+   * `marketing` optionnel). Il ne doit jamais être pré-coché ni bloquer la candidature,
+   * et aucune entrée `marketing` ne doit partir tant qu'il n'a pas été coché.
+   */
+  describe('consentement marketing (optionnel)', () => {
+    /** Amène à l'étape 2 et coche les deux consentements obligatoires. */
+    async function goToConsentsStepAndAcceptRequired() {
+      await fillAdministrativeStep()
+      await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+      await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
+
+      const checkboxes = screen.getAllByRole('checkbox')
+      await userEvent.click(checkboxes[0]) // RGPD
+      await userEvent.click(checkboxes[1]) // CGU
+    }
+
+    function getMarketingCheckbox() {
+      return screen.getByRole('checkbox', { name: /marketing/i })
+    }
+
+    it('affiche la case marketing, décochée et non obligatoire, avec les libellés de /consents', async () => {
+      renderTeacherRegistrationPage()
+
+      await fillAdministrativeStep()
+      await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+      await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
+
+      const marketingCheckbox = getMarketingCheckbox() as HTMLInputElement
+      expect(marketingCheckbox.checked).toBe(false)
+      expect(marketingCheckbox.required).toBe(false)
+      expect(screen.getByText(/marketing \(optionnel\)/i)).toBeDefined()
+      expect(screen.getByText(/recevoir des communications commerciales/i)).toBeDefined()
+    })
+
+    it('transmet le consentement marketing quand la case est cochée', async () => {
+      mockRegisterTeacher.mockResolvedValue(undefined)
+      renderTeacherRegistrationPage()
+
+      await goToConsentsStepAndAcceptRequired()
+      await userEvent.click(getMarketingCheckbox())
+      await userEvent.click(screen.getByRole('button', { name: /soumettre ma candidature/i }))
+
+      await waitFor(() => {
+        expect(mockRegisterTeacher).toHaveBeenCalledWith(
+          expect.objectContaining({
+            consents: [
+              { consentType: 'rgpd' },
+              { consentType: 'cgu' },
+              { consentType: 'marketing' },
+            ],
+          }),
+        )
+      })
+      // La candidature aboutit avec le consentement marketing.
+      await waitFor(() => expect(screen.getByText('Login Page')).toBeDefined())
+    })
+
+    it("n'envoie aucune entrée marketing quand la case reste décochée", async () => {
+      mockRegisterTeacher.mockResolvedValue(undefined)
+      renderTeacherRegistrationPage()
+
+      await goToConsentsStepAndAcceptRequired()
+      await userEvent.click(screen.getByRole('button', { name: /soumettre ma candidature/i }))
+
+      await waitFor(() => expect(mockRegisterTeacher).toHaveBeenCalled())
+
+      const payload = mockRegisterTeacher.mock.calls[0][0] as {
+        consents?: { consentType: string }[]
+      }
+      expect(payload.consents).toEqual([{ consentType: 'rgpd' }, { consentType: 'cgu' }])
+      expect(payload.consents?.some((consent) => consent.consentType === 'marketing')).toBe(false)
+      // La candidature aboutit aussi sans le consentement marketing.
+      await waitFor(() => expect(screen.getByText('Login Page')).toBeDefined())
+    })
+
+    it('ne débloque pas la candidature à lui seul : RGPD et CGU restent obligatoires', async () => {
+      mockRegisterTeacher.mockResolvedValue(undefined)
+      renderTeacherRegistrationPage()
+
+      await fillAdministrativeStep()
+      await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+      await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
+
+      await userEvent.click(getMarketingCheckbox())
+      await userEvent.click(screen.getByRole('button', { name: /soumettre ma candidature/i }))
+
+      await waitFor(() => {
+        expect(mockRegisterTeacher).not.toHaveBeenCalled()
+      })
+    })
+  })
 })

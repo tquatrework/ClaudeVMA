@@ -180,8 +180,22 @@ Phase 3 enrichit l'offre :
   de portee, mais il appartient a `pedagogical-log-service` et n'est pas concerne par ce
   filtrage.
   Consequence : `profile_field_visibility` s'applique aux autres contacts lies, pas au parent
-  financeur ni aux administrateurs. Le cas du **professeur principal** n'a pas ete tranche : en
-  l'absence de decision, les reglages de visibilite lui sont appliques comme a tout contact lie.
-  A rouvrir si ce comportement ne convient pas.
+  financeur ni aux roles administratifs.
+  Precisions apportees le 2026-08-09 :
+  - **Roles administratifs = RP, AF et TI.** Ils voient l'integralite du profil et disposent du
+    droit d'ecriture, chacun dans son domaine.
+  - **Le parent financeur lit tout, mais n'ecrit rien.** Il ne modifie pas le profil de son
+    enfant : il passe par l'eleve lui-meme, ou par un RP. De meme, s'il souhaite qu'une
+    information soit masquee, il le demande a l'eleve ou au RP — il ne regle pas la visibilite
+    a sa place.
+  - **Le formateur voit les informations de l'eleve, sauf celles que l'eleve choisit de masquer.**
+    Le professeur principal n'est donc pas exempte : c'est bien l'eleve qui decide. Question
+    tranchee, ne pas la rouvrir.
+- Affichage des identifiants techniques : **aucun UUID ne doit etre lu ni affiche par un
+  utilisateur**, quel que soit l'ecran. On affiche toujours le prenom et le nom de la personne.
+  Seul l'**administrateur financier (AF)** peut lire un identifiant technique, pour des raisons
+  de rapprochement et de securite. Regle generale posee le 2026-08-09, applicable au-dela des
+  profils : tout endroit de l'interface qui expose un UUID a un autre role est un defaut a
+  corriger, pas une facilite de developpement.
 
 ## Points ouverts a arbitrer

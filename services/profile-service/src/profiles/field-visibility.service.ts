@@ -148,19 +148,40 @@ export class FieldVisibilityService {
   }
 
   /**
-   * Audience effective d'un champ pour un utilisateur donné — port de lecture
-   * destiné à un futur filtrage des réponses de profil.
+   * Audience effective d'un champ pour un utilisateur donné.
    *
-   * Volontairement NON branché sur GET /profiles/:userId dans ce chantier :
-   * appliquer le filtrage supposerait de trancher d'abord la contradiction
-   * entre le socle « masqué par défaut » et l'arbitrage « le parent voit tout
-   * ce qui concerne ses élèves ». Point remonté, pas contourné.
+   * Port de lecture unitaire, conservé pour les vérifications ponctuelles.
+   * Le filtrage de `GET /profiles/:userId` passe, lui, par `resolveAudiences`
+   * ci-dessous : appeler cette méthode pour chacun des 34 champs du catalogue
+   * ferait 34 requêtes là où une seule suffit.
    */
   async resolveAudience(userId: string, fieldName: string): Promise<FieldAudience> {
     const override = await this.fieldVisibilityRepo.findOne({
       where: { userId, fieldName },
     });
     return override?.audience ?? defaultAudienceOf(fieldName);
+  }
+
+  /**
+   * Audience effective de TOUS les champs du catalogue, en une seule requête.
+   *
+   * C'est le port consommé par le filtrage en lecture des profils (arbitrage du
+   * 2026-08-09). La map est exhaustive — tout champ du catalogue y figure, avec
+   * son défaut si l'utilisateur n'a rien réglé — de sorte que l'appelant n'a
+   * jamais à retomber sur une valeur implicite pour un champ connu.
+   */
+  async resolveAudiences(userId: string): Promise<Map<string, FieldAudience>> {
+    const overrides = await this.fieldVisibilityRepo.find({ where: { userId } });
+    const explicitAudienceByFieldName = new Map(
+      overrides.map((override) => [override.fieldName, override.audience]),
+    );
+
+    return new Map(
+      FIELD_VISIBILITY_CATALOG.map((definition) => [
+        definition.fieldName,
+        explicitAudienceByFieldName.get(definition.fieldName) ?? definition.defaultAudience,
+      ]),
+    );
   }
 
   /**

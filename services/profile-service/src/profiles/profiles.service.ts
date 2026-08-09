@@ -27,10 +27,44 @@ import { UpdateInternalNoteDto } from './dto/update-internal-note.dto';
 import { UpdateTeacherValidationDto } from './dto/update-teacher-validation.dto';
 import { UpdatePrescriptionDto } from './dto/update-prescription.dto';
 import { EventsService } from '../events/events.service';
+import { FieldVisibilityService } from './field-visibility.service';
+import { FieldAudience } from './field-visibility.catalog';
+import {
+  ViewerRelation,
+  filterProfileBlock,
+  pedagogicalBlockOf,
+} from './profile-visibility-filter';
 import { UserRole } from '../common/enums/user-role.enum';
 import { Actor } from '../common/types/actor.type';
 
 export { Actor };
+
+/**
+ * Rôles EXEMPTÉS des réglages de visibilité champ par champ (arbitrage du
+ * 2026-08-09, `docs/architecture.md` > « Arbitrages rendus » : « s'applique aux
+ * autres contacts liés, pas au parent financeur ni aux administrateurs »).
+ *
+ * Le parent financeur n'y figure pas parce que son exemption est
+ * CONDITIONNELLE : elle vaut sur les élèves auxquels il est rattaché, et
+ * seulement eux. Ce rattachement est déjà exigé par `assertReadAccess`, qui
+ * refuse en 403 toute autre cible — la condition est donc portée par le contrôle
+ * d'accès, pas par cette liste (voir `resolveViewerRelation`).
+ *
+ * L'ANIMATEUR PÉDAGOGIQUE y figure : il lit les profils des formateurs qu'il
+ * anime, dont l'expérience, les diplômes, les spécialités et les
+ * particularités sont TOUS `self` par défaut. Le soumettre au filtrage le
+ * rendrait aveugle à l'essentiel du dossier qu'il doit animer.
+ * Le RESPONSABLE PÉDAGOGIQUE aussi, et de façon dirimante : il ÉCRIT la section
+ * prescription (`PUT /profiles/:userId/prescription`), dont l'intégralité des
+ * champs est `self` par défaut. Filtré, il ne relirait pas ce qu'il vient
+ * d'écrire.
+ */
+const FIELD_VISIBILITY_EXEMPT_ROLES: UserRole[] = [
+  UserRole.RESPONSABLE_PEDAGOGIQUE,
+  UserRole.ANIMATEUR_PEDAGOGIQUE,
+  UserRole.TECHNICIEN_INFORMATIQUE,
+  UserRole.ADMINISTRATEUR_FINANCIER,
+];
 
 /** Rôle de profil pédagogique visé par une écriture. */
 export type PedagogicalTarget = 'student' | 'teacher';
@@ -111,6 +145,7 @@ export class ProfilesService {
     private readonly relationsService: RelationsService,
     private readonly events: EventsService,
     private readonly identityAccessClient: IdentityAccessClient,
+    private readonly fieldVisibilityService: FieldVisibilityService,
   ) {}
 
   /**
@@ -130,6 +165,12 @@ export class ProfilesService {
    *  - A FORMATEUR may only view profiles of students they are linked to (PROF-FB-003).
    *  - InternalProfileNotes are never included in this response (PROF-BR-009).
    *  - PROF-BR-012: returned fields are filtered by the actor's role.
+   *
+   * Per-field visibility (arbitrage du 2026-08-09): the owner, the linked
+   * FINANCE OWNER and the administrative roles see everything; any other linked
+   * contact (today: the formateur) is subject to the per-field settings. A
+   * hidden field is ABSENT from the payload and its name is listed in
+   * `visibility.hiddenFields` — never replaced by a misleading value.
    */
   async getProfile(userId: string, actor: Actor) {
     await this.assertReadAccess(userId, actor);
@@ -147,11 +188,40 @@ export class ProfilesService {
     const studentPeda = await this.studentPedaRepo.findOne({ where: { userId } });
     const teacherPeda = await this.teacherPedaRepo.findOne({ where: { userId } });
     const pedagogical = studentPeda ?? teacherPeda ?? null;
+    const pedagogicalType = (studentPeda ? 'student' : teacherPeda ? 'teacher' : null) as
+      | PedagogicalTarget
+      | null;
+
+    const relation = await this.resolveViewerRelation(userId, actor);
+
+    // Une seule requête de réglages, et seulement quand quelque chose peut être
+    // masqué : le titulaire et les exemptés n'en déclenchent aucune.
+    const audienceByFieldName =
+      relation === 'owner' || relation === 'exempt'
+        ? new Map<string, FieldAudience>()
+        : await this.fieldVisibilityService.resolveAudiences(userId);
+
+    const filteredAdministrative = filterProfileBlock(
+      admin,
+      'administrative',
+      audienceByFieldName,
+      relation,
+    );
+
+    const filteredPedagogical =
+      pedagogical && pedagogicalType
+        ? filterProfileBlock(
+            pedagogical,
+            pedagogicalBlockOf(pedagogicalType),
+            audienceByFieldName,
+            relation,
+          )
+        : null;
 
     return {
       userId,
       loginIdentifier: account?.loginIdentifier ?? null,
-      administrative: admin,
+      administrative: filteredAdministrative.block,
       /**
        * Profil pédagogique COMPLET, sections confondues : la section
        * déclarative et la section prescription sont renvoyées à plat dans le
@@ -159,17 +229,62 @@ export class ProfilesService {
        * deux routes. Le titulaire LIT donc sa prescription ici (arbitrage du
        * 2026-08-09) sans pouvoir la modifier.
        */
-      pedagogical,
+      pedagogical: filteredPedagogical ? filteredPedagogical.block : null,
       /**
        * Rôle du profil pédagogique présent, pour que le front sache quel jeu
        * de champs afficher sans avoir à deviner d'après les clés non nulles.
        * null quand aucun profil pédagogique n'existe — état normal, le profil
        * pédagogique étant facultatif.
+       *
+       * Donnée de STRUCTURE, jamais masquée : sans elle le front ne sait pas
+       * quel formulaire afficher.
        */
-      pedagogicalType: (studentPeda ? 'student' : teacherPeda ? 'teacher' : null) as
-        | PedagogicalTarget
-        | null,
+      pedagogicalType,
+      /**
+       * Verdict du filtrage, explicite plutôt que déductible.
+       *
+       * `isFiltered: false` dit « vous voyez cette fiche en entier » — ce qui
+       * n'est PAS la même information qu'une liste vide de champs masqués chez
+       * un lecteur filtré dont tous les champs se trouvent visibles. Le front
+       * peut afficher « certaines informations sont masquées par le titulaire »
+       * sans jamais avoir à comparer sa propre idée du catalogue à la réponse.
+       */
+      visibility: {
+        isFiltered: relation !== 'owner' && relation !== 'exempt',
+        hiddenFields: [
+          ...filteredAdministrative.hiddenFieldNames,
+          ...(filteredPedagogical ? filteredPedagogical.hiddenFieldNames : []),
+        ],
+      },
     };
+  }
+
+  /**
+   * Position du lecteur vis-à-vis de la fiche, qui décide du filtrage.
+   *
+   * L'ordre compte : le titulaire d'abord — un utilisateur ne se masque jamais
+   * ses propres données, quel que soit son rôle par ailleurs.
+   *
+   * Le PARENT FINANCEUR est exempté sans nouvelle vérification de lien parce
+   * qu'`assertReadAccess`, appelée juste avant, a déjà refusé en 403 tout
+   * parent non rattaché à `userId`. Y être parvenu VAUT rattachement ; refaire
+   * la requête ici doublerait le coût sans rien décider de plus.
+   */
+  private async resolveViewerRelation(userId: string, actor: Actor): Promise<ViewerRelation> {
+    if (actor.id === userId) return 'owner';
+    if (actor.role === UserRole.PARENT_FINANCEUR) return 'exempt';
+    if (FIELD_VISIBILITY_EXEMPT_ROLES.includes(actor.role)) return 'exempt';
+
+    /**
+     * Le formateur parvenu jusqu'ici est nécessairement rattaché à l'élève
+     * (PROF-FB-003, vérifié par assertReadAccess) : c'est un contact lié, et il
+     * subit les réglages. Le drapeau PROFESSEUR PRINCIPAL n'est PAS consulté —
+     * son cas n'a pas été tranché, et l'exempter de son propre chef reviendrait
+     * à rendre un arbitrage qui ne revient pas à ce service.
+     */
+    if (actor.role === UserRole.FORMATEUR) return 'linked';
+
+    return 'authenticated';
   }
 
   /**
@@ -691,21 +806,48 @@ export class ProfilesService {
       throw new NotFoundException(`No pedagogical profile found for user ${userId}`);
     }
 
+    /**
+     * Cette route sert les MÊMES champs (`level`, `subjects`, `levels`) que le
+     * bloc `pedagogical` de GET /profiles/:userId : elle applique donc le même
+     * filtrage, faute de quoi elle en serait le contournement exact — un
+     * formateur y lirait un `level` que l'élève a réglé `self`.
+     * `isAnimateurPedagogique` est une donnée de structure, jamais masquée.
+     */
+    const profileType: PedagogicalTarget = studentProfile ? 'student' : 'teacher';
+    const relation = await this.resolveViewerRelation(userId, actor);
+    const audienceByFieldName =
+      relation === 'owner' || relation === 'exempt'
+        ? new Map<string, FieldAudience>()
+        : await this.fieldVisibilityService.resolveAudiences(userId);
+
     // Phase 1: return the data embedded in the pedagogical profile.
     // In later phases, this will aggregate from learning-activity-service.
+    const rawStatistics = studentProfile
+      ? {
+          level: studentProfile.level,
+          subjects: studentProfile.subjects,
+        }
+      : {
+          levels: teacherProfile.levels,
+          subjects: teacherProfile.subjects,
+          isAnimateurPedagogique: teacherProfile.isAnimateurPedagogique,
+        };
+
+    const filtered = filterProfileBlock(
+      rawStatistics,
+      pedagogicalBlockOf(profileType),
+      audienceByFieldName,
+      relation,
+    );
+
     return {
       userId,
-      profileType: studentProfile ? 'student' : 'teacher',
-      statistics: studentProfile
-        ? {
-            level: studentProfile.level,
-            subjects: studentProfile.subjects,
-          }
-        : {
-            levels: teacherProfile.levels,
-            subjects: teacherProfile.subjects,
-            isAnimateurPedagogique: teacherProfile.isAnimateurPedagogique,
-          },
+      profileType,
+      statistics: filtered.block,
+      visibility: {
+        isFiltered: relation !== 'owner' && relation !== 'exempt',
+        hiddenFields: filtered.hiddenFieldNames,
+      },
     };
   }
 

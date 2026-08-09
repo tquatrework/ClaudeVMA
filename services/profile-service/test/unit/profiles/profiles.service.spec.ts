@@ -20,8 +20,24 @@ import {
   IdentityAccessUnavailableError,
 } from '../../../src/common/clients/identity-access.client';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
+import { FieldVisibilityService } from '../../../src/profiles/field-visibility.service';
+import {
+  FIELD_VISIBILITY_CATALOG,
+  FieldAudience,
+} from '../../../src/profiles/field-visibility.catalog';
 
 const makeActor = (role: UserRole, id = 'actor-uuid'): Actor => ({ id, role });
+
+/** Réglages effectifs quand l'utilisateur n'a enregistré aucune dérogation. */
+const audiencesFromCatalog = (
+  overrides: Record<string, FieldAudience> = {},
+): Map<string, FieldAudience> =>
+  new Map(
+    FIELD_VISIBILITY_CATALOG.map((definition) => [
+      definition.fieldName,
+      overrides[definition.fieldName] ?? definition.defaultAudience,
+    ]),
+  );
 
 describe('ProfilesService', () => {
   let service: ProfilesService;
@@ -33,6 +49,7 @@ describe('ProfilesService', () => {
   let relationsService: any;
   let eventsService: any;
   let identityAccessClient: any;
+  let fieldVisibilityService: any;
 
   beforeEach(async () => {
     /**
@@ -91,6 +108,18 @@ describe('ProfilesService', () => {
     };
     eventsService = { publish: jest.fn() };
 
+    /**
+     * Par défaut, aucune dérogation enregistrée : chaque champ retombe sur la
+     * visibilité par défaut du catalogue. Les tests de filtrage remplacent ce
+     * comportement par une map explicite.
+     */
+    fieldVisibilityService = {
+      resolveAudiences: jest
+        .fn()
+        .mockImplementation(async () => audiencesFromCatalog()),
+      resolveAudience: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ProfilesService,
@@ -102,6 +131,7 @@ describe('ProfilesService', () => {
         { provide: RelationsService, useValue: relationsService },
         { provide: EventsService, useValue: eventsService },
         { provide: IdentityAccessClient, useValue: identityAccessClient },
+        { provide: FieldVisibilityService, useValue: fieldVisibilityService },
       ],
     }).compile();
 
@@ -360,6 +390,9 @@ describe('ProfilesService', () => {
           // null tant qu'aucun profil pédagogique n'existe — le front n'a donc
           // aucun jeu de champs à afficher, et n'a pas à le deviner.
           pedagogicalType: null,
+          // Le titulaire lit sa propre fiche : aucun filtrage, et le verdict est
+          // dit explicitement plutôt que laissé à déduire d'une liste vide.
+          visibility: { isFiltered: false, hiddenFields: [] },
         });
       });
 

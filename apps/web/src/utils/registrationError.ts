@@ -12,11 +12,18 @@
  * - `409` identifiant de connexion déjà pris (compte principal ou compte lié) ;
  * - `404` compte à rattacher introuvable (mode `existing` uniquement) ;
  * - `400` champs de liaison incohérents avec le mode déclaré ;
+ * - `400` champs inconnus refusés par le serveur (décalage front/back) : délégué à
+ *   `getErrorMessage`, qui affiche un message d'action sans détail technique ;
  * - tout le reste retombe sur `getErrorMessage`.
  */
 
 import type { LinkedAccountMode, LinkedAccountRelation } from '../types/accounts'
-import { getErrorMessage, getErrorStatus } from './apiError'
+import {
+  getErrorMessage,
+  getErrorStatus,
+  isUnknownFieldsRejection,
+  readBackendMessage,
+} from './apiError'
 import { LINKED_ACCOUNT_LABELS } from './accountLinking'
 
 /** Compte visé par une erreur d'identifiant déjà pris. */
@@ -61,13 +68,6 @@ export function buildRegistrationErrorContext(
       ? payload.parentLoginIdentifier
       : payload.studentLoginIdentifier,
   }
-}
-
-function readBackendMessage(error: unknown): string {
-  const message = (error as { response?: { data?: { message?: unknown } } })?.response?.data?.message
-  if (typeof message === 'string') return message
-  if (Array.isArray(message)) return message.filter((part) => typeof part === 'string').join(' ')
-  return ''
 }
 
 function quote(value?: string): string {
@@ -121,6 +121,13 @@ export function getRegistrationErrorMessage(
   const status = getErrorStatus(error)
   const { target } = LINKED_ACCOUNT_LABELS[context.relation]
   const hasLinkedAccount = context.linkedAccountMode !== 'none'
+
+  // Un `400` « champs inconnus » ne vient jamais de la saisie : c'est un décalage
+  // front/back. Il doit donc court-circuiter le diagnostic « compte lié », qui
+  // enverrait l'utilisateur corriger une section pourtant correcte.
+  if (isUnknownFieldsRejection(error)) {
+    return getErrorMessage(error, fallback)
+  }
 
   if (status === 409) {
     const conflictingAccount = resolveConflictingAccount(error, context)

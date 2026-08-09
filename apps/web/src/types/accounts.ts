@@ -4,6 +4,9 @@
 
 export type AccountStatus = 'active' | 'suspended' | 'pending'
 
+/** Types de consentement reconnus par identity-access-service (docs/routes.md). */
+export type ConsentType = 'rgpd' | 'cgu' | 'marketing'
+
 export interface CheckEmailAvailabilityResult {
   alreadyUsed: boolean
   suggestedLoginIdentifier: string
@@ -58,9 +61,29 @@ export interface RegisterParentPayload {
   studentLastName?: string
 }
 
-export interface RegistrationConsents {
-  rgpd: boolean
-  cgu: boolean
+/**
+ * Consentement recueilli par le formulaire d'inscription et transmis dans le corps
+ * de la création de compte (voir docs/routes.md > `consents`).
+ *
+ * Une seule donnée, un seul nom : la forme est **strictement identique** à celle du
+ * corps de `POST /consents` (`consentType`, `version` optionnelle, défaut `1.0`).
+ * L'ancienne forme `{rgpd: true, cgu: true}` était silencieusement jetée par le
+ * serveur et renvoie désormais `400`.
+ */
+export interface RegistrationConsent {
+  consentType: ConsentType
+  version?: string
+}
+
+/**
+ * État des cases à cocher de l'étape « Consentements RGPD / CGU », partagé par les
+ * wizards d'inscription élève et formateur. Converti en `RegistrationConsent[]` par
+ * `buildRegistrationConsents` (src/utils/registrationConsents.ts) : seul ce que
+ * l'utilisateur a réellement coché est transmis.
+ */
+export interface RegistrationConsentsFormData {
+  hasAcceptedRgpd: boolean
+  hasAcceptedCgu: boolean
 }
 
 export interface RegisterStudentPayload {
@@ -69,9 +92,13 @@ export interface RegisterStudentPayload {
   password: string
   firstName: string
   lastName: string
-  birthDate?: string
   phoneNumber?: string
-  consents: RegistrationConsents
+  /**
+   * Omis si l'utilisateur n'a rien coché. Le compte lié éventuellement créé dans le
+   * même appel n'en reçoit jamais : un consentement est un acte personnel, il signe
+   * les siens à sa première connexion (docs/routes.md).
+   */
+  consents?: RegistrationConsent[]
   // Liaison optionnelle à un parent financeur, dans le même appel
   // POST /accounts/students (voir docs/routes.md). `parentAccountMode` déclare
   // l'intention ; il est obligatoire dès qu'un champ `parent*` est transmis, sans
@@ -92,10 +119,7 @@ export interface RegisterTeacherPayload {
   firstName: string
   lastName: string
   phoneNumber?: string
-  teachingSubjects?: string
-  educationLevel?: string
-  bio?: string
-  consents: RegistrationConsents
+  consents?: RegistrationConsent[]
 }
 
 export interface ChangeAccountStatusPayload {
@@ -106,8 +130,6 @@ export interface ChangeAccountStatusPayload {
 export interface RegenerateAccountAccessPayload {
   reason: string
 }
-
-export type ConsentType = 'rgpd' | 'cgu' | 'marketing'
 
 export interface Consent {
   consentType: string

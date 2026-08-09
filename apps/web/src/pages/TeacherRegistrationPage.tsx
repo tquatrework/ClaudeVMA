@@ -7,18 +7,14 @@ import {
   TeacherAdministrativeStep,
   type TeacherAdministrativeFormData,
 } from '../components/accounts/TeacherAdministrativeStep'
-import {
-  TeacherPedagogicalStep,
-  type TeacherPedagogicalFormData,
-} from '../components/accounts/TeacherPedagogicalStep'
 import { RegistrationRgpdStep } from '../components/accounts/RegistrationRgpdStep'
+import {
+  buildRegistrationConsents,
+  hasGivenRequiredConsents,
+} from '../utils/registrationConsents'
+import type { RegistrationConsentsFormData } from '../types/accounts'
 
-type WizardStep = 'administrative' | 'pedagogical' | 'rgpd'
-
-interface RgpdFormData {
-  hasAcceptedRgpd: boolean
-  hasAcceptedCgu: boolean
-}
+type WizardStep = 'administrative' | 'rgpd'
 
 const INITIAL_ADMINISTRATIVE: TeacherAdministrativeFormData = {
   email: '',
@@ -30,22 +26,15 @@ const INITIAL_ADMINISTRATIVE: TeacherAdministrativeFormData = {
   phoneNumber: '',
 }
 
-const INITIAL_PEDAGOGICAL: TeacherPedagogicalFormData = {
-  teachingSubjects: '',
-  educationLevel: '',
-  bio: '',
-}
-
-const INITIAL_RGPD: RgpdFormData = {
+const INITIAL_RGPD: RegistrationConsentsFormData = {
   hasAcceptedRgpd: false,
   hasAcceptedCgu: false,
 }
 
-const STEP_ORDER: WizardStep[] = ['administrative', 'pedagogical', 'rgpd']
+const STEP_ORDER: WizardStep[] = ['administrative', 'rgpd']
 
 const STEP_LABELS: Record<WizardStep, string> = {
   administrative: 'Informations administratives',
-  pedagogical: 'Profil pédagogique',
   rgpd: 'Consentements',
 }
 
@@ -53,8 +42,7 @@ export default function TeacherRegistrationPage() {
   const navigate = useNavigate()
   const [currentStep, setCurrentStep] = useState<WizardStep>('administrative')
   const [administrativeData, setAdministrativeData] = useState<TeacherAdministrativeFormData>(INITIAL_ADMINISTRATIVE)
-  const [pedagogicalData, setPedagogicalData] = useState<TeacherPedagogicalFormData>(INITIAL_PEDAGOGICAL)
-  const [rgpdData, setRgpdData] = useState<RgpdFormData>(INITIAL_RGPD)
+  const [rgpdData, setRgpdData] = useState<RegistrationConsentsFormData>(INITIAL_RGPD)
   const [validationError, setValidationError] = useState<string | null>(null)
   const {
     alreadyUsed: isEmailAlreadyUsed,
@@ -77,10 +65,6 @@ export default function TeacherRegistrationPage() {
     }
   }, [suggestedLoginIdentifier])
 
-  const handlePedagogicalChange = (field: keyof TeacherPedagogicalFormData, value: string) => {
-    setPedagogicalData((prev) => ({ ...prev, [field]: value }))
-  }
-
   const handleAdministrativeNext = (e: React.FormEvent) => {
     e.preventDefault()
     setValidationError(null)
@@ -94,12 +78,6 @@ export default function TeacherRegistrationPage() {
       return
     }
 
-    setCurrentStep('pedagogical')
-  }
-
-  const handlePedagogicalNext = (e: React.FormEvent) => {
-    e.preventDefault()
-    setValidationError(null)
     setCurrentStep('rgpd')
   }
 
@@ -107,7 +85,7 @@ export default function TeacherRegistrationPage() {
     e.preventDefault()
     setValidationError(null)
 
-    if (!rgpdData.hasAcceptedRgpd || !rgpdData.hasAcceptedCgu) {
+    if (!hasGivenRequiredConsents(rgpdData)) {
       setValidationError('Vous devez accepter les consentements RGPD et CGU pour créer votre compte')
       return
     }
@@ -119,20 +97,14 @@ export default function TeacherRegistrationPage() {
       firstName: administrativeData.firstName,
       lastName: administrativeData.lastName,
       phoneNumber: administrativeData.phoneNumber || undefined,
-      teachingSubjects: pedagogicalData.teachingSubjects || undefined,
-      educationLevel: pedagogicalData.educationLevel || undefined,
-      bio: pedagogicalData.bio || undefined,
-      consents: {
-        rgpd: rgpdData.hasAcceptedRgpd,
-        cgu: rgpdData.hasAcceptedCgu,
-      },
+      consents: buildRegistrationConsents(rgpdData),
     })
 
     if (success) {
       navigate('/login', {
         state: {
           message:
-            'Votre demande de compte formateur a été soumise. Elle sera examinée par un Responsable Pédagogique.',
+            'Votre demande de compte formateur a été soumise, vos consentements sont enregistrés. Elle sera examinée par un Responsable Pédagogique. Vous compléterez votre profil pédagogique après connexion.',
         },
       })
     }
@@ -145,7 +117,9 @@ export default function TeacherRegistrationPage() {
       <div className="w-full max-w-lg bg-white rounded-2xl shadow-md p-8">
         <h1 className="text-2xl font-bold text-indigo-600 mb-2">Créer un compte formateur</h1>
         <p className="text-sm text-gray-500 mb-4">
-          Votre dossier sera examiné par un Responsable Pédagogique avant activation.
+          Votre dossier sera examiné par un Responsable Pédagogique avant activation. Vous
+          renseignerez votre profil pédagogique (matières, niveaux, présentation) depuis votre
+          espace, après connexion.
         </p>
 
         <RegistrationProgressIndicator
@@ -170,20 +144,11 @@ export default function TeacherRegistrationPage() {
           />
         )}
 
-        {currentStep === 'pedagogical' && (
-          <TeacherPedagogicalStep
-            pedagogicalData={pedagogicalData}
-            onChange={handlePedagogicalChange}
-            onSubmit={handlePedagogicalNext}
-            onBack={() => setCurrentStep('administrative')}
-          />
-        )}
-
         {currentStep === 'rgpd' && (
           <RegistrationRgpdStep
             rgpdData={rgpdData}
             onRgpdChange={(field, value) => setRgpdData((prev) => ({ ...prev, [field]: value }))}
-            onBack={() => setCurrentStep('pedagogical')}
+            onBack={() => setCurrentStep('administrative')}
             onSubmit={handleFinalSubmit}
             isSubmitting={isSubmitting}
             submitLabel="Soumettre ma candidature"

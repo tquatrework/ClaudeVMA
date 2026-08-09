@@ -49,10 +49,10 @@ Réponse login/refresh : `{access_token, refresh_token, user: {id, email, role, 
 | Méthode | Chemin | Description | Auth | Rôles | Body |
 |---|---|---|---|---|---|
 | GET | /accounts/check-email | Vérifier la disponibilité d'un email | Non | — | Query: `email` |
-| POST | /accounts | Créer un compte générique (auto-inscription, non utilisée par le front) | Non | — | `{email, password, role?, loginIdentifier?}` |
-| POST | /accounts/students | Créer un compte élève (+ parent optionnel) | Non | — | `{email, password, firstName, lastName, phoneNumber?, loginIdentifier?, isMember?, parentAccountMode?, parentLoginIdentifier?, parentEmail?, parentPassword?, parentFirstName?, parentLastName?}` |
-| POST | /accounts/teachers | Créer un compte formateur | Non | — | `{email, password, firstName, lastName, phoneNumber?, loginIdentifier?, cvReference?}` |
-| POST | /accounts/parents | Créer un compte parent / financeur (+ élève optionnel) | Non | — | `{email, password, firstName, lastName, phoneNumber?, loginIdentifier?, studentAccountMode?, studentLoginIdentifier?, studentEmail?, studentPassword?, studentFirstName?, studentLastName?}` |
+| POST | /accounts | Créer un compte générique (auto-inscription, non utilisée par le front) | Non | — | `{email, password, role?, loginIdentifier?, consents?}` |
+| POST | /accounts/students | Créer un compte élève (+ parent optionnel) | Non | — | `{email, password, firstName, lastName, phoneNumber?, loginIdentifier?, isMember?, consents?, parentAccountMode?, parentLoginIdentifier?, parentEmail?, parentPassword?, parentFirstName?, parentLastName?}` |
+| POST | /accounts/teachers | Créer un compte formateur | Non | — | `{email, password, firstName, lastName, phoneNumber?, loginIdentifier?, cvReference?, consents?}` |
+| POST | /accounts/parents | Créer un compte parent / financeur (+ élève optionnel) | Non | — | `{email, password, firstName, lastName, phoneNumber?, loginIdentifier?, consents?, studentAccountMode?, studentLoginIdentifier?, studentEmail?, studentPassword?, studentFirstName?, studentLastName?}` |
 | GET | /accounts/:accountId | Lire un compte | 🔒 | TI, RP, AdministrateurFinancier | — |
 | PUT | /accounts/:accountId/roles | Changer le rôle | 🔒 | RP, TI | `{role}` |
 | PUT | /accounts/:accountId/validate | Valider un compte | 🔒 | RP, TI | — |
@@ -69,6 +69,43 @@ nomme le compte principal créé. S'il est omis, un identifiant est dérivé de 
 (avec suffixe `.2`, `.3`… en cas de collision) ; s'il est fourni et déjà pris, `409`. Avant le
 2026-08-09, `POST /accounts/parents` ne déclarait pas ce champ et le jetait silencieusement
 (`whitelist: true`) — corrigé, voir `docs/architecture.md` > "Arbitrages rendus" (2026-08-09).
+
+**`consents` — consentements recueillis par le formulaire d'inscription (2026-08-09) :**
+
+Champ **optionnel**, présent sur les 4 routes de création de compte et sur `POST /internal/create-account`.
+Forme : **un tableau d'objets identiques au corps de `POST /consents`** —
+`consents: [{consentType: 'rgpd' | 'cgu' | 'marketing', version?: string}]`. Un seul nom par donnée :
+`consentType` et `version` s'écrivent ici exactement comme sur `POST /consents`.
+
+- Chaque élément est réellement enregistré dans `consent_records` par le **même chemin** que
+  `POST /consents` : même table, même version par défaut (`1.0` si `version` est omis), même capture de
+  `ip_address` (adresse de la requête d'inscription) et de `signed_at`.
+- L'écriture a lieu **dans la transaction de création du compte** : un échec ultérieur (profile-service
+  indisponible, identifiant pris…) annule aussi les consentements — jamais de trace orpheline, jamais de
+  compte créé en jetant un consentement donné.
+- Quand `rgpd` **et** `cgu` sont fournis, le compte est renvoyé `validationStatus: 'active'` et
+  `consentSigned: true` **dès la réponse `201`**. Sinon il reste `pending` et l'utilisateur devra signer
+  via `POST /consents`.
+- Un `consentType` envoyé deux fois dans le même appel → `400` (un consentement est enregistré une fois,
+  avec une version).
+- Un événement `ConsentSigned` est publié par consentement enregistré, après le commit.
+- `POST /consents` **reste nécessaire** : re-consentement, changement de version, consentement
+  `marketing` signé plus tard, et signature par un compte lié (ci-dessous).
+
+**Le compte lié créé en parallèle ne reçoit jamais les consentements du créateur.** Il n'existe donc
+aucun champ `parentConsents` / `studentConsents` — l'envoyer renvoie `400`. Un consentement est un acte
+personnel : ni un élève ne consent pour son parent, ni un parent pour l'élève dont il crée le compte
+(ce service ignore l'âge de l'élève, et le compte peut être celui d'un majeur). Le compte lié est créé
+`pending` avec `consentSigned: false` et signe les siens via `POST /consents` à sa première connexion.
+
+**Aucun champ inconnu n'est absorbé sur ces routes (2026-08-09) :** les 4 routes de création de compte
+et `POST /internal/create-account` rejettent en `400` explicite tout champ que leur DTO ne déclare pas,
+en listant les champs inconnus **et** les champs acceptés. Cas concrets encore envoyés par le front au
+2026-08-09 et désormais refusés : `birthDate` sur `/accounts/students`, `teachingSubjects`,
+`educationLevel` et `bio` sur `/accounts/teachers` — ces données appartiennent aux profils de
+profile-service, pas à identity-access-service, et étaient jusqu'ici perdues en silence. `whitelist: true`
+reste actif globalement (les autres routes du service continuent d'ignorer les champs inconnus, voir le
+point ouvert `TD-forbid-non-whitelisted-global` dans `docs/services/identity-access-service.md`).
 
 **Compte lié créé en parallèle — intention explicite (`parentAccountMode` / `studentAccountMode`) :**
 
@@ -124,6 +161,14 @@ Réponse `POST /accounts/parents` : `{parent, student}`, symétrique — `parent
 
 Types : `rgpd` (requis), `cgu` (requis), `marketing` (optionnel). Une fois RGPD+CGU signés, le compte passe automatiquement à `active`.
 
+`409` si un consentement de ce type est déjà signé pour ce compte.
+
+Cette route reste le point d'entrée pour : les **re-consentements** et **changements de version**, le
+consentement `marketing` signé après coup, et la signature par un **compte lié** créé lors de
+l'inscription de quelqu'un d'autre (qui n'hérite jamais des consentements du créateur). Les
+consentements donnés **pendant** le formulaire d'inscription passent, eux, par le champ `consents` des
+routes de création de compte (voir plus haut) — même table, même trace, en une seule requête.
+
 ### API interne inter-services (non exposée via nginx)
 
 > Exclue de Swagger (`@ApiExcludeController`). Protégée par `X-Internal-Secret: <INTERNAL_SECRET>`.
@@ -136,12 +181,19 @@ Types : `rgpd` (requis), `cgu` (requis), `marketing` (optionnel). Une fois RGPD+
 | GET | /internal/accounts/by-login-identifier | Résoudre un compte par `loginIdentifier` | `X-Internal-Secret` |
 | GET | /internal/accounts/by-user-id/:userId | Résoudre un compte par `userId` | `X-Internal-Secret` |
 
-Body `POST /internal/create-account` : `{email, password, role?, loginIdentifier?}` — réutilise
+Body `POST /internal/create-account` : `{email, password, role?, loginIdentifier?, consents?}` — réutilise
 `CreateAccountDto`, donc **mêmes règles de validation que `POST /accounts`** : n'accepte pas
-`firstName`/`lastName`/`phoneNumber` (`400` si envoyés). C'est la route consommée par
-orchestration-service dans les workflows `student-onboarding`/`teacher-onboarding` : ces workflows
-transmettent `firstName`/`lastName` séparément et directement à profile-service (jamais via cette
-route) — voir la section orchestration-service et `docs/architecture.md` > "Arbitrages rendus".
+`firstName`/`lastName`/`phoneNumber` (`400` si envoyés), et rejette en `400` explicite tout autre champ
+inconnu. C'est la route consommée par orchestration-service dans les workflows
+`student-onboarding`/`teacher-onboarding` : ces workflows transmettent `firstName`/`lastName` séparément
+et directement à profile-service (jamais via cette route) — voir la section orchestration-service et
+`docs/architecture.md` > "Arbitrages rendus".
+
+`consents` y suit exactement le même contrat que sur les routes publiques
+(`[{consentType, version?}]`). orchestration-service transmettait déjà ce champ depuis
+`buildPayload` de l'étape `create-account` des deux workflows d'onboarding, mais il était
+silencieusement jeté faute d'être déclaré ; il est désormais enregistré (avec `ip_address` vide, l'appel
+étant interservice) et le compte ressort `active` quand `rgpd` + `cgu` sont fournis.
 
 Réponse `POST /internal/create-account` : `{accountId, email, role}`
 Réponse `GET /internal/accounts/by-user-id/:userId` : `{userId, loginIdentifier, role}` — **ne contient jamais `firstName`/`lastName`/`phone`** (identity-access-service ne les possède pas ; un consommateur qui a besoin de ces champs doit les demander à profile-service).

@@ -13,7 +13,9 @@ interface ApiErrorShape {
   response?: {
     status?: number
     data?: {
-      message?: string
+      // NestJS renvoie une chaîne pour les erreurs métier, et un tableau pour les
+      // violations de validation (`ValidationPipe`).
+      message?: string | string[]
     }
   }
   request?: unknown
@@ -34,9 +36,50 @@ const NETWORK_ERROR_MESSAGE = 'Impossible de contacter le serveur. Vérifiez vot
 const SERVER_ERROR_MESSAGE = 'Le serveur rencontre un problème. Veuillez réessayer plus tard.'
 
 /**
+ * Message affiché quand le serveur refuse des champs qu'il ne déclare pas
+ * (`400` « champs inconnus »). L'utilisateur ne peut rien corriger à l'écran : la
+ * cause est un décalage entre la version du front chargée dans son navigateur et
+ * celle du serveur. On lui dit quoi faire, sans lui montrer de noms de champs.
+ */
+const UNKNOWN_FIELDS_MESSAGE =
+  "Cette page n'est plus à jour avec le serveur. Rechargez la page, puis réessayez. Si le problème persiste, contactez le support."
+
+/**
+ * Marqueurs du refus de champs inconnus, tels que renvoyés par identity-access-service
+ * (garde `reject-unknown-body-fields`) et par `ValidationPipe({forbidNonWhitelisted})`.
+ * Ces libellés sont techniques et en anglais : ils ne doivent jamais atteindre l'écran.
+ */
+const UNKNOWN_FIELDS_MARKERS = ['accepted fields for this route', 'unknown field']
+
+/** Concatène le message backend, qu'il soit une chaîne ou un tableau de violations. */
+export function readBackendMessage(error: unknown): string {
+  const backendMessage = (error as ApiErrorShape)?.response?.data?.message
+  if (typeof backendMessage === 'string') return backendMessage
+  if (Array.isArray(backendMessage)) {
+    return backendMessage.filter((part) => typeof part === 'string').join(' ')
+  }
+  return ''
+}
+
+/**
+ * L'erreur est-elle un refus de champs inconnus par le serveur ?
+ *
+ * Ce cas signale un décalage de déploiement front/back, jamais une saisie fautive :
+ * il mérite donc un message d'action (recharger) plutôt qu'un « vérifiez vos
+ * informations » qui enverrait l'utilisateur corriger un formulaire correct.
+ */
+export function isUnknownFieldsRejection(error: unknown): boolean {
+  if (getErrorStatus(error) !== 400) return false
+  const backendMessage = readBackendMessage(error).toLowerCase()
+  return UNKNOWN_FIELDS_MARKERS.some((marker) => backendMessage.includes(marker))
+}
+
+/**
  * Traduit une erreur (HTTP ou réseau) en message lisible pour l'utilisateur final.
  *
  * Ordre de priorité :
+ * 0. Refus de champs inconnus (`400`) : message d'action dédié — le détail technique
+ *    (noms de champs, anglais) est journalisé pour le développeur, jamais affiché.
  * 1. Message métier renvoyé par le backend (`response.data.message`), s'il existe — c'est
  *    l'information la plus précise (ex. règle métier violée).
  * 2. Message par défaut associé au code HTTP (401 / 403 / 404 / 409 / 400 / 422).
@@ -53,6 +96,14 @@ export function getErrorMessage(error: unknown, fallback?: string): string {
   const apiError = error as ApiErrorShape
 
   const status = apiError?.response?.status
+
+  if (isUnknownFieldsRejection(error)) {
+    // Décalage front/back : inexploitable par l'utilisateur, mais indispensable au
+    // développeur pour identifier le champ fautif.
+    console.error('[apiError] champs refusés par le serveur :', readBackendMessage(error))
+    return UNKNOWN_FIELDS_MESSAGE
+  }
+
   const backendMessage = apiError?.response?.data?.message
 
   if (typeof backendMessage === 'string' && backendMessage.trim().length > 0) {

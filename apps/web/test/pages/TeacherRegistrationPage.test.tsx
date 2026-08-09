@@ -2,12 +2,13 @@
  * Tests for TeacherRegistrationPage
  *
  * Covers:
- * - Form rendering (3-step wizard: administrative, pedagogical, RGPD)
+ * - Form rendering (2-step wizard: administrative, RGPD)
  * - Step navigation (next and back)
  * - RGPD consent required before submission
- * - Calls registerTeacher on final submit
+ * - Calls registerTeacher with the server contract for `consents`
+ * - No longer sends the pedagogical fields, which the server never stored
  * - Redirects to /login after success
- * - API error displayed
+ * - API error displayed, including the "unknown fields" 400
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -79,25 +80,10 @@ describe('TeacherRegistrationPage', () => {
     })
   })
 
-  it('advances to step 2 (pedagogical) on valid step 1', async () => {
+  it('advances directly to the consents step after step 1', async () => {
     renderTeacherRegistrationPage()
 
     await fillAdministrativeStep()
-    await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
-
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /profil pédagogique/i })).toBeDefined()
-      expect(screen.getByPlaceholderText(/ex: mathématiques/i)).toBeDefined()
-    })
-  })
-
-  it('advances to step 3 (RGPD) from step 2', async () => {
-    renderTeacherRegistrationPage()
-
-    await fillAdministrativeStep()
-    await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
-    await waitFor(() => screen.getByRole('heading', { name: /profil pédagogique/i }))
-
     await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
 
     await waitFor(() => {
@@ -106,34 +92,36 @@ describe('TeacherRegistrationPage', () => {
     })
   })
 
-  it('can navigate back from step 2 to step 1', async () => {
+  it('no longer offers the pedagogical fields, which the server never stored', async () => {
     renderTeacherRegistrationPage()
+
+    expect(screen.queryByPlaceholderText(/ex: mathématiques/i)).toBeNull()
 
     await fillAdministrativeStep()
     await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
-    await waitFor(() => screen.getByRole('heading', { name: /profil pédagogique/i }))
+    await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
 
-    await userEvent.click(screen.getByRole('button', { name: /retour/i }))
-
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText(/vous@exemple\.fr/i)).toBeDefined()
-    })
+    expect(screen.queryByRole('heading', { name: /profil pédagogique/i })).toBeNull()
+    expect(screen.queryByPlaceholderText(/ex: mathématiques/i)).toBeNull()
   })
 
-  it('can navigate back from step 3 to step 2', async () => {
+  it('tells the applicant where the pedagogical profile is filled in instead', () => {
+    renderTeacherRegistrationPage()
+
+    expect(screen.getByText(/profil pédagogique.*après connexion/i)).toBeDefined()
+  })
+
+  it('can navigate back from the consents step to step 1', async () => {
     renderTeacherRegistrationPage()
 
     await fillAdministrativeStep()
-    await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
-    await waitFor(() => screen.getByRole('heading', { name: /profil pédagogique/i }))
-
     await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
     await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
 
     await userEvent.click(screen.getByRole('button', { name: /retour/i }))
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /profil pédagogique/i })).toBeDefined()
+      expect(screen.getByPlaceholderText(/vous@exemple\.fr/i)).toBeDefined()
     })
   })
 
@@ -144,13 +132,9 @@ describe('TeacherRegistrationPage', () => {
     // Step 1
     await fillAdministrativeStep()
     await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
-    await waitFor(() => screen.getByRole('heading', { name: /profil pédagogique/i }))
-
-    // Step 2
-    await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
     await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
 
-    // Step 3
+    // Step 2
     const checkboxes = screen.getAllByRole('checkbox')
     await userEvent.click(checkboxes[0])
     await userEvent.click(checkboxes[1])
@@ -163,10 +147,17 @@ describe('TeacherRegistrationPage', () => {
           password: 'password123',
           firstName: 'Marc',
           lastName: 'Martin',
-          consents: { rgpd: true, cgu: true },
+          // Contrat serveur : tableau d'objets, identique au corps de POST /consents.
+          consents: [{ consentType: 'rgpd' }, { consentType: 'cgu' }],
         }),
       )
     })
+
+    // Champs que le serveur refuse désormais explicitement (400) : jamais transmis.
+    const payload = mockRegisterTeacher.mock.calls[0][0] as Record<string, unknown>
+    expect(payload.teachingSubjects).toBeUndefined()
+    expect(payload.educationLevel).toBeUndefined()
+    expect(payload.bio).toBeUndefined()
   })
 
   it('redirects to /login after successful submission', async () => {
@@ -174,9 +165,6 @@ describe('TeacherRegistrationPage', () => {
     renderTeacherRegistrationPage()
 
     await fillAdministrativeStep()
-    await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
-    await waitFor(() => screen.getByRole('heading', { name: /profil pédagogique/i }))
-
     await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
     await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
 
@@ -197,9 +185,6 @@ describe('TeacherRegistrationPage', () => {
     renderTeacherRegistrationPage()
 
     await fillAdministrativeStep()
-    await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
-    await waitFor(() => screen.getByRole('heading', { name: /profil pédagogique/i }))
-
     await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
     await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
 
@@ -234,7 +219,34 @@ describe('TeacherRegistrationPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /profil pédagogique/i })).toBeDefined()
+      expect(screen.getByRole('heading', { name: /consentements rgpd/i })).toBeDefined()
     })
+  })
+
+  it('explains an "unknown fields" 400 as a front/server mismatch, without showing field names', async () => {
+    mockRegisterTeacher.mockRejectedValue({
+      response: {
+        status: 400,
+        data: {
+          message:
+            'Unknown field(s): teachingSubjects, bio. Accepted fields for this route: email, password, firstName, lastName, phoneNumber, loginIdentifier, cvReference, consents.',
+        },
+      },
+    })
+    renderTeacherRegistrationPage()
+
+    await fillAdministrativeStep()
+    await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+    await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
+
+    const checkboxes = screen.getAllByRole('checkbox')
+    await userEvent.click(checkboxes[0])
+    await userEvent.click(checkboxes[1])
+    await userEvent.click(screen.getByRole('button', { name: /soumettre ma candidature/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/n'est plus à jour avec le serveur/i)).toBeDefined()
+    })
+    expect(screen.queryByText(/teachingSubjects/)).toBeNull()
   })
 })

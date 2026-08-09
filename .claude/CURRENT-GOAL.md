@@ -7,97 +7,97 @@
 
 ## Besoin
 
-Quand on crée un compte en entraînant la création d'un second compte lié, le compte créé en
-parallèle doit pouvoir se connecter. Il lui faut donc un **identifiant de connexion**, saisi
-au moment de la création — l'email seul ne suffit pas, la page de login demande
-`loginIdentifier`.
+Quand un utilisateur accepte les consentements RGPD et les CGU au moment de son inscription,
+cette acceptation doit être **enregistrée et tracée**. Aujourd'hui elle est envoyée par le
+front puis jetée en silence par le serveur : le compte reste `pending`, et l'utilisateur voit
+« Votre compte n'est pas encore activé. Signer les consentements pour activer votre espace. »
+alors qu'il vient précisément de les signer.
 
-Deux formulaires concernés, symétriques :
-- `register/student` → bloc « créer un compte parent financeur en parallèle » ;
-- `register/parent` → bloc « créer un compte élève lié ».
+Enjeu réglementaire : un consentement RGPD recueilli puis perdu est pire que pas de
+consentement du tout — l'utilisateur croit avoir consenti, l'application n'en a aucune trace.
 
-Signalé par l'utilisateur le 2026-08-09 comme un bug de conception.
-
-## Ce que la vérification contre la pile réelle a établi
-
-Trois défauts, pas un. Vérifiés par sondes HTTP sur `https://claudevma.visioprof.fr`
-(comptes de sonde supprimés après coup) :
-
-1. `POST /accounts/parents` n'a **aucun** champ `loginIdentifier` pour le parent lui-même.
-   Un identifiant transmis est **silencieusement ignoré** : sonde A a envoyé
-   `choisi.par.utilisateur.…`, le compte a été créé avec `probea.parent.…` dérivé de l'email.
-   Le champ « Identifiant de connexion » affiché par `register/parent` est donc mensonger.
-2. `parentLoginIdentifier` désigne un compte **existant** à rattacher. Sonde B l'a envoyé
-   avec les champs de création → `404 No account found`. Aucun champ ne permet donc
-   aujourd'hui de nommer le compte créé en parallèle.
-3. Le compte lié reçoit un identifiant dérivé de son email que personne ne lui communique.
-
-Arbitrage inscrit dans `docs/architecture.md` : rendre les deux intentions distinctes et
-explicites dans les DTO, et donner un `loginIdentifier` à `/accounts/parents`.
+Demandé le 2026-08-09, après que les deux subagents l'ont signalé indépendamment pendant la
+correction de l'identifiant de connexion.
 
 ## Comment on saura que c'est fait
 
-Deux captures de `https://claudevma.visioprof.fr` livrées dans la conversation :
-1. `register/student`, bloc parent financeur : le champ identifiant de connexion est visible ;
-2. `register/parent`, bloc élève lié : idem.
-
-Puis une création réellement jouée contre la pile réelle, suivie d'une **connexion réussie du
-compte créé en parallèle** avec l'identifiant saisi — c'est la seule preuve qui vaille, le
-besoin étant précisément que ce compte puisse se connecter.
+Une inscription réellement jouée sur `https://claudevma.visioprof.fr`, suivie de :
+1. une capture montrant le compte **sans** le bandeau « compte pas encore activé » après
+   avoir coché les consentements à l'inscription ;
+2. la trace du consentement citée depuis la pile réelle (ligne en base ou réponse HTTP de
+   `/consents`), avec sa date et son type.
 
 **Ni les tests verts ni une PR ouverte ne valent validation** : la suite front simule le réseau.
 
+## Ce que la vérification contre la pile réelle a établi
+
+Inscription jouée avec `consents: {rgpd: true, cgu: true}` et `birthDate` dans le corps :
+- `consent_records` → **0 ligne** ; `consent_signed` = `false` ; `validation_status` = `pending` ;
+- `administrative_profiles.date_naissance` → **NULL**.
+
+Le mécanisme cible existe et **fonctionne** : `POST /consents` écrit la trace (type, version,
+adresse IP, horodatage) et, une fois rgpd + cgu signés, bascule `consent_signed` à `true` et
+`validation_status` à `active`. Vérifié sur le même compte de sonde, supprimé depuis.
+
+Le défaut est donc que les routes de création de compte **contournent** ce mécanisme au lieu
+de l'emprunter. Arbitrage inscrit dans `docs/architecture.md`.
+
 ## État
 
-- [x] Contrat `identity-access-service` clarifié et asymétrie tranchée
-      (mode explicite `'none' | 'existing' | 'new'` + `loginIdentifier` sur `/accounts/parents`)
-- [x] Codé et committé — backend puis front, branche `feat/login-identifier-on-linked-account`
-- [x] Déployé sur la pile réelle (`identity-access-service` et `frontend` reconstruits)
-- [x] Preuve livrée à l'utilisateur — 2026-08-09, parcours complet joué sur
-      `https://claudevma.visioprof.fr` dans les deux sens :
-      - `register/student` → parent `sophie.choisi.092045` créé avec l'identifiant **saisi**
-        (et non `sophie.essai…` dérivé de l'email), puis **connexion réussie** de ce parent,
-        qui voit « Camille Essai092045 » sous Mes élèves ;
-      - `register/parent` → élève `theo.choisi.092247` créé de même, **connexion réussie**.
-      Comptes d'essai supprimés après coup ; le lien `eleve.seconde` ↔ `maman.deuxenfants`
-      de l'objectif précédent a été vérifié intact.
-- [x] Validé par l'utilisateur — 2026-08-09, sur les captures du parcours réel
-- [x] Mergé dans master — PR #74, puis `identity-access-service` et `frontend` reconstruits
-      depuis `master` et redéployés. Contrat vérifié en ligne, champs présents sur les deux
-      formulaires. L'utilisateur teste depuis son poste sur `https://claudevma.visioprof.fr`.
+- [x] Comportement réel constaté et cause confirmée
+- [x] Propriété de la donnée arbitrée — les consentements appartiennent à
+      `identity-access-service` ; `birthDate` à `profile-service`
+- [x] Codé et committé — `identity-access-service` puis front,
+      branche `fix/rgpd-consents-dropped-at-registration`
+- [x] Déployé sur la pile réelle (déploiement couplé : les deux services ensemble)
+- [x] Preuve livrée à l'utilisateur — 2026-08-09, inscription jouée sur
+      `https://claudevma.visioprof.fr` : corps envoyé
+      `consents: [{"consentType":"rgpd"},{"consentType":"cgu"}]`, réponse `201` avec
+      `validationStatus: "active"` et `consentSigned: true`, **2 lignes** dans
+      `consent_records` (rgpd + cgu, version 1.0, IP, horodatage), et **aucun bandeau**
+      « compte pas encore activé » après connexion. Compte d'essai supprimé.
+- [ ] Validé par l'utilisateur
+- [ ] Mergé dans master
+
+## Effets de bord à valider avec l'utilisateur avant merge
+
+- **Étape « Profil pédagogique » retirée du formulaire formateur** : ses trois champs
+  (`teachingSubjects`, `educationLevel`, `bio`) n'étaient jamais stockés. Le wizard passe de
+  3 à 2 étapes. Conséquence métier : le RP n'a plus matières/niveaux/présentation au moment
+  de valider une candidature. À restaurer en les acheminant vers `profile-service`.
+- **Champ « Date de naissance » retiré du formulaire élève** : jamais stocké non plus
+  (`date_naissance = NULL` mesuré). Reste saisissable après connexion dans le profil
+  administratif. À remettre quand `profile-service` saura le recevoir à la création.
+- **`register/parent` n'a aucune étape de consentement** : le parent repart `pending` alors
+  qu'élève et formateur repartent `active`. Rien n'est perdu, mais le parcours est
+  incohérent entre rôles.
 
 ## Bloqué par
 
 Rien.
 
-## Trouvé en chemin, hors périmètre — à traiter ensuite
+## Périmètre
 
-`POST /accounts/students` reçoit `consents` (acceptation RGPD/CGU) et `birthDate`, qui ne
-figurent pas dans son DTO. Le `ValidationPipe({ whitelist: true })` les **jette en silence** —
-exactement le mécanisme qui faisait disparaître `loginIdentifier`. Les consentements RGPD
-saisis à l'inscription sont donc potentiellement perdus. Signalé indépendamment par les deux
-subagents. Non touché ici pour rester dans le périmètre demandé.
+Le besoin porte sur les **consentements**. `birthDate`, envoyé par le même appel et
+vraisemblablement jeté par le même mécanisme, appartient à `profile-service` et non à
+`identity-access-service` : à constater et à rapporter, à ne corriger que si cela relève
+du même geste.
 
 ---
 
 ## Dernier objectif clos — 2026-08-09
 
-**Besoin** : dans Profil > Parents financeurs, un élève doit lire le prénom et le nom de son
-parent financeur, jamais son identifiant technique. Demandé le 2026-08-04.
+**Besoin** : un compte créé en parallèle d'une inscription doit pouvoir se connecter, donc
+disposer d'un identifiant de connexion saisi explicitement.
 
-**Preuve livrée** : capture de `https://claudevma.visioprof.fr`, connecté en `eleve.seconde`,
-onglet Parents financeurs affichant « maman deuxenfants », aucun UUID. Doublée de la réponse
-du gateway public :
-`GET /api/v1/relations/finance-owner-student/by-student/87482274-…` →
-`"financeOwnerName": { "firstName": "maman", "lastName": "deuxenfants" }`
+**Trois défauts trouvés** : `/accounts/parents` sans `loginIdentifier` et ignorant
+silencieusement celui transmis ; `parentLoginIdentifier` / `studentLoginIdentifier` réservés au
+rattachement d'un compte existant ; identifiant du compte lié dérivé de l'email sans que
+personne ne le sache.
 
-**Mergé dans `master`** : PR #68, puis PR #71 (reprise de #69, fermée automatiquement par
-GitHub quand sa branche de base a été supprimée au merge de #68).
-
-**Ce que l'épisode a coûté, et les règles qui en sortent** : cinq jours, cinq branches
-d'agents et deux PR empilées pour un changement d'affichage. Causes et parades inscrites
-dans `CLAUDE.md` — sauvegarde continue, une branche par besoin, pas de PR empilées,
-et « terminé » = preuve reçue par l'utilisateur.
+**Preuve livrée** : parcours joué dans les deux sens sur la pile réelle — parent
+`sophie.choisi.092045` et élève `theo.choisi.092247` créés avec l'identifiant saisi, tous deux
+**connectés**. Mergé via PR #74, services reconstruits depuis `master` et redéployés.
 
 ---
 

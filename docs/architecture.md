@@ -122,4 +122,21 @@ Phase 3 enrichit l'offre :
   (rattacher un compte existant vs creer un compte lie), et aligner `/accounts/parents` sur les
   deux autres routes en lui donnant un `loginIdentifier`. Arbitrage rendu le 2026-08-09.
 
+- Consentements RGPD/CGU recueillis a l'inscription : ils doivent etre enregistres par la
+  requete de creation de compte elle-meme, avec la meme trace que `POST /consents` (type,
+  version, adresse IP, horodatage). Constat du 2026-08-09, verifie contre la pile reelle : le
+  front collecte l'acceptation RGPD et CGU a l'etape 2 de l'inscription et l'envoie dans le
+  corps de `POST /accounts/students`, ou le `ValidationPipe({ whitelist: true })` la **jette en
+  silence** — zero ligne dans `consent_records`, compte laisse en `pending`, et l'utilisateur
+  se voit demander de signer des consentements qu'il vient de donner. Un consentement recueilli
+  puis perdu est pire que pas de consentement : l'utilisateur croit avoir consenti,
+  l'application n'en a aucune trace.
+  Le mecanisme cible existe deja et fonctionne : `POST /consents` ecrit dans `consent_records`
+  et bascule `consent_signed` puis `validation_status` a `active` une fois les consentements
+  requis signes. Les routes de creation de compte doivent l'emprunter, et non le contourner.
+  `POST /consents` reste necessaire pour les re-consentements et les changements de version.
+  Corollaire general : aucune route ne doit accepter puis ignorer un champ. Un champ non prevu
+  doit etre refuse explicitement, jamais absorbe en silence — c'est le meme defaut qui avait
+  fait disparaitre `loginIdentifier` sur `/accounts/parents`. Arbitrage rendu le 2026-08-09.
+
 ## Points ouverts a arbitrer

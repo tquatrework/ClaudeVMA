@@ -721,7 +721,14 @@
           dans une session dediee, en coordination avec le front et avec le flow /consents.
           Constate lors de cette session, non corrige (hors perimetre).
         </description>
-        <status>open</status>
+        <status>resolved</status>
+        <resolvedIn>
+          session 2026-08-09 « consentements » — voir decisions S-registration-consents et
+          S-reject-unknown-body-fields ci-dessous. `consents` est desormais declare et enregistre ;
+          les champs inconnus sont refuses en 400 sur les 5 routes de creation de compte via un garde
+          dedie. La pipe globale reste `whitelist: true` sans `forbidNonWhitelisted` (voir openItem
+          TD-forbid-non-whitelisted-global).
+        </resolvedIn>
       </openItem>
 
       <openItem id="TD-e2e-still-not-executed-2026-08-09">
@@ -733,6 +740,260 @@
           + `nest build` reussi + `tsc --noEmit` sans erreur sur src. test/app.e2e-spec.ts a ete mis a
           jour (nouveaux scenarios 400 mode manquant / identifiant manquant / champ sans effet, 404
           rattachement inconnu, 201 avec identifiant choisi conserve) mais reste non execute.
+        </description>
+        <status>open</status>
+      </openItem>
+    </session>
+
+    <session date="2026-08-09" topic="consentements">
+      <title>Consentements RGPD/CGU recueillis a l'inscription : enregistres au lieu d'etre jetes</title>
+      <context>
+        Constats verifies par sondes HTTP contre la pile reelle, arbitres dans docs/architecture.md
+        > "Arbitrages rendus" (2026-08-09) :
+        1. Le front envoyait `consents: {"rgpd": true, "cgu": true}` dans le corps de
+           POST /accounts/students. Le champ n'etait declare par aucun DTO : la ValidationPipe globale
+           (`whitelist: true`) le supprimait sans erreur. Mesure en base apres inscription : 0 ligne
+           dans consent_records, users.consent_signed = false, validation_status = pending — et
+           l'application redemandait a l'utilisateur de signer ce qu'il venait de donner.
+        2. Le mecanisme cible existait deja et fonctionnait : POST /consents ecrit dans
+           consent_records (version, ip_address, signed_at) puis bascule consent_signed et
+           validation_status a active une fois rgpd + cgu signes.
+        3. `birthDate` subissait le meme sort sur la meme route (mesure
+           administrative_profiles.date_naissance = NULL cote profile-service).
+        Suite directe de la session « identifiant de connexion » ci-dessus, qui avait laisse ouvert
+        TD-whitelist-silently-drops-unknown-fields (desormais resolu).
+      </context>
+
+      <decision id="S-registration-consents">
+        <title>Champ `consents` sur les routes de creation de compte, enregistre par le meme chemin que POST /consents</title>
+        <files>
+          <file>src/consents/consent-recording.service.ts (nouveau)</file>
+          <file>src/consents/consent-recording.module.ts (nouveau)</file>
+          <file>src/consents/consents.service.ts</file>
+          <file>src/consents/consents.module.ts</file>
+          <file>src/consents/entities/consent-record.entity.ts</file>
+          <file>src/accounts/dto/registration-consents.ts (nouveau)</file>
+          <file>src/accounts/dto/create-account.dto.ts</file>
+          <file>src/accounts/dto/create-student-account.dto.ts</file>
+          <file>src/accounts/dto/create-teacher-account.dto.ts</file>
+          <file>src/accounts/dto/create-parent-account.dto.ts</file>
+          <file>src/accounts/accounts.service.ts</file>
+          <file>src/accounts/accounts.controller.ts</file>
+          <file>src/accounts/accounts.module.ts</file>
+          <file>src/internal/internal.controller.ts</file>
+          <file>test/unit/consent-recording.service.spec.ts (nouveau)</file>
+          <file>test/unit/registration-consents.spec.ts (nouveau)</file>
+          <file>test/unit/accounts.service.spec.ts</file>
+          <file>test/unit/consents.service.spec.ts</file>
+          <file>test/app.e2e-spec.ts</file>
+        </files>
+        <description>
+          Contrat d'entree : `consents?: [{consentType, version?}]` — un tableau d'elements STRICTEMENT
+          identiques au corps de POST /consents (reutilisation de la classe CreateConsentDto elle-meme,
+          regle « un seul nom par donnee »). Declare sur les 4 routes de creation de compte
+          (POST /accounts, /accounts/students, /accounts/teachers, /accounts/parents) et donc aussi sur
+          POST /internal/create-account qui reutilise CreateAccountDto — orchestration-service y
+          envoyait deja `consents` depuis buildPayload des workflows student-onboarding et
+          teacher-onboarding, ou il etait egalement jete.
+          Le decorateur compose RegistrationConsents() (src/accounts/dto/registration-consents.ts)
+          porte a lui seul Swagger + validation de forme (IsArray, ValidateNested, Type,
+          ArrayMaxSize = nombre de types de consentement) pour ne pas dupliquer 4 fois la meme
+          declaration. La regle portant sur la liste entiere (un consentType envoye deux fois → 400)
+          vit dans la fonction pure checkRegistrationConsents(), appelee par
+          AccountsService.assertRegistrationConsents() — meme decoupage que checkLinkedAccountIntent.
+          Chemin d'ecriture UNIQUE : nouveau ConsentRecordingService, seul point d'ecriture/lecture de
+          consent_records (recordConsent, findSignedConsent, listSignedConsents,
+          areMandatoryConsentsSigned), consomme a la fois par ConsentsService (POST /consents,
+          comportement inchange) et par AccountsService. Meme table, meme version par defaut
+          (DEFAULT_CONSENT_VERSION = '1.0', constante desormais partagee au lieu d'un litteral inline),
+          meme capture d'ip_address (@Ip() de la requete d'inscription) et de signed_at.
+          Cycle de modules evite par un module dedie : ConsentsModule importe AccountsModule (activation
+          du compte), AccountsModule ne peut donc pas importer ConsentsModule ; les deux importent
+          ConsentRecordingModule, qui n'importe aucun module metier et possede l'entite ConsentRecord.
+          Atomicite : recordRegistrationConsents() est appelee A L'INTERIEUR de la DataSource.transaction
+          de creation du compte (createAccount devient transactionnelle pour cette raison — elle ecrit
+          desormais deux entites). Un echec ulterieur (profile-service 503, identifiant pris) annule
+          aussi les consentements : jamais de trace orpheline, jamais de compte cree en jetant un
+          consentement donne.
+          Activation : une fois rgpd + cgu enregistres, l'effet de bord passe par
+          AccountsService.activateAfterMandatoryConsents — exactement la methode qu'emprunte deja
+          POST /consents, aucune regle d'activation dupliquee. Sa signature passe de Promise&lt;void&gt;
+          a Promise&lt;User | null&gt; pour que les routes de creation renvoient l'etat reel du compte
+          (validationStatus: 'active', consentSigned: true) des la reponse 201 au lieu de l'instance en
+          memoire d'avant activation.
+          Evenements : un ConsentSigned par consentement enregistre, meme charge utile que POST /consents,
+          publie apres le commit (jamais pendant).
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="S-linked-account-consents-never-presumed">
+        <title>Le compte lie cree en parallele ne recoit jamais les consentements du createur</title>
+        <files>
+          <file>src/accounts/dto/create-student-account.dto.ts</file>
+          <file>src/accounts/dto/create-parent-account.dto.ts</file>
+          <file>src/accounts/accounts.service.ts</file>
+        </files>
+        <description>
+          Point reglementaire tranche dans cette session : aucun champ parentConsents/studentConsents
+          n'existe, et l'envoyer renvoie 400 (champ inconnu). Les consentements transmis dans `consents`
+          ne couvrent QUE le compte de la personne qui remplit le formulaire ; le compte lie est cree
+          PENDING avec consent_signed = false et signe les siens via POST /consents a sa premiere
+          connexion.
+          Motif : un consentement est un acte personnel et doit etre prouvable (qui, quoi, quelle
+          version, quand, depuis quelle IP). Enregistrer pour le compte lie une acceptation cochee par
+          un tiers produirait une trace fausse — pire que pas de trace, puisqu'elle donnerait
+          l'apparence d'une preuve. Deux cas concrets : un eleve (potentiellement mineur) qui consent
+          pour son parent n'a aucune valeur ; un parent qui consent pour l'eleve dont il cree le compte
+          pourrait invoquer l'autorite parentale, mais ce service ne connait ni l'age de l'eleve
+          (birthDate appartient a profile-service) ni le titulaire de l'autorite parentale, et le compte
+          eleve peut etre celui d'un majeur. Presumer serait donc devine, pas etabli.
+          Consequence assumee et documentee : le compte lie reste PENDING apres l'inscription — l'ecran
+          de consentement du front garde toute son utilite pour lui, et seulement pour lui.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="S-reject-unknown-body-fields">
+        <title>RejectUnknownBodyFieldsGuard : un champ inconnu est refuse explicitement sur les routes de creation de compte</title>
+        <files>
+          <file>src/common/guards/reject-unknown-body-fields.guard.ts (nouveau)</file>
+          <file>src/accounts/accounts.controller.ts</file>
+          <file>src/internal/internal.controller.ts</file>
+          <file>test/unit/common/reject-unknown-body-fields.guard.spec.ts (nouveau)</file>
+        </files>
+        <description>
+          Corollaire general de l'arbitrage du 2026-08-09 : « aucune route ne doit accepter puis ignorer
+          un champ ». Le decorateur @StrictBody(Dto) pose un garde qui compare les cles du corps BRUT
+          aux proprietes declarees par le DTO (getMetadataStorage().getTargetValidationMetadatas, la
+          meme source que la ValidationPipe utilise pour whitelist, heritage compris) et leve un 400
+          listant les champs inconnus ET les champs acceptes.
+          Pourquoi un garde et non forbidNonWhitelisted au niveau route : les pipes s'executent dans
+          l'ordre global → controleur → methode → parametre, et la pipe GLOBALE (`whitelist: true`) a
+          deja supprime les champs inconnus quand une pipe plus specifique recoit le corps. Ils sont
+          alors indetectables. Un garde s'execute avant toute pipe et voit le corps brut : c'est le seul
+          point ou la strictesse peut etre appliquee route par route sans toucher a la configuration
+          globale.
+          Applique a POST /accounts, /accounts/students, /accounts/teachers, /accounts/parents et
+          POST /internal/create-account. Le garde echoue bruyamment (Error) si le DTO ne declare aucune
+          propriete validee, plutot que de laisser passer n'importe quoi.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <validation date="2026-08-09">
+        <title>Sondes HTTP contre une instance reelle du service (Postgres et profile-service de la pile)</title>
+        <description>
+          Contrairement aux trois sessions precedentes (openItems TD-e2e-*), une validation contre la
+          pile reelle a ete possible : image construite depuis la branche puis lancee en conteneur
+          SIDECAR (port hote 3999, reseau claudevma_visiomath_network, meme Postgres et meme
+          profile-service que la pile) — le conteneur de production visiomath_identity_access n'a pas
+          ete touche, et le sidecar a ete supprime apres les sondes.
+          Resultats mesures (comptes de sonde `sonde.*@probe.test`, laisses en base) :
+          - POST /accounts/students avec consents rgpd+cgu → 201, validationStatus: "active",
+            consentSigned: true ; 2 lignes en base avec version 1.0, ip_address renseignee et signed_at
+            (la meme requete produisait 0 ligne avant cette session).
+          - Compte lie cree dans le meme appel : 0 ligne de consentement, pending, consent_signed false.
+            Apres deux POST /consents authentifies par ce compte : active, consent_signed true —
+            POST /consents fonctionne toujours et reste la voie du compte lie.
+          - POST /internal/create-account avec consents (chemin orchestration-service) → 201, compte
+            active, 2 lignes enregistrees (ip_address vide, appel interservice).
+          - POST /accounts/students avec birthDate → 400 listant le champ inconnu et les champs
+            acceptes ; POST /accounts/teachers avec teachingSubjects → 400 idem.
+          - Ancienne forme consents: {"rgpd": true, "cgu": true} → 400 ; consentType duplique → 400.
+          Suite unitaire : 296/296 verts (45 tests ajoutes). tsc --noEmit et build docker sans erreur.
+        </description>
+      </validation>
+
+      <openItem id="TD-forbid-non-whitelisted-global">
+        <title>forbidNonWhitelisted global : evalue, volontairement NON active — trois casses identifiees</title>
+        <description>
+          Evaluation demandee avant activation globale. Ce qui casserait aujourd'hui si
+          src/main.ts passait a `forbidNonWhitelisted: true` :
+          1. PATCH /accounts/:accountId/status — le front envoie `{status, reason}`
+             (apps/web/src/api/accounts.ts, ChangeAccountStatusPayload) alors que
+             UpdateAccountStatusDto ne declare que `status`. `reason` est aujourd'hui jete en silence,
+             ce qui est un second bug de la meme famille : la justification d'un changement de statut
+             par un TI/RP devrait etre tracee dans audit_logs. Activer forbidNonWhitelisted casserait
+             la route sans corriger la perte. A traiter comme un sujet propre (declarer `reason` et
+             l'ecrire dans l'audit).
+          2. POST /accounts/teachers — le front envoie `teachingSubjects`, `educationLevel` et `bio`,
+             qu'aucun DTO ne declare (donnees de profil pedagogique appartenant a profile-service).
+             Desormais refusees explicitement par le garde de cette session, ce qui rend la perte
+             visible ; la correction de fond (les router vers profile-service) est hors perimetre.
+          3. POST /accounts/students — `birthDate`, meme situation (voir openItem dedie ci-dessous).
+          Le garde @StrictBody couvre le besoin la ou une perte de champ est une perte de donnee
+          metier, sans le rayon d'action d'un changement global (POST /delegations, PATCH /accounts/me,
+          routes /auth, et tout client non audite). A rouvrir quand les 3 points ci-dessus seront
+          traites.
+        </description>
+        <status>open</status>
+      </openItem>
+
+      <openItem id="TD-birthdate-not-relayed-to-profile-service">
+        <title>birthDate collecte par le front n'est toujours pas enregistre — contrat profile-service a etendre</title>
+        <description>
+          Volontairement NON traite dans cette session, car ce n'est pas le meme geste que le relais
+          firstName/lastName/phone (arbitrage du 2026-08-06). Ce relais fonctionne parce que
+          POST /internal/create-administrative-profile accepte deja ces champs ; son contrat est
+          `{userId, firstName, lastName, phone?}` et ne comporte PAS de date de naissance
+          (docs/routes.md). `birthDate` existe bien cote profile-service, mais sur
+          PUT /profiles/:userId/administrative uniquement, et ces routes rejettent les champs inconnus
+          (forbidNonWhitelisted) : l'envoyer aujourd'hui produirait un 400 cote profile-service, donc un
+          503 a l'inscription.
+          Faire aboutir la donnee demande donc une modification COTE profile-service (ajout de
+          `birthDate` a CreateAdministrativeProfileDto), puis un ajout symetrique ici (champ DTO +
+          mapping dans ProfileServiceClient.createAdministrativeProfile). A arbitrer et coordonner.
+          En attendant, `birthDate` envoye a POST /accounts/students renvoie un 400 explicite (au lieu
+          d'etre jete en silence) : le front doit cesser de l'envoyer, ou attendre l'extension du
+          contrat.
+        </description>
+        <status>open</status>
+      </openItem>
+
+      <openItem id="TD-front-must-send-consents-array">
+        <title>Le front doit envoyer `consents` sous forme de tableau, et cesser d'envoyer birthDate / teachingSubjects / educationLevel / bio</title>
+        <description>
+          Rupture de contrat volontaire et visible (400 explicite, jamais un echec silencieux), a
+          deployer en meme temps que le front :
+          - `consents: {rgpd: true, cgu: true}` → `consents: [{consentType: 'rgpd'}, {consentType: 'cgu'}]`
+            (RegistrationConsents cote apps/web/src/types/accounts.ts). Ne cocher que ce que
+            l'utilisateur a reellement accepte : n'envoyer que les elements correspondants.
+          - Retirer `birthDate` de RegisterStudentPayload (voir openItem ci-dessus) et
+            `teachingSubjects`/`educationLevel`/`bio` de RegisterTeacherPayload tant que ces donnees
+            n'ont pas de destination cote profile-service.
+          - Le compte lie (parent depuis register/student, eleve depuis register/parent) reste PENDING :
+            l'ecran de consentement doit continuer a lui etre presente a sa premiere connexion.
+        </description>
+        <status>open</status>
+      </openItem>
+
+      <openItem id="TD-teacher-activated-by-consents-alone">
+        <title>Un formateur devient `active` des ses consentements signes, sans validation RP</title>
+        <description>
+          Comportement PREEXISTANT de POST /consents (activateAfterMandatoryConsents fait passer tout
+          compte PENDING a ACTIVE des que rgpd + cgu sont signes), desormais visible des la creation du
+          compte formateur puisque les consentements peuvent etre donnes dans la meme requete. Il
+          contredit le critere d'acceptation « un formateur reste non approuve tant que le parcours
+          entretien/test, contrat et informations financieres n'est pas termine ».
+          Non corrige ici : ce serait une divergence entre le chemin POST /consents et le chemin
+          inscription, alors que l'arbitrage demande explicitement qu'ils soient identiques. A arbitrer
+          comme un sujet propre : soit un statut distinct pour « consentements signes » et « compte
+          approuve », soit une exception de role dans activateAfterMandatoryConsents (appliquee aux deux
+          chemins a la fois).
+        </description>
+        <status>open</status>
+      </openItem>
+
+      <openItem id="TD-probe-accounts-left-in-database">
+        <title>Comptes de sonde laisses dans la base de production</title>
+        <description>
+          Les sondes de validation ont cree des comptes `sonde.consent.1`, `sonde.linked.child`,
+          `sonde.linked.parent`, `sonde.orchestration` (emails en @probe.test) dans
+          visiomath_identity_access, avec les profils administratifs correspondants cote
+          profile-service. Ils n'ont pas ete supprimes : un nettoyage cote identity seul laisserait des
+          profils orphelins cote profile-service (l'inverse de l'invariant « tout compte a un profil »).
+          A supprimer de facon coordonnee entre les deux services si la base doit rester propre.
         </description>
         <status>open</status>
       </openItem>

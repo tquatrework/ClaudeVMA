@@ -335,7 +335,7 @@
       </decision>
 
       <openPoints>
-        <item id="student-registration-extra-fields-silently-dropped">
+        <item id="student-registration-extra-fields-silently-dropped" resolvedBy="2026-08-09 fix/rgpd-consents-dropped-at-registration">
           `POST /accounts/students` est appele avec `consents` et `birthDate`, qui n'apparaissent pas
           dans le body documente par docs/routes.md. Si identity-access-service applique `whitelist`
           sans `forbidNonWhitelisted` sur cette route, ces champs sont silencieusement jetes — c'est
@@ -343,6 +343,8 @@
           Non traite ici (hors perimetre de la correction demandee), mais a verifier cote
           identity-access-service : soit les champs sont acceptes et exploites, soit le front cesse
           de les envoyer et les consentements passent par `POST /consents` apres connexion.
+          CONFIRME puis corrige : les deux champs etaient bien jetes en silence. `consents` est
+          desormais transmis au format serveur et enregistre ; `birthDate` a ete retire de l'ecran.
         </item>
         <item id="linked-account-conflict-heuristic">
           L'attribution d'un 409 au compte principal ou au compte lie repose, dans le dernier cas de
@@ -350,6 +352,115 @@
           en cause ni le nom du champ ferait tomber le front sur le message « verifiez les deux ».
           Un code d'erreur metier structure cote identity-access-service supprimerait cette
           heuristique.
+        </item>
+      </openPoints>
+    </session>
+
+    <session date="2026-08-09" label="Consentements RGPD/CGU enregistres a l'inscription (branche fix/rgpd-consents-dropped-at-registration)">
+      <context>
+        Constat verifie contre la pile reelle : les cases RGPD et CGU cochees a l'etape 2 de
+        l'inscription etaient envoyees sous la forme `{rgpd: true, cgu: true}`, absorbee en silence
+        par le `ValidationPipe({whitelist: true})` du serveur — zero ligne dans `consent_records`,
+        compte laisse `pending`, et l'utilisateur se voyait redemander de signer ce qu'il venait
+        d'accepter. C'est l'ouverture `student-registration-extra-fields-silently-dropped` de la
+        session precedente, desormais close. identity-access-service a livre le contrat cible et
+        refuse maintenant les champs inconnus en 400 explicite : deploiement couple, le front doit
+        etre aligne sinon l'inscription echoue. Arbitrage de reference : docs/architecture.md,
+        « Consentements RGPD/CGU recueillis a l'inscription » (2026-08-09).
+      </context>
+
+      <decision id="consents-server-contract">
+        <title>`consents` prend la forme exacte du corps de POST /consents</title>
+        <description>
+          Nouveau src/utils/registrationConsents.ts. `buildRegistrationConsents` traduit l'etat des
+          cases a cocher en `[{consentType: 'rgpd'}, {consentType: 'cgu'}]` — un seul nom par
+          donnee, identique a `POST /consents` (docs/routes.md). Deux regles portees par la
+          fonction : n'emettre que ce qui a reellement ete coche, et omettre le champ plutot que
+          d'envoyer un tableau vide quand rien ne l'est. `hasGivenRequiredConsents` remplace les
+          tests booleens recopies dans les deux wizards. Le type `RegistrationConsents`
+          (`{rgpd, cgu}`) disparait au profit de `RegistrationConsent` et
+          `RegistrationConsentsFormData`, centralises dans src/types/accounts.ts — l'interface
+          `RgpdFormData` etait jusqu'ici redeclaree a l'identique dans les deux pages et dans
+          RegistrationRgpdStep.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="no-consent-for-linked-account">
+        <title>Aucun consentement n'est envoye pour le compte cree en parallele</title>
+        <description>
+          Choix reglementaire cote serveur : `parentConsents` / `studentConsents` n'existent pas et
+          renvoient 400. Le front n'invente donc rien, mais rend la regle lisible : l'etape
+          consentements affiche, quand un compte lie est reellement cree (mode `new`), que ce compte
+          signera ses propres consentements a sa premiere connexion ; et le message affiche sur
+          /login apres inscription le rappelle. L'ecran de consentement existant garde tout son sens
+          pour ce compte-la — il arrive `pending` et le bandeau « compte pas encore activé » le
+          conduit vers /consents. Le compte principal, lui, revient `active` des le 201 : plus de
+          bandeau ni d'ecran de signature, et le message de succes ne parle plus de « finaliser vos
+          consentements ».
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="fields-removed-not-stored">
+        <title>Champs retires de l'ecran plutot que laisses sans destination</title>
+        <description>
+          Trois champs etaient saisis a l'ecran et n'etaient stockes nulle part (mesure :
+          `date_naissance = NULL` en base) ; ils sont desormais refuses en 400. Plutot que de les
+          transmettre en douce ou de les laisser a l'ecran sans effet, ils sont retires :
+          « Date de naissance » (StudentAdministrativeStep) et l'etape « Profil pedagogique »
+          entiere du wizard formateur — ses trois champs (matieres, niveau, presentation)
+          constituaient tout son contenu, le composant TeacherPedagogicalStep.tsx est supprime et le
+          wizard passe de 3 a 2 etapes. Ces donnees appartiennent a profile-service et restent
+          saisissables apres connexion (`birthDate` est deja dans ADMINISTRATIVE_FIELD_NAMES,
+          `subjects`/`levels`/`experience` dans TEACHER_PEDAGOGICAL_FIELD_NAMES) : les deux ecrans
+          le disent explicitement plutot que de laisser croire a une perte.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="unknown-fields-400-readable">
+        <title>Le 400 « champs inconnus » devient une consigne, pas un dump technique</title>
+        <description>
+          Le message du serveur liste les champs inconnus et les champs acceptes, en anglais : c'est
+          exactement le genre de detail technique qui ne doit pas atteindre l'ecran, et il ne decrit
+          aucune erreur de saisie — l'utilisateur ne peut rien corriger, c'est un decalage entre la
+          version du front chargee et celle du serveur. `isUnknownFieldsRejection` (src/utils/apiError.ts)
+          le reconnait sur les marqueurs stables « Accepted fields for this route » / « Unknown field »,
+          affiche une consigne (« Cette page n'est plus a jour avec le serveur. Rechargez la page… »)
+          et journalise le detail en console pour le developpeur. `getErrorMessage` gere par ailleurs
+          desormais les messages en tableau (`ValidationPipe`), qui retombaient jusqu'ici sur le
+          message generique. `getRegistrationErrorMessage` court-circuite son diagnostic « compte
+          lie » dans ce cas, qui enverrait corriger une section pourtant correcte — le marqueur
+          ambigu « should not exist » est volontairement exclu, il signale une violation de mode de
+          liaison et non un champ inconnu.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <openPoints>
+        <item id="birthdate-not-collected-at-registration">
+          La date de naissance n'est plus collectee a l'inscription eleve. `POST /accounts/students`
+          ne la declare pas et profile-service ne sait pas la recevoir a la creation du profil
+          administratif (elle n'est acceptee que par `PUT /profiles/:userId/administrative`, apres
+          connexion). Remettre le champ dans le formulaire suppose un chantier cote back : relayer
+          `birthDate` dans le meme appel que `firstName`/`lastName`, comme le fait deja
+          `POST /internal/create-administrative-profile` pour les autres champs d'identite.
+        </item>
+        <item id="parent-registration-has-no-consent-step">
+          `register/parent` ne comporte aucune etape de consentement : le parent est donc toujours
+          cree `pending` et doit signer apres connexion, alors que l'eleve et le formateur repartent
+          `active`. Rien n'est perdu (le formulaire ne collecte rien qui soit jete), mais le parcours
+          est incoherent entre les trois roles. Ajouter l'etape est un ajout fonctionnel, hors
+          perimetre de cette correction.
+        </item>
+        <item id="teacher-pedagogical-data-not-collected-at-registration">
+          Les matieres, niveaux et presentation du formateur ne sont plus demandes a l'inscription.
+          Le texte de la page renvoie vers le profil pedagogique, a remplir apres connexion — mais le
+          RP qui valide un dossier n'a donc plus ces elements au moment de la candidature. Si le
+          besoin metier est de les avoir des la candidature, il faut les acheminer vers
+          profile-service pendant l'onboarding formateur, pas les reintroduire cote
+          identity-access-service.
         </item>
       </openPoints>
     </session>

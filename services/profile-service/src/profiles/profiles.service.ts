@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   ForbiddenException,
   InternalServerErrorException,
@@ -12,7 +13,6 @@ import { StudentPedagogicalProfile } from './entities/student-pedagogical-profil
 import { TeacherPedagogicalProfile } from './entities/teacher-pedagogical-profile.entity';
 import { InternalProfileNote } from './entities/internal-profile-note.entity';
 import { TeacherValidation } from './entities/teacher-validation.entity';
-import { ProfileVisibilityPreference } from './entities/profile-visibility-preference.entity';
 import { RelationsService } from '../relations/relations.service';
 import {
   IdentityAccount,
@@ -25,12 +25,53 @@ import { UpdatePedagogicalProfileDto } from './dto/update-pedagogical-profile.dt
 import { CreateInternalNoteDto } from './dto/create-internal-note.dto';
 import { UpdateInternalNoteDto } from './dto/update-internal-note.dto';
 import { UpdateTeacherValidationDto } from './dto/update-teacher-validation.dto';
-import { UpdateVisibilityPreferenceDto } from './dto/update-visibility-preference.dto';
+import { UpdatePrescriptionDto } from './dto/update-prescription.dto';
 import { EventsService } from '../events/events.service';
 import { UserRole } from '../common/enums/user-role.enum';
 import { Actor } from '../common/types/actor.type';
 
 export { Actor };
+
+/** Rôle de profil pédagogique visé par une écriture. */
+export type PedagogicalTarget = 'student' | 'teacher';
+
+/**
+ * Champs EXCLUSIFS au profil pédagogique élève / formateur, section
+ * déclarative. `subjects` est absent des deux listes à dessein : il existe sur
+ * les deux profils et ne peut donc rien trancher.
+ */
+const STUDENT_DECLARATIVE_FIELDS = [
+  'level',
+  'goals',
+  'specificNeeds',
+  'difficulties',
+  'context',
+] as const;
+
+const TEACHER_DECLARATIVE_FIELDS = [
+  'levels',
+  'experience',
+  'diplomas',
+  'specialties',
+  'particularities',
+  'cvDocumentId',
+] as const;
+
+/** Champs de la section prescription, par rôle. Aucun champ commun. */
+const STUDENT_PRESCRIPTION_FIELDS = [
+  'generalAssessment',
+  'recommendedPace',
+  'recommendedTeacherProfile',
+  'recommendedPath',
+  'recommendedActivities',
+] as const;
+
+const TEACHER_PRESCRIPTION_FIELDS = [
+  'maxValidatedLevel',
+  'audienceType',
+  'testResults',
+  'testComments',
+] as const;
 
 /**
  * Roles allowed to READ internal notes (PROF-FB-002):
@@ -67,8 +108,6 @@ export class ProfilesService {
     private readonly noteRepo: Repository<InternalProfileNote>,
     @InjectRepository(TeacherValidation)
     private readonly teacherValidationRepo: Repository<TeacherValidation>,
-    @InjectRepository(ProfileVisibilityPreference)
-    private readonly visibilityPrefRepo: Repository<ProfileVisibilityPreference>,
     private readonly relationsService: RelationsService,
     private readonly events: EventsService,
     private readonly identityAccessClient: IdentityAccessClient,
@@ -113,7 +152,23 @@ export class ProfilesService {
       userId,
       loginIdentifier: account?.loginIdentifier ?? null,
       administrative: admin,
+      /**
+       * Profil pédagogique COMPLET, sections confondues : la section
+       * déclarative et la section prescription sont renvoyées à plat dans le
+       * même objet. C'est un seul profil ; seule l'écriture est scindée en
+       * deux routes. Le titulaire LIT donc sa prescription ici (arbitrage du
+       * 2026-08-09) sans pouvoir la modifier.
+       */
       pedagogical,
+      /**
+       * Rôle du profil pédagogique présent, pour que le front sache quel jeu
+       * de champs afficher sans avoir à deviner d'après les clés non nulles.
+       * null quand aucun profil pédagogique n'existe — état normal, le profil
+       * pédagogique étant facultatif.
+       */
+      pedagogicalType: (studentPeda ? 'student' : teacherPeda ? 'teacher' : null) as
+        | PedagogicalTarget
+        | null,
     };
   }
 
@@ -145,15 +200,19 @@ export class ProfilesService {
   }
 
   /**
-   * Update (upsert) the pedagogical profile for a user.
-   * Accepts student or teacher-specific fields depending on the target's context.
-   * RP and TI may update any user; a user may update their own profile.
+   * Upsert de la SECTION DÉCLARATIVE du profil pédagogique — celle que le
+   * titulaire renseigne lui-même. RP et TI peuvent écrire sur autrui.
    *
-   * Le DTO unique porte les champs des deux profils ; seul le sous-ensemble
-   * pertinent est recopié sur l'entité choisie. Ce filtrage explicite remplace
-   * un `Object.assign(profile, dto)` global qui, avec un DTO commun, aurait
-   * greffé des propriétés étrangères sur l'entité — invisibles pour TypeORM au
-   * moment du save, mais renvoyées telles quelles dans la réponse HTTP.
+   * Cette route N'ACCEPTE PLUS AUCUN CHAMP DE PRESCRIPTION. Les champs de
+   * prescription ne figurant pas dans UpdatePedagogicalProfileDto,
+   * `forbidNonWhitelisted` les rejette en 400 avant même d'atteindre ce
+   * service : un élève ne peut pas rédiger ses propres préconisations, un
+   * formateur pas ses propres résultats de test.
+   *
+   * Le DTO unique porte les champs des deux rôles ; le rôle cible est résolu
+   * puis les champs de l'AUTRE rôle sont REFUSÉS EN 400. Ils étaient
+   * auparavant filtrés en silence, ce qui renvoyait un 200 mensonger sur une
+   * écriture qui n'avait rien écrit.
    */
   async updatePedagogicalProfile(
     userId: string,
@@ -162,12 +221,25 @@ export class ProfilesService {
   ) {
     this.assertWriteAccess(userId, actor);
 
-    if (this.isStudentPayload(dto)) {
+    const target = await this.resolvePedagogicalTarget(
+      userId,
+      this.hasAnyField(dto, STUDENT_DECLARATIVE_FIELDS),
+      this.hasAnyField(dto, TEACHER_DECLARATIVE_FIELDS),
+      STUDENT_DECLARATIVE_FIELDS,
+      TEACHER_DECLARATIVE_FIELDS,
+      'declarative',
+    );
+
+    if (target === 'student') {
+      this.assertNoForeignFields(dto, TEACHER_DECLARATIVE_FIELDS, 'student', 'declarative');
+
       const patch = this.pickDefined<StudentPedagogicalProfile>({
         level: dto.level,
         subjects: dto.subjects,
         goals: dto.goals,
         specificNeeds: dto.specificNeeds,
+        difficulties: dto.difficulties,
+        context: dto.context,
       });
 
       let profile = await this.studentPedaRepo.findOne({ where: { userId } });
@@ -182,12 +254,16 @@ export class ProfilesService {
     }
 
     // Teacher profile
+    this.assertNoForeignFields(dto, STUDENT_DECLARATIVE_FIELDS, 'teacher', 'declarative');
+
     const patch = this.pickDefined<TeacherPedagogicalProfile>({
       levels: dto.levels,
       subjects: dto.subjects,
       experience: dto.experience,
-      testResults: dto.testResults,
-      isAnimateurPedagogique: dto.isAnimateurPedagogique,
+      diplomas: dto.diplomas,
+      specialties: dto.specialties,
+      particularities: dto.particularities,
+      cvDocumentId: dto.cvDocumentId,
     });
 
     let profile = await this.teacherPedaRepo.findOne({ where: { userId } });
@@ -198,6 +274,95 @@ export class ProfilesService {
     }
     const saved = await this.teacherPedaRepo.save(profile);
     this.events.publish('ProfileUpdated', { userId, actorId: actor.id, section: 'pedagogical-teacher' });
+    return saved;
+  }
+
+  /**
+   * Upsert de la SECTION PRESCRIPTION du profil pédagogique — RP UNIQUEMENT.
+   *
+   * C'est le premier endroit de l'application où lecture et écriture divergent
+   * aussi nettement sur un même bloc : le titulaire lit sa prescription via
+   * GET /profiles/:userId, mais toute tentative d'écriture par lui-même est
+   * refusée en 403, y compris sur son propre profil. Le contrôle ne peut donc
+   * pas se contenter d'`assertWriteAccess`, qui autorise justement le
+   * titulaire.
+   *
+   * `filledBy` et `filledAt` sont posés ICI, à partir de l'acteur authentifié
+   * et de l'heure serveur. Ils ne sont jamais lus depuis le corps de la
+   * requête : c'est ce qui rend la prescription opposable.
+   */
+  async updatePrescription(userId: string, dto: UpdatePrescriptionDto, actor: Actor) {
+    if (actor.role !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+      throw new ForbiddenException(
+        'Only a responsable pédagogique may write the prescription section of a ' +
+          'pedagogical profile. The profile owner may read it but never write it.',
+      );
+    }
+
+    const target = await this.resolvePedagogicalTarget(
+      userId,
+      this.hasAnyField(dto, STUDENT_PRESCRIPTION_FIELDS),
+      this.hasAnyField(dto, TEACHER_PRESCRIPTION_FIELDS),
+      STUDENT_PRESCRIPTION_FIELDS,
+      TEACHER_PRESCRIPTION_FIELDS,
+      'prescription',
+    );
+
+    const filledAt = new Date();
+
+    if (target === 'student') {
+      this.assertNoForeignFields(dto, TEACHER_PRESCRIPTION_FIELDS, 'student', 'prescription');
+
+      const patch = this.pickDefined<StudentPedagogicalProfile>({
+        generalAssessment: dto.generalAssessment,
+        recommendedPace: dto.recommendedPace,
+        recommendedTeacherProfile: dto.recommendedTeacherProfile,
+        recommendedPath: dto.recommendedPath,
+        recommendedActivities: dto.recommendedActivities,
+      });
+
+      let profile = await this.studentPedaRepo.findOne({ where: { userId } });
+      if (!profile) {
+        profile = this.studentPedaRepo.create({ userId, ...patch });
+      } else {
+        Object.assign(profile, patch);
+      }
+      profile.filledBy = actor.id;
+      profile.filledAt = filledAt;
+
+      const saved = await this.studentPedaRepo.save(profile);
+      this.events.publish('ProfileUpdated', {
+        userId,
+        actorId: actor.id,
+        section: 'prescription-student',
+      });
+      return saved;
+    }
+
+    this.assertNoForeignFields(dto, STUDENT_PRESCRIPTION_FIELDS, 'teacher', 'prescription');
+
+    const patch = this.pickDefined<TeacherPedagogicalProfile>({
+      maxValidatedLevel: dto.maxValidatedLevel,
+      audienceType: dto.audienceType,
+      testResults: dto.testResults,
+      testComments: dto.testComments,
+    });
+
+    let profile = await this.teacherPedaRepo.findOne({ where: { userId } });
+    if (!profile) {
+      profile = this.teacherPedaRepo.create({ userId, ...patch });
+    } else {
+      Object.assign(profile, patch);
+    }
+    profile.filledBy = actor.id;
+    profile.filledAt = filledAt;
+
+    const saved = await this.teacherPedaRepo.save(profile);
+    this.events.publish('ProfileUpdated', {
+      userId,
+      actorId: actor.id,
+      section: 'prescription-teacher',
+    });
     return saved;
   }
 
@@ -544,43 +709,10 @@ export class ProfilesService {
     };
   }
 
-  /**
-   * Get or create the visibility preference record for an élève.
-   */
-  async getVisibilityPreferences(userId: string, actor: Actor) {
-    if (actor.id !== userId && !this.isPrivilegedRole(actor.role)) {
-      throw new ForbiddenException('You may only view your own visibility preferences');
-    }
-
-    const existing = await this.visibilityPrefRepo.findOne({ where: { userId } });
-    if (existing) return existing;
-
-    // Return defaults without persisting
-    return { userId, hideDifficultiesFromContacts: false, restrictCommentsToPrincipalTeacher: false };
-  }
-
-  /**
-   * Update the visibility preference for an élève (PROF-FN-004).
-   * Only the élève themselves or an admin role may update.
-   */
-  async updateVisibilityPreferences(
-    userId: string,
-    dto: UpdateVisibilityPreferenceDto,
-    actor: Actor,
-  ) {
-    if (actor.id !== userId && !this.isPrivilegedRole(actor.role)) {
-      throw new ForbiddenException('You may only update your own visibility preferences');
-    }
-
-    let preference = await this.visibilityPrefRepo.findOne({ where: { userId } });
-    if (!preference) {
-      preference = this.visibilityPrefRepo.create({ userId, ...dto });
-    } else {
-      Object.assign(preference, dto);
-    }
-
-    return this.visibilityPrefRepo.save(preference);
-  }
+  // Visibilité champ par champ : voir FieldVisibilityService.
+  // Les anciennes méthodes get/updateVisibilityPreferences ont été supprimées
+  // avec la table `profile_visibility_preferences` qu'elles servaient — deux
+  // booléens nommés en dur ne pouvaient pas porter la visibilité de 35 champs.
 
   // ---------------------------------------------------------------------------
   // System bootstrap ports — consumed by InternalController/InternalService
@@ -769,18 +901,107 @@ export class ProfilesService {
     }
   }
 
+  /** true dès qu'au moins un des `fieldNames` est présent (non `undefined`). */
+  private hasAnyField(payload: object, fieldNames: readonly string[]): boolean {
+    return fieldNames.some(
+      (fieldName) => (payload as Record<string, unknown>)[fieldName] !== undefined,
+    );
+  }
+
   /**
-   * Détermine si le body vise le profil pédagogique élève ou formateur.
-   * Seuls les champs exclusifs à l'élève discriminent (`subjects` existe sur
-   * les deux profils et ne peut donc rien trancher). Un body ne contenant que
-   * `subjects` reste ambigu et retombe sur le profil formateur — comportement
-   * identique à celui d'avant le renommage, à documenter côté appelant.
+   * Résout le rôle du profil pédagogique visé par une écriture.
+   *
+   * Ordre de résolution, du plus fiable au plus faible :
+   *  1. présence simultanée de champs des deux rôles → 400, c'est une erreur
+   *     d'appel, jamais un cas à trancher silencieusement ;
+   *  2. rôle du compte auprès de identity-access-service — seule source
+   *     autoritative. Elle referme au passage l'ambiguïté historique d'un body
+   *     ne contenant que `subjects`, champ commun aux deux profils ;
+   *  3. si identity-access-service est injoignable : les champs présents ;
+   *  4. à défaut, le profil déjà existant en base ;
+   *  5. en dernier recours, le profil formateur — comportement hérité, conservé
+   *     pour ne pas transformer une écriture jusqu'ici acceptée en erreur.
    */
-  private isStudentPayload(dto: UpdatePedagogicalProfileDto): boolean {
-    return (
-      dto.level !== undefined ||
-      dto.goals !== undefined ||
-      dto.specificNeeds !== undefined
+  private async resolvePedagogicalTarget(
+    userId: string,
+    hasStudentFields: boolean,
+    hasTeacherFields: boolean,
+    studentFieldNames: readonly string[],
+    teacherFieldNames: readonly string[],
+    section: 'declarative' | 'prescription',
+  ): Promise<PedagogicalTarget> {
+    if (hasStudentFields && hasTeacherFields) {
+      throw new BadRequestException(
+        `The ${section} payload mixes student-only fields (${studentFieldNames.join(', ')}) ` +
+          `and teacher-only fields (${teacherFieldNames.join(', ')}). ` +
+          'A pedagogical profile belongs to exactly one role: send one set or the other.',
+      );
+    }
+
+    const roleTarget = await this.resolveTargetFromAccountRole(userId);
+    if (roleTarget) return roleTarget;
+
+    if (hasStudentFields) return 'student';
+    if (hasTeacherFields) return 'teacher';
+
+    const studentProfile = await this.studentPedaRepo.findOne({ where: { userId } });
+    if (studentProfile) return 'student';
+
+    return 'teacher';
+  }
+
+  /**
+   * Rôle du profil pédagogique déduit du rôle du compte.
+   * Renvoie null si identity-access-service ne répond pas ou si le rôle ne
+   * correspond à aucun profil pédagogique (parent, RP, TI, AF) : l'appel
+   * retombe alors sur les heuristiques suivantes plutôt que d'échouer. Une
+   * indisponibilité de identity-access-service ne doit pas bloquer une
+   * écriture de profil.
+   */
+  private async resolveTargetFromAccountRole(
+    userId: string,
+  ): Promise<PedagogicalTarget | null> {
+    let account: IdentityAccount | null = null;
+    try {
+      account = await this.identityAccessClient.findAccountByUserId(userId);
+    } catch {
+      return null;
+    }
+
+    if (account?.role === UserRole.ELEVE) return 'student';
+    if (
+      account?.role === UserRole.FORMATEUR ||
+      account?.role === UserRole.ANIMATEUR_PEDAGOGIQUE
+    ) {
+      return 'teacher';
+    }
+    return null;
+  }
+
+  /**
+   * Refuse en 400 tout champ appartenant à l'AUTRE rôle que le rôle résolu.
+   *
+   * Ces champs étaient auparavant écartés en silence par le filtrage du patch :
+   * l'appelant recevait un 200 sur une écriture partiellement — voire
+   * totalement — ignorée. Un champ envoyé et non pris en compte doit produire
+   * une erreur explicite, jamais un succès trompeur.
+   */
+  private assertNoForeignFields(
+    payload: object,
+    foreignFieldNames: readonly string[],
+    resolvedTarget: PedagogicalTarget,
+    section: 'declarative' | 'prescription',
+  ): void {
+    const offending = foreignFieldNames.filter(
+      (fieldName) => (payload as Record<string, unknown>)[fieldName] !== undefined,
+    );
+    if (offending.length === 0) return;
+
+    const otherRole = resolvedTarget === 'student' ? 'teacher' : 'student';
+    throw new BadRequestException(
+      `Field(s) ${offending.join(', ')} belong to the ${otherRole} ${section} section, ` +
+        `but this profile resolves to a ${resolvedTarget} profile. ` +
+        'They would have been silently ignored, so the request is rejected instead.',
     );
   }
 

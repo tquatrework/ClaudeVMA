@@ -10,19 +10,23 @@
  */
 
 import React from 'react'
-import type { PedagogicalProfileKind } from '../../types/profile'
-import { pickDeclarativeDisplayFields } from '../../utils/profileFields'
+import type { PedagogicalProfileKind, ProfileVisibility } from '../../types/profile'
+import { declarativeDisplayFieldNames, pickDeclarativeDisplayFields } from '../../utils/profileFields'
+import { pickHiddenFieldNames } from '../../utils/profileVisibility'
 import { ProfileSection } from './ProfileSection'
 import { PrescriptionPanel } from './PrescriptionPanel'
 
 interface PedagogicalProfilePanelProps {
   pedagogicalKind: PedagogicalProfileKind
   pedagogical: Record<string, unknown> | null
+  /** Bloc `visibility` de la lecture — absent quand la fiche est entière. */
+  visibility?: ProfileVisibility
 }
 
 export function PedagogicalProfilePanel({
   pedagogicalKind,
   pedagogical,
+  visibility,
 }: PedagogicalProfilePanelProps) {
   if (pedagogicalKind === 'unknown') {
     return (
@@ -45,9 +49,17 @@ export function PedagogicalProfilePanel({
         }
         data={pickDeclarativeDisplayFields(pedagogicalKind, pedagogical)}
         emptyMessage="Profil pédagogique non renseigné"
+        hiddenFieldNames={pickHiddenFieldNames(
+          declarativeDisplayFieldNames(pedagogicalKind),
+          visibility,
+        )}
       />
 
-      <PrescriptionPanel pedagogicalType={pedagogicalKind} pedagogical={pedagogical} />
+      <PrescriptionPanel
+        pedagogicalType={pedagogicalKind}
+        pedagogical={pedagogical}
+        visibility={visibility}
+      />
     </div>
   )
 }

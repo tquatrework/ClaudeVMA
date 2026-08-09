@@ -221,6 +221,22 @@ export function pickPrescriptionFields(
 }
 
 /**
+ * Noms des champs affichés en lecture dans la section déclarative, dans l'ordre
+ * voulu à l'écran.
+ *
+ * Exposé séparément du `pick` : l'écran doit aussi savoir **quels champs de
+ * cette section sont masqués**, or un champ masqué est absent du bloc reçu et ne
+ * peut donc pas être retrouvé à partir de lui.
+ */
+export function declarativeDisplayFieldNames(
+  pedagogicalType: PedagogicalProfileType,
+): readonly string[] {
+  return pedagogicalType === 'teacher'
+    ? [...TEACHER_DECLARATIVE_FIELD_NAMES, ...TEACHER_READONLY_DISPLAY_FIELD_NAMES]
+    : [...STUDENT_DECLARATIVE_FIELD_NAMES]
+}
+
+/**
  * Champs affichés en lecture pour la section déclarative, dans l'ordre voulu à
  * l'écran (les champs absents du profil sont écartés à l'affichage).
  */
@@ -228,11 +244,31 @@ export function pickDeclarativeDisplayFields(
   pedagogicalType: PedagogicalProfileType,
   raw: unknown,
 ): Record<string, unknown> {
-  const displayedNames =
-    pedagogicalType === 'teacher'
-      ? [...TEACHER_DECLARATIVE_FIELD_NAMES, ...TEACHER_READONLY_DISPLAY_FIELD_NAMES]
-      : [...STUDENT_DECLARATIVE_FIELD_NAMES]
-  return pickFields<Record<string, unknown>>(raw, displayedNames)
+  return pickFields<Record<string, unknown>>(raw, declarativeDisplayFieldNames(pedagogicalType))
+}
+
+/**
+ * Champs affichés par l'onglet « Statistiques pédagogiques ».
+ *
+ * `GET /profiles/:userId/statistics` renvoie en phase 1 le contenu du profil
+ * pédagogique : on réutilise donc le même catalogue, sans savoir d'avance s'il
+ * s'agit d'un profil élève ou formateur (le serveur annonce `profileType`, mais
+ * une réponse peut l'omettre). L'union des deux formes suffit, l'ordre restant
+ * déterministe.
+ */
+export const STATISTICS_DISPLAY_FIELD_NAMES = [
+  ...STUDENT_DECLARATIVE_FIELD_NAMES,
+  ...STUDENT_PRESCRIPTION_FIELD_NAMES,
+  ...TEACHER_DECLARATIVE_FIELD_NAMES.filter(
+    (fieldName) => !(STUDENT_DECLARATIVE_FIELD_NAMES as readonly string[]).includes(fieldName),
+  ),
+  ...TEACHER_PRESCRIPTION_FIELD_NAMES,
+  ...TEACHER_READONLY_DISPLAY_FIELD_NAMES,
+] as const
+
+/** Ne garde des statistiques que les champs affichables, dans l'ordre d'écran. */
+export function pickStatisticsDisplayFields(raw: unknown): Record<string, unknown> {
+  return pickFields<Record<string, unknown>>(raw, STATISTICS_DISPLAY_FIELD_NAMES)
 }
 
 /** Une prescription a-t-elle été réellement remplie ? (au moins une valeur non vide) */

@@ -24,6 +24,35 @@
  */
 export type PedagogicalProfileType = 'student' | 'teacher'
 
+/**
+ * Bloc `visibility` de `GET /profiles/:userId` et `GET /profiles/:userId/statistics`
+ * (`docs/routes.md` § « Application en lecture »).
+ *
+ * Contrat serveur, à respecter à la lettre — c'est lui qui rend les deux états
+ * distinguables sans convention implicite :
+ *
+ * | Observation                                | Signification              |
+ * |--------------------------------------------|----------------------------|
+ * | clé **présente** valant `null`              | champ **non renseigné**    |
+ * | clé **absente** + nom dans `hiddenFields`   | champ **masqué** par le titulaire |
+ *
+ * Un champ masqué n'est donc **jamais** remplacé par `null` ni par une chaîne
+ * vide : il disparaît de son bloc. Tout code qui lit un champ de profil doit
+ * accepter `undefined`.
+ *
+ * `isFiltered: false` signifie « fiche renvoyée en entier » : c'est le cas du
+ * titulaire, du parent financeur rattaché et des administrateurs. Ce n'est pas
+ * la même information qu'un `hiddenFields` vide chez un lecteur filtré dont tous
+ * les champs se trouvent visibles — d'où deux données et non une.
+ *
+ * Le bloc est optionnel côté front : un serveur antérieur au 2026-08-09, ou une
+ * réponse tronquée, ne doit pas faire passer la fiche pour filtrée.
+ */
+export interface ProfileVisibility {
+  isFiltered: boolean
+  hiddenFields: string[]
+}
+
 export interface Profile {
   userId: string
   loginIdentifier?: string | null
@@ -33,9 +62,13 @@ export interface Profile {
    * déclaratifs (écrits par le titulaire) et champs de prescription (écrits par
    * le RP seul, lus par le titulaire). La séparation est portée par les listes
    * de `src/utils/profileFields.ts`, pas par la réponse serveur.
+   *
+   * Les champs masqués au lecteur en sont **absents** : ne jamais supposer
+   * qu'une clé du catalogue s'y trouve.
    */
   pedagogical?: Record<string, unknown> | null
   pedagogicalType?: PedagogicalProfileType | null
+  visibility?: ProfileVisibility
 }
 
 /**
@@ -187,17 +220,26 @@ export type PrescriptionFormValues = Record<
 >
 
 /**
- * Statistiques pédagogiques d'un utilisateur (ProfileStatisticsPanel).
- * Écart : `GET /profiles/:userId/statistics` n'apparaît pas dans docs/routes.md.
+ * Réponse de `GET /profiles/:userId/statistics` — **enveloppe**, et non les
+ * statistiques elles-mêmes : `{userId, profileType, statistics, visibility}`
+ * (`docs/routes.md` § profile-service).
+ *
+ * En phase 1, `statistics` porte les données du **profil pédagogique** (`level`,
+ * `subjects`, `isAnimateurPedagogique`…) : ses clés sont donc celles du catalogue
+ * de champs, libellées par `src/utils/profileFieldLabels.ts` comme partout
+ * ailleurs. Le front ne réinvente aucun indicateur.
+ *
+ * La route applique **les mêmes réglages de visibilité** que le bloc
+ * `pedagogical` — sinon elle en serait le contournement exact. Les champs
+ * masqués sont donc absents de `statistics` et nommés dans `visibility.hiddenFields`.
+ *
+ * Tous les membres sont optionnels : on ne suppose jamais qu'une clé est là.
  */
-export interface PedagogicalStatistics {
-  totalSessionsAttended?: number
-  totalHoursLearned?: number
-  averageSessionDurationMinutes?: number
-  lastSessionDate?: string
-  subjectsStudied?: string[]
-  currentLevel?: string
-  progressScore?: number
+export interface ProfileStatisticsResponse {
+  userId?: string
+  profileType?: PedagogicalProfileType | null
+  statistics?: Record<string, unknown> | null
+  visibility?: ProfileVisibility
 }
 
 // ─── Visibilité champ par champ ───────────────────────────────────────────────

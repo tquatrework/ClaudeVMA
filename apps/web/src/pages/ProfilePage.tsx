@@ -12,10 +12,13 @@ import { InternalNotesPanel } from '../components/profile/InternalNotesPanel'
 import { LinkedTeachersPanel } from '../components/profile/LinkedTeachersPanel'
 import { ProfileSection } from '../components/profile/ProfileSection'
 import { PedagogicalProfilePanel } from '../components/profile/PedagogicalProfilePanel'
+import { FilteredProfileNotice } from '../components/profile/FilteredProfileNotice'
 import {
+  ADMINISTRATIVE_DISPLAY_FIELD_NAMES,
   pickAdministrativeDisplayFields,
   resolvePedagogicalProfileKind,
 } from '../utils/profileFields'
+import { pickHiddenFieldNames } from '../utils/profileVisibility'
 
 // ─── IDs d'onglets ────────────────────────────────────────────────────────────
 
@@ -158,6 +161,10 @@ export default function ProfilePage() {
 
         {profile && (
           <>
+            {/* Une fois par fiche : dire pourquoi des champs portent « Non partagé »,
+                avant que le lecteur ne conclue à un oubli du titulaire. */}
+            <FilteredProfileNotice visibility={profile.visibility} />
+
             <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
 
             {/* ── Onglet 1 : Profil administratif ── */}
@@ -165,10 +172,16 @@ export default function ProfilePage() {
               <div className="space-y-6">
                 {/* Le bloc `administrative` est filtré, jamais affiché tel quel :
                     il porte aussi `userId`, identifiant technique sans valeur
-                    pour le titulaire de la fiche. */}
+                    pour le titulaire de la fiche.
+                    Les champs non partagés en sont absents : leurs noms viennent
+                    de `visibility.hiddenFields`, pas du bloc lui-même. */}
                 <ProfileSection
                   data={pickAdministrativeDisplayFields(profile.administrative)}
                   emptyMessage="Aucune donnée administrative"
+                  hiddenFieldNames={pickHiddenFieldNames(
+                    ADMINISTRATIVE_DISPLAY_FIELD_NAMES,
+                    profile.visibility,
+                  )}
                 />
 
                 {/* Profil financier — rôles ayant une dimension financière, sur leur propre profil */}
@@ -222,6 +235,7 @@ export default function ProfilePage() {
                 <PedagogicalProfilePanel
                   pedagogicalKind={pedagogicalKind}
                   pedagogical={profile.pedagogical ?? null}
+                  visibility={profile.visibility}
                 />
 
                 {/* Statistiques pédagogiques */}

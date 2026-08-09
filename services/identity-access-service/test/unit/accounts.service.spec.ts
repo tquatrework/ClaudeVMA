@@ -75,11 +75,13 @@ describe('AccountsService', () => {
     };
 
     consentRecordingService = {
+      // Reproduit le comportement réel : la version par défaut est appliquée par
+      // ConsentRecordingService quand l'appelant n'en fournit pas.
       recordConsent: jest.fn().mockImplementation(async (input) => ({
         id: 'consent-uuid',
-        version: DEFAULT_CONSENT_VERSION,
         signedAt: new Date(),
         ...input,
+        version: input.version ?? DEFAULT_CONSENT_VERSION,
       })),
       areMandatoryConsentsSigned: jest.fn().mockResolvedValue(false),
       findSignedConsent: jest.fn().mockResolvedValue(null),
@@ -1149,6 +1151,248 @@ describe('AccountsService', () => {
       ).rejects.toThrow(ServiceUnavailableException);
 
       expect(eventsService.publish).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * Consentements recueillis par le formulaire d'inscription et transmis dans le
+   * corps des routes de création de compte (arbitrage du 2026-08-09). Ils
+   * doivent emprunter le même chemin que POST /consents — ConsentRecordingService
+   * — et non une écriture parallèle.
+   */
+  describe('registration consents', () => {
+    const mandatoryConsents = [{ consentType: ConsentType.RGPD }, { consentType: ConsentType.CGU }];
+
+    /** Fait répondre le repository comme une vraie base pendant la transaction de création. */
+    const givenPersistedAccount = (persistedAccount = makeUser()) => {
+      userRepo.findOne.mockImplementation(async (options: any) =>
+        options?.where?.id === persistedAccount.id ? { ...persistedAccount } : null,
+      );
+    };
+
+    it('records each consent through ConsentRecordingService, with the request ip address', async () => {
+      await service.createStudentAccount(
+        {
+          email: 'consenting-student@test.com',
+          password: 'password123',
+          firstName: 'Lucas',
+          lastName: 'Petit',
+          consents: mandatoryConsents,
+        },
+        '203.0.113.7',
+      );
+
+      expect(consentRecordingService.recordConsent).toHaveBeenCalledTimes(2);
+      expect(consentRecordingService.recordConsent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-uuid',
+          consentType: ConsentType.RGPD,
+          ipAddress: '203.0.113.7',
+        }),
+        expect.anything(),
+      );
+      expect(consentRecordingService.recordConsent).toHaveBeenCalledWith(
+        expect.objectContaining({ consentType: ConsentType.CGU, ipAddress: '203.0.113.7' }),
+        expect.anything(),
+      );
+    });
+
+    it('forwards an explicit version and lets the recording service apply the default otherwise', async () => {
+      await service.createStudentAccount({
+        email: 'versioned-consent@test.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        consents: [{ consentType: ConsentType.RGPD, version: '2.0' }, { consentType: ConsentType.CGU }],
+      });
+
+      expect(consentRecordingService.recordConsent).toHaveBeenCalledWith(
+        expect.objectContaining({ consentType: ConsentType.RGPD, version: '2.0' }),
+        expect.anything(),
+      );
+      expect(consentRecordingService.recordConsent).toHaveBeenCalledWith(
+        expect.objectContaining({ consentType: ConsentType.CGU, version: undefined }),
+        expect.anything(),
+      );
+    });
+
+    it('returns the student account ACTIVE and consentSigned once rgpd + cgu are provided', async () => {
+      consentRecordingService.areMandatoryConsentsSigned.mockResolvedValue(true);
+      givenPersistedAccount();
+
+      const result = await service.createStudentAccount({
+        email: 'active-student@test.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        consents: mandatoryConsents,
+      });
+
+      expect(result.student.validationStatus).toBe(ValidationStatus.ACTIVE);
+      expect(result.student.consentSigned).toBe(true);
+    });
+
+    it('leaves the account PENDING when no consent is provided', async () => {
+      const result = await service.createStudentAccount({
+        email: 'pending-student@test.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+      });
+
+      expect(consentRecordingService.recordConsent).not.toHaveBeenCalled();
+      expect(result.student.validationStatus).toBe(ValidationStatus.PENDING);
+      expect(result.student.consentSigned).toBe(false);
+    });
+
+    it('leaves the account PENDING when only one mandatory consent is provided', async () => {
+      const result = await service.createStudentAccount({
+        email: 'half-consenting@test.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        consents: [{ consentType: ConsentType.RGPD }],
+      });
+
+      expect(consentRecordingService.recordConsent).toHaveBeenCalledTimes(1);
+      expect(result.student.validationStatus).toBe(ValidationStatus.PENDING);
+    });
+
+    it('publishes one ConsentSigned per recorded consent, after the account is created', async () => {
+      await service.createStudentAccount({
+        email: 'events-student@test.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        consents: mandatoryConsents,
+      });
+
+      const publishedEventNames = eventsService.publish.mock.calls.map(([eventName]) => eventName);
+      expect(publishedEventNames).toEqual(['AccountCreated', 'ConsentSigned', 'ConsentSigned']);
+      expect(eventsService.publish).toHaveBeenCalledWith('ConsentSigned', {
+        userId: 'user-uuid',
+        consentType: ConsentType.RGPD,
+        version: DEFAULT_CONSENT_VERSION,
+      });
+    });
+
+    it('never records a consent when the account creation fails (same transaction, no orphan trace)', async () => {
+      profileServiceClient.createAdministrativeProfile.mockRejectedValueOnce(new Error('timeout'));
+
+      await expect(
+        service.createStudentAccount({
+          email: 'rollback-student@test.com',
+          password: 'password123',
+          firstName: 'Lucas',
+          lastName: 'Petit',
+          consents: mandatoryConsents,
+        }),
+      ).rejects.toThrow(ServiceUnavailableException);
+
+      expect(eventsService.publish).not.toHaveBeenCalled();
+    });
+
+    it('rejects a duplicated consent type with 400 instead of recording it twice', async () => {
+      await expect(
+        service.createStudentAccount({
+          email: 'duplicate-consent@test.com',
+          password: 'password123',
+          firstName: 'Lucas',
+          lastName: 'Petit',
+          consents: [{ consentType: ConsentType.RGPD }, { consentType: ConsentType.RGPD }],
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(consentRecordingService.recordConsent).not.toHaveBeenCalled();
+      expect(userRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('records the parent consents on POST /accounts/parents', async () => {
+      await service.createParentAccount({
+        email: 'consenting-parent@test.com',
+        password: 'password123',
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+        consents: mandatoryConsents,
+      });
+
+      expect(consentRecordingService.recordConsent).toHaveBeenCalledTimes(2);
+    });
+
+    it('records the teacher consents on POST /accounts/teachers', async () => {
+      await service.createTeacherAccount({
+        email: 'consenting-teacher@test.com',
+        password: 'password123',
+        firstName: 'Marie',
+        lastName: 'Martin',
+        consents: mandatoryConsents,
+      });
+
+      expect(consentRecordingService.recordConsent).toHaveBeenCalledTimes(2);
+    });
+
+    it('records the consents on the generic route (POST /accounts, POST /internal/create-account)', async () => {
+      consentRecordingService.areMandatoryConsentsSigned.mockResolvedValue(true);
+      givenPersistedAccount();
+
+      const result = await service.createAccount({
+        email: 'consenting-generic@test.com',
+        password: 'password123',
+        consents: mandatoryConsents,
+      });
+
+      expect(consentRecordingService.recordConsent).toHaveBeenCalledTimes(2);
+      expect(result.validationStatus).toBe(ValidationStatus.ACTIVE);
+    });
+
+    it('does not presume the consents of a parent account created in the same call', async () => {
+      consentRecordingService.areMandatoryConsentsSigned.mockResolvedValue(true);
+      givenPersistedAccount();
+
+      const result = await service.createStudentAccount({
+        email: 'student-with-parent@test.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        consents: mandatoryConsents,
+        parentAccountMode: LinkedAccountMode.NEW,
+        parentLoginIdentifier: 'nathalie.petit',
+        parentEmail: 'parent-no-consent@test.com',
+        parentFirstName: 'Nathalie',
+        parentLastName: 'Petit',
+      });
+
+      // Deux consentements enregistrés au total : ceux de l'élève, aucun pour le parent.
+      expect(consentRecordingService.recordConsent).toHaveBeenCalledTimes(2);
+      for (const [recordedInput] of consentRecordingService.recordConsent.mock.calls) {
+        expect(recordedInput.userId).toBe(result.student.id);
+      }
+      expect(result.parent?.consentSigned).toBe(false);
+      expect(result.parent?.validationStatus).toBe(ValidationStatus.PENDING);
+    });
+
+    it('does not presume the consents of a student account created in the same call', async () => {
+      consentRecordingService.areMandatoryConsentsSigned.mockResolvedValue(true);
+      givenPersistedAccount();
+
+      const result = await service.createParentAccount({
+        email: 'parent-with-student@test.com',
+        password: 'password123',
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+        consents: mandatoryConsents,
+        studentAccountMode: LinkedAccountMode.NEW,
+        studentLoginIdentifier: 'lucas.petit',
+        studentEmail: 'student-no-consent@test.com',
+        studentFirstName: 'Lucas',
+        studentLastName: 'Petit',
+      });
+
+      expect(consentRecordingService.recordConsent).toHaveBeenCalledTimes(2);
+      for (const [recordedInput] of consentRecordingService.recordConsent.mock.calls) {
+        expect(recordedInput.userId).toBe(result.parent.id);
+      }
+      expect(result.student?.consentSigned).toBe(false);
     });
   });
 });

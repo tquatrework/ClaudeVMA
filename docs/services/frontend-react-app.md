@@ -464,5 +464,88 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-08-09" label="Consentement marketing optionnel a l'inscription (branche feat/marketing-consent-at-registration)">
+      <context>
+        Suite directe de la session precedente : les consentements RGPD et CGU sont bien enregistres
+        a l'inscription, mais le troisieme type reconnu par identity-access-service — `marketing`,
+        optionnel (docs/routes.md > « Types : rgpd (requis), cgu (requis), marketing (optionnel) ») —
+        n'etait proposable que depuis /consents, une fois connecte. L'utilisateur devait donc
+        s'inscrire, se connecter, puis retrouver l'ecran de consentements pour accepter ou refuser
+        quelque chose qu'on aurait pu lui demander au moment ou il consentait deja.
+        Aucun changement serveur : sonde HTTP jouee contre la pile reelle avec
+        `consents: [{rgpd},{cgu},{marketing}]` sur `POST /accounts/students` → `201`, trois lignes en
+        base (version `1.0`, meme horodatage). Le contrat existait, le front ne l'exploitait pas.
+      </context>
+
+      <decision id="marketing-consent-opt-in-at-registration">
+        <title>Troisieme case, optionnelle, a l'etape 2 des wizards eleve et formateur</title>
+        <description>
+          RegistrationRgpdStep (composant partage par StudentRegistrationPage et
+          TeacherRegistrationPage — un seul point de modification pour les deux roles) porte une
+          troisieme case a cocher. Libelles repris **a l'identique** de ConsentsPage :
+          « Marketing (optionnel) » / « Recevoir des communications commerciales » — meme
+          consentement, meme formulation d'un ecran a l'autre. `register/parent` n'ayant toujours pas
+          d'etape de consentement, il n'est pas concerne (ouverture
+          `parent-registration-has-no-consent-step` de la session precedente, toujours ouverte).
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="marketing-consent-never-prechecked-never-blocking">
+        <title>Decoche par defaut, sans `required` : l'opt-in est un geste actif</title>
+        <description>
+          `hasAcceptedMarketing` est initialise a `false` dans les deux `INITIAL_RGPD` et l'input ne
+          porte pas l'attribut `required` que portent RGPD et CGU. Un consentement marketing
+          pre-coche est une faute reglementaire ; un consentement marketing bloquant en serait une
+          autre. `hasGivenRequiredConsents` est laisse inchange et ignore volontairement le
+          marketing : seuls RGPD et CGU conditionnent la creation du compte, l'inscription aboutit
+          que la case soit cochee ou non.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="marketing-consent-sent-only-if-checked">
+        <title>Aucune entree `marketing` ne part tant que la case n'est pas cochee</title>
+        <description>
+          `buildRegistrationConsents` applique au marketing exactement la regle deja portee pour RGPD
+          et CGU : n'emettre que ce qui a reellement ete coche. Case cochee →
+          `[{rgpd},{cgu},{marketing}]` ; case decochee → `[{rgpd},{cgu}]`, sans aucune trace du
+          marketing. Enregistrer un consentement optionnel non donne serait plus grave que de ne rien
+          enregistrer : cote serveur, la trace est indistinguable d'un consentement reellement
+          accorde. La regle du compte lie est inchangee — il ne recoit toujours aucun consentement,
+          marketing compris, et signe les siens a sa premiere connexion.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="marketing-consent-visual-distinction">
+        <title>Bordure en pointilles pour distinguer l'optionnel des obligatoires</title>
+        <description>
+          Les deux cases obligatoires gardent leur bordure pleine et leur marqueur `*` ; la case
+          optionnelle prend une bordure en pointilles sur fond neutre. La distinction est immediate
+          sans hierarchie visuelle inversee : l'optionnel ne noie pas les obligatoires. Le texte
+          d'accompagnement precise que l'inscription aboutit dans les deux cas et que le
+          consentement reste donnable ou retirable plus tard depuis /consents.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <openPoints>
+        <item id="marketing-consent-not-revocable-from-front">
+          Le front sait faire donner un consentement marketing (a l'inscription ou via
+          `POST /consents`), mais pas le retirer : docs/routes.md n'expose aucune route de
+          revocation. Le texte de l'etape 2 annonce pourtant qu'il sera « retirable plus tard » —
+          promesse a tenir cote back (route de revocation ou de mise a jour du consentement) ou
+          formulation a corriger. A arbitrer avant mise en avant du parcours marketing.
+        </item>
+        <item id="consents-page-marketing-flow-unchanged">
+          ConsentsPage garde son ergonomie propre pour le marketing (case a cocher + bouton « Signer
+          le consentement marketing » separe), differente de la case simple de l'inscription. Les
+          libelles sont alignes, pas les interactions. Non bloquant, mais candidat a une
+          harmonisation si l'ecran /consents est retravaille.
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

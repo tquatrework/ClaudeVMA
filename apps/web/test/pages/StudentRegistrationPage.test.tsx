@@ -6,13 +6,14 @@
  * - Password mismatch validation
  * - Progress through wizard steps
  * - Successful registration calls registerStudent and redirects to /login
- * - RGPD consent validation (both required)
- * - API error displayed
+ * - RGPD consent validation (both required) and the server contract for `consents`
+ * - No birth date field, and no consent sent for the account created in parallel
+ * - API error displayed, including the "unknown fields" 400
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import StudentRegistrationPage from '../../src/pages/StudentRegistrationPage'
 
@@ -21,12 +22,24 @@ import { registerStudent, checkEmailAvailability } from '../../src/api/accounts'
 const mockRegisterStudent = vi.mocked(registerStudent)
 const mockCheckEmailAvailability = vi.mocked(checkEmailAvailability)
 
+/** Rend le message d'inscription transmis à /login, comme le fait LoginPage. */
+function LoginPageStub() {
+  const location = useLocation()
+  const registrationMessage = (location.state as { message?: string } | null)?.message
+  return (
+    <div>
+      Login Page
+      {registrationMessage && <p>{registrationMessage}</p>}
+    </div>
+  )
+}
+
 function renderStudentRegistrationPage(initialEntry: string = '/register/student') {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path="/register/student" element={<StudentRegistrationPage />} />
-        <Route path="/login" element={<div>Login Page</div>} />
+        <Route path="/login" element={<LoginPageStub />} />
       </Routes>
     </MemoryRouter>,
   )
@@ -451,6 +464,34 @@ describe('StudentRegistrationPage', () => {
       await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
 
       expect(screen.queryByText(/signera ses propres consentements/i)).toBeNull()
+    })
+
+    it('annonce sur /login que les consentements sont enregistrés', async () => {
+      mockRegisterStudent.mockResolvedValue(undefined)
+      renderStudentRegistrationPage()
+
+      await fillAdministrativeStep()
+      await submitRgpdStep()
+
+      await waitFor(() => {
+        expect(screen.getByText(/vos consentements sont enregistrés/i)).toBeDefined()
+      })
+      expect(screen.queryByText(/finaliser vos consentements/i)).toBeNull()
+    })
+
+    it('annonce sur /login que le compte parent créé signera les siens', async () => {
+      mockRegisterStudent.mockResolvedValue(undefined)
+      renderStudentRegistrationPage()
+
+      await fillAdministrativeStep()
+      await selectNewLinkedParentMode()
+      await submitRgpdStep()
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/devra signer ses propres consentements à sa première connexion/i),
+        ).toBeDefined()
+      })
     })
 
     it('never sends consents for the linked account (a consent is personal)', async () => {

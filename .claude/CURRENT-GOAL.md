@@ -18,18 +18,22 @@ Deux formulaires concernés, symétriques :
 
 Signalé par l'utilisateur le 2026-08-09 comme un bug de conception.
 
-## Ce que la vérification du contrat serveur a déjà établi
+## Ce que la vérification contre la pile réelle a établi
 
-`POST /accounts/students` accepte `parentLoginIdentifier` : le serveur sait déjà recevoir
-l'identifiant du parent créé en parallèle. Le manque est donc **côté front** sur ce formulaire.
+Trois défauts, pas un. Vérifiés par sondes HTTP sur `https://claudevma.visioprof.fr`
+(comptes de sonde supprimés après coup) :
 
-`POST /accounts/parents` accepte `studentLoginIdentifier` pour l'élève lié, mais **n'a aucun
-champ `loginIdentifier` pour le parent lui-même** — alors que `/accounts/students` et
-`/accounts/teachers` en ont un. Asymétrie côté serveur, à trancher avant de coder le front.
+1. `POST /accounts/parents` n'a **aucun** champ `loginIdentifier` pour le parent lui-même.
+   Un identifiant transmis est **silencieusement ignoré** : sonde A a envoyé
+   `choisi.par.utilisateur.…`, le compte a été créé avec `probea.parent.…` dérivé de l'email.
+   Le champ « Identifiant de connexion » affiché par `register/parent` est donc mensonger.
+2. `parentLoginIdentifier` désigne un compte **existant** à rattacher. Sonde B l'a envoyé
+   avec les champs de création → `404 No account found`. Aucun champ ne permet donc
+   aujourd'hui de nommer le compte créé en parallèle.
+3. Le compte lié reçoit un identifiant dérivé de son email que personne ne lui communique.
 
-Point à clarifier auprès de `identity-access-service` : `parentLoginIdentifier` /
-`studentLoginIdentifier` servent-ils à **rattacher un compte existant** ou à **nommer le compte
-créé** ? Si un seul champ porte les deux rôles, c'est la cause racine du bug signalé.
+Arbitrage inscrit dans `docs/architecture.md` : rendre les deux intentions distinctes et
+explicites dans les DTO, et donner un `loginIdentifier` à `/accounts/parents`.
 
 ## Comment on saura que c'est fait
 

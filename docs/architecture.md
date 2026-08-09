@@ -139,4 +139,28 @@ Phase 3 enrichit l'offre :
   doit etre refuse explicitement, jamais absorbe en silence — c'est le meme defaut qui avait
   fait disparaitre `loginIdentifier` sur `/accounts/parents`. Arbitrage rendu le 2026-08-09.
 
+- Retrait d'un consentement : le RGPD exige que retirer un consentement soit aussi simple que
+  le donner. Arbitrages rendus le 2026-08-09, apres constat contre la pile reelle
+  (`POST /consents` ne sait que signer, aucune route de retrait, `DELETE` inexistant) :
+  1. **Perimetre.** Seuls les consentements **optionnels** sont retirables — aujourd'hui
+     `marketing`. `rgpd` et `cgu` conditionnent le fonctionnement du service : leur retrait ne
+     releve pas d'une case a decocher mais d'une fermeture de compte, parcours distinct et non
+     traite ici. Une tentative de retrait sur un consentement obligatoire doit etre refusee
+     **explicitement**, avec un message qui oriente vers la fermeture de compte — jamais
+     absorbee en silence, jamais traitee comme un succes.
+  2. **Tracabilite.** Un consentement retire n'est **jamais** efface ni ecrase. On doit pouvoir
+     prouver qu'il avait ete donne, puis retire, et quand. `consent_records` devient un
+     journal append-only : le retrait **ajoute** un evenement, il n'en supprime aucun. L'etat
+     courant d'un consentement se lit comme le dernier evenement enregistre pour ce type.
+     Corollaire : aucune suppression de ligne dans `consent_records`, jamais.
+  3. **Reversibilite.** Un utilisateur qui a retire son consentement doit pouvoir le redonner.
+     Le `409 "Consent already signed"` actuel porte sur l'existence d'une ligne : il doit
+     porter sur l'**etat courant**, sinon un retrait interdit definitivement de re-accepter.
+     Le cycle accorder → retirer → accorder de nouveau doit fonctionner autant de fois que
+     l'utilisateur le souhaite.
+  4. **Lecture.** `GET /consents` doit exposer l'etat courant de chaque type de consentement,
+     l'historique restant disponible pour la preuve. Un ecran qui affiche « Signe » pour un
+     consentement retire serait un mensonge de la meme famille que ceux corriges les jours
+     precedents.
+
 ## Points ouverts a arbitrer

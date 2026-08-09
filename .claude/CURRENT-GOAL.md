@@ -36,10 +36,20 @@ Un parcours réellement joué sur `https://claudevma.visioprof.fr` :
 
 **Ni les tests verts ni une PR ouverte ne valent validation** : la suite front simule le réseau.
 
+## Ce que la vérification contre la pile réelle a établi
+
+- `GET /consents` renvoie les lignes brutes de `consent_records` : aucune notion de retrait.
+- `POST /consents` sur un consentement déjà signé → `409 "Consent marketing already signed"`.
+  Ce conflit porte sur l'**existence d'une ligne**, pas sur l'état courant : tel quel, un
+  retrait interdirait définitivement de ré-accepter.
+- `DELETE /consents/marketing` → `404`, la route n'existe pas.
+
 ## État
 
-- [ ] Comportement actuel constaté (`GET`/`POST /consents`, écran `/consents`)
-- [ ] Périmètre et traçabilité du retrait arbitrés
+- [x] Comportement actuel constaté (`GET`/`POST /consents`, écran `/consents`)
+- [x] Périmètre et traçabilité du retrait arbitrés — inscrit dans `docs/architecture.md` :
+      seuls les consentements optionnels sont retirables, journal append-only, retrait
+      réversible, `GET /consents` expose l'état courant
 - [ ] Codé et committé
 - [ ] Déployé sur la pile réelle
 - [ ] Preuve livrée à l'utilisateur

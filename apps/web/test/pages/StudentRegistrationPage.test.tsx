@@ -43,6 +43,34 @@ async function fillAdministrativeStep(options: { confirmPassword?: string } = {}
   )
 }
 
+/** Selects the "create a new linked parent account" mode and fills its fields. */
+async function selectNewLinkedParentMode(options: { loginIdentifier?: string } = {}) {
+  await userEvent.click(
+    screen.getByRole('radio', { name: /créer un nouveau compte parent financeur lié/i }),
+  )
+  await userEvent.type(screen.getByLabelText(/prénom parent financeur/i), 'Marie')
+  await userEvent.type(screen.getByLabelText(/^nom parent financeur$/i), 'Dupont')
+  await userEvent.type(screen.getByLabelText(/email parent financeur/i), 'marie@test.com')
+  const loginIdentifier = options.loginIdentifier ?? 'marie.dupont'
+  if (loginIdentifier) {
+    await userEvent.type(
+      screen.getByLabelText(/identifiant de connexion parent financeur/i),
+      loginIdentifier,
+    )
+  }
+}
+
+/** Moves on to step 2, accepts both consents and submits the registration. */
+async function submitRgpdStep() {
+  await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+  await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
+
+  const checkboxes = screen.getAllByRole('checkbox')
+  await userEvent.click(checkboxes[0])
+  await userEvent.click(checkboxes[1])
+  await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mockCheckEmailAvailability.mockResolvedValue({ alreadyUsed: false, suggestedLoginIdentifier: '' })
@@ -233,6 +261,7 @@ describe('StudentRegistrationPage', () => {
         expect(mockRegisterStudent).toHaveBeenCalled()
       })
       const payload = mockRegisterStudent.mock.calls[0][0]
+      expect(payload.parentAccountMode).toBeUndefined()
       expect(payload.parentLoginIdentifier).toBeUndefined()
       expect(payload.parentEmail).toBeUndefined()
     })
@@ -257,7 +286,10 @@ describe('StudentRegistrationPage', () => {
 
       await waitFor(() => {
         expect(mockRegisterStudent).toHaveBeenCalledWith(
-          expect.objectContaining({ parentLoginIdentifier: 'marie.dupont' }),
+          expect.objectContaining({
+            parentAccountMode: 'existing',
+            parentLoginIdentifier: 'marie.dupont',
+          }),
         )
       })
     })
@@ -276,28 +308,30 @@ describe('StudentRegistrationPage', () => {
       })
     })
 
-    it('sends parentEmail/parentFirstName/parentLastName when creating a new linked parent account', async () => {
+    it('offers a login identifier field for the parent account being created', async () => {
+      renderStudentRegistrationPage()
+
+      await userEvent.click(
+        screen.getByRole('radio', { name: /créer un nouveau compte parent financeur lié/i }),
+      )
+
+      expect(screen.getByLabelText(/identifiant de connexion parent financeur/i)).toBeDefined()
+      expect(screen.getByText(/cet identifiant lui servira à se connecter/i)).toBeDefined()
+    })
+
+    it('sends the chosen login identifier with the new linked parent account', async () => {
       mockRegisterStudent.mockResolvedValue(undefined)
       renderStudentRegistrationPage()
 
       await fillAdministrativeStep()
-      await userEvent.click(
-        screen.getByRole('radio', { name: /créer un nouveau compte parent financeur lié/i }),
-      )
-      await userEvent.type(screen.getByLabelText(/prénom parent financeur/i), 'Marie')
-      await userEvent.type(screen.getByLabelText(/^nom parent financeur$/i), 'Dupont')
-      await userEvent.type(screen.getByLabelText(/email parent financeur/i), 'marie@test.com')
-      await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
-      await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
-
-      const checkboxes = screen.getAllByRole('checkbox')
-      await userEvent.click(checkboxes[0])
-      await userEvent.click(checkboxes[1])
-      await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+      await selectNewLinkedParentMode()
+      await submitRgpdStep()
 
       await waitFor(() => {
         expect(mockRegisterStudent).toHaveBeenCalledWith(
           expect.objectContaining({
+            parentAccountMode: 'new',
+            parentLoginIdentifier: 'marie.dupont',
             parentEmail: 'marie@test.com',
             parentFirstName: 'Marie',
             parentLastName: 'Dupont',
@@ -324,8 +358,110 @@ describe('StudentRegistrationPage', () => {
 
       await waitFor(() => {
         expect(mockRegisterStudent).toHaveBeenCalledWith(
-          expect.objectContaining({ parentLoginIdentifier: 'marie.dupont' }),
+          expect.objectContaining({
+            parentAccountMode: 'existing',
+            parentLoginIdentifier: 'marie.dupont',
+          }),
         )
+      })
+    })
+
+    it('blocks advancing to step 2 when "new" is selected without a login identifier', async () => {
+      renderStudentRegistrationPage()
+
+      await fillAdministrativeStep()
+      await selectNewLinkedParentMode({ loginIdentifier: '' })
+      await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/identifiant de connexion du parent financeur est requis/i),
+        ).toBeDefined()
+      })
+      // still on step 1
+      expect(screen.getByPlaceholderText(/vous@exemple\.fr/i)).toBeDefined()
+    })
+
+    it('blocks advancing to step 2 when the linked login identifier duplicates the main one', async () => {
+      renderStudentRegistrationPage()
+
+      await fillAdministrativeStep()
+      await userEvent.type(screen.getByLabelText(/^identifiant de connexion$/i), 'alice.dupont')
+      await selectNewLinkedParentMode({ loginIdentifier: 'alice.dupont' })
+      await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText(/différent du vôtre/i)).toBeDefined()
+      })
+    })
+  })
+
+  describe('Server errors on a registration with a linked parent account', () => {
+    it('names the linked account when the server rejects its login identifier (409)', async () => {
+      mockRegisterStudent.mockRejectedValue({
+        response: { status: 409, data: { message: 'parentLoginIdentifier already taken' } },
+      })
+      renderStudentRegistrationPage()
+
+      await fillAdministrativeStep()
+      await userEvent.type(screen.getByLabelText(/^identifiant de connexion$/i), 'alice.dupont')
+      await selectNewLinkedParentMode()
+      await submitRgpdStep()
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/compte parent financeur lié est déjà utilisé/i),
+        ).toBeDefined()
+      })
+    })
+
+    it('names the main account when the server rejects the main login identifier (409)', async () => {
+      mockRegisterStudent.mockRejectedValue({
+        response: { status: 409, data: { message: "L'identifiant alice.dupont est déjà pris" } },
+      })
+      renderStudentRegistrationPage()
+
+      await fillAdministrativeStep()
+      await userEvent.type(screen.getByLabelText(/^identifiant de connexion$/i), 'alice.dupont')
+      await selectNewLinkedParentMode()
+      await submitRgpdStep()
+
+      await waitFor(() => {
+        const message = screen.getByText(/identifiant de connexion « alice.dupont » est déjà utilisé/i)
+        expect(message).toBeDefined()
+      })
+    })
+
+    it('explains a 404 as an unknown parent account to attach', async () => {
+      mockRegisterStudent.mockRejectedValue({ response: { status: 404, data: {} } })
+      renderStudentRegistrationPage()
+
+      await fillAdministrativeStep()
+      await userEvent.click(
+        screen.getByRole('radio', { name: /lier un compte parent financeur existant/i }),
+      )
+      await userEvent.type(screen.getByLabelText(/identifiant parent financeur/i), 'marie.dupont')
+      await submitRgpdStep()
+
+      await waitFor(() => {
+        expect(screen.getByText(/aucun compte parent financeur ne correspond/i)).toBeDefined()
+      })
+    })
+
+    it('explains a 400 as inconsistent linked-account fields', async () => {
+      mockRegisterStudent.mockRejectedValue({
+        response: { status: 400, data: { message: ['parentEmail should not exist'] } },
+      })
+      renderStudentRegistrationPage()
+
+      await fillAdministrativeStep()
+      await selectNewLinkedParentMode()
+      await submitRgpdStep()
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/compte parent financeur lié sont incomplètes ou incohérentes/i),
+        ).toBeDefined()
       })
     })
   })

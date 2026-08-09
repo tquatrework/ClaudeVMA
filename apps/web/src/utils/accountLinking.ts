@@ -133,7 +133,7 @@ export function buildLinkedAccountFields(
   if (data.mode === 'new' && data.email.trim()) {
     return {
       [keys.accountMode]: 'new',
-      [keys.loginIdentifier]: data.loginIdentifier.trim(),
+      [keys.loginIdentifier]: data.loginIdentifier.trim() || undefined,
       [keys.email]: data.email.trim(),
       [keys.firstName]: data.firstName.trim(),
       [keys.lastName]: data.lastName.trim(),

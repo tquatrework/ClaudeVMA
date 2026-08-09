@@ -100,10 +100,14 @@ export function StudentAdministrativeStep({
       )}
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label
+          htmlFor="student-loginIdentifier"
+          className="block text-sm font-medium text-gray-700 mb-1"
+        >
           Identifiant de connexion
         </label>
         <input
+          id="student-loginIdentifier"
           type="text"
           value={administrativeData.loginIdentifier}
           onChange={(e) => onChange('loginIdentifier', e.target.value)}

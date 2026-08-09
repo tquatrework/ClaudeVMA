@@ -998,5 +998,241 @@
         <status>open</status>
       </openItem>
     </session>
+
+    <session date="2026-08-09" topic="retrait-de-consentement">
+      <title>Retrait de consentement : consent_records devient un journal append-only</title>
+      <context>
+        Exigence RGPD : retirer un consentement doit etre aussi simple que le donner. Constats
+        verifies par sondes HTTP contre la pile reelle et arbitres dans docs/architecture.md
+        > "Arbitrages rendus" (2026-08-09, derniere entree) :
+        1. GET /consents renvoyait les lignes brutes de consent_records, sans aucune notion de retrait ;
+        2. POST /consents sur un consentement deja signe renvoyait 409 sur la simple EXISTENCE d'une
+           ligne ;
+        3. DELETE /consents/marketing n'existait pas (404) ;
+        4. table : id, user_id, consent_type, version, ip_address, signed_at.
+        Suite directe de la session « consentements » ci-dessus, qui avait rendu POST /consents et le
+        champ `consents` de l'inscription operationnels — mais uniquement dans le sens de l'octroi.
+      </context>
+
+      <arborescence>
+        src/consents/
+          entities/consent-record.entity.ts   ConsentAction, WITHDRAWABLE_CONSENTS, colonne action, recorded_at
+          consent-recording.service.ts        proprietaire du journal : ecriture + lecture d'etat courant
+          consents.service.ts                 regles metier octroi / retrait / lecture
+          consents.controller.ts              4 routes HTTP + Swagger
+          dto/consent-state.dto.ts (nouveau)  reponse de GET /consents (etat courant)
+          dto/consent-event.dto.ts (nouveau)  reponse de GET /consents/history (journal)
+        src/migrations/
+          1754600000000-add-consent-withdrawal.ts (nouveau)
+      </arborescence>
+
+      <decision id="S-consent-journal-append-only">
+        <title>consent_records devient un journal d'evenements, l'etat courant est le dernier evenement</title>
+        <files>
+          <file>src/consents/entities/consent-record.entity.ts</file>
+          <file>src/consents/consent-recording.service.ts</file>
+          <file>src/migrations/1754600000000-add-consent-withdrawal.ts (nouveau)</file>
+          <file>test/unit/consent-recording.service.spec.ts</file>
+        </files>
+        <description>
+          Une ligne = un EVENEMENT (`action: 'granted' | 'withdrawn'`), jamais un etat. Le retrait AJOUTE
+          une ligne ; aucune suppression, aucun ecrasement, jamais — c'est ce qui permet de prouver qu'un
+          consentement avait ete donne, puis retire, et quand. ConsentRecordingService n'expose
+          deliberement aucune methode de delete ou d'update, et un test le verifie.
+          Forme retenue plutot qu'une colonne `withdrawn_at` sur la ligne d'octroi : une colonne mise a
+          jour est un ecrasement, elle ne survit pas a un cycle accorder → retirer → accorder qui doit
+          rester rejouable indefiniment. Le journal, lui, empile les cycles sans limite.
+          Renommages induits (regle « un seul nom par donnee ») : `signed_at` → `recorded_at` (un retrait
+          n'est pas une signature ; une colonne signed_at portant la date d'un retrait serait un nom
+          mensonger), findSignedConsent → findCurrentConsent, listSignedConsents → listConsentHistory,
+          areMandatoryConsentsSigned → areMandatoryConsentsGranted. Cette derniere est desormais calculee
+          sur l'ETAT COURANT et non sur l'existence d'une ligne : dans un journal, une ligne `granted`
+          suivie d'un `withdrawn` ne vaut pas consentement.
+          Index (user_id, consent_type, recorded_at) : chaque lecture d'etat courant cherche le dernier
+          evenement d'un couple, et le journal ne fait que croitre.
+        </description>
+      </decision>
+
+      <decision id="S-consent-withdrawal-route">
+        <title>POST /consents/:consentType/withdraw — POST et non DELETE</title>
+        <files>
+          <file>src/consents/consents.controller.ts</file>
+          <file>src/consents/consents.service.ts</file>
+          <file>test/unit/consents.controller.spec.ts</file>
+          <file>test/unit/consents.service.spec.ts</file>
+        </files>
+        <description>
+          Verbe POST parce que le retrait ajoute un evenement au journal : un DELETE annoncerait une
+          suppression de ressource, exactement ce que la tracabilite RGPD interdit ici. Le chemin nomme
+          l'action (`/withdraw`) plutot que la ressource, pour la meme raison.
+          Codes : 201 evenement enregistre ; 400 consentType inconnu (ParseEnumPipe) ; 401 sans JWT ;
+          403 consentement obligatoire ; 404 jamais donne ; 409 deja retire. Les trois cas d'erreur
+          metier sont distincts a dessein — le front doit pouvoir dire « impossible de retirer ce
+          consentement », « vous ne l'avez jamais donne » et « c'est deja fait » sans lire le message.
+          403 et non 409 pour un consentement obligatoire : ce n'est pas un conflit d'etat qui pourrait
+          se resoudre en reessayant, c'est un refus definitif. Le message oriente vers la fermeture de
+          compte, parcours distinct hors perimetre. La tentative n'ecrit rien et ne publie aucun
+          evenement : jamais absorbee en silence, jamais traitee comme un succes.
+          Le perimetre retirable est DERIVE de REQUIRED_CONSENTS (WITHDRAWABLE_CONSENTS = tous les types
+          non obligatoires) et non liste en dur : ajouter un type optionnel le rend retirable sans qu'on
+          ait a y penser, ajouter un type obligatoire le protege de la meme facon.
+          La version enregistree au retrait est celle du consentement EN VIGUEUR, pas la version courante
+          du document : le journal doit dire quel document a ete revoque.
+          Evenement metier `ConsentWithdrawn` (nouveau type dans DomainEventType), pendant de
+          `ConsentSigned`.
+        </description>
+      </decision>
+
+      <decision id="S-consent-409-on-current-state">
+        <title>Le 409 de POST /consents porte sur l'etat courant, pas sur l'existence d'une ligne</title>
+        <files>
+          <file>src/consents/consents.service.ts</file>
+        </files>
+        <description>
+          Point le plus facile a rater de tout l'arbitrage : tel qu'il etait ecrit, le 409 se declenchait
+          des qu'une ligne existait pour ce type. Combine a un journal append-only, cela aurait rendu tout
+          retrait DEFINITIF — l'utilisateur n'aurait plus jamais pu re-accepter. signConsent interroge
+          desormais isConsentGranted (dernier evenement) et laisse passer un consentement retire.
+          Verifie par sonde : accorder → retirer → accorder → retirer, deux cycles complets en 201.
+        </description>
+      </decision>
+
+      <decision id="S-consent-read-current-state">
+        <title>GET /consents renvoie l'etat courant, GET /consents/history le journal</title>
+        <files>
+          <file>src/consents/dto/consent-state.dto.ts (nouveau)</file>
+          <file>src/consents/dto/consent-event.dto.ts (nouveau)</file>
+          <file>src/consents/consents.controller.ts</file>
+        </files>
+        <description>
+          GET /consents ne renvoie plus les entites brutes : avec plusieurs evenements par type, un ecran
+          construit sur ces lignes afficherait « Signe » pour un consentement retire — le meme genre de
+          mensonge que ceux corriges les jours precedents. La reponse expose desormais un element par
+          type, TOUJOURS les trois, y compris ceux jamais donnes :
+          {consentType, status, isGranted, isMandatory, isWithdrawable, version, grantedAt, withdrawnAt,
+          updatedAt}. `status` distingue `never_granted` de `withdrawn` : « jamais donne » et « donne
+          puis retire » ne se racontent pas de la meme facon a l'utilisateur.
+          `isWithdrawable` est calcule par le serveur et transmis : le front n'a pas a rededuire quels
+          types sont obligatoires, sous peine de faire diverger les deux listes.
+          `grantedAt` reste renseigne apres un retrait (date du dernier octroi), de quoi afficher
+          « accepte le X, retire le Y » sans second appel.
+          L'historique complet part sur une route dediee, sans `ipAddress` : la preuve est capturee en
+          base, elle n'a pas a circuler vers le navigateur.
+        </description>
+      </decision>
+
+      <decision id="S-withdrawal-never-deactivates-account">
+        <title>Retirer un consentement ne desactive jamais un compte</title>
+        <files>
+          <file>src/consents/consents.service.ts</file>
+          <file>src/consents/consent-recording.service.ts</file>
+        </files>
+        <description>
+          Risque identifie avant implementation : users.consent_signed et la bascule en `active`
+          dependent des consentements obligatoires. Traite par construction plutot que par une garde —
+          seuls les consentements OPTIONNELS sont retirables, donc l'ensemble des consentements
+          obligatoires accordes ne peut pas changer par un retrait. withdrawConsent n'appelle
+          deliberement pas AccountsService, et deux tests le verrouillent (aucun appel a
+          activateAfterMandatoryConsents ; areMandatoryConsentsGranted reste true apres retrait de
+          marketing). Verifie en base apres deux retraits : validation_status = active,
+          consent_signed = true.
+        </description>
+      </decision>
+
+      <decision id="S-migration-replayable">
+        <title>Migration jouee et rejouee contre une copie du schema de production</title>
+        <files>
+          <file>src/migrations/1754600000000-add-consent-withdrawal.ts (nouveau)</file>
+        </files>
+        <description>
+          Chaque instruction est gardee par un test d'existence (DO $$ ... information_schema pour le
+          renommage, IF NOT EXISTS ailleurs), Postgres ne supportant pas RENAME COLUMN IF EXISTS. La
+          colonne `action` arrive avec DEFAULT 'granted' : toutes les lignes existantes SONT des octrois,
+          aucun backfill applicatif n'est necessaire.
+          Validation : base de sonde creee dans le Postgres reel a partir d'un pg_dump --schema-only de
+          visiomath_identity_access (donc le vrai schema, avec signed_at et sans action), plus la table
+          `migrations` recopiee pour que seule la nouvelle migration s'execute. Sequence jouee :
+          migration:run → schema conforme (recorded_at + action + index) → migration:revert → migration:run
+          a nouveau, sans erreur. Base de sonde supprimee ensuite (aucun compte de sonde laisse cette
+          fois-ci, contrairement a TD-probe-accounts-left-in-database).
+          Le down() supprime les lignes `withdrawn` : c'est le seul endroit du systeme ou une ligne de
+          consentement disparait, et c'est assume — revenir au schema precedent signifie revenir a un
+          schema incapable d'exprimer un retrait, ou conserver ces lignes ferait passer un consentement
+          retire pour un consentement donne.
+        </description>
+      </decision>
+
+      <validation>
+        Sondes HTTP jouees contre une instance reelle du service (build de production, Postgres reel,
+        schema migre depuis une copie du schema de production) :
+        - POST /consents/marketing/withdraw → 201, action "withdrawn" ;
+        - GET /consents → marketing status "withdrawn", isGranted false, withdrawnAt renseigne,
+          grantedAt conserve ;
+        - 2e retrait → 409 "Consent marketing is already withdrawn" ;
+        - POST /consents/rgpd/withdraw et /cgu/withdraw → 403 avec message orientant vers la fermeture
+          de compte ;
+        - POST /consents {marketing} apres retrait → 201 (re-acceptation), puis retrait a nouveau → 201 ;
+        - GET /consents/history → 6 evenements conserves (3 octrois d'inscription, withdrawn, granted,
+          withdrawn), aucune ligne perdue ;
+        - retrait sur un compte n'ayant jamais donne marketing → 404 ;
+        - consentType inconnu → 400 ; sans JWT → 401 ;
+        - en base apres deux retraits : validation_status = active, consent_signed = true.
+        Tests unitaires : 328 verts (dont 33 sur le domaine consentement).
+      </validation>
+
+      <openItem id="TD-e2e-spec-never-executed-by-any-script">
+        <title>test/app.e2e-spec.ts n'est joue par aucun script npm</title>
+        <description>
+          `npm test` cible testMatch `test/unit/**/*.spec.ts` et `npm run test:e2e` cible
+          `test/e2e/**/*.e2e-spec.ts`. Le fichier reel est `test/app.e2e-spec.ts` : il ne correspond a
+          aucun des deux et n'a donc jamais ete execute, ce qui explique les openItems TD-e2e-*
+          accumules depuis le 2026-08-05. Les cas de retrait y ont ete ajoutes malgre tout (ils encodent
+          le contrat HTTP et tourneront des que l'ecart sera corrige), mais la validation de cette
+          session repose sur des sondes HTTP reelles, pas sur ce fichier. A corriger comme un sujet
+          propre : deplacer le fichier dans test/e2e/ ou elargir le testMatch, puis traiter les
+          dependances (base de test dediee, profile-service stub).
+        </description>
+        <status>open</status>
+      </openItem>
+
+      <openItem id="TD-consent-events-share-a-transaction-timestamp">
+        <title>Evenements ecrits dans une meme transaction partagent leur horodatage</title>
+        <description>
+          `recorded_at` vient du DEFAULT now() de Postgres, qui renvoie l'heure de DEBUT de transaction :
+          les trois consentements enregistres par une creation de compte portent le meme horodatage a la
+          microseconde (verifie en sonde). Sans consequence aujourd'hui — l'etat courant se lit par type,
+          et aucun flux n'ecrit deux evenements du MEME type dans une meme transaction. Le jour ou un tel
+          flux apparaitrait (annulation puis re-octroi automatiques, migration de version en masse),
+          l'ordre de deux evenements du meme type ne serait plus determinable. Parade si besoin : colonne
+          de sequence monotone, ou clock_timestamp() explicite a l'insertion.
+        </description>
+        <status>open</status>
+      </openItem>
+
+      <openItem id="TD-account-closure-flow-missing">
+        <title>Le parcours de fermeture de compte, vers lequel le 403 oriente, n'existe pas</title>
+        <description>
+          Le refus de retirer rgpd/cgu renvoie l'utilisateur vers une fermeture de compte qui n'est
+          implementee nulle part — le message dit « contact support » faute de mieux. Tant que ce
+          parcours n'existe pas, le droit de retrait sur les consentements obligatoires n'est pas
+          reellement exercable. Hors perimetre par arbitrage, mais a ouvrir comme sujet propre pour que
+          la conformite RGPD soit complete.
+        </description>
+        <status>open</status>
+      </openItem>
+
+      <openItem id="TD-front-must-read-consent-state">
+        <title>Le front doit consommer le nouvel etat de GET /consents</title>
+        <description>
+          GET /consents ne renvoie plus `[{id, userId, consentType, version, ipAddress, signedAt}]` mais
+          `[{consentType, status, isGranted, isMandatory, isWithdrawable, version, grantedAt,
+          withdrawnAt, updatedAt}]`. Un front qui lirait encore `signedAt` ou qui deduirait « signe » de
+          la presence d'un element afficherait « Signe » sur un consentement retire. Le champ
+          `isWithdrawable` doit piloter l'affichage du bouton de retrait, sans reimplementer la liste des
+          types obligatoires cote front.
+        </description>
+        <status>open</status>
+      </openItem>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

@@ -156,18 +156,81 @@ Réponse `POST /accounts/parents` : `{parent, student}`, symétrique — `parent
 
 | Méthode | Chemin | Description | Auth | Body |
 |---|---|---|---|---|
-| POST | /consents | Signer un consentement | 🔒 | `{consentType, version?}` |
-| GET | /consents | Mes consentements | 🔒 | — |
+| POST | /consents | Donner un consentement | 🔒 | `{consentType, version?}` |
+| POST | /consents/:consentType/withdraw | Retirer un consentement optionnel | 🔒 | — |
+| GET | /consents | État courant de mes consentements | 🔒 | — |
+| GET | /consents/history | Journal complet de mes consentements (preuve) | 🔒 | — |
 
-Types : `rgpd` (requis), `cgu` (requis), `marketing` (optionnel). Une fois RGPD+CGU signés, le compte passe automatiquement à `active`.
+Types : `rgpd` (requis), `cgu` (requis), `marketing` (optionnel). Une fois RGPD+CGU donnés, le compte passe automatiquement à `active`.
 
-`409` si un consentement de ce type est déjà signé pour ce compte.
+**`consent_records` est un journal append-only (2026-08-09).** Une ligne = un **événement**
+(`action: 'granted' | 'withdrawn'`), jamais un état. Retirer un consentement **ajoute** un événement ;
+aucune ligne n'est jamais supprimée ni écrasée, de sorte qu'on peut toujours prouver qu'un consentement
+avait été donné, puis retiré, et quand. L'état courant d'un type est le **dernier événement** enregistré
+pour ce type. La colonne d'horodatage s'appelle `recorded_at` (et non `signed_at` : un retrait n'est pas
+une signature).
 
+**`POST /consents`** — `409` si le consentement est **actuellement accordé**. Le conflit porte sur l'état
+courant, pas sur l'existence d'une ligne : un consentement retiré peut être redonné, et le cycle
+accorder → retirer → accorder est rejouable autant de fois que voulu.
 Cette route reste le point d'entrée pour : les **re-consentements** et **changements de version**, le
-consentement `marketing` signé après coup, et la signature par un **compte lié** créé lors de
-l'inscription de quelqu'un d'autre (qui n'hérite jamais des consentements du créateur). Les
-consentements donnés **pendant** le formulaire d'inscription passent, eux, par le champ `consents` des
-routes de création de compte (voir plus haut) — même table, même trace, en une seule requête.
+consentement `marketing` signé après coup, la **ré-acceptation après retrait**, et la signature par un
+**compte lié** créé lors de l'inscription de quelqu'un d'autre (qui n'hérite jamais des consentements du
+créateur). Les consentements donnés **pendant** le formulaire d'inscription passent, eux, par le champ
+`consents` des routes de création de compte (voir plus haut) — même table, même trace, en une seule
+requête.
+
+**`POST /consents/:consentType/withdraw`** — `POST` et non `DELETE` : le retrait ajoute un événement au
+journal, il ne supprime aucune ressource. Réponse `201` avec l'événement créé
+(`{id, userId, consentType, action: 'withdrawn', version, recordedAt}`) ; `version` est celle du
+consentement en vigueur, pour dire quel document a été révoqué.
+
+| Code | Cas |
+|---|---|
+| `201` | Retrait enregistré |
+| `400` | `consentType` inconnu (hors `rgpd`/`cgu`/`marketing`) |
+| `401` | Sans JWT |
+| `403` | Consentement **obligatoire** (`rgpd`, `cgu`) : non retirable, message orientant vers la fermeture de compte |
+| `404` | Ce compte n'a **jamais** donné ce consentement |
+| `409` | Ce consentement est **déjà retiré** |
+
+Seuls les consentements **optionnels** sont retirables — aujourd'hui `marketing`. `rgpd` et `cgu`
+conditionnent le fonctionnement du service : les révoquer relève d'une **fermeture de compte**, parcours
+distinct non implémenté. La tentative est refusée explicitement (`403`), jamais absorbée en silence ni
+traitée comme un succès. Corollaire : **retirer un consentement ne désactive jamais un compte** —
+`consent_signed` et le passage à `active` ne dépendent que des consentements obligatoires, qui ne peuvent
+pas être retirés ici.
+
+**`GET /consents`** — renvoie l'**état courant**, un élément par type, **toujours les trois**, y compris
+ceux jamais donnés. Les lignes brutes du journal ne sont pas exposées ici : un écran qui afficherait
+« Signé » pour un consentement retiré serait un mensonge.
+
+```json
+[
+  {
+    "consentType": "marketing",
+    "status": "withdrawn",
+    "isGranted": false,
+    "isMandatory": false,
+    "isWithdrawable": true,
+    "version": "1.0",
+    "grantedAt": "2026-08-09T11:26:44.957Z",
+    "withdrawnAt": "2026-08-09T11:26:45.660Z",
+    "updatedAt": "2026-08-09T11:26:45.660Z"
+  }
+]
+```
+
+`status` vaut `granted`, `withdrawn` (donné puis retiré) ou `never_granted` (jamais donné). `grantedAt`
+est la date du **dernier octroi** et reste renseignée après un retrait — de quoi afficher « accepté le X,
+retiré le Y » sans second appel. `withdrawnAt` n'est renseignée que si `status === 'withdrawn'`.
+`isWithdrawable` dit au front s'il doit proposer le bouton de retrait ; il ne le déduit pas lui-même.
+
+**`GET /consents/history`** — journal complet, du plus ancien au plus récent :
+`[{id, consentType, action, version, recordedAt}]`. L'`ipAddress`, capturée comme preuve, n'est jamais
+renvoyée au client.
+
+Événement métier : `ConsentSigned` à l'octroi, `ConsentWithdrawn` au retrait.
 
 ### API interne inter-services (non exposée via nginx)
 

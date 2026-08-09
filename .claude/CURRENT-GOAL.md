@@ -50,9 +50,20 @@ Un parcours réellement joué sur `https://claudevma.visioprof.fr` :
 - [x] Périmètre et traçabilité du retrait arbitrés — inscrit dans `docs/architecture.md` :
       seuls les consentements optionnels sont retirables, journal append-only, retrait
       réversible, `GET /consents` expose l'état courant
-- [ ] Codé et committé
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+- [x] Codé et committé — `identity-access-service` puis front, branche `feat/consent-withdrawal`.
+      Le subagent front a été coupé par une limite de session : son travail a été récupéré
+      depuis son worktree et poussé tel quel (`55960e5`) avant toute reprise, puis terminé
+      (`adf22e0`). Rien n'a été perdu.
+- [x] Déployé sur la pile réelle — sauvegarde de `visiomath_identity_access` prise avant la
+      migration, migration `AddConsentWithdrawal` jouée (`signed_at` → `recorded_at`, colonne
+      `action`), **14 lignes existantes préservées** et marquées `granted`, puis les deux
+      services déployés ensemble.
+- [x] Preuve livrée à l'utilisateur — 2026-08-09, cycle joué sur la pile réelle :
+      départ `Accordé` → retrait après confirmation (`POST /consents/marketing/withdraw` → 201)
+      → écran `Retiré` → ré-acceptation (`POST /consents` → 201) → écran `Accordé`.
+      Journal final : `granted`, `withdrawn`, `granted` — les **3 événements coexistent**,
+      aucun effacé. Compte resté `active`, aucune mention « Signé » résiduelle. Retrait de
+      `rgpd` → `403` explicite orientant vers le support. Compte d'essai supprimé.
 - [ ] Validé par l'utilisateur
 - [ ] Mergé dans master
 

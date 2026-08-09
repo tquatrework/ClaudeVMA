@@ -10,16 +10,16 @@ import LinkedStudentsSection from '../components/profile/LinkedStudentsSection'
 import { Tabs, TabPanel, type TabDefinition } from '../components/ui/Tabs'
 import { InternalNotesPanel } from '../components/profile/InternalNotesPanel'
 import { LinkedTeachersPanel } from '../components/profile/LinkedTeachersPanel'
-import { ProfileSection } from '../components/profile/ProfileSection'
+import { AdministrativeProfilePanel } from '../components/profile/AdministrativeProfilePanel'
 import { PedagogicalProfilePanel } from '../components/profile/PedagogicalProfilePanel'
 import { FilteredProfileNotice } from '../components/profile/FilteredProfileNotice'
 import { ProfileLinkCard } from '../components/profile/ProfileLinkCard'
+import { resolvePedagogicalProfileKind } from '../utils/profileFields'
 import {
-  ADMINISTRATIVE_DISPLAY_FIELD_NAMES,
-  pickAdministrativeDisplayFields,
-  resolvePedagogicalProfileKind,
-} from '../utils/profileFields'
-import { pickHiddenFieldNames } from '../utils/profileVisibility'
+  canEditAdministrativeProfile,
+  canEditDeclarativePedagogicalProfile,
+  roleHasPedagogicalProfile,
+} from '../utils/profilePermissions'
 
 // ─── IDs d'onglets ────────────────────────────────────────────────────────────
 
@@ -38,6 +38,15 @@ export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState<string>(TAB_ADMIN)
 
   const isViewingOwnProfile = user?.id === userId
+
+  /**
+   * Droits d'écriture — helpers partagés avec `ProfileEditPage` : la fiche
+   * propose des champs saisissables, une règle recopiée y ferait apparaître un
+   * formulaire que le serveur refuserait.
+   */
+  const canEditAdministrative = canEditAdministrativeProfile(user?.role, isViewingOwnProfile)
+  const canEditPedagogical = canEditDeclarativePedagogicalProfile(user?.role, isViewingOwnProfile)
+
   const canSeeInternalNotes = hasRole('responsable_pedagogique', 'administrateur_financier')
   const canSeeRelations = hasRole(
     'responsable_pedagogique',
@@ -117,11 +126,19 @@ export default function ProfilePage() {
     [profile?.pedagogicalType, profile?.pedagogical, isViewingOwnProfile, user?.role],
   )
 
+  /**
+   * Le parent financeur n'a pas de profil pédagogique : lui en afficher un vide
+   * l'inviterait à renseigner un profil qui n'existe pas pour son rôle. On ne
+   * masque l'onglet que sur SA fiche — le rôle du titulaire n'est connu que là.
+   */
+  const showPedagogiqueTab =
+    !isViewingOwnProfile || roleHasPedagogicalProfile(user?.role)
+
   // ─── Construction de la liste d'onglets ─────────────────────────────────────
 
   const tabs: TabDefinition[] = [
     { id: TAB_ADMIN, label: 'Profil administratif' },
-    { id: TAB_PEDAGOGIQUE, label: 'Profil pédagogique' },
+    ...(showPedagogiqueTab ? [{ id: TAB_PEDAGOGIQUE, label: 'Profil pédagogique' }] : []),
     ...(showRelationsTab
       ? [
           {
@@ -171,18 +188,17 @@ export default function ProfilePage() {
             {/* ── Onglet 1 : Profil administratif ── */}
             <TabPanel tabId={TAB_ADMIN} activeTab={activeTab}>
               <div className="space-y-6">
-                {/* Le bloc `administrative` est filtré, jamais affiché tel quel :
-                    il porte aussi `userId`, identifiant technique sans valeur
-                    pour le titulaire de la fiche.
-                    Les champs non partagés en sont absents : leurs noms viennent
-                    de `visibility.hiddenFields`, pas du bloc lui-même. */}
-                <ProfileSection
-                  data={pickAdministrativeDisplayFields(profile.administrative)}
-                  emptyMessage="Aucune donnée administrative"
-                  hiddenFieldNames={pickHiddenFieldNames(
-                    ADMINISTRATIVE_DISPLAY_FIELD_NAMES,
-                    profile.visibility,
-                  )}
+                {/* Les 12 champs du contrat, toujours tous : en saisie si le
+                    lecteur a le droit d'écriture, en lecture sinon. Le bloc reçu
+                    n'est jamais affiché tel quel — il porte `userId`, identifiant
+                    technique sans valeur pour le titulaire — et les champs non
+                    partagés n'en font pas partie : leurs noms viennent de
+                    `visibility.hiddenFields`. */}
+                <AdministrativeProfilePanel
+                  userId={userId}
+                  administrative={profile.administrative}
+                  visibility={profile.visibility}
+                  canEdit={canEditAdministrative}
                 />
 
                 {/* Profil financier — rôles ayant une dimension financière, sur leur propre profil */}
@@ -218,21 +234,26 @@ export default function ProfilePage() {
             </TabPanel>
 
             {/* ── Onglet 2 : Profil pédagogique ── */}
-            <TabPanel tabId={TAB_PEDAGOGIQUE} activeTab={activeTab}>
-              <div className="space-y-6">
-                {/* Deux sections : ce que le titulaire déclare, et ce que le RP
-                    prescrit sur lui — lisible par le titulaire, jamais modifiable
-                    par lui. */}
-                <PedagogicalProfilePanel
-                  pedagogicalKind={pedagogicalKind}
-                  pedagogical={profile.pedagogical ?? null}
-                  visibility={profile.visibility}
-                />
+            {showPedagogiqueTab && (
+              <TabPanel tabId={TAB_PEDAGOGIQUE} activeTab={activeTab}>
+                <div className="space-y-6">
+                  {/* Deux sections : ce que le titulaire déclare — saisissable
+                      par lui, même quand aucun profil pédagogique n'existe
+                      encore — et ce que le RP prescrit sur lui, lisible mais
+                      jamais modifiable ici. */}
+                  <PedagogicalProfilePanel
+                    userId={userId}
+                    pedagogicalKind={pedagogicalKind}
+                    pedagogical={profile.pedagogical ?? null}
+                    visibility={profile.visibility}
+                    canEdit={canEditPedagogical}
+                  />
 
-                {/* Statistiques pédagogiques */}
-                {userId && <ProfileStatisticsPanel userId={userId} />}
-              </div>
-            </TabPanel>
+                  {/* Statistiques pédagogiques */}
+                  {userId && <ProfileStatisticsPanel userId={userId} />}
+                </div>
+              </TabPanel>
+            )}
 
             {/* ── Onglet 3 : Parents financeurs / Mes élèves ── */}
             {showRelationsTab && userId && (

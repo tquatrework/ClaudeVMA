@@ -44,7 +44,10 @@ interface PedagogicalProfileFormProps {
   profile: Record<string, unknown> | null
   isSaving: boolean
   onSubmit: (payload: DeclarativePedagogicalFields) => void
-  onCancel: () => void
+  /** Omis, aucun bouton « Annuler » n'est proposé (édition en place sur la fiche). */
+  onCancel?: () => void
+  /** Habillage du `<form>` — la fiche fournit déjà sa carte, l'écran dédié non. */
+  className?: string
 }
 
 export function PedagogicalProfileForm({
@@ -53,6 +56,7 @@ export function PedagogicalProfileForm({
   isSaving,
   onSubmit,
   onCancel,
+  className,
 }: PedagogicalProfileFormProps) {
   const fields = pedagogicalType === 'teacher' ? TEACHER_FIELDS : STUDENT_FIELDS
 
@@ -63,6 +67,7 @@ export function PedagogicalProfileForm({
       isSaving={isSaving}
       onSubmit={(payload) => onSubmit(payload as DeclarativePedagogicalFields)}
       onCancel={onCancel}
+      className={className}
     />
   )
 }

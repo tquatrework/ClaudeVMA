@@ -1,0 +1,132 @@
+/**
+ * AdministrativeProfilePanel — bloc administratif de la fiche profil.
+ *
+ * Deux rendus, un seul contenu : **les 12 champs du contrat, toujours tous**.
+ *
+ * - lecteur **sans** droit d'écriture → liste de lecture, un champ vide portant
+ *   « Non renseigné » (à ne pas confondre avec « Non partagé », qui dit que le
+ *   titulaire ne montre pas ce champ à ce lecteur) ;
+ * - lecteur **avec** droit d'écriture → les mêmes champs, en saisie. Un champ
+ *   qu'on ne voit pas est un champ qu'on ne peut pas renseigner : sur des profils
+ *   réels où presque tout est vide, une fiche qui n'affiche que ce qui est rempli
+ *   n'offre aucun moyen de la compléter (constat du 2026-08-09).
+ *
+ * La traçabilité (`createdAt` / `updatedAt`) reste en lecture des deux côtés :
+ * elle est posée par le serveur, l'envoyer vaudrait `400`.
+ *
+ * Une fiche **filtrée** repasse en lecture seule : le bloc y est amputé des
+ * champs non partagés, et un formulaire construit sur un bloc incomplet
+ * inviterait à réécrire ce qu'on n'a pas le droit de voir.
+ */
+
+import React, { useMemo, useState } from 'react'
+import type { ProfileVisibility } from '../../types/profile'
+import {
+  ADMINISTRATIVE_DISPLAY_FIELD_NAMES,
+  ADMINISTRATIVE_TRACEABILITY_FIELD_NAMES,
+  pickAdministrativeDisplayFields,
+  pickAdministrativeFields,
+} from '../../utils/profileFields'
+import { isEmptyFieldValue } from '../../utils/profileFieldDisplay'
+import { isProfileFiltered, pickHiddenFieldNames } from '../../utils/profileVisibility'
+import { useProfileSaveActions } from '../../hooks/profile/useProfileSaveActions'
+import { AdministrativeProfileForm } from './AdministrativeProfileForm'
+import { EditableProfileCard } from './EditableProfileCard'
+import { ProfileFieldList } from './ProfileFieldList'
+import { ProfileSection } from './ProfileSection'
+
+const SECTION_TITLE = 'Informations administratives'
+
+const EDIT_DESCRIPTION =
+  'Complétez ou corrigez vos informations : tous les champs sont modifiables, ' +
+  'et ceux que vous laissez vides restent simplement non renseignés.'
+
+const SAVE_SUCCESS_MESSAGE = 'Profil administratif mis à jour'
+
+interface AdministrativeProfilePanelProps {
+  userId?: string
+  /** Bloc `administrative` de `GET /profiles/:userId`, tel quel. */
+  administrative?: Record<string, unknown> | null
+  visibility?: ProfileVisibility
+  /** Le lecteur courant a-t-il le droit d'écrire ce profil ? */
+  canEdit: boolean
+}
+
+export function AdministrativeProfilePanel({
+  userId,
+  administrative,
+  visibility,
+  canEdit,
+}: AdministrativeProfilePanelProps) {
+  const { saveAdministrative, isSavingAdministrative, administrativeSaveError } =
+    useProfileSaveActions(userId)
+
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+
+  // Identité stable indispensable : le formulaire réinitialise ses valeurs de
+  // saisie à chaque nouveau bloc source. Recalculé à chaque rendu, il effacerait
+  // la frappe en cours.
+  const editableFields = useMemo(
+    () => pickAdministrativeFields(administrative),
+    [administrative],
+  )
+  const displayedFields = useMemo(
+    () => pickAdministrativeDisplayFields(administrative),
+    [administrative],
+  )
+
+  const hiddenFieldNames = pickHiddenFieldNames(ADMINISTRATIVE_DISPLAY_FIELD_NAMES, visibility)
+
+  const isEditable = canEdit && !isProfileFiltered(visibility)
+
+  if (!isEditable) {
+    return (
+      <ProfileSection
+        title={SECTION_TITLE}
+        data={displayedFields}
+        fieldNames={ADMINISTRATIVE_DISPLAY_FIELD_NAMES}
+        emptyMessage="Aucune donnée administrative"
+        hiddenFieldNames={hiddenFieldNames}
+      />
+    )
+  }
+
+  const handleSubmit = async (payload: Parameters<typeof saveAdministrative>[0]) => {
+    setSuccessMessage(null)
+    const isSaved = await saveAdministrative(payload)
+    if (isSaved) setSuccessMessage(SAVE_SUCCESS_MESSAGE)
+  }
+
+  // La traçabilité n'est affichée que si le serveur l'a réellement posée : deux
+  // lignes « Non renseigné » sous un formulaire n'apprendraient rien.
+  const hasTraceability = ADMINISTRATIVE_TRACEABILITY_FIELD_NAMES.some(
+    (fieldName) => !isEmptyFieldValue(displayedFields[fieldName]),
+  )
+
+  return (
+    <EditableProfileCard
+      title={SECTION_TITLE}
+      description={EDIT_DESCRIPTION}
+      successMessage={successMessage}
+      onDismissSuccess={() => setSuccessMessage(null)}
+      saveError={administrativeSaveError}
+    >
+      <AdministrativeProfileForm
+        profile={editableFields}
+        isSaving={isSavingAdministrative}
+        onSubmit={handleSubmit}
+        className="space-y-4"
+      />
+
+      {hasTraceability && (
+        <div className="mt-6 pt-4 border-t border-gray-100">
+          <ProfileFieldList
+            data={displayedFields}
+            fieldNames={ADMINISTRATIVE_TRACEABILITY_FIELD_NAMES}
+            className="space-y-2"
+          />
+        </div>
+      )}
+    </EditableProfileCard>
+  )
+}

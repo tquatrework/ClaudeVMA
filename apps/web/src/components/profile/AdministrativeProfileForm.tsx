@@ -8,18 +8,33 @@
  * découpée en `addressLine1` / `addressLine2` : il n'existe pas de champ
  * `address`, et l'envoyer déclenche un `400`.
  *
- * Les champs chargés mais non éditables ici (`avatarUrl`, `passions`…) sont
- * conservés dans l'état et renvoyés inchangés, pour qu'une modification
- * d'adresse n'efface pas le reste du profil.
+ * Le formulaire propose **les 12 champs du contrat**, ni plus ni moins : la
+ * liste `EDITABLE_FIELDS` est vérifiée par test contre
+ * `ADMINISTRATIVE_FIELD_NAMES`. Elle en exposait 10 jusqu'au 2026-08-09 —
+ * `avatarUrl` et `passions` étaient chargés, conservés et renvoyés, mais
+ * introuvables à l'écran, donc impossibles à renseigner.
+ *
+ * Un champ laissé vide n'est **pas envoyé** : le serveur refuse une chaîne vide
+ * sur `firstName`, `lastName` et `phone` (`400`), et l'absence d'un champ vaut
+ * « ne rien changer ». Un formulaire pré-rempli de champs vides ne doit pas
+ * transformer une consultation en refus serveur.
  */
 
 import React, { useEffect, useState } from 'react'
 import type { AdministrativeProfileFields } from '../../types/profile'
 import { isStrictIsoCalendarDate } from '../../utils/dateFormat'
 import { getProfileFieldLabel } from '../../utils/profileFieldLabels'
+import {
+  ADMINISTRATIVE_FIELD_NAMES,
+  formatCommaSeparatedList,
+  isListField,
+  parseCommaSeparatedList,
+} from '../../utils/profileFields'
 import { ProfileFormActions, ProfileFormField } from './ProfileFormField'
 
-const EDITABLE_FIELDS = [
+const LIST_HINT = 'Séparez les valeurs par une virgule'
+
+export const EDITABLE_FIELDS = [
   { name: 'firstName', type: 'text', placeholder: 'Jean' },
   { name: 'lastName', type: 'text', placeholder: 'Dupont' },
   { name: 'birthDate', type: 'date', placeholder: '' },
@@ -39,6 +54,17 @@ const EDITABLE_FIELDS = [
   { name: 'city', type: 'text', placeholder: 'Paris' },
   { name: 'country', type: 'text', placeholder: 'France' },
   { name: 'department', type: 'text', placeholder: '75 - Paris' },
+  {
+    name: 'avatarUrl',
+    type: 'text',
+    placeholder: 'https://…/ma-photo.jpg',
+    hint: 'Adresse web de votre photo de profil',
+  },
+  {
+    name: 'passions',
+    type: 'text',
+    placeholder: 'Échecs, randonnée, piano…',
+  },
 ] as const satisfies readonly {
   name: keyof AdministrativeProfileFields
   type: 'text' | 'tel' | 'date'
@@ -53,7 +79,42 @@ interface AdministrativeProfileFormProps {
   profile: AdministrativeProfileFields
   isSaving: boolean
   onSubmit: (payload: AdministrativeProfileFields) => void
-  onCancel: () => void
+  /** Omis, aucun bouton « Annuler » n'est proposé (édition en place sur la fiche). */
+  onCancel?: () => void
+  /** Habillage du `<form>` — la fiche fournit déjà sa carte, l'écran dédié non. */
+  className?: string
+}
+
+const STANDALONE_FORM_CLASS = 'space-y-4 bg-white border border-gray-200 rounded-xl p-6'
+
+/** Valeurs de saisie : tout est texte, y compris les listes séparées par virgule. */
+function buildInitialValues(profile: AdministrativeProfileFields): Record<string, string> {
+  const initialValues: Record<string, string> = {}
+  for (const fieldName of ADMINISTRATIVE_FIELD_NAMES) {
+    const rawValue = profile[fieldName]
+    initialValues[fieldName] = isListField(fieldName)
+      ? formatCommaSeparatedList(rawValue)
+      : typeof rawValue === 'string'
+        ? rawValue
+        : ''
+  }
+  return initialValues
+}
+
+/**
+ * Corps du `PUT` : les champs renseignés seulement.
+ *
+ * Les champs chargés mais laissés tels quels repartent inchangés, pour qu'une
+ * modification d'adresse n'efface pas le reste du profil.
+ */
+function buildPayload(values: Record<string, string>): AdministrativeProfileFields {
+  const payload: Record<string, unknown> = {}
+  for (const fieldName of ADMINISTRATIVE_FIELD_NAMES) {
+    const rawValue = (values[fieldName] ?? '').trim()
+    if (rawValue === '') continue
+    payload[fieldName] = isListField(fieldName) ? parseCommaSeparatedList(rawValue) : rawValue
+  }
+  return payload as AdministrativeProfileFields
 }
 
 export function AdministrativeProfileForm({
@@ -61,12 +122,13 @@ export function AdministrativeProfileForm({
   isSaving,
   onSubmit,
   onCancel,
+  className = STANDALONE_FORM_CLASS,
 }: AdministrativeProfileFormProps) {
-  const [values, setValues] = useState<AdministrativeProfileFields>(profile)
+  const [values, setValues] = useState<Record<string, string>>(() => buildInitialValues(profile))
   const [birthDateError, setBirthDateError] = useState<string | null>(null)
 
   useEffect(() => {
-    setValues(profile)
+    setValues(buildInitialValues(profile))
     setBirthDateError(null)
   }, [profile])
 
@@ -75,28 +137,26 @@ export function AdministrativeProfileForm({
 
     // Le serveur exige une date calendaire ISO réellement existante : on refuse
     // ici pour afficher un message en français plutôt qu'un 400 opaque.
-    if (values.birthDate && !isStrictIsoCalendarDate(values.birthDate)) {
+    const birthDate = values.birthDate?.trim()
+    if (birthDate && !isStrictIsoCalendarDate(birthDate)) {
       setBirthDateError(INVALID_BIRTH_DATE_MESSAGE)
       return
     }
 
     setBirthDateError(null)
-    onSubmit(values)
+    onSubmit(buildPayload(values))
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="space-y-4 bg-white border border-gray-200 rounded-xl p-6"
-    >
+    <form onSubmit={handleSubmit} className={className}>
       {EDITABLE_FIELDS.map((field) => (
         <ProfileFormField
           key={field.name}
           label={getProfileFieldLabel(field.name)}
           type={field.type}
           placeholder={field.placeholder || undefined}
-          hint={'hint' in field ? field.hint : undefined}
-          value={(values[field.name] as string | undefined) ?? ''}
+          hint={isListField(field.name) ? LIST_HINT : 'hint' in field ? field.hint : undefined}
+          value={values[field.name] ?? ''}
           onChange={(value) => setValues((previous) => ({ ...previous, [field.name]: value }))}
         />
       ))}

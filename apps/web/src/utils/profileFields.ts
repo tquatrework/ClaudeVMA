@@ -34,6 +34,15 @@ import type { UserRole } from '../types/user'
 
 // ─── Listes de champs autorisées (miroir de docs/routes.md) ───────────────────
 
+/**
+ * Les 12 champs éditables du profil administratif, **dans l'ordre d'écran**.
+ *
+ * Cette liste est la seule source d'ordre : la fiche les liste tous, le
+ * formulaire les propose tous, dans cette suite. Un champ qui n'y figurerait pas
+ * serait invisible à l'écran, donc impossible à renseigner — c'est exactement ce
+ * qui était arrivé à `avatarUrl` et `passions`, présents ici mais absents du
+ * formulaire (constat du 2026-08-09).
+ */
 export const ADMINISTRATIVE_FIELD_NAMES = [
   'firstName',
   'lastName',
@@ -44,8 +53,8 @@ export const ADMINISTRATIVE_FIELD_NAMES = [
   'postalCode',
   'city',
   'country',
-  'avatarUrl',
   'department',
+  'avatarUrl',
   'passions',
 ] as const satisfies readonly (keyof AdministrativeProfileFields)[]
 

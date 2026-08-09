@@ -67,7 +67,12 @@ export function ProfileFormField({
 
 interface ProfileFormActionsProps {
   isSaving: boolean
-  onCancel: () => void
+  /**
+   * Omis, aucun bouton « Annuler » n'est rendu : sur la fiche, le formulaire est
+   * la vue elle-même — il n'y a nulle part où revenir, et un bouton sans
+   * destination serait un piège.
+   */
+  onCancel?: () => void
 }
 
 /** Barre d'actions commune aux formulaires de profil. */
@@ -81,13 +86,15 @@ export function ProfileFormActions({ isSaving, onCancel }: ProfileFormActionsPro
       >
         {isSaving ? 'Sauvegarde…' : 'Enregistrer'}
       </button>
-      <button
-        type="button"
-        onClick={onCancel}
-        className="bg-gray-100 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-200 text-sm"
-      >
-        Annuler
-      </button>
+      {onCancel && (
+        <button
+          type="button"
+          onClick={onCancel}
+          className="bg-gray-100 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-200 text-sm"
+        >
+          Annuler
+        </button>
+      )}
     </div>
   )
 }

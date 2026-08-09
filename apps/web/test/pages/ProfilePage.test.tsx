@@ -30,12 +30,19 @@ vi.mock('../../src/api/relations')
 
 import { useAuth } from '../../src/hooks/useAuth'
 import apiClient from '../../src/api/client'
-import { fetchProfile, fetchInternalNotes, createInternalNote, fetchProfileStatistics } from '../../src/api/profile'
+import {
+  fetchProfile,
+  fetchInternalNotes,
+  createInternalNote,
+  fetchProfileStatistics,
+  updateAdministrativeProfile,
+} from '../../src/api/profile'
 import { fetchTeacherStudentRelations } from '../../src/api/relations'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockApiClient = vi.mocked(apiClient)
 const mockFetchProfile = vi.mocked(fetchProfile)
+const mockUpdateAdministrativeProfile = vi.mocked(updateAdministrativeProfile)
 const mockFetchInternalNotes = vi.mocked(fetchInternalNotes)
 const mockCreateInternalNote = vi.mocked(createInternalNote)
 const mockFetchProfileStatistics = vi.mocked(fetchProfileStatistics)
@@ -45,6 +52,13 @@ const STUDENT_USER = {
   id: 'student-1',
   email: 'eleve@test.com',
   role: 'eleve' as const,
+  validationStatus: 'active' as const,
+}
+
+const PARENT_USER = {
+  id: 'parent-1',
+  email: 'parent@test.com',
+  role: 'parent_financeur' as const,
   validationStatus: 'active' as const,
 }
 
@@ -132,20 +146,24 @@ describe('ProfilePage', () => {
 
     renderProfilePage()
 
-    // Onglet "Profil administratif" actif par défaut — vérifier les champs admin
+    // Onglet "Profil administratif" actif par défaut. Le titulaire a le droit
+    // d'écriture : ses champs sont des zones de saisie pré-remplies.
     await waitFor(() => {
-      expect(screen.getByText('Marie')).toBeDefined()
+      expect((screen.getByLabelText('Prénom') as HTMLInputElement).value).toBe('Marie')
     })
+    expect((screen.getByLabelText('Téléphone') as HTMLInputElement).value).toBe('0612345678')
 
     // Naviguer vers l'onglet "Profil pédagogique" pour voir les données pédagogiques
     const pedagogiqueTab = await screen.findByRole('tab', { name: 'Profil pédagogique' })
     fireEvent.click(pedagogiqueTab)
 
     await waitFor(() => {
-      expect(screen.getByText('Terminale')).toBeDefined()
+      expect((screen.getByLabelText('Niveau scolaire') as HTMLInputElement).value).toBe('Terminale')
     })
-    // Un champ tableau s'affiche en liste lisible, jamais en JSON brut.
-    expect(screen.getByText('Mathématiques, Physique-Chimie')).toBeDefined()
+    // Un champ tableau se saisit en liste lisible, jamais en JSON brut.
+    expect((screen.getByLabelText('Matières') as HTMLInputElement).value).toBe(
+      'Mathématiques, Physique-Chimie',
+    )
   })
 
   it("n'affiche ni l'UUID du compte ni de libellé anglais dans l'onglet administratif", async () => {
@@ -167,18 +185,170 @@ describe('ProfilePage', () => {
     renderProfilePage()
 
     await waitFor(() => {
-      expect(screen.getByText('Nina')).toBeDefined()
+      expect((screen.getByLabelText('Prénom') as HTMLInputElement).value).toBe('Nina')
     })
 
     // L'UUID n'est pas une donnée de fiche : ni sa valeur, ni son libellé.
     expect(screen.queryByText('464da8a2-8b4f-4cc7-b7b1-f1d0ab511355')).toBeNull()
     expect(screen.queryByText('User id')).toBeNull()
+    expect(screen.queryByLabelText('User id')).toBeNull()
 
-    // La traçabilité reste lisible, mais en français.
+    // La traçabilité reste lisible, en français, et en lecture seule : elle est
+    // posée par le serveur, l'envoyer vaudrait 400.
     expect(screen.queryByText('Created at')).toBeNull()
     expect(screen.queryByText('Updated at')).toBeNull()
     expect(screen.getByText('Profil créé le')).toBeDefined()
     expect(screen.getByText('Dernière modification')).toBeDefined()
+    expect(screen.queryByLabelText('Profil créé le')).toBeNull()
+  })
+
+  /**
+   * Cœur du correctif du 2026-08-09 : sur la pile réelle, tous les profils sont
+   * vides sauf prénom et nom. Une fiche qui n'affiche que ce qui est rempli ne
+   * montre que quatre lignes — et l'utilisateur conclut que rien n'est
+   * implémenté, alors qu'il a le droit de tout remplir.
+   */
+  describe('profil entièrement vide', () => {
+    const EMPTY_PROFILE = {
+      userId: 'student-1',
+      administrative: { userId: 'student-1', firstName: 'Marie', lastName: 'Dupont' },
+      pedagogical: null,
+      pedagogicalType: null,
+    }
+
+    it('offre les 12 champs administratifs en saisie au titulaire', async () => {
+      mockFetchProfile.mockResolvedValue(EMPTY_PROFILE)
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Prénom')).toBeDefined()
+      })
+
+      for (const label of [
+        'Prénom',
+        'Nom',
+        'Date de naissance',
+        'Téléphone',
+        'Adresse (ligne 1)',
+        'Adresse (ligne 2)',
+        'Code postal',
+        'Ville',
+        'Pays',
+        'Département',
+        'Photo de profil',
+        "Centres d'intérêt",
+      ]) {
+        const field = screen.getByLabelText(label) as HTMLInputElement
+        expect(field).toBeDefined()
+        expect(field.disabled).toBe(false)
+      }
+    })
+
+    it('propose le formulaire élève vide quand aucun profil pédagogique n’existe', async () => {
+      // `pedagogical: null` + `pedagogicalType: null` est un état NORMAL : la
+      // forme se déduit du rôle du titulaire, comme le fait déjà l'écran de
+      // modification.
+      mockFetchProfile.mockResolvedValue(EMPTY_PROFILE)
+
+      renderProfilePage()
+
+      const pedagogiqueTab = await screen.findByRole('tab', { name: 'Profil pédagogique' })
+      fireEvent.click(pedagogiqueTab)
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Niveau scolaire')).toBeDefined()
+      })
+      for (const label of [
+        'Niveau scolaire',
+        'Matières',
+        'Objectifs pédagogiques',
+        'Difficultés rencontrées',
+        'Besoins spécifiques (aménagements)',
+        'Contexte scolaire et familial',
+      ]) {
+        expect(screen.getByLabelText(label)).toBeDefined()
+      }
+      expect(screen.queryByText(/ne peut pas être déterminée/i)).toBeNull()
+    })
+
+    it('enregistre les champs saisis sur la fiche elle-même', async () => {
+      mockFetchProfile.mockResolvedValue(EMPTY_PROFILE)
+      mockUpdateAdministrativeProfile.mockResolvedValue({})
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Ville')).toBeDefined()
+      })
+
+      await userEvent.type(screen.getByLabelText('Ville'), 'Lyon')
+      await userEvent.click(screen.getByRole('button', { name: /enregistrer/i }))
+
+      await waitFor(() => {
+        expect(mockUpdateAdministrativeProfile).toHaveBeenCalledWith('student-1', {
+          firstName: 'Marie',
+          lastName: 'Dupont',
+          city: 'Lyon',
+        })
+      })
+      expect(await screen.findByText('Profil administratif mis à jour')).toBeDefined()
+    })
+
+    it("n'affiche aucun bloc pédagogique au parent financeur", async () => {
+      // Le parent finance et consulte ; il n'a pas de profil pédagogique, et lui
+      // en présenter un vide l'inviterait à remplir ce qui n'existe pas pour lui.
+      mockUseAuth.mockReturnValue(buildAuthMock(PARENT_USER))
+      mockFetchProfile.mockResolvedValue({
+        ...EMPTY_PROFILE,
+        userId: 'parent-1',
+        administrative: { firstName: 'Hélène', lastName: 'Dupont' },
+      })
+
+      renderProfilePage('parent-1')
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Prénom')).toBeDefined()
+      })
+
+      expect(screen.queryByRole('tab', { name: 'Profil pédagogique' })).toBeNull()
+      expect(screen.queryByLabelText('Niveau scolaire')).toBeNull()
+      expect(screen.queryByText(/ne peut pas être déterminée/i)).toBeNull()
+    })
+  })
+
+  /**
+   * Sans droit d'écriture, les mêmes champs restent listés — mais en lecture, et
+   * marqués « Non renseigné ». Un lecteur ne doit jamais croire qu'un champ vide
+   * n'existe pas.
+   */
+  describe('lecture sans droit d’écriture', () => {
+    it('liste tous les champs, marqués « Non renseigné », sans zone de saisie', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(PARENT_USER))
+      mockFetchProfile.mockResolvedValue({
+        userId: 'student-1',
+        administrative: { firstName: 'Marie', lastName: 'Dupont' },
+        pedagogical: null,
+        pedagogicalType: 'student' as const,
+      })
+
+      renderProfilePage('student-1')
+
+      await waitFor(() => {
+        expect(screen.getByText('Marie')).toBeDefined()
+      })
+
+      expect(screen.getByText('Ville')).toBeDefined()
+      expect(screen.getByText('Téléphone')).toBeDefined()
+      expect(screen.getByText("Centres d'intérêt")).toBeDefined()
+      expect(screen.getAllByText('Non renseigné').length).toBeGreaterThanOrEqual(9)
+
+      // Aucun champ n'est saisissable : le parent lit tout, n'écrit rien.
+      expect(screen.queryByLabelText('Ville')).toBeNull()
+      expect(screen.queryByRole('button', { name: /enregistrer/i })).toBeNull()
+      // Et « Non renseigné » ne se confond jamais avec « Non partagé ».
+      expect(screen.queryByText('Non partagé')).toBeNull()
+    })
   })
 
   /**
@@ -234,10 +404,29 @@ describe('ProfilePage', () => {
         expect(screen.getByText('Marie')).toBeDefined()
       })
 
-      // `city` est présent à `null` : non renseigné, donc pas listé du tout.
-      expect(screen.queryByText('Ville')).toBeNull()
-      // `phone` est absent et déclaré masqué : listé, avec sa mention.
+      // Les deux champs sont listés — c'est la mention qui les distingue.
+      // `city` est présent à `null` : personne ne l'a rempli.
+      expect(screen.getByText('Ville')).toBeDefined()
+      expect(screen.getAllByText('Non renseigné').length).toBeGreaterThanOrEqual(1)
+      // `phone` est absent et déclaré masqué : l'élève a choisi de ne pas le montrer.
       expect(screen.getByText('Téléphone')).toBeDefined()
+      expect(screen.getAllByText('Non partagé').length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('reste en lecture seule pour un lecteur filtré', async () => {
+      // Un formateur ne modifie pas le profil de son élève ; et un formulaire
+      // bâti sur un bloc amputé proposerait de réécrire ce qu'il ne voit pas.
+      mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
+      mockFetchProfile.mockResolvedValue(FILTERED_PROFILE)
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Marie')).toBeDefined()
+      })
+
+      expect(screen.queryByLabelText('Ville')).toBeNull()
+      expect(screen.queryByRole('button', { name: /enregistrer/i })).toBeNull()
     })
 
     it('explique le filtrage une seule fois, en tête de fiche', async () => {
@@ -279,7 +468,7 @@ describe('ProfilePage', () => {
       renderProfilePage()
 
       await waitFor(() => {
-        expect(screen.getByText('Marie')).toBeDefined()
+        expect((screen.getByLabelText('Prénom') as HTMLInputElement).value).toBe('Marie')
       })
 
       expect(screen.queryByText('Vous consultez une fiche partielle')).toBeNull()
@@ -294,7 +483,7 @@ describe('ProfilePage', () => {
       renderProfilePage()
 
       await waitFor(() => {
-        expect(screen.getByText('Marie')).toBeDefined()
+        expect((screen.getByLabelText('Prénom') as HTMLInputElement).value).toBe('Marie')
       })
 
       expect(screen.queryByText('Vous consultez une fiche partielle')).toBeNull()

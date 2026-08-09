@@ -164,7 +164,7 @@ describe('Identity Access Service (e2e)', () => {
       .expect((res) => expect(JSON.stringify(res.body.message)).toContain('duplicated consentType'));
   });
 
-  it('POST /accounts/students with birthDate → 400 (field owned by profile-service, never absorbed)', () => {
+  it('POST /accounts/students with a valid birthDate → 201 (forwarded to profile-service, never stored here)', () => {
     return request(app.getHttpServer())
       .post('/accounts/students')
       .send({
@@ -174,8 +174,53 @@ describe('Identity Access Service (e2e)', () => {
         lastName: 'Petit',
         birthDate: '2008-05-14',
       })
+      .expect(201)
+      .expect((res) => {
+        expect(res.body.student).not.toHaveProperty('birthDate');
+        expect(JSON.stringify(res.body)).not.toContain('2008-05-14');
+      });
+  });
+
+  it('POST /accounts/students with a malformed birthDate → 400 naming the expected format', () => {
+    return request(app.getHttpServer())
+      .post('/accounts/students')
+      .send({
+        email: `student-badbirthdate-${timestamp}@example.com`,
+        password: testPassword,
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        birthDate: '14/05/2008',
+      })
+      .expect(400)
+      .expect((res) => expect(JSON.stringify(res.body.message)).toContain('YYYY-MM-DD'));
+  });
+
+  it('POST /accounts/students with an impossible birthDate → 400 (never forwarded to profile-service)', () => {
+    return request(app.getHttpServer())
+      .post('/accounts/students')
+      .send({
+        email: `student-impossiblebirthdate-${timestamp}@example.com`,
+        password: testPassword,
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        birthDate: '2008-02-30',
+      })
       .expect(400)
       .expect((res) => expect(JSON.stringify(res.body.message)).toContain('birthDate'));
+  });
+
+  it('POST /accounts/students with parentBirthDate → 400 (no form collects a birth date for the linked account)', () => {
+    return request(app.getHttpServer())
+      .post('/accounts/students')
+      .send({
+        email: `student-parentbirthdate-${timestamp}@example.com`,
+        password: testPassword,
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        parentBirthDate: '1978-03-02',
+      })
+      .expect(400)
+      .expect((res) => expect(JSON.stringify(res.body.message)).toContain('parentBirthDate'));
   });
 
   it('POST /accounts/students with parentConsents → 400 (a consent is never presumed for a linked account)', () => {

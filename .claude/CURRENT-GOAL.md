@@ -7,100 +7,68 @@
 
 ## Besoin
 
-Quand un utilisateur accepte les consentements RGPD et les CGU au moment de son inscription,
-cette acceptation doit être **enregistrée et tracée**. Aujourd'hui elle est envoyée par le
-front puis jetée en silence par le serveur : le compte reste `pending`, et l'utilisateur voit
-« Votre compte n'est pas encore activé. Signer les consentements pour activer votre espace. »
-alors qu'il vient précisément de les signer.
+À l'inscription, l'utilisateur doit pouvoir accepter — ou refuser — le consentement
+**marketing**, comme il peut déjà le faire depuis l'onglet `/consents` une fois connecté.
 
-Enjeu réglementaire : un consentement RGPD recueilli puis perdu est pire que pas de
-consentement du tout — l'utilisateur croit avoir consenti, l'application n'en a aucune trace.
+Contrairement à RGPD et CGU, ce consentement est **optionnel** : l'inscription doit aboutir
+qu'il soit coché ou non, et son refus ne doit rien bloquer. Coché, il doit être enregistré
+en base avec la même trace que les autres (type, version, adresse IP, horodatage).
 
-Demandé le 2026-08-09, après que les deux subagents l'ont signalé indépendamment pendant la
-correction de l'identifiant de connexion.
+Demandé le 2026-08-09, dans la foulée du correctif sur les consentements RGPD/CGU.
 
 ## Comment on saura que c'est fait
 
-Une inscription réellement jouée sur `https://claudevma.visioprof.fr`, suivie de :
-1. une capture montrant le compte **sans** le bandeau « compte pas encore activé » après
-   avoir coché les consentements à l'inscription ;
-2. la trace du consentement citée depuis la pile réelle (ligne en base ou réponse HTTP de
-   `/consents`), avec sa date et son type.
+Deux inscriptions réellement jouées sur `https://claudevma.visioprof.fr` :
+1. marketing **coché** → capture du formulaire, et trace `marketing` citée depuis
+   `consent_records` à côté de `rgpd` et `cgu` ;
+2. marketing **non coché** → l'inscription aboutit quand même, et **aucune** ligne
+   `marketing` en base.
+
+Le second cas compte autant que le premier : un consentement optionnel enregistré par défaut
+serait une faute plus grave que son absence.
 
 **Ni les tests verts ni une PR ouverte ne valent validation** : la suite front simule le réseau.
 
-## Ce que la vérification contre la pile réelle a établi
-
-Inscription jouée avec `consents: {rgpd: true, cgu: true}` et `birthDate` dans le corps :
-- `consent_records` → **0 ligne** ; `consent_signed` = `false` ; `validation_status` = `pending` ;
-- `administrative_profiles.date_naissance` → **NULL**.
-
-Le mécanisme cible existe et **fonctionne** : `POST /consents` écrit la trace (type, version,
-adresse IP, horodatage) et, une fois rgpd + cgu signés, bascule `consent_signed` à `true` et
-`validation_status` à `active`. Vérifié sur le même compte de sonde, supprimé depuis.
-
-Le défaut est donc que les routes de création de compte **contournent** ce mécanisme au lieu
-de l'emprunter. Arbitrage inscrit dans `docs/architecture.md`.
-
 ## État
 
-- [x] Comportement réel constaté et cause confirmée
-- [x] Propriété de la donnée arbitrée — les consentements appartiennent à
-      `identity-access-service` ; `birthDate` à `profile-service`
-- [x] Codé et committé — `identity-access-service` puis front,
-      branche `fix/rgpd-consents-dropped-at-registration`
-- [x] Déployé sur la pile réelle (déploiement couplé : les deux services ensemble)
-- [x] Preuve livrée à l'utilisateur — 2026-08-09, inscription jouée sur
-      `https://claudevma.visioprof.fr` : corps envoyé
-      `consents: [{"consentType":"rgpd"},{"consentType":"cgu"}]`, réponse `201` avec
-      `validationStatus: "active"` et `consentSigned: true`, **2 lignes** dans
-      `consent_records` (rgpd + cgu, version 1.0, IP, horodatage), et **aucun bandeau**
-      « compte pas encore activé » après connexion. Compte d'essai supprimé.
-- [x] Validé par l'utilisateur — 2026-08-09
-- [x] Mergé dans master — PR #76, puis `identity-access-service` et `frontend` reconstruits
-      depuis `master` et redéployés ensemble. Parcours rejoué sur cette version : `201`
-      `active` / `consentSigned: true`, 2 lignes dans `consent_records`, aucun bandeau.
-      Compte de vérification supprimé.
-
-## Effets de bord acceptés au merge, à traiter ensuite
-
-- **Étape « Profil pédagogique » retirée du formulaire formateur** : ses trois champs
-  (`teachingSubjects`, `educationLevel`, `bio`) n'étaient jamais stockés. Le wizard passe de
-  3 à 2 étapes. Conséquence métier : le RP n'a plus matières/niveaux/présentation au moment
-  de valider une candidature. À restaurer en les acheminant vers `profile-service`.
-- **Champ « Date de naissance » retiré du formulaire élève** : jamais stocké non plus
-  (`date_naissance = NULL` mesuré). Reste saisissable après connexion dans le profil
-  administratif. À remettre quand `profile-service` saura le recevoir à la création.
-- **`register/parent` n'a aucune étape de consentement** : le parent repart `pending` alors
-  qu'élève et formateur repartent `active`. Rien n'est perdu, mais le parcours est
-  incohérent entre rôles.
+- [x] Contrat serveur vérifié — `marketing` était **déjà** accepté et enregistré par
+      `POST /accounts/*`. Correctif front seul, aucun changement serveur.
+- [x] Codé et committé — branche `feat/marketing-consent-at-registration`
+- [x] Déployé sur la pile réelle (front seul, aucun couplage cette fois)
+- [x] Preuve livrée à l'utilisateur — 2026-08-09, deux inscriptions jouées :
+      - **coché** → envoyé `rgpd, cgu, marketing` → 3 lignes dans `consent_records` ;
+      - **non coché** → envoyé `rgpd, cgu` → 2 lignes, **aucune** ligne marketing,
+        et le compte ressort quand même `active`.
+      Case décochée par défaut dans les deux passages. Comptes d'essai supprimés.
+- [ ] Validé par l'utilisateur
+- [ ] Mergé dans master
 
 ## Bloqué par
 
 Rien.
 
-## Périmètre
+## Point ouvert relevé pendant le travail
 
-Le besoin porte sur les **consentements**. `birthDate`, envoyé par le même appel et
-vraisemblablement jeté par le même mécanisme, appartient à `profile-service` et non à
-`identity-access-service` : à constater et à rapporter, à ne corriger que si cela relève
-du même geste.
+**Aucune route ne permet de retirer un consentement.** `POST /consents` ne sait que signer.
+Le RGPD exige que le retrait soit aussi simple que l'accord — à trancher avant toute
+exploitation commerciale des adresses collectées. Le texte du formulaire a été corrigé pour
+ne rien promettre qui n'existe pas.
 
 ---
 
 ## Dernier objectif clos — 2026-08-09
 
-**Besoin** : un compte créé en parallèle d'une inscription doit pouvoir se connecter, donc
-disposer d'un identifiant de connexion saisi explicitement.
+**Besoin** : les consentements RGPD/CGU acceptés à l'inscription devaient être enregistrés et
+tracés ; ils étaient jetés en silence par le `ValidationPipe`.
 
-**Trois défauts trouvés** : `/accounts/parents` sans `loginIdentifier` et ignorant
-silencieusement celui transmis ; `parentLoginIdentifier` / `studentLoginIdentifier` réservés au
-rattachement d'un compte existant ; identifiant du compte lié dérivé de l'email sans que
-personne ne le sache.
+**Preuve livrée** : inscription jouée sur la pile réelle → `201` avec `validationStatus:
+"active"` et `consentSigned: true`, 2 lignes dans `consent_records` (type, version, IP,
+horodatage), plus aucun bandeau « compte pas encore activé ». Mergé via PR #76, services
+reconstruits depuis `master` et redéployés ensemble.
 
-**Preuve livrée** : parcours joué dans les deux sens sur la pile réelle — parent
-`sophie.choisi.092045` et élève `theo.choisi.092247` créés avec l'identifiant saisi, tous deux
-**connectés**. Mergé via PR #74, services reconstruits depuis `master` et redéployés.
+**Effets de bord acceptés, à traiter ensuite** : l'étape « Profil pédagogique » du formulaire
+formateur et le champ « Date de naissance » du formulaire élève ont été retirés — leurs
+données n'étaient stockées nulle part. À rebrancher sur `profile-service`.
 
 ---
 

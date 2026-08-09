@@ -1,8 +1,11 @@
 /**
- * RegistrationRgpdStep — étape finale (consentements RGPD/CGU) commune aux
- * wizards d'inscription élève et formateur.
+ * RegistrationRgpdStep — étape finale (consentements) commune aux wizards
+ * d'inscription élève et formateur.
  * Extrait de TeacherRegistrationPage / StudentRegistrationPage
- * (lot 10 — normalisation, découpage > 300 lignes). Rendu identique à l'origine.
+ * (lot 10 — normalisation, découpage > 300 lignes).
+ *
+ * Trois cases : RGPD et CGU **obligatoires** (marquées `*`, attribut `required`), et
+ * marketing **optionnel** — décoché par défaut, ne bloquant jamais la création du compte.
  */
 
 import React from 'react'
@@ -77,9 +80,33 @@ export function RegistrationRgpdStep({
         </div>
       </label>
 
+      {/*
+        Consentement optionnel — décoché par défaut, sans attribut `required` : un opt-in
+        marketing pré-coché ou bloquant serait une faute réglementaire. Libellés repris à
+        l'identique de la page /consents pour rester cohérent d'un écran à l'autre.
+        Bordure en pointillés et fond neutre pour le distinguer des deux cases obligatoires,
+        sans les noyer.
+      */}
+      <label className="flex items-start gap-3 p-4 border border-dashed border-gray-300 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100">
+        <input
+          type="checkbox"
+          checked={rgpdData.hasAcceptedMarketing}
+          onChange={(e) => onRgpdChange('hasAcceptedMarketing', e.target.checked)}
+          className="mt-0.5 rounded"
+        />
+        <div>
+          <p className="text-sm font-medium text-gray-700">Marketing (optionnel)</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Recevoir des communications commerciales
+          </p>
+        </div>
+      </label>
+
       <p className="text-xs text-gray-500">
         Ces consentements sont enregistrés à la création de votre compte : vous n'aurez pas à
-        les signer de nouveau après connexion.
+        les signer de nouveau après connexion. Le consentement marketing reste facultatif :
+        votre inscription aboutit que vous l'acceptiez ou non, et vous pourrez l'accepter plus
+        tard depuis votre espace si vous le laissez décoché.
       </p>
 
       {linkedAccountTarget && (

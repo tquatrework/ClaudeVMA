@@ -7,12 +7,16 @@
  * strictement la même forme que le corps de `POST /consents` — même table, même
  * trace (IP, horodatage), enregistrée dans la transaction de création du compte.
  *
- * Deux règles portées ici :
+ * Trois règles portées ici :
  * 1. **N'envoyer que ce qui a réellement été coché.** Une case décochée ne produit
  *    aucune entrée : le serveur ne doit jamais recevoir un consentement que
  *    l'utilisateur n'a pas donné.
  * 2. **Ne rien envoyer plutôt qu'un tableau vide** quand rien n'est coché : le champ
  *    est optionnel, son absence est plus lisible côté serveur qu'un tableau vide.
+ * 3. **`marketing` est optionnel et ne bloque rien.** Il suit exactement la règle 1 :
+ *    aucune entrée `marketing` ne part tant que l'utilisateur ne l'a pas cochée. Seuls
+ *    `rgpd` et `cgu` restent obligatoires pour créer le compte
+ *    (voir `hasGivenRequiredConsents`, qui ignore délibérément `marketing`).
  *
  * L'ancienne forme `{rgpd: true, cgu: true}` était absorbée en silence par le
  * serveur (aucune ligne écrite, compte laissé `pending`) ; elle renvoie désormais
@@ -37,6 +41,11 @@ export function buildRegistrationConsents(
   if (consentsFormData.hasAcceptedCgu) {
     acceptedConsents.push({ consentType: 'cgu' })
   }
+  // Consentement optionnel : il n'est transmis que s'il a été coché. Enregistrer un
+  // consentement marketing non donné serait plus grave que de ne rien enregistrer.
+  if (consentsFormData.hasAcceptedMarketing) {
+    acceptedConsents.push({ consentType: 'marketing' })
+  }
 
   return acceptedConsents.length > 0 ? acceptedConsents : undefined
 }
@@ -47,6 +56,9 @@ export function buildRegistrationConsents(
  * Quand c'est le cas, le serveur renvoie le compte `active` / `consentSigned: true`
  * dès le `201` : ni bandeau « compte pas encore activé », ni écran de signature
  * après connexion.
+ *
+ * `marketing` n'entre volontairement pas dans ce calcul : il est optionnel, l'inscription
+ * aboutit qu'il soit coché ou non.
  */
 export function hasGivenRequiredConsents(
   consentsFormData: RegistrationConsentsFormData,

@@ -578,4 +578,122 @@ describe('StudentRegistrationPage', () => {
       })
     })
   })
+
+  /**
+   * Consentement marketing — optionnel (docs/routes.md : `rgpd` requis, `cgu` requis,
+   * `marketing` optionnel). Il ne doit jamais être pré-coché ni bloquer l'inscription,
+   * et aucune entrée `marketing` ne doit partir tant qu'il n'a pas été coché.
+   */
+  describe('consentement marketing (optionnel)', () => {
+    /** Amène à l'étape 2 et coche les deux consentements obligatoires. */
+    async function goToConsentsStepAndAcceptRequired() {
+      await fillAdministrativeStep()
+      await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+      await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
+
+      const checkboxes = screen.getAllByRole('checkbox')
+      await userEvent.click(checkboxes[0]) // RGPD
+      await userEvent.click(checkboxes[1]) // CGU
+    }
+
+    function getMarketingCheckbox() {
+      return screen.getByRole('checkbox', { name: /marketing/i })
+    }
+
+    it('affiche la case marketing, décochée et non obligatoire, avec les libellés de /consents', async () => {
+      renderStudentRegistrationPage()
+
+      await fillAdministrativeStep()
+      await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+      await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
+
+      const marketingCheckbox = getMarketingCheckbox() as HTMLInputElement
+      expect(marketingCheckbox.checked).toBe(false)
+      expect(marketingCheckbox.required).toBe(false)
+      expect(screen.getByText(/marketing \(optionnel\)/i)).toBeDefined()
+      expect(screen.getByText(/recevoir des communications commerciales/i)).toBeDefined()
+    })
+
+    it('transmet le consentement marketing quand la case est cochée', async () => {
+      mockRegisterStudent.mockResolvedValue(undefined)
+      renderStudentRegistrationPage()
+
+      await goToConsentsStepAndAcceptRequired()
+      await userEvent.click(getMarketingCheckbox())
+      await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+
+      await waitFor(() => {
+        expect(mockRegisterStudent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            consents: [
+              { consentType: 'rgpd' },
+              { consentType: 'cgu' },
+              { consentType: 'marketing' },
+            ],
+          }),
+        )
+      })
+      // L'inscription aboutit avec le consentement marketing.
+      await waitFor(() => expect(screen.getByText('Login Page')).toBeDefined())
+    })
+
+    it("n'envoie aucune entrée marketing quand la case reste décochée", async () => {
+      mockRegisterStudent.mockResolvedValue(undefined)
+      renderStudentRegistrationPage()
+
+      await goToConsentsStepAndAcceptRequired()
+      await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+
+      await waitFor(() => expect(mockRegisterStudent).toHaveBeenCalled())
+
+      const payload = mockRegisterStudent.mock.calls[0][0] as {
+        consents?: { consentType: string }[]
+      }
+      expect(payload.consents).toEqual([{ consentType: 'rgpd' }, { consentType: 'cgu' }])
+      expect(payload.consents?.some((consent) => consent.consentType === 'marketing')).toBe(false)
+      // L'inscription aboutit aussi sans le consentement marketing.
+      await waitFor(() => expect(screen.getByText('Login Page')).toBeDefined())
+    })
+
+    it('ne débloque pas l\'inscription à lui seul : RGPD et CGU restent obligatoires', async () => {
+      mockRegisterStudent.mockResolvedValue(undefined)
+      renderStudentRegistrationPage()
+
+      await fillAdministrativeStep()
+      await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+      await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
+
+      await userEvent.click(getMarketingCheckbox())
+      await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+
+      await waitFor(() => {
+        expect(mockRegisterStudent).not.toHaveBeenCalled()
+      })
+    })
+
+    it('ne transmet jamais le consentement marketing au compte parent créé en parallèle', async () => {
+      mockRegisterStudent.mockResolvedValue(undefined)
+      renderStudentRegistrationPage()
+
+      await fillAdministrativeStep()
+      await selectNewLinkedParentMode()
+      await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+      await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
+
+      const checkboxes = screen.getAllByRole('checkbox')
+      await userEvent.click(checkboxes[0])
+      await userEvent.click(checkboxes[1])
+      await userEvent.click(getMarketingCheckbox())
+      await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+
+      await waitFor(() => expect(mockRegisterStudent).toHaveBeenCalled())
+      const payload = mockRegisterStudent.mock.calls[0][0] as Record<string, unknown>
+      expect(payload.parentConsents).toBeUndefined()
+      expect(payload.consents).toEqual([
+        { consentType: 'rgpd' },
+        { consentType: 'cgu' },
+        { consentType: 'marketing' },
+      ])
+    })
+  })
 })

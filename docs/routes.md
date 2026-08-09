@@ -50,9 +50,9 @@ Réponse login/refresh : `{access_token, refresh_token, user: {id, email, role, 
 |---|---|---|---|---|---|
 | GET | /accounts/check-email | Vérifier la disponibilité d'un email | Non | — | Query: `email` |
 | POST | /accounts | Créer un compte générique (auto-inscription, non utilisée par le front) | Non | — | `{email, password, role?, loginIdentifier?}` |
-| POST | /accounts/students | Créer un compte élève (+ parent optionnel) | Non | — | `{email, password, firstName, lastName, phoneNumber?, loginIdentifier?, isMember?, parentLoginIdentifier?, parentEmail?, parentPassword?, parentFirstName?, parentLastName?}` |
+| POST | /accounts/students | Créer un compte élève (+ parent optionnel) | Non | — | `{email, password, firstName, lastName, phoneNumber?, loginIdentifier?, isMember?, parentAccountMode?, parentLoginIdentifier?, parentEmail?, parentPassword?, parentFirstName?, parentLastName?}` |
 | POST | /accounts/teachers | Créer un compte formateur | Non | — | `{email, password, firstName, lastName, phoneNumber?, loginIdentifier?, cvReference?}` |
-| POST | /accounts/parents | Créer un compte parent / financeur (+ élève optionnel) | Non | — | `{email, password, firstName, lastName, phoneNumber?, studentLoginIdentifier?, studentEmail?, studentPassword?, studentFirstName?, studentLastName?}` |
+| POST | /accounts/parents | Créer un compte parent / financeur (+ élève optionnel) | Non | — | `{email, password, firstName, lastName, phoneNumber?, loginIdentifier?, studentAccountMode?, studentLoginIdentifier?, studentEmail?, studentPassword?, studentFirstName?, studentLastName?}` |
 | GET | /accounts/:accountId | Lire un compte | 🔒 | TI, RP, AdministrateurFinancier | — |
 | PUT | /accounts/:accountId/roles | Changer le rôle | 🔒 | RP, TI | `{role}` |
 | PUT | /accounts/:accountId/validate | Valider un compte | 🔒 | RP, TI | — |
@@ -64,22 +64,54 @@ d'auto-inscription directe ci-dessus (`students`/`teachers`/`parents`) — `400`
 `phoneNumber` y est optionnel (chiffres/espaces/`+`/`-`/`.`/parenthèses, 6 à 30 caractères — `400` si
 format invalide). `POST /accounts` ne les accepte pas du tout (`400` si envoyés, whitelist stricte).
 
-**`POST /accounts/students` — élève + parent dans le même appel :**
-- `parentLoginIdentifier` : lie un compte parent **existant** par identifiant (`404` si introuvable). Prioritaire sur `parentEmail`.
-- `parentEmail` (sans `parentLoginIdentifier`) : `0` compte correspondant → crée un nouveau compte parent (`parentFirstName`/`parentLastName` alors **obligatoires**, `400` sinon ; `parentPassword` optionnel, retombe sur `password` sinon) ; `1` compte correspondant → lie ce compte existant (les champs `parentFirstName`/`parentLastName` fournis sont ignorés, le profil existant n'est jamais écrasé) ; `2+` comptes → `409` (utiliser `parentLoginIdentifier`).
-- Élève et parent sont créés/liés dans **une seule transaction** : tout échec (parent introuvable, email ambigu, `503` profile-service) annule l'élève ET le parent.
-- Quand un parent est lié ou créé dans le même appel, la relation financeur/élève (`finance-owner-student`) est créée **automatiquement et immédiatement côté profile-service, sans flow de demande** (contrairement à `POST /parent-link-requests` côté profile-service, réservé au rattachement après coup entre comptes existants non liés à l'inscription).
+`loginIdentifier` est optionnel et **identique sur les 3 routes** (`students`/`teachers`/`parents`) : il
+nomme le compte principal créé. S'il est omis, un identifiant est dérivé de la partie locale de l'email
+(avec suffixe `.2`, `.3`… en cas de collision) ; s'il est fourni et déjà pris, `409`. Avant le
+2026-08-09, `POST /accounts/parents` ne déclarait pas ce champ et le jetait silencieusement
+(`whitelist: true`) — corrigé, voir `docs/architecture.md` > "Arbitrages rendus" (2026-08-09).
 
-**`POST /accounts/parents` — parent + élève dans le même appel (symétrique du point ci-dessus) :**
-- `studentLoginIdentifier` : lie un compte élève **existant** par identifiant (`404` si introuvable). Prioritaire sur `studentEmail`.
-- `studentEmail` (sans `studentLoginIdentifier`) : `0` compte correspondant → crée un nouveau compte élève (`studentFirstName`/`studentLastName` alors **obligatoires**, `400` sinon ; `studentPassword` optionnel, retombe sur `password` sinon) ; `1` compte correspondant → lie ce compte existant (mêmes garanties que côté élève : jamais écrasé) ; `2+` comptes → `409` (utiliser `studentLoginIdentifier`).
+**Compte lié créé en parallèle — intention explicite (`parentAccountMode` / `studentAccountMode`) :**
+
+Rattacher un compte **existant** et **créer** un compte lié sont deux intentions distinctes, portées par
+un champ de mode (`'none' | 'existing' | 'new'`, absent = `'none'`). Une seule donnée, un seul nom :
+`parentLoginIdentifier` / `studentLoginIdentifier` désigne toujours l'identifiant de connexion du compte
+lié, son rôle dépendant du mode. **Aucun champ transmis n'est jamais ignoré silencieusement** : un champ
+sans effet dans le mode choisi renvoie `400` avec le détail des violations.
+
+**`POST /accounts/students` — élève + parent dans le même appel :**
+- `parentAccountMode` **obligatoire dès qu'un champ `parent*` est envoyé** (`400` sinon).
+- `parentAccountMode: 'existing'` → rattache le compte parent existant désigné par `parentLoginIdentifier`
+  (obligatoire, `404` si introuvable). `parentEmail`/`parentPassword`/`parentFirstName`/`parentLastName`
+  sont **interdits** dans ce mode (`400`) — le profil du compte rattaché n'est jamais écrasé.
+- `parentAccountMode: 'new'` → crée le compte parent. `parentLoginIdentifier`, `parentEmail`,
+  `parentFirstName` et `parentLastName` sont **obligatoires** (`400` sinon) ; `parentPassword` est
+  optionnel et retombe sur `password` (celui de l'élève) s'il est omis. L'identifiant de connexion du
+  compte créé est **choisi, jamais dérivé de l'email** — c'est avec lui que le parent se connectera.
+  `409` si cet identifiant est déjà pris. Si l'email du parent est déjà utilisé par un autre compte, le
+  compte est tout de même créé et `emailAlreadyUsed: true` est renvoyé sur l'objet `parent` (même
+  comportement que pour le compte principal).
+- `parentAccountMode: 'none'` (ou absent) → aucun compte parent ; tout champ `parent*` renvoie `400`.
+- Élève et parent sont créés/rattachés dans **une seule transaction** : tout échec (parent introuvable, identifiant pris, `503` profile-service) annule l'élève ET le parent.
+- Quand un parent est rattaché ou créé dans le même appel, la relation financeur/élève (`finance-owner-student`) est créée **automatiquement et immédiatement côté profile-service, sans flow de demande** (contrairement à `POST /parent-link-requests` côté profile-service, réservé au rattachement après coup entre comptes existants non liés à l'inscription).
+
+**`POST /accounts/parents` — parent + élève dans le même appel (strictement symétrique) :**
+- `studentAccountMode` **obligatoire dès qu'un champ `student*` est envoyé** (`400` sinon).
+- `studentAccountMode: 'existing'` → rattache le compte élève existant désigné par `studentLoginIdentifier`
+  (obligatoire, `404` si introuvable) ; `studentEmail`/`studentPassword`/`studentFirstName`/`studentLastName` interdits (`400`).
+- `studentAccountMode: 'new'` → crée le compte élève ; `studentLoginIdentifier`, `studentEmail`,
+  `studentFirstName`, `studentLastName` obligatoires ; `studentPassword` optionnel (retombe sur
+  `password`) ; `409` si l'identifiant choisi est pris.
 - Mêmes garanties d'atomicité et de liaison automatique finance-owner-student que `POST /accounts/students`.
+
+La résolution implicite par email (`0` compte → création / `1` → rattachement / `2+` → `409`) qui
+existait avant le 2026-08-09 est **supprimée** : l'intention n'est plus devinée à partir du nombre de
+comptes trouvés, elle est déclarée.
 
 Règles métier : seuls `eleve`, `parent_financeur` et `formateur` peuvent être auto-inscrits (IAM-FB-002). La validation nécessite les consentements RGPD+CGU signés (IAM-FB-003).
 
 Réponse (compte simple) : `{id, loginIdentifier, email, role, validationStatus, consentSigned, isActive, createdAt}` (`emailAlreadyUsed`/`suggestedLoginIdentifier` optionnels — **ne contient jamais `firstName`/`lastName`/`phone`**, propriété exclusive de profile-service, même sur les 3 routes qui les collectent en entrée).
-Réponse `POST /accounts/students` : `{student, parent}` où `student` est au format ci-dessus et `parent` est soit `null`, soit `{...student-like, created: boolean}` (`created: true` si un nouveau compte parent a été créé, `false` s'il a été lié à un compte existant).
-Réponse `POST /accounts/parents` : `{parent, student}`, symétrique — `parent` au format ci-dessus, `student` soit `null` soit `{..., created: boolean}`.
+Réponse `POST /accounts/students` : `{student, parent}` où `student` est au format ci-dessus et `parent` est soit `null`, soit `{...student-like, created: boolean, emailAlreadyUsed?: true}` (`created: true` si un nouveau compte parent a été créé — mode `'new'` —, `false` s'il s'agit d'un compte existant rattaché — mode `'existing'`).
+Réponse `POST /accounts/parents` : `{parent, student}`, symétrique — `parent` au format ci-dessus, `student` soit `null` soit `{..., created: boolean, emailAlreadyUsed?: true}`.
 
 `503 Service Unavailable` sur `POST /accounts/students`, `POST /accounts/teachers` et `POST /accounts/parents` uniquement : profile-service indisponible ou en erreur lors du stockage du profil administratif (ou de la liaison financeur/élève) — la création de compte est **intégralement annulée** (transaction locale rollback), aucun compte orphelin n'est laissé en base. Le client peut réessayer l'appel tel quel. `POST /accounts` n'appelle jamais profile-service et ne renvoie donc pas ce statut.
 
@@ -133,9 +165,9 @@ locale** que la création du ou des comptes :
    `phone` côté profile-service (convention déjà établie sur ses autres routes internes) alors que le DTO
    d'entrée public d'identity-access-service utilise `phoneNumber` — seul le mapping effectué au moment
    de cet appel sortant fait la conversion de nom.
-2. Si un élève et un parent financeur sont créés/liés dans le même appel (`POST /accounts/students`
-   avec `parentLoginIdentifier`/`parentEmail`, ou `POST /accounts/parents` avec
-   `studentLoginIdentifier`/`studentEmail`) : `POST /internal/link-parent` sur profile-service avec
+2. Si un élève et un parent financeur sont créés/rattachés dans le même appel (`POST /accounts/students`
+   avec `parentAccountMode` `'existing'` ou `'new'`, ou `POST /accounts/parents` avec
+   `studentAccountMode` `'existing'` ou `'new'`) : `POST /internal/link-parent` sur profile-service avec
    `{studentId, financeOwnerId}` (header `X-Internal-Secret`) — crée la relation finance-owner-student
    immédiatement, sans flow de demande.
 

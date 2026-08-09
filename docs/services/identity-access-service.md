@@ -588,5 +588,154 @@
         <status>open</status>
       </openItem>
     </session>
+    <session date="2026-08-09">
+      <title>Identifiant de connexion d'un compte cree en parallele — intention de liaison explicite</title>
+      <context>
+        Trois constats verifies par sondes HTTP contre la pile reelle (https://claudevma.visioprof.fr),
+        arbitres dans docs/architecture.md > "Arbitrages rendus" (2026-08-09) :
+        1. CreateParentAccountDto ne declarait aucun champ loginIdentifier pour le parent lui-meme,
+           alors que CreateStudentAccountDto et CreateTeacherAccountDto en avaient un. Un
+           loginIdentifier transmis etait donc silencieusement supprime par la ValidationPipe
+           (whitelist: true, sans forbidNonWhitelisted) et le compte recevait un identifiant derive
+           de la partie locale de l'email. Le front affiche pourtant un champ « Identifiant de
+           connexion » sur register/parent : la saisie de l'utilisateur etait jetee.
+        2. parentLoginIdentifier / studentLoginIdentifier ne servaient qu'a RATTACHER un compte
+           existant (404 sinon). Aucun champ ne permettait de NOMMER le compte cree en parallele :
+           son identifiant etait derive de son email par generateLoginIdentifier().
+        3. Consequence metier : le compte lie (parent cree depuis register/student, eleve cree depuis
+           register/parent) ne pouvait pas se connecter, la page de login exigeant un loginIdentifier
+           que personne ne lui communiquait.
+      </context>
+
+      <decision id="S-linked-account-explicit-intent">
+        <title>parentAccountMode / studentAccountMode : rattacher un compte existant vs creer un compte lie</title>
+        <files>
+          <file>src/accounts/dto/linked-account-mode.ts (nouveau)</file>
+          <file>src/accounts/dto/create-student-account.dto.ts</file>
+          <file>src/accounts/dto/create-parent-account.dto.ts</file>
+          <file>src/accounts/accounts.service.ts</file>
+          <file>src/accounts/accounts.controller.ts</file>
+          <file>test/unit/linked-account-mode.spec.ts (nouveau)</file>
+          <file>test/unit/accounts.service.spec.ts</file>
+          <file>test/unit/accounts.controller.spec.ts</file>
+          <file>test/unit/create-account.dto.spec.ts</file>
+          <file>test/app.e2e-spec.ts</file>
+        </files>
+        <description>
+          Nouvelle enum LinkedAccountMode ('none' | 'existing' | 'new') exposee sous
+          parentAccountMode (CreateStudentAccountDto) et studentAccountMode (CreateParentAccountDto).
+          Le mode porte l'INTENTION ; parentLoginIdentifier / studentLoginIdentifier restent le seul
+          nom de la donnee « identifiant de connexion du compte lie » (regle « un seul nom par
+          donnee »), son role etant fixe par le mode :
+            - 'existing' : identifiant du compte deja inscrit a rattacher (404 si introuvable).
+              Les champs de creation (email/password/firstName/lastName) y sont INTERDITS (400).
+            - 'new' : identifiant CHOISI pour le compte cree (409 s'il est deja pris). Obligatoire,
+              avec email/firstName/lastName ; le mot de passe reste optionnel et retombe sur celui
+              du compte principal.
+            - 'none' / absent : aucun compte lie ; tout champ parent*/student* renvoie 400.
+          Les regles inter-champs vivent dans une fonction pure checkLinkedAccountIntent(prefix,
+          intent) (src/accounts/dto/linked-account-mode.ts), appelee par
+          AccountsService.assertLinkedAccountIntent() en tete de createStudentAccount /
+          createParentAccount (400 listant toutes les violations). Choix delibere : les
+          @ValidateIf conditionnels de class-validator ne permettent pas d'exprimer a la fois
+          « obligatoire dans ce mode » et « interdit dans cet autre mode » sur une meme propriete
+          (plusieurs @ValidateIf sur une propriete sont combines en ET et desactivent tout).
+          Les DTO ne portent donc plus que la validation de FORME (type, longueur, enum) ; l'intention
+          est verifiee en un seul endroit, testable directement.
+          Suppression de la resolution implicite par email (0 compte -> creation / 1 -> rattachement /
+          2+ -> 409) sur les deux routes : l'intention n'est plus deduite du nombre de comptes trouves.
+          Effet de bord assume : en mode 'new' avec un email deja utilise, le compte lie est cree
+          (et non plus rattache) et porte emailAlreadyUsed: true dans la reponse — meme comportement
+          que le compte principal, ou un email en doublon n'a jamais ete bloquant.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="S-parent-route-login-identifier">
+        <title>POST /accounts/parents aligne sur /accounts/students et /accounts/teachers</title>
+        <files>
+          <file>src/accounts/dto/create-parent-account.dto.ts</file>
+          <file>src/accounts/accounts.service.ts</file>
+        </files>
+        <description>
+          CreateParentAccountDto declare desormais loginIdentifier (optionnel, MinLength(3)), et
+          createParentAccount passe dto.loginIdentifier a resolveLoginIdentifier() au lieu de
+          undefined — la derivation depuis l'email ne s'applique plus que lorsque l'utilisateur n'a
+          rien choisi, et un identifiant deja pris renvoie 409 (au lieu d'etre ignore). Le front
+          envoyait deja ce champ (RegisterParentPayload.loginIdentifier) : aucune modification cote
+          front n'est necessaire pour ce point precis, la saisie cesse simplement d'etre jetee.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <openItem id="TD-front-must-send-account-mode">
+        <title>Le front doit envoyer parentAccountMode / studentAccountMode</title>
+        <description>
+          Rupture de contrat volontaire et visible (400 explicite, jamais un echec silencieux) :
+          apps/web/src/utils/accountLinking.ts modelise deja l'intention cote front
+          (LinkedAccountMode = 'none' | 'existing' | 'new') mais ne la transmet pas, et n'envoie pas
+          l'identifiant saisi en mode 'new'. buildLinkedAccountFields() doit ajouter
+          `<prefix>AccountMode` et, en mode 'new', `<prefix>LoginIdentifier`. Le cas
+          « lockedLoginIdentifier » (parametre d'URL ?parentLoginIdentifier=) correspond au mode
+          'existing'. Tant que ce n'est pas fait, une inscription avec compte lie renvoie 400 —
+          une inscription simple (sans compte lie) reste inchangee.
+        </description>
+        <status>open</status>
+      </openItem>
+
+      <openItem id="TD-linked-account-password-inherited">
+        <title>Le mot de passe d'un compte lie cree retombe silencieusement sur celui du createur</title>
+        <description>
+          parentPassword/studentPassword restent optionnels : quand ils sont omis, le compte lie est
+          cree avec le hash du mot de passe du compte principal (dto.parentPassword ?? dto.password).
+          Meme famille de probleme que l'identifiant derive — une donnee d'authentification devinee
+          plutot que choisie — mais hors du perimetre de l'arbitrage du 2026-08-09, et le front
+          libelle explicitement ce champ « (optionnel) » dans LinkedAccountSection. A arbitrer :
+          rendre le mot de passe obligatoire en mode 'new', ou forcer une reinitialisation a la
+          premiere connexion du compte lie.
+        </description>
+        <status>open</status>
+      </openItem>
+
+      <openItem id="TD-no-role-check-on-attached-account">
+        <title>Aucun controle de role sur le compte rattache en mode 'existing'</title>
+        <description>
+          En mode 'existing', le compte designe par parentLoginIdentifier/studentLoginIdentifier est
+          rattache sans verifier que son role est bien parent_financeur (resp. eleve) : rattacher un
+          formateur comme financeur est possible et produirait une relation incoherente cote
+          profile-service. Comportement preexistant, non introduit par cette session ; signale car
+          la route reste la seule voie de liaison immediate a l'inscription.
+        </description>
+        <status>open</status>
+      </openItem>
+
+      <openItem id="TD-whitelist-silently-drops-unknown-fields">
+        <title>ValidationPipe whitelist sans forbidNonWhitelisted — d'autres champs sont jetes en silence</title>
+        <description>
+          src/main.ts configure `new ValidationPipe({ whitelist: true, transform: true })` : tout champ
+          absent du DTO est supprime sans erreur. C'est la cause racine du bug loginIdentifier corrige
+          ici. Le front envoie encore, sur POST /accounts/students, des champs qu'aucun DTO ne declare :
+          `consents` (acceptation RGPD/CGU saisie a l'inscription) et `birthDate` — tous deux
+          silencieusement jetes. Activer forbidNonWhitelisted casserait immediatement l'inscription
+          (400) tant que ces champs ne sont pas soit declares, soit retires cote front : a traiter
+          dans une session dediee, en coordination avec le front et avec le flow /consents.
+          Constate lors de cette session, non corrige (hors perimetre).
+        </description>
+        <status>open</status>
+      </openItem>
+
+      <openItem id="TD-e2e-still-not-executed-2026-08-09">
+        <title>Suite e2e toujours non executee contre une base reelle</title>
+        <description>
+          Meme limitation que les sessions des 2026-08-05 et 2026-08-06 : aucun Postgres accessible
+          depuis l'environnement de travail de l'agent. Validation effectuee : suite unitaire complete
+          (251/251 verts, dont 15 nouveaux tests sur checkLinkedAccountIntent et les modes de liaison)
+          + `nest build` reussi + `tsc --noEmit` sans erreur sur src. test/app.e2e-spec.ts a ete mis a
+          jour (nouveaux scenarios 400 mode manquant / identifiant manquant / champ sans effet, 404
+          rattachement inconnu, 201 avec identifiant choisi conserve) mais reste non execute.
+        </description>
+        <status>open</status>
+      </openItem>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

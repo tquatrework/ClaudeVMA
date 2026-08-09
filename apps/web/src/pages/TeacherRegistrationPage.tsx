@@ -29,6 +29,8 @@ const INITIAL_ADMINISTRATIVE: TeacherAdministrativeFormData = {
 const INITIAL_RGPD: RegistrationConsentsFormData = {
   hasAcceptedRgpd: false,
   hasAcceptedCgu: false,
+  // Opt-in marketing : jamais pré-coché, l'acceptation doit être un geste actif.
+  hasAcceptedMarketing: false,
 }
 
 const STEP_ORDER: WizardStep[] = ['administrative', 'rgpd']

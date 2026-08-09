@@ -84,6 +84,13 @@ export interface RegistrationConsent {
 export interface RegistrationConsentsFormData {
   hasAcceptedRgpd: boolean
   hasAcceptedCgu: boolean
+  /**
+   * Consentement **optionnel** (docs/routes.md > types `rgpd` requis, `cgu` requis,
+   * `marketing` optionnel). Toujours `false` au départ : un opt-in marketing pré-coché
+   * est une faute réglementaire, l'acceptation doit être un geste actif de l'utilisateur.
+   * Ne conditionne jamais la création du compte.
+   */
+  hasAcceptedMarketing: boolean
 }
 
 export interface RegisterStudentPayload {

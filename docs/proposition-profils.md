@@ -1,8 +1,9 @@
 # Proposition — contenu des profils administratifs et pédagogiques
 
-> **Statut : proposition soumise à validation.** Rien n'est implémenté. Document produit le
-> 2026-08-09 à partir de l'existant réel (schéma en base + contrat Swagger de `profile-service`)
-> et des quatre entités de la version précédente fournies par l'utilisateur.
+> **Statut : toutes les questions sont tranchées, l'implémentation n'est pas lancée.**
+> Document produit le 2026-08-09 à partir de l'existant réel (schéma en base + contrat Swagger
+> de `profile-service`) et des cinq entités de la version précédente fournies par l'utilisateur.
+> Décisions consignées au §11.
 
 ---
 
@@ -43,7 +44,8 @@ recréerait la duplication de propriété déjà tranchée pour `firstName`/`las
 
 | Champs de l'ancienne version | Service propriétaire | Pourquoi |
 |---|---|---|
-| `companyName`, `siret`, `companyType`, `subjectToVat`, `iban`, `bic`, `amountToInvoice` | `finance-credit-service` | Données de facturation et de rémunération. La table `financial_profiles` existe déjà, avec `payment_method` et `payment_reference`. `amountToInvoice` est un solde : l'architecture interdit de calculer un solde ailleurs qu'en finance. |
+| `companyName`, `siret`, `companyType`, `subjectToVat`, `iban`, `bic`, `amountToInvoice` | `finance-credit-service` | **Exclu du périmètre, tranché le 2026-08-09** : tout l'aspect financier sera traité plus tard, dans son propre chantier. La table `financial_profiles` existe déjà. |
+| `calendarSlots` | `calendar-service` | Les disponibilités sont du calendrier, pas du profil. |
 | `cvUrl` | `archive-document-service` | Une URL de fichier en dur dans un profil contourne le service qui possède les documents. `profile-service` ne garde qu'une **référence**. |
 | `teacherSearch` | `teacher-request-service` | « En recherche de professeur » est l'**état d'une demande**, pas une case du profil. Deux sources de vérité produiraient des divergences. |
 
@@ -58,10 +60,21 @@ Existant, à conserver tel quel :
 `firstName`, `lastName`, `birthDate`, `phone`, `addressLine1`, `addressLine2`, `postalCode`,
 `city`, `country`, `department`, `avatarUrl`, `passions`
 
-**Aucun ajout proposé** — et il me manque un élément pour trancher : l'entité `UserProfile`
-de l'ancienne version, référencée par les quatre fichiers fournis mais **non transmise**. C'est
-elle qui portait l'équivalent du profil administratif. Si tu me l'envoies, je complète ce bloc ;
-en l'état je ne peux pas savoir ce qui manque, et je préfère le dire plutôt que d'inventer.
+**Aucun ajout.** `UserProfile` a été transmise le 2026-08-09 et son dépouillement est net : elle
+ne contient que `passions` et `avatar`, qui existent déjà ici sous les noms `passions` et
+`avatarUrl`. Le reste de l'entité n'est pas de la donnée administrative :
+
+| Élément de `UserProfile` | Sort |
+|---|---|
+| `passions`, `avatar` | **Existent déjà** — rien à faire |
+| `pseudo`, `availability` | Commentés dans le code d'origine, jamais activés |
+| `calendarSlots` | Appartient à `calendar-service` |
+| `addTeacherProfilPaymentInfo`, `increaseTeacherAmountToInvoice`, `payTeacherInvoice` | Finance — exclu, voir §2 |
+| Relations vers profils et ordonnances | Structure, déjà couverte par le découpage actuel |
+
+Conclusion : **le profil administratif de VisioMath est déjà plus riche que celui de l'ancienne
+version.** Celle-ci portait l'identité sur son entité `User`, pas sur `UserProfile`. Il n'y a
+donc rien à récupérer, et c'est une bonne nouvelle : un chantier de moins.
 
 Deux remarques sur l'existant :
 
@@ -157,12 +170,14 @@ pas par le schéma.
 `filledBy` et `filledAt` ne sont pas décoratifs : ils rendent l'ordonnance opposable. On doit
 savoir qui a prescrit quoi, et quand.
 
-**Question ouverte, que je ne tranche pas seul** : le titulaire lit-il sa prescription ?
+**Tranché le 2026-08-09 : oui, le titulaire lit sa prescription**, élève comme formateur, sauf
+contre-indication ultérieure.
 
-- Pour l'élève : lui montrer les préconisations le rend acteur de son parcours ; les lui cacher
-  permet au RP d'écrire franchement. Les deux se défendent.
-- Pour le formateur : `maxValidatedLevel` conditionne les affectations qu'il recevra. Le lui
-  cacher serait difficilement tenable.
+Deux conséquences à tenir à l'implémentation :
+- la prescription est **lisible par son titulaire et non modifiable par lui** — c'est le premier
+  endroit de l'application où lecture et écriture divergent aussi nettement sur un même bloc ;
+- le RP écrit en sachant que l'intéressé lira. Si un besoin d'écrire hors du regard du titulaire
+  apparaît, `internal_profile_notes` existe déjà pour ça et reste le bon endroit.
 
 `internal_profile_notes` existe déjà pour les notes internes libres (avec `author_id` et
 `author_role`). La prescription s'en distingue : elle est **structurée**, unique par personne, et
@@ -205,13 +220,27 @@ champ masquable ajouterait une colonne — le modèle ne tient pas.
 où `audience` vaut `self` | `linked` | `all`. Un champ absent prend la visibilité par défaut de
 son bloc. Les deux booléens existants deviennent deux lignes, sans perte.
 
-Socle proposé, visible par défaut des personnes liées : `firstName`, `lastName`, `avatarUrl`,
-`level`, `subjects`. Tout le reste — `difficulties`, `context`, `specificNeeds`, adresse,
-téléphone, `birthDate` — au choix de l'utilisateur, masqué par défaut.
+Socle **validé le 2026-08-09**, visible par défaut des personnes liées : `firstName`,
+`lastName`, `avatarUrl`, `level`, `subjects`. Tout le reste — `difficulties`, `context`,
+`specificNeeds`, adresse, téléphone, `birthDate` — au choix de l'utilisateur, masqué par défaut.
 
 ---
 
-## 9. Ce que ça implique, et dans quel ordre
+## 9. Langue : anglais dans le code, français à l'écran
+
+**Règle posée le 2026-08-09.** Les noms de champs, de variables et de clés d'API restent en
+anglais — c'est déjà la règle du projet, et l'alignement front/back en dépend. En revanche,
+**tout ce que l'utilisateur lit est en français** : libellés de champs, intitulés de sections,
+messages d'erreur, états.
+
+Concrètement, `recommendedTeacherProfile` s'affiche « Type de formateur préconisé », `difficulties`
+« Difficultés rencontrées », `maxValidatedLevel` « Niveau maximum validé ». La correspondance est
+portée par le front, dans un point unique, pas éparpillée au fil des composants — sinon le même
+champ finira par porter deux libellés selon l'écran.
+
+---
+
+## 10. Ce que ça implique, et dans quel ordre
 
 1. **`profile-service`** — 6 champs déclaratifs à créer, 1 à déplacer, 1 à sortir du DTO,
    9 champs de prescription à ajouter aux deux tables pédagogiques, une route d'écriture
@@ -228,15 +257,18 @@ livrer le front sans le back produirait des écrans qui mentent.
 
 ---
 
-## 10. Ce que j'attends de toi
+## 11. Décisions prises
 
-1. ~~Trois blocs ou deux ?~~ **Tranché : deux blocs**, les champs d'ordonnance rejoignent le
-   profil pédagogique. Reste à confirmer le corollaire : deux **routes d'écriture** distinctes,
-   pour que le titulaire ne puisse pas écrire sa propre prescription.
-2. **Le titulaire lit-il sa prescription ?** Réponse possiblement différente pour l'élève et
-   pour le formateur.
-3. **`UserProfile`** de l'ancienne version : peux-tu me l'envoyer ? Sans elle, je ne peux pas
-   dire ce qui manque au profil administratif.
-4. **Les données de facturation formateur** (SIRET, IBAN, BIC…) : à reprendre maintenant dans
-   `finance-credit-service`, ou plus tard ?
-5. **La visibilité par champ** : le socle proposé au point 8 te convient-il ?
+Toutes tranchées le 2026-08-09.
+
+| Question | Décision |
+|---|---|
+| Trois blocs ou deux ? | **Deux.** Les champs d'ordonnance rejoignent le profil pédagogique, avec deux routes d'écriture pour préserver les droits. |
+| Le titulaire lit-il sa prescription ? | **Oui**, élève comme formateur, sauf contre-indication ultérieure. Lecture oui, écriture non. |
+| `UserProfile` de l'ancienne version | Transmise et dépouillée : **rien à récupérer**, l'administratif actuel est déjà plus riche. |
+| Données financières | **Hors périmètre**, chantier séparé et ultérieur. |
+| Socle de visibilité par défaut | **Validé** tel que proposé au §8. |
+| Langue | Anglais dans le code, **français à l'écran**. |
+
+Il ne reste plus de question ouverte. La proposition est complète et prête à être implémentée
+dès accord.

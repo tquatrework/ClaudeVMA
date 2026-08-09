@@ -49,6 +49,28 @@ export const ADMINISTRATIVE_FIELD_NAMES = [
   'passions',
 ] as const satisfies readonly (keyof AdministrativeProfileFields)[]
 
+/**
+ * Traçabilité du profil administratif, posée par le serveur : lisible, jamais
+ * écrite. Elle n'entre pas dans `ADMINISTRATIVE_FIELD_NAMES`, qui est la liste
+ * des champs **renvoyés en écriture** — les inclure dans un `PUT` vaudrait `400`.
+ */
+export const ADMINISTRATIVE_TRACEABILITY_FIELD_NAMES = ['createdAt', 'updatedAt'] as const
+
+/**
+ * Champs du bloc `administrative` affichés en lecture, dans l'ordre voulu à
+ * l'écran.
+ *
+ * La liste est **close** et n'inclut ni `userId` ni `id` : le serveur renvoie ces
+ * identifiants techniques dans le bloc, mais un UUID n'est pas une donnée de
+ * fiche (règle UX du projet — les identifiants internes vivent dans les URLs,
+ * les appels et les clés React, jamais comme libellé à l'écran). Sans cette
+ * liste, le bloc était affiché tel quel et l'UUID s'y invitait.
+ */
+export const ADMINISTRATIVE_DISPLAY_FIELD_NAMES = [
+  ...ADMINISTRATIVE_FIELD_NAMES,
+  ...ADMINISTRATIVE_TRACEABILITY_FIELD_NAMES,
+] as const
+
 /** Section déclarative élève — seuls champs acceptés par `PUT .../pedagogical`. */
 export const STUDENT_DECLARATIVE_FIELD_NAMES = [
   'level',
@@ -150,6 +172,14 @@ function pickFields<T>(raw: unknown, allowedNames: readonly string[]): T {
 /** Ne garde du bloc `administrative` que les champs réacceptés en écriture. */
 export function pickAdministrativeFields(raw: unknown): AdministrativeProfileFields {
   return pickFields<AdministrativeProfileFields>(raw, ADMINISTRATIVE_FIELD_NAMES)
+}
+
+/**
+ * Champs du bloc `administrative` affichés en lecture — champs éditables puis
+ * traçabilité. Écarte les identifiants techniques du bloc (`userId`, `id`).
+ */
+export function pickAdministrativeDisplayFields(raw: unknown): Record<string, unknown> {
+  return pickFields<Record<string, unknown>>(raw, ADMINISTRATIVE_DISPLAY_FIELD_NAMES)
 }
 
 /** Noms des champs déclaratifs de la forme demandée. */

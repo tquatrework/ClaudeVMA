@@ -29,6 +29,7 @@ import {
   isListField,
   parseCommaSeparatedList,
   pedagogicalKindForRole,
+  pickAdministrativeDisplayFields,
   pickAdministrativeFields,
   pickDeclarativeDisplayFields,
   pickDeclarativeFields,
@@ -228,6 +229,44 @@ describe('pickAdministrativeFields', () => {
   it('renvoie un objet vide pour un bloc absent', () => {
     expect(pickAdministrativeFields(null)).toEqual({})
     expect(pickAdministrativeFields(undefined)).toEqual({})
+  })
+})
+
+describe('pickAdministrativeDisplayFields', () => {
+  it("écarte l'UUID du compte et garde la traçabilité en lecture", () => {
+    expect(
+      pickAdministrativeDisplayFields({
+        // Identifiants techniques renvoyés par le serveur : jamais affichés.
+        id: 'row-1',
+        userId: '464da8a2-8b4f-4cc7-b7b1-f1d0ab511355',
+        firstName: 'Nina',
+        lastName: 'Profil',
+        birthDate: '2008-05-14',
+        createdAt: '2026-08-09T18:13:49.000Z',
+        updatedAt: '2026-08-09T18:13:49.000Z',
+      }),
+    ).toEqual({
+      firstName: 'Nina',
+      lastName: 'Profil',
+      birthDate: '2008-05-14',
+      createdAt: '2026-08-09T18:13:49.000Z',
+      updatedAt: '2026-08-09T18:13:49.000Z',
+    })
+  })
+
+  it('conserve l’ordre d’affichage : champs de la fiche puis traçabilité', () => {
+    const displayed = pickAdministrativeDisplayFields({
+      updatedAt: '2026-08-09T18:13:49.000Z',
+      city: 'Lyon',
+      firstName: 'Nina',
+    })
+
+    expect(Object.keys(displayed)).toEqual(['firstName', 'city', 'updatedAt'])
+  })
+
+  it('renvoie un objet vide pour un bloc absent', () => {
+    expect(pickAdministrativeDisplayFields(null)).toEqual({})
+    expect(pickAdministrativeDisplayFields(undefined)).toEqual({})
   })
 })
 

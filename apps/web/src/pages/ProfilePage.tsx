@@ -12,7 +12,10 @@ import { InternalNotesPanel } from '../components/profile/InternalNotesPanel'
 import { LinkedTeachersPanel } from '../components/profile/LinkedTeachersPanel'
 import { ProfileSection } from '../components/profile/ProfileSection'
 import { PedagogicalProfilePanel } from '../components/profile/PedagogicalProfilePanel'
-import { resolvePedagogicalProfileKind } from '../utils/profileFields'
+import {
+  pickAdministrativeDisplayFields,
+  resolvePedagogicalProfileKind,
+} from '../utils/profileFields'
 
 // ─── IDs d'onglets ────────────────────────────────────────────────────────────
 
@@ -160,8 +163,11 @@ export default function ProfilePage() {
             {/* ── Onglet 1 : Profil administratif ── */}
             <TabPanel tabId={TAB_ADMIN} activeTab={activeTab}>
               <div className="space-y-6">
+                {/* Le bloc `administrative` est filtré, jamais affiché tel quel :
+                    il porte aussi `userId`, identifiant technique sans valeur
+                    pour le titulaire de la fiche. */}
                 <ProfileSection
-                  data={profile.administrative ?? undefined}
+                  data={pickAdministrativeDisplayFields(profile.administrative)}
                   emptyMessage="Aucune donnée administrative"
                 />
 

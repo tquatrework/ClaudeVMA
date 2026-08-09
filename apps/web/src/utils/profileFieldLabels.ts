@@ -69,6 +69,10 @@ export const PROFILE_FIELD_LABELS: Record<string, string> = {
   filledBy: 'Rempli par',
   filledAt: 'Rempli le',
   loginIdentifier: 'Identifiant de connexion',
+
+  // ─── Traçabilité posée par le serveur (lecture seule) ──────────────────────
+  createdAt: 'Profil créé le',
+  updatedAt: 'Dernière modification',
 }
 
 /**
@@ -86,9 +90,15 @@ export const PROFILE_FIELD_HINTS: Record<string, string> = {
 }
 
 /**
- * Libellé français d'un champ. Repli lisible pour un champ que le serveur
- * ajouterait sans que le front soit à jour : on découpe le camelCase plutôt que
- * d'afficher un nom technique brut.
+ * Libellé français d'un champ.
+ *
+ * Le repli — découpage du camelCase — ne concerne qu'un champ que le serveur
+ * ajouterait sans que le front soit à jour. **Il produit de l'anglais** (`userId`
+ * → « User id ») : atteindre ce repli sur un champ affiché est un défaut, pas un
+ * comportement acceptable. C'est ce qui avait laissé « User id », « Created at »
+ * et « Updated at » à l'écran sur le profil administratif. Le test
+ * `profileFieldLabels.test.ts` vérifie que tout champ affichable est présent
+ * ci-dessus, donc qu'aucun n'y retombe.
  */
 export function getProfileFieldLabel(fieldName: string): string {
   const knownLabel = PROFILE_FIELD_LABELS[fieldName]

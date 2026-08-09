@@ -61,8 +61,10 @@ besoin étant précisément que ce compte puisse se connecter.
       - `register/parent` → élève `theo.choisi.092247` créé de même, **connexion réussie**.
       Comptes d'essai supprimés après coup ; le lien `eleve.seconde` ↔ `maman.deuxenfants`
       de l'objectif précédent a été vérifié intact.
-- [ ] Validé par l'utilisateur
-- [ ] Mergé dans master
+- [x] Validé par l'utilisateur — 2026-08-09, sur les captures du parcours réel
+- [x] Mergé dans master — PR #74, puis `identity-access-service` et `frontend` reconstruits
+      depuis `master` et redéployés. Contrat vérifié en ligne, champs présents sur les deux
+      formulaires. L'utilisateur teste depuis son poste sur `https://claudevma.visioprof.fr`.
 
 ## Bloqué par
 

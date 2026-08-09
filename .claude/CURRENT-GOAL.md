@@ -7,84 +7,53 @@
 
 ## Besoin
 
-Un utilisateur doit pouvoir **retirer** un consentement qu'il a donné, aussi simplement qu'il
-l'a accordé. Aujourd'hui `POST /consents` ne sait que signer : une fois le consentement
-marketing accepté, rien ne permet de revenir dessus.
+Définir le contenu **complet** des profils administratifs et pédagogiques des élèves, parents
+et professeurs, puis les implémenter : méthodes back, base, affichage front, avec les droits de
+lecture et d'écriture (écriture réservée au titulaire ou aux administrateurs, jamais sur un
+champ d'identifiant).
 
-Exigence RGPD : le retrait doit être aussi simple que l'accord. À traiter avant toute
-exploitation commerciale des adresses collectées.
+L'utilisateur a fourni le 2026-08-09 quatre entités de la version précédente (codée avec
+ChatGPT) : `StudentProfile`, `TeacherProfile`, `StudentOrdonnance`, `TeacherOrdonnance`.
 
-Demandé le 2026-08-09.
+## Étape en cours : proposition à valider
 
-## Ce qui reste à trancher avant de coder
+La proposition est écrite dans `docs/proposition-profils.md`. **Rien ne doit être implémenté
+avant que l'utilisateur l'ait validée.**
 
-1. **Quels consentements sont retirables ?** Le marketing, oui — il est optionnel. RGPD et CGU
-   conditionnent le fonctionnement même du service : les retirer ne relève pas d'une case à
-   décocher mais d'une fermeture de compte, un tout autre parcours. À ne pas confondre.
-2. **Comment tracer le retrait ?** Un consentement retiré ne doit **jamais** être effacé de
-   l'historique : il faut pouvoir prouver qu'il avait été donné, puis retiré, et quand. La
-   trace se complète, elle ne se réécrit pas et ne se supprime pas.
+Point structurant soumis : « ordonnance » n'est pas le profil pédagogique mais un **troisième
+bloc**, rédigé par le RP sur le titulaire (d'où `rempli_par`). Trois blocs, donc, pas deux.
+
+**Toutes les questions sont tranchées (2026-08-09).** Décisions consignées au §11 du document :
+- **deux blocs**, pas trois — les champs d'ordonnance rejoignent le profil pédagogique, mais
+  avec **deux routes d'écriture** pour que le titulaire ne rédige pas sa propre prescription ;
+- le titulaire **lit** sa prescription (élève comme formateur), sans pouvoir la modifier ;
+- `UserProfile` dépouillée : **rien à récupérer**, l'administratif actuel est déjà plus riche ;
+- **toute la finance est hors périmètre**, chantier séparé et ultérieur ;
+- socle de visibilité par défaut **validé** ;
+- **anglais dans le code, français à l'écran** — règle inscrite dans `docs/architecture.md`.
 
 ## Comment on saura que c'est fait
 
-Un parcours réellement joué sur `https://claudevma.visioprof.fr` :
-1. capture de l'onglet `/consents` montrant qu'un consentement marketing accepté peut être
-   retiré ;
-2. après retrait : la trace initiale d'acceptation **toujours présente** en base, accompagnée
-   de la trace du retrait avec son horodatage — citées depuis la pile réelle ;
-3. l'écran reflète l'état courant (marketing non accordé), et le compte reste `active`.
+Pour l'étape en cours : la proposition est validée ou amendée par l'utilisateur.
 
-**Ni les tests verts ni une PR ouverte ne valent validation** : la suite front simule le réseau.
-
-## Ce que la vérification contre la pile réelle a établi
-
-- `GET /consents` renvoie les lignes brutes de `consent_records` : aucune notion de retrait.
-- `POST /consents` sur un consentement déjà signé → `409 "Consent marketing already signed"`.
-  Ce conflit porte sur l'**existence d'une ligne**, pas sur l'état courant : tel quel, un
-  retrait interdirait définitivement de ré-accepter.
-- `DELETE /consents/marketing` → `404`, la route n'existe pas.
+Pour l'objectif complet, ensuite : les profils affichés et modifiables sur
+`https://claudevma.visioprof.fr`, capture à l'appui, avec une écriture refusée là où elle doit
+l'être — preuve jouée contre la pile réelle, pas des tests verts.
 
 ## État
 
-- [x] Comportement actuel constaté (`GET`/`POST /consents`, écran `/consents`)
-- [x] Périmètre et traçabilité du retrait arbitrés — inscrit dans `docs/architecture.md` :
-      seuls les consentements optionnels sont retirables, journal append-only, retrait
-      réversible, `GET /consents` expose l'état courant
-- [x] Codé et committé — `identity-access-service` puis front, branche `feat/consent-withdrawal`.
-      Le subagent front a été coupé par une limite de session : son travail a été récupéré
-      depuis son worktree et poussé tel quel (`55960e5`) avant toute reprise, puis terminé
-      (`adf22e0`). Rien n'a été perdu.
-- [x] Déployé sur la pile réelle — sauvegarde de `visiomath_identity_access` prise avant la
-      migration, migration `AddConsentWithdrawal` jouée (`signed_at` → `recorded_at`, colonne
-      `action`), **14 lignes existantes préservées** et marquées `granted`, puis les deux
-      services déployés ensemble.
-- [x] Preuve livrée à l'utilisateur — 2026-08-09, cycle joué sur la pile réelle :
-      départ `Accordé` → retrait après confirmation (`POST /consents/marketing/withdraw` → 201)
-      → écran `Retiré` → ré-acceptation (`POST /consents` → 201) → écran `Accordé`.
-      Journal final : `granted`, `withdrawn`, `granted` — les **3 événements coexistent**,
-      aucun effacé. Compte resté `active`, aucune mention « Signé » résiduelle. Retrait de
-      `rgpd` → `403` explicite orientant vers le support. Compte d'essai supprimé.
-- [x] Validé par l'utilisateur — 2026-08-09
-- [x] Mergé dans master — PR #80, puis les deux services reconstruits depuis `master` et
-      redéployés. `migration:run` → « No migrations are pending ». Cycle rejoué sur cette
-      version : `granted` → `withdrawn` → `granted`, compte resté actif.
+- [x] Existant relevé (schéma en base + contrat Swagger de `profile-service`)
+- [x] Proposition rédigée — `docs/proposition-profils.md`
+- [x] Questions tranchées par l'utilisateur — document mis à jour et republié
+- [ ] Codé et committé
+- [ ] Déployé sur la pile réelle
+- [ ] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur
+- [ ] Mergé dans master
 
 ## Bloqué par
 
-Rien.
-
-## En attente d'une entrée de l'utilisateur — NE PAS DÉMARRER
-
-Les chantiers **profils** sont suspendus jusqu'à ce que l'utilisateur fournisse la liste
-complète des éléments attendus dans les profils administratif et pédagogique des élèves,
-parents et professeurs. Ne rien entreprendre dessus avant, y compris :
-
-- rebrancher les champs pédagogiques du formulaire formateur (matières, niveaux,
-  présentation) sur `profile-service`, et restaurer l'étape retirée du wizard ;
-- remettre le champ « Date de naissance » à l'inscription élève.
-
-Ces deux points sont réels et documentés, mais ils seront traités **dans le cadre de cette
-liste**, pas isolément.
+L'accord de l'utilisateur pour lancer l'implémentation. Le contenu, lui, ne fait plus débat.
 
 ---
 

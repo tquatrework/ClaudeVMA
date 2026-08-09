@@ -163,4 +163,12 @@ Phase 3 enrichit l'offre :
      consentement retire serait un mensonge de la meme famille que ceux corriges les jours
      precedents.
 
+- Langue de l'application : les noms de champs, de variables et de cles d'API sont en anglais,
+  mais **tout ce que l'utilisateur lit est en francais** — libelles de champs, intitules de
+  sections, messages d'erreur, etats. Les deux regles ne s'opposent pas : la premiere sert
+  l'alignement front/back, la seconde l'utilisateur final. La correspondance entre nom technique
+  et libelle affiche est portee cote front en un point unique, jamais eparpillee au fil des
+  composants — sinon un meme champ finit par porter deux libelles selon l'ecran.
+  Regle posee le 2026-08-09.
+
 ## Points ouverts a arbitrer

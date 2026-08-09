@@ -54,11 +54,24 @@ $openPullRequests")
 fi
 
 goalFile="$repositoryRoot/.claude/CURRENT-GOAL.md"
-if [ -f "$goalFile" ] && grep -q '^- \[ \] Valide par l.utilisateur\|^- \[ \] Validé par l.utilisateur' "$goalFile"; then
-  goalStatement="$(sed -n '/^## Besoin/,/^##/p' "$goalFile" | sed '1d;/^##/d;/^$/d' | head -3)"
-  pendingIssues+=("L'objectif courant n'est pas valide par l'utilisateur :
+if [ -f "$goalFile" ]; then
+  # Seule la section active compte : le fichier se termine par les objectifs clos et un
+  # modele vide, tous deux separes par un `---`. Sans cette coupe, la case a cocher du
+  # modele declenchait le rappel en permanence — un hook qui sonne toujours finit ignore.
+  activeGoalSection="$(sed '/^---$/q' "$goalFile")"
+  goalStatement="$(printf '%s\n' "$activeGoalSection" \
+    | sed -n '/^## Besoin/,/^## /p' | sed '1d;/^## /d;/^$/d;/^> /d' | head -3)"
+
+  hasNoCurrentGoal=false
+  printf '%s\n' "$goalStatement" | grep -qi 'aucun objectif' && hasNoCurrentGoal=true
+  [ -z "$goalStatement" ] && hasNoCurrentGoal=true
+
+  if [ "$hasNoCurrentGoal" = false ] \
+    && printf '%s\n' "$activeGoalSection" | grep -q '^- \[ \] Valide par l.utilisateur\|^- \[ \] Validé par l.utilisateur'; then
+    pendingIssues+=("L'objectif courant n'est pas valide par l'utilisateur :
 $goalStatement
   Une preuve (capture, sortie de test reelle) doit lui etre livree — il n'a pas acces a localhost.")
+  fi
 fi
 
 [ ${#pendingIssues[@]} -eq 0 ] && exit 0

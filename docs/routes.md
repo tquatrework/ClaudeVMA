@@ -50,7 +50,7 @@ Réponse login/refresh : `{access_token, refresh_token, user: {id, email, role, 
 |---|---|---|---|---|---|
 | GET | /accounts/check-email | Vérifier la disponibilité d'un email | Non | — | Query: `email` |
 | POST | /accounts | Créer un compte générique (auto-inscription, non utilisée par le front) | Non | — | `{email, password, role?, loginIdentifier?, consents?}` |
-| POST | /accounts/students | Créer un compte élève (+ parent optionnel) | Non | — | `{email, password, firstName, lastName, phoneNumber?, loginIdentifier?, isMember?, consents?, parentAccountMode?, parentLoginIdentifier?, parentEmail?, parentPassword?, parentFirstName?, parentLastName?}` |
+| POST | /accounts/students | Créer un compte élève (+ parent optionnel) | Non | — | `{email, password, firstName, lastName, phoneNumber?, birthDate?, loginIdentifier?, isMember?, consents?, parentAccountMode?, parentLoginIdentifier?, parentEmail?, parentPassword?, parentFirstName?, parentLastName?}` |
 | POST | /accounts/teachers | Créer un compte formateur | Non | — | `{email, password, firstName, lastName, phoneNumber?, loginIdentifier?, cvReference?, consents?}` |
 | POST | /accounts/parents | Créer un compte parent / financeur (+ élève optionnel) | Non | — | `{email, password, firstName, lastName, phoneNumber?, loginIdentifier?, consents?, studentAccountMode?, studentLoginIdentifier?, studentEmail?, studentPassword?, studentFirstName?, studentLastName?}` |
 | GET | /accounts/:accountId | Lire un compte | 🔒 | TI, RP, AdministrateurFinancier | — |
@@ -63,6 +63,17 @@ Réponse login/refresh : `{access_token, refresh_token, user: {id, email, role, 
 d'auto-inscription directe ci-dessus (`students`/`teachers`/`parents`) — `400` si absents ou vides.
 `phoneNumber` y est optionnel (chiffres/espaces/`+`/`-`/`.`/parenthèses, 6 à 30 caractères — `400` si
 format invalide). `POST /accounts` ne les accepte pas du tout (`400` si envoyés, whitelist stricte).
+
+`birthDate` est accepté **sur `POST /accounts/students` uniquement** (2026-08-09), au format date
+calendaire ISO `YYYY-MM-DD`, optionnel. La date est validée localement (forme *et* existence réelle :
+`2008-02-30` et `2008-13-01` renvoient `400`) afin qu'une saisie invalide produise un `400` explicite
+côté identity-access-service plutôt qu'un `503` provoqué par le refus de profile-service. Comme
+`firstName`/`lastName`/`phoneNumber`, le champ est **relayé** à profile-service et **jamais persisté
+ici** — la table `users` n'a aucune colonne de date de naissance. Il porte le même nom des deux côtés
+(aucun mapping, contrairement à `phoneNumber` → `phone`). Les autres routes de création ne le déclarent
+pas : leurs formulaires ne collectent pas de date de naissance, et l'envoyer renvoie `400`. Aucun
+`parentBirthDate` / `studentBirthDate` n'existe non plus, pour la même raison — le compte lié renseigne
+sa date de naissance via `PUT /profiles/:userId/administrative` sur profile-service.
 
 `loginIdentifier` est optionnel et **identique sur les 3 routes** (`students`/`teachers`/`parents`) : il
 nomme le compte principal créé. S'il est omis, un identifiant est dérivé de la partie locale de l'email
@@ -101,9 +112,11 @@ personnel : ni un élève ne consent pour son parent, ni un parent pour l'élèv
 **Aucun champ inconnu n'est absorbé sur ces routes (2026-08-09) :** les 4 routes de création de compte
 et `POST /internal/create-account` rejettent en `400` explicite tout champ que leur DTO ne déclare pas,
 en listant les champs inconnus **et** les champs acceptés. Cas concrets encore envoyés par le front au
-2026-08-09 et désormais refusés : `birthDate` sur `/accounts/students`, `teachingSubjects`,
-`educationLevel` et `bio` sur `/accounts/teachers` — ces données appartiennent aux profils de
-profile-service, pas à identity-access-service, et étaient jusqu'ici perdues en silence. `whitelist: true`
+2026-08-09 et refusés : `teachingSubjects`, `educationLevel` et `bio` sur `/accounts/teachers` — ces
+données appartiennent aux profils de profile-service, pas à identity-access-service, et étaient jusqu'ici
+perdues en silence. `birthDate` sur `/accounts/students` était dans le même cas jusqu'à ce que
+profile-service accepte ce champ à la création du profil administratif : il est depuis **déclaré et
+relayé** (voir ci-dessus), et la liste des champs acceptés du message d'erreur l'inclut. `whitelist: true`
 reste actif globalement (les autres routes du service continuent d'ignorer les champs inconnus, voir le
 point ouvert `TD-forbid-non-whitelisted-global` dans `docs/services/identity-access-service.md`).
 
@@ -274,12 +287,15 @@ Après validation de forme (DTO) et avant de retourner `201`, `POST /accounts/st
 locale** que la création du ou des comptes :
 
 1. `POST /internal/create-administrative-profile` sur profile-service avec `{userId, firstName,
-   lastName, phone?}` (header `X-Internal-Secret`) — une fois par compte nouvellement créé
+   lastName, phone?, birthDate?}` (header `X-Internal-Secret`) — une fois par compte nouvellement créé
    (jamais pour un compte parent/élève simplement **lié** à un compte préexistant : son profil existant
    n'est jamais écrasé par les champs saisis côté élève/parent lors de la liaison). Le champ est nommé
    `phone` côté profile-service (convention déjà établie sur ses autres routes internes) alors que le DTO
    d'entrée public d'identity-access-service utilise `phoneNumber` — seul le mapping effectué au moment
-   de cet appel sortant fait la conversion de nom.
+   de cet appel sortant fait la conversion de nom. `birthDate` porte en revanche le même nom des deux
+   côtés (aucun mapping) et n'est envoyé que par `POST /accounts/students`, seule route dont le
+   formulaire collecte une date de naissance ; il est omis du corps quand il n'a pas été saisi, et jamais
+   envoyé pour un compte lié créé en parallèle.
 2. Si un élève et un parent financeur sont créés/rattachés dans le même appel (`POST /accounts/students`
    avec `parentAccountMode` `'existing'` ou `'new'`, ou `POST /accounts/parents` avec
    `studentAccountMode` `'existing'` ou `'new'`) : `POST /internal/link-parent` sur profile-service avec

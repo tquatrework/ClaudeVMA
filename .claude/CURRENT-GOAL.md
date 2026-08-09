@@ -49,16 +49,32 @@ besoin étant précisément que ce compte puisse se connecter.
 
 ## État
 
-- [ ] Contrat `identity-access-service` clarifié et asymétrie tranchée
-- [ ] Codé et committé
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+- [x] Contrat `identity-access-service` clarifié et asymétrie tranchée
+      (mode explicite `'none' | 'existing' | 'new'` + `loginIdentifier` sur `/accounts/parents`)
+- [x] Codé et committé — backend puis front, branche `feat/login-identifier-on-linked-account`
+- [x] Déployé sur la pile réelle (`identity-access-service` et `frontend` reconstruits)
+- [x] Preuve livrée à l'utilisateur — 2026-08-09, parcours complet joué sur
+      `https://claudevma.visioprof.fr` dans les deux sens :
+      - `register/student` → parent `sophie.choisi.092045` créé avec l'identifiant **saisi**
+        (et non `sophie.essai…` dérivé de l'email), puis **connexion réussie** de ce parent,
+        qui voit « Camille Essai092045 » sous Mes élèves ;
+      - `register/parent` → élève `theo.choisi.092247` créé de même, **connexion réussie**.
+      Comptes d'essai supprimés après coup ; le lien `eleve.seconde` ↔ `maman.deuxenfants`
+      de l'objectif précédent a été vérifié intact.
 - [ ] Validé par l'utilisateur
 - [ ] Mergé dans master
 
 ## Bloqué par
 
 Rien.
+
+## Trouvé en chemin, hors périmètre — à traiter ensuite
+
+`POST /accounts/students` reçoit `consents` (acceptation RGPD/CGU) et `birthDate`, qui ne
+figurent pas dans son DTO. Le `ValidationPipe({ whitelist: true })` les **jette en silence** —
+exactement le mécanisme qui faisait disparaître `loginIdentifier`. Les consentements RGPD
+saisis à l'inscription sont donc potentiellement perdus. Signalé indépendamment par les deux
+subagents. Non touché ici pour rester dans le périmètre demandé.
 
 ---
 

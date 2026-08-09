@@ -139,7 +139,7 @@ describe('ProfileStatisticsPanel — lecture non filtrée', () => {
     expect(screen.queryByText('Level')).toBeNull()
   })
 
-  it('ne liste pas un champ présent valant `null`', async () => {
+  it('marque « Non renseigné » un champ présent valant `null`', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
     mockFetchProfileStatistics.mockResolvedValue(UNFILTERED_RESPONSE)
 
@@ -149,8 +149,10 @@ describe('ProfileStatisticsPanel — lecture non filtrée', () => {
       expect(screen.getByText('Terminale')).toBeDefined()
     })
 
-    // `goals: null` → non renseigné, donc pas de ligne, et surtout pas « Non partagé ».
-    expect(screen.queryByText('Objectifs pédagogiques')).toBeNull()
+    // `goals: null` → la ligne existe, portant « Non renseigné », et surtout
+    // jamais « Non partagé » : personne ne l'a masqué, personne ne l'a rempli.
+    expect(screen.getByText('Objectifs pédagogiques')).toBeDefined()
+    expect(screen.getByText('Non renseigné')).toBeDefined()
     expect(screen.queryByText('Non partagé')).toBeNull()
   })
 })

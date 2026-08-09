@@ -15,6 +15,11 @@ interface ProfileSectionProps {
   title?: string
   description?: string
   data?: Record<string, unknown>
+  /**
+   * Champs de la section, dans l'ordre du contrat. Fournis, ils sont **tous**
+   * listés — un champ vide porte « Non renseigné » plutôt que de disparaître.
+   */
+  fieldNames?: readonly string[]
   emptyMessage: string
   /**
    * Champs de CETTE section que le titulaire ne partage pas avec le lecteur —
@@ -27,10 +32,11 @@ export function ProfileSection({
   title,
   description,
   data,
+  fieldNames,
   emptyMessage,
   hiddenFieldNames = [],
 }: ProfileSectionProps) {
-  const hasRows = hasProfileFieldRows(data, hiddenFieldNames)
+  const hasRows = hasProfileFieldRows(data, hiddenFieldNames, fieldNames)
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-6">
@@ -46,6 +52,7 @@ export function ProfileSection({
       {hasRows ? (
         <ProfileFieldList
           data={data}
+          fieldNames={fieldNames}
           hiddenFieldNames={hiddenFieldNames}
           className={`space-y-3 ${title && !description ? 'mt-4' : ''}`}
         />

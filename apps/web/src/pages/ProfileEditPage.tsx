@@ -20,8 +20,13 @@ import Layout from '../components/Layout'
 import { AdministrativeProfileForm } from '../components/profile/AdministrativeProfileForm'
 import { PedagogicalProfileForm } from '../components/profile/PedagogicalProfileForm'
 import { PrescriptionForm } from '../components/profile/PrescriptionForm'
+import { UndeterminedPedagogicalProfileNotice } from '../components/profile/UndeterminedPedagogicalProfileNotice'
 import { Tabs, TabPanel, type TabDefinition } from '../components/ui/Tabs'
 import { resolvePedagogicalProfileKind } from '../utils/profileFields'
+import {
+  canEditDeclarativePedagogicalProfile,
+  canEditPrescription as canRoleEditPrescription,
+} from '../utils/profilePermissions'
 import type {
   AdministrativeProfileFields,
   DeclarativePedagogicalFields,
@@ -62,13 +67,12 @@ export default function ProfileEditPage() {
 
   const isViewingOwnProfile = userId === user?.id
 
-  const canEditPedagogical =
-    hasRole('eleve', 'formateur') ||
-    (hasRole('responsable_pedagogique') && !isViewingOwnProfile) ||
-    hasRole('technicien_informatique')
+  // Droits d'écriture : mêmes helpers que la fiche, pour que les deux écrans
+  // n'ouvrent jamais deux portes différentes sur la même route serveur.
+  const canEditPedagogical = canEditDeclarativePedagogicalProfile(user?.role, isViewingOwnProfile)
 
   /** La prescription est réservée au RP, y compris sur son propre profil. */
-  const canEditPrescription = hasRole('responsable_pedagogique')
+  const canEditPrescription = canRoleEditPrescription(user?.role)
 
   /**
    * Forme du profil pédagogique : `pedagogicalType` du serveur d'abord. Le rôle
@@ -190,7 +194,7 @@ export default function ProfileEditPage() {
                 onCancel={goBackToProfile}
               />
             ) : (
-              <UndeterminedProfileNotice />
+              <UndeterminedPedagogicalProfileNotice />
             )}
           </TabPanel>
         )}
@@ -206,30 +210,11 @@ export default function ProfileEditPage() {
                 onCancel={goBackToProfile}
               />
             ) : (
-              <UndeterminedProfileNotice />
+              <UndeterminedPedagogicalProfileNotice />
             )}
           </TabPanel>
         )}
       </div>
     </Layout>
-  )
-}
-
-/**
- * Ni le serveur ni les données enregistrées ne disent s'il s'agit d'un profil
- * élève ou formateur : proposer un formulaire au hasard écrirait dans la
- * mauvaise table.
- */
-function UndeterminedProfileNotice() {
-  return (
-    <div className="bg-white border border-gray-200 rounded-xl p-6 text-sm text-gray-500">
-      <p>
-        Le profil pédagogique de cette personne n'a jamais été renseigné : sa forme (élève ou
-        formateur) ne peut pas être déterminée depuis cet écran.
-      </p>
-      <p className="mt-2">
-        Demandez à la personne concernée de le compléter depuis son propre profil.
-      </p>
-    </div>
   )
 }

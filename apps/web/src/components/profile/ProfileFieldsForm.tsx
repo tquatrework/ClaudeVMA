@@ -39,7 +39,10 @@ interface ProfileFieldsFormProps {
   source: Record<string, unknown> | null
   isSaving: boolean
   onSubmit: (payload: Record<string, unknown>) => void
-  onCancel: () => void
+  /** Omis, aucun bouton « Annuler » n'est proposé (édition en place sur la fiche). */
+  onCancel?: () => void
+  /** Habillage du `<form>` — la fiche fournit déjà sa carte, l'écran dédié non. */
+  className?: string
   /** Contenu libre inséré avant les champs (avertissement de droits, rappel…). */
   children?: React.ReactNode
 }
@@ -67,6 +70,7 @@ export function ProfileFieldsForm({
   isSaving,
   onSubmit,
   onCancel,
+  className = FORM_CLASS,
   children,
 }: ProfileFieldsFormProps) {
   const [values, setValues] = useState<Record<string, string>>(() =>
@@ -93,7 +97,7 @@ export function ProfileFieldsForm({
     setValues((previous) => ({ ...previous, [fieldName]: value }))
 
   return (
-    <form onSubmit={handleSubmit} className={FORM_CLASS}>
+    <form onSubmit={handleSubmit} className={className}>
       {children}
       {fields.map((field) => (
         <ProfileFormField

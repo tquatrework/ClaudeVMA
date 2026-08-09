@@ -73,7 +73,9 @@ const FLAT_TEACHER_PEDAGOGICAL = {
 }
 
 describe('listes de champs de profil', () => {
-  it('reprend exactement les champs administratifs documentés', () => {
+  it('reprend exactement les champs administratifs documentés, dans l’ordre d’écran', () => {
+    // L'ordre fait partie du contrat d'affichage : c'est celui de la fiche comme
+    // du formulaire, qui lisent tous deux cette liste.
     expect([...ADMINISTRATIVE_FIELD_NAMES]).toEqual([
       'firstName',
       'lastName',
@@ -84,8 +86,8 @@ describe('listes de champs de profil', () => {
       'postalCode',
       'city',
       'country',
-      'avatarUrl',
       'department',
+      'avatarUrl',
       'passions',
     ])
   })

@@ -1,0 +1,10 @@
+# Les dépendances sont réinstallées par `npm ci` dans l'image : copier le
+# node_modules de l'hôte est au mieux inutile, au pire bloquant — dans un
+# worktree où node_modules est un lien symbolique, le COPY échoue avec
+# « cannot replace to directory ... with file ».
+node_modules
+dist
+coverage
+.env
+.env.*
+*.log

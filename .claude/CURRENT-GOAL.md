@@ -29,10 +29,24 @@ Une inscription réellement jouée sur `https://claudevma.visioprof.fr`, suivie 
 
 **Ni les tests verts ni une PR ouverte ne valent validation** : la suite front simule le réseau.
 
+## Ce que la vérification contre la pile réelle a établi
+
+Inscription jouée avec `consents: {rgpd: true, cgu: true}` et `birthDate` dans le corps :
+- `consent_records` → **0 ligne** ; `consent_signed` = `false` ; `validation_status` = `pending` ;
+- `administrative_profiles.date_naissance` → **NULL**.
+
+Le mécanisme cible existe et **fonctionne** : `POST /consents` écrit la trace (type, version,
+adresse IP, horodatage) et, une fois rgpd + cgu signés, bascule `consent_signed` à `true` et
+`validation_status` à `active`. Vérifié sur le même compte de sonde, supprimé depuis.
+
+Le défaut est donc que les routes de création de compte **contournent** ce mécanisme au lieu
+de l'emprunter. Arbitrage inscrit dans `docs/architecture.md`.
+
 ## État
 
-- [ ] Comportement réel constaté et cause confirmée
-- [ ] Propriété de la donnée arbitrée (consentements vs date de naissance)
+- [x] Comportement réel constaté et cause confirmée
+- [x] Propriété de la donnée arbitrée — les consentements appartiennent à
+      `identity-access-service` ; `birthDate` à `profile-service`
 - [ ] Codé et committé
 - [ ] Déployé sur la pile réelle
 - [ ] Preuve livrée à l'utilisateur

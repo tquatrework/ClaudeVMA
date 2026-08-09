@@ -2,7 +2,11 @@
  * StudentAdministrativeStep — étape 1 (informations administratives) du wizard
  * d'inscription élève.
  * Extrait de StudentRegistrationPage (lot 10 — normalisation, découpage > 300 lignes).
- * Rendu identique à l'origine.
+ *
+ * Le champ « Date de naissance » a été retiré le 2026-08-09 : il n'était stocké nulle
+ * part (`POST /accounts/students` ne déclare pas `birthDate` et le refuse désormais
+ * en `400`, profile-service ne sait pas encore le recevoir). Il sera remis quand
+ * profile-service saura le stocker — voir le rapport front du 2026-08-09.
  */
 
 import React from 'react'
@@ -14,7 +18,6 @@ export interface StudentAdministrativeFormData {
   passwordConfirm: string
   firstName: string
   lastName: string
-  birthDate: string
   phoneNumber: string
 }
 
@@ -151,18 +154,6 @@ export function StudentAdministrativeStep({
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
-          Date de naissance
-        </label>
-        <input
-          type="date"
-          value={administrativeData.birthDate}
-          onChange={(e) => onChange('birthDate', e.target.value)}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
           Téléphone
         </label>
         <input
@@ -173,6 +164,11 @@ export function StudentAdministrativeStep({
           placeholder="06 00 00 00 00"
         />
       </div>
+
+      <p className="text-xs text-gray-500">
+        Vos autres informations (date de naissance, adresse…) se renseignent depuis votre profil,
+        après connexion.
+      </p>
 
       {children}
 

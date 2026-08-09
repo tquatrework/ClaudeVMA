@@ -11,17 +11,18 @@ import { RegistrationRgpdStep } from '../components/accounts/RegistrationRgpdSte
 import { LinkedAccountSection } from '../components/accounts/LinkedAccountSection'
 import {
   INITIAL_LINKED_ACCOUNT_DATA,
+  LINKED_ACCOUNT_LABELS,
   buildLinkedAccountFields,
   validateLinkedAccountData,
   type LinkedAccountFormData,
 } from '../utils/accountLinking'
+import {
+  buildRegistrationConsents,
+  hasGivenRequiredConsents,
+} from '../utils/registrationConsents'
+import type { RegistrationConsentsFormData } from '../types/accounts'
 
 type WizardStep = 'administrative' | 'rgpd'
-
-interface RgpdFormData {
-  hasAcceptedRgpd: boolean
-  hasAcceptedCgu: boolean
-}
 
 const INITIAL_ADMINISTRATIVE: StudentAdministrativeFormData = {
   email: '',
@@ -30,11 +31,10 @@ const INITIAL_ADMINISTRATIVE: StudentAdministrativeFormData = {
   passwordConfirm: '',
   firstName: '',
   lastName: '',
-  birthDate: '',
   phoneNumber: '',
 }
 
-const INITIAL_RGPD: RgpdFormData = {
+const INITIAL_RGPD: RegistrationConsentsFormData = {
   hasAcceptedRgpd: false,
   hasAcceptedCgu: false,
 }
@@ -54,7 +54,7 @@ export default function StudentRegistrationPage() {
   const lockedParentLoginIdentifier = searchParams.get('parentLoginIdentifier')
   const [currentStep, setCurrentStep] = useState<WizardStep>('administrative')
   const [administrativeData, setAdministrativeData] = useState<StudentAdministrativeFormData>(INITIAL_ADMINISTRATIVE)
-  const [rgpdData, setRgpdData] = useState<RgpdFormData>(INITIAL_RGPD)
+  const [rgpdData, setRgpdData] = useState<RegistrationConsentsFormData>(INITIAL_RGPD)
   const [linkedParentData, setLinkedParentData] = useState<LinkedAccountFormData>(INITIAL_LINKED_ACCOUNT_DATA)
   const [validationError, setValidationError] = useState<string | null>(null)
   const {
@@ -66,6 +66,21 @@ export default function StudentRegistrationPage() {
   const { register, isSubmitting, error: submitError } = useStudentRegistration()
 
   const errorMessage = validationError ?? submitError
+  const parentLabel = LINKED_ACCOUNT_LABELS.parent.target
+  // Un compte parent est réellement créé (et non simplement rattaché) : il devra
+  // signer ses propres consentements, personne ne peut consentir à sa place.
+  const isCreatingLinkedParentAccount =
+    !lockedParentLoginIdentifier && linkedParentData.mode === 'new'
+
+  // Le compte élève est actif dès la réponse du serveur (consentements enregistrés
+  // avec la création). Le compte parent créé en parallèle, lui, reste en attente de
+  // ses propres consentements : le dire évite qu'il se croie bloqué à sa connexion.
+  const buildSuccessMessage = () => {
+    if (isCreatingLinkedParentAccount) {
+      return `Compte élève créé, vos consentements sont enregistrés. Le compte ${parentLabel} créé en même temps devra signer ses propres consentements à sa première connexion.`
+    }
+    return 'Compte élève créé, vos consentements sont enregistrés. Vous pouvez vous connecter.'
+  }
 
   const handleAdministrativeChange = (field: keyof StudentAdministrativeFormData, value: string) => {
     setAdministrativeData((prev) => ({ ...prev, [field]: value }))
@@ -109,7 +124,7 @@ export default function StudentRegistrationPage() {
     e.preventDefault()
     setValidationError(null)
 
-    if (!rgpdData.hasAcceptedRgpd || !rgpdData.hasAcceptedCgu) {
+    if (!hasGivenRequiredConsents(rgpdData)) {
       setValidationError('Vous devez accepter les consentements RGPD et CGU pour créer votre compte')
       return
     }
@@ -120,22 +135,13 @@ export default function StudentRegistrationPage() {
       password: administrativeData.password,
       firstName: administrativeData.firstName,
       lastName: administrativeData.lastName,
-      birthDate: administrativeData.birthDate || undefined,
       phoneNumber: administrativeData.phoneNumber || undefined,
-      consents: {
-        rgpd: rgpdData.hasAcceptedRgpd,
-        cgu: rgpdData.hasAcceptedCgu,
-      },
+      consents: buildRegistrationConsents(rgpdData),
       ...buildLinkedAccountFields('parent', linkedParentData, lockedParentLoginIdentifier),
     })
 
     if (success) {
-      navigate('/login', {
-        state: {
-          message:
-            'Compte élève créé. Veuillez vous connecter puis finaliser vos consentements.',
-        },
-      })
+      navigate('/login', { state: { message: buildSuccessMessage() } })
     }
   }
 
@@ -184,6 +190,7 @@ export default function StudentRegistrationPage() {
             isSubmitting={isSubmitting}
             submitLabel="Créer mon compte"
             submittingLabel="Création…"
+            linkedAccountTarget={isCreatingLinkedParentAccount ? parentLabel : null}
           />
         )}
 

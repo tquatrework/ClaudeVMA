@@ -6,20 +6,22 @@
  */
 
 import React from 'react'
-
-interface RegistrationRgpdData {
-  hasAcceptedRgpd: boolean
-  hasAcceptedCgu: boolean
-}
+import type { RegistrationConsentsFormData } from '../../types/accounts'
 
 interface RegistrationRgpdStepProps {
-  rgpdData: RegistrationRgpdData
-  onRgpdChange: (field: keyof RegistrationRgpdData, value: boolean) => void
+  rgpdData: RegistrationConsentsFormData
+  onRgpdChange: (field: keyof RegistrationConsentsFormData, value: boolean) => void
   onBack: () => void
   onSubmit: (event: React.FormEvent) => void
   isSubmitting: boolean
   submitLabel: string
   submittingLabel: string
+  /**
+   * Nom du compte lié créé dans le même appel (ex. « parent financeur »), quand il
+   * y en a un. Sert à dire clairement que ce compte-là signera ses propres
+   * consentements : un consentement est personnel, personne ne consent pour autrui.
+   */
+  linkedAccountTarget?: string | null
 }
 
 export function RegistrationRgpdStep({
@@ -30,6 +32,7 @@ export function RegistrationRgpdStep({
   isSubmitting,
   submitLabel,
   submittingLabel,
+  linkedAccountTarget,
 }: RegistrationRgpdStepProps) {
   return (
     <form onSubmit={onSubmit} className="space-y-4">
@@ -73,6 +76,18 @@ export function RegistrationRgpdStep({
           </p>
         </div>
       </label>
+
+      <p className="text-xs text-gray-500">
+        Ces consentements sont enregistrés à la création de votre compte : vous n'aurez pas à
+        les signer de nouveau après connexion.
+      </p>
+
+      {linkedAccountTarget && (
+        <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-900 text-xs">
+          Le compte {linkedAccountTarget} créé en même temps que le vôtre signera ses propres
+          consentements à sa première connexion : vous ne pouvez pas consentir à sa place.
+        </div>
+      )}
 
       <div className="flex gap-3 pt-2">
         <button

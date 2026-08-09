@@ -167,10 +167,43 @@ describe('StudentRegistrationPage', () => {
           password: 'password123',
           firstName: 'Alice',
           lastName: 'Dupont',
-          consents: { rgpd: true, cgu: true },
+          // Contrat serveur : tableau d'objets, identique au corps de POST /consents.
+          consents: [{ consentType: 'rgpd' }, { consentType: 'cgu' }],
         }),
       )
     })
+
+    // Champ refusé désormais en 400 par le serveur : jamais transmis.
+    const payload = mockRegisterStudent.mock.calls[0][0] as Record<string, unknown>
+    expect(payload.birthDate).toBeUndefined()
+  })
+
+  it('no longer offers a birth date field, which was never stored', () => {
+    renderStudentRegistrationPage()
+
+    expect(screen.queryByLabelText(/date de naissance/i)).toBeNull()
+    expect(screen.getByText(/date de naissance.*profil.*après connexion/i)).toBeDefined()
+  })
+
+  it('explains an "unknown fields" 400 as a front/server mismatch, without showing field names', async () => {
+    mockRegisterStudent.mockRejectedValue({
+      response: {
+        status: 400,
+        data: {
+          message:
+            'Unknown field(s): birthDate. Accepted fields for this route: email, password, firstName, lastName, consents.',
+        },
+      },
+    })
+    renderStudentRegistrationPage()
+
+    await fillAdministrativeStep()
+    await submitRgpdStep()
+
+    await waitFor(() => {
+      expect(screen.getByText(/n'est plus à jour avec le serveur/i)).toBeDefined()
+    })
+    expect(screen.queryByText(/birthDate/)).toBeNull()
   })
 
   it('redirects to /login after successful registration', async () => {
@@ -393,6 +426,45 @@ describe('StudentRegistrationPage', () => {
       await waitFor(() => {
         expect(screen.getByText(/différent du vôtre/i)).toBeDefined()
       })
+    })
+  })
+
+  describe('Consents and the account created in parallel', () => {
+    it('warns that a newly created parent account signs its own consents', async () => {
+      renderStudentRegistrationPage()
+
+      await fillAdministrativeStep()
+      await selectNewLinkedParentMode()
+      await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+      await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
+
+      expect(
+        screen.getByText(/signera ses propres consentements à sa première connexion/i),
+      ).toBeDefined()
+    })
+
+    it('does not warn about a linked account when none is created', async () => {
+      renderStudentRegistrationPage()
+
+      await fillAdministrativeStep()
+      await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+      await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
+
+      expect(screen.queryByText(/signera ses propres consentements/i)).toBeNull()
+    })
+
+    it('never sends consents for the linked account (a consent is personal)', async () => {
+      mockRegisterStudent.mockResolvedValue(undefined)
+      renderStudentRegistrationPage()
+
+      await fillAdministrativeStep()
+      await selectNewLinkedParentMode()
+      await submitRgpdStep()
+
+      await waitFor(() => expect(mockRegisterStudent).toHaveBeenCalled())
+      const payload = mockRegisterStudent.mock.calls[0][0] as Record<string, unknown>
+      expect(payload.parentConsents).toBeUndefined()
+      expect(payload.consents).toEqual([{ consentType: 'rgpd' }, { consentType: 'cgu' }])
     })
   })
 

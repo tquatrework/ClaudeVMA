@@ -61,7 +61,32 @@ l'être — preuve jouée contre la pile réelle, pas des tests verts.
 - [x] Validé par l'utilisateur — 2026-08-09
 - [x] Mergé dans master — PR #83
 
-## Suite immédiate — appliquer le filtrage de visibilité
+## Filtrage de visibilité — fait, prouvé, en attente de merge
+
+Preuve jouée sur la pile réelle le 2026-08-09, avec un élève qui règle `phone` et
+`difficulties` sur « moi seul » :
+
+| lecteur | `isFiltered` | `phone` | `difficulties` |
+|---|---|---|---|
+| l'élève lui-même | `false` | visible | visible |
+| son **parent financeur** | `false` | **visible** | **visible** |
+| son formateur rattaché | `true` | **absent** | **absent** |
+
+Le parent est bien exempté, conformément à l'arbitrage. Un champ masqué est **absent** de la
+réponse et nommé dans `hiddenFields` — jamais un `null` trompeur. À l'écran, le formateur voit
+la mention « Non partagé » et un bandeau qui explique une fois que la fiche est partielle.
+Comptes d'essai supprimés, liens orphelins nettoyés, données réelles intactes (20/5/1).
+
+## Deux points à remonter à l'utilisateur
+
+1. **Le professeur principal n'est pas exempté** — non tranché, donc traité comme tout contact
+   lié. Concrètement, un élève peut aujourd'hui masquer ses difficultés à celui qui
+   l'accompagne. Le modèle hérité l'exemptait au même titre que le financeur.
+2. **Un UUID s'affiche encore** dans le bloc « Formateurs liés » de la fiche profil
+   (`36c4b5b8-ac5…`). Même défaut que celui corrigé le 2026-08-04 sur les parents financeurs,
+   à un autre endroit. Hors périmètre de ce lot.
+
+## Ancien libellé de cette section — appliquer le filtrage de visibilité
 
 **Contradiction tranchée le 2026-08-09 : le parent financeur voit tout, sauf le carnet
 personnel.** Il est donc exempté des réglages de visibilité par champ — un élève ne peut pas lui

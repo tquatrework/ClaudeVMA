@@ -1,30 +1,44 @@
-import React, { useEffect, useState } from 'react'
+/**
+ * Écran de confidentialité — visibilité champ par champ
+ * (`GET|PUT /profiles/:userId/field-visibility`).
+ *
+ * Le serveur renvoie le catalogue complet avec les valeurs par défaut : cette
+ * page n'énumère aucun champ et n'invente aucun défaut. L'enregistrement est un
+ * upsert partiel — seuls les champs réellement changés sont envoyés.
+ */
+
+import React, { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { useProfileVisibility } from '../hooks/profile/useProfileVisibility'
+import { useFieldVisibility } from '../hooks/profile/useFieldVisibility'
 import Layout from '../components/Layout'
-import type { VisibilityPreferences } from '../types/profile'
+import { FieldVisibilityGroup } from '../components/profile/FieldVisibilityGroup'
+import type {
+  FieldVisibilityAudience,
+  FieldVisibilityEntry,
+  FieldVisibilityUpdate,
+} from '../types/profile'
 
-const DEFAULT_PREFERENCES: VisibilityPreferences = {
-  showEmailToTeachers: false,
-  showPhoneToTeachers: false,
-  showAddressToTeachers: false,
-  showProgressToParents: true,
-  showCalendarToParents: true,
+/** Ordre d'apparition des blocs à l'écran. Tout bloc inattendu passe à la fin. */
+const BLOCK_ORDER = ['administrative', 'pedagogical-student', 'pedagogical-teacher']
+
+function sortBlocks(blocks: string[]): string[] {
+  return [...blocks].sort((left, right) => {
+    const leftIndex = BLOCK_ORDER.indexOf(left)
+    const rightIndex = BLOCK_ORDER.indexOf(right)
+    return (leftIndex === -1 ? BLOCK_ORDER.length : leftIndex) -
+      (rightIndex === -1 ? BLOCK_ORDER.length : rightIndex)
+  })
 }
 
-const PREFERENCE_LABELS: Record<keyof VisibilityPreferences, string> = {
-  showEmailToTeachers: 'Afficher mon adresse e-mail aux formateurs',
-  showPhoneToTeachers: 'Afficher mon numéro de téléphone aux formateurs',
-  showAddressToTeachers: 'Afficher mon adresse postale aux formateurs',
-  showProgressToParents: 'Autoriser mes parents à voir ma progression',
-  showCalendarToParents: 'Autoriser mes parents à voir mon calendrier',
+function groupByBlock(entries: FieldVisibilityEntry[]): Record<string, FieldVisibilityEntry[]> {
+  const grouped: Record<string, FieldVisibilityEntry[]> = {}
+  for (const entry of entries) {
+    grouped[entry.block] = [...(grouped[entry.block] ?? []), entry]
+  }
+  return grouped
 }
 
-/**
- * Page de préférences de confidentialité d'un élève.
- * Accessible à l'élève (soi-même) ou au RP / TI.
- */
 export default function ProfileVisibilitySettingsPage() {
   const { userId } = useParams<{ userId: string }>()
   const navigate = useNavigate()
@@ -33,42 +47,58 @@ export default function ProfileVisibilitySettingsPage() {
   const isViewingOwnProfile = user?.id === userId
   const canAccess =
     isViewingOwnProfile ||
-    hasRole('responsable_pedagogique', 'technicien_informatique')
+    hasRole('responsable_pedagogique', 'technicien_informatique', 'administrateur_financier')
 
-  const {
-    preferences: loadedPreferences,
-    isLoading,
-    loadError,
-    save,
-    isSaving,
-    saveError,
-  } = useProfileVisibility(userId, canAccess)
+  const { fields, isLoading, loadError, save, isSaving, saveError } = useFieldVisibility(
+    userId,
+    canAccess,
+  )
 
-  const [preferences, setPreferences] = useState<VisibilityPreferences>(DEFAULT_PREFERENCES)
+  /** Réglages en cours d'édition, indexés par nom de champ. */
+  const [selectedAudiences, setSelectedAudiences] = useState<
+    Record<string, FieldVisibilityAudience>
+  >({})
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   useEffect(() => {
-    if (loadedPreferences) {
-      setPreferences({ ...DEFAULT_PREFERENCES, ...loadedPreferences })
+    if (!fields) return
+    const initialSelection: Record<string, FieldVisibilityAudience> = {}
+    for (const entry of fields) {
+      initialSelection[entry.fieldName] = entry.audience
     }
-  }, [loadedPreferences])
+    setSelectedAudiences(initialSelection)
+  }, [fields])
+
+  const groupedEntries = useMemo(() => groupByBlock(fields ?? []), [fields])
+  const orderedBlocks = useMemo(() => sortBlocks(Object.keys(groupedEntries)), [groupedEntries])
+
+  /** Seuls les champs réellement modifiés partent au serveur (upsert partiel). */
+  const changedFields: FieldVisibilityUpdate[] = useMemo(() => {
+    if (!fields) return []
+    return fields
+      .filter((entry) => selectedAudiences[entry.fieldName] !== entry.audience)
+      .map((entry) => ({
+        fieldName: entry.fieldName,
+        audience: selectedAudiences[entry.fieldName],
+      }))
+  }, [fields, selectedAudiences])
 
   const errorMessage = saveError ?? loadError
-
   const [isErrorDismissed, setIsErrorDismissed] = useState(false)
   useEffect(() => {
     setIsErrorDismissed(false)
   }, [errorMessage])
 
-  const handleToggle = (preferenceKey: keyof VisibilityPreferences) => {
-    setPreferences((prev) => ({ ...prev, [preferenceKey]: !prev[preferenceKey] }))
+  const handleAudienceChange = (fieldName: string, audience: FieldVisibilityAudience) => {
+    setSuccessMessage(null)
+    setSelectedAudiences((previous) => ({ ...previous, [fieldName]: audience }))
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
     setSuccessMessage(null)
-    const success = await save(preferences)
-    if (success) setSuccessMessage('Préférences de confidentialité enregistrées')
+    const isSaved = await save(changedFields)
+    if (isSaved) setSuccessMessage('Réglages de confidentialité enregistrés')
   }
 
   if (!canAccess) {
@@ -91,7 +121,7 @@ export default function ProfileVisibilitySettingsPage() {
 
   return (
     <Layout>
-      <div className="max-w-xl">
+      <div className="max-w-3xl">
         <div className="flex items-center gap-3 mb-6">
           <button
             onClick={() => navigate(`/profiles/${userId}`)}
@@ -103,7 +133,9 @@ export default function ProfileVisibilitySettingsPage() {
 
         <h1 className="text-2xl font-bold text-gray-900 mb-2">Confidentialité</h1>
         <p className="text-sm text-gray-500 mb-6">
-          Choisissez quelles informations sont visibles selon votre rôle.
+          Choisissez, champ par champ, qui peut voir vos informations. Par défaut, seuls votre
+          prénom, votre nom, votre photo, votre niveau et vos matières sont visibles de vos
+          contacts.
         </p>
 
         {errorMessage && !isErrorDismissed && (
@@ -130,56 +162,26 @@ export default function ProfileVisibilitySettingsPage() {
           </div>
         )}
 
+        {fields && fields.length === 0 && (
+          <p className="text-sm text-gray-400">Aucun champ à régler pour ce compte.</p>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
-            <h2 className="text-base font-semibold text-gray-800 mb-2">
-              Visibilité envers les formateurs
-            </h2>
-            {(
-              [
-                'showEmailToTeachers',
-                'showPhoneToTeachers',
-                'showAddressToTeachers',
-              ] as (keyof VisibilityPreferences)[]
-            ).map((preferenceKey) => (
-              <label key={preferenceKey} className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={preferences[preferenceKey]}
-                  onChange={() => handleToggle(preferenceKey)}
-                  className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-400"
-                />
-                <span className="text-sm text-gray-700">{PREFERENCE_LABELS[preferenceKey]}</span>
-              </label>
-            ))}
-          </div>
+          {orderedBlocks.map((block) => (
+            <FieldVisibilityGroup
+              key={block}
+              block={block}
+              entries={groupedEntries[block]}
+              selectedAudiences={selectedAudiences}
+              onAudienceChange={handleAudienceChange}
+              isDisabled={isSaving}
+            />
+          ))}
 
-          <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
-            <h2 className="text-base font-semibold text-gray-800 mb-2">
-              Visibilité envers les parents
-            </h2>
-            {(
-              [
-                'showProgressToParents',
-                'showCalendarToParents',
-              ] as (keyof VisibilityPreferences)[]
-            ).map((preferenceKey) => (
-              <label key={preferenceKey} className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={preferences[preferenceKey]}
-                  onChange={() => handleToggle(preferenceKey)}
-                  className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-400"
-                />
-                <span className="text-sm text-gray-700">{PREFERENCE_LABELS[preferenceKey]}</span>
-              </label>
-            ))}
-          </div>
-
-          <div className="flex gap-3">
+          <div className="flex items-center gap-3">
             <button
               type="submit"
-              disabled={isSaving}
+              disabled={isSaving || changedFields.length === 0}
               className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm"
             >
               {isSaving ? 'Enregistrement…' : 'Enregistrer'}
@@ -191,6 +193,11 @@ export default function ProfileVisibilitySettingsPage() {
             >
               Annuler
             </button>
+            {changedFields.length > 0 && (
+              <span className="text-xs text-gray-500">
+                {changedFields.length} modification{changedFields.length > 1 ? 's' : ''} en attente
+              </span>
+            )}
           </div>
         </form>
       </div>

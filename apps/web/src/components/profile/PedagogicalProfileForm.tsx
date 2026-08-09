@@ -1,192 +1,68 @@
 /**
- * PedagogicalProfileForm — édition du profil pédagogique
- * (`PUT /profiles/:userId/pedagogical`).
+ * PedagogicalProfileForm — édition de la **section déclarative** du profil
+ * pédagogique (`PUT /profiles/:userId/pedagogical`), ce que le titulaire déclare
+ * sur lui-même.
  *
- * Deux formes distinctes selon la personne éditée (docs/routes.md § « Noms de
- * champs des profils ») :
- * - élève : `level`, `goals`, `specificNeeds`, `subjects` ;
- * - formateur : `levels` (pluriel, tableau), `experience`, `testResults`, `subjects`.
+ * Deux jeux de champs distincts (docs/routes.md § « Noms de champs des profils ») :
+ * - élève : `level`, `subjects`, `goals`, `specificNeeds`, `difficulties`, `context` ;
+ * - formateur : `levels`, `subjects`, `experience`, `diplomas`, `specialties`,
+ *   `particularities`, `cvDocumentId`.
  *
- * Le serveur choisit la table cible d'après les champs reçus : envoyer `level`
- * pour un formateur créerait un profil ÉLÈVE à son nom. Le formulaire n'envoie
- * donc jamais que les champs de la forme résolue.
+ * Aucun champ de prescription n'y figure : le serveur les refuse en `400` sur
+ * cette route, et c'est voulu — un élève ne rédige pas ses préconisations, un
+ * formateur pas ses résultats de test. Ils s'éditent par `PrescriptionForm`.
  *
- * `subjects` et `levels` sont des `string[]` côté API : la saisie reste du texte
- * séparé par des virgules, converti à la frontière API.
+ * La forme éditée vient de `pedagogicalType` renvoyé par le serveur : le front ne
+ * la déduit plus des champs présents.
  */
 
-import React, { useEffect, useState } from 'react'
-import type {
-  PedagogicalProfileFields,
-  StudentPedagogicalFormValues,
-  TeacherPedagogicalFormValues,
-} from '../../types/profile'
-import {
-  formatCommaSeparatedList,
-  parseCommaSeparatedList,
-} from '../../utils/profileFields'
-import { ProfileFormActions, ProfileFormField } from './ProfileFormField'
+import React from 'react'
+import type { DeclarativePedagogicalFields, PedagogicalProfileType } from '../../types/profile'
+import { ProfileFieldsForm, type ProfileFieldDescriptor } from './ProfileFieldsForm'
 
-const LIST_HINT = 'Séparez les valeurs par une virgule'
+const STUDENT_FIELDS: readonly ProfileFieldDescriptor[] = [
+  { name: 'level', placeholder: 'Ex : Terminale, Licence 2, BTS…' },
+  { name: 'subjects', placeholder: 'Ex : Mathématiques, Physique-Chimie…' },
+  { name: 'goals', placeholder: 'Ex : rattraper les lacunes en algèbre, préparer le baccalauréat…', rows: 3 },
+  { name: 'difficulties', placeholder: 'Ex : les fonctions dérivées, la rédaction des démonstrations…', rows: 3 },
+  { name: 'specificNeeds', placeholder: 'Ex : PAP en cours, tiers-temps aux examens…', rows: 3 },
+  { name: 'context', placeholder: 'Ex : changement d’établissement en cours d’année, longue absence…', rows: 3 },
+]
 
-const FORM_CLASS = 'space-y-4 bg-white border border-gray-200 rounded-xl p-6'
+const TEACHER_FIELDS: readonly ProfileFieldDescriptor[] = [
+  { name: 'levels', placeholder: 'Ex : Collège, Seconde, Terminale…' },
+  { name: 'subjects', placeholder: 'Ex : Mathématiques, Physique-Chimie…' },
+  { name: 'experience', placeholder: 'Ex : 8 ans en lycée, préparation aux concours…', rows: 4 },
+  { name: 'diplomas', placeholder: 'Ex : agrégation de mathématiques, master MEEF…', rows: 3 },
+  { name: 'specialties', placeholder: 'Ex : Préparation Grand Oral, Remise à niveau…' },
+  { name: 'particularities', placeholder: 'Ex : accompagnement d’élèves DYS, cours en soirée…', rows: 3 },
+  { name: 'cvDocumentId', placeholder: 'Référence du CV déposé dans les archives' },
+]
 
-function readText(source: Record<string, unknown> | null, fieldName: string): string {
-  const value = source?.[fieldName]
-  return typeof value === 'string' ? value : ''
-}
-
-// ─── Formulaire élève ─────────────────────────────────────────────────────────
-
-interface StudentFormProps {
+interface PedagogicalProfileFormProps {
+  pedagogicalType: PedagogicalProfileType
   profile: Record<string, unknown> | null
   isSaving: boolean
-  onSubmit: (payload: PedagogicalProfileFields) => void
+  onSubmit: (payload: DeclarativePedagogicalFields) => void
   onCancel: () => void
 }
 
-function StudentPedagogicalForm({ profile, isSaving, onSubmit, onCancel }: StudentFormProps) {
-  const [values, setValues] = useState<StudentPedagogicalFormValues>({
-    level: '',
-    subjects: '',
-    goals: '',
-    specificNeeds: '',
-  })
-
-  useEffect(() => {
-    setValues({
-      level: readText(profile, 'level'),
-      subjects: formatCommaSeparatedList(profile?.subjects),
-      goals: readText(profile, 'goals'),
-      specificNeeds: readText(profile, 'specificNeeds'),
-    })
-  }, [profile])
-
-  const handleSubmit = (event: React.FormEvent) => {
-    event.preventDefault()
-    onSubmit({
-      level: values.level,
-      goals: values.goals,
-      specificNeeds: values.specificNeeds,
-      subjects: parseCommaSeparatedList(values.subjects),
-    })
-  }
-
-  const updateField = (field: keyof StudentPedagogicalFormValues) => (value: string) =>
-    setValues((previous) => ({ ...previous, [field]: value }))
+export function PedagogicalProfileForm({
+  pedagogicalType,
+  profile,
+  isSaving,
+  onSubmit,
+  onCancel,
+}: PedagogicalProfileFormProps) {
+  const fields = pedagogicalType === 'teacher' ? TEACHER_FIELDS : STUDENT_FIELDS
 
   return (
-    <form onSubmit={handleSubmit} className={FORM_CLASS}>
-      <ProfileFormField
-        label="Niveau scolaire"
-        value={values.level}
-        onChange={updateField('level')}
-        placeholder="Ex : Terminale, Licence 2, BTS…"
-      />
-      <ProfileFormField
-        label="Matières concernées"
-        value={values.subjects}
-        onChange={updateField('subjects')}
-        placeholder="Ex : Mathématiques, Physique-Chimie…"
-        hint={LIST_HINT}
-      />
-      <ProfileFormField
-        label="Objectifs pédagogiques"
-        value={values.goals}
-        onChange={updateField('goals')}
-        placeholder="Ex : Rattraper les lacunes en algèbre, préparer le baccalauréat…"
-        rows={3}
-      />
-      <ProfileFormField
-        label="Besoins spécifiques"
-        value={values.specificNeeds}
-        onChange={updateField('specificNeeds')}
-        placeholder="Ex : aménagements, difficultés de lecture, rythme adapté…"
-        rows={3}
-        hint="Besoins d'apprentissage particuliers à signaler au formateur"
-      />
-      <ProfileFormActions isSaving={isSaving} onCancel={onCancel} />
-    </form>
-  )
-}
-
-// ─── Formulaire formateur ─────────────────────────────────────────────────────
-
-function TeacherPedagogicalForm({ profile, isSaving, onSubmit, onCancel }: StudentFormProps) {
-  const [values, setValues] = useState<TeacherPedagogicalFormValues>({
-    levels: '',
-    subjects: '',
-    experience: '',
-    testResults: '',
-  })
-
-  useEffect(() => {
-    setValues({
-      levels: formatCommaSeparatedList(profile?.levels),
-      subjects: formatCommaSeparatedList(profile?.subjects),
-      experience: readText(profile, 'experience'),
-      testResults: readText(profile, 'testResults'),
-    })
-  }, [profile])
-
-  const handleSubmit = (event: React.FormEvent) => {
-    event.preventDefault()
-    onSubmit({
-      levels: parseCommaSeparatedList(values.levels),
-      subjects: parseCommaSeparatedList(values.subjects),
-      experience: values.experience,
-      testResults: values.testResults,
-    })
-  }
-
-  const updateField = (field: keyof TeacherPedagogicalFormValues) => (value: string) =>
-    setValues((previous) => ({ ...previous, [field]: value }))
-
-  return (
-    <form onSubmit={handleSubmit} className={FORM_CLASS}>
-      <ProfileFormField
-        label="Niveaux enseignés"
-        value={values.levels}
-        onChange={updateField('levels')}
-        placeholder="Ex : Collège, Seconde, Terminale…"
-        hint={LIST_HINT}
-      />
-      <ProfileFormField
-        label="Matières enseignées"
-        value={values.subjects}
-        onChange={updateField('subjects')}
-        placeholder="Ex : Mathématiques, Physique-Chimie…"
-        hint={LIST_HINT}
-      />
-      <ProfileFormField
-        label="Expérience pédagogique"
-        value={values.experience}
-        onChange={updateField('experience')}
-        placeholder="Ex : 8 ans en lycée, préparation aux concours…"
-        rows={4}
-      />
-      <ProfileFormField
-        label="Résultats de tests"
-        value={values.testResults}
-        onChange={updateField('testResults')}
-        placeholder="Ex : test de positionnement VisioMath, certifications…"
-        rows={3}
-      />
-      <ProfileFormActions isSaving={isSaving} onCancel={onCancel} />
-    </form>
-  )
-}
-
-// ─── Aiguillage ───────────────────────────────────────────────────────────────
-
-interface PedagogicalProfileFormProps extends StudentFormProps {
-  kind: 'student' | 'teacher'
-}
-
-export function PedagogicalProfileForm({ kind, ...formProps }: PedagogicalProfileFormProps) {
-  return kind === 'teacher' ? (
-    <TeacherPedagogicalForm {...formProps} />
-  ) : (
-    <StudentPedagogicalForm {...formProps} />
+    <ProfileFieldsForm
+      fields={fields}
+      source={profile}
+      isSaving={isSaving}
+      onSubmit={(payload) => onSubmit(payload as DeclarativePedagogicalFields)}
+      onCancel={onCancel}
+    />
   )
 }

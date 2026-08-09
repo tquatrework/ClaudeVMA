@@ -3,10 +3,13 @@
  * d'inscription élève.
  * Extrait de StudentRegistrationPage (lot 10 — normalisation, découpage > 300 lignes).
  *
- * Le champ « Date de naissance » a été retiré le 2026-08-09 : il n'était stocké nulle
- * part (`POST /accounts/students` ne déclare pas `birthDate` et le refuse désormais
- * en `400`, profile-service ne sait pas encore le recevoir). Il sera remis quand
- * profile-service saura le stocker — voir le rapport front du 2026-08-09.
+ * Le champ « Date de naissance » avait été retiré le 2026-08-09 faute d'être
+ * stocké nulle part. Il est **rétabli** : `POST /accounts/students` accepte
+ * désormais `birthDate` et le relaie à profile-service.
+ *
+ * Format attendu : date calendaire ISO `YYYY-MM-DD` **stricte**. Un `<input
+ * type="date">` produit exactement cette forme ; un datetime complet ou un
+ * format localisé (`29/02/2008`) renverraient `400`.
  */
 
 import React from 'react'
@@ -19,6 +22,8 @@ export interface StudentAdministrativeFormData {
   firstName: string
   lastName: string
   phoneNumber: string
+  /** Date calendaire ISO `YYYY-MM-DD`, ou chaîne vide si non saisie. */
+  birthDate: string
 }
 
 interface StudentAdministrativeStepProps {
@@ -165,8 +170,26 @@ export function StudentAdministrativeStep({
         />
       </div>
 
+      <div>
+        <label
+          htmlFor="student-birthDate"
+          className="block text-sm font-medium text-gray-700 mb-1"
+        >
+          Date de naissance
+        </label>
+        {/* `type="date"` produit nativement la forme `YYYY-MM-DD` exigée par le
+            serveur : aucune conversion à faire côté front. */}
+        <input
+          id="student-birthDate"
+          type="date"
+          value={administrativeData.birthDate}
+          onChange={(e) => onChange('birthDate', e.target.value)}
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+        />
+      </div>
+
       <p className="text-xs text-gray-500">
-        Vos autres informations (date de naissance, adresse…) se renseignent depuis votre profil,
+        Vos autres informations (adresse, centres d'intérêt…) se renseignent depuis votre profil,
         après connexion.
       </p>
 

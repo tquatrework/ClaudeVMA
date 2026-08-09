@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { ConflictException } from '@nestjs/common';
 import { ConsentsService } from '../../src/consents/consents.service';
+import { ConsentRecordingService } from '../../src/consents/consent-recording.service';
 import { ConsentRecord, ConsentType } from '../../src/consents/entities/consent-record.entity';
 import { EventsService } from '../../src/events/events.service';
 import { AccountsService } from '../../src/accounts/accounts.service';
@@ -31,6 +32,9 @@ describe('ConsentsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ConsentsService,
+        // ConsentRecordingService est utilisé RÉEL ici : c'est le chemin d'écriture
+        // partagé avec les routes de création de compte, il doit être exercé tel quel.
+        ConsentRecordingService,
         { provide: getRepositoryToken(ConsentRecord), useValue: consentRepo },
         { provide: EventsService, useValue: { publish: jest.fn() } },
         { provide: AccountsService, useValue: accountsService },

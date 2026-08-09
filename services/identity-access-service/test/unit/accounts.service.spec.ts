@@ -14,6 +14,8 @@ import { User, UserRole, ValidationStatus } from '../../src/auth/entities/user.e
 import { AuditLog } from '../../src/accounts/entities/audit-log.entity';
 import { EventsService } from '../../src/events/events.service';
 import { ProfileServiceClient } from '../../src/common/clients/profile-service.client';
+import { ConsentRecordingService } from '../../src/consents/consent-recording.service';
+import { ConsentType, DEFAULT_CONSENT_VERSION } from '../../src/consents/entities/consent-record.entity';
 import { LinkedAccountMode } from '../../src/accounts/dto/linked-account-mode';
 import { buildTransactionalDataSourceMock } from './helpers/mock-transactional-data-source';
 
@@ -38,6 +40,12 @@ describe('AccountsService', () => {
   let auditRepo: any;
   let eventsService: { publish: jest.Mock };
   let profileServiceClient: { createAdministrativeProfile: jest.Mock; linkParentToStudent: jest.Mock };
+  let consentRecordingService: {
+    recordConsent: jest.Mock;
+    areMandatoryConsentsSigned: jest.Mock;
+    findSignedConsent: jest.Mock;
+    listSignedConsents: jest.Mock;
+  };
 
   beforeEach(async () => {
     userRepo = {
@@ -66,6 +74,18 @@ describe('AccountsService', () => {
       linkParentToStudent: jest.fn().mockResolvedValue(undefined),
     };
 
+    consentRecordingService = {
+      recordConsent: jest.fn().mockImplementation(async (input) => ({
+        id: 'consent-uuid',
+        version: DEFAULT_CONSENT_VERSION,
+        signedAt: new Date(),
+        ...input,
+      })),
+      areMandatoryConsentsSigned: jest.fn().mockResolvedValue(false),
+      findSignedConsent: jest.fn().mockResolvedValue(null),
+      listSignedConsents: jest.fn().mockResolvedValue([]),
+    };
+
     const dataSourceMock = buildTransactionalDataSourceMock([
       [User, userRepo],
       [AuditLog, auditRepo],
@@ -82,6 +102,7 @@ describe('AccountsService', () => {
           useValue: { get: jest.fn((key: string, defaultValue?: unknown) => defaultValue ?? null) },
         },
         { provide: ProfileServiceClient, useValue: profileServiceClient },
+        { provide: ConsentRecordingService, useValue: consentRecordingService },
         { provide: DataSource, useValue: dataSourceMock },
       ],
     }).compile();

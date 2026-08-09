@@ -1,6 +1,8 @@
 import { IsEmail, IsString, MinLength, IsEnum, IsOptional } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole, SELF_REGISTRATION_ROLES } from '../../auth/entities/user.entity';
+import { RegistrationConsents } from './registration-consents';
+import { CreateConsentDto } from '../../consents/dto/create-consent.dto';
 
 /**
  * Décision du 2026-08-06 (précision apportée après un premier revirement trop
@@ -41,4 +43,12 @@ export class CreateAccountDto {
   @IsString()
   @MinLength(3)
   loginIdentifier?: string;
+
+  /**
+   * Consentements recueillis par l'appelant (formulaire d'inscription générique,
+   * ou workflow `student-onboarding`/`teacher-onboarding` d'orchestration-service
+   * qui transmet déjà ce champ dans `POST /internal/create-account`).
+   */
+  @RegistrationConsents('the account holder')
+  consents?: CreateConsentDto[];
 }

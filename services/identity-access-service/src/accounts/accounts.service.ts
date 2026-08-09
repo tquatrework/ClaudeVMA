@@ -30,10 +30,14 @@ import {
 } from './dto/linked-account-mode';
 import { UpdateAccountStatusDto, AccountStatusValue } from './dto/update-account-status.dto';
 import { UpdateMeDto } from './dto/update-me.dto';
+import { checkRegistrationConsents } from './dto/registration-consents';
 import { EventsService } from '../events/events.service';
 import { ConfigService } from '@nestjs/config';
 import { Actor } from '../common/types/actor';
 import { ProfileServiceClient } from '../common/clients/profile-service.client';
+import { ConsentRecordingService } from '../consents/consent-recording.service';
+import { ConsentRecord } from '../consents/entities/consent-record.entity';
+import { CreateConsentDto } from '../consents/dto/create-consent.dto';
 
 /** Nombre maximal d'enregistrements retournés par les listes non paginées explicitement. */
 const DEFAULT_LIST_LIMIT = 200;
@@ -48,6 +52,7 @@ export class AccountsService {
     private readonly eventsService: EventsService,
     private readonly configService: ConfigService,
     private readonly profileServiceClient: ProfileServiceClient,
+    private readonly consentRecordingService: ConsentRecordingService,
     @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
@@ -122,16 +127,97 @@ export class AccountsService {
     }
   }
 
+  /**
+   * Vérifie la liste de consentements transmise à l'inscription (400 explicite si
+   * un type est envoyé deux fois). Symétrique de assertLinkedAccountIntent : la
+   * règle vit dans une fonction pure testable, le service ne fait que la lever.
+   */
+  private assertRegistrationConsents(requestedConsents?: CreateConsentDto[]): void {
+    const violations = checkRegistrationConsents(requestedConsents);
+    if (violations.length > 0) {
+      throw new BadRequestException(violations);
+    }
+  }
+
+  /**
+   * Enregistre les consentements recueillis par le formulaire d'inscription, par
+   * le MÊME chemin que `POST /consents` (ConsentRecordingService : même table,
+   * même version par défaut, même capture d'`ipAddress` et de `signedAt`), puis
+   * applique l'effet de bord métier prévu quand RGPD + CGU sont réunis
+   * (activateAfterMandatoryConsents — compte `consent_signed` et `ACTIVE`).
+   *
+   * Appelée à l'intérieur de la transaction de création du compte : les traces de
+   * consentement et la ligne `users` commitent ou échouent ensemble. Aucun
+   * consentement n'est donc conservé pour un compte annulé, et aucun compte n'est
+   * créé en jetant un consentement que l'utilisateur vient de donner (arbitrage
+   * d'architecture du 2026-08-09).
+   *
+   * Ne concerne QUE le compte de la personne qui remplit le formulaire. Un compte
+   * lié créé dans le même appel reste `PENDING`, sans consentement : voir
+   * `RegistrationConsents` et les DTO de création.
+   */
+  private async recordRegistrationConsents(
+    userId: string,
+    requestedConsents: CreateConsentDto[] | undefined,
+    ipAddress: string | undefined,
+    manager: EntityManager,
+  ): Promise<{ recordedConsents: ConsentRecord[]; activatedAccount: User | null }> {
+    if (!requestedConsents || requestedConsents.length === 0) {
+      return { recordedConsents: [], activatedAccount: null };
+    }
+
+    const recordedConsents: ConsentRecord[] = [];
+    for (const requestedConsent of requestedConsents) {
+      recordedConsents.push(
+        await this.consentRecordingService.recordConsent(
+          {
+            userId,
+            consentType: requestedConsent.consentType,
+            version: requestedConsent.version,
+            ipAddress,
+          },
+          manager,
+        ),
+      );
+    }
+
+    const allMandatoryConsentsSigned = await this.consentRecordingService.areMandatoryConsentsSigned(
+      userId,
+      manager,
+    );
+    const activatedAccount = allMandatoryConsentsSigned
+      ? await this.activateAfterMandatoryConsents(userId, manager)
+      : null;
+
+    return { recordedConsents, activatedAccount };
+  }
+
+  /**
+   * Publie un `ConsentSigned` par consentement enregistré — même événement, même
+   * charge utile que `POST /consents`, et comme lui publié après le commit de la
+   * transaction (jamais avant : une erreur métier ne doit pas devenir un succès
+   * technique).
+   */
+  private publishConsentSignedEvents(userId: string, recordedConsents: ConsentRecord[]): void {
+    for (const recordedConsent of recordedConsents) {
+      this.eventsService.publish('ConsentSigned', {
+        userId,
+        consentType: recordedConsent.consentType,
+        version: recordedConsent.version,
+      });
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
 
   /**
-   * Route générique (`POST /accounts`, non utilisée par le front
-   * d'auto-inscription) : ne collecte pas firstName/lastName/phone et
-   * n'appelle donc pas profile-service. Écriture unique sur une seule entité :
-   * un DataSource.transaction n'est pas nécessaire (la ligne insérée par
-   * save() est déjà atomique et auto-commitée).
+   * Route générique (`POST /accounts`, et `POST /internal/create-account`
+   * consommée par orchestration-service) : ne collecte pas
+   * firstName/lastName/phone et n'appelle donc pas profile-service.
+   * Transactionnelle depuis le 2026-08-09 car elle écrit désormais deux entités
+   * quand des consentements sont transmis (`users` + `consent_records`).
    */
   async createAccount(dto: CreateAccountDto, ipAddress?: string) {
     const role = dto.role ?? UserRole.ELEVE;
@@ -139,32 +225,50 @@ export class AccountsService {
     if (INTERNAL_ROLES.includes(role)) {
       throw new ForbiddenException('Cannot self-register with an internal role (IAM-FB-002)');
     }
+    this.assertRegistrationConsents(dto.consents);
 
-    const loginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier);
-    const emailAlreadyUsed = !!(await this.userRepo.findOne({ where: { email: dto.email } }));
+    const result = await this.dataSource.transaction(async (manager) => {
+      const userRepo = manager.getRepository(User);
 
-    const passwordHash = await bcrypt.hash(dto.password, 12);
-    const newUser = this.userRepo.create({
-      loginIdentifier,
-      email: dto.email,
-      passwordHash,
-      role,
-      validationStatus: ValidationStatus.PENDING,
-      consentSigned: false,
+      const loginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier, userRepo);
+      const emailAlreadyUsed = !!(await userRepo.findOne({ where: { email: dto.email } }));
+
+      const passwordHash = await bcrypt.hash(dto.password, 12);
+      const newUser = userRepo.create({
+        loginIdentifier,
+        email: dto.email,
+        passwordHash,
+        role,
+        validationStatus: ValidationStatus.PENDING,
+        consentSigned: false,
+      });
+      let savedUser = await userRepo.save(newUser);
+
+      const { recordedConsents, activatedAccount } = await this.recordRegistrationConsents(
+        savedUser.id,
+        dto.consents,
+        ipAddress,
+        manager,
+      );
+      if (activatedAccount) savedUser = activatedAccount;
+
+      return { savedUser, emailAlreadyUsed, loginIdentifier, recordedConsents };
     });
-    const savedUser = await this.userRepo.save(newUser);
 
     this.eventsService.publish('AccountCreated', {
-      userId: savedUser.id,
-      loginIdentifier: savedUser.loginIdentifier,
-      email: savedUser.email,
-      role: savedUser.role,
+      userId: result.savedUser.id,
+      loginIdentifier: result.savedUser.loginIdentifier,
+      email: result.savedUser.email,
+      role: result.savedUser.role,
       ipAddress,
     });
+    this.publishConsentSignedEvents(result.savedUser.id, result.recordedConsents);
 
     return {
-      ...this.toPublic(savedUser),
-      ...(emailAlreadyUsed ? { emailAlreadyUsed: true, suggestedLoginIdentifier: loginIdentifier } : {}),
+      ...this.toPublic(result.savedUser),
+      ...(result.emailAlreadyUsed
+        ? { emailAlreadyUsed: true, suggestedLoginIdentifier: result.loginIdentifier }
+        : {}),
     };
   }
 
@@ -404,6 +508,7 @@ export class AccountsService {
       firstName: dto.parentFirstName,
       lastName: dto.parentLastName,
     });
+    this.assertRegistrationConsents(dto.consents);
 
     const result = await this.dataSource.transaction(async (manager) => {
       const userRepo = manager.getRepository(User);
@@ -420,7 +525,18 @@ export class AccountsService {
         validationStatus: ValidationStatus.PENDING,
         consentSigned: false,
       });
-      const savedStudent = await userRepo.save(student);
+      let savedStudent = await userRepo.save(student);
+
+      // Consentements recueillis par le formulaire d'inscription de l'élève —
+      // enregistrés par le même chemin que POST /consents, dans cette même
+      // transaction. Ne couvrent jamais le compte parent créé ci-dessous.
+      const { recordedConsents, activatedAccount } = await this.recordRegistrationConsents(
+        savedStudent.id,
+        dto.consents,
+        ipAddress,
+        manager,
+      );
+      if (activatedAccount) savedStudent = activatedAccount;
 
       let savedParent: User | null = null;
       let parentCreated = false;
@@ -476,6 +592,7 @@ export class AccountsService {
         savedParent,
         parentCreated,
         parentEmailAlreadyUsed,
+        recordedConsents,
       };
     });
 
@@ -486,6 +603,7 @@ export class AccountsService {
       role: result.savedStudent.role,
       ipAddress,
     });
+    this.publishConsentSignedEvents(result.savedStudent.id, result.recordedConsents);
 
     if (result.parentCreated && result.savedParent) {
       this.eventsService.publish('AccountCreated', {
@@ -519,7 +637,9 @@ export class AccountsService {
    * The teacher remains pending until RP validates after interview/test, contract and financial info.
    */
   async createTeacherAccount(dto: CreateTeacherAccountDto, ipAddress?: string) {
-    const { savedTeacher, emailAlreadyUsed, loginIdentifier } = await this.dataSource.transaction(async (manager) => {
+    this.assertRegistrationConsents(dto.consents);
+
+    const { savedTeacher, emailAlreadyUsed, loginIdentifier, recordedConsents } = await this.dataSource.transaction(async (manager) => {
       const userRepo = manager.getRepository(User);
 
       const loginIdentifier = await this.resolveLoginIdentifier(dto.email, dto.loginIdentifier, userRepo);
@@ -534,11 +654,19 @@ export class AccountsService {
         validationStatus: ValidationStatus.PENDING,
         consentSigned: false,
       });
-      const savedTeacher = await userRepo.save(teacher);
+      let savedTeacher = await userRepo.save(teacher);
+
+      const { recordedConsents, activatedAccount } = await this.recordRegistrationConsents(
+        savedTeacher.id,
+        dto.consents,
+        ipAddress,
+        manager,
+      );
+      if (activatedAccount) savedTeacher = activatedAccount;
 
       await this.persistAdministrativeProfile(savedTeacher.id, dto.firstName, dto.lastName, dto.phoneNumber);
 
-      return { savedTeacher, emailAlreadyUsed, loginIdentifier };
+      return { savedTeacher, emailAlreadyUsed, loginIdentifier, recordedConsents };
     });
 
     this.eventsService.publish('AccountCreated', {
@@ -549,6 +677,7 @@ export class AccountsService {
       ipAddress,
       cvReference: dto.cvReference,
     });
+    this.publishConsentSignedEvents(savedTeacher.id, recordedConsents);
 
     // Notification non-bloquante au dashboard RP — effet post-commit, réalisée
     // une fois la ligne du formateur durablement enregistrée. firstName/lastName
@@ -589,6 +718,7 @@ export class AccountsService {
       firstName: dto.studentFirstName,
       lastName: dto.studentLastName,
     });
+    this.assertRegistrationConsents(dto.consents);
 
     const result = await this.dataSource.transaction(async (manager) => {
       const userRepo = manager.getRepository(User);
@@ -605,7 +735,21 @@ export class AccountsService {
         validationStatus: ValidationStatus.PENDING,
         consentSigned: false,
       });
-      const savedParent = await userRepo.save(parent);
+      let savedParent = await userRepo.save(parent);
+
+      // Consentements recueillis par le formulaire d'inscription du parent —
+      // enregistrés par le même chemin que POST /consents, dans cette même
+      // transaction. Ne couvrent jamais le compte élève créé ci-dessous : un
+      // parent ne consent pas à la place de son enfant sur cette route (l'âge de
+      // l'élève est inconnu de ce service et le compte peut être celui d'un
+      // majeur).
+      const { recordedConsents, activatedAccount } = await this.recordRegistrationConsents(
+        savedParent.id,
+        dto.consents,
+        ipAddress,
+        manager,
+      );
+      if (activatedAccount) savedParent = activatedAccount;
 
       let savedStudent: User | null = null;
       let studentCreated = false;
@@ -656,6 +800,7 @@ export class AccountsService {
         savedStudent,
         studentCreated,
         studentEmailAlreadyUsed,
+        recordedConsents,
       };
     });
 
@@ -666,6 +811,7 @@ export class AccountsService {
       role: result.savedParent.role,
       ipAddress,
     });
+    this.publishConsentSignedEvents(result.savedParent.id, result.recordedConsents);
 
     if (result.studentCreated && result.savedStudent) {
       this.eventsService.publish('AccountCreated', {
@@ -901,17 +1047,23 @@ export class AccountsService {
    * appelle cette méthode uniquement lorsque c'est le cas, en lui passant le manager
    * de sa propre transaction pour que les deux écritures (ConsentRecord + User)
    * commitent ou échouent ensemble.
+   *
+   * Retourne le compte mis à jour, ou `null` si rien n'a changé (compte
+   * introuvable, ou consentements déjà marqués comme signés). Les routes de
+   * création de compte s'en servent pour renvoyer immédiatement l'état réel du
+   * compte (`consentSigned: true`, `validationStatus: 'active'`) au lieu de
+   * l'instance en mémoire d'avant activation.
    */
-  async activateAfterMandatoryConsents(userId: string, manager?: EntityManager): Promise<void> {
+  async activateAfterMandatoryConsents(userId: string, manager?: EntityManager): Promise<User | null> {
     const userRepo = manager ? manager.getRepository(User) : this.userRepo;
     const user = await userRepo.findOne({ where: { id: userId } });
-    if (!user || user.consentSigned) return;
+    if (!user || user.consentSigned) return null;
 
     user.consentSigned = true;
     if (user.validationStatus === ValidationStatus.PENDING) {
       user.validationStatus = ValidationStatus.ACTIVE;
     }
-    await userRepo.save(user);
+    return userRepo.save(user);
   }
 
   /** Vérifie l'existence d'un compte sans en exposer le détail — utilisé par DelegationsService. */

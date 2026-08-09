@@ -1,6 +1,8 @@
 import { IsEmail, IsString, MinLength, MaxLength, IsNotEmpty, IsOptional, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PHONE_NUMBER_REGEX } from './phone-number.validator';
+import { RegistrationConsents } from './registration-consents';
+import { CreateConsentDto } from '../../consents/dto/create-consent.dto';
 
 export class CreateTeacherAccountDto {
   @ApiProperty({ example: 'formateur@example.com', description: 'Teacher email address' })
@@ -46,4 +48,7 @@ export class CreateTeacherAccountDto {
   @IsOptional()
   @IsString()
   cvReference?: string;
+
+  @RegistrationConsents('the teacher')
+  consents?: CreateConsentDto[];
 }

@@ -2,6 +2,8 @@ import { IsEmail, IsString, MinLength, MaxLength, IsNotEmpty, IsOptional, IsBool
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PHONE_NUMBER_REGEX } from './phone-number.validator';
 import { LinkedAccountMode } from './linked-account-mode';
+import { RegistrationConsents } from './registration-consents';
+import { CreateConsentDto } from '../../consents/dto/create-consent.dto';
 
 export class CreateStudentAccountDto {
   @ApiProperty({ example: 'eleve@example.com', description: 'Student email address' })
@@ -50,8 +52,17 @@ export class CreateStudentAccountDto {
   @IsBoolean()
   isMember?: boolean;
 
+  @RegistrationConsents('the student')
+  consents?: CreateConsentDto[];
+
   // ---------------------------------------------------------------------------
   // Compte parent financeur lié (optionnel) — intention explicite
+  //
+  // Aucun champ de consentement n'existe ici pour le compte lié, et c'est
+  // délibéré : un consentement est personnel et ne peut pas être présumé depuis
+  // celui du créateur du compte. `parentConsents` est donc un champ inconnu,
+  // refusé en 400 par RejectUnknownBodyFieldsGuard. Le parent signe les siens
+  // via POST /consents à sa première connexion.
   // ---------------------------------------------------------------------------
 
   @ApiPropertyOptional({

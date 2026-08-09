@@ -526,7 +526,10 @@
           optionnelle prend une bordure en pointilles sur fond neutre. La distinction est immediate
           sans hierarchie visuelle inversee : l'optionnel ne noie pas les obligatoires. Le texte
           d'accompagnement precise que l'inscription aboutit dans les deux cas et que le
-          consentement reste donnable ou retirable plus tard depuis /consents.
+          consentement reste **acceptable** plus tard depuis /consents. Il ne promet pas de
+          retrait : aucune route de revocation n'existe (voir l'ouverture
+          `marketing-consent-not-revocable-from-front`), et annoncer un droit que l'application ne
+          sait pas honorer serait pire que de ne rien annoncer.
         </description>
         <status>resolved</status>
       </decision>
@@ -535,9 +538,10 @@
         <item id="marketing-consent-not-revocable-from-front">
           Le front sait faire donner un consentement marketing (a l'inscription ou via
           `POST /consents`), mais pas le retirer : docs/routes.md n'expose aucune route de
-          revocation. Le texte de l'etape 2 annonce pourtant qu'il sera « retirable plus tard » —
-          promesse a tenir cote back (route de revocation ou de mise a jour du consentement) ou
-          formulation a corriger. A arbitrer avant mise en avant du parcours marketing.
+          revocation. Le front ne promet donc rien de tel — mais un consentement marketing doit
+          pouvoir etre retire a tout moment. Manque cote back : une route de revocation (ou de mise
+          a jour du consentement). A arbitrer avant toute exploitation commerciale des adresses
+          collectees.
         </item>
         <item id="consents-page-marketing-flow-unchanged">
           ConsentsPage garde son ergonomie propre pour le marketing (case a cocher + bouton « Signer

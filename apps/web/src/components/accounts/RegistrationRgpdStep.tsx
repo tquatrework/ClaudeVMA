@@ -105,8 +105,8 @@ export function RegistrationRgpdStep({
       <p className="text-xs text-gray-500">
         Ces consentements sont enregistrés à la création de votre compte : vous n'aurez pas à
         les signer de nouveau après connexion. Le consentement marketing reste facultatif :
-        votre inscription aboutit que vous l'acceptiez ou non, et vous pourrez le donner ou
-        le retirer plus tard depuis votre espace.
+        votre inscription aboutit que vous l'acceptiez ou non, et vous pourrez l'accepter plus
+        tard depuis votre espace si vous le laissez décoché.
       </p>
 
       {linkedAccountTarget && (

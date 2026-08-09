@@ -330,7 +330,7 @@ describe('ProfilesService', () => {
       it('does not write anything on a fully populated profile read', async () => {
         const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
         adminRepo.findOne.mockResolvedValue({ userId: 'student-uuid', firstName: 'Alice' });
-        studentPedaRepo.findOne.mockResolvedValue({ userId: 'student-uuid', niveauScolaire: 'Terminale' });
+        studentPedaRepo.findOne.mockResolvedValue({ userId: 'student-uuid', level: 'Terminale' });
 
         await service.getProfile('student-uuid', actor);
 
@@ -372,7 +372,7 @@ describe('ProfilesService', () => {
 
       it('returns the student pedagogical profile when it exists', async () => {
         const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
-        const existingPeda = { userId: 'student-uuid', niveauScolaire: 'Terminale' };
+        const existingPeda = { userId: 'student-uuid', level: 'Terminale' };
         adminRepo.findOne.mockResolvedValue({ userId: 'student-uuid' });
         studentPedaRepo.findOne.mockResolvedValue(existingPeda);
 
@@ -383,7 +383,7 @@ describe('ProfilesService', () => {
 
       it('returns the teacher pedagogical profile when it exists', async () => {
         const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
-        const existingTeacherPeda = { userId: 'teacher-uuid', niveauxEnseignes: ['Lycée'] };
+        const existingTeacherPeda = { userId: 'teacher-uuid', levels: ['Lycée'] };
         adminRepo.findOne.mockResolvedValue({ userId: 'teacher-uuid' });
         teacherPedaRepo.findOne.mockResolvedValue(existingTeacherPeda);
 
@@ -428,12 +428,12 @@ describe('ProfilesService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('accepts departement and passions fields', async () => {
+    it('accepts department and passions fields', async () => {
       const actor = makeActor(UserRole.ELEVE, 'user-uuid');
-      const dto = { departement: '75 - Paris', passions: ['Musique', 'Randonnée'] };
+      const dto = { department: '75 - Paris', passions: ['Musique', 'Randonnée'] };
       await service.updateAdministrativeProfile('user-uuid', dto, actor);
       expect(adminRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ departement: '75 - Paris', passions: ['Musique', 'Randonnée'] }),
+        expect.objectContaining({ department: '75 - Paris', passions: ['Musique', 'Randonnée'] }),
       );
     });
   });
@@ -442,9 +442,9 @@ describe('ProfilesService', () => {
   // updatePedagogicalProfile
   // ---------------------------------------------------------------------------
   describe('updatePedagogicalProfile', () => {
-    it('creates student pedagogical profile when payload has niveauScolaire', async () => {
+    it('creates student pedagogical profile when payload has level', async () => {
       const actor = makeActor(UserRole.ELEVE, 'user-uuid');
-      const dto = { niveauScolaire: 'Terminale', matieres: ['Mathématiques'] };
+      const dto = { level: 'Terminale', subjects: ['Mathématiques'] };
       await service.updatePedagogicalProfile('user-uuid', dto, actor);
       expect(studentPedaRepo.save).toHaveBeenCalled();
       expect(eventsService.publish).toHaveBeenCalledWith(
@@ -454,19 +454,19 @@ describe('ProfilesService', () => {
     });
 
     it('updates existing student pedagogical profile', async () => {
-      const existingProfile = { userId: 'user-uuid', niveauScolaire: '3ème', matieres: [] };
+      const existingProfile = { userId: 'user-uuid', level: '3ème', subjects: [] };
       studentPedaRepo.findOne.mockResolvedValue(existingProfile);
       const actor = makeActor(UserRole.ELEVE, 'user-uuid');
-      const dto = { niveauScolaire: 'Seconde', objectifsPedagogiques: 'Préparer le bac' };
+      const dto = { level: 'Seconde', goals: 'Préparer le bac' };
       await service.updatePedagogicalProfile('user-uuid', dto, actor);
       expect(studentPedaRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ niveauScolaire: 'Seconde', objectifsPedagogiques: 'Préparer le bac' }),
+        expect.objectContaining({ level: 'Seconde', goals: 'Préparer le bac' }),
       );
     });
 
-    it('creates teacher pedagogical profile when payload has niveauxEnseignes', async () => {
+    it('creates teacher pedagogical profile when payload has levels', async () => {
       const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
-      const dto = { niveauxEnseignes: ['Lycée'], matieresEnseignees: ['Mathématiques'] };
+      const dto = { levels: ['Lycée'], subjects: ['Mathématiques'] };
       await service.updatePedagogicalProfile('teacher-uuid', dto, actor);
       expect(teacherPedaRepo.save).toHaveBeenCalled();
       expect(eventsService.publish).toHaveBeenCalledWith(
@@ -476,19 +476,19 @@ describe('ProfilesService', () => {
     });
 
     it('updates existing teacher pedagogical profile', async () => {
-      const existingProfile = { userId: 'teacher-uuid', niveauxEnseignes: ['Collège'], matieresEnseignees: [] };
+      const existingProfile = { userId: 'teacher-uuid', levels: ['Collège'], subjects: [] };
       teacherPedaRepo.findOne.mockResolvedValue(existingProfile);
       const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
-      const dto = { matieresEnseignees: ['Physique-Chimie'], experiencePedagogique: '3 ans' };
+      const dto = { subjects: ['Physique-Chimie'], experience: '3 ans' };
       await service.updatePedagogicalProfile('teacher-uuid', dto, actor);
       expect(teacherPedaRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ matieresEnseignees: ['Physique-Chimie'], experiencePedagogique: '3 ans' }),
+        expect.objectContaining({ subjects: ['Physique-Chimie'], experience: '3 ans' }),
       );
     });
 
     it('allows RP to update pedagogical profile of any user', async () => {
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
-      const dto = { niveauScolaire: '3ème' };
+      const dto = { level: '3ème' };
       await expect(
         service.updatePedagogicalProfile('student-uuid', dto, actor),
       ).resolves.toBeDefined();
@@ -496,7 +496,7 @@ describe('ProfilesService', () => {
 
     it('allows TI to update pedagogical profile of any user', async () => {
       const actor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE);
-      const dto = { niveauScolaire: 'Seconde' };
+      const dto = { level: 'Seconde' };
       await expect(
         service.updatePedagogicalProfile('student-uuid', dto, actor),
       ).resolves.toBeDefined();
@@ -504,7 +504,7 @@ describe('ProfilesService', () => {
 
     it('throws 403 when élève tries to update another user pedagogical profile', async () => {
       const actor = makeActor(UserRole.ELEVE, 'student-uuid');
-      const dto = { niveauScolaire: 'Terminale' };
+      const dto = { level: 'Terminale' };
       await expect(
         service.updatePedagogicalProfile('other-uuid', dto, actor),
       ).rejects.toThrow(ForbiddenException);
@@ -512,18 +512,18 @@ describe('ProfilesService', () => {
 
     it('throws 403 when formateur tries to update student pedagogical profile', async () => {
       const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
-      const dto = { niveauScolaire: 'Terminale' };
+      const dto = { level: 'Terminale' };
       await expect(
         service.updatePedagogicalProfile('student-uuid', dto, actor),
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('accepts besoinsSpecifiques field on student profile', async () => {
+    it('accepts specificNeeds field on student profile', async () => {
       const actor = makeActor(UserRole.ELEVE, 'user-uuid');
-      const dto = { besoinsSpecifiques: 'Dyslexie légère' };
+      const dto = { specificNeeds: 'Dyslexie légère' };
       await service.updatePedagogicalProfile('user-uuid', dto, actor);
       expect(studentPedaRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ besoinsSpecifiques: 'Dyslexie légère' }),
+        expect.objectContaining({ specificNeeds: 'Dyslexie légère' }),
       );
     });
   });
@@ -1128,20 +1128,20 @@ describe('ProfilesService', () => {
     it('returns student statistics for RP', async () => {
       studentPedaRepo.findOne.mockResolvedValue({
         userId: 'student-uuid',
-        niveauScolaire: 'Terminale',
-        matieres: ['Mathématiques'],
+        level: 'Terminale',
+        subjects: ['Mathématiques'],
       });
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
       const result = await service.getPedagogicalStatistics('student-uuid', actor);
       expect(result).toHaveProperty('profileType', 'student');
-      expect(result.statistics).toHaveProperty('niveauScolaire', 'Terminale');
+      expect(result.statistics).toHaveProperty('level', 'Terminale');
     });
 
     it('returns teacher statistics for RP', async () => {
       teacherPedaRepo.findOne.mockResolvedValue({
         userId: 'teacher-uuid',
-        niveauxEnseignes: ['Lycée'],
-        matieresEnseignees: ['Mathématiques'],
+        levels: ['Lycée'],
+        subjects: ['Mathématiques'],
         isAnimateurPedagogique: false,
       });
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
@@ -1158,7 +1158,7 @@ describe('ProfilesService', () => {
     });
 
     it('élève can view own statistics', async () => {
-      studentPedaRepo.findOne.mockResolvedValue({ userId: 'student-uuid', niveauScolaire: '3ème' });
+      studentPedaRepo.findOne.mockResolvedValue({ userId: 'student-uuid', level: '3ème' });
       const actor = makeActor(UserRole.ELEVE, 'student-uuid');
       const result = await service.getPedagogicalStatistics('student-uuid', actor);
       expect(result.userId).toBe('student-uuid');
@@ -1248,7 +1248,7 @@ describe('ProfilesService', () => {
       const dto = { userId: 'new-uuid', firstName: 'Marie', lastName: 'Dupont', phone: '+33600000001' };
       const result = await service.bootstrapAdministrativeProfile(dto);
       expect(adminRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: 'new-uuid', firstName: 'Marie', lastName: 'Dupont', telephone: '+33600000001' }),
+        expect.objectContaining({ userId: 'new-uuid', firstName: 'Marie', lastName: 'Dupont', phone: '+33600000001' }),
       );
       expect(adminRepo.save).toHaveBeenCalled();
       expect(result).toHaveProperty('userId', 'new-uuid');
@@ -1294,12 +1294,12 @@ describe('ProfilesService', () => {
       expect(result).toHaveProperty('lastName', 'NewLast');
     });
 
-    it('upserts: updates phone (telephone) on an already-existing profile, alongside the name', async () => {
+    it('upserts: updates phone on an already-existing profile, alongside the name', async () => {
       const existing = {
         userId: 'existing-uuid',
         firstName: 'Marie',
         lastName: 'Dupont',
-        telephone: '+33600000001',
+        phone: '+33600000001',
       };
       adminRepo.findOne.mockResolvedValue(existing);
       adminRepo.save.mockImplementation(async (entity) => entity);
@@ -1310,9 +1310,9 @@ describe('ProfilesService', () => {
         phone: '+33600000002',
       });
       expect(adminRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: 'existing-uuid', telephone: '+33600000002' }),
+        expect.objectContaining({ userId: 'existing-uuid', phone: '+33600000002' }),
       );
-      expect(result).toHaveProperty('telephone', '+33600000002');
+      expect(result).toHaveProperty('phone', '+33600000002');
     });
 
     it('does not call save when the incoming phone matches the existing one (no spurious writes)', async () => {
@@ -1320,7 +1320,7 @@ describe('ProfilesService', () => {
         userId: 'existing-uuid',
         firstName: 'Marie',
         lastName: 'Dupont',
-        telephone: '+33600000001',
+        phone: '+33600000001',
       };
       adminRepo.findOne.mockResolvedValue(existing);
       const result = await service.bootstrapAdministrativeProfile({
@@ -1335,16 +1335,16 @@ describe('ProfilesService', () => {
   });
 
   describe('bootstrapStudentPedagogicalProfile', () => {
-    it('creates a student pedagogical profile mapping level to niveauScolaire', async () => {
+    it('creates a student pedagogical profile mapping level to level', async () => {
       const result = await service.bootstrapStudentPedagogicalProfile({ userId: 'student-uuid', level: 'Terminale' });
       expect(studentPedaRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: 'student-uuid', niveauScolaire: 'Terminale' }),
+        expect.objectContaining({ userId: 'student-uuid', level: 'Terminale' }),
       );
       expect(result).toHaveProperty('userId', 'student-uuid');
     });
 
     it('is idempotent: does not duplicate when profile already exists', async () => {
-      const existing = { userId: 'student-uuid', niveauScolaire: 'Terminale' };
+      const existing = { userId: 'student-uuid', level: 'Terminale' };
       studentPedaRepo.findOne.mockResolvedValue(existing);
       const result = await service.bootstrapStudentPedagogicalProfile({ userId: 'student-uuid' });
       expect(studentPedaRepo.save).not.toHaveBeenCalled();
@@ -1359,9 +1359,9 @@ describe('ProfilesService', () => {
       expect(teacherPedaRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({
           userId: 'teacher-uuid',
-          matieresEnseignees: ['Mathématiques'],
-          niveauxEnseignes: ['Lycée'],
-          experiencePedagogique: '5 ans',
+          subjects: ['Mathématiques'],
+          levels: ['Lycée'],
+          experience: '5 ans',
         }),
       );
       expect(result).toHaveProperty('userId', 'teacher-uuid');

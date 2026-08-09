@@ -18,12 +18,12 @@ describe('InternalService', () => {
       })),
       bootstrapStudentPedagogicalProfile: jest.fn().mockImplementation(async (dto) => ({
         userId: dto.userId,
-        niveauScolaire: dto.level,
+        level: dto.level,
       })),
       bootstrapTeacherPedagogicalProfile: jest.fn().mockImplementation(async (dto) => ({
         userId: dto.userId,
-        matieresEnseignees: dto.subjects,
-        niveauxEnseignes: dto.levels,
+        subjects: dto.subjects,
+        levels: dto.levels,
       })),
     };
 
@@ -69,7 +69,7 @@ describe('InternalService', () => {
       expect(profilesService.bootstrapAdministrativeProfile).toHaveBeenCalledWith(dto);
       expect(result).toEqual({
         userId: 'parent-uuid',
-        administrativeProfile: { userId: 'parent-uuid', firstName: 'Marie', lastName: 'Dupont' },
+        administrative: { userId: 'parent-uuid', firstName: 'Marie', lastName: 'Dupont' },
       });
     });
 
@@ -93,8 +93,8 @@ describe('InternalService', () => {
       expect(profilesService.bootstrapStudentPedagogicalProfile).toHaveBeenCalledWith(dto);
       expect(result).toEqual({
         userId: 'student-uuid',
-        administrativeProfile: { userId: 'student-uuid', firstName: 'Alice', lastName: undefined },
-        pedagogicalProfile: { userId: 'student-uuid', niveauScolaire: 'Terminale' },
+        administrative: { userId: 'student-uuid', firstName: 'Alice', lastName: undefined },
+        pedagogical: { userId: 'student-uuid', level: 'Terminale' },
       });
     });
   });
@@ -110,7 +110,49 @@ describe('InternalService', () => {
       expect(profilesService.bootstrapAdministrativeProfile).toHaveBeenCalledWith(dto);
       expect(profilesService.bootstrapTeacherPedagogicalProfile).toHaveBeenCalledWith(dto);
       expect(result).toHaveProperty('userId', 'teacher-uuid');
-      expect(result).toHaveProperty('pedagogicalProfile.matieresEnseignees', ['Mathématiques']);
+      expect(result).toHaveProperty('pedagogical.subjects', ['Mathématiques']);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Verrou de nommage — arbitrage du 2026-08-08
+  // ---------------------------------------------------------------------------
+  /**
+   * « Une même donnée porte un seul nom dans tout le système. » Les blocs de
+   * profil s'appellent `administrative` / `pedagogical` partout. La paire longue
+   * `administrativeProfile` / `pedagogicalProfile` que renvoyaient auparavant les
+   * routes /internal/* a été supprimée sans alias de compatibilité : un alias
+   * recréerait exactement la divergence que l'arbitrage résorbe.
+   */
+  describe('nommage des blocs de profil', () => {
+    const FORBIDDEN_KEYS = ['administrativeProfile', 'pedagogicalProfile'];
+
+    it('createAdministrativeProfile n\'expose pas la paire longue', async () => {
+      const result = await service.createAdministrativeProfile({
+        userId: 'parent-uuid',
+        firstName: 'Marie',
+        lastName: 'Dupont',
+      });
+      expect(Object.keys(result)).toEqual(['userId', 'administrative']);
+      for (const forbiddenKey of FORBIDDEN_KEYS) {
+        expect(result).not.toHaveProperty(forbiddenKey);
+      }
+    });
+
+    it('createStudentProfiles n\'expose pas la paire longue', async () => {
+      const result = await service.createStudentProfiles({ userId: 'student-uuid' });
+      expect(Object.keys(result)).toEqual(['userId', 'administrative', 'pedagogical']);
+      for (const forbiddenKey of FORBIDDEN_KEYS) {
+        expect(result).not.toHaveProperty(forbiddenKey);
+      }
+    });
+
+    it('createTeacherProfiles n\'expose pas la paire longue', async () => {
+      const result = await service.createTeacherProfiles({ userId: 'teacher-uuid' });
+      expect(Object.keys(result)).toEqual(['userId', 'administrative', 'pedagogical']);
+      for (const forbiddenKey of FORBIDDEN_KEYS) {
+        expect(result).not.toHaveProperty(forbiddenKey);
+      }
     });
   });
 

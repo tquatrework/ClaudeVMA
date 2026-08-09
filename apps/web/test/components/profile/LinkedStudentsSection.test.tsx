@@ -1,18 +1,23 @@
 /**
- * Tests pour LinkedStudentsSection
+ * Tests pour LinkedStudentsSection (onglet Profil > « Mes élèves / enfants »)
+ *
+ * Symétrique de ParentFinanceurSection : la route
+ * `GET /relations/finance-owner-student/:financeOwnerId` renvoie déjà `studentName`.
+ * Même règle UX : jamais d'UUID à l'écran, jamais de ré-enrichissement N+1.
  *
  * Couvre :
- * - Cas nominal : l'élève rattaché a un prénom + nom → affichage
- *   "Prénom Nom (ID : identifiant)", jamais un extrait d'UUID nu.
- * - États chargement, vide et erreur.
- * - Lien "Créer un compte élève" ouvrant /register/student (avec
- *   `?parentLoginIdentifier=` du parent connecté) dans un nouvel onglet.
+ * - `studentName` présent → prénom + nom affichés, AUCUN UUID dans le rendu
+ * - `studentName` null / absent → repli lisible, AUCUN UUID dans le rendu
+ * - Aucun appel à `GET /profiles/:id`
+ * - États chargement, vide, erreur réseau
+ * - Lien « Créer un compte élève »
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import LinkedStudentsSection from '../../../src/components/profile/LinkedStudentsSection'
+import { expectNoTechnicalIdentifier } from '../../../src/test-helpers'
 
 vi.mock('../../../src/api/relations')
 vi.mock('../../../src/api/parentLinkRequest')
@@ -40,7 +45,6 @@ function renderSection(parentId: string = PARENT_ID) {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  // Pas d'invitations en attente par défaut — non testé ici.
   mockFetchParentLinkRequests.mockResolvedValue([])
   mockUseAuth.mockReturnValue({
     user: {
@@ -60,54 +64,118 @@ beforeEach(() => {
   })
 })
 
-describe('LinkedStudentsSection', () => {
-  it('affiche le prénom et le nom de l\'élève rattaché suivis de son identifiant (cas nominal)', async () => {
+describe("LinkedStudentsSection — nom de l'élève", () => {
+  it('affiche le prénom et le nom fournis par studentName, sans aucun UUID', async () => {
     mockFetchLinkedStudents.mockResolvedValue([
-      { financeOwnerId: PARENT_ID, studentId: STUDENT_ID, createdAt: '2026-01-10T10:00:00.000Z' },
+      {
+        financeOwnerId: PARENT_ID,
+        studentId: STUDENT_ID,
+        createdAt: '2026-01-10T10:00:00.000Z',
+        studentName: { firstName: 'Lucas', lastName: 'Martin' },
+      },
     ])
-    mockFetchStudentProfile.mockResolvedValue({
-      userId: STUDENT_ID,
-      loginIdentifier: 'lucas.martin',
-      // Clé courte `administrative` = forme réelle de GET /profiles/:userId.
-      administrative: { firstName: 'Lucas', lastName: 'Martin' },
+
+    const { container } = renderSection()
+
+    await waitFor(() => {
+      expect(screen.getByText('Lucas Martin')).toBeDefined()
     })
+    expectNoTechnicalIdentifier(container)
+  })
+
+  it('affiche un repli lisible sans UUID quand studentName est null', async () => {
+    mockFetchLinkedStudents.mockResolvedValue([
+      {
+        financeOwnerId: PARENT_ID,
+        studentId: STUDENT_ID,
+        createdAt: '2026-01-10T10:00:00.000Z',
+        studentName: null,
+      },
+    ])
+
+    const { container } = renderSection()
+
+    await waitFor(() => {
+      expect(screen.getByText('Élève (nom non renseigné)')).toBeDefined()
+    })
+    expectNoTechnicalIdentifier(container)
+  })
+
+  it('affiche un repli lisible sans UUID quand studentName est absent de la réponse', async () => {
+    mockFetchLinkedStudents.mockResolvedValue([
+      {
+        financeOwnerId: PARENT_ID,
+        studentId: STUDENT_ID,
+        createdAt: '2026-01-10T10:00:00.000Z',
+      },
+    ])
+
+    const { container } = renderSection()
+
+    await waitFor(() => {
+      expect(screen.getByText('Élève (nom non renseigné)')).toBeDefined()
+    })
+    expectNoTechnicalIdentifier(container)
+  })
+
+  it("n'appelle jamais GET /profiles/:id pour enrichir le nom (pas de N+1)", async () => {
+    mockFetchLinkedStudents.mockResolvedValue([
+      {
+        financeOwnerId: PARENT_ID,
+        studentId: STUDENT_ID,
+        createdAt: '2026-01-10T10:00:00.000Z',
+        studentName: { firstName: 'Lucas', lastName: 'Martin' },
+      },
+    ])
 
     renderSection()
 
     await waitFor(() => {
-      expect(screen.getByText('Lucas Martin (ID : lucas.martin)')).toBeDefined()
+      expect(screen.getByText('Lucas Martin')).toBeDefined()
     })
-    // Jamais le libellé générique brut ni un extrait d'UUID tronqué
-    expect(screen.queryByText(/Élève \(ee7c85dc/)).toBeNull()
+    expect(mockFetchStudentProfile).not.toHaveBeenCalled()
+  })
+})
+
+describe('LinkedStudentsSection — états de chargement', () => {
+  it('affiche un état de chargement avant la réponse', () => {
+    mockFetchLinkedStudents.mockReturnValue(new Promise(() => {}))
+
+    renderSection()
+
+    expect(screen.getAllByText('Chargement…').length).toBeGreaterThan(0)
   })
 
-  it('affiche un message quand aucun élève n\'est rattaché', async () => {
+  it("affiche un message quand aucun élève n'est rattaché", async () => {
     mockFetchLinkedStudents.mockResolvedValue([])
 
     renderSection()
 
     await waitFor(() => {
-      expect(screen.getByText('Aucun élève rattaché pour l\'instant.')).toBeDefined()
+      expect(screen.getByText("Aucun élève rattaché pour l'instant.")).toBeDefined()
     })
   })
 
-  it('affiche un message d\'erreur si le chargement des élèves échoue', async () => {
+  it("affiche un message d'erreur lisible si le chargement échoue (erreur réseau)", async () => {
     mockFetchLinkedStudents.mockRejectedValue(new Error('network error'))
 
-    renderSection()
+    const { container } = renderSection()
 
     await waitFor(() => {
       expect(screen.getByText('Impossible de charger vos élèves rattachés.')).toBeDefined()
     })
+    expectNoTechnicalIdentifier(container)
   })
+})
 
-  it('affiche un lien "Créer un compte élève" ouvrant /register/student avec le parent en cours pré-lié, dans un nouvel onglet', async () => {
+describe("LinkedStudentsSection — création de compte élève", () => {
+  it('affiche un lien "Créer un compte élève" pré-lié au parent, dans un nouvel onglet', async () => {
     mockFetchLinkedStudents.mockResolvedValue([])
 
     renderSection()
 
     await waitFor(() => {
-      expect(screen.getByText('Aucun élève rattaché pour l\'instant.')).toBeDefined()
+      expect(screen.getByText("Aucun élève rattaché pour l'instant.")).toBeDefined()
     })
 
     const createStudentLink = screen.getByRole('link', { name: 'Créer un compte élève' })

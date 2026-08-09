@@ -513,7 +513,254 @@
           npm run build : OK. tsc --noEmit sur tsconfig.json : OK.
         </testCoverage>
       </decision>
+      <decision id="C9" status="implemented" session="2026-08-07">
+        <title>Noms de champs des profils passés en anglais — correction du 400 sur PUT /profiles/:userId/administrative, et fermeture d'un trou de validation total sur PUT /profiles/:userId/pedagogical</title>
+        <filesTouched>
+          <file path="services/profile-service/src/profiles/entities/administrative-profile.entity.ts">
+            Propriétés renommées en anglais, colonnes en base inchangées via @Column({ name }).
+          </file>
+          <file path="services/profile-service/src/profiles/entities/student-pedagogical-profile.entity.ts">Idem.</file>
+          <file path="services/profile-service/src/profiles/entities/teacher-pedagogical-profile.entity.ts">Idem.</file>
+          <file path="services/profile-service/src/profiles/dto/update-administrative-profile.dto.ts">
+            Champs renommés, alignés 1:1 sur l'entité.
+          </file>
+          <file path="services/profile-service/src/profiles/dto/update-pedagogical-profile.dto.ts">
+            Les 2 classes UpdateStudentPedagogicalProfileDto/UpdateTeacherPedagogicalProfileDto
+            fusionnées en une classe unique UpdatePedagogicalProfileDto.
+          </file>
+          <file path="services/profile-service/src/profiles/profiles.service.ts">
+            Suppression du remappage phone→telephone ; updatePedagogicalProfile filtre
+            explicitement les champs par profil cible ; isStudentDto → isStudentPayload ;
+            nouveau helper pickDefined ; getPedagogicalStatistics renvoie des clés anglaises.
+          </file>
+          <file path="services/profile-service/src/profiles/profiles.controller.ts">
+            Body de PUT /pedagogical typé sur la classe unique ; Swagger enrichi (400, liste
+            exhaustive des champs, règle de discrimination).
+          </file>
+          <file path="docs/routes.md">Nouvelle section « Noms de champs des profils » (2 tableaux exhaustifs).</file>
+        </filesTouched>
+        <description>
+          Signalement : PUT /profiles/:userId/administrative répondait 400 en conditions réelles
+          sur le champ adresse. Reproduit avant toute modification, sur le conteneur
+          visiomath_profile réellement déployé, avec le payload exact du front
+          ({firstName, lastName, phone, address}) : « property address should not exist », 400.
+          Cause : les noms de champs divergeaient entre le serveur (français : telephone,
+          adresseLigne1, ville, niveauScolaire, matieres, objectifsPedagogiques…) et le front
+          (anglais : phone, address, level, subjects, goals, notes), et forbidNonWhitelisted
+          (activé en session C6) transformait la divergence en échec dur.
+          (1) INVENTAIRE PRÉALABLE — aucun autre service n'est impacté. Les trois routes internes
+          (POST /internal/create-administrative-profile, create-student-profiles,
+          create-teacher-profiles), seuls points d'appel de identity-access-service et
+          orchestration-service, utilisaient DÉJÀ des noms anglais (userId, firstName, lastName,
+          phone, birthDate, level, subjects, levels, bio) et ne sont pas modifiées. Vérifié par
+          grep sur l'ensemble du dépôt : les noms français n'apparaissaient que dans
+          profile-service, dans apps/web (3 occurrences résiduelles) et dans docs/. Le service
+          était donc incohérent avec lui-même, pas avec ses appelants.
+          (2) CHEMIN RETENU : renommage des propriétés d'entité et des champs de DTO uniquement,
+          NOMS DE COLONNES EN BASE INCHANGÉS, mappés par @Column({ name: '...' }). Motif : le
+          schéma n'est géré ni par des migrations (aucun outil de migration dans le service,
+          aucun dossier migrations/) ni par synchronize (AppModule : synchronize: false). Un
+          renommage de colonnes aurait donc imposé un ALTER TABLE manuel, non tracé dans le dépôt
+          et non rejouable sur un autre environnement — un risque strictement supérieur pour un
+          gain nul côté clients. Le mapping par entité obtient le même contrat d'API sans aucune
+          opération sur la base. Les 17 profils réels de la base de dev n'ont subi aucune
+          migration. À noter : toutes les colonnes renommées étaient intégralement vides
+          (0 valeur non nulle sur telephone, adresseLigne1/2, codePostal, ville, pays,
+          date_naissance, departement, passions, avatar_url, et sur les 8 colonnes pédagogiques)
+          — conséquence directe du bug, aucun enregistrement n'ayant jamais abouti. Un renommage
+          de colonnes reste donc trivialement possible plus tard, si un outil de migration est
+          introduit.
+          (3) TABLE DE CORRESPONDANCE (propriété d'entité et champ de DTO ← colonne en base
+          inchangée) : AdministrativeProfile — birthDate ← date_naissance, phone ← telephone,
+          addressLine1 ← adresseLigne1, addressLine2 ← adresseLigne2, postalCode ← codePostal,
+          city ← ville, country ← pays, department ← departement ; firstName, lastName,
+          avatarUrl, passions inchangés (`passions` est un mot anglais valide, identique au
+          français). StudentPedagogicalProfile — level ← niveau_scolaire, subjects ← matieres,
+          goals ← objectifs_pedagogiques, specificNeeds ← besoins_specifiques.
+          TeacherPedagogicalProfile — levels ← niveaux_enseignes, subjects ← matieres_enseignees,
+          experience ← experience_pedagogique, testResults ← resultats_tests ;
+          isAnimateurPedagogique conservé (nom de rôle métier du domaine, repris tel quel dans
+          UserRole, les autres services et le front).
+          Sémantique préservée volontairement là où le front attendait autre chose :
+          `adresseLigne1` est devenu `addressLine1` et NON `address` — c'est une ligne d'adresse,
+          pas l'adresse complète, et `addressLine2` n'a aucun équivalent front. De même le champ
+          front `notes` n'a pas d'équivalent 1:1 : le champ serveur le plus proche est
+          `specificNeeds` (besoins d'apprentissage spécifiques de l'élève), qui n'est pas un
+          champ de notes libres. Ces trois écarts sont à traiter côté front.
+          (4) DÉFAUT DÉCOUVERT ET CORRIGÉ — PUT /profiles/:userId/pedagogical n'était PAS validé
+          du tout. Le body y était typé en union TypeScript
+          (UpdateStudentPedagogicalProfileDto | UpdateTeacherPedagogicalProfileDto) ; une union
+          n'existant pas à l'exécution, ValidationPipe ne résolvait aucun metatype et désactivait
+          silencieusement whitelist, forbidNonWhitelisted et toutes les contraintes de type.
+          Constaté en conditions réelles avant modification : le payload front
+          {level, subjects, goals, notes} renvoyait 200 — et créait une ligne dans
+          teacher_pedagogical_profiles pour un compte ÉLÈVE, entièrement vide (aucun champ du
+          body n'étant un nom de colonne connu). Soit une corruption silencieuse de données sur
+          la route même que l'utilisateur croyait inopérante « seulement » en affichage.
+          Correction : une classe concrète unique UpdatePedagogicalProfileDto portant les champs
+          des deux profils. La validation est rétablie (400 sur champ inconnu et sur
+          `subjects` envoyé en chaîne au lieu de tableau). Le service filtre explicitement le
+          sous-ensemble de champs pertinent avant de l'appliquer à l'entité choisie, au lieu d'un
+          Object.assign global qui aurait greffé des propriétés étrangères sur l'entité —
+          ignorées par TypeORM au save, mais renvoyées telles quelles dans la réponse HTTP.
+          (5) DISCRIMINATION élève/formateur : seuls les champs exclusifs à l'élève (level, goals,
+          specificNeeds) tranchent. `subjects` existant sur les deux profils, un body ne contenant
+          que `subjects` reste ambigu et retombe sur le profil formateur — comportement identique
+          à celui d'avant le renommage, documenté dans docs/routes.md et dans le Swagger.
+          (6) getPedagogicalStatistics renvoyait ses clés en français (niveauScolaire, matieres,
+          niveauxEnseignes, matieresEnseignees) : alignées sur les noms d'entité (level, subjects,
+          levels). Écart préexistant non traité ici : le type front PedagogicalStatistics attend
+          des clés entièrement différentes (totalSessionsAttended, subjectsStudied, currentLevel,
+          progressScore…) qui n'ont aucun équivalent côté serveur — cette route est un stub de
+          phase 1, à spécifier séparément.
+          Hors périmètre, non touché : le test [PROF-BR-010] laissé rouge à dessein ; le
+          transport du rôle dans CreateAdministrativeProfileDto ; le front (aligné ensuite par le
+          subagent front-developper).
+        </description>
+        <testCoverage>
+          npm run build : OK. npm test (unit) : 237 tests, 237 verts.
+          npm run test:e2e (USE_LOCAL_DB=true, base profile_test, --runInBand) : 113 tests,
+          112 verts — 9 nouveaux tests e2e, tous verts. Le seul échec restant est
+          [PROF-BR-010], laissé rouge à dessein (arbitrage produit en attente, voir openPoints).
+          Nouveaux tests e2e : enregistrement du bloc adresse complet en anglais + relecture
+          persistée ; enregistrement de tous les autres champs administratifs ; rejet 400 des
+          anciens noms français (administratif et pédagogique) ; rejet 400 du champ front
+          `address` avec message explicite ; rejet 400 du champ front `notes` sur le profil
+          pédagogique (garde-fou contre la régression du trou de validation) ; rejet 400 de
+          `subjects` envoyé en chaîne ; enregistrement + relecture de tous les champs élève ;
+          enregistrement de tous les champs formateur avec vérification qu'aucun champ élève
+          n'est greffé sur la réponse.
+          VÉRIFICATION EN CONDITIONS RÉELLES (hors suite automatisée), avant ET après correction :
+          image Docker construite depuis le code de cette session, conteneur temporaire sur le
+          réseau claudevma_visiomath_network, connecté à la base Postgres réelle de dev
+          (visiomath_profile, 17 profils). AVANT : le payload front exact
+          {firstName, lastName, phone, address} → 400 « property address should not exist » sur
+          le conteneur visiomath_profile déployé ; le payload pédagogique front
+          {level, subjects, goals, notes} → 200 avec création d'un profil formateur vide pour un
+          élève. APRÈS : payload administratif complet en anglais (addressLine1, addressLine2,
+          postalCode, city, country, department, phone) → 200, valeurs relues identiques via
+          GET /profiles/:userId, et vérifiées directement en base dans les colonnes françaises
+          inchangées (telephone, adresseLigne1, adresseLigne2, codePostal, ville, pays,
+          departement) ; payload pédagogique élève en anglais → 200 et relecture conforme ;
+          {address} → 400 ; {adresseLigne1} → 400 ; {notes, subjects: "chaîne"} → 400 avec les
+          deux messages. La base de dev a été restaurée à l'identique après vérification
+          (17/5/1 lignes, toutes les colonnes concernées remises à NULL) ; le conteneur
+          visiomath_profile réellement déployé n'a jamais été modifié, et ne porte donc pas
+          encore ce code — redéploiement à faire séparément.
+        </testCoverage>
+      </decision>
+      <decision id="C10" status="implemented" session="2026-08-08">
+        <title>Suppression de la paire longue administrativeProfile/pedagogicalProfile sur les routes /internal/* — un seul nom par donnee</title>
+        <filesTouched>
+          <file path="services/profile-service/src/internal/internal.service.ts">
+            createAdministrativeProfile renvoie {userId, administrative} au lieu de
+            {userId, administrativeProfile} ; createStudentProfiles et createTeacherProfiles
+            renvoient {userId, administrative, pedagogical} au lieu de
+            {userId, administrativeProfile, pedagogicalProfile}. Aucun alias de compatibilite
+            ajoute. Le controleur n'a pas ete touche : ses types de retour sont derives du
+            service via Awaited&lt;ReturnType&lt;...&gt;&gt;, ils suivent automatiquement.
+          </file>
+          <file path="services/profile-service/test/unit/internal/internal.service.spec.ts">
+            Assertions alignees + nouveau describe « nommage des blocs de profil » qui verrouille
+            la liste exacte des cles de sortie et l'absence de la paire longue.
+          </file>
+          <file path="services/profile-service/test/e2e/internal.e2e-spec.ts">
+            Assertions alignees + nouveau describe de verrou (3 routes + une passe sur le corps
+            serialise). Le repli `res.body.pedagogicalProfile ?? res.body` du test
+            isAnimateurPedagogique a ete supprime : il masquait justement la forme de la reponse.
+          </file>
+          <file path="services/profile-service/test/e2e/profiles.e2e-spec.ts">
+            Derniere reference residuelle a la cle longue supprimee : l'assertion
+            `before.body.administrativeProfile?.firstName ?? 'Alice'` lisait une cle inexistante
+            sur GET /profiles/:userId et retombait systematiquement sur la valeur en dur, donc
+            passait quoi qu'il arrive. Remplacee par une lecture stricte de
+            `before.body.administrative.firstName`.
+          </file>
+          <file path="docs/routes.md">
+            Avertissement « a ne pas confondre avec administrativeProfile/pedagogicalProfile »
+            supprime de la ligne GET /profiles/:userId (devenu sans objet) ; section API interne
+            de profile-service dotee d'une colonne « Reponse attendue » (elle n'en avait aucune) ;
+            note obsolete du 2026-08-07 remplacee ; ligne dupliquee de
+            POST /internal/create-administrative-profile fusionnee ; correction de
+            POST /auth/login (voir description).
+          </file>
+        </filesTouched>
+        <description>
+          Arbitrage du 2026-08-08 (docs/architecture.md > « Arbitrages rendus ») : une meme donnee
+          porte un seul nom dans tout le systeme ; aucune route, publique ou interne, n'a le droit
+          d'exposer sa propre variante. Une documentation qui constate deux noms concurrents et se
+          contente d'avertir « a ne pas confondre » n'est pas conforme : l'ecart doit etre resorbe.
+          Nom retenu pour les blocs de profil : administrative / pedagogical, partout.
+          (1) CONTEXTE. La reconciliation du 2026-08-07 (decision C9 ci-dessus) avait aligne
+          GET /profiles/:userId sur les cles courtes mais laisse subsister la paire longue sur les
+          routes /internal/*. docs/routes.md enterinait explicitement cette divergence au lieu de la
+          resoudre. C'est cette seconde paire qui re-contaminait le front a chaque iteration.
+          (2) PAS D'ALIAS DE COMPATIBILITE. Demande explicitement, et justifie : il n'y a aucun
+          consommateur externe a menager (voir point 3), et un champ d'alias recreerait exactement
+          la situation de deux noms concurrents que l'arbitrage supprime.
+          (3) INVENTAIRE DES CONSOMMATEURS — aucun ne casse.
+          identity-access-service (services/identity-access-service/src/common/clients/
+          profile-service.client.ts) appelle create-administrative-profile et link-parent mais ses
+          deux methodes retournent Promise&lt;void&gt; : il ne lit que le code HTTP, jamais le corps.
+          scripts/maintenance/backfill-profiles.ts appelle les trois routes de creation et ne teste
+          que response.statusCode. orchestration-service route les actions
+          create-student-profiles / create-teacher-profiles / create-teacher-student-relation via
+          son moteur de workflow et stocke la sortie telle quelle, sans en lire ces cles.
+          Anomalie preexistante relevee au passage (NON corrigee ici, hors perimetre du service) :
+          teacher-onboarding.workflow.ts lit
+          context.stepOutputs['create-teacher-profiles']?.profileId, or `profileId` n'a jamais
+          figure dans la reponse de cette route — ni avant ni apres ce renommage. La valeur etait
+          donc deja undefined ; a traiter cote orchestration-service.
+          (4) CORRECTION INCIDENTE DE docs/routes.md, ligne POST /auth/login. Le body y etait
+          documente {email, password} alors que le serveur exige et que le front envoie
+          {loginIdentifier, password}. Arbitrage : email et loginIdentifier sont deux donnees
+          distinctes, il n'y a rien a renommer — c'etait la documentation qui etait fausse. Seule
+          la documentation a ete corrigee ; le code de identity-access-service n'a pas ete touche.
+        </description>
+        <testCoverage>
+          Unitaires : 240 tests, 7 suites, tous verts (npm test). E2E : 116/117 verts
+          (npm run test:e2e). L'unique echec, [PROF-BR-010] « Un administrateur financier peut
+          ajouter une note interne → 201 » (recu 403), est PREEXISTANT et sans lien : verifie en
+          rejouant ce test seul sur l'arbre remis a l'etat d'avant modification (git stash). Il
+          traduit la contradiction deja documentee en openPoints entre le test, qui attend que
+          l'AF puisse ecrire une note interne, et NOTES_WRITE_ROLES / docs/routes.md, qui
+          restreignent l'ecriture a RP et AP — arbitrage PROF-BR-010 toujours en attente.
+          Verrous ajoutes : 4 tests e2e et 3 tests unitaires echouent si administrativeProfile ou
+          pedagogicalProfile reapparait dans une reponse /internal/*, y compris sous forme d'alias.
+        </testCoverage>
+      </decision>
       <openPoints>
+        <item priority="high" status="to-do" owner="front">
+          Alignement du front sur les noms anglais (lot séparé, subagent front-developper).
+          apps/web/src/types/profile.ts : AdministrativeProfileFields doit passer de
+          {firstName, lastName, phone, address} à {firstName, lastName, birthDate, phone,
+          addressLine1, addressLine2, postalCode, city, country, avatarUrl, department,
+          passions} — `address` n'existe pas côté serveur et doit être éclaté en
+          addressLine1/addressLine2. PedagogicalProfileFields doit passer de
+          {level, subjects, goals, notes} à {level, subjects, goals, specificNeeds} pour un
+          élève (+ {levels, experience, testResults} pour un formateur) — `notes` n'existe pas,
+          et `subjects` doit devenir `string[]` et non `string`. Occurrences résiduelles de noms
+          français à corriger : apps/web/src/api/relations.ts (niveauScolaire),
+          apps/web/src/pages/MyStudentsPage.tsx (pedagogical?.niveauScolaire),
+          apps/web/test/pages/ProfileEditPage.test.tsx (commentaire).
+        </item>
+        <item status="to-arbitrate">
+          GET /profiles/:userId/statistics : le contrat serveur (userId, profileType,
+          statistics: {level, subjects} ou {levels, subjects, isAnimateurPedagogique}) et le type
+          front PedagogicalStatistics (totalSessionsAttended, totalHoursLearned,
+          averageSessionDurationMinutes, lastSessionDate, subjectsStudied, currentLevel,
+          progressScore) n'ont aucun champ en commun. Écart préexistant, indépendant du
+          renommage : la route est un stub de phase 1 qui recopie le profil pédagogique au lieu
+          d'agréger des statistiques. À spécifier avant de brancher le front dessus.
+        </item>
+        <item status="to-confirm">
+          PUT /profiles/:userId/pedagogical : un body ne contenant que `subjects` est ambigu
+          (le champ existe sur les deux profils) et retombe sur le profil formateur. Comportement
+          hérité, conservé tel quel. Une alternative serait de résoudre le profil cible depuis le
+          rôle du compte auprès de identity-access-service, ou de séparer les deux routes
+          (/pedagogical/student et /pedagogical/teacher). À arbitrer si le cas se présente
+          réellement.
+        </item>
         <item priority="high" status="awaiting-arbitration">
           PROF-BR-010 — droit d'ecriture des notes internes pour l'administrateur
           financier : contradiction non tranchee entre docs/acceptance-criteria.md:37

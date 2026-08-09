@@ -39,7 +39,14 @@ export function PendingParentInvitationsList({ onApproved }: PendingParentInvita
       )
       setPendingParentRequests(parentInitiatedPending)
 
-      // Enrichissement : récupérer prénom + nom de chaque parent demandeur
+      // Enrichissement : récupérer prénom + nom de chaque parent demandeur.
+      //
+      // ÉCART CONNU : contrairement aux routes de relations, `GET /parent-link-requests`
+      // ne renvoie que des ids (`parentId`), pas de nom résolu. On retombe donc sur
+      // `GET /profiles/:parentId`, qui échoue en 403 quand c'est un élève qui consulte
+      // (un élève ne peut lire que son propre profil). Le repli reste un libellé
+      // lisible — jamais l'UUID. Correctif durable : enrichir la route côté serveur
+      // avec un `parentName`, comme cela a été fait pour `financeOwnerName`.
       const names: Record<string, string> = {}
       await Promise.allSettled(
         parentInitiatedPending.map(async (request) => {
@@ -49,7 +56,6 @@ export function PendingParentInvitationsList({ onApproved }: PendingParentInvita
               profile.administrative?.firstName,
               profile.administrative?.lastName,
               profile.loginIdentifier,
-              request.parentId,
               FINANCE_OWNER_GENERIC_LABEL,
             )
           } catch {
@@ -57,7 +63,6 @@ export function PendingParentInvitationsList({ onApproved }: PendingParentInvita
               undefined,
               undefined,
               undefined,
-              request.parentId,
               FINANCE_OWNER_GENERIC_LABEL,
             )
           }

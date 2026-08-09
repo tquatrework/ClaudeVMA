@@ -33,7 +33,13 @@ export function ProfileSection({ title, data, emptyMessage }: ProfileSectionProp
                 {key.replace(/([A-Z])/g, ' $1').toLowerCase()}
               </dt>
               <dd className="text-sm text-gray-800 flex-1">
-                {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                {/* `subjects`, `levels` et `passions` sont des tableaux côté API :
+                    les afficher en liste lisible, jamais en JSON brut. */}
+                {Array.isArray(value)
+                  ? value.join(', ')
+                  : typeof value === 'object'
+                    ? JSON.stringify(value)
+                    : String(value)}
               </dd>
             </div>
           ))}

@@ -31,16 +31,28 @@ serait une faute plus grave que son absence.
 
 ## État
 
-- [ ] Contrat serveur vérifié (le type `marketing` est-il déjà accepté à l'inscription ?)
-- [ ] Codé et committé
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+- [x] Contrat serveur vérifié — `marketing` était **déjà** accepté et enregistré par
+      `POST /accounts/*`. Correctif front seul, aucun changement serveur.
+- [x] Codé et committé — branche `feat/marketing-consent-at-registration`
+- [x] Déployé sur la pile réelle (front seul, aucun couplage cette fois)
+- [x] Preuve livrée à l'utilisateur — 2026-08-09, deux inscriptions jouées :
+      - **coché** → envoyé `rgpd, cgu, marketing` → 3 lignes dans `consent_records` ;
+      - **non coché** → envoyé `rgpd, cgu` → 2 lignes, **aucune** ligne marketing,
+        et le compte ressort quand même `active`.
+      Case décochée par défaut dans les deux passages. Comptes d'essai supprimés.
 - [ ] Validé par l'utilisateur
 - [ ] Mergé dans master
 
 ## Bloqué par
 
 Rien.
+
+## Point ouvert relevé pendant le travail
+
+**Aucune route ne permet de retirer un consentement.** `POST /consents` ne sait que signer.
+Le RGPD exige que le retrait soit aussi simple que l'accord — à trancher avant toute
+exploitation commerciale des adresses collectées. Le texte du formulaire a été corrigé pour
+ne rien promettre qui n'existe pas.
 
 ---
 

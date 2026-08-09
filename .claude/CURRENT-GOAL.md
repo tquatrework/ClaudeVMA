@@ -47,11 +47,30 @@ de l'emprunter. Arbitrage inscrit dans `docs/architecture.md`.
 - [x] Comportement réel constaté et cause confirmée
 - [x] Propriété de la donnée arbitrée — les consentements appartiennent à
       `identity-access-service` ; `birthDate` à `profile-service`
-- [ ] Codé et committé
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+- [x] Codé et committé — `identity-access-service` puis front,
+      branche `fix/rgpd-consents-dropped-at-registration`
+- [x] Déployé sur la pile réelle (déploiement couplé : les deux services ensemble)
+- [x] Preuve livrée à l'utilisateur — 2026-08-09, inscription jouée sur
+      `https://claudevma.visioprof.fr` : corps envoyé
+      `consents: [{"consentType":"rgpd"},{"consentType":"cgu"}]`, réponse `201` avec
+      `validationStatus: "active"` et `consentSigned: true`, **2 lignes** dans
+      `consent_records` (rgpd + cgu, version 1.0, IP, horodatage), et **aucun bandeau**
+      « compte pas encore activé » après connexion. Compte d'essai supprimé.
 - [ ] Validé par l'utilisateur
 - [ ] Mergé dans master
+
+## Effets de bord à valider avec l'utilisateur avant merge
+
+- **Étape « Profil pédagogique » retirée du formulaire formateur** : ses trois champs
+  (`teachingSubjects`, `educationLevel`, `bio`) n'étaient jamais stockés. Le wizard passe de
+  3 à 2 étapes. Conséquence métier : le RP n'a plus matières/niveaux/présentation au moment
+  de valider une candidature. À restaurer en les acheminant vers `profile-service`.
+- **Champ « Date de naissance » retiré du formulaire élève** : jamais stocké non plus
+  (`date_naissance = NULL` mesuré). Reste saisissable après connexion dans le profil
+  administratif. À remettre quand `profile-service` saura le recevoir à la création.
+- **`register/parent` n'a aucune étape de consentement** : le parent repart `pending` alors
+  qu'élève et formateur repartent `active`. Rien n'est perdu, mais le parcours est
+  incohérent entre rôles.
 
 ## Bloqué par
 

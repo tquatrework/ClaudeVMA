@@ -83,7 +83,8 @@ describe('ParentDashboardPage — plusieurs élèves', () => {
     mockFetchStudentProfile.mockImplementation(async (studentId: string) => ({
       userId: studentId,
       loginIdentifier: `${studentId}-login`,
-      administrativeProfile: { firstName: studentId === 'student-1' ? 'Alice' : 'Bob', lastName: 'Test' },
+      // Clé courte `administrative` = forme réelle de GET /profiles/:userId.
+      administrative: { firstName: studentId === 'student-1' ? 'Alice' : 'Bob', lastName: 'Test' },
     }))
     mockFetchUserEvents.mockResolvedValue([])
 
@@ -103,7 +104,8 @@ describe('ParentDashboardPage — plusieurs élèves', () => {
     mockFetchStudentProfile.mockImplementation(async (studentId: string) => ({
       userId: studentId,
       loginIdentifier: `${studentId}-login`,
-      administrativeProfile: { firstName: studentId === 'student-1' ? 'Alice' : 'Bob', lastName: 'Test' },
+      // Clé courte `administrative` = forme réelle de GET /profiles/:userId.
+      administrative: { firstName: studentId === 'student-1' ? 'Alice' : 'Bob', lastName: 'Test' },
     }))
     mockFetchUserEvents.mockImplementation(async (studentId: string) => {
       if (studentId === 'student-1') {

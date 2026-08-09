@@ -144,7 +144,7 @@ export default function ProfilePage() {
             <TabPanel tabId={TAB_ADMIN} activeTab={activeTab}>
               <div className="space-y-6">
                 <ProfileSection
-                  data={profile.administrativeProfile}
+                  data={profile.administrative ?? undefined}
                   emptyMessage="Aucune donnée administrative"
                 />
 
@@ -194,8 +194,8 @@ export default function ProfilePage() {
             <TabPanel tabId={TAB_PEDAGOGIQUE} activeTab={activeTab}>
               <div className="space-y-6">
                 <ProfileSection
-                  data={profile.pedagogicalProfile}
-                  emptyMessage="Aucune donnée pédagogique"
+                  data={profile.pedagogical ?? undefined}
+                  emptyMessage="Profil pédagogique non renseigné"
                 />
 
                 {/* Statistiques pédagogiques */}

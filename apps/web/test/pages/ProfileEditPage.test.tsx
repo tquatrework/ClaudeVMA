@@ -58,15 +58,27 @@ function renderEditPage(userId = 'student-1') {
   )
 }
 
+/**
+ * Forme réelle de `GET /profiles/:userId` : rubriques `administrative` /
+ * `pedagogical` (clés courtes). Ne pas réintroduire les clés longues
+ * `administrativeProfile` / `pedagogicalProfile` (routes `/internal/*`
+ * uniquement) : le formulaire ne serait plus prérempli en réalité alors que ce
+ * test resterait vert.
+ *
+ * Réserve connue : les NOMS DE CHAMPS internes ci-dessous (`address`, `level`,
+ * `subjects`, `goals`, `notes`) ne sont pas ceux que renvoie le service, qui
+ * expose `adresseLigne1`, `niveauScolaire`, `matieres`, `objectifsPedagogiques`.
+ * Désalignement distinct, non traité dans ce lot — voir rapport de session.
+ */
 const EXISTING_PROFILE = {
   userId: 'student-1',
-  administrativeProfile: {
+  administrative: {
     firstName: 'Alice',
     lastName: 'Martin',
     phone: '0601020304',
     address: '1 rue de la Paix',
   },
-  pedagogicalProfile: {
+  pedagogical: {
     level: 'Terminale',
     subjects: 'Mathématiques',
     goals: 'Préparer le bac',

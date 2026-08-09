@@ -40,8 +40,8 @@ export default function LinkedStudentsSection({ parentId }: LinkedStudentsSectio
           try {
             const profile = await fetchStudentProfile(link.studentId)
             displayNames[link.studentId] = formatPersonDisplayName(
-              profile.administrativeProfile?.firstName,
-              profile.administrativeProfile?.lastName,
+              profile.administrative?.firstName,
+              profile.administrative?.lastName,
               profile.loginIdentifier,
               link.studentId,
               STUDENT_GENERIC_LABEL,

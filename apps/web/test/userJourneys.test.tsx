@@ -310,10 +310,12 @@ describe('Journey 4: Dashboard → Demandes professeur → Création demande', (
 // ---------------------------------------------------------------------------
 describe('Journey 5: Dashboard → Profil → Édition profil', () => {
   it('navigates from dashboard to profile then to edit page and saves', async () => {
+    // Clés courtes `administrative` / `pedagogical` = forme réelle de
+    // GET /profiles/:userId (les clés longues sont propres aux routes /internal/*).
     const existingProfile = {
       userId: 'student-1',
-      administrativeProfile: { firstName: 'Paul', lastName: 'Leblanc' },
-      pedagogicalProfile: { level: 'Seconde' },
+      administrative: { firstName: 'Paul', lastName: 'Leblanc' },
+      pedagogical: { level: 'Seconde' },
     }
 
     mockApiClient.get = vi.fn().mockImplementation((url: string) => {

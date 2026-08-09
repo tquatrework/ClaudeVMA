@@ -70,7 +70,8 @@ describe('ParentFinanceurSection', () => {
     mockFetchStudentProfile.mockResolvedValue({
       userId: FINANCE_OWNER_ID,
       loginIdentifier: 'marie.dupont',
-      administrativeProfile: { firstName: 'Marie', lastName: 'Dupont' },
+      // Clé courte `administrative` = forme réelle de GET /profiles/:userId.
+      administrative: { firstName: 'Marie', lastName: 'Dupont' },
     })
 
     renderSection()
@@ -92,7 +93,7 @@ describe('ParentFinanceurSection', () => {
       mockFetchStudentProfile.mockResolvedValue({
         userId: FINANCE_OWNER_ID,
         loginIdentifier: null,
-        administrativeProfile: {},
+        administrative: {},
       })
 
       renderSection()
@@ -112,7 +113,7 @@ describe('ParentFinanceurSection', () => {
     mockFetchStudentProfile.mockResolvedValue({
       userId: FINANCE_OWNER_ID,
       loginIdentifier: 'marie.dupont',
-      administrativeProfile: {},
+      administrative: {},
     })
 
     renderSection()

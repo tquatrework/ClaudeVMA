@@ -1,11 +1,12 @@
 import {
   Injectable,
   ForbiddenException,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
+import { In, Repository } from 'typeorm';
 import { AdministrativeProfile } from './entities/administrative-profile.entity';
 import { StudentPedagogicalProfile } from './entities/student-pedagogical-profile.entity';
 import { TeacherPedagogicalProfile } from './entities/teacher-pedagogical-profile.entity';
@@ -14,6 +15,7 @@ import { TeacherValidation } from './entities/teacher-validation.entity';
 import { ProfileVisibilityPreference } from './entities/profile-visibility-preference.entity';
 import { RelationsService } from '../relations/relations.service';
 import {
+  IdentityAccount,
   IdentityAccessClient,
   IdentityAccessNotFoundError,
   IdentityAccessUnavailableError,
@@ -73,12 +75,20 @@ export class ProfilesService {
     private readonly relationsService: RelationsService,
     private readonly events: EventsService,
     private readonly identityAccessClient: IdentityAccessClient,
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
   ) {}
 
   /**
    * Read the full profile (administrative + pedagogical) for a user.
+   *
+   * Strictly read-only: a consultation NEVER writes anything in database
+   * (docs/architecture.md, arbitrages du 2026-08-07). Outcomes:
+   *  - userId unknown to identity-access-service        → 404
+   *  - account exists but no administrative profile     → 500 (data inconsistency,
+   *    logged as an anomaly; the administrative profile is mandatory and created
+   *    at signup by the onboarding workflow)
+   *  - no pedagogical profile                           → 200 with pedagogical: null
+   *    (perfectly normal state: the pedagogical profile is optional and only
+   *    created when the user first saves it via PUT /profiles/:userId/pedagogical)
    *
    * Access rules:
    *  - A FORMATEUR may only view profiles of students they are linked to (PROF-FB-003).
@@ -88,54 +98,23 @@ export class ProfilesService {
   async getProfile(userId: string, actor: Actor) {
     await this.assertReadAccess(userId, actor);
 
-    let admin = await this.adminRepo.findOne({ where: { userId } });
-    const studentPeda = await this.studentPedaRepo.findOne({ where: { userId } });
-    const teacherPeda = await this.teacherPedaRepo.findOne({ where: { userId } });
-    let pedagogical = studentPeda ?? teacherPeda ?? null;
+    // Single call to identity-access-service: its outcome is used both as the
+    // account-existence signal (404 vs 500 below) and as the loginIdentifier
+    // source — no extra HTTP round-trip.
+    const account = await this.resolveAccount(userId);
 
-    // Lazy-create minimal profiles when none exist for a valid user.
-    // A user that has passed JWT authentication is guaranteed to exist in
-    // identity-access-service, so returning 404 here would be misleading.
-    const needsAdminBootstrap = !admin;
-    // For an ELEVE consulting their own profile, also create a minimal
-    // student pedagogical profile if none exists yet (PROF-BR: lazy init).
-    // For a FORMATEUR consulting their own profile, also create a minimal
-    // teacher pedagogical profile if none exists yet (same lazy-init pattern).
-    const needsStudentPedaBootstrap =
-      !pedagogical && actor.role === UserRole.ELEVE && actor.id === userId;
-    const needsTeacherPedaBootstrap =
-      !pedagogical && actor.role === UserRole.FORMATEUR && actor.id === userId;
-
-    // This lazy-init path can perform up to two independent writes
-    // (administrative + pedagogical profile creation). Both writes go through
-    // the same EntityManager inside a single transaction so that a user never
-    // ends up with a half-created profile (services-convention: "toute
-    // opération multi-écritures atomique utilise DataSource.transaction").
-    if (needsAdminBootstrap || needsStudentPedaBootstrap || needsTeacherPedaBootstrap) {
-      await this.dataSource.transaction(async (manager) => {
-        if (needsAdminBootstrap) {
-          const adminRepo = manager.getRepository(AdministrativeProfile);
-          const minimalAdminProfile = adminRepo.create({ userId });
-          admin = await adminRepo.save(minimalAdminProfile);
-        }
-
-        if (needsStudentPedaBootstrap) {
-          const studentPedaRepo = manager.getRepository(StudentPedagogicalProfile);
-          const minimalStudentPeda = studentPedaRepo.create({ userId });
-          pedagogical = await studentPedaRepo.save(minimalStudentPeda);
-        } else if (needsTeacherPedaBootstrap) {
-          const teacherPedaRepo = manager.getRepository(TeacherPedagogicalProfile);
-          const minimalTeacherPeda = teacherPedaRepo.create({ userId });
-          pedagogical = await teacherPedaRepo.save(minimalTeacherPeda);
-        }
-      });
+    const admin = await this.adminRepo.findOne({ where: { userId } });
+    if (!admin) {
+      throw this.missingAdministrativeProfileError(userId, account);
     }
 
-    const loginIdentifier = await this.fetchLoginIdentifier(userId);
+    const studentPeda = await this.studentPedaRepo.findOne({ where: { userId } });
+    const teacherPeda = await this.teacherPedaRepo.findOne({ where: { userId } });
+    const pedagogical = studentPeda ?? teacherPeda ?? null;
 
     return {
       userId,
-      loginIdentifier,
+      loginIdentifier: account?.loginIdentifier ?? null,
       administrative: admin,
       pedagogical,
     };
@@ -598,12 +577,14 @@ export class ProfilesService {
   /**
    * Idempotent upsert of the administrative profile for onboarding flows.
    *
-   * If no profile exists for userId, it is created.
-   * If a profile already exists (e.g. a minimal {userId} row created by the
-   * defensive lazy-init in getProfile() before the onboarding bootstrap call
-   * arrived, or this bootstrap call being replayed by the caller), the fields
-   * provided in input overwrite the existing ones instead of failing on the
-   * userId unique constraint or silently keeping a stale/empty name.
+   * If no profile exists for userId, it is created. This is the ONLY path that
+   * creates an administrative profile: reads never create one (getProfile is
+   * strictly read-only, see docs/architecture.md, arbitrage 2026-08-07).
+   * If a profile already exists (this bootstrap call being replayed by the
+   * caller, or a legacy row left over from the lazy-init that used to live in
+   * getProfile), the fields provided in input overwrite the existing ones
+   * instead of failing on the userId unique constraint or silently keeping a
+   * stale/empty name.
    * This is safe because bootstrap calls only happen very early in the
    * account lifecycle (identity-access-service calling right after account
    * creation) — overwriting with the incoming value is the intended
@@ -793,24 +774,32 @@ export class ProfilesService {
   }
 
   /**
-   * Fetches loginIdentifier from identity-access-service for a given userId,
-   * via the typed IdentityAccessClient adapter (services-convention: appels
+   * Resolves the identity-access-service account backing a userId, via the
+   * typed IdentityAccessClient adapter (services-convention: appels
    * interservices via un client typé avec timeout).
-   * Returns null on 404 or network/timeout error (graceful degradation —
-   * never throws): a missing loginIdentifier must not break profile reads.
    *
-   * IdentityAccessUnavailableError (unreachable host, timeout, or non-2xx/404
-   * status such as a 401/403 from a misconfigured INTERNAL_SECRET) is a real
-   * infrastructure/config failure, not a legitimate "account not found" — it
-   * is logged at error level here (in addition to the client's own logging)
-   * so degrading to null stays visible in observability instead of silently
-   * looking like a missing account.
+   * This single call carries two distinct signals, deliberately kept apart:
+   *  - IdentityAccessNotFoundError (HTTP 404): the userId is genuinely unknown
+   *    to identity-access-service → the caller must answer 404. This is the
+   *    only case that turns into a 404.
+   *  - IdentityAccessUnavailableError (unreachable host, timeout, or non-2xx/404
+   *    status such as a 401/403 from a misconfigured INTERNAL_SECRET): a real
+   *    infrastructure/config failure. It MUST NOT be turned into a 404 —
+   *    otherwise a single outage of identity-access-service would make every
+   *    profile of the platform look deleted. The existing graceful degradation
+   *    is kept (returns null → loginIdentifier: null, profile still served),
+   *    logged at error level (in addition to the client's own logging) so it
+   *    stays visible in observability.
    */
-  private async fetchLoginIdentifier(userId: string): Promise<string | null> {
+  private async resolveAccount(userId: string): Promise<IdentityAccount | null> {
     try {
-      const account = await this.identityAccessClient.findAccountByUserId(userId);
-      return account.loginIdentifier ?? null;
+      return await this.identityAccessClient.findAccountByUserId(userId);
     } catch (error) {
+      if (error instanceof IdentityAccessNotFoundError) {
+        throw new NotFoundException(
+          `Aucun compte connu de identity-access-service pour userId=${userId}`,
+        );
+      }
       if (error instanceof IdentityAccessUnavailableError) {
         this.logger.error(
           `loginIdentifier introuvable pour userId=${userId} : identity-access-service indisponible ou ` +
@@ -818,10 +807,45 @@ export class ProfilesService {
         );
         return null;
       }
-      if (error instanceof IdentityAccessNotFoundError) {
-        return null;
-      }
       throw error;
     }
+  }
+
+  /**
+   * Builds the 500 raised when a user has no administrative profile.
+   *
+   * The administrative profile is mandatory and created at signup by the
+   * onboarding workflow (docs/architecture.md, arbitrage 2026-08-07). Its
+   * absence is therefore a data inconsistency that must stay visible: it is
+   * never repaired on the fly by a lazy creation, and never masked behind an
+   * empty payload. An explicit server-side anomaly log is emitted so the
+   * affected userId can be traced and fixed at the source.
+   *
+   * `account === null` means identity-access-service could not be reached, so
+   * we cannot tell an inconsistency from an unknown account — it stays a 500
+   * (a server-side problem either way), with a distinct log wording.
+   */
+  private missingAdministrativeProfileError(
+    userId: string,
+    account: IdentityAccount | null,
+  ): InternalServerErrorException {
+    if (account) {
+      this.logger.error(
+        `ANOMALIE DE DONNEES : le compte userId=${userId} existe dans identity-access-service ` +
+          `(loginIdentifier=${account.loginIdentifier}) mais n'a aucun profil administratif dans ` +
+          'profile-service. Le profil administratif est obligatoire et doit être créé à ' +
+          "l'inscription via POST /internal/create-administrative-profile. Aucune création à la " +
+          'volée n\'est faite en lecture : corriger la donnée à la source.',
+      );
+    } else {
+      this.logger.error(
+        `Lecture du profil userId=${userId} impossible : aucun profil administratif en base et ` +
+          "identity-access-service injoignable, donc impossible de distinguer un compte inexistant " +
+          "d'une incohérence de données. Réponse 500.",
+      );
+    }
+    return new InternalServerErrorException(
+      `Profil administratif introuvable pour userId=${userId}`,
+    );
   }
 }

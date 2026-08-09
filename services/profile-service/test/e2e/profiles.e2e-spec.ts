@@ -23,7 +23,13 @@
 
 import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
-import { createTestApp, makeJwt, INTERNAL_SECRET, IDS } from './helpers/app.helper';
+import {
+  createTestApp,
+  makeJwt,
+  INTERNAL_SECRET,
+  IDS,
+  identityAccessStub,
+} from './helpers/app.helper';
 
 describe('[E2E] Profiles', () => {
   let app: INestApplication;
@@ -68,11 +74,43 @@ describe('[E2E] Profiles', () => {
       .set(headers)
       .send({ userId: IDS.teacher2, firstName: 'Carol', lastName: 'Robert' });
 
+    // Compte existant côté identity-access-service mais SANS profil
+    // administratif : incohérence de données attendue en 500.
+    // (aucun appel /internal/... : c'est justement l'absence de profil qu'on teste)
+
+    // Compte avec profil administratif seul, sans profil pédagogique :
+    // état normal attendu en 200 + pedagogical: null.
+    await request(app.getHttpServer())
+      .post('/internal/create-administrative-profile')
+      .set(headers)
+      .send({
+        userId: IDS.accountWithoutPedaProfile,
+        firstName: 'Sans',
+        lastName: 'Pedago',
+      });
+
     // Lier teacher1 à student1 pour les tests d'accès formateur
     await request(app.getHttpServer())
       .post('/internal/create-teacher-student-relation')
       .set(headers)
       .send({ teacherId: IDS.teacher1, studentId: IDS.student1 });
+
+    // État côté identity-access-service (stub e2e) : quels userId existent,
+    // lequel est inconnu. C'est ce signal qui pilote 404 / 500 / 200.
+    identityAccessStub.registerAccount(IDS.student1, 'alice.dupont', 'eleve');
+    identityAccessStub.registerAccount(IDS.teacher1, 'bob.martin', 'formateur');
+    identityAccessStub.registerAccount(IDS.teacher2, 'carol.robert', 'formateur');
+    identityAccessStub.registerAccount(
+      IDS.accountWithoutAdminProfile,
+      'compte.sans.profil',
+      'eleve',
+    );
+    identityAccessStub.registerAccount(
+      IDS.accountWithoutPedaProfile,
+      'sans.pedago',
+      'eleve',
+    );
+    identityAccessStub.markAccountUnknown(IDS.unknown);
   });
 
   afterAll(async () => {
@@ -145,12 +183,91 @@ describe('[E2E] Profiles', () => {
       expect(res.status).toBe(403);
     });
 
-    it('Retourne 404 pour un profil inexistant', async () => {
+    it('Retourne 404 quand identity-access-service ne connaît pas le userId', async () => {
       const res = await request(app.getHttpServer())
         .get(`/profiles/${IDS.unknown}`)
         .set('Authorization', `Bearer ${rpToken}`);
 
       expect(res.status).toBe(404);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────
+  // Lecture strictement en lecture seule — docs/architecture.md,
+  // arbitrages du 2026-08-07 :
+  //   userId inconnu                         → 404
+  //   compte existant sans profil administratif → 500 (incohérence de données)
+  //   profil pédagogique absent              → 200 + pedagogical: null (normal)
+  // Une consultation n'écrit JAMAIS en base.
+  // ──────────────────────────────────────────────────────────────
+
+  describe('GET /profiles/:userId — lecture sans création à la volée', () => {
+    it('Compte existant sans profil administratif → 500 (incohérence de données)', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.accountWithoutAdminProfile}`)
+        .set('Authorization', `Bearer ${rpToken}`);
+
+      expect(res.status).toBe(500);
+    });
+
+    it('Le 500 ne crée aucun profil administratif fantôme : la lecture reste en 500', async () => {
+      await request(app.getHttpServer())
+        .get(`/profiles/${IDS.accountWithoutAdminProfile}`)
+        .set('Authorization', `Bearer ${rpToken}`);
+
+      const res = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.accountWithoutAdminProfile}`)
+        .set('Authorization', `Bearer ${rpToken}`);
+
+      expect(res.status).toBe(500);
+    });
+
+    it('Profil administratif présent mais pédagogique absent → 200 avec pedagogical: null', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.accountWithoutPedaProfile}`)
+        .set('Authorization', `Bearer ${rpToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('userId', IDS.accountWithoutPedaProfile);
+      expect(res.body.administrative).toMatchObject({ firstName: 'Sans', lastName: 'Pedago' });
+      expect(res.body.pedagogical).toBeNull();
+    });
+
+    it("Aucune ligne pédagogique fantôme n'est écrite : la 2e lecture renvoie encore null", async () => {
+      const ownerToken = makeJwt(IDS.accountWithoutPedaProfile, 'eleve');
+
+      // Première lecture par le propriétaire lui-même : c'est ce cas précis qui
+      // déclenchait l'ancien lazy-init du profil pédagogique élève.
+      const first = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.accountWithoutPedaProfile}`)
+        .set('Authorization', `Bearer ${ownerToken}`);
+      expect(first.status).toBe(200);
+      expect(first.body.pedagogical).toBeNull();
+
+      // Relecture par un RP : si la première lecture avait créé une ligne,
+      // elle apparaîtrait ici.
+      const second = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.accountWithoutPedaProfile}`)
+        .set('Authorization', `Bearer ${rpToken}`);
+      expect(second.status).toBe(200);
+      expect(second.body.pedagogical).toBeNull();
+    });
+
+    it('Le profil pédagogique est créé au premier PUT de l\'utilisateur, pas à la lecture', async () => {
+      const ownerToken = makeJwt(IDS.accountWithoutPedaProfile, 'eleve');
+
+      const put = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.accountWithoutPedaProfile}/pedagogical`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({ niveauScolaire: '1ere' });
+      expect(put.status).toBe(200);
+
+      const res = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.accountWithoutPedaProfile}`)
+        .set('Authorization', `Bearer ${ownerToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.pedagogical).toMatchObject({ niveauScolaire: '1ere' });
     });
   });
 
@@ -326,6 +443,22 @@ describe('[E2E] Profiles', () => {
       expect(res.body).toHaveProperty('authorId', IDS.rp1);
     });
 
+    // ⚠️ TEST EN ÉCHEC ASSUMÉ — en attente d'arbitrage produit sur PROF-BR-010.
+    //
+    // Contradiction non tranchée :
+    //   - docs/acceptance-criteria.md:37 (marqué [SPEC]) : « PROF-BR-010 — Un
+    //     administrateur financier peut créer une note interne sur les profils
+    //     formateurs/financiers (→ 201) » ;
+    //   - le code actuel (NOTES_WRITE_ROLES dans src/profiles/profiles.service.ts)
+    //     n'autorise l'écriture de note interne qu'au RP et à l'AP, et répond donc
+    //     403 à l'administrateur financier. L'AF garde en revanche le droit de
+    //     LECTURE (NOTES_READ_ROLES), ce qui rend l'asymétrie volontaire côté code.
+    //
+    // Tant que l'arbitrage n'est pas rendu, ce test reste rouge à dessein : ni le
+    // test ni NOTES_WRITE_ROLES ne doivent être modifiés « pour faire passer la
+    // suite ». Selon l'arbitrage, il faudra soit ajouter ADMINISTRATEUR_FINANCIER
+    // à NOTES_WRITE_ROLES, soit corriger docs/acceptance-criteria.md:37 et
+    // transformer ce test en attente de 403.
     it('[PROF-BR-010] Un administrateur financier peut ajouter une note interne → 201', async () => {
       const res = await request(app.getHttpServer())
         .post(`/profiles/${IDS.teacher1}/internal-notes`)

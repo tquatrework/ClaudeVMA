@@ -40,8 +40,8 @@ export default function ParentFinanceurSection({ studentId }: ParentFinanceurSec
           try {
             const profile = await fetchStudentProfile(link.financeOwnerId)
             displayNames[link.financeOwnerId] = formatPersonDisplayName(
-              profile.administrativeProfile?.firstName,
-              profile.administrativeProfile?.lastName,
+              profile.administrative?.firstName,
+              profile.administrative?.lastName,
               profile.loginIdentifier,
               link.financeOwnerId,
               FINANCE_OWNER_GENERIC_LABEL,

@@ -26,6 +26,12 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../../../src/app.module';
+import {
+  IdentityAccessClient,
+  IdentityAccessNotFoundError,
+  IdentityAccessUnavailableError,
+  IdentityAccount,
+} from '../../../src/common/clients/identity-access.client';
 import * as jwt from 'jsonwebtoken';
 
 export const TEST_JWT_SECRET = 'test_jwt_secret_for_e2e';
@@ -55,6 +61,66 @@ function buildLocalDatabaseUrl(): string {
   const password = process.env.TEST_DB_PASSWORD ?? 'visiomath_secret';
   return `postgresql://${user}:${password}@${host}:${port}/${name}`;
 }
+
+/**
+ * In-memory stand-in for identity-access-service.
+ *
+ * No identity-access-service instance runs during e2e tests, so the real
+ * IdentityAccessClient would always fail with a 3s network timeout. That made
+ * the "account exists / account unknown" distinction — which now drives the
+ * 404 vs 500 vs 200 outcome of GET /profiles/:userId — impossible to exercise.
+ *
+ * Default behaviour for a userId that was neither registered nor explicitly
+ * marked unknown is IdentityAccessUnavailableError, i.e. exactly what the real
+ * client produced before this stub existed (unreachable host), so suites that
+ * do not care about identity-access keep their previous semantics — just
+ * without the timeout.
+ *
+ * The real client's own transport behaviour (200/404/401/network) stays
+ * covered by test/unit/common/identity-access.client.spec.ts.
+ */
+class IdentityAccessClientStub {
+  private readonly accountsByUserId = new Map<string, IdentityAccount>();
+  private readonly unknownUserIds = new Set<string>();
+
+  /** Declares an existing account (identity-access-service answers 200). */
+  registerAccount(userId: string, loginIdentifier: string, role: string): void {
+    this.accountsByUserId.set(userId, { userId, loginIdentifier, role });
+  }
+
+  /** Declares a userId identity-access-service does not know (answers 404). */
+  markAccountUnknown(userId: string): void {
+    this.unknownUserIds.add(userId);
+  }
+
+  reset(): void {
+    this.accountsByUserId.clear();
+    this.unknownUserIds.clear();
+  }
+
+  async findAccountByUserId(userId: string): Promise<IdentityAccount> {
+    const account = this.accountsByUserId.get(userId);
+    if (account) return account;
+    if (this.unknownUserIds.has(userId)) {
+      throw new IdentityAccessNotFoundError(`No account found for userId ${userId}`);
+    }
+    throw new IdentityAccessUnavailableError('identity-access-service unreachable (e2e stub default)');
+  }
+
+  async findAccountByLoginIdentifier(loginIdentifier: string): Promise<IdentityAccount> {
+    for (const account of this.accountsByUserId.values()) {
+      if (account.loginIdentifier === loginIdentifier) return account;
+    }
+    throw new IdentityAccessUnavailableError('identity-access-service unreachable (e2e stub default)');
+  }
+}
+
+/**
+ * Shared stub instance, reset by every createTestApp() call.
+ * Jest isolates module registries per test file, so each e2e suite gets its
+ * own instance.
+ */
+export const identityAccessStub = new IdentityAccessClientStub();
 
 /**
  * Result returned by createTestApp.
@@ -113,9 +179,14 @@ export async function createTestApp(): Promise<INestApplication> {
     }
   }
 
+  identityAccessStub.reset();
+
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [AppModule],
-  }).compile();
+  })
+    .overrideProvider(IdentityAccessClient)
+    .useValue(identityAccessStub)
+    .compile();
 
   const app = moduleFixture.createNestApplication();
   app.useGlobalPipes(
@@ -206,5 +277,17 @@ export const IDS = {
   ti:       '00000000-0000-4000-8000-000000000050',
   genericAccount1: '00000000-0000-4000-8000-000000000060',
   genericAccount2: '00000000-0000-4000-8000-000000000061',
+  /**
+   * Account known to identity-access-service but WITHOUT any administrative
+   * profile in profile-service: the data inconsistency that must surface as a
+   * 500 on GET /profiles/:userId.
+   */
+  accountWithoutAdminProfile: '00000000-0000-4000-8000-000000000070',
+  /**
+   * Account holding an administrative profile but no pedagogical profile:
+   * the normal state that must return 200 with pedagogical: null.
+   */
+  accountWithoutPedaProfile: '00000000-0000-4000-8000-000000000071',
+  /** userId identity-access-service does not know at all → 404. */
   unknown:  '00000000-0000-4000-8000-999999999999',
 };

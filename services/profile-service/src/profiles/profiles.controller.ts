@@ -46,6 +46,7 @@ export class ProfilesController {
     summary: 'Get profile',
     description:
       'Returns the administrative and pedagogical profile for a user. ' +
+      'Strictly read-only: this endpoint never creates anything in database. ' +
       'PROF-FB-003: a formateur may only access profiles of linked students. ' +
       'Internal notes are never included in this response.',
   })
@@ -54,10 +55,21 @@ export class ProfilesController {
     status: 200,
     description:
       'Profile data (fields filtered by actor role). ' +
-      'Includes loginIdentifier fetched from identity-access-service; null if unavailable.',
+      'Includes loginIdentifier fetched from identity-access-service; null if unavailable. ' +
+      '`pedagogical` is null when the user has not filled in their pedagogical profile yet — ' +
+      'this is a normal state, the pedagogical profile being optional.',
   })
   @ApiResponse({ status: 403, description: 'Forbidden — insufficient role or not linked' })
-  @ApiResponse({ status: 404, description: 'Profile not found' })
+  @ApiResponse({
+    status: 404,
+    description: 'No account known to identity-access-service for this userId',
+  })
+  @ApiResponse({
+    status: 500,
+    description:
+      'Data inconsistency — the account exists but has no administrative profile, ' +
+      'which is mandatory and created at signup. Logged server-side as an anomaly.',
+  })
   getProfile(
     @Param('userId', ParseUUIDPipe) userId: string,
     @CurrentUser() actor: AuthenticatedUser,

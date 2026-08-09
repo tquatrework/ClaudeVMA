@@ -46,8 +46,8 @@ export function PendingStudentRequestsList({ onApproved }: PendingStudentRequest
           try {
             const profile = await fetchStudentProfile(request.studentId)
             names[request.studentId] = formatPersonDisplayName(
-              profile.administrativeProfile?.firstName,
-              profile.administrativeProfile?.lastName,
+              profile.administrative?.firstName,
+              profile.administrative?.lastName,
               profile.loginIdentifier,
               request.studentId,
               STUDENT_GENERIC_LABEL,

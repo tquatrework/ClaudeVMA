@@ -7,18 +7,23 @@ export interface FinanceOwnerStudentLink {
   createdAt: string
 }
 
+/**
+ * Vue partielle de la réponse de `GET /profiles/:userId`, limitée aux champs
+ * utilisés pour afficher un nom lisible (règle UX : jamais d'UUID à l'écran).
+ *
+ * Mêmes clés courtes que `Profile` (`administrative` / `pedagogical`) : c'est
+ * bien le même endpoint, appelé ici via `fetchStudentProfile`.
+ */
 export interface StudentProfile {
   userId: string
   loginIdentifier: string | null
-  administrativeProfile?: {
+  administrative?: {
     firstName?: string
     lastName?: string
-  }
-  pedagogicalProfile?: {
-    level?: string
-    grade?: string
-    schoolYear?: string
-  }
+  } | null
+  pedagogical?: {
+    niveauScolaire?: string
+  } | null
 }
 
 export async function fetchLinkedStudents(financeOwnerId: string): Promise<FinanceOwnerStudentLink[]> {

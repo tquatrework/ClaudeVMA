@@ -46,8 +46,8 @@ export function PendingParentInvitationsList({ onApproved }: PendingParentInvita
           try {
             const profile = await fetchStudentProfile(request.parentId)
             names[request.parentId] = formatPersonDisplayName(
-              profile.administrativeProfile?.firstName,
-              profile.administrativeProfile?.lastName,
+              profile.administrative?.firstName,
+              profile.administrative?.lastName,
               profile.loginIdentifier,
               request.parentId,
               FINANCE_OWNER_GENERIC_LABEL,

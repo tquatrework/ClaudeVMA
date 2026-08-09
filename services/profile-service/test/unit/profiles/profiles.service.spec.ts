@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import {
+  ForbiddenException,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import { ProfilesService, Actor } from '../../../src/profiles/profiles.service';
 import { AdministrativeProfile } from '../../../src/profiles/entities/administrative-profile.entity';
 import { StudentPedagogicalProfile } from '../../../src/profiles/entities/student-pedagogical-profile.entity';
@@ -30,7 +34,6 @@ describe('ProfilesService', () => {
   let relationsService: any;
   let eventsService: any;
   let identityAccessClient: any;
-  let dataSource: any;
 
   beforeEach(async () => {
     identityAccessClient = {
@@ -88,25 +91,6 @@ describe('ProfilesService', () => {
     };
     eventsService = { publish: jest.fn() };
 
-    // Fake DataSource.transaction: runs the callback with a manager whose
-    // getRepository() resolves to the same repo mocks used outside the
-    // transaction, so assertions on adminRepo/studentPedaRepo/teacherPedaRepo
-    // keep working transparently whether or not a given code path goes
-    // through a transaction.
-    dataSource = {
-      transaction: jest.fn().mockImplementation(async (runInTransaction: (manager: unknown) => Promise<unknown>) => {
-        const manager = {
-          getRepository: (entity: unknown) => {
-            if (entity === AdministrativeProfile) return adminRepo;
-            if (entity === StudentPedagogicalProfile) return studentPedaRepo;
-            if (entity === TeacherPedagogicalProfile) return teacherPedaRepo;
-            throw new Error('No repository mock configured for this entity in the fake transaction manager');
-          },
-        };
-        return runInTransaction(manager);
-      }),
-    };
-
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ProfilesService,
@@ -119,7 +103,6 @@ describe('ProfilesService', () => {
         { provide: RelationsService, useValue: relationsService },
         { provide: EventsService, useValue: eventsService },
         { provide: IdentityAccessClient, useValue: identityAccessClient },
-        { provide: getDataSourceToken(), useValue: dataSource },
       ],
     }).compile();
 
@@ -158,16 +141,31 @@ describe('ProfilesService', () => {
       expect(result).toHaveProperty('loginIdentifier', 'alice.martin');
     });
 
-    it('returns loginIdentifier null when identity-access-service returns 404', async () => {
+    // The account-existence signal and the loginIdentifier come from a single
+    // identity-access-service call: no extra HTTP round-trip may be added.
+    it('calls identity-access-service exactly once', async () => {
+      adminRepo.findOne.mockResolvedValue(mockAdminProfile);
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+      await service.getProfile('student-uuid', actor);
+
+      expect(identityAccessClient.findAccountByUserId).toHaveBeenCalledTimes(1);
+      expect(identityAccessClient.findAccountByUserId).toHaveBeenCalledWith('student-uuid');
+    });
+
+    it('throws 404 when identity-access-service does not know the userId', async () => {
       adminRepo.findOne.mockResolvedValue(mockAdminProfile);
       identityAccessClient.findAccountByUserId.mockRejectedValue(
         new IdentityAccessNotFoundError('not found'),
       );
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
-      const result = await service.getProfile('student-uuid', actor);
-      expect(result).toHaveProperty('loginIdentifier', null);
+
+      await expect(service.getProfile('student-uuid', actor)).rejects.toThrow(NotFoundException);
     });
 
+    // Regression guard: an outage of identity-access-service must never be
+    // turned into a 404, otherwise every profile of the platform would look
+    // deleted at once. Only IdentityAccessNotFoundError means "unknown user".
     it('returns loginIdentifier null on network error (graceful degradation)', async () => {
       adminRepo.findOne.mockResolvedValue(mockAdminProfile);
       identityAccessClient.findAccountByUserId.mockRejectedValue(
@@ -201,7 +199,7 @@ describe('ProfilesService', () => {
       expect(errorSpy.mock.calls[0][0]).toEqual(expect.stringContaining('student-uuid'));
     });
 
-    it('does not log an error when loginIdentifier resolution fails with a plain 404 (expected case)', async () => {
+    it('does not log an error when identity-access-service answers a plain 404 (expected case)', async () => {
       adminRepo.findOne.mockResolvedValue(mockAdminProfile);
       const errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined);
       identityAccessClient.findAccountByUserId.mockRejectedValue(
@@ -209,9 +207,8 @@ describe('ProfilesService', () => {
       );
 
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
-      const result = await service.getProfile('student-uuid', actor);
 
-      expect(result).toHaveProperty('loginIdentifier', null);
+      await expect(service.getProfile('student-uuid', actor)).rejects.toThrow(NotFoundException);
       expect(errorSpy).not.toHaveBeenCalled();
     });
 
@@ -254,161 +251,146 @@ describe('ProfilesService', () => {
       await expect(service.getProfile('student-uuid', actor)).rejects.toThrow(ForbiddenException);
     });
 
-    it('creates a minimal administrative profile when no profile exists for userId', async () => {
-      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
-      // All repos return null by default — simulates a brand-new user with no profile yet
-      const minimalAdminProfile = { userId: 'new-user-uuid' };
-      adminRepo.create.mockReturnValue(minimalAdminProfile);
-      adminRepo.save.mockResolvedValue(minimalAdminProfile);
+    // -------------------------------------------------------------------------
+    // Read-only guarantee — docs/architecture.md, arbitrages du 2026-08-07 :
+    // "Aucune lecture ne doit creer un profil a la volee — une requete de
+    //  consultation n'ecrit jamais en base."
+    // The three lazy-init paths that used to live here (administrative profile,
+    // student pedagogical profile, teacher pedagogical profile) have been
+    // removed; these tests are the regression guard against their return.
+    // -------------------------------------------------------------------------
+    describe('read-only guarantee (no lazy creation)', () => {
+      it('throws 500 and logs an anomaly when the account exists but has no administrative profile', async () => {
+        const errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined);
+        const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+        // adminRepo.findOne returns null by default, and the identity-access
+        // client resolves an existing account: this is a data inconsistency.
 
-      const result = await service.getProfile('new-user-uuid', actor);
+        await expect(service.getProfile('student-uuid', actor)).rejects.toThrow(
+          InternalServerErrorException,
+        );
 
-      expect(adminRepo.create).toHaveBeenCalledWith({ userId: 'new-user-uuid' });
-      expect(adminRepo.save).toHaveBeenCalled();
-      expect(result).toHaveProperty('userId', 'new-user-uuid');
-      expect(result).toHaveProperty('administrative', minimalAdminProfile);
-      // RP consulting an unknown user does not trigger student peda lazy-creation
-      expect(studentPedaRepo.save).not.toHaveBeenCalled();
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+        expect(errorSpy.mock.calls[0][0]).toEqual(expect.stringContaining('student-uuid'));
+        expect(errorSpy.mock.calls[0][0]).toEqual(expect.stringContaining('ANOMALIE DE DONNEES'));
+      });
+
+      it('throws 500 (not 404) when the administrative profile is missing and identity-access-service is unavailable', async () => {
+        jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined);
+        identityAccessClient.findAccountByUserId.mockRejectedValue(
+          new IdentityAccessUnavailableError('ECONNREFUSED'),
+        );
+        const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+        await expect(service.getProfile('student-uuid', actor)).rejects.toThrow(
+          InternalServerErrorException,
+        );
+      });
+
+      it('never writes anything when no profile exists at all', async () => {
+        jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined);
+        const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+        await expect(service.getProfile('new-user-uuid', actor)).rejects.toThrow(
+          InternalServerErrorException,
+        );
+
+        expect(adminRepo.create).not.toHaveBeenCalled();
+        expect(adminRepo.save).not.toHaveBeenCalled();
+        expect(studentPedaRepo.create).not.toHaveBeenCalled();
+        expect(studentPedaRepo.save).not.toHaveBeenCalled();
+        expect(teacherPedaRepo.create).not.toHaveBeenCalled();
+        expect(teacherPedaRepo.save).not.toHaveBeenCalled();
+      });
+
+      it('does not create a student pedagogical profile for an élève viewing their own account', async () => {
+        const eleveId = '87482274-1ef2-412a-827b-75fc48c28370';
+        const actor = makeActor(UserRole.ELEVE, eleveId);
+        adminRepo.findOne.mockResolvedValue({ userId: eleveId, firstName: 'Alice' });
+
+        const result = await service.getProfile(eleveId, actor);
+
+        expect(studentPedaRepo.create).not.toHaveBeenCalled();
+        expect(studentPedaRepo.save).not.toHaveBeenCalled();
+        expect(result).toHaveProperty('pedagogical', null);
+      });
+
+      it('does not create a teacher pedagogical profile for a formateur viewing their own account', async () => {
+        const teacherId = 'bba9e321-4f12-4c8a-b6d3-000000000001';
+        const actor = makeActor(UserRole.FORMATEUR, teacherId);
+        adminRepo.findOne.mockResolvedValue({ userId: teacherId, firstName: 'Jean' });
+
+        const result = await service.getProfile(teacherId, actor);
+
+        expect(teacherPedaRepo.create).not.toHaveBeenCalled();
+        expect(teacherPedaRepo.save).not.toHaveBeenCalled();
+        expect(result).toHaveProperty('pedagogical', null);
+      });
+
+      it('does not write anything on a fully populated profile read', async () => {
+        const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+        adminRepo.findOne.mockResolvedValue({ userId: 'student-uuid', firstName: 'Alice' });
+        studentPedaRepo.findOne.mockResolvedValue({ userId: 'student-uuid', niveauScolaire: 'Terminale' });
+
+        await service.getProfile('student-uuid', actor);
+
+        expect(adminRepo.save).not.toHaveBeenCalled();
+        expect(studentPedaRepo.save).not.toHaveBeenCalled();
+        expect(teacherPedaRepo.save).not.toHaveBeenCalled();
+      });
     });
 
-    it('creates both administrative and student pedagogical profiles for an élève viewing their own account', async () => {
-      const eleveId = '87482274-1ef2-412a-827b-75fc48c28370';
-      const actor = makeActor(UserRole.ELEVE, eleveId);
-      const minimalAdminProfile = { userId: eleveId };
-      const minimalStudentPeda = { userId: eleveId };
-      adminRepo.create.mockReturnValue(minimalAdminProfile);
-      adminRepo.save.mockResolvedValue(minimalAdminProfile);
-      studentPedaRepo.create.mockReturnValue(minimalStudentPeda);
-      studentPedaRepo.save.mockResolvedValue(minimalStudentPeda);
+    // -------------------------------------------------------------------------
+    // Missing pedagogical profile is a NORMAL state (200 + pedagogical: null),
+    // not an anomaly: the pedagogical profile is optional and only created when
+    // the user first saves it (PUT upsert).
+    // -------------------------------------------------------------------------
+    describe('optional pedagogical profile', () => {
+      it('returns 200 with pedagogical: null when the élève has no pedagogical profile yet', async () => {
+        const eleveId = '87482274-1ef2-412a-827b-75fc48c28370';
+        const actor = makeActor(UserRole.ELEVE, eleveId);
+        adminRepo.findOne.mockResolvedValue({ userId: eleveId, firstName: 'Alice' });
 
-      const result = await service.getProfile(eleveId, actor);
+        const result = await service.getProfile(eleveId, actor);
 
-      // Administrative profile must be persisted
-      expect(adminRepo.create).toHaveBeenCalledWith({ userId: eleveId });
-      expect(adminRepo.save).toHaveBeenCalled();
-      expect(result).toHaveProperty('administrative', minimalAdminProfile);
+        expect(result).toEqual({
+          userId: eleveId,
+          loginIdentifier: 'alice.martin',
+          administrative: { userId: eleveId, firstName: 'Alice' },
+          pedagogical: null,
+        });
+      });
 
-      // Student pedagogical profile must also be persisted (this was the bug)
-      expect(studentPedaRepo.create).toHaveBeenCalledWith({ userId: eleveId });
-      expect(studentPedaRepo.save).toHaveBeenCalled();
-      expect(result).toHaveProperty('pedagogical', minimalStudentPeda);
+      it('returns 200 with pedagogical: null when RP consults a user without a pedagogical profile', async () => {
+        const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+        adminRepo.findOne.mockResolvedValue({ userId: 'student-uuid' });
 
-      expect(result.userId).toBe(eleveId);
+        const result = await service.getProfile('student-uuid', actor);
 
-      // Both writes are atomic: a single DataSource.transaction call wraps them
-      // (services-convention: multi-write operations use DataSource.transaction).
-      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
-    });
+        expect(result).toHaveProperty('pedagogical', null);
+      });
 
-    it('does not open a transaction when no lazy-init write is needed', async () => {
-      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
-      adminRepo.findOne.mockResolvedValue({ userId: 'student-uuid' });
-      studentPedaRepo.findOne.mockResolvedValue({ userId: 'student-uuid', niveauScolaire: 'Terminale' });
+      it('returns the student pedagogical profile when it exists', async () => {
+        const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+        const existingPeda = { userId: 'student-uuid', niveauScolaire: 'Terminale' };
+        adminRepo.findOne.mockResolvedValue({ userId: 'student-uuid' });
+        studentPedaRepo.findOne.mockResolvedValue(existingPeda);
 
-      await service.getProfile('student-uuid', actor);
+        const result = await service.getProfile('student-uuid', actor);
 
-      expect(dataSource.transaction).not.toHaveBeenCalled();
-    });
+        expect(result).toHaveProperty('pedagogical', existingPeda);
+      });
 
-    it('does not create student peda profile for élève when one already exists', async () => {
-      const eleveId = '87482274-1ef2-412a-827b-75fc48c28370';
-      const actor = makeActor(UserRole.ELEVE, eleveId);
-      const existingAdmin = { userId: eleveId, firstName: 'Alice' };
-      const existingPeda = { userId: eleveId, niveauScolaire: 'Terminale' };
-      adminRepo.findOne.mockResolvedValue(existingAdmin);
-      studentPedaRepo.findOne.mockResolvedValue(existingPeda);
+      it('returns the teacher pedagogical profile when it exists', async () => {
+        const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+        const existingTeacherPeda = { userId: 'teacher-uuid', niveauxEnseignes: ['Lycée'] };
+        adminRepo.findOne.mockResolvedValue({ userId: 'teacher-uuid' });
+        teacherPedaRepo.findOne.mockResolvedValue(existingTeacherPeda);
 
-      const result = await service.getProfile(eleveId, actor);
+        const result = await service.getProfile('teacher-uuid', actor);
 
-      expect(adminRepo.save).not.toHaveBeenCalled();
-      expect(studentPedaRepo.save).not.toHaveBeenCalled();
-      expect(result).toHaveProperty('pedagogical', existingPeda);
-    });
-
-    it('does not create a duplicate administrative profile when one already exists', async () => {
-      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
-      const existingAdminProfile = { userId: 'student-uuid', firstName: 'Alice' };
-      adminRepo.findOne.mockResolvedValue(existingAdminProfile);
-
-      await service.getProfile('student-uuid', actor);
-
-      // adminRepo.save should not be called since the profile already exists
-      expect(adminRepo.save).not.toHaveBeenCalled();
-    });
-
-    it('does not create student peda profile when RP consults an élève without peda profile', async () => {
-      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
-      // admin exists, no peda — RP is not the owner so no lazy-creation of peda
-      adminRepo.findOne.mockResolvedValue({ userId: 'student-uuid' });
-
-      const result = await service.getProfile('student-uuid', actor);
-
-      expect(studentPedaRepo.save).not.toHaveBeenCalled();
-      expect(result).toHaveProperty('pedagogical', null);
-    });
-
-    it('creates both administrative and teacher pedagogical profiles for a formateur viewing their own account', async () => {
-      const teacherId = 'bba9e321-4f12-4c8a-b6d3-000000000001';
-      const actor = makeActor(UserRole.FORMATEUR, teacherId);
-      const minimalAdminProfile = { userId: teacherId };
-      const minimalTeacherPeda = { userId: teacherId, isAnimateurPedagogique: false };
-      adminRepo.create.mockReturnValue(minimalAdminProfile);
-      adminRepo.save.mockResolvedValue(minimalAdminProfile);
-      teacherPedaRepo.create.mockReturnValue(minimalTeacherPeda);
-      teacherPedaRepo.save.mockResolvedValue(minimalTeacherPeda);
-
-      const result = await service.getProfile(teacherId, actor);
-
-      // Administrative profile must be persisted
-      expect(adminRepo.create).toHaveBeenCalledWith({ userId: teacherId });
-      expect(adminRepo.save).toHaveBeenCalled();
-      expect(result).toHaveProperty('administrative', minimalAdminProfile);
-
-      // Teacher pedagogical profile must also be persisted
-      expect(teacherPedaRepo.create).toHaveBeenCalledWith({ userId: teacherId });
-      expect(teacherPedaRepo.save).toHaveBeenCalled();
-      expect(result).toHaveProperty('pedagogical', minimalTeacherPeda);
-
-      expect(result.userId).toBe(teacherId);
-    });
-
-    it('does not create teacher peda profile for formateur when one already exists', async () => {
-      const teacherId = 'bba9e321-4f12-4c8a-b6d3-000000000001';
-      const actor = makeActor(UserRole.FORMATEUR, teacherId);
-      const existingAdmin = { userId: teacherId, firstName: 'Jean' };
-      const existingTeacherPeda = { userId: teacherId, niveauxEnseignes: ['Lycée'] };
-      adminRepo.findOne.mockResolvedValue(existingAdmin);
-      teacherPedaRepo.findOne.mockResolvedValue(existingTeacherPeda);
-
-      const result = await service.getProfile(teacherId, actor);
-
-      expect(adminRepo.save).not.toHaveBeenCalled();
-      expect(teacherPedaRepo.save).not.toHaveBeenCalled();
-      expect(result).toHaveProperty('pedagogical', existingTeacherPeda);
-    });
-
-    it('does not create teacher peda profile when RP consults a formateur without peda profile', async () => {
-      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
-      // admin exists, no peda — RP is not the owner so no lazy-creation of teacher peda
-      adminRepo.findOne.mockResolvedValue({ userId: 'teacher-uuid' });
-
-      const result = await service.getProfile('teacher-uuid', actor);
-
-      expect(teacherPedaRepo.save).not.toHaveBeenCalled();
-      expect(result).toHaveProperty('pedagogical', null);
-    });
-
-    it('does not create student peda for formateur viewing own profile (only teacher peda)', async () => {
-      const teacherId = 'bba9e321-4f12-4c8a-b6d3-000000000001';
-      const actor = makeActor(UserRole.FORMATEUR, teacherId);
-      const minimalTeacherPeda = { userId: teacherId };
-      teacherPedaRepo.create.mockReturnValue(minimalTeacherPeda);
-      teacherPedaRepo.save.mockResolvedValue(minimalTeacherPeda);
-
-      await service.getProfile(teacherId, actor);
-
-      expect(studentPedaRepo.save).not.toHaveBeenCalled();
-      expect(teacherPedaRepo.save).toHaveBeenCalled();
+        expect(result).toHaveProperty('pedagogical', existingTeacherPeda);
+      });
     });
   });
 
@@ -852,47 +834,186 @@ describe('ProfilesService', () => {
   // ---------------------------------------------------------------------------
   // updateTeacherValidation
   // ---------------------------------------------------------------------------
+  // La machine a etats est : pending → in_review → validated | rejected.
+  // Le RP doit d'abord prendre le dossier en charge (pending → in_review) avant
+  // de pouvoir le valider ou le rejeter ; seul le TI peut court-circuiter cette
+  // etape (pending → validated/rejected en direct, bypass administratif).
+  // Un enregistrement absent equivaut au statut 'pending'.
   describe('updateTeacherValidation', () => {
-    it('RP can validate a teacher and publishes TeacherValidated event', async () => {
+    /** Helper : positionne le statut courant du dossier de validation. */
+    const withCurrentStatus = (status: string) =>
+      teacherValidationRepo.findOne.mockResolvedValue({
+        id: 'existing-uuid',
+        teacherId: 'teacher-uuid',
+        status,
+        validatedBy: null,
+        comment: null,
+      });
+
+    describe('pending → in_review (prise en charge, RP uniquement)', () => {
+      it('RP can take a pending teacher file in review', async () => {
+        const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+        const dto = { status: 'in_review' as const };
+
+        await service.updateTeacherValidation('teacher-uuid', dto, actor);
+
+        expect(teacherValidationRepo.save).toHaveBeenCalledWith(
+          expect.objectContaining({ status: 'in_review', validatedBy: actor.id }),
+        );
+        expect(eventsService.publish).not.toHaveBeenCalled();
+      });
+
+      it('throws 403 when TI tries to move pending → in_review (RP only)', async () => {
+        const actor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE);
+
+        await expect(
+          service.updateTeacherValidation('teacher-uuid', { status: 'in_review' }, actor),
+        ).rejects.toThrow(ForbiddenException);
+        expect(teacherValidationRepo.save).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('in_review → validated | rejected (RP ou TI)', () => {
+      it('RP can validate a teacher already in review and publishes TeacherValidated', async () => {
+        withCurrentStatus('in_review');
+        const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+        await service.updateTeacherValidation('teacher-uuid', { status: 'validated' }, actor);
+
+        expect(teacherValidationRepo.save).toHaveBeenCalledWith(
+          expect.objectContaining({ status: 'validated', validatedBy: actor.id }),
+        );
+        expect(eventsService.publish).toHaveBeenCalledWith(
+          'TeacherValidated',
+          expect.objectContaining({ teacherId: 'teacher-uuid' }),
+        );
+      });
+
+      it('TI can validate a teacher already in review', async () => {
+        withCurrentStatus('in_review');
+        const actor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE);
+
+        await expect(
+          service.updateTeacherValidation('teacher-uuid', { status: 'validated' }, actor),
+        ).resolves.toBeDefined();
+      });
+
+      it('RP can reject a teacher already in review, without publishing TeacherValidated', async () => {
+        withCurrentStatus('in_review');
+        const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+        await service.updateTeacherValidation(
+          'teacher-uuid',
+          { status: 'rejected', comment: 'Dossier incomplet' },
+          actor,
+        );
+
+        expect(teacherValidationRepo.save).toHaveBeenCalledWith(
+          expect.objectContaining({ status: 'rejected', comment: 'Dossier incomplet' }),
+        );
+        expect(eventsService.publish).not.toHaveBeenCalled();
+      });
+
+      it('TI can reject a teacher already in review', async () => {
+        withCurrentStatus('in_review');
+        const actor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE);
+        const dto = { status: 'rejected' as const, comment: 'Documents manquants' };
+
+        await expect(
+          service.updateTeacherValidation('teacher-uuid', dto, actor),
+        ).resolves.toBeDefined();
+      });
+    });
+
+    describe('pending → validated | rejected (bypass TI uniquement)', () => {
+      it('TI can validate directly from pending (bypass) and publishes TeacherValidated', async () => {
+        const actor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE);
+
+        await service.updateTeacherValidation('teacher-uuid', { status: 'validated' }, actor);
+
+        expect(eventsService.publish).toHaveBeenCalledWith(
+          'TeacherValidated',
+          expect.objectContaining({ teacherId: 'teacher-uuid' }),
+        );
+      });
+
+      it('TI can reject directly from pending (bypass), without publishing TeacherValidated', async () => {
+        const actor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE);
+
+        await service.updateTeacherValidation('teacher-uuid', { status: 'rejected' }, actor);
+
+        expect(eventsService.publish).not.toHaveBeenCalled();
+      });
+
+      it('throws 403 when RP tries to validate directly from pending (must take in review first)', async () => {
+        const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+        await expect(
+          service.updateTeacherValidation('teacher-uuid', { status: 'validated' }, actor),
+        ).rejects.toThrow(ForbiddenException);
+        expect(teacherValidationRepo.save).not.toHaveBeenCalled();
+        expect(eventsService.publish).not.toHaveBeenCalled();
+      });
+
+      it('throws 403 when RP tries to reject directly from pending', async () => {
+        const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+        await expect(
+          service.updateTeacherValidation('teacher-uuid', { status: 'rejected' }, actor),
+        ).rejects.toThrow(ForbiddenException);
+      });
+    });
+
+    describe('transition vers le statut courant', () => {
+      it('throws 403 when the target status is already the current one (in_review)', async () => {
+        withCurrentStatus('in_review');
+        const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+        await expect(
+          service.updateTeacherValidation('teacher-uuid', { status: 'in_review' }, actor),
+        ).rejects.toThrow(ForbiddenException);
+        expect(teacherValidationRepo.save).not.toHaveBeenCalled();
+      });
+
+      it('throws 403 when re-validating an already validated teacher', async () => {
+        withCurrentStatus('validated');
+        const actor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE);
+
+        await expect(
+          service.updateTeacherValidation('teacher-uuid', { status: 'validated' }, actor),
+        ).rejects.toThrow(ForbiddenException);
+        expect(eventsService.publish).not.toHaveBeenCalled();
+      });
+    });
+
+    it('creates the validation record when none exists yet (absence = pending)', async () => {
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
-      const dto = { status: 'validated' as const };
-      const result = await service.updateTeacherValidation('teacher-uuid', dto, actor);
-      expect(teacherValidationRepo.save).toHaveBeenCalled();
-      expect(eventsService.publish).toHaveBeenCalledWith(
-        'TeacherValidated',
-        expect.objectContaining({ teacherId: 'teacher-uuid' }),
+
+      await service.updateTeacherValidation('teacher-uuid', { status: 'in_review' }, actor);
+
+      expect(teacherValidationRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          teacherId: 'teacher-uuid',
+          status: 'in_review',
+          validatedBy: actor.id,
+          validatorRole: actor.role,
+        }),
       );
     });
 
-    it('TI can update validation status', async () => {
-      const actor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE);
-      const dto = { status: 'rejected' as const, comment: 'Documents manquants' };
-      await expect(
-        service.updateTeacherValidation('teacher-uuid', dto, actor),
-      ).resolves.toBeDefined();
-    });
-
-    it('does not publish TeacherValidated event when status is rejected', async () => {
+    it('updates the existing validation record instead of creating a new one', async () => {
+      withCurrentStatus('in_review');
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
-      const dto = { status: 'rejected' as const };
-      await service.updateTeacherValidation('teacher-uuid', dto, actor);
-      expect(eventsService.publish).not.toHaveBeenCalled();
-    });
 
-    it('updates existing validation record', async () => {
-      const existingValidation = {
-        id: 'existing-uuid',
-        teacherId: 'teacher-uuid',
-        status: 'pending',
-        validatedBy: null,
-        comment: null,
-      };
-      teacherValidationRepo.findOne.mockResolvedValue(existingValidation);
-      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
-      const dto = { status: 'validated' as const };
-      await service.updateTeacherValidation('teacher-uuid', dto, actor);
+      await service.updateTeacherValidation('teacher-uuid', { status: 'validated' }, actor);
+
+      expect(teacherValidationRepo.create).not.toHaveBeenCalled();
       expect(teacherValidationRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'validated', validatedBy: actor.id }),
+        expect.objectContaining({
+          id: 'existing-uuid',
+          status: 'validated',
+          validatedBy: actor.id,
+        }),
       );
     });
 

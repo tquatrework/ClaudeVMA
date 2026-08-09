@@ -80,10 +80,17 @@ function renderProfilePage(userId = 'student-1') {
   )
 }
 
+/**
+ * Forme réelle de `GET /profiles/:userId` : rubriques `administrative` /
+ * `pedagogical` (clés courtes). Ne pas réintroduire `administrativeProfile` /
+ * `pedagogicalProfile` : ces clés longues appartiennent aux routes `/internal/*`,
+ * que le front n'appelle pas. Une fixture aux clés longues rendrait ce test vert
+ * alors que l'écran est vide en réalité.
+ */
 const SAMPLE_PROFILE = {
   userId: 'student-1',
-  administrativeProfile: { firstName: 'Marie', lastName: 'Dupont', phone: '0612345678' },
-  pedagogicalProfile: { level: 'Terminale', subjects: 'Mathématiques' },
+  administrative: { firstName: 'Marie', lastName: 'Dupont', phone: '0612345678' },
+  pedagogical: { level: 'Terminale', subjects: 'Mathématiques' },
 }
 
 beforeEach(() => {

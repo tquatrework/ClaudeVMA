@@ -1,25 +1,25 @@
 /**
  * Module API — profils (profile-service)
  *
- * Lecture/écriture des profils administratif et pédagogique, notes internes
- * confidentielles, statistiques pédagogiques et préférences de confidentialité.
+ * Lecture/écriture des profils administratif et pédagogique, prescription
+ * réservée au RP, notes internes confidentielles, statistiques pédagogiques et
+ * visibilité champ par champ.
  * Toutes les requêtes passent par apiClient (base /api/v1).
  *
- * Écarts signalés (non documentés dans docs/routes.md, comportement runtime préservé
- * tel quel — voir rapport de migration du lot) :
- * - GET /profiles/:userId/statistics
- * - GET /profiles/:userId/visibility-preferences
- * - PATCH /profiles/:userId/visibility-preferences
+ * Écart signalé (non documenté dans docs/routes.md, comportement runtime préservé
+ * tel quel) : GET /profiles/:userId/statistics
  */
 
 import apiClient from './client'
 import type {
   AdministrativeProfileFields,
+  DeclarativePedagogicalFields,
+  FieldVisibilitySettings,
+  FieldVisibilityUpdate,
   InternalNote,
-  PedagogicalProfileFields,
   PedagogicalStatistics,
+  PrescriptionFields,
   Profile,
-  VisibilityPreferences,
 } from '../types/profile'
 
 // ─── Profil ───────────────────────────────────────────────────────────────────
@@ -47,14 +47,36 @@ export async function updateAdministrativeProfile(
 }
 
 /**
- * PUT /profiles/:userId/pedagogical — Modifier le profil pédagogique
+ * PUT /profiles/:userId/pedagogical — Modifier la **section déclarative** du
+ * profil pédagogique, celle que le titulaire écrit sur lui-même.
+ *
+ * N'accepte aucun champ de prescription, ni `filledBy`/`filledAt`, ni
+ * `isAnimateurPedagogique` : le serveur répond `400` au lieu de les ignorer.
  */
 export async function updatePedagogicalProfile(
   userId: string,
-  payload: PedagogicalProfileFields,
-): Promise<PedagogicalProfileFields> {
-  const { data } = await apiClient.put<PedagogicalProfileFields>(
+  payload: DeclarativePedagogicalFields,
+): Promise<DeclarativePedagogicalFields> {
+  const { data } = await apiClient.put<DeclarativePedagogicalFields>(
     `/profiles/${userId}/pedagogical`,
+    payload,
+  )
+  return data
+}
+
+/**
+ * PUT /profiles/:userId/prescription — Modifier la **section prescription** du
+ * profil pédagogique. Réservée au responsable pédagogique, y compris quand la
+ * cible est l'appelant lui-même (`403` pour tout autre rôle).
+ *
+ * `filledBy` et `filledAt` sont posés par le serveur : les envoyer renvoie `400`.
+ */
+export async function updatePrescription(
+  userId: string,
+  payload: PrescriptionFields,
+): Promise<PrescriptionFields> {
+  const { data } = await apiClient.put<PrescriptionFields>(
+    `/profiles/${userId}/prescription`,
     payload,
   )
   return data
@@ -93,34 +115,36 @@ export async function fetchProfileStatistics(userId: string): Promise<Pedagogica
   return data
 }
 
-// ─── Préférences de confidentialité ───────────────────────────────────────────
+// ─── Visibilité champ par champ ───────────────────────────────────────────────
 
 /**
- * GET /profiles/:userId/visibility-preferences — Lire les préférences de confidentialité
+ * GET /profiles/:userId/field-visibility — Lire la visibilité effective de tous
+ * les champs du catalogue, valeurs par défaut comprises.
  *
- * Écart : cette route n'apparaît pas dans docs/routes.md. Reproduite ici à
- * l'identique du comportement préexistant — non corrigée dans ce lot structurel.
+ * Remplace `GET /profiles/:userId/visibility-preferences`, supprimée côté serveur
+ * (`404` désormais) avec ses deux booléens nommés en dur. Un seul appel suffit à
+ * construire l'écran : le front ne duplique ni le catalogue ni les défauts.
  */
-export async function fetchVisibilityPreferences(userId: string): Promise<VisibilityPreferences> {
-  const { data } = await apiClient.get<VisibilityPreferences>(
-    `/profiles/${userId}/visibility-preferences`,
+export async function fetchFieldVisibility(userId: string): Promise<FieldVisibilitySettings> {
+  const { data } = await apiClient.get<FieldVisibilitySettings>(
+    `/profiles/${userId}/field-visibility`,
   )
   return data
 }
 
 /**
- * PATCH /profiles/:userId/visibility-preferences — Modifier les préférences de confidentialité
+ * PUT /profiles/:userId/field-visibility — Régler la visibilité champ par champ.
  *
- * Écart : cette route n'apparaît pas dans docs/routes.md. Reproduite ici à
- * l'identique du comportement préexistant — non corrigée dans ce lot structurel.
+ * **Upsert partiel** : seuls les champs listés sont modifiés, les autres gardent
+ * leur réglage. On n'envoie donc que ce que l'utilisateur a changé.
  */
-export async function updateVisibilityPreferences(
+export async function updateFieldVisibility(
   userId: string,
-  payload: VisibilityPreferences,
-): Promise<VisibilityPreferences> {
-  const { data } = await apiClient.patch<VisibilityPreferences>(
-    `/profiles/${userId}/visibility-preferences`,
-    payload,
+  fields: FieldVisibilityUpdate[],
+): Promise<FieldVisibilitySettings> {
+  const { data } = await apiClient.put<FieldVisibilitySettings>(
+    `/profiles/${userId}/field-visibility`,
+    { fields },
   )
   return data
 }

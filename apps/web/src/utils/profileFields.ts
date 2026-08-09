@@ -1,16 +1,20 @@
 /**
  * Frontière API des profils — conversion et filtrage des champs échangés avec
  * `profile-service` (`GET /profiles/:userId`, `PUT /profiles/:userId/administrative`,
- * `PUT /profiles/:userId/pedagogical`).
+ * `PUT /profiles/:userId/pedagogical`, `PUT /profiles/:userId/prescription`).
  *
- * Deux responsabilités, toutes deux pures :
+ * Trois responsabilités, toutes pures :
  *
  * 1. **Filtrage** — le serveur rejette en `400` tout champ hors liste
  *    (`forbidNonWhitelisted`). On ne renvoie donc jamais tel quel un bloc lu :
  *    on ne conserve que les champs documentés dans
  *    `docs/routes.md` § « Noms de champs des profils ».
- * 2. **Conversion** — `subjects`, `levels` et `passions` sont des `string[]` côté
- *    API mais restent saisis en texte libre séparé par des virgules côté UI.
+ * 2. **Séparation des sections** — `GET /profiles/:userId` renvoie le profil
+ *    pédagogique **à plat, sections confondues**. Les deux sections n'ont pas la
+ *    même route d'écriture ni le même auteur : envoyer un champ de prescription
+ *    à `PUT .../pedagogical` renvoie `400`, et réciproquement.
+ * 3. **Conversion** — `subjects`, `levels`, `specialties` et `passions` sont des
+ *    `string[]` côté API mais restent saisis en texte libre séparé par des virgules.
  *
  * Les listes ci-dessous sont contraintes par `satisfies` aux clés des interfaces
  * correspondantes : renommer un champ dans `src/types/profile.ts` sans l'aligner
@@ -20,8 +24,11 @@
 import type {
   AdministrativeProfileFields,
   PedagogicalProfileKind,
-  StudentPedagogicalProfileFields,
-  TeacherPedagogicalProfileFields,
+  PedagogicalProfileType,
+  StudentDeclarativeFields,
+  StudentPrescriptionFields,
+  TeacherDeclarativeFields,
+  TeacherPrescriptionFields,
 } from '../types/profile'
 import type { UserRole } from '../types/user'
 
@@ -42,33 +49,67 @@ export const ADMINISTRATIVE_FIELD_NAMES = [
   'passions',
 ] as const satisfies readonly (keyof AdministrativeProfileFields)[]
 
-export const STUDENT_PEDAGOGICAL_FIELD_NAMES = [
+/** Section déclarative élève — seuls champs acceptés par `PUT .../pedagogical`. */
+export const STUDENT_DECLARATIVE_FIELD_NAMES = [
   'level',
+  'subjects',
   'goals',
   'specificNeeds',
-  'subjects',
-] as const satisfies readonly (keyof StudentPedagogicalProfileFields)[]
-
-export const TEACHER_PEDAGOGICAL_FIELD_NAMES = [
-  'levels',
-  'experience',
-  'testResults',
-  'subjects',
-  'isAnimateurPedagogique',
-] as const satisfies readonly (keyof TeacherPedagogicalProfileFields)[]
+  'difficulties',
+  'context',
+] as const satisfies readonly (keyof StudentDeclarativeFields)[]
 
 /**
- * Champs qui, seuls, permettent au serveur de savoir qu'il s'agit d'un profil
- * élève. `subjects` existe sur les deux profils et ne discrimine jamais.
+ * Section déclarative formateur. `testResults` n'y figure plus (prescription :
+ * un formateur n'écrit pas ses propres résultats de test) et
+ * `isAnimateurPedagogique` non plus (droit attribué par `POST .../ap-status`).
  */
-const STUDENT_DISCRIMINATING_FIELD_NAMES = ['level', 'goals', 'specificNeeds'] as const
-
-const TEACHER_DISCRIMINATING_FIELD_NAMES = [
+export const TEACHER_DECLARATIVE_FIELD_NAMES = [
   'levels',
+  'subjects',
   'experience',
+  'diplomas',
+  'specialties',
+  'particularities',
+  'cvDocumentId',
+] as const satisfies readonly (keyof TeacherDeclarativeFields)[]
+
+/** Section prescription élève — `PUT .../prescription`, RP seul. */
+export const STUDENT_PRESCRIPTION_FIELD_NAMES = [
+  'generalAssessment',
+  'recommendedPace',
+  'recommendedTeacherProfile',
+  'recommendedPath',
+  'recommendedActivities',
+] as const satisfies readonly (keyof StudentPrescriptionFields)[]
+
+/** Section prescription formateur — `PUT .../prescription`, RP seul. */
+export const TEACHER_PRESCRIPTION_FIELD_NAMES = [
+  'maxValidatedLevel',
+  'audienceType',
   'testResults',
-  'isAnimateurPedagogique',
-] as const
+  'testComments',
+] as const satisfies readonly (keyof TeacherPrescriptionFields)[]
+
+/**
+ * Traçabilité posée par le serveur. **Jamais envoyée** : les inclure dans un
+ * corps d'écriture renvoie `400`.
+ */
+export const PRESCRIPTION_AUTHORSHIP_FIELD_NAMES = ['filledBy', 'filledAt'] as const
+
+/**
+ * Champs affichés en lecture dans la section déclarative. `isAnimateurPedagogique`
+ * s'y ajoute pour le formateur : il est lisible dans le bloc `pedagogical` bien
+ * qu'il ne soit pas éditable ici.
+ */
+export const TEACHER_READONLY_DISPLAY_FIELD_NAMES = ['isAnimateurPedagogique'] as const
+
+/** Champs saisis en texte libre séparé par des virgules, `string[]` côté API. */
+export const LIST_FIELD_NAMES = ['subjects', 'levels', 'specialties', 'passions'] as const
+
+export function isListField(fieldName: string): boolean {
+  return (LIST_FIELD_NAMES as readonly string[]).includes(fieldName)
+}
 
 // ─── Conversion texte ↔ tableau ───────────────────────────────────────────────
 
@@ -111,12 +152,68 @@ export function pickAdministrativeFields(raw: unknown): AdministrativeProfileFie
   return pickFields<AdministrativeProfileFields>(raw, ADMINISTRATIVE_FIELD_NAMES)
 }
 
-export function pickStudentPedagogicalFields(raw: unknown): StudentPedagogicalProfileFields {
-  return pickFields<StudentPedagogicalProfileFields>(raw, STUDENT_PEDAGOGICAL_FIELD_NAMES)
+/** Noms des champs déclaratifs de la forme demandée. */
+export function declarativeFieldNames(
+  pedagogicalType: PedagogicalProfileType,
+): readonly string[] {
+  return pedagogicalType === 'teacher'
+    ? TEACHER_DECLARATIVE_FIELD_NAMES
+    : STUDENT_DECLARATIVE_FIELD_NAMES
 }
 
-export function pickTeacherPedagogicalFields(raw: unknown): TeacherPedagogicalProfileFields {
-  return pickFields<TeacherPedagogicalProfileFields>(raw, TEACHER_PEDAGOGICAL_FIELD_NAMES)
+/** Noms des champs de prescription de la forme demandée. */
+export function prescriptionFieldNames(
+  pedagogicalType: PedagogicalProfileType,
+): readonly string[] {
+  return pedagogicalType === 'teacher'
+    ? TEACHER_PRESCRIPTION_FIELD_NAMES
+    : STUDENT_PRESCRIPTION_FIELD_NAMES
+}
+
+/**
+ * Extrait la section déclarative du bloc `pedagogical` à plat.
+ * Aucun champ de prescription ne peut en ressortir : le `PUT .../pedagogical`
+ * qui les recevrait échouerait en `400`.
+ */
+export function pickDeclarativeFields(
+  pedagogicalType: PedagogicalProfileType,
+  raw: unknown,
+): Record<string, unknown> {
+  return pickFields<Record<string, unknown>>(raw, declarativeFieldNames(pedagogicalType))
+}
+
+/** Extrait la section prescription du bloc `pedagogical` à plat (lecture seule). */
+export function pickPrescriptionFields(
+  pedagogicalType: PedagogicalProfileType,
+  raw: unknown,
+): Record<string, unknown> {
+  return pickFields<Record<string, unknown>>(raw, prescriptionFieldNames(pedagogicalType))
+}
+
+/**
+ * Champs affichés en lecture pour la section déclarative, dans l'ordre voulu à
+ * l'écran (les champs absents du profil sont écartés à l'affichage).
+ */
+export function pickDeclarativeDisplayFields(
+  pedagogicalType: PedagogicalProfileType,
+  raw: unknown,
+): Record<string, unknown> {
+  const displayedNames =
+    pedagogicalType === 'teacher'
+      ? [...TEACHER_DECLARATIVE_FIELD_NAMES, ...TEACHER_READONLY_DISPLAY_FIELD_NAMES]
+      : [...STUDENT_DECLARATIVE_FIELD_NAMES]
+  return pickFields<Record<string, unknown>>(raw, displayedNames)
+}
+
+/** Une prescription a-t-elle été réellement remplie ? (au moins une valeur non vide) */
+export function hasPrescriptionContent(
+  pedagogicalType: PedagogicalProfileType,
+  raw: unknown,
+): boolean {
+  const prescription = pickPrescriptionFields(pedagogicalType, raw)
+  return Object.values(prescription).some(
+    (value) => value !== null && value !== undefined && value !== '',
+  )
 }
 
 // ─── Détermination de la forme du profil pédagogique ──────────────────────────
@@ -135,19 +232,60 @@ export function pedagogicalKindForRole(role: UserRole | undefined): PedagogicalP
 }
 
 /**
- * Détermine la forme du profil pédagogique à éditer.
+ * Champs qui, seuls, permettent de reconnaître un profil élève quand le serveur
+ * n'a pas annoncé de type. `subjects` existe sur les deux profils et ne
+ * discrimine jamais.
+ */
+const STUDENT_DISCRIMINATING_FIELD_NAMES = [
+  'level',
+  'goals',
+  'specificNeeds',
+  'difficulties',
+  'context',
+  'generalAssessment',
+  'recommendedPace',
+  'recommendedTeacherProfile',
+  'recommendedPath',
+  'recommendedActivities',
+] as const
+
+const TEACHER_DISCRIMINATING_FIELD_NAMES = [
+  'levels',
+  'experience',
+  'diplomas',
+  'specialties',
+  'particularities',
+  'cvDocumentId',
+  'isAnimateurPedagogique',
+  'maxValidatedLevel',
+  'audienceType',
+  'testResults',
+  'testComments',
+] as const
+
+/**
+ * Détermine la forme du profil pédagogique.
  *
- * Le contenu déjà enregistré fait foi : il indique la table réellement utilisée.
- * À défaut (profil pédagogique jamais renseigné — état normal), on retombe sur le
- * rôle, qui n'est fiable que lorsque l'utilisateur édite son propre profil :
- * `GET /profiles/:userId` n'expose pas le rôle de la personne consultée.
- * Sans aucun des deux, la forme reste `unknown` et aucun formulaire n'est proposé.
+ * Ordre de confiance :
+ * 1. `pedagogicalType` renvoyé par le serveur — **source autoritative**, le front
+ *    n'a plus à deviner ;
+ * 2. le rôle, quand il est connu (son propre profil, ou un rôle cible su) ;
+ * 3. les champs déjà enregistrés, pour un profil dont le type n'a pas été annoncé.
+ *
+ * Sans aucun des trois, la forme reste `unknown` et aucun formulaire n'est
+ * proposé, plutôt que de risquer d'écrire dans la mauvaise table.
  */
 export function resolvePedagogicalProfileKind(
+  pedagogicalType: PedagogicalProfileType | null | undefined,
   pedagogicalBlock: unknown,
   fallbackRole: UserRole | undefined,
 ): PedagogicalProfileKind {
+  if (pedagogicalType === 'student' || pedagogicalType === 'teacher') return pedagogicalType
+
+  const kindFromRole = pedagogicalKindForRole(fallbackRole)
+  if (kindFromRole !== 'unknown') return kindFromRole
+
   if (hasAnyField(pedagogicalBlock, STUDENT_DISCRIMINATING_FIELD_NAMES)) return 'student'
   if (hasAnyField(pedagogicalBlock, TEACHER_DISCRIMINATING_FIELD_NAMES)) return 'teacher'
-  return pedagogicalKindForRole(fallbackRole)
+  return 'unknown'
 }

@@ -42,7 +42,7 @@
       <!-- Routes ajoutees le 2026-08-09 (decision C11) — implementees en PUT sous /profiles -->
       <endpoint method="PUT" path="/profiles/{userId}/prescription">Modifier la section prescription du profil pedagogique (role : responsable_pedagogique SEUL, titulaire inclus dans le refus).</endpoint>
       <endpoint method="GET" path="/profiles/{userId}/field-visibility">Lire la visibilite effective de tous les champs (titulaire, RP, TI, AF).</endpoint>
-      <endpoint method="PUT" path="/profiles/{userId}/field-visibility">Regler la visibilite champ par champ (titulaire, RP, TI, AF).</endpoint>
+      <endpoint method="PUT" path="/profiles/{userId}/field-visibility">Regler la visibilite champ par champ (titulaire, RP, TI, AF). APPLIQUEE en lecture depuis C12 (2026-08-09).</endpoint>
       <!-- Notes internes confidentielles — non visibles par l'eleve, le parent/financeur ni le formateur -->
       <endpoint method="GET" path="/profiles/{userId}/internal-notes">Lister les notes internes (role : responsable_pedagogique, animateur_pedagogique, technicien_informatique, administrateur_financier).</endpoint>
       <endpoint method="POST" path="/profiles/{userId}/internal-notes">Creer une note interne confidentielle (role : responsable_pedagogique, animateur_pedagogique).</endpoint>
@@ -920,8 +920,133 @@
           code — REDEPLOIEMENT A FAIRE separement (il declenchera les migrations).
         </testCoverage>
       </decision>
+      <decision id="C12" status="implemented" session="2026-08-09">
+        <title>Visibilite champ par champ APPLIQUEE en lecture — le parent financeur et les administrateurs en sont exemptes</title>
+        <filesTouched>
+          <file path="services/profile-service/src/profiles/profile-visibility-filter.ts">
+            NOUVEAU. Regle de filtrage isolee en fonctions pures, sans dependance NestJS ni
+            repository : type ViewerRelation, isFieldVisibleTo, filterProfileBlock,
+            pedagogicalBlockOf, constantes STRUCTURAL_PROFILE_FIELDS et
+            PRESCRIPTION_METADATA_FIELDS. Extrait plutot qu'ajoute a ProfilesService, qui
+            depasse deja les seuils de la convention services (>1100 lignes).
+          </file>
+          <file path="services/profile-service/src/profiles/field-visibility.service.ts">
+            Nouvelle methode resolveAudiences(userId) : audience effective de TOUS les champs du
+            catalogue en UNE requete. resolveAudience (unitaire) conserve, mais le filtrage ne
+            l'utilise pas — l'appeler pour 34 champs ferait 34 requetes. Commentaire « non
+            branche sur la lecture » retire, il n'est plus vrai.
+          </file>
+          <file path="services/profile-service/src/profiles/profiles.service.ts">
+            FieldVisibilityService injecte ; constante FIELD_VISIBILITY_EXEMPT_ROLES ; nouvelle
+            methode privee resolveViewerRelation ; getProfile et getPedagogicalStatistics
+            filtrent leur reponse et renvoient un bloc `visibility`.
+          </file>
+          <file path="services/profile-service/src/profiles/profiles.controller.ts">
+            Swagger de GET /profiles/:userId, GET /profiles/:userId/statistics et des deux
+            routes /field-visibility : regle d'exemption, forme du bloc `visibility`, effet
+            reel des reglages sur la lecture.
+          </file>
+          <file path="services/profile-service/test/unit/profiles/profile-visibility-filter.spec.ts">NOUVEAU, 34 tests.</file>
+          <file path="services/profile-service/test/e2e/field-visibility-filtering.e2e-spec.ts">NOUVEAU, 24 tests.</file>
+          <file path="docs/routes.md">Section « Application en lecture » ; lignes GET /profiles/:userId et /statistics.</file>
+        </filesTouched>
+        <description>
+          Suite directe de C11, qui avait livre le stockage et le reglage mais laisse le
+          filtrage NON branche en remontant une contradiction. L'utilisateur a tranche le
+          2026-08-09 (docs/architecture.md > « Arbitrages rendus », derniere entree) : LE PARENT
+          FINANCEUR VOIT TOUT, SAUF LE CARNET PERSONNEL. Il est donc exempte des reglages de
+          visibilite par champ ; le carnet personnel appartient a pedagogical-log-service et
+          n'est pas concerne par ce filtrage.
+          (1) QUI EST EXEMPTE (voit la fiche entiere) : le titulaire ; le parent financeur
+          rattache ; les roles administratifs (RP, AP, TI, AF). QUI SUBIT LE FILTRAGE : les
+          autres contacts lies — aujourd'hui le formateur rattache, demain eleve↔eleve.
+          L'exemption du parent financeur est CONDITIONNELLE au rattachement, mais cette
+          condition est deja portee par assertReadAccess (403 pour tout parent non rattache) :
+          elle n'est pas re-verifiee dans la liste d'exemption, ce qui evite une seconde requete
+          pour une decision deja prise.
+          (2) POURQUOI LE RP ET L'AP SONT EXEMPTES. Point de lecture divergent entre la consigne
+          de la tache (« RP et AP dans le cadre de leurs relations » cites parmi ceux QUI
+          SUBISSENT le filtrage) et docs/architecture.md (« s'applique aux autres contacts lies,
+          pas au parent financeur ni AUX ADMINISTRATEURS »). L'arbitrage persiste dans
+          docs/architecture.md a ete suivi, pour deux raisons de fond. Le RP ECRIT la section
+          prescription via PUT /profiles/:userId/prescription, et TOUS les champs de
+          prescription sont `self` par defaut : filtre, le RP ne relirait pas ce qu'il vient
+          d'ecrire. L'AP lit les profils des formateurs qu'il anime, dont experience, diplomas,
+          specialties, particularities et cvDocumentId sont tous `self` par defaut : filtre, il
+          serait aveugle a l'essentiel du dossier qu'il doit animer. Le choix est concentre dans
+          la seule constante FIELD_VISIBILITY_EXEMPT_ROLES, modifiable en une ligne si
+          l'utilisateur tranche autrement. ECART SIGNALE, non contourne.
+          (3) PROFESSEUR PRINCIPAL — non tranche, aucune exemption accordee de notre propre
+          chef. Il subit les reglages comme tout contact lie ; le drapeau isPrincipalTeacher
+          porte par TeacherStudentLink n'est volontairement PAS consulte par
+          resolveViewerRelation. A remonter a l'utilisateur.
+          (4) LISIBILITE DU MASQUAGE — un champ masque est ABSENT de son bloc, et son nom figure
+          dans `visibility.hiddenFields`. Jamais de valeur de remplacement : un null ou une
+          chaine vide rendrait « masque » indiscernable de « non renseigne », soit exactement la
+          famille d'ambiguites corrigee toute la semaine. Le consommateur tranche sans
+          convention implicite : cle presente a null = vide ; cle absente + nom dans
+          hiddenFields = masque. `isFiltered: false` dit « fiche entiere », information distincte
+          d'un hiddenFields vide chez un lecteur filtre dont tous les champs sont visibles.
+          (5) JAMAIS MASQUE — champs de structure : userId, createdAt, updatedAt,
+          pedagogicalType, loginIdentifier, isAnimateurPedagogique (un DROIT attribue par le RP,
+          absent du catalogue donc non reglable). Le front en a besoin pour savoir quoi
+          afficher ; les masquer casserait l'affichage sans rien proteger.
+          filledBy/filledAt ne sont pas au catalogue mais SUIVENT la section prescription :
+          renvoyes seulement si au moins un champ de prescription est visible pour ce lecteur,
+          sinon leur seule presence revelerait qu'un RP a prescrit quelque chose, et quand.
+          Un champ porte par une entite mais absent du catalogue est laisse passer : non
+          reglable donc non masquable, et le masquer en silence serait pire puisque personne ne
+          pourrait le debloquer. `comments` (isReserved) n'apparait jamais dans hiddenFields :
+          aucune colonne ne le porte, l'annoncer masque laisserait croire a une donnee cachee.
+          (6) LE TITULAIRE N'EST JAMAIS FILTRE, prescription comprise — il la lit sans pouvoir
+          l'ecrire, conformement a C11. Aucune requete de reglages n'est meme emise pour lui ni
+          pour un exempte : le cout du filtrage est nul quand il n'a pas lieu.
+          (7) EXTENSION ASSUMEE HORS PERIMETRE STRICT — GET /profiles/:userId/statistics est
+          filtree elle aussi. Elle sert les MEMES champs (level, subjects, levels) que le bloc
+          `pedagogical` ; ne filtrer que GET /profiles/:userId en aurait fait le contournement
+          exact, un formateur y lisant un `level` reglé `self`. Le comportement est verrouille
+          par un test dedie.
+          (8) CONSOMMATEURS INTERNES — verifie : aucune route /internal/* n'appelle getProfile
+          (grep sur src/, seul profiles.controller.ts l'appelle). Les routes internes servent
+          des services, pas des utilisateurs finaux, n'ont aucun acteur authentifie et ne sont
+          donc pas filtrees. Un test e2e le verrouille.
+          Hors perimetre, non touche : le test [PROF-BR-010] laisse rouge a dessein ; le
+          catalogue de champs (aucun ajout ni retrait) ; les routes d'ecriture.
+        </description>
+        <testCoverage>
+          npm run build : OK. npm test (unit) : 327 tests, 9 suites, TOUS VERTS (274 avant
+          session) — 34 nouveaux dans profile-visibility-filter.spec.ts (regle nue par audience
+          et par relation, retrait de cle vs null, champs de structure, derogations `all` et
+          `self`, metadonnees de prescription, garde-fou verrouillant le socle a exactement
+          firstName/lastName/avatarUrl/level/subjects et l'absence de tout champ de prescription
+          partage par defaut) et 19 dans profiles.service.spec.ts (titulaire integral, parent
+          financeur exempte, formateur filtre, 4 roles administratifs exemptes, prescription et
+          metadonnees, non-ecriture en base, une seule requete de reglages, 403 formateur et
+          parent non lies, filtrage des statistiques).
+          npm run test:e2e (USE_LOCAL_DB=true, base profile_test du conteneur PostgreSQL local,
+          --runInBand) : 182 tests, 181 verts. L'unique echec est [PROF-BR-010], PREEXISTANT et
+          laisse rouge a dessein (arbitrage produit en attente, voir openPoints) — il ne touche
+          pas cette session. 24 nouveaux tests e2e verts joues contre une VRAIE base, scenario
+          de bout en bout : l'eleve regle difficulties et phone a `self` via
+          PUT /field-visibility, puis son parent financeur rattache les voit, son formateur
+          rattache non, et lui-meme voit tout y compris la prescription redigee par le RP.
+          Un test verifie explicitement que « masque » et « vide » restent distinguables :
+          avatarUrl (socle, non renseigne) revient en cle presente a null et absent de
+          hiddenFields, tandis que phone (masque) est absent des cles et present dans
+          hiddenFields.
+          NON VERIFIE CONTRE LA PILE DEPLOYEE : le conteneur visiomath_profile n'a pas ete
+          redeploye dans cette session, il ne porte donc pas ce code. La preuve utilisateur
+          reste a produire apres redeploiement.
+        </testCoverage>
+      </decision>
       <openPoints>
-        <item priority="high" status="awaiting-arbitration" raisedIn="C11" raisedOn="2026-08-09">
+        <item priority="high" status="resolved" resolvedIn="C12" resolvedOn="2026-08-09"
+              raisedIn="C11" raisedOn="2026-08-09">
+          RESOLU le 2026-08-09 par l'arbitrage utilisateur inscrit dans docs/architecture.md :
+          le parent financeur voit tout sauf le carnet personnel, il est donc exempte des
+          reglages, ainsi que les administrateurs. Le filtrage est branche (voir C12). Le cas du
+          PROFESSEUR PRINCIPAL reste NON TRANCHE — il subit aujourd'hui les reglages comme tout
+          contact lie, voir l'item dedie ci-dessous. Texte d'origine conserve pour memoire :
           CONTRADICTION REMONTEE — filtrage en lecture selon la visibilite par champ.
           Le socle du 2026-08-09 pose que tout champ hors
           firstName/lastName/avatarUrl/level/subjects est masque par defaut des personnes liees.
@@ -939,6 +1064,34 @@
           parent financeur ? Le RP/AP/TI/AF voient-ils tout inconditionnellement (hypothese
           retenue aujourd'hui pour les routes de reglage) ?
           Le port est pret : FieldVisibilityService.resolveAudience(userId, fieldName), teste.
+        </item>
+        <item priority="high" status="awaiting-arbitration" raisedIn="C12" raisedOn="2026-08-09">
+          PROFESSEUR PRINCIPAL — cas non tranche, explicitement laisse ouvert par l'arbitrage du
+          2026-08-09 (« le cas du professeur principal n'a pas ete tranche : en l'absence de
+          decision, les reglages de visibilite lui sont appliques comme a tout contact lie »).
+          Comportement actuel, conforme a cette consigne : le PP subit les reglages EXACTEMENT
+          comme un formateur ordinaire ; resolveViewerRelation ne consulte pas le drapeau
+          isPrincipalTeacher de TeacherStudentLink.
+          Enjeu concret : le modele herite (hide_difficulties_from_contacts /
+          restrict_comments_to_principal_teacher) exemptait le PP au meme titre que le financeur.
+          Un eleve peut donc aujourd'hui masquer ses `difficulties` a son professeur principal —
+          celui-la meme qui l'accompagne. A trancher : le PP rejoint-il les exemptes (titulaire,
+          parent financeur, administrateurs) ou reste-t-il un contact lie ordinaire ?
+          Le branchement serait local : ajouter une resolution de isPrincipalTeacher dans
+          resolveViewerRelation et renvoyer 'exempt' — RelationsService porte deja le lien.
+        </item>
+        <item priority="medium" status="to-confirm" raisedIn="C12" raisedOn="2026-08-09">
+          ECART DE LECTURE SUR RP/AP — la consigne de la tache C12 citait « formateur, RP et AP
+          dans le cadre de leurs relations » parmi les lecteurs QUI SUBISSENT le filtrage, tandis
+          que docs/architecture.md (arbitrage persiste, source retenue) dit qu'il « s'applique
+          aux autres contacts lies, PAS au parent financeur ni AUX ADMINISTRATEURS ».
+          Implementation retenue : RP, AP, TI et AF sont exemptes. Motifs de fond en C12 point
+          (2) — un RP filtre ne relirait pas la prescription qu'il ecrit (tous ses champs sont
+          `self` par defaut), un AP filtre serait aveugle au dossier du formateur qu'il anime.
+          Si l'utilisateur veut au contraire soumettre le RP et/ou l'AP aux reglages, le
+          changement tient en une ligne : retirer le role de FIELD_VISIBILITY_EXEMPT_ROLES dans
+          profiles.service.ts. Il faudra alors trancher separement le sort de la section
+          prescription pour le RP, sous peine de rendre la route d'ecriture inutilisable.
         </item>
         <item status="to-do" raisedIn="C11" raisedOn="2026-08-09" owner="front">
           BREAKING CHANGE pour apps/web — GET/PATCH /profiles/:userId/visibility-preferences

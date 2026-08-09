@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import {
+  BadRequestException,
   ForbiddenException,
   InternalServerErrorException,
   NotFoundException,
@@ -11,7 +12,6 @@ import { StudentPedagogicalProfile } from '../../../src/profiles/entities/studen
 import { TeacherPedagogicalProfile } from '../../../src/profiles/entities/teacher-pedagogical-profile.entity';
 import { InternalProfileNote } from '../../../src/profiles/entities/internal-profile-note.entity';
 import { TeacherValidation } from '../../../src/profiles/entities/teacher-validation.entity';
-import { ProfileVisibilityPreference } from '../../../src/profiles/entities/profile-visibility-preference.entity';
 import { RelationsService } from '../../../src/relations/relations.service';
 import { EventsService } from '../../../src/events/events.service';
 import {
@@ -30,18 +30,24 @@ describe('ProfilesService', () => {
   let teacherPedaRepo: any;
   let noteRepo: any;
   let teacherValidationRepo: any;
-  let visibilityPrefRepo: any;
   let relationsService: any;
   let eventsService: any;
   let identityAccessClient: any;
 
   beforeEach(async () => {
+    /**
+     * Le rôle du compte est désormais la source autoritative pour savoir si une
+     * écriture pédagogique vise le profil élève ou formateur : le stub doit
+     * donc répondre par userId, et non un rôle unique pour tout le monde.
+     * Tout userId contenant « teacher » est un formateur, les autres sont des
+     * élèves — convention de nommage déjà suivie par les fixtures du fichier.
+     */
     identityAccessClient = {
-      findAccountByUserId: jest.fn().mockResolvedValue({
-        userId: 'student-uuid',
-        loginIdentifier: 'alice.martin',
-        role: 'eleve',
-      }),
+      findAccountByUserId: jest.fn().mockImplementation(async (userId: string) =>
+        userId.includes('teacher')
+          ? { userId, loginIdentifier: 'paul.durand', role: 'formateur' }
+          : { userId, loginIdentifier: 'alice.martin', role: 'eleve' },
+      ),
       findAccountByLoginIdentifier: jest.fn(),
     };
 
@@ -79,12 +85,6 @@ describe('ProfilesService', () => {
       save: jest.fn().mockImplementation(async (entity) => ({ id: 'validation-uuid', ...entity, updatedAt: new Date() })),
     };
 
-    visibilityPrefRepo = {
-      findOne: jest.fn().mockResolvedValue(null),
-      create: jest.fn().mockImplementation((dto) => dto),
-      save: jest.fn().mockImplementation(async (entity) => ({ ...entity, updatedAt: new Date() })),
-    };
-
     relationsService = {
       isTeacherLinkedToStudent: jest.fn().mockResolvedValue(false),
       isFinanceOwnerLinkedToStudent: jest.fn().mockResolvedValue(false),
@@ -99,7 +99,6 @@ describe('ProfilesService', () => {
         { provide: getRepositoryToken(TeacherPedagogicalProfile), useValue: teacherPedaRepo },
         { provide: getRepositoryToken(InternalProfileNote), useValue: noteRepo },
         { provide: getRepositoryToken(TeacherValidation), useValue: teacherValidationRepo },
-        { provide: getRepositoryToken(ProfileVisibilityPreference), useValue: visibilityPrefRepo },
         { provide: RelationsService, useValue: relationsService },
         { provide: EventsService, useValue: eventsService },
         { provide: IdentityAccessClient, useValue: identityAccessClient },
@@ -358,6 +357,9 @@ describe('ProfilesService', () => {
           loginIdentifier: 'alice.martin',
           administrative: { userId: eleveId, firstName: 'Alice' },
           pedagogical: null,
+          // null tant qu'aucun profil pédagogique n'existe — le front n'a donc
+          // aucun jeu de champs à afficher, et n'a pas à le deviner.
+          pedagogicalType: null,
         });
       });
 
@@ -525,6 +527,104 @@ describe('ProfilesService', () => {
       expect(studentPedaRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({ specificNeeds: 'Dyslexie légère' }),
       );
+    });
+
+    /**
+     * `difficulties` (ce sur quoi l'élève bute) et `specificNeeds`
+     * (aménagement reconnu : DYS, PAP, PPS) sont deux champs DISTINCTS. Ce
+     * test verrouille leur coexistence : les fusionner reviendrait à traiter
+     * un trouble comme une simple faiblesse.
+     */
+    it('enregistre difficulties et specificNeeds côte à côte, sans les confondre', async () => {
+      const actor = makeActor(UserRole.ELEVE, 'user-uuid');
+      await service.updatePedagogicalProfile(
+        'user-uuid',
+        { difficulties: 'Blocage sur les dérivées', specificNeeds: 'PAP dyslexie' },
+        actor,
+      );
+      expect(studentPedaRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          difficulties: 'Blocage sur les dérivées',
+          specificNeeds: 'PAP dyslexie',
+        }),
+      );
+    });
+
+    it('enregistre context sur le profil élève', async () => {
+      const actor = makeActor(UserRole.ELEVE, 'user-uuid');
+      await service.updatePedagogicalProfile(
+        'user-uuid',
+        { context: 'Redoublement en seconde' },
+        actor,
+      );
+      expect(studentPedaRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ context: 'Redoublement en seconde' }),
+      );
+    });
+
+    it('enregistre les 4 nouveaux champs déclaratifs du formateur', async () => {
+      const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+      await service.updatePedagogicalProfile(
+        'teacher-uuid',
+        {
+          diplomas: 'CAPES 2018',
+          specialties: ['Préparation Grand Oral', 'Remise à niveau'],
+          particularities: 'Pas de créneau avant 14h',
+          cvDocumentId: 'b0e3f6f2-9a1e-4f7b-9c1a-2f0f9d2b7c31',
+        },
+        actor,
+      );
+      expect(teacherPedaRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          diplomas: 'CAPES 2018',
+          specialties: ['Préparation Grand Oral', 'Remise à niveau'],
+          particularities: 'Pas de créneau avant 14h',
+          cvDocumentId: 'b0e3f6f2-9a1e-4f7b-9c1a-2f0f9d2b7c31',
+        }),
+      );
+    });
+
+    /**
+     * Défaut corrigé : un champ appartenant à l'autre rôle était filtré en
+     * silence et l'appelant recevait un 200 sur une écriture ignorée.
+     */
+    it('refuse en 400 un champ formateur envoyé sur un profil élève', async () => {
+      const actor = makeActor(UserRole.ELEVE, 'user-uuid');
+      await expect(
+        service.updatePedagogicalProfile('user-uuid', { level: '3ème', diplomas: 'CAPES' }, actor),
+      ).rejects.toThrow(BadRequestException);
+      expect(studentPedaRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('refuse en 400 un champ élève envoyé sur un profil formateur', async () => {
+      const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+      await expect(
+        service.updatePedagogicalProfile('teacher-uuid', { levels: ['Lycée'], goals: 'x' }, actor),
+      ).rejects.toThrow(BadRequestException);
+      expect(teacherPedaRepo.save).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Le rôle du compte prime sur l'heuristique par champs : un corps ne
+     * contenant que `subjects` — champ commun aux deux profils — retombait
+     * jusqu'ici systématiquement sur le profil formateur, y compris pour un
+     * élève. C'était l'ambiguïté documentée en openPoint.
+     */
+    it('résout le profil cible depuis le rôle du compte quand seul subjects est envoyé', async () => {
+      const actor = makeActor(UserRole.ELEVE, 'student-uuid');
+      await service.updatePedagogicalProfile('student-uuid', { subjects: ['Maths'] }, actor);
+      expect(studentPedaRepo.save).toHaveBeenCalled();
+      expect(teacherPedaRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('retombe sur le profil existant quand identity-access-service est injoignable', async () => {
+      identityAccessClient.findAccountByUserId.mockRejectedValue(
+        new IdentityAccessUnavailableError('down'),
+      );
+      studentPedaRepo.findOne.mockResolvedValue({ userId: 'student-uuid' });
+      const actor = makeActor(UserRole.ELEVE, 'student-uuid');
+      await service.updatePedagogicalProfile('student-uuid', { subjects: ['Maths'] }, actor);
+      expect(studentPedaRepo.save).toHaveBeenCalled();
     });
   });
 
@@ -1173,70 +1273,136 @@ describe('ProfilesService', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Visibility preferences — PROF-FN-004
+  // updatePrescription — section réservée au RP
   // ---------------------------------------------------------------------------
-  describe('getVisibilityPreferences (PROF-FN-004)', () => {
-    it('returns existing preferences for the élève', async () => {
-      visibilityPrefRepo.findOne.mockResolvedValue({
-        userId: 'student-uuid',
-        hideDifficultiesFromContacts: true,
-        restrictCommentsToPrincipalTeacher: false,
-      });
-      const actor = makeActor(UserRole.ELEVE, 'student-uuid');
-      const result = await service.getVisibilityPreferences('student-uuid', actor);
-      expect(result).toHaveProperty('hideDifficultiesFromContacts', true);
+  describe('updatePrescription — droits', () => {
+    it('le RP écrit la prescription d’un élève', async () => {
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE, 'rp-uuid');
+      await service.updatePrescription(
+        'student-uuid',
+        { generalAssessment: 'Élève sérieux', recommendedPace: '2h/semaine' },
+        actor,
+      );
+      expect(studentPedaRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          generalAssessment: 'Élève sérieux',
+          recommendedPace: '2h/semaine',
+        }),
+      );
     });
 
-    it('returns defaults when no preference record exists', async () => {
-      const actor = makeActor(UserRole.ELEVE, 'student-uuid');
-      const result = await service.getVisibilityPreferences('student-uuid', actor);
-      expect(result).toMatchObject({
-        userId: 'student-uuid',
-        hideDifficultiesFromContacts: false,
-        restrictCommentsToPrincipalTeacher: false,
-      });
+    it('le RP écrit la prescription d’un formateur', async () => {
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE, 'rp-uuid');
+      await service.updatePrescription(
+        'teacher-uuid',
+        { maxValidatedLevel: 'Terminale', testResults: '87/100' },
+        actor,
+      );
+      expect(teacherPedaRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ maxValidatedLevel: 'Terminale', testResults: '87/100' }),
+      );
     });
 
-    it('RP can view any élève preferences', async () => {
-      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+    /**
+     * Cœur du chantier : le titulaire LIT sa prescription mais ne l'écrit
+     * jamais, y compris sur son propre profil. Un simple contrôle « je modifie
+     * mon profil » aurait laissé passer ces deux cas.
+     */
+    it('refuse explicitement qu’un élève écrive sa propre prescription', async () => {
+      const actor = makeActor(UserRole.ELEVE, 'student-uuid');
       await expect(
-        service.getVisibilityPreferences('student-uuid', actor),
-      ).resolves.toBeDefined();
+        service.updatePrescription('student-uuid', { generalAssessment: 'Je suis excellent' }, actor),
+      ).rejects.toThrow(ForbiddenException);
+      expect(studentPedaRepo.save).not.toHaveBeenCalled();
     });
 
-    it('throws 403 when formateur tries to view élève preferences', async () => {
+    it('refuse explicitement qu’un formateur écrive ses propres résultats de test', async () => {
       const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
       await expect(
-        service.getVisibilityPreferences('student-uuid', actor),
+        service.updatePrescription('teacher-uuid', { testResults: '100/100' }, actor),
+      ).rejects.toThrow(ForbiddenException);
+      expect(teacherPedaRepo.save).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [UserRole.PARENT_FINANCEUR, 'parent-uuid'],
+      [UserRole.ANIMATEUR_PEDAGOGIQUE, 'ap-uuid'],
+      [UserRole.TECHNICIEN_INFORMATIQUE, 'ti-uuid'],
+      [UserRole.ADMINISTRATEUR_FINANCIER, 'af-uuid'],
+    ])('refuse le rôle %s sur la prescription', async (role, id) => {
+      const actor = makeActor(role, id);
+      await expect(
+        service.updatePrescription('student-uuid', { generalAssessment: 'x' }, actor),
       ).rejects.toThrow(ForbiddenException);
     });
   });
 
-  describe('updateVisibilityPreferences (PROF-FN-004)', () => {
-    it('élève can update own visibility preferences', async () => {
-      const actor = makeActor(UserRole.ELEVE, 'student-uuid');
-      const dto = { hideDifficultiesFromContacts: true };
-      await service.updateVisibilityPreferences('student-uuid', dto, actor);
-      expect(visibilityPrefRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ hideDifficultiesFromContacts: true }),
+  describe('updatePrescription — filledBy / filledAt', () => {
+    it('renseigne filledBy avec l’acteur authentifié et filledAt côté serveur', async () => {
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE, 'rp-uuid');
+      const before = Date.now();
+      await service.updatePrescription('student-uuid', { recommendedPath: 'Parcours A' }, actor);
+
+      const saved = studentPedaRepo.save.mock.calls[0][0];
+      expect(saved.filledBy).toBe('rp-uuid');
+      expect(saved.filledAt).toBeInstanceOf(Date);
+      expect(saved.filledAt.getTime()).toBeGreaterThanOrEqual(before);
+    });
+
+    it('ne prend jamais filledBy depuis le corps de la requête', async () => {
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE, 'rp-uuid');
+      // Un client malveillant tenterait d'attribuer la prescription à un autre RP.
+      // Le DTO ne porte pas ces champs (400 via forbidNonWhitelisted côté HTTP) ;
+      // même en les forçant jusqu'au service, l'acteur authentifié l'emporte.
+      await service.updatePrescription(
+        'student-uuid',
+        { recommendedPath: 'Parcours A', filledBy: 'someone-else' } as never,
+        actor,
       );
+      expect(studentPedaRepo.save.mock.calls[0][0].filledBy).toBe('rp-uuid');
     });
 
-    it('updates existing preference record', async () => {
-      visibilityPrefRepo.findOne.mockResolvedValue({
+    it('écrase filledBy/filledAt d’une prescription existante', async () => {
+      studentPedaRepo.findOne.mockResolvedValue({
         userId: 'student-uuid',
-        hideDifficultiesFromContacts: false,
+        filledBy: 'previous-rp',
+        filledAt: new Date('2020-01-01'),
       });
-      const actor = makeActor(UserRole.ELEVE, 'student-uuid');
-      await service.updateVisibilityPreferences('student-uuid', { hideDifficultiesFromContacts: true }, actor);
-      expect(visibilityPrefRepo.save).toHaveBeenCalled();
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE, 'rp-uuid');
+      await service.updatePrescription('student-uuid', { recommendedPace: '1h' }, actor);
+
+      const saved = studentPedaRepo.save.mock.calls[0][0];
+      expect(saved.filledBy).toBe('rp-uuid');
+      expect(saved.filledAt.getTime()).toBeGreaterThan(new Date('2020-01-01').getTime());
+    });
+  });
+
+  describe('updatePrescription — champs du mauvais rôle', () => {
+    it('refuse en 400 un champ formateur sur un profil élève', async () => {
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE, 'rp-uuid');
+      await expect(
+        service.updatePrescription('student-uuid', { maxValidatedLevel: 'Terminale' }, actor),
+      ).rejects.toThrow(BadRequestException);
+      expect(studentPedaRepo.save).not.toHaveBeenCalled();
     });
 
-    it('throws 403 when formateur tries to update élève preferences', async () => {
-      const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+    it('refuse en 400 un champ élève sur un profil formateur', async () => {
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE, 'rp-uuid');
       await expect(
-        service.updateVisibilityPreferences('student-uuid', { hideDifficultiesFromContacts: true }, actor),
-      ).rejects.toThrow(ForbiddenException);
+        service.updatePrescription('teacher-uuid', { recommendedPace: '2h' }, actor),
+      ).rejects.toThrow(BadRequestException);
+      expect(teacherPedaRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('refuse en 400 un corps mélangeant les deux rôles', async () => {
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE, 'rp-uuid');
+      await expect(
+        service.updatePrescription(
+          'student-uuid',
+          { recommendedPace: '2h', maxValidatedLevel: 'Terminale' },
+          actor,
+        ),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 

@@ -58,23 +58,20 @@ l'être — preuve jouée contre la pile réelle, pas des tests verts.
       le RP rédige la prescription, `filledBy` = son UUID et `filledAt` posés serveur ;
       l'élève **lit** la prescription attribuée et datée ; catalogue de visibilité à
       34 champs servi par le serveur ; libellés tous en français, plus aucun UUID à l'écran.
-- [ ] Validé par l'utilisateur
-- [ ] Mergé dans master
+- [x] Validé par l'utilisateur — 2026-08-09
+- [x] Mergé dans master — PR #83
 
-## Point restant, à arbitrer par l'utilisateur
+## Suite immédiate — appliquer le filtrage de visibilité
 
-**La visibilité champ par champ est stockée et réglable, mais n'est pas appliquée en lecture.**
-`GET /profiles/{userId}` ne filtre aucun champ. `profile-service` a remonté une contradiction
-réelle plutôt que de la contourner :
+**Contradiction tranchée le 2026-08-09 : le parent financeur voit tout, sauf le carnet
+personnel.** Il est donc exempté des réglages de visibilité par champ — un élève ne peut pas lui
+masquer une donnée de profil. Arbitrage inscrit dans `docs/architecture.md`.
 
-- le socle validé au §8 masque par défaut tout ce qui n'est pas
-  `firstName`/`lastName`/`avatarUrl`/`level`/`subjects` ;
-- l'arbitrage du 2026-08-07 dit que **le parent voit tout ce qui concerne ses élèves**, sauf le
-  carnet personnel.
+Reste à faire : brancher le filtrage sur `GET /profiles/{userId}`, avec cette exemption. Le port
+est déjà écrit et testé côté `profile-service`, il n'attendait que la règle.
 
-Les deux ne peuvent pas s'appliquer en même temps. Question posée : le parent financeur et le
-professeur principal sont-ils exemptés d'un réglage `self` ? Un élève peut-il masquer une donnée
-à son parent financeur ? Le port de filtrage est écrit et testé, il n'attend que la réponse.
+Le cas du **professeur principal** n'a pas été tranché : en l'absence de décision, les réglages
+lui sont appliqués comme à tout contact lié. À signaler à l'utilisateur.
 
 ## Bloqué par
 

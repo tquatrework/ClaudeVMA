@@ -171,4 +171,17 @@ Phase 3 enrichit l'offre :
   composants — sinon un meme champ finit par porter deux libelles selon l'ecran.
   Regle posee le 2026-08-09.
 
+- Visibilite champ par champ face au droit de vue du parent : les deux regles entraient en
+  conflit — le socle de visibilite masque par defaut tout ce qui n'est pas prenom, nom, photo,
+  niveau et matieres, tandis que l'arbitrage du 2026-08-07 accorde au parent la vue sur tout ce
+  qui concerne ses eleves. **Tranche le 2026-08-09 : le parent financeur voit tout, sauf le
+  carnet personnel.** Il est donc **exempte** des reglages de visibilite par champ : un eleve ne
+  peut pas masquer une donnee de profil a son parent financeur. Le carnet personnel reste hors
+  de portee, mais il appartient a `pedagogical-log-service` et n'est pas concerne par ce
+  filtrage.
+  Consequence : `profile_field_visibility` s'applique aux autres contacts lies, pas au parent
+  financeur ni aux administrateurs. Le cas du **professeur principal** n'a pas ete tranche : en
+  l'absence de decision, les reglages de visibilite lui sont appliques comme a tout contact lie.
+  A rouvrir si ce comportement ne convient pas.
+
 ## Points ouverts a arbitrer

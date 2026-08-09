@@ -148,6 +148,39 @@ describe('ProfilePage', () => {
     expect(screen.getByText('Mathématiques, Physique-Chimie')).toBeDefined()
   })
 
+  it("n'affiche ni l'UUID du compte ni de libellé anglais dans l'onglet administratif", async () => {
+    // Le serveur renvoie le bloc `administrative` avec ses champs techniques :
+    // affiché tel quel, il faisait apparaître « User id », « Created at » et
+    // « Updated at » à l'écran (constat du 2026-08-09 sur la pile réelle).
+    mockFetchProfile.mockResolvedValue({
+      ...SAMPLE_PROFILE,
+      administrative: {
+        userId: '464da8a2-8b4f-4cc7-b7b1-f1d0ab511355',
+        firstName: 'Nina',
+        lastName: 'Profil',
+        birthDate: '2008-05-14',
+        createdAt: '2026-08-09T18:13:49.000Z',
+        updatedAt: '2026-08-09T18:13:49.000Z',
+      },
+    })
+
+    renderProfilePage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Nina')).toBeDefined()
+    })
+
+    // L'UUID n'est pas une donnée de fiche : ni sa valeur, ni son libellé.
+    expect(screen.queryByText('464da8a2-8b4f-4cc7-b7b1-f1d0ab511355')).toBeNull()
+    expect(screen.queryByText('User id')).toBeNull()
+
+    // La traçabilité reste lisible, mais en français.
+    expect(screen.queryByText('Created at')).toBeNull()
+    expect(screen.queryByText('Updated at')).toBeNull()
+    expect(screen.getByText('Profil créé le')).toBeDefined()
+    expect(screen.getByText('Dernière modification')).toBeDefined()
+  })
+
   it('shows "Profil introuvable" for 404 error', async () => {
     mockFetchProfile.mockRejectedValue({ response: { status: 404 } })
 

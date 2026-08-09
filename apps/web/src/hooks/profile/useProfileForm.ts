@@ -1,19 +1,31 @@
 import { useCallback, useState } from 'react'
-import { fetchProfile, updateAdministrativeProfile, updatePedagogicalProfile } from '../../api/profile'
-import type { AdministrativeProfileFields, PedagogicalProfileFields } from '../../types/profile'
+import {
+  fetchProfile,
+  updateAdministrativeProfile,
+  updatePedagogicalProfile,
+  updatePrescription,
+} from '../../api/profile'
+import type {
+  AdministrativeProfileFields,
+  DeclarativePedagogicalFields,
+  PedagogicalProfileType,
+  PrescriptionFields,
+} from '../../types/profile'
 import { useAsyncData } from '../useAsyncData'
-import { getErrorMessage, getErrorStatus } from '../../utils/apiError'
+import { getProfileReadErrorMessage, getProfileWriteErrorMessage } from '../../utils/profileErrors'
 import { pickAdministrativeFields } from '../../utils/profileFields'
 
 interface ProfileFormData {
   administrative: AdministrativeProfileFields
   /**
-   * Bloc `pedagogical` brut de `GET /profiles/:userId`. Sa forme (élève ou
-   * formateur) n'est connue qu'après résolution par
-   * `resolvePedagogicalProfileKind` : il reste donc non typé à ce niveau.
+   * Bloc `pedagogical` brut de `GET /profiles/:userId` : sections déclarative et
+   * prescription confondues, à plat. La séparation est faite au moment de
+   * l'écriture, chaque section ayant sa route.
    * `null` = profil pédagogique jamais renseigné, état NORMAL.
    */
   pedagogical: Record<string, unknown> | null
+  /** Forme annoncée par le serveur, `null` tant qu'aucun profil n'existe. */
+  pedagogicalType: PedagogicalProfileType | null
 }
 
 function pendingForever<T>(): Promise<T> {
@@ -31,35 +43,39 @@ async function loadProfileFormData(userId: string | undefined): Promise<ProfileF
       // le formulaire le renvoie intégralement au PUT, et tout champ inconnu y
       // déclencherait un 400 (forbidNonWhitelisted).
       administrative: pickAdministrativeFields(profile.administrative),
-      // `pedagogical: null` (profil non encore renseigné) est un état NORMAL,
-      // conservé tel quel : il sert à déterminer la forme du profil à éditer.
       pedagogical: (profile.pedagogical ?? null) as Record<string, unknown> | null,
+      pedagogicalType: profile.pedagogicalType ?? null,
     }
   } catch (caughtError) {
-    const status = getErrorStatus(caughtError)
-    const message = status === 403 ? 'Accès refusé' : 'Impossible de charger le profil'
-    throw { response: { data: { message } } }
+    throw { response: { data: { message: getProfileReadErrorMessage(caughtError) } } }
   }
 }
 
 export interface UseProfileFormResult {
   administrative: AdministrativeProfileFields | undefined
   pedagogical: Record<string, unknown> | null | undefined
+  pedagogicalType: PedagogicalProfileType | null | undefined
   isLoading: boolean
   loadError: string | null
   saveAdministrative: (payload: AdministrativeProfileFields) => Promise<boolean>
   isSavingAdministrative: boolean
   administrativeSaveError: string | null
-  savePedagogical: (payload: PedagogicalProfileFields) => Promise<boolean>
+  savePedagogical: (payload: DeclarativePedagogicalFields) => Promise<boolean>
   isSavingPedagogical: boolean
   pedagogicalSaveError: string | null
+  savePrescription: (payload: PrescriptionFields) => Promise<boolean>
+  isSavingPrescription: boolean
+  prescriptionSaveError: string | null
 }
 
 /**
  * useProfileForm — charge les données initiales du profil administratif et
- * pédagogique d'un utilisateur, et expose deux actions de sauvegarde
- * indépendantes (chaque onglet a son propre cycle loading/error, à l'image de
- * useAccountManagement pour changeStatus/regenerateAccess).
+ * pédagogique d'un utilisateur, et expose trois actions de sauvegarde
+ * indépendantes, une par route d'écriture : administratif, section déclarative
+ * du pédagogique, section prescription (RP seul).
+ *
+ * Chaque action a son propre cycle loading/error : un `403` sur la prescription
+ * ne doit pas faire croire que l'enregistrement du profil déclaratif a échoué.
  */
 export function useProfileForm(userId: string | undefined): UseProfileFormResult {
   const { data, isLoading, error: loadError } = useAsyncData(
@@ -73,6 +89,9 @@ export function useProfileForm(userId: string | undefined): UseProfileFormResult
   const [isSavingPedagogical, setIsSavingPedagogical] = useState(false)
   const [pedagogicalSaveError, setPedagogicalSaveError] = useState<string | null>(null)
 
+  const [isSavingPrescription, setIsSavingPrescription] = useState(false)
+  const [prescriptionSaveError, setPrescriptionSaveError] = useState<string | null>(null)
+
   const saveAdministrative = useCallback(
     async (payload: AdministrativeProfileFields) => {
       if (!userId) return false
@@ -82,7 +101,7 @@ export function useProfileForm(userId: string | undefined): UseProfileFormResult
         await updateAdministrativeProfile(userId, payload)
         return true
       } catch (caughtError) {
-        setAdministrativeSaveError(getErrorMessage(caughtError, 'Erreur lors de la sauvegarde'))
+        setAdministrativeSaveError(getProfileWriteErrorMessage(caughtError, 'administrative'))
         return false
       } finally {
         setIsSavingAdministrative(false)
@@ -92,7 +111,7 @@ export function useProfileForm(userId: string | undefined): UseProfileFormResult
   )
 
   const savePedagogical = useCallback(
-    async (payload: PedagogicalProfileFields) => {
+    async (payload: DeclarativePedagogicalFields) => {
       if (!userId) return false
       setIsSavingPedagogical(true)
       setPedagogicalSaveError(null)
@@ -100,7 +119,7 @@ export function useProfileForm(userId: string | undefined): UseProfileFormResult
         await updatePedagogicalProfile(userId, payload)
         return true
       } catch (caughtError) {
-        setPedagogicalSaveError(getErrorMessage(caughtError, 'Erreur lors de la sauvegarde'))
+        setPedagogicalSaveError(getProfileWriteErrorMessage(caughtError, 'declarative'))
         return false
       } finally {
         setIsSavingPedagogical(false)
@@ -109,9 +128,28 @@ export function useProfileForm(userId: string | undefined): UseProfileFormResult
     [userId],
   )
 
+  const savePrescription = useCallback(
+    async (payload: PrescriptionFields) => {
+      if (!userId) return false
+      setIsSavingPrescription(true)
+      setPrescriptionSaveError(null)
+      try {
+        await updatePrescription(userId, payload)
+        return true
+      } catch (caughtError) {
+        setPrescriptionSaveError(getProfileWriteErrorMessage(caughtError, 'prescription'))
+        return false
+      } finally {
+        setIsSavingPrescription(false)
+      }
+    },
+    [userId],
+  )
+
   return {
     administrative: data?.administrative,
     pedagogical: data?.pedagogical,
+    pedagogicalType: data?.pedagogicalType,
     isLoading,
     loadError,
     saveAdministrative,
@@ -120,5 +158,8 @@ export function useProfileForm(userId: string | undefined): UseProfileFormResult
     savePedagogical,
     isSavingPedagogical,
     pedagogicalSaveError,
+    savePrescription,
+    isSavingPrescription,
+    prescriptionSaveError,
   }
 }

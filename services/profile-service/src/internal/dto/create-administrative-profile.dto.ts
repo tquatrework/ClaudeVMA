@@ -1,4 +1,11 @@
-import { IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import {
+  IsDateString,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+} from 'class-validator';
 
 /**
  * Body for POST /internal/create-administrative-profile.
@@ -20,4 +27,21 @@ export class CreateAdministrativeProfileDto {
   @IsString() @IsNotEmpty() @MaxLength(100) firstName: string;
   @IsString() @IsNotEmpty() @MaxLength(100) lastName: string;
   @IsOptional() @IsString() @IsNotEmpty() @MaxLength(20) phone?: string;
+
+  /**
+   * Date de naissance au format ISO (YYYY-MM-DD).
+   *
+   * Accepté à la création depuis le 2026-08-09 : la colonne existait déjà en
+   * base et le champ était modifiable via PUT /profiles/:userId/administrative,
+   * mais la CRÉATION l'ignorait — `birthDate` avait donc été retiré du
+   * formulaire d'inscription faute d'être stocké nulle part. Ce champ permet à
+   * identity-access-service de le relayer dès l'inscription
+   * (docs/proposition-profils.md §3).
+   *
+   * Optionnel : tous les flux de création de compte ne collectent pas de date
+   * de naissance (comptes RP, TI, administrateur financier).
+   * `bootstrapAdministrativeProfile` le persiste avec la même fiabilité que
+   * les autres champs lorsqu'il est fourni.
+   */
+  @IsOptional() @IsDateString() birthDate?: string;
 }

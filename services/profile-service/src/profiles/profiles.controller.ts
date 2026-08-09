@@ -16,13 +16,17 @@ import {
   ApiParam,
 } from '@nestjs/swagger';
 import { ProfilesService } from './profiles.service';
+import { FieldVisibilityService } from './field-visibility.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
+import { UserRole } from '../common/enums/user-role.enum';
 import { UpdateAdministrativeProfileDto } from './dto/update-administrative-profile.dto';
 import { UpdatePedagogicalProfileDto } from './dto/update-pedagogical-profile.dto';
-import { UpdateVisibilityPreferenceDto } from './dto/update-visibility-preference.dto';
+import { UpdatePrescriptionDto } from './dto/update-prescription.dto';
+import { UpdateFieldVisibilityDto } from './dto/update-field-visibility.dto';
 
 /**
  * Thin HTTP adapter for the core profile resource: administrative profile,
@@ -36,7 +40,10 @@ import { UpdateVisibilityPreferenceDto } from './dto/update-visibility-preferenc
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('profiles')
 export class ProfilesController {
-  constructor(private readonly profilesService: ProfilesService) {}
+  constructor(
+    private readonly profilesService: ProfilesService,
+    private readonly fieldVisibilityService: FieldVisibilityService,
+  ) {}
 
   @Get(':userId')
   @ApiOperation({
@@ -51,10 +58,14 @@ export class ProfilesController {
   @ApiResponse({
     status: 200,
     description:
-      'Profile data (fields filtered by actor role). ' +
-      'Includes loginIdentifier fetched from identity-access-service; null if unavailable. ' +
-      '`pedagogical` is null when the user has not filled in their pedagogical profile yet — ' +
-      'this is a normal state, the pedagogical profile being optional.',
+      'Response shape: { userId, loginIdentifier, administrative, pedagogical, pedagogicalType }. ' +
+      '`pedagogical` carries the COMPLETE pedagogical profile, both sections merged flat: ' +
+      'the declarative fields the owner fills in AND the prescription fields written by the RP. ' +
+      'The owner reads their prescription here but can never write it (see ' +
+      'PUT /profiles/:userId/prescription). ' +
+      '`pedagogicalType` is "student", "teacher", or null when no pedagogical profile exists yet — ' +
+      'a normal state, the pedagogical profile being optional. ' +
+      '`loginIdentifier` comes from identity-access-service; null if unavailable.',
   })
   @ApiResponse({ status: 403, description: 'Forbidden — insufficient role or not linked' })
   @ApiResponse({
@@ -103,19 +114,29 @@ export class ProfilesController {
 
   @Put(':userId/pedagogical')
   @ApiOperation({
-    summary: 'Update pedagogical profile',
+    summary: 'Update the declarative section of the pedagogical profile',
     description:
-      'Upsert the pedagogical profile. The student profile is targeted when the body ' +
-      'carries at least one student-only field (level, goals, specificNeeds); otherwise ' +
-      'the teacher profile is targeted (levels, experience, testResults, ' +
-      'isAnimateurPedagogique). `subjects` exists on both and never discriminates. ' +
-      'Users may update their own; RP and TI may update any.',
+      'Upsert the DECLARATIVE section only — what the profile owner states about themselves. ' +
+      'Student fields: level, subjects, goals, specificNeeds, difficulties, context. ' +
+      'Teacher fields: levels, subjects, experience, diplomas, specialties, particularities, ' +
+      'cvDocumentId. `subjects` exists on both profiles and never discriminates.\n\n' +
+      'This route NEVER accepts a prescription field (generalAssessment, recommendedPace, ' +
+      'recommendedTeacherProfile, recommendedPath, recommendedActivities, maxValidatedLevel, ' +
+      'audienceType, testResults, testComments) nor filledBy/filledAt: sending one returns 400. ' +
+      'Use PUT /profiles/:userId/prescription (RP only) instead. ' +
+      '`isAnimateurPedagogique` is likewise refused here — it is a right granted through ' +
+      'POST /profiles/:teacherId/ap-status, not a declaration.\n\n' +
+      'Target role is resolved from the account role held by identity-access-service, then ' +
+      'from the fields present. Sending fields of the other role returns 400 rather than ' +
+      'silently ignoring them. Users may update their own profile; RP and TI may update any.',
   })
   @ApiParam({ name: 'userId', description: 'Target user UUID' })
-  @ApiResponse({ status: 200, description: 'Updated pedagogical profile' })
+  @ApiResponse({ status: 200, description: 'Updated pedagogical profile (declarative section)' })
   @ApiResponse({
     status: 400,
-    description: 'Unknown field in the body (forbidNonWhitelisted) or invalid field type',
+    description:
+      'Unknown field, prescription field, or field belonging to the other role ' +
+      '(student fields on a teacher profile and vice versa); invalid field type',
   })
   @ApiResponse({ status: 403, description: 'Forbidden — may only update own profile' })
   updatePedagogical(
@@ -124,6 +145,49 @@ export class ProfilesController {
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<Awaited<ReturnType<ProfilesService['updatePedagogicalProfile']>>> {
     return this.profilesService.updatePedagogicalProfile(userId, dto, actor);
+  }
+
+  @Put(':userId/prescription')
+  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE)
+  @ApiOperation({
+    summary: 'Update the prescription section of the pedagogical profile (RP only)',
+    description:
+      'Upsert the PRESCRIPTION section of a pedagogical profile — what the responsable ' +
+      'pédagogique prescribes ABOUT the person, in the same profile but under different ' +
+      'write rights.\n\n' +
+      'Student fields: generalAssessment, recommendedPace, recommendedTeacherProfile, ' +
+      'recommendedPath, recommendedActivities. ' +
+      'Teacher fields: maxValidatedLevel, audienceType, testResults, testComments.\n\n' +
+      'RESERVED TO THE RESPONSABLE PÉDAGOGIQUE, including when the target is the caller ' +
+      'themselves: a student must not be able to write their own recommendations, nor a ' +
+      'teacher their own test results. Any other role gets 403.\n\n' +
+      '`filledBy` and `filledAt` are set server-side from the authenticated actor and the ' +
+      'server clock; sending them in the body returns 400. They are what makes the ' +
+      'prescription binding — who prescribed what, and when.\n\n' +
+      'The owner READS this section through GET /profiles/:userId, merged into `pedagogical`.',
+  })
+  @ApiParam({ name: 'userId', description: 'Target user UUID (student or teacher)' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Updated pedagogical profile, prescription section included, with filledBy/filledAt set',
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Unknown field (including filledBy/filledAt or any declarative field), fields mixing ' +
+      'both roles, or fields belonging to the other role than the resolved profile',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden — responsable pédagogique only, owner included',
+  })
+  updatePrescription(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() dto: UpdatePrescriptionDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<ProfilesService['updatePrescription']>>> {
+    return this.profilesService.updatePrescription(userId, dto, actor);
   }
 
   @Get(':userId/statistics')
@@ -145,38 +209,59 @@ export class ProfilesController {
     return this.profilesService.getPedagogicalStatistics(userId, actor);
   }
 
-  @Get(':userId/visibility-preferences')
+  @Get(':userId/field-visibility')
   @ApiOperation({
-    summary: 'Get visibility preferences for an élève',
+    summary: 'Get per-field visibility settings',
     description:
-      'Returns the confidentiality settings for an élève profile (PROF-FN-004). ' +
-      'Accessible to the élève themselves and privileged roles.',
+      'Returns the effective visibility of EVERY field of the visibility catalog, so that a ' +
+      'confidentiality screen can be built from a single call without duplicating the ' +
+      'catalog or the defaults on the client.\n\n' +
+      'Shape: { userId, fields: [{ fieldName, block, audience, defaultAudience, isExplicit, ' +
+      'isPrescription, isReserved }] }.\n' +
+      '`audience` is what actually applies; `defaultAudience` is the block default, useful to ' +
+      'offer a "reset" action; `isExplicit` tells whether the user set it themselves.\n' +
+      '`block` is one of administrative | pedagogical-student | pedagogical-teacher.\n\n' +
+      'Default baseline (validated 2026-08-09): firstName, lastName, avatarUrl, level and ' +
+      'subjects are visible to linked people; everything else is `self` by default.\n\n' +
+      'Replaces GET /profiles/:userId/visibility-preferences, removed with its two hard-coded ' +
+      'booleans; existing settings were migrated into rows without loss.',
   })
-  @ApiParam({ name: 'userId', description: 'Élève UUID' })
-  @ApiResponse({ status: 200, description: 'Visibility preferences' })
-  @ApiResponse({ status: 403, description: 'Forbidden — own account or admin only' })
-  getVisibilityPreferences(
+  @ApiParam({ name: 'userId', description: 'Profile owner UUID' })
+  @ApiResponse({ status: 200, description: 'Effective per-field visibility settings' })
+  @ApiResponse({ status: 403, description: 'Forbidden — own account or admin roles only' })
+  getFieldVisibility(
     @Param('userId', ParseUUIDPipe) userId: string,
     @CurrentUser() actor: AuthenticatedUser,
-  ): Promise<Awaited<ReturnType<ProfilesService['getVisibilityPreferences']>>> {
-    return this.profilesService.getVisibilityPreferences(userId, actor);
+  ): Promise<Awaited<ReturnType<FieldVisibilityService['getFieldVisibility']>>> {
+    return this.fieldVisibilityService.getFieldVisibility(userId, actor);
   }
 
-  @Patch(':userId/visibility-preferences')
+  @Put(':userId/field-visibility')
   @ApiOperation({
-    summary: 'Update visibility preferences for an élève',
+    summary: 'Update per-field visibility settings',
     description:
-      'Sets confidentiality flags for an élève (PROF-FN-004): ' +
-      'whether to hide difficulties/comments from non-priority contacts.',
+      'Partial upsert: body is { fields: [{ fieldName, audience }] } and ONLY the listed ' +
+      'fields are modified — a field left out keeps its current setting rather than being ' +
+      'reset, so a screen that knows part of the catalog cannot wipe the rest. ' +
+      'To go back to a default, send that field with its `defaultAudience`.\n\n' +
+      '`audience` ∈ self | linked | all. `fieldName` must belong to the visibility catalog: ' +
+      'an unknown name returns 400 listing the accepted names, never a silent no-op. ' +
+      'A field name repeated twice in the same body also returns 400.\n\n' +
+      'Returns the same payload as GET /profiles/:userId/field-visibility.',
   })
-  @ApiParam({ name: 'userId', description: 'Élève UUID' })
-  @ApiResponse({ status: 200, description: 'Updated visibility preferences' })
-  @ApiResponse({ status: 403, description: 'Forbidden — own account or admin only' })
-  updateVisibilityPreferences(
+  @ApiParam({ name: 'userId', description: 'Profile owner UUID' })
+  @ApiResponse({ status: 200, description: 'Updated per-field visibility settings' })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Unknown fieldName, duplicated fieldName, invalid audience, empty or malformed fields array',
+  })
+  @ApiResponse({ status: 403, description: 'Forbidden — own account or admin roles only' })
+  updateFieldVisibility(
     @Param('userId', ParseUUIDPipe) userId: string,
-    @Body() dto: UpdateVisibilityPreferenceDto,
+    @Body() dto: UpdateFieldVisibilityDto,
     @CurrentUser() actor: AuthenticatedUser,
-  ): Promise<Awaited<ReturnType<ProfilesService['updateVisibilityPreferences']>>> {
-    return this.profilesService.updateVisibilityPreferences(userId, dto, actor);
+  ): Promise<Awaited<ReturnType<FieldVisibilityService['updateFieldVisibility']>>> {
+    return this.fieldVisibilityService.updateFieldVisibility(userId, dto, actor);
   }
 }

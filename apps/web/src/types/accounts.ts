@@ -101,6 +101,15 @@ export interface RegisterStudentPayload {
   lastName: string
   phoneNumber?: string
   /**
+   * Date calendaire ISO `YYYY-MM-DD` **stricte**, à la racine du corps, optionnelle
+   * (docs/routes.md). Le serveur valide la forme ET l'existence réelle de la date :
+   * `2008-02-30` comme un datetime complet renvoient `400`. Omis quand l'utilisateur
+   * ne l'a pas saisie — jamais envoyé en chaîne vide.
+   * Accepté par `POST /accounts/students` uniquement : aucun `parentBirthDate`
+   * n'existe, le compte parent créé en parallèle renseigne la sienne depuis son profil.
+   */
+  birthDate?: string
+  /**
    * Omis si l'utilisateur n'a rien coché. Le compte lié éventuellement créé dans le
    * même appel n'en reçoit jamais : un consentement est un acte personnel, il signe
    * les siens à sa première connexion (docs/routes.md).

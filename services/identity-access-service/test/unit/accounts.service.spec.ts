@@ -936,6 +936,93 @@ describe('AccountsService', () => {
     });
   });
 
+  // ── Date de naissance : relayée à profile-service, jamais stockée ici ──
+
+  describe('birthDate relay to profile-service', () => {
+    const studentWithBirthDate = {
+      email: 'student-birthdate@test.com',
+      password: 'password123',
+      firstName: 'Lucas',
+      lastName: 'Petit',
+      birthDate: '2008-05-14',
+    };
+
+    it('forwards birthDate under the same name, alongside firstName/lastName/phone', async () => {
+      await service.createStudentAccount({ ...studentWithBirthDate, phoneNumber: '+33 6 01 02 03 04' });
+
+      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith({
+        userId: 'user-uuid',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        phone: '+33 6 01 02 03 04',
+        birthDate: '2008-05-14',
+      });
+    });
+
+    it('omits birthDate entirely when the form did not collect it', async () => {
+      await service.createStudentAccount({
+        email: 'student-no-birthdate@test.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+      });
+
+      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith({
+        userId: 'user-uuid',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+      });
+    });
+
+    it('never writes the birth date into the users table', async () => {
+      await service.createStudentAccount(studentWithBirthDate);
+
+      for (const createdEntity of userRepo.create.mock.calls.map((call: unknown[]) => call[0])) {
+        expect(createdEntity).not.toHaveProperty('birthDate');
+        expect(createdEntity).not.toHaveProperty('dateNaissance');
+        expect(createdEntity).not.toHaveProperty('date_naissance');
+      }
+      for (const savedEntity of userRepo.save.mock.calls.map((call: unknown[]) => call[0])) {
+        expect(savedEntity).not.toHaveProperty('birthDate');
+        expect(savedEntity).not.toHaveProperty('dateNaissance');
+        expect(savedEntity).not.toHaveProperty('date_naissance');
+      }
+    });
+
+    it('never exposes the birth date in the account creation response', async () => {
+      const response = await service.createStudentAccount(studentWithBirthDate);
+
+      expect(response.student).not.toHaveProperty('birthDate');
+      expect(JSON.stringify(response)).not.toContain('2008-05-14');
+    });
+
+    it('does not presume a birth date for the linked parent account created in the same call', async () => {
+      await service.createStudentAccount({
+        ...studentWithBirthDate,
+        parentAccountMode: LinkedAccountMode.NEW,
+        parentLoginIdentifier: 'nathalie.petit',
+        parentEmail: 'parent-birthdate@test.com',
+        parentPassword: 'parentpass123',
+        parentFirstName: 'Nathalie',
+        parentLastName: 'Petit',
+      });
+
+      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith({
+        userId: 'user-uuid',
+        firstName: 'Nathalie',
+        lastName: 'Petit',
+      });
+    });
+
+    it('rolls back and fails with 503 when profile-service rejects the profile write', async () => {
+      profileServiceClient.createAdministrativeProfile.mockRejectedValueOnce(new Error('HTTP 400'));
+
+      await expect(service.createStudentAccount(studentWithBirthDate)).rejects.toThrow(
+        ServiceUnavailableException,
+      );
+    });
+  });
+
   // ── Stockage du profil administratif via profile-service (décision du 2026-08-05) ──
 
   describe('administrative profile storage via profile-service', () => {

@@ -39,6 +39,10 @@
       <endpoint method="GET" path="/profiles/{userId}">Lire le profil selon la vue autorisee.</endpoint>
       <endpoint method="PATCH" path="/profiles/{userId}/administrative">Modifier le profil administratif.</endpoint>
       <endpoint method="PATCH" path="/profiles/{userId}/pedagogical">Modifier le profil pedagogique.</endpoint>
+      <!-- Routes ajoutees le 2026-08-09 (decision C11) — implementees en PUT sous /profiles -->
+      <endpoint method="PUT" path="/profiles/{userId}/prescription">Modifier la section prescription du profil pedagogique (role : responsable_pedagogique SEUL, titulaire inclus dans le refus).</endpoint>
+      <endpoint method="GET" path="/profiles/{userId}/field-visibility">Lire la visibilite effective de tous les champs (titulaire, RP, TI, AF).</endpoint>
+      <endpoint method="PUT" path="/profiles/{userId}/field-visibility">Regler la visibilite champ par champ (titulaire, RP, TI, AF).</endpoint>
       <!-- Notes internes confidentielles — non visibles par l'eleve, le parent/financeur ni le formateur -->
       <endpoint method="GET" path="/profiles/{userId}/internal-notes">Lister les notes internes (role : responsable_pedagogique, animateur_pedagogique, technicien_informatique, administrateur_financier).</endpoint>
       <endpoint method="POST" path="/profiles/{userId}/internal-notes">Creer une note interne confidentielle (role : responsable_pedagogique, animateur_pedagogique).</endpoint>
@@ -87,7 +91,9 @@
       <entity>AdministrativeProfile</entity>
       <entity>StudentPedagogicalProfile</entity>
       <entity>TeacherPedagogicalProfile</entity>
-      <entity>ProfileVisibilityPreference</entity>
+      <!-- ProfileVisibilityPreference supprimee le 2026-08-09 (decision C11),
+           remplacee par ProfileFieldVisibility. -->
+      <entity>ProfileFieldVisibility</entity>
       <entity>AdminProfileNote</entity>
       <entity>TeacherValidation</entity>
       <entity>PedagogicalStatistic</entity>
@@ -729,7 +735,239 @@
           pedagogicalProfile reapparait dans une reponse /internal/*, y compris sous forme d'alias.
         </testCoverage>
       </decision>
+      <decision id="C11" status="implemented" session="2026-08-09">
+        <title>Profils complets — sections declarative et prescription, visibilite champ par champ, outillage de migration</title>
+        <filesTouched>
+          <file path="services/profile-service/src/data-source.ts">
+            NOUVEAU. DataSource dediee a la CLI TypeORM (migration:run/revert/show/generate),
+            alignee sur la convention deja en place dans identity-access-service
+            (`typeorm -d dist/src/data-source.js`). Un seul export de DataSource : la CLI
+            refuse d'en charger plus d'un.
+          </file>
+          <file path="services/profile-service/src/migrations/1754730000000-AddPedagogicalProfileSections.ts">
+            NOUVEAU. 6 colonnes declaratives + 9 colonnes de prescription sur les deux tables
+            pedagogiques. Idempotente (ADD COLUMN IF NOT EXISTS), down() symetrique.
+          </file>
+          <file path="services/profile-service/src/migrations/1754730100000-CreateProfileFieldVisibility.ts">
+            NOUVEAU. Table profile_field_visibility, reprise sans perte des deux booleens de
+            profile_visibility_preferences, puis DROP de la table heritee. down() reconstruit
+            la table et restaure les booleens depuis les lignes migrees.
+          </file>
+          <file path="services/profile-service/entrypoint.sh">
+            NOUVEAU. Applique les migrations au demarrage du conteneur puis lance l'app.
+            `set -e` : un echec de migration empeche le demarrage, plutot que de servir l'API
+            sur un schema incomplet.
+          </file>
+          <file path="services/profile-service/.dockerignore">
+            NOUVEAU. Exclut node_modules du contexte de build (le COPY echouait dans un
+            worktree ou node_modules est un lien symbolique).
+          </file>
+          <file path="services/profile-service/src/profiles/field-visibility.catalog.ts">
+            NOUVEAU. Liste close des champs reglables + visibilite par defaut de chaque bloc.
+            Source de verite unique : validation des fieldName ET calcul des defauts.
+          </file>
+          <file path="services/profile-service/src/profiles/field-visibility.service.ts">
+            NOUVEAU. Lecture/ecriture des reglages. Extrait de ProfilesService, qui depasse
+            deja largement les seuils de la convention services.
+          </file>
+          <file path="services/profile-service/src/profiles/entities/profile-field-visibility.entity.ts">
+            NOUVEAU. (userId, fieldName, audience), unicite sur (userId, fieldName),
+            CHECK sur audience. Une ligne = une derogation ; les defauts ne sont jamais
+            materialises.
+          </file>
+          <file path="services/profile-service/src/profiles/dto/update-prescription.dto.ts">NOUVEAU.</file>
+          <file path="services/profile-service/src/profiles/dto/update-field-visibility.dto.ts">NOUVEAU.</file>
+          <file path="services/profile-service/src/profiles/entities/student-pedagogical-profile.entity.ts">
+            + difficulties, context (declaratif) ; + generalAssessment, recommendedPace,
+            recommendedTeacherProfile, recommendedPath, recommendedActivities, filledBy,
+            filledAt (prescription).
+          </file>
+          <file path="services/profile-service/src/profiles/entities/teacher-pedagogical-profile.entity.ts">
+            + diplomas, specialties, particularities, cvDocumentId (declaratif) ;
+            + maxValidatedLevel, audienceType, testComments, filledBy, filledAt
+            (prescription). testResults deplace dans la section prescription.
+          </file>
+          <file path="services/profile-service/src/profiles/profiles.service.ts">
+            + updatePrescription ; updatePedagogicalProfile enrichi et durci ;
+            + resolvePedagogicalTarget / resolveTargetFromAccountRole / assertNoForeignFields /
+            hasAnyField ; getProfile renvoie pedagogicalType ; get/updateVisibilityPreferences
+            supprimees ; isStudentPayload supprimee.
+          </file>
+          <file path="services/profile-service/src/profiles/profiles.controller.ts">
+            + PUT /:userId/prescription (@Roles RP) ; + GET/PUT /:userId/field-visibility ;
+            - GET/PATCH /:userId/visibility-preferences. Swagger reecrit sur les 4 routes.
+          </file>
+          <file path="services/profile-service/src/internal/dto/create-administrative-profile.dto.ts">
+            + birthDate (@IsOptional @IsDateString).
+          </file>
+          <file path="docs/routes.md">
+            Section Profils reecrite : 2 nouvelles routes d'ecriture, 2 routes de visibilite,
+            tableaux de champs declaratifs/prescription, regle de resolution du profil cible,
+            catalogue de visibilite, socle par defaut.
+          </file>
+        </filesTouched>
+        <description>
+          Contexte : docs/proposition-profils.md, arrete avec l'utilisateur et merge dans master
+          (#82). Le contenu n'a pas ete rediscute.
+          (1) OUTILLAGE DE MIGRATION — prealable non negociable. Le schema n'etait gere ni par
+          des migrations ni par synchronize (constat de la decision C9) : les 15 colonnes et la
+          table de ce chantier auraient exige un ALTER manuel non trace et non rejouable sur des
+          profils reels. Le service s'aligne donc sur identity-access-service. Les migrations
+          ont ete verifiees sur une COPIE de la base de dev reelle : aller (20/5/1 lignes
+          preservees), retour (les 6 lignes de visibilite seedees retrouvent leurs booleens
+          d'origine a l'identique, repartition 1/2/1/2), puis aller de nouveau. La base de dev
+          `visiomath_profile` n'a PAS ete migree : elle le sera au redeploiement, par
+          l'entrypoint.
+          (2) NOUVELLES COLONNES EN ANGLAIS, ANCIENNES INCHANGEES. Les colonnes historiques
+          restent en francais (heritage documente en C9) ; les nouvelles sont en anglais
+          snake_case. Cohabitation assumee : le renommage des anciennes n'est pas demande par ce
+          chantier et ferait porter un risque inutile a des profils reels. Il redevient trivial
+          maintenant qu'un outil de migration existe — voir openPoints.
+          (3) testResults N'EST PAS DEPLACE PHYSIQUEMENT. Les deux sections vivent dans la meme
+          table (c'est un seul profil pedagogique par role) : le champ change de section de
+          droits, pas de colonne. La colonne `resultats_tests` est inchangee, aucune donnee
+          n'est copiee ni supprimee. Seul le point d'ecriture change : il quitte
+          UpdatePedagogicalProfileDto pour UpdatePrescriptionDto.
+          (4) DEUX ROUTES D'ECRITURE, ETANCHES DANS LES DEUX SENS. Les champs de prescription
+          etant absents de UpdatePedagogicalProfileDto, `forbidNonWhitelisted` les rejette en
+          400 avant meme d'atteindre le service ; symetriquement les champs declaratifs sont
+          rejetes par la route de prescription. Le controle de role de updatePrescription ne
+          peut PAS se contenter d'assertWriteAccess, qui autorise justement le titulaire : le
+          RP est exige explicitement, y compris quand la cible est l'appelant. Double barriere
+          volontaire : @Roles(RP) sur le controleur (403 rapide, message generique du
+          RolesGuard) et le controle explicite dans le service (message metier, teste
+          unitairement).
+          (5) filledBy/filledAt SONT ABSENTS DU DTO. Poses cote serveur a partir de l'acteur
+          authentifie et de l'horloge serveur. Les accepter en entree permettrait d'attribuer
+          une prescription a quelqu'un d'autre, ce qui la viderait de sa valeur d'opposabilite.
+          Un client qui les envoie recoit 400.
+          (6) CHAMP DU MAUVAIS ROLE : 400 AU LIEU D'UN SILENCE. C'etait un defaut reel de
+          l'existant : le filtrage du patch ecartait en silence les champs de l'autre role, et
+          l'appelant recevait un 200 sur une ecriture partiellement — voire totalement —
+          ignoree. assertNoForeignFields le refuse desormais explicitement.
+          (7) RESOLUTION DU PROFIL CIBLE PAR LE ROLE DU COMPTE. resolveTargetFromAccountRole
+          interroge identity-access-service, seule source autoritative du role. Cela referme
+          l'ambiguite documentee en openPoint (un corps ne contenant que `subjects` retombait
+          systematiquement sur le profil formateur, y compris pour un eleve). Les heuristiques
+          heritees restent en repli si identity-access-service est injoignable : une
+          indisponibilite ne doit pas bloquer une ecriture de profil.
+          (8) isAnimateurPedagogique SORTI DU DTO. C'est un droit, pas une declaration. Il reste
+          lisible dans le bloc pedagogical et ne s'ecrit plus que par
+          POST /profiles/:teacherId/ap-status.
+          (9) VISIBILITE CHAMP PAR CHAMP. profile_visibility_preferences et ses deux booleens
+          sont supprimes ; GET/PATCH /profiles/:userId/visibility-preferences renvoient 404.
+          Reprise sans perte des DEUX valeurs : `false` (visible des contacts) devient
+          explicitement `linked`, sinon le nouveau socle « tout est masque par defaut » aurait
+          silencieusement transforme un partage voulu en masquage.
+          `restrict_comments_to_principal_teacher` est repris sur le fieldName `comments`,
+          marque isReserved : c'est un champ du profil pedagogique eleve au sens du CdC
+          (functionality 002) qu'aucune colonne ne porte — exactement la situation dans laquelle
+          se trouvait hide_difficulties_from_contacts avant la creation de `difficulties`.
+          GET renvoie TOUT le catalogue avec audience effective, defaut et isExplicit : l'ecran
+          de confidentialite se construit d'un seul appel, sans dupliquer catalogue ni defauts
+          cote front. PUT est un upsert PARTIEL : un ecran ne connaissant qu'une partie du
+          catalogue ne peut pas effacer les reglages qu'il n'affiche pas.
+          (10) CONTRADICTION REMONTEE, NON CONTOURNEE — le filtrage en lecture n'est pas branche.
+          Voir openPoints : appliquer la visibilite a GET /profiles/:userId suppose de trancher
+          d'abord le conflit entre le socle « masque par defaut » et l'arbitrage du 2026-08-07
+          « le parent voit tout ce qui concerne ses eleves sauf le carnet personnel ».
+          FieldVisibilityService.resolveAudience existe et est teste : c'est le port pret a
+          etre branche une fois l'arbitrage rendu.
+          (11) birthDate A LA CREATION. CreateAdministrativeProfileDto l'accepte
+          (@IsOptional @IsDateString). bootstrapAdministrativeProfile le persistait deja ; seul
+          le DTO le jetait. Le champ avait ete retire du formulaire d'inscription faute d'etre
+          stocke nulle part.
+        </description>
+        <testCoverage>
+          npm run build : OK. tsc --noEmit sur tsconfig.json et tsconfig.test.json : OK.
+          Unitaires : 274 tests, 8 suites, TOUS VERTS (contre 240 avant la session).
+          E2E (USE_LOCAL_DB=true, base profile_test, --runInBand) : 158 tests, 157 verts.
+          L'unique echec est [PROF-BR-010], PREEXISTANT et laisse rouge a dessein (arbitrage
+          produit en attente, voir openPoints).
+          VERIFICATION EN CONDITIONS REELLES (hors suite automatisee). Image Docker construite
+          depuis le code de cette session, conteneur temporaire sur le reseau
+          claudevma_visiomath_network, connecte a `profile_verify` — copie pg_dump de la base de
+          dev reelle (20 profils administratifs, 5 pedagogiques eleve, 1 formateur). Les
+          migrations se sont appliquees au demarrage via l'entrypoint, puis un redemarrage a
+          confirme « No migrations are pending » (rejouabilite). Comptes reels de la base
+          d'identite : eleve.seconde (87482274-...), prof.lycee (38132407-...),
+          responsable.peda (51318c2e-...). JWT signes avec le JWT_SECRET du conteneur deploye.
+          Resultats obtenus, tous conformes :
+          - RP ecrit la prescription eleve → 200, filledBy=51318c2e-... (l'UUID du RP),
+            filledAt=2026-08-09T18:00:23.767Z ;
+          - l'eleve LIT sa prescription via GET /profiles/:userId → 200, bloc `pedagogical`
+            portant a plat level/subjects/goals/specificNeeds/difficulties/context ET
+            generalAssessment/recommendedPace/.../filledBy/filledAt, pedagogicalType="student" ;
+          - l'eleve tente d'ecrire sa propre prescription → 403 ;
+          - l'eleve glisse generalAssessment dans /pedagogical → 400 « property
+            generalAssessment should not exist » ;
+          - le formateur tente d'ecrire testResults via /pedagogical → 400 « property
+            testResults should not exist » ;
+          - le formateur enregistre diplomas/specialties/particularities/cvDocumentId → 200 ;
+          - le RP ecrit la prescription formateur (maxValidatedLevel, audienceType, testResults,
+            testComments) → 200 avec filledBy/filledAt ;
+          - filledBy envoye dans le corps → 400 « property filledBy should not exist » ;
+          - GET /field-visibility → 200, socle firstName/lastName/avatarUrl/level/subjects en
+            `linked`, tout le reste en `self`, isExplicit=false partout ;
+          - PUT /field-visibility → 200, phone passe a `all` avec isExplicit=true ;
+          - fieldName inconnu → 400 avec la liste complete des noms acceptes ;
+          - GET /profiles/:userId/visibility-preferences → 404.
+          Apres controle : conteneur de verification supprime, bases profile_verify et
+          profile_migration_check supprimees, image de verification supprimee. La base de dev
+          reelle `visiomath_profile` n'a jamais ete ni migree ni ecrite (verifiee apres coup :
+          20/5/1 lignes, profile_visibility_preferences toujours presente et vide). Le
+          conteneur visiomath_profile deploye n'a pas ete touche et ne porte donc pas encore ce
+          code — REDEPLOIEMENT A FAIRE separement (il declenchera les migrations).
+        </testCoverage>
+      </decision>
       <openPoints>
+        <item priority="high" status="awaiting-arbitration" raisedIn="C11" raisedOn="2026-08-09">
+          CONTRADICTION REMONTEE — filtrage en lecture selon la visibilite par champ.
+          Le socle du 2026-08-09 pose que tout champ hors
+          firstName/lastName/avatarUrl/level/subjects est masque par defaut des personnes liees.
+          Or l'arbitrage du 2026-08-07 pose que « le parent a la vue sur tout ce qui concerne
+          les eleves lies, sauf le carnet personnel », et le modele herite exemptait
+          explicitement le financeur et le professeur principal du masquage
+          (hide_difficulties_from_contacts). Les deux regles ne peuvent pas s'appliquer
+          simultanement au parent et au PP.
+          En consequence, GET /profiles/:userId ne filtre AUCUN champ dans cette session : le
+          stockage, les defauts, les routes et le catalogue sont livres, l'application en
+          lecture attend l'arbitrage. Contourner en filtrant « un peu » aurait produit des
+          ecrans qui mentent dans un sens ou dans l'autre.
+          Questions a trancher : le parent financeur et le professeur principal sont-ils exemptes
+          du reglage `self` ? Un reglage `self` de l'eleve peut-il masquer une donnee a son
+          parent financeur ? Le RP/AP/TI/AF voient-ils tout inconditionnellement (hypothese
+          retenue aujourd'hui pour les routes de reglage) ?
+          Le port est pret : FieldVisibilityService.resolveAudience(userId, fieldName), teste.
+        </item>
+        <item status="to-do" raisedIn="C11" raisedOn="2026-08-09" owner="front">
+          BREAKING CHANGE pour apps/web — GET/PATCH /profiles/:userId/visibility-preferences
+          renvoient desormais 404. apps/web/src/api/profile.ts (2 fonctions) et
+          ProfileVisibilitySettingsPage doivent basculer sur GET/PUT
+          /profiles/:userId/field-visibility, dont le contrat est decrit dans docs/routes.md
+          (section « Visibilite champ par champ »). Aucun alias de compatibilite n'a ete ajoute,
+          conformement a l'arbitrage du 2026-08-08 sur le nom unique par donnee.
+        </item>
+        <item status="to-do" raisedIn="C11" raisedOn="2026-08-09" owner="identity-access-service">
+          POST /internal/create-administrative-profile accepte desormais birthDate
+          (ISO YYYY-MM-DD, optionnel). identity-access-service doit le relayer a l'inscription
+          pour que le champ puisse revenir dans le formulaire — c'est l'etape 2 du plan de
+          docs/proposition-profils.md §10.
+        </item>
+        <item status="to-consider" raisedIn="C11" raisedOn="2026-08-09">
+          Cohabitation de noms de colonnes francais (historiques) et anglais (nouveaux) dans les
+          memes tables. La raison invoquee en C9 pour ne pas renommer — absence d'outil de
+          migration — n'existe plus depuis cette session. Le renommage est desormais faisable
+          proprement et de facon rejouable ; il n'a pas ete fait ici car hors du perimetre
+          demande et sans gain cote clients (le mapping @Column({name}) rend l'ecart invisible
+          de l'API). A planifier en session dediee si la lisibilite du schema le justifie.
+        </item>
+        <item status="resolved" resolvedIn="C11" resolvedOn="2026-08-09">
+          RESOLU — PUT /profiles/:userId/pedagogical : un body ne contenant que `subjects` etait
+          ambigu et retombait sur le profil formateur. Le rôle cible est desormais resolu depuis
+          le role du compte aupres de identity-access-service, seule source autoritative ;
+          les heuristiques par champs ne servent plus que de repli en cas d'indisponibilite.
+        </item>
         <item priority="high" status="to-do" owner="front">
           Alignement du front sur les noms anglais (lot séparé, subagent front-developper).
           apps/web/src/types/profile.ts : AdministrativeProfileFields doit passer de
@@ -737,9 +975,14 @@
           addressLine1, addressLine2, postalCode, city, country, avatarUrl, department,
           passions} — `address` n'existe pas côté serveur et doit être éclaté en
           addressLine1/addressLine2. PedagogicalProfileFields doit passer de
-          {level, subjects, goals, notes} à {level, subjects, goals, specificNeeds} pour un
-          élève (+ {levels, experience, testResults} pour un formateur) — `notes` n'existe pas,
-          et `subjects` doit devenir `string[]` et non `string`. Occurrences résiduelles de noms
+          {level, subjects, goals, notes} à {level, subjects, goals, specificNeeds,
+          difficulties, context} pour un élève (+ {levels, subjects, experience, diplomas,
+          specialties, particularities, cvDocumentId} pour un formateur) — `notes` n'existe pas,
+          et `subjects` doit devenir `string[]` et non `string`. MISE À JOUR 2026-08-09
+          (décision C11) : `testResults` ne fait PLUS partie des champs éditables par le
+          formateur, il est passé en section prescription (lecture seule pour lui) ; la liste
+          ci-dessus est celle des champs ÉDITABLES, les champs de prescription étant en lecture
+          seule pour le titulaire. Occurrences résiduelles de noms
           français à corriger : apps/web/src/api/relations.ts (niveauScolaire),
           apps/web/src/pages/MyStudentsPage.tsx (pedagogical?.niveauScolaire),
           apps/web/test/pages/ProfileEditPage.test.tsx (commentaire).

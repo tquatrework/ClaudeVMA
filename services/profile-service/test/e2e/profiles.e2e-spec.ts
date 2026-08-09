@@ -518,12 +518,15 @@ describe('[E2E] Profiles', () => {
       expect(read.body.pedagogical).toMatchObject(payload);
     });
 
-    it('Enregistre tous les champs formateur en anglais → 200, sans champ élève parasite', async () => {
+    it('Enregistre tous les champs déclaratifs formateur → 200, sans champ élève parasite', async () => {
       const payload = {
         levels: ['Collège', 'Lycée'],
         subjects: ['Mathématiques'],
         experience: '5 ans de cours particuliers',
-        testResults: 'Score moyen 87/100',
+        diplomas: 'Master MEEF mathématiques, CAPES 2018',
+        specialties: ['Préparation Grand Oral', 'Remise à niveau'],
+        particularities: 'Pas de créneau avant 14h',
+        cvDocumentId: 'b0e3f6f2-9a1e-4f7b-9c1a-2f0f9d2b7c31',
       };
 
       const res = await request(app.getHttpServer())
@@ -536,6 +539,366 @@ describe('[E2E] Profiles', () => {
       // Les champs exclusifs à l'élève ne doivent pas être greffés sur l'entité formateur.
       expect(res.body).not.toHaveProperty('goals');
       expect(res.body).not.toHaveProperty('specificNeeds');
+    });
+
+    it('Enregistre difficulties et context sur le profil élève puis les relit → 200', async () => {
+      const payload = {
+        difficulties: 'Blocage sur les fonctions dérivées',
+        context: 'Redoublement en seconde, déménagement en cours d’année',
+      };
+
+      const put = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/pedagogical`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send(payload);
+
+      expect(put.status).toBe(200);
+
+      const read = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.student1}`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(read.body.pedagogical).toMatchObject(payload);
+      // difficulties et specificNeeds coexistent : le premier est une difficulté
+      // d'apprentissage, le second un aménagement reconnu. Aucune fusion.
+      expect(read.body.pedagogical).toHaveProperty('specificNeeds');
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Étanchéité de la section prescription sur la route du titulaire.
+    // C'est le cœur du chantier : un titulaire ne doit JAMAIS pouvoir
+    // écrire un champ de prescription, même en le glissant dans un body
+    // par ailleurs valide.
+    // ────────────────────────────────────────────────────────────
+
+    it.each([
+      ['generalAssessment', { generalAssessment: 'Je suis excellent' }],
+      ['recommendedPace', { recommendedPace: '10h par semaine' }],
+      ['recommendedTeacherProfile', { recommendedTeacherProfile: 'Le meilleur' }],
+      ['recommendedPath', { recommendedPath: 'Parcours accéléré' }],
+      ['recommendedActivities', { recommendedActivities: 'Aucune' }],
+      ['filledBy', { filledBy: IDS.rp1 }],
+      ['filledAt', { filledAt: '2026-08-09T10:00:00.000Z' }],
+    ])(
+      'Un élève ne peut pas écrire le champ de prescription %s via /pedagogical → 400',
+      async (fieldName, body) => {
+        const res = await request(app.getHttpServer())
+          .put(`/profiles/${IDS.student1}/pedagogical`)
+          .set('Authorization', `Bearer ${studentToken}`)
+          .send({ level: '3eme', ...body });
+
+        expect(res.status).toBe(400);
+        expect(JSON.stringify(res.body.message)).toContain(fieldName);
+      },
+    );
+
+    it.each([
+      ['maxValidatedLevel', { maxValidatedLevel: 'Terminale' }],
+      ['audienceType', { audienceType: 'Tous publics' }],
+      ['testResults', { testResults: '100/100' }],
+      ['testComments', { testComments: 'Excellent' }],
+    ])(
+      'Un formateur ne peut pas écrire le champ de prescription %s via /pedagogical → 400',
+      async (fieldName, body) => {
+        const res = await request(app.getHttpServer())
+          .put(`/profiles/${IDS.teacher1}/pedagogical`)
+          .set('Authorization', `Bearer ${teacher1Token}`)
+          .send({ experience: '5 ans', ...body });
+
+        expect(res.status).toBe(400);
+        expect(JSON.stringify(res.body.message)).toContain(fieldName);
+      },
+    );
+
+    it('isAnimateurPedagogique n’est plus accepté par /pedagogical → 400 (c’est un droit, pas une déclaration)', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.teacher1}/pedagogical`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send({ experience: '5 ans', isAnimateurPedagogique: true });
+
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(res.body.message)).toContain('isAnimateurPedagogique');
+    });
+
+    it('Un champ du rôle opposé est refusé en 400 plutôt qu’ignoré en silence', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/pedagogical`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ level: '3eme', diplomas: 'CAPES' });
+
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(res.body.message)).toContain('diplomas');
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────
+  // Section prescription — PUT /profiles/:userId/prescription (RP seul)
+  // ──────────────────────────────────────────────────────────────
+
+  describe('PUT /profiles/:userId/prescription', () => {
+    it('Le RP écrit la prescription d’un élève → 200, filledBy/filledAt renseignés', async () => {
+      const payload = {
+        generalAssessment: 'Élève sérieux, fondamentaux à consolider',
+        recommendedPace: '2 séances d’1h par semaine',
+        recommendedTeacherProfile: 'Formateur patient',
+        recommendedPath: 'Parcours remise à niveau',
+        recommendedActivities: 'Calcul mental hebdomadaire',
+      };
+
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/prescription`)
+        .set('Authorization', `Bearer ${rpToken}`)
+        .send(payload);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject(payload);
+      // Opposabilité : on doit savoir qui a prescrit, et quand.
+      expect(res.body.filledBy).toBe(IDS.rp1);
+      expect(res.body.filledAt).toBeTruthy();
+    });
+
+    it('Le RP écrit la prescription d’un formateur → 200', async () => {
+      const payload = {
+        maxValidatedLevel: 'Terminale spécialité',
+        audienceType: 'Collège et lycée général',
+        testResults: 'Score 87/100',
+        testComments: 'À retester sur la géométrie dans l’espace',
+      };
+
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.teacher1}/prescription`)
+        .set('Authorization', `Bearer ${rpToken}`)
+        .send(payload);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject(payload);
+      expect(res.body.filledBy).toBe(IDS.rp1);
+    });
+
+    it('Le titulaire LIT sa prescription via GET /profiles/:userId, sections confondues', async () => {
+      await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/prescription`)
+        .set('Authorization', `Bearer ${rpToken}`)
+        .send({ generalAssessment: 'Lisible par l’élève' });
+
+      const read = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.student1}`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(read.status).toBe(200);
+      // Le profil pédagogique est renvoyé à plat : déclaratif ET prescription.
+      expect(read.body.pedagogical).toHaveProperty('generalAssessment', 'Lisible par l’élève');
+      expect(read.body.pedagogical).toHaveProperty('level');
+      expect(read.body.pedagogicalType).toBe('student');
+    });
+
+    it('Un élève ne peut pas écrire sa propre prescription → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/prescription`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ generalAssessment: 'Je suis excellent' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('Un formateur ne peut pas écrire ses propres résultats de test → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.teacher1}/prescription`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send({ testResults: '100/100' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it.each([
+      ['parent_financeur', () => parentToken],
+      ['animateur_pedagogique', () => apToken],
+      ['technicien_informatique', () => tiToken],
+      ['administrateur_financier', () => adminFinToken],
+    ])('Le rôle %s ne peut pas écrire une prescription → 403', async (_role, token) => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/prescription`)
+        .set('Authorization', `Bearer ${token()}`)
+        .send({ generalAssessment: 'x' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('filledBy envoyé dans le corps → 400, jamais absorbé en silence', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/prescription`)
+        .set('Authorization', `Bearer ${rpToken}`)
+        .send({ generalAssessment: 'ok', filledBy: IDS.teacher1 });
+
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(res.body.message)).toContain('filledBy');
+    });
+
+    it('Un champ déclaratif envoyé sur la route de prescription → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/prescription`)
+        .set('Authorization', `Bearer ${rpToken}`)
+        .send({ generalAssessment: 'ok', level: 'Terminale' });
+
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(res.body.message)).toContain('level');
+    });
+
+    it('Un champ de prescription formateur sur un profil élève → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/prescription`)
+        .set('Authorization', `Bearer ${rpToken}`)
+        .send({ maxValidatedLevel: 'Terminale' });
+
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(res.body.message)).toContain('maxValidatedLevel');
+    });
+
+    it('401 sans token', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/prescription`)
+        .send({ generalAssessment: 'x' });
+
+      expect(res.status).toBe(401);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────
+  // Visibilité champ par champ
+  // ──────────────────────────────────────────────────────────────
+
+  describe('GET/PUT /profiles/:userId/field-visibility', () => {
+    it('Renvoie tout le catalogue avec le socle par défaut → 200', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.student1}/field-visibility`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.userId).toBe(IDS.student1);
+
+      const byName = Object.fromEntries(
+        res.body.fields.map((field: any) => [field.fieldName, field]),
+      );
+
+      // Socle validé le 2026-08-09 : visible des personnes liées par défaut.
+      for (const fieldName of ['firstName', 'lastName', 'avatarUrl', 'level', 'subjects']) {
+        expect(byName[fieldName].audience).toBe('linked');
+        expect(byName[fieldName].isExplicit).toBe(false);
+      }
+      // Tout le reste masqué par défaut.
+      for (const fieldName of ['difficulties', 'context', 'specificNeeds', 'phone', 'birthDate']) {
+        expect(byName[fieldName].audience).toBe('self');
+      }
+    });
+
+    it('Enregistre un réglage puis le relit → 200, isExplicit true', async () => {
+      const put = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/field-visibility`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ fields: [{ fieldName: 'difficulties', audience: 'linked' }] });
+
+      expect(put.status).toBe(200);
+
+      const read = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.student1}/field-visibility`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      const difficulties = read.body.fields.find((f: any) => f.fieldName === 'difficulties');
+      expect(difficulties).toMatchObject({
+        audience: 'linked',
+        defaultAudience: 'self',
+        isExplicit: true,
+      });
+    });
+
+    it('Upsert partiel : un champ absent du corps garde son réglage', async () => {
+      await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/field-visibility`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ fields: [{ fieldName: 'phone', audience: 'all' }] });
+
+      await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/field-visibility`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ fields: [{ fieldName: 'goals', audience: 'linked' }] });
+
+      const read = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.student1}/field-visibility`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      const byName = Object.fromEntries(
+        read.body.fields.map((field: any) => [field.fieldName, field]),
+      );
+      expect(byName.phone.audience).toBe('all');
+      expect(byName.goals.audience).toBe('linked');
+    });
+
+    it('fieldName inconnu → 400 avec la liste des noms acceptés', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/field-visibility`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ fields: [{ fieldName: 'motDePasse', audience: 'all' }] });
+
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(res.body.message)).toContain('motDePasse');
+      expect(JSON.stringify(res.body.message)).toContain('Accepted field names');
+    });
+
+    it('audience invalide → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/field-visibility`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ fields: [{ fieldName: 'phone', audience: 'public' }] });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('Champ inconnu au niveau de l’entrée → 400 (forbidNonWhitelisted)', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/field-visibility`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ fields: [{ fieldName: 'phone', audience: 'all', hidden: true }] });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('Tableau fields vide → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/field-visibility`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ fields: [] });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('Un formateur ne peut pas lire les réglages d’un élève → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.student1}/field-visibility`)
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('Un formateur ne peut pas modifier les réglages d’un élève → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/field-visibility`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send({ fields: [{ fieldName: 'difficulties', audience: 'all' }] });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('Les anciennes routes visibility-preferences n’existent plus → 404', async () => {
+      const get = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.student1}/visibility-preferences`)
+        .set('Authorization', `Bearer ${studentToken}`);
+      expect(get.status).toBe(404);
+
+      const patch = await request(app.getHttpServer())
+        .patch(`/profiles/${IDS.student1}/visibility-preferences`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ hideDifficultiesFromContacts: true });
+      expect(patch.status).toBe(404);
     });
   });
 

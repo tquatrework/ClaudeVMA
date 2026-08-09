@@ -11,7 +11,7 @@
  * - API error displayed, including the "unknown fields" 400
  */
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -186,16 +186,40 @@ describe('StudentRegistrationPage', () => {
       )
     })
 
-    // Champ refusé désormais en 400 par le serveur : jamais transmis.
+    // Champ optionnel non saisi : omis du corps, jamais envoyé en chaîne vide.
     const payload = mockRegisterStudent.mock.calls[0][0] as Record<string, unknown>
     expect(payload.birthDate).toBeUndefined()
   })
 
-  it('no longer offers a birth date field, which was never stored', () => {
+  it('offers a birth date field again, now that the server stores it', () => {
     renderStudentRegistrationPage()
 
-    expect(screen.queryByLabelText(/date de naissance/i)).toBeNull()
-    expect(screen.getByText(/date de naissance.*profil.*après connexion/i)).toBeDefined()
+    expect(screen.getByLabelText(/date de naissance/i)).toBeDefined()
+  })
+
+  it('sends the birth date as a strict YYYY-MM-DD calendar date', async () => {
+    mockRegisterStudent.mockResolvedValue(undefined)
+    renderStudentRegistrationPage()
+
+    await fillAdministrativeStep()
+    // `type="date"` : la valeur portée par le champ est déjà la forme ISO exigée
+    // par le serveur. Un datetime complet ou un format localisé renverraient 400.
+    fireEvent.change(screen.getByLabelText(/date de naissance/i), {
+      target: { value: '2008-02-29' },
+    })
+    await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+    await waitFor(() => screen.getByRole('heading', { name: /consentements rgpd/i }))
+
+    const checkboxes = screen.getAllByRole('checkbox')
+    await userEvent.click(checkboxes[0])
+    await userEvent.click(checkboxes[1])
+    await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+
+    await waitFor(() => {
+      expect(mockRegisterStudent).toHaveBeenCalledWith(
+        expect.objectContaining({ birthDate: '2008-02-29' }),
+      )
+    })
   })
 
   it('explains an "unknown fields" 400 as a front/server mismatch, without showing field names', async () => {

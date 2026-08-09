@@ -1,5 +1,9 @@
 # Dependencies
 node_modules/
+# Sans le slash final, pour couvrir aussi le cas d'un node_modules qui est un
+# lien symbolique (mise en place courante dans un worktree, ou le motif avec
+# slash ne matche pas).
+node_modules
 .pnp
 .pnp.js
 

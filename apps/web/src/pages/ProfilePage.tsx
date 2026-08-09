@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useProfileDetails } from '../hooks/profile/useProfileDetails'
@@ -11,6 +11,11 @@ import { Tabs, TabPanel, type TabDefinition } from '../components/ui/Tabs'
 import { InternalNotesPanel } from '../components/profile/InternalNotesPanel'
 import { LinkedTeachersPanel } from '../components/profile/LinkedTeachersPanel'
 import { ProfileSection } from '../components/profile/ProfileSection'
+import { PedagogicalProfilePanel } from '../components/profile/PedagogicalProfilePanel'
+import {
+  pickAdministrativeDisplayFields,
+  resolvePedagogicalProfileKind,
+} from '../utils/profileFields'
 
 // ─── IDs d'onglets ────────────────────────────────────────────────────────────
 
@@ -93,6 +98,21 @@ export default function ProfilePage() {
     noteSaveError,
   } = useProfileDetails(userId, canSeeRelations, canSeeInternalNotes)
 
+  /**
+   * Forme du profil pédagogique : `pedagogicalType` renvoyé par le serveur fait
+   * foi. Le rôle ne sert de repli que sur son propre profil — `GET /profiles/:userId`
+   * n'expose pas le rôle de la personne consultée.
+   */
+  const pedagogicalKind = useMemo(
+    () =>
+      resolvePedagogicalProfileKind(
+        profile?.pedagogicalType,
+        profile?.pedagogical,
+        isViewingOwnProfile ? user?.role : undefined,
+      ),
+    [profile?.pedagogicalType, profile?.pedagogical, isViewingOwnProfile, user?.role],
+  )
+
   // ─── Construction de la liste d'onglets ─────────────────────────────────────
 
   const tabs: TabDefinition[] = [
@@ -143,8 +163,11 @@ export default function ProfilePage() {
             {/* ── Onglet 1 : Profil administratif ── */}
             <TabPanel tabId={TAB_ADMIN} activeTab={activeTab}>
               <div className="space-y-6">
+                {/* Le bloc `administrative` est filtré, jamais affiché tel quel :
+                    il porte aussi `userId`, identifiant technique sans valeur
+                    pour le titulaire de la fiche. */}
                 <ProfileSection
-                  data={profile.administrative ?? undefined}
+                  data={pickAdministrativeDisplayFields(profile.administrative)}
                   emptyMessage="Aucune donnée administrative"
                 />
 
@@ -193,9 +216,12 @@ export default function ProfilePage() {
             {/* ── Onglet 2 : Profil pédagogique ── */}
             <TabPanel tabId={TAB_PEDAGOGIQUE} activeTab={activeTab}>
               <div className="space-y-6">
-                <ProfileSection
-                  data={profile.pedagogical ?? undefined}
-                  emptyMessage="Profil pédagogique non renseigné"
+                {/* Deux sections : ce que le titulaire déclare, et ce que le RP
+                    prescrit sur lui — lisible par le titulaire, jamais modifiable
+                    par lui. */}
+                <PedagogicalProfilePanel
+                  pedagogicalKind={pedagogicalKind}
+                  pedagogical={profile.pedagogical ?? null}
                 />
 
                 {/* Statistiques pédagogiques */}

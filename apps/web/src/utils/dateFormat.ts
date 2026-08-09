@@ -76,3 +76,50 @@ export function formatLocalDate(dateStr: string): string {
 export function formatLocalDateTime(dateStr: string): string {
   return new Date(dateStr).toLocaleString('fr-FR')
 }
+
+// ─── Date calendaire ISO (YYYY-MM-DD) ─────────────────────────────────────────
+
+const ISO_CALENDAR_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
+
+/**
+ * Une chaîne est-elle une date calendaire ISO **stricte** (`YYYY-MM-DD`) et
+ * réellement existante ?
+ *
+ * Deux écrans en dépendent : l'inscription élève (`birthDate` de
+ * `POST /accounts/students`) et le profil administratif. Le serveur valide la
+ * forme *et* l'existence : `2008-02-30` comme `2008-13-01` renvoient `400`, tout
+ * comme un datetime complet (`2008-02-29T00:00:00.000Z`) ou un format localisé
+ * (`29/02/2008`). On refuse donc ici avant d'émettre la requête, pour afficher un
+ * message en français plutôt qu'un `400` opaque.
+ */
+export function isStrictIsoCalendarDate(value: string): boolean {
+  const matched = ISO_CALENDAR_DATE_PATTERN.exec(value)
+  if (!matched) return false
+
+  const [, yearPart, monthPart, dayPart] = matched
+  const year = Number(yearPart)
+  const month = Number(monthPart)
+  const day = Number(dayPart)
+
+  if (month < 1 || month > 12 || day < 1) return false
+
+  // `Date.UTC` normalise silencieusement un jour hors limites (31 avril → 1er mai) :
+  // on compare donc les composants pour détecter la date inexistante.
+  const parsed = new Date(Date.UTC(year, month - 1, day))
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
+  )
+}
+
+/**
+ * Affiche une date calendaire ISO au format français `JJ/MM/AAAA`.
+ * Renvoie la valeur d'origine si elle n'est pas une date ISO exploitable, pour
+ * ne jamais afficher « Invalid Date ».
+ */
+export function formatIsoCalendarDate(value: string): string {
+  if (!isStrictIsoCalendarDate(value)) return value
+  const [year, month, day] = value.split('-')
+  return `${day}/${month}/${year}`
+}

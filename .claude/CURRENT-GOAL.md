@@ -45,11 +45,36 @@ l'être — preuve jouée contre la pile réelle, pas des tests verts.
 - [x] Existant relevé (schéma en base + contrat Swagger de `profile-service`)
 - [x] Proposition rédigée — `docs/proposition-profils.md`
 - [x] Questions tranchées par l'utilisateur — document mis à jour et republié
-- [ ] Codé et committé
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+- [x] Codé et committé — `profile-service`, `identity-access-service`, front.
+      Deux subagents ont été coupés en cours de route ; leur travail a été récupéré depuis
+      leurs worktrees et poussé avant toute reprise. Rien perdu.
+- [x] Déployé sur la pile réelle — sauvegarde de `visiomath_profile` prise avant migration,
+      migrations jouées au démarrage, **20/5/1 lignes préservées**, trois services déployés
+      ensemble.
+- [x] Preuve livrée à l'utilisateur — 2026-08-09, parcours joué sur la pile réelle :
+      `birthDate` relayé et stocké côté profile sans être persisté côté identity ;
+      l'élève déclare son profil (200) ; l'élève refusé sur sa prescription (**403**) ;
+      un champ de prescription glissé dans la route déclarative refusé (**400**) ;
+      le RP rédige la prescription, `filledBy` = son UUID et `filledAt` posés serveur ;
+      l'élève **lit** la prescription attribuée et datée ; catalogue de visibilité à
+      34 champs servi par le serveur ; libellés tous en français, plus aucun UUID à l'écran.
 - [ ] Validé par l'utilisateur
 - [ ] Mergé dans master
+
+## Point restant, à arbitrer par l'utilisateur
+
+**La visibilité champ par champ est stockée et réglable, mais n'est pas appliquée en lecture.**
+`GET /profiles/{userId}` ne filtre aucun champ. `profile-service` a remonté une contradiction
+réelle plutôt que de la contourner :
+
+- le socle validé au §8 masque par défaut tout ce qui n'est pas
+  `firstName`/`lastName`/`avatarUrl`/`level`/`subjects` ;
+- l'arbitrage du 2026-08-07 dit que **le parent voit tout ce qui concerne ses élèves**, sauf le
+  carnet personnel.
+
+Les deux ne peuvent pas s'appliquer en même temps. Question posée : le parent financeur et le
+professeur principal sont-ils exemptés d'un réglage `self` ? Un élève peut-il masquer une donnée
+à son parent financeur ? Le port de filtrage est écrit et testé, il n'attend que la réponse.
 
 ## Bloqué par
 

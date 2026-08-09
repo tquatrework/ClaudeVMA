@@ -60,14 +60,20 @@ export class AccountsController {
       'from its email. RGPD/CGU acceptance collected in the form is sent in `consents` ' +
       '([{consentType, version?}]) and recorded in consent_records exactly like POST /consents: the student ' +
       'account is then created ACTIVE, PENDING otherwise. These consents cover the student only — a parent ' +
-      'account created in the same call stays PENDING and signs its own via POST /consents. Any field this ' +
+      'account created in the same call stays PENDING and signs its own via POST /consents. ' +
+      'firstName, lastName, phoneNumber and birthDate are forwarded to profile-service ' +
+      '(POST /internal/create-administrative-profile) and never stored here: this service owns neither the ' +
+      'identity data nor a birth date column. birthDate is optional, ISO YYYY-MM-DD, and an impossible date ' +
+      'is rejected with a 400 here rather than turned into a 503 by profile-service. No birth date is ' +
+      'collected for the linked parent account (no parentBirthDate field). Any field this ' +
       'route does not declare is rejected with 400 rather than silently dropped.',
   })
   @ApiResponse({ status: 201, description: 'Student (and optionally parent) account created — student ACTIVE if rgpd + cgu consents were provided, PENDING otherwise; a created parent account is always PENDING. emailAlreadyUsed:true if email was already registered.' })
   @ApiResponse({
     status: 400,
     description:
-      'Validation error — unknown field in body (e.g. birthDate, which belongs to profile-service), ' +
+      'Validation error — unknown field in body (e.g. parentBirthDate, which no form collects), ' +
+      'birthDate not formatted as an ISO calendar date YYYY-MM-DD, ' +
       'duplicated consentType in consents, parentAccountMode missing while parent* fields are sent, ' +
       'required field missing for the chosen mode, or field with no effect in that mode (never silently ignored)',
   })

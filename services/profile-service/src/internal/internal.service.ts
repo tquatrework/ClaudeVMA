@@ -34,6 +34,7 @@ export class InternalService {
     firstName: string;
     lastName: string;
     phone?: string;
+    birthDate?: string;
   }) {
     const administrative = await this.profilesService.bootstrapAdministrativeProfile(dto);
     return { userId: dto.userId, administrative };

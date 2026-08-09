@@ -86,6 +86,29 @@ describe('ProfileServiceClient', () => {
       );
     });
 
+    it('forwards birthDate under the same name on both sides (no mapping, unlike phone)', async () => {
+      fetchMock.mockResolvedValue({ status: 201, ok: true });
+
+      await client.createAdministrativeProfile({
+        userId: 'user-uuid',
+        firstName: 'Jean',
+        lastName: 'Dupont',
+        birthDate: '2005-06-15',
+      });
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://profile-service:3002/internal/create-administrative-profile',
+        expect.objectContaining({
+          body: JSON.stringify({
+            userId: 'user-uuid',
+            firstName: 'Jean',
+            lastName: 'Dupont',
+            birthDate: '2005-06-15',
+          }),
+        }),
+      );
+    });
+
     it('throws ProfileServiceUnavailableError and logs an error with the userId on a network failure / timeout', async () => {
       fetchMock.mockRejectedValue(new Error('The operation was aborted due to timeout'));
 

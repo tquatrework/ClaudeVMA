@@ -20,6 +20,7 @@ import {
   buildRegistrationConsents,
   hasGivenRequiredConsents,
 } from '../utils/registrationConsents'
+import { isStrictIsoCalendarDate } from '../utils/dateFormat'
 import type { RegistrationConsentsFormData } from '../types/accounts'
 
 type WizardStep = 'administrative' | 'rgpd'
@@ -32,6 +33,7 @@ const INITIAL_ADMINISTRATIVE: StudentAdministrativeFormData = {
   firstName: '',
   lastName: '',
   phoneNumber: '',
+  birthDate: '',
 }
 
 const INITIAL_RGPD: RegistrationConsentsFormData = {
@@ -108,6 +110,16 @@ export default function StudentRegistrationPage() {
       return
     }
 
+    // Le serveur exige une date calendaire ISO réellement existante : on refuse ici
+    // pour afficher un message en français plutôt qu'un 400 opaque en fin de parcours.
+    if (
+      administrativeData.birthDate &&
+      !isStrictIsoCalendarDate(administrativeData.birthDate)
+    ) {
+      setValidationError('La date de naissance saisie n’est pas une date valide (jour, mois, année)')
+      return
+    }
+
     const linkedAccountError = validateLinkedAccountData(
       'parent',
       linkedParentData,
@@ -138,6 +150,8 @@ export default function StudentRegistrationPage() {
       firstName: administrativeData.firstName,
       lastName: administrativeData.lastName,
       phoneNumber: administrativeData.phoneNumber || undefined,
+      // Jamais de chaîne vide : le champ est optionnel, on l'omet s'il n'a pas été saisi.
+      birthDate: administrativeData.birthDate || undefined,
       consents: buildRegistrationConsents(rgpdData),
       ...buildLinkedAccountFields('parent', linkedParentData, lockedParentLoginIdentifier),
     })

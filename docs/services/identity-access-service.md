@@ -948,7 +948,13 @@
           d'etre jete en silence) : le front doit cesser de l'envoyer, ou attendre l'extension du
           contrat.
         </description>
-        <status>open</status>
+        <status>resolved</status>
+        <resolvedIn>
+          session 2026-08-09 « birthDate » — profile-service a etendu
+          POST /internal/create-administrative-profile (`birthDate?` ISO YYYY-MM-DD), et
+          identity-access-service declare et relaie le champ sur POST /accounts/students.
+          Voir decision S-birthdate-relayed-to-profile-service ci-dessous.
+        </resolvedIn>
       </openItem>
 
       <openItem id="TD-front-must-send-consents-array">
@@ -1230,6 +1236,154 @@
           la presence d'un element afficherait « Signe » sur un consentement retire. Le champ
           `isWithdrawable` doit piloter l'affichage du bouton de retrait, sans reimplementer la liste des
           types obligatoires cote front.
+        </description>
+        <status>open</status>
+      </openItem>
+    </session>
+
+    <session date="2026-08-09" topic="birthDate">
+      <title>Date de naissance : acceptee a l'inscription eleve et relayee a profile-service</title>
+      <context>
+        Dernier des trois champs que la ValidationPipe jetait en silence sur POST /accounts/students
+        (apres `loginIdentifier` puis `consents`). Le champ « Date de naissance » avait ete RETIRE du
+        formulaire d'inscription le 2026-08-09 faute de destination : le front l'envoyait,
+        identity-access-service le jetait, et administrative_profiles.date_naissance restait NULL.
+        Le blocage etait le contrat de profile-service : POST /internal/create-administrative-profile
+        n'acceptait que {userId, firstName, lastName, phone?} et rejette les champs inconnus
+        (forbidNonWhitelisted) — envoyer birthDate y aurait produit un 400 cote profile-service, donc un
+        503 a l'inscription. Cf. openItem TD-birthdate-not-relayed-to-profile-service, desormais resolu.
+        profile-service a livre sa part le 2026-08-09 : `birthDate?` optionnel, ISO YYYY-MM-DD,
+        @IsDateString, 400 explicite si mal formee.
+      </context>
+
+      <arborescence>
+        src/accounts/dto/
+          birth-date.validator.ts (nouveau)   BIRTH_DATE_REGEX, isIsoCalendarDate, IsIsoBirthDate
+          create-student-account.dto.ts       champ birthDate + note sur l'absence de parentBirthDate
+        src/accounts/
+          accounts.service.ts                 persistAdministrativeProfile prend un objet nomme
+          accounts.controller.ts              Swagger de POST /accounts/students
+        src/common/clients/
+          profile-service.client.ts           birthDate ajoute a CreateAdministrativeProfileInput
+        test/unit/
+          birth-date.validator.spec.ts (nouveau)
+          accounts.service.spec.ts            describe « birthDate relay to profile-service »
+          common/profile-service.client.spec.ts
+          common/reject-unknown-body-fields.guard.spec.ts
+        test/app.e2e-spec.ts                  201 avec date valide, 400 mal formee/impossible/parentBirthDate
+      </arborescence>
+
+      <decision id="S-birthdate-relayed-to-profile-service">
+        <title>birthDate declare sur POST /accounts/students, relaye, jamais persiste</title>
+        <description>
+          Meme geste que firstName/lastName/phone (arbitrage du 2026-08-06) : le champ est collecte en
+          entree puis transmis immediatement a profile-service dans la meme DataSource.transaction que la
+          creation du compte, avec les memes garanties (echec du relais → 503 + rollback du compte).
+          identity-access-service reste un client de passage : la table `users` n'a aucune colonne de date
+          de naissance et n'en gagne aucune, la reponse HTTP n'expose jamais la valeur, et un test verrouille
+          les deux points (aucune propriete birthDate/dateNaissance/date_naissance dans les entites passees
+          a create()/save(), et la date absente de la reponse serialisee).
+          Nom identique des deux cotes — aucun mapping, contrairement a phoneNumber → phone. La regle
+          « un seul nom par donnee » n'imposait rien ici puisque profile-service avait le choix du nom de
+          son DTO d'entree ; il a repris `birthDate`, qui est aussi celui du front et celui de
+          PUT /profiles/:userId/administrative. La colonne physique reste `date_naissance` cote
+          profile-service (nommage historique, hors perimetre).
+          Le champ est omis du corps sortant quand il n'a pas ete saisi (jamais envoye a null) : la route
+          etant un upsert par userId, envoyer null ecraserait une valeur existante lors d'un rejeu.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="S-birthdate-validated-locally">
+        <title>Validation locale de la date : forme ET existence reelle, pour un 400 plutot qu'un 503</title>
+        <description>
+          IsIsoBirthDate (src/accounts/dto/birth-date.validator.ts) verifie la forme `YYYY-MM-DD` puis
+          reconstruit la date en UTC pour rejeter les dates impossibles : la regex seule laisse passer
+          `2008-02-30` et `2008-13-01`, que `Date` normalise silencieusement en une autre date. Sans cette
+          verification, une saisie absurde partirait vers profile-service et reviendrait en 503
+          « service indisponible » — un message faux, qui invite a reessayer une requete qui ne peut pas
+          aboutir. Le message d'erreur nomme le format attendu et donne un exemple.
+          Le decorateur est enregistre via registerDecorator (et non compose de @Matches) pour que la
+          propriete porte une metadonnee class-validator : c'est cette metadonnee que lisent la
+          ValidationPipe globale (whitelist) et RejectUnknownBodyFieldsGuard (@StrictBody). birthDate passe
+          donc automatiquement de « champ inconnu rejete en 400 » a « champ accepte », et apparait dans la
+          liste des champs acceptes du message d'erreur du garde — verifie par un test dedie, la justesse
+          de cette liste etant exactement ce qui oriente le front.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="S-birthdate-scope-student-route-only">
+        <title>Une seule route, aucun champ invente pour le compte lie</title>
+        <description>
+          birthDate n'est declare que sur CreateStudentAccountDto : c'est la seule route dont le formulaire
+          collectait une date de naissance (StudentAdministrativeStep). CreateAccountDto,
+          CreateTeacherAccountDto et CreateParentAccountDto ne le declarent pas, et l'envoyer y renvoie 400.
+          Aucun parentBirthDate / studentBirthDate non plus : LinkedAccountSection ne demande
+          qu'identifiant/email/mot de passe/prenom/nom pour le compte cree en parallele. Declarer un champ
+          que personne ne remplit reviendrait a inventer une donnee — le compte lie renseignera sa date via
+          PUT /profiles/:userId/administrative. Trois tests verrouillent ces absences.
+          persistAdministrativeProfile passe d'une liste de 4 parametres positionnels a un objet nomme :
+          avec une cinquieme valeur optionnelle, trois chaines consecutives devenaient trop faciles a
+          intervertir silencieusement.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <validation date="2026-08-09">
+        <title>Sondes HTTP contre une pile reelle, en bases de sonde isolees</title>
+        <description>
+          Deux conteneurs sidecar sur le reseau claudevma_visiomath_network : identity-access-service
+          construit depuis cette branche (port hote 3999) et profile-service construit depuis la meme
+          branche, chacun sur une base de sonde creee par pg_dump --schema-only des bases reelles
+          (identity_birthdate_probe, profile_birthdate_probe). Aucun conteneur de production ni aucune base
+          de production n'a ete touche ; les deux sidecars, les deux bases et les deux images ont ete
+          supprimes apres les sondes (contrairement a TD-probe-accounts-left-in-database, aucun compte de
+          sonde ne subsiste).
+          Resultats mesures :
+          - birthDate "14/05/2008" → 400 « birthDate must be an ISO calendar date formatted YYYY-MM-DD
+            (example: 2005-06-15) » ;
+          - birthDate "2008-02-30" (date impossible) → meme 400, aucun appel a profile-service ;
+          - parentBirthDate → 400 listant le champ inconnu ET les champs acceptes, `birthDate` figurant
+            bien dans cette liste ;
+          - birthDate "2008-05-14" contre le profile-service DEPLOYE (contrat sans birthDate) → 503, avec
+            « profile-service a retourne HTTP 400 » en detail : preuve que le relais atteint bien la route
+            distante, et que le contrat etendu doit etre deploye ;
+          - birthDate "2008-05-14" + phoneNumber + consents rgpd/cgu contre le profile-service de la
+            BRANCHE → 201, validationStatus "active" ; en base profile :
+            administrative_profiles.date_naissance = 2008-05-14, telephone et prenom/nom renseignes ;
+          - inscription sans birthDate → 201, date_naissance NULL, rien de casse ;
+          - eleve avec birthDate + parent cree en parallele → 201, date_naissance renseignee pour l'eleve
+            et NULL pour le parent ;
+          - en base identity : aucune colonne de la table `users` ne contient « birth » ni « naissance »,
+            et la reponse HTTP ne contient nulle part la valeur saisie.
+          Suite unitaire : 362/362 verts (34 tests ajoutes). tsc --noEmit et nest build sans erreur.
+        </description>
+      </validation>
+
+      <openItem id="TD-front-can-restore-birth-date-field">
+        <title>Le front peut reintroduire le champ « Date de naissance » a l'inscription eleve</title>
+        <description>
+          Le champ avait ete retire de StudentAdministrativeStep le 2026-08-09 faute de destination. Cette
+          destination existe desormais : POST /accounts/students accepte `birthDate` (ISO YYYY-MM-DD,
+          optionnel) et la donnee arrive jusqu'a administrative_profiles.date_naissance. Le front peut donc
+          restaurer le champ et le renvoyer sous ce nom exact. Le composant porte deja un commentaire
+          expliquant le retrait — a mettre a jour en meme temps, sinon il justifiera une absence qui n'a
+          plus lieu d'etre. Le selecteur de date doit produire `YYYY-MM-DD` et non un format localise ni un
+          datetime ISO complet : les deux sont refuses en 400.
+        </description>
+        <status>open</status>
+      </openItem>
+
+      <openItem id="TD-birthdate-not-deployed-yet">
+        <title>Le contrat etendu de profile-service n'est pas encore deploye</title>
+        <description>
+          Mesure du 2026-08-09 : le conteneur visiomath_profile en service ne connait pas `birthDate`
+          (grep sans resultat dans son bundle compile) et renvoie 400 sur ce champ, ce qui produit un 503
+          a l'inscription. Les deux services doivent donc etre deployes ENSEMBLE — deployer
+          identity-access-service seul casserait l'inscription des que le front enverrait une date de
+          naissance. Tant que le front n'envoie pas le champ (il ne l'envoie plus depuis le 2026-08-09),
+          l'ordre de deploiement est sans consequence.
         </description>
         <status>open</status>
       </openItem>

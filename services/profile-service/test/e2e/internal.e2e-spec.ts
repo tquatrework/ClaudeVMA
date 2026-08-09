@@ -162,6 +162,68 @@ describe('[E2E] Internal routes', () => {
       expect([401, 403]).toContain(res.status);
     });
 
+    // ────────────────────────────────────────────────────────────
+    // birthDate à la création — le champ existait en base et à la
+    // modification, mais la création l'ignorait : il avait donc été retiré du
+    // formulaire d'inscription faute d'être stocké nulle part. Ces tests
+    // verrouillent le relais depuis identity-access-service.
+    // ────────────────────────────────────────────────────────────
+
+    it('Persiste birthDate fourni à la création → 201', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({
+          userId: IDS.birthDateAccount,
+          firstName: 'Nadia',
+          lastName: 'Leroy',
+          birthDate: '2008-03-14',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.administrative).toMatchObject({ birthDate: '2008-03-14' });
+    });
+
+    it('Idempotence : rappel avec une birthDate différente met à jour la date → 201', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({
+          userId: IDS.birthDateAccount,
+          firstName: 'Nadia',
+          lastName: 'Leroy',
+          birthDate: '2008-04-01',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.administrative).toMatchObject({ birthDate: '2008-04-01' });
+    });
+
+    it('birthDate reste facultatif (comptes RP/TI/AF sans date de naissance) → 201', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.rp1, firstName: 'Rachid', lastName: 'Pedago' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.administrative.birthDate ?? null).toBeNull();
+    });
+
+    it('birthDate mal formée → 400, jamais absorbée en silence', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({
+          userId: IDS.genericAccount2,
+          firstName: 'Sophie',
+          lastName: 'Bernard',
+          birthDate: '14/03/2008',
+        });
+
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(res.body.message)).toContain('birthDate');
+    });
+
     it('Persiste le champ phone (colonne `telephone` en base) à la création → 201', async () => {
       const res = await request(app.getHttpServer())
         .post('/internal/create-administrative-profile')

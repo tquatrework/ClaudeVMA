@@ -25,6 +25,7 @@ describe('collectDeclaredFieldNames', () => {
 
     expect([...declaredFieldNames].sort()).toEqual(
       [
+        'birthDate',
         'consents',
         'email',
         'firstName',
@@ -87,7 +88,7 @@ describe('RejectUnknownBodyFieldsGuard', () => {
     expect(guard.canActivate(context)).toBe(true);
   });
 
-  it('rejects birthDate, which belongs to profile-service and used to be dropped in silence', () => {
+  it('lets birthDate through: it is now declared and forwarded to profile-service', () => {
     const context = buildExecutionContext({
       email: 'eleve@example.com',
       password: 'password123',
@@ -96,8 +97,20 @@ describe('RejectUnknownBodyFieldsGuard', () => {
       birthDate: '2008-05-14',
     });
 
+    expect(guard.canActivate(context)).toBe(true);
+  });
+
+  it('rejects a birth date aimed at the linked account, which no form collects', () => {
+    const context = buildExecutionContext({
+      email: 'eleve@example.com',
+      password: 'password123',
+      firstName: 'Lucas',
+      lastName: 'Petit',
+      parentBirthDate: '1978-03-02',
+    });
+
     expect(() => guard.canActivate(context)).toThrow(BadRequestException);
-    expect(() => guard.canActivate(context)).toThrow(/birthDate/);
+    expect(() => guard.canActivate(context)).toThrow(/parentBirthDate/);
   });
 
   it('rejects a consent field aimed at the linked account', () => {
@@ -113,7 +126,7 @@ describe('RejectUnknownBodyFieldsGuard', () => {
   it('lists every unknown field at once, and the accepted ones', () => {
     const context = buildExecutionContext({
       email: 'eleve@example.com',
-      birthDate: '2008-05-14',
+      parentBirthDate: '1978-03-02',
       nickname: 'Lulu',
     });
 
@@ -122,9 +135,13 @@ describe('RejectUnknownBodyFieldsGuard', () => {
       fail('the guard should have rejected the request');
     } catch (rejection) {
       const message = (rejection as BadRequestException).message;
-      expect(message).toContain('birthDate');
+      expect(message).toContain('parentBirthDate');
       expect(message).toContain('nickname');
       expect(message).toContain('Accepted fields for this route');
+      // La liste des champs acceptés doit rester juste après l'ajout de
+      // birthDate : un message qui l'omettrait renverrait le front vers le
+      // retrait du champ qu'on vient d'accepter.
+      expect(message).toContain('birthDate');
     }
   });
 

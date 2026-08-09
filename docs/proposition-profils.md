@@ -6,30 +6,33 @@
 
 ---
 
-## 1. Le point à trancher en premier
+## 1. Structure retenue
 
-La consigne posait : « profile = profil administratif, ordonnance = profil pédagogique ».
-**Cette correspondance ne tient pas**, et c'est le principal enseignement de la comparaison.
-
-`StudentProfile` de l'ancienne version contient `niveau`, `difficultes`, `contexte`,
-`objectifs` : ce sont des données **pédagogiques** au sens de VisioMath, et elles existent déjà
-dans `student_pedagogical_profiles`. Les basculer dans le profil administratif reviendrait à
-mélanger identité et pédagogie, et à casser les règles de droit déjà arbitrées.
-
-Ce que `ordonnance` désigne réellement, son champ `rempli_par` le dit : un document **rédigé par
-un tiers** — le responsable pédagogique — **sur** l'utilisateur. Ce n'est pas « le profil
-pédagogique », c'est une **prescription**. Elle a un auteur différent, des droits d'écriture
-différents, et une durée de vie différente.
-
-**Proposition : trois blocs, pas deux.**
+**Tranché par l'utilisateur le 2026-08-09** : les champs d'ordonnance appartiennent bien au
+**profil pédagogique** de l'élève ou du professeur. Deux blocs, donc, pas trois.
 
 | Bloc | Contenu | Qui écrit |
 |---|---|---|
 | Profil administratif | identité, contact, adresse | le titulaire |
-| Profil pédagogique | ce que le titulaire déclare sur lui-même | le titulaire |
-| **Ordonnance pédagogique** *(nouveau)* | ce que le RP prescrit / évalue sur le titulaire | le RP, jamais le titulaire |
+| Profil pédagogique | ce que le titulaire déclare **et** ce que le RP prescrit | selon la section — voir ci-dessous |
 
-C'est la décision structurante de cette proposition. Tout le reste en découle.
+Un point subsiste et doit être préservé dans l'implémentation : dans l'ancienne version,
+l'ordonnance porte un champ `rempli_par`. Ces champs ne sont pas rédigés par le titulaire mais
+par le responsable pédagogique **sur** lui. Ils vivent dans le même profil, mais ils n'ont pas
+le même auteur.
+
+**Conséquence sur l'écriture, et c'est le vrai enjeu** : le profil pédagogique n'est pas
+modifiable d'un bloc. Il se compose de deux sections aux droits distincts.
+
+| Section du profil pédagogique | Contenu | Qui écrit |
+|---|---|---|
+| Déclarative | niveau, matières, objectifs, difficultés, diplômes… | le titulaire |
+| Prescription (ex-ordonnance) | préconisations, évaluations, niveau validé | le RP seul |
+
+Techniquement : un seul profil pédagogique par rôle, une seule lecture, mais **deux routes
+d'écriture** — `PUT /profiles/{userId}/pedagogical` pour le titulaire, et une route dédiée à la
+prescription réservée au RP. Une seule route qui accepterait tout laisserait un élève écrire
+ses propres préconisations, ou un formateur ses propres résultats de test.
 
 ---
 
@@ -121,11 +124,16 @@ Deux corrections de droits, qui sont des défauts réels de l'existant :
 
 ---
 
-## 6. Ordonnance pédagogique — le bloc nouveau
+## 6. Section prescription du profil pédagogique
 
-Écrite **par le responsable pédagogique**, jamais par le titulaire. Deux tables.
+Les champs d'ordonnance, intégrés au profil pédagogique de chaque rôle comme tu l'as tranché.
+Ils restent **écrits par le responsable pédagogique seul**, via une route dédiée.
 
-### Élève — `student_pedagogical_prescriptions`
+Stockage proposé : dans la même table que la section déclarative de chaque rôle, pas dans une
+table séparée — c'est bien un seul profil. La séparation des droits est portée par les routes,
+pas par le schéma.
+
+### Élève — ajouts à `student_pedagogical_profiles`
 
 | Champ | Origine |
 |---|---|
@@ -136,7 +144,7 @@ Deux corrections de droits, qui sont des défauts réels de l'existant :
 | `recommendedActivities` | `preco_activites` |
 | `filledBy` + `filledAt` | `rempli_par` |
 
-### Formateur — `teacher_pedagogical_prescriptions`
+### Formateur — ajouts à `teacher_pedagogical_profiles`
 
 | Champ | Origine |
 |---|---|
@@ -149,7 +157,7 @@ Deux corrections de droits, qui sont des défauts réels de l'existant :
 `filledBy` et `filledAt` ne sont pas décoratifs : ils rendent l'ordonnance opposable. On doit
 savoir qui a prescrit quoi, et quand.
 
-**Question ouverte, que je ne tranche pas seul** : le titulaire lit-il son ordonnance ?
+**Question ouverte, que je ne tranche pas seul** : le titulaire lit-il sa prescription ?
 
 - Pour l'élève : lui montrer les préconisations le rend acteur de son parcours ; les lui cacher
   permet au RP d'écrire franchement. Les deux se défendent.
@@ -157,7 +165,7 @@ savoir qui a prescrit quoi, et quand.
   cacher serait difficilement tenable.
 
 `internal_profile_notes` existe déjà pour les notes internes libres (avec `author_id` et
-`author_role`). L'ordonnance s'en distingue : elle est **structurée**, unique par personne, et
+`author_role`). La prescription s'en distingue : elle est **structurée**, unique par personne, et
 destinée à être exploitée. La note est libre, multiple et conversationnelle. Les deux coexistent.
 
 ---
@@ -169,11 +177,11 @@ s'appliquent sans changement. Ce qui suit précise leur application aux nouveaux
 
 **Écriture** — jamais sur un champ d'identifiant. Sinon :
 
-| Bloc | Qui peut écrire |
+| Bloc ou section | Qui peut écrire |
 |---|---|
 | Profil administratif | le titulaire ; les administrateurs dans leur domaine, sous accord tracé |
-| Profil pédagogique | le titulaire uniquement ; le RP pour le domaine pédagogique, sous accord tracé |
-| Ordonnance | **le RP seul.** Le titulaire n'écrit jamais. L'AP pour les formateurs qu'il anime, à confirmer. |
+| Profil pédagogique — section déclarative | le titulaire ; le RP pour le domaine pédagogique, sous accord tracé |
+| Profil pédagogique — section prescription | **le RP seul**, par une route dédiée. Le titulaire n'écrit jamais. L'AP pour les formateurs qu'il anime, à confirmer. |
 | `isAnimateurPedagogique` | le RP seul, par sa route dédiée — retiré du DTO de profil |
 
 **Lecture** — pilotée par les relations métier, pas par la seule identité : le titulaire, les
@@ -205,8 +213,9 @@ téléphone, `birthDate` — au choix de l'utilisateur, masqué par défaut.
 
 ## 9. Ce que ça implique, et dans quel ordre
 
-1. **`profile-service`** — 6 champs à créer, 1 à déplacer, 1 à sortir du DTO, 2 tables
-   d'ordonnance, 1 table de visibilité, avec les migrations correspondantes.
+1. **`profile-service`** — 6 champs déclaratifs à créer, 1 à déplacer, 1 à sortir du DTO,
+   9 champs de prescription à ajouter aux deux tables pédagogiques, une route d'écriture
+   réservée au RP, 1 table de visibilité, avec les migrations correspondantes.
 2. **`identity-access-service`** — relayer `birthDate` à la création du profil, pour rebrancher
    le champ retiré de l'inscription.
 3. **Front** — affichage et édition des trois blocs, avec les droits en lecture et en écriture,
@@ -221,9 +230,11 @@ livrer le front sans le back produirait des écrans qui mentent.
 
 ## 10. Ce que j'attends de toi
 
-1. **Valides-tu les trois blocs** plutôt que deux, et donc l'ordonnance comme objet distinct ?
-2. **Le titulaire lit-il son ordonnance ?** Réponse possiblement différente pour l'élève et pour
-   le formateur.
+1. ~~Trois blocs ou deux ?~~ **Tranché : deux blocs**, les champs d'ordonnance rejoignent le
+   profil pédagogique. Reste à confirmer le corollaire : deux **routes d'écriture** distinctes,
+   pour que le titulaire ne puisse pas écrire sa propre prescription.
+2. **Le titulaire lit-il sa prescription ?** Réponse possiblement différente pour l'élève et
+   pour le formateur.
 3. **`UserProfile`** de l'ancienne version : peux-tu me l'envoyer ? Sans elle, je ne peux pas
    dire ce qui manque au profil administratif.
 4. **Les données de facturation formateur** (SIRET, IBAN, BIC…) : à reprendre maintenant dans

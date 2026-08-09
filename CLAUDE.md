@@ -27,6 +27,31 @@ parte du besoin de l'utilisateur et non des artefacts laissés derrière.
 Le hook `Stop` signale tout travail en suspens avant de rendre la main : fichiers non committés,
 commits non poussés, PR non mergées, worktrees d'agents résiduels, objectif non validé.
 
+## Sauvegarde continue — RÈGLE STRICTE
+La connexion à cette machine tombe régulièrement. Tout ce qui n'est pas **poussé sur `origin`**
+au moment de la coupure est perdu, y compris une question posée à l'utilisateur et restée sans
+réponse. Cette règle prime sur le confort du découpage en commits.
+
+- Committer et pousser **dès qu'une étape cohérente est finie**, sans attendre que la tâche
+  entière le soit. Un commit intermédiaire imparfait vaut infiniment mieux qu'un travail perdu.
+- Pousser **avant** toute question à l'utilisateur, toute attente de validation, toute
+  opération longue (build, tests, délégation à un subagent).
+- Ne jamais accumuler plusieurs étapes de travail dans un état non poussé.
+- Ne poser une question que si l'état est déjà sauvé : la réponse peut ne jamais arriver.
+
+Corollaire : une question de validation n'est légitime que si elle porte sur une décision que
+l'utilisateur seul peut prendre. Demander « est-ce que je continue ? » sur un travail déjà
+prouvé n'est pas une validation, c'est une occasion de tout perdre.
+
+## Branches — RÈGLE STRICTE
+Une branche par besoin métier, pas une par tentative. Avant d'en créer une nouvelle sur un
+sujet déjà ouvert, reprendre celle qui existe.
+
+Après un squash-merge, la relation d'ancêtre est cassée mais pas le contenu : ne jamais
+conclure qu'une branche est perdue ou divergente sans avoir comparé fichier par fichier
+(`git diff <base>..<branche>`). Les PR empilées sont à proscrire — GitHub **ferme** la PR
+enfant quand la branche de base est supprimée au merge de la PR parente.
+
 ## Contexte global
 @README.md
 @docs/microservices.md

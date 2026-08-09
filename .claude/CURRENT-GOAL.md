@@ -7,38 +7,42 @@
 
 ## Besoin
 
-Dans **Profil > Parents financeurs**, un élève doit lire le prénom et le nom de son parent
-financeur. Jamais son identifiant technique.
+Aucun objectif métier en cours. Le précédent est clos, voir plus bas.
 
-Demandé le 2026-08-04. Quatre tentatives, aucune constatée à l'écran par l'utilisateur.
+Prochain besoin à inscrire ici dès qu'il est formulé, avant de coder quoi que ce soit.
 
 ## Comment on saura que c'est fait
 
-Une capture d'écran de `https://claudevma.visioprof.fr`, connecté en `eleve.seconde`,
-montrant « maman deuxenfants » dans l'onglet Parents financeurs, sans aucun UUID.
-La capture est livrée à l'utilisateur dans la conversation.
-
-**Ni les tests verts ni une PR ouverte ne valent validation** : la suite front simule tout
-le réseau, elle est restée verte pendant les quatre tentatives ratées.
+_(à remplir avec le prochain objectif)_
 
 ## État
 
-- [x] Correctif codé et committé (`5d675cb`, branche `fix/profile-field-names-english`)
-- [x] `profile-service` et le front reconstruits et redémarrés
-- [x] Capture livrée à l'utilisateur — 2026-08-09, prise sur `https://claudevma.visioprof.fr`,
-      connecté en `eleve.seconde`, onglet Parents financeurs : « maman deuxenfants », aucun UUID.
-      Doublée d'une réponse HTTP réelle du gateway public :
-      `GET /api/v1/relations/finance-owner-student/by-student/87482274-…` →
-      `"financeOwnerName": { "firstName": "maman", "lastName": "deuxenfants" }`
-      Le mot de passe de `eleve.seconde` étant inconnu, son `password_hash` a été remplacé
-      temporairement en base puis **restauré à l'identique** — compte inchangé.
-- [ ] Validé par l'utilisateur
-- [ ] Mergé dans `master`
+_(à remplir avec le prochain objectif)_
 
 ## Bloqué par
 
-Validation utilisateur de la capture, puis merge dans l'ordre : PR #68, puis PR #69
-(#69 est empilée sur #68).
+Rien.
+
+---
+
+## Dernier objectif clos — 2026-08-09
+
+**Besoin** : dans Profil > Parents financeurs, un élève doit lire le prénom et le nom de son
+parent financeur, jamais son identifiant technique. Demandé le 2026-08-04.
+
+**Preuve livrée** : capture de `https://claudevma.visioprof.fr`, connecté en `eleve.seconde`,
+onglet Parents financeurs affichant « maman deuxenfants », aucun UUID. Doublée de la réponse
+du gateway public :
+`GET /api/v1/relations/finance-owner-student/by-student/87482274-…` →
+`"financeOwnerName": { "firstName": "maman", "lastName": "deuxenfants" }`
+
+**Mergé dans `master`** : PR #68, puis PR #71 (reprise de #69, fermée automatiquement par
+GitHub quand sa branche de base a été supprimée au merge de #68).
+
+**Ce que l'épisode a coûté, et les règles qui en sortent** : cinq jours, cinq branches
+d'agents et deux PR empilées pour un changement d'affichage. Causes et parades inscrites
+dans `CLAUDE.md` — sauvegarde continue, une branche par besoin, pas de PR empilées,
+et « terminé » = preuve reçue par l'utilisateur.
 
 ---
 

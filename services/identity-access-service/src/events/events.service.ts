@@ -4,6 +4,7 @@ export type DomainEventType =
   | 'AccountCreated'
   | 'RoleChanged'
   | 'ConsentSigned'
+  | 'ConsentWithdrawn'
   | 'AccountValidated'
   | 'AccountSuspended'
   | 'EmailVerified'

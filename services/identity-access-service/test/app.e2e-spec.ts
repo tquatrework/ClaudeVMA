@@ -469,4 +469,154 @@ describe('Identity Access Service (e2e)', () => {
       .send({ email: testEmail, password: 'wrongpassword' })
       .expect(401);
   });
+
+  // --- Retrait de consentement (arbitrage du 2026-08-09) ----------------------
+  //
+  // Cycle complet sur un compte dédié : donner → lire → retirer → relire →
+  // redonner. Le journal `consent_records` est append-only, aucune ligne n'est
+  // jamais supprimée.
+
+  describe('consent withdrawal', () => {
+    const withdrawalLoginIdentifier = `withdraw-${timestamp}`;
+    let withdrawalAccessToken: string;
+
+    beforeAll(async () => {
+      await request(app.getHttpServer())
+        .post('/accounts')
+        .send({
+          email: `withdraw-${timestamp}@example.com`,
+          password: testPassword,
+          loginIdentifier: withdrawalLoginIdentifier,
+          consents: [{ consentType: 'rgpd' }, { consentType: 'cgu' }, { consentType: 'marketing' }],
+        })
+        .expect(201);
+
+      const loginResponse = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ loginIdentifier: withdrawalLoginIdentifier, password: testPassword })
+        .expect(201);
+
+      withdrawalAccessToken = loginResponse.body.access_token;
+    });
+
+    const authenticated = (httpRequest: request.Test) =>
+      httpRequest.set('Authorization', `Bearer ${withdrawalAccessToken}`);
+
+    it('GET /consents → one current state per consent type, mandatory ones not withdrawable', () => {
+      return authenticated(request(app.getHttpServer()).get('/consents'))
+        .expect(200)
+        .expect((res) => {
+          expect(res.body).toHaveLength(3);
+          const marketingState = res.body.find((state) => state.consentType === 'marketing');
+          expect(marketingState.status).toBe('granted');
+          expect(marketingState.isWithdrawable).toBe(true);
+          expect(res.body.find((state) => state.consentType === 'rgpd').isWithdrawable).toBe(false);
+          expect(res.body.find((state) => state.consentType === 'cgu').isWithdrawable).toBe(false);
+        });
+    });
+
+    it('POST /consents/marketing/withdraw → 201, withdrawal appended to the journal', () => {
+      return authenticated(request(app.getHttpServer()).post('/consents/marketing/withdraw'))
+        .expect(201)
+        .expect((res) => {
+          expect(res.body.action).toBe('withdrawn');
+          expect(res.body.consentType).toBe('marketing');
+        });
+    });
+
+    it('GET /consents after withdrawal → marketing reads as withdrawn, never as granted', () => {
+      return authenticated(request(app.getHttpServer()).get('/consents'))
+        .expect(200)
+        .expect((res) => {
+          const marketingState = res.body.find((state) => state.consentType === 'marketing');
+          expect(marketingState.status).toBe('withdrawn');
+          expect(marketingState.isGranted).toBe(false);
+          expect(marketingState.withdrawnAt).toBeDefined();
+          // La preuve que le consentement AVAIT été donné reste accessible.
+          expect(marketingState.grantedAt).toBeDefined();
+        });
+    });
+
+    it('withdrawing marketing never deactivates the account', () => {
+      return authenticated(request(app.getHttpServer()).get('/consents'))
+        .expect(200)
+        .expect((res) => {
+          expect(res.body.find((state) => state.consentType === 'rgpd').isGranted).toBe(true);
+          expect(res.body.find((state) => state.consentType === 'cgu').isGranted).toBe(true);
+        });
+    });
+
+    it('POST /consents/marketing/withdraw twice → 409', () => {
+      return authenticated(request(app.getHttpServer()).post('/consents/marketing/withdraw'))
+        .expect(409)
+        .expect((res) => expect(res.body.message).toContain('already withdrawn'));
+    });
+
+    it('POST /consents {marketing} after withdrawal → 201, the consent can be granted again', () => {
+      return authenticated(request(app.getHttpServer()).post('/consents'))
+        .send({ consentType: 'marketing' })
+        .expect(201)
+        .expect((res) => expect(res.body.action).toBe('granted'));
+    });
+
+    it.each(['rgpd', 'cgu'])(
+      'POST /consents/%s/withdraw → 403, refused explicitly and pointed to account closure',
+      (mandatoryConsentType) => {
+        return authenticated(
+          request(app.getHttpServer()).post(`/consents/${mandatoryConsentType}/withdraw`),
+        )
+          .expect(403)
+          .expect((res) => expect(res.body.message).toContain('closing the account'));
+      },
+    );
+
+    it('POST /consents/newsletter/withdraw → 400 on an unknown consent type', () => {
+      return authenticated(
+        request(app.getHttpServer()).post('/consents/newsletter/withdraw'),
+      ).expect(400);
+    });
+
+    it('POST /consents/marketing/withdraw without JWT → 401', () => {
+      return request(app.getHttpServer()).post('/consents/marketing/withdraw').expect(401);
+    });
+
+    it('GET /consents/history → every event kept, grants and withdrawals alike', () => {
+      return authenticated(request(app.getHttpServer()).get('/consents/history'))
+        .expect(200)
+        .expect((res) => {
+          const marketingEvents = res.body.filter((event) => event.consentType === 'marketing');
+          expect(marketingEvents.map((event) => event.action)).toEqual([
+            'granted',
+            'withdrawn',
+            'granted',
+          ]);
+          // L'adresse IP est une preuve interne, elle ne part pas vers le client.
+          expect(marketingEvents.every((event) => event.ipAddress === undefined)).toBe(true);
+        });
+    });
+
+    it('POST /consents/marketing/withdraw on an account that never granted it → 404', async () => {
+      const neverGrantedLoginIdentifier = `never-marketing-${timestamp}`;
+      await request(app.getHttpServer())
+        .post('/accounts')
+        .send({
+          email: `never-marketing-${timestamp}@example.com`,
+          password: testPassword,
+          loginIdentifier: neverGrantedLoginIdentifier,
+          consents: [{ consentType: 'rgpd' }, { consentType: 'cgu' }],
+        })
+        .expect(201);
+
+      const loginResponse = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ loginIdentifier: neverGrantedLoginIdentifier, password: testPassword })
+        .expect(201);
+
+      return request(app.getHttpServer())
+        .post('/consents/marketing/withdraw')
+        .set('Authorization', `Bearer ${loginResponse.body.access_token}`)
+        .expect(404)
+        .expect((res) => expect(res.body.message).toContain('never granted it'));
+    });
+  });
 });

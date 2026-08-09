@@ -42,9 +42,9 @@ describe('AccountsService', () => {
   let profileServiceClient: { createAdministrativeProfile: jest.Mock; linkParentToStudent: jest.Mock };
   let consentRecordingService: {
     recordConsent: jest.Mock;
-    areMandatoryConsentsSigned: jest.Mock;
-    findSignedConsent: jest.Mock;
-    listSignedConsents: jest.Mock;
+    areMandatoryConsentsGranted: jest.Mock;
+    findCurrentConsent: jest.Mock;
+    listConsentHistory: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -79,13 +79,13 @@ describe('AccountsService', () => {
       // ConsentRecordingService quand l'appelant n'en fournit pas.
       recordConsent: jest.fn().mockImplementation(async (input) => ({
         id: 'consent-uuid',
-        signedAt: new Date(),
+        recordedAt: new Date(),
         ...input,
         version: input.version ?? DEFAULT_CONSENT_VERSION,
       })),
-      areMandatoryConsentsSigned: jest.fn().mockResolvedValue(false),
-      findSignedConsent: jest.fn().mockResolvedValue(null),
-      listSignedConsents: jest.fn().mockResolvedValue([]),
+      areMandatoryConsentsGranted: jest.fn().mockResolvedValue(false),
+      findCurrentConsent: jest.fn().mockResolvedValue(null),
+      listConsentHistory: jest.fn().mockResolvedValue([]),
     };
 
     const dataSourceMock = buildTransactionalDataSourceMock([
@@ -1217,7 +1217,7 @@ describe('AccountsService', () => {
     });
 
     it('returns the student account ACTIVE and consentSigned once rgpd + cgu are provided', async () => {
-      consentRecordingService.areMandatoryConsentsSigned.mockResolvedValue(true);
+      consentRecordingService.areMandatoryConsentsGranted.mockResolvedValue(true);
       givenPersistedAccount();
 
       const result = await service.createStudentAccount({
@@ -1332,7 +1332,7 @@ describe('AccountsService', () => {
     });
 
     it('records the consents on the generic route (POST /accounts, POST /internal/create-account)', async () => {
-      consentRecordingService.areMandatoryConsentsSigned.mockResolvedValue(true);
+      consentRecordingService.areMandatoryConsentsGranted.mockResolvedValue(true);
       givenPersistedAccount();
 
       const result = await service.createAccount({
@@ -1346,7 +1346,7 @@ describe('AccountsService', () => {
     });
 
     it('does not presume the consents of a parent account created in the same call', async () => {
-      consentRecordingService.areMandatoryConsentsSigned.mockResolvedValue(true);
+      consentRecordingService.areMandatoryConsentsGranted.mockResolvedValue(true);
       givenPersistedAccount();
 
       const result = await service.createStudentAccount({
@@ -1372,7 +1372,7 @@ describe('AccountsService', () => {
     });
 
     it('does not presume the consents of a student account created in the same call', async () => {
-      consentRecordingService.areMandatoryConsentsSigned.mockResolvedValue(true);
+      consentRecordingService.areMandatoryConsentsGranted.mockResolvedValue(true);
       givenPersistedAccount();
 
       const result = await service.createParentAccount({

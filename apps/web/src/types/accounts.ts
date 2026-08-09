@@ -138,7 +138,58 @@ export interface RegenerateAccountAccessPayload {
   reason: string
 }
 
-export interface Consent {
-  consentType: string
-  signedAt: string
+/**
+ * Statut courant d'un consentement (docs/routes.md > `GET /consents`).
+ *
+ * - `granted` : accordé et toujours en vigueur ;
+ * - `withdrawn` : accordé puis retiré — le journal en garde la trace ;
+ * - `never_granted` : jamais donné par ce compte.
+ *
+ * Ces trois valeurs sont distinctes à l'écran : afficher « Signé » pour un
+ * consentement retiré serait un mensonge.
+ */
+export type ConsentStatus = 'granted' | 'withdrawn' | 'never_granted'
+
+/** Nature d'un événement du journal append-only des consentements. */
+export type ConsentAction = 'granted' | 'withdrawn'
+
+/**
+ * État courant d'un consentement, tel que renvoyé par `GET /consents`.
+ *
+ * Le serveur renvoie **toujours les trois types**, y compris ceux jamais donnés :
+ * le front n'a donc jamais à déduire un état de l'absence d'une ligne.
+ *
+ * `isMandatory` et `isWithdrawable` sont portés par le serveur, qui fait autorité :
+ * le front ne redéduit pas la liste des consentements obligatoires ni celle des
+ * consentements retirables.
+ */
+export interface ConsentState {
+  consentType: ConsentType
+  status: ConsentStatus
+  /** Équivalent serveur de `status === 'granted'`. */
+  isGranted: boolean
+  /** Ce consentement conditionne-t-il le fonctionnement du compte ? */
+  isMandatory: boolean
+  /** Le serveur accepte-t-il un retrait sur ce type ? */
+  isWithdrawable: boolean
+  /** Version du document consenti (ex. `1.0`), absente si jamais donné. */
+  version: string | null
+  /** Date du **dernier octroi** ; reste renseignée après un retrait. */
+  grantedAt: string | null
+  /** Date du retrait, renseignée seulement si `status === 'withdrawn'`. */
+  withdrawnAt: string | null
+  /** Date du dernier événement enregistré pour ce type. */
+  updatedAt: string | null
+}
+
+/**
+ * Événement du journal des consentements, renvoyé par
+ * `POST /consents/:consentType/withdraw` et `GET /consents/history`.
+ */
+export interface ConsentEvent {
+  id: string
+  consentType: ConsentType
+  action: ConsentAction
+  version: string
+  recordedAt: string
 }

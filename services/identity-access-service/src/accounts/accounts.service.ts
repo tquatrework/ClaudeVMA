@@ -142,7 +142,7 @@ export class AccountsService {
   /**
    * Enregistre les consentements recueillis par le formulaire d'inscription, par
    * le MÊME chemin que `POST /consents` (ConsentRecordingService : même table,
-   * même version par défaut, même capture d'`ipAddress` et de `signedAt`), puis
+   * même version par défaut, même capture d'`ipAddress` et de `recordedAt`), puis
    * applique l'effet de bord métier prévu quand RGPD + CGU sont réunis
    * (activateAfterMandatoryConsents — compte `consent_signed` et `ACTIVE`).
    *
@@ -181,11 +181,11 @@ export class AccountsService {
       );
     }
 
-    const allMandatoryConsentsSigned = await this.consentRecordingService.areMandatoryConsentsSigned(
+    const allMandatoryConsentsGranted = await this.consentRecordingService.areMandatoryConsentsGranted(
       userId,
       manager,
     );
-    const activatedAccount = allMandatoryConsentsSigned
+    const activatedAccount = allMandatoryConsentsGranted
       ? await this.activateAfterMandatoryConsents(userId, manager)
       : null;
 

@@ -15,7 +15,8 @@ import apiClient from './client'
 import type {
   ChangeAccountStatusPayload,
   CheckEmailAvailabilityResult,
-  Consent,
+  ConsentEvent,
+  ConsentState,
   ConsentType,
   RegenerateAccountAccessPayload,
   RegisterParentPayload,
@@ -91,16 +92,37 @@ export async function regenerateAccountAccess(
 // ─── Consentements RGPD ────────────────────────────────────────────────────────
 
 /**
- * GET /consents — Mes consentements
+ * GET /consents — État courant de mes consentements
+ *
+ * Renvoie toujours un élément par type reconnu (`rgpd`, `cgu`, `marketing`), y
+ * compris ceux jamais donnés : l'appelant lit `status`, il ne déduit rien de
+ * l'absence d'un élément.
  */
-export async function fetchConsents(): Promise<Consent[]> {
-  const { data } = await apiClient.get<Consent[]>('/consents')
+export async function fetchConsents(): Promise<ConsentState[]> {
+  const { data } = await apiClient.get<ConsentState[]>('/consents')
   return data
 }
 
 /**
- * POST /consents — Signer un consentement
+ * POST /consents — Donner (ou redonner) un consentement
+ *
+ * Sert aussi bien au premier octroi qu'à la ré-acceptation après un retrait :
+ * le `409` du serveur porte sur l'état courant, pas sur l'existence d'une ligne.
  */
-export async function signConsent(consentType: ConsentType): Promise<void> {
+export async function grantConsent(consentType: ConsentType): Promise<void> {
   await apiClient.post('/consents', { consentType })
+}
+
+/**
+ * POST /consents/:consentType/withdraw — Retirer un consentement optionnel
+ *
+ * `POST` et non `DELETE` : le retrait **ajoute** un événement au journal
+ * append-only, il ne supprime aucune ressource. Sans corps de requête.
+ *
+ * Erreurs métier attendues : `400` type inconnu, `403` consentement obligatoire,
+ * `404` jamais donné, `409` déjà retiré.
+ */
+export async function withdrawConsent(consentType: ConsentType): Promise<ConsentEvent> {
+  const { data } = await apiClient.post<ConsentEvent>(`/consents/${consentType}/withdraw`)
+  return data
 }

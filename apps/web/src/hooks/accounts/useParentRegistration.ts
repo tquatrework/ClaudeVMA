@@ -1,7 +1,10 @@
 import { useCallback, useState } from 'react'
 import { registerParent } from '../../api/accounts'
 import type { RegisterParentPayload } from '../../types/accounts'
-import { getErrorMessage } from '../../utils/apiError'
+import {
+  buildRegistrationErrorContext,
+  getRegistrationErrorMessage,
+} from '../../utils/registrationError'
 
 export interface UseParentRegistrationResult {
   register: (payload: RegisterParentPayload) => Promise<boolean>
@@ -25,7 +28,13 @@ export function useParentRegistration(): UseParentRegistrationResult {
       await registerParent(payload)
       return true
     } catch (caughtError) {
-      setError(getErrorMessage(caughtError, 'Erreur lors de la création du compte'))
+      setError(
+        getRegistrationErrorMessage(
+          caughtError,
+          buildRegistrationErrorContext('student', payload),
+          'Erreur lors de la création du compte',
+        ),
+      )
       return false
     } finally {
       setIsSubmitting(false)

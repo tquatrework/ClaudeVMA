@@ -10,6 +10,13 @@
  *   bloc en lecture seule, la liaison est automatique, aucun choix proposé.
  * - Sinon : trois choix (ne rien lier / lier un compte existant / créer un
  *   nouveau compte lié).
+ *
+ * Le champ « Identifiant de connexion » est présent dans les deux modes de
+ * saisie, car il porte la même donnée (`parentLoginIdentifier` /
+ * `studentLoginIdentifier`) : il désigne le compte à rattacher en mode
+ * `existing`, et nomme le compte créé en mode `new` — un compte créé en
+ * parallèle doit pouvoir se connecter, son identifiant est donc choisi, jamais
+ * dérivé de son email (docs/architecture.md, arbitrage du 2026-08-09).
  */
 
 import React from 'react'
@@ -109,13 +116,22 @@ export function LinkedAccountSection({
             value={data.loginIdentifier}
             onChange={(e) => onChange({ ...data, loginIdentifier: e.target.value })}
             placeholder={placeholders.identifier}
+            autoComplete="off"
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
           />
+          <p className="text-xs text-gray-500 mt-1">
+            Identifiant avec lequel ce compte se connecte déjà.
+          </p>
         </div>
       )}
 
       {data.mode === 'new' && (
         <div className="space-y-3">
+          <p className="text-xs text-gray-500">
+            Ce compte {target} sera créé en même temps que le vôtre et pourra se connecter avec
+            l'identifiant choisi ci-dessous.
+          </p>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label
@@ -166,6 +182,27 @@ export function LinkedAccountSection({
               placeholder="ex : contact@exemple.fr"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
+          </div>
+
+          <div>
+            <label
+              htmlFor={`${fieldPrefix}-newLoginIdentifier`}
+              className="block text-xs font-medium text-gray-600 mb-1"
+            >
+              Identifiant de connexion {target}
+            </label>
+            <input
+              id={`${fieldPrefix}-newLoginIdentifier`}
+              type="text"
+              value={data.loginIdentifier}
+              onChange={(e) => onChange({ ...data, loginIdentifier: e.target.value })}
+              placeholder={placeholders.identifier}
+              autoComplete="off"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Cet identifiant lui servira à se connecter.
+            </p>
           </div>
 
           <div>

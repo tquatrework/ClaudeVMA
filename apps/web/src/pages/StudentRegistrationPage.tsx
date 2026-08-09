@@ -95,6 +95,7 @@ export default function StudentRegistrationPage() {
       'parent',
       linkedParentData,
       lockedParentLoginIdentifier,
+      administrativeData.loginIdentifier,
     )
     if (linkedAccountError) {
       setValidationError(linkedAccountError)

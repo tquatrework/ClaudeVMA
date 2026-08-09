@@ -58,23 +58,45 @@ l'être — preuve jouée contre la pile réelle, pas des tests verts.
       le RP rédige la prescription, `filledBy` = son UUID et `filledAt` posés serveur ;
       l'élève **lit** la prescription attribuée et datée ; catalogue de visibilité à
       34 champs servi par le serveur ; libellés tous en français, plus aucun UUID à l'écran.
-- [ ] Validé par l'utilisateur
-- [ ] Mergé dans master
+- [x] Validé par l'utilisateur — 2026-08-09
+- [x] Mergé dans master — PR #83
 
-## Point restant, à arbitrer par l'utilisateur
+## Filtrage de visibilité — fait, prouvé, en attente de merge
 
-**La visibilité champ par champ est stockée et réglable, mais n'est pas appliquée en lecture.**
-`GET /profiles/{userId}` ne filtre aucun champ. `profile-service` a remonté une contradiction
-réelle plutôt que de la contourner :
+Preuve jouée sur la pile réelle le 2026-08-09, avec un élève qui règle `phone` et
+`difficulties` sur « moi seul » :
 
-- le socle validé au §8 masque par défaut tout ce qui n'est pas
-  `firstName`/`lastName`/`avatarUrl`/`level`/`subjects` ;
-- l'arbitrage du 2026-08-07 dit que **le parent voit tout ce qui concerne ses élèves**, sauf le
-  carnet personnel.
+| lecteur | `isFiltered` | `phone` | `difficulties` |
+|---|---|---|---|
+| l'élève lui-même | `false` | visible | visible |
+| son **parent financeur** | `false` | **visible** | **visible** |
+| son formateur rattaché | `true` | **absent** | **absent** |
 
-Les deux ne peuvent pas s'appliquer en même temps. Question posée : le parent financeur et le
-professeur principal sont-ils exemptés d'un réglage `self` ? Un élève peut-il masquer une donnée
-à son parent financeur ? Le port de filtrage est écrit et testé, il n'attend que la réponse.
+Le parent est bien exempté, conformément à l'arbitrage. Un champ masqué est **absent** de la
+réponse et nommé dans `hiddenFields` — jamais un `null` trompeur. À l'écran, le formateur voit
+la mention « Non partagé » et un bandeau qui explique une fois que la fiche est partielle.
+Comptes d'essai supprimés, liens orphelins nettoyés, données réelles intactes (20/5/1).
+
+## Deux points à remonter à l'utilisateur
+
+1. **Le professeur principal n'est pas exempté** — non tranché, donc traité comme tout contact
+   lié. Concrètement, un élève peut aujourd'hui masquer ses difficultés à celui qui
+   l'accompagne. Le modèle hérité l'exemptait au même titre que le financeur.
+2. **Un UUID s'affiche encore** dans le bloc « Formateurs liés » de la fiche profil
+   (`36c4b5b8-ac5…`). Même défaut que celui corrigé le 2026-08-04 sur les parents financeurs,
+   à un autre endroit. Hors périmètre de ce lot.
+
+## Ancien libellé de cette section — appliquer le filtrage de visibilité
+
+**Contradiction tranchée le 2026-08-09 : le parent financeur voit tout, sauf le carnet
+personnel.** Il est donc exempté des réglages de visibilité par champ — un élève ne peut pas lui
+masquer une donnée de profil. Arbitrage inscrit dans `docs/architecture.md`.
+
+Reste à faire : brancher le filtrage sur `GET /profiles/{userId}`, avec cette exemption. Le port
+est déjà écrit et testé côté `profile-service`, il n'attendait que la règle.
+
+Le cas du **professeur principal** n'a pas été tranché : en l'absence de décision, les réglages
+lui sont appliqués comme à tout contact lié. À signaler à l'utilisateur.
 
 ## Bloqué par
 

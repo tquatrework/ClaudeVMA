@@ -181,6 +181,127 @@ describe('ProfilePage', () => {
     expect(screen.getByText('Dernière modification')).toBeDefined()
   })
 
+  /**
+   * Filtrage de visibilité champ par champ (`docs/routes.md` § « Application en
+   * lecture », 2026-08-09).
+   *
+   * Le formateur rattaché subit les réglages de l'élève : les champs masqués sont
+   * ABSENTS des blocs et nommés dans `visibility.hiddenFields`. Le titulaire, le
+   * parent financeur et les administrateurs reçoivent `isFiltered: false`.
+   */
+  describe('lecture filtrée', () => {
+    const TEACHER_USER = {
+      id: 'teacher-1',
+      email: 'prof@test.com',
+      role: 'formateur' as const,
+      validationStatus: 'active' as const,
+    }
+
+    /**
+     * Réponse telle que la reçoit un formateur rattaché : `phone` et
+     * `difficulties` ont été RETIRÉS de leurs blocs — pas mis à `null` — et
+     * `city` est présent à `null`, donc simplement non renseigné.
+     */
+    const FILTERED_PROFILE = {
+      userId: 'student-1',
+      administrative: { firstName: 'Marie', lastName: 'Dupont', city: null },
+      pedagogical: { level: 'Terminale' },
+      pedagogicalType: 'student' as const,
+      visibility: { isFiltered: true, hiddenFields: ['phone', 'difficulties'] },
+    }
+
+    it('signale « Non partagé » sur un champ administratif masqué', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
+      mockFetchProfile.mockResolvedValue(FILTERED_PROFILE)
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Marie')).toBeDefined()
+      })
+
+      expect(screen.getByText('Téléphone')).toBeDefined()
+      expect(screen.getAllByText('Non partagé').length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('affiche différemment un champ non renseigné et un champ non partagé', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
+      mockFetchProfile.mockResolvedValue(FILTERED_PROFILE)
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Marie')).toBeDefined()
+      })
+
+      // `city` est présent à `null` : non renseigné, donc pas listé du tout.
+      expect(screen.queryByText('Ville')).toBeNull()
+      // `phone` est absent et déclaré masqué : listé, avec sa mention.
+      expect(screen.getByText('Téléphone')).toBeDefined()
+    })
+
+    it('explique le filtrage une seule fois, en tête de fiche', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
+      mockFetchProfile.mockResolvedValue(FILTERED_PROFILE)
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Vous consultez une fiche partielle')).toBeDefined()
+      })
+
+      expect(screen.getAllByText('Vous consultez une fiche partielle')).toHaveLength(1)
+    })
+
+    it('signale « Non partagé » sur un champ pédagogique masqué', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
+      mockFetchProfile.mockResolvedValue(FILTERED_PROFILE)
+
+      renderProfilePage()
+
+      const pedagogiqueTab = await screen.findByRole('tab', { name: 'Profil pédagogique' })
+      fireEvent.click(pedagogiqueTab)
+
+      await waitFor(() => {
+        expect(screen.getByText('Terminale')).toBeDefined()
+      })
+
+      expect(screen.getByText('Difficultés rencontrées')).toBeDefined()
+      expect(screen.getAllByText('Non partagé').length).toBeGreaterThanOrEqual(1)
+    })
+
+    it("n'annonce aucun filtrage au titulaire (isFiltered: false)", async () => {
+      mockFetchProfile.mockResolvedValue({
+        ...SAMPLE_PROFILE,
+        visibility: { isFiltered: false, hiddenFields: [] },
+      })
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Marie')).toBeDefined()
+      })
+
+      expect(screen.queryByText('Vous consultez une fiche partielle')).toBeNull()
+      expect(screen.queryByText('Non partagé')).toBeNull()
+    })
+
+    it("n'annonce aucun filtrage quand la réponse n'a pas de bloc `visibility`", async () => {
+      // Réponse tronquée ou serveur antérieur : ne rien annoncer plutôt
+      // qu'annoncer un filtrage inexistant.
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Marie')).toBeDefined()
+      })
+
+      expect(screen.queryByText('Vous consultez une fiche partielle')).toBeNull()
+      expect(screen.queryByText('Non partagé')).toBeNull()
+    })
+  })
+
   it('shows "Profil introuvable" for 404 error', async () => {
     mockFetchProfile.mockRejectedValue({ response: { status: 404 } })
 

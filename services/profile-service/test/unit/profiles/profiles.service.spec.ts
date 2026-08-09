@@ -20,8 +20,24 @@ import {
   IdentityAccessUnavailableError,
 } from '../../../src/common/clients/identity-access.client';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
+import { FieldVisibilityService } from '../../../src/profiles/field-visibility.service';
+import {
+  FIELD_VISIBILITY_CATALOG,
+  FieldAudience,
+} from '../../../src/profiles/field-visibility.catalog';
 
 const makeActor = (role: UserRole, id = 'actor-uuid'): Actor => ({ id, role });
+
+/** Réglages effectifs quand l'utilisateur n'a enregistré aucune dérogation. */
+const audiencesFromCatalog = (
+  overrides: Record<string, FieldAudience> = {},
+): Map<string, FieldAudience> =>
+  new Map(
+    FIELD_VISIBILITY_CATALOG.map((definition) => [
+      definition.fieldName,
+      overrides[definition.fieldName] ?? definition.defaultAudience,
+    ]),
+  );
 
 describe('ProfilesService', () => {
   let service: ProfilesService;
@@ -33,6 +49,7 @@ describe('ProfilesService', () => {
   let relationsService: any;
   let eventsService: any;
   let identityAccessClient: any;
+  let fieldVisibilityService: any;
 
   beforeEach(async () => {
     /**
@@ -91,6 +108,18 @@ describe('ProfilesService', () => {
     };
     eventsService = { publish: jest.fn() };
 
+    /**
+     * Par défaut, aucune dérogation enregistrée : chaque champ retombe sur la
+     * visibilité par défaut du catalogue. Les tests de filtrage remplacent ce
+     * comportement par une map explicite.
+     */
+    fieldVisibilityService = {
+      resolveAudiences: jest
+        .fn()
+        .mockImplementation(async () => audiencesFromCatalog()),
+      resolveAudience: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ProfilesService,
@@ -102,6 +131,7 @@ describe('ProfilesService', () => {
         { provide: RelationsService, useValue: relationsService },
         { provide: EventsService, useValue: eventsService },
         { provide: IdentityAccessClient, useValue: identityAccessClient },
+        { provide: FieldVisibilityService, useValue: fieldVisibilityService },
       ],
     }).compile();
 
@@ -360,6 +390,9 @@ describe('ProfilesService', () => {
           // null tant qu'aucun profil pédagogique n'existe — le front n'a donc
           // aucun jeu de champs à afficher, et n'a pas à le deviner.
           pedagogicalType: null,
+          // Le titulaire lit sa propre fiche : aucun filtrage, et le verdict est
+          // dit explicitement plutôt que laissé à déduire d'une liste vide.
+          visibility: { isFiltered: false, hiddenFields: [] },
         });
       });
 
@@ -393,6 +426,248 @@ describe('ProfilesService', () => {
 
         expect(result).toHaveProperty('pedagogical', existingTeacherPeda);
       });
+    });
+
+    // -------------------------------------------------------------------------
+    // Visibilité champ par champ appliquée en lecture (arbitrage 2026-08-09).
+    // Le scénario de référence : l'élève masque `difficulties` et `phone` en
+    // les réglant `self`. Son parent financeur doit les voir quand même, son
+    // formateur non, et lui-même toujours.
+    // -------------------------------------------------------------------------
+    describe('field visibility filtering', () => {
+      const STUDENT_ID = 'student-uuid';
+      const administrative = {
+        userId: STUDENT_ID,
+        firstName: 'Alice',
+        lastName: 'Martin',
+        phone: '0600000000',
+        city: 'Lyon',
+      };
+      const pedagogical = {
+        userId: STUDENT_ID,
+        level: '3ème',
+        subjects: ['maths'],
+        difficulties: 'Trigonométrie',
+        generalAssessment: 'Élève sérieuse',
+        filledBy: 'rp-uuid',
+      };
+
+      beforeEach(() => {
+        adminRepo.findOne.mockResolvedValue(administrative);
+        studentPedaRepo.findOne.mockResolvedValue(pedagogical);
+      });
+
+      it('montre au TITULAIRE sa fiche entière, prescription comprise', async () => {
+        const actor = makeActor(UserRole.ELEVE, STUDENT_ID);
+
+        const result = await service.getProfile(STUDENT_ID, actor);
+
+        expect(result.administrative).toEqual(administrative);
+        expect(result.pedagogical).toEqual(pedagogical);
+        expect(result.visibility).toEqual({ isFiltered: false, hiddenFields: [] });
+        // Aucun réglage n'est même consulté : on ne se filtre pas soi-même.
+        expect(fieldVisibilityService.resolveAudiences).not.toHaveBeenCalled();
+      });
+
+      it('montre au PARENT FINANCEUR un champ que son élève a réglé `self`', async () => {
+        relationsService.isFinanceOwnerLinkedToStudent.mockResolvedValue(true);
+        fieldVisibilityService.resolveAudiences.mockResolvedValue(
+          audiencesFromCatalog({ difficulties: 'self', phone: 'self' }),
+        );
+        const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
+
+        const result = await service.getProfile(STUDENT_ID, actor);
+
+        // « Le parent financeur voit tout, sauf le carnet personnel » : un élève
+        // ne peut pas lui masquer une donnée de profil.
+        expect(result.pedagogical).toMatchObject({ difficulties: 'Trigonométrie' });
+        expect(result.administrative).toMatchObject({ phone: '0600000000' });
+        expect(result.visibility).toEqual({ isFiltered: false, hiddenFields: [] });
+      });
+
+      it('cache au FORMATEUR lié le même champ réglé `self`', async () => {
+        relationsService.isTeacherLinkedToStudent.mockResolvedValue(true);
+        fieldVisibilityService.resolveAudiences.mockResolvedValue(
+          audiencesFromCatalog({ difficulties: 'self', phone: 'self' }),
+        );
+        const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+
+        const result = await service.getProfile(STUDENT_ID, actor);
+
+        expect('difficulties' in (result.pedagogical as object)).toBe(false);
+        expect('phone' in (result.administrative as object)).toBe(false);
+        expect(result.visibility.isFiltered).toBe(true);
+        expect(result.visibility.hiddenFields).toEqual(
+          expect.arrayContaining(['difficulties', 'phone']),
+        );
+      });
+
+      it('montre au formateur lié un champ que l\'élève a explicitement partagé', async () => {
+        relationsService.isTeacherLinkedToStudent.mockResolvedValue(true);
+        fieldVisibilityService.resolveAudiences.mockResolvedValue(
+          audiencesFromCatalog({ difficulties: 'linked' }),
+        );
+        const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+
+        const result = await service.getProfile(STUDENT_ID, actor);
+
+        expect(result.pedagogical).toMatchObject({ difficulties: 'Trigonométrie' });
+        expect(result.visibility.hiddenFields).not.toContain('difficulties');
+      });
+
+      it('ne masque JAMAIS pedagogicalType, dont le front a besoin pour afficher', async () => {
+        relationsService.isTeacherLinkedToStudent.mockResolvedValue(true);
+        const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+
+        const result = await service.getProfile(STUDENT_ID, actor);
+
+        expect(result.pedagogicalType).toBe('student');
+        expect(result.userId).toBe(STUDENT_ID);
+      });
+
+      it.each([
+        ['responsable_pedagogique', UserRole.RESPONSABLE_PEDAGOGIQUE],
+        ['animateur_pedagogique', UserRole.ANIMATEUR_PEDAGOGIQUE],
+        ['technicien_informatique', UserRole.TECHNICIEN_INFORMATIQUE],
+        ['administrateur_financier', UserRole.ADMINISTRATEUR_FINANCIER],
+      ])('exempte le rôle %s du filtrage', async (_label, role) => {
+        fieldVisibilityService.resolveAudiences.mockResolvedValue(
+          audiencesFromCatalog({ difficulties: 'self' }),
+        );
+        const actor = makeActor(role, 'admin-uuid');
+
+        const result = await service.getProfile(STUDENT_ID, actor);
+
+        expect(result.pedagogical).toEqual(pedagogical);
+        expect(result.visibility).toEqual({ isFiltered: false, hiddenFields: [] });
+      });
+
+      it('masque la prescription au formateur lié, métadonnées comprises', async () => {
+        relationsService.isTeacherLinkedToStudent.mockResolvedValue(true);
+        const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+
+        const result = await service.getProfile(STUDENT_ID, actor);
+
+        expect('generalAssessment' in (result.pedagogical as object)).toBe(false);
+        expect('filledBy' in (result.pedagogical as object)).toBe(false);
+        expect(result.visibility.hiddenFields).toEqual(
+          expect.arrayContaining(['generalAssessment', 'filledBy']),
+        );
+      });
+
+      it('n\'écrit rien en base en filtrant — une lecture reste une lecture', async () => {
+        relationsService.isTeacherLinkedToStudent.mockResolvedValue(true);
+        const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+
+        await service.getProfile(STUDENT_ID, actor);
+
+        expect(adminRepo.save).not.toHaveBeenCalled();
+        expect(studentPedaRepo.save).not.toHaveBeenCalled();
+        expect(teacherPedaRepo.save).not.toHaveBeenCalled();
+      });
+
+      it('ne lit les réglages qu\'une seule fois, pas un appel par champ', async () => {
+        relationsService.isTeacherLinkedToStudent.mockResolvedValue(true);
+        const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+
+        await service.getProfile(STUDENT_ID, actor);
+
+        expect(fieldVisibilityService.resolveAudiences).toHaveBeenCalledTimes(1);
+        expect(fieldVisibilityService.resolveAudience).not.toHaveBeenCalled();
+      });
+
+      it('refuse toujours en 403 un formateur NON lié, avant tout filtrage', async () => {
+        relationsService.isTeacherLinkedToStudent.mockResolvedValue(false);
+        const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+
+        await expect(service.getProfile(STUDENT_ID, actor)).rejects.toThrow(ForbiddenException);
+        expect(fieldVisibilityService.resolveAudiences).not.toHaveBeenCalled();
+      });
+
+      it('refuse toujours en 403 un parent NON lié — l\'exemption suppose le rattachement', async () => {
+        relationsService.isFinanceOwnerLinkedToStudent.mockResolvedValue(false);
+        const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
+
+        await expect(service.getProfile(STUDENT_ID, actor)).rejects.toThrow(ForbiddenException);
+      });
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // getPedagogicalStatistics — même filtrage que le bloc pédagogique
+  // ---------------------------------------------------------------------------
+  describe('getPedagogicalStatistics', () => {
+    const STUDENT_ID = 'student-uuid';
+
+    beforeEach(() => {
+      studentPedaRepo.findOne.mockResolvedValue({
+        userId: STUDENT_ID,
+        level: '3ème',
+        subjects: ['maths'],
+      });
+    });
+
+    it('rend les statistiques entières au titulaire', async () => {
+      const actor = makeActor(UserRole.ELEVE, STUDENT_ID);
+
+      const result = await service.getPedagogicalStatistics(STUDENT_ID, actor);
+
+      expect(result.statistics).toEqual({ level: '3ème', subjects: ['maths'] });
+      expect(result.visibility).toEqual({ isFiltered: false, hiddenFields: [] });
+    });
+
+    it('applique le même filtrage qu\'au bloc pédagogique — pas de contournement', async () => {
+      relationsService.isTeacherLinkedToStudent.mockResolvedValue(true);
+      fieldVisibilityService.resolveAudiences.mockResolvedValue(
+        audiencesFromCatalog({ level: 'self' }),
+      );
+      const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+
+      const result = await service.getPedagogicalStatistics(STUDENT_ID, actor);
+
+      // Sans ce filtrage, cette route rendrait un `level` réglé `self` que
+      // GET /profiles/:userId refuse — le réglage serait contournable.
+      expect('level' in result.statistics).toBe(false);
+      expect(result.visibility.hiddenFields).toContain('level');
+    });
+
+    it('n\'applique aucun filtrage au parent financeur rattaché', async () => {
+      relationsService.isFinanceOwnerLinkedToStudent.mockResolvedValue(true);
+      fieldVisibilityService.resolveAudiences.mockResolvedValue(
+        audiencesFromCatalog({ level: 'self' }),
+      );
+      const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
+
+      const result = await service.getPedagogicalStatistics(STUDENT_ID, actor);
+
+      expect(result.statistics).toMatchObject({ level: '3ème' });
+      expect(result.visibility.isFiltered).toBe(false);
+    });
+
+    it('conserve isAnimateurPedagogique dans les statistiques formateur', async () => {
+      studentPedaRepo.findOne.mockResolvedValue(null);
+      teacherPedaRepo.findOne.mockResolvedValue({
+        userId: 'teacher-uuid',
+        levels: ['Terminale'],
+        subjects: ['maths'],
+        isAnimateurPedagogique: true,
+      });
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+      const result = await service.getPedagogicalStatistics('teacher-uuid', actor);
+
+      expect(result.profileType).toBe('teacher');
+      expect(result.statistics).toMatchObject({ isAnimateurPedagogique: true });
+    });
+
+    it('renvoie 404 quand aucun profil pédagogique n\'existe', async () => {
+      studentPedaRepo.findOne.mockResolvedValue(null);
+      teacherPedaRepo.findOne.mockResolvedValue(null);
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+      await expect(
+        service.getPedagogicalStatistics(STUDENT_ID, actor),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 

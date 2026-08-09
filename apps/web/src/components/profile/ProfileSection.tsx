@@ -1,52 +1,57 @@
 /**
- * ProfileSection — rendu générique clé/valeur d'un bloc de profil.
+ * ProfileSection — carte d'un bloc de profil : titre, description et liste de
+ * champs.
  *
  * Les libellés viennent du point unique `src/utils/profileFieldLabels.ts` et les
  * valeurs de `src/utils/profileFieldDisplay.ts` : cette vue ne fabrique ni
- * traduction ni format de date. Un champ inconnu de la table de libellés est
- * affiché avec un repli lisible, jamais avec son nom technique brut.
+ * traduction ni format de date. Le rendu des lignes — dont la distinction entre
+ * champ non renseigné et champ non partagé — appartient à `ProfileFieldList`.
  */
 
 import React from 'react'
-import { getProfileFieldLabel } from '../../utils/profileFieldLabels'
-import { formatProfileFieldValue, isEmptyFieldValue } from '../../utils/profileFieldDisplay'
+import { ProfileFieldList, hasProfileFieldRows } from './ProfileFieldList'
 
 interface ProfileSectionProps {
   title?: string
   description?: string
   data?: Record<string, unknown>
   emptyMessage: string
+  /**
+   * Champs de CETTE section que le titulaire ne partage pas avec le lecteur —
+   * déjà restreints au périmètre de la section par `pickHiddenFieldNames`.
+   */
+  hiddenFieldNames?: readonly string[]
 }
 
-export function ProfileSection({ title, description, data, emptyMessage }: ProfileSectionProps) {
-  const filledEntries = Object.entries(data ?? {}).filter(([, value]) => !isEmptyFieldValue(value))
-
-  if (filledEntries.length === 0) {
-    return (
-      <div className="bg-white border border-gray-200 rounded-xl p-6">
-        {title && <h2 className="text-lg font-semibold text-gray-800 mb-2">{title}</h2>}
-        {description && <p className="text-sm text-gray-500 mb-2">{description}</p>}
-        <p className="text-gray-400 text-sm">{emptyMessage}</p>
-      </div>
-    )
-  }
+export function ProfileSection({
+  title,
+  description,
+  data,
+  emptyMessage,
+  hiddenFieldNames = [],
+}: ProfileSectionProps) {
+  const hasRows = hasProfileFieldRows(data, hiddenFieldNames)
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-6">
-      {title && <h2 className="text-lg font-semibold text-gray-800 mb-1">{title}</h2>}
-      {description && <p className="text-sm text-gray-500 mb-4">{description}</p>}
-      <dl className={`space-y-3 ${title && !description ? 'mt-4' : ''}`}>
-        {filledEntries.map(([fieldName, value]) => (
-          <div key={fieldName} className="flex gap-4">
-            <dt className="text-sm font-medium text-gray-500 w-56 shrink-0">
-              {getProfileFieldLabel(fieldName)}
-            </dt>
-            <dd className="text-sm text-gray-800 flex-1 whitespace-pre-line">
-              {formatProfileFieldValue(fieldName, value)}
-            </dd>
-          </div>
-        ))}
-      </dl>
+      {title && (
+        <h2 className={`text-lg font-semibold text-gray-800 ${hasRows ? 'mb-1' : 'mb-2'}`}>
+          {title}
+        </h2>
+      )}
+      {description && (
+        <p className={`text-sm text-gray-500 ${hasRows ? 'mb-4' : 'mb-2'}`}>{description}</p>
+      )}
+
+      {hasRows ? (
+        <ProfileFieldList
+          data={data}
+          hiddenFieldNames={hiddenFieldNames}
+          className={`space-y-3 ${title && !description ? 'mt-4' : ''}`}
+        />
+      ) : (
+        <p className="text-gray-400 text-sm">{emptyMessage}</p>
+      )}
     </div>
   )
 }

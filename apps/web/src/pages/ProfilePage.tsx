@@ -12,10 +12,14 @@ import { InternalNotesPanel } from '../components/profile/InternalNotesPanel'
 import { LinkedTeachersPanel } from '../components/profile/LinkedTeachersPanel'
 import { ProfileSection } from '../components/profile/ProfileSection'
 import { PedagogicalProfilePanel } from '../components/profile/PedagogicalProfilePanel'
+import { FilteredProfileNotice } from '../components/profile/FilteredProfileNotice'
+import { ProfileLinkCard } from '../components/profile/ProfileLinkCard'
 import {
+  ADMINISTRATIVE_DISPLAY_FIELD_NAMES,
   pickAdministrativeDisplayFields,
   resolvePedagogicalProfileKind,
 } from '../utils/profileFields'
+import { pickHiddenFieldNames } from '../utils/profileVisibility'
 
 // ─── IDs d'onglets ────────────────────────────────────────────────────────────
 
@@ -158,6 +162,10 @@ export default function ProfilePage() {
 
         {profile && (
           <>
+            {/* Une fois par fiche : dire pourquoi des champs portent « Non partagé »,
+                avant que le lecteur ne conclue à un oubli du titulaire. */}
+            <FilteredProfileNotice visibility={profile.visibility} />
+
             <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
 
             {/* ── Onglet 1 : Profil administratif ── */}
@@ -165,30 +173,26 @@ export default function ProfilePage() {
               <div className="space-y-6">
                 {/* Le bloc `administrative` est filtré, jamais affiché tel quel :
                     il porte aussi `userId`, identifiant technique sans valeur
-                    pour le titulaire de la fiche. */}
+                    pour le titulaire de la fiche.
+                    Les champs non partagés en sont absents : leurs noms viennent
+                    de `visibility.hiddenFields`, pas du bloc lui-même. */}
                 <ProfileSection
                   data={pickAdministrativeDisplayFields(profile.administrative)}
                   emptyMessage="Aucune donnée administrative"
+                  hiddenFieldNames={pickHiddenFieldNames(
+                    ADMINISTRATIVE_DISPLAY_FIELD_NAMES,
+                    profile.visibility,
+                  )}
                 />
 
                 {/* Profil financier — rôles ayant une dimension financière, sur leur propre profil */}
                 {canSeeFinancialProfile && (
-                  <div className="bg-white border border-gray-200 rounded-xl p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h2 className="text-lg font-semibold text-gray-800">Profil financier</h2>
-                        <p className="text-sm text-gray-500 mt-1">
-                          Moyens de paiement, crédits et historique financier
-                        </p>
-                      </div>
-                      <Link
-                        to="/finance"
-                        className="text-sm text-indigo-600 hover:underline"
-                      >
-                        Gérer →
-                      </Link>
-                    </div>
-                  </div>
+                  <ProfileLinkCard
+                    title="Profil financier"
+                    description="Moyens de paiement, crédits et historique financier"
+                    to="/finance"
+                    actionLabel="Gérer"
+                  />
                 )}
 
                 {/* Panneau de validation formateur (RP / TI) — placé dans l'onglet admin */}
@@ -222,6 +226,7 @@ export default function ProfilePage() {
                 <PedagogicalProfilePanel
                   pedagogicalKind={pedagogicalKind}
                   pedagogical={profile.pedagogical ?? null}
+                  visibility={profile.visibility}
                 />
 
                 {/* Statistiques pédagogiques */}
@@ -243,22 +248,12 @@ export default function ProfilePage() {
             {/* ── Onglet 4 : Confidentialité ── */}
             {showConfidentialiteTab && (
               <TabPanel tabId={TAB_CONFIDENTIALITE} activeTab={activeTab}>
-                <div className="bg-white border border-gray-200 rounded-xl p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h2 className="text-lg font-semibold text-gray-800">Confidentialité</h2>
-                      <p className="text-sm text-gray-500 mt-1">
-                        Gérez la visibilité de vos informations
-                      </p>
-                    </div>
-                    <Link
-                      to={`/profiles/${userId}/visibility`}
-                      className="text-sm text-indigo-600 hover:underline"
-                    >
-                      Gérer →
-                    </Link>
-                  </div>
-                </div>
+                <ProfileLinkCard
+                  title="Confidentialité"
+                  description="Gérez la visibilité de vos informations"
+                  to={`/profiles/${userId}/visibility`}
+                  actionLabel="Gérer"
+                />
               </TabPanel>
             )}
 
@@ -266,22 +261,12 @@ export default function ProfilePage() {
             {canSeeDocumentsLegaux && (
               <TabPanel tabId={TAB_DOCUMENTS} activeTab={activeTab}>
                 <div className="space-y-4">
-                  <div className="bg-white border border-gray-200 rounded-xl p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h2 className="text-lg font-semibold text-gray-800">Documents légaux</h2>
-                        <p className="text-sm text-gray-500 mt-1">
-                          Mandats, contrats et documents à signer
-                        </p>
-                      </div>
-                      <Link
-                        to="/legal"
-                        className="text-sm text-indigo-600 hover:underline"
-                      >
-                        Consulter →
-                      </Link>
-                    </div>
-                  </div>
+                  <ProfileLinkCard
+                    title="Documents légaux"
+                    description="Mandats, contrats et documents à signer"
+                    to="/legal"
+                    actionLabel="Consulter"
+                  />
                 </div>
               </TabPanel>
             )}

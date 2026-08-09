@@ -325,7 +325,8 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 
 | Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /profiles/:userId | 🔒 | eleve (soi-même), formateur (contacts liés), parent_financeur (élèves liés), responsable_pedagogique, animateur_pedagogique, technicien_informatique, administrateur_financier | Lire un profil selon droits. **Strictement en lecture seule** : cette route ne crée jamais rien en base (voir « Existence du profil administratif/pédagogique » dans `docs/architecture.md`) | `200 {userId, loginIdentifier, administrative, pedagogical, pedagogicalType}` — `administrative`/`pedagogical` sont les **seuls** noms de ces blocs, ici comme sur les routes `/internal/*` (arbitrage du 2026-08-08) ; **`pedagogical` porte le profil pédagogique COMPLET, sections confondues et à plat** : champs déclaratifs *et* champs de prescription (le titulaire lit sa prescription, il ne l'écrit jamais) ; `pedagogicalType` vaut `"student"`, `"teacher"` ou `null` ; `loginIdentifier` peut être `null` si identity-access-service est injoignable ; `pedagogical` est `null` tant que l'utilisateur n'a pas renseigné son profil pédagogique (**état normal**, ce profil étant facultatif et créé au premier `PUT /profiles/:userId/pedagogical`) · `401` sans token · `403` accès refusé · `404` `userId` inconnu de identity-access-service · `500` compte existant mais sans profil administratif (incohérence de données, loguée côté serveur comme anomalie) |
+| GET | /profiles/:userId | 🔒 | eleve (soi-même), formateur (contacts liés), parent_financeur (élèves liés), responsable_pedagogique, animateur_pedagogique, technicien_informatique, administrateur_financier | Lire un profil selon droits. **Strictement en lecture seule** : cette route ne crée jamais rien en base (voir « Existence du profil administratif/pédagogique » dans `docs/architecture.md`). **Filtrée champ par champ** selon les réglages du titulaire — voir « Visibilité champ par champ » ci-dessous | `200 {userId, loginIdentifier, administrative, pedagogical, pedagogicalType, visibility}` — `administrative`/`pedagogical` sont les **seuls** noms de ces blocs, ici comme sur les routes `/internal/*` (arbitrage du 2026-08-08) ; **`pedagogical` porte le profil pédagogique COMPLET, sections confondues et à plat** : champs déclaratifs *et* champs de prescription (le titulaire lit sa prescription, il ne l'écrit jamais) ; `pedagogicalType` vaut `"student"`, `"teacher"` ou `null` ; `loginIdentifier` peut être `null` si identity-access-service est injoignable ; `pedagogical` est `null` tant que l'utilisateur n'a pas renseigné son profil pédagogique (**état normal**, ce profil étant facultatif et créé au premier `PUT /profiles/:userId/pedagogical`) ; `visibility` = `{isFiltered, hiddenFields}` — un champ masqué est **absent** du bloc et **nommé** dans `hiddenFields`, jamais remplacé par `null` · `401` sans token · `403` accès refusé · `404` `userId` inconnu de identity-access-service · `500` compte existant mais sans profil administratif (incohérence de données, loguée côté serveur comme anomalie) |
+| GET | /profiles/:userId/statistics | 🔒 | mêmes règles que `GET /profiles/:userId` | Statistiques pédagogiques consolidées (phase 1 : données du profil pédagogique). **Filtrée par les mêmes réglages** que le bloc `pedagogical` — sinon elle en serait le contournement exact | `200 {userId, profileType, statistics, visibility}` — `visibility` suit le même contrat que ci-dessus ; `isAnimateurPedagogique` est structurel et jamais masqué · `401` · `403` · `404` aucun profil pédagogique |
 | PUT | /profiles/:userId/administrative | 🔒 | eleve (soi-même), responsable_pedagogique, technicien_informatique | Modifier le profil administratif (`firstName`/`lastName` restent optionnels pour ne pas modifier le champ, mais rejettent une chaîne vide). Champs acceptés : voir « Noms de champs des profils » ci-dessous | `200 {userId, ...champsAdmin}` · `400` firstName/lastName vide, champ inconnu, ou type invalide · `401` · `403` · `404` |
 | PUT | /profiles/:userId/pedagogical | 🔒 | eleve (soi-même), formateur (soi-même), responsable_pedagogique, technicien_informatique | Modifier la **section déclarative** du profil pédagogique — ce que le titulaire déclare sur lui-même. Le rôle cible (élève/formateur) est résolu depuis le rôle du compte auprès d'identity-access-service, puis à défaut depuis les champs présents. **N'accepte aucun champ de prescription** ni `filledBy`/`filledAt` ni `isAnimateurPedagogique` | `200 {userId, ...champsPedago}` · `400` champ inconnu, champ de prescription, ou champ appartenant à l'autre rôle (refusé au lieu d'être ignoré) · `401` · `403` · `404` |
 | PUT | /profiles/:userId/prescription | 🔒 | **responsable_pedagogique uniquement** | Modifier la **section prescription** du profil pédagogique — ce que le RP prescrit *sur* la personne. Réservé au RP **y compris quand la cible est l'appelant lui-même** : un élève ne rédige pas ses préconisations, un formateur pas ses résultats de test. `filledBy`/`filledAt` sont posés **côté serveur** (acteur authentifié + horloge serveur) et rendent la prescription opposable | `200 {userId, ...profilPédagoComplet, filledBy, filledAt}` · `400` champ inconnu (dont `filledBy`/`filledAt` ou tout champ déclaratif), corps mélangeant les deux rôles, ou champ de l'autre rôle · `401` · `403` tout rôle autre que RP · `404` |
@@ -452,11 +453,63 @@ close, dans l'ordre alphabétique renvoyé par le message d'erreur `400` :
 CdC, dont le réglage de visibilité est conservé depuis le modèle hérité, mais qu'aucune colonne ne
 porte à ce jour.
 
-> **Non branché sur la lecture.** `GET /profiles/:userId` ne filtre encore **aucun** champ selon ces
-> réglages : les appliquer suppose de trancher d'abord la contradiction entre le socle « masqué par
-> défaut » et l'arbitrage « le parent voit tout ce qui concerne ses élèves sauf le carnet
-> personnel ». Le stockage, les défauts et le contrat sont en place ; l'application en lecture
-> attend cet arbitrage.
+#### Application en lecture (2026-08-09)
+
+Ces réglages sont **appliqués** par `GET /profiles/:userId` et `GET /profiles/:userId/statistics`
+depuis l'arbitrage du 2026-08-09 (`docs/architecture.md` > « Arbitrages rendus »).
+
+**Exemptés du filtrage — voient la fiche entière :**
+
+| Lecteur | Motif |
+|---|---|
+| Le **titulaire** | On ne se masque jamais ses propres données. Il lit sa fiche complète, **prescription comprise** (qu'il ne peut toujours pas écrire) |
+| Le **parent financeur rattaché** | « Le parent financeur voit tout, sauf le carnet personnel. » Un élève **ne peut pas** masquer une donnée de profil à son parent financeur. Le carnet personnel appartient à `pedagogical-log-service` et n'est pas concerné par ce filtrage |
+| `responsable_pedagogique`, `animateur_pedagogique`, `technicien_informatique`, `administrateur_financier` | Administrateurs, chacun dans le périmètre de lecture déjà contrôlé par les règles d'accès. Le RP **écrit** la section prescription, dont tous les champs sont `self` par défaut : filtré, il ne relirait pas ce qu'il vient d'écrire |
+
+L'exemption du parent financeur est **conditionnelle au rattachement** : un parent non rattaché
+reçoit toujours `403`, avant tout filtrage — l'exemption suppose le lien, elle ne le remplace pas.
+
+**Soumis au filtrage :** les autres contacts liés — aujourd'hui le **formateur** rattaché, demain
+élève↔élève. Un lecteur `linked` voit les champs réglés `linked` ou `all` ; un lecteur authentifié
+sans lien ne voit que les champs `all`.
+
+> **Professeur principal : non tranché.** En l'absence de décision, il subit les réglages **comme
+> tout contact lié** ; le drapeau `isPrincipalTeacher` de `TeacherStudentLink` n'est pas consulté.
+> À rouvrir si ce comportement ne convient pas.
+
+**Comment un champ masqué se lit dans la réponse.** `GET /profiles/:userId` et
+`GET /profiles/:userId/statistics` renvoient un bloc supplémentaire :
+
+```json
+"visibility": { "isFiltered": true, "hiddenFields": ["difficulties", "filledBy", "phone"] }
+```
+
+- un champ masqué est **absent** de son bloc, et son nom figure dans `hiddenFields` ;
+- il n'est **jamais** remplacé par `null` ni par une chaîne vide.
+
+Le consommateur distingue donc les deux états sans convention implicite :
+
+| Observation | Signification |
+|---|---|
+| Clé **présente** valant `null` | Champ **non renseigné** |
+| Clé **absente** + nom dans `hiddenFields` | Champ **masqué** par le titulaire |
+
+`isFiltered: false` signifie « fiche renvoyée en entier » — ce n'est **pas** la même information
+qu'un `hiddenFields` vide chez un lecteur filtré dont tous les champs se trouvent visibles.
+
+**Jamais masqués** (champs de structure, pas des données personnelles — le front en a besoin pour
+savoir quoi afficher) : `userId`, `createdAt`, `updatedAt`, `pedagogicalType`, `loginIdentifier` et
+`isAnimateurPedagogique` (un droit attribué par le RP, absent du catalogue donc non réglable).
+
+`filledBy` / `filledAt` ne sont pas au catalogue mais **suivent la section prescription** : renvoyés
+seulement si au moins un champ de prescription est visible pour ce lecteur — sinon leur seule
+présence révélerait qu'un RP a prescrit quelque chose, et quand.
+
+`comments` (marqué `isReserved`) n'apparaît jamais dans `hiddenFields` : aucune colonne ne le porte,
+il n'y a donc rien à masquer, et l'annoncer masqué laisserait croire à une donnée cachée.
+
+**Les routes `/internal/*` ne sont pas filtrées** : elles servent des services, pas des utilisateurs
+finaux, n'ont aucun acteur authentifié et ne passent pas par `GET /profiles/:userId`.
 
 ### Validation des formateurs
 

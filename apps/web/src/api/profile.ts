@@ -17,15 +17,20 @@ import type {
   FieldVisibilitySettings,
   FieldVisibilityUpdate,
   InternalNote,
-  PedagogicalStatistics,
   PrescriptionFields,
   Profile,
+  ProfileStatisticsResponse,
 } from '../types/profile'
 
 // ─── Profil ───────────────────────────────────────────────────────────────────
 
 /**
  * GET /profiles/:userId — Lire un profil (administratif + pédagogique)
+ *
+ * **Réponse filtrée champ par champ** depuis le 2026-08-09 : les champs que le
+ * titulaire ne partage pas avec le lecteur sont **absents** des blocs et nommés
+ * dans `visibility.hiddenFields`. Aucune clé du catalogue n'est donc garantie
+ * présente — voir `ProfileVisibility` dans `src/types/profile.ts`.
  */
 export async function fetchProfile(userId: string): Promise<Profile> {
   const { data } = await apiClient.get<Profile>(`/profiles/${userId}`)
@@ -107,11 +112,20 @@ export async function createInternalNote(userId: string, content: string): Promi
 /**
  * GET /profiles/:userId/statistics — Lire les statistiques pédagogiques
  *
- * Écart : cette route n'apparaît pas dans docs/routes.md. Reproduite ici à
- * l'identique du comportement préexistant — non corrigée dans ce lot structurel.
+ * La réponse est une **enveloppe** `{userId, profileType, statistics, visibility}`
+ * (`docs/routes.md` § profile-service, documentée le 2026-08-09) : les données
+ * sont dans `statistics`, pas à la racine. Le front lisait jusqu'ici la racine
+ * comme si elle portait les indicateurs, ce qui ne pouvait rien afficher.
+ *
+ * La route applique les mêmes réglages de visibilité que le bloc `pedagogical` :
+ * un champ masqué est absent de `statistics` et nommé dans `visibility.hiddenFields`.
  */
-export async function fetchProfileStatistics(userId: string): Promise<PedagogicalStatistics> {
-  const { data } = await apiClient.get<PedagogicalStatistics>(`/profiles/${userId}/statistics`)
+export async function fetchProfileStatistics(
+  userId: string,
+): Promise<ProfileStatisticsResponse> {
+  const { data } = await apiClient.get<ProfileStatisticsResponse>(
+    `/profiles/${userId}/statistics`,
+  )
   return data
 }
 

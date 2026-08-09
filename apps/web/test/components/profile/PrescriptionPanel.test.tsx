@@ -140,4 +140,86 @@ describe('PrescriptionPanel', () => {
 
     expect(screen.getByText(/Aucune prescription/)).toBeDefined()
   })
+
+  /**
+   * Tous les champs de prescription sont `self` par défaut : un formateur
+   * rattaché les reçoit donc masqués en bloc. Sans distinction, ce panneau
+   * annonçait « Aucune prescription n'a encore été rédigée » — un mensonge, le
+   * serveur ne masquant que ce qui est réglé, jamais ce qui est vide.
+   */
+  describe('lecture filtrée', () => {
+    const HIDDEN_PRESCRIPTION = {
+      isFiltered: true,
+      hiddenFields: [
+        'generalAssessment',
+        'recommendedPace',
+        'recommendedTeacherProfile',
+        'recommendedPath',
+        'recommendedActivities',
+      ],
+    }
+
+    it('ne prétend pas qu’aucune prescription n’a été rédigée quand tout est masqué', () => {
+      render(
+        <PrescriptionPanel
+          pedagogicalType="student"
+          pedagogical={{ level: 'Terminale' }}
+          visibility={HIDDEN_PRESCRIPTION}
+        />,
+      )
+
+      expect(screen.queryByText(/Aucune prescription/)).toBeNull()
+      expect(
+        screen.getByText(
+          'Les préconisations du responsable pédagogique ne vous sont pas communiquées.',
+        ),
+      ).toBeDefined()
+    })
+
+    it('liste chaque champ masqué avec sa mention « Non partagé »', () => {
+      render(
+        <PrescriptionPanel
+          pedagogicalType="student"
+          pedagogical={{ level: 'Terminale' }}
+          visibility={HIDDEN_PRESCRIPTION}
+        />,
+      )
+
+      expect(screen.getByText('Considération générale')).toBeDefined()
+      expect(screen.getAllByText('Non partagé')).toHaveLength(5)
+    })
+
+    it('mélange sans ambiguïté champs visibles et champs masqués', () => {
+      render(
+        <PrescriptionPanel
+          pedagogicalType="student"
+          pedagogical={{ generalAssessment: 'Élève sérieuse', recommendedPace: null }}
+          visibility={{ isFiltered: true, hiddenFields: ['recommendedPath'] }}
+        />,
+      )
+
+      // Visible : sa valeur.
+      expect(screen.getByText('Élève sérieuse')).toBeDefined()
+      // Présent à `null` : non renseigné, donc pas listé.
+      expect(screen.queryByText('Rythme préconisé')).toBeNull()
+      // Absent et déclaré masqué : listé, avec la mention.
+      expect(screen.getByText('Parcours préconisé')).toBeDefined()
+      expect(screen.getAllByText('Non partagé')).toHaveLength(1)
+      // Le message global ne s'affiche que si rien n'est visible.
+      expect(screen.queryByText(/ne vous sont pas communiquées/)).toBeNull()
+    })
+
+    it('reste inchangé pour une lecture non filtrée', () => {
+      render(
+        <PrescriptionPanel
+          pedagogicalType="student"
+          pedagogical={{ level: 'Terminale' }}
+          visibility={{ isFiltered: false, hiddenFields: [] }}
+        />,
+      )
+
+      expect(screen.getByText(/Aucune prescription/)).toBeDefined()
+      expect(screen.queryByText('Non partagé')).toBeNull()
+    })
+  })
 })

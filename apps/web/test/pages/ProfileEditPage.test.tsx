@@ -28,6 +28,8 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import ProfileEditPage from '../../src/pages/ProfileEditPage'
+import { ADMINISTRATIVE_FIELD_NAMES } from '../../src/utils/profileFields'
+import { getProfileFieldLabel } from '../../src/utils/profileFieldLabels'
 
 vi.mock('../../src/hooks/useAuth')
 vi.mock('../../src/api/profile')
@@ -207,6 +209,73 @@ describe('ProfileEditPage', () => {
     })
     const addressLine2Input = screen.getByLabelText('Adresse (ligne 2)') as HTMLInputElement
     expect(addressLine2Input.value).toBe('Bâtiment C')
+  })
+
+  it('expose les 12 champs administratifs du contrat, aucun de moins', async () => {
+    // `avatarUrl` et `passions` étaient chargés, conservés et renvoyés au
+    // serveur, mais absents de l'écran : impossibles à renseigner (2026-08-09).
+    mockFetchProfile.mockResolvedValue(STUDENT_PROFILE)
+
+    renderEditPage()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Prénom')).toBeDefined()
+    })
+
+    const expectedLabels = ADMINISTRATIVE_FIELD_NAMES.map((fieldName) =>
+      getProfileFieldLabel(fieldName),
+    )
+    for (const label of expectedLabels) {
+      expect(screen.getByLabelText(label)).toBeDefined()
+    }
+    expect(expectedLabels).toHaveLength(12)
+  })
+
+  it('convertit les centres d’intérêt en tableau à la frontière API', async () => {
+    mockFetchProfile.mockResolvedValue(STUDENT_PROFILE)
+    mockUpdateAdministrativeProfile.mockResolvedValue({})
+
+    renderEditPage()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Centres d'intérêt")).toBeDefined()
+    })
+
+    await userEvent.type(screen.getByLabelText("Centres d'intérêt"), 'Échecs, Piano')
+    await userEvent.type(screen.getByLabelText('Photo de profil'), 'https://exemple.fr/photo.jpg')
+    await clickSaveButton()
+
+    await waitFor(() => {
+      expect(mockUpdateAdministrativeProfile).toHaveBeenCalledWith(
+        'student-1',
+        expect.objectContaining({
+          passions: ['Échecs', 'Piano'],
+          avatarUrl: 'https://exemple.fr/photo.jpg',
+        }),
+      )
+    })
+  })
+
+  it('n’envoie pas une chaîne vide sur un champ laissé vide', async () => {
+    // Le serveur refuse une chaîne vide sur firstName/lastName/phone (400) ;
+    // un champ absent vaut « ne rien changer ».
+    mockFetchProfile.mockResolvedValue({
+      userId: 'student-1',
+      pedagogicalType: null,
+      administrative: { firstName: 'Alice', lastName: 'Martin' },
+      pedagogical: null,
+    })
+    mockUpdateAdministrativeProfile.mockResolvedValue({})
+
+    renderEditPage()
+    await clickSaveButton()
+
+    await waitFor(() => {
+      expect(mockUpdateAdministrativeProfile).toHaveBeenCalledWith('student-1', {
+        firstName: 'Alice',
+        lastName: 'Martin',
+      })
+    })
   })
 
   it('submits the administrative profile with the exact server field names', async () => {

@@ -64,8 +64,10 @@ Un parcours réellement joué sur `https://claudevma.visioprof.fr` :
       Journal final : `granted`, `withdrawn`, `granted` — les **3 événements coexistent**,
       aucun effacé. Compte resté `active`, aucune mention « Signé » résiduelle. Retrait de
       `rgpd` → `403` explicite orientant vers le support. Compte d'essai supprimé.
-- [ ] Validé par l'utilisateur
-- [ ] Mergé dans master
+- [x] Validé par l'utilisateur — 2026-08-09
+- [x] Mergé dans master — PR #80, puis les deux services reconstruits depuis `master` et
+      redéployés. `migration:run` → « No migrations are pending ». Cycle rejoué sur cette
+      version : `granted` → `withdrawn` → `granted`, compte resté actif.
 
 ## Bloqué par
 
@@ -110,8 +112,10 @@ Mergé via PR #78, front reconstruit depuis `master` et redéployé.
 - [ ] Codé et committé
 - [ ] Déployé sur la pile réelle
 - [ ] Preuve livrée à l'utilisateur
-- [ ] Validé par l'utilisateur
-- [ ] Mergé dans master
+- [x] Validé par l'utilisateur — 2026-08-09
+- [x] Mergé dans master — PR #80, puis les deux services reconstruits depuis `master` et
+      redéployés. `migration:run` → « No migrations are pending ». Cycle rejoué sur cette
+      version : `granted` → `withdrawn` → `granted`, compte resté actif.
 
 ## Bloqué par
 <rien, ou la dépendance précise>

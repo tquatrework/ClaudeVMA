@@ -1,6 +1,7 @@
 import { IsEmail, IsString, MinLength, MaxLength, IsNotEmpty, IsOptional, IsBoolean, IsEnum, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PHONE_NUMBER_REGEX } from './phone-number.validator';
+import { IsIsoBirthDate } from './birth-date.validator';
 import { LinkedAccountMode } from './linked-account-mode';
 import { RegistrationConsents } from './registration-consents';
 import { CreateConsentDto } from '../../consents/dto/create-consent.dto';
@@ -37,6 +38,16 @@ export class CreateStudentAccountDto {
   phoneNumber?: string;
 
   @ApiPropertyOptional({
+    example: '2005-06-15',
+    description:
+      'Student birth date, ISO calendar date YYYY-MM-DD (optional, forwarded to profile-service, ' +
+      'not stored locally). A malformed or impossible date is rejected with a 400.',
+  })
+  @IsOptional()
+  @IsIsoBirthDate()
+  birthDate?: string;
+
+  @ApiPropertyOptional({
     example: 'jean.dupont',
     description: 'Desired login identifier for the student. If omitted, one is generated from the email.',
   })
@@ -63,6 +74,13 @@ export class CreateStudentAccountDto {
   // celui du créateur du compte. `parentConsents` est donc un champ inconnu,
   // refusé en 400 par RejectUnknownBodyFieldsGuard. Le parent signe les siens
   // via POST /consents à sa première connexion.
+  //
+  // Aucun champ `parentBirthDate` non plus : le formulaire d'inscription ne
+  // collecte pas de date de naissance pour le compte lié (LinkedAccountSection
+  // côté front ne demande que identifiant/email/mot de passe/prénom/nom). Un
+  // champ que personne ne remplit serait inventé ici ; le parent renseignera sa
+  // date de naissance via PUT /profiles/:userId/administrative sur
+  // profile-service. `parentBirthDate` est donc un champ inconnu, refusé en 400.
   // ---------------------------------------------------------------------------
 
   @ApiPropertyOptional({

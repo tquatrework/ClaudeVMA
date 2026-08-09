@@ -577,9 +577,21 @@ export class AccountsService {
       // parentCreated) fournit des firstName/lastName fiables issus de ce même
       // appel — un parent lié à un compte préexistant conserve son profil déjà
       // enregistré, jamais écrasé par les champs saisis par l'élève ici.
-      await this.persistAdministrativeProfile(savedStudent.id, dto.firstName, dto.lastName, dto.phoneNumber);
+      await this.persistAdministrativeProfile({
+        userId: savedStudent.id,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        phoneNumber: dto.phoneNumber,
+        birthDate: dto.birthDate,
+      });
       if (parentCreated && savedParent) {
-        await this.persistAdministrativeProfile(savedParent.id, dto.parentFirstName as string, dto.parentLastName as string);
+        // Pas de birthDate ici : le formulaire ne collecte pas de date de
+        // naissance pour le compte lié (aucun champ parentBirthDate n'existe).
+        await this.persistAdministrativeProfile({
+          userId: savedParent.id,
+          firstName: dto.parentFirstName as string,
+          lastName: dto.parentLastName as string,
+        });
       }
       if (savedParent) {
         await this.linkParentAsFinanceOwner(savedStudent.id, savedParent.id);
@@ -664,7 +676,12 @@ export class AccountsService {
       );
       if (activatedAccount) savedTeacher = activatedAccount;
 
-      await this.persistAdministrativeProfile(savedTeacher.id, dto.firstName, dto.lastName, dto.phoneNumber);
+      await this.persistAdministrativeProfile({
+        userId: savedTeacher.id,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        phoneNumber: dto.phoneNumber,
+      });
 
       return { savedTeacher, emailAlreadyUsed, loginIdentifier, recordedConsents };
     });
@@ -785,9 +802,20 @@ export class AccountsService {
         studentCreated = true;
       }
 
-      await this.persistAdministrativeProfile(savedParent.id, dto.firstName, dto.lastName, dto.phoneNumber);
+      await this.persistAdministrativeProfile({
+        userId: savedParent.id,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        phoneNumber: dto.phoneNumber,
+      });
       if (studentCreated && savedStudent) {
-        await this.persistAdministrativeProfile(savedStudent.id, dto.studentFirstName as string, dto.studentLastName as string);
+        // Pas de birthDate ici non plus : aucun champ studentBirthDate n'existe
+        // sur POST /accounts/parents, le formulaire n'en collecte pas.
+        await this.persistAdministrativeProfile({
+          userId: savedStudent.id,
+          firstName: dto.studentFirstName as string,
+          lastName: dto.studentLastName as string,
+        });
       }
       if (savedStudent) {
         await this.linkParentAsFinanceOwner(savedStudent.id, savedParent.id);
@@ -1130,8 +1158,8 @@ export class AccountsService {
   }
 
   /**
-   * Enregistre le profil administratif (firstName/lastName/phone) d'un compte
-   * nouvellement créé auprès de profile-service — unique lieu de stockage de ces
+   * Enregistre le profil administratif (firstName/lastName/phone/birthDate) d'un
+   * compte nouvellement créé auprès de profile-service — unique lieu de stockage de ces
    * données depuis la décision d'architecture du 2026-08-05
    * (identity-access-service ne les persiste plus du tout localement, voir
    * user.entity.ts). Doit être appelée à l'intérieur de la même
@@ -1147,12 +1175,14 @@ export class AccountsService {
    * significativement. Voir openItem correspondant dans
    * docs/services/identity-access-service.md.
    */
-  private async persistAdministrativeProfile(
-    userId: string,
-    firstName: string,
-    lastName: string,
-    phoneNumber?: string,
-  ): Promise<void> {
+  private async persistAdministrativeProfile(input: {
+    userId: string;
+    firstName: string;
+    lastName: string;
+    phoneNumber?: string;
+    birthDate?: string;
+  }): Promise<void> {
+    const { userId, firstName, lastName, phoneNumber, birthDate } = input;
     try {
       await this.profileServiceClient.createAdministrativeProfile({
         userId,
@@ -1162,10 +1192,17 @@ export class AccountsService {
         // d'identity-access-service → phone côté contrat profile-service
         // (convention déjà établie sur ses autres routes internes).
         ...(phoneNumber ? { phone: phoneNumber } : {}),
+        // birthDate porte le même nom des deux côtés : aucun mapping. Relayé
+        // uniquement s'il a été saisi — jamais persisté localement, la table
+        // `users` n'a aucune colonne de date de naissance (arbitrage du
+        // 2026-08-06 : profile-service est l'unique propriétaire des données
+        // d'identité).
+        ...(birthDate ? { birthDate } : {}),
       });
     } catch (profileError) {
       throw new ServiceUnavailableException(
-        "Impossible de finaliser la création du compte : le profil utilisateur (nom, prénom, téléphone) n'a " +
+        "Impossible de finaliser la création du compte : le profil utilisateur (nom, prénom, téléphone, " +
+          "date de naissance) n'a " +
           'pas pu être enregistré car profile-service est indisponible ou en erreur. Aucune donnée n\'a été ' +
           `conservée, veuillez réessayer. Détail : ${(profileError as Error).message}`,
       );

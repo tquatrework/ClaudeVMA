@@ -17,6 +17,15 @@ export interface CreateAdministrativeProfileInput {
   firstName: string;
   lastName: string;
   phone?: string | null;
+  /**
+   * Date calendaire ISO `YYYY-MM-DD`. Même nom des deux côtés (règle « un seul
+   * nom par donnée ») : contrairement à `phone`/`phoneNumber`, aucun mapping
+   * n'est nécessaire. Optionnel côté profile-service, qui renvoie un 400
+   * explicite si la date est mal formée — la validation locale
+   * (IsIsoBirthDate) existe pour que ce 400 arrive à l'appelant tel quel,
+   * plutôt que transformé en 503 par l'échec de l'appel sortant.
+   */
+  birthDate?: string | null;
 }
 
 export interface LinkParentToStudentInput {
@@ -58,7 +67,7 @@ export class ProfileServiceClient {
   constructor(private readonly configService: ConfigService) {}
 
   /**
-   * Stocke le profil administratif (firstName/lastName/phone) d'un utilisateur
+   * Stocke le profil administratif (firstName/lastName/phone/birthDate) d'un utilisateur
    * nouvellement créé — seule écriture de ces données, profile-service ne
    * possédant pas de copie locale côté identity-access-service. Route interne
    * idempotente côté profile-service (upsert par userId).

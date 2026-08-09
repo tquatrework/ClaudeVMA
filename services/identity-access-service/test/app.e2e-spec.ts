@@ -100,6 +100,138 @@ describe('Identity Access Service (e2e)', () => {
       });
   });
 
+  // --- Consentements recueillis à l'inscription (arbitrage du 2026-08-09) -----
+
+  it('POST /accounts/students with rgpd + cgu consents → 201 ACTIVE, consents recorded', () => {
+    const studentEmail = `student-consent-${timestamp}@example.com`;
+    return request(app.getHttpServer())
+      .post('/accounts/students')
+      .send({
+        email: studentEmail,
+        password: testPassword,
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        consents: [{ consentType: 'rgpd' }, { consentType: 'cgu' }],
+      })
+      .expect(201)
+      .expect((res) => {
+        expect(res.body.student.validationStatus).toBe('active');
+        expect(res.body.student.consentSigned).toBe(true);
+      });
+  });
+
+  it('POST /accounts/students with only rgpd → 201 but still PENDING', () => {
+    return request(app.getHttpServer())
+      .post('/accounts/students')
+      .send({
+        email: `student-halfconsent-${timestamp}@example.com`,
+        password: testPassword,
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        consents: [{ consentType: 'rgpd' }],
+      })
+      .expect(201)
+      .expect((res) => {
+        expect(res.body.student.validationStatus).toBe('pending');
+        expect(res.body.student.consentSigned).toBe(false);
+      });
+  });
+
+  it('POST /accounts/students with the legacy boolean map {rgpd, cgu} → 400', () => {
+    return request(app.getHttpServer())
+      .post('/accounts/students')
+      .send({
+        email: `student-oldconsent-${timestamp}@example.com`,
+        password: testPassword,
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        consents: { rgpd: true, cgu: true },
+      })
+      .expect(400);
+  });
+
+  it('POST /accounts/students with a duplicated consentType → 400', () => {
+    return request(app.getHttpServer())
+      .post('/accounts/students')
+      .send({
+        email: `student-dupconsent-${timestamp}@example.com`,
+        password: testPassword,
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        consents: [{ consentType: 'rgpd' }, { consentType: 'rgpd' }],
+      })
+      .expect(400)
+      .expect((res) => expect(JSON.stringify(res.body.message)).toContain('duplicated consentType'));
+  });
+
+  it('POST /accounts/students with birthDate → 400 (field owned by profile-service, never absorbed)', () => {
+    return request(app.getHttpServer())
+      .post('/accounts/students')
+      .send({
+        email: `student-birthdate-${timestamp}@example.com`,
+        password: testPassword,
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        birthDate: '2008-05-14',
+      })
+      .expect(400)
+      .expect((res) => expect(JSON.stringify(res.body.message)).toContain('birthDate'));
+  });
+
+  it('POST /accounts/students with parentConsents → 400 (a consent is never presumed for a linked account)', () => {
+    return request(app.getHttpServer())
+      .post('/accounts/students')
+      .send({
+        email: `student-parentconsent-${timestamp}@example.com`,
+        password: testPassword,
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        parentConsents: [{ consentType: 'rgpd' }],
+      })
+      .expect(400)
+      .expect((res) => expect(JSON.stringify(res.body.message)).toContain('parentConsents'));
+  });
+
+  it('POST /accounts/students with consents + created parent → parent stays PENDING without consent', () => {
+    const studentEmail = `student-linkedconsent-${timestamp}@example.com`;
+    return request(app.getHttpServer())
+      .post('/accounts/students')
+      .send({
+        email: studentEmail,
+        password: testPassword,
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        consents: [{ consentType: 'rgpd' }, { consentType: 'cgu' }],
+        parentAccountMode: 'new',
+        parentLoginIdentifier: `nathalie.petit.${timestamp}`,
+        parentEmail: `parent-linkedconsent-${timestamp}@example.com`,
+        parentFirstName: 'Nathalie',
+        parentLastName: 'Petit',
+      })
+      .expect(201)
+      .expect((res) => {
+        expect(res.body.student.consentSigned).toBe(true);
+        expect(res.body.student.validationStatus).toBe('active');
+        expect(res.body.parent.consentSigned).toBe(false);
+        expect(res.body.parent.validationStatus).toBe('pending');
+      });
+  });
+
+  it('POST /accounts with consents → 201 ACTIVE (generic route, also used by /internal/create-account)', () => {
+    return request(app.getHttpServer())
+      .post('/accounts')
+      .send({
+        email: `generic-consent-${timestamp}@example.com`,
+        password: testPassword,
+        consents: [{ consentType: 'rgpd' }, { consentType: 'cgu' }],
+      })
+      .expect(201)
+      .expect((res) => {
+        expect(res.body.validationStatus).toBe('active');
+        expect(res.body.consentSigned).toBe(true);
+      });
+  });
+
   it('POST /accounts/students without firstName/lastName → 400', () => {
     return request(app.getHttpServer())
       .post('/accounts/students')

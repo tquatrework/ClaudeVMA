@@ -31,6 +31,12 @@ import {
   getProfileFieldLabel,
 } from '../../src/utils/profileFieldLabels'
 import {
+  FILTERED_PROFILE_DESCRIPTION,
+  FILTERED_PROFILE_TITLE,
+  NOT_SHARED_PLACEHOLDER,
+  PRESCRIPTION_NOT_SHARED_MESSAGE,
+} from '../../src/utils/profileVisibility'
+import {
   ADMINISTRATIVE_DISPLAY_FIELD_NAMES,
   PRESCRIPTION_AUTHORSHIP_FIELD_NAMES,
   STUDENT_DECLARATIVE_FIELD_NAMES,
@@ -187,6 +193,12 @@ describe('PROFILE_FIELD_LABELS — aucun libellé anglais', () => {
       ...Object.values(FIELD_VISIBILITY_BLOCK_LABELS),
       ...Object.values(FIELD_VISIBILITY_AUDIENCE_LABELS),
       ...Object.values(FIELD_VISIBILITY_AUDIENCE_DESCRIPTIONS),
+      // Mentions du filtrage en lecture — même règle, même garde-fou : elles
+      // sont vues par tout lecteur d'une fiche filtrée.
+      NOT_SHARED_PLACEHOLDER,
+      FILTERED_PROFILE_TITLE,
+      FILTERED_PROFILE_DESCRIPTION,
+      PRESCRIPTION_NOT_SHARED_MESSAGE,
     ]
 
     const offendingLabels = allOtherLabels.filter((label) => findEnglishWords(label).length > 0)

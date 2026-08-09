@@ -52,20 +52,44 @@ export class ProfilesController {
       'Returns the administrative and pedagogical profile for a user. ' +
       'Strictly read-only: this endpoint never creates anything in database. ' +
       'PROF-FB-003: a formateur may only access profiles of linked students. ' +
-      'Internal notes are never included in this response.',
+      'Internal notes are never included in this response.\n\n' +
+      'PER-FIELD VISIBILITY (arbitrage du 2026-08-09) — the response is filtered ' +
+      'according to the owner\'s per-field settings (PUT /profiles/:userId/field-visibility), ' +
+      'EXCEPT for readers who are exempt:\n' +
+      '  • the owner themselves — always sees the whole record, prescription included;\n' +
+      '  • the linked FINANCE OWNER (parent) — "the parent sees everything about their ' +
+      'students, except the personal notebook", which belongs to pedagogical-log-service ' +
+      'and is not covered here. A student cannot hide a profile field from their finance owner;\n' +
+      '  • the administrative roles (RP, AP, TI, AdministrateurFinancier), each within the ' +
+      'read scope already enforced above.\n' +
+      'Every other linked contact — today the formateur — IS subject to the settings. ' +
+      'The PRINCIPAL TEACHER is treated as any other linked contact: that case has not been ' +
+      'arbitrated, so no exemption is granted.',
   })
   @ApiParam({ name: 'userId', description: 'Target user UUID' })
   @ApiResponse({
     status: 200,
     description:
-      'Response shape: { userId, loginIdentifier, administrative, pedagogical, pedagogicalType }. ' +
+      'Response shape: { userId, loginIdentifier, administrative, pedagogical, pedagogicalType, ' +
+      'visibility }. ' +
       '`pedagogical` carries the COMPLETE pedagogical profile, both sections merged flat: ' +
       'the declarative fields the owner fills in AND the prescription fields written by the RP. ' +
       'The owner reads their prescription here but can never write it (see ' +
       'PUT /profiles/:userId/prescription). ' +
       '`pedagogicalType` is "student", "teacher", or null when no pedagogical profile exists yet — ' +
       'a normal state, the pedagogical profile being optional. ' +
-      '`loginIdentifier` comes from identity-access-service; null if unavailable.',
+      '`loginIdentifier` comes from identity-access-service; null if unavailable.\n\n' +
+      '`visibility` = { isFiltered: boolean, hiddenFields: string[] } reports the outcome of the ' +
+      'per-field filtering. A HIDDEN FIELD IS ABSENT from its block and its name is listed in ' +
+      '`hiddenFields` — it is never replaced by null or an empty string, so that "hidden" stays ' +
+      'distinguishable from "not filled in": a key present at null means empty, a key missing ' +
+      'and named in `hiddenFields` means hidden. `isFiltered: false` means the whole record was ' +
+      'returned, which is NOT the same information as an empty `hiddenFields` on a filtered ' +
+      'reader whose fields all happen to be visible.\n' +
+      'Structural fields are never hidden: `userId`, `createdAt`, `updatedAt`, `pedagogicalType` ' +
+      'and `isAnimateurPedagogique` (a right granted by the RP, not a declaration). ' +
+      '`filledBy`/`filledAt` follow the prescription section: they are returned only when at ' +
+      'least one prescription field is visible to the reader.',
   })
   @ApiResponse({ status: 403, description: 'Forbidden — insufficient role or not linked' })
   @ApiResponse({
@@ -196,10 +220,20 @@ export class ProfilesController {
     description:
       'Returns consolidated pedagogical statistics. ' +
       'Phase 1: returns data embedded in the pedagogical profile. ' +
-      'Access rules mirror GET /profiles/:userId.',
+      'Access rules mirror GET /profiles/:userId.\n\n' +
+      'This route serves the SAME fields (level, subjects, levels) as the `pedagogical` block ' +
+      'of GET /profiles/:userId, so it applies the SAME per-field filtering — otherwise it ' +
+      'would be an exact bypass of it, letting a formateur read a `level` the student set to ' +
+      '`self`. `isAnimateurPedagogique` is structural and never hidden.',
   })
   @ApiParam({ name: 'userId', description: 'Target user UUID' })
-  @ApiResponse({ status: 200, description: 'Pedagogical statistics snapshot' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Shape: { userId, profileType, statistics, visibility }. `visibility` follows the same ' +
+      'contract as GET /profiles/:userId: hidden fields are absent from `statistics` and named ' +
+      'in `visibility.hiddenFields`, never replaced by a misleading value.',
+  })
   @ApiResponse({ status: 403, description: 'Forbidden — insufficient rights' })
   @ApiResponse({ status: 404, description: 'No pedagogical profile found' })
   getPedagogicalStatistics(
@@ -223,6 +257,10 @@ export class ProfilesController {
       '`block` is one of administrative | pedagogical-student | pedagogical-teacher.\n\n' +
       'Default baseline (validated 2026-08-09): firstName, lastName, avatarUrl, level and ' +
       'subjects are visible to linked people; everything else is `self` by default.\n\n' +
+      'These settings ARE enforced on reads since the 2026-08-09 arbitrage (see ' +
+      'GET /profiles/:userId). They apply to linked contacts only: the finance owner and the ' +
+      'administrative roles are exempt, and the owner always sees their own record in full — ' +
+      'so a field set to `self` still appears here and on the owner\'s own profile read.\n\n' +
       'Replaces GET /profiles/:userId/visibility-preferences, removed with its two hard-coded ' +
       'booleans; existing settings were migrated into rows without loss.',
   })
@@ -247,6 +285,11 @@ export class ProfilesController {
       '`audience` ∈ self | linked | all. `fieldName` must belong to the visibility catalog: ' +
       'an unknown name returns 400 listing the accepted names, never a silent no-op. ' +
       'A field name repeated twice in the same body also returns 400.\n\n' +
+      'EFFECT ON READS (since the 2026-08-09 arbitrage): setting a field to `self` hides it ' +
+      'from linked contacts (today the formateur) on GET /profiles/:userId and ' +
+      'GET /profiles/:userId/statistics. It does NOT hide it from the linked finance owner ' +
+      '(parent), from the administrative roles, nor from the owner — a student cannot hide a ' +
+      'profile field from their finance owner.\n\n' +
       'Returns the same payload as GET /profiles/:userId/field-visibility.',
   })
   @ApiParam({ name: 'userId', description: 'Profile owner UUID' })

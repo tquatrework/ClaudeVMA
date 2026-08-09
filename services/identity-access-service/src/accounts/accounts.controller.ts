@@ -44,12 +44,21 @@ export class AccountsController {
   @ApiOperation({
     summary: 'Create student account',
     description:
-      'Self-register as an eleve. Optionally create a linked parent financeur account in the same call. ' +
-      'Account starts in PENDING status. RGPD acceptance must follow via /consents.',
+      'Self-register as an eleve. Optionally attach an existing parent financeur account or create one in ' +
+      "the same call — the intent is explicit via parentAccountMode ('existing' | 'new' | 'none'). " +
+      'In both cases the finance-owner-student relation is created automatically (no approval flow). ' +
+      'The login identifier of a created parent account is chosen (parentLoginIdentifier), never derived ' +
+      'from its email. Account starts in PENDING status. RGPD acceptance must follow via /consents.',
   })
   @ApiResponse({ status: 201, description: 'Student (and optionally parent) account created — status PENDING. emailAlreadyUsed:true if email was already registered.' })
-  @ApiResponse({ status: 409, description: 'Login identifier already taken, or multiple parent accounts share the given parentEmail' })
-  @ApiResponse({ status: 404, description: 'parentLoginIdentifier not found' })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Validation error — parentAccountMode missing while parent* fields are sent, required field missing ' +
+      'for the chosen mode, or field with no effect in that mode (never silently ignored)',
+  })
+  @ApiResponse({ status: 409, description: 'Login identifier already taken (student or created parent)' })
+  @ApiResponse({ status: 404, description: "parentLoginIdentifier not found (parentAccountMode='existing')" })
   @ApiResponse({ status: 503, description: 'profile-service unavailable — account creation rolled back, no data was lost' })
   createStudentAccount(
     @Body() dto: CreateStudentAccountDto,
@@ -77,15 +86,23 @@ export class AccountsController {
     summary: 'Create parent financeur account',
     description:
       'Self-register as a parent_financeur. Allows a financing parent to create an account independently, ' +
-      'without going through the student registration flow. Optionally create a linked student (eleve) ' +
-      'account in the same call (studentLoginIdentifier or studentEmail) — symmetric to the parent linking ' +
-      'fields on POST /accounts/students. When a student is linked or created in the same call, the ' +
+      'without going through the student registration flow. The parent chooses its own loginIdentifier ' +
+      '(same contract as POST /accounts/students and /accounts/teachers). Optionally attach an existing ' +
+      'student (eleve) account or create one in the same call — the intent is explicit via ' +
+      "studentAccountMode ('existing' | 'new' | 'none'), symmetric to parentAccountMode on " +
+      'POST /accounts/students. When a student is attached or created in the same call, the ' +
       'finance-owner-student relation is created automatically (no approval flow). Account starts in ' +
       'PENDING status.',
   })
   @ApiResponse({ status: 201, description: 'Parent (and optionally student) account created — status PENDING. emailAlreadyUsed:true if email was already registered.' })
-  @ApiResponse({ status: 409, description: 'Email already in use, or multiple student accounts share the given studentEmail' })
-  @ApiResponse({ status: 404, description: 'studentLoginIdentifier not found' })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Validation error — studentAccountMode missing while student* fields are sent, required field missing ' +
+      'for the chosen mode, or field with no effect in that mode (never silently ignored)',
+  })
+  @ApiResponse({ status: 409, description: 'Login identifier already taken (parent or created student)' })
+  @ApiResponse({ status: 404, description: "studentLoginIdentifier not found (studentAccountMode='existing')" })
   @ApiResponse({ status: 503, description: 'profile-service unavailable — account creation rolled back, no data was lost' })
   createParentAccount(
     @Body() dto: CreateParentAccountDto,

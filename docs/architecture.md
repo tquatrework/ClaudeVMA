@@ -102,4 +102,24 @@ Phase 3 enrichit l'offre :
 - Application aux blocs de profil : le nom retenu est `administrative` / `pedagogical`, partout. Les variantes `administrativeProfile` / `pedagogicalProfile` sont supprimees, y compris dans les reponses des routes `/internal/*` de `profile-service` qui les portaient encore, et y compris comme noms de variables locales cote front (ou le mot long reintroduisait la confusion a chaque nouvelle lecture du code). Motif du choix : forme la plus courte, deja majoritaire, deja celle de la route publique `GET /profiles/:userId`. Arbitrage rendu le 2026-08-08, apres une premiere reconciliation partielle le 2026-08-07 qui avait laisse subsister la paire longue sur les routes internes.
 - `email` et `loginIdentifier` ne sont pas un doublon de nommage : ce sont deux donnees distinctes portees simultanement par un compte (`{id, loginIdentifier, email, role, ...}`). L'identifiant de connexion est une chaine lisible generee (ex. `marie.dupont`) ; l'email est une adresse de contact. Leur coexistence est justifiee par les routes qui les relient — `GET /accounts/check-email` verifie la disponibilite d'une adresse, `POST /auth/recover-identifier` retrouve un identifiant a partir d'une adresse. La regle « un seul nom par donnee » ne s'y applique donc pas : les fusionner reviendrait a confondre deux concepts. En consequence, `POST /auth/login` prend `{loginIdentifier, password}` — c'est ce que le serveur exige et ce que le front envoie ; toute documentation mentionnant `{email, password}` pour cette route est erronee. Arbitrage rendu le 2026-08-08.
 
+- Identifiant de connexion d'un compte cree en parallele : lorsqu'une inscription entraine la
+  creation d'un second compte lie (parent depuis `register/student`, eleve depuis
+  `register/parent`), ce compte doit pouvoir se connecter. Son `loginIdentifier` doit donc etre
+  saisi explicitement au moment de la creation, au meme titre que pour le compte principal.
+  Constat du 2026-08-09, verifie contre la pile reelle :
+  1. `POST /accounts/parents` ne comporte aucun champ `loginIdentifier` pour le parent lui-meme,
+     alors que `/accounts/students` et `/accounts/teachers` en ont un. Un identifiant transmis
+     est **silencieusement ignore** : le serveur derive l'identifiant de la partie locale de
+     l'email. Le champ « Identifiant de connexion » affiche par `register/parent` est donc
+     mensonger — ce que l'utilisateur saisit est jete.
+  2. `parentLoginIdentifier` / `studentLoginIdentifier` designent un compte **existant** a
+     rattacher : fournis avec les champs de creation, ils renvoient 404. Aucun champ ne permet
+     donc aujourd'hui de nommer le compte cree en parallele.
+  3. Consequence : ce compte recoit un identifiant derive de son email, que personne ne lui
+     communique. La derivation silencieuse est a proscrire — un identifiant de connexion est
+     une donnee choisie, jamais devinee.
+  Direction retenue : rendre les deux intentions distinctes et explicites dans les DTO
+  (rattacher un compte existant vs creer un compte lie), et aligner `/accounts/parents` sur les
+  deux autres routes en lui donnant un `loginIdentifier`. Arbitrage rendu le 2026-08-09.
+
 ## Points ouverts a arbitrer

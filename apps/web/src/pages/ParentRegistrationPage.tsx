@@ -81,6 +81,7 @@ export default function ParentRegistrationPage() {
       'student',
       linkedStudentData,
       lockedStudentLoginIdentifier,
+      formData.loginIdentifier,
     )
     if (linkedAccountError) {
       setValidationError(linkedAccountError)
@@ -177,10 +178,14 @@ export default function ParentRegistrationPage() {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label
+              htmlFor="parent-loginIdentifier"
+              className="block text-sm font-medium text-gray-700 mb-1"
+            >
               Identifiant de connexion
             </label>
             <input
+              id="parent-loginIdentifier"
               type="text"
               value={formData.loginIdentifier}
               onChange={(e) => handleFieldChange('loginIdentifier', e.target.value)}

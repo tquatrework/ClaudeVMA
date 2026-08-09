@@ -57,6 +57,25 @@ async function fillForm(
   )
 }
 
+/** Selects the "create a new linked student account" mode and fills its fields. */
+async function selectNewLinkedStudentMode(options: { loginIdentifier?: string } = {}) {
+  await userEvent.click(screen.getByRole('radio', { name: /créer un nouveau compte élève lié/i }))
+  await userEvent.type(screen.getByLabelText(/prénom élève/i), 'Lucas')
+  await userEvent.type(screen.getByLabelText(/^nom élève$/i), 'Martin')
+  await userEvent.type(screen.getByLabelText(/email élève/i), 'lucas@test.com')
+  const loginIdentifier = options.loginIdentifier ?? 'lucas.martin'
+  if (loginIdentifier) {
+    await userEvent.type(
+      screen.getByLabelText(/identifiant de connexion élève/i),
+      loginIdentifier,
+    )
+  }
+}
+
+async function submitParentForm() {
+  await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mockCheckEmailAvailability.mockResolvedValue({ alreadyUsed: false, suggestedLoginIdentifier: '' })
@@ -216,22 +235,26 @@ describe('ParentRegistrationPage', () => {
         expect(mockRegisterParent).toHaveBeenCalled()
       })
       const payload = mockRegisterParent.mock.calls[0][0]
+      expect(payload.studentAccountMode).toBeUndefined()
       expect(payload.studentLoginIdentifier).toBeUndefined()
       expect(payload.studentEmail).toBeUndefined()
     })
 
-    it('sends studentLoginIdentifier when linking to an existing student account', async () => {
+    it('sends studentAccountMode + studentLoginIdentifier when linking to an existing student account', async () => {
       mockRegisterParent.mockResolvedValue(undefined)
       renderParentRegistrationPage()
 
       await fillForm()
       await userEvent.click(screen.getByRole('radio', { name: /lier un compte élève existant/i }))
       await userEvent.type(screen.getByLabelText(/identifiant élève/i), 'lucas.martin')
-      await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+      await submitParentForm()
 
       await waitFor(() => {
         expect(mockRegisterParent).toHaveBeenCalledWith(
-          expect.objectContaining({ studentLoginIdentifier: 'lucas.martin' }),
+          expect.objectContaining({
+            studentAccountMode: 'existing',
+            studentLoginIdentifier: 'lucas.martin',
+          }),
         )
       })
     })
@@ -249,20 +272,28 @@ describe('ParentRegistrationPage', () => {
       expect(mockRegisterParent).not.toHaveBeenCalled()
     })
 
-    it('sends studentEmail/studentFirstName/studentLastName when creating a new linked student account', async () => {
+    it('offers a login identifier field for the student account being created', async () => {
+      renderParentRegistrationPage()
+
+      await userEvent.click(screen.getByRole('radio', { name: /créer un nouveau compte élève lié/i }))
+
+      expect(screen.getByLabelText(/identifiant de connexion élève/i)).toBeDefined()
+      expect(screen.getByText(/cet identifiant lui servira à se connecter/i)).toBeDefined()
+    })
+
+    it('sends the chosen login identifier with the new linked student account', async () => {
       mockRegisterParent.mockResolvedValue(undefined)
       renderParentRegistrationPage()
 
       await fillForm()
-      await userEvent.click(screen.getByRole('radio', { name: /créer un nouveau compte élève lié/i }))
-      await userEvent.type(screen.getByLabelText(/prénom élève/i), 'Lucas')
-      await userEvent.type(screen.getByLabelText(/^nom élève$/i), 'Martin')
-      await userEvent.type(screen.getByLabelText(/email élève/i), 'lucas@test.com')
-      await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+      await selectNewLinkedStudentMode()
+      await submitParentForm()
 
       await waitFor(() => {
         expect(mockRegisterParent).toHaveBeenCalledWith(
           expect.objectContaining({
+            studentAccountMode: 'new',
+            studentLoginIdentifier: 'lucas.martin',
             studentEmail: 'lucas@test.com',
             studentFirstName: 'Lucas',
             studentLastName: 'Martin',
@@ -271,7 +302,34 @@ describe('ParentRegistrationPage', () => {
       })
     })
 
-    it('locks the student link to ?studentLoginIdentifier= from the URL, with no mode choice', async () => {
+    it('blocks submission when "new" is selected without a login identifier', async () => {
+      renderParentRegistrationPage()
+
+      await fillForm()
+      await selectNewLinkedStudentMode({ loginIdentifier: '' })
+      await submitParentForm()
+
+      await waitFor(() => {
+        expect(screen.getByText(/identifiant de connexion de l'élève est requis/i)).toBeDefined()
+      })
+      expect(mockRegisterParent).not.toHaveBeenCalled()
+    })
+
+    it('blocks submission when the linked login identifier duplicates the main one', async () => {
+      renderParentRegistrationPage()
+
+      await fillForm()
+      await userEvent.type(screen.getByLabelText(/^identifiant de connexion$/i), 'lucas.martin')
+      await selectNewLinkedStudentMode({ loginIdentifier: 'lucas.martin' })
+      await submitParentForm()
+
+      await waitFor(() => {
+        expect(screen.getByText(/différent du vôtre/i)).toBeDefined()
+      })
+      expect(mockRegisterParent).not.toHaveBeenCalled()
+    })
+
+    it('locks the student link to ?studentLoginIdentifier= from the URL, in "existing" mode', async () => {
       mockRegisterParent.mockResolvedValue(undefined)
       renderParentRegistrationPage('/register/parent?studentLoginIdentifier=lucas.martin')
 
@@ -279,12 +337,97 @@ describe('ParentRegistrationPage', () => {
       expect(screen.queryByRole('radio', { name: /ne rien lier maintenant/i })).toBeNull()
 
       await fillForm()
-      await userEvent.click(screen.getByRole('button', { name: /créer mon compte/i }))
+      await submitParentForm()
 
       await waitFor(() => {
         expect(mockRegisterParent).toHaveBeenCalledWith(
-          expect.objectContaining({ studentLoginIdentifier: 'lucas.martin' }),
+          expect.objectContaining({
+            studentAccountMode: 'existing',
+            studentLoginIdentifier: 'lucas.martin',
+          }),
         )
+      })
+    })
+  })
+
+  describe('Main account login identifier', () => {
+    it('sends the login identifier typed for the parent account itself', async () => {
+      mockRegisterParent.mockResolvedValue(undefined)
+      renderParentRegistrationPage()
+
+      await fillForm()
+      await userEvent.type(screen.getByLabelText(/^identifiant de connexion$/i), 'jean.dupont')
+      await submitParentForm()
+
+      await waitFor(() => {
+        expect(mockRegisterParent).toHaveBeenCalledWith(
+          expect.objectContaining({ loginIdentifier: 'jean.dupont' }),
+        )
+      })
+    })
+  })
+
+  describe('Server errors on a registration with a linked student account', () => {
+    it('names the linked account when the server rejects its login identifier (409)', async () => {
+      mockRegisterParent.mockRejectedValue({
+        response: { status: 409, data: { message: 'studentLoginIdentifier already taken' } },
+      })
+      renderParentRegistrationPage()
+
+      await fillForm()
+      await userEvent.type(screen.getByLabelText(/^identifiant de connexion$/i), 'jean.dupont')
+      await selectNewLinkedStudentMode()
+      await submitParentForm()
+
+      await waitFor(() => {
+        expect(screen.getByText(/compte élève lié est déjà utilisé/i)).toBeDefined()
+      })
+    })
+
+    it('names the main account when the server rejects the main login identifier (409)', async () => {
+      mockRegisterParent.mockRejectedValue({
+        response: { status: 409, data: { message: "L'identifiant jean.dupont est déjà pris" } },
+      })
+      renderParentRegistrationPage()
+
+      await fillForm()
+      await userEvent.type(screen.getByLabelText(/^identifiant de connexion$/i), 'jean.dupont')
+      await selectNewLinkedStudentMode()
+      await submitParentForm()
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/identifiant de connexion « jean.dupont » est déjà utilisé/i),
+        ).toBeDefined()
+      })
+    })
+
+    it('explains a 404 as an unknown student account to attach', async () => {
+      mockRegisterParent.mockRejectedValue({ response: { status: 404, data: {} } })
+      renderParentRegistrationPage()
+
+      await fillForm()
+      await userEvent.click(screen.getByRole('radio', { name: /lier un compte élève existant/i }))
+      await userEvent.type(screen.getByLabelText(/identifiant élève/i), 'lucas.martin')
+      await submitParentForm()
+
+      await waitFor(() => {
+        expect(screen.getByText(/aucun compte élève ne correspond/i)).toBeDefined()
+      })
+    })
+
+    it('explains a 400 as inconsistent linked-account fields', async () => {
+      mockRegisterParent.mockRejectedValue({
+        response: { status: 400, data: { message: ['studentEmail should not exist'] } },
+      })
+      renderParentRegistrationPage()
+
+      await fillForm()
+      await selectNewLinkedStudentMode()
+      await submitParentForm()
+
+      await waitFor(() => {
+        expect(screen.getByText(/compte élève lié sont incomplètes ou incohérentes/i)).toBeDefined()
       })
     })
   })

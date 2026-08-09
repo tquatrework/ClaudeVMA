@@ -6,20 +6,28 @@
  *
  * Utilisé par StudentRegistrationPage / ParentRegistrationPage (formulaire
  * d'inscription) ainsi que par LinkedAccountSection (composant de saisie).
+ *
+ * Règle de contrat serveur (arbitrage du 2026-08-09) : l'intention de liaison
+ * est **déclarée**, jamais devinée. Dès qu'un champ `parent*` / `student*` est
+ * transmis, `parentAccountMode` / `studentAccountMode` est obligatoire, et un
+ * compte créé en parallèle reçoit un identifiant de connexion **choisi**, jamais
+ * dérivé de son email.
  */
 
-export type LinkedAccountRelation = 'parent' | 'student'
+import type {
+  LinkedAccountFormData,
+  LinkedAccountMode,
+  LinkedAccountRelation,
+} from '../types/accounts'
 
-export type LinkedAccountMode = 'none' | 'existing' | 'new'
+export type {
+  LinkedAccountFormData,
+  LinkedAccountMode,
+  LinkedAccountRelation,
+} from '../types/accounts'
 
-export interface LinkedAccountFormData {
-  mode: LinkedAccountMode
-  loginIdentifier: string
-  email: string
-  firstName: string
-  lastName: string
-  password: string
-}
+/** Longueur minimale imposée par le serveur sur un identifiant de connexion. */
+export const MIN_LOGIN_IDENTIFIER_LENGTH = 3
 
 export const INITIAL_LINKED_ACCOUNT_DATA: LinkedAccountFormData = {
   mode: 'none',
@@ -43,6 +51,7 @@ export const LINKED_ACCOUNT_LABELS: Record<LinkedAccountRelation, LinkedAccountL
 }
 
 export interface ParentLinkFields {
+  parentAccountMode?: LinkedAccountMode
   parentLoginIdentifier?: string
   parentEmail?: string
   parentFirstName?: string
@@ -51,6 +60,7 @@ export interface ParentLinkFields {
 }
 
 export interface StudentLinkFields {
+  studentAccountMode?: LinkedAccountMode
   studentLoginIdentifier?: string
   studentEmail?: string
   studentFirstName?: string
@@ -60,9 +70,17 @@ export interface StudentLinkFields {
 
 const FIELD_KEYS: Record<
   LinkedAccountRelation,
-  { loginIdentifier: string; email: string; firstName: string; lastName: string; password: string }
+  {
+    accountMode: string
+    loginIdentifier: string
+    email: string
+    firstName: string
+    lastName: string
+    password: string
+  }
 > = {
   parent: {
+    accountMode: 'parentAccountMode',
     loginIdentifier: 'parentLoginIdentifier',
     email: 'parentEmail',
     firstName: 'parentFirstName',
@@ -70,6 +88,7 @@ const FIELD_KEYS: Record<
     password: 'parentPassword',
   },
   student: {
+    accountMode: 'studentAccountMode',
     loginIdentifier: 'studentLoginIdentifier',
     email: 'studentEmail',
     firstName: 'studentFirstName',
@@ -85,9 +104,10 @@ const FIELD_KEYS: Record<
  *
  * - `lockedLoginIdentifier` (venant d'un paramètre d'URL, ex. `?parentLoginIdentifier=...`)
  *   est toujours prioritaire : le compte cible existe déjà et est identifié sans
- *   ambiguïté, il n'y a alors rien d'autre à transmettre.
- * - Sinon, selon le mode choisi par l'utilisateur : rien (`none`), lien vers un
- *   compte existant (`existing`) ou création d'un nouveau compte lié (`new`).
+ *   ambiguïté — c'est donc le mode `existing`.
+ * - Sinon, selon le mode choisi par l'utilisateur : rien (`none`, aucun champ
+ *   n'est transmis), rattachement d'un compte existant (`existing`) ou création
+ *   d'un nouveau compte lié (`new`, avec l'identifiant de connexion choisi).
  */
 export function buildLinkedAccountFields(
   relation: LinkedAccountRelation,
@@ -97,15 +117,23 @@ export function buildLinkedAccountFields(
   const keys = FIELD_KEYS[relation]
 
   if (lockedLoginIdentifier) {
-    return { [keys.loginIdentifier]: lockedLoginIdentifier }
+    return {
+      [keys.accountMode]: 'existing',
+      [keys.loginIdentifier]: lockedLoginIdentifier,
+    }
   }
 
   if (data.mode === 'existing' && data.loginIdentifier.trim()) {
-    return { [keys.loginIdentifier]: data.loginIdentifier.trim() }
+    return {
+      [keys.accountMode]: 'existing',
+      [keys.loginIdentifier]: data.loginIdentifier.trim(),
+    }
   }
 
   if (data.mode === 'new' && data.email.trim()) {
     return {
+      [keys.accountMode]: 'new',
+      [keys.loginIdentifier]: data.loginIdentifier.trim() || undefined,
       [keys.email]: data.email.trim(),
       [keys.firstName]: data.firstName.trim(),
       [keys.lastName]: data.lastName.trim(),
@@ -119,22 +147,44 @@ export function buildLinkedAccountFields(
 /**
  * Valide l'état de saisie du bloc de liaison avant soumission.
  * Retourne un message d'erreur lisible, ou `null` si valide.
+ *
+ * @param mainLoginIdentifier identifiant de connexion saisi pour le compte
+ *   principal, s'il y en a un : deux comptes ne peuvent pas porter le même.
  */
 export function validateLinkedAccountData(
   relation: LinkedAccountRelation,
   data: LinkedAccountFormData,
   lockedLoginIdentifier?: string | null,
+  mainLoginIdentifier?: string | null,
 ): string | null {
   if (lockedLoginIdentifier) return null
 
-  const { targetSentence } = LINKED_ACCOUNT_LABELS[relation]
+  const { target, targetSentence } = LINKED_ACCOUNT_LABELS[relation]
+  const trimmedLoginIdentifier = data.loginIdentifier.trim()
 
-  if (data.mode === 'existing' && !data.loginIdentifier.trim()) {
+  if (data.mode === 'existing' && !trimmedLoginIdentifier) {
     return `Veuillez renseigner l'identifiant ${targetSentence} à lier, ou choisissez "Ne rien lier maintenant".`
   }
 
-  if (data.mode === 'new' && (!data.email.trim() || !data.firstName.trim() || !data.lastName.trim())) {
-    return `L'email, le prénom et le nom ${targetSentence} sont requis pour créer un nouveau compte lié.`
+  if (data.mode === 'new') {
+    if (!data.email.trim() || !data.firstName.trim() || !data.lastName.trim()) {
+      return `L'email, le prénom et le nom ${targetSentence} sont requis pour créer un nouveau compte lié.`
+    }
+    if (!trimmedLoginIdentifier) {
+      return `L'identifiant de connexion ${targetSentence} est requis : c'est avec lui que ce compte se connectera.`
+    }
+  }
+
+  if (trimmedLoginIdentifier && trimmedLoginIdentifier.length < MIN_LOGIN_IDENTIFIER_LENGTH) {
+    return `L'identifiant de connexion ${targetSentence} doit contenir au moins ${MIN_LOGIN_IDENTIFIER_LENGTH} caractères.`
+  }
+
+  if (
+    data.mode === 'new' &&
+    trimmedLoginIdentifier &&
+    trimmedLoginIdentifier.toLowerCase() === (mainLoginIdentifier ?? '').trim().toLowerCase()
+  ) {
+    return `L'identifiant de connexion du compte ${target} doit être différent du vôtre.`
   }
 
   return null

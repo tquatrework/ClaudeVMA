@@ -9,6 +9,36 @@ export interface CheckEmailAvailabilityResult {
   suggestedLoginIdentifier: string
 }
 
+/**
+ * Intention de liaison déclarée lors d'une inscription (voir docs/routes.md,
+ * `parentAccountMode` / `studentAccountMode`) :
+ * - `none`    : aucun compte lié (le serveur refuse alors tout champ `parent*`/`student*`) ;
+ * - `existing`: rattacher un compte déjà existant, désigné par son identifiant de connexion ;
+ * - `new`     : créer le compte lié, avec l'identifiant de connexion choisi ici.
+ *
+ * L'intention n'est jamais devinée par le serveur : ce mode est obligatoire dès
+ * qu'un champ de liaison est transmis.
+ */
+export type LinkedAccountMode = 'none' | 'existing' | 'new'
+
+/** Nature du compte lié à celui en cours de création. */
+export type LinkedAccountRelation = 'parent' | 'student'
+
+/** État de saisie du bloc « lier un compte » des pages d'inscription. */
+export interface LinkedAccountFormData {
+  mode: LinkedAccountMode
+  /**
+   * Identifiant de connexion du compte lié. Une seule donnée, un seul nom :
+   * en mode `existing` il désigne le compte à rattacher, en mode `new` il nomme
+   * le compte créé — c'est avec lui que ce compte se connectera.
+   */
+  loginIdentifier: string
+  email: string
+  firstName: string
+  lastName: string
+  password: string
+}
+
 export interface RegisterParentPayload {
   email: string
   loginIdentifier?: string
@@ -16,9 +46,11 @@ export interface RegisterParentPayload {
   firstName: string
   lastName: string
   // Liaison optionnelle à un élève, dans le même appel POST /accounts/parents
-  // (voir docs/routes.md). `studentLoginIdentifier` lie un compte élève existant ;
-  // `studentEmail`+`studentFirstName`+`studentLastName` (+`studentPassword` optionnel)
-  // résout par email (crée ou lie selon le nombre de comptes trouvés).
+  // (voir docs/routes.md). `studentAccountMode` déclare l'intention ; il est
+  // obligatoire dès qu'un champ `student*` est transmis, sans quoi le serveur
+  // répond 400. `studentLoginIdentifier` désigne le compte à rattacher
+  // (`existing`) ou nomme le compte créé (`new`).
+  studentAccountMode?: LinkedAccountMode
   studentLoginIdentifier?: string
   studentEmail?: string
   studentPassword?: string
@@ -41,10 +73,11 @@ export interface RegisterStudentPayload {
   phoneNumber?: string
   consents: RegistrationConsents
   // Liaison optionnelle à un parent financeur, dans le même appel
-  // POST /accounts/students (voir docs/routes.md). `parentLoginIdentifier` lie un
-  // compte parent existant ; `parentEmail`+`parentFirstName`+`parentLastName`
-  // (+`parentPassword` optionnel) résout par email (crée ou lie selon le nombre
-  // de comptes trouvés).
+  // POST /accounts/students (voir docs/routes.md). `parentAccountMode` déclare
+  // l'intention ; il est obligatoire dès qu'un champ `parent*` est transmis, sans
+  // quoi le serveur répond 400. `parentLoginIdentifier` désigne le compte à
+  // rattacher (`existing`) ou nomme le compte créé (`new`).
+  parentAccountMode?: LinkedAccountMode
   parentLoginIdentifier?: string
   parentEmail?: string
   parentPassword?: string

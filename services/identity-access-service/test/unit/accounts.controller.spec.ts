@@ -4,6 +4,7 @@ import { AccountsController } from '../../src/accounts/accounts.controller';
 import { AccountsService } from '../../src/accounts/accounts.service';
 import { UserRole, ValidationStatus } from '../../src/auth/entities/user.entity';
 import { makeAuthenticatedUser } from './helpers/authenticated-user.factory';
+import { LinkedAccountMode } from '../../src/accounts/dto/linked-account-mode';
 
 const makePublicAccount = (overrides = {}) => ({
   id: 'user-uuid',
@@ -116,6 +117,8 @@ describe('AccountsController (self-service)', () => {
           password: 'password123',
           firstName: 'Lucas',
           lastName: 'Petit',
+          parentAccountMode: LinkedAccountMode.NEW,
+          parentLoginIdentifier: 'nathalie.petit',
           parentEmail: 'parent@test.com',
           parentPassword: 'parentpass123',
           parentFirstName: 'Nathalie',
@@ -197,6 +200,8 @@ describe('AccountsController (self-service)', () => {
           password: 'password123',
           firstName: 'Sophie',
           lastName: 'Bernard',
+          studentAccountMode: LinkedAccountMode.NEW,
+          studentLoginIdentifier: 'lucas.petit',
           studentEmail: 'student@test.com',
           studentPassword: 'studentpass123',
           studentFirstName: 'Lucas',

@@ -107,8 +107,8 @@ describe('Identity Access Service (e2e)', () => {
       .expect(400);
   });
 
-  it('POST /accounts/students with parentEmail but without parentFirstName/parentLastName → 400', () => {
-    const studentEmail = `student-noparentnames-${timestamp}@example.com`;
+  it('POST /accounts/students with parent fields but without parentAccountMode → 400', () => {
+    const studentEmail = `student-nomode-${timestamp}@example.com`;
     return request(app.getHttpServer())
       .post('/accounts/students')
       .send({
@@ -116,14 +116,16 @@ describe('Identity Access Service (e2e)', () => {
         password: testPassword,
         firstName: 'Lucas',
         lastName: 'Petit',
-        parentEmail: `parent-noname-${timestamp}@example.com`,
+        parentEmail: `parent-nomode-${timestamp}@example.com`,
         parentPassword: testPassword,
+        parentFirstName: 'Nathalie',
+        parentLastName: 'Petit',
       })
       .expect(400);
   });
 
-  it('POST /accounts/students with parentEmail, parentFirstName and parentLastName → 201, and the parent is linked as finance owner', () => {
-    const studentEmail = `student-withparent-${timestamp}@example.com`;
+  it("POST /accounts/students with parentAccountMode 'new' but without parentLoginIdentifier → 400", () => {
+    const studentEmail = `student-noparentid-${timestamp}@example.com`;
     return request(app.getHttpServer())
       .post('/accounts/students')
       .send({
@@ -131,6 +133,43 @@ describe('Identity Access Service (e2e)', () => {
         password: testPassword,
         firstName: 'Lucas',
         lastName: 'Petit',
+        parentAccountMode: 'new',
+        parentEmail: `parent-noid-${timestamp}@example.com`,
+        parentPassword: testPassword,
+        parentFirstName: 'Nathalie',
+        parentLastName: 'Petit',
+      })
+      .expect(400);
+  });
+
+  it("POST /accounts/students with parentAccountMode 'existing' and creation fields → 400 (no field is silently ignored)", () => {
+    const studentEmail = `student-mixedintent-${timestamp}@example.com`;
+    return request(app.getHttpServer())
+      .post('/accounts/students')
+      .send({
+        email: studentEmail,
+        password: testPassword,
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        parentAccountMode: 'existing',
+        parentLoginIdentifier: `parent-existing-${timestamp}`,
+        parentEmail: `parent-mixed-${timestamp}@example.com`,
+      })
+      .expect(400);
+  });
+
+  it("POST /accounts/students with parentAccountMode 'new' → 201, the parent keeps the chosen loginIdentifier and is linked as finance owner", () => {
+    const studentEmail = `student-withparent-${timestamp}@example.com`;
+    const parentLoginIdentifier = `choisi.parent.${timestamp}`;
+    return request(app.getHttpServer())
+      .post('/accounts/students')
+      .send({
+        email: studentEmail,
+        password: testPassword,
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        parentAccountMode: 'new',
+        parentLoginIdentifier,
         parentEmail: `parent-named-${timestamp}@example.com`,
         parentPassword: testPassword,
         parentFirstName: 'Nathalie',
@@ -139,6 +178,8 @@ describe('Identity Access Service (e2e)', () => {
       .expect(201)
       .expect((res) => {
         expect(res.body.parent).toBeDefined();
+        expect(res.body.parent.created).toBe(true);
+        expect(res.body.parent.loginIdentifier).toBe(parentLoginIdentifier);
         expect(res.body.parent.firstName).toBeUndefined();
         expect(res.body.parent.lastName).toBeUndefined();
         expect(profileServiceClientStub.linkParentToStudent).toHaveBeenCalledWith({
@@ -146,6 +187,20 @@ describe('Identity Access Service (e2e)', () => {
           financeOwnerId: res.body.parent.id,
         });
       });
+  });
+
+  it("POST /accounts/students with parentAccountMode 'existing' and an unknown parentLoginIdentifier → 404", () => {
+    return request(app.getHttpServer())
+      .post('/accounts/students')
+      .send({
+        email: `student-unknownparent-${timestamp}@example.com`,
+        password: testPassword,
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        parentAccountMode: 'existing',
+        parentLoginIdentifier: `inconnu.${timestamp}`,
+      })
+      .expect(404);
   });
 
   it('POST /accounts/teachers without JWT → 201 (public route, no token required)', () => {
@@ -181,8 +236,9 @@ describe('Identity Access Service (e2e)', () => {
       });
   });
 
-  it('POST /accounts/parents with studentEmail but without studentFirstName/studentLastName → 400', () => {
-    const parentEmail = `parent-nostudentnames-${timestamp}@example.com`;
+  it('POST /accounts/parents honours the loginIdentifier chosen by the parent (never derived from the email)', () => {
+    const parentEmail = `parent-chosenid-${timestamp}@example.com`;
+    const chosenLoginIdentifier = `choisi.par.utilisateur.${timestamp}`;
     return request(app.getHttpServer())
       .post('/accounts/parents')
       .send({
@@ -190,13 +246,50 @@ describe('Identity Access Service (e2e)', () => {
         password: testPassword,
         firstName: 'Sophie',
         lastName: 'Bernard',
-        studentEmail: `student-noname-${timestamp}@example.com`,
+        loginIdentifier: chosenLoginIdentifier,
+      })
+      .expect(201)
+      .expect((res) => {
+        expect(res.body.parent.loginIdentifier).toBe(chosenLoginIdentifier);
+      });
+  });
+
+  it('POST /accounts/parents with student fields but without studentAccountMode → 400', () => {
+    const parentEmail = `parent-nomode-${timestamp}@example.com`;
+    return request(app.getHttpServer())
+      .post('/accounts/parents')
+      .send({
+        email: parentEmail,
+        password: testPassword,
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+        studentEmail: `student-nomode-${timestamp}@example.com`,
         studentPassword: testPassword,
+        studentFirstName: 'Lucas',
+        studentLastName: 'Petit',
       })
       .expect(400);
   });
 
-  it('POST /accounts/parents with studentEmail, studentFirstName and studentLastName → 201, and the student is linked as financed student', () => {
+  it("POST /accounts/parents with studentAccountMode 'new' but without studentLoginIdentifier → 400", () => {
+    const parentEmail = `parent-nostudentid-${timestamp}@example.com`;
+    return request(app.getHttpServer())
+      .post('/accounts/parents')
+      .send({
+        email: parentEmail,
+        password: testPassword,
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+        studentAccountMode: 'new',
+        studentEmail: `student-noid-${timestamp}@example.com`,
+        studentPassword: testPassword,
+        studentFirstName: 'Lucas',
+        studentLastName: 'Petit',
+      })
+      .expect(400);
+  });
+
+  it("POST /accounts/parents with studentAccountMode 'new' → 201, the student keeps the chosen loginIdentifier and is linked as financed student", () => {
     const parentEmail = `parent-withstudent-${timestamp}@example.com`;
     return request(app.getHttpServer())
       .post('/accounts/parents')
@@ -205,6 +298,8 @@ describe('Identity Access Service (e2e)', () => {
         password: testPassword,
         firstName: 'Sophie',
         lastName: 'Bernard',
+        studentAccountMode: 'new',
+        studentLoginIdentifier: `choisi.eleve.${timestamp}`,
         studentEmail: `student-named-${timestamp}@example.com`,
         studentPassword: testPassword,
         studentFirstName: 'Lucas',

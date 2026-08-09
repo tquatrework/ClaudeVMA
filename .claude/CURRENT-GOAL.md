@@ -7,21 +7,74 @@
 
 ## Besoin
 
-Aucun objectif métier en cours. Le précédent est clos, voir plus bas.
+Quand on crée un compte en entraînant la création d'un second compte lié, le compte créé en
+parallèle doit pouvoir se connecter. Il lui faut donc un **identifiant de connexion**, saisi
+au moment de la création — l'email seul ne suffit pas, la page de login demande
+`loginIdentifier`.
 
-Prochain besoin à inscrire ici dès qu'il est formulé, avant de coder quoi que ce soit.
+Deux formulaires concernés, symétriques :
+- `register/student` → bloc « créer un compte parent financeur en parallèle » ;
+- `register/parent` → bloc « créer un compte élève lié ».
+
+Signalé par l'utilisateur le 2026-08-09 comme un bug de conception.
+
+## Ce que la vérification contre la pile réelle a établi
+
+Trois défauts, pas un. Vérifiés par sondes HTTP sur `https://claudevma.visioprof.fr`
+(comptes de sonde supprimés après coup) :
+
+1. `POST /accounts/parents` n'a **aucun** champ `loginIdentifier` pour le parent lui-même.
+   Un identifiant transmis est **silencieusement ignoré** : sonde A a envoyé
+   `choisi.par.utilisateur.…`, le compte a été créé avec `probea.parent.…` dérivé de l'email.
+   Le champ « Identifiant de connexion » affiché par `register/parent` est donc mensonger.
+2. `parentLoginIdentifier` désigne un compte **existant** à rattacher. Sonde B l'a envoyé
+   avec les champs de création → `404 No account found`. Aucun champ ne permet donc
+   aujourd'hui de nommer le compte créé en parallèle.
+3. Le compte lié reçoit un identifiant dérivé de son email que personne ne lui communique.
+
+Arbitrage inscrit dans `docs/architecture.md` : rendre les deux intentions distinctes et
+explicites dans les DTO, et donner un `loginIdentifier` à `/accounts/parents`.
 
 ## Comment on saura que c'est fait
 
-_(à remplir avec le prochain objectif)_
+Deux captures de `https://claudevma.visioprof.fr` livrées dans la conversation :
+1. `register/student`, bloc parent financeur : le champ identifiant de connexion est visible ;
+2. `register/parent`, bloc élève lié : idem.
+
+Puis une création réellement jouée contre la pile réelle, suivie d'une **connexion réussie du
+compte créé en parallèle** avec l'identifiant saisi — c'est la seule preuve qui vaille, le
+besoin étant précisément que ce compte puisse se connecter.
+
+**Ni les tests verts ni une PR ouverte ne valent validation** : la suite front simule le réseau.
 
 ## État
 
-_(à remplir avec le prochain objectif)_
+- [x] Contrat `identity-access-service` clarifié et asymétrie tranchée
+      (mode explicite `'none' | 'existing' | 'new'` + `loginIdentifier` sur `/accounts/parents`)
+- [x] Codé et committé — backend puis front, branche `feat/login-identifier-on-linked-account`
+- [x] Déployé sur la pile réelle (`identity-access-service` et `frontend` reconstruits)
+- [x] Preuve livrée à l'utilisateur — 2026-08-09, parcours complet joué sur
+      `https://claudevma.visioprof.fr` dans les deux sens :
+      - `register/student` → parent `sophie.choisi.092045` créé avec l'identifiant **saisi**
+        (et non `sophie.essai…` dérivé de l'email), puis **connexion réussie** de ce parent,
+        qui voit « Camille Essai092045 » sous Mes élèves ;
+      - `register/parent` → élève `theo.choisi.092247` créé de même, **connexion réussie**.
+      Comptes d'essai supprimés après coup ; le lien `eleve.seconde` ↔ `maman.deuxenfants`
+      de l'objectif précédent a été vérifié intact.
+- [ ] Validé par l'utilisateur
+- [ ] Mergé dans master
 
 ## Bloqué par
 
 Rien.
+
+## Trouvé en chemin, hors périmètre — à traiter ensuite
+
+`POST /accounts/students` reçoit `consents` (acceptation RGPD/CGU) et `birthDate`, qui ne
+figurent pas dans son DTO. Le `ValidationPipe({ whitelist: true })` les **jette en silence** —
+exactement le mécanisme qui faisait disparaître `loginIdentifier`. Les consentements RGPD
+saisis à l'inscription sont donc potentiellement perdus. Signalé indépendamment par les deux
+subagents. Non touché ici pour rester dans le périmètre demandé.
 
 ---
 

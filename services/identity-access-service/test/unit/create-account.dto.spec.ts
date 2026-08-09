@@ -3,6 +3,7 @@ import { validate } from 'class-validator';
 import { CreateStudentAccountDto } from '../../src/accounts/dto/create-student-account.dto';
 import { CreateTeacherAccountDto } from '../../src/accounts/dto/create-teacher-account.dto';
 import { CreateParentAccountDto } from '../../src/accounts/dto/create-parent-account.dto';
+import { LinkedAccountMode } from '../../src/accounts/dto/linked-account-mode';
 
 /**
  * firstName/lastName sont obligatoires à l'inscription (0/15 comptes en base
@@ -93,26 +94,39 @@ describe('Create account DTOs — firstName/lastName/phoneNumber validation', ()
       await expectNoErrorsOn(['studentFirstName', 'studentLastName'], errors);
     });
 
-    it('fails validation when studentEmail is provided without studentFirstName/studentLastName', async () => {
+    it('accepts a chosen loginIdentifier for the parent account itself', async () => {
       const dto = plainToInstance(CreateParentAccountDto, {
         email: 'parent@example.com',
         password: 'password123',
         firstName: 'Sophie',
         lastName: 'Bernard',
-        studentEmail: 'eleve@example.com',
-        studentPassword: 'studentpass123',
+        loginIdentifier: 'sophie.bernard',
       });
       const errors = await validate(dto);
-      expect(errors.find((error) => error.property === 'studentFirstName')).toBeDefined();
-      expect(errors.find((error) => error.property === 'studentLastName')).toBeDefined();
+      expect(errors).toHaveLength(0);
+      expect(dto.loginIdentifier).toBe('sophie.bernard');
     });
 
-    it('passes validation when studentEmail is provided with studentFirstName and studentLastName', async () => {
+    it('rejects a loginIdentifier shorter than 3 characters', async () => {
       const dto = plainToInstance(CreateParentAccountDto, {
         email: 'parent@example.com',
         password: 'password123',
         firstName: 'Sophie',
         lastName: 'Bernard',
+        loginIdentifier: 'ab',
+      });
+      const errors = await validate(dto);
+      expect(errors.find((error) => error.property === 'loginIdentifier')).toBeDefined();
+    });
+
+    it("passes validation with studentAccountMode 'new' and all the creation fields", async () => {
+      const dto = plainToInstance(CreateParentAccountDto, {
+        email: 'parent@example.com',
+        password: 'password123',
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+        studentAccountMode: LinkedAccountMode.NEW,
+        studentLoginIdentifier: 'lucas.petit',
         studentEmail: 'eleve@example.com',
         studentPassword: 'studentpass123',
         studentFirstName: 'Lucas',
@@ -122,17 +136,16 @@ describe('Create account DTOs — firstName/lastName/phoneNumber validation', ()
       expect(errors).toHaveLength(0);
     });
 
-    it('fails validation when studentEmail is provided with only studentFirstName', async () => {
+    it('rejects an unknown studentAccountMode value', async () => {
       const dto = plainToInstance(CreateParentAccountDto, {
         email: 'parent@example.com',
         password: 'password123',
         firstName: 'Sophie',
         lastName: 'Bernard',
-        studentEmail: 'eleve@example.com',
-        studentFirstName: 'Lucas',
+        studentAccountMode: 'peut-etre',
       });
       const errors = await validate(dto);
-      expect(errors.find((error) => error.property === 'studentLastName')).toBeDefined();
+      expect(errors.find((error) => error.property === 'studentAccountMode')).toBeDefined();
     });
   });
 
@@ -169,26 +182,14 @@ describe('Create account DTOs — firstName/lastName/phoneNumber validation', ()
       await expectNoErrorsOn(['parentFirstName', 'parentLastName'], errors);
     });
 
-    it('fails validation when parentEmail is provided without parentFirstName/parentLastName', async () => {
+    it("passes validation with parentAccountMode 'new' and all the creation fields", async () => {
       const dto = plainToInstance(CreateStudentAccountDto, {
         email: 'eleve@example.com',
         password: 'password123',
         firstName: 'Lucas',
         lastName: 'Petit',
-        parentEmail: 'parent@example.com',
-        parentPassword: 'parentpass123',
-      });
-      const errors = await validate(dto);
-      expect(errors.find((error) => error.property === 'parentFirstName')).toBeDefined();
-      expect(errors.find((error) => error.property === 'parentLastName')).toBeDefined();
-    });
-
-    it('passes validation when parentEmail is provided with parentFirstName and parentLastName', async () => {
-      const dto = plainToInstance(CreateStudentAccountDto, {
-        email: 'eleve@example.com',
-        password: 'password123',
-        firstName: 'Lucas',
-        lastName: 'Petit',
+        parentAccountMode: LinkedAccountMode.NEW,
+        parentLoginIdentifier: 'nathalie.petit',
         parentEmail: 'parent@example.com',
         parentPassword: 'parentpass123',
         parentFirstName: 'Nathalie',
@@ -198,17 +199,42 @@ describe('Create account DTOs — firstName/lastName/phoneNumber validation', ()
       expect(errors).toHaveLength(0);
     });
 
-    it('fails validation when parentEmail is provided with only parentFirstName', async () => {
+    it("passes validation with parentAccountMode 'existing' and a parentLoginIdentifier only", async () => {
       const dto = plainToInstance(CreateStudentAccountDto, {
         email: 'eleve@example.com',
         password: 'password123',
         firstName: 'Lucas',
         lastName: 'Petit',
-        parentEmail: 'parent@example.com',
-        parentFirstName: 'Nathalie',
+        parentAccountMode: LinkedAccountMode.EXISTING,
+        parentLoginIdentifier: 'nathalie.petit',
       });
       const errors = await validate(dto);
-      expect(errors.find((error) => error.property === 'parentLastName')).toBeDefined();
+      expect(errors).toHaveLength(0);
+    });
+
+    it('rejects an unknown parentAccountMode value', async () => {
+      const dto = plainToInstance(CreateStudentAccountDto, {
+        email: 'eleve@example.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        parentAccountMode: 'peut-etre',
+      });
+      const errors = await validate(dto);
+      expect(errors.find((error) => error.property === 'parentAccountMode')).toBeDefined();
+    });
+
+    it('rejects a parentLoginIdentifier shorter than 3 characters', async () => {
+      const dto = plainToInstance(CreateStudentAccountDto, {
+        email: 'eleve@example.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        parentAccountMode: LinkedAccountMode.EXISTING,
+        parentLoginIdentifier: 'ab',
+      });
+      const errors = await validate(dto);
+      expect(errors.find((error) => error.property === 'parentLoginIdentifier')).toBeDefined();
     });
 
     it('passes validation with a valid phoneNumber', async () => {

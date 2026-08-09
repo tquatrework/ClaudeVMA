@@ -277,6 +277,8 @@ export const IDS = {
   ti:       '00000000-0000-4000-8000-000000000050',
   genericAccount1: '00000000-0000-4000-8000-000000000060',
   genericAccount2: '00000000-0000-4000-8000-000000000061',
+  /** Compte dédié aux tests de relais de birthDate à la création du profil. */
+  birthDateAccount: '00000000-0000-4000-8000-000000000062',
   /**
    * Account known to identity-access-service but WITHOUT any administrative
    * profile in profile-service: the data inconsistency that must surface as a

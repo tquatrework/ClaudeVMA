@@ -56,10 +56,13 @@ de l'emprunter. Arbitrage inscrit dans `docs/architecture.md`.
       `validationStatus: "active"` et `consentSigned: true`, **2 lignes** dans
       `consent_records` (rgpd + cgu, version 1.0, IP, horodatage), et **aucun bandeau**
       « compte pas encore activé » après connexion. Compte d'essai supprimé.
-- [ ] Validé par l'utilisateur
-- [ ] Mergé dans master
+- [x] Validé par l'utilisateur — 2026-08-09
+- [x] Mergé dans master — PR #76, puis `identity-access-service` et `frontend` reconstruits
+      depuis `master` et redéployés ensemble. Parcours rejoué sur cette version : `201`
+      `active` / `consentSigned: true`, 2 lignes dans `consent_records`, aucun bandeau.
+      Compte de vérification supprimé.
 
-## Effets de bord à valider avec l'utilisateur avant merge
+## Effets de bord acceptés au merge, à traiter ensuite
 
 - **Étape « Profil pédagogique » retirée du formulaire formateur** : ses trois champs
   (`teachingSubjects`, `educationLevel`, `bio`) n'étaient jamais stockés. Le wizard passe de

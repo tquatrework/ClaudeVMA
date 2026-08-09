@@ -255,5 +255,103 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-08-09" label="Identifiant de connexion d'un compte cree en parallele (branche feat/login-identifier-on-linked-account)">
+      <context>
+        Constat utilisateur verifie contre la pile reelle : un compte lie cree pendant une
+        inscription (parent depuis `register/student`, eleve depuis `register/parent`) ne pouvait pas
+        se connecter, faute d'identifiant de connexion communique. Les deux blocs « Creer un nouveau
+        compte ... lie » ne demandaient que Prenom / Nom / E-mail / Mot de passe, et le champ
+        « Identifiant de connexion » du compte principal de `register/parent` etait silencieusement
+        jete par le serveur. identity-access-service a corrige son contrat (mode de liaison explicite
+        + `loginIdentifier` sur `/accounts/parents`) ; cette session branche le front dessus.
+        Arbitrage de reference : docs/architecture.md, « Identifiant de connexion d'un compte cree en
+        parallele » (2026-08-09).
+      </context>
+
+      <decision id="linked-account-mode-transmitted">
+        <title>L'intention de liaison est transmise, plus jamais deduite</title>
+        <description>
+          `buildLinkedAccountFields` (src/utils/accountLinking.ts) envoie desormais
+          `parentAccountMode` / `studentAccountMode` en meme temps que les champs de liaison — le
+          serveur repond 400 si le mode manque. Le type `LinkedAccountMode` etait deja calcule cote
+          front pour piloter les trois radios, il n'etait simplement pas transmis. Correspondances :
+          radio « Lier un compte ... existant » et arrivee via `?parentLoginIdentifier=...` /
+          `?studentLoginIdentifier=...` (cas `lockedLoginIdentifier`) → mode `existing` ; radio
+          « Creer un nouveau compte ... lie » → mode `new` ; « Ne rien lier maintenant » → aucun
+          champ transmis (une inscription simple reste strictement inchangee, plutot que d'envoyer
+          un `'none'` explicite).
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="linked-account-login-identifier-field">
+        <title>Champ « Identifiant de connexion » dans le bloc de creation de compte lie</title>
+        <description>
+          LinkedAccountSection affiche le champ dans les deux modes de saisie, car il porte la meme
+          donnee (`parentLoginIdentifier` / `studentLoginIdentifier`, un seul nom conformement a
+          l'arbitrage du 2026-08-08) : il designe le compte a rattacher en mode `existing`, et nomme
+          le compte cree en mode `new`. En mode `new`, l'aide reprend mot pour mot celle du compte
+          principal (« Cet identifiant lui servira a se connecter. ») et le style est identique aux
+          champs voisins. `validateLinkedAccountData` impose l'identifiant en mode `new`, sa longueur
+          minimale de 3 caracteres (regle serveur), et refuse un identifiant identique a celui du
+          compte principal — ce dernier controle evite un 409 dont on ne saurait pas dire lequel des
+          deux comptes il vise.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="registration-error-attribution">
+        <title>Erreurs serveur : dire quel compte est en cause</title>
+        <description>
+          Nouveau src/utils/registrationError.ts. Ces deux routes creent potentiellement deux comptes
+          en un appel : un 409 « identifiant deja pris » sans plus de precision ferait corriger le
+          mauvais champ. `resolveConflictingAccount` tranche du plus sur au plus heuristique :
+          (1) hors mode `new`, aucun compte lie n'est cree → compte principal ; (2) en mode `new`,
+          si l'utilisateur n'a pas choisi son propre identifiant, le serveur le derive en suffixant
+          en cas de collision et ne peut donc pas provoquer de 409 → compte lie ; (3) sinon on
+          cherche la valeur en cause puis le nom du champ dans le message serveur ; (4) sans signal
+          on ne tranche pas, et le message invite a verifier les deux. Le 404 est explique comme un
+          compte a rattacher inconnu (mode `existing` uniquement), le 400 comme des champs de
+          liaison incoherents. `buildRegistrationErrorContext` derive ce contexte du payload
+          reellement envoye, pour que le message affiche ne puisse pas decrire une intention
+          differente de celle transmise.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="linked-account-types-centralized">
+        <title>Types de liaison centralises dans src/types/accounts.ts</title>
+        <description>
+          `LinkedAccountMode`, `LinkedAccountRelation` et `LinkedAccountFormData` vivaient dans
+          src/utils/accountLinking.ts alors qu'ils sont partages par le composant de saisie, les deux
+          pages d'inscription et les payloads d'API. Ils sont deplaces dans src/types/accounts.ts et
+          re-exportes par accountLinking.ts, sans casser les imports existants. Les labels
+          « Identifiant de connexion » du compte principal (StudentAdministrativeStep et
+          ParentRegistrationPage) sont par ailleurs relies a leur champ (htmlFor/id) : ils ne
+          l'etaient pas, ce qui les rendait invisibles a `getByLabelText` et aux lecteurs d'ecran.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <openPoints>
+        <item id="student-registration-extra-fields-silently-dropped">
+          `POST /accounts/students` est appele avec `consents` et `birthDate`, qui n'apparaissent pas
+          dans le body documente par docs/routes.md. Si identity-access-service applique `whitelist`
+          sans `forbidNonWhitelisted` sur cette route, ces champs sont silencieusement jetes — c'est
+          exactement le mecanisme qui a fait disparaitre `loginIdentifier` sur `/accounts/parents`.
+          Non traite ici (hors perimetre de la correction demandee), mais a verifier cote
+          identity-access-service : soit les champs sont acceptes et exploites, soit le front cesse
+          de les envoyer et les consentements passent par `POST /consents` apres connexion.
+        </item>
+        <item id="linked-account-conflict-heuristic">
+          L'attribution d'un 409 au compte principal ou au compte lie repose, dans le dernier cas de
+          figure, sur le contenu du message serveur. Un message backend qui ne citerait ni la valeur
+          en cause ni le nom du champ ferait tomber le front sur le message « verifiez les deux ».
+          Un code d'erreur metier structure cote identity-access-service supprimerait cette
+          heuristique.
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

@@ -109,23 +109,40 @@ HTTP cité. Preuve jouée contre la pile réelle — ni tests verts, ni PR ouver
       relecture `404`, `avatarUrl: null`, **zéro fichier** ; photo passée en « moi seul » →
       formateur `404` sur les octets et `avatarUrl` **absent** du bloc et nommé dans
       `hiddenFields`, titulaire toujours `200`.
-- [ ] Validé par l'utilisateur
-- [ ] Mergé dans master
+- [ ] Validé par l'utilisateur — il a choisi de **tester lui-même, à la main, après le merge**
+      dans `master` (décision du 2026-08-10). Le merge de la PR #86 lui revient.
+- [ ] Mergé dans master — PR #86, prête
 
-## Reste à traiter — plafond nginx de 1 Mo
+## Plafond de 1 Mo — arbitré le 2026-08-10, traité
 
-**Prouvé** : 2 Mo envoyés à travers la pile → `413` **en HTML nginx**, la requête n'atteint
-jamais le service. Le plafond de 8 Mio de `profile-service` est donc inatteignable, alors qu'une
-photo de téléphone pèse 2 à 5 Mo.
+**Décision de l'utilisateur** : on ne touche pas à `nginx-global` pour l'instant. « On peut
+rejeter les photos de plus de 1 Mo, ce n'est pas un problème pour le moment. **Il faut juste
+l'indiquer à l'utilisateur.** » La contrainte est donc assumée, à condition d'être annoncée.
 
-Correction : `client_max_body_size 10m;` dans le **seul** bloc `server` de
-`claudevma.visioprof.fr` (`/home/debian/NginxGlobal/nginx.conf`), jamais au niveau `http` —
-l'instance sert aussi d'autres domaines. Configuration intégrée à l'image → reconstruction et
-relance de `nginx-global`, donc **brève coupure de tous les sites hébergés**. Fichiers
-appartenant à `root`, hors dépôt VisioMath. **En attente de l'accord de l'utilisateur.**
+Traité sur `feat/photo-de-profil` (commits `bb91012`, `2894abc`, `96db97b`) :
 
-Dépendance : le message d'erreur du front annonce aujourd'hui « moins de 1 Mo ». Il devra être
-corrigé **en même temps**, sinon il devient faux.
+- Limite applicative ramenée de 8 Mio à **1 Mo au sens SI (1 000 000 octets)**, valeur choisie
+  pour rester ~48 Ko **sous** le 1 Mio de nginx : le refus vient toujours de l'application, avec
+  un message français, jamais d'un `413` HTML muet.
+- **Troisième plafond caché découvert et corrigé** : `api-gateway` ne déclarait aucun
+  `client_max_body_size` et appliquait donc lui aussi le défaut de 1 Mio. Mesuré contre la pile
+  réelle en attaquant la gateway directement : 1 048 000 o → `200`, 1 048 500 o → `413` HTML.
+  Déclaré à `10m`, plus un `error_page 413` qui répond en JSON comme les 401/403/502.
+- Le `413` du service porte désormais `code: "UPLOAD_FILE_TOO_LARGE"`, `maxUploadBytes` et
+  `receivedBytes` — de quoi construire une phrase française côté front.
+- Nouvelle route **`GET /profiles/avatar/constraints`** : le front lit la limite au lieu de la
+  coder en dur, et refuse le fichier **avant tout appel réseau** en citant sa taille et la
+  limite. Le jour où `nginx-global` sera relevé, l'affichage suivra sans redéploiement du front.
+
+**Quand `nginx-global` sera relevé** (`client_max_body_size 10m;` dans le **seul** bloc `server`
+de `claudevma.visioprof.fr`, jamais au niveau `http` — l'instance sert d'autres domaines ;
+reconstruction d'image, donc brève coupure de tous les sites) : il suffira de relever
+`MEDIA_MAX_UPLOAD_BYTES`. L'ordre est impératif — proxy d'abord, application ensuite.
+
+**Proposition non implémentée, à trancher** : redimensionner la photo dans le navigateur avant
+envoi (~150 Ko pour une photo de 5 Mo) supprimerait l'échec plutôt que de l'expliquer. Coût :
+double ré-encodage, invisible à 512 px ; le HEIC des iPhone resterait refusé. Non fait, c'est un
+choix produit.
 
 ---
 

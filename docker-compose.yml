@@ -147,7 +147,14 @@ services:
       # Volume nomme : sans lui, les fichiers vivent dans la couche ephemere
       # du conteneur et disparaissent au premier `up --build`.
       MEDIA_STORAGE_PATH: /app/storage/media
-      MEDIA_MAX_UPLOAD_BYTES: ${MEDIA_MAX_UPLOAD_BYTES:-8388608}
+      # 1 Mo au sens SI (1 000 000 octets), et non 1 Mio.
+      # En amont, `nginx-global` ne declare pas de `client_max_body_size` : son
+      # defaut est 1 Mio (1 048 576 octets), applique au corps entier, entetes
+      # multipart comprises. Plafonner l'application juste en dessous garantit
+      # que le refus vienne d'ici, avec un message francais lisible, et jamais
+      # d'un 413 nginx muet. Relever cette valeur sans relever nginx d'abord ne
+      # deplacerait le refus que hors de portee du code.
+      MEDIA_MAX_UPLOAD_BYTES: ${MEDIA_MAX_UPLOAD_BYTES:-1000000}
     volumes:
       - media_data:/app/storage/media
     depends_on:

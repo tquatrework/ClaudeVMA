@@ -9,6 +9,7 @@ import {
   Res,
   StreamableFile,
   UploadedFile,
+  UseFilters,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -30,7 +31,9 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { maxUploadBytesFromEnvironment } from '../media/media.config';
+import { UploadSizeLimitFilter } from '../media/upload-size-limit.filter';
 import { AvatarService, AvatarUploadResult } from './avatar.service';
+import { AvatarConstraintsDto } from './dto/avatar-constraints.dto';
 
 /**
  * Durée de fraîcheur du cache navigateur, en secondes.
@@ -62,6 +65,44 @@ const AVATAR_CACHE_MAX_AGE_SECONDS = 60;
 export class ProfileAvatarController {
   constructor(private readonly avatarService: AvatarService) {}
 
+  /**
+   * Déclarée AVANT les routes en `:userId/avatar`, bien qu'aucune ambiguïté
+   * n'existe (le second segment est ici `constraints`, pas `avatar`). L'ordre
+   * rend la lecture du fichier moins piégeuse : on voit tout de suite que ce
+   * chemin ne prend pas d'identifiant.
+   *
+   * Pas de `:userId` : les contraintes ne dépendent ni du profil visé ni du
+   * lecteur. Les paramétrer par utilisateur laisserait croire à une limite
+   * personnalisable qui n'existe pas.
+   */
+  @Get('avatar/constraints')
+  @ApiOperation({
+    summary: 'Lire les contraintes d’envoi d’une photo de profil',
+    description:
+      'Publie la taille maximale et les formats acceptés, pour que le front les affiche AVANT ' +
+      'que l’utilisateur ne choisisse un fichier et rejette localement un fichier trop lourd — ' +
+      'plutôt que de le lui faire découvrir après plusieurs secondes d’envoi.\n\n' +
+      'CES VALEURS NE DOIVENT PAS ÊTRE CODÉES EN DUR CÔTÉ FRONT. Elles proviennent de la même ' +
+      'configuration que celle opposée à POST /profiles/:userId/avatar ; une copie côté client ' +
+      'divergerait au premier ajustement et annoncerait alors une limite fausse.\n\n' +
+      'La limite est basse aujourd’hui (1 Mo) : le reverse-proxy en amont plafonne les corps de ' +
+      'requête à 1 Mio et renverrait un 413 HTML illisible avant même que le service ne soit ' +
+      'appelé. Le plafond applicatif se tient sous celui du proxy pour que le refus soit ' +
+      'toujours celui de l’application.\n\n' +
+      'Route AUTHENTIFIÉE, mais indépendante du rôle : elle ne révèle aucune donnée personnelle.',
+  })
+  @ApiResponse({
+    status: 200,
+    type: AvatarConstraintsDto,
+    description:
+      'Contraintes en vigueur : `maxUploadBytes` (octets), `acceptedContentTypes`, ' +
+      '`outputContentType`, `maxDimensionPixels`.',
+  })
+  @ApiResponse({ status: 401, description: 'Jeton absent ou invalide' })
+  getUploadConstraints(): AvatarConstraintsDto {
+    return this.avatarService.getUploadConstraints();
+  }
+
   @Post(':userId/avatar')
   /**
    * 200, et non le 201 que Nest applique par défaut à un POST.
@@ -73,6 +114,13 @@ export class ProfileAvatarController {
    * qui n'existe pas ici.
    */
   @HttpCode(200)
+  /**
+   * Réécrit le `413` de multer, dont le corps se réduit sinon à
+   * `{"message":"File too large"}` — sans la limite, sans la taille reçue,
+   * donc inexploitable par le front autrement qu'en recopiant le plafond en
+   * dur. Voir `upload-size-limit.filter.ts`.
+   */
+  @UseFilters(UploadSizeLimitFilter)
   @UseInterceptors(
     FileInterceptor('file', {
       /**
@@ -83,6 +131,17 @@ export class ProfileAvatarController {
        * pas produit des octets propres.
        */
       storage: memoryStorage(),
+      /**
+       * Le plafond est posé ICI, sur multer, et pas seulement dans le service.
+       * La différence n'est pas cosmétique : multer compte les octets AU FIL DU
+       * FLUX et coupe dès le dépassement. Un contrôle placé uniquement après
+       * lecture complète aurait d'abord chargé tout le fichier en mémoire — soit
+       * un moyen offert à n'importe quel appelant authentifié de faire enfler la
+       * mémoire du service à volonté, en envoyant des corps arbitrairement gros.
+       *
+       * `AvatarService` refait le contrôle derrière : voir le commentaire du
+       * second verrou dans `uploadAvatar`.
+       */
       limits: {
         fileSize: maxUploadBytesFromEnvironment(),
         files: 1,
@@ -122,7 +181,12 @@ export class ProfileAvatarController {
       'REMPLACEMENT : le fichier précédent est supprimé du stockage, sinon les images ' +
       's’accumuleraient à chaque changement de photo.\n\n' +
       'Formats acceptés : JPEG, PNG, WebP, GIF, AVIF. HEIC/HEIF est refusé avec un message ' +
-      'indiquant de réenregistrer la photo en JPEG.',
+      'indiquant de réenregistrer la photo en JPEG.\n\n' +
+      'TAILLE MAXIMALE : 1 000 000 octets par défaut (MEDIA_MAX_UPLOAD_BYTES). Volontairement ' +
+      'basse — le reverse-proxy en amont plafonne les corps de requête à 1 Mio, et le plafond ' +
+      'applicatif se tient juste en dessous pour que le refus vienne de l’application, avec un ' +
+      'corps JSON exploitable, et non du proxy en HTML. La valeur en vigueur se lit sur ' +
+      'GET /profiles/avatar/constraints : le front ne doit pas la coder en dur.',
   })
   @ApiParam({ name: 'userId', description: 'UUID du titulaire du profil' })
   @ApiResponse({
@@ -148,9 +212,32 @@ export class ProfileAvatarController {
   @ApiResponse({
     status: 413,
     description:
-      'Image plus lourde que MEDIA_MAX_UPLOAD_BYTES (8 Mio par défaut). Le plafond porte sur les ' +
-      'octets reçus, avant ré-encodage. Attention : nginx en amont applique son propre plafond de ' +
-      'corps de requête, qui peut renvoyer 413 avant même d’atteindre le service.',
+      'Image plus lourde que MEDIA_MAX_UPLOAD_BYTES (1 000 000 octets par défaut). Le plafond ' +
+      'porte sur les octets REÇUS, avant ré-encodage, et le flux est coupé par multer dès le ' +
+      'dépassement — le fichier n’est pas chargé en entier.\n\n' +
+      'CORPS DE LA RÉPONSE, clés stables :\n' +
+      '```json\n' +
+      '{\n' +
+      '  "statusCode": 413,\n' +
+      '  "error": "Payload Too Large",\n' +
+      '  "code": "UPLOAD_FILE_TOO_LARGE",\n' +
+      '  "message": "Uploaded file exceeds the maximum allowed size",\n' +
+      '  "maxUploadBytes": 1000000,\n' +
+      '  "receivedBytes": null,\n' +
+      '  "requestBodyBytes": 1258291\n' +
+      '}\n' +
+      '```\n' +
+      'Le front teste `code`, JAMAIS `message` : celui-ci est en anglais technique, le libellé ' +
+      'français est construit côté client à partir de `maxUploadBytes` (règle de langue du ' +
+      '2026-08-09). `receivedBytes` vaut la taille exacte du fichier quand elle est connue, et ' +
+      '`null` quand multer a coupé le flux avant la fin — auquel cas `requestBodyBytes` donne le ' +
+      '`Content-Length` déclaré pour le corps entier, enveloppe multipart comprise. Ces deux ' +
+      'champs peuvent être `null` ; `maxUploadBytes` est toujours présent.\n\n' +
+      '⚠️ nginx en amont plafonne le corps de requête à 1 Mio et renvoie alors un 413 **HTML**, ' +
+      'sans aucune de ces clés. Le plafond applicatif est réglé sous celui du proxy pour que ce ' +
+      'cas ne se produise pas ; il reste possible si les deux réglages divergent. Le front doit ' +
+      'donc tolérer un 413 dont le corps n’est pas du JSON.\n\n' +
+      'La limite est lisible AVANT l’envoi : GET /profiles/avatar/constraints.',
   })
   @ApiResponse({
     status: 500,

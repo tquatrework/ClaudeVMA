@@ -6,16 +6,22 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
-  PayloadTooLargeException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
 import { Repository } from 'typeorm';
 import { Actor } from '../common/types/actor.type';
 import { EventsService } from '../events/events.service';
-import { ImageTranscoder } from '../media/image-transcoder';
+import {
+  ACCEPTED_INPUT_CONTENT_TYPES,
+  AVATAR_MAX_DIMENSION,
+  AVATAR_OUTPUT_CONTENT_TYPE,
+  ImageTranscoder,
+} from '../media/image-transcoder';
 import { MediaConfig } from '../media/media.config';
 import { MEDIA_STORAGE_PORT, MediaObjectKey, MediaStoragePort } from '../media/media-storage.port';
+import { uploadFileTooLargeException } from '../media/upload-size-limit';
+import { AvatarConstraintsDto } from './dto/avatar-constraints.dto';
 import { AdministrativeProfile } from './entities/administrative-profile.entity';
 import { FieldVisibilityService } from './field-visibility.service';
 import { ProfilesService } from './profiles.service';
@@ -123,10 +129,17 @@ export class AvatarService {
       );
     }
 
+    // DEUXIÈME verrou, pas le premier : multer a normalement déjà coupé le flux
+    // au même seuil, sans charger l'excédent en mémoire (voir le contrôleur).
+    // Celui-ci rattrape les appels qui n'empruntent pas l'intercepteur — appels
+    // internes, tests — et le cas où les deux lectures du plafond divergeraient.
+    // Le corps de la réponse est le MÊME dans les deux cas, à ceci près qu'ici
+    // la taille exacte du fichier est connue, puisqu'il a été lu en entier.
     if (file.buffer.length > this.mediaConfig.maxUploadBytes) {
-      throw new PayloadTooLargeException(
-        `L’image dépasse la taille maximale autorisée (${formatMebibytes(this.mediaConfig.maxUploadBytes)}).`,
-      );
+      throw uploadFileTooLargeException({
+        maxUploadBytes: this.mediaConfig.maxUploadBytes,
+        receivedBytes: file.buffer.length,
+      });
     }
 
     // Le profil administratif est obligatoire (arbitrage du 2026-08-07) : son
@@ -271,6 +284,24 @@ export class AvatarService {
   }
 
   /**
+   * Contraintes d'envoi, telles que le serveur les applique.
+   *
+   * Aucune constante n'est recopiée : la limite vient de `MediaConfig` — donc
+   * de la même valeur que celle opposée à l'envoi — et les formats viennent du
+   * transcodeur. Une route qui republierait des valeurs écrites à la main
+   * finirait par annoncer autre chose que ce qui est appliqué, ce qui est plus
+   * nuisible que de ne rien annoncer.
+   */
+  getUploadConstraints(): AvatarConstraintsDto {
+    return {
+      maxUploadBytes: this.mediaConfig.maxUploadBytes,
+      acceptedContentTypes: [...ACCEPTED_INPUT_CONTENT_TYPES],
+      outputContentType: AVATAR_OUTPUT_CONTENT_TYPE,
+      maxDimensionPixels: AVATAR_MAX_DIMENSION,
+    };
+  }
+
+  /**
    * Le titulaire, et personne d'autre.
    *
    * Aucune exception administrative : voir l'en-tête de classe. Le message est
@@ -296,13 +327,6 @@ export class AvatarService {
  */
 export function buildAvatarObjectKey(extension: string): MediaObjectKey {
   return `${AVATAR_KEY_FOLDER}/${randomUUID()}.${extension}`;
-}
-
-/** Formate un plafond d'octets en Mio, pour un message lisible par l'utilisateur. */
-function formatMebibytes(bytes: number): string {
-  const mebibytes = bytes / (1024 * 1024);
-  const rounded = Number.isInteger(mebibytes) ? mebibytes : Math.round(mebibytes * 10) / 10;
-  return `${rounded} Mo`;
 }
 
 export { AVATAR_FIELD_NAME, AVATAR_NOT_AVAILABLE_MESSAGE };

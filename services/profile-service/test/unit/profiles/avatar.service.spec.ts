@@ -323,6 +323,57 @@ describe('AvatarService', () => {
         expect(mediaStorage.save).not.toHaveBeenCalled();
       });
 
+      /**
+       * Le front doit pouvoir composer « L’image dépasse la taille maximale
+       * autorisée (1 Mo) » SANS coder le plafond en dur, et sans lire un
+       * message anglais. D'où des clés stables plutôt qu'une phrase.
+       */
+      it('renvoie un corps 413 exploitable : code, plafond et taille reçue', async () => {
+        const tooBig = Buffer.alloc(mediaConfig.maxUploadBytes + 4_096, 0x41);
+
+        const error = await service
+          .uploadAvatar(STUDENT_ID, uploadedFile(tooBig), owner())
+          .catch((thrown: PayloadTooLargeException) => thrown);
+
+        expect(error).toBeInstanceOf(PayloadTooLargeException);
+        expect((error as PayloadTooLargeException).getStatus()).toBe(413);
+        expect((error as PayloadTooLargeException).getResponse()).toEqual({
+          statusCode: 413,
+          error: 'Payload Too Large',
+          code: 'UPLOAD_FILE_TOO_LARGE',
+          message: 'Uploaded file exceeds the maximum allowed size',
+          maxUploadBytes: mediaConfig.maxUploadBytes,
+          receivedBytes: tooBig.length,
+          requestBodyBytes: null,
+        });
+      });
+
+      /**
+       * La borne exacte, des deux côtés : une image PILE à la limite passe, un
+       * octet de plus est refusé. Sans ce test, un `>=` glissé à la place du
+       * `>` refuserait silencieusement les fichiers de taille légale.
+       */
+      it('accepte une image exactement à la limite, refuse l’octet suivant', async () => {
+        const paddingLength = mediaConfig.maxUploadBytes - realPngBytes.length;
+        expect(paddingLength).toBeGreaterThan(0);
+
+        // Les octets ajoutés après un PNG valide n'empêchent ni la détection ni
+        // le décodage : ce qui est testé ici est la BORNE, pas le format.
+        const atLimit = Buffer.concat([realPngBytes, Buffer.alloc(paddingLength, 0x00)]);
+        expect(atLimit.length).toBe(mediaConfig.maxUploadBytes);
+
+        await expect(
+          service.uploadAvatar(STUDENT_ID, uploadedFile(atLimit), owner()),
+        ).resolves.toEqual({ avatarUrl: expect.stringContaining(`/${STUDENT_ID}/avatar?v=`) });
+        expect(mediaStorage.save).toHaveBeenCalledTimes(1);
+
+        const justOverLimit = Buffer.concat([atLimit, Buffer.alloc(1, 0x00)]);
+        await expect(
+          service.uploadAvatar(STUDENT_ID, uploadedFile(justOverLimit), owner()),
+        ).rejects.toThrow(PayloadTooLargeException);
+        expect(mediaStorage.save).toHaveBeenCalledTimes(1);
+      });
+
       it('refuse en 400 un SVG, même annoncé « image/png » avec une extension .png', async () => {
         const svg = Buffer.from(
           '<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"><script>x()</script></svg>',
@@ -351,6 +402,44 @@ describe('AvatarService', () => {
         ).rejects.toThrow(InternalServerErrorException);
         expect(adminRepo.save).not.toHaveBeenCalled();
       });
+    });
+  });
+
+  // ===========================================================================
+  // CONTRAINTES PUBLIÉES
+  // ===========================================================================
+  describe('getUploadConstraints', () => {
+    it('publie la MÊME limite que celle opposée à l’envoi', () => {
+      expect(service.getUploadConstraints().maxUploadBytes).toBe(mediaConfig.maxUploadBytes);
+    });
+
+    it('publie les formats acceptés et le format produit', () => {
+      expect(service.getUploadConstraints()).toEqual({
+        maxUploadBytes: mediaConfig.maxUploadBytes,
+        acceptedContentTypes: [
+          'image/jpeg',
+          'image/png',
+          'image/webp',
+          'image/gif',
+          'image/avif',
+        ],
+        outputContentType: 'image/webp',
+        maxDimensionPixels: 512,
+      });
+    });
+
+    /**
+     * Les contraintes annoncées doivent RESTER vraies : un fichier au-dessus de
+     * `maxUploadBytes` doit être refusé, sinon la route ment au front. Ce test
+     * relie les deux comportements au lieu de les vérifier séparément.
+     */
+    it('annonce une limite que l’envoi fait effectivement respecter', async () => {
+      const { maxUploadBytes } = service.getUploadConstraints();
+      const tooBig = Buffer.alloc(maxUploadBytes + 1, 0x41);
+
+      await expect(
+        service.uploadAvatar(STUDENT_ID, uploadedFile(tooBig), makeActor(UserRole.ELEVE, STUDENT_ID)),
+      ).rejects.toThrow(PayloadTooLargeException);
     });
   });
 

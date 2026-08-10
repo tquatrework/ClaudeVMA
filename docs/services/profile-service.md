@@ -50,6 +50,11 @@
       <endpoint method="DELETE" path="/profiles/{userId}/internal-notes/{id}">Supprimer une note interne (role : responsable_pedagogique).</endpoint>
       <endpoint method="PATCH" path="/teachers/{userId}/validation">Valider un formateur ou lui attribuer le statut AP.</endpoint>
       <endpoint method="GET" path="/profiles/{userId}/statistics">Lire les statistiques pedagogiques consolidees.</endpoint>
+      <!-- Photo de profil — decisions C13 (routes) et C14 (plafond de taille), 2026-08-10 -->
+      <endpoint method="GET" path="/profiles/avatar/constraints">Lire les contraintes d'envoi (maxUploadBytes, formats acceptes) AVANT de choisir un fichier. Sans :userId : elles ne dependent ni du profil vise ni du lecteur. Le front ne doit pas les coder en dur.</endpoint>
+      <endpoint method="POST" path="/profiles/{userId}/avatar">Envoyer ou remplacer la photo (multipart, champ file ; titulaire SEUL). 413 structure au-dela de MEDIA_MAX_UPLOAD_BYTES, coupe en streaming par multer.</endpoint>
+      <endpoint method="GET" path="/profiles/{userId}/avatar">Lire les OCTETS de la photo. Memes droits que le champ avatarUrl ; masquee =&gt; 404, jamais 403.</endpoint>
+      <endpoint method="DELETE" path="/profiles/{userId}/avatar">Supprimer la photo, base et fichier (titulaire SEUL). Idempotent : 204 meme si absente.</endpoint>
     </candidateApis>
     <!--
       Routes reellement implementees pour la validation formateur (voir
@@ -1212,16 +1217,158 @@
           </item>
         </bugsFoundByRealStack>
       </decision>
+      <decision id="C14" status="implemented" session="2026-08-10">
+        <title>Plafond de televersement aligne sur nginx (1 Mo), annonce au lieu d'etre subi</title>
+        <description>
+          Suite directe du point bloquant releve en C13. L'utilisateur a tranche : on garde la
+          limite basse pour le moment, mais elle doit etre ANNONCEE CLAIREMENT — une limite
+          qu'on subit sans la connaitre est une panne, une limite qu'on connait est une
+          contrainte.
+        </description>
+        <rationale>
+          POURQUOI 1 000 000 ET PAS 1 MIO NI 8 MIO.
+          Le reverse-proxy nginx-global ne declare aucun client_max_body_size : son defaut de
+          1 Mio (1 048 576 octets) s'applique, et il porte sur le CORPS ENTIER de la requete,
+          enveloppe multipart comprise, pas seulement sur les octets du fichier. Fixer le
+          plafond applicatif a 1 000 000 (1 Mo au sens SI) laisse ~48 Ko de marge : le refus
+          vient TOUJOURS de l'application, avec un corps JSON exploitable, jamais du proxy en
+          HTML. Un plafond regle a 1 Mio pile aurait laisse une bande de quelques kilo-octets
+          ou le fichier passe le controle applicatif mais ou l'enveloppe fait depasser nginx —
+          exactement la panne muette qu'on cherche a eviter.
+        </rationale>
+        <directoryStructure>
+          src/media/ (modifie et nouveau) :
+            media.config.ts .................. DEFAULT_MAX_UPLOAD_BYTES passe de 8 Mio a
+                                               1 000 000, avec le raisonnement ci-dessus en
+                                               commentaire. Le defaut du CODE vaut desormais
+                                               celui de docker-compose.yml : un deploiement
+                                               sans variable d'environnement se comporte comme
+                                               la pile reelle. Ajout d'un avertissement au
+                                               demarrage si le plafond vu par multer
+                                               (process.env, lu a l'import) differe de celui vu
+                                               par MediaConfig (ConfigService) — cas d'un .env
+                                               charge apres l'import du controleur.
+            upload-size-limit.ts (nouveau) ... CONTRAT D'ERREUR du depassement : code stable
+                                               UPLOAD_FILE_TOO_LARGE, fabrique du corps 413 et
+                                               de l'exception. Un seul endroit produit cette
+                                               forme, quel que soit l'endroit du refus.
+            upload-size-limit.filter.ts (nouveau) ... filtre @Catch(PayloadTooLargeException)
+                                               pose sur la route d'envoi. Multer leve un 413
+                                               dont le corps se reduit a
+                                               {"message":"File too large"} : ni la limite, ni
+                                               la taille recue. Le filtre le remplace par le
+                                               contrat. Il NE FAIT QUE REFORMATER — le refus
+                                               reste celui de multer, en streaming. Un corps
+                                               deja structure par le service passe tel quel,
+                                               pour ne pas perdre receivedBytes.
+            image-transcoder.ts .............. expose ACCEPTED_INPUT_CONTENT_TYPES, derive de
+                                               ACCEPTED_INPUT_FORMATS pour que deux listes ne
+                                               divergent pas. Indicatif pour le front seul : la
+                                               validation reste sur les nombres magiques.
+
+          src/profiles/ (modifie et nouveau) :
+            dto/avatar-constraints.dto.ts (nouveau) ... forme lue par GET
+                                               /profiles/avatar/constraints. Types Swagger
+                                               declares EXPLICITEMENT — un type deduit par
+                                               reflexion a deja empeche ce service de demarrer
+                                               (voir C13).
+            avatar.service.ts ................ le 413 porte desormais le contrat structure et
+                                               la taille exacte recue ; getUploadConstraints()
+                                               publie la limite depuis MediaConfig et les
+                                               formats depuis le transcodeur, sans recopier
+                                               aucune constante.
+            profile-avatar.controller.ts ..... route GET /profiles/avatar/constraints,
+                                               @UseFilters(UploadSizeLimitFilter) sur l'envoi,
+                                               @ApiResponse 413 documentant les cles.
+        </directoryStructure>
+        <errorContract>
+          413 — cles STABLES, en anglais comme toute cle d'API :
+            code             UPLOAD_FILE_TOO_LARGE. Toujours present. SEUL point d'accroche du
+                             front ; il ne teste jamais `message`.
+            maxUploadBytes   plafond applique, en octets, sur les octets du FICHIER avant
+                             re-encodage. Toujours present.
+            receivedBytes    taille EXACTE du fichier, ou null. Connue seulement si le fichier
+                             a ete lu en entier (refus par le service). Quand multer coupe le
+                             flux, le fichier n'a jamais ete recu en entier : annoncer une
+                             taille serait une invention, d'ou null.
+            requestBodyBytes Content-Length DECLARE pour le corps entier, enveloppe multipart
+                             comprise, ou null. Diagnostic seulement — declare n'est pas
+                             verifie.
+            message          anglais technique fige. La regle de langue du 2026-08-09 veut que
+                             le libelle lu par l'utilisateur soit porte cote front, en un point
+                             unique : une phrase francaise ici l'imposerait a tous les ecrans.
+        </errorContract>
+        <readableLimit>
+          GET /profiles/avatar/constraints — 200
+          {maxUploadBytes, acceptedContentTypes, outputContentType, maxDimensionPixels}.
+          Pas de :userId : les contraintes ne dependent ni du profil vise ni du lecteur ; les
+          parametrer par utilisateur laisserait croire a une limite personnalisable qui
+          n'existe pas. Authentifiee, mais independante du role, et ne revelant aucune donnee
+          personnelle. Aucune ambiguite de routage avec GET /profiles/:userId ni avec
+          GET /profiles/:userId/avatar (second segment litteral different) ; verifie par test.
+          Le nom de cette route est le seul point du lot ouvert a discussion : aucune route de
+          metadonnees n'existait, celle-ci a ete placee sous la ressource qu'elle decrit.
+        </readableLimit>
+        <streamingRejection>
+          Le plafond est pose sur multer (limits.fileSize), donc applique AU FIL DU FLUX : le
+          controleur n'est pas atteint et les octets excedentaires ne sont jamais charges en
+          memoire. Un controle place uniquement apres lecture complete aurait offert a tout
+          appelant authentifie un moyen de faire enfler la memoire du service a volonte. Le
+          service refait le controle derriere, en second verrou, pour les appels qui
+          n'empruntent pas l'intercepteur et pour le cas ou les deux lectures du plafond
+          divergeraient.
+        </streamingRejection>
+        <testCoverage>
+          448 tests unitaires verts (443 + 5), 16 fichiers.
+          test/unit/media/media.config.spec.ts (nouveau) : defaut a 1 000 000 ; defaut
+          STRICTEMENT sous le 1 Mio de nginx avec au moins 16 Ko de marge (garde-fou contre une
+          remontee a 1 Mio pile) ; valeurs illisibles retombant sur le defaut avec un log ;
+          avertissement de divergence multer/MediaConfig.
+          test/unit/media/upload-size-limit.spec.ts (nouveau) : forme exacte du corps 413,
+          message sans accent (preuve qu'aucune phrase francaise n'est figee cote serveur),
+          tailles inconnues a null plutot qu'omises, reecriture du 413 nu de multer,
+          Content-Length illisible ignore, corps deja structure laisse intact.
+          test/unit/profiles/profile-avatar.controller.spec.ts (nouveau) : VRAIE application
+          Nest, VRAI envoi multipart, VRAI multer. Prouve ce que les tests de service ne
+          peuvent pas montrer — sous la limite le fichier arrive entier au service ; au-dessus,
+          413 et le service N'EST JAMAIS APPELE (flux coupe avant) ; le corps est celui du
+          contrat et non le "File too large" nu ; la limite annoncee par la route de
+          contraintes est exactement celle du refus.
+          test/unit/profiles/avatar.service.spec.ts (complete) : corps 413 avec la taille
+          exacte, et surtout la BORNE des deux cotes — une image pile a la limite passe,
+          l'octet suivant est refuse (sans quoi un >= glisse a la place du > refuserait en
+          silence des fichiers de taille legale).
+          NON VERIFIE CONTRE LA PILE DEPLOYEE : le conteneur visiomath_profile n'a pas ete
+          redeploye dans cette session. La preuve utilisateur reste a produire.
+        </testCoverage>
+      </decision>
       <openPoints>
-        <item priority="high" status="open" raisedIn="C13" raisedOn="2026-08-10">
-          BLOQUANT POUR L'USAGE REEL : nginx en amont plafonne les corps de requete a ~1 Mo et
-          renvoie un 413 HTML avant que la requete n'atteigne le service. Verifie le 2026-08-10 :
-          0,5 Mo passe, 2 Mo est deja coupe. Le plafond du service (MEDIA_MAX_UPLOAD_BYTES,
-          8 Mio) est donc INATTEIGNABLE, alors qu'une photo de telephone pese couramment 2 a
-          5 Mo. Teste sans nginx, le service accepte bien une image de 5,6 Mo et renvoie 413
-          au-dela de 8 Mio. Corriger client_max_body_size dans le bloc location /api/v1/ de
+        <item priority="high" status="mitigated" raisedIn="C13" raisedOn="2026-08-10"
+              updatedOn="2026-08-10">
+          nginx en amont plafonne les corps de requete a 1 Mio (defaut applique faute de
+          client_max_body_size declare) et renvoie un 413 HTML avant que la requete n'atteigne
+          le service. Verifie le 2026-08-10 : 0,5 Mo passe, 2 Mo est deja coupe.
+          ATTENUE PAR C14 : le plafond applicatif est descendu sous celui du proxy
+          (1 000 000 octets), le refus vient donc de l'application avec un corps exploitable, et
+          la limite est publiee par GET /profiles/avatar/constraints. Le probleme de FOND reste
+          entier : 1 Mo est trop bas, une photo de telephone pese couramment 2 a 5 Mo.
+          Corriger client_max_body_size dans le bloc location /api/v1/ de
           claudevma.visioprof.fr — fichier /home/debian/NginxGlobal/nginx.conf, HORS DE CE
-          DEPOT, donc hors du perimetre de ce service.
+          DEPOT, donc hors du perimetre de ce service. Une fois corrige, remonter
+          MEDIA_MAX_UPLOAD_BYTES (docker-compose.yml) ET DEFAULT_MAX_UPLOAD_BYTES
+          (src/media/media.config.ts) en conservant la meme marge sous le plafond du proxy.
+        </item>
+        <item priority="medium" status="open" raisedIn="C14" raisedOn="2026-08-10">
+          Le front doit tolerer un 413 dont le corps n'est PAS du JSON : si les deux plafonds
+          venaient a diverger, celui de nginx s'appliquerait le premier et renverrait une page
+          HTML, sans aucune des cles du contrat. Improbable avec le reglage actuel, pas
+          impossible.
+        </item>
+        <item priority="low" status="open" raisedIn="C14" raisedOn="2026-08-10">
+          Nom de la route de metadonnees : GET /profiles/avatar/constraints a ete choisi faute
+          de route de metadonnees preexistante dans le service. Si une convention transverse
+          emerge (par exemple /media/upload-constraints, partage entre services), la renommer
+          avant que le front ne s'y accroche.
         </item>
         <item priority="high" status="open" raisedIn="C13" raisedOn="2026-08-10">
           Le front ne peut pas afficher la photo par une simple balise img : la route est

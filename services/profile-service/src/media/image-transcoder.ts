@@ -38,6 +38,30 @@ const ACCEPTED_INPUT_FORMATS: readonly DetectedImageFormat[] = [
   'avif',
 ];
 
+/**
+ * Types MIME correspondant aux formats acceptés en entrée.
+ *
+ * ILS NE SERVENT PAS À VALIDER : la validation se fait sur les NOMBRES
+ * MAGIQUES, et le `Content-Type` envoyé par le client n'est jamais consulté
+ * (voir l'en-tête de classe). Cette liste est publiée pour que le front
+ * alimente l'attribut `accept` de son sélecteur de fichier et pré-filtre le
+ * choix de l'utilisateur — le contrôle serveur reste entier derrière.
+ *
+ * Dérivée de {@link ACCEPTED_INPUT_FORMATS}, pour qu'ajouter un format n'oblige
+ * pas à penser à deux listes qui finiraient par diverger.
+ */
+const CONTENT_TYPE_BY_FORMAT: Readonly<Record<string, string>> = {
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  avif: 'image/avif',
+};
+
+export const ACCEPTED_INPUT_CONTENT_TYPES: readonly string[] = ACCEPTED_INPUT_FORMATS.map(
+  (format) => CONTENT_TYPE_BY_FORMAT[format],
+);
+
 /** Côté maximal de l'image produite, en pixels. */
 export const AVATAR_MAX_DIMENSION = 512;
 

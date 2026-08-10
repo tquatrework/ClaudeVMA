@@ -308,3 +308,25 @@ export interface UpdateTeacherValidationPayload {
   validationStatus: 'in_review' | 'validated' | 'rejected'
   rejectionReason?: string
 }
+
+/**
+ * Réponse de `GET /profiles/avatar/constraints` — contraintes d'envoi de la
+ * photo de profil, **en vigueur côté serveur**.
+ *
+ * Ces valeurs ne sont jamais recopiées en dur dans le front : elles viennent de
+ * la même configuration que celle opposée à l'envoi (`docs/routes.md`
+ * § « Photo de profil »). Une copie divergerait au premier ajustement du
+ * plafond et annoncerait alors une limite fausse — soit on refuserait
+ * localement un fichier que le serveur aurait accepté, soit on laisserait
+ * partir un envoi voué au `413`.
+ */
+export interface ProfileAvatarConstraints {
+  /** Plafond en octets, appliqué aux octets du fichier avant ré-encodage. */
+  maxUploadBytes: number
+  /** Types MIME acceptés, ex. `image/jpeg`. */
+  acceptedContentTypes: string[]
+  /** Type produit après ré-encodage par le serveur, ex. `image/webp`. */
+  outputContentType: string
+  /** Côté maximal de l'image après redimensionnement, en pixels. */
+  maxDimensionPixels: number
+}

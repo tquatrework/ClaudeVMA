@@ -1,40 +1,53 @@
 /**
  * Photo de profil — helpers purs et **point unique** des textes affichés.
  *
- * Trois routes côté serveur (`docs/routes.md` § « Photo de profil », 2026-08-10) :
- * `POST`, `GET` et `DELETE /profiles/:userId/avatar`. Elles sont authentifiées
- * par le JWT porté dans l'en-tête `Authorization`, que le navigateur n'envoie
- * jamais sur une balise `<img>` : les octets sont donc récupérés par requête puis
- * transformés en object URL (voir `useProfileAvatar`).
+ * Quatre routes côté serveur (`docs/routes.md` § « Photo de profil »,
+ * 2026-08-10) : `GET /profiles/avatar/constraints`, puis `POST`, `GET` et
+ * `DELETE /profiles/:userId/avatar`. Elles sont authentifiées par le JWT porté
+ * dans l'en-tête `Authorization`, que le navigateur n'envoie jamais sur une
+ * balise `<img>` : les octets sont donc récupérés par requête puis transformés
+ * en object URL (voir `useProfileAvatar`).
  *
  * Comme partout dans le projet, les noms techniques restent en anglais et tout
  * ce que l'utilisateur lit est en français. `profile-service` renvoie des
  * messages d'erreur techniques en anglais (« Unsupported image format »…) : on ne
  * les affiche jamais tels quels, on traduit par intention.
+ *
+ * **La limite d'envoi n'est écrite en dur nulle part ici.** Elle vient de
+ * `GET /profiles/avatar/constraints` et traverse ce module en paramètre — le
+ * contrat serveur lui-même est porté par `profileAvatarConstraints.ts`.
  */
 
+import { formatFileSize } from './fileSize'
 import { getErrorMessage, getErrorStatus } from './apiError'
+import { FALLBACK_AVATAR_CONSTRAINTS, readPositiveNumber } from './profileAvatarConstraints'
 
-// ─── Formats acceptés ─────────────────────────────────────────────────────────
+// ─── Formats affichés ─────────────────────────────────────────────────────────
 
 /**
- * Types acceptés par `POST /profiles/:userId/avatar`. Le serveur ne fait pas
- * confiance à cette liste — il détecte le format sur les **octets réels** — mais
- * l'attribut `accept` évite à l'utilisateur de choisir un fichier voué au refus.
- *
- * SVG (document XML exécutable) et HEIC/HEIF sont refusés côté serveur : ils
- * n'ont donc pas leur place ici.
+ * Nom lisible d'un type MIME d'image. Un type inconnu — le serveur peut en
+ * ajouter — se replie sur son sous-type en majuscules (`image/heif` → `HEIF`)
+ * plutôt que de disparaître de la liste annoncée.
  */
-export const ACCEPTED_AVATAR_MIME_TYPES = [
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'image/gif',
-  'image/avif',
-] as const
+const IMAGE_FORMAT_LABELS: Record<string, string> = {
+  'image/jpeg': 'JPEG',
+  'image/png': 'PNG',
+  'image/webp': 'WebP',
+  'image/gif': 'GIF',
+  'image/avif': 'AVIF',
+}
 
-/** Valeur de l'attribut `accept` du champ de fichier. */
-export const AVATAR_FILE_INPUT_ACCEPT = ACCEPTED_AVATAR_MIME_TYPES.join(',')
+function getImageFormatLabel(contentType: string): string {
+  return IMAGE_FORMAT_LABELS[contentType] ?? contentType.replace(/^image\//, '').toUpperCase()
+}
+
+/** Énumération française des formats : « JPEG, PNG, WebP, GIF ou AVIF ». */
+export function formatAcceptedImageFormats(acceptedContentTypes: readonly string[]): string {
+  const labels = acceptedContentTypes.map(getImageFormatLabel)
+  if (labels.length === 0) return ''
+  if (labels.length === 1) return labels[0]
+  return `${labels.slice(0, -1).join(', ')} ou ${labels[labels.length - 1]}`
+}
 
 // ─── Textes affichés ──────────────────────────────────────────────────────────
 
@@ -57,11 +70,29 @@ export const AVATAR_LABELS = {
    * pas à trancher ce que le serveur masque volontairement.
    */
   emptyForOwner: "Vous n'avez pas encore ajouté de photo.",
-  formatsHint:
-    'JPEG, PNG, WebP, GIF ou AVIF. La photo est redimensionnée et ses métadonnées (dont la géolocalisation) sont supprimées.',
+  /**
+   * Conseil affiché **avant** le choix du fichier. La limite est basse au regard
+   * d'une photo de téléphone (3 à 8 Mo) : la majorité des tentatives échoueraient
+   * sans cet avertissement. Une phrase, et elle dit quoi faire.
+   */
+  reduceAdvice:
+    "Une photo prise au téléphone dépasse presque toujours cette limite : réduisez-la ou recadrez-la avant de l'envoyer.",
+  /** Ce que le serveur fait de la photo — rassure sur la géolocalisation. */
+  processingHint:
+    'La photo est redimensionnée et ses métadonnées (dont la géolocalisation) sont supprimées.',
   /** Texte alternatif de l'image, sans nom quand celui-ci n'est pas lisible. */
   defaultImageAlt: 'Photo de profil',
 } as const
+
+/** « Taille maximale : 1 Mo. » — la valeur vient toujours du serveur. */
+export function getAvatarMaxSizeHint(maxUploadBytes: number): string {
+  return `Taille maximale : ${formatFileSize(maxUploadBytes) ?? ''}.`
+}
+
+/** « Formats acceptés : JPEG, PNG, WebP, GIF ou AVIF. » */
+export function getAvatarFormatsHint(acceptedContentTypes: readonly string[]): string {
+  return `Formats acceptés : ${formatAcceptedImageFormats(acceptedContentTypes)}.`
+}
 
 /** Texte alternatif de l'image : nom de la personne quand il est connu. */
 export function getAvatarImageAlt(displayName?: string | null): string {
@@ -94,36 +125,133 @@ export function extractAvatarVersionToken(
   return versionToken || undefined
 }
 
+// ─── Fichier trop lourd ───────────────────────────────────────────────────────
+
+/**
+ * Message de refus pour poids excessif — **le même** que le refus vienne du
+ * contrôle local ou d'un `413` du serveur. Deux formulations pour un même motif
+ * ne feraient qu'ajouter à la confusion.
+ *
+ * @param fileSizeBytes taille du fichier quand elle est connue ; `null` quand
+ *   elle ne l'est pas (`receivedBytes: null` du serveur, flux coupé). On ne
+ *   remplace jamais une taille inconnue par « 0 octet ».
+ */
+export function getAvatarTooLargeMessage(
+  fileSizeBytes: number | null,
+  maxUploadBytes: number,
+): string {
+  const readableLimit = formatFileSize(maxUploadBytes) ?? ''
+  const readableFileSize = formatFileSize(fileSizeBytes)
+
+  const firstSentence = readableFileSize
+    ? `Cette photo pèse ${readableFileSize}.`
+    : 'Cette photo est trop lourde pour être envoyée.'
+
+  return `${firstSentence} La taille maximale est de ${readableLimit}. Réduisez ou recadrez la photo avant de réessayer.`
+}
+
+/**
+ * Corps d'erreur exploitable, quelle que soit la forme reçue.
+ *
+ * Le `413` de l'application est du JSON structuré, mais si les deux plafonds
+ * venaient à diverger celui de nginx s'appliquerait le premier et renverrait une
+ * **page HTML**. Un `JSON.parse` qui explose ne doit pas se transformer en
+ * erreur incompréhensible : on retombe simplement sur « pas de corps lisible »,
+ * et le message français reste le même.
+ */
+function readErrorPayload(error: unknown): Record<string, unknown> | null {
+  const payload = (error as { response?: { data?: unknown } })?.response?.data
+
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    return payload as Record<string, unknown>
+  }
+
+  if (typeof payload === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(payload)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>
+      }
+    } catch {
+      // Page HTML de nginx, ou corps tronqué : rien d'exploitable, et ce n'est
+      // pas une anomalie à signaler à l'utilisateur.
+      return null
+    }
+  }
+
+  return null
+}
+
+/** Code stable du refus pour poids excessif — seul point d'accroche du front. */
+const UPLOAD_FILE_TOO_LARGE_CODE = 'UPLOAD_FILE_TOO_LARGE'
+
+/**
+ * L'erreur est-elle un refus pour poids excessif ?
+ *
+ * On s'accroche au statut `413` **et** au champ `code`, jamais à `message` :
+ * celui-ci est en anglais technique et ne fait pas partie du contrat.
+ */
+export function isAvatarUploadTooLargeError(error: unknown): boolean {
+  if (getErrorStatus(error) === 413) return true
+  return readErrorPayload(error)?.code === UPLOAD_FILE_TOO_LARGE_CODE
+}
+
 // ─── Traduction des erreurs ───────────────────────────────────────────────────
 
 const UPLOAD_INVALID_FILE_MESSAGE =
   "Ce fichier n'a pas pu être lu comme une image. Formats acceptés : JPEG, PNG, WebP, GIF ou AVIF — les fichiers SVG et HEIC ne le sont pas."
 
-/**
- * `413` — cas courant en production : nginx plafonne aujourd'hui les envois à
- * environ 1 Mo en amont du service, alors qu'une photo de téléphone pèse
- * couramment 2 à 5 Mo (`docs/routes.md`, avertissement du 2026-08-10). Le message
- * parle donc de **poids de fichier** et de ce que l'utilisateur peut faire, pas
- * d'un code HTTP qui ne lui apprendrait rien.
- */
-const UPLOAD_TOO_LARGE_MESSAGE =
-  'Cette photo est trop lourde pour être envoyée. Choisissez une image de moins de 1 Mo, ou réduisez sa taille avant de réessayer.'
-
-const UPLOAD_FORBIDDEN_MESSAGE =
-  'Seul le titulaire du profil peut changer sa photo.'
+const UPLOAD_FORBIDDEN_MESSAGE = 'Seul le titulaire du profil peut changer sa photo.'
 
 const UPLOAD_SERVER_MESSAGE =
   "La photo n'a pas pu être enregistrée. Réessayez dans quelques instants."
 
 const UPLOAD_FALLBACK_MESSAGE = "La photo n'a pas pu être envoyée. Réessayez."
 
-/** Traduit un échec d'envoi de photo en message affichable. */
-export function getAvatarUploadErrorMessage(error: unknown): string {
+/** Contexte connu du front au moment de l'échec, pour un message plus précis. */
+export interface AvatarUploadErrorContext {
+  /** Plafond lu sur `GET /profiles/avatar/constraints`, si l'appel a abouti. */
+  maxUploadBytes?: number
+  /** `File.size` du fichier tenté — le front le connaît toujours. */
+  attemptedFileSizeBytes?: number
+}
+
+/**
+ * Traduit un échec d'envoi de photo en message affichable.
+ *
+ * Cas `413` — le plus courant en production tant que le reverse-proxy plafonne
+ * à 1 Mio. Ordre d'autorité pour la limite citée : le corps de la réponse (le
+ * serveur sait ce qu'il vient d'appliquer), puis les contraintes lues à
+ * l'affichage, puis le repli. La taille du fichier, elle, vient de
+ * `receivedBytes` si le serveur a pu la mesurer, sinon de `File.size` — mais
+ * **seulement si elle dépasse effectivement le plafond** : citer « 3 octets »
+ * face à une limite de 1 Mo n'expliquerait rien et ferait douter du message.
+ */
+export function getAvatarUploadErrorMessage(
+  error: unknown,
+  context: AvatarUploadErrorContext = {},
+): string {
   const status = getErrorStatus(error)
+
+  if (isAvatarUploadTooLargeError(error)) {
+    const payload = readErrorPayload(error)
+    const maxUploadBytes =
+      readPositiveNumber(payload?.maxUploadBytes) ??
+      readPositiveNumber(context.maxUploadBytes) ??
+      FALLBACK_AVATAR_CONSTRAINTS.maxUploadBytes
+
+    const attemptedFileSizeBytes = readPositiveNumber(context.attemptedFileSizeBytes)
+    const knownFileSizeBytes =
+      readPositiveNumber(payload?.receivedBytes) ??
+      (attemptedFileSizeBytes !== null && attemptedFileSizeBytes > maxUploadBytes
+        ? attemptedFileSizeBytes
+        : null)
+
+    return getAvatarTooLargeMessage(knownFileSizeBytes, maxUploadBytes)
+  }
 
   if (status === 400) return UPLOAD_INVALID_FILE_MESSAGE
   if (status === 403) return UPLOAD_FORBIDDEN_MESSAGE
-  if (status === 413) return UPLOAD_TOO_LARGE_MESSAGE
   if (status !== undefined && status >= 500) return UPLOAD_SERVER_MESSAGE
 
   return getErrorMessage(error, UPLOAD_FALLBACK_MESSAGE)

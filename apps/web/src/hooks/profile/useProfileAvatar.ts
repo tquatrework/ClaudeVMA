@@ -17,6 +17,13 @@
  * pour ce lecteur », deux états que le serveur rend volontairement
  * indiscernables. Il se traduit par une absence d'image, jamais par un message
  * qui affirmerait l'une des deux causes.
+ *
+ * Le hook porte enfin le **contrôle de poids avant envoi**. Le plafond en
+ * vigueur est bas (le reverse-proxy coupe à 1 Mio) alors qu'une photo de
+ * téléphone pèse 3 à 8 Mo : la plupart des tentatives échoueraient. Un fichier
+ * trop lourd est donc refusé **sans partir sur le réseau**, avec le même message
+ * que celui du `413` — inutile de faire patienter l'utilisateur pour une réponse
+ * qu'on connaît déjà.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -30,8 +37,12 @@ import {
   extractAvatarVersionToken,
   getAvatarDeleteErrorMessage,
   getAvatarLoadErrorMessage,
+  getAvatarTooLargeMessage,
   getAvatarUploadErrorMessage,
 } from '../../utils/profileAvatar'
+import { isAvatarFileTooLarge } from '../../utils/profileAvatarConstraints'
+import { useProfileAvatarConstraints } from './useProfileAvatarConstraints'
+import type { ProfileAvatarConstraints } from '../../types/profile'
 
 export interface UseProfileAvatarResult {
   /** Object URL de la photo affichable, `null` quand il n'y en a aucune. */
@@ -47,17 +58,30 @@ export interface UseProfileAvatarResult {
   removeError: string | null
   /** Efface les messages d'échec d'écriture (nouvelle tentative de l'utilisateur). */
   dismissWriteErrors: () => void
+  /** Contraintes à annoncer avant le choix du fichier. Jamais `null`. */
+  avatarConstraints: ProfileAvatarConstraints
+}
+
+export interface UseProfileAvatarOptions {
+  /**
+   * Le lecteur courant peut-il envoyer une photo ? Quand non, les contraintes
+   * ne sont pas demandées au serveur : personne ne les lira.
+   */
+  canUpload?: boolean
 }
 
 /**
  * @param userId titulaire du profil consulté
  * @param avatarUrl champ `avatarUrl` du bloc `administrative`, tel que reçu :
  *   URL de lecture versionnée, ou `null` (pas de photo, ou photo non partagée)
+ * @param options `canUpload` — le lecteur est-il le titulaire ?
  */
 export function useProfileAvatar(
   userId: string | undefined,
   avatarUrl: string | null | undefined,
+  options: UseProfileAvatarOptions = {},
 ): UseProfileAvatarResult {
+  const { avatarConstraints } = useProfileAvatarConstraints(options.canUpload ?? true)
   /**
    * URL courante : celle du profil chargé, puis celle renvoyée par le serveur
    * après un envoi ou une suppression. Sans cet état local, la fiche continuerait
@@ -126,8 +150,17 @@ export function useProfileAvatar(
   const uploadPhoto = useCallback(
     async (file: File) => {
       if (!userId) return false
-      setIsUploadingPhoto(true)
       setUploadError(null)
+
+      // Refus local : le fichier ne part pas. Envoyer 5 Mo pour se les faire
+      // refuser ferait patienter l'utilisateur — plusieurs dizaines de secondes
+      // en 4G — avant un message qu'on peut lui donner immédiatement.
+      if (isAvatarFileTooLarge(file, avatarConstraints.maxUploadBytes)) {
+        setUploadError(getAvatarTooLargeMessage(file.size, avatarConstraints.maxUploadBytes))
+        return false
+      }
+
+      setIsUploadingPhoto(true)
       try {
         const { avatarUrl: nextAvatarUrl } = await uploadProfileAvatar(userId, file)
         // On réutilise l'URL du serveur telle quelle : son jeton `?v=` est la
@@ -135,13 +168,20 @@ export function useProfileAvatar(
         setCurrentAvatarUrl(nextAvatarUrl ?? null)
         return true
       } catch (caughtError) {
-        setUploadError(getAvatarUploadErrorMessage(caughtError))
+        // Filet de sécurité : le serveur peut refuser en `413` malgré le
+        // contrôle local (contraintes non lues, ou plafond du proxy plus bas).
+        setUploadError(
+          getAvatarUploadErrorMessage(caughtError, {
+            maxUploadBytes: avatarConstraints.maxUploadBytes,
+            attemptedFileSizeBytes: file.size,
+          }),
+        )
         return false
       } finally {
         setIsUploadingPhoto(false)
       }
     },
-    [userId],
+    [userId, avatarConstraints.maxUploadBytes],
   )
 
   const [isRemovingPhoto, setIsRemovingPhoto] = useState(false)
@@ -179,5 +219,6 @@ export function useProfileAvatar(
     isRemovingPhoto,
     removeError,
     dismissWriteErrors,
+    avatarConstraints,
   }
 }

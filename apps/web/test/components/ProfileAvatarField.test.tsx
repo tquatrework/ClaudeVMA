@@ -14,7 +14,9 @@
  *    jamais un message qui trancherait entre les deux ;
  * 4. un `413` produit un message français parlant de poids de fichier ;
  * 5. après un remplacement, c'est l'`avatarUrl` **renvoyé par le serveur** qui
- *    est réutilisé, jeton `?v=` compris.
+ *    est réutilisé, jeton `?v=` compris ;
+ * 6. la limite d'envoi est **annoncée avant** le choix du fichier, lue au
+ *    serveur, et un fichier trop lourd est refusé **sans appel réseau**.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -27,10 +29,12 @@ vi.mock('../../src/api/profile')
 import {
   deleteProfileAvatar,
   fetchProfileAvatarBlob,
+  fetchProfileAvatarConstraints,
   uploadProfileAvatar,
 } from '../../src/api/profile'
 
 const mockFetchProfileAvatarBlob = vi.mocked(fetchProfileAvatarBlob)
+const mockFetchProfileAvatarConstraints = vi.mocked(fetchProfileAvatarConstraints)
 const mockUploadProfileAvatar = vi.mocked(uploadProfileAvatar)
 const mockDeleteProfileAvatar = vi.mocked(deleteProfileAvatar)
 
@@ -38,12 +42,33 @@ const USER_ID = '464da8a2-8b4f-4cc7-b7b1-f1d0ab511355'
 const AVATAR_URL = `/api/v1/profiles/${USER_ID}/avatar?v=1754820000000`
 const REPLACED_AVATAR_URL = `/api/v1/profiles/${USER_ID}/avatar?v=1754899999999`
 
+/** Contraintes telles que publiées aujourd'hui par `profile-service`. */
+const SERVER_CONSTRAINTS = {
+  maxUploadBytes: 1_000_000,
+  acceptedContentTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'],
+  outputContentType: 'image/webp',
+  maxDimensionPixels: 512,
+}
+
 function makePhotoBlob() {
   return new Blob(['octets'], { type: 'image/webp' })
 }
 
-function makePhotoFile() {
-  return new File([new Uint8Array([1, 2, 3])], 'photo.jpg', { type: 'image/jpeg' })
+/**
+ * Fichier de test. La taille est forcée quand elle compte, sans allouer les
+ * mégaoctets correspondants.
+ */
+function makePhotoFile(sizeInBytes?: number) {
+  const file = new File([new Uint8Array([1, 2, 3])], 'photo.jpg', { type: 'image/jpeg' })
+  if (sizeInBytes !== undefined) Object.defineProperty(file, 'size', { value: sizeInBytes })
+  return file
+}
+
+/** Attend que les contraintes annoncées viennent bien du serveur. */
+async function waitForConstraints() {
+  await waitFor(() => {
+    expect(mockFetchProfileAvatarConstraints).toHaveBeenCalled()
+  })
 }
 
 function renderField(overrides: Partial<React.ComponentProps<typeof ProfileAvatarField>> = {}) {
@@ -69,6 +94,7 @@ let revokeObjectUrlSpy: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
   vi.clearAllMocks()
   revokeObjectUrlSpy = vi.spyOn(URL, 'revokeObjectURL')
+  mockFetchProfileAvatarConstraints.mockResolvedValue(SERVER_CONSTRAINTS)
 })
 
 afterEach(() => {
@@ -87,8 +113,9 @@ describe('ProfileAvatarField — affichage', () => {
     expect(mockFetchProfileAvatarBlob).toHaveBeenCalledWith(USER_ID, '1754820000000')
   })
 
-  it("n'appelle pas le serveur quand aucune photo n'est annoncée", () => {
+  it("n'appelle pas le serveur quand aucune photo n'est annoncée", async () => {
     renderField({ avatarUrl: null })
+    await waitForConstraints()
 
     expect(mockFetchProfileAvatarBlob).not.toHaveBeenCalled()
     expect(screen.getByTestId('profile-avatar-initials').textContent).toBe('AM')
@@ -125,8 +152,9 @@ describe('ProfileAvatarField — affichage', () => {
     expect(await screen.findByText(/réessayer/i)).toBeDefined()
   })
 
-  it("se replie sur « ? » quand aucun nom n'est lisible — jamais un identifiant", () => {
+  it("se replie sur « ? » quand aucun nom n'est lisible — jamais un identifiant", async () => {
     renderField({ avatarUrl: null, displayName: null })
+    await waitForConstraints()
 
     expect(screen.getByTestId('profile-avatar-initials').textContent).toBe('?')
     expect(screen.queryByText(USER_ID)).toBeNull()
@@ -145,11 +173,121 @@ describe('ProfileAvatarField — droits', () => {
     expect(screen.queryByRole('button', { name: /supprimer/i })).toBeNull()
   })
 
-  it('propose « Ajouter une photo » au titulaire qui n’en a pas', () => {
+  it('propose « Ajouter une photo » au titulaire qui n’en a pas', async () => {
     renderField({ avatarUrl: null })
+    await waitForConstraints()
 
     expect(screen.getByLabelText('Ajouter une photo')).toBeDefined()
     expect(screen.queryByRole('button', { name: /supprimer/i })).toBeNull()
+  })
+})
+
+describe('ProfileAvatarField — limite annoncée avant le choix du fichier', () => {
+  it('affiche la taille maximale et les formats, lus au serveur', async () => {
+    renderField({ avatarUrl: null })
+
+    expect(await screen.findByText('Taille maximale : 1 Mo.')).toBeDefined()
+    expect(screen.getByText(/Formats acceptés : JPEG, PNG, WebP, GIF ou AVIF\./)).toBeDefined()
+    expect(mockFetchProfileAvatarConstraints).toHaveBeenCalled()
+  })
+
+  it("suit le serveur le jour où le plafond sera relevé, sans modification du front", async () => {
+    mockFetchProfileAvatarConstraints.mockResolvedValue({
+      ...SERVER_CONSTRAINTS,
+      maxUploadBytes: 8_000_000,
+    })
+
+    renderField({ avatarUrl: null })
+
+    expect(await screen.findByText('Taille maximale : 8 Mo.')).toBeDefined()
+  })
+
+  it('dit quoi faire, la limite étant contraignante pour une photo de téléphone', async () => {
+    renderField({ avatarUrl: null })
+
+    expect(await screen.findByText(/réduisez-la ou recadrez-la/i)).toBeDefined()
+  })
+
+  it('annonce une limite de repli plutôt que rien quand le serveur ne répond pas', async () => {
+    mockFetchProfileAvatarConstraints.mockRejectedValue({ response: { status: 500 } })
+    // La panne est journalisée pour le développeur, pas affichée : on l'attend.
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    renderField({ avatarUrl: null })
+
+    // Un écran muet sur la limite serait pire : l'utilisateur découvrirait le
+    // refus après l'envoi.
+    expect(await screen.findByText('Taille maximale : 1 Mo.')).toBeDefined()
+    expect(screen.queryByRole('alert')).toBeNull()
+    consoleWarnSpy.mockRestore()
+  })
+
+  it("ne demande pas les contraintes à un lecteur qui ne peut pas envoyer", async () => {
+    mockFetchProfileAvatarBlob.mockResolvedValue(makePhotoBlob())
+
+    renderField({ avatarUrl: AVATAR_URL, canEdit: false })
+
+    await screen.findByRole('img', { name: /Alice Martin/ })
+    expect(mockFetchProfileAvatarConstraints).not.toHaveBeenCalled()
+    expect(screen.queryByText(/Taille maximale/)).toBeNull()
+  })
+
+  it('relie la limite au champ de fichier pour les lecteurs d’écran', async () => {
+    renderField({ avatarUrl: null })
+
+    await waitForConstraints()
+    const fileInput = screen.getByLabelText(/photo/i)
+    const hintId = fileInput.getAttribute('aria-describedby')
+    expect(hintId).toBeTruthy()
+    expect(document.getElementById(hintId as string)?.textContent).toContain('Taille maximale')
+  })
+})
+
+describe('ProfileAvatarField — refus local avant tout envoi', () => {
+  it('refuse un fichier trop lourd sans le faire partir sur le réseau', async () => {
+    renderField({ avatarUrl: null })
+    await waitForConstraints()
+
+    selectFile(makePhotoFile(4_200_000))
+
+    // Taille du fichier ET limite, toutes deux lisibles.
+    const errorMessage = await screen.findByText(/pèse 4,2 Mo/)
+    expect(errorMessage.textContent).toContain('maximale est de 1 Mo')
+    // Rien n'est parti : inutile de faire patienter l'utilisateur.
+    expect(mockUploadProfileAvatar).not.toHaveBeenCalled()
+  })
+
+  it('laisse passer un fichier sous la limite', async () => {
+    mockUploadProfileAvatar.mockResolvedValue({ avatarUrl: REPLACED_AVATAR_URL })
+    mockFetchProfileAvatarBlob.mockResolvedValue(makePhotoBlob())
+
+    renderField({ avatarUrl: null })
+    await waitForConstraints()
+
+    selectFile(makePhotoFile(800_000))
+
+    await waitFor(() => {
+      expect(mockUploadProfileAvatar).toHaveBeenCalledWith(USER_ID, expect.any(File))
+    })
+    expect(screen.queryByText(/trop lourde/i)).toBeNull()
+  })
+
+  it('accepte un fichier que le serveur accepterait après relèvement du plafond', async () => {
+    mockFetchProfileAvatarConstraints.mockResolvedValue({
+      ...SERVER_CONSTRAINTS,
+      maxUploadBytes: 8_000_000,
+    })
+    mockUploadProfileAvatar.mockResolvedValue({ avatarUrl: REPLACED_AVATAR_URL })
+    mockFetchProfileAvatarBlob.mockResolvedValue(makePhotoBlob())
+
+    renderField({ avatarUrl: null })
+    await screen.findByText('Taille maximale : 8 Mo.')
+
+    selectFile(makePhotoFile(4_200_000))
+
+    await waitFor(() => {
+      expect(mockUploadProfileAvatar).toHaveBeenCalledWith(USER_ID, expect.any(File))
+    })
   })
 })
 
@@ -199,19 +337,94 @@ describe('ProfileAvatarField — envoi', () => {
     expect(errorMessage.textContent).not.toContain('413')
   })
 
+  it('exploite le corps structuré du 413 sans jamais afficher son message anglais', async () => {
+    // Filet de sécurité : le contrôle local a laissé passer le fichier (taille
+    // sous la limite annoncée), le serveur refuse quand même.
+    mockUploadProfileAvatar.mockRejectedValue({
+      response: {
+        status: 413,
+        data: {
+          statusCode: 413,
+          error: 'Payload Too Large',
+          code: 'UPLOAD_FILE_TOO_LARGE',
+          message: 'Uploaded file exceeds the maximum allowed size',
+          maxUploadBytes: 1_000_000,
+          receivedBytes: 4_500_000,
+          requestBodyBytes: 4_600_000,
+        },
+      },
+    })
+
+    renderField({ avatarUrl: null })
+    await waitForConstraints()
+    selectFile(makePhotoFile(900_000))
+
+    const errorMessage = await screen.findByText(/pèse 4,5 Mo/)
+    expect(errorMessage.textContent).toContain('maximale est de 1 Mo')
+    expect(errorMessage.textContent).not.toContain('Uploaded file')
+  })
+
+  it("n'annonce pas « 0 octet » quand le flux a été coupé (`receivedBytes: null`)", async () => {
+    mockUploadProfileAvatar.mockRejectedValue({
+      response: {
+        status: 413,
+        data: {
+          code: 'UPLOAD_FILE_TOO_LARGE',
+          maxUploadBytes: 1_000_000,
+          receivedBytes: null,
+          requestBodyBytes: 1_258_291,
+        },
+      },
+    })
+
+    renderField({ avatarUrl: null })
+    await waitForConstraints()
+    selectFile(makePhotoFile(900_000))
+
+    const errorMessage = await screen.findByText(/trop lourde/i)
+    expect(errorMessage.textContent).not.toContain('0 octet')
+    expect(errorMessage.textContent).toContain('maximale est de 1 Mo')
+  })
+
+  it('reste compréhensible sur un 413 non-JSON renvoyé par le serveur web', async () => {
+    // Si les deux plafonds divergeaient, nginx couperait le premier et
+    // renverrait sa page HTML : aucune des clés attendues, et un `JSON.parse`
+    // qui échoue. Le message français doit rester le même.
+    mockUploadProfileAvatar.mockRejectedValue({
+      response: {
+        status: 413,
+        data: '<html><head><title>413 Request Entity Too Large</title></head></html>',
+      },
+    })
+
+    renderField({ avatarUrl: null })
+    await waitForConstraints()
+    selectFile(makePhotoFile(900_000))
+
+    const errorMessage = await screen.findByText(/trop lourde/i)
+    expect(errorMessage.textContent).toContain('maximale est de 1 Mo')
+    expect(errorMessage.textContent).not.toContain('html')
+    expect(errorMessage.textContent).not.toContain('413')
+  })
+
   it('explique les formats acceptés quand le fichier est refusé en 400', async () => {
     mockUploadProfileAvatar.mockRejectedValue({
       response: { status: 400, data: { message: 'Unsupported image format' } },
     })
 
     renderField({ avatarUrl: null })
+    await waitForConstraints()
     selectFile(makePhotoFile())
 
-    expect(await screen.findByText(/JPEG, PNG, WebP, GIF ou AVIF/)).toBeDefined()
+    // On vise la phrase du message d'erreur, pas l'encart de contraintes qui
+    // énumère lui aussi les formats.
+    const errorMessage = await screen.findByText(/les fichiers SVG et HEIC ne le sont pas/)
+    expect(errorMessage.textContent).toContain('JPEG, PNG, WebP, GIF ou AVIF')
   })
 
-  it("n'envoie rien quand la sélection est annulée", () => {
+  it("n'envoie rien quand la sélection est annulée", async () => {
     renderField({ avatarUrl: null })
+    await waitForConstraints()
 
     const fileInput = screen.getByLabelText(/photo/i) as HTMLInputElement
     fireEvent.change(fileInput, { target: { files: [] } })

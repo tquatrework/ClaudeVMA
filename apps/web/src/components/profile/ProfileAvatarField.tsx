@@ -15,6 +15,13 @@
  * Les actions ne sont proposées qu'au titulaire : `POST` et `DELETE` lui sont
  * réservés, sans exception administrative. Afficher un bouton qui répondrait
  * `403` est proscrit par la règle de filtrage UI du projet.
+ *
+ * **La limite d'envoi est annoncée avant le choix du fichier**, pas reléguée en
+ * note grise sous le bouton. Elle est basse — le reverse-proxy coupe à 1 Mio —
+ * alors qu'une photo de téléphone pèse 3 à 8 Mo : sans avertissement préalable,
+ * la majorité des tentatives échoueraient et l'utilisateur ne comprendrait pas
+ * pourquoi. La valeur affichée vient de `GET /profiles/avatar/constraints`,
+ * jamais d'une constante : le jour où le plafond sera relevé, l'écran suivra.
  */
 
 import React, { useId, useRef } from 'react'
@@ -22,10 +29,12 @@ import { useProfileAvatar } from '../../hooks/profile/useProfileAvatar'
 import { getInitials } from '../../utils/role'
 import { getProfileFieldLabel } from '../../utils/profileFieldLabels'
 import {
-  AVATAR_FILE_INPUT_ACCEPT,
   AVATAR_LABELS,
+  getAvatarFormatsHint,
   getAvatarImageAlt,
+  getAvatarMaxSizeHint,
 } from '../../utils/profileAvatar'
+import { buildAvatarFileInputAccept } from '../../utils/profileAvatarConstraints'
 import { ErrorMessage } from '../ui/ErrorMessage'
 
 const PHOTO_FRAME_CLASS =
@@ -36,6 +45,13 @@ const ACTION_BUTTON_CLASS =
 
 const DESTRUCTIVE_ACTION_BUTTON_CLASS =
   'inline-flex items-center justify-center text-sm font-medium px-4 py-2 rounded-lg border border-red-200 bg-white text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
+
+/**
+ * Encart des contraintes : surface claire bordée, texte de taille normale.
+ * Volontairement pas une note `text-xs` grise — c'est l'information qui évite
+ * l'échec, elle doit se lire avant le clic, pas après.
+ */
+const CONSTRAINTS_BOX_CLASS = 'mt-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3'
 
 interface ProfileAvatarFieldProps {
   userId?: string
@@ -57,6 +73,7 @@ export function ProfileAvatarField({
   canEdit,
 }: ProfileAvatarFieldProps) {
   const fileInputId = useId()
+  const constraintsHintId = useId()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const {
@@ -70,7 +87,8 @@ export function ProfileAvatarField({
     isRemovingPhoto,
     removeError,
     dismissWriteErrors,
-  } = useProfileAvatar(userId, avatarUrl)
+    avatarConstraints,
+  } = useProfileAvatar(userId, avatarUrl, { canUpload: canEdit })
 
   const hasPhoto = photoObjectUrl !== null
   const isBusy = isUploadingPhoto || isRemovingPhoto
@@ -96,7 +114,12 @@ export function ProfileAvatarField({
         {getProfileFieldLabel('avatarUrl')}
       </h2>
 
-      <div className="flex items-center gap-5">
+      {/*
+        Alignement en haut : la colonne de droite porte l'encart des contraintes
+        et devient plus haute que la vignette. Centrees, la photo et le nom ne
+        seraient plus sur la meme ligne.
+      */}
+      <div className="flex items-start gap-5">
         <div className={PHOTO_FRAME_CLASS}>
           {hasPhoto ? (
             <img
@@ -126,42 +149,60 @@ export function ProfileAvatarField({
             <p className="text-sm text-gray-500">{AVATAR_LABELS.emptyForOwner}</p>
           )}
 
+          {/*
+            Les contraintes precedent les boutons : elles doivent etre lues avant
+            le choix du fichier, pas decouvertes apres le refus.
+          */}
           {canEdit && (
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <label
-                htmlFor={fileInputId}
-                className={`${ACTION_BUTTON_CLASS} ${isBusy ? 'opacity-50 pointer-events-none' : ''}`}
-              >
-                {isUploadingPhoto
-                  ? AVATAR_LABELS.uploading
-                  : hasPhoto
-                    ? AVATAR_LABELS.replaceAction
-                    : AVATAR_LABELS.addAction}
-              </label>
-              <input
-                ref={fileInputRef}
-                id={fileInputId}
-                type="file"
-                accept={AVATAR_FILE_INPUT_ACCEPT}
-                className="sr-only"
-                disabled={isBusy}
-                onChange={handleFileSelected}
-              />
+            <>
+              <div className={CONSTRAINTS_BOX_CLASS} id={constraintsHintId}>
+                <p className="text-sm text-gray-800">
+                  <strong className="font-semibold">
+                    {getAvatarMaxSizeHint(avatarConstraints.maxUploadBytes)}
+                  </strong>{' '}
+                  {getAvatarFormatsHint(avatarConstraints.acceptedContentTypes)}
+                </p>
+                <p className="mt-1 text-sm text-gray-600">{AVATAR_LABELS.reduceAdvice}</p>
+                <p className="mt-1 text-xs text-gray-500">{AVATAR_LABELS.processingHint}</p>
+              </div>
 
-              {hasPhoto && (
-                <button
-                  type="button"
-                  className={DESTRUCTIVE_ACTION_BUTTON_CLASS}
-                  disabled={isBusy}
-                  onClick={handleRemove}
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <label
+                  htmlFor={fileInputId}
+                  className={`${ACTION_BUTTON_CLASS} ${isBusy ? 'opacity-50 pointer-events-none' : ''}`}
                 >
-                  {isRemovingPhoto ? AVATAR_LABELS.deleting : AVATAR_LABELS.deleteAction}
-                </button>
-              )}
-            </div>
-          )}
+                  {isUploadingPhoto
+                    ? AVATAR_LABELS.uploading
+                    : hasPhoto
+                      ? AVATAR_LABELS.replaceAction
+                      : AVATAR_LABELS.addAction}
+                </label>
+                <input
+                  ref={fileInputRef}
+                  id={fileInputId}
+                  type="file"
+                  accept={buildAvatarFileInputAccept(avatarConstraints.acceptedContentTypes)}
+                  className="sr-only"
+                  disabled={isBusy}
+                  // Le champ est masqué visuellement : sans ce lien, un lecteur
+                  // d'écran annoncerait le bouton sans jamais énoncer la limite.
+                  aria-describedby={constraintsHintId}
+                  onChange={handleFileSelected}
+                />
 
-          {canEdit && <p className="mt-2 text-xs text-gray-400">{AVATAR_LABELS.formatsHint}</p>}
+                {hasPhoto && (
+                  <button
+                    type="button"
+                    className={DESTRUCTIVE_ACTION_BUTTON_CLASS}
+                    disabled={isBusy}
+                    onClick={handleRemove}
+                  >
+                    {isRemovingPhoto ? AVATAR_LABELS.deleting : AVATAR_LABELS.deleteAction}
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
 

@@ -19,6 +19,7 @@ import type {
   InternalNote,
   PrescriptionFields,
   Profile,
+  ProfileAvatarConstraints,
   ProfileStatisticsResponse,
 } from '../types/profile'
 
@@ -88,6 +89,19 @@ export async function updatePrescription(
 }
 
 // ─── Photo de profil ──────────────────────────────────────────────────────────
+
+/**
+ * GET /profiles/avatar/constraints — Contraintes d'envoi en vigueur.
+ *
+ * **À lire AVANT d'ouvrir le sélecteur de fichier** : c'est ce qui permet
+ * d'annoncer la limite à l'utilisateur et de refuser un fichier trop lourd sans
+ * l'envoyer. Pas de `:userId` — les contraintes ne dépendent ni du profil visé
+ * ni du lecteur ; tout compte authentifié peut les lire.
+ */
+export async function fetchProfileAvatarConstraints(): Promise<ProfileAvatarConstraints> {
+  const { data } = await apiClient.get<ProfileAvatarConstraints>('/profiles/avatar/constraints')
+  return data
+}
 
 /**
  * Réponse de `POST /profiles/:userId/avatar`.

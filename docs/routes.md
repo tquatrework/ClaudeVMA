@@ -384,12 +384,26 @@ toujours de l'application**, avec un corps JSON exploitable. Un plafond réglé 
 laissé une bande de quelques kilo-octets où le fichier passe le contrôle applicatif mais où
 l'enveloppe fait dépasser nginx.
 
+**Il y a trois couches, pas deux.** `api-gateway` est lui aussi un nginx, et il ne déclarait aucun
+`client_max_body_size` : son défaut de 1 Mio s'appliquait donc une seconde fois, en silence.
+Vérifié le 2026-08-10 en attaquant la gateway directement, hors `nginx-global` : 1 048 000 octets
+passaient, 1 048 500 repartaient en `413` HTML. Le plafond est désormais **déclaré à 10 Mio** dans
+`gateway/api-gateway/nginx.conf`, franchement au-dessus des deux autres, pour que la gateway ne soit
+jamais le maillon qui coupe ; un `413` qu'elle émettrait malgré tout répond maintenant en JSON.
+
+| Couche | Plafond | Emplacement | Réponse au-delà |
+|---|---|---|---|
+| `nginx-global` | 1 Mio (défaut **non déclaré**) | hors dépôt | `413` HTML |
+| `api-gateway` | 10 Mio (déclaré) | `gateway/api-gateway/nginx.conf` | `413` JSON |
+| `profile-service` | 1 000 000 o | `MEDIA_MAX_UPLOAD_BYTES` | `413` JSON structuré ci-dessous |
+
 > ⚠️ Ce n'est **pas** la limite souhaitable à terme — une photo de téléphone pèse couramment 2 à
-> 5 Mo. Elle est basse parce que `client_max_body_size` vit **hors de ce dépôt**
-> (`/home/debian/NginxGlobal/nginx.conf`, bloc `location /api/v1/` de `claudevma.visioprof.fr`) et
-> n'a pas encore été corrigé. Le jour où il le sera, remonter `MEDIA_MAX_UPLOAD_BYTES` dans
-> `docker-compose.yml` **et** `DEFAULT_MAX_UPLOAD_BYTES` dans `src/media/media.config.ts`, en
-> conservant la même marge sous le plafond du proxy.
+> 5 Mo. Elle est basse parce que le `client_max_body_size` qui contraint réellement vit **hors de ce
+> dépôt** (`/home/debian/NginxGlobal/nginx.conf`, bloc `location /api/v1/` de
+> `claudevma.visioprof.fr`) et n'a pas encore été corrigé. Le jour où il le sera, remonter
+> `MEDIA_MAX_UPLOAD_BYTES` dans `docker-compose.yml` **et** `DEFAULT_MAX_UPLOAD_BYTES` dans
+> `src/media/media.config.ts`, en conservant la même marge sous le plafond du proxy — et **vérifier
+> au passage** que le plafond de `api-gateway` reste au-dessus des deux.
 
 Le refus est prononcé **en streaming**, par multer, dès le dépassement : le contrôleur n'est pas
 atteint et les octets excédentaires ne sont jamais chargés en mémoire. Un contrôle placé seulement

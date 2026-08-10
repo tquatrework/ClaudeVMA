@@ -38,8 +38,18 @@ valide les JWT via `auth_request` avant chaque route protégée, et gère le loa
 | `/health`                | gateway (nginx)             | Non |
 | `/docs`                  | gateway (nginx) — index     | Non |
 
+## Tests
+`bash gateway/api-gateway/test/nginx-conf.test.sh` — `nginx -t` dans l'image réelle + garanties de
+routage et de taille de corps. Partie « gateway vivante » activée par `GATEWAY_URL` et `ACCESS_TOKEN`.
+
 ## Règles
 - Aucune logique métier dans ce service
+- **Proxifier par préfixe, jamais route par route** : une nouvelle route d'un service doit être
+  jointe sans toucher à ce fichier. Corollaire : aucune `location` par expression régulière, aucun
+  `rewrite` — la gateway ne réinterprète jamais un segment d'URL.
+- **`client_max_body_size` doit rester déclaré** et au-dessus du plafond applicatif d'envoi. Sans
+  directive, nginx applique 1 Mio et la gateway devient un plafond caché qui répond en HTML.
+  Voir `docs/services/api-gateway.md`.
 - Tout appel non authentifié est rejeté sauf `/api/v1/auth/*` et `/health`
 - Toutes les requêtes sont loggées (access_log format `main`)
 - Rate limiting : `10r/m` sur `/api/v1/auth/` (anti-brute-force), `30r/s` disponible ailleurs

@@ -707,5 +707,118 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-08-10" label="Limite d'envoi de la photo, annoncee et opposee avant l'envoi">
+      <context>
+        Suite directe de la session precedente. Le reverse-proxy plafonne les corps de requete a
+        1 Mio et n'est pas modifiable pour l'instant ; l'arbitrage utilisateur est de **garder la
+        limite basse mais de l'annoncer clairement**. Une photo de telephone pesant 3 a 8 Mo, la
+        majorite des tentatives echouent : l'enjeu est que l'utilisateur comprenne **avant**
+        d'essayer, et comprenne **pourquoi** quand ca echoue. Le back avait livre entre-temps
+        `GET /profiles/avatar/constraints` (plafond et formats en vigueur) et un corps de `413`
+        structure, avec les cles stables `code` et `maxUploadBytes`.
+        Cette session solde les points ouverts `avatar-nginx-1mb-cap` (le message ne cite plus
+        « 1 Mo » en dur) et laisse `avatar-no-client-side-resize` ouvert, voir ci-dessous.
+      </context>
+
+      <filesAdded>
+        <file path="src/utils/fileSize.ts">
+          `formatFileSize` — « 4,2 Mo », « 512 Ko », « 3 octets », en unites **SI** et avec la
+          virgule francaise. Renvoie `null` pour une taille inconnue, jamais « 0 octet ».
+        </file>
+        <file path="src/utils/profileAvatarConstraints.ts">
+          Contrat serveur des contraintes, sans aucun texte affiche : types acceptes, repli,
+          normalisation d'un corps partiel, attribut `accept`, comparaison de taille.
+        </file>
+        <file path="src/hooks/profile/useProfileAvatarConstraints.ts">
+          Lecture de `GET /profiles/avatar/constraints`, avec repli silencieux (journalise) sur les
+          valeurs par defaut. N'appelle pas le serveur pour un lecteur qui ne peut pas envoyer.
+        </file>
+        <file path="test/utils/fileSize.test.ts">Unites, arrondis, taille inconnue.</file>
+        <file path="test/utils/profileAvatarConstraints.test.ts">Normalisation, repli, refus local.</file>
+      </filesAdded>
+
+      <filesModified>
+        <file path="src/api/profile.ts">Ajout de `fetchProfileAvatarConstraints` — chemin sans `:userId`.</file>
+        <file path="src/types/profile.ts">Nouveau type partage `ProfileAvatarConstraints`.</file>
+        <file path="src/utils/profileAvatar.ts">
+          Message de refus construit a partir du plafond lu ; lecture du corps `413` par `code` ;
+          libelles `getAvatarMaxSizeHint` / `getAvatarFormatsHint` / `reduceAdvice`. Le contrat
+          serveur en sort (fichier ramene de 372 a 287 lignes).
+        </file>
+        <file path="src/hooks/profile/useProfileAvatar.ts">Refus local avant tout appel reseau ; expose `avatarConstraints`.</file>
+        <file path="src/components/profile/ProfileAvatarField.tsx">Encart des contraintes au-dessus des boutons, relie au champ par `aria-describedby`.</file>
+      </filesModified>
+
+      <decision id="avatar-limit-read-from-server-never-hardcoded">
+        <title>La limite affichee vient du serveur, jamais d'une constante</title>
+        <description>
+          `GET /profiles/avatar/constraints` est appele a l'ouverture du bloc photo, et sa valeur
+          alimente **a la fois** le texte affiche et le controle local. Le jour ou le plafond nginx
+          sera releve, l'ecran suivra sans modification du front. La seule valeur figee est un repli
+          (1 000 000 octets), utilise si l'appel echoue : un ecran muet sur la limite serait pire,
+          l'utilisateur decouvrirait le refus apres l'envoi. Le repli est normalise champ par champ,
+          faute de quoi un corps partiel afficherait « NaN Mo » et ne refuserait plus aucun fichier.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="avatar-reject-locally-before-network">
+        <title>Un fichier trop lourd ne part pas sur le reseau</title>
+        <description>
+          `File.size` est connu avant l'envoi : au-dela du plafond, le refus est immediat et le
+          fichier n'est jamais transmis. Envoyer 5 Mo pour se les faire refuser fait patienter
+          l'utilisateur plusieurs dizaines de secondes en 4G, pour une reponse que le front connait
+          deja. Le message est **le meme** que celui du `413` — deux formulations pour un meme motif
+          n'ajouteraient que de la confusion — et cite la taille du fichier **et** la limite :
+          « Cette photo pese 4,2 Mo. La taille maximale est de 1 Mo. »
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="avatar-413-read-by-code-never-by-message">
+        <title>Le `413` se lit par `code`, jamais par `message`</title>
+        <description>
+          Le corps du refus porte `code: "UPLOAD_FILE_TOO_LARGE"` et `maxUploadBytes`, toujours
+          presents ; `message` est en anglais technique et ne fait pas partie du contrat. Trois cas
+          sont couverts : `receivedBytes` connu (on cite la taille exacte), `receivedBytes: null`
+          (flux coupe — on ne cite aucun chiffre plutot que d'inventer « 0 octet »), et corps
+          **non-JSON** (page HTML de nginx si les deux plafonds divergeaient : `JSON.parse` echoue
+          sans bruit et le message francais reste identique). La taille connue du front n'est citee
+          que si elle depasse effectivement le plafond — « pese 3 octets » face a « maximum 1 Mo »
+          ferait douter du message.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="avatar-constraints-shown-not-footnoted">
+        <title>Les contraintes sont un encart lisible, pas une note grise</title>
+        <description>
+          Taille maximale et formats sont affiches **au-dessus** des boutons, dans une surface claire
+          bordee, en `text-sm` — la note `text-xs text-gray-400` precedente etait exactement le
+          genre d'information qu'on ne lit qu'apres l'echec. S'y ajoute une phrase d'action, une
+          seule : « Une photo prise au telephone depasse presque toujours cette limite : reduisez-la
+          ou recadrez-la avant de l'envoyer. » L'encart est relie au champ de fichier par
+          `aria-describedby`, le champ etant masque visuellement.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <openPoints>
+        <item id="avatar-client-side-resize-still-open">
+          Le redimensionnement `canvas` avant envoi reste **non implemente** — c'est un choix produit,
+          pas technique. Il reglerait le probleme sans attendre l'infra (une photo de 5 Mo passerait
+          sous les 200 Ko), au prix d'un re-encodage supplementaire cote navigateur et d'une perte de
+          qualite avant celle deja appliquee par le serveur (WebP, 512 px). A trancher avec
+          l'utilisateur.
+        </item>
+        <item id="avatar-constraints-fetch-failure-blocks-large-files">
+          Si `GET /profiles/avatar/constraints` echoue **et** que le plafond serveur a ete releve
+          entre-temps, le repli a 1 Mo refusera localement un fichier que le serveur aurait accepte.
+          Double panne peu probable ; l'alternative — ne rien refuser localement quand les
+          contraintes sont inconnues — rendrait l'ecran incoherent avec la limite qu'il affiche.
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

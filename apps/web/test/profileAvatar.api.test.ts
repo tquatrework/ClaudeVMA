@@ -22,6 +22,7 @@ import apiClient from '../src/api/client'
 import {
   deleteProfileAvatar,
   fetchProfileAvatarBlob,
+  fetchProfileAvatarConstraints,
   uploadProfileAvatar,
 } from '../src/api/profile'
 
@@ -37,6 +38,26 @@ function makePhotoFile() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+})
+
+describe('fetchProfileAvatarConstraints', () => {
+  it('appelle le chemin documenté, sans :userId', async () => {
+    // Les contraintes ne dépendent ni du profil visé ni du lecteur : une URL
+    // calquée sur `/profiles/:userId/...` n'existe pas côté serveur.
+    mockGet.mockResolvedValue({
+      data: {
+        maxUploadBytes: 1_000_000,
+        acceptedContentTypes: ['image/jpeg'],
+        outputContentType: 'image/webp',
+        maxDimensionPixels: 512,
+      },
+    })
+
+    const constraints = await fetchProfileAvatarConstraints()
+
+    expect(mockGet).toHaveBeenCalledWith('/profiles/avatar/constraints')
+    expect(constraints.maxUploadBytes).toBe(1_000_000)
+  })
 })
 
 describe('uploadProfileAvatar', () => {

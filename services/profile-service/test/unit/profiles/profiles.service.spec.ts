@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import {
   BadRequestException,
@@ -132,6 +133,10 @@ describe('ProfilesService', () => {
         { provide: EventsService, useValue: eventsService },
         { provide: IdentityAccessClient, useValue: identityAccessClient },
         { provide: FieldVisibilityService, useValue: fieldVisibilityService },
+        // ProfilesService lit AVATAR_PUBLIC_PATH_PREFIX au démarrage pour
+        // construire `avatarUrl`. Le stub renvoie undefined : le service
+        // retombe alors sur le préfixe par défaut, celui de l'api-gateway.
+        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(undefined) } },
       ],
     }).compile();
 
@@ -385,7 +390,29 @@ describe('ProfilesService', () => {
         expect(result).toEqual({
           userId: eleveId,
           loginIdentifier: 'alice.martin',
-          administrative: { userId: eleveId, firstName: 'Alice' },
+          // Le bloc administratif est PROJETÉ (administrative-profile.view.ts) :
+          // tous les champs exposés y figurent, à `null` quand ils ne sont pas
+          // renseignés — « clé présente à null » veut dire « non renseigné », par
+          // opposition à « clé absente » qui veut dire « masqué ». Les champs de
+          // stockage de la photo (avatarObjectKey, avatarContentType) n'en font
+          // jamais partie ; seul `avatarUrl` est exposé.
+          administrative: {
+            userId: eleveId,
+            firstName: 'Alice',
+            lastName: null,
+            birthDate: null,
+            phone: null,
+            addressLine1: null,
+            addressLine2: null,
+            postalCode: null,
+            city: null,
+            country: null,
+            avatarUrl: null,
+            department: null,
+            passions: null,
+            createdAt: undefined,
+            updatedAt: undefined,
+          },
           pedagogical: null,
           // null tant qu'aucun profil pédagogique n'existe — le front n'a donc
           // aucun jeu de champs à afficher, et n'a pas à le deviner.
@@ -462,7 +489,12 @@ describe('ProfilesService', () => {
 
         const result = await service.getProfile(STUDENT_ID, actor);
 
-        expect(result.administrative).toEqual(administrative);
+        // `toMatchObject` et non `toEqual` : le bloc administratif est projeté,
+        // donc il porte en plus les champs non renseignés à `null` (dont
+        // `avatarUrl`). Ce qui est vérifié ici, c'est qu'AUCUN champ du
+        // titulaire n'est retiré.
+        expect(result.administrative).toMatchObject(administrative);
+        expect(result.administrative).toHaveProperty('avatarUrl', null);
         expect(result.pedagogical).toEqual(pedagogical);
         expect(result.visibility).toEqual({ isFiltered: false, hiddenFields: [] });
         // Aucun réglage n'est même consulté : on ne se filtre pas soi-même.

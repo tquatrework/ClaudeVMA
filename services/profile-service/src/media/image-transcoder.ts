@@ -1,5 +1,15 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import sharp from 'sharp';
+/**
+ * `import * as sharp`, et non `import sharp from 'sharp'`.
+ *
+ * sharp publie ses types en `export = sharp`, et le service compile avec
+ * `esModuleInterop: false`. Sous cette configuration, la forme par défaut
+ * TYPE-CHECK sans erreur (grâce à `allowSyntheticDefaultImports`) mais émet
+ * `sharp_1.default`, qui vaut `undefined` à l'exécution : le service compile,
+ * démarre, et casse au premier téléversement. La forme namespace émet un
+ * `require()` direct, seule correcte ici.
+ */
+import * as sharp from 'sharp';
 
 /**
  * Formats reconnus par la détection sur les OCTETS RÉELS.

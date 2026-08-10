@@ -8,11 +8,18 @@
  * découpée en `addressLine1` / `addressLine2` : il n'existe pas de champ
  * `address`, et l'envoyer déclenche un `400`.
  *
- * Le formulaire propose **les 12 champs du contrat**, ni plus ni moins : la
+ * Le formulaire propose **les 11 champs du contrat**, ni plus ni moins : la
  * liste `EDITABLE_FIELDS` est vérifiée par test contre
  * `ADMINISTRATIVE_FIELD_NAMES`. Elle en exposait 10 jusqu'au 2026-08-09 —
  * `avatarUrl` et `passions` étaient chargés, conservés et renvoyés, mais
  * introuvables à l'écran, donc impossibles à renseigner.
+ *
+ * `avatarUrl` en est ressorti le 2026-08-10, dans l'autre sens : la photo est
+ * devenue un fichier envoyé par ses propres routes, et le serveur répond
+ * désormais `400` si ce champ arrive dans le corps du `PUT`. Le formulaire le
+ * renvoyait à chaque enregistrement dès qu'une photo existait — il aurait donc
+ * rendu tout profil illustré impossible à modifier. La photo se change dans
+ * `ProfileAvatarField`, en tête du même onglet.
  *
  * Un champ laissé vide n'est **pas envoyé** : le serveur refuse une chaîne vide
  * sur `firstName`, `lastName` et `phone` (`400`), et l'absence d'un champ vaut
@@ -54,12 +61,6 @@ export const EDITABLE_FIELDS = [
   { name: 'city', type: 'text', placeholder: 'Paris' },
   { name: 'country', type: 'text', placeholder: 'France' },
   { name: 'department', type: 'text', placeholder: '75 - Paris' },
-  {
-    name: 'avatarUrl',
-    type: 'text',
-    placeholder: 'https://…/ma-photo.jpg',
-    hint: 'Adresse web de votre photo de profil',
-  },
   {
     name: 'passions',
     type: 'text',

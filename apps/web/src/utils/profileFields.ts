@@ -35,13 +35,19 @@ import type { UserRole } from '../types/user'
 // ─── Listes de champs autorisées (miroir de docs/routes.md) ───────────────────
 
 /**
- * Les 12 champs éditables du profil administratif, **dans l'ordre d'écran**.
+ * Les 11 champs éditables du profil administratif, **dans l'ordre d'écran**.
  *
  * Cette liste est la seule source d'ordre : la fiche les liste tous, le
  * formulaire les propose tous, dans cette suite. Un champ qui n'y figurerait pas
  * serait invisible à l'écran, donc impossible à renseigner — c'est exactement ce
  * qui était arrivé à `avatarUrl` et `passions`, présents ici mais absents du
  * formulaire (constat du 2026-08-09).
+ *
+ * `avatarUrl` en est **sorti le 2026-08-10** : la photo n'est plus une URL
+ * collée à la main mais un fichier, envoyé et supprimé par ses propres routes.
+ * L'envoyer à `PUT /profiles/:userId/administrative` renvoie désormais `400` —
+ * le formulaire aurait donc cassé l'enregistrement de tout profil portant déjà
+ * une photo. Voir `ADMINISTRATIVE_SERVER_MANAGED_FIELD_NAMES`.
  */
 export const ADMINISTRATIVE_FIELD_NAMES = [
   'firstName',
@@ -54,9 +60,19 @@ export const ADMINISTRATIVE_FIELD_NAMES = [
   'city',
   'country',
   'department',
-  'avatarUrl',
   'passions',
 ] as const satisfies readonly (keyof AdministrativeProfileFields)[]
+
+/**
+ * Champs du bloc `administrative` **gérés par le serveur** : lisibles dans la
+ * réponse, jamais renvoyés en écriture.
+ *
+ * `avatarUrl` y porte l'URL de lecture versionnée de la photo
+ * (`/api/v1/profiles/{userId}/avatar?v={horodatage}`), ou est absent quand il n'y
+ * a pas de photo — ou que le titulaire ne la partage pas avec ce lecteur, les
+ * deux cas étant volontairement indiscernables.
+ */
+export const ADMINISTRATIVE_SERVER_MANAGED_FIELD_NAMES = ['avatarUrl'] as const
 
 /**
  * Traçabilité du profil administratif, posée par le serveur : lisible, jamais
@@ -74,6 +90,10 @@ export const ADMINISTRATIVE_TRACEABILITY_FIELD_NAMES = ['createdAt', 'updatedAt'
  * fiche (règle UX du projet — les identifiants internes vivent dans les URLs,
  * les appels et les clés React, jamais comme libellé à l'écran). Sans cette
  * liste, le bloc était affiché tel quel et l'UUID s'y invitait.
+ *
+ * `avatarUrl` n'y figure pas non plus : une URL de fichier n'est pas une donnée
+ * lisible, la photo a son propre emplacement en tête de bloc
+ * (`ProfileAvatarField`).
  */
 export const ADMINISTRATIVE_DISPLAY_FIELD_NAMES = [
   ...ADMINISTRATIVE_FIELD_NAMES,
@@ -189,6 +209,20 @@ export function pickAdministrativeFields(raw: unknown): AdministrativeProfileFie
  */
 export function pickAdministrativeDisplayFields(raw: unknown): Record<string, unknown> {
   return pickFields<Record<string, unknown>>(raw, ADMINISTRATIVE_DISPLAY_FIELD_NAMES)
+}
+
+/**
+ * URL de lecture de la photo, telle que le serveur l'a construite — jeton de
+ * version `?v=` compris.
+ *
+ * `null` couvre indifféremment « pas de photo » et « photo non partagée avec ce
+ * lecteur » : le champ est simplement absent du bloc dans les deux cas, et rien
+ * ne permet — ni ne doit permettre — de les distinguer.
+ */
+export function pickAdministrativeAvatarUrl(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'object') return null
+  const avatarUrl = (raw as Record<string, unknown>).avatarUrl
+  return typeof avatarUrl === 'string' && avatarUrl !== '' ? avatarUrl : null
 }
 
 /** Noms des champs déclaratifs de la forme demandée. */

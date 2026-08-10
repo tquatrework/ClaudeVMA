@@ -15,7 +15,9 @@
 
 import { describe, it, expect } from 'vitest'
 import {
+  ADMINISTRATIVE_DISPLAY_FIELD_NAMES,
   ADMINISTRATIVE_FIELD_NAMES,
+  ADMINISTRATIVE_SERVER_MANAGED_FIELD_NAMES,
   LIST_FIELD_NAMES,
   PRESCRIPTION_AUTHORSHIP_FIELD_NAMES,
   STUDENT_DECLARATIVE_FIELD_NAMES,
@@ -29,6 +31,7 @@ import {
   isListField,
   parseCommaSeparatedList,
   pedagogicalKindForRole,
+  pickAdministrativeAvatarUrl,
   pickAdministrativeDisplayFields,
   pickAdministrativeFields,
   pickDeclarativeDisplayFields,
@@ -87,9 +90,23 @@ describe('listes de champs de profil', () => {
       'city',
       'country',
       'department',
-      'avatarUrl',
       'passions',
     ])
+  })
+
+  it("écarte `avatarUrl` des champs renvoyés en écriture", () => {
+    // `PUT /profiles/:userId/administrative` répond `400` s'il reçoit ce champ
+    // depuis le 2026-08-10 : la photo passe par ses propres routes. Le laisser
+    // ici aurait rendu impossible l'enregistrement de tout profil illustré.
+    expect(ADMINISTRATIVE_FIELD_NAMES).not.toContain('avatarUrl')
+    expect(ADMINISTRATIVE_SERVER_MANAGED_FIELD_NAMES).toContain('avatarUrl')
+  })
+
+  it("n'affiche pas `avatarUrl` comme une ligne de texte de la fiche", () => {
+    // Une URL de fichier n'est pas une donnée lisible : la photo a son propre
+    // emplacement, et son absence n'a pas à produire une ligne « Non partagé »
+    // qui trahirait un masquage.
+    expect(ADMINISTRATIVE_DISPLAY_FIELD_NAMES).not.toContain('avatarUrl')
   })
 
   it("n'expose aucun champ `address` ni nom français côté administratif", () => {
@@ -228,9 +245,45 @@ describe('pickAdministrativeFields', () => {
     ).toEqual({ firstName: 'Alice', addressLine1: '1 rue de la Paix' })
   })
 
+  it('ne renvoie jamais `avatarUrl` au serveur', () => {
+    // Le champ est lisible dans le bloc, mais l'envoyer vaut `400` : un profil
+    // portant une photo serait devenu impossible à enregistrer.
+    expect(
+      pickAdministrativeFields({
+        firstName: 'Alice',
+        avatarUrl: '/api/v1/profiles/student-1/avatar?v=1754820000000',
+      }),
+    ).toEqual({ firstName: 'Alice' })
+  })
+
   it('renvoie un objet vide pour un bloc absent', () => {
     expect(pickAdministrativeFields(null)).toEqual({})
     expect(pickAdministrativeFields(undefined)).toEqual({})
+  })
+})
+
+describe('pickAdministrativeAvatarUrl', () => {
+  it("extrait l'URL de lecture versionnée telle que le serveur l'a construite", () => {
+    expect(
+      pickAdministrativeAvatarUrl({
+        firstName: 'Nina',
+        avatarUrl: '/api/v1/profiles/student-1/avatar?v=1754820000000',
+      }),
+    ).toBe('/api/v1/profiles/student-1/avatar?v=1754820000000')
+  })
+
+  it('renvoie null quand le champ est absent — pas de photo, ou photo masquée', () => {
+    // Les deux causes sont volontairement indiscernables : le champ manque dans
+    // les deux cas, et rien ici ne doit chercher à les distinguer.
+    expect(pickAdministrativeAvatarUrl({ firstName: 'Nina' })).toBeNull()
+    expect(pickAdministrativeAvatarUrl({ avatarUrl: null })).toBeNull()
+    expect(pickAdministrativeAvatarUrl({ avatarUrl: '' })).toBeNull()
+    expect(pickAdministrativeAvatarUrl(null)).toBeNull()
+    expect(pickAdministrativeAvatarUrl(undefined)).toBeNull()
+  })
+
+  it('ignore une valeur qui ne serait pas une chaîne', () => {
+    expect(pickAdministrativeAvatarUrl({ avatarUrl: 42 })).toBeNull()
   })
 })
 

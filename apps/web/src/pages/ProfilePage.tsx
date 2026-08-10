@@ -18,6 +18,7 @@ import { resolvePedagogicalProfileKind } from '../utils/profileFields'
 import {
   canEditAdministrativeProfile,
   canEditDeclarativePedagogicalProfile,
+  canEditProfileAvatar,
   roleHasPedagogicalProfile,
 } from '../utils/profilePermissions'
 
@@ -46,6 +47,13 @@ export default function ProfilePage() {
    */
   const canEditAdministrative = canEditAdministrativeProfile(user?.role, isViewingOwnProfile)
   const canEditPedagogical = canEditDeclarativePedagogicalProfile(user?.role, isViewingOwnProfile)
+
+  /**
+   * La photo est **plus fermée** que le reste du bloc administratif : elle
+   * n'appartient au domaine d'aucun rôle administratif, seul le titulaire la
+   * change ou la supprime.
+   */
+  const canEditAvatar = canEditProfileAvatar(isViewingOwnProfile)
 
   const canSeeInternalNotes = hasRole('responsable_pedagogique', 'administrateur_financier')
   const canSeeRelations = hasRole(
@@ -188,17 +196,19 @@ export default function ProfilePage() {
             {/* ── Onglet 1 : Profil administratif ── */}
             <TabPanel tabId={TAB_ADMIN} activeTab={activeTab}>
               <div className="space-y-6">
-                {/* Les 12 champs du contrat, toujours tous : en saisie si le
-                    lecteur a le droit d'écriture, en lecture sinon. Le bloc reçu
-                    n'est jamais affiché tel quel — il porte `userId`, identifiant
-                    technique sans valeur pour le titulaire — et les champs non
-                    partagés n'en font pas partie : leurs noms viennent de
+                {/* En tête, l'emplacement de la photo, puis les 11 champs du
+                    contrat, toujours tous : en saisie si le lecteur a le droit
+                    d'écriture, en lecture sinon. Le bloc reçu n'est jamais
+                    affiché tel quel — il porte `userId`, identifiant technique
+                    sans valeur pour le titulaire — et les champs non partagés
+                    n'en font pas partie : leurs noms viennent de
                     `visibility.hiddenFields`. */}
                 <AdministrativeProfilePanel
                   userId={userId}
                   administrative={profile.administrative}
                   visibility={profile.visibility}
                   canEdit={canEditAdministrative}
+                  canEditAvatar={canEditAvatar}
                 />
 
                 {/* Profil financier — rôles ayant une dimension financière, sur leur propre profil */}

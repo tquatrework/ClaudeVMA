@@ -25,13 +25,28 @@ import type { PersonName } from '../types/profile'
  *   « Élève ») est utilisé, complété du `loginIdentifier` s'il existe, sinon d'une
  *   mention explicite « nom non renseigné ».
  */
+/**
+ * Prénom et nom accolés, ou chaîne vide quand aucun des deux n'est connu.
+ *
+ * Repli **volontairement vide** : un écran qui n'a pas de nom à montrer n'en
+ * invente pas un, et n'y substitue surtout pas un identifiant technique. Les
+ * appelants qui ont besoin d'un libellé de repli passent par
+ * `formatPersonDisplayName`.
+ */
+export function formatFullName(
+  firstName: string | null | undefined,
+  lastName: string | null | undefined,
+): string {
+  return [firstName, lastName].filter(Boolean).join(' ')
+}
+
 export function formatPersonDisplayName(
   firstName: string | null | undefined,
   lastName: string | null | undefined,
   loginIdentifier: string | null | undefined,
   genericRoleLabel: string,
 ): string {
-  const fullName = [firstName, lastName].filter(Boolean).join(' ')
+  const fullName = formatFullName(firstName, lastName)
   const readableIdentifier = loginIdentifier || undefined
 
   if (fullName) {

@@ -28,6 +28,9 @@ const STATUS_MESSAGES: Record<number, string> = {
   403: "Vous n'êtes pas autorisé à effectuer cette action.",
   404: 'Ressource introuvable.',
   409: 'Cette action entre en conflit avec une donnée existante.',
+  // Envoi de fichier refusé pour son poids — par le service, ou par le serveur
+  // web en amont (qui répond alors une page HTML sans message exploitable).
+  413: 'Le fichier envoyé est trop lourd. Choisissez un fichier plus léger.',
   422: "La demande n'a pas pu être traitée. Vérifiez les informations saisies.",
 }
 

@@ -1,7 +1,12 @@
 /**
  * AdministrativeProfilePanel — bloc administratif de la fiche profil.
  *
- * Deux rendus, un seul contenu : **les 12 champs du contrat, toujours tous**.
+ * En tête, l'**emplacement de la photo** (`ProfileAvatarField`) : la voir, la
+ * changer, la supprimer. Il a ses propres routes et son propre droit d'écriture
+ * — le titulaire seul —, d'où un `canEditAvatar` distinct de `canEdit`.
+ *
+ * Dessous, deux rendus, un seul contenu : **les 11 champs du contrat, toujours
+ * tous**.
  *
  * - lecteur **sans** droit d'écriture → liste de lecture, un champ vide portant
  *   « Non renseigné » (à ne pas confondre avec « Non partagé », qui dit que le
@@ -24,14 +29,17 @@ import type { ProfileVisibility } from '../../types/profile'
 import {
   ADMINISTRATIVE_DISPLAY_FIELD_NAMES,
   ADMINISTRATIVE_TRACEABILITY_FIELD_NAMES,
+  pickAdministrativeAvatarUrl,
   pickAdministrativeDisplayFields,
   pickAdministrativeFields,
 } from '../../utils/profileFields'
+import { formatFullName } from '../../utils/nameFormat'
 import { isEmptyFieldValue } from '../../utils/profileFieldDisplay'
 import { isProfileFiltered, pickHiddenFieldNames } from '../../utils/profileVisibility'
 import { useProfileSaveActions } from '../../hooks/profile/useProfileSaveActions'
 import { AdministrativeProfileForm } from './AdministrativeProfileForm'
 import { EditableProfileCard } from './EditableProfileCard'
+import { ProfileAvatarField } from './ProfileAvatarField'
 import { ProfileFieldList } from './ProfileFieldList'
 import { ProfileSection } from './ProfileSection'
 
@@ -50,6 +58,12 @@ interface AdministrativeProfilePanelProps {
   visibility?: ProfileVisibility
   /** Le lecteur courant a-t-il le droit d'écrire ce profil ? */
   canEdit: boolean
+  /**
+   * Le lecteur courant est-il le **titulaire** ? Droit distinct et plus
+   * restreint que `canEdit` : la photo n'est changée que par son propriétaire,
+   * même quand un RP ou un TI peut modifier le reste du bloc.
+   */
+  canEditAvatar: boolean
 }
 
 export function AdministrativeProfilePanel({
@@ -57,6 +71,7 @@ export function AdministrativeProfilePanel({
   administrative,
   visibility,
   canEdit,
+  canEditAvatar,
 }: AdministrativeProfilePanelProps) {
   const { saveAdministrative, isSavingAdministrative, administrativeSaveError } =
     useProfileSaveActions(userId)
@@ -79,15 +94,35 @@ export function AdministrativeProfilePanel({
 
   const isEditable = canEdit && !isProfileFiltered(visibility)
 
+  /**
+   * Emplacement de la photo, en tête du bloc dans les deux rendus. Il est monté
+   * même en lecture seule : une fiche d'identité sans visage n'en est pas une, et
+   * le lecteur autorisé doit voir la photo qu'il a le droit de voir.
+   */
+  const avatarField = (
+    <ProfileAvatarField
+      userId={userId}
+      avatarUrl={pickAdministrativeAvatarUrl(administrative)}
+      displayName={formatFullName(
+        typeof displayedFields.firstName === 'string' ? displayedFields.firstName : undefined,
+        typeof displayedFields.lastName === 'string' ? displayedFields.lastName : undefined,
+      )}
+      canEdit={canEditAvatar}
+    />
+  )
+
   if (!isEditable) {
     return (
-      <ProfileSection
-        title={SECTION_TITLE}
-        data={displayedFields}
-        fieldNames={ADMINISTRATIVE_DISPLAY_FIELD_NAMES}
-        emptyMessage="Aucune donnée administrative"
-        hiddenFieldNames={hiddenFieldNames}
-      />
+      <>
+        {avatarField}
+        <ProfileSection
+          title={SECTION_TITLE}
+          data={displayedFields}
+          fieldNames={ADMINISTRATIVE_DISPLAY_FIELD_NAMES}
+          emptyMessage="Aucune donnée administrative"
+          hiddenFieldNames={hiddenFieldNames}
+        />
+      </>
     )
   }
 
@@ -104,29 +139,33 @@ export function AdministrativeProfilePanel({
   )
 
   return (
-    <EditableProfileCard
-      title={SECTION_TITLE}
-      description={EDIT_DESCRIPTION}
-      successMessage={successMessage}
-      onDismissSuccess={() => setSuccessMessage(null)}
-      saveError={administrativeSaveError}
-    >
-      <AdministrativeProfileForm
-        profile={editableFields}
-        isSaving={isSavingAdministrative}
-        onSubmit={handleSubmit}
-        className="space-y-4"
-      />
+    <>
+      {avatarField}
 
-      {hasTraceability && (
-        <div className="mt-6 pt-4 border-t border-gray-100">
-          <ProfileFieldList
-            data={displayedFields}
-            fieldNames={ADMINISTRATIVE_TRACEABILITY_FIELD_NAMES}
-            className="space-y-2"
-          />
-        </div>
-      )}
-    </EditableProfileCard>
+      <EditableProfileCard
+        title={SECTION_TITLE}
+        description={EDIT_DESCRIPTION}
+        successMessage={successMessage}
+        onDismissSuccess={() => setSuccessMessage(null)}
+        saveError={administrativeSaveError}
+      >
+        <AdministrativeProfileForm
+          profile={editableFields}
+          isSaving={isSavingAdministrative}
+          onSubmit={handleSubmit}
+          className="space-y-4"
+        />
+
+        {hasTraceability && (
+          <div className="mt-6 pt-4 border-t border-gray-100">
+            <ProfileFieldList
+              data={displayedFields}
+              fieldNames={ADMINISTRATIVE_TRACEABILITY_FIELD_NAMES}
+              className="space-y-2"
+            />
+          </div>
+        )}
+      </EditableProfileCard>
+    </>
   )
 }

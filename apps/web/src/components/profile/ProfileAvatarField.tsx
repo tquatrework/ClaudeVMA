@@ -64,6 +64,13 @@ interface ProfileAvatarFieldProps {
   displayName?: string | null
   /** Le lecteur courant est-il le titulaire ? Lui seul change ou supprime. */
   canEdit: boolean
+  /**
+   * Prévient la page qu'un envoi ou une suppression vient d'aboutir, pour
+   * qu'elle relise le profil. Ce champ est monté dans un onglet : son état local
+   * meurt au changement d'onglet, et sans relecture l'écran repart de l'
+   * `avatarUrl` d'avant l'écriture (défaut du 2026-08-10).
+   */
+  onAvatarChanged?: () => void
 }
 
 export function ProfileAvatarField({
@@ -71,6 +78,7 @@ export function ProfileAvatarField({
   avatarUrl,
   displayName,
   canEdit,
+  onAvatarChanged,
 }: ProfileAvatarFieldProps) {
   const fileInputId = useId()
   const constraintsHintId = useId()
@@ -88,7 +96,7 @@ export function ProfileAvatarField({
     removeError,
     dismissWriteErrors,
     avatarConstraints,
-  } = useProfileAvatar(userId, avatarUrl, { canUpload: canEdit })
+  } = useProfileAvatar(userId, avatarUrl, { canUpload: canEdit, onAvatarChanged })
 
   const hasPhoto = photoObjectUrl !== null
   const isBusy = isUploadingPhoto || isRemovingPhoto

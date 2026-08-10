@@ -820,5 +820,74 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-08-10" label="Relecture systematique a chaque clic de menu (branche fix/relecture-systematique-profil)">
+      <context>
+        Une photo envoyee avec succes disparaissait au retour sur son onglet. Le serveur etait hors
+        de cause : `POST` a `200`, fichier ecrit sur le volume, `avatar_object_key` en base.
+        Les journaux de la gateway ont tranche — un **seul** `GET /profiles/:userId`, anterieur a
+        l'envoi, puis plus aucun. Ce que l'utilisateur appelait « changer de page » etait un
+        changement d'**onglet** : `TabPanel` rend `null` quand l'onglet est inactif, ce qui
+        **demonte** `ProfileAvatarField` et l'etat local ou vivait la nouvelle photo. Au remontage,
+        la prop repartait du profil charge a l'ouverture, ou `avatarUrl` valait encore `null`.
+        L'utilisateur en a tire une regle generale : chaque clic sur un menu redemande ses donnees
+        au backend, pour tout le front, sans cache (voir `docs/architecture.md`).
+      </context>
+
+      <decision id="tab-click-refetch">
+        Hook partage `src/hooks/useTabSelection.ts` : `onTabActivated` n'est appele que depuis le
+        gestionnaire de **clic**, jamais depuis un `useEffect`. Le premier affichage ne produit donc
+        qu'une requete, et la regle vit en un point unique au lieu d'etre recopiee page par page.
+        `ProfilePage` et `ProfileEditPage` l'utilisent — seuls ecrans a onglets a ce jour.
+      </decision>
+
+      <decision id="no-cache-on-purpose">
+        **Aucun cache introduit**, conformement a l'arbitrage. Les tests l'interdisent activement :
+        ils exigent une requete par clic, y compris quand la precedente vient d'aboutir. Une future
+        couche de cache les fera tomber — c'est voulu, elle devra etre une decision explicite et
+        non une derive.
+      </decision>
+
+      <decision id="refresh-after-write-kept">
+        La relecture apres envoi ou suppression de photo (`onAvatarChanged`) est **conservee** en
+        plus du clic d'onglet : elle couvre le cas ou l'utilisateur envoie sa photo et **reste** sur
+        le meme onglet. Une ecriture et une navigation sont deux evenements distincts.
+      </decision>
+
+      <decision id="no-flicker-no-lost-input">
+        La relecture ne rebascule pas l'ecran sur « Chargement… » — reserve au premier chargement —
+        et le formulaire administratif se reinitialise sur les **valeurs** recues, non sur
+        l'identite de l'objet : une relecture pendant une saisie ne l'efface pas.
+      </decision>
+
+      <openPoints>
+        <item id="tab-reclick-refetches">
+          Re-cliquer l'onglet **deja actif** relit aussi. Choix assume : c'est un clic reel, et
+          souvent le geste de quelqu'un qui veut rafraichir. A inverser en une ligne dans
+          `useTabSelection` si ce n'est pas le comportement voulu.
+        </item>
+        <item id="pedagogical-tab-two-requests">
+          Un clic sur « Profil pedagogique » declenche **deux** appels — `GET /profiles/:userId` et
+          `GET /profiles/:userId/statistics`. Ce ne sont pas des doublons mais deux ressources, et
+          les deux relevent de la regle.
+        </item>
+        <item id="no-per-block-read-route">
+          Il n'existe pas de route de lecture par bloc : `GET /profiles/:userId` renvoie
+          `administrative` **et** `pedagogical`. Le jour ou le back exposera des lectures par bloc,
+          seul l'argument `onTabActivated` sera a specialiser par onglet.
+        </item>
+        <item id="profile-page-over-300-lines">
+          `src/pages/ProfilePage.tsx` passe a 324 lignes (309 avant). Depassement **pre-existant**
+          du seuil de 300 ; un decoupage par onglet serait le bon geste, hors perimetre de ce
+          correctif.
+        </item>
+        <item id="authenticated-reads-without-cache-control">
+          `GET /profiles/:userId` renvoie un `ETag` **sans aucun `Cache-Control`**. Ce n'est pas la
+          cause du defaut corrige ici — la mesure l'a exclu — mais une reponse authentifiee sans
+          directive reste a la merci de la fraicheur heuristique. Un `Cache-Control: no-store` cote
+          `profile-service` fermerait cette famille de bugs. **Propose a l'utilisateur, non tranche.**
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

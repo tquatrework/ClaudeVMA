@@ -60,6 +60,14 @@ export interface UseProfileDetailsResult {
   addNote: (content: string) => Promise<boolean>
   isSavingNote: boolean
   noteSaveError: string | null
+  /**
+   * Relit `GET /profiles/:userId`. À appeler après une écriture qui passe par
+   * une **autre** route que celles de la fiche — la photo aujourd'hui — pour que
+   * l'écran ne conserve pas une copie que le serveur contredit. Les données
+   * déjà affichées restent en place pendant la relecture : rien ne clignote, et
+   * la saisie en cours n'est pas perdue.
+   */
+  refreshProfile: () => void
 }
 
 /**
@@ -77,7 +85,7 @@ export function useProfileDetails(
   canSeeRelations: boolean,
   canSeeInternalNotes: boolean,
 ): UseProfileDetailsResult {
-  const { data, isLoading, error: loadError } = useAsyncData(
+  const { data, isLoading, error: loadError, refetch } = useAsyncData(
     () => loadProfileDetails(userId, canSeeRelations, canSeeInternalNotes),
     [userId, canSeeRelations, canSeeInternalNotes],
   )
@@ -114,6 +122,15 @@ export function useProfileDetails(
     [userId],
   )
 
+  /**
+   * Les notes ajoutées localement sont oubliées avant la relecture : elles vont
+   * revenir du serveur, les garder les afficherait en double.
+   */
+  const refreshProfile = useCallback(() => {
+    setAddedNotes([])
+    refetch()
+  }, [refetch])
+
   return {
     profile: data?.profile ?? null,
     teacherRelations: data?.teacherRelations ?? [],
@@ -123,5 +140,6 @@ export function useProfileDetails(
     addNote,
     isSavingNote,
     noteSaveError,
+    refreshProfile,
   }
 }

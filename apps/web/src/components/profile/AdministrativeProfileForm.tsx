@@ -27,7 +27,7 @@
  * transformer une consultation en refus serveur.
  */
 
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import type { AdministrativeProfileFields } from '../../types/profile'
 import { isStrictIsoCalendarDate } from '../../utils/dateFormat'
 import { getProfileFieldLabel } from '../../utils/profileFieldLabels'
@@ -118,6 +118,23 @@ function buildPayload(values: Record<string, string>): AdministrativeProfileFiel
   return payload as AdministrativeProfileFields
 }
 
+/**
+ * Signature **par valeur** des données reçues du serveur.
+ *
+ * Le formulaire se réinitialise quand le profil chargé change. Comparé par
+ * identité d'objet, il se réinitialisait aussi à chaque relecture du profil,
+ * même quand aucune valeur n'avait bougé : depuis que la page relit
+ * `GET /profiles/:userId` après un changement de photo, cela aurait effacé la
+ * saisie en cours d'un utilisateur qui change sa photo au milieu de sa
+ * modification d'adresse. L'ordre des clés est celui, fixe, de
+ * `ADMINISTRATIVE_FIELD_NAMES` : la signature est donc stable.
+ */
+function buildValuesSignature(values: Record<string, string>): string {
+  // Separateur impossible a saisir : deux profils distincts ne peuvent pas
+  // produire la meme signature par recollement de leurs valeurs.
+  return ADMINISTRATIVE_FIELD_NAMES.map((fieldName) => values[fieldName] ?? '').join('\u0000')
+}
+
 export function AdministrativeProfileForm({
   profile,
   isSaving,
@@ -128,10 +145,21 @@ export function AdministrativeProfileForm({
   const [values, setValues] = useState<Record<string, string>>(() => buildInitialValues(profile))
   const [birthDateError, setBirthDateError] = useState<string | null>(null)
 
-  useEffect(() => {
-    setValues(buildInitialValues(profile))
+  /**
+   * Réinitialisation quand — et seulement quand — les données du serveur ont
+   * réellement changé de valeur. Le déclencheur était auparavant l'identité de
+   * l'objet `profile` : une simple relecture du profil, qui en fabrique un
+   * nouveau, aurait suffi à effacer la saisie en cours.
+   */
+  const loadedValues = buildInitialValues(profile)
+  const loadedSignature = buildValuesSignature(loadedValues)
+  const [appliedSignature, setAppliedSignature] = useState(loadedSignature)
+
+  if (loadedSignature !== appliedSignature) {
+    setAppliedSignature(loadedSignature)
+    setValues(loadedValues)
     setBirthDateError(null)
-  }, [profile])
+  }
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault()

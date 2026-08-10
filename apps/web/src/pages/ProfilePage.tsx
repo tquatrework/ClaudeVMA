@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useProfileDetails } from '../hooks/profile/useProfileDetails'
+import { useTabSelection } from '../hooks/useTabSelection'
 import Layout from '../components/Layout'
 import TeacherValidationPanel from './TeacherValidationPanel'
 import ProfileStatisticsPanel from './ProfileStatisticsPanel'
@@ -35,8 +36,6 @@ const TAB_DOCUMENTS = 'documents'
 export default function ProfilePage() {
   const { userId } = useParams<{ userId: string }>()
   const { user, hasRole } = useAuth()
-
-  const [activeTab, setActiveTab] = useState<string>(TAB_ADMIN)
 
   const isViewingOwnProfile = user?.id === userId
 
@@ -117,7 +116,18 @@ export default function ProfilePage() {
     addNote,
     isSavingNote,
     noteSaveError,
+    refreshProfile,
   } = useProfileDetails(userId, canSeeRelations, canSeeInternalNotes)
+
+  /**
+   * Chaque clic d'onglet redemande le profil au serveur — règle générale du
+   * front, pas une exception de cet écran. Les panneaux montés **dans** un
+   * `TabPanel` (statistiques, relations) sont démontés à la sortie de l'onglet :
+   * ils rechargent déjà d'eux-mêmes au retour. Ce qui manquait, c'est la donnée
+   * portée **au-dessus** des onglets, celle-là même qui gardait une photo
+   * périmée.
+   */
+  const { activeTab, selectTab } = useTabSelection(TAB_ADMIN, refreshProfile)
 
   /**
    * Forme du profil pédagogique : `pedagogicalType` renvoyé par le serveur fait
@@ -177,7 +187,11 @@ export default function ProfilePage() {
           )}
         </div>
 
-        {isLoading && <p className="text-gray-400">Chargement…</p>}
+        {/* Attente affichée au PREMIER chargement seulement : chaque clic
+            d'onglet relit le profil, et faire apparaître « Chargement… » à
+            chaque fois ferait sauter la mise en page sous les yeux du lecteur.
+            La fiche déjà chargée reste visible pendant la relecture. */}
+        {isLoading && !profile && <p className="text-gray-400">Chargement…</p>}
 
         {loadError && (
           <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
@@ -191,7 +205,7 @@ export default function ProfilePage() {
                 avant que le lecteur ne conclue à un oubli du titulaire. */}
             <FilteredProfileNotice visibility={profile.visibility} />
 
-            <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
+            <Tabs tabs={tabs} activeTab={activeTab} onTabChange={selectTab} />
 
             {/* ── Onglet 1 : Profil administratif ── */}
             <TabPanel tabId={TAB_ADMIN} activeTab={activeTab}>
@@ -209,6 +223,7 @@ export default function ProfilePage() {
                   visibility={profile.visibility}
                   canEdit={canEditAdministrative}
                   canEditAvatar={canEditAvatar}
+                  onAvatarChanged={refreshProfile}
                 />
 
                 {/* Profil financier — rôles ayant une dimension financière, sur leur propre profil */}

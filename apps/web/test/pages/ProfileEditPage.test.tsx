@@ -23,7 +23,7 @@
  * proviennent du point unique `src/utils/profileFieldLabels.ts`.
  */
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -38,14 +38,18 @@ import { useAuth } from '../../src/hooks/useAuth'
 import {
   fetchProfile,
   fetchProfileAvatarBlob,
+  fetchProfileAvatarConstraints,
   updateAdministrativeProfile,
   updatePedagogicalProfile,
   updatePrescription,
+  uploadProfileAvatar,
 } from '../../src/api/profile'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockFetchProfile = vi.mocked(fetchProfile)
 const mockFetchProfileAvatarBlob = vi.mocked(fetchProfileAvatarBlob)
+const mockFetchProfileAvatarConstraints = vi.mocked(fetchProfileAvatarConstraints)
+const mockUploadProfileAvatar = vi.mocked(uploadProfileAvatar)
 const mockUpdateAdministrativeProfile = vi.mocked(updateAdministrativeProfile)
 const mockUpdatePedagogicalProfile = vi.mocked(updatePedagogicalProfile)
 const mockUpdatePrescription = vi.mocked(updatePrescription)
@@ -765,5 +769,87 @@ describe('ProfileEditPage', () => {
       expect(screen.queryByLabelText('Niveau scolaire')).toBeNull()
       expect(screen.queryByLabelText('Niveaux enseignés')).toBeNull()
     })
+  })
+})
+
+/**
+ * Fraîcheur de la photo sur l'écran d'édition — même défaut que sur la fiche
+ * (2026-08-10) : l'emplacement photo vit dans l'onglet administratif, quitter
+ * l'onglet le démonte, et l'écran repartait de l'`avatarUrl` lu au montage,
+ * antérieur à l'envoi.
+ */
+describe('ProfileEditPage — photo de profil', () => {
+  const AVATAR_URL = '/api/v1/profiles/student-1/avatar?v=1754899999999'
+
+  const PROFILE_WITH_PHOTO = {
+    ...STUDENT_PROFILE,
+    administrative: { ...STUDENT_PROFILE.administrative, avatarUrl: AVATAR_URL },
+  }
+
+  function selectPhotoFile() {
+    const fileInput = screen.getByLabelText(/photo/i) as HTMLInputElement
+    const photoFile = new File([new Uint8Array([1, 2, 3])], 'photo.jpg', { type: 'image/jpeg' })
+    fireEvent.change(fileInput, { target: { files: [photoFile] } })
+  }
+
+  beforeEach(() => {
+    mockFetchProfileAvatarConstraints.mockResolvedValue({
+      maxUploadBytes: 1_000_000,
+      acceptedContentTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'],
+      outputContentType: 'image/webp',
+      maxDimensionPixels: 512,
+    })
+    mockFetchProfileAvatarBlob.mockResolvedValue(new Blob(['octets'], { type: 'image/webp' }))
+  })
+
+  it('relit le profil au serveur après un envoi réussi', async () => {
+    mockFetchProfile.mockResolvedValueOnce(STUDENT_PROFILE)
+    mockFetchProfile.mockResolvedValue(PROFILE_WITH_PHOTO)
+    mockUploadProfileAvatar.mockResolvedValue({ avatarUrl: AVATAR_URL })
+
+    renderEditPage()
+    await screen.findByLabelText('Ajouter une photo')
+
+    selectPhotoFile()
+
+    await waitFor(() => {
+      expect(mockFetchProfile).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  it("garde les formulaires à l'écran pendant cette relecture", async () => {
+    mockFetchProfile.mockResolvedValueOnce(STUDENT_PROFILE)
+    mockFetchProfile.mockResolvedValue(PROFILE_WITH_PHOTO)
+    mockUploadProfileAvatar.mockResolvedValue({ avatarUrl: AVATAR_URL })
+
+    renderEditPage()
+    await screen.findByLabelText('Ajouter une photo')
+
+    selectPhotoFile()
+
+    await waitFor(() => {
+      expect(mockFetchProfile).toHaveBeenCalledTimes(2)
+    })
+    // Une relecture de fraîcheur ne doit pas repasser l'écran en « Chargement… » :
+    // le formulaire serait démonté et la saisie en cours perdue.
+    expect(screen.queryByText('Chargement…')).toBeNull()
+    expect((screen.getByLabelText('Prénom') as HTMLInputElement).value).toBe('Alice')
+  })
+
+  it("affiche encore la photo après un aller-retour d'onglet", async () => {
+    mockFetchProfile.mockResolvedValueOnce(STUDENT_PROFILE)
+    mockFetchProfile.mockResolvedValue(PROFILE_WITH_PHOTO)
+    mockUploadProfileAvatar.mockResolvedValue({ avatarUrl: AVATAR_URL })
+
+    renderEditPage()
+    await screen.findByLabelText('Ajouter une photo')
+
+    selectPhotoFile()
+    await screen.findByRole('img', { name: /Alice Martin/ })
+
+    await openPedagogicalTab()
+    await openTab(/profil administratif/i)
+
+    expect(await screen.findByRole('img', { name: /Alice Martin/ })).toBeDefined()
   })
 })

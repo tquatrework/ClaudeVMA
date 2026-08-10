@@ -248,4 +248,25 @@ Phase 3 enrichit l'offre :
      (`GET /profiles/avatar/constraints`), pour que relever le plafond n'oblige pas a redeployer
      le front.
 
+- Fraicheur des donnees affichees : **chaque clic sur un menu redemande ses donnees au backend**.
+  Cliquer sur « Profil administratif » relit le profil administratif, cliquer sur « Profil
+  pedagogique » relit le profil pedagogique, et la regle vaut pour **n'importe quel menu du
+  front**, pas seulement les profils. Arbitrage rendu le 2026-08-10.
+  1. **Aucun cache pour l'instant.** Un cache serait le bon outil pour la fluidite, mais il ajoute
+     une couche de complexite que l'utilisateur a explicitement choisi de ne pas payer
+     aujourd'hui. Decision assumee, a rouvrir plus tard — **ne pas introduire de cache partiel
+     entre-temps**, meme « leger » : un demi-cache donne les inconvenients des deux approches.
+  2. **L'ecran ne doit jamais afficher une donnee que le serveur contredit.** C'est la raison
+     d'etre de la regle. Constat qui l'a declenchee, le 2026-08-10 : une photo de profil envoyee
+     avec succes (`200`, fichier ecrit, base a jour) disparaissait au retour sur son onglet.
+     `TabPanel` rend `null` quand l'onglet est inactif, ce qui **demonte** le composant et son
+     etat local ; au remontage, la page repartait du profil charge a l'ouverture, ou `avatarUrl`
+     valait encore `null`. Preuve : les journaux de la gateway ne montraient qu'**un seul**
+     `GET /profiles/:userId`, anterieur a l'envoi.
+  3. **Une relecture par clic reel de l'utilisateur**, pas par effet de montage : le chargement
+     initial ne doit pas etre double par l'activation du premier onglet.
+  4. **La relecture ne fait pas clignoter l'ecran** : les donnees deja affichees restent visibles
+     pendant l'appel, et une saisie en cours n'est jamais ecrasee — comparer les valeurs, pas
+     l'identite de l'objet recu.
+
 ## Points ouverts a arbitrer

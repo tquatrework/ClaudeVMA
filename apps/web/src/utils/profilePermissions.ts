@@ -59,6 +59,20 @@ export function canEditAdministrativeProfile(
 }
 
 /**
+ * Peut-on changer ou supprimer la photo du profil consulté ?
+ *
+ * `POST` et `DELETE /profiles/:userId/avatar` sont réservés au **titulaire
+ * seul**, sans exception administrative — plus restrictif que l'écriture du bloc
+ * administratif, ouverte au RP et au TI : chaque rôle administratif écrit dans
+ * son domaine, or la photo n'appartient au domaine d'aucun d'eux
+ * (`docs/routes.md`, 2026-08-10). Le TI qui doit neutraliser une photo passe par
+ * `POST /admin/visibility-overrides`, pas par un remplacement.
+ */
+export function canEditProfileAvatar(isOwnProfile: boolean): boolean {
+  return isOwnProfile
+}
+
+/**
  * Peut-on écrire la section déclarative du profil pédagogique consulté ?
  *
  * `PUT /profiles/:userId/pedagogical` : le titulaire (élève ou formateur), le RP

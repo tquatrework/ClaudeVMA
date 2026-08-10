@@ -216,7 +216,7 @@ describe('ProfilePage', () => {
       pedagogicalType: null,
     }
 
-    it('offre les 12 champs administratifs en saisie au titulaire', async () => {
+    it('offre les 11 champs administratifs en saisie au titulaire', async () => {
       mockFetchProfile.mockResolvedValue(EMPTY_PROFILE)
 
       renderProfilePage()
@@ -236,13 +236,27 @@ describe('ProfilePage', () => {
         'Ville',
         'Pays',
         'Département',
-        'Photo de profil',
         "Centres d'intérêt",
       ]) {
         const field = screen.getByLabelText(label) as HTMLInputElement
         expect(field).toBeDefined()
         expect(field.disabled).toBe(false)
       }
+    })
+
+    it("place l'emplacement de la photo en tête de l'onglet administratif", async () => {
+      // La photo n'est plus un champ de texte du formulaire : elle a son propre
+      // bloc, avec l'action qui permet d'en poser une.
+      mockFetchProfile.mockResolvedValue(EMPTY_PROFILE)
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'Photo de profil' })).toBeDefined()
+      })
+      expect(screen.getByLabelText('Ajouter une photo')).toBeDefined()
+      // L'ancien champ « URL de la photo » a disparu : le serveur le refuse.
+      expect(screen.queryByPlaceholderText('https://…/ma-photo.jpg')).toBeNull()
     })
 
     it('propose le formulaire élève vide quand aucun profil pédagogique n’existe', async () => {

@@ -3,6 +3,7 @@ import { ConflictException } from '@nestjs/common';
 import { InternalService } from '../../../src/internal/internal.service';
 import { ProfilesService } from '../../../src/profiles/profiles.service';
 import { RelationsService } from '../../../src/relations/relations.service';
+import { toAdministrativeProfileView } from '../../../src/profiles/administrative-profile.view';
 
 describe('InternalService', () => {
   let service: InternalService;
@@ -25,6 +26,15 @@ describe('InternalService', () => {
         subjects: dto.subjects,
         levels: dto.levels,
       })),
+      /**
+       * Le VRAI projecteur, pas un passe-plat : c'est lui qui écarte les champs
+       * de stockage de la photo et construit `avatarUrl`. Le simuler par
+       * l'identité laisserait passer une fuite d'`avatarObjectKey` sur les
+       * routes `/internal/*` sans qu'aucun test ne bronche.
+       */
+      presentAdministrativeProfile: jest
+        .fn()
+        .mockImplementation((profile) => toAdministrativeProfileView(profile)),
     };
 
     relationsService = {
@@ -67,10 +77,15 @@ describe('InternalService', () => {
       const dto = { userId: 'parent-uuid', firstName: 'Marie', lastName: 'Dupont' };
       const result = await service.createAdministrativeProfile(dto);
       expect(profilesService.bootstrapAdministrativeProfile).toHaveBeenCalledWith(dto);
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         userId: 'parent-uuid',
         administrative: { userId: 'parent-uuid', firstName: 'Marie', lastName: 'Dupont' },
       });
+      // Le bloc est projeté : `avatarUrl` est exposé (null faute de photo), les
+      // champs de stockage ne le sont jamais.
+      expect(result.administrative).toHaveProperty('avatarUrl', null);
+      expect(result.administrative).not.toHaveProperty('avatarObjectKey');
+      expect(result.administrative).not.toHaveProperty('avatarContentType');
     });
 
     it('propagates errors raised by ProfilesService', async () => {
@@ -91,11 +106,12 @@ describe('InternalService', () => {
 
       expect(profilesService.bootstrapAdministrativeProfile).toHaveBeenCalledWith(dto);
       expect(profilesService.bootstrapStudentPedagogicalProfile).toHaveBeenCalledWith(dto);
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         userId: 'student-uuid',
-        administrative: { userId: 'student-uuid', firstName: 'Alice', lastName: undefined },
+        administrative: { userId: 'student-uuid', firstName: 'Alice', lastName: null },
         pedagogical: { userId: 'student-uuid', level: 'Terminale' },
       });
+      expect(result.administrative).not.toHaveProperty('avatarObjectKey');
     });
   });
 

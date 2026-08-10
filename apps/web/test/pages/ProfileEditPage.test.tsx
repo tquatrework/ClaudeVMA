@@ -37,6 +37,7 @@ vi.mock('../../src/api/profile')
 import { useAuth } from '../../src/hooks/useAuth'
 import {
   fetchProfile,
+  fetchProfileAvatarBlob,
   updateAdministrativeProfile,
   updatePedagogicalProfile,
   updatePrescription,
@@ -44,6 +45,7 @@ import {
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockFetchProfile = vi.mocked(fetchProfile)
+const mockFetchProfileAvatarBlob = vi.mocked(fetchProfileAvatarBlob)
 const mockUpdateAdministrativeProfile = vi.mocked(updateAdministrativeProfile)
 const mockUpdatePedagogicalProfile = vi.mocked(updatePedagogicalProfile)
 const mockUpdatePrescription = vi.mocked(updatePrescription)
@@ -211,7 +213,7 @@ describe('ProfileEditPage', () => {
     expect(addressLine2Input.value).toBe('Bâtiment C')
   })
 
-  it('expose les 12 champs administratifs du contrat, aucun de moins', async () => {
+  it('expose les 11 champs administratifs du contrat, aucun de moins', async () => {
     // `avatarUrl` et `passions` étaient chargés, conservés et renvoyés au
     // serveur, mais absents de l'écran : impossibles à renseigner (2026-08-09).
     mockFetchProfile.mockResolvedValue(STUDENT_PROFILE)
@@ -228,7 +230,22 @@ describe('ProfileEditPage', () => {
     for (const label of expectedLabels) {
       expect(screen.getByLabelText(label)).toBeDefined()
     }
-    expect(expectedLabels).toHaveLength(12)
+    expect(expectedLabels).toHaveLength(11)
+  })
+
+  it("ne propose plus la photo comme un champ de texte à recopier", async () => {
+    // Depuis le 2026-08-10 la photo est un fichier, envoyé par ses propres
+    // routes : un champ « URL de la photo » ferait saisir une valeur que le
+    // serveur refuse (`400`).
+    mockFetchProfile.mockResolvedValue(STUDENT_PROFILE)
+
+    renderEditPage()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Prénom')).toBeDefined()
+    })
+
+    expect(screen.queryByPlaceholderText('https://…/ma-photo.jpg')).toBeNull()
   })
 
   it('convertit les centres d’intérêt en tableau à la frontière API', async () => {
@@ -242,18 +259,38 @@ describe('ProfileEditPage', () => {
     })
 
     await userEvent.type(screen.getByLabelText("Centres d'intérêt"), 'Échecs, Piano')
-    await userEvent.type(screen.getByLabelText('Photo de profil'), 'https://exemple.fr/photo.jpg')
     await clickSaveButton()
 
     await waitFor(() => {
       expect(mockUpdateAdministrativeProfile).toHaveBeenCalledWith(
         'student-1',
-        expect.objectContaining({
-          passions: ['Échecs', 'Piano'],
-          avatarUrl: 'https://exemple.fr/photo.jpg',
-        }),
+        expect.objectContaining({ passions: ['Échecs', 'Piano'] }),
       )
     })
+    // Le champ resterait accepté par le formulaire mais refusé par le serveur.
+    expect(mockUpdateAdministrativeProfile.mock.calls[0][1]).not.toHaveProperty('avatarUrl')
+  })
+
+  it("n'envoie jamais `avatarUrl` au PUT, même quand le profil en porte une", async () => {
+    // Cas de régression : le formulaire renvoyait tout le bloc chargé. Un profil
+    // illustré serait devenu impossible à enregistrer (`400`).
+    mockFetchProfile.mockResolvedValue({
+      ...STUDENT_PROFILE,
+      administrative: {
+        ...STUDENT_PROFILE.administrative,
+        avatarUrl: '/api/v1/profiles/student-1/avatar?v=1754820000000',
+      },
+    })
+    mockFetchProfileAvatarBlob.mockResolvedValue(new Blob(['photo'], { type: 'image/webp' }))
+    mockUpdateAdministrativeProfile.mockResolvedValue({})
+
+    renderEditPage()
+    await clickSaveButton()
+
+    await waitFor(() => {
+      expect(mockUpdateAdministrativeProfile).toHaveBeenCalled()
+    })
+    expect(mockUpdateAdministrativeProfile.mock.calls[0][1]).not.toHaveProperty('avatarUrl')
   })
 
   it('n’envoie pas une chaîne vide sur un champ laissé vide', async () => {

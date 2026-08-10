@@ -5,7 +5,10 @@ import type {
 } from '../../types/profile'
 import { useAsyncData } from '../useAsyncData'
 import { getProfileReadErrorMessage } from '../../utils/profileErrors'
-import { pickAdministrativeFields } from '../../utils/profileFields'
+import {
+  pickAdministrativeAvatarUrl,
+  pickAdministrativeFields,
+} from '../../utils/profileFields'
 import {
   useProfileSaveActions,
   type UseProfileSaveActionsResult,
@@ -13,6 +16,12 @@ import {
 
 interface ProfileFormData {
   administrative: AdministrativeProfileFields
+  /**
+   * URL de lecture versionnée de la photo, **hors** des champs éditables : elle
+   * est posée par le serveur et l'envoyer au `PUT` vaut `400`. Elle est exposée à
+   * part pour que l'écran puisse afficher la photo sans jamais la réécrire.
+   */
+  avatarUrl: string | null
   /**
    * Bloc `pedagogical` brut de `GET /profiles/:userId` : sections déclarative et
    * prescription confondues, à plat. La séparation est faite au moment de
@@ -39,6 +48,7 @@ async function loadProfileFormData(userId: string | undefined): Promise<ProfileF
       // le formulaire le renvoie intégralement au PUT, et tout champ inconnu y
       // déclencherait un 400 (forbidNonWhitelisted).
       administrative: pickAdministrativeFields(profile.administrative),
+      avatarUrl: pickAdministrativeAvatarUrl(profile.administrative),
       pedagogical: (profile.pedagogical ?? null) as Record<string, unknown> | null,
       pedagogicalType: profile.pedagogicalType ?? null,
     }
@@ -49,6 +59,7 @@ async function loadProfileFormData(userId: string | undefined): Promise<ProfileF
 
 export interface UseProfileFormResult extends UseProfileSaveActionsResult {
   administrative: AdministrativeProfileFields | undefined
+  avatarUrl: string | null
   pedagogical: Record<string, unknown> | null | undefined
   pedagogicalType: PedagogicalProfileType | null | undefined
   isLoading: boolean
@@ -74,6 +85,7 @@ export function useProfileForm(userId: string | undefined): UseProfileFormResult
 
   return {
     administrative: data?.administrative,
+    avatarUrl: data?.avatarUrl ?? null,
     pedagogical: data?.pedagogical,
     pedagogicalType: data?.pedagogicalType,
     isLoading,

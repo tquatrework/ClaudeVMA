@@ -6,9 +6,15 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { AdministrativeProfile } from './entities/administrative-profile.entity';
+import {
+  AdministrativeProfileView,
+  DEFAULT_AVATAR_PUBLIC_PATH_PREFIX,
+  toAdministrativeProfileView,
+} from './administrative-profile.view';
 import { StudentPedagogicalProfile } from './entities/student-pedagogical-profile.entity';
 import { TeacherPedagogicalProfile } from './entities/teacher-pedagogical-profile.entity';
 import { InternalProfileNote } from './entities/internal-profile-note.entity';
@@ -131,6 +137,14 @@ const NOTES_WRITE_ROLES: UserRole[] = [
 export class ProfilesService {
   private readonly logger = new Logger(ProfilesService.name);
 
+  /**
+   * Préfixe public de la route de lecture de la photo, tel que le front
+   * l'atteint à travers l'api-gateway. Résolu une fois, à la construction :
+   * `avatarUrl` doit être identique d'une réponse à l'autre, sinon le cache du
+   * navigateur repart de zéro à chaque appel.
+   */
+  private readonly avatarPublicPathPrefix: string;
+
   constructor(
     @InjectRepository(AdministrativeProfile)
     private readonly adminRepo: Repository<AdministrativeProfile>,
@@ -146,7 +160,22 @@ export class ProfilesService {
     private readonly events: EventsService,
     private readonly identityAccessClient: IdentityAccessClient,
     private readonly fieldVisibilityService: FieldVisibilityService,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.avatarPublicPathPrefix =
+      config.get<string>('AVATAR_PUBLIC_PATH_PREFIX') ?? DEFAULT_AVATAR_PUBLIC_PATH_PREFIX;
+  }
+
+  /**
+   * Projette une entité de profil administratif vers sa forme exposée.
+   *
+   * Point de passage OBLIGÉ de toute réponse portant un bloc `administrative`,
+   * publiques comme `/internal/*` : c'est lui qui écarte les champs de
+   * stockage de la photo et qui construit `avatarUrl`.
+   */
+  presentAdministrativeProfile(profile: AdministrativeProfile): AdministrativeProfileView {
+    return toAdministrativeProfileView(profile, this.avatarPublicPathPrefix);
+  }
 
   /**
    * Read the full profile (administrative + pedagogical) for a user.
@@ -201,8 +230,11 @@ export class ProfilesService {
         ? new Map<string, FieldAudience>()
         : await this.fieldVisibilityService.resolveAudiences(userId);
 
+    // Le filtrage porte sur la FORME EXPOSÉE, jamais sur l'entité : c'est elle
+    // qui contient `avatarUrl` — nom sous lequel le catalogue de visibilité
+    // connaît la photo — et non `avatarObjectKey`, qui ne sort pas du service.
     const filteredAdministrative = filterProfileBlock(
-      admin,
+      this.presentAdministrativeProfile(admin),
       'administrative',
       audienceByFieldName,
       relation,
@@ -262,6 +294,12 @@ export class ProfilesService {
   /**
    * Position du lecteur vis-à-vis de la fiche, qui décide du filtrage.
    *
+   * PUBLIQUE avec `assertReadAccess` : ce sont les deux ports de contrôle
+   * d'accès en lecture d'un profil. `AvatarService` les consomme pour que
+   * `GET /profiles/:userId/avatar` obéisse EXACTEMENT aux mêmes règles que le
+   * champ `avatarUrl` de `GET /profiles/:userId`. Les réécrire à côté aurait
+   * garanti qu'elles divergent au premier arbitrage suivant.
+   *
    * L'ordre compte : le titulaire d'abord — un utilisateur ne se masque jamais
    * ses propres données, quel que soit son rôle par ailleurs.
    *
@@ -270,7 +308,7 @@ export class ProfilesService {
    * parent non rattaché à `userId`. Y être parvenu VAUT rattachement ; refaire
    * la requête ici doublerait le coût sans rien décider de plus.
    */
-  private async resolveViewerRelation(userId: string, actor: Actor): Promise<ViewerRelation> {
+  async resolveViewerRelation(userId: string, actor: Actor): Promise<ViewerRelation> {
     if (actor.id === userId) return 'owner';
     if (actor.role === UserRole.PARENT_FINANCEUR) return 'exempt';
     if (FIELD_VISIBILITY_EXEMPT_ROLES.includes(actor.role)) return 'exempt';
@@ -294,24 +332,33 @@ export class ProfilesService {
    * l'entité (tous en anglais) : aucun remappage n'est nécessaire ici, la
    * correspondance vers les noms de colonnes français de la base est portée
    * une seule fois par les `@Column({ name })` de l'entité.
+   *
+   * `avatarUrl` n'est PAS écrit ici : il est refusé en 400 par le DTO
+   * (`IsServerManagedField`) et n'existe plus comme colonne. La photo de
+   * profil passe par POST/DELETE `/profiles/:userId/avatar`.
    */
   async updateAdministrativeProfile(
     userId: string,
     dto: UpdateAdministrativeProfileDto,
     actor: Actor,
-  ) {
+  ): Promise<AdministrativeProfileView> {
     this.assertWriteAccess(userId, actor);
+
+    // `avatarUrl` est déclaré dans le DTO uniquement pour être refusé ; il ne
+    // franchit jamais la validation, mais l'écarter du patch évite de faire
+    // dépendre l'écriture d'un contrôle situé ailleurs.
+    const patch = dto as Omit<UpdateAdministrativeProfileDto, 'avatarUrl'>;
 
     let profile = await this.adminRepo.findOne({ where: { userId } });
     if (!profile) {
-      profile = this.adminRepo.create({ userId, ...dto });
+      profile = this.adminRepo.create({ userId, ...patch });
     } else {
-      Object.assign(profile, dto);
+      Object.assign(profile, patch);
     }
 
     const saved = await this.adminRepo.save(profile);
     this.events.publish('ProfileUpdated', { userId, actorId: actor.id, section: 'administrative' });
-    return saved;
+    return this.presentAdministrativeProfile(saved);
   }
 
   /**
@@ -981,8 +1028,10 @@ export class ProfilesService {
    * Asserts that actor may read the profile of userId.
    * PROF-FB-003: a FORMATEUR may only read profiles of linked students.
    * PROF-RA-002 / PROF-BR-011: a PARENT_FINANCEUR may only read profiles of linked students.
+   *
+   * Publique : partagée avec AvatarService, voir `resolveViewerRelation`.
    */
-  private async assertReadAccess(userId: string, actor: Actor): Promise<void> {
+  async assertReadAccess(userId: string, actor: Actor): Promise<void> {
     if (actor.id === userId) return;
 
     if (actor.role === UserRole.FORMATEUR) {

@@ -54,9 +54,32 @@ export class AdministrativeProfile {
   @Column({ name: 'pays', nullable: true })
   country: string;
 
-  /** URL or path to avatar image stored in object storage */
-  @Column({ name: 'avatar_url', nullable: true })
-  avatarUrl: string;
+  /**
+   * Clé d'objet de la photo de profil dans le stockage des médias
+   * (`avatars/<uuid>.webp`), ou `null` tant qu'aucune photo n'a été envoyée.
+   *
+   * NE SORT JAMAIS DU SERVICE. L'API expose `avatarUrl`, une URL de lecture
+   * construite à partir de cette clé (`administrative-profile.view.ts`) ; la
+   * clé elle-même est un détail de stockage, au même titre qu'un chemin.
+   *
+   * Remplace la colonne `avatar_url` qui portait une URL externe collée à la
+   * main : depuis que l'application gère les octets, une photo de profil n'est
+   * plus une adresse que l'utilisateur saisit.
+   */
+  @Column({ name: 'avatar_object_key', nullable: true })
+  avatarObjectKey: string | null;
+
+  /** Type MIME des octets stockés — `image/webp` après ré-encodage. */
+  @Column({ name: 'avatar_content_type', nullable: true })
+  avatarContentType: string | null;
+
+  /**
+   * Horodatage du dernier envoi de photo. Sert de JETON DE VERSION dans
+   * `avatarUrl` : sans lui, une photo remplacée resterait affichée depuis le
+   * cache du navigateur, l'URL étant restée identique.
+   */
+  @Column({ name: 'avatar_updated_at', type: 'timestamp', nullable: true })
+  avatarUpdatedAt: Date | null;
 
   /** Département de résidence (découpage administratif français, e.g. "75 - Paris") */
   @Column({ name: 'departement', nullable: true })

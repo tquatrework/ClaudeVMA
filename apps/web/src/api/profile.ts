@@ -19,6 +19,7 @@ import type {
   InternalNote,
   PrescriptionFields,
   Profile,
+  ProfileAvatarConstraints,
   ProfileStatisticsResponse,
 } from '../types/profile'
 
@@ -85,6 +86,106 @@ export async function updatePrescription(
     payload,
   )
   return data
+}
+
+// ─── Photo de profil ──────────────────────────────────────────────────────────
+
+/**
+ * GET /profiles/avatar/constraints — Contraintes d'envoi en vigueur.
+ *
+ * **À lire AVANT d'ouvrir le sélecteur de fichier** : c'est ce qui permet
+ * d'annoncer la limite à l'utilisateur et de refuser un fichier trop lourd sans
+ * l'envoyer. Pas de `:userId` — les contraintes ne dépendent ni du profil visé
+ * ni du lecteur ; tout compte authentifié peut les lire.
+ */
+export async function fetchProfileAvatarConstraints(): Promise<ProfileAvatarConstraints> {
+  const { data } = await apiClient.get<ProfileAvatarConstraints>('/profiles/avatar/constraints')
+  return data
+}
+
+/**
+ * Réponse de `POST /profiles/:userId/avatar`.
+ *
+ * `avatarUrl` est l'URL de lecture **versionnée** construite par le serveur,
+ * identique à celle du bloc `administrative`. Elle change à chaque remplacement
+ * (jeton `?v=`) : c'est elle qu'il faut réutiliser, sinon l'ancienne photo reste
+ * affichée depuis le cache du navigateur.
+ */
+export interface ProfileAvatarUploadResult {
+  avatarUrl: string | null
+}
+
+/**
+ * POST /profiles/:userId/avatar — Envoyer ou remplacer la photo de profil.
+ *
+ * **Titulaire seul**, sans exception administrative : la photo n'appartient au
+ * domaine d'aucun rôle administratif (`docs/routes.md`, 2026-08-10).
+ *
+ * Corps `multipart/form-data`, un seul fichier, champ `file`.
+ *
+ * Le `Content-Type` est explicitement **neutralisé** (`undefined`) pour cet
+ * appel. Contrairement à ce que disait le commentaire précédent, axios ne
+ * retire pas de lui-même l'en-tête pour un `FormData` : si un `Content-Type`
+ * JSON est déjà posé — et `apiClient` en pose un par défaut —, son
+ * `transformRequest` **convertit le `FormData` en JSON** et le fichier est perdu
+ * à l'émission. C'est ce qui faisait échouer tout envoi depuis le navigateur en
+ * `400 « Aucun fichier reçu. »` alors que le même appel en `curl` répondait
+ * `200` (constat du 2026-08-10).
+ *
+ * Sans en-tête, le navigateur pose lui-même `multipart/form-data; boundary=…`.
+ * Ne jamais poser `multipart/form-data` en dur ici : privé du `boundary`, le
+ * corps redeviendrait illisible côté serveur.
+ *
+ * `apiClient` neutralise déjà l'en-tête pour tout corps `FormData` ; la
+ * consigne est répétée ici parce qu'elle fait partie du contrat de la route.
+ */
+export async function uploadProfileAvatar(
+  userId: string,
+  file: File,
+): Promise<ProfileAvatarUploadResult> {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const { data } = await apiClient.post<ProfileAvatarUploadResult>(
+    `/profiles/${userId}/avatar`,
+    formData,
+    { headers: { 'Content-Type': undefined } },
+  )
+  return data
+}
+
+/**
+ * GET /profiles/:userId/avatar — Lire les **octets** de la photo (`image/webp`).
+ *
+ * La route est authentifiée par le JWT de l'en-tête `Authorization` : elle ne
+ * peut donc pas être posée dans un `<img src>`, que le navigateur appellerait
+ * sans en-tête. On récupère les octets, puis on en fait un object URL.
+ *
+ * `versionToken` rejoue le `?v=` de l'`avatarUrl` renvoyé par le serveur, pour
+ * qu'un remplacement ne reste pas masqué par le cache.
+ *
+ * `404` signifie « pas de photo » **ou** « photo masquée pour ce lecteur », sans
+ * qu'on puisse — ni qu'on doive — les distinguer.
+ */
+export async function fetchProfileAvatarBlob(
+  userId: string,
+  versionToken?: string,
+): Promise<Blob> {
+  const { data } = await apiClient.get<Blob>(`/profiles/${userId}/avatar`, {
+    responseType: 'blob',
+    params: versionToken ? { v: versionToken } : undefined,
+  })
+  return data
+}
+
+/**
+ * DELETE /profiles/:userId/avatar — Supprimer la photo. **Titulaire seul**.
+ *
+ * Idempotent : supprimer une photo déjà absente répond `204`, jamais `404`. Un
+ * double clic sur « Supprimer » ne produit donc pas d'erreur.
+ */
+export async function deleteProfileAvatar(userId: string): Promise<void> {
+  await apiClient.delete(`/profiles/${userId}/avatar`)
 }
 
 // ─── Notes internes confidentielles ──────────────────────────────────────────

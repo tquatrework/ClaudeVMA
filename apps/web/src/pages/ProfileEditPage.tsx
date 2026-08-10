@@ -20,12 +20,15 @@ import Layout from '../components/Layout'
 import { AdministrativeProfileForm } from '../components/profile/AdministrativeProfileForm'
 import { PedagogicalProfileForm } from '../components/profile/PedagogicalProfileForm'
 import { PrescriptionForm } from '../components/profile/PrescriptionForm'
+import { ProfileAvatarField } from '../components/profile/ProfileAvatarField'
 import { UndeterminedPedagogicalProfileNotice } from '../components/profile/UndeterminedPedagogicalProfileNotice'
 import { Tabs, TabPanel, type TabDefinition } from '../components/ui/Tabs'
+import { formatFullName } from '../utils/nameFormat'
 import { resolvePedagogicalProfileKind } from '../utils/profileFields'
 import {
   canEditDeclarativePedagogicalProfile,
   canEditPrescription as canRoleEditPrescription,
+  canEditProfileAvatar,
 } from '../utils/profilePermissions'
 import type {
   AdministrativeProfileFields,
@@ -48,6 +51,7 @@ export default function ProfileEditPage() {
 
   const {
     administrative,
+    avatarUrl,
     pedagogical,
     pedagogicalType,
     isLoading,
@@ -73,6 +77,9 @@ export default function ProfileEditPage() {
 
   /** La prescription est réservée au RP, y compris sur son propre profil. */
   const canEditPrescription = canRoleEditPrescription(user?.role)
+
+  /** La photo n'est changée que par son titulaire, RP et TI compris. */
+  const canEditAvatar = canEditProfileAvatar(isViewingOwnProfile)
 
   /**
    * Forme du profil pédagogique : `pedagogicalType` du serveur d'abord. Le rôle
@@ -175,12 +182,24 @@ export default function ProfileEditPage() {
         <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
 
         <TabPanel tabId={TAB_ADMINISTRATIVE} activeTab={activeTab}>
-          <AdministrativeProfileForm
-            profile={administrative ?? EMPTY_ADMINISTRATIVE_PROFILE}
-            isSaving={isSavingAdministrative}
-            onSubmit={handleAdminSubmit}
-            onCancel={goBackToProfile}
-          />
+          <div className="space-y-6">
+            {/* La photo se change ici aussi, mais par ses propres routes : elle
+                n'est pas un champ du formulaire, et l'envoyer au `PUT` vaudrait
+                `400`. Seul le titulaire en dispose. */}
+            <ProfileAvatarField
+              userId={userId}
+              avatarUrl={avatarUrl}
+              displayName={formatFullName(administrative?.firstName, administrative?.lastName)}
+              canEdit={canEditAvatar}
+            />
+
+            <AdministrativeProfileForm
+              profile={administrative ?? EMPTY_ADMINISTRATIVE_PROFILE}
+              isSaving={isSavingAdministrative}
+              onSubmit={handleAdminSubmit}
+              onCancel={goBackToProfile}
+            />
+          </div>
         </TabPanel>
 
         {canEditPedagogical && (

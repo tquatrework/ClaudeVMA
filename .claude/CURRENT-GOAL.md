@@ -7,111 +7,224 @@
 
 ## Besoin
 
-Définir le contenu **complet** des profils administratifs et pédagogiques des élèves, parents
-et professeurs, puis les implémenter : méthodes back, base, affichage front, avec les droits de
-lecture et d'écriture (écriture réservée au titulaire ou aux administrateurs, jamais sur un
-champ d'identifiant).
+Un utilisateur doit pouvoir **voir et changer sa photo de profil** depuis la page de profil
+administratif, et cette photo doit être **gérée par l'application elle-même** — téléversée,
+remplacée, supprimée, servie — et non renseignée sous forme d'URL externe collée à la main.
 
-L'utilisateur a fourni le 2026-08-09 quatre entités de la version précédente (codée avec
-ChatGPT) : `StudentProfile`, `TeacherProfile`, `StudentOrdonnance`, `TeacherOrdonnance`.
+## Existant relevé (2026-08-10, avant tout code)
 
-## Étape en cours : proposition à valider
+- Le champ **`avatarUrl`** existe déjà côté `profile-service` : bloc administratif,
+  `string` 500 max, présent au catalogue de visibilité, et **dans le socle visible par défaut**
+  des personnes liées (`firstName`, `lastName`, `avatarUrl`, `level`, `subjects`).
+- **Aucun chemin de téléversement n'existe nulle part dans la pile.** Pas de `multer`, pas de
+  `sharp`, pas de volume, pas de stockage objet dans `docker-compose.yml`.
+- `archive-document-service` **ne stocke aucun octet** : il porte des liens et redirige en `302`
+  vers une `downloadUrl` externe. Sa base est un Postgres de métadonnées, sans volume.
+- Règle déjà écrite pour `cvDocumentId` : « **`profile-service` ne stocke aucun document** ».
+- `docs/architecture.md` liste « stockage objet pour les documents, vidéos et pièces
+  justificatives » dans les **services transverses recommandés** — jamais mis en place.
 
-La proposition est écrite dans `docs/proposition-profils.md`. **Rien ne doit être implémenté
-avant que l'utilisateur l'ait validée.**
+Conséquence : la photo de profil est le **premier binaire réel de la plateforme**. Le choix fait
+ici servira ensuite au CV formateur, aux enregistrements de visio et aux pièces justificatives.
 
-Point structurant soumis : « ordonnance » n'est pas le profil pédagogique mais un **troisième
-bloc**, rédigé par le RP sur le titulaire (d'où `rempli_par`). Trois blocs, donc, pas deux.
+## Étape en cours : arbitrage soumis à l'utilisateur
 
-**Toutes les questions sont tranchées (2026-08-09).** Décisions consignées au §11 du document :
-- **deux blocs**, pas trois — les champs d'ordonnance rejoignent le profil pédagogique, mais
-  avec **deux routes d'écriture** pour que le titulaire ne rédige pas sa propre prescription ;
-- le titulaire **lit** sa prescription (élève comme formateur), sans pouvoir la modifier ;
-- `UserProfile` dépouillée : **rien à récupérer**, l'administratif actuel est déjà plus riche ;
-- **toute la finance est hors périmètre**, chantier séparé et ultérieur ;
-- socle de visibilité par défaut **validé** ;
-- **anglais dans le code, français à l'écran** — règle inscrite dans `docs/architecture.md`.
+**Où vivent les octets ?** Proposition affinée le 2026-08-10 après relance de l'utilisateur
+(« un dossier spécifique ? »). Rien n'est codé avant sa réponse.
+
+**Oui, un dossier — mais un volume Docker nommé, et jamais exposé directement.** Cinq
+conditions, dans l'ordre d'importance :
+
+1. **Le front ne connaît qu'une route, jamais un chemin de fichier.** C'est ce qui rend le choix
+   réversible : passer à un stockage objet plus tard ne touche aucun appelant. Côté service, un
+   port de stockage isole l'écriture disque derrière une interface.
+2. **La route est authentifiée et applique le filtrage de visibilité.** `avatarUrl` fait partie
+   du socle réglable — un fichier servi en statique par nginx court-circuiterait entièrement le
+   filtrage construit le 2026-08-09. C'est l'argument décisif contre le dossier statique.
+3. **Volume nommé, pas un dossier du dépôt ni de l'image.** Sinon un `up --build` efface les
+   photos. Corollaire : **le volume doit entrer dans la routine de sauvegarde** — le dump
+   Postgres actuel ne le couvre pas.
+4. **Ré-encodage systématique à l'upload**, type MIME vérifié sur les octets réels et non sur
+   l'extension annoncée, taille et dimensions plafonnées, nom de fichier généré (UUID), SVG
+   refusé. Un upload d'image non ré-encodé est un vecteur d'exécution classique.
+5. **Porté par `profile-service`.** Précision de la règle `cvDocumentId` plutôt que
+   contradiction : le CV est une **pièce à conserver**, rattachée à une validation RP → archive.
+   La photo est un **attribut de profil**, remplacé et jamais historisé. La règle devient
+   « `profile-service` ne stocke aucun document d'archive ; il porte les médias attachés à ses
+   propres champs ».
+
+Écarté : MinIO (infrastructure disproportionnée pour quelques avatars, et la condition 1 permet
+d'y venir plus tard sans rien casser) ; `archive-document-service` (une archive se conserve, une
+photo se remplace — deux cycles de vie).
+
+### Obstacle infra repéré le 2026-08-10, à traiter au déploiement
+
+Le domaine est servi par le conteneur **`nginx-global`** (source : `/home/debian/NginxGlobal/`,
+hors dépôt, fichiers appartenant à `root`), qui proxifie `/api/v1/` vers `172.17.0.1:8098`.
+Sa configuration **ne déclare aucun `client_max_body_size`** → défaut nginx = **1 Mo**. Toute
+photo au-delà sera rejetée en `413` **avant d'atteindre le code**, alors qu'une photo de
+téléphone pèse 3 à 8 Mo.
+
+Correction nécessaire : ajouter `client_max_body_size 10m;` **dans le seul bloc `server` de
+`claudevma.visioprof.fr`**, pas au niveau `http` — l'instance sert aussi d'autres sites. La
+configuration étant intégrée à l'image, il faut reconstruire et relancer `nginx-global`, ce qui
+interrompt brièvement **tous** les sites hébergés. À faire valider par l'utilisateur avant.
+
+### Chaîne réelle de la requête (relevée, pas supposée)
+
+`nginx-global` (443) → `172.17.0.1:8098` → `api-gateway` → `profile-service`. Le conteneur
+`frontend` ne sert que le SPA et ne proxifie pas l'API : sa configuration nginx est écrite en
+dur dans `apps/web/Dockerfile`.
+
+Points tranchés sans attendre, sauf objection :
+- le nom reste **`avatarUrl`** (règle « un seul nom par donnée ») ;
+- **écriture réservée au titulaire** ; le parent financeur lit mais n'écrit pas ; le TI dispose
+  déjà de `POST /admin/visibility-overrides` pour masquer une photo inappropriée ;
+- la photo suit le socle de visibilité déjà validé (visible des personnes liées par défaut).
 
 ## Comment on saura que c'est fait
 
-Pour l'étape en cours : la proposition est validée ou amendée par l'utilisateur.
-
-Pour l'objectif complet, ensuite : les profils affichés et modifiables sur
-`https://claudevma.visioprof.fr`, capture à l'appui, avec une écriture refusée là où elle doit
-l'être — preuve jouée contre la pile réelle, pas des tests verts.
+Sur `https://claudevma.visioprof.fr`, capture à l'appui : un élève téléverse une photo depuis sa
+page de profil administratif, elle s'affiche ; il la remplace, la nouvelle s'affiche ; un autre
+compte lié la voit ; une tentative d'écriture par un tiers non autorisé est refusée avec le code
+HTTP cité. Preuve jouée contre la pile réelle — ni tests verts, ni PR ouverte.
 
 ## État
 
-- [x] Existant relevé (schéma en base + contrat Swagger de `profile-service`)
-- [x] Proposition rédigée — `docs/proposition-profils.md`
-- [x] Questions tranchées par l'utilisateur — document mis à jour et republié
-- [x] Codé et committé — `profile-service`, `identity-access-service`, front.
-      Deux subagents ont été coupés en cours de route ; leur travail a été récupéré depuis
-      leurs worktrees et poussé avant toute reprise. Rien perdu.
-- [x] Déployé sur la pile réelle — sauvegarde de `visiomath_profile` prise avant migration,
-      migrations jouées au démarrage, **20/5/1 lignes préservées**, trois services déployés
-      ensemble.
-- [x] Preuve livrée à l'utilisateur — 2026-08-09, parcours joué sur la pile réelle :
-      `birthDate` relayé et stocké côté profile sans être persisté côté identity ;
-      l'élève déclare son profil (200) ; l'élève refusé sur sa prescription (**403**) ;
-      un champ de prescription glissé dans la route déclarative refusé (**400**) ;
-      le RP rédige la prescription, `filledBy` = son UUID et `filledAt` posés serveur ;
-      l'élève **lit** la prescription attribuée et datée ; catalogue de visibilité à
-      34 champs servi par le serveur ; libellés tous en français, plus aucun UUID à l'écran.
-- [x] Validé par l'utilisateur — 2026-08-09
-- [x] Mergé dans master — PR #83
+- [x] Existant relevé
+- [x] Arbitrage rendu — volume nommé, confirmé par l'utilisateur le 2026-08-10 (« il faut aussi
+      rajouter le dossier au niveau volume »). Inscrit dans `docs/architecture.md`.
+- [x] Codé et committé — `profile-service` (3 routes, port de stockage, ré-encodage) et front
+      (bloc « Photo de profil » en tête de l'onglet administratif). Worktrees des deux agents
+      récupérés et nettoyés.
+- [x] Déployé sur la pile réelle — volume `claudevma_media_data` monté sur `/app/storage/media`,
+      `frontend` et `profile-service` reconstruits et relancés.
+- [x] Preuve livrée à l'utilisateur — 2026-08-10, parcours joué contre
+      `https://claudevma.visioprof.fr`, donc à travers nginx-global puis api-gateway :
+      JPEG 1600×1200 porteur d'EXIF `Artist`/GPS ressort en **WebP 512×512 de 548 octets, EXIF
+      absent**, chaîne `ELEVE DEMO` introuvable dans les octets servis ; formateur lié lit
+      (`200`) mais ne peut ni remplacer ni supprimer (`403` avec message français) ; SVG refusé
+      (`400`) ; `avatarUrl` glissé dans `PUT /administrative` refusé (`400`) ; remplacement →
+      jeton `?v=` changé et **toujours un seul fichier** sur le volume ; suppression → `204`,
+      relecture `404`, `avatarUrl: null`, **zéro fichier** ; photo passée en « moi seul » →
+      formateur `404` sur les octets et `avatarUrl` **absent** du bloc et nommé dans
+      `hiddenFields`, titulaire toujours `200`.
+- [ ] Validé par l'utilisateur — il a choisi de **tester lui-même, à la main, après le merge**
+      dans `master` (décision du 2026-08-10). Le merge de la PR #86 lui revient.
+- [ ] Mergé dans master — PR #86, prête
 
-## Filtrage de visibilité — fait, prouvé, en attente de merge
+## Plafond de 1 Mo — arbitré le 2026-08-10, traité
 
-Preuve jouée sur la pile réelle le 2026-08-09, avec un élève qui règle `phone` et
-`difficulties` sur « moi seul » :
+**Décision de l'utilisateur** : on ne touche pas à `nginx-global` pour l'instant. « On peut
+rejeter les photos de plus de 1 Mo, ce n'est pas un problème pour le moment. **Il faut juste
+l'indiquer à l'utilisateur.** » La contrainte est donc assumée, à condition d'être annoncée.
 
-| lecteur | `isFiltered` | `phone` | `difficulties` |
-|---|---|---|---|
-| l'élève lui-même | `false` | visible | visible |
-| son **parent financeur** | `false` | **visible** | **visible** |
-| son formateur rattaché | `true` | **absent** | **absent** |
+Traité sur `feat/photo-de-profil` (commits `bb91012`, `2894abc`, `96db97b`) :
 
-Le parent est bien exempté, conformément à l'arbitrage. Un champ masqué est **absent** de la
-réponse et nommé dans `hiddenFields` — jamais un `null` trompeur. À l'écran, le formateur voit
-la mention « Non partagé » et un bandeau qui explique une fois que la fiche est partielle.
-Comptes d'essai supprimés, liens orphelins nettoyés, données réelles intactes (20/5/1).
+- Limite applicative ramenée de 8 Mio à **1 Mo au sens SI (1 000 000 octets)**, valeur choisie
+  pour rester ~48 Ko **sous** le 1 Mio de nginx : le refus vient toujours de l'application, avec
+  un message français, jamais d'un `413` HTML muet.
+- **Troisième plafond caché découvert et corrigé** : `api-gateway` ne déclarait aucun
+  `client_max_body_size` et appliquait donc lui aussi le défaut de 1 Mio. Mesuré contre la pile
+  réelle en attaquant la gateway directement : 1 048 000 o → `200`, 1 048 500 o → `413` HTML.
+  Déclaré à `10m`, plus un `error_page 413` qui répond en JSON comme les 401/403/502.
+- Le `413` du service porte désormais `code: "UPLOAD_FILE_TOO_LARGE"`, `maxUploadBytes` et
+  `receivedBytes` — de quoi construire une phrase française côté front.
+- Nouvelle route **`GET /profiles/avatar/constraints`** : le front lit la limite au lieu de la
+  coder en dur, et refuse le fichier **avant tout appel réseau** en citant sa taille et la
+  limite. Le jour où `nginx-global` sera relevé, l'affichage suivra sans redéploiement du front.
 
-## Deux points à remonter à l'utilisateur
+**Quand `nginx-global` sera relevé** (`client_max_body_size 10m;` dans le **seul** bloc `server`
+de `claudevma.visioprof.fr`, jamais au niveau `http` — l'instance sert d'autres domaines ;
+reconstruction d'image, donc brève coupure de tous les sites) : il suffira de relever
+`MEDIA_MAX_UPLOAD_BYTES`. L'ordre est impératif — proxy d'abord, application ensuite.
 
-1. **Le professeur principal n'est pas exempté** — non tranché, donc traité comme tout contact
-   lié. Concrètement, un élève peut aujourd'hui masquer ses difficultés à celui qui
-   l'accompagne. Le modèle hérité l'exemptait au même titre que le financeur.
-2. **Un UUID s'affiche encore** dans le bloc « Formateurs liés » de la fiche profil
-   (`36c4b5b8-ac5…`). Même défaut que celui corrigé le 2026-08-04 sur les parents financeurs,
-   à un autre endroit. Hors périmètre de ce lot.
+### DÉFAUT BLOQUANT trouvé le 2026-08-10 : tout envoi depuis le navigateur échoue en `400`
 
-## Ancien libellé de cette section — appliquer le filtrage de visibilité
+**L'envoi de photo n'a jamais fonctionné depuis l'interface**, quel que soit le format et quelle
+que soit la taille. En `curl` il passe (`200`) : le serveur est hors de cause, c'est la requête
+émise par le navigateur qui est malformée.
 
-**Contradiction tranchée le 2026-08-09 : le parent financeur voit tout, sauf le carnet
-personnel.** Il est donc exempté des réglages de visibilité par champ — un élève ne peut pas lui
-masquer une donnée de profil. Arbitrage inscrit dans `docs/architecture.md`.
+**Cause.** `apps/web/src/api/client.ts:9` pose `Content-Type: application/json` comme en-tête
+**par défaut de l'instance** axios. Or axios 1.7.2, dans `transformRequest`, fait :
 
-Reste à faire : brancher le filtrage sur `GET /profiles/{userId}`, avec cette exemption. Le port
-est déjà écrit et testé côté `profile-service`, il n'attendait que la règle.
+```js
+return hasJSONContentType ? JSON.stringify(formDataToJSON(data)) : data;
+```
 
-Le cas du **professeur principal** n'a pas été tranché : en l'absence de décision, les réglages
-lui sont appliqués comme à tout contact lié. À signaler à l'utilisateur.
+Autrement dit, quand le `Content-Type` annonce du JSON, axios **convertit le `FormData` en
+JSON** au lieu de l'envoyer en multipart. Le fichier est perdu à l'émission, le serveur ne reçoit
+aucune partie multipart et répond, à juste titre, « Aucun fichier reçu ».
 
-## Bloqué par
+Le commentaire de `apps/web/src/api/profile.ts:124-126` affirme l'inverse — « axios le retire
+pour un `FormData` ». C'est vrai seulement si aucun `Content-Type` n'est déjà posé ; ici
+l'instance en pose un, donc axios ne le retire jamais. **Une hypothèse écrite en commentaire et
+jamais vérifiée contre la pile réelle.**
 
-L'accord de l'utilisateur pour lancer l'implémentation. Le contenu, lui, ne fait plus débat.
+**Preuve, jouée contre `https://claudevma.visioprof.fr` avec la vraie configuration d'axios :**
+
+| Configuration | Réponse |
+|---|---|
+| `headers: {'Content-Type': 'application/json'}` (code actuel) | `400 "Aucun fichier reçu. Envoyez l'image dans un formulaire multipart, sous le champ « file »."` |
+| même appel, en-tête par défaut retiré | `200 {"avatarUrl": "…"}` |
+
+**Correction** : neutraliser l'en-tête pour cet appel (`Content-Type: undefined`), afin que le
+navigateur pose lui-même `multipart/form-data; boundary=…`. Ne **pas** poser
+`multipart/form-data` en dur : sans `boundary`, le corps devient illisible côté serveur.
+
+**Corrigé** par `1511467` : l'en-tête est retiré dès que le corps est un `FormData`, **au centre**
+(`client.ts`) plutôt qu'à chaque appelant, pour que le prochain envoi de fichier n'y retombe pas.
+Preuve hors réseau simulé : le **vrai** `apiClient` corrigé, importé tel quel et lancé contre
+`https://claudevma.visioprof.fr`, répond `200 {"avatarUrl": …}` — contre `400` avant correction.
+Le test de régression descend jusqu'à `XMLHttpRequest` et vérifie l'en-tête réellement émis ; il
+a été vérifié **rouge** sur les sources non corrigées.
+
+**Leçon à retenir** : un `Content-Type` par défaut au niveau de l'instance casse silencieusement
+tout envoi de fichier de l'application. Le prochain envoi de fichier (CV formateur, pièces
+justificatives) tomberait dans le même piège. Un test de régression doit vérifier le
+**Content-Type réellement émis**, pas seulement que la fonction est appelée.
+
+### Symptôme observé par l'utilisateur le 2026-08-10 : « les PNG ne sont pas acceptés »
+
+Diagnostic établi contre la pile réelle, pas supposé. **Le format n'est pas en cause** : PNG de
+1 087 o → `200`, PNG de 468 539 o → `200`. Ce qui est refusé est la **taille**, et le refus est
+aujourd'hui une **page HTML nginx** « Request Entity Too Large » — sans un mot de français, sans
+mention du poids ni de la limite (JPEG de 1 366 624 o → `413` HTML). Rien ne désigne la taille,
+d'où la lecture « il n'a pas voulu de mon PNG ».
+
+Le PNG est le format le plus exposé parce qu'il est **sans perte** : une capture d'écran ou un
+export dépasse très vite 1 Mo là où un JPEG de la même image reste bien en dessous. La confusion
+est donc structurelle, pas accidentelle — un plafond qui refuse sans se nommer sera toujours
+attribué à autre chose que lui-même.
+
+Corrigé par les commits ci-dessus (message avant le choix du fichier, refus local citant la
+taille), **pas encore déployé** : `GET /profiles/avatar/constraints` répondait encore `404` au
+moment du test.
+
+**Proposition non implémentée, à trancher** : redimensionner la photo dans le navigateur avant
+envoi (~150 Ko pour une photo de 5 Mo) supprimerait l'échec plutôt que de l'expliquer. Coût :
+double ré-encodage, invisible à 512 px ; le HEIC des iPhone resterait refusé. Non fait, c'est un
+choix produit.
 
 ---
 
-## Dernier objectif clos — 2026-08-09
+## Dernier objectif clos — 2026-08-09, mergé le 2026-08-10
 
-**Besoin** : proposer le consentement marketing, optionnel, à l'inscription.
+**Besoin** : définir le contenu complet des profils administratifs et pédagogiques, puis les
+implémenter avec les droits de lecture et d'écriture.
 
-**Preuve livrée** : deux inscriptions jouées sur la pile réelle — coché → `rgpd, cgu,
-marketing` et 3 lignes dans `consent_records` ; non coché → `rgpd, cgu`, 2 lignes, aucune ligne
-marketing, compte `active` quand même. Case décochée par défaut dans les deux passages.
-Mergé via PR #78, front reconstruit depuis `master` et redéployé.
+**Preuve livrée** : parcours joué sur la pile réelle — l'élève déclare son profil (`200`), est
+refusé sur sa prescription (`403`), un champ de prescription glissé dans la route déclarative
+est refusé (`400`), le RP rédige la prescription avec `filledBy`/`filledAt` posés serveur.
+Filtrage de visibilité prouvé ensuite : le parent financeur exempté voit tout, le formateur voit
+les champs masqués **absents** de la réponse et nommés dans `hiddenFields`. Données réelles
+intactes (20/5/1). Mergé via PR #83, #84 et #85.
+
+**Deux points restés en suspens, à reprendre un jour :**
+1. Le **professeur principal n'est pas exempté** du filtrage — tranché depuis : c'est bien
+   l'élève qui décide (`docs/architecture.md`). Point clos.
+2. **Un UUID s'affiche encore** dans le bloc « Formateurs liés » de la fiche profil
+   (`36c4b5b8-ac5…`), en contradiction avec la règle « aucun UUID à l'écran ». **Non corrigé.**
 
 ---
 
@@ -128,10 +241,8 @@ Mergé via PR #78, front reconstruit depuis `master` et redéployé.
 - [ ] Codé et committé
 - [ ] Déployé sur la pile réelle
 - [ ] Preuve livrée à l'utilisateur
-- [x] Validé par l'utilisateur — 2026-08-09
-- [x] Mergé dans master — PR #80, puis les deux services reconstruits depuis `master` et
-      redéployés. `migration:run` → « No migrations are pending ». Cycle rejoué sur cette
-      version : `granted` → `withdrawn` → `granted`, compte resté actif.
+- [ ] Validé par l'utilisateur
+- [ ] Mergé dans master
 
 ## Bloqué par
 <rien, ou la dépendance précise>

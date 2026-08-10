@@ -338,6 +338,109 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 | PUT | /profiles/:userId/internal-notes/:id | 🔒 | auteur, responsable_pedagogique | Modifier une note interne | `200 {id, authorId, content, updatedAt}` · `401` · `403` · `404` |
 | DELETE | /profiles/:userId/internal-notes/:id | 🔒 | responsable_pedagogique | Supprimer une note interne | `204` · `401` · `403` · `404` |
 
+### Photo de profil
+
+> Ajoutée le 2026-08-10. `avatarUrl` n'est plus une URL externe collée à la main : les octets sont
+> stockés par l'application, sur le volume nommé `media_data` (`MEDIA_STORAGE_PATH`). En conséquence,
+> **envoyer `avatarUrl` à `PUT /profiles/:userId/administrative` renvoie `400`** — le champ reste
+> **lisible** dans le bloc `administrative`, où il porte l'URL de lecture ci-dessous.
+
+| Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /profiles/avatar/constraints | 🔒 | tout compte authentifié | **À lire AVANT d'ouvrir le sélecteur de fichier.** Publie les contraintes d'envoi en vigueur, pour que le front les affiche et rejette localement un fichier trop lourd, plutôt que de laisser l'utilisateur le découvrir après plusieurs secondes d'envoi. Pas de `:userId` : les contraintes ne dépendent ni du profil visé ni du lecteur. **Ces valeurs ne doivent pas être codées en dur côté front** — elles viennent de la même configuration que celle opposée à l'envoi, une copie divergerait au premier ajustement et annoncerait alors une limite fausse | `200 {maxUploadBytes, acceptedContentTypes, outputContentType, maxDimensionPixels}` — ex. `{"maxUploadBytes":1000000,"acceptedContentTypes":["image/jpeg","image/png","image/webp","image/gif","image/avif"],"outputContentType":"image/webp","maxDimensionPixels":512}` · `401` |
+| POST | /profiles/:userId/avatar | 🔒 | **le titulaire seul** | Envoyer ou remplacer la photo. **Multipart**, champ `file`, un seul fichier. Le type est détecté sur les **octets réels** (nombres magiques) — ni l'extension ni le `Content-Type` du client ne sont consultés, tous deux étant sous son contrôle. L'image est **intégralement ré-encodée** en WebP borné à 512 px, ce qui neutralise toute charge dissimulée et **supprime les métadonnées EXIF**, géolocalisation comprise. **SVG refusé** (document XML exécutable). Le nom du fichier stocké est un UUID généré par le serveur. Le fichier précédent est supprimé du volume. Formats acceptés : JPEG, PNG, WebP, GIF, AVIF | `200 {avatarUrl}` — URL de lecture versionnée, identique à celle du bloc `administrative` · `400` aucun fichier, format non reconnu, SVG, HEIC/HEIF, image illisible · `401` · `403` appelant autre que le titulaire · `413` au-delà de `MEDIA_MAX_UPLOAD_BYTES` (**1 000 000 octets** par défaut) — **corps structuré, voir ci-dessous** · `500` profil administratif absent, ou stockage indisponible |
+| GET | /profiles/:userId/avatar | 🔒 | mêmes règles de lecture que le champ `avatarUrl` | Renvoie les **octets** de l'image (`image/webp`), pas une redirection. Passe par le **même** port de filtrage de visibilité que `GET /profiles/:userId` : ne refiltre rien de son côté, sinon elle en serait le contournement exact. **Photo masquée pour ce lecteur ⇒ `404`, pas `403`** — cohérent avec « un champ masqué est absent », un `403` révélerait son existence. Le message est **le même** que pour une absence de photo, et c'est voulu | `200` octets + en-têtes `Content-Type: image/webp`, `Content-Length`, `ETag`, `Cache-Control: private, max-age=60, must-revalidate` · `401` · `403` aucun droit de lecture sur le **profil** (formateur ou parent non rattaché, élève consultant autrui) · `404` pas de photo **ou** photo masquée pour ce lecteur |
+| DELETE | /profiles/:userId/avatar | 🔒 | **le titulaire seul** | Supprime la photo : la référence en base **et** le fichier sur le volume. **Idempotent** : supprimer une photo déjà absente répond `204`, pas `404` — l'état visé est atteint, et un double clic sur « Supprimer » ne doit pas produire d'erreur. Ce n'est pas un champ accepté puis ignoré, mais la sémantique normale de DELETE. Après suppression, `avatarUrl` vaut `null` | `204` · `401` · `403` appelant autre que le titulaire |
+
+**Droit d'écriture — le titulaire seul, sans exception administrative.** Plus restrictif que
+`PUT /profiles/:userId/administrative`, qui ouvre l'écriture au RP, au TI et à l'AF : chaque rôle
+administratif écrit **dans son domaine**, or la photo n'appartient au domaine d'aucun d'eux. Le
+parent financeur **lit tout mais n'écrit rien** (arbitrage du 2026-08-09). Le TI qui doit neutraliser
+une photo passe par `POST /admin/visibility-overrides`, pas par un remplacement.
+
+**`avatarUrl` — forme exacte** : `/api/v1/profiles/{userId}/avatar?v={horodatage}`, ou `null` quand
+il n'y a pas de photo. Le préfixe est réglable par `AVATAR_PUBLIC_PATH_PREFIX`. Le paramètre `v`
+porte l'horodatage du dernier envoi : il **change à chaque remplacement**, ce qui évite qu'une photo
+remplacée reste affichée depuis le cache du navigateur. **Aucun chemin de fichier ni clé de stockage
+n'apparaît jamais** dans une réponse ni dans un message d'erreur — c'est ce qui rendra le passage à
+un stockage objet possible sans toucher un seul appelant.
+
+> ⚠️ **`<img src={avatarUrl}>` ne fonctionne pas directement.** La route est authentifiée par le JWT
+> porté dans l'en-tête `Authorization`, que le navigateur n'envoie pas sur une balise `<img>`. Le
+> front doit récupérer les octets (`fetch` avec le jeton) puis construire un object URL.
+
+**Taille maximale — 1 000 000 octets (1 Mo), et pourquoi cette valeur précise.**
+
+Le reverse-proxy `nginx-global` placé devant l'application ne déclare aucun `client_max_body_size` :
+son défaut de **1 Mio (1 048 576 octets)** s'applique donc, et il porte sur le **corps entier** de la
+requête — enveloppe multipart, frontières et en-têtes de partie compris —, pas seulement sur les
+octets du fichier. Au-delà, nginx répond un `413` **en HTML** sans jamais transmettre la requête : le
+service ne voit rien, le front reçoit une page qu'il ne sait pas lire, l'utilisateur n'obtient aucun
+message exploitable. Vérifié le 2026-08-10 : 0,5 Mo passe, 2 Mo est déjà coupé.
+
+Le plafond applicatif est donc fixé **sous** celui du proxy, à 1 000 000 octets (1 Mo au sens SI),
+soit ~48 Ko de marge : de quoi absorber l'enveloppe multipart et garantir que **le refus vienne
+toujours de l'application**, avec un corps JSON exploitable. Un plafond réglé à 1 Mio pile aurait
+laissé une bande de quelques kilo-octets où le fichier passe le contrôle applicatif mais où
+l'enveloppe fait dépasser nginx.
+
+**Il y a trois couches, pas deux.** `api-gateway` est lui aussi un nginx, et il ne déclarait aucun
+`client_max_body_size` : son défaut de 1 Mio s'appliquait donc une seconde fois, en silence.
+Vérifié le 2026-08-10 en attaquant la gateway directement, hors `nginx-global` : 1 048 000 octets
+passaient, 1 048 500 repartaient en `413` HTML. Le plafond est désormais **déclaré à 10 Mio** dans
+`gateway/api-gateway/nginx.conf`, franchement au-dessus des deux autres, pour que la gateway ne soit
+jamais le maillon qui coupe ; un `413` qu'elle émettrait malgré tout répond maintenant en JSON.
+
+| Couche | Plafond | Emplacement | Réponse au-delà |
+|---|---|---|---|
+| `nginx-global` | 1 Mio (défaut **non déclaré**) | hors dépôt | `413` HTML |
+| `api-gateway` | 10 Mio (déclaré) | `gateway/api-gateway/nginx.conf` | `413` JSON |
+| `profile-service` | 1 000 000 o | `MEDIA_MAX_UPLOAD_BYTES` | `413` JSON structuré ci-dessous |
+
+> ⚠️ Ce n'est **pas** la limite souhaitable à terme — une photo de téléphone pèse couramment 2 à
+> 5 Mo. Elle est basse parce que le `client_max_body_size` qui contraint réellement vit **hors de ce
+> dépôt** (`/home/debian/NginxGlobal/nginx.conf`, bloc `location /api/v1/` de
+> `claudevma.visioprof.fr`) et n'a pas encore été corrigé. Le jour où il le sera, remonter
+> `MEDIA_MAX_UPLOAD_BYTES` dans `docker-compose.yml` **et** `DEFAULT_MAX_UPLOAD_BYTES` dans
+> `src/media/media.config.ts`, en conservant la même marge sous le plafond du proxy — et **vérifier
+> au passage** que le plafond de `api-gateway` reste au-dessus des deux.
+
+Le refus est prononcé **en streaming**, par multer, dès le dépassement : le contrôleur n'est pas
+atteint et les octets excédentaires ne sont jamais chargés en mémoire. Un contrôle placé seulement
+après lecture complète aurait offert à tout appelant authentifié un moyen de faire enfler la mémoire
+du service. Le service refait le contrôle derrière, pour les appels qui n'empruntent pas
+l'intercepteur.
+
+**Corps de la réponse `413` — clés stables.** Le front teste `code`, **jamais** `message` : celui-ci
+est en anglais technique, le libellé français est construit côté client à partir de `maxUploadBytes`
+(règle de langue du 2026-08-09).
+
+```json
+{
+  "statusCode": 413,
+  "error": "Payload Too Large",
+  "code": "UPLOAD_FILE_TOO_LARGE",
+  "message": "Uploaded file exceeds the maximum allowed size",
+  "maxUploadBytes": 1000000,
+  "receivedBytes": null,
+  "requestBodyBytes": 1258291
+}
+```
+
+| Clé | Type | Signification |
+|---|---|---|
+| `code` | `string` | `UPLOAD_FILE_TOO_LARGE`. **Toujours présent**, c'est le seul point d'accroche stable du front |
+| `maxUploadBytes` | `number` | Plafond appliqué, en octets, sur les octets du **fichier** avant ré-encodage. **Toujours présent** |
+| `receivedBytes` | `number \| null` | Taille **exacte** du fichier, connue uniquement si le fichier a été lu en entier (refus par le service). `null` quand multer a coupé le flux : le fichier n'a jamais été reçu en entier, annoncer une taille serait une invention |
+| `requestBodyBytes` | `number \| null` | `Content-Length` **déclaré** par le client pour le corps entier, enveloppe multipart comprise — donc toujours un peu supérieur au fichier. `null` si le client n'a rien déclaré. Diagnostic seulement : déclaré n'est pas vérifié |
+
+Le front connaît de toute façon `File.size` avant l'envoi : la clé qui compte vraiment est
+`maxUploadBytes`, les deux autres servent au diagnostic et aux journaux.
+
+> ⚠️ **Le front doit tolérer un `413` dont le corps n'est pas du JSON.** Si les deux plafonds
+> venaient à diverger, celui de nginx s'appliquerait le premier et renverrait une page HTML, sans
+> aucune de ces clés. Le réglage actuel rend ce cas improbable, pas impossible.
+
 ### Noms de champs des profils
 
 > Arbitrage du 2026-08-07 : **tous les noms de champs des profils sont en anglais**, à l'entrée
@@ -362,7 +465,7 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 | `postalCode` | `string` | 20 max |
 | `city` | `string` | 100 max |
 | `country` | `string` | 100 max |
-| `avatarUrl` | `string` | 500 max |
+| `avatarUrl` | `string` | **LECTURE SEULE — `400` si envoyé.** Géré par l'application depuis le 2026-08-10 : URL construite par le serveur vers `GET /profiles/:userId/avatar`, avec un jeton de version (`?v=`). Voir « Photo de profil » ci-dessus |
 | `department` | `string` | Département administratif français de résidence, e.g. `"75 - Paris"` (100 max) |
 | `passions` | `string[]` | Centres d'intérêt / hobbies |
 

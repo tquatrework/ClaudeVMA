@@ -198,4 +198,54 @@ Phase 3 enrichit l'offre :
   profils : tout endroit de l'interface qui expose un UUID a un autre role est un defaut a
   corriger, pas une facilite de developpement.
 
+- Stockage des binaires de la plateforme : la photo de profil etant le **premier binaire reel**
+  du systeme, le choix fait ici engage le CV formateur, les enregistrements de visio et les
+  pieces justificatives. Arbitrage rendu le 2026-08-10 :
+  1. **Un volume Docker nomme**, pas un stockage objet. MinIO a ete ecarte comme
+     disproportionne, et `archive-document-service` parce qu'une archive se conserve tandis
+     qu'une photo se remplace — deux cycles de vie distincts.
+  2. **Le front ne connait jamais un chemin de fichier, seulement une route.** C'est ce qui rend
+     le choix reversible : passer a un stockage objet plus tard ne touche aucun appelant. Cote
+     service, un port de stockage isole l'ecriture disque derriere une interface.
+  3. **La route de lecture est authentifiee et applique le filtrage de visibilite.** Un fichier
+     servi en statique par nginx court-circuiterait entierement le filtrage champ par champ.
+     Corollaire : un media masque renvoie **404**, jamais 403 — un 403 revelerait son existence,
+     ce qui contredirait le choix « un champ masque est absent ».
+  4. **Re-encodage systematique a l'envoi** : type detecte sur les octets reels et non sur
+     l'extension ni sur le `Content-Type` du client, tous deux sous controle de l'appelant ;
+     metadonnees EXIF supprimees (dont la geolocalisation du domicile d'un eleve) ; SVG refuse
+     car executable ; nom de fichier genere cote serveur ; dimensions et taille plafonnees.
+  5. **Le volume n'est pas couvert par le dump Postgres** et doit entrer dans la routine de
+     sauvegarde, sinon une reconstruction de machine perd les fichiers en silence.
+
+- Precision de la regle « `profile-service` ne stocke aucun document » (posee pour
+  `cvDocumentId`) : elle devient « **`profile-service` ne stocke aucun document d'archive ; il
+  porte les medias attaches a ses propres champs** ». Le CV est une piece a conserver, rattachee
+  a une validation RP, avec valeur probante et historique — il releve de l'archive. La photo de
+  profil est un attribut de profil, remplace sans trace. Precision apportee le 2026-08-10.
+
+- Taille maximale d'un envoi de fichier, et interdiction des plafonds caches. Arbitrage rendu le
+  2026-08-10 : la limite reste basse pour l'instant — **1 Mo au sens SI, 1 000 000 octets** —
+  parce que `nginx-global` est hors depot et que sa reconstruction interromprait tous les sites
+  heberges. C'est un choix assume, pas un oubli. Contrepartie exigee : **la limite doit etre
+  annoncee a l'utilisateur**, avant qu'il choisisse un fichier, et le refus doit citer la taille
+  du fichier et la limite, en francais. Une photo de telephone pesant 3 a 8 Mo, la majorite des
+  tentatives echoueront : un echec muet serait ici la faute grave.
+  Regle generale qui en decoule, applicable a tout envoi de fichier :
+  1. **Chaque maillon declare explicitement sa limite.** Un maillon qui laisse son defaut
+     s'appliquer est un plafond cache. Trois etaient empiles ici — `nginx-global` (1 Mio par
+     defaut, non declare), `api-gateway` (1 Mio par defaut, non declare, corrige le 2026-08-10
+     a 10m) et le service (1 Mo, seul declare). Le defaut nginx de 1 Mio s'applique au corps
+     entier, enveloppe multipart comprise.
+  2. **Le plafond qui coupe doit toujours etre celui de l'application**, car il est le seul a
+     repondre un corps exploitable par le front. Les maillons reseau se placent franchement
+     au-dessus. Corollaire : la limite applicative se fixe strictement **sous** le plus bas des
+     plafonds reseau, avec de la marge pour l'enveloppe multipart.
+  3. **Relever la limite applicative est subordonne a `nginx-global`.** L'ordre est impose :
+     relever le proxy d'abord, l'application ensuite. L'inverse deplace la coupure hors de
+     portee du code, en `413` HTML que le front ne sait pas lire.
+  4. Le front **n'ecrit jamais la limite en dur** : il la lit sur le serveur
+     (`GET /profiles/avatar/constraints`), pour que relever le plafond n'oblige pas a redeployer
+     le front.
+
 ## Points ouverts a arbitrer

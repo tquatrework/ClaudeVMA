@@ -7,111 +7,86 @@
 
 ## Besoin
 
-Définir le contenu **complet** des profils administratifs et pédagogiques des élèves, parents
-et professeurs, puis les implémenter : méthodes back, base, affichage front, avec les droits de
-lecture et d'écriture (écriture réservée au titulaire ou aux administrateurs, jamais sur un
-champ d'identifiant).
+Un utilisateur doit pouvoir **voir et changer sa photo de profil** depuis la page de profil
+administratif, et cette photo doit être **gérée par l'application elle-même** — téléversée,
+remplacée, supprimée, servie — et non renseignée sous forme d'URL externe collée à la main.
 
-L'utilisateur a fourni le 2026-08-09 quatre entités de la version précédente (codée avec
-ChatGPT) : `StudentProfile`, `TeacherProfile`, `StudentOrdonnance`, `TeacherOrdonnance`.
+## Existant relevé (2026-08-10, avant tout code)
 
-## Étape en cours : proposition à valider
+- Le champ **`avatarUrl`** existe déjà côté `profile-service` : bloc administratif,
+  `string` 500 max, présent au catalogue de visibilité, et **dans le socle visible par défaut**
+  des personnes liées (`firstName`, `lastName`, `avatarUrl`, `level`, `subjects`).
+- **Aucun chemin de téléversement n'existe nulle part dans la pile.** Pas de `multer`, pas de
+  `sharp`, pas de volume, pas de stockage objet dans `docker-compose.yml`.
+- `archive-document-service` **ne stocke aucun octet** : il porte des liens et redirige en `302`
+  vers une `downloadUrl` externe. Sa base est un Postgres de métadonnées, sans volume.
+- Règle déjà écrite pour `cvDocumentId` : « **`profile-service` ne stocke aucun document** ».
+- `docs/architecture.md` liste « stockage objet pour les documents, vidéos et pièces
+  justificatives » dans les **services transverses recommandés** — jamais mis en place.
 
-La proposition est écrite dans `docs/proposition-profils.md`. **Rien ne doit être implémenté
-avant que l'utilisateur l'ait validée.**
+Conséquence : la photo de profil est le **premier binaire réel de la plateforme**. Le choix fait
+ici servira ensuite au CV formateur, aux enregistrements de visio et aux pièces justificatives.
 
-Point structurant soumis : « ordonnance » n'est pas le profil pédagogique mais un **troisième
-bloc**, rédigé par le RP sur le titulaire (d'où `rempli_par`). Trois blocs, donc, pas deux.
+## Étape en cours : arbitrage soumis à l'utilisateur
 
-**Toutes les questions sont tranchées (2026-08-09).** Décisions consignées au §11 du document :
-- **deux blocs**, pas trois — les champs d'ordonnance rejoignent le profil pédagogique, mais
-  avec **deux routes d'écriture** pour que le titulaire ne rédige pas sa propre prescription ;
-- le titulaire **lit** sa prescription (élève comme formateur), sans pouvoir la modifier ;
-- `UserProfile` dépouillée : **rien à récupérer**, l'administratif actuel est déjà plus riche ;
-- **toute la finance est hors périmètre**, chantier séparé et ultérieur ;
-- socle de visibilité par défaut **validé** ;
-- **anglais dans le code, français à l'écran** — règle inscrite dans `docs/architecture.md`.
+**Où vivent les octets ?** Trois voies exposées le 2026-08-10, rien n'est codé avant la réponse.
+
+1. **Stockage objet transverse (MinIO)** ajouté au compose, `profile-service` reste propriétaire
+   de la donnée « photo » et délègue les octets. Réutilisable par tout le reste. Coût : un
+   service et un volume de plus.
+2. **`profile-service` stocke lui-même** sur un volume. Le plus court, mais contredit
+   frontalement la règle déjà écrite pour `cvDocumentId`, et ne se réutilise pas.
+3. **`archive-document-service` porte les binaires.** Il existe déjà, mais son domaine est
+   l'archive pédagogique chronologique — une archive se conserve, une photo se remplace.
+
+Recommandation du coordinateur : **voie 1**.
+
+Points tranchés sans attendre, sauf objection :
+- le nom reste **`avatarUrl`** (règle « un seul nom par donnée ») ;
+- **écriture réservée au titulaire** ; le parent financeur lit mais n'écrit pas ; le TI dispose
+  déjà de `POST /admin/visibility-overrides` pour masquer une photo inappropriée ;
+- la photo suit le socle de visibilité déjà validé (visible des personnes liées par défaut).
 
 ## Comment on saura que c'est fait
 
-Pour l'étape en cours : la proposition est validée ou amendée par l'utilisateur.
-
-Pour l'objectif complet, ensuite : les profils affichés et modifiables sur
-`https://claudevma.visioprof.fr`, capture à l'appui, avec une écriture refusée là où elle doit
-l'être — preuve jouée contre la pile réelle, pas des tests verts.
+Sur `https://claudevma.visioprof.fr`, capture à l'appui : un élève téléverse une photo depuis sa
+page de profil administratif, elle s'affiche ; il la remplace, la nouvelle s'affiche ; un autre
+compte lié la voit ; une tentative d'écriture par un tiers non autorisé est refusée avec le code
+HTTP cité. Preuve jouée contre la pile réelle — ni tests verts, ni PR ouverte.
 
 ## État
 
-- [x] Existant relevé (schéma en base + contrat Swagger de `profile-service`)
-- [x] Proposition rédigée — `docs/proposition-profils.md`
-- [x] Questions tranchées par l'utilisateur — document mis à jour et republié
-- [x] Codé et committé — `profile-service`, `identity-access-service`, front.
-      Deux subagents ont été coupés en cours de route ; leur travail a été récupéré depuis
-      leurs worktrees et poussé avant toute reprise. Rien perdu.
-- [x] Déployé sur la pile réelle — sauvegarde de `visiomath_profile` prise avant migration,
-      migrations jouées au démarrage, **20/5/1 lignes préservées**, trois services déployés
-      ensemble.
-- [x] Preuve livrée à l'utilisateur — 2026-08-09, parcours joué sur la pile réelle :
-      `birthDate` relayé et stocké côté profile sans être persisté côté identity ;
-      l'élève déclare son profil (200) ; l'élève refusé sur sa prescription (**403**) ;
-      un champ de prescription glissé dans la route déclarative refusé (**400**) ;
-      le RP rédige la prescription, `filledBy` = son UUID et `filledAt` posés serveur ;
-      l'élève **lit** la prescription attribuée et datée ; catalogue de visibilité à
-      34 champs servi par le serveur ; libellés tous en français, plus aucun UUID à l'écran.
-- [x] Validé par l'utilisateur — 2026-08-09
-- [x] Mergé dans master — PR #83
-
-## Filtrage de visibilité — fait, prouvé, en attente de merge
-
-Preuve jouée sur la pile réelle le 2026-08-09, avec un élève qui règle `phone` et
-`difficulties` sur « moi seul » :
-
-| lecteur | `isFiltered` | `phone` | `difficulties` |
-|---|---|---|---|
-| l'élève lui-même | `false` | visible | visible |
-| son **parent financeur** | `false` | **visible** | **visible** |
-| son formateur rattaché | `true` | **absent** | **absent** |
-
-Le parent est bien exempté, conformément à l'arbitrage. Un champ masqué est **absent** de la
-réponse et nommé dans `hiddenFields` — jamais un `null` trompeur. À l'écran, le formateur voit
-la mention « Non partagé » et un bandeau qui explique une fois que la fiche est partielle.
-Comptes d'essai supprimés, liens orphelins nettoyés, données réelles intactes (20/5/1).
-
-## Deux points à remonter à l'utilisateur
-
-1. **Le professeur principal n'est pas exempté** — non tranché, donc traité comme tout contact
-   lié. Concrètement, un élève peut aujourd'hui masquer ses difficultés à celui qui
-   l'accompagne. Le modèle hérité l'exemptait au même titre que le financeur.
-2. **Un UUID s'affiche encore** dans le bloc « Formateurs liés » de la fiche profil
-   (`36c4b5b8-ac5…`). Même défaut que celui corrigé le 2026-08-04 sur les parents financeurs,
-   à un autre endroit. Hors périmètre de ce lot.
-
-## Ancien libellé de cette section — appliquer le filtrage de visibilité
-
-**Contradiction tranchée le 2026-08-09 : le parent financeur voit tout, sauf le carnet
-personnel.** Il est donc exempté des réglages de visibilité par champ — un élève ne peut pas lui
-masquer une donnée de profil. Arbitrage inscrit dans `docs/architecture.md`.
-
-Reste à faire : brancher le filtrage sur `GET /profiles/{userId}`, avec cette exemption. Le port
-est déjà écrit et testé côté `profile-service`, il n'attendait que la règle.
-
-Le cas du **professeur principal** n'a pas été tranché : en l'absence de décision, les réglages
-lui sont appliqués comme à tout contact lié. À signaler à l'utilisateur.
+- [x] Existant relevé
+- [ ] Arbitrage rendu par l'utilisateur sur le lieu de stockage
+- [ ] Codé et committé
+- [ ] Déployé sur la pile réelle
+- [ ] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur
+- [ ] Mergé dans master
 
 ## Bloqué par
 
-L'accord de l'utilisateur pour lancer l'implémentation. Le contenu, lui, ne fait plus débat.
+L'arbitrage sur le lieu de stockage des octets.
 
 ---
 
-## Dernier objectif clos — 2026-08-09
+## Dernier objectif clos — 2026-08-09, mergé le 2026-08-10
 
-**Besoin** : proposer le consentement marketing, optionnel, à l'inscription.
+**Besoin** : définir le contenu complet des profils administratifs et pédagogiques, puis les
+implémenter avec les droits de lecture et d'écriture.
 
-**Preuve livrée** : deux inscriptions jouées sur la pile réelle — coché → `rgpd, cgu,
-marketing` et 3 lignes dans `consent_records` ; non coché → `rgpd, cgu`, 2 lignes, aucune ligne
-marketing, compte `active` quand même. Case décochée par défaut dans les deux passages.
-Mergé via PR #78, front reconstruit depuis `master` et redéployé.
+**Preuve livrée** : parcours joué sur la pile réelle — l'élève déclare son profil (`200`), est
+refusé sur sa prescription (`403`), un champ de prescription glissé dans la route déclarative
+est refusé (`400`), le RP rédige la prescription avec `filledBy`/`filledAt` posés serveur.
+Filtrage de visibilité prouvé ensuite : le parent financeur exempté voit tout, le formateur voit
+les champs masqués **absents** de la réponse et nommés dans `hiddenFields`. Données réelles
+intactes (20/5/1). Mergé via PR #83, #84 et #85.
+
+**Deux points restés en suspens, à reprendre un jour :**
+1. Le **professeur principal n'est pas exempté** du filtrage — tranché depuis : c'est bien
+   l'élève qui décide (`docs/architecture.md`). Point clos.
+2. **Un UUID s'affiche encore** dans le bloc « Formateurs liés » de la fiche profil
+   (`36c4b5b8-ac5…`), en contradiction avec la règle « aucun UUID à l'écran ». **Non corrigé.**
 
 ---
 
@@ -128,10 +103,8 @@ Mergé via PR #78, front reconstruit depuis `master` et redéployé.
 - [ ] Codé et committé
 - [ ] Déployé sur la pile réelle
 - [ ] Preuve livrée à l'utilisateur
-- [x] Validé par l'utilisateur — 2026-08-09
-- [x] Mergé dans master — PR #80, puis les deux services reconstruits depuis `master` et
-      redéployés. `migration:run` → « No migrations are pending ». Cycle rejoué sur cette
-      version : `granted` → `withdrawn` → `granted`, compte resté actif.
+- [ ] Validé par l'utilisateur
+- [ ] Mergé dans master
 
 ## Bloqué par
 <rien, ou la dépendance précise>

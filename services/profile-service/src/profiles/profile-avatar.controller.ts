@@ -63,6 +63,16 @@ export class ProfileAvatarController {
   constructor(private readonly avatarService: AvatarService) {}
 
   @Post(':userId/avatar')
+  /**
+   * 200, et non le 201 que Nest applique par défaut à un POST.
+   *
+   * Cette route ne crée pas une ressource nouvelle à une adresse nouvelle :
+   * elle remplace le contenu d'une sous-ressource dont l'URL est fixe
+   * (`/profiles/:userId/avatar`). Envoyer une deuxième photo n'ajoute rien, ça
+   * substitue. Un 201 promettrait un `Location` vers une ressource créée, ce
+   * qui n'existe pas ici.
+   */
+  @HttpCode(200)
   @UseInterceptors(
     FileInterceptor('file', {
       /**

@@ -198,4 +198,30 @@ Phase 3 enrichit l'offre :
   profils : tout endroit de l'interface qui expose un UUID a un autre role est un defaut a
   corriger, pas une facilite de developpement.
 
+- Stockage des binaires de la plateforme : la photo de profil etant le **premier binaire reel**
+  du systeme, le choix fait ici engage le CV formateur, les enregistrements de visio et les
+  pieces justificatives. Arbitrage rendu le 2026-08-10 :
+  1. **Un volume Docker nomme**, pas un stockage objet. MinIO a ete ecarte comme
+     disproportionne, et `archive-document-service` parce qu'une archive se conserve tandis
+     qu'une photo se remplace — deux cycles de vie distincts.
+  2. **Le front ne connait jamais un chemin de fichier, seulement une route.** C'est ce qui rend
+     le choix reversible : passer a un stockage objet plus tard ne touche aucun appelant. Cote
+     service, un port de stockage isole l'ecriture disque derriere une interface.
+  3. **La route de lecture est authentifiee et applique le filtrage de visibilite.** Un fichier
+     servi en statique par nginx court-circuiterait entierement le filtrage champ par champ.
+     Corollaire : un media masque renvoie **404**, jamais 403 — un 403 revelerait son existence,
+     ce qui contredirait le choix « un champ masque est absent ».
+  4. **Re-encodage systematique a l'envoi** : type detecte sur les octets reels et non sur
+     l'extension ni sur le `Content-Type` du client, tous deux sous controle de l'appelant ;
+     metadonnees EXIF supprimees (dont la geolocalisation du domicile d'un eleve) ; SVG refuse
+     car executable ; nom de fichier genere cote serveur ; dimensions et taille plafonnees.
+  5. **Le volume n'est pas couvert par le dump Postgres** et doit entrer dans la routine de
+     sauvegarde, sinon une reconstruction de machine perd les fichiers en silence.
+
+- Precision de la regle « `profile-service` ne stocke aucun document » (posee pour
+  `cvDocumentId`) : elle devient « **`profile-service` ne stocke aucun document d'archive ; il
+  porte les medias attaches a ses propres champs** ». Le CV est une piece a conserver, rattachee
+  a une validation RP, avec valeur probante et historique — il releve de l'archive. La photo de
+  profil est un attribut de profil, remplace sans trace. Precision apportee le 2026-08-10.
+
 ## Points ouverts a arbitrer

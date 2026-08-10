@@ -92,16 +92,40 @@ HTTP cité. Preuve jouée contre la pile réelle — ni tests verts, ni PR ouver
 ## État
 
 - [x] Existant relevé
-- [ ] Arbitrage rendu par l'utilisateur sur le lieu de stockage
-- [ ] Codé et committé
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+- [x] Arbitrage rendu — volume nommé, confirmé par l'utilisateur le 2026-08-10 (« il faut aussi
+      rajouter le dossier au niveau volume »). Inscrit dans `docs/architecture.md`.
+- [x] Codé et committé — `profile-service` (3 routes, port de stockage, ré-encodage) et front
+      (bloc « Photo de profil » en tête de l'onglet administratif). Worktrees des deux agents
+      récupérés et nettoyés.
+- [x] Déployé sur la pile réelle — volume `claudevma_media_data` monté sur `/app/storage/media`,
+      `frontend` et `profile-service` reconstruits et relancés.
+- [x] Preuve livrée à l'utilisateur — 2026-08-10, parcours joué contre
+      `https://claudevma.visioprof.fr`, donc à travers nginx-global puis api-gateway :
+      JPEG 1600×1200 porteur d'EXIF `Artist`/GPS ressort en **WebP 512×512 de 548 octets, EXIF
+      absent**, chaîne `ELEVE DEMO` introuvable dans les octets servis ; formateur lié lit
+      (`200`) mais ne peut ni remplacer ni supprimer (`403` avec message français) ; SVG refusé
+      (`400`) ; `avatarUrl` glissé dans `PUT /administrative` refusé (`400`) ; remplacement →
+      jeton `?v=` changé et **toujours un seul fichier** sur le volume ; suppression → `204`,
+      relecture `404`, `avatarUrl: null`, **zéro fichier** ; photo passée en « moi seul » →
+      formateur `404` sur les octets et `avatarUrl` **absent** du bloc et nommé dans
+      `hiddenFields`, titulaire toujours `200`.
 - [ ] Validé par l'utilisateur
 - [ ] Mergé dans master
 
-## Bloqué par
+## Reste à traiter — plafond nginx de 1 Mo
 
-L'arbitrage sur le lieu de stockage des octets.
+**Prouvé** : 2 Mo envoyés à travers la pile → `413` **en HTML nginx**, la requête n'atteint
+jamais le service. Le plafond de 8 Mio de `profile-service` est donc inatteignable, alors qu'une
+photo de téléphone pèse 2 à 5 Mo.
+
+Correction : `client_max_body_size 10m;` dans le **seul** bloc `server` de
+`claudevma.visioprof.fr` (`/home/debian/NginxGlobal/nginx.conf`), jamais au niveau `http` —
+l'instance sert aussi d'autres domaines. Configuration intégrée à l'image → reconstruction et
+relance de `nginx-global`, donc **brève coupure de tous les sites hébergés**. Fichiers
+appartenant à `root`, hors dépôt VisioMath. **En attente de l'accord de l'utilisateur.**
+
+Dépendance : le message d'erreur du front annonce aujourd'hui « moins de 1 Mo ». Il devra être
+corrigé **en même temps**, sinon il devient faux.
 
 ---
 

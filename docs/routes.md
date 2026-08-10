@@ -338,6 +338,44 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 | PUT | /profiles/:userId/internal-notes/:id | 🔒 | auteur, responsable_pedagogique | Modifier une note interne | `200 {id, authorId, content, updatedAt}` · `401` · `403` · `404` |
 | DELETE | /profiles/:userId/internal-notes/:id | 🔒 | responsable_pedagogique | Supprimer une note interne | `204` · `401` · `403` · `404` |
 
+### Photo de profil
+
+> Ajoutée le 2026-08-10. `avatarUrl` n'est plus une URL externe collée à la main : les octets sont
+> stockés par l'application, sur le volume nommé `media_data` (`MEDIA_STORAGE_PATH`). En conséquence,
+> **envoyer `avatarUrl` à `PUT /profiles/:userId/administrative` renvoie `400`** — le champ reste
+> **lisible** dans le bloc `administrative`, où il porte l'URL de lecture ci-dessous.
+
+| Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
+|---|---|---|---|---|---|
+| POST | /profiles/:userId/avatar | 🔒 | **le titulaire seul** | Envoyer ou remplacer la photo. **Multipart**, champ `file`, un seul fichier. Le type est détecté sur les **octets réels** (nombres magiques) — ni l'extension ni le `Content-Type` du client ne sont consultés, tous deux étant sous son contrôle. L'image est **intégralement ré-encodée** en WebP borné à 512 px, ce qui neutralise toute charge dissimulée et **supprime les métadonnées EXIF**, géolocalisation comprise. **SVG refusé** (document XML exécutable). Le nom du fichier stocké est un UUID généré par le serveur. Le fichier précédent est supprimé du volume. Formats acceptés : JPEG, PNG, WebP, GIF, AVIF | `200 {avatarUrl}` — URL de lecture versionnée, identique à celle du bloc `administrative` · `400` aucun fichier, format non reconnu, SVG, HEIC/HEIF, image illisible · `401` · `403` appelant autre que le titulaire · `413` au-delà de `MEDIA_MAX_UPLOAD_BYTES` (8 Mio par défaut) — **voir l'avertissement nginx ci-dessous** · `500` profil administratif absent, ou stockage indisponible |
+| GET | /profiles/:userId/avatar | 🔒 | mêmes règles de lecture que le champ `avatarUrl` | Renvoie les **octets** de l'image (`image/webp`), pas une redirection. Passe par le **même** port de filtrage de visibilité que `GET /profiles/:userId` : ne refiltre rien de son côté, sinon elle en serait le contournement exact. **Photo masquée pour ce lecteur ⇒ `404`, pas `403`** — cohérent avec « un champ masqué est absent », un `403` révélerait son existence. Le message est **le même** que pour une absence de photo, et c'est voulu | `200` octets + en-têtes `Content-Type: image/webp`, `Content-Length`, `ETag`, `Cache-Control: private, max-age=60, must-revalidate` · `401` · `403` aucun droit de lecture sur le **profil** (formateur ou parent non rattaché, élève consultant autrui) · `404` pas de photo **ou** photo masquée pour ce lecteur |
+| DELETE | /profiles/:userId/avatar | 🔒 | **le titulaire seul** | Supprime la photo : la référence en base **et** le fichier sur le volume. **Idempotent** : supprimer une photo déjà absente répond `204`, pas `404` — l'état visé est atteint, et un double clic sur « Supprimer » ne doit pas produire d'erreur. Ce n'est pas un champ accepté puis ignoré, mais la sémantique normale de DELETE. Après suppression, `avatarUrl` vaut `null` | `204` · `401` · `403` appelant autre que le titulaire |
+
+**Droit d'écriture — le titulaire seul, sans exception administrative.** Plus restrictif que
+`PUT /profiles/:userId/administrative`, qui ouvre l'écriture au RP, au TI et à l'AF : chaque rôle
+administratif écrit **dans son domaine**, or la photo n'appartient au domaine d'aucun d'eux. Le
+parent financeur **lit tout mais n'écrit rien** (arbitrage du 2026-08-09). Le TI qui doit neutraliser
+une photo passe par `POST /admin/visibility-overrides`, pas par un remplacement.
+
+**`avatarUrl` — forme exacte** : `/api/v1/profiles/{userId}/avatar?v={horodatage}`, ou `null` quand
+il n'y a pas de photo. Le préfixe est réglable par `AVATAR_PUBLIC_PATH_PREFIX`. Le paramètre `v`
+porte l'horodatage du dernier envoi : il **change à chaque remplacement**, ce qui évite qu'une photo
+remplacée reste affichée depuis le cache du navigateur. **Aucun chemin de fichier ni clé de stockage
+n'apparaît jamais** dans une réponse ni dans un message d'erreur — c'est ce qui rendra le passage à
+un stockage objet possible sans toucher un seul appelant.
+
+> ⚠️ **`<img src={avatarUrl}>` ne fonctionne pas directement.** La route est authentifiée par le JWT
+> porté dans l'en-tête `Authorization`, que le navigateur n'envoie pas sur une balise `<img>`. Le
+> front doit récupérer les octets (`fetch` avec le jeton) puis construire un object URL.
+
+> ⚠️ **nginx en amont plafonne les corps de requête à ~1 Mo** et renvoie un `413` **HTML** avant que
+> la requête n'atteigne le service — vérifié le 2026-08-10 : 0,5 Mo passe, 2 Mo est déjà coupé. Le
+> plafond du service (`MEDIA_MAX_UPLOAD_BYTES`, 8 Mio) est donc aujourd'hui **inatteignable**, alors
+> qu'une photo de téléphone pèse couramment 2 à 5 Mo. Corriger `client_max_body_size` dans le bloc
+> `location /api/v1/` de `claudevma.visioprof.fr` (`/home/debian/NginxGlobal/nginx.conf`, **hors de
+> ce dépôt**). Testé sans nginx, le service accepte bien une image de 5,6 Mo et renvoie `413`
+> au-delà de 8 Mio.
+
 ### Noms de champs des profils
 
 > Arbitrage du 2026-08-07 : **tous les noms de champs des profils sont en anglais**, à l'entrée
@@ -362,7 +400,7 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 | `postalCode` | `string` | 20 max |
 | `city` | `string` | 100 max |
 | `country` | `string` | 100 max |
-| `avatarUrl` | `string` | 500 max |
+| `avatarUrl` | `string` | **LECTURE SEULE — `400` si envoyé.** Géré par l'application depuis le 2026-08-10 : URL construite par le serveur vers `GET /profiles/:userId/avatar`, avec un jeton de version (`?v=`). Voir « Photo de profil » ci-dessus |
 | `department` | `string` | Département administratif français de résidence, e.g. `"75 - Paris"` (100 max) |
 | `passions` | `string[]` | Centres d'intérêt / hobbies |
 

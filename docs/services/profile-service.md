@@ -1039,7 +1039,215 @@
           reste a produire apres redeploiement.
         </testCoverage>
       </decision>
+      <decision id="C13" status="implemented" session="2026-08-10">
+        <title>Photo de profil : stockage des octets derriere un port, re-encodage systematique</title>
+        <description>
+          Trois routes ajoutees : POST / GET / DELETE /profiles/:userId/avatar.
+          avatarUrl cesse d'etre une URL externe collee a la main et devient une donnee
+          GEREE PAR L'APPLICATION : les octets vivent sur le volume nomme media_data
+          (MEDIA_STORAGE_PATH), et avatarUrl est une URL de LECTURE construite par le
+          serveur vers GET /profiles/:userId/avatar, avec un jeton de version.
+        </description>
+        <directoryStructure>
+          src/media/ (nouveau) — module technique, sans regle metier :
+            media-storage.port.ts ............ PORT de stockage (MEDIA_STORAGE_PORT).
+                                               L'unite d'echange est une CLE D'OBJET opaque,
+                                               jamais un chemin. Aucun chemin ne franchit
+                                               cette interface, ni en retour ni en erreur.
+            filesystem-media-storage.adapter.ts ... adaptateur systeme de fichiers, SEUL
+                                               endroit du service qui manipule un chemin.
+                                               Ecriture atomique (fichier temporaire + rename),
+                                               double controle anti-traversee (motif de cle
+                                               puis comparaison de prefixe apres resolve).
+            image-transcoder.ts .............. detection de format sur les OCTETS REELS
+                                               (nombres magiques) + re-encodage sharp.
+            media.config.ts .................. MEDIA_STORAGE_PATH / MEDIA_MAX_UPLOAD_BYTES.
+                                               Une valeur illisible retombe sur le defaut avec
+                                               un log, plutot que de produire NaN et de
+                                               desactiver le plafond en silence.
+            media.module.ts .................. fournit et exporte le port et le transcodeur.
+
+          src/profiles/ (modifie) :
+            avatar.service.ts ................ regles metier : droits, remplacement, suppression.
+            profile-avatar.controller.ts ..... adaptateur HTTP des trois routes (multipart,
+                                               octets, Swagger).
+            administrative-profile.view.ts ... PROJECTION du profil administratif vers sa forme
+                                               exposee. Liste blanche assumee : les champs de
+                                               stockage de la photo n'ont pas a paraitre dans
+                                               une reponse HTTP, et un etalement d'objet les
+                                               aurait publies le jour de leur creation.
+            dto/server-managed-field.validator.ts ... refus explicite d'un champ gere par le
+                                               serveur, avec un message en francais.
+            entities/administrative-profile.entity.ts ... avatar_url remplace par
+                                               avatar_object_key / avatar_content_type /
+                                               avatar_updated_at.
+          src/migrations/1754820000000-AddProfileAvatarStorage.ts
+        </directoryStructure>
+        <securityDecisions>
+          <item>
+            Le type est detecte sur les OCTETS REELS. Ni l'extension du nom de fichier ni le
+            Content-Type envoye par le client ne sont consultes : tous deux sont sous le
+            controle de l'appelant, donc ils ne prouvent rien. Verifie contre la pile reelle
+            le 2026-08-10 : un SVG nomme photo.png annonce image/png est refuse en 400.
+          </item>
+          <item>
+            RE-ENCODAGE SYSTEMATIQUE en WebP. Ce qui est stocke est la sortie de l'encodeur,
+            jamais l'entree : toute charge dissimulee dans le fichier d'origine disparait par
+            construction, n'etant jamais recopiee. Preuve contre la pile reelle : un JPEG
+            1600x1200 de 11 906 octets portant une charge PHP et des metadonnees EXIF
+            (marque du telephone, nom, coordonnees GPS) ressort en WebP 512x512 de 548 octets,
+            sans EXIF, sans la charge, sans aucun octet commun en fin de fichier.
+          </item>
+          <item>
+            La suppression des metadonnees EXIF est un OBJECTIF, pas un effet de bord : une
+            photo prise au telephone porte couramment les coordonnees GPS du lieu de prise de
+            vue, soit l'adresse du domicile d'un eleve. rotate() est appele AVANT que
+            l'orientation EXIF ne soit perdue, faute de quoi les photos portrait
+            ressortiraient couchees.
+          </item>
+          <item>
+            SVG refuse : document XML pouvant embarquer scripts et references externes. sharp
+            sait pourtant le lire (libRSVG est compile dans le binaire) — raison de plus pour
+            l'ecarter avant de lui donner les octets.
+          </item>
+          <item>
+            multer en MEMOIRE. Un stockage temporaire sur disque ecrirait les octets NON
+            VERIFIES de l'appelant dans le systeme de fichiers avant meme de savoir s'il
+            s'agit d'une image.
+          </item>
+          <item>
+            Nom de fichier genere par le serveur (UUID). Rien de ce que l'appelant envoie
+            n'entre dans la cle. Verifie : un envoi sous le nom « ../../evil.php » produit
+            une cle avatars/&lt;uuid&gt;.webp.
+          </item>
+          <item>
+            limitInputPixels a 50 Mpx contre les bombes de decompression : le plafond d'octets
+            porte sur le fichier compresse, pas sur ce qu'il devient une fois decode.
+          </item>
+        </securityDecisions>
+        <rightsDecisions>
+          <item>
+            ECRITURE : LE TITULAIRE SEUL, sans exception administrative. Plus restrictif que
+            assertWriteAccess, qui ouvre le profil administratif au RP, au TI et a l'AF. Motif :
+            chaque role administratif ecrit DANS SON DOMAINE (docs/architecture.md), or la photo
+            n'appartient au domaine d'aucun d'eux. Le parent financeur lit tout mais n'ecrit
+            rien. Le TI dispose deja de POST /admin/visibility-overrides pour neutraliser une
+            photo sans avoir a la remplacer.
+          </item>
+          <item>
+            LECTURE : les MEMES ports que GET /profiles/:userId (assertReadAccess puis
+            resolveViewerRelation, rendus publics a cette occasion) et le meme catalogue de
+            visibilite. Les reecrire a cote aurait garanti qu'ils divergent au premier
+            arbitrage suivant.
+          </item>
+          <item>
+            PHOTO MASQUEE ⇒ 404, JAMAIS 403. Coherent avec « un champ masque est ABSENT de la
+            reponse » : un 403 revelerait l'existence de la photo, soit precisement ce que le
+            titulaire a choisi de ne pas partager. Le message est identique a celui d'une
+            absence de photo, et les octets ne sont meme pas lus.
+          </item>
+          <item>
+            DELETE IDEMPOTENT : supprimer une photo deja absente repond 204, pas 404. L'etat
+            vise est atteint. Ce n'est pas un champ accepte puis ignore (proscrit par
+            docs/architecture.md) mais la semantique normale de DELETE — un double clic sur
+            « Supprimer » ne doit pas produire d'erreur.
+          </item>
+        </rightsDecisions>
+        <dataDecisions>
+          <item>
+            Ordre d'ecriture a l'envoi : fichier, puis base, puis suppression de l'ancien. A
+            aucun instant la base ne reference un fichier absent ; au pire un fichier orphelin
+            subsiste si le processus meurt, ce qui coute quelques kilo-octets. L'ordre inverse
+            aurait produit un profil dont la photo ne se charge plus. A la suppression, l'ordre
+            est inverse pour la meme raison : base d'abord.
+          </item>
+          <item>
+            Migration : avatar_url supprimee, trois colonnes ajoutees. La migration REFUSE de
+            s'executer si la moindre ligne porte un avatar_url non nul — mieux vaut un demarrage
+            bloque et un message explicite qu'une URL effacee en silence. Verifie le 2026-08-10
+            sur la base reelle avant ecriture : 20 profils administratifs, 0 avatar_url
+            renseigne. Apres migration : 20 profils, tous preserves.
+          </item>
+          <item>
+            avatarUrl porte un jeton de version (?v=horodatage du dernier envoi) : sans lui,
+            une photo remplacee resterait affichee depuis le cache du navigateur, l'URL etant
+            restee identique.
+          </item>
+        </dataDecisions>
+        <testCoverage>
+          76 tests unitaires ajoutes (415 au total, tous verts) :
+          test/unit/media/image-transcoder.spec.ts (17), test/unit/media/
+          filesystem-media-storage.adapter.spec.ts (18), test/unit/profiles/
+          avatar.service.spec.ts (41) et test/unit/profiles/
+          administrative-profile.view.spec.ts (12).
+          PREUVE CONTRE LA PILE REELLE, le 2026-08-10, via https://claudevma.visioprof.fr :
+          compte eleve cree par l'API, PUT administrative avec avatarUrl refuse en 400,
+          SVG deguise refuse en 400, script shell annonce image/jpeg refuse en 400, envoi
+          d'une vraie photo accepte en 200, octets relus en image/webp 512x512 sans EXIF ni
+          charge, remplacement laissant exactement 1 fichier sur le volume avec un jeton de
+          version different, formateur rattache lisant la photo en 200 puis 404 apres que
+          l'eleve l'a masquee, formateur refuse en 403 a l'ecriture comme a la suppression,
+          DELETE en 204 supprimant le fichier, second DELETE en 204.
+        </testCoverage>
+        <bugsFoundByRealStack>
+          <item>
+            import sharp from 'sharp' type-checkait et compilait, mais emettait
+            sharp_1.default — undefined a l'execution, sharp publiant ses types en
+            `export = sharp` et le service compilant avec esModuleInterop: false. Corrige en
+            `import * as sharp`. Invisible au build.
+          </item>
+          <item>
+            avatarUrl declare `never` dans le DTO : aucun design:type exploitable emis,
+            @nestjs/swagger interpretait ce vide comme une dependance circulaire et REFUSAIT
+            DE DEMARRER le service. Corrige par `avatarUrl?: string` + `type: String` dans
+            @ApiPropertyOptional. Le refus reste porte par le validateur, pas par le type.
+            Invisible au build ET aux 415 tests unitaires.
+          </item>
+          <item>
+            Le point de montage /app/storage/media n'existait pas dans l'image : Docker le
+            creait en root alors que le conteneur tourne en node (uid 1000). Le service
+            demarrait et servait tout le reste, mais echouait au premier televersement sur
+            EACCES. Corrige dans le Dockerfile (mkdir + chown avant USER node), ce qui suffit
+            a initialiser le volume nomme avec les bons droits.
+          </item>
+        </bugsFoundByRealStack>
+      </decision>
       <openPoints>
+        <item priority="high" status="open" raisedIn="C13" raisedOn="2026-08-10">
+          BLOQUANT POUR L'USAGE REEL : nginx en amont plafonne les corps de requete a ~1 Mo et
+          renvoie un 413 HTML avant que la requete n'atteigne le service. Verifie le 2026-08-10 :
+          0,5 Mo passe, 2 Mo est deja coupe. Le plafond du service (MEDIA_MAX_UPLOAD_BYTES,
+          8 Mio) est donc INATTEIGNABLE, alors qu'une photo de telephone pese couramment 2 a
+          5 Mo. Teste sans nginx, le service accepte bien une image de 5,6 Mo et renvoie 413
+          au-dela de 8 Mio. Corriger client_max_body_size dans le bloc location /api/v1/ de
+          claudevma.visioprof.fr — fichier /home/debian/NginxGlobal/nginx.conf, HORS DE CE
+          DEPOT, donc hors du perimetre de ce service.
+        </item>
+        <item priority="high" status="open" raisedIn="C13" raisedOn="2026-08-10">
+          Le front ne peut pas afficher la photo par une simple balise img : la route est
+          authentifiee par le JWT porte dans l'en-tete Authorization, que le navigateur
+          n'envoie pas sur un img src. Le front doit recuperer les octets par fetch puis
+          construire un object URL. A traiter cote front-developper.
+        </item>
+        <item priority="medium" status="open" raisedIn="C13" raisedOn="2026-08-10">
+          Le volume media_data n'est PAS couvert par le dump Postgres. A ajouter a la routine
+          de sauvegarde, sinon une restauration rendrait une base qui reference des photos
+          absentes — le service repond alors 404 avec un log d'anomalie, mais les photos sont
+          perdues.
+        </item>
+        <item priority="low" status="open" raisedIn="C13" raisedOn="2026-08-10">
+          Aucun ramasse-miettes des fichiers orphelins. Ils n'apparaissent que si le processus
+          meurt entre l'ecriture du fichier et celle de la base, ou si une suppression sur le
+          volume echoue apres une mise a jour reussie en base — deux cas journalises en erreur.
+          Volume attendu negligeable ; une tache de nettoyage comparant le volume aux cles en
+          base reste a ecrire si le besoin se confirme.
+        </item>
+        <item priority="low" status="open" raisedIn="C13" raisedOn="2026-08-10">
+          HEIC/HEIF refuse avec un message invitant a reenregistrer en JPEG. Les iPhone
+          produisent ce format ; Safari le convertit generalement en JPEG au televersement,
+          mais ce n'est pas garanti. A rouvrir si des utilisateurs butent dessus — le support
+          suppose de verifier que le binaire sharp prebuilt decode bien le HEIC.
+        </item>
         <item priority="high" status="resolved" resolvedIn="C12" resolvedOn="2026-08-09"
               raisedIn="C11" raisedOn="2026-08-09">
           RESOLU le 2026-08-09 par l'arbitrage utilisateur inscrit dans docs/architecture.md :

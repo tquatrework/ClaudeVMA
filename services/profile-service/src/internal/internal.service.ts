@@ -29,6 +29,26 @@ export class InternalService {
     private readonly relationsService: RelationsService,
   ) {}
 
+  /**
+   * Upsert du profil administratif, puis PROJECTION vers la forme exposée.
+   *
+   * La projection n'est pas cosmétique : elle écarte les champs de stockage de
+   * la photo (`avatarObjectKey`, `avatarContentType`) et construit `avatarUrl`.
+   * Les routes `/internal/*` passent par le même projecteur que les routes
+   * publiques — une donnée porte un seul nom et une seule forme partout
+   * (`docs/architecture.md`, arbitrage du 2026-08-08).
+   */
+  private async bootstrapAndPresentAdministrativeProfile(dto: {
+    userId: string;
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+    birthDate?: string;
+  }) {
+    const profile = await this.profilesService.bootstrapAdministrativeProfile(dto);
+    return this.profilesService.presentAdministrativeProfile(profile);
+  }
+
   async createAdministrativeProfile(dto: {
     userId: string;
     firstName: string;
@@ -36,7 +56,7 @@ export class InternalService {
     phone?: string;
     birthDate?: string;
   }) {
-    const administrative = await this.profilesService.bootstrapAdministrativeProfile(dto);
+    const administrative = await this.bootstrapAndPresentAdministrativeProfile(dto);
     return { userId: dto.userId, administrative };
   }
 
@@ -48,7 +68,7 @@ export class InternalService {
     birthDate?: string;
     level?: string;
   }) {
-    const administrative = await this.profilesService.bootstrapAdministrativeProfile(dto);
+    const administrative = await this.bootstrapAndPresentAdministrativeProfile(dto);
     const pedagogical = await this.profilesService.bootstrapStudentPedagogicalProfile(dto);
 
     return {
@@ -67,7 +87,7 @@ export class InternalService {
     levels?: string[];
     bio?: string;
   }) {
-    const administrative = await this.profilesService.bootstrapAdministrativeProfile(dto);
+    const administrative = await this.bootstrapAndPresentAdministrativeProfile(dto);
     const pedagogical = await this.profilesService.bootstrapTeacherPedagogicalProfile(dto);
 
     return {

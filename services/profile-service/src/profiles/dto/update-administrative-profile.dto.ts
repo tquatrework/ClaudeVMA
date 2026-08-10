@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsNotEmpty, IsString, IsDateString, IsArray, MaxLength } from 'class-validator';
+import { IsServerManagedField } from './server-managed-field.validator';
 
 /**
  * Body de PUT /profiles/:userId/administrative.
@@ -72,11 +73,26 @@ export class UpdateAdministrativeProfileDto {
   @MaxLength(100)
   country?: string;
 
-  @ApiPropertyOptional({ description: 'Avatar image URL', example: 'https://cdn.visiomath.fr/avatars/abc.jpg' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  avatarUrl?: string;
+  /**
+   * REFUSÉ EN ÉCRITURE (400). Depuis que l'application gère les octets de la
+   * photo de profil, `avatarUrl` n'est plus une adresse que l'utilisateur
+   * colle : c'est une URL construite par le serveur vers
+   * `GET /profiles/:userId/avatar`. L'accepter ici puis l'écraser au prochain
+   * envoi reviendrait à absorber un champ en silence.
+   */
+  @ApiPropertyOptional({
+    description:
+      'LECTURE SEULE — refusé en 400 sur cette route. La photo de profil s’envoie via ' +
+      'POST /profiles/:userId/avatar (multipart, champ `file`) et se supprime via ' +
+      'DELETE /profiles/:userId/avatar. `avatarUrl` reste lisible dans le bloc ' +
+      '`administrative` de GET /profiles/:userId.',
+    readOnly: true,
+  })
+  @IsServerManagedField(
+    'La photo de profil s’envoie via POST /profiles/:userId/avatar et se supprime via ' +
+      'DELETE /profiles/:userId/avatar.',
+  )
+  avatarUrl?: never;
 
   @ApiPropertyOptional({
     description: 'French administrative department of residence (e.g. "75 - Paris")',

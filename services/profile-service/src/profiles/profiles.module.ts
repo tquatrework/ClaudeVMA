@@ -1,9 +1,12 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ProfilesController } from './profiles.controller';
+import { ProfileAvatarController } from './profile-avatar.controller';
 import { ProfileInternalNotesController } from './profile-internal-notes.controller';
 import { TeacherValidationController } from './teacher-validation.controller';
 import { ProfilesService } from './profiles.service';
+import { AvatarService } from './avatar.service';
+import { MediaModule } from '../media/media.module';
 import { FieldVisibilityService } from './field-visibility.service';
 import { AdministrativeProfileLookupService } from './administrative-profile-lookup.service';
 import { AdministrativeProfile } from './entities/administrative-profile.entity';
@@ -40,6 +43,11 @@ import { ClientsModule } from '../common/clients/clients.module';
  * RelationsService (only ProfilesService does).
  *
  * JWT/guards come from the global SecurityModule (see app.module.ts).
+ *
+ * MediaModule fournit le port de stockage des octets et le ré-encodeur
+ * d'images, consommés par AvatarService (photo de profil). Ce module ne
+ * connaît aucune règle métier : ProfilesModule y apporte les droits, lui
+ * apporte les octets.
  */
 @Module({
   imports: [
@@ -54,9 +62,20 @@ import { ClientsModule } from '../common/clients/clients.module';
     forwardRef(() => RelationsModule),
     EventsModule,
     ClientsModule,
+    MediaModule,
   ],
-  controllers: [ProfilesController, ProfileInternalNotesController, TeacherValidationController],
-  providers: [ProfilesService, FieldVisibilityService, AdministrativeProfileLookupService],
+  controllers: [
+    ProfilesController,
+    ProfileAvatarController,
+    ProfileInternalNotesController,
+    TeacherValidationController,
+  ],
+  providers: [
+    ProfilesService,
+    AvatarService,
+    FieldVisibilityService,
+    AdministrativeProfileLookupService,
+  ],
   exports: [ProfilesService, FieldVisibilityService, AdministrativeProfileLookupService],
 })
 export class ProfilesModule {}

@@ -29,17 +29,33 @@ ici servira ensuite au CV formateur, aux enregistrements de visio et aux pièces
 
 ## Étape en cours : arbitrage soumis à l'utilisateur
 
-**Où vivent les octets ?** Trois voies exposées le 2026-08-10, rien n'est codé avant la réponse.
+**Où vivent les octets ?** Proposition affinée le 2026-08-10 après relance de l'utilisateur
+(« un dossier spécifique ? »). Rien n'est codé avant sa réponse.
 
-1. **Stockage objet transverse (MinIO)** ajouté au compose, `profile-service` reste propriétaire
-   de la donnée « photo » et délègue les octets. Réutilisable par tout le reste. Coût : un
-   service et un volume de plus.
-2. **`profile-service` stocke lui-même** sur un volume. Le plus court, mais contredit
-   frontalement la règle déjà écrite pour `cvDocumentId`, et ne se réutilise pas.
-3. **`archive-document-service` porte les binaires.** Il existe déjà, mais son domaine est
-   l'archive pédagogique chronologique — une archive se conserve, une photo se remplace.
+**Oui, un dossier — mais un volume Docker nommé, et jamais exposé directement.** Cinq
+conditions, dans l'ordre d'importance :
 
-Recommandation du coordinateur : **voie 1**.
+1. **Le front ne connaît qu'une route, jamais un chemin de fichier.** C'est ce qui rend le choix
+   réversible : passer à un stockage objet plus tard ne touche aucun appelant. Côté service, un
+   port de stockage isole l'écriture disque derrière une interface.
+2. **La route est authentifiée et applique le filtrage de visibilité.** `avatarUrl` fait partie
+   du socle réglable — un fichier servi en statique par nginx court-circuiterait entièrement le
+   filtrage construit le 2026-08-09. C'est l'argument décisif contre le dossier statique.
+3. **Volume nommé, pas un dossier du dépôt ni de l'image.** Sinon un `up --build` efface les
+   photos. Corollaire : **le volume doit entrer dans la routine de sauvegarde** — le dump
+   Postgres actuel ne le couvre pas.
+4. **Ré-encodage systématique à l'upload**, type MIME vérifié sur les octets réels et non sur
+   l'extension annoncée, taille et dimensions plafonnées, nom de fichier généré (UUID), SVG
+   refusé. Un upload d'image non ré-encodé est un vecteur d'exécution classique.
+5. **Porté par `profile-service`.** Précision de la règle `cvDocumentId` plutôt que
+   contradiction : le CV est une **pièce à conserver**, rattachée à une validation RP → archive.
+   La photo est un **attribut de profil**, remplacé et jamais historisé. La règle devient
+   « `profile-service` ne stocke aucun document d'archive ; il porte les médias attachés à ses
+   propres champs ».
+
+Écarté : MinIO (infrastructure disproportionnée pour quelques avatars, et la condition 1 permet
+d'y venir plus tard sans rien casser) ; `archive-document-service` (une archive se conserve, une
+photo se remplace — deux cycles de vie).
 
 Points tranchés sans attendre, sauf objection :
 - le nom reste **`avatarUrl`** (règle « un seul nom par donnée ») ;

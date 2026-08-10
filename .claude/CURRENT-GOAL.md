@@ -139,6 +139,23 @@ de `claudevma.visioprof.fr`, jamais au niveau `http` — l'instance sert d'autre
 reconstruction d'image, donc brève coupure de tous les sites) : il suffira de relever
 `MEDIA_MAX_UPLOAD_BYTES`. L'ordre est impératif — proxy d'abord, application ensuite.
 
+### Symptôme observé par l'utilisateur le 2026-08-10 : « les PNG ne sont pas acceptés »
+
+Diagnostic établi contre la pile réelle, pas supposé. **Le format n'est pas en cause** : PNG de
+1 087 o → `200`, PNG de 468 539 o → `200`. Ce qui est refusé est la **taille**, et le refus est
+aujourd'hui une **page HTML nginx** « Request Entity Too Large » — sans un mot de français, sans
+mention du poids ni de la limite (JPEG de 1 366 624 o → `413` HTML). Rien ne désigne la taille,
+d'où la lecture « il n'a pas voulu de mon PNG ».
+
+Le PNG est le format le plus exposé parce qu'il est **sans perte** : une capture d'écran ou un
+export dépasse très vite 1 Mo là où un JPEG de la même image reste bien en dessous. La confusion
+est donc structurelle, pas accidentelle — un plafond qui refuse sans se nommer sera toujours
+attribué à autre chose que lui-même.
+
+Corrigé par les commits ci-dessus (message avant le choix du fichier, refus local citant la
+taille), **pas encore déployé** : `GET /profiles/avatar/constraints` répondait encore `404` au
+moment du test.
+
 **Proposition non implémentée, à trancher** : redimensionner la photo dans le navigateur avant
 envoi (~150 Ko pour une photo de 5 Mo) supprimerait l'échec plutôt que de l'expliquer. Coût :
 double ré-encodage, invisible à 512 px ; le HEIC des iPhone resterait refusé. Non fait, c'est un

@@ -172,6 +172,13 @@ jamais vérifiée contre la pile réelle.**
 navigateur pose lui-même `multipart/form-data; boundary=…`. Ne **pas** poser
 `multipart/form-data` en dur : sans `boundary`, le corps devient illisible côté serveur.
 
+**Corrigé** par `1511467` : l'en-tête est retiré dès que le corps est un `FormData`, **au centre**
+(`client.ts`) plutôt qu'à chaque appelant, pour que le prochain envoi de fichier n'y retombe pas.
+Preuve hors réseau simulé : le **vrai** `apiClient` corrigé, importé tel quel et lancé contre
+`https://claudevma.visioprof.fr`, répond `200 {"avatarUrl": …}` — contre `400` avant correction.
+Le test de régression descend jusqu'à `XMLHttpRequest` et vérifie l'en-tête réellement émis ; il
+a été vérifié **rouge** sur les sources non corrigées.
+
 **Leçon à retenir** : un `Content-Type` par défaut au niveau de l'instance casse silencieusement
 tout envoi de fichier de l'application. Le prochain envoi de fichier (CV formateur, pièces
 justificatives) tomberait dans le même piège. Un test de régression doit vérifier le

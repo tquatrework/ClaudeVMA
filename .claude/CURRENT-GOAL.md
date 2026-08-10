@@ -57,6 +57,25 @@ conditions, dans l'ordre d'importance :
 d'y venir plus tard sans rien casser) ; `archive-document-service` (une archive se conserve, une
 photo se remplace — deux cycles de vie).
 
+### Obstacle infra repéré le 2026-08-10, à traiter au déploiement
+
+Le domaine est servi par le conteneur **`nginx-global`** (source : `/home/debian/NginxGlobal/`,
+hors dépôt, fichiers appartenant à `root`), qui proxifie `/api/v1/` vers `172.17.0.1:8098`.
+Sa configuration **ne déclare aucun `client_max_body_size`** → défaut nginx = **1 Mo**. Toute
+photo au-delà sera rejetée en `413` **avant d'atteindre le code**, alors qu'une photo de
+téléphone pèse 3 à 8 Mo.
+
+Correction nécessaire : ajouter `client_max_body_size 10m;` **dans le seul bloc `server` de
+`claudevma.visioprof.fr`**, pas au niveau `http` — l'instance sert aussi d'autres sites. La
+configuration étant intégrée à l'image, il faut reconstruire et relancer `nginx-global`, ce qui
+interrompt brièvement **tous** les sites hébergés. À faire valider par l'utilisateur avant.
+
+### Chaîne réelle de la requête (relevée, pas supposée)
+
+`nginx-global` (443) → `172.17.0.1:8098` → `api-gateway` → `profile-service`. Le conteneur
+`frontend` ne sert que le SPA et ne proxifie pas l'API : sa configuration nginx est écrite en
+dur dans `apps/web/Dockerfile`.
+
 Points tranchés sans attendre, sauf objection :
 - le nom reste **`avatarUrl`** (règle « un seul nom par donnée ») ;
 - **écriture réservée au titulaire** ; le parent financeur lit mais n'écrit pas ; le TI dispose

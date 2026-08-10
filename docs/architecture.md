@@ -262,6 +262,20 @@ Phase 3 enrichit l'offre :
      ecriture, la valeur renvoyee par le serveur **remonte** au proprietaire de l'etat ; on ne va
      pas la rechercher par une nouvelle requete. Un enfant qui detient seul une donnee du modele
      la perd des qu'il est demonte.
+     La regle vaut pour **tous les champs**, pas seulement la photo qui l'a revelee : une donnee
+     enregistree reste affichee, et un changement d'onglet ne la fait pas disparaitre. Precision
+     apportee le 2026-08-10 apres constat que les trois ecritures de profil
+     (`administrative`, `pedagogical`, `prescription`) **jetaient la reponse du serveur** et ne
+     lisaient que le code de succes — la page conservait donc les valeurs d'avant
+     l'enregistrement.
+  3bis. **On reaffiche la reponse recue, jamais le corps envoye.** Le serveur normalise, complete
+     et pose des champs que le client ne connait pas — `filledBy` et `filledAt` sur la
+     prescription, `avatarUrl` sur la photo, horodatages de mise a jour. Reafficher ce qu'on a
+     envoye plutot que ce qui a ete enregistre produirait un ecran qui ment sur l'etat reel,
+     exactement la famille de defauts que ces regles ferment. Corollaire de forme : les reponses
+     d'ecriture sont **plates** (`{userId, ...champs}`) la ou `GET /profiles/:userId` renvoie une
+     **enveloppe** (`{administrative, pedagogical, ...}`) — la fusion se fait bloc par bloc,
+     jamais par ecrasement.
   4. **Aucun cache pour l'instant.** Un cache serait le bon outil pour la fluidite, mais il ajoute
      une couche de complexite que l'utilisateur a explicitement choisi de ne pas payer
      aujourd'hui. Decision assumee, a rouvrir plus tard — **ne pas introduire de cache partiel

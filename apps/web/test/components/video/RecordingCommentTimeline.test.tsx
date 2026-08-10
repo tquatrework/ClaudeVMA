@@ -78,6 +78,34 @@ describe('RecordingCommentTimeline — formulaire commentaire', () => {
     })
   })
 
+  /**
+   * Le commentaire listé est celui que le **serveur** a enregistré, pas celui qu'on a envoyé.
+   * Jusqu'au 2026-08-10, la timeline reconstruisait localement une ligne à partir de la saisie
+   * (identifiant `local-<horodatage>`, horloge du navigateur) et jetait la réponse : ce que
+   * l'utilisateur relisait n'était que sa propre frappe. Aucune route de lecture n'existant pour
+   * ces commentaires, l'écart n'aurait été corrigé par aucun rechargement.
+   */
+  it('liste le commentaire tel que le serveur l’a enregistré, pas la saisie', async () => {
+    mockAddRecordingComment.mockResolvedValue({
+      id: 'comment-7',
+      timestampSeconds: 42,
+      content: 'Excellent exemple ici (relu et normalisé)',
+      createdAt: '2026-08-10T10:00:00.000Z',
+    })
+
+    renderTimeline('rec-123', 'formateur')
+
+    await userEvent.type(screen.getByLabelText('Commentaire'), 'excellent exemple ici')
+    await userEvent.click(screen.getByRole('button', { name: /envoyer/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Excellent exemple ici (relu et normalisé)')).toBeDefined()
+    })
+    expect(screen.queryByText('excellent exemple ici')).toBeNull()
+    // La position vient elle aussi de la réponse : elle est affichée en m:ss.
+    expect(screen.getByText('0:42')).toBeDefined()
+  })
+
   it('affiche une erreur fixe si l\'envoi échoue', async () => {
     mockAddRecordingComment.mockRejectedValue({ response: { status: 400 } })
 

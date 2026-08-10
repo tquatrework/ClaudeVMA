@@ -21,6 +21,7 @@ import type {
   Profile,
   ProfileAvatarConstraints,
   ProfileStatisticsResponse,
+  SavedProfileBlock,
 } from '../types/profile'
 
 // ─── Profil ───────────────────────────────────────────────────────────────────
@@ -40,12 +41,18 @@ export async function fetchProfile(userId: string): Promise<Profile> {
 
 /**
  * PUT /profiles/:userId/administrative — Modifier le profil administratif
+ *
+ * Renvoie le bloc **à jour**, à plat : `{userId, ...champsAdmin}`, traçabilité
+ * (`updatedAt`) et `avatarUrl` compris. C'est cette réponse qui doit être
+ * affichée après un enregistrement — le serveur normalise et complète, réafficher
+ * le corps envoyé mentirait à l'écran. D'où un type plus large que celui du
+ * corps : `SavedProfileBlock`.
  */
 export async function updateAdministrativeProfile(
   userId: string,
   payload: AdministrativeProfileFields,
-): Promise<AdministrativeProfileFields> {
-  const { data } = await apiClient.put<AdministrativeProfileFields>(
+): Promise<SavedProfileBlock> {
+  const { data } = await apiClient.put<SavedProfileBlock>(
     `/profiles/${userId}/administrative`,
     payload,
   )
@@ -58,12 +65,16 @@ export async function updateAdministrativeProfile(
  *
  * N'accepte aucun champ de prescription, ni `filledBy`/`filledAt`, ni
  * `isAnimateurPedagogique` : le serveur répond `400` au lieu de les ignorer.
+ *
+ * Renvoie le bloc **à jour**, à plat : `{userId, ...champsPedago}`. À fusionner
+ * dans le bloc `pedagogical` détenu par l'écran, jamais à substituer à
+ * l'enveloppe de `GET /profiles/:userId`.
  */
 export async function updatePedagogicalProfile(
   userId: string,
   payload: DeclarativePedagogicalFields,
-): Promise<DeclarativePedagogicalFields> {
-  const { data } = await apiClient.put<DeclarativePedagogicalFields>(
+): Promise<SavedProfileBlock> {
+  const { data } = await apiClient.put<SavedProfileBlock>(
     `/profiles/${userId}/pedagogical`,
     payload,
   )
@@ -76,12 +87,17 @@ export async function updatePedagogicalProfile(
  * cible est l'appelant lui-même (`403` pour tout autre rôle).
  *
  * `filledBy` et `filledAt` sont posés par le serveur : les envoyer renvoie `400`.
+ *
+ * La réponse est le profil pédagogique **complet** — sections confondues, plus
+ * `filledBy`/`filledAt`. C'est la seule façon d'afficher l'auteur et la date de
+ * la prescription sans relire le profil : ils n'existent nulle part dans le corps
+ * envoyé.
  */
 export async function updatePrescription(
   userId: string,
   payload: PrescriptionFields,
-): Promise<PrescriptionFields> {
-  const { data } = await apiClient.put<PrescriptionFields>(
+): Promise<SavedProfileBlock> {
+  const { data } = await apiClient.put<SavedProfileBlock>(
     `/profiles/${userId}/prescription`,
     payload,
   )

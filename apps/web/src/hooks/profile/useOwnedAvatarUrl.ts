@@ -13,21 +13,13 @@
  * reçoit en propriété et signale la nouvelle — **celle que le serveur vient de
  * renvoyer**, sans second aller-retour.
  *
- * Deux sources se rencontrent ici, d'où la synchronisation :
- *
- * - le **serveur**, à chaque chargement de la page. Un nouveau chargement fait
- *   autorité et écrase la valeur courante ;
- * - l'**utilisateur**, quand il envoie ou supprime sa photo. La valeur locale
- *   tient jusqu'au prochain chargement.
- *
- * La resynchronisation se fait pendant le rendu, sur l'identité de l'objet
- * chargé — et non sur l'URL elle-même, qui peut valoir `null` avant comme après
- * un changement d'utilisateur. C'est le motif documenté par React pour ajuster
- * un état lorsqu'une propriété change : synchrone, sans rendu intermédiaire
- * affiché, là où un `useEffect` laisserait passer une image périmée.
+ * La mécanique de détention (valeur locale, resynchronisation sur l'identité de
+ * l'objet chargé) est **commune à tous les champs de profil** depuis la
+ * généralisation du 2026-08-10 : elle vit dans `useOwnedValue`, ce hook n'en est
+ * plus que la lecture nommée pour la photo.
  */
 
-import { useRef, useState } from 'react'
+import { useOwnedValue } from '../useOwnedValue'
 
 /**
  * @param loadedData objet de données renvoyé par le chargement de la page. Seule
@@ -40,13 +32,5 @@ export function useOwnedAvatarUrl(
   loadedData: unknown,
   loadedAvatarUrl: string | null,
 ): [string | null, (nextAvatarUrl: string | null) => void] {
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(loadedAvatarUrl)
-  const lastLoadedDataRef = useRef(loadedData)
-
-  if (lastLoadedDataRef.current !== loadedData) {
-    lastLoadedDataRef.current = loadedData
-    setAvatarUrl(loadedAvatarUrl)
-  }
-
-  return [avatarUrl, setAvatarUrl]
+  return useOwnedValue<string | null>(loadedData, loadedAvatarUrl)
 }

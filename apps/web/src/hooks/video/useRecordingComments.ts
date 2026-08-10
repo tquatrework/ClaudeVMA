@@ -10,16 +10,25 @@ export interface UseRecordingCommentsResult {
   setContent: (value: string) => void
   isSubmitting: boolean
   error: string | null
-  /** POST /recordings/:recordingId/comments puis ajout local du commentaire à la liste affichée. */
+  /**
+   * POST /recordings/:recordingId/comments, puis ajout à la liste affichée du commentaire
+   * **tel que le serveur l'a enregistré**.
+   */
   submitComment: () => Promise<boolean>
 }
 
 /**
- * useRecordingComments — orchestration de RecordingCommentTimeline. Reproduit le comportement
- * préexistant : le commentaire ajouté à la liste locale est reconstruit côté client (id
- * `local-<timestamp>`, `createdAt` local) plutôt que dérivé de la réponse serveur — il n'existe
- * pas de route de lecture des commentaires dans docs/routes.md, seule la création est exposée.
- * Le message d'erreur est fixe quel que soit le détail de l'échec, comme dans le composant
+ * useRecordingComments — orchestration de RecordingCommentTimeline.
+ *
+ * Le commentaire ajouté à la liste est celui que le serveur renvoie
+ * (`201 {id, recordingId, userId, timestampSeconds, content, createdAt}`, `docs/routes.md`).
+ * Il était jusqu'au 2026-08-10 **reconstruit côté client** — identifiant `local-<horodatage>` et
+ * `createdAt` pris sur l'horloge du navigateur —, c'est-à-dire que l'écran affichait ce qu'on
+ * avait envoyé et non ce qui avait été enregistré. Même famille de défaut que les champs de
+ * profil corrigés le même jour, et aucune route de lecture n'existe pour rattraper l'écart au
+ * rechargement.
+ *
+ * Le message d'erreur reste fixe quel que soit le détail de l'échec, comme dans le composant
  * d'origine.
  */
 export function useRecordingComments(recordingId: string): UseRecordingCommentsResult {
@@ -35,17 +44,11 @@ export function useRecordingComments(recordingId: string): UseRecordingCommentsR
     setIsSubmitting(true)
     setError(null)
     try {
-      await addRecordingComment(recordingId, {
+      const savedComment = await addRecordingComment(recordingId, {
         timestampSeconds,
         content: content.trim(),
       })
-      const newComment: RecordingComment = {
-        id: `local-${Date.now()}`,
-        timestampSeconds,
-        content: content.trim(),
-        createdAt: new Date().toISOString(),
-      }
-      setComments((previous) => [...previous, newComment])
+      setComments((previous) => [...previous, savedComment])
       setContent('')
       setTimestampSeconds(0)
       return true

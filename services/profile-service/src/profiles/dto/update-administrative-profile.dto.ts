@@ -81,6 +81,13 @@ export class UpdateAdministrativeProfileDto {
    * envoi reviendrait à absorber un champ en silence.
    */
   @ApiPropertyOptional({
+    // `type: String` est OBLIGATOIRE ici. Le type TypeScript déclaré ci-dessous
+    // ne peut pas être `never` : `emitDecoratorMetadata` n'émet alors aucun
+    // `design:type` exploitable, et @nestjs/swagger interprète ce vide comme une
+    // dépendance circulaire — il refuse de construire le document et le service
+    // ne démarre pas. Constaté sur la pile réelle le 2026-08-10, invisible en
+    // test unitaire comme au build.
+    type: String,
     description:
       'LECTURE SEULE — refusé en 400 sur cette route. La photo de profil s’envoie via ' +
       'POST /profiles/:userId/avatar (multipart, champ `file`) et se supprime via ' +
@@ -92,7 +99,7 @@ export class UpdateAdministrativeProfileDto {
     'La photo de profil s’envoie via POST /profiles/:userId/avatar et se supprime via ' +
       'DELETE /profiles/:userId/avatar.',
   )
-  avatarUrl?: never;
+  avatarUrl?: string;
 
   @ApiPropertyOptional({
     description: 'French administrative department of residence (e.g. "75 - Paris")',

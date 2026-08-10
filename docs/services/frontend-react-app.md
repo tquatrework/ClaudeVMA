@@ -551,5 +551,161 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-08-10" label="Photo de profil (branche feat/photo-de-profil)">
+      <context>
+        Le back venait de livrer trois routes — `POST`, `GET` et `DELETE /profiles/:userId/avatar`
+        (docs/routes.md > « Photo de profil ») — et de fermer `avatarUrl` en ecriture sur
+        `PUT /profiles/:userId/administrative`, qui repond desormais `400` si le champ arrive dans
+        le corps. Cote front, la photo n'avait aucun emplacement : elle etait un champ de texte
+        « Adresse web de votre photo de profil » ou l'utilisateur collait une URL externe.
+        Ce champ etait devenu **cassant** : `AdministrativeProfileForm` renvoie au serveur tous les
+        champs chargés, `avatarUrl` compris, donc tout profil portant deja une photo etait devenu
+        impossible a enregistrer.
+      </context>
+
+      <filesAdded>
+        <file path="src/utils/profileAvatar.ts">
+          Helpers purs et point unique des textes affiches : formats acceptes (`accept` du champ de
+          fichier), libelles des actions, extraction du jeton de version `?v=`, et traduction en
+          francais des erreurs d'envoi, de suppression et d'affichage.
+        </file>
+        <file path="src/hooks/profile/useProfileAvatar.ts">
+          Cycle de vie complet de la photo : recuperation des octets, fabrication et **revocation**
+          de l'object URL, envoi, suppression, et etats loading/error separes par action.
+        </file>
+        <file path="src/components/profile/ProfileAvatarField.tsx">
+          L'emplacement lui-meme : image ou pastille d'initiales, actions « Ajouter/Changer la
+          photo » et « Supprimer la photo », messages d'echec au plus pres du bloc.
+        </file>
+        <file path="test/utils/profileAvatar.test.ts">Helpers purs, cas nominaux et cas d'erreur.</file>
+        <file path="test/profileAvatar.api.test.ts">Transport HTTP : chemins, multipart, blob, jeton.</file>
+        <file path="test/components/ProfileAvatarField.test.tsx">Comportement de l'emplacement, dont la revocation des object URLs.</file>
+      </filesAdded>
+
+      <filesModified>
+        <file path="src/api/profile.ts">Ajout de `uploadProfileAvatar`, `fetchProfileAvatarBlob` et `deleteProfileAvatar`.</file>
+        <file path="src/utils/profileFields.ts">`avatarUrl` sorti des champs d'ecriture et d'affichage, nouvelle liste `ADMINISTRATIVE_SERVER_MANAGED_FIELD_NAMES`, nouveau `pickAdministrativeAvatarUrl`.</file>
+        <file path="src/components/profile/AdministrativeProfileForm.tsx">Le champ texte « Photo de profil » disparait (11 champs au lieu de 12).</file>
+        <file path="src/components/profile/AdministrativeProfilePanel.tsx">Monte l'emplacement photo en tete, dans les deux rendus (lecture et saisie).</file>
+        <file path="src/pages/ProfilePage.tsx">Calcule et transmet `canEditAvatar`.</file>
+        <file path="src/pages/ProfileEditPage.tsx">Meme emplacement en tete de l'onglet administratif.</file>
+        <file path="src/hooks/profile/useProfileForm.ts">Expose `avatarUrl` a part des champs editables.</file>
+        <file path="src/utils/profilePermissions.ts">Nouveau `canEditProfileAvatar` — titulaire seul.</file>
+        <file path="src/utils/nameFormat.ts">Nouveau `formatFullName`, extrait de `formatPersonDisplayName`.</file>
+        <file path="src/utils/apiError.ts">Traduction du `413` ajoutee au tableau generique.</file>
+        <file path="src/test-setup.ts">Stub des object URLs, non implementes par jsdom.</file>
+      </filesModified>
+
+      <decision id="avatar-fetched-then-object-url">
+        <title>Les octets sont demandes, puis transformes en object URL</title>
+        <description>
+          `&lt;img src={avatarUrl}&gt;` ne peut pas fonctionner : la route est authentifiee par le JWT
+          porte dans l'en-tete `Authorization`, que le navigateur n'envoie jamais sur une balise
+          `&lt;img&gt;`. `useProfileAvatar` appelle donc `GET /profiles/:userId/avatar` en
+          `responseType: 'blob'` puis `URL.createObjectURL`. L'object URL est **revoque** dans le
+          nettoyage de l'effet, donc au demontage **et** a chaque remplacement — sinon chaque
+          navigation vers une fiche laisse un blob en memoire. Deux tests le gardent.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="avatar-url-never-sent-to-put">
+        <title>`avatarUrl` sort des champs renvoyes en ecriture</title>
+        <description>
+          Il quitte `ADMINISTRATIVE_FIELD_NAMES` pour `ADMINISTRATIVE_SERVER_MANAGED_FIELD_NAMES` :
+          lisible dans le bloc, jamais renvoye. Sans ce retrait, tout profil illustre serait devenu
+          impossible a enregistrer — le formulaire rechargeait le champ et le repostait a chaque
+          sauvegarde. Un test de regression verifie que le corps du `PUT` ne porte jamais
+          `avatarUrl`, meme quand le profil charge en contient un.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="avatar-404-shows-neutral-substitute">
+        <title>Le `404` affiche une pastille d'initiales, sans affirmer de cause</title>
+        <description>
+          `404` signifie « pas de photo » **ou** « photo masquee pour ce lecteur », et le serveur
+          rend les deux volontairement indiscernables — un `403` revelerait l'existence de la photo.
+          L'interface affiche donc un substitut neutre et ne dit rien. Seule exception : le
+          **titulaire** lit « Vous n'avez pas encore ajoute de photo », pour lui l'absence n'ayant
+          qu'une cause possible. Corollaire : `avatarUrl` a aussi quitte
+          `ADMINISTRATIVE_DISPLAY_FIELD_NAMES`, ou son masquage aurait produit une ligne « Non
+          partage » qui aurait trahi ce que le serveur cache.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="avatar-413-speaks-of-file-weight">
+        <title>Le `413` parle de poids de fichier, en francais</title>
+        <description>
+          nginx plafonne aujourd'hui les corps de requete a ~1 Mo en amont du service et repond une
+          page **HTML** : aucun message metier exploitable n'accompagne le statut. Le message affiche
+          est donc pose cote front — « Cette photo est trop lourde… moins de 1 Mo » — et ne cite
+          jamais le code HTTP. Les autres statuts sont traduits de la meme facon, avant tout repli
+          sur le message du serveur : `profile-service` renvoie des libelles techniques anglais
+          (« Unsupported image format »), qui ne doivent pas atteindre l'ecran.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="avatar-version-token-replayed">
+        <title>Le jeton `?v=` renvoye par le serveur est rejoue tel quel</title>
+        <description>
+          Apres un envoi, le hook repart de l'`avatarUrl` de la reponse, jamais d'une URL
+          reconstruite : son horodatage change a chaque remplacement, et c'est lui qui empeche le
+          navigateur de resservir l'ancienne photo (`Cache-Control: private, max-age=60`).
+          `extractAvatarVersionToken` n'en tire que le parametre `v`, passe en `params` — l'URL
+          d'appel reste le chemin documente, la base `/api/v1` etant deja portee par `apiClient`.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="avatar-owner-only-actions">
+        <title>Les actions ne sont affichees qu'au titulaire</title>
+        <description>
+          `POST` et `DELETE` sont reserves au titulaire, **sans exception administrative** : plus
+          restrictif que l'ecriture du bloc administratif, ouverte au RP et au TI. D'ou un
+          `canEditAvatar` distinct de `canEdit`, centralise dans `canEditProfileAvatar`. Un RP, un TI
+          ou un parent financeur voient la photo, sans aucun bouton — la regle de filtrage UI du
+          projet interdit d'afficher une porte qui repondrait `403`.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="avatar-placement-top-of-administrative-tab">
+        <title>Emplacement : premier bloc de l'onglet « Profil administratif »</title>
+        <description>
+          Sur `/profiles/:userId` (onglet actif par defaut) et sur `/profiles/:userId/edit`, le bloc
+          photo precede la carte « Informations administratives », en lecture comme en saisie. La
+          photo est l'element d'identite le plus immediatement lisible d'une fiche : la reléguer sous
+          douze champs de formulaire l'aurait rendue introuvable — c'est exactement ce qui etait
+          arrive au champ texte qu'elle remplace. A cote de l'image, le **prenom et le nom**, jamais
+          l'identifiant du compte.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <openPoints>
+        <item id="avatar-nginx-1mb-cap">
+          nginx plafonne les corps a ~1 Mo (`client_max_body_size` du bloc `location /api/v1/` de
+          `claudevma.visioprof.fr`, hors de ce depot), alors qu'une photo de telephone pese
+          couramment 2 a 5 Mo et que le service en accepte 8 Mio. Le message d'erreur annonce donc
+          « moins de 1 Mo » : **a corriger en meme temps que l'infra**, sinon il deviendra faux.
+        </item>
+        <item id="avatar-no-client-side-resize">
+          Aucun redimensionnement cote navigateur avant envoi : une photo de telephone part telle
+          quelle et se fait refuser tant que le plafond nginx tient. Un redimensionnement `canvas`
+          avant `POST` reglerait le probleme sans attendre l'infra — non fait ici pour ne pas
+          re-encoder l'image deux fois, le serveur le faisant deja (WebP, 512 px, EXIF supprimes).
+        </item>
+        <item id="avatar-not-in-topbar">
+          La photo n'apparait pas encore dans la barre du haut ni dans `ImportantContacts`, qui
+          continuent d'afficher une pastille d'initiale. Chaque emplacement supplementaire ajoute une
+          requete par personne affichee : une mise en cache partagee des object URLs serait a prevoir
+          avant de generaliser.
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

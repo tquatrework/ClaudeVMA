@@ -139,6 +139,44 @@ de `claudevma.visioprof.fr`, jamais au niveau `http` — l'instance sert d'autre
 reconstruction d'image, donc brève coupure de tous les sites) : il suffira de relever
 `MEDIA_MAX_UPLOAD_BYTES`. L'ordre est impératif — proxy d'abord, application ensuite.
 
+### DÉFAUT BLOQUANT trouvé le 2026-08-10 : tout envoi depuis le navigateur échoue en `400`
+
+**L'envoi de photo n'a jamais fonctionné depuis l'interface**, quel que soit le format et quelle
+que soit la taille. En `curl` il passe (`200`) : le serveur est hors de cause, c'est la requête
+émise par le navigateur qui est malformée.
+
+**Cause.** `apps/web/src/api/client.ts:9` pose `Content-Type: application/json` comme en-tête
+**par défaut de l'instance** axios. Or axios 1.7.2, dans `transformRequest`, fait :
+
+```js
+return hasJSONContentType ? JSON.stringify(formDataToJSON(data)) : data;
+```
+
+Autrement dit, quand le `Content-Type` annonce du JSON, axios **convertit le `FormData` en
+JSON** au lieu de l'envoyer en multipart. Le fichier est perdu à l'émission, le serveur ne reçoit
+aucune partie multipart et répond, à juste titre, « Aucun fichier reçu ».
+
+Le commentaire de `apps/web/src/api/profile.ts:124-126` affirme l'inverse — « axios le retire
+pour un `FormData` ». C'est vrai seulement si aucun `Content-Type` n'est déjà posé ; ici
+l'instance en pose un, donc axios ne le retire jamais. **Une hypothèse écrite en commentaire et
+jamais vérifiée contre la pile réelle.**
+
+**Preuve, jouée contre `https://claudevma.visioprof.fr` avec la vraie configuration d'axios :**
+
+| Configuration | Réponse |
+|---|---|
+| `headers: {'Content-Type': 'application/json'}` (code actuel) | `400 "Aucun fichier reçu. Envoyez l'image dans un formulaire multipart, sous le champ « file »."` |
+| même appel, en-tête par défaut retiré | `200 {"avatarUrl": "…"}` |
+
+**Correction** : neutraliser l'en-tête pour cet appel (`Content-Type: undefined`), afin que le
+navigateur pose lui-même `multipart/form-data; boundary=…`. Ne **pas** poser
+`multipart/form-data` en dur : sans `boundary`, le corps devient illisible côté serveur.
+
+**Leçon à retenir** : un `Content-Type` par défaut au niveau de l'instance casse silencieusement
+tout envoi de fichier de l'application. Le prochain envoi de fichier (CV formateur, pièces
+justificatives) tomberait dans le même piège. Un test de régression doit vérifier le
+**Content-Type réellement émis**, pas seulement que la fonction est appelée.
+
 ### Symptôme observé par l'utilisateur le 2026-08-10 : « les PNG ne sont pas acceptés »
 
 Diagnostic établi contre la pile réelle, pas supposé. **Le format n'est pas en cause** : PNG de

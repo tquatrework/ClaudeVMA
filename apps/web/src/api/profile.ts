@@ -121,9 +121,23 @@ export interface ProfileAvatarUploadResult {
  * **Titulaire seul**, sans exception administrative : la photo n'appartient au
  * domaine d'aucun rôle administratif (`docs/routes.md`, 2026-08-10).
  *
- * Corps `multipart/form-data`, un seul fichier, champ `file`. Le `Content-Type`
- * n'est pas posé ici : axios le retire pour un `FormData` afin que le navigateur
- * pose lui-même la limite (`boundary`) du corps multipart.
+ * Corps `multipart/form-data`, un seul fichier, champ `file`.
+ *
+ * Le `Content-Type` est explicitement **neutralisé** (`undefined`) pour cet
+ * appel. Contrairement à ce que disait le commentaire précédent, axios ne
+ * retire pas de lui-même l'en-tête pour un `FormData` : si un `Content-Type`
+ * JSON est déjà posé — et `apiClient` en pose un par défaut —, son
+ * `transformRequest` **convertit le `FormData` en JSON** et le fichier est perdu
+ * à l'émission. C'est ce qui faisait échouer tout envoi depuis le navigateur en
+ * `400 « Aucun fichier reçu. »` alors que le même appel en `curl` répondait
+ * `200` (constat du 2026-08-10).
+ *
+ * Sans en-tête, le navigateur pose lui-même `multipart/form-data; boundary=…`.
+ * Ne jamais poser `multipart/form-data` en dur ici : privé du `boundary`, le
+ * corps redeviendrait illisible côté serveur.
+ *
+ * `apiClient` neutralise déjà l'en-tête pour tout corps `FormData` ; la
+ * consigne est répétée ici parce qu'elle fait partie du contrat de la route.
  */
 export async function uploadProfileAvatar(
   userId: string,
@@ -135,6 +149,7 @@ export async function uploadProfileAvatar(
   const { data } = await apiClient.post<ProfileAvatarUploadResult>(
     `/profiles/${userId}/avatar`,
     formData,
+    { headers: { 'Content-Type': undefined } },
   )
   return data
 }

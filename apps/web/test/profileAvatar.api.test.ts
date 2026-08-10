@@ -6,6 +6,13 @@
  * multipart, lecture en octets et rejeu du jeton de version. Une URL inventée
  * d'après le nom d'un écran React, ou un champ nommé autrement que `file`, ne
  * produirait qu'un `400` en production.
+ *
+ * **Portée volontairement limitée** : `apiClient` est simulé ici, donc ce
+ * fichier ne dit rien de ce qui part réellement sur le réseau. Il est resté vert
+ * pendant que tout envoi échouait en `400 « Aucun fichier reçu. »`, le
+ * `Content-Type` JSON par défaut faisant convertir le `FormData` en JSON par
+ * axios. Les en-têtes et le corps réellement émis sont couverts par
+ * `test/apiClient.formData.test.ts`, qui descend jusqu'à `XMLHttpRequest`.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -69,11 +76,17 @@ describe('uploadProfileAvatar', () => {
     const result = await uploadProfileAvatar(USER_ID, makePhotoFile())
 
     expect(mockPost).toHaveBeenCalledTimes(1)
-    const [calledUrl, calledBody] = mockPost.mock.calls[0]
+    const [calledUrl, calledBody, calledConfig] = mockPost.mock.calls[0]
     expect(calledUrl).toBe(`/profiles/${USER_ID}/avatar`)
     expect(calledBody).toBeInstanceOf(FormData)
     // Le serveur n'accepte qu'un seul fichier, sous ce nom exact.
     expect((calledBody as FormData).getAll('file')).toHaveLength(1)
+    // L'en-tête est neutralisé pour que le navigateur pose lui-même
+    // `multipart/form-data; boundary=…`. Surtout pas `multipart/form-data` en
+    // dur : sans boundary, le corps est illisible côté serveur.
+    const sentContentType = (calledConfig as { headers?: Record<string, unknown> } | undefined)
+      ?.headers?.['Content-Type']
+    expect(sentContentType).toBeUndefined()
     expect(result.avatarUrl).toContain('?v=1754820000000')
   })
 

@@ -25,7 +25,7 @@
  */
 
 import React, { useMemo, useState } from 'react'
-import type { ProfileVisibility } from '../../types/profile'
+import type { ProfileVisibility, SavedProfileBlock } from '../../types/profile'
 import {
   ADMINISTRATIVE_DISPLAY_FIELD_NAMES,
   ADMINISTRATIVE_TRACEABILITY_FIELD_NAMES,
@@ -71,6 +71,14 @@ interface AdministrativeProfilePanelProps {
   avatarUrl: string | null
   /** Remonte la nouvelle `avatarUrl` à la page (envoi ou suppression réussis). */
   onAvatarUrlChange?: (nextAvatarUrl: string | null) => void
+  /**
+   * Remonte à la page le bloc administratif **renvoyé par le serveur** après un
+   * enregistrement. Même raison que pour la photo : le bloc affiché appartient à
+   * la fiche, pas à ce panneau. Sans ce signal, la page continuerait d'afficher
+   * les valeurs d'avant l'écriture — nom de la photo et traçabilité compris —
+   * jusqu'au prochain chargement.
+   */
+  onSaved?: (savedBlock: SavedProfileBlock) => void
 }
 
 export function AdministrativeProfilePanel({
@@ -81,9 +89,10 @@ export function AdministrativeProfilePanel({
   canEditAvatar,
   avatarUrl,
   onAvatarUrlChange,
+  onSaved,
 }: AdministrativeProfilePanelProps) {
   const { saveAdministrative, isSavingAdministrative, administrativeSaveError } =
-    useProfileSaveActions(userId)
+    useProfileSaveActions(userId, { onAdministrativeSaved: onSaved })
 
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 

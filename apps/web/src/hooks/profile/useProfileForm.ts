@@ -1,14 +1,18 @@
+import { useCallback } from 'react'
 import { fetchProfile } from '../../api/profile'
 import type {
   AdministrativeProfileFields,
   PedagogicalProfileType,
+  SavedProfileBlock,
 } from '../../types/profile'
 import { useAsyncData } from '../useAsyncData'
+import { useOwnedValue } from '../useOwnedValue'
 import { getProfileReadErrorMessage } from '../../utils/profileErrors'
 import {
   pickAdministrativeAvatarUrl,
   pickAdministrativeFields,
 } from '../../utils/profileFields'
+import { mergeSavedProfileBlock } from '../../utils/profileMerge'
 import { useOwnedAvatarUrl } from './useOwnedAvatarUrl'
 import {
   useProfileSaveActions,
@@ -82,6 +86,11 @@ export interface UseProfileFormResult extends UseProfileSaveActionsResult {
  *
  * Chaque action a son propre cycle loading/error : un `403` sur la prescription
  * ne doit pas faire croire que l'enregistrement du profil déclaratif a échoué.
+ *
+ * Les données affichées sont **détenues par l'écran** : un enregistrement y fait
+ * entrer la réponse du serveur, sans relecture. Jusqu'au 2026-08-10, ces réponses
+ * étaient jetées et l'écran restait sur les valeurs d'avant — `filledBy` et
+ * `filledAt`, posés côté serveur, n'apparaissaient qu'au rechargement suivant.
  */
 export function useProfileForm(userId: string | undefined): UseProfileFormResult {
   const { data, isLoading, error: loadError } = useAsyncData(
@@ -89,16 +98,59 @@ export function useProfileForm(userId: string | undefined): UseProfileFormResult
     [userId],
   )
 
+  const [ownedData, setOwnedData] = useOwnedValue(data, data)
+
+  /**
+   * Resynchronisée sur le **chargement** (`data`), jamais sur les données
+   * détenues : un enregistrement de champs ne doit pas ramener la photo d'avant
+   * le dernier envoi.
+   */
   const [avatarUrl, setAvatarUrl] = useOwnedAvatarUrl(data, data?.avatarUrl ?? null)
 
-  const saveActions = useProfileSaveActions(userId)
+  const applySavedAdministrative = useCallback(
+    (savedBlock: SavedProfileBlock) => {
+      setOwnedData((previous) => {
+        if (!previous) return previous
+        // Refiltré sur les champs réacceptés en écriture : la réponse porte aussi
+        // `userId`, la traçabilité et `avatarUrl`, que le formulaire renverrait
+        // au `PUT` — et qui vaudraient `400`.
+        const administrative = pickAdministrativeFields(
+          mergeSavedProfileBlock(previous.administrative, savedBlock),
+        )
+        return { ...previous, administrative }
+      })
+    },
+    [setOwnedData],
+  )
+
+  /**
+   * Déclaratif et prescription visent le **même** bloc `pedagogical`, renvoyé à
+   * plat par le serveur : la fusion vaut pour les deux routes, et c'est elle qui
+   * fait apparaître `filledBy`/`filledAt` sans rechargement.
+   */
+  const applySavedPedagogical = useCallback(
+    (savedBlock: SavedProfileBlock) => {
+      setOwnedData((previous) => {
+        if (!previous) return previous
+        const pedagogical = mergeSavedProfileBlock(previous.pedagogical, savedBlock)
+        return pedagogical === previous.pedagogical ? previous : { ...previous, pedagogical }
+      })
+    },
+    [setOwnedData],
+  )
+
+  const saveActions = useProfileSaveActions(userId, {
+    onAdministrativeSaved: applySavedAdministrative,
+    onPedagogicalSaved: applySavedPedagogical,
+    onPrescriptionSaved: applySavedPedagogical,
+  })
 
   return {
-    administrative: data?.administrative,
+    administrative: ownedData?.administrative,
     avatarUrl,
     setAvatarUrl,
-    pedagogical: data?.pedagogical,
-    pedagogicalType: data?.pedagogicalType,
+    pedagogical: ownedData?.pedagogical,
+    pedagogicalType: ownedData?.pedagogicalType,
     isLoading,
     loadError,
     ...saveActions,

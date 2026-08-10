@@ -72,6 +72,22 @@ export interface Profile {
 }
 
 /**
+ * Réponse d'une écriture de profil — `PUT /profiles/:userId/administrative`,
+ * `PUT /profiles/:userId/pedagogical`, `PUT /profiles/:userId/prescription`.
+ *
+ * C'est un **bloc à plat**, jamais l'enveloppe de `GET /profiles/:userId` : les
+ * trois routes renvoient `{userId, ...champs}`, la prescription y ajoutant le
+ * profil pédagogique complet avec `filledBy`/`filledAt` posés côté serveur.
+ *
+ * Volontairement plus large que les interfaces de champs **écrivables** : la
+ * réponse porte aussi ce que le serveur gère seul (`userId`, `createdAt`,
+ * `updatedAt`, `avatarUrl`, `filledBy`, `filledAt`), qu'un `PUT` refuserait en
+ * `400`. C'est cette réponse qui fait foi à l'écran après un enregistrement,
+ * jamais le corps envoyé.
+ */
+export type SavedProfileBlock = Record<string, unknown>
+
+/**
  * Nom d'affichage d'une personne, tel que renvoyé par les routes de relations
  * (`financeOwnerName` de `GET /relations/finance-owner-student/by-student/:studentId`,
  * `studentName` de `GET /relations/finance-owner-student/:financeOwnerId`).

@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createInternalNote, fetchInternalNotes, fetchProfile } from '../../api/profile'
 import { fetchTeacherStudentRelations } from '../../api/relations'
-import type { InternalNote, Profile, TeacherStudentRelation } from '../../types/profile'
+import type {
+  InternalNote,
+  Profile,
+  SavedProfileBlock,
+  TeacherStudentRelation,
+} from '../../types/profile'
 import { useAsyncData } from '../useAsyncData'
+import { useOwnedValue } from '../useOwnedValue'
 import { getErrorMessage, getErrorStatus } from '../../utils/apiError'
 import { pickAdministrativeAvatarUrl } from '../../utils/profileFields'
+import { mergeSavedProfileBlock } from '../../utils/profileMerge'
 import { useOwnedAvatarUrl } from './useOwnedAvatarUrl'
 
 interface ProfileDetailsData {
@@ -70,6 +77,18 @@ export interface UseProfileDetailsResult {
   avatarUrl: string | null
   /** Enregistre la nouvelle `avatarUrl` (envoi réussi, ou `null` après suppression). */
   setAvatarUrl: (nextAvatarUrl: string | null) => void
+  /**
+   * Applique à la fiche le bloc administratif **renvoyé par le serveur** après un
+   * enregistrement. Aucune relecture : la réponse du `PUT` porte déjà la
+   * ressource à jour.
+   */
+  applySavedAdministrative: (savedBlock: SavedProfileBlock) => void
+  /**
+   * Applique à la fiche la section déclarative renvoyée par le serveur. Fusionnée
+   * dans le bloc `pedagogical`, qui porte aussi la prescription : la remplacer
+   * effacerait les préconisations du RP à l'écran.
+   */
+  applySavedPedagogical: (savedBlock: SavedProfileBlock) => void
 }
 
 /**
@@ -92,9 +111,46 @@ export function useProfileDetails(
     [userId, canSeeRelations, canSeeInternalNotes],
   )
 
+  /**
+   * La fiche affichée est **détenue par la page**, pas relue à chaque besoin :
+   * un chargement la remplace, un enregistrement y fait entrer la réponse du
+   * serveur. Sans cela, les valeurs d'avant l'enregistrement restaient à l'écran
+   * (photo comprise jusqu'au 2026-08-10, puis tous les autres champs).
+   */
+  const [profile, setProfile] = useOwnedValue<Profile | null>(data, data?.profile ?? null)
+
+  /**
+   * L'`avatarUrl` reste resynchronisée sur le **chargement** (`data`), jamais sur
+   * la fiche détenue : un enregistrement de champs administratifs ne doit pas
+   * ramener la photo d'avant le dernier envoi.
+   */
   const [avatarUrl, setAvatarUrl] = useOwnedAvatarUrl(
     data,
     pickAdministrativeAvatarUrl(data?.profile.administrative),
+  )
+
+  const applySavedAdministrative = useCallback(
+    (savedBlock: SavedProfileBlock) => {
+      setProfile((previous) => {
+        if (!previous) return previous
+        const administrative = mergeSavedProfileBlock(previous.administrative, savedBlock)
+        return administrative === previous.administrative
+          ? previous
+          : { ...previous, administrative }
+      })
+    },
+    [setProfile],
+  )
+
+  const applySavedPedagogical = useCallback(
+    (savedBlock: SavedProfileBlock) => {
+      setProfile((previous) => {
+        if (!previous) return previous
+        const pedagogical = mergeSavedProfileBlock(previous.pedagogical, savedBlock)
+        return pedagogical === previous.pedagogical ? previous : { ...previous, pedagogical }
+      })
+    },
+    [setProfile],
   )
 
   const [addedNotes, setAddedNotes] = useState<InternalNote[]>([])
@@ -130,7 +186,7 @@ export function useProfileDetails(
   )
 
   return {
-    profile: data?.profile ?? null,
+    profile,
     teacherRelations: data?.teacherRelations ?? [],
     internalNotes,
     isLoading,
@@ -140,5 +196,7 @@ export function useProfileDetails(
     noteSaveError,
     avatarUrl,
     setAvatarUrl,
+    applySavedAdministrative,
+    applySavedPedagogical,
   }
 }

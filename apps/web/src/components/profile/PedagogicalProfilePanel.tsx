@@ -21,6 +21,7 @@ import type {
   DeclarativePedagogicalFields,
   PedagogicalProfileKind,
   ProfileVisibility,
+  SavedProfileBlock,
 } from '../../types/profile'
 import { declarativeDisplayFieldNames, pickDeclarativeDisplayFields } from '../../utils/profileFields'
 import { isProfileFiltered, pickHiddenFieldNames } from '../../utils/profileVisibility'
@@ -43,6 +44,13 @@ interface PedagogicalProfilePanelProps {
   userId?: string
   /** Le lecteur courant peut-il écrire la section déclarative ? */
   canEdit?: boolean
+  /**
+   * Remonte à la page la section déclarative **renvoyée par le serveur** après un
+   * enregistrement. Le bloc `pedagogical` appartient à la fiche : c'est elle qui
+   * le fusionne, faute de quoi l'écran resterait sur les valeurs d'avant
+   * l'écriture jusqu'au prochain chargement.
+   */
+  onSaved?: (savedBlock: SavedProfileBlock) => void
 }
 
 function describeSection(pedagogicalKind: PedagogicalProfileKind): string {
@@ -57,9 +65,10 @@ export function PedagogicalProfilePanel({
   visibility,
   userId,
   canEdit = false,
+  onSaved,
 }: PedagogicalProfilePanelProps) {
   const { savePedagogical, isSavingPedagogical, pedagogicalSaveError } =
-    useProfileSaveActions(userId)
+    useProfileSaveActions(userId, { onPedagogicalSaved: onSaved })
 
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 

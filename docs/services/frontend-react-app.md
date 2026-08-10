@@ -967,5 +967,114 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-08-10" label="Remanence des champs enregistres — generalisation du correctif de la photo">
+      <context>
+        Demande de l'utilisateur, mot pour mot : « ce qui est valable pour la photo doit etre valable
+        pour les autres champs (au minimum une fois enregistres) ils doivent rester remanents, cad
+        qu'un changement d'onglet doit les conserver si l'on revient en arriere (meme s'il n'y a pas
+        d'appel) ».
+
+        Cause commune, verifiee dans le code : les trois ecritures de profil renvoient la ressource
+        **a jour** (`docs/routes.md`), et `useProfileSaveActions` jetait ces reponses — `await
+        updateAdministrativeProfile(...)` suivi d'un simple `return true`, idem pour le pedagogique
+        et la prescription. L'ecran restait donc sur les valeurs d'avant l'enregistrement :
+        exactement le defaut corrige pour la photo la veille, generalise a tous les champs.
+      </context>
+
+      <decision id="owned-value-generalized">
+        `src/hooks/useOwnedValue.ts` (nouveau) porte desormais la mecanique de detention d'etat
+        extraite de `useOwnedAvatarUrl` : valeur locale, resynchronisation pendant le rendu sur
+        l'**identite** de l'objet charge. `useOwnedAvatarUrl` n'en est plus que la lecture nommee
+        pour la photo — meme comportement, un seul endroit.
+      </decision>
+
+      <decision id="write-responses-flow-back">
+        `useProfileSaveActions(userId, handlers)` accepte trois rappels — un par route, car les
+        reponses n'ont ni la meme forme ni la meme destination — et leur transmet la reponse du
+        serveur. Les fonctions d'enregistrement continuent de renvoyer un booleen ; les rappels sont
+        lus via une ref, pour qu'un parent qui les recree a chaque rendu ne reinstancie pas les
+        fonctions passees aux formulaires.
+        `useProfileDetails` (fiche) et `useProfileForm` (ecran d'edition) detiennent desormais les
+        donnees affichees et y font entrer la reponse. `ProfilePage` cable
+        `onSaved={applySavedAdministrative}` / `applySavedPedagogical` sur les deux panneaux, sur le
+        modele de `onAvatarUrlChange`.
+      </decision>
+
+      <decision id="merge-block-by-block">
+        `src/utils/profileMerge.ts` (nouveau) fusionne **bloc par bloc**, jamais sur l'enveloppe :
+        `GET /profiles/:userId` renvoie `{administrative, pedagogical, …}` tandis que les trois `PUT`
+        renvoient un bloc **a plat** `{userId, ...champs}` — substituer l'un a l'autre ferait
+        disparaitre les autres blocs de la fiche. La fusion est **additive** (un champ absent de la
+        reponse garde sa valeur, les corps partiels etant acceptes) et **preserve l'identite** du
+        bloc quand la reponse n'apporte rien : les formulaires se reinitialisant sur le changement
+        d'identite de leur source, fabriquer un objet neuf a chaque enregistrement effacerait la
+        saisie en cours.
+        La reponse de la prescription porte le profil pedagogique **complet** avec `filledBy` et
+        `filledAt` poses cote serveur : elle est fusionnee dans le meme bloc `pedagogical` que la
+        section declarative.
+      </decision>
+
+      <decision id="never-replay-the-request-body">
+        Le corps envoye n'est jamais reaffiche a la place de la reponse recue : le serveur normalise,
+        complete et pose des champs (`updatedAt`, `filledBy`, `filledAt`, `avatarUrl`). Une reponse
+        vide ou non structuree laisse l'ecran inchange (`isUsableSavedBlock`), l'ecriture restant
+        signalee comme reussie — jamais de repli sur la requete.
+        Meme defaut trouve hors profils et corrige dans le meme lot :
+        `src/hooks/video/useRecordingComments.ts` fabriquait la ligne ajoutee a la timeline
+        (`id: local-&lt;horodatage&gt;`, `createdAt` de l'horloge du navigateur) et jetait la reponse
+        `201` du serveur. Aucune route de lecture n'existant pour ces commentaires, l'ecart n'aurait
+        ete corrige par aucun rechargement.
+      </decision>
+
+      <decision id="proved-by-hardened-tests">
+        Le serveur simule repond des valeurs **differentes** de celles envoyees (`marion` →
+        `Marion`, `dupont` → `DUPONT`, `updatedAt`, prescription normalisee, `filledBy`/`filledAt`) :
+        seule facon de distinguer « j'affiche la reponse serveur » de « j'affiche mon propre corps ».
+        Nouveaux fichiers : `test/pages/ProfileFieldsRemanence.test.tsx` (6 cas, fiche et ecran
+        d'edition, avec verification qu'aucun `GET /profiles/:userId` n'est rejoue) et
+        `test/hooks/useProfileForm.test.tsx` (4 cas, dont l'enveloppe non ecrasee et l'ecran
+        inchange apres un `403`). Mesure sur `f34eb85`, correction retiree : **10 tests echouent**
+        (6 + 3 + 1 pour la timeline de commentaires). Suite complete : 6 echecs, tous preexistants
+        et etrangers a ce lot (`ParentLinkRequestPage`, `ParentLinkRequestsInboxPage`,
+        `HealthStatusPage`, `WorkflowStatusPage`).
+      </decision>
+
+      <openPoints>
+        <item id="reward-settings-replays-request-body">
+          `src/hooks/finance/useFinanceDashboard.ts:57` — `updateRewardSettings(...)` jette la
+          reponse, puis `setRewardSettings({ pointsPerEuro })` **reinjecte le corps envoye**. Meme
+          famille exactement, non corrige ici : `docs/routes.md` documente
+          `PATCH /financial-settings/rewards` par un `200 {...}` de forme non precisee, et deviner
+          cette forme serait recommencer l'erreur ailleurs. A traiter quand la reponse sera decrite.
+        </item>
+        <item id="writes-answered-by-a-reload">
+          Ecritures dont la reponse est jetee puis compensee par une relecture — pas de mensonge a
+          l'ecran, mais une requete de trop :
+          `src/components/profile/PendingParentInvitationsList.tsx:87,105`,
+          `src/components/profile/PendingStudentRequestsList.tsx:85,103` (approve/reject renvoient la
+          demande mise a jour, suivie de `loadPendingParentRequests()`),
+          `src/hooks/communication/useDelegations.ts:55` (`createDelegation` puis `refetch()`).
+        </item>
+        <item id="writes-with-unused-responses">
+          Ecritures dont la reponse est ignoree sans rien afficher d'obsolete aujourd'hui — a
+          revoir si l'ecran se met a montrer la ressource creee :
+          `src/hooks/video/useCourseSummaryPublish.ts:27`,
+          `src/hooks/teacher-requests/useTeacherCandidates.ts:66`,
+          `src/hooks/teacher-requests/useTeacherRequestInbox.ts:82`,
+          `src/hooks/calendar/useReminderSettings.ts:23`,
+          `src/hooks/teacher-requests/useStopCollaborationRequest.ts:35`,
+          `src/pages/ExerciseDetailPage.tsx:75`.
+          Contre-exemple a suivre : `src/hooks/teacher-requests/useTeacherValidation.ts` et
+          `src/hooks/profile/useFieldVisibility.ts` posent deja l'etat a partir de la reponse.
+        </item>
+        <item id="pedagogical-type-not-refreshed-after-first-save">
+          Le premier enregistrement d'un profil pedagogique inexistant fait apparaitre le bloc, mais
+          `pedagogicalType` reste `null` dans l'etat : la forme continue d'etre deduite du role et
+          des champs par `resolvePedagogicalProfileKind`. Sans effet visible aujourd'hui ; la reponse
+          du `PUT` ne porte pas ce champ.
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

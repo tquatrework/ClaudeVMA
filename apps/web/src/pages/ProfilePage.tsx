@@ -117,6 +117,8 @@ export default function ProfilePage() {
     noteSaveError,
     avatarUrl,
     setAvatarUrl,
+    applySavedAdministrative,
+    applySavedPedagogical,
   } = useProfileDetails(userId, canSeeRelations, canSeeInternalNotes)
 
   /**
@@ -222,6 +224,7 @@ export default function ProfilePage() {
                   canEditAvatar={canEditAvatar}
                   avatarUrl={avatarUrl}
                   onAvatarUrlChange={setAvatarUrl}
+                  onSaved={applySavedAdministrative}
                 />
 
                 {/* Profil financier — rôles ayant une dimension financière, sur leur propre profil */}
@@ -270,6 +273,7 @@ export default function ProfilePage() {
                     pedagogical={profile.pedagogical ?? null}
                     visibility={profile.visibility}
                     canEdit={canEditPedagogical}
+                    onSaved={applySavedPedagogical}
                   />
 
                   {/* Statistiques pédagogiques */}

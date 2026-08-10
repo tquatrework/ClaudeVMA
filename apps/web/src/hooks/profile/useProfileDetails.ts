@@ -4,6 +4,8 @@ import { fetchTeacherStudentRelations } from '../../api/relations'
 import type { InternalNote, Profile, TeacherStudentRelation } from '../../types/profile'
 import { useAsyncData } from '../useAsyncData'
 import { getErrorMessage, getErrorStatus } from '../../utils/apiError'
+import { pickAdministrativeAvatarUrl } from '../../utils/profileFields'
+import { useOwnedAvatarUrl } from './useOwnedAvatarUrl'
 
 interface ProfileDetailsData {
   profile: Profile
@@ -61,13 +63,13 @@ export interface UseProfileDetailsResult {
   isSavingNote: boolean
   noteSaveError: string | null
   /**
-   * Relit `GET /profiles/:userId`. À appeler après une écriture qui passe par
-   * une **autre** route que celles de la fiche — la photo aujourd'hui — pour que
-   * l'écran ne conserve pas une copie que le serveur contredit. Les données
-   * déjà affichées restent en place pendant la relecture : rien ne clignote, et
-   * la saisie en cours n'est pas perdue.
+   * `avatarUrl` du bloc administratif, **détenue par la fiche**. La photo a ses
+   * propres routes d'écriture : après un envoi, la valeur qui fait foi est celle
+   * renvoyée par le serveur, pas celle du chargement initial.
    */
-  refreshProfile: () => void
+  avatarUrl: string | null
+  /** Enregistre la nouvelle `avatarUrl` (envoi réussi, ou `null` après suppression). */
+  setAvatarUrl: (nextAvatarUrl: string | null) => void
 }
 
 /**
@@ -85,9 +87,14 @@ export function useProfileDetails(
   canSeeRelations: boolean,
   canSeeInternalNotes: boolean,
 ): UseProfileDetailsResult {
-  const { data, isLoading, error: loadError, refetch } = useAsyncData(
+  const { data, isLoading, error: loadError } = useAsyncData(
     () => loadProfileDetails(userId, canSeeRelations, canSeeInternalNotes),
     [userId, canSeeRelations, canSeeInternalNotes],
+  )
+
+  const [avatarUrl, setAvatarUrl] = useOwnedAvatarUrl(
+    data,
+    pickAdministrativeAvatarUrl(data?.profile.administrative),
   )
 
   const [addedNotes, setAddedNotes] = useState<InternalNote[]>([])
@@ -122,15 +129,6 @@ export function useProfileDetails(
     [userId],
   )
 
-  /**
-   * Les notes ajoutées localement sont oubliées avant la relecture : elles vont
-   * revenir du serveur, les garder les afficherait en double.
-   */
-  const refreshProfile = useCallback(() => {
-    setAddedNotes([])
-    refetch()
-  }, [refetch])
-
   return {
     profile: data?.profile ?? null,
     teacherRelations: data?.teacherRelations ?? [],
@@ -140,6 +138,7 @@ export function useProfileDetails(
     addNote,
     isSavingNote,
     noteSaveError,
-    refreshProfile,
+    avatarUrl,
+    setAvatarUrl,
   }
 }

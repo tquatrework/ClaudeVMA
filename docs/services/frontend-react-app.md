@@ -834,47 +834,44 @@
         au backend, pour tout le front, sans cache (voir `docs/architecture.md`).
       </context>
 
-      <decision id="tab-click-refetch">
-        Hook partage `src/hooks/useTabSelection.ts` : `onTabActivated` n'est appele que depuis le
-        gestionnaire de **clic**, jamais depuis un `useEffect`. Le premier affichage ne produit donc
-        qu'une requete, et la regle vit en un point unique au lieu d'etre recopiee page par page.
-        `ProfilePage` et `ProfileEditPage` l'utilisent — seuls ecrans a onglets a ce jour.
+      <decision id="tab-click-refetch" status="annulee" supersededBy="tab-state-ownership" date="2026-08-10">
+        **ANNULEE le jour meme, remplacee — voir la session suivante.** Ce qui avait ete fait :
+        hook partage `src/hooks/useTabSelection.ts`, dont l'argument `onTabActivated` relisait le
+        profil a chaque clic d'onglet. Le symptome disparaissait, la cause restait.
+        Pourquoi c'etait le mauvais niveau : le probleme n'etait pas la fraicheur de la donnee — le
+        serveur ne contredisait rien, il avait deja renvoye la bonne `avatarUrl` dans la reponse du
+        `POST` — mais son **appartenance** cote React. On payait un aller-retour reseau par clic
+        pour aller rechercher une valeur qu'on avait deja eue en main et jetee.
+        Le hook, son argument et les tests qui exigeaient une requete par clic ont ete supprimes.
       </decision>
 
       <decision id="no-cache-on-purpose">
-        **Aucun cache introduit**, conformement a l'arbitrage. Les tests l'interdisent activement :
-        ils exigent une requete par clic, y compris quand la precedente vient d'aboutir. Une future
-        couche de cache les fera tomber — c'est voulu, elle devra etre une decision explicite et
-        non une derive.
+        **Aucun cache introduit**, conformement a l'arbitrage. Tenu apres l'annulation ci-dessus :
+        la correction de remplacement ne memorise aucune reponse serveur, elle se contente de ne
+        plus jeter l'etat qu'elle detient deja.
       </decision>
 
-      <decision id="refresh-after-write-kept">
-        La relecture apres envoi ou suppression de photo (`onAvatarChanged`) est **conservee** en
-        plus du clic d'onglet : elle couvre le cas ou l'utilisateur envoie sa photo et **reste** sur
-        le meme onglet. Une ecriture et une navigation sont deux evenements distincts.
+      <decision id="refresh-after-write-kept" status="annulee" supersededBy="tab-state-ownership">
+        La relecture apres envoi ou suppression de photo (`onAvatarChanged`) avait ete conservee en
+        plus du clic d'onglet. Egalement supprimee : la valeur remontee suffit, la redemander
+        n'ajoutait rien.
       </decision>
 
       <decision id="no-flicker-no-lost-input">
-        La relecture ne rebascule pas l'ecran sur « Chargement… » — reserve au premier chargement —
-        et le formulaire administratif se reinitialise sur les **valeurs** recues, non sur
-        l'identite de l'objet : une relecture pendant une saisie ne l'efface pas.
+        L'ecran ne rebascule pas sur « Chargement… » une fois charge, et le formulaire administratif
+        se reinitialise sur les **valeurs** recues, non sur l'identite de l'objet. Toujours en
+        vigueur, et desormais gratuit : sans relecture, il n'y a plus de moment ou la saisie
+        pourrait etre ecrasee.
       </decision>
 
       <openPoints>
-        <item id="tab-reclick-refetches">
-          Re-cliquer l'onglet **deja actif** relit aussi. Choix assume : c'est un clic reel, et
-          souvent le geste de quelqu'un qui veut rafraichir. A inverser en une ligne dans
-          `useTabSelection` si ce n'est pas le comportement voulu.
-        </item>
-        <item id="pedagogical-tab-two-requests">
-          Un clic sur « Profil pedagogique » declenche **deux** appels — `GET /profiles/:userId` et
-          `GET /profiles/:userId/statistics`. Ce ne sont pas des doublons mais deux ressources, et
-          les deux relevent de la regle.
+        <item id="pedagogical-tab-two-requests" status="caduque">
+          Constat de l'epoque : un clic sur « Profil pedagogique » declenchait deux appels.
+          Sans objet depuis l'annulation — un clic d'onglet n'appelle plus rien.
         </item>
         <item id="no-per-block-read-route">
           Il n'existe pas de route de lecture par bloc : `GET /profiles/:userId` renvoie
-          `administrative` **et** `pedagogical`. Le jour ou le back exposera des lectures par bloc,
-          seul l'argument `onTabActivated` sera a specialiser par onglet.
+          `administrative` **et** `pedagogical`. Reste vrai, et sans consequence ici.
         </item>
         <item id="profile-page-over-300-lines">
           `src/pages/ProfilePage.tsx` passe a 324 lignes (309 avant). Depassement **pre-existant**
@@ -886,6 +883,87 @@
           cause du defaut corrige ici — la mesure l'a exclu — mais une reponse authentifiee sans
           directive reste a la merci de la fraicheur heuristique. Un `Cache-Control: no-store` cote
           `profile-service` fermerait cette famille de bugs. **Propose a l'utilisateur, non tranche.**
+        </item>
+      </openPoints>
+    </session>
+
+    <session date="2026-08-10" label="Appartenance de l'etat entre onglets — remplace la relecture par clic">
+      <context>
+        Correction de trajectoire demandee par l'utilisateur, sur le meme defaut que la session
+        precedente. Son diagnostic, retenu : « ce que tu decris n'est pas un probleme de cache, et
+        ne necessite pas un rappel systematique au backend. Tu me decris un bug au niveau de la
+        gestion des props au niveau React. » Deux regles en decoulent : une **page** charge et
+        appelle le back ; a l'interieur d'une page, un changement d'onglet ne doit rien faire perdre.
+        Un systeme de cache reste envisage, hors de ce lot.
+
+        Verification du diagnostic dans le code : `ProfileAvatarField` gardait l'`avatarUrl` fraiche
+        dans l'etat local de `useProfileAvatar`, alors que ce champ appartient au profil, donc a la
+        page. `TabPanel` rendant `null` sur l'onglet inactif, chaque changement d'onglet demontait
+        le champ et effacait cette valeur. Le serveur, lui, avait deja renvoye la bonne URL dans la
+        reponse du `POST` : il suffisait de la faire remonter.
+      </context>
+
+      <decision id="tab-state-ownership">
+        L'`avatarUrl` remonte a son proprietaire. `useProfileAvatar` devient **entierement
+        controle** : il affiche la propriete qu'on lui donne et annonce la nouvelle valeur par
+        `onAvatarUrlChange` — celle renvoyee par le serveur apres un envoi, `null` apres une
+        suppression. **Aucun appel reseau supplementaire.** `useProfileDetails` et `useProfileForm`
+        la detiennent via `src/hooks/profile/useOwnedAvatarUrl.ts`, qui resynchronise sur
+        l'**identite** de l'objet charge (et non sur l'URL, qui peut valoir `null` de part et
+        d'autre d'un changement d'utilisateur), pendant le rendu — motif documente par React pour
+        ajuster un etat quand une propriete change, sans rendu intermediaire affiche.
+      </decision>
+
+      <decision id="tab-lazy-mount-then-keep">
+        `TabPanel` ne rend plus `null`. Un onglet est monte a sa **premiere** activation puis
+        **reste monte**, masque par `hidden` + `aria-hidden`. On evite les deux exces : charger les
+        cinq panneaux au premier affichage, et tout detruire a chaque clic. Un panneau masque porte
+        `display: none`, donc n'est ni focalisable ni lu par un lecteur d'ecran ; `aria-controls` et
+        `aria-labelledby` relient onglet et panneau dans les deux sens, et la barre porte desormais
+        `role="tablist"`.
+        Effet mesure : apres le premier affichage, un aller-retour d'onglet ne produit **aucun**
+        appel reseau — ni profil, ni statistiques, ni octets de photo. L'object URL de la photo
+        n'est plus revoque puis reconstruit a chaque passage.
+      </decision>
+
+      <decision id="tab-selection-is-plain-state">
+        `src/hooks/useTabSelection.ts` **supprime**. L'onglet actif redevient un `useState` local :
+        il n'y a plus de comportement partage a factoriser une fois le rechargement retire.
+        `test/pages/ProfileTabsRefresh.test.tsx` supprime avec lui — il encodait la regle annulee.
+        Remplace par `test/pages/ProfileTabsState.test.tsx`.
+      </decision>
+
+      <decision id="ownership-proved-by-tests">
+        Les tests de `ProfileAvatarField` passent tous par un `AvatarFieldOwner` qui tient le role
+        de la page : un champ qui garderait sa propre copie ferait tomber tous les cas d'envoi et de
+        suppression. Verifie dans les deux sens :
+        (a) sur `a20c2df`, propagation retiree, les trois tests de navigation echouent — envoi puis
+        aller-retour d'onglet sur les deux ecrans, et suppression qui ressuscite ;
+        (b) sur l'arbre courant, propagation retiree, dix tests echouent, dont la photo qui
+        n'apparait plus du tout apres l'envoi.
+        Les scenarios d'envoi et de suppression font desormais repondre au serveur l'**inverse** de
+        ce que l'ecran doit afficher : une relecture furtive reintroduite ferait tomber le test.
+      </decision>
+
+      <openPoints>
+        <item id="tab-state-grows-with-tabs">
+          Le maintien des panneaux montes fait croitre le cout memoire et le nombre d'abonnements
+          avec le nombre d'onglets visites. Sans consequence sur des ecrans a trois ou cinq onglets ;
+          a reexaminer si un ecran en portait beaucoup plus, ou un panneau tres lourd.
+        </item>
+        <item id="stale-data-on-long-lived-page">
+          Une page ouverte longtemps affiche des donnees vieillissantes : plus rien ne les relit
+          apres le montage. C'est le sujet du cache annonce par l'utilisateur comme un lot a part.
+          Dans l'intervalle, une navigation entre pages recharge normalement.
+        </item>
+        <item id="hidden-panels-and-text-queries">
+          `getByRole` ignore les panneaux masques, mais `getByLabelText` et `getByText` non. Deux
+          panneaux qui porteraient un meme libelle rendraient ces requetes ambigues une fois les
+          deux visites. Aucun cas aujourd'hui ; a garder en tete en ecrivant des tests d'onglets.
+        </item>
+        <item id="tab-panel-dom-ids">
+          Les `id` de panneaux sont derives du `tabId` (`tabpanel-<tabId>`). Deux jeux d'onglets sur
+          une meme page devraient donc porter des `tabId` distincts. Aucun ecran dans ce cas.
         </item>
       </openPoints>
     </session>

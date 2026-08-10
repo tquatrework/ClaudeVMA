@@ -16,6 +16,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useProfileForm } from '../hooks/profile/useProfileForm'
+import { useTabSelection } from '../hooks/useTabSelection'
 import Layout from '../components/Layout'
 import { AdministrativeProfileForm } from '../components/profile/AdministrativeProfileForm'
 import { PedagogicalProfileForm } from '../components/profile/PedagogicalProfileForm'
@@ -47,8 +48,6 @@ export default function ProfileEditPage() {
   const navigate = useNavigate()
   const { user, hasRole } = useAuth()
 
-  const [activeTab, setActiveTab] = useState<string>(TAB_ADMINISTRATIVE)
-
   const {
     administrative,
     avatarUrl,
@@ -65,7 +64,16 @@ export default function ProfileEditPage() {
     savePrescription,
     isSavingPrescription,
     prescriptionSaveError,
+    refreshProfile,
   } = useProfileForm(userId)
+
+  /**
+   * Chaque clic d'onglet redemande le profil au serveur — règle générale du
+   * front. Les valeurs déjà saisies et non enregistrées sont préservées : les
+   * formulaires ne se réinitialisent que si le serveur renvoie des valeurs
+   * différentes.
+   */
+  const { activeTab, selectTab } = useTabSelection(TAB_ADMINISTRATIVE, refreshProfile)
 
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
@@ -136,7 +144,15 @@ export default function ProfileEditPage() {
 
   const isPedagogicalKindKnown = pedagogicalKind !== 'unknown'
 
-  if (isLoading) {
+  /**
+   * Écran d'attente au **premier** chargement seulement. Une relecture de
+   * fraîcheur (après un changement de photo) laisse les formulaires en place :
+   * les remplacer par « Chargement… » les démonterait, et la saisie en cours
+   * serait perdue au moment le moins attendu.
+   */
+  const isInitialLoading = isLoading && administrative === undefined
+
+  if (isInitialLoading) {
     return (
       <Layout>
         <p className="text-gray-400">Chargement…</p>
@@ -179,7 +195,7 @@ export default function ProfileEditPage() {
           </div>
         )}
 
-        <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
+        <Tabs tabs={tabs} activeTab={activeTab} onTabChange={selectTab} />
 
         <TabPanel tabId={TAB_ADMINISTRATIVE} activeTab={activeTab}>
           <div className="space-y-6">
@@ -191,6 +207,7 @@ export default function ProfileEditPage() {
               avatarUrl={avatarUrl}
               displayName={formatFullName(administrative?.firstName, administrative?.lastName)}
               canEdit={canEditAvatar}
+              onAvatarChanged={refreshProfile}
             />
 
             <AdministrativeProfileForm

@@ -64,6 +64,13 @@ export interface UseProfileFormResult extends UseProfileSaveActionsResult {
   pedagogicalType: PedagogicalProfileType | null | undefined
   isLoading: boolean
   loadError: string | null
+  /**
+   * Relit `GET /profiles/:userId`. Nécessaire après un changement de photo :
+   * celle-ci a ses propres routes, et l'écran repartirait sinon de l'`avatarUrl`
+   * lu au montage. Les données déjà chargées restent affichées pendant la
+   * relecture, pour ne pas effacer la saisie en cours.
+   */
+  refreshProfile: () => void
 }
 
 /**
@@ -76,7 +83,7 @@ export interface UseProfileFormResult extends UseProfileSaveActionsResult {
  * ne doit pas faire croire que l'enregistrement du profil déclaratif a échoué.
  */
 export function useProfileForm(userId: string | undefined): UseProfileFormResult {
-  const { data, isLoading, error: loadError } = useAsyncData(
+  const { data, isLoading, error: loadError, refetch } = useAsyncData(
     () => loadProfileFormData(userId),
     [userId],
   )
@@ -90,6 +97,7 @@ export function useProfileForm(userId: string | undefined): UseProfileFormResult
     pedagogicalType: data?.pedagogicalType,
     isLoading,
     loadError,
+    refreshProfile: refetch,
     ...saveActions,
   }
 }

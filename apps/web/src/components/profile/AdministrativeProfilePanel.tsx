@@ -64,6 +64,13 @@ interface AdministrativeProfilePanelProps {
    * même quand un RP ou un TI peut modifier le reste du bloc.
    */
   canEditAvatar: boolean
+  /**
+   * Relecture du profil après un changement de photo. La photo a ses propres
+   * routes : sans ce signal, la fiche continuerait d'afficher l'`avatarUrl`
+   * chargé au montage, et la nouvelle photo disparaîtrait au premier changement
+   * d'onglet (défaut du 2026-08-10).
+   */
+  onAvatarChanged?: () => void
 }
 
 export function AdministrativeProfilePanel({
@@ -72,6 +79,7 @@ export function AdministrativeProfilePanel({
   visibility,
   canEdit,
   canEditAvatar,
+  onAvatarChanged,
 }: AdministrativeProfilePanelProps) {
   const { saveAdministrative, isSavingAdministrative, administrativeSaveError } =
     useProfileSaveActions(userId)
@@ -108,6 +116,7 @@ export function AdministrativeProfilePanel({
         typeof displayedFields.lastName === 'string' ? displayedFields.lastName : undefined,
       )}
       canEdit={canEditAvatar}
+      onAvatarChanged={onAvatarChanged}
     />
   )
 

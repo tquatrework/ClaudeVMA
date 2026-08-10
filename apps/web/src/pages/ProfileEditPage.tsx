@@ -16,7 +16,6 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useProfileForm } from '../hooks/profile/useProfileForm'
-import { useTabSelection } from '../hooks/useTabSelection'
 import Layout from '../components/Layout'
 import { AdministrativeProfileForm } from '../components/profile/AdministrativeProfileForm'
 import { PedagogicalProfileForm } from '../components/profile/PedagogicalProfileForm'
@@ -51,6 +50,7 @@ export default function ProfileEditPage() {
   const {
     administrative,
     avatarUrl,
+    setAvatarUrl,
     pedagogical,
     pedagogicalType,
     isLoading,
@@ -64,16 +64,14 @@ export default function ProfileEditPage() {
     savePrescription,
     isSavingPrescription,
     prescriptionSaveError,
-    refreshProfile,
   } = useProfileForm(userId)
 
   /**
-   * Chaque clic d'onglet redemande le profil au serveur — règle générale du
-   * front. Les valeurs déjà saisies et non enregistrées sont préservées : les
-   * formulaires ne se réinitialisent que si le serveur renvoie des valeurs
-   * différentes.
+   * L'onglet actif est un simple état d'affichage. Changer d'onglet ne relit
+   * rien et ne démonte rien : les formulaires restent montés, la saisie en cours
+   * survit à un aller-retour.
    */
-  const { activeTab, selectTab } = useTabSelection(TAB_ADMINISTRATIVE, refreshProfile)
+  const [activeTab, setActiveTab] = useState(TAB_ADMINISTRATIVE)
 
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
@@ -145,10 +143,10 @@ export default function ProfileEditPage() {
   const isPedagogicalKindKnown = pedagogicalKind !== 'unknown'
 
   /**
-   * Écran d'attente au **premier** chargement seulement. Une relecture de
-   * fraîcheur (après un changement de photo) laisse les formulaires en place :
-   * les remplacer par « Chargement… » les démonterait, et la saisie en cours
-   * serait perdue au moment le moins attendu.
+   * Écran d'attente tant qu'aucune donnée n'est arrivée. Une fois les
+   * formulaires à l'écran, ils n'en repartent plus : les remplacer par
+   * « Chargement… » les démonterait, et la saisie en cours serait perdue au
+   * moment le moins attendu.
    */
   const isInitialLoading = isLoading && administrative === undefined
 
@@ -195,7 +193,7 @@ export default function ProfileEditPage() {
           </div>
         )}
 
-        <Tabs tabs={tabs} activeTab={activeTab} onTabChange={selectTab} />
+        <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
 
         <TabPanel tabId={TAB_ADMINISTRATIVE} activeTab={activeTab}>
           <div className="space-y-6">
@@ -207,7 +205,7 @@ export default function ProfileEditPage() {
               avatarUrl={avatarUrl}
               displayName={formatFullName(administrative?.firstName, administrative?.lastName)}
               canEdit={canEditAvatar}
-              onAvatarChanged={refreshProfile}
+              onAvatarUrlChange={setAvatarUrl}
             />
 
             <AdministrativeProfileForm

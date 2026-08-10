@@ -55,7 +55,11 @@ const CONSTRAINTS_BOX_CLASS = 'mt-3 rounded-lg border border-gray-200 bg-gray-50
 
 interface ProfileAvatarFieldProps {
   userId?: string
-  /** Champ `avatarUrl` du bloc `administrative`, tel que reçu du serveur. */
+  /**
+   * Champ `avatarUrl` du bloc `administrative`. **Propriété contrôlée** : ce
+   * composant l'affiche, il ne la détient pas. Elle appartient à la page, qui la
+   * tient du serveur puis des écritures signalées ci-dessous.
+   */
   avatarUrl: string | null
   /**
    * Nom affiché à côté de la photo et repris dans le texte alternatif. Prénom et
@@ -65,12 +69,13 @@ interface ProfileAvatarFieldProps {
   /** Le lecteur courant est-il le titulaire ? Lui seul change ou supprime. */
   canEdit: boolean
   /**
-   * Prévient la page qu'un envoi ou une suppression vient d'aboutir, pour
-   * qu'elle relise le profil. Ce champ est monté dans un onglet : son état local
-   * meurt au changement d'onglet, et sans relecture l'écran repart de l'
-   * `avatarUrl` d'avant l'écriture (défaut du 2026-08-10).
+   * Annonce la nouvelle `avatarUrl` à son propriétaire : celle renvoyée par le
+   * serveur après un envoi, `null` après une suppression.
+   *
+   * Garder cette valeur ici serait l'erreur corrigée le 2026-08-10 — une donnée
+   * du profil détenue par un composant d'onglet, perdue à chaque démontage.
    */
-  onAvatarChanged?: () => void
+  onAvatarUrlChange?: (nextAvatarUrl: string | null) => void
 }
 
 export function ProfileAvatarField({
@@ -78,7 +83,7 @@ export function ProfileAvatarField({
   avatarUrl,
   displayName,
   canEdit,
-  onAvatarChanged,
+  onAvatarUrlChange,
 }: ProfileAvatarFieldProps) {
   const fileInputId = useId()
   const constraintsHintId = useId()
@@ -96,7 +101,7 @@ export function ProfileAvatarField({
     removeError,
     dismissWriteErrors,
     avatarConstraints,
-  } = useProfileAvatar(userId, avatarUrl, { canUpload: canEdit, onAvatarChanged })
+  } = useProfileAvatar(userId, avatarUrl, { canUpload: canEdit, onAvatarUrlChange })
 
   const hasPhoto = photoObjectUrl !== null
   const isBusy = isUploadingPhoto || isRemovingPhoto

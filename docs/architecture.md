@@ -248,25 +248,33 @@ Phase 3 enrichit l'offre :
      (`GET /profiles/avatar/constraints`), pour que relever le plafond n'oblige pas a redeployer
      le front.
 
-- Fraicheur des donnees affichees : **chaque clic sur un menu redemande ses donnees au backend**.
-  Cliquer sur « Profil administratif » relit le profil administratif, cliquer sur « Profil
-  pedagogique » relit le profil pedagogique, et la regle vaut pour **n'importe quel menu du
-  front**, pas seulement les profils. Arbitrage rendu le 2026-08-10.
-  1. **Aucun cache pour l'instant.** Un cache serait le bon outil pour la fluidite, mais il ajoute
+- Chargement des donnees et etat des ecrans. Regle posee le 2026-08-10, **apres une premiere
+  formulation erronee le meme jour** (voir l'encadre en fin de point) :
+  1. **Le chargement se fait au niveau de la page.** Un montage de page appelle le backend. C'est
+     la seule relecture automatique : une navigation interne — changement d'onglet, ouverture
+     d'un panneau — n'en declenche aucune.
+  2. **Une navigation interne ne doit rien faire perdre.** Revenir sur un onglet deja visite
+     reaffiche son contenu tel quel, sans le recharger ni le reconstruire. Consequence pratique :
+     un onglet est monte a sa **premiere** activation puis **reste monte** (masque en CSS), au
+     lieu d'etre demonte a chaque changement. On evite ainsi de charger tous les onglets au
+     premier affichage *et* de tout detruire en naviguant.
+  3. **Une donnee de la page appartient a la page, jamais a un composant enfant seul.** Apres une
+     ecriture, la valeur renvoyee par le serveur **remonte** au proprietaire de l'etat ; on ne va
+     pas la rechercher par une nouvelle requete. Un enfant qui detient seul une donnee du modele
+     la perd des qu'il est demonte.
+  4. **Aucun cache pour l'instant.** Un cache serait le bon outil pour la fluidite, mais il ajoute
      une couche de complexite que l'utilisateur a explicitement choisi de ne pas payer
      aujourd'hui. Decision assumee, a rouvrir plus tard — **ne pas introduire de cache partiel
      entre-temps**, meme « leger » : un demi-cache donne les inconvenients des deux approches.
-  2. **L'ecran ne doit jamais afficher une donnee que le serveur contredit.** C'est la raison
-     d'etre de la regle. Constat qui l'a declenchee, le 2026-08-10 : une photo de profil envoyee
-     avec succes (`200`, fichier ecrit, base a jour) disparaissait au retour sur son onglet.
-     `TabPanel` rend `null` quand l'onglet est inactif, ce qui **demonte** le composant et son
-     etat local ; au remontage, la page repartait du profil charge a l'ouverture, ou `avatarUrl`
-     valait encore `null`. Preuve : les journaux de la gateway ne montraient qu'**un seul**
-     `GET /profiles/:userId`, anterieur a l'envoi.
-  3. **Une relecture par clic reel de l'utilisateur**, pas par effet de montage : le chargement
-     initial ne doit pas etre double par l'activation du premier onglet.
-  4. **La relecture ne fait pas clignoter l'ecran** : les donnees deja affichees restent visibles
-     pendant l'appel, et une saisie en cours n'est jamais ecrasee — comparer les valeurs, pas
-     l'identite de l'objet recu.
+
+  > **Formulation precedente, annulee le 2026-08-10.** Une premiere version de cette regle
+  > disait « chaque clic sur un menu redemande ses donnees au backend ». Elle repondait au bon
+  > symptome — une photo envoyee avec succes disparaissait au retour sur son onglet — mais au
+  > mauvais niveau. La cause reelle n'etait pas la fraicheur : `ProfileAvatarField` detenait
+  > l'`avatarUrl` fraichement envoyee dans **son propre etat local**, alors que cette donnee
+  > appartient a la page ; `TabPanel` rendant `null` quand l'onglet est inactif, le composant
+  > etait demonte et l'etat perdu, sans que rien n'ait remonte la valeur au parent. Recharger a
+  > chaque clic masquait le defaut au prix d'une requete par clic, alors que le serveur renvoyait
+  > deja l'URL dans la reponse de l'envoi. Erreur d'appartenance d'etat, pas de fraicheur.
 
 ## Points ouverts a arbitrer

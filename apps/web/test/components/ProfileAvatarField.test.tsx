@@ -17,11 +17,19 @@
  *    est réutilisé, jeton `?v=` compris ;
  * 6. la limite d'envoi est **annoncée avant** le choix du fichier, lue au
  *    serveur, et un fichier trop lourd est refusé **sans appel réseau**.
+ *
+ * **Le champ ne détient pas l'`avatarUrl`** (correction du 2026-08-10) : c'est
+ * une donnée du profil, elle appartient à l'écran. Tous les rendus passent donc
+ * par `AvatarFieldOwner`, qui joue le rôle de la page — il détient la valeur,
+ * la passe en propriété, et la met à jour sur `onAvatarUrlChange`. Un champ qui
+ * garderait sa propre copie ferait échouer d'un coup tous les tests d'envoi et
+ * de suppression ci-dessous : l'écran n'y verrait jamais la nouvelle photo.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
 import { fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { useState } from 'react'
 import { ProfileAvatarField } from '../../src/components/profile/ProfileAvatarField'
 
 vi.mock('../../src/api/profile')
@@ -71,9 +79,21 @@ async function waitForConstraints() {
   })
 }
 
-function renderField(overrides: Partial<React.ComponentProps<typeof ProfileAvatarField>> = {}) {
+type AvatarFieldProps = React.ComponentProps<typeof ProfileAvatarField>
+
+/**
+ * Tient le rôle de la page : c'est **lui** qui détient l'`avatarUrl`, comme le
+ * font `useProfileDetails` et `useProfileForm` en vrai. Le champ ne fait que
+ * l'afficher et annoncer la nouvelle.
+ */
+function AvatarFieldOwner({ avatarUrl: initialAvatarUrl, ...props }: AvatarFieldProps) {
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(initialAvatarUrl)
+  return <ProfileAvatarField {...props} avatarUrl={avatarUrl} onAvatarUrlChange={setAvatarUrl} />
+}
+
+function renderField(overrides: Partial<AvatarFieldProps> = {}) {
   return render(
-    <ProfileAvatarField
+    <AvatarFieldOwner
       userId={USER_ID}
       avatarUrl={null}
       displayName="Alice Martin"
@@ -476,6 +496,78 @@ describe('ProfileAvatarField — suppression', () => {
     fireEvent.click(screen.getByRole('button', { name: /supprimer/i }))
 
     expect(await screen.findByText(/titulaire du profil/i)).toBeDefined()
+  })
+})
+
+describe('ProfileAvatarField — appartenance de l’état', () => {
+  /** Rendu volontairement **non contrôlé** : le propriétaire ignore la nouvelle valeur. */
+  function renderWithFrozenOwner(onAvatarUrlChange?: (next: string | null) => void) {
+    return render(
+      <ProfileAvatarField
+        userId={USER_ID}
+        avatarUrl={null}
+        displayName="Alice Martin"
+        canEdit
+        onAvatarUrlChange={onAvatarUrlChange}
+      />,
+    )
+  }
+
+  it("remonte l'`avatarUrl` renvoyée par le serveur, sans relire le profil", async () => {
+    mockUploadProfileAvatar.mockResolvedValue({ avatarUrl: REPLACED_AVATAR_URL })
+    mockFetchProfileAvatarBlob.mockResolvedValue(makePhotoBlob())
+    const onAvatarUrlChange = vi.fn()
+
+    renderWithFrozenOwner(onAvatarUrlChange)
+    await waitForConstraints()
+    selectFile(makePhotoFile())
+
+    // La valeur était déjà dans la réponse du POST : aucun second aller-retour
+    // n'est nécessaire pour la connaître.
+    await waitFor(() => {
+      expect(onAvatarUrlChange).toHaveBeenCalledWith(REPLACED_AVATAR_URL)
+    })
+  })
+
+  it('annonce une suppression par `null`', async () => {
+    mockFetchProfileAvatarBlob.mockResolvedValue(makePhotoBlob())
+    mockDeleteProfileAvatar.mockResolvedValue(undefined)
+    const onAvatarUrlChange = vi.fn()
+
+    render(
+      <ProfileAvatarField
+        userId={USER_ID}
+        avatarUrl={AVATAR_URL}
+        displayName="Alice Martin"
+        canEdit
+        onAvatarUrlChange={onAvatarUrlChange}
+      />,
+    )
+    await screen.findByRole('img', { name: /Alice Martin/ })
+
+    fireEvent.click(screen.getByRole('button', { name: /supprimer/i }))
+
+    await waitFor(() => {
+      expect(onAvatarUrlChange).toHaveBeenCalledWith(null)
+    })
+  })
+
+  it("n'affiche jamais une photo que son propriétaire ne lui a pas donnée", async () => {
+    mockUploadProfileAvatar.mockResolvedValue({ avatarUrl: REPLACED_AVATAR_URL })
+    mockFetchProfileAvatarBlob.mockResolvedValue(makePhotoBlob())
+
+    // Le propriétaire reste sur `null`. Un champ qui garderait sa propre copie
+    // afficherait quand même la photo — c'est exactement le défaut du
+    // 2026-08-10, invisible tant que rien ne démontait le composant.
+    renderWithFrozenOwner()
+    await waitForConstraints()
+    selectFile(makePhotoFile())
+
+    await waitFor(() => {
+      expect(mockUploadProfileAvatar).toHaveBeenCalled()
+    })
+    expect(screen.queryByRole('img', { name: /Alice Martin/ })).toBeNull()
+    expect(screen.getByTestId('profile-avatar-initials')).toBeDefined()
   })
 })
 

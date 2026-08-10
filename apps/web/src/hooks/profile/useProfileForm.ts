@@ -9,6 +9,7 @@ import {
   pickAdministrativeAvatarUrl,
   pickAdministrativeFields,
 } from '../../utils/profileFields'
+import { useOwnedAvatarUrl } from './useOwnedAvatarUrl'
 import {
   useProfileSaveActions,
   type UseProfileSaveActionsResult,
@@ -65,12 +66,12 @@ export interface UseProfileFormResult extends UseProfileSaveActionsResult {
   isLoading: boolean
   loadError: string | null
   /**
-   * Relit `GET /profiles/:userId`. Nécessaire après un changement de photo :
-   * celle-ci a ses propres routes, et l'écran repartirait sinon de l'`avatarUrl`
-   * lu au montage. Les données déjà chargées restent affichées pendant la
-   * relecture, pour ne pas effacer la saisie en cours.
+   * Enregistre la nouvelle `avatarUrl` — celle que le serveur vient de renvoyer
+   * après un envoi, `null` après une suppression. L'écran est propriétaire de
+   * cette donnée : la laisser au champ photo la ferait disparaître au premier
+   * démontage (correction du 2026-08-10).
    */
-  refreshProfile: () => void
+  setAvatarUrl: (nextAvatarUrl: string | null) => void
 }
 
 /**
@@ -83,21 +84,23 @@ export interface UseProfileFormResult extends UseProfileSaveActionsResult {
  * ne doit pas faire croire que l'enregistrement du profil déclaratif a échoué.
  */
 export function useProfileForm(userId: string | undefined): UseProfileFormResult {
-  const { data, isLoading, error: loadError, refetch } = useAsyncData(
+  const { data, isLoading, error: loadError } = useAsyncData(
     () => loadProfileFormData(userId),
     [userId],
   )
+
+  const [avatarUrl, setAvatarUrl] = useOwnedAvatarUrl(data, data?.avatarUrl ?? null)
 
   const saveActions = useProfileSaveActions(userId)
 
   return {
     administrative: data?.administrative,
-    avatarUrl: data?.avatarUrl ?? null,
+    avatarUrl,
+    setAvatarUrl,
     pedagogical: data?.pedagogical,
     pedagogicalType: data?.pedagogicalType,
     isLoading,
     loadError,
-    refreshProfile: refetch,
     ...saveActions,
   }
 }

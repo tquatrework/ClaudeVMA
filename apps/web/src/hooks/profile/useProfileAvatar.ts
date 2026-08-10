@@ -25,12 +25,14 @@
  * que celui du `413` — inutile de faire patienter l'utilisateur pour une réponse
  * qu'on connaît déjà.
  *
- * **L'état local ne suffit pas** (défaut du 2026-08-10). Ce hook est monté dans
- * l'onglet administratif : quitter l'onglet le démonte, y revenir le remonte avec
- * l'`avatarUrl` du profil chargé **avant** l'envoi. Après une écriture réussie,
- * il prévient donc son appelant (`onAvatarChanged`) pour que la page relise sa
- * source de vérité — l'écran ne doit jamais afficher durablement une donnée que
- * le serveur contredit.
+ * **Ce hook ne détient pas l'`avatarUrl`** (correction du 2026-08-10). Il l'a
+ * gardée un temps dans son propre état, alors que c'est un champ du profil, donc
+ * une donnée de la page. Monté dans un onglet, il la perdait au premier
+ * démontage : la photo tout juste envoyée disparaissait au retour. La réponse
+ * n'était pas de relire le profil — le serveur avait déjà renvoyé la nouvelle
+ * URL dans la réponse du `POST` —, mais de la **remonter à son propriétaire**.
+ * D'où `onAvatarUrlChange` : le hook annonce la valeur, la page la conserve et
+ * la lui repasse en propriété. Aucun aller-retour réseau supplémentaire.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -76,20 +78,23 @@ export interface UseProfileAvatarOptions {
    */
   canUpload?: boolean
   /**
-   * Appelé après un envoi **ou** une suppression réussis, pour que la page
-   * relise `GET /profiles/:userId`. Sans lui, la nouvelle photo ne vit que dans
-   * l'état local de ce hook : elle disparaît au premier démontage (changement
-   * d'onglet, retour sur la page), et la précédente ressuscite après une
-   * suppression. La relecture doit rester ciblée — surtout pas un rechargement
-   * complet de la page, qui effacerait la saisie en cours du formulaire.
+   * Remonte au propriétaire de la donnée l'`avatarUrl` qui vaut désormais : celle
+   * renvoyée par le serveur après un envoi, `null` après une suppression. C'est
+   * la page qui la conserve et la repasse en propriété — sans quoi la photo ne
+   * vivrait que dans cet écran-ci et disparaîtrait à son premier démontage.
+   *
+   * **Pas de relecture du profil ici** : la valeur est déjà connue, aller la
+   * redemander serait un aller-retour pour rien.
    */
-  onAvatarChanged?: () => void
+  onAvatarUrlChange?: (nextAvatarUrl: string | null) => void
 }
 
 /**
  * @param userId titulaire du profil consulté
- * @param avatarUrl champ `avatarUrl` du bloc `administrative`, tel que reçu :
- *   URL de lecture versionnée, ou `null` (pas de photo, ou photo non partagée)
+ * @param avatarUrl champ `avatarUrl` du bloc `administrative`, tel que détenu par
+ *   la page : URL de lecture versionnée, ou `null` (pas de photo, ou photo non
+ *   partagée). **Propriété contrôlée** — ce hook ne la duplique pas dans son état
+ *   et affiche exactement ce qu'on lui donne.
  * @param options `canUpload` — le lecteur est-il le titulaire ?
  */
 export function useProfileAvatar(
@@ -101,18 +106,10 @@ export function useProfileAvatar(
 
   // Lu par référence : l'appelant n'a pas à mémoïser sa fonction pour éviter que
   // `uploadPhoto`/`removePhoto` ne changent d'identité à chaque rendu.
-  const onAvatarChangedRef = useRef(options.onAvatarChanged)
-  onAvatarChangedRef.current = options.onAvatarChanged
+  const onAvatarUrlChangeRef = useRef(options.onAvatarUrlChange)
+  onAvatarUrlChangeRef.current = options.onAvatarUrlChange
 
-  /**
-   * URL courante : celle du profil chargé, puis celle renvoyée par le serveur
-   * après un envoi ou une suppression. Sans cet état local, la fiche continuerait
-   * d'afficher l'ancienne version tant qu'elle n'est pas rechargée.
-   */
-  const [currentAvatarUrl, setCurrentAvatarUrl] = useState<string | null>(avatarUrl ?? null)
-  useEffect(() => {
-    setCurrentAvatarUrl(avatarUrl ?? null)
-  }, [avatarUrl])
+  const currentAvatarUrl = avatarUrl ?? null
 
   const [photoObjectUrl, setPhotoObjectUrl] = useState<string | null>(null)
   const [isLoadingPhoto, setIsLoadingPhoto] = useState(false)
@@ -185,12 +182,10 @@ export function useProfileAvatar(
       setIsUploadingPhoto(true)
       try {
         const { avatarUrl: nextAvatarUrl } = await uploadProfileAvatar(userId, file)
-        // On réutilise l'URL du serveur telle quelle : son jeton `?v=` est la
-        // seule chose qui garantit l'affichage de la NOUVELLE photo.
-        setCurrentAvatarUrl(nextAvatarUrl ?? null)
-        // Puis on demande à la page de relire le profil : cet état local ne
-        // survit pas au démontage de l'onglet.
-        onAvatarChangedRef.current?.()
+        // L'URL du serveur est remontée telle quelle à la page : son jeton `?v=`
+        // est la seule chose qui garantit l'affichage de la NOUVELLE photo, et
+        // c'est la page qui la conservera. Rien à redemander au serveur.
+        onAvatarUrlChangeRef.current?.(nextAvatarUrl ?? null)
         return true
       } catch (caughtError) {
         // Filet de sécurité : le serveur peut refuser en `413` malgré le
@@ -218,10 +213,9 @@ export function useProfileAvatar(
     setRemoveError(null)
     try {
       await deleteProfileAvatar(userId)
-      setCurrentAvatarUrl(null)
-      // Symptôme inverse, même cause : sans relecture, la page garderait l'URL
-      // de la photo supprimée et la ferait réapparaître au prochain montage.
-      onAvatarChangedRef.current?.()
+      // Symptôme inverse, même cause : sans cette remontée, la page garderait
+      // l'URL de la photo supprimée et la ferait réapparaître.
+      onAvatarUrlChangeRef.current?.(null)
       return true
     } catch (caughtError) {
       setRemoveError(getAvatarDeleteErrorMessage(caughtError))

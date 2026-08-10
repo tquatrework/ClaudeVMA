@@ -773,10 +773,12 @@ describe('ProfileEditPage', () => {
 })
 
 /**
- * Fraîcheur de la photo sur l'écran d'édition — même défaut que sur la fiche
- * (2026-08-10) : l'emplacement photo vit dans l'onglet administratif, quitter
- * l'onglet le démonte, et l'écran repartait de l'`avatarUrl` lu au montage,
- * antérieur à l'envoi.
+ * Photo de profil sur l'écran d'édition — même défaut que sur la fiche
+ * (2026-08-10) : l'emplacement photo vit dans l'onglet administratif, il gardait
+ * l'`avatarUrl` pour lui, et l'écran repartait de celle lue au montage.
+ *
+ * Corrigé au bon niveau : la page détient l'`avatarUrl` et la met à jour avec la
+ * valeur **déjà renvoyée** par le `POST`. Pas de relecture du profil.
  */
 describe('ProfileEditPage — photo de profil', () => {
   const AVATAR_URL = '/api/v1/profiles/student-1/avatar?v=1754899999999'
@@ -802,9 +804,10 @@ describe('ProfileEditPage — photo de profil', () => {
     mockFetchProfileAvatarBlob.mockResolvedValue(new Blob(['octets'], { type: 'image/webp' }))
   })
 
-  it('relit le profil au serveur après un envoi réussi', async () => {
-    mockFetchProfile.mockResolvedValueOnce(STUDENT_PROFILE)
-    mockFetchProfile.mockResolvedValue(PROFILE_WITH_PHOTO)
+  it('affiche la nouvelle photo sans relire le profil au serveur', async () => {
+    // Le serveur ne renvoie ici que le profil SANS photo : si l'écran relisait
+    // le profil, il effacerait l'image qu'il vient d'afficher.
+    mockFetchProfile.mockResolvedValue(STUDENT_PROFILE)
     mockUploadProfileAvatar.mockResolvedValue({ avatarUrl: AVATAR_URL })
 
     renderEditPage()
@@ -812,33 +815,28 @@ describe('ProfileEditPage — photo de profil', () => {
 
     selectPhotoFile()
 
-    await waitFor(() => {
-      expect(mockFetchProfile).toHaveBeenCalledTimes(2)
-    })
+    expect(await screen.findByRole('img', { name: /Alice Martin/ })).toBeDefined()
+    expect(mockFetchProfile).toHaveBeenCalledTimes(1)
   })
 
-  it("garde les formulaires à l'écran pendant cette relecture", async () => {
-    mockFetchProfile.mockResolvedValueOnce(STUDENT_PROFILE)
-    mockFetchProfile.mockResolvedValue(PROFILE_WITH_PHOTO)
+  it("garde les formulaires à l'écran pendant l'envoi", async () => {
+    mockFetchProfile.mockResolvedValue(STUDENT_PROFILE)
     mockUploadProfileAvatar.mockResolvedValue({ avatarUrl: AVATAR_URL })
 
     renderEditPage()
     await screen.findByLabelText('Ajouter une photo')
 
     selectPhotoFile()
+    await screen.findByRole('img', { name: /Alice Martin/ })
 
-    await waitFor(() => {
-      expect(mockFetchProfile).toHaveBeenCalledTimes(2)
-    })
-    // Une relecture de fraîcheur ne doit pas repasser l'écran en « Chargement… » :
-    // le formulaire serait démonté et la saisie en cours perdue.
+    // L'écran ne repasse jamais en « Chargement… » : le formulaire serait
+    // démonté et la saisie en cours perdue.
     expect(screen.queryByText('Chargement…')).toBeNull()
     expect((screen.getByLabelText('Prénom') as HTMLInputElement).value).toBe('Alice')
   })
 
   it("affiche encore la photo après un aller-retour d'onglet", async () => {
-    mockFetchProfile.mockResolvedValueOnce(STUDENT_PROFILE)
-    mockFetchProfile.mockResolvedValue(PROFILE_WITH_PHOTO)
+    mockFetchProfile.mockResolvedValue(STUDENT_PROFILE)
     mockUploadProfileAvatar.mockResolvedValue({ avatarUrl: AVATAR_URL })
 
     renderEditPage()
@@ -849,6 +847,14 @@ describe('ProfileEditPage — photo de profil', () => {
 
     await openPedagogicalTab()
     await openTab(/profil administratif/i)
+
+    expect(await screen.findByRole('img', { name: /Alice Martin/ })).toBeDefined()
+  })
+
+  it('affiche la photo enregistrée quand elle vient du serveur', async () => {
+    mockFetchProfile.mockResolvedValue(PROFILE_WITH_PHOTO)
+
+    renderEditPage()
 
     expect(await screen.findByRole('img', { name: /Alice Martin/ })).toBeDefined()
   })

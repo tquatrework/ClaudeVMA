@@ -29,7 +29,6 @@ import type { ProfileVisibility } from '../../types/profile'
 import {
   ADMINISTRATIVE_DISPLAY_FIELD_NAMES,
   ADMINISTRATIVE_TRACEABILITY_FIELD_NAMES,
-  pickAdministrativeAvatarUrl,
   pickAdministrativeDisplayFields,
   pickAdministrativeFields,
 } from '../../utils/profileFields'
@@ -65,12 +64,13 @@ interface AdministrativeProfilePanelProps {
    */
   canEditAvatar: boolean
   /**
-   * Relecture du profil après un changement de photo. La photo a ses propres
-   * routes : sans ce signal, la fiche continuerait d'afficher l'`avatarUrl`
-   * chargé au montage, et la nouvelle photo disparaîtrait au premier changement
-   * d'onglet (défaut du 2026-08-10).
+   * `avatarUrl` **détenue par la page**, pas extraite ici du bloc reçu : la photo
+   * a ses propres routes d'écriture, et la valeur qui fait foi après un envoi est
+   * celle que le serveur vient de renvoyer, conservée en haut de l'écran.
    */
-  onAvatarChanged?: () => void
+  avatarUrl: string | null
+  /** Remonte la nouvelle `avatarUrl` à la page (envoi ou suppression réussis). */
+  onAvatarUrlChange?: (nextAvatarUrl: string | null) => void
 }
 
 export function AdministrativeProfilePanel({
@@ -79,7 +79,8 @@ export function AdministrativeProfilePanel({
   visibility,
   canEdit,
   canEditAvatar,
-  onAvatarChanged,
+  avatarUrl,
+  onAvatarUrlChange,
 }: AdministrativeProfilePanelProps) {
   const { saveAdministrative, isSavingAdministrative, administrativeSaveError } =
     useProfileSaveActions(userId)
@@ -110,13 +111,13 @@ export function AdministrativeProfilePanel({
   const avatarField = (
     <ProfileAvatarField
       userId={userId}
-      avatarUrl={pickAdministrativeAvatarUrl(administrative)}
+      avatarUrl={avatarUrl}
       displayName={formatFullName(
         typeof displayedFields.firstName === 'string' ? displayedFields.firstName : undefined,
         typeof displayedFields.lastName === 'string' ? displayedFields.lastName : undefined,
       )}
       canEdit={canEditAvatar}
-      onAvatarChanged={onAvatarChanged}
+      onAvatarUrlChange={onAvatarUrlChange}
     />
   )
 

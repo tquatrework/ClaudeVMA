@@ -8,23 +8,26 @@
  * après l'envoi.
  *
  * Cause : la photo n'existait que dans l'état local de `useProfileAvatar`, monté
- * dans l'onglet administratif. Quitter l'onglet **démonte** ce panneau
- * (`TabPanel` renvoie `null`), donc perd cet état ; y revenir le remonte avec
- * l'`avatarUrl` du profil chargé **avant** l'envoi, qui vaut `null`. La page
- * n'ayant jamais relu sa source de vérité, l'écran affichait durablement une
- * donnée que le serveur contredit.
+ * dans l'onglet administratif — alors que `avatarUrl` est un champ du profil,
+ * donc une donnée de la **page**. Quitter l'onglet démontait ce panneau et
+ * perdait cet état ; y revenir le remontait avec l'`avatarUrl` d'avant l'envoi.
+ *
+ * Corrigé le 2026-08-10 à son vrai niveau : la page détient l'`avatarUrl` et la
+ * met à jour avec **celle que le serveur a déjà renvoyée** dans la réponse du
+ * `POST`. Une première tentative relisait le profil à chaque clic d'onglet —
+ * du réseau pour compenser une erreur d'appartenance d'état ; elle a été
+ * retirée.
  *
  * Ce que ces tests gardent :
  *
- * 1. un envoi réussi **redemande** `GET /profiles/:userId` — un test qui se
- *    contenterait de vérifier l'état local du hook serait resté vert pendant tout
- *    le défaut, c'est exactement ce qui existait ;
+ * 1. un envoi réussi met à jour la source de vérité de la page **sans second
+ *    aller-retour** : `GET /profiles/:userId` n'est pas rejoué ;
  * 2. un aller-retour d'onglet, puis un remontage complet de la page, affichent la
  *    **nouvelle** photo ;
  * 3. symptôme inverse, même cause : après une suppression, un retour ne fait pas
  *    réapparaître la photo depuis une copie périmée ;
- * 4. le rafraîchissement ne doit pas écraser la saisie en cours du formulaire
- *    administratif, ni être annulé par l'enregistrement de ce formulaire.
+ * 4. la photo affichée n'est écrasée ni par la saisie du formulaire
+ *    administratif ni par son enregistrement.
  */
 
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
@@ -153,9 +156,8 @@ beforeEach(() => {
 })
 
 describe('ProfilePage — la photo enregistrée survit à la navigation', () => {
-  it('redemande le profil au serveur après un envoi réussi', async () => {
-    mockFetchProfile.mockResolvedValueOnce(PROFILE_WITHOUT_PHOTO)
-    mockFetchProfile.mockResolvedValue(PROFILE_WITH_PHOTO)
+  it("affiche la nouvelle photo sans redemander le profil au serveur", async () => {
+    mockFetchProfile.mockResolvedValue(PROFILE_WITHOUT_PHOTO)
     mockUploadProfileAvatar.mockResolvedValue({ avatarUrl: UPLOADED_AVATAR_URL })
 
     renderProfilePage()
@@ -164,11 +166,12 @@ describe('ProfilePage — la photo enregistrée survit à la navigation', () => 
 
     selectPhotoFile()
 
-    // C'est le point qui manquait : sans cette relecture, la source de vérité de
-    // la page reste la copie d'avant l'envoi, où `avatarUrl` vaut `null`.
-    await waitFor(() => {
-      expect(mockFetchProfile).toHaveBeenCalledTimes(2)
-    })
+    // La photo apparaît parce que la page a **reçu** l'URL renvoyée par le
+    // `POST`, pas parce qu'elle est allée la rechercher. Le serveur ne renvoie
+    // ici que le profil SANS photo : si l'écran relisait le profil, il
+    // effacerait l'image qu'il vient d'afficher.
+    expect(await screen.findByRole('img', { name: /Marie Dupont/ })).toBeDefined()
+    expect(mockFetchProfile).toHaveBeenCalledTimes(1)
   })
 
   it("affiche encore la photo après un aller-retour d'onglet", async () => {
@@ -182,8 +185,8 @@ describe('ProfilePage — la photo enregistrée survit à la navigation', () => 
     selectPhotoFile()
     await screen.findByRole('img', { name: /Marie Dupont/ })
 
-    // Le panneau administratif est démonté puis remonté : il repart de
-    // l'`avatarUrl` porté par la page, pas de son état local perdu.
+    // Le panneau reste monté, et la donnée qui l'alimente vit de toute façon
+    // au-dessus de lui : rien à reconstruire, rien à retrouver.
     switchTabsBackAndForth()
 
     expect(await screen.findByRole('img', { name: /Marie Dupont/ })).toBeDefined()
@@ -209,9 +212,11 @@ describe('ProfilePage — la photo enregistrée survit à la navigation', () => 
 })
 
 describe('ProfilePage — la suppression survit elle aussi à la navigation', () => {
-  it('redemande le profil au serveur après une suppression réussie', async () => {
-    mockFetchProfile.mockResolvedValueOnce(PROFILE_WITH_PHOTO)
-    mockFetchProfile.mockResolvedValue(PROFILE_WITHOUT_PHOTO)
+  it('retire la photo sans redemander le profil au serveur', async () => {
+    // Le serveur continuerait de renvoyer la photo : une relecture la ferait
+    // réapparaître. La suppression est connue de la page, il n'y a rien à
+    // demander.
+    mockFetchProfile.mockResolvedValue(PROFILE_WITH_PHOTO)
     mockDeleteProfileAvatar.mockResolvedValue(undefined)
 
     renderProfilePage()
@@ -220,13 +225,13 @@ describe('ProfilePage — la suppression survit elle aussi à la navigation', ()
     fireEvent.click(screen.getByRole('button', { name: /supprimer/i }))
 
     await waitFor(() => {
-      expect(mockFetchProfile).toHaveBeenCalledTimes(2)
+      expect(screen.getByTestId('profile-avatar-initials')).toBeDefined()
     })
+    expect(mockFetchProfile).toHaveBeenCalledTimes(1)
   })
 
   it("ne fait pas réapparaître la photo supprimée après un aller-retour d'onglet", async () => {
-    mockFetchProfile.mockResolvedValueOnce(PROFILE_WITH_PHOTO)
-    mockFetchProfile.mockResolvedValue(PROFILE_WITHOUT_PHOTO)
+    mockFetchProfile.mockResolvedValue(PROFILE_WITH_PHOTO)
     mockDeleteProfileAvatar.mockResolvedValue(undefined)
 
     renderProfilePage()
@@ -247,10 +252,9 @@ describe('ProfilePage — la suppression survit elle aussi à la navigation', ()
   })
 })
 
-describe('ProfilePage — le rafraîchissement ne casse pas le formulaire administratif', () => {
-  it('conserve la saisie en cours pendant la relecture du profil', async () => {
-    mockFetchProfile.mockResolvedValueOnce(PROFILE_WITHOUT_PHOTO)
-    mockFetchProfile.mockResolvedValue(PROFILE_WITH_PHOTO)
+describe('ProfilePage — la photo et le formulaire administratif cohabitent', () => {
+  it("conserve la saisie en cours pendant l'envoi d'une photo", async () => {
+    mockFetchProfile.mockResolvedValue(PROFILE_WITHOUT_PHOTO)
     mockUploadProfileAvatar.mockResolvedValue({ avatarUrl: UPLOADED_AVATAR_URL })
 
     renderProfilePage()
@@ -259,17 +263,14 @@ describe('ProfilePage — le rafraîchissement ne casse pas le formulaire admini
     fireEvent.change(firstNameInput, { target: { value: 'Marion' } })
     selectPhotoFile()
 
-    await waitFor(() => {
-      expect(mockFetchProfile).toHaveBeenCalledTimes(2)
-    })
-    // La photo n'est pas un champ de ce formulaire : la relire ne doit pas
+    await screen.findByRole('img', { name: /Marie Dupont/ })
+    // La photo n'est pas un champ de ce formulaire : la changer ne doit pas
     // effacer ce que l'utilisateur est en train d'écrire.
     expect((screen.getByLabelText('Prénom') as HTMLInputElement).value).toBe('Marion')
   })
 
   it("garde la photo affichée après l'enregistrement du formulaire administratif", async () => {
-    mockFetchProfile.mockResolvedValueOnce(PROFILE_WITHOUT_PHOTO)
-    mockFetchProfile.mockResolvedValue(PROFILE_WITH_PHOTO)
+    mockFetchProfile.mockResolvedValue(PROFILE_WITHOUT_PHOTO)
     mockUploadProfileAvatar.mockResolvedValue({ avatarUrl: UPLOADED_AVATAR_URL })
     mockUpdateAdministrativeProfile.mockResolvedValue(ADMINISTRATIVE_WITHOUT_PHOTO)
 

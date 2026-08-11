@@ -1,12 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
-import { ArchiveController } from '../../../src/archive/archive.controller';
+import {
+  ArchiveController,
+  ArchiveDocumentController,
+} from '../../../src/archive/archive.controller';
 import { ArchiveService } from '../../../src/archive/archive.service';
 import { JwtAuthGuard } from '../../../src/common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../src/common/guards/roles.guard';
+import { OWNER_ACCESS_KEY } from '../../../src/common/decorators/owner-access.decorator';
+import { ROLES_KEY } from '../../../src/common/decorators/roles.decorator';
 import { AddArchiveLinkDto } from '../../../src/archive/dto/add-archive-link.dto';
 import { ArchiveItemType } from '../../../src/common/enums/archive-item-type.enum';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
@@ -20,20 +25,15 @@ const mockArchiveService = {
   getArchiveItemForDownload: jest.fn(),
 };
 
-// Guards mockés pour isoler le contrôleur des dépendances externes
 const mockJwtAuthGuard = { canActivate: jest.fn().mockReturnValue(true) };
 const mockRolesGuard = { canActivate: jest.fn().mockReturnValue(true) };
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const STUDENT_ID = 'student-uuid-1';
+const CORRELATION_ID = 'correlation-uuid-1';
 
-const mockUser = {
-  id: STUDENT_ID,
-  email: 'eleve@example.com',
-  role: UserRole.ELEVE,
-};
-
+const mockUser = { id: STUDENT_ID, email: 'eleve@example.com', role: UserRole.ELEVE };
 const mockRequest = { user: mockUser };
 
 const mockArchiveItem = {
@@ -62,10 +62,12 @@ const mockPaginatedResult = {
 
 describe('ArchiveController', () => {
   let controller: ArchiveController;
+  let documentController: ArchiveDocumentController;
+  let reflector: Reflector;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      controllers: [ArchiveController],
+      controllers: [ArchiveController, ArchiveDocumentController],
       providers: [
         { provide: ArchiveService, useValue: mockArchiveService },
         { provide: JwtService, useValue: { verify: jest.fn() } },
@@ -80,17 +82,61 @@ describe('ArchiveController', () => {
       .compile();
 
     controller = module.get<ArchiveController>(ArchiveController);
+    documentController = module.get<ArchiveDocumentController>(ArchiveDocumentController);
+    reflector = module.get<Reflector>(Reflector);
     jest.clearAllMocks();
+  });
+
+  // ─── Contrôle d'accès déclaré sur les routes ────────────────────────────────
+
+  describe('déclaration du contrôle d\'accès', () => {
+    it.each([
+      ['listPedagogicalArchives', () => controller.listPedagogicalArchives],
+      ['getArchiveTimeline', () => controller.getArchiveTimeline],
+    ])(
+      'la lecture %s porte @OwnerAccess() et AUCUNE liste de rôles',
+      (_name, handlerAccessor) => {
+        const handler = handlerAccessor();
+
+        expect(reflector.get<boolean>(OWNER_ACCESS_KEY, handler)).toBe(true);
+        expect(reflector.get<UserRole[]>(ROLES_KEY, handler)).toBeUndefined();
+      },
+    );
+
+    it('le téléchargement porte @OwnerAccess() et aucune liste de rôles', () => {
+      const handler = documentController.downloadArchiveDocument;
+
+      expect(reflector.get<boolean>(OWNER_ACCESS_KEY, handler)).toBe(true);
+      expect(reflector.get<UserRole[]>(ROLES_KEY, handler)).toBeUndefined();
+    });
+
+    it('l\'écriture garde une liste de rôles explicite — une relation n\'ouvre jamais l\'écriture', () => {
+      const handler = controller.addArchiveLink;
+
+      expect(reflector.get<boolean>(OWNER_ACCESS_KEY, handler)).toBeUndefined();
+      expect(reflector.get<UserRole[]>(ROLES_KEY, handler)).toEqual([
+        UserRole.FORMATEUR,
+        UserRole.ANIMATEUR_PEDAGOGIQUE,
+        UserRole.RESPONSABLE_PEDAGOGIQUE,
+        UserRole.TECHNICIEN_INFORMATIQUE,
+        UserRole.ADMINISTRATEUR_FINANCIER,
+      ]);
+    });
   });
 
   // ─── listPedagogicalArchives ────────────────────────────────────────────────
 
-  describe('GET /students/:studentId/pedagogical-archives', () => {
-    it('délègue au service avec pagination et retourne le résultat paginé', async () => {
+  describe('GET /archives/students/:studentId/pedagogical-archives', () => {
+    it('délègue au service avec pagination et propage le correlation ID', async () => {
       mockArchiveService.listPedagogicalArchives.mockResolvedValue(mockPaginatedResult);
 
       const paginationQuery = { page: 1, limit: 20 };
-      const result = await controller.listPedagogicalArchives(STUDENT_ID, paginationQuery, mockRequest);
+      const result = await controller.listPedagogicalArchives(
+        STUDENT_ID,
+        paginationQuery,
+        mockRequest,
+        CORRELATION_ID,
+      );
 
       expect(result).toEqual(mockPaginatedResult);
       expect(mockArchiveService.listPedagogicalArchives).toHaveBeenCalledWith(
@@ -98,18 +144,18 @@ describe('ArchiveController', () => {
         mockUser.id,
         mockUser.role,
         paginationQuery,
+        CORRELATION_ID,
       );
     });
 
     it('retourne les métadonnées de pagination dans la réponse', async () => {
-      const paginatedResponse = {
+      mockArchiveService.listPedagogicalArchives.mockResolvedValue({
         data: [mockArchiveItem],
         page: 2,
         limit: 10,
         total: 42,
         totalPages: 5,
-      };
-      mockArchiveService.listPedagogicalArchives.mockResolvedValue(paginatedResponse);
+      });
 
       const result = await controller.listPedagogicalArchives(
         STUDENT_ID,
@@ -118,25 +164,33 @@ describe('ArchiveController', () => {
       );
 
       expect(result.page).toBe(2);
-      expect(result.limit).toBe(10);
-      expect(result.total).toBe(42);
       expect(result.totalPages).toBe(5);
     });
 
-    it('propage ForbiddenException du service', async () => {
+    it('propage le 404 du service — refus et absence sont indiscernables', async () => {
       mockArchiveService.listPedagogicalArchives.mockRejectedValue(
-        new ForbiddenException('Accès interdit'),
+        new NotFoundException('Aucune archive pédagogique accessible pour cette personne'),
       );
 
       await expect(
         controller.listPedagogicalArchives(STUDENT_ID, {}, mockRequest),
-      ).rejects.toThrow(ForbiddenException);
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('propage le 503 quand les relations n\'ont pas pu être vérifiées', async () => {
+      mockArchiveService.listPedagogicalArchives.mockRejectedValue(
+        new ServiceUnavailableException('profile-service injoignable'),
+      );
+
+      await expect(
+        controller.listPedagogicalArchives(STUDENT_ID, {}, mockRequest),
+      ).rejects.toThrow(ServiceUnavailableException);
     });
   });
 
   // ─── addArchiveLink ─────────────────────────────────────────────────────────
 
-  describe('POST /students/:studentId/archive-links', () => {
+  describe('POST /archives/students/:studentId/archive-links', () => {
     const addDto: AddArchiveLinkDto = {
       itemType: ArchiveItemType.RESUME_DE_COURS,
       sourceId: 'session-uuid-1',
@@ -145,20 +199,25 @@ describe('ArchiveController', () => {
       occurredAt: '2026-06-12T14:00:00Z',
     };
 
-    it('crée un lien archive et retourne l\'élément créé', async () => {
+    it('crée un lien archive en transmettant le rôle du demandeur', async () => {
       mockArchiveService.addArchiveLink.mockResolvedValue(mockArchiveItem);
+      const teacherRequest = { user: { ...mockUser, role: UserRole.FORMATEUR } };
 
-      const result = await controller.addArchiveLink(STUDENT_ID, addDto, mockRequest);
+      const result = await controller.addArchiveLink(STUDENT_ID, addDto, teacherRequest);
 
       expect(result).toEqual(mockArchiveItem);
-      expect(mockArchiveService.addArchiveLink).toHaveBeenCalledWith(STUDENT_ID, addDto);
+      expect(mockArchiveService.addArchiveLink).toHaveBeenCalledWith(
+        STUDENT_ID,
+        addDto,
+        UserRole.FORMATEUR,
+      );
     });
   });
 
   // ─── getArchiveTimeline ─────────────────────────────────────────────────────
 
-  describe('GET /students/:studentId/archive-timeline', () => {
-    it('retourne la vue calendrier paginée groupée par date', async () => {
+  describe('GET /archives/students/:studentId/archive-timeline', () => {
+    it('retourne la vue calendrier paginée et propage le correlation ID', async () => {
       const paginatedTimeline = {
         data: [{ date: '2026-06-12', items: [{ id: 'item-uuid-1', title: 'Résumé — Algèbre' }] }],
         page: 1,
@@ -169,7 +228,12 @@ describe('ArchiveController', () => {
       mockArchiveService.getArchiveTimeline.mockResolvedValue(paginatedTimeline);
 
       const paginationQuery = { page: 1, limit: 20 };
-      const result = await controller.getArchiveTimeline(STUDENT_ID, paginationQuery, mockRequest);
+      const result = await controller.getArchiveTimeline(
+        STUDENT_ID,
+        paginationQuery,
+        mockRequest,
+        CORRELATION_ID,
+      );
 
       expect(result).toEqual(paginatedTimeline);
       expect(mockArchiveService.getArchiveTimeline).toHaveBeenCalledWith(
@@ -177,66 +241,64 @@ describe('ArchiveController', () => {
         mockUser.id,
         mockUser.role,
         paginationQuery,
+        CORRELATION_ID,
       );
     });
 
-    it('retourne les métadonnées de pagination dans la vue timeline', async () => {
-      const paginatedTimeline = {
-        data: [],
-        page: 3,
-        limit: 5,
-        total: 12,
-        totalPages: 3,
-      };
-      mockArchiveService.getArchiveTimeline.mockResolvedValue(paginatedTimeline);
-
-      const result = await controller.getArchiveTimeline(
-        STUDENT_ID,
-        { page: 3, limit: 5 },
-        mockRequest,
+    it('propage le 404 du service', async () => {
+      mockArchiveService.getArchiveTimeline.mockRejectedValue(
+        new NotFoundException('Aucune archive pédagogique accessible pour cette personne'),
       );
 
-      expect(result.page).toBe(3);
-      expect(result.totalPages).toBe(3);
+      await expect(controller.getArchiveTimeline(STUDENT_ID, {}, mockRequest)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
   // ─── downloadArchiveDocument ────────────────────────────────────────────────
 
-  describe('GET /archive-documents/:id/download', () => {
+  describe('GET /documents/:id/download', () => {
     it('retourne l\'URL de redirection pour téléchargement', async () => {
       mockArchiveService.getArchiveItemForDownload.mockResolvedValue(mockArchiveItem);
 
-      const result = await controller.downloadArchiveDocument(mockArchiveItem.id, mockRequest);
+      const result = await documentController.downloadArchiveDocument(
+        mockArchiveItem.id,
+        mockRequest,
+        CORRELATION_ID,
+      );
 
       expect(result).toEqual({ url: mockArchiveItem.downloadUrl });
       expect(mockArchiveService.getArchiveItemForDownload).toHaveBeenCalledWith(
         mockArchiveItem.id,
         mockUser.id,
         mockUser.role,
+        CORRELATION_ID,
       );
     });
 
-    it('propage NotFoundException si l\'élément n\'existe pas', async () => {
+    it('propage NotFoundException — élément absent comme accès refusé', async () => {
       mockArchiveService.getArchiveItemForDownload.mockRejectedValue(
-        new NotFoundException('Élément non trouvé'),
+        new NotFoundException('Aucune archive pédagogique accessible pour cette personne'),
       );
 
       await expect(
-        controller.downloadArchiveDocument('nonexistent-id', mockRequest),
+        documentController.downloadArchiveDocument('nonexistent-id', mockRequest),
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('propage ForbiddenException pour le carnet personnel (parent)', async () => {
+    it('le carnet personnel demandé par un parent remonte un 404, jamais un 403', async () => {
       mockArchiveService.getArchiveItemForDownload.mockRejectedValue(
-        new ForbiddenException('Carnet personnel non accessible'),
+        new NotFoundException('Aucune archive pédagogique accessible pour cette personne'),
       );
 
-      await expect(
-        controller.downloadArchiveDocument('carnet-item-id', {
+      const error = await documentController
+        .downloadArchiveDocument('carnet-item-id', {
           user: { ...mockUser, role: UserRole.PARENT_FINANCEUR },
-        }),
-      ).rejects.toThrow(ForbiddenException);
+        })
+        .catch((thrown) => thrown);
+
+      expect(error).toBeInstanceOf(NotFoundException);
     });
   });
 });

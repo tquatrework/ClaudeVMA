@@ -8,6 +8,7 @@
  * - Error 409 (duplicate pending request)
  * - Existing request list display (GET /parent-link-requests)
  * - Status badges rendered with correct labels
+ * - Chaque demande nomme l'élève, jamais son identifiant technique
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -18,14 +19,17 @@ import ParentLinkRequestPage from '../../src/pages/ParentLinkRequestPage'
 
 vi.mock('../../src/api/client')
 vi.mock('../../src/api/parentLinkRequest')
+vi.mock('../../src/api/relations')
 vi.mock('../../src/hooks/useAuth')
 
 import * as parentLinkRequestApi from '../../src/api/parentLinkRequest'
+import { fetchLinkedStudents } from '../../src/api/relations'
 import { useAuth } from '../../src/hooks/useAuth'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockFetchParentLinkRequests = vi.mocked(parentLinkRequestApi.fetchParentLinkRequests)
 const mockCreateParentLinkRequest = vi.mocked(parentLinkRequestApi.createParentLinkRequest)
+const mockFetchLinkedStudents = vi.mocked(fetchLinkedStudents)
 
 const DEFAULT_AUTH = {
   user: {
@@ -49,6 +53,7 @@ const SAMPLE_PENDING_REQUEST: parentLinkRequestApi.ParentLinkRequest = {
   parentId: 'parent-001',
   studentId: 'student-aaa',
   status: 'pending',
+  direction: 'parent_initiated',
   requestedAt: '2026-06-01T10:00:00Z',
 }
 
@@ -57,10 +62,28 @@ const SAMPLE_APPROVED_REQUEST: parentLinkRequestApi.ParentLinkRequest = {
   parentId: 'parent-001',
   studentId: 'student-bbb',
   status: 'approved',
+  direction: 'parent_initiated',
   requestedAt: '2026-05-15T09:00:00Z',
   processedAt: '2026-05-16T11:00:00Z',
   processedBy: 'student-bbb',
 }
+
+/**
+ * `GET /relations/finance-owner-student/:financeOwnerId` renvoie déjà le nom de
+ * l'élève, résolu côté serveur. C'est la seule source du nom pour un parent :
+ * `GET /profiles/:studentId` répond 403 tant que le rattachement n'est pas
+ * accepté (vérifié sur la pile réelle le 2026-08-11).
+ *
+ * Seul l'élève déjà rattaché (demande approuvée) y figure.
+ */
+const LINKED_STUDENTS = [
+  {
+    financeOwnerId: 'parent-001',
+    studentId: 'student-bbb',
+    createdAt: '2026-05-16T11:00:00Z',
+    studentName: { firstName: 'Chloé', lastName: 'Bernard' },
+  },
+]
 
 function renderPage() {
   return render(
@@ -73,6 +96,7 @@ function renderPage() {
 beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue(DEFAULT_AUTH)
+  mockFetchLinkedStudents.mockResolvedValue(LINKED_STUDENTS)
 })
 
 describe('ParentLinkRequestPage', () => {
@@ -209,15 +233,51 @@ describe('ParentLinkRequestPage', () => {
   })
 
   describe('Existing request list', () => {
-    it('displays existing requests loaded from GET /parent-link-requests', async () => {
-      mockFetchParentLinkRequests.mockResolvedValue([SAMPLE_PENDING_REQUEST, SAMPLE_APPROVED_REQUEST])
+    it('nomme l\'élève rattaché avec son prénom et son nom', async () => {
+      mockFetchParentLinkRequests.mockResolvedValue([SAMPLE_APPROVED_REQUEST])
 
       renderPage()
 
       await waitFor(() => {
-        expect(screen.getByText(SAMPLE_PENDING_REQUEST.studentId, { exact: false })).toBeDefined()
-        expect(screen.getByText(SAMPLE_APPROVED_REQUEST.studentId, { exact: false })).toBeDefined()
+        expect(screen.getByText('Chloé Bernard')).toBeDefined()
       })
+    })
+
+    it('annonce en français que le nom n\'est pas communiqué pour une demande en attente', async () => {
+      mockFetchParentLinkRequests.mockResolvedValue([SAMPLE_PENDING_REQUEST])
+
+      renderPage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Élève — nom non communiqué')).toBeDefined()
+      })
+    })
+
+    it('n\'affiche jamais l\'identifiant technique de l\'élève, même tronqué', async () => {
+      mockFetchParentLinkRequests.mockResolvedValue([SAMPLE_PENDING_REQUEST, SAMPLE_APPROVED_REQUEST])
+
+      const { container } = renderPage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Chloé Bernard')).toBeDefined()
+      })
+
+      const renderedText = container.textContent ?? ''
+      expect(renderedText).not.toContain(SAMPLE_PENDING_REQUEST.studentId)
+      expect(renderedText).not.toContain(SAMPLE_APPROVED_REQUEST.studentId)
+      expect(renderedText).not.toContain('ELV-')
+    })
+
+    it('reste lisible quand les relations sont inaccessibles', async () => {
+      mockFetchParentLinkRequests.mockResolvedValue([SAMPLE_APPROVED_REQUEST])
+      mockFetchLinkedStudents.mockRejectedValue(new Error('network error'))
+
+      const { container } = renderPage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Élève — nom non communiqué')).toBeDefined()
+      })
+      expect(container.textContent ?? '').not.toContain(SAMPLE_APPROVED_REQUEST.studentId)
     })
 
     it('shows status badge "En attente" for pending requests', async () => {

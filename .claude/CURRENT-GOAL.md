@@ -5,13 +5,68 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
-## Aucun objectif en cours
+## Besoin — 2026-08-11
 
-Le précédent est mergé. La prochaine demande de l'utilisateur ouvre le suivant.
+Verbatim de l'utilisateur : « il reste un élément à faire, au niveau du Parent/financeur pour un
+élève ou des Élèves pour un Parent/Financeur, même si cela sera peu utilisé, c'est un bouton et
+une action back derrière "Délier" (ou supprimer) ».
 
-## Deux candidats prêts, par ordre d'urgence
+**Rompre un lien parent financeur ↔ élève doit être possible depuis l'interface**, dans les deux
+sens : le parent depuis la liste de ses élèves, l'élève depuis la liste de ses parents financeurs.
 
-### 1. Chaque redéploiement d'un service back casse l'application en silence
+## Trois décisions prises, à corriger d'un mot si elles sont fausses
+
+1. **Délier n'efface pas l'historique.** On enregistre la **fin** du lien, on ne supprime pas la
+   ligne. Même raisonnement que pour le retrait d'un consentement (2026-08-09) : on doit pouvoir
+   prouver que le lien a existé, puis a été rompu, et quand. Un lien financier rompu sans trace
+   serait ingérable côté facturation.
+2. **Chacune des deux parties peut délier**, plus le RP et le TI. Forcer quelqu'un à rester lié
+   à un tiers n'aurait pas de sens, et la création du lien exige déjà l'accord des deux côtés.
+3. **Le lien peut être recréé ensuite.** Comme pour les consentements, un refus définitif serait
+   un piège : le parcours de rattachement existant doit rester utilisable après une rupture.
+
+## Comment on saura que c'est fait
+
+Sur `https://claudevma.visioprof.fr`, réponses HTTP citées :
+
+1. un parent délie un de ses élèves depuis l'interface → le lien disparaît de sa liste ;
+2. l'élève ne voit plus ce parent, et **réciproquement** les droits de lecture ouverts par la
+   relation se referment — le parent ne lit plus ni le profil, ni les statistiques, ni les
+   archives de l'ex-élève ;
+3. l'élève peut délier de son côté, avec le même résultat ;
+4. l'historique reste consultable en base — la ligne n'a pas disparu ;
+5. un rattachement peut être redemandé après coup et aboutir.
+
+## État
+
+- [ ] Back : rupture du lien (`profile-service`)
+- [ ] Front : bouton « Délier » dans les deux sens, avec confirmation
+- [ ] Déployé sur la pile réelle
+- [ ] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur
+- [ ] Mergé dans master
+
+## Bloqué par
+
+Rien. Mais **PR #97 (gateway) attend une décision de merge** : l'image en ligne vient de sa
+branche, donc toute reconstruction depuis `master` réinstallerait le défaut de résolution DNS.
+
+---
+
+## Candidat suivant, diagnostiqué et non corrigé
+
+### Les déploiements front peuvent rester invisibles
+
+`apps/web/Dockerfile` sert `index.html` **sans en-tête `Cache-Control`** — seuls `ETag` et
+`Last-Modified` sont posés. Le navigateur peut donc conserver l'ancien `index.html`, qui
+référence l'ancien bundle par son nom haché, lui aussi en cache. C'est arrivé le 2026-08-11 :
+l'utilisateur voyait un écran dont les chaînes étaient à **0 occurrence** dans le bundle servi.
+
+Correction retenue : `Cache-Control: no-cache` sur `index.html`, cache long immuable sur
+`/assets/`. Ne pas confondre avec la décision « aucun cache » du 2026-08-10, qui porte sur les
+données lues par l'application, pas sur les en-têtes de ses fichiers statiques.
+
+## Objectif précédent — gateway, livré le 2026-08-11, PR #97 en attente de merge
 
 **Défaut d'exploitation constaté le 2026-08-11, réparé au coup par coup, pas corrigé à la
 racine.** Le plus grave trouvé ce jour-là.

@@ -212,7 +212,8 @@ export class TeacherPaymentRequestsService {
 
   /**
    * List payment requests for a given teacher.
-   * Readable by the teacher themselves, AF, or RP.
+   * Readable by the teacher themselves — formateur or animateur_pedagogique alike — and
+   * by AF, RP, TI on a third party.
    */
   async findByTeacher(
     teacherId: string,
@@ -229,18 +230,27 @@ export class TeacherPaymentRequestsService {
 
   // ---- Private helpers ----
 
+  /**
+   * Read rule, in two clearly separated cases:
+   *  1. one's own requests — allowed to every role, no allowlist involved;
+   *  2. someone else's requests — reserved to the privileged roles below. Unchanged.
+   */
   private assertCanRead(
     teacherId: string,
     requesterId: string,
     requesterRole: string,
   ): void {
+    // Case 1: the teacher themselves, whatever their role.
+    if (requesterId === teacherId) return;
+
+    // Case 2: privileged roles reading a third party.
     const privilegedReadRoles: string[] = [
       UserRole.ADMINISTRATEUR_FINANCIER,
       UserRole.RESPONSABLE_PEDAGOGIQUE,
       UserRole.TECHNICIEN_INFORMATIQUE,
     ];
-    if (requesterId === teacherId) return;
     if (privilegedReadRoles.includes(requesterRole)) return;
+
     throw new ForbiddenException('Access to teacher payment requests is not allowed');
   }
 }

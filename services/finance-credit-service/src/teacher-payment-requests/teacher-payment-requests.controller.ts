@@ -19,8 +19,10 @@ import {
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { OwnerAccess } from '../common/decorators/owner-access.decorator';
 import { UserRole } from '../common/enums/user-role.enum';
 import { TeacherPaymentRequestsService } from './teacher-payment-requests.service';
+import { TeacherPaymentRequest } from './entities/teacher-payment-request.entity';
 import { CreateTeacherPaymentRequestDto } from './dto/create-teacher-payment-request.dto';
 import { ValidateTeacherPaymentRequestDto } from './dto/validate-teacher-payment-request.dto';
 
@@ -96,24 +98,35 @@ export class TeacherPaymentRequestsController {
   }
 
   @Get('by-teacher/:teacherId')
-  @Roles(UserRole.FORMATEUR, UserRole.ADMINISTRATEUR_FINANCIER, UserRole.TECHNICIEN_INFORMATIQUE)
+  @OwnerAccess()
   @ApiParam({ name: 'teacherId', description: 'UUID of the teacher' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
   @ApiOperation({
     summary: 'List payment requests for a teacher',
     description:
       'Returns all payment requests submitted by a given teacher, ordered by most recent first. ' +
-      'Accessible by the teacher themselves, AF, RP, or TI.',
+      'Access is granted by OWNERSHIP, not by a role allowlist: the teacher always sees their ' +
+      'own requests, whether they are formateur or animateur_pedagogique (a promoted formateur, ' +
+      'paid the same way). ' +
+      'Listing SOMEONE ELSE\'S requests stays restricted to the privileged roles ' +
+      'administrateur_financier, responsable_pedagogique and technicien_informatique. ' +
+      'A teacher with no request yet gets an empty array with status 200, never an error.',
   })
-  @ApiResponse({ status: 200, description: 'List of teacher payment requests' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of teacher payment requests (empty array when there is none yet)',
+    type: [TeacherPaymentRequest],
+  })
   @ApiResponse({ status: 401, description: 'Missing or invalid JWT' })
-  @ApiResponse({ status: 403, description: 'Insufficient permissions' })
-  // accès filtré par ownership dans le service
+  @ApiResponse({
+    status: 403,
+    description: 'Requester is neither the teacher themselves nor a privileged role (AF, RP, TI)',
+  })
   findByTeacher(
     @Param('teacherId') teacherId: string,
     @Req() req: any,
     @Headers('x-correlation-id') correlationId?: string,
-  ) {
+  ): Promise<TeacherPaymentRequest[]> {
     return this.teacherPaymentRequestsService.findByTeacher(
       teacherId,
       req.user.id,

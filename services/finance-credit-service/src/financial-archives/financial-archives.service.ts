@@ -16,7 +16,7 @@ export class FinancialArchivesService {
 
   /**
    * List all financial archive items for a given owner.
-   * Accessible by the owner, AF, RP, and TI.
+   * Accessible by the owner — whatever their role — and by AF, RP, TI on a third party.
    * FIN-FB-002: archives are filterable and show the running balance.
    */
   async findAllByOwner(
@@ -34,14 +34,24 @@ export class FinancialArchivesService {
 
   // ---- Private helpers ----
 
+  /**
+   * Read rule, in two clearly separated cases:
+   *  1. own archives — allowed to every role, no allowlist involved (a formateur or an
+   *     animateur_pedagogique has financial archives of their own);
+   *  2. someone else's archives — reserved to the privileged roles below. Unchanged.
+   */
   private assertCanRead(ownerId: string, requesterId: string, requesterRole: string): void {
+    // Case 1: the owner, whatever their role.
+    if (requesterId === ownerId) return;
+
+    // Case 2: privileged roles reading a third party.
     const privilegedRoles: string[] = [
       UserRole.ADMINISTRATEUR_FINANCIER,
       UserRole.RESPONSABLE_PEDAGOGIQUE,
       UserRole.TECHNICIEN_INFORMATIQUE,
     ];
-    if (requesterId === ownerId) return;
     if (privilegedRoles.includes(requesterRole)) return;
+
     throw new ForbiddenException('Access to this financial archive is not allowed');
   }
 }

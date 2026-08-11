@@ -98,6 +98,96 @@ describe('FinancialProfilesService', () => {
     });
   });
 
+  // ---- findByOwnerId: access driven by ownership, not by a role allowlist ----
+  // Regression guard for the 2026-08-11 defect: a formateur was denied access to their
+  // OWN financial profile because their role was missing from an allowlist.
+
+  describe('findByOwnerId — the owner reads their own profile, whatever their role', () => {
+    const ownerRoles = [
+      UserRole.PARENT_FINANCEUR,
+      UserRole.FORMATEUR,
+      UserRole.ANIMATEUR_PEDAGOGIQUE,
+      UserRole.ELEVE,
+    ];
+
+    it.each(ownerRoles)('allows a %s to read their own financial profile', async (role) => {
+      const profile = buildProfile({ ownerId: 'self-1' });
+      mockProfileRepo.findOne.mockResolvedValue(profile);
+
+      const result = await service.findByOwnerId('self-1', 'self-1', role);
+      expect(result).toEqual(profile);
+    });
+
+    it.each(ownerRoles)(
+      'answers 404 (not 403) when a %s has no financial profile yet',
+      async (role) => {
+        mockProfileRepo.findOne.mockResolvedValue(null);
+
+        // "No profile yet" is a normal state the client turns into "profile to be created".
+        await expect(service.findByOwnerId('self-1', 'self-1', role)).rejects.toThrow(
+          NotFoundException,
+        );
+      },
+    );
+  });
+
+  describe('findByOwnerId — reading someone else stays restricted', () => {
+    it.each([
+      UserRole.PARENT_FINANCEUR,
+      UserRole.FORMATEUR,
+      UserRole.ANIMATEUR_PEDAGOGIQUE,
+      UserRole.ELEVE,
+    ])('denies a %s access to a third party profile', async (role) => {
+      const profile = buildProfile({ ownerId: 'someone-else' });
+      mockProfileRepo.findOne.mockResolvedValue(profile);
+
+      await expect(
+        service.findByOwnerId('someone-else', 'self-1', role),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it.each([
+      UserRole.ADMINISTRATEUR_FINANCIER,
+      UserRole.RESPONSABLE_PEDAGOGIQUE,
+      UserRole.TECHNICIEN_INFORMATIQUE,
+    ])('still allows a %s to read a third party profile', async (role) => {
+      const profile = buildProfile({ ownerId: 'someone-else' });
+      mockProfileRepo.findOne.mockResolvedValue(profile);
+
+      const result = await service.findByOwnerId('someone-else', 'admin-1', role);
+      expect(result).toEqual(profile);
+    });
+
+    it('answers 403 rather than 404 when an unauthorised requester targets an unknown owner', async () => {
+      mockProfileRepo.findOne.mockResolvedValue(null);
+
+      // The permission check runs first, so a 404 never leaks the existence of a profile.
+      await expect(
+        service.findByOwnerId('someone-else', 'self-1', UserRole.FORMATEUR),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockProfileRepo.findOne).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('update — opening the read side did not open the write side', () => {
+    it.each([UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE])(
+      'still refuses a %s writing a third party profile',
+      async (role) => {
+        const profile = buildProfile({ ownerId: 'someone-else' });
+        mockProfileRepo.findOne.mockResolvedValue(profile);
+
+        await expect(
+          service.update(
+            'someone-else',
+            { paymentMethod: PaymentMethod.CB },
+            'self-1',
+            role,
+          ),
+        ).rejects.toThrow(ForbiddenException);
+      },
+    );
+  });
+
   // ---- update ----
 
   describe('update', () => {

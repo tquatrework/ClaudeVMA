@@ -417,4 +417,53 @@ describe('TeacherPaymentRequestsService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
   });
+
+  // ---- Access driven by ownership, not by a role allowlist (2026-08-11) ----
+
+  describe('findByTeacher — the teacher reads their own requests, whatever their role', () => {
+    it.each([UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE])(
+      'allows a %s to list their own payment requests',
+      async (role) => {
+        mockRequestRepo.find.mockResolvedValue([buildRequest({ teacherId: 'self-1' })]);
+
+        const result = await service.findByTeacher('self-1', 'self-1', role);
+        expect(result).toHaveLength(1);
+      },
+    );
+
+    it.each([UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE])(
+      'returns an empty list (not an error) when a %s has no request yet',
+      async (role) => {
+        mockRequestRepo.find.mockResolvedValue([]);
+
+        const result = await service.findByTeacher('self-1', 'self-1', role);
+        expect(result).toEqual([]);
+      },
+    );
+  });
+
+  describe('findByTeacher — listing someone else stays restricted', () => {
+    it.each([
+      UserRole.FORMATEUR,
+      UserRole.ANIMATEUR_PEDAGOGIQUE,
+      UserRole.PARENT_FINANCEUR,
+      UserRole.ELEVE,
+    ])('denies a %s access to another teacher requests', async (role) => {
+      await expect(
+        service.findByTeacher('other-teacher', 'self-1', role),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockRequestRepo.find).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      UserRole.ADMINISTRATEUR_FINANCIER,
+      UserRole.RESPONSABLE_PEDAGOGIQUE,
+      UserRole.TECHNICIEN_INFORMATIQUE,
+    ])('still allows a %s to list another teacher requests', async (role) => {
+      mockRequestRepo.find.mockResolvedValue([buildRequest({ teacherId: 'other-teacher' })]);
+
+      const result = await service.findByTeacher('other-teacher', 'admin-1', role);
+      expect(result).toHaveLength(1);
+    });
+  });
 });

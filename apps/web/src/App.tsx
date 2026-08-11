@@ -525,15 +525,21 @@ export default function App() {
             }
           />
 
-          {/* ── Phase 11 — Archives pédagogiques ────────────────── */}
+          {/* ── Phase 11 — Statistiques et archives pédagogiques ─── */}
+          {/* La personne consultée n'est pas forcément un élève : un AP y consulte
+              les formateurs qu'il anime. Le paramètre s'appelle donc `personId`.
+              `animateur_pedagogique` a été ajouté le 2026-08-11 : la navigation lui
+              proposait déjà « Stats / Archives », mais la route le renvoyait sur
+              /forbidden. */}
           <Route
-            path="/archives/:studentId"
+            path="/archives/:personId"
             element={
               <ProtectedRoute
                 allowedRoles={[
                   'eleve',
                   'parent_financeur',
                   'formateur',
+                  'animateur_pedagogique',
                   'responsable_pedagogique',
                   'administrateur_financier',
                   'technicien_informatique',
@@ -551,6 +557,7 @@ export default function App() {
                   'eleve',
                   'parent_financeur',
                   'formateur',
+                  'animateur_pedagogique',
                   'responsable_pedagogique',
                   'administrateur_financier',
                   'technicien_informatique',

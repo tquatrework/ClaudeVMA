@@ -117,7 +117,8 @@ export class ProfilesController {
       'Users may update their own profile; RP, TI and AdministrateurFinancier may update any. ' +
       'All field names are in English and match the response payload exactly: ' +
       'firstName, lastName, birthDate, phone, addressLine1, addressLine2, postalCode, ' +
-      'city, country, avatarUrl, department, passions.',
+      'city, country, avatarUrl, passions. ' +
+      '`department` was REMOVED on 2026-08-11 and is now refused with a 400.',
   })
   @ApiParam({ name: 'userId', description: 'Target user UUID' })
   @ApiResponse({ status: 200, description: 'Updated administrative profile' })
@@ -141,7 +142,10 @@ export class ProfilesController {
     summary: 'Update the declarative section of the pedagogical profile',
     description:
       'Upsert the DECLARATIVE section only — what the profile owner states about themselves. ' +
-      'Student fields: level, subjects, goals, specificNeeds, difficulties, context. ' +
+      'Student fields: level, schoolName, subjects, goals, specificNeeds, difficulties, ' +
+      'familyContext, schoolContext, equipment. The former single field `context` was ' +
+      'split into `familyContext` and `schoolContext` on 2026-08-11 and is now refused ' +
+      'with a 400. ' +
       'Teacher fields: levels, subjects, experience, diplomas, specialties, particularities, ' +
       'cvDocumentId. `subjects` exists on both profiles and never discriminates.\n\n' +
       'This route NEVER accepts a prescription field (generalAssessment, recommendedPace, ' +

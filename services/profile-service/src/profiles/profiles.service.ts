@@ -82,10 +82,13 @@ export type PedagogicalTarget = 'student' | 'teacher';
  */
 const STUDENT_DECLARATIVE_FIELDS = [
   'level',
+  'schoolName',
   'goals',
   'specificNeeds',
   'difficulties',
-  'context',
+  'familyContext',
+  'schoolContext',
+  'equipment',
 ] as const;
 
 const TEACHER_DECLARATIVE_FIELDS = [
@@ -397,11 +400,14 @@ export class ProfilesService {
 
       const patch = this.pickDefined<StudentPedagogicalProfile>({
         level: dto.level,
+        schoolName: dto.schoolName,
         subjects: dto.subjects,
         goals: dto.goals,
         specificNeeds: dto.specificNeeds,
         difficulties: dto.difficulties,
-        context: dto.context,
+        familyContext: dto.familyContext,
+        schoolContext: dto.schoolContext,
+        equipment: dto.equipment,
       });
 
       let profile = await this.studentPedaRepo.findOne({ where: { userId } });

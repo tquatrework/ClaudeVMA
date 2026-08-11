@@ -85,7 +85,7 @@ export const FIELD_VISIBILITY_CATALOG: readonly FieldVisibilityDefinition[] = [
   define('postalCode', 'administrative'),
   define('city', 'administrative'),
   define('country', 'administrative'),
-  define('department', 'administrative'),
+  // `department` retiré du catalogue le 2026-08-11 en même temps que la colonne.
   define('passions', 'administrative'),
 
   // --- Profil pédagogique élève — section déclarative ------------------------
@@ -94,7 +94,17 @@ export const FIELD_VISIBILITY_CATALOG: readonly FieldVisibilityDefinition[] = [
   define('goals', 'pedagogical-student'),
   define('specificNeeds', 'pedagogical-student'),
   define('difficulties', 'pedagogical-student'),
-  define('context', 'pedagogical-student'),
+  // `context` remplacé le 2026-08-11 par `familyContext` + `schoolContext`.
+  // Les trois nouveaux champs restent HORS SOCLE (`self` par défaut) : le socle
+  // se limite à firstName/lastName/avatarUrl/level/subjects, et une situation
+  // familiale, une situation scolaire ou l'équipement du domicile sont des
+  // données sensibles qui n'ont pas à être visibles sans décision de l'élève.
+  // `schoolName` suit la même règle : nommer l'établissement d'un mineur
+  // permet de le localiser.
+  define('schoolName', 'pedagogical-student'),
+  define('familyContext', 'pedagogical-student'),
+  define('schoolContext', 'pedagogical-student'),
+  define('equipment', 'pedagogical-student'),
   define('comments', 'pedagogical-student', { isReserved: true }),
 
   // --- Profil pédagogique élève — section prescription -----------------------

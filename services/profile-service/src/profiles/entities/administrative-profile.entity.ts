@@ -11,8 +11,8 @@ import {
  *
  * Convention de nommage (arbitrage du 2026-08-07) : les propriétés d'entité et
  * les champs de DTO sont en anglais. Les NOMS DE COLONNES en base restent
- * inchangés (`telephone`, `adresseLigne1`, `codePostal`, `ville`, `pays`,
- * `departement`…) et sont explicitement mappés via `@Column({ name })` : la
+ * inchangés (`telephone`, `adresseLigne1`, `codePostal`, `ville`, `pays`…)
+ * et sont explicitement mappés via `@Column({ name })` : la
  * base de dev n'est gérée ni par des migrations ni par `synchronize`
  * (`synchronize: false` dans AppModule, aucun outil de migration dans le
  * service), un renommage de colonne serait donc un ALTER manuel non rejouable
@@ -81,9 +81,13 @@ export class AdministrativeProfile {
   @Column({ name: 'avatar_updated_at', type: 'timestamp', nullable: true })
   avatarUpdatedAt: Date | null;
 
-  /** Département de résidence (découpage administratif français, e.g. "75 - Paris") */
-  @Column({ name: 'departement', nullable: true })
-  department: string;
+  /*
+   * `department` (colonne `departement`) A ÉTÉ SUPPRIMÉ le 2026-08-11, à la
+   * demande de l'utilisateur : le département est déductible du code postal et
+   * n'était saisi nulle part ailleurs. Aucun autre service ne le lisait
+   * (inventaire dans docs/services/profile-service.md, décision C15).
+   * Ne pas le réintroduire sans arbitrage.
+   */
 
   /**
    * Centres d'intérêt / hobbies. Nom conservé tel quel : `passions` est un mot

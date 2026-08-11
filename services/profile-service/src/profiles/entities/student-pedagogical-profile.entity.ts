@@ -39,6 +39,15 @@ export class StudentPedagogicalProfile {
   @Column({ name: 'niveau_scolaire', nullable: true })
   level: string;
 
+  /**
+   * Nom de l'établissement scolaire fréquenté (e.g. "Lycée Montaigne").
+   *
+   * C'est un NOM PROPRE, pas une description : d'où une colonne bornée
+   * (varchar 200) et non un `text`, contrairement aux deux contextes ci-dessous.
+   */
+  @Column({ name: 'school_name', type: 'varchar', length: 200, nullable: true })
+  schoolName: string;
+
   /** Matières étudiées par l'élève. */
   @Column({ name: 'matieres', type: 'simple-array', nullable: true })
   subjects: string[];
@@ -60,9 +69,40 @@ export class StudentPedagogicalProfile {
   @Column({ name: 'difficulties', nullable: true, type: 'text' })
   difficulties: string;
 
-  /** Situation scolaire et familiale utile au suivi. */
-  @Column({ name: 'context', nullable: true, type: 'text' })
-  context: string;
+  /**
+   * Situation FAMILIALE utile au suivi (fratrie, séparation, disponibilité des
+   * parents…).
+   *
+   * Remplace, avec `schoolContext`, l'ancien champ unique `context` (colonne
+   * `context`, supprimée par la migration
+   * 1754910000000-SplitStudentContextAndDropDepartment). Un champ unique
+   * mélangeait deux natures d'information aux publics différents ; la
+   * séparation est demandée par l'utilisateur le 2026-08-11.
+   */
+  @Column({ name: 'family_context', nullable: true, type: 'text' })
+  familyContext: string;
+
+  /**
+   * Situation SCOLAIRE utile au suivi (redoublement, changement d'établissement,
+   * options, ambiance de classe…).
+   *
+   * À NE PAS confondre avec `schoolName`, qui ne porte que le nom de
+   * l'établissement, ni avec `difficulties`, qui porte ce sur quoi l'élève bute.
+   */
+  @Column({ name: 'school_context', nullable: true, type: 'text' })
+  schoolContext: string;
+
+  /**
+   * Matériel : lieu des cours et équipement dont dispose l'élève (pièce dédiée,
+   * ordinateur, tablette, connexion, webcam, imprimante…).
+   *
+   * UN SEUL champ libre et non deux : la parenthèse « lieu des cours,
+   * équipement » de la demande utilisateur décrit le CONTENU attendu, elle ne
+   * demande pas deux saisies. Le libellé affiché côté front reprend cette
+   * précision pour guider la saisie.
+   */
+  @Column({ name: 'equipment', nullable: true, type: 'text' })
+  equipment: string;
 
   // ---------------------------------------------------------------------------
   // Section prescription — écrite par le RP seul, lue par le titulaire

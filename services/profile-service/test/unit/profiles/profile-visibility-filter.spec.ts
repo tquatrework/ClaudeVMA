@@ -179,7 +179,10 @@ describe('profile-visibility-filter', () => {
       goals: 'Progresser en géométrie',
       difficulties: 'Trigonométrie',
       specificNeeds: 'PAP',
-      context: 'Famille recomposée',
+      schoolName: 'Lycée Montaigne',
+      familyContext: 'Famille recomposée',
+      schoolContext: 'Redoublement en seconde',
+      equipment: 'Ordinateur partagé, webcam',
       generalAssessment: 'Élève sérieux',
       recommendedPace: '2h par semaine',
       filledBy: 'rp-uuid',
@@ -214,11 +217,14 @@ describe('profile-visibility-filter', () => {
       expect(result.block).toMatchObject({ level: '3ème', subjects: ['maths'] });
       expect(result.hiddenFieldNames).toEqual(
         expect.arrayContaining([
-          'context',
           'difficulties',
+          'equipment',
+          'familyContext',
           'generalAssessment',
           'goals',
           'recommendedPace',
+          'schoolContext',
+          'schoolName',
           'specificNeeds',
         ]),
       );

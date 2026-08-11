@@ -66,7 +66,19 @@ describe('FieldVisibilityService', () => {
     it('masque tout le reste par défaut, y compris la section prescription', async () => {
       const view = await service.getFieldVisibility(OWNER_ID, makeActor(UserRole.ELEVE, OWNER_ID));
 
-      for (const fieldName of ['difficulties', 'context', 'specificNeeds', 'phone', 'birthDate']) {
+      // Les quatre champs ajoutés le 2026-08-11 restent hors socle : une
+      // situation familiale ou scolaire, l'équipement du domicile et le nom de
+      // l'établissement d'un mineur ne se partagent pas sans décision explicite.
+      for (const fieldName of [
+        'difficulties',
+        'familyContext',
+        'schoolContext',
+        'schoolName',
+        'equipment',
+        'specificNeeds',
+        'phone',
+        'birthDate',
+      ]) {
         expect(view.fields.find((field) => field.fieldName === fieldName)?.audience).toBe('self');
       }
       expect(

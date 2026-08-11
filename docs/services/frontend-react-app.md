@@ -1076,5 +1076,82 @@
         </item>
       </openPoints>
     </session>
+    <session date="2026-08-11" label="Champs eleve remanies, email du compte, remanence verifiee role par role (branche feat/champs-profils-eleve)">
+      <context>
+        Deux demandes de l'utilisateur, le back etant deja reconstruit et en ligne.
+        (1) Cinq modifications des formulaires eleve : ajouter l'email en administratif, retirer
+        « Departement », ajouter « Etablissement », separer « Contexte » en contexte familial et
+        contexte scolaire, ajouter « Materiel (lieu des cours, equipement) ».
+        (2) Verifier que parent, formateur, AP et RP beneficient de la meme remanence des
+        informations que l'eleve (lots #87/#88/#89, valides par l'utilisateur).
+      </context>
+
+      <decision id="student-declarative-fields-realigned">
+        `STUDENT_DECLARATIVE_FIELD_NAMES` et `STUDENT_FORM_FIELDS` suivent le nouveau contrat :
+        `level`, `schoolName`, `subjects`, `goals`, `difficulties`, `specificNeeds`,
+        `familyContext`, `schoolContext`, `equipment`. `context` et `department` sont retires
+        partout — types, catalogue, libelles, formulaires, fixtures de test. Les garder aurait
+        casse **tout** enregistrement : verifie contre la pile reelle, `PUT .../pedagogical`
+        repond `400 property context should not exist` et `PUT .../administrative`
+        `400 property department should not exist`, et ces deux formulaires renvoient chacun de
+        leurs champs a chaque enregistrement.
+        `equipment` est UN champ libre : la parenthese du libelle decrit le contenu attendu.
+      </decision>
+
+      <decision id="account-email-read-only">
+        Nouveau `src/components/profile/AccountEmailField.tsx`. L'email n'appartient pas a
+        `profile-service` : il est lu dans la session authentifiee (`user.email`, alimente par
+        `POST /auth/login` et `GET /auth/me`) et affiche **en lecture seule**, **sur son propre
+        profil uniquement**.
+        Deux constats contre la pile reelle le 2026-08-11 justifient ces deux choix :
+        `PUT /accounts/:accountId` repond `404 Cannot PUT /accounts/...` — aucune route ne change
+        l'email, un champ de saisie jetterait la saisie ; et `GET /accounts/:accountId` repond
+        `403 Insufficient role` meme pour soi-meme des lors qu'on n'est ni TI, ni RP, ni AF — le
+        front n'a donc aucune source pour l'email d'un tiers. S'ajoute qu'`email` n'est pas au
+        catalogue de visibilite : son titulaire ne pourrait pas le masquer.
+        `ADMINISTRATIVE_FIELD_NAMES` reste inchange : l'email n'y entre pas, et
+        `ACCOUNT_DISPLAY_FIELD_NAMES` marque explicitement cette provenance distincte.
+      </decision>
+
+      <decision id="form-contract-locked-by-test">
+        Nouveau `test/components/profile/ProfileFormContract.test.ts` : chaque formulaire est
+        confronte a sa liste de champs contractuelle, **dans les deux sens** — un champ du contrat
+        absent de l'ecran est invisible donc impossible a renseigner (defaut de `passions`, 2026-08-09),
+        un champ supprime reste a l'ecran casse l'enregistrement entier. Les descripteurs
+        `STUDENT_FORM_FIELDS` / `TEACHER_FORM_FIELDS` sont exportes pour cela.
+      </decision>
+
+      <decision id="remanence-verified-by-role">
+        Nouveau `test/pages/ProfileRemanenceByRole.test.tsx` (18 cas) : parent financeur, formateur,
+        AP et RP. Quatre proprietes par cas — reponse serveur reaffichee et non le corps envoye,
+        aller-retour d'onglet sans perte, `GET /profiles/:userId` appele une seule fois, saisie
+        conservee et message francais quand le serveur refuse. Sont couverts le bloc administratif
+        des quatre roles, la section declarative formateur (formateur et AP, sans ecraser la
+        prescription du RP), le bloc administratif d'un tiers vu par le RP, et le panneau de
+        validation formateur (RP/TI).
+        **Aucun correctif applicatif n'a ete necessaire** : le mecanisme d'appartenance de l'etat a
+        la page couvre deja ces roles, les ecrans etant communs. Ce qui manquait etait la
+        verification, pas le correctif.
+      </decision>
+
+      <openPoints>
+        <item id="uuid-on-financial-profile-page">
+          `src/pages/FinancialProfilePage.tsx:178` affiche « Identifiant proprietaire : &lt;uuid&gt; »
+          en `font-mono`. La page est ouverte au parent financeur, au formateur, a l'AP et au RP,
+          alors que seul l'AF a le droit de lire un identifiant technique (regle du 2026-08-09).
+          Signale, non corrige : hors du perimetre demande.
+        </item>
+        <item id="uuid-on-teacher-validation-panel">
+          `src/pages/TeacherValidationPanel.tsx:133` affiche `validatedBy.slice(0, 8)` — un fragment
+          d'UUID en guise de nom du valideur. `usePersonDisplayName` existe deja et resout un
+          identifiant en « Prenom Nom ». Meme famille que l'UUID connu du bloc « Formateurs lies ».
+        </item>
+        <item id="verification-account-left-on-dev-stack">
+          Compte de verification cree sur la pile reelle pour attester les reponses HTTP citees
+          ci-dessus : `front.check.0811` (role eleve). Aucune route de suppression de compte
+          n'existe ; a suspendre par un TI si l'utilisateur le souhaite.
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

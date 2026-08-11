@@ -28,7 +28,13 @@ import React from 'react'
 import type { DeclarativePedagogicalFields, PedagogicalProfileType } from '../../types/profile'
 import { ProfileFieldsForm, type ProfileFieldDescriptor } from './ProfileFieldsForm'
 
-const STUDENT_FIELDS: readonly ProfileFieldDescriptor[] = [
+/**
+ * Exporté pour être confronté par test à `STUDENT_DECLARATIVE_FIELD_NAMES` :
+ * un champ du contrat absent d'ici serait invisible à l'écran, donc impossible à
+ * renseigner (défaut constaté sur `passions` le 2026-08-09), et un champ d'ici
+ * absent du contrat partirait au serveur pour un `400`.
+ */
+export const STUDENT_FORM_FIELDS: readonly ProfileFieldDescriptor[] = [
   { name: 'level', placeholder: 'Ex : Terminale, Licence 2, BTS…' },
   { name: 'schoolName', placeholder: 'Ex : lycée des Graves' },
   { name: 'subjects', placeholder: 'Ex : Mathématiques, Physique-Chimie…' },
@@ -40,7 +46,8 @@ const STUDENT_FIELDS: readonly ProfileFieldDescriptor[] = [
   { name: 'equipment', placeholder: 'Ex : chambre au calme, ordinateur portable, webcam, fibre…', rows: 3 },
 ]
 
-const TEACHER_FIELDS: readonly ProfileFieldDescriptor[] = [
+/** Même garde-fou que ci-dessus, côté formateur. */
+export const TEACHER_FORM_FIELDS: readonly ProfileFieldDescriptor[] = [
   { name: 'levels', placeholder: 'Ex : Collège, Seconde, Terminale…' },
   { name: 'subjects', placeholder: 'Ex : Mathématiques, Physique-Chimie…' },
   { name: 'experience', placeholder: 'Ex : 8 ans en lycée, préparation aux concours…', rows: 4 },
@@ -69,7 +76,7 @@ export function PedagogicalProfileForm({
   onCancel,
   className,
 }: PedagogicalProfileFormProps) {
-  const fields = pedagogicalType === 'teacher' ? TEACHER_FIELDS : STUDENT_FIELDS
+  const fields = pedagogicalType === 'teacher' ? TEACHER_FORM_FIELDS : STUDENT_FORM_FIELDS
 
   return (
     <ProfileFieldsForm

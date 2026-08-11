@@ -216,7 +216,7 @@ describe('ProfilePage', () => {
       pedagogicalType: null,
     }
 
-    it('offre les 11 champs administratifs en saisie au titulaire', async () => {
+    it('offre les 10 champs administratifs en saisie au titulaire', async () => {
       mockFetchProfile.mockResolvedValue(EMPTY_PROFILE)
 
       renderProfilePage()
@@ -235,13 +235,57 @@ describe('ProfilePage', () => {
         'Code postal',
         'Ville',
         'Pays',
-        'Département',
         "Centres d'intérêt",
       ]) {
         const field = screen.getByLabelText(label) as HTMLInputElement
         expect(field).toBeDefined()
         expect(field.disabled).toBe(false)
       }
+    })
+
+    it("n'offre plus « Département », colonne supprimée côté serveur", async () => {
+      // `PUT /profiles/:userId/administrative` répond depuis le 2026-08-11
+      // `400 property department should not exist` : un champ resté à l'écran
+      // aurait cassé tout enregistrement dès qu'il était rempli.
+      mockFetchProfile.mockResolvedValue(EMPTY_PROFILE)
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Prénom')).toBeDefined()
+      })
+      expect(screen.queryByLabelText('Département')).toBeNull()
+    })
+
+    it("affiche l'adresse e-mail du compte, en lecture, sur son propre profil", async () => {
+      // L'e-mail vient de la session (`identity-access-service`), jamais du
+      // profil : aucune route ne le modifie, il n'est donc pas saisissable.
+      mockFetchProfile.mockResolvedValue(EMPTY_PROFILE)
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Adresse e-mail')).toBeDefined()
+      })
+      expect(screen.getByText(STUDENT_USER.email)).toBeDefined()
+      expect(screen.queryByLabelText('Adresse e-mail')).toBeNull()
+    })
+
+    it("n'affiche aucune adresse e-mail sur la fiche d'un tiers", async () => {
+      // Le RP consulte l'élève : `GET /profiles/:userId` ne renvoie pas
+      // l'e-mail du titulaire, et le catalogue de visibilité ne le connaît pas —
+      // l'élève ne pourrait donc pas le masquer. On n'affiche rien.
+      mockUseAuth.mockReturnValue(buildAuthMock(RP_USER) as never)
+      mockFetchProfile.mockResolvedValue(EMPTY_PROFILE)
+
+      renderProfilePage('student-1')
+
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: 'Profil administratif' })).toBeDefined()
+      })
+      expect(screen.queryByText('Adresse e-mail')).toBeNull()
+      expect(screen.queryByText(RP_USER.email)).toBeNull()
+      expect(screen.queryByText(STUDENT_USER.email)).toBeNull()
     })
 
     it("place l'emplacement de la photo en tête de l'onglet administratif", async () => {
@@ -275,14 +319,19 @@ describe('ProfilePage', () => {
       })
       for (const label of [
         'Niveau scolaire',
+        'Établissement',
         'Matières',
         'Objectifs pédagogiques',
         'Difficultés rencontrées',
         'Besoins spécifiques (aménagements)',
-        'Contexte scolaire et familial',
+        'Contexte familial',
+        'Contexte scolaire',
+        'Matériel (lieu des cours, équipement)',
       ]) {
         expect(screen.getByLabelText(label)).toBeDefined()
       }
+      // L'ancien champ unique a disparu : le serveur répond `400` s'il le reçoit.
+      expect(screen.queryByLabelText('Contexte scolaire et familial')).toBeNull()
       expect(screen.queryByText(/ne peut pas être déterminée/i)).toBeNull()
     })
 

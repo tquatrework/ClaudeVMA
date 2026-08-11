@@ -71,13 +71,52 @@ export class UpdatePedagogicalProfileDto {
   difficulties?: string;
 
   @ApiPropertyOptional({
-    description: 'Student only — school and family context useful to the follow-up',
+    description:
+      'Student only — NAME of the school attended. A proper noun, not a description: ' +
+      'anything about the school situation goes to `schoolContext`.',
+    example: 'Lycée Montaigne, Bordeaux',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  schoolName?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Student only — FAMILY situation useful to the follow-up (siblings, separation, ' +
+      'parental availability…). Replaces, together with `schoolContext`, the former ' +
+      'single field `context`, removed on 2026-08-11.',
+    example: 'Une sœur jumelle également suivie ; parents séparés, garde alternée',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  familyContext?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Student only — SCHOOL situation useful to the follow-up (repeated year, change of ' +
+      'school, options taken, class atmosphere…). Distinct from `schoolName`, which only ' +
+      'carries the school name, and from `difficulties`, which carries what the student ' +
+      'struggles with.',
     example: 'Redoublement en seconde, déménagement en cours d’année',
   })
   @IsOptional()
   @IsString()
   @MaxLength(2000)
-  context?: string;
+  schoolContext?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Student only — WHERE the lessons take place and WHAT equipment is available ' +
+      '(dedicated room, computer, tablet, connection, webcam, printer…). ' +
+      'One single free-text field on purpose, not two.',
+    example: 'Bureau dans sa chambre, ordinateur portable partagé, webcam, fibre',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  equipment?: string;
 
   // --- Champs du profil formateur ------------------------------------------
 

@@ -36,6 +36,7 @@ import { formatFullName } from '../../utils/nameFormat'
 import { isEmptyFieldValue } from '../../utils/profileFieldDisplay'
 import { isProfileFiltered, pickHiddenFieldNames } from '../../utils/profileVisibility'
 import { useProfileSaveActions } from '../../hooks/profile/useProfileSaveActions'
+import { AccountEmailField } from './AccountEmailField'
 import { AdministrativeProfileForm } from './AdministrativeProfileForm'
 import { EditableProfileCard } from './EditableProfileCard'
 import { ProfileAvatarField } from './ProfileAvatarField'
@@ -72,6 +73,13 @@ interface AdministrativeProfilePanelProps {
   /** Remonte la nouvelle `avatarUrl` à la page (envoi ou suppression réussis). */
   onAvatarUrlChange?: (nextAvatarUrl: string | null) => void
   /**
+   * Adresse e-mail du **compte**, lue dans la session authentifiée et non dans le
+   * profil : `profile-service` ne la porte pas et la refuse en écriture (`400
+   * property email should not exist`). Passée uniquement quand le lecteur est le
+   * titulaire — voir `AccountEmailField`. Absente, aucune ligne n'est affichée.
+   */
+  accountEmail?: string | null
+  /**
    * Remonte à la page le bloc administratif **renvoyé par le serveur** après un
    * enregistrement. Même raison que pour la photo : le bloc affiché appartient à
    * la fiche, pas à ce panneau. Sans ce signal, la page continuerait d'afficher
@@ -89,6 +97,7 @@ export function AdministrativeProfilePanel({
   canEditAvatar,
   avatarUrl,
   onAvatarUrlChange,
+  accountEmail,
   onSaved,
 }: AdministrativeProfilePanelProps) {
   const { saveAdministrative, isSavingAdministrative, administrativeSaveError } =
@@ -130,10 +139,18 @@ export function AdministrativeProfilePanel({
     />
   )
 
+  /**
+   * Adresse du compte, entre la photo et les champs de profil : c'est une donnée
+   * d'identité, mais elle ne se modifie ni ici ni ailleurs aujourd'hui. Elle est
+   * donc rendue à part, en lecture, dans les deux modes.
+   */
+  const accountEmailField = <AccountEmailField email={accountEmail} />
+
   if (!isEditable) {
     return (
       <>
         {avatarField}
+        {accountEmailField}
         <ProfileSection
           title={SECTION_TITLE}
           data={displayedFields}
@@ -160,6 +177,7 @@ export function AdministrativeProfilePanel({
   return (
     <>
       {avatarField}
+      {accountEmailField}
 
       <EditableProfileCard
         title={SECTION_TITLE}

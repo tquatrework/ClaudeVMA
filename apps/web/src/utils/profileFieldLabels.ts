@@ -30,17 +30,25 @@ export const PROFILE_FIELD_LABELS: Record<string, string> = {
   postalCode: 'Code postal',
   city: 'Ville',
   country: 'Pays',
-  department: 'Département',
   avatarUrl: 'Photo de profil',
   passions: "Centres d'intérêt",
 
+  // ─── Compte (identity-access-service, lecture seule) ───────────────────────
+  // Affichés dans le bloc administratif, mais propriété du compte et non du
+  // profil : ni écrits par `PUT /profiles/:userId/administrative`, ni réglables
+  // par le catalogue de visibilité de profile-service.
+  email: 'Adresse e-mail',
+
   // ─── Pédagogique élève — section déclarative ───────────────────────────────
   level: 'Niveau scolaire',
+  schoolName: 'Établissement',
   subjects: 'Matières',
   goals: 'Objectifs pédagogiques',
-  specificNeeds: 'Besoins spécifiques (aménagements)',
   difficulties: 'Difficultés rencontrées',
-  context: 'Contexte scolaire et familial',
+  specificNeeds: 'Besoins spécifiques (aménagements)',
+  familyContext: 'Contexte familial',
+  schoolContext: 'Contexte scolaire',
+  equipment: 'Matériel (lieu des cours, équipement)',
 
   // ─── Pédagogique élève — section prescription (RP) ─────────────────────────
   generalAssessment: 'Considération générale',
@@ -80,10 +88,16 @@ export const PROFILE_FIELD_LABELS: Record<string, string> = {
  * précision n'en affiche aucune, plutôt qu'un texte de remplissage.
  */
 export const PROFILE_FIELD_HINTS: Record<string, string> = {
+  email:
+    'Adresse de votre compte, utilisée pour vous joindre. Elle ne se modifie pas depuis le profil.',
   difficulties:
     "Ce sur quoi vous butez au quotidien — distinct d'un aménagement reconnu",
   specificNeeds: 'Aménagements reconnus : DYS, PAP, PPS…',
-  context: 'Situation scolaire et familiale utile au suivi',
+  schoolName: "Le nom de l'établissement fréquenté, rien d'autre",
+  familyContext: 'Situation familiale utile au suivi : fratrie, séparation, disponibilité des parents…',
+  schoolContext:
+    'Situation scolaire utile au suivi : redoublement, changement d’établissement, options, ambiance de classe…',
+  equipment: 'Où se déroulent les cours et avec quoi : pièce dédiée, ordinateur, tablette, connexion, webcam…',
   specialties: "Type d'accompagnement, distinct de la matière",
   cvDocumentId: 'Référence du CV déposé dans les archives documentaires',
   particularities: 'Modalités, contraintes, publics particuliers',

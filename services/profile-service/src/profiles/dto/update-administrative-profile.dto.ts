@@ -101,14 +101,11 @@ export class UpdateAdministrativeProfileDto {
   )
   avatarUrl?: string;
 
-  @ApiPropertyOptional({
-    description: 'French administrative department of residence (e.g. "75 - Paris")',
-    example: '75 - Paris',
-  })
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  department?: string;
+  /*
+   * `department` SUPPRIMÉ le 2026-08-11 (demande utilisateur). Comme le DTO est
+   * en `forbidNonWhitelisted`, un client qui l'enverrait encore reçoit un 400
+   * explicite — jamais un champ absorbé en silence.
+   */
 
   @ApiPropertyOptional({ description: 'Personal interests/hobbies', example: ['Musique', 'Randonnée'] })
   @IsOptional()

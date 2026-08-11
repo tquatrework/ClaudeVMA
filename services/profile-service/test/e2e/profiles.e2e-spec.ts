@@ -390,8 +390,10 @@ describe('[E2E] Profiles', () => {
         lastName: 'Martin',
         birthDate: '2008-04-12',
         phone: '+33612345678',
-        avatarUrl: 'https://cdn.visiomath.fr/avatars/alice.jpg',
-        department: '75 - Paris',
+        // `avatarUrl` NE FIGURE PAS ici : la photo est gérée par l'application
+        // depuis le 2026-08-10 et la route la refuse en 400 (test dédié plus
+        // bas). Le payload en portait encore une, ce test échouait donc en
+        // permanence — défaut préexistant, corrigé au passage.
         passions: ['Musique', 'Randonnée'],
       };
 
@@ -402,6 +404,25 @@ describe('[E2E] Profiles', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject(payload);
+    });
+
+    it('`department`, retiré le 2026-08-11, n’est plus accepté → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/administrative`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ firstName: 'Alice', department: '75 - Paris' });
+
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(res.body)).toContain('department');
+    });
+
+    it('`department` a disparu du bloc administratif renvoyé en lecture', async () => {
+      const read = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.student1}`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(read.status).toBe(200);
+      expect(read.body.administrative).not.toHaveProperty('department');
     });
 
     it('Les anciens noms français ne sont plus acceptés → 400', async () => {
@@ -541,10 +562,11 @@ describe('[E2E] Profiles', () => {
       expect(res.body).not.toHaveProperty('specificNeeds');
     });
 
-    it('Enregistre difficulties et context sur le profil élève puis les relit → 200', async () => {
+    it('Enregistre difficulties et les deux contextes sur le profil élève puis les relit → 200', async () => {
       const payload = {
         difficulties: 'Blocage sur les fonctions dérivées',
-        context: 'Redoublement en seconde, déménagement en cours d’année',
+        familyContext: 'Une sœur jumelle également suivie ; parents séparés',
+        schoolContext: 'Redoublement en seconde, déménagement en cours d’année',
       };
 
       const put = await request(app.getHttpServer())
@@ -562,6 +584,88 @@ describe('[E2E] Profiles', () => {
       // difficulties et specificNeeds coexistent : le premier est une difficulté
       // d'apprentissage, le second un aménagement reconnu. Aucune fusion.
       expect(read.body.pedagogical).toHaveProperty('specificNeeds');
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Champs des formulaires élève — demande utilisateur 2026-08-11.
+    // ────────────────────────────────────────────────────────────
+
+    it('Enregistre schoolName et equipment puis les relit → 200', async () => {
+      const payload = {
+        schoolName: 'Lycée Montaigne, Bordeaux',
+        equipment:
+          'Bureau dans sa chambre, ordinateur portable partagé avec sa sœur, webcam, fibre',
+      };
+
+      const put = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/pedagogical`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send(payload);
+
+      expect(put.status).toBe(200);
+      // La réponse d'écriture est PLATE et porte les nouveaux champs : le front
+      // réaffiche la réponse reçue, jamais le corps envoyé.
+      expect(put.body).toMatchObject({ userId: IDS.student1, ...payload });
+
+      const read = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.student1}`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(read.body.pedagogical).toMatchObject(payload);
+    });
+
+    it('familyContext et schoolContext sont deux champs INDÉPENDANTS → 200', async () => {
+      await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/pedagogical`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ familyContext: 'Fratrie de trois', schoolContext: 'Section européenne' });
+
+      // Écrire l'un ne doit pas effacer l'autre.
+      const put = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/pedagogical`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ familyContext: 'Fratrie de quatre' });
+
+      expect(put.status).toBe(200);
+      expect(put.body.familyContext).toBe('Fratrie de quatre');
+      expect(put.body.schoolContext).toBe('Section européenne');
+    });
+
+    it('L’ancien champ unique `context` n’est plus accepté → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/pedagogical`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ context: 'Redoublement en seconde' });
+
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(res.body)).toContain('context');
+    });
+
+    it('schoolName au-delà de 200 caractères → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/pedagogical`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ schoolName: 'L'.repeat(201) });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('equipment envoyé en tableau au lieu d’une chaîne → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/pedagogical`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ equipment: ['ordinateur', 'webcam'] });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('Les nouveaux champs élève sont refusés sur un profil FORMATEUR → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.teacher1}/pedagogical`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send({ schoolName: 'Lycée Montaigne', familyContext: 'Deux enfants' });
+
+      expect(res.status).toBe(400);
     });
 
     // ────────────────────────────────────────────────────────────
@@ -785,10 +889,23 @@ describe('[E2E] Profiles', () => {
         expect(byName[fieldName].audience).toBe('linked');
         expect(byName[fieldName].isExplicit).toBe(false);
       }
-      // Tout le reste masqué par défaut.
-      for (const fieldName of ['difficulties', 'context', 'specificNeeds', 'phone', 'birthDate']) {
+      // Tout le reste masqué par défaut, y compris les quatre champs ajoutés le
+      // 2026-08-11 — ils sont sensibles et n'entrent pas au socle.
+      for (const fieldName of [
+        'difficulties',
+        'familyContext',
+        'schoolContext',
+        'schoolName',
+        'equipment',
+        'specificNeeds',
+        'phone',
+        'birthDate',
+      ]) {
         expect(byName[fieldName].audience).toBe('self');
       }
+      // `department` et `context` ont disparu du catalogue avec leurs colonnes.
+      expect(byName).not.toHaveProperty('department');
+      expect(byName).not.toHaveProperty('context');
     });
 
     it('Enregistre un réglage puis le relit → 200, isExplicit true', async () => {

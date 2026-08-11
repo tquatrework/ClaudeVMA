@@ -39,6 +39,20 @@ const AF_USER = {
   validationStatus: 'active' as const,
 }
 
+const RP_USER = {
+  id: 'rp-1',
+  email: 'rp@test.com',
+  role: 'responsable_pedagogique' as const,
+  validationStatus: 'active' as const,
+}
+
+/** Le profil du titulaire, tel que `GET /profiles/:userId` le renvoie. */
+const OWNER_PROFILE = {
+  userId: 'owner-1',
+  administrative: { firstName: 'Claire', lastName: 'Bernard' },
+  pedagogical: null,
+}
+
 function buildAuthMock(userObj = FINANCEUR_USER) {
   return {
     user: userObj,
@@ -190,14 +204,21 @@ describe('FinancialProfilePage', () => {
     })
   })
 
-  it('affiche un message d\'erreur 404', async () => {
+  /**
+   * `404` n'est pas une panne : le profil financier naît du premier paiement
+   * d'inscription. Vérifié le 2026-08-11 contre la pile réelle — un parent
+   * financeur tout juste inscrit reçoit `404 Financial profile for owner …
+   * not found`. C'est donc l'état d'accueil normal, pas une erreur.
+   */
+  it('annonce une absence, pas une erreur, sur un 404', async () => {
     mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 404 } })
 
     renderFinancialProfilePage()
 
     await waitFor(() => {
-      expect(screen.getByText('Profil financier introuvable.')).toBeDefined()
+      expect(screen.getByText(/Aucun profil financier pour l'instant/)).toBeDefined()
     })
+    expect(screen.queryByText(/introuvable/)).toBeNull()
   })
 
   it('déclenche un paiement d\'inscription via le formulaire', async () => {
@@ -256,6 +277,57 @@ describe('FinancialProfilePage', () => {
         screen.getByText('Un paiement d\'inscription a déjà été effectué pour ce compte.'),
       ).toBeDefined()
     })
+  })
+
+  /**
+   * « Aucun UUID ne doit être lu ni affiché par un utilisateur ; seul
+   * l'administrateur financier peut lire un identifiant technique »
+   * (`docs/architecture.md`, 2026-08-09). L'en-tête affichait jusqu'au
+   * 2026-08-11 « Identifiant propriétaire : <uuid> » à tout lecteur.
+   */
+  it('désigne le titulaire par son nom, sans identifiant technique, pour le RP', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+
+    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/financial-profiles/')) return Promise.resolve({ data: SAMPLE_PROFILE_MEMBRE })
+      if (url.startsWith('/profiles/')) return Promise.resolve({ data: OWNER_PROFILE })
+      return Promise.resolve({ data: [] })
+    })
+
+    renderFinancialProfilePage('owner-1')
+
+    expect(await screen.findByText('Claire Bernard')).toBeDefined()
+    expect(screen.queryByText(/Identifiant propriétaire/)).toBeNull()
+    expect(screen.queryByText(/owner-1/)).toBeNull()
+  })
+
+  it('laisse à l\'administrateur financier la référence technique du titulaire', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(AF_USER))
+
+    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/financial-profiles/')) return Promise.resolve({ data: SAMPLE_PROFILE_MEMBRE })
+      if (url.startsWith('/profiles/')) return Promise.resolve({ data: OWNER_PROFILE })
+      return Promise.resolve({ data: [] })
+    })
+
+    renderFinancialProfilePage('owner-1')
+
+    expect(await screen.findByText('Claire Bernard')).toBeDefined()
+    expect(screen.getByText(/réf\. owner-1/)).toBeDefined()
+  })
+
+  it('n\'affiche aucune ligne « Titulaire » sur son propre profil financier', async () => {
+    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/financial-profiles/')) return Promise.resolve({ data: SAMPLE_PROFILE_MEMBRE })
+      return Promise.resolve({ data: [] })
+    })
+
+    renderFinancialProfilePage('owner-1')
+
+    await waitFor(() => {
+      expect(screen.getByText('Membre')).toBeDefined()
+    })
+    expect(screen.queryByText(/Titulaire/)).toBeNull()
   })
 
   it('l\'AF peut modifier le moyen de paiement', async () => {

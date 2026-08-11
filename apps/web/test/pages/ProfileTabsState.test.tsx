@@ -155,11 +155,7 @@ describe('Fiche profil — le chargement appartient à la page, pas aux onglets'
       expect(mockFetchProfileAvatarConstraints).toHaveBeenCalled()
     })
     clickTab('Profil pédagogique')
-    // L'onglet pédagogique n'avait jamais été ouvert : son panneau se monte et a
-    // le droit de charger ses propres données. C'est le seul appel toléré ici.
-    await waitFor(() => {
-      expect(mockFetchProfileStatistics).toHaveBeenCalledTimes(1)
-    })
+    await screen.findByLabelText('Niveau scolaire')
 
     const callsAfterFirstVisit = countNetworkCalls()
 
@@ -167,27 +163,37 @@ describe('Fiche profil — le chargement appartient à la page, pas aux onglets'
     clickTab('Profil pédagogique')
     clickTab('Profil administratif')
 
-    // Rien n'a été démonté : ni la photo ni les statistiques ne sont
-    // redemandées, et le profil non plus.
+    // Rien n'a été démonté : ni la photo ni le profil ne sont redemandés.
     expect(countNetworkCalls()).toBe(callsAfterFirstVisit)
     expect(mockFetchProfile).toHaveBeenCalledTimes(1)
     expect(mockFetchProfileAvatarBlob).toHaveBeenCalledTimes(1)
-    expect(mockFetchProfileStatistics).toHaveBeenCalledTimes(1)
   })
 
   it('ne monte un onglet qu’à sa première ouverture', async () => {
     renderProfilePage()
     await screen.findByLabelText('Prénom')
 
-    // Le panneau pédagogique n'a jamais été affiché : rien n'a été demandé pour
-    // lui. Charger tous les onglets d'emblée serait l'excès inverse.
-    expect(mockFetchProfileStatistics).not.toHaveBeenCalled()
+    // Le panneau pédagogique n'a jamais été affiché : il n'existe pas encore
+    // dans le document. Monter les cinq onglets d'emblée serait l'excès inverse.
+    expect(document.getElementById('tabpanel-pedagogique')).toBeNull()
 
     clickTab('Profil pédagogique')
 
-    await waitFor(() => {
-      expect(mockFetchProfileStatistics).toHaveBeenCalledTimes(1)
-    })
+    await screen.findByLabelText('Niveau scolaire')
+    expect(document.getElementById('tabpanel-pedagogique')).not.toBeNull()
+  })
+
+  it('ne demande plus les statistiques pédagogiques — elles ont quitté la fiche', async () => {
+    renderProfilePage()
+    await screen.findByLabelText('Prénom')
+
+    clickTab('Profil pédagogique')
+    await screen.findByLabelText('Niveau scolaire')
+
+    // Déplacées vers « Stats / Archives » le 2026-08-11 : la fiche ne doit plus
+    // ni les afficher ni les demander.
+    expect(mockFetchProfileStatistics).not.toHaveBeenCalled()
+    expect(screen.queryByText('Statistiques pédagogiques')).toBeNull()
   })
 
   it('conserve la saisie en cours d’un aller-retour d’onglet', async () => {

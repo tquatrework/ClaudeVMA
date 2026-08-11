@@ -15,6 +15,7 @@
 
 import { describe, it, expect } from 'vitest'
 import {
+  ACCOUNT_DISPLAY_FIELD_NAMES,
   ADMINISTRATIVE_DISPLAY_FIELD_NAMES,
   ADMINISTRATIVE_FIELD_NAMES,
   ADMINISTRATIVE_SERVER_MANAGED_FIELD_NAMES,
@@ -44,11 +45,14 @@ import {
 /** Profil pédagogique élève tel que renvoyé par le serveur : à plat, mélangé. */
 const FLAT_STUDENT_PEDAGOGICAL = {
   level: 'Terminale',
+  schoolName: 'lycée des Graves',
   subjects: ['Mathématiques'],
   goals: 'Préparer le bac',
   specificNeeds: 'Tiers-temps',
   difficulties: 'Les dérivées',
-  context: 'Changement de lycée en cours d’année',
+  familyContext: 'une jumelle',
+  schoolContext: 'Changement de lycée en cours d’année',
+  equipment: 'Chambre au calme, ordinateur portable',
   generalAssessment: 'Élève sérieuse',
   recommendedPace: 'Deux séances par semaine',
   recommendedTeacherProfile: 'Formateur patient',
@@ -89,9 +93,24 @@ describe('listes de champs de profil', () => {
       'postalCode',
       'city',
       'country',
-      'department',
       'passions',
     ])
+  })
+
+  it("écarte `department`, colonne supprimée côté serveur", () => {
+    // `PUT /profiles/:userId/administrative` répond depuis le 2026-08-11
+    // `400 property department should not exist`. Le laisser dans la liste aurait
+    // cassé tout enregistrement administratif, ce formulaire renvoyant ses champs.
+    expect(ADMINISTRATIVE_FIELD_NAMES).not.toContain('department')
+    expect(ADMINISTRATIVE_DISPLAY_FIELD_NAMES).not.toContain('department')
+  })
+
+  it("n'expose pas `email` comme un champ de profil", () => {
+    // L'adresse appartient au compte (identity-access-service) : la route de
+    // profil répond `400 property email should not exist`.
+    expect(ADMINISTRATIVE_FIELD_NAMES).not.toContain('email')
+    expect(ADMINISTRATIVE_DISPLAY_FIELD_NAMES).not.toContain('email')
+    expect([...ACCOUNT_DISPLAY_FIELD_NAMES]).toEqual(['email'])
   })
 
   it("écarte `avatarUrl` des champs renvoyés en écriture", () => {
@@ -119,16 +138,35 @@ describe('listes de champs de profil', () => {
   it('reprend exactement la section déclarative élève documentée', () => {
     expect([...STUDENT_DECLARATIVE_FIELD_NAMES]).toEqual([
       'level',
+      'schoolName',
       'subjects',
       'goals',
-      'specificNeeds',
       'difficulties',
-      'context',
+      'specificNeeds',
+      'familyContext',
+      'schoolContext',
+      'equipment',
     ])
     // `notes` n'existe pas côté serveur : le besoin correspondant est `specificNeeds`.
     expect(STUDENT_DECLARATIVE_FIELD_NAMES).not.toContain('notes')
     expect(STUDENT_DECLARATIVE_FIELD_NAMES).not.toContain('niveauScolaire')
     expect(STUDENT_DECLARATIVE_FIELD_NAMES).not.toContain('matieres')
+  })
+
+  it("écarte l'ancien champ unique `context`, séparé en deux le 2026-08-11", () => {
+    // Le serveur répond `400 property context should not exist` : le garder aurait
+    // rendu impossible tout enregistrement du profil pédagogique élève.
+    expect(STUDENT_DECLARATIVE_FIELD_NAMES).not.toContain('context')
+    expect(STUDENT_DECLARATIVE_FIELD_NAMES).toContain('familyContext')
+    expect(STUDENT_DECLARATIVE_FIELD_NAMES).toContain('schoolContext')
+  })
+
+  it("expose `equipment` comme un champ unique, pas deux sous-champs", () => {
+    // La parenthèse du libellé (« lieu des cours, équipement ») décrit le contenu
+    // attendu ; le contrat serveur n'a qu'un champ libre.
+    expect(STUDENT_DECLARATIVE_FIELD_NAMES.filter((name) => name === 'equipment')).toHaveLength(1)
+    expect(STUDENT_DECLARATIVE_FIELD_NAMES).not.toContain('coursLocation')
+    expect(STUDENT_DECLARATIVE_FIELD_NAMES).not.toContain('equipmentDetails')
   })
 
   it('reprend exactement la section déclarative formateur documentée', () => {
@@ -329,11 +367,14 @@ describe('pickDeclarativeFields', () => {
   it("n'extrait aucun champ de prescription du bloc à plat — élève", () => {
     expect(pickDeclarativeFields('student', FLAT_STUDENT_PEDAGOGICAL)).toEqual({
       level: 'Terminale',
+      schoolName: 'lycée des Graves',
       subjects: ['Mathématiques'],
       goals: 'Préparer le bac',
       specificNeeds: 'Tiers-temps',
       difficulties: 'Les dérivées',
-      context: 'Changement de lycée en cours d’année',
+      familyContext: 'une jumelle',
+      schoolContext: 'Changement de lycée en cours d’année',
+      equipment: 'Chambre au calme, ordinateur portable',
     })
   })
 
@@ -444,7 +485,18 @@ describe('resolvePedagogicalProfileKind', () => {
     expect(resolvePedagogicalProfileKind(null, { difficulties: 'Les dérivées' }, undefined)).toBe(
       'student',
     )
-    expect(resolvePedagogicalProfileKind(null, { context: 'Internat' }, undefined)).toBe('student')
+    expect(resolvePedagogicalProfileKind(null, { schoolName: 'Lycée Montaigne' }, undefined)).toBe(
+      'student',
+    )
+    expect(resolvePedagogicalProfileKind(null, { familyContext: 'une jumelle' }, undefined)).toBe(
+      'student',
+    )
+    expect(resolvePedagogicalProfileKind(null, { schoolContext: 'Internat' }, undefined)).toBe(
+      'student',
+    )
+    expect(resolvePedagogicalProfileKind(null, { equipment: 'Tablette' }, undefined)).toBe(
+      'student',
+    )
     expect(resolvePedagogicalProfileKind(null, { experience: '8 ans' }, undefined)).toBe('teacher')
     expect(resolvePedagogicalProfileKind(null, { diplomas: 'Agrégation' }, undefined)).toBe(
       'teacher',

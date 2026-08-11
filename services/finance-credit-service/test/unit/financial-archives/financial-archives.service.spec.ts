@@ -98,4 +98,62 @@ describe('FinancialArchivesService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
   });
+
+  // ---- Access driven by ownership, not by a role allowlist ----
+  // Regression guard for the 2026-08-11 defect: a formateur was denied access to their
+  // OWN financial archives because their role was missing from an allowlist.
+
+  describe('findAllByOwner — the owner lists their own archives, whatever their role', () => {
+    const ownerRoles = [
+      UserRole.PARENT_FINANCEUR,
+      UserRole.FORMATEUR,
+      UserRole.ANIMATEUR_PEDAGOGIQUE,
+      UserRole.ELEVE,
+    ];
+
+    it.each(ownerRoles)('allows a %s to list their own financial archives', async (role) => {
+      mockArchiveRepo.find.mockResolvedValue([buildArchiveItem({ ownerId: 'self-1' })]);
+
+      const result = await service.findAllByOwner('self-1', 'self-1', role);
+      expect(result).toHaveLength(1);
+      expect(mockArchiveRepo.find).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { ownerId: 'self-1' } }),
+      );
+    });
+
+    it.each(ownerRoles)(
+      'returns an empty list (not an error) when a %s has no financial event yet',
+      async (role) => {
+        mockArchiveRepo.find.mockResolvedValue([]);
+
+        const result = await service.findAllByOwner('self-1', 'self-1', role);
+        expect(result).toEqual([]);
+      },
+    );
+  });
+
+  describe('findAllByOwner — listing someone else stays restricted', () => {
+    it.each([
+      UserRole.PARENT_FINANCEUR,
+      UserRole.FORMATEUR,
+      UserRole.ANIMATEUR_PEDAGOGIQUE,
+      UserRole.ELEVE,
+    ])('denies a %s access to third party archives', async (role) => {
+      await expect(
+        service.findAllByOwner('someone-else', 'self-1', role),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockArchiveRepo.find).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      UserRole.ADMINISTRATEUR_FINANCIER,
+      UserRole.RESPONSABLE_PEDAGOGIQUE,
+      UserRole.TECHNICIEN_INFORMATIQUE,
+    ])('still allows a %s to list third party archives', async (role) => {
+      mockArchiveRepo.find.mockResolvedValue([buildArchiveItem({ ownerId: 'someone-else' })]);
+
+      const result = await service.findAllByOwner('someone-else', 'admin-1', role);
+      expect(result).toHaveLength(1);
+    });
+  });
 });

@@ -18,18 +18,26 @@ export class FinancialProfilesService {
 
   /**
    * Retrieve a financial profile by owner ID.
-   * FIN-FB-001: readable by the owner, AF, RP, or TI.
+   * FIN-FB-001: readable by the owner — whatever their role — or by AF, RP, TI.
+   *
+   * The permission check runs BEFORE the existence check on purpose, so that the two
+   * answers stay unambiguous and non-leaking:
+   *  - 403 = "not allowed", and says nothing about whether a profile exists;
+   *  - 404 = "no profile yet", only ever returned to someone entitled to know.
+   * The client relies on that distinction: a 404 on one's own id means "profile to be
+   * created", not "access denied".
    */
   async findByOwnerId(
     ownerId: string,
     requesterId: string,
     requesterRole: string,
   ): Promise<FinancialProfile> {
+    this.assertCanRead(ownerId, requesterId, requesterRole);
+
     const profile = await this.profileRepo.findOne({ where: { ownerId } });
     if (!profile) {
       throw new NotFoundException(`Financial profile for owner ${ownerId} not found`);
     }
-    this.assertCanRead(ownerId, requesterId, requesterRole);
     return profile;
   }
 
@@ -99,17 +107,34 @@ export class FinancialProfilesService {
 
   // ---- Private helpers ----
 
+  /**
+   * Read rule, in two clearly separated cases:
+   *  1. own profile — allowed to every role, no allowlist involved. A formateur or an
+   *     animateur_pedagogique is paid through this service and must see their own
+   *     financial data, exactly like a parent_financeur;
+   *  2. someone else's profile — reserved to the privileged roles below. Unchanged.
+   */
   private assertCanRead(ownerId: string, requesterId: string, requesterRole: string): void {
+    // Case 1: the owner, whatever their role.
+    if (requesterId === ownerId) return;
+
+    // Case 2: privileged roles reading a third party.
     const privilegedReadRoles: string[] = [
       UserRole.ADMINISTRATEUR_FINANCIER,
       UserRole.RESPONSABLE_PEDAGOGIQUE,
       UserRole.TECHNICIEN_INFORMATIQUE,
     ];
-    if (requesterId === ownerId) return;
     if (privilegedReadRoles.includes(requesterRole)) return;
+
     throw new ForbiddenException('Access to this financial profile is not allowed');
   }
 
+  /**
+   * Write rule — deliberately NOT aligned on the read rule.
+   * Reading one's own profile is open to every role; writing it is additionally gated by
+   * the `@Roles(...)` allowlist on the PATCH route (parent_financeur, AF, TI). Widening
+   * the read side must not widen this one.
+   */
   private assertCanWrite(ownerId: string, requesterId: string, requesterRole: string): void {
     const privilegedWriteRoles: string[] = [
       UserRole.ADMINISTRATEUR_FINANCIER,

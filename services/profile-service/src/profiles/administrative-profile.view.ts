@@ -43,7 +43,7 @@ export interface AdministrativeProfileView {
    * la mise en cache.
    */
   avatarUrl: string | null;
-  department: string | null;
+  /* `department` retiré le 2026-08-11 — voir administrative-profile.entity.ts. */
   passions: string[] | null;
   createdAt: Date;
   updatedAt: Date;
@@ -91,7 +91,6 @@ export function toAdministrativeProfileView(
     city: profile.city ?? null,
     country: profile.country ?? null,
     avatarUrl: buildAvatarUrl(profile, publicPathPrefix),
-    department: profile.department ?? null,
     passions: profile.passions ?? null,
     createdAt: profile.createdAt,
     updatedAt: profile.updatedAt,

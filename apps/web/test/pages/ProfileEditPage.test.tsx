@@ -123,11 +123,14 @@ const STUDENT_PROFILE = {
   pedagogical: {
     // Section déclarative — écrite par l'élève.
     level: 'Terminale',
+    schoolName: 'lycée des Graves',
     subjects: ['Mathématiques', 'Physique-Chimie'],
     goals: 'Préparer le bac',
     specificNeeds: 'Tiers-temps',
     difficulties: 'Les fonctions dérivées',
-    context: 'Changement de lycée en cours d’année',
+    familyContext: 'une jumelle',
+    schoolContext: 'Changement de lycée en cours d’année',
+    equipment: 'Chambre au calme, ordinateur portable',
     // Section prescription — écrite par le RP, lue par l'élève, jamais renvoyée
     // par le formulaire déclaratif.
     generalAssessment: 'Élève sérieuse et régulière',
@@ -234,7 +237,10 @@ describe('ProfileEditPage', () => {
     for (const label of expectedLabels) {
       expect(screen.getByLabelText(label)).toBeDefined()
     }
-    expect(expectedLabels).toHaveLength(11)
+    expect(expectedLabels).toHaveLength(10)
+    // « Département » a quitté le contrat le 2026-08-11 : le serveur répond
+    // `400 property department should not exist`.
+    expect(screen.queryByLabelText('Département')).toBeNull()
   })
 
   it("ne propose plus la photo comme un champ de texte à recopier", async () => {
@@ -433,11 +439,16 @@ describe('ProfileEditPage', () => {
       await waitFor(() => {
         expect(screen.getByLabelText('Niveau scolaire')).toBeDefined()
       })
+      expect(screen.getByLabelText('Établissement')).toBeDefined()
       expect(screen.getByLabelText('Matières')).toBeDefined()
       expect(screen.getByLabelText('Objectifs pédagogiques')).toBeDefined()
       expect(screen.getByLabelText('Difficultés rencontrées')).toBeDefined()
       expect(screen.getByLabelText('Besoins spécifiques (aménagements)')).toBeDefined()
-      expect(screen.getByLabelText('Contexte scolaire et familial')).toBeDefined()
+      expect(screen.getByLabelText('Contexte familial')).toBeDefined()
+      expect(screen.getByLabelText('Contexte scolaire')).toBeDefined()
+      expect(screen.getByLabelText('Matériel (lieu des cours, équipement)')).toBeDefined()
+      // Champ unique remplacé par deux : le serveur refuse désormais `context`.
+      expect(screen.queryByLabelText('Contexte scolaire et familial')).toBeNull()
     })
 
     it('pre-fills the new declarative fields and joins the subjects array', async () => {
@@ -454,10 +465,16 @@ describe('ProfileEditPage', () => {
         'Difficultés rencontrées',
       ) as HTMLTextAreaElement
       expect(difficultiesInput.value).toBe('Les fonctions dérivées')
-      const contextInput = screen.getByLabelText(
-        'Contexte scolaire et familial',
+      const schoolNameInput = screen.getByLabelText('Établissement') as HTMLInputElement
+      expect(schoolNameInput.value).toBe('lycée des Graves')
+      const familyContextInput = screen.getByLabelText('Contexte familial') as HTMLTextAreaElement
+      expect(familyContextInput.value).toBe('une jumelle')
+      const schoolContextInput = screen.getByLabelText('Contexte scolaire') as HTMLTextAreaElement
+      expect(schoolContextInput.value).toBe('Changement de lycée en cours d’année')
+      const equipmentInput = screen.getByLabelText(
+        'Matériel (lieu des cours, équipement)',
       ) as HTMLTextAreaElement
-      expect(contextInput.value).toBe('Changement de lycée en cours d’année')
+      expect(equipmentInput.value).toBe('Chambre au calme, ordinateur portable')
       const specificNeedsInput = screen.getByLabelText(
         'Besoins spécifiques (aménagements)',
       ) as HTMLTextAreaElement
@@ -492,11 +509,14 @@ describe('ProfileEditPage', () => {
         // répondrait 400 sur l'ensemble du formulaire.
         expect(mockUpdatePedagogicalProfile).toHaveBeenCalledWith('student-1', {
           level: 'Terminale',
+          schoolName: 'lycée des Graves',
           subjects: ['Mathématiques', 'Physique-Chimie'],
           goals: 'Préparer le bac',
           specificNeeds: 'Tiers-temps',
           difficulties: 'Les fonctions dérivées',
-          context: 'Changement de lycée en cours d’année',
+          familyContext: 'une jumelle',
+          schoolContext: 'Changement de lycée en cours d’année',
+          equipment: 'Chambre au calme, ordinateur portable',
         })
       })
     })

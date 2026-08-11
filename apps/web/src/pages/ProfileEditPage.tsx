@@ -17,6 +17,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useProfileForm } from '../hooks/profile/useProfileForm'
 import Layout from '../components/Layout'
+import { AccountEmailField } from '../components/profile/AccountEmailField'
 import { AdministrativeProfileForm } from '../components/profile/AdministrativeProfileForm'
 import { PedagogicalProfileForm } from '../components/profile/PedagogicalProfileForm'
 import { PrescriptionForm } from '../components/profile/PrescriptionForm'
@@ -86,6 +87,15 @@ export default function ProfileEditPage() {
 
   /** La photo n'est changée que par son titulaire, RP et TI compris. */
   const canEditAvatar = canEditProfileAvatar(isViewingOwnProfile)
+
+  /**
+   * Adresse e-mail du compte — session authentifiée, jamais le profil, et jamais
+   * modifiable : aucune route ne change l'e-mail d'un compte
+   * (`PUT /accounts/:accountId` → `404`, vérifié le 2026-08-11). Elle n'est
+   * affichée que sur son propre profil, faute de source et de réglage de
+   * visibilité pour celle d'un tiers.
+   */
+  const accountEmail = isViewingOwnProfile ? (user?.email ?? null) : null
 
   /**
    * Forme du profil pédagogique : `pedagogicalType` du serveur d'abord. Le rôle
@@ -207,6 +217,8 @@ export default function ProfileEditPage() {
               canEdit={canEditAvatar}
               onAvatarUrlChange={setAvatarUrl}
             />
+
+            <AccountEmailField email={accountEmail} />
 
             <AdministrativeProfileForm
               profile={administrative ?? EMPTY_ADMINISTRATIVE_PROFILE}

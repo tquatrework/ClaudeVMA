@@ -18,8 +18,12 @@
       <item>Permettre au RP de valider un formateur et de le passer AP.</item>
     </responsibilities>
     <functionalities>
-      <functionality id="001">Profil administratif: nom, prenom, date de naissance, departement, email, telephone, photo, avatar, passions.</functionality>
-      <functionality id="002">Profil pedagogique eleve: classe, difficultes, commentaires, objectifs, disponibilites, preconisations, statistiques.</functionality>
+      <!-- 001 et 002 mis a jour le 2026-08-11 (decision C15). Le departement a ete retire ;
+           l'email n'a JAMAIS appartenu a ce service (arbitrage du 2026-08-08 : c'est une donnee
+           de compte, portee par identity-access-service) et est retire de cette liste pour ne
+           pas laisser croire l'inverse. -->
+      <functionality id="001">Profil administratif: nom, prenom, date de naissance, telephone, adresse, photo de profil, passions.</functionality>
+      <functionality id="002">Profil pedagogique eleve: classe, etablissement, difficultes, contexte familial, contexte scolaire, materiel, commentaires, objectifs, disponibilites, preconisations, statistiques.</functionality>
       <functionality id="003">Profil pedagogique formateur: experience, situation, statut, niveaux enseignes, disponibilites, CV, tests, competences validees, statistiques.</functionality>
       <functionality id="004">Confidentialite eleve sur difficultes/commentaires vis-a-vis des contacts hors financeur et PP.</functionality>
       <functionality id="005">Commentaires administratifs RP/TI avec date, type, texte, echeance et rappel calendrier.</functionality>
@@ -1342,7 +1346,207 @@
           redeploye dans cette session. La preuve utilisateur reste a produire.
         </testCoverage>
       </decision>
+      <decision id="C15" status="implemented" session="2026-08-11">
+        <title>Champs des formulaires de profil ÉLÈVE — « Département » retiré, « Contexte » séparé en deux, « Établissement » et « Matériel » ajoutés</title>
+        <filesTouched>
+          <file path="services/profile-service/src/profiles/entities/administrative-profile.entity.ts">
+            Propriété `department` (colonne `departement`) supprimée. Un commentaire tient sa
+            place pour qu'une réintroduction soit un choix et non un oubli.
+          </file>
+          <file path="services/profile-service/src/profiles/entities/student-pedagogical-profile.entity.ts">
+            `context` remplacé par `familyContext` (colonne `family_context`) et `schoolContext`
+            (`school_context`). Ajout de `schoolName` (`school_name`, varchar 200 — c'est un nom
+            propre, pas une description, d'où la colonne bornée) et `equipment` (`equipment`, text).
+          </file>
+          <file path="services/profile-service/src/profiles/administrative-profile.view.ts">
+            `department` retiré de l'interface AdministrativeProfileView ET de la projection. La
+            liste blanche assumée de ce fichier rend le retrait effectif sur TOUTES les routes qui
+            renvoient un bloc `administrative`, publiques comme /internal/*.
+          </file>
+          <file path="services/profile-service/src/profiles/dto/update-administrative-profile.dto.ts">
+            `department` retiré. `forbidNonWhitelisted` transforme le retrait en 400 explicite.
+          </file>
+          <file path="services/profile-service/src/profiles/dto/update-pedagogical-profile.dto.ts">
+            `context` remplacé par `familyContext` / `schoolContext` (2000 max chacun) ; ajout de
+            `schoolName` (200 max) et `equipment` (2000 max), avec descriptions Swagger.
+          </file>
+          <file path="services/profile-service/src/profiles/field-visibility.catalog.ts">
+            `department` et `context` retirés ; les 4 nouveaux champs ajoutés au bloc
+            pedagogical-student, tous HORS SOCLE.
+          </file>
+          <file path="services/profile-service/src/profiles/profiles.service.ts">
+            STUDENT_DECLARATIVE_FIELDS et le `pickDefined` de updatePedagogicalProfile alignés.
+            `schoolName`, `familyContext`, `schoolContext` et `equipment` sont EXCLUSIFS à l'élève :
+            les envoyer sur un profil formateur renvoie donc 400 par le mécanisme existant.
+          </file>
+          <file path="services/profile-service/src/profiles/profiles.controller.ts">
+            Swagger des deux routes d'écriture : liste des champs à jour, mention explicite des
+            deux retraits et de leur 400.
+          </file>
+          <file path="services/profile-service/src/migrations/1754910000000-SplitStudentContextAndDropDepartment.ts">
+            NOUVEAU. Voir la section dataMigration ci-dessous.
+          </file>
+          <file path="services/profile-service/test/unit/profiles/field-visibility.catalog.spec.ts">
+            NOUVEAU. Le catalogue n'avait aucun test propre.
+          </file>
+          <file path="services/profile-service/test/unit/profiles/profiles.service.spec.ts">
+            Écriture séparée des deux contextes, écriture de schoolName/equipment, non-écrasement
+            de schoolContext quand seul familyContext est fourni, absence de `department` en sortie.
+          </file>
+          <file path="services/profile-service/test/unit/profiles/profile-visibility-filter.spec.ts">Fixture élève et liste des champs masqués alignées.</file>
+          <file path="services/profile-service/test/unit/profiles/field-visibility.service.spec.ts">Défauts `self` étendus aux 4 nouveaux champs.</file>
+          <file path="services/profile-service/test/e2e/profiles.e2e-spec.ts">
+            9 tests ajoutés ou réécrits (voir testCoverage). Correction incidente d'un test
+            préexistant en échec permanent, décrite plus bas.
+          </file>
+          <file path="docs/routes.md">
+            Tableaux des champs administratifs et pédagogiques déclaratifs, socle par défaut, et
+            liste close du catalogue de visibilité — cette dernière RÉGÉNÉRÉE depuis le code
+            compilé plutôt que réécrite à la main.
+          </file>
+        </filesTouched>
+        <fieldNaming>
+          Noms techniques en anglais, libellés affichés en français (règle du 2026-08-09), un seul
+          nom par donnée dans tout le système (arbitrage du 2026-08-08). Contrat pour le front :
+
+            schoolName     varchar(200)  « Établissement »
+            familyContext  text, 2000    « Contexte familial »
+            schoolContext  text, 2000    « Contexte scolaire »
+            equipment      text, 2000    « Matériel (lieu des cours, équipement) »
+
+          `equipment` est UN SEUL champ libre et non deux. La parenthèse « lieu des cours,
+          équipement » de la demande utilisateur décrit le CONTENU attendu ; rien n'indique qu'il
+          veuille deux saisies. Le libellé français la reprend pour guider la saisie — c'est
+          justement le rôle du point unique de correspondance nom technique / libellé, côté front.
+
+          `schoolName` et non `school` ni `institution` : le champ ne porte que le NOM de
+          l'établissement. Tout ce qui décrit la situation scolaire relève de `schoolContext`, et
+          la confusion entre les deux est le principal risque de ce lot — d'où le mot `Name`.
+        </fieldNaming>
+        <dataMigration>
+          Migration 1754910000000-SplitStudentContextAndDropDepartment, JOUÉE CONTRE LA BASE RÉELLE
+          `visiomath_profile`.
+
+          ORDRE IMPOSÉ : ajout des 4 colonnes → UPDATE de reprise → DROP de `context` → DROP de
+          `departement`. La colonne source n'est jamais supprimée avant que son contenu ne soit
+          recopié, et tout se joue dans la même transaction de migration.
+
+          CHOIX DE DESTINATION — `context` part dans `family_context`, pas dans `school_context`.
+          Motifs : (1) l'ancien libellé disait « situation scolaire ET familiale », aucun des deux
+          nouveaux champs n'est donc strictement plus proche par définition ; (2) le contenu
+          proprement scolaire est en partie récupérable autrement (`level`, `schoolName`,
+          `difficulties`), alors qu'une donnée familiale n'a aucun autre champ où atterrir ;
+          (3) la correction éventuelle est un simple déplacement de texte d'un champ à l'autre,
+          à la portée de l'utilisateur depuis son propre formulaire.
+
+          COMPTES AVANT / APRÈS, base `visiomath_profile` :
+            student_pedagogical_profiles : 5 lignes avant, 5 après. 1 seul `context` non vide
+            avant, 1 seul `family_context` non vide après, valeur identique au caractère près
+            (saut de ligne compris).
+            administrative_profiles : 24 lignes avant, 24 après.
+          Un pg_dump des deux tables a été pris avant exécution.
+
+          AMBIGUÏTÉ SIGNALÉE, NON TRANCHÉE PAR LE SERVICE — voir openPoints. La seule valeur
+          reprise mélange deux natures : « une jumelle » (familial) et « lycée des Graves »
+          (nom d'établissement, qui relèverait de `school_name`). Elle est recopiée TELLE QUELLE
+          et EN ENTIER : une migration ne devine pas où couper une phrase saisie par un humain.
+
+          `departement` : DROP sec, un DROP COLUMN ne se défait pas. La seule valeur non vide de la
+          base (`"75014"`, userId 87482274-…, au demeurant un code postal déjà porté par
+          `codePostal`) est consignée EN DUR dans l'en-tête du fichier de migration — c'est le seul
+          endroit où elle reste retrouvable après coup.
+
+          `down()` : reconstitue `context` en concaténant `family_context` et `school_context` (saut
+          de ligne entre les deux si les deux sont renseignés). Pas un retour bit à bit — impossible
+          après une séparation — mais aucun texte perdu. `departement` revient vide.
+        </dataMigration>
+        <visibility>
+          Les 4 nouveaux champs sont HORS SOCLE, donc `self` par défaut. Le socle reste
+          firstName / lastName / avatarUrl / level / subjects. Justification en une ligne par
+          champ : situation familiale, situation scolaire et équipement du domicile sont des
+          données sensibles ; `schoolName` l'est tout autant, car nommer l'établissement d'un
+          mineur permet de le localiser. Un test verrouille désormais la composition du socle :
+          l'y ajouter un champ élargirait ce que tout contact lié voit par défaut, sur tous les
+          profils existants — ce ne doit jamais être un effet de bord.
+        </visibility>
+        <inventoryBeforeRemoval>
+          `department` — grep sur l'ensemble du dépôt avant suppression : présent uniquement dans
+          profile-service (entité, DTO, vue, catalogue, Swagger, tests), dans apps/web
+          (profileFieldLabels, profileFields, types/profile, AdministrativeProfileForm) et dans
+          docs/. AUCUN autre service ne le lit : ni recherche de professeur (phase 2), ni filtre,
+          ni export, ni workflow d'orchestration. Sa suppression était donc sans effet de bord
+          interservices. Le front est traité séparément (voir openPoints, owner=front).
+        </inventoryBeforeRemoval>
+        <incidentalFix>
+          Le test e2e « Enregistre tous les autres champs administratifs en anglais → 200 » ÉCHOUAIT
+          EN PERMANENCE, indépendamment de ce lot : son payload portait encore un `avatarUrl`, que
+          la route refuse en 400 depuis que l'application gère les octets de la photo (2026-08-10).
+          Vérifié en rejouant le test sur l'arbre pré-session : même échec. Le champ a été retiré du
+          payload — le refus d'`avatarUrl` reste couvert par un test dédié. La suite e2e ne compte
+          donc plus qu'UN échec, celui laissé rouge à dessein.
+        </incidentalFix>
+        <testCoverage>
+          Unitaires : 465 tests, 17 suites, TOUS VERTS (383 avant, dont 3 suites qui ne se
+          chargeaient pas faute de `sharp` installé localement — dépendance ajoutée dans
+          l'environnement, sans modification de package.json).
+          Nouveaux : field-visibility.catalog.spec.ts (appartenance au bloc, défaut `self`,
+          existence sur l'entité vérifiée À LA COMPILATION par un `Pick&lt;&gt;` — `Object.keys` sur
+          une entité TypeORM neuve renvoie un tableau vide et ne prouverait rien ; disparition de
+          `context` et `department` verrouillée par `@ts-expect-error` ; socle figé ; absence de
+          doublon). profiles.service.spec : 4 cas.
+          E2E (USE_LOCAL_DB=true, base profile_test, --runInBand) : 190 tests, 189 verts.
+          L'unique échec est [PROF-BR-010], laissé rouge à dessein (arbitrage en attente).
+          Nouveaux cas : 400 sur `department`, absence de `department` en lecture, 400 sur l'ancien
+          `context`, 400 sur schoolName &gt; 200 caractères, 400 sur `equipment` envoyé en tableau,
+          400 sur champs élève adressés à un profil formateur, aller-retour écriture/relecture de
+          schoolName + equipment avec vérification de la forme PLATE de la réponse d'écriture,
+          indépendance des deux contextes (écrire l'un n'efface pas l'autre), disparition de
+          `department` et `context` du catalogue de visibilité.
+          npm run build (nest build) : OK.
+        </testCoverage>
+        <realStackVerification>
+          Image reconstruite depuis le code de cette session puis conteneur visiomath_profile
+          RECRÉÉ (`docker compose up -d --force-recreate --no-build profile-service` — un simple
+          `docker restart` réutilise l'ancienne couche d'image et ne suffit pas ; l'erreur a été
+          faite puis corrigée dans cette session). Migration jouée contre `visiomath_profile`.
+          Appels réels via https://claudevma.visioprof.fr/api/v1, JWT d'un élève réel de la base :
+            GET /profiles/:userId → clés du bloc administratif : addressLine1, addressLine2,
+              avatarUrl, birthDate, city, country, createdAt, firstName, lastName, passions, phone,
+              postalCode, updatedAt, userId. `department` ABSENT. `pedagogical.familyContext` vaut
+              "une jumelle\nlycée des Graves" — la valeur migrée, relue par l'API. `context` ABSENT.
+            PUT /administrative {"department":…} → 400 {"message":["property department should not
+              exist"]}.
+            PUT /pedagogical {"context":…} → 400 {"message":["property context should not exist"]}.
+            PUT /pedagogical {schoolName, schoolContext, equipment} → 200, réponse PLATE
+              {userId, …, schoolName, familyContext, schoolContext, equipment} : les nouveaux champs
+              reviennent dans la réponse d'écriture, et `familyContext` non envoyé n'a pas été
+              écrasé.
+            GET /field-visibility → schoolName, familyContext, schoolContext, equipment tous à
+              `self` ; `department` et `context` absents du catalogue.
+          Les valeurs de test écrites pendant ce contrôle ont été remises à NULL ; seule la valeur
+          migrée de `family_context` subsiste, à l'identique.
+        </realStackVerification>
+      </decision>
       <openPoints>
+        <item priority="high" status="awaiting-arbitration" raisedIn="C15" raisedOn="2026-08-11">
+          VENTILATION DE LA VALEUR MIGRÉE — la seule ligne non vide de l'ancien `context` mélange
+          deux natures : « une jumelle » (familial) et « lycée des Graves » (nom d'établissement).
+          Le tout est aujourd'hui dans `familyContext` (userId 87482274-1ef2-412a-827b-75fc48c28370).
+          Si l'utilisateur veut la ventiler, la correction tient en un UPDATE, ou en une simple
+          saisie depuis le formulaire une fois le front aligné. Aucun texte n'est perdu dans
+          l'intervalle. Ne pas « corriger » automatiquement : découper une phrase saisie par un
+          humain relève de son intention, pas d'une heuristique.
+        </item>
+        <item priority="high" status="to-do" raisedIn="C15" raisedOn="2026-08-11" owner="front">
+          ALIGNEMENT DU FRONT sur les noms de ce lot. À retirer : `department`
+          (apps/web/src/utils/profileFieldLabels.ts, utils/profileFields.ts, types/profile.ts,
+          components/profile/AdministrativeProfileForm.tsx, et les deux tests qui en listent le
+          nom) — l'envoyer produit désormais un 400. À ajouter au profil pédagogique élève :
+          `schoolName` « Établissement », `familyContext` « Contexte familial », `schoolContext`
+          « Contexte scolaire », `equipment` « Matériel (lieu des cours, équipement) ». Le champ
+          `context` doit disparaître. Rappel de la règle du 2026-08-09 : la correspondance nom
+          technique / libellé français est portée en UN SEUL point côté front.
+        </item>
         <item priority="high" status="mitigated" raisedIn="C13" raisedOn="2026-08-10"
               updatedOn="2026-08-10">
           nginx en amont plafonne les corps de requete a 1 Mio (defaut applique faute de

@@ -466,8 +466,11 @@ Le front connaît de toute façon `File.size` avant l'envoi : la clé qui compte
 | `city` | `string` | 100 max |
 | `country` | `string` | 100 max |
 | `avatarUrl` | `string` | **LECTURE SEULE — `400` si envoyé.** Géré par l'application depuis le 2026-08-10 : URL construite par le serveur vers `GET /profiles/:userId/avatar`, avec un jeton de version (`?v=`). Voir « Photo de profil » ci-dessus |
-| `department` | `string` | Département administratif français de résidence, e.g. `"75 - Paris"` (100 max) |
 | `passions` | `string[]` | Centres d'intérêt / hobbies |
+
+> `department` a été **supprimé le 2026-08-11** (demande utilisateur). La colonne `departement` est
+> droppée, le champ ne figure plus ni au catalogue de visibilité ni dans la réponse. L'envoyer
+> renvoie désormais `400 property department should not exist`.
 
 **Profil pédagogique — section déclarative** — `PUT /profiles/:userId/pedagogical`
 
@@ -476,10 +479,13 @@ Ce que le **titulaire** déclare sur lui-même.
 | Champ | Type | Profil | Remarque |
 |---|---|---|---|
 | `level` | `string` | Élève | Niveau scolaire suivi (100 max) |
+| `schoolName` | `string` | Élève | **Nom de l'établissement** scolaire fréquenté (200 max). Un nom propre, pas une description : tout ce qui relève de la situation scolaire va dans `schoolContext` |
 | `goals` | `string` | Élève | Objectifs pédagogiques (2000 max) |
 | `specificNeeds` | `string` | Élève | **Aménagements reconnus** : DYS, PAP, PPS (2000 max) |
 | `difficulties` | `string` | Élève | **Ce sur quoi l'élève bute** (2000 max). À ne PAS confondre avec `specificNeeds` : le premier est une difficulté d'apprentissage, le second un aménagement reconnu |
-| `context` | `string` | Élève | Situation scolaire et familiale utile au suivi (2000 max) |
+| `familyContext` | `string` | Élève | Situation **familiale** utile au suivi : fratrie, séparation, disponibilité des parents… (2000 max) |
+| `schoolContext` | `string` | Élève | Situation **scolaire** utile au suivi : redoublement, changement d'établissement, options, ambiance de classe… (2000 max) |
+| `equipment` | `string` | Élève | **Lieu des cours et équipement** : pièce dédiée, ordinateur, tablette, connexion, webcam… (2000 max). UN SEUL champ libre, volontairement pas deux |
 | `levels` | `string[]` | Formateur | Niveaux enseignés |
 | `experience` | `string` | Formateur | Expérience pédagogique (3000 max) |
 | `diplomas` | `string` | Formateur | Titres et certifications déclarés (2000 max) |
@@ -487,6 +493,11 @@ Ce que le **titulaire** déclare sur lui-même.
 | `particularities` | `string` | Formateur | Modalités, contraintes, publics particuliers (3000 max) |
 | `cvDocumentId` | `string` | Formateur | **Référence** du CV auprès d'`archive-document-service` (255 max). Jamais une URL de fichier : `profile-service` ne stocke aucun document |
 | `subjects` | `string[]` | Les deux | Matières étudiées (profil élève) ou enseignées (profil formateur). **Toujours un tableau**, jamais une chaîne |
+
+> Le champ unique `context` a été **séparé le 2026-08-11** en `familyContext` et `schoolContext`
+> (demande utilisateur). La colonne `context` est droppée ; son contenu a été recopié dans
+> `family_context` par la migration `1754910000000-SplitStudentContextAndDropDepartment`, avant le
+> DROP. Envoyer `context` renvoie désormais `400 property context should not exist`.
 
 **Profil pédagogique — section prescription** — `PUT /profiles/:userId/prescription` (**RP seul**)
 
@@ -540,17 +551,19 @@ bloc `pedagogical`.
 
 **Socle visible par défaut des personnes liées** (validé le 2026-08-09) : `firstName`, `lastName`,
 `avatarUrl`, `level`, `subjects`. **Tout le reste est `self` par défaut**, y compris l'adresse, le
-téléphone, `birthDate`, `difficulties`, `context`, `specificNeeds` et l'intégralité de la section
-prescription.
+téléphone, `birthDate`, `difficulties`, `familyContext`, `schoolContext`, `schoolName`,
+`equipment`, `specificNeeds` et l'intégralité de la section prescription.
 
 Le `fieldName` doit appartenir au catalogue (`src/profiles/field-visibility.catalog.ts`). Liste
 close, dans l'ordre alphabétique renvoyé par le message d'erreur `400` :
 `addressLine1`, `addressLine2`, `audienceType`, `avatarUrl`, `birthDate`, `city`, `comments`,
-`context`, `country`, `cvDocumentId`, `department`, `difficulties`, `diplomas`, `experience`,
+`country`, `cvDocumentId`, `difficulties`, `diplomas`, `equipment`, `experience`, `familyContext`,
 `firstName`, `generalAssessment`, `goals`, `lastName`, `level`, `levels`, `maxValidatedLevel`,
 `particularities`, `passions`, `phone`, `postalCode`, `recommendedActivities`, `recommendedPace`,
-`recommendedPath`, `recommendedTeacherProfile`, `specialties`, `specificNeeds`, `subjects`,
-`testComments`, `testResults`.
+`recommendedPath`, `recommendedTeacherProfile`, `schoolContext`, `schoolName`, `specialties`,
+`specificNeeds`, `subjects`, `testComments`, `testResults`.
+
+`context` et `department` ont quitté cette liste le 2026-08-11, en même temps que leurs colonnes.
 
 `comments` est marqué `isReserved: true` : c'est un champ du profil pédagogique élève au sens du
 CdC, dont le réglage de visibilité est conservé depuis le modèle hérité, mais qu'aucune colonne ne
@@ -1035,11 +1048,31 @@ Via gateway : `GET /api/v1/finance/financial-profiles/:ownerId` → backend reç
 
 | Méthode | Chemin (backend) | Description | Auth | Rôles autorisés | Body / Params | Réponse attendue |
 |---|---|---|---|---|---|---|
-| GET | /financial-profiles/:ownerId | Lire le profil financier d'un financeur | 🔒 | owner (soi-même), administrateur_financier, responsable_pedagogique, technicien_informatique | — | `200 {id, ownerId, profileType, pointsBalance, fundingEndDate, paymentMethod, paymentReference}` · `401` · `403` · `404` |
-| PATCH | /financial-profiles/:ownerId | Modifier les moyens de paiement ou paramètres | 🔒 | owner (soi-même), administrateur_financier, technicien_informatique | `{paymentMethod?, paymentReference?, fundingEndDate?}` | `200 {profileType mis à jour}` · `400` · `401` · `403` · `404` |
+| GET | /financial-profiles/:ownerId | Lire son propre profil financier, ou celui d'un tiers si rôle privilégié | 🔒 | **owner (soi-même), quel que soit son rôle** · sur un tiers : administrateur_financier, responsable_pedagogique, technicien_informatique | — | `200 {id, ownerId, profileType, pointsBalance, fundingEndDate, paymentMethod, paymentReference}` · `401` · `403` · `404` |
+| PATCH | /financial-profiles/:ownerId | Modifier les moyens de paiement ou paramètres | 🔒 | owner **si parent_financeur**, administrateur_financier, technicien_informatique | `{paymentMethod?, paymentReference?, fundingEndDate?}` | `200 {profileType mis à jour}` · `400` · `401` · `403` · `404` |
 
 Valeurs `profileType` : `limite` (compte non encore activé — inscription non payée) · `membre` (inscription payée).
 Valeurs `paymentMethod` : `cb` · `virement` · `paypal`.
+
+> **Corrigé le 2026-08-11 — le titulaire lit son propre profil financier quel que soit son rôle.**
+> La colonne « Rôles autorisés » annonçait déjà « owner (soi-même) », mais le code ne le faisait pas :
+> le `RolesGuard` filtrait sur une liste de rôles (`parent_financeur`, AF, RP, TI) **avant** que le
+> contrôle de propriété du service ne s'exécute. Un `formateur` demandant son **propre** profil
+> recevait `403 {"message":"Insufficient role"}`, alors que le README lui promet un suivi financier
+> et qu'il est rémunéré par ce service. `animateur_pedagogique` — un formateur promu, rémunéré de la
+> même façon — était touché à l'identique.
+> L'accès est désormais piloté par la **propriété**, pas par une liste de rôles qui oublie un rôle à
+> chaque évolution : les routes de lecture par propriétaire portent `@OwnerAccess()` et la décision
+> revient au service. **L'accès au profil d'autrui est inchangé** (AF, RP, TI).
+>
+> Distinction `403` / `404`, sur laquelle le front s'appuie :
+> - `403` = « pas le droit » ; le contrôle de permission passe **avant** la recherche en base, donc un
+>   `404` ne révèle jamais l'existence d'un profil à qui n'a pas le droit de le savoir ;
+> - `404` = « pas encore de profil », état **normal** que le client traite en « profil à créer ».
+>
+> **L'écriture (PATCH) n'a pas bougé** et reste plus restrictive que la lecture : un `formateur` ou un
+> `animateur_pedagogique` lit son profil financier mais ne peut pas encore l'écrire (`403 "Insufficient
+> role"`). Ouvrir l'écriture est une décision distincte, non prise ici.
 
 ### Paiements
 
@@ -1060,9 +1093,14 @@ Via gateway : `GET /api/v1/finance/financial-archives/:ownerId` → backend reç
 
 | Méthode | Chemin (backend) | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /financial-archives/:ownerId | Lister les archives financières d'un financeur | 🔒 | owner (soi-même), administrateur_financier, responsable_pedagogique, technicien_informatique | `200 [{id, ownerId, itemType, referenceId, label, amountCents, balanceSnapshot, occurredAt}]` · `401` · `403` |
+| GET | /financial-archives/:ownerId | Lister ses propres archives financières, ou celles d'un tiers si rôle privilégié | 🔒 | **owner (soi-même), quel que soit son rôle** · sur un tiers : administrateur_financier, responsable_pedagogique, technicien_informatique | `200 [{id, ownerId, itemType, referenceId, label, amountCents, balanceSnapshot, occurredAt}]` · `401` · `403` |
 
 Les archives sont triées par `occurredAt DESC`. Types d'items : `payment` · `invoice` · `ledger_entry`.
+Un titulaire sans aucun événement financier reçoit `200 []` — jamais une erreur.
+
+> **Corrigé le 2026-08-11**, même défaut et même correction que `GET /financial-profiles/:ownerId`
+> ci-dessus : un `formateur` demandant ses **propres** archives recevait `403 "Insufficient role"`.
+> L'accès est désormais piloté par la propriété ; l'accès aux archives d'autrui est inchangé.
 
 ### Paramètres financiers (rewards)
 
@@ -1100,9 +1138,20 @@ Via gateway : `/api/v1/finance/teacher-payment-requests` → backend reçoit `/t
 
 | Méthode | Chemin (backend) | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /teacher-payment-requests/by-teacher/:teacherId | Lister les demandes de rémunération d'un formateur donné | 🔒 | formateur (soi-même) | `200 [{id, teacherId, amountCents, status, ...}]` · `401` · `403` |
+| GET | /teacher-payment-requests/by-teacher/:teacherId | Lister ses propres demandes de rémunération, ou celles d'un tiers si rôle privilégié | 🔒 | **le formateur lui-même, `formateur` comme `animateur_pedagogique`** · sur un tiers : administrateur_financier, responsable_pedagogique, technicien_informatique | `200 [{id, teacherId, amountCents, status, ...}]` · `401` · `403` |
 | POST | /teacher-payment-requests | Créer une demande de rémunération | 🔒 | formateur | `201 {id, teacherId, amountCents, status, createdAt}` · `400` · `401` · `403` |
 | POST | /teacher-payment-requests/:id/validate | Valider une demande | 🔒 | administrateur_financier | `200 {id, status}` · `401` · `403` · `404` |
+
+> **Corrigé le 2026-08-11** sur `GET .../by-teacher/:teacherId` : la liste de rôles du contrôleur
+> (`formateur`, AF, TI) contredisait sa propre description Swagger, qui annonçait le RP — le
+> `responsable_pedagogique` était donc refusé à tort, et `animateur_pedagogique` ne pouvait pas voir
+> ses propres demandes. Route désormais pilotée par la propriété (`@OwnerAccess()`), comme les deux
+> routes de lecture financière ci-dessus.
+>
+> **Point en suspens (écriture, non tranché)** : `POST /teacher-payment-requests` reste réservé au rôle
+> `formateur`. Un `animateur_pedagogique` — formateur promu, rémunéré comme tel — ne peut donc pas
+> soumettre de demande de rémunération. C'est une écriture, hors périmètre de la correction du
+> 2026-08-11 ; à arbitrer.
 
 **Gap produit ouvert** : pas de route de liste globale/toutes-demandes-en-attente pour l'AF/TI — à arbitrer (nouvel endpoint backend `GET /teacher-payment-requests` avec filtrage par statut, ou autre mécanisme) avant que la validation groupée par l'AF soit réellement utilisable.
 

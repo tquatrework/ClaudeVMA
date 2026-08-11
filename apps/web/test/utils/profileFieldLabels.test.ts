@@ -48,9 +48,15 @@ import {
 
 /**
  * Catalogue de visibilité champ par champ, tel que renvoyé par
- * `GET /profiles/:userId/field-visibility` (34 champs, liste close reprise de
+ * `GET /profiles/:userId/field-visibility` (36 champs, liste close reprise de
  * `docs/routes.md` § « Visibilité champ par champ »). L'écran de confidentialité
  * affiche le libellé de **chacun** de ces champs.
+ *
+ * Relevé le 2026-08-11 sur la pile réelle (`HTTP 200`, 36 entrées) : `context` et
+ * `department` en ont disparu, `equipment`, `familyContext`, `schoolContext` et
+ * `schoolName` y sont entrés — tous quatre hors socle, `defaultAudience: 'self'`.
+ * Sans leur libellé français, l'écran de confidentialité afficherait « Family
+ * context » et « School name ».
  */
 const FIELD_VISIBILITY_CATALOG_NAMES = [
   'addressLine1',
@@ -60,13 +66,13 @@ const FIELD_VISIBILITY_CATALOG_NAMES = [
   'birthDate',
   'city',
   'comments',
-  'context',
   'country',
   'cvDocumentId',
-  'department',
   'difficulties',
   'diplomas',
+  'equipment',
   'experience',
+  'familyContext',
   'firstName',
   'generalAssessment',
   'goals',
@@ -82,6 +88,8 @@ const FIELD_VISIBILITY_CATALOG_NAMES = [
   'recommendedPace',
   'recommendedPath',
   'recommendedTeacherProfile',
+  'schoolContext',
+  'schoolName',
   'specialties',
   'specificNeeds',
   'subjects',
@@ -100,6 +108,9 @@ const DISPLAYABLE_FIELD_NAMES = [
   ...PRESCRIPTION_AUTHORSHIP_FIELD_NAMES,
   ...FIELD_VISIBILITY_CATALOG_NAMES,
   'loginIdentifier',
+  // Donnée de compte affichée dans le bloc administratif : hors catalogue de
+  // visibilité, mais bel et bien à l'écran, donc soumise à la même exigence.
+  'email',
 ]
 
 /** Repli de `getProfileFieldLabel` : `createdAt` → « Created at ». */

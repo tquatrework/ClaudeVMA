@@ -2,12 +2,16 @@
  * RegistrationPaymentSection — bloc d'activation de compte (paiement d'inscription).
  * Extrait de FinancialProfilePage (lot 10 — normalisation, découpage > 300 lignes).
  * Présentationnel : le state du formulaire (montant, ouverture) reste porté par la page.
+ *
+ * La confirmation de paiement n'est **pas** affichée ici (2026-08-11) : ce bloc
+ * disparaît dès que le compte passe « membre », c'est-à-dire à l'instant précis
+ * où le paiement réussit. Le message y était donc mort-né ; il appartient au
+ * panneau, qui reste à l'écran.
  */
 
 import React from 'react'
 
 interface RegistrationPaymentSectionProps {
-  paymentSuccessMessage: string | null
   paymentError: string | null
   isPaymentFormOpen: boolean
   onOpenPaymentForm: () => void
@@ -19,7 +23,6 @@ interface RegistrationPaymentSectionProps {
 }
 
 export function RegistrationPaymentSection({
-  paymentSuccessMessage,
   paymentError,
   isPaymentFormOpen,
   onOpenPaymentForm,
@@ -36,12 +39,6 @@ export function RegistrationPaymentSection({
         Votre compte est actuellement en mode <strong>limité</strong>.
         Un paiement d'inscription est nécessaire pour accéder aux fonctionnalités complètes.
       </p>
-
-      {paymentSuccessMessage && (
-        <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
-          {paymentSuccessMessage}
-        </div>
-      )}
 
       {paymentError && (
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">

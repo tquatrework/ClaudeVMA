@@ -7,27 +7,217 @@
 
 ## Besoin
 
-Une donnée enregistrée depuis une page de profil doit **rester affichée**. Ni un changement
-d'onglet, ni l'ouverture d'un panneau ne doivent faire réapparaître les valeurs d'avant
-l'enregistrement. L'utilisateur doit voir à l'écran ce que le serveur a réellement enregistré —
-y compris les champs que le serveur pose lui-même et que le client ne connaît pas
-(`filledBy`, `filledAt`, `avatarUrl`).
+Deux demandes de l'utilisateur du **2026-08-11**, après sa validation de la permanence côté
+élève (« cela fonctionne, pour les élèves au moins ») :
 
-Le besoin vaut pour les deux blocs, **administratif et pédagogique**, ainsi que pour la
-prescription. Il a été révélé par la photo de profil, mais il ne lui est pas propre.
+**1. Étendre la vérification de permanence aux autres rôles.** Parent, formateur, AP et RP
+doivent être traités exactement comme l'élève : une donnée enregistrée reste affichée, un
+changement d'onglet ne la fait pas disparaître. À vérifier écran par écran, pas à supposer
+depuis le fait que le mécanisme est générique.
+
+**2. Corriger le contenu des formulaires de l'élève** — cinq modifications :
+
+| # | Bloc | Demande |
+|---|---|---|
+| 1 | administratif | **ajouter l'email** (existe sans doute déjà à l'inscription, mais n'est pas affiché) |
+| 2 | administratif | **supprimer « Département »** |
+| 3 | pédagogique | **ajouter « Établissement »** |
+| 4 | pédagogique | **séparer en deux champs : « Contexte familial » et « Contexte scolaire »** |
+| 5 | pédagogique | **ajouter « Matériel »** (lieu des cours, équipement) |
+
+L'utilisateur demande en fin de travail la **liste des fichiers et dossiers touchés**, front et
+back.
+
+## Point d'architecture soulevé par la demande 1 — email
+
+`email` appartient à **`identity-access-service`**, pas à `profile-service` : c'est une donnée du
+compte (`{id, loginIdentifier, email, role}`), au même titre que `loginIdentifier`, et
+l'arbitrage du 2026-08-08 a acté que les deux ne sont pas un doublon. **Ajouter une colonne
+`email` à `profile-service` recréerait le problème d'appartenance déjà tranché pour
+`firstName`/`lastName`/`phone`.** L'affichage doit donc lire le compte, pas dupliquer le champ.
 
 ## Comment on saura que c'est fait
 
-Sur `https://claudevma.visioprof.fr`, parcours joué contre la pile réelle :
+Sur `https://claudevma.visioprof.fr`, parcours joué contre la pile réelle, capture ou réponse
+HTTP citée :
 
-1. un élève enregistre un champ du profil administratif, passe sur un autre onglet, revient →
-   la valeur enregistrée est toujours là, **sans rechargement de page** ;
-2. même chose sur le profil pédagogique ;
-3. un RP rédige la prescription → `filledBy` et `filledAt` s'affichent **immédiatement**, ce qui
-   prouve que l'écran lit la réponse du serveur et non le corps qu'il vient d'envoyer ;
-4. la photo envoyée reste visible au retour sur son onglet.
+1. le formulaire administratif d'un élève affiche son email et **ne comporte plus** de
+   « Département » ;
+2. le formulaire pédagogique porte « Établissement », « Contexte familial », « Contexte
+   scolaire » et « Matériel », chacun enregistrable et **rémanent** au changement d'onglet ;
+3. un compte de chaque autre rôle — parent, formateur, AP, RP — enregistre une donnée, change
+   d'onglet, revient : la valeur tient.
 
 Ni tests verts, ni PR ouverte ne valent preuve.
+
+## État au 2026-08-11
+
+- [x] **Back codé, migré, déployé** — `visiomath_profile` reconstruit. `schoolName` (200),
+      `familyContext` / `schoolContext` / `equipment` (2000, texte long), tous **hors socle** de
+      visibilité (`self` par défaut). `department` et `context` supprimés : les envoyer renvoie
+      `400 property … should not exist`. Migration sans perte : 5 → 5 lignes pédagogiques,
+      24 → 24 administratives, `pg_dump` pris avant.
+- [x] **Donnée ambiguë tranchée par l'utilisateur** — l'ancien `context` valait
+      `"une jumelle\nlycée des Graves"`. Sur sa demande, `UPDATE 1` dans une transaction :
+      `schoolName = 'lycée des Graves'`, `familyContext = 'une jumelle'`.
+- [x] **Front codé** — les 4 champs, `department` et `context` retirés, e-mail affiché.
+- [x] **Permanence des autres rôles : vérifiée, aucun correctif nécessaire.** Le mécanisme
+      d'appartenance de l'état à la page couvrait déjà parent, formateur, AP et RP. 18 cas
+      ajoutés dans `apps/web/test/pages/ProfileRemanenceByRole.test.tsx`, chacun vérifiant
+      quatre propriétés : réponse serveur réaffichée (le serveur simulé répond volontairement
+      autre chose que la saisie), aller-retour d'onglet sans perte, `GET /profiles/:userId`
+      appelé **une seule fois**, saisie conservée avec message français en cas de refus.
+      Il manquait la vérification, pas le correctif.
+- [x] **Front déployé** — bundle `index--GUGb3O2.js` servi publiquement, portant `schoolName`,
+      `familyContext`, `schoolContext`, `equipment` et leurs libellés français ; `department`
+      **absent** (0 occurrence).
+- [x] **Validé par l'utilisateur** — 2026-08-11, après son test manuel sur la pile réelle
+      (« très bien, c'est bon »).
+- [ ] Mergé dans master — PR #92, **retenue à sa demande** : deux changements d'écran à livrer
+      avant le merge, ci-dessous.
+
+## Deux changements demandés avant le merge — 2026-08-11
+
+Verbatim de l'utilisateur :
+
+> 1. les statistiques pédagogiques doivent aller dans Stats/Archives (et pas dans le profil)
+> 2. le profil financier (qui apparait dans le profil administratif avec un bouton gérer, doit
+>    en fait être un troisième onglet : profil financier, aussi bien pour les parents que pour
+>    les formateurs.
+
+Les deux relèvent du **placement des écrans**, pas du contenu des données : rien à changer côté
+services. Ils restent sur la branche `feat/champs-profils-eleve`, puisque l'utilisateur les veut
+avant le merge — une branche par besoin métier, pas une par lot.
+
+Contrainte qui s'applique aux deux : le profil financier devenant un onglet de la fiche, il entre
+dans le périmètre de la règle de permanence. Son état doit appartenir à la page, l'onglet reste
+monté une fois activé, et la réponse d'écriture est réaffichée telle que le serveur la renvoie.
+
+Conséquence sur un point déjà signalé : `FinancialProfilePage.tsx:178` affiche « Identifiant
+propriétaire » sous forme d'UUID au parent, au formateur, à l'AP et au RP. Déplacer cet écran
+dans la fiche de profil rend ce défaut plus visible ; il est corrigé au passage, puisqu'on
+touche précisément ce code — la règle « aucun UUID à l'écran, sauf AF » est générale.
+
+### État au 2026-08-11 — livré et déployé, en attente du test utilisateur
+
+- [x] **Statistiques pédagogiques sorties du profil.** La destination existait déjà : l'entrée
+      de navigation « Stats / Archives » (`TOP_NAV_CONFIG`, id `archives`) mène à `/archives`,
+      dont le **premier onglet** rendait déjà `ProfileStatisticsPanel`. La fiche de profil en
+      portait un **second exemplaire** — c'est celui-là qui est retiré. Aucun fichier supprimé,
+      rien de dupliqué.
+- [x] **Profil financier devenu un onglet**, après « Profil pédagogique ». Le bouton « Gérer »
+      a disparu du profil administratif. Effet de bord corrigé : « Gérer » s'affichait au
+      formateur et à l'AP alors que `/finance` leur est fermée — il les menait à `/forbidden`.
+      L'onglet n'emprunte aucune route.
+- [x] **UUID « Identifiant propriétaire » corrigé** — nom du titulaire via `usePersonDisplayName`,
+      référence technique réservée à l'AF. Vérifié absent du bundle servi (0 occurrence).
+- [x] **Blocage back levé.** `finance-credit-service` refusait le rôle `formateur` sur son
+      **propre** profil financier (`403 Insufficient role`), le `RolesGuard` filtrant sur une
+      liste de rôles **avant** le contrôle de propriété. Les trois routes de lecture par
+      propriétaire portent désormais `@OwnerAccess()` : le contrôle porte sur la propriété, pas
+      sur une liste qui oublie un rôle à chaque évolution — `animateur_pedagogique` est couvert
+      par construction. Formateur sur son propre id : `404` (profil à créer) au lieu de `403`,
+      archives `200 []`. Sur un tiers : toujours `403`. Écriture inchangée.
+      Défaut corrigé au passage : `findByOwnerId` levait le `404` **avant** le contrôle de
+      permission, révélant l'existence d'un profil à un appelant non autorisé.
+- [x] **Déployé** — `frontend` et `finance-credit-service` reconstruits depuis la branche.
+      Bundle servi `index-CtxbcIKG.js` : « Profil financier » présent, « Identifiant
+      propriétaire » absent. Conteneur finance `healthy`, image porteuse du correctif.
+- [ ] **Validé par l'utilisateur**
+
+### Défaut trouvé le 2026-08-11 — un déploiement peut ne jamais atteindre l'utilisateur
+
+L'utilisateur a signalé voir encore les statistiques dans le profil et le bloc « Profil
+financier / Gérer → » dans l'onglet administratif, en collant le HTML rendu. Vérification faite
+**sur le bundle réellement servi** (`index-CtxbcIKG.js`, celui que référence `index.html`) : les
+chaînes `Moyens de paiement, crédits et historique financier`, `Gérer →` et `Identifiant
+propriétaire` y sont à **0 occurrence**, et le conteneur ne contient qu'**un seul** fichier JS.
+Le HTML collé ne peut donc pas venir du code en ligne.
+
+**Cause structurelle** : la configuration nginx du conteneur `frontend` (écrite en dur dans
+`apps/web/Dockerfile`) sert `index.html` **sans en-tête `Cache-Control`** — seuls `ETag` et
+`Last-Modified` sont posés. Le navigateur applique alors sa propre heuristique de fraîcheur et
+peut conserver l'ancien `index.html`, qui référence l'ancien bundle par son nom haché, lui aussi
+en cache. Un déploiement peut ainsi rester invisible **sans aucun signal**, et pollue chaque
+validation utilisateur d'un doute qui n'a pas lieu d'être.
+
+Correction retenue, non encore appliquée : `Cache-Control: no-cache` sur `index.html`, cache long
+immuable sur les fichiers hachés de `/assets/`. À faire dans `apps/web/Dockerfile`.
+
+Ne pas confondre avec un cache applicatif : la décision « aucun cache » du 2026-08-10 porte sur
+les données lues par l'application, pas sur les en-têtes HTTP de ses fichiers statiques.
+
+### Décisions qui lui reviennent, remontées et non prises
+
+1. **L'AP n'a plus aucun chemin vers les statistiques.** `TOP_NAV_CONFIG` affiche « Stats /
+   Archives » à l'`animateur_pedagogique`, mais `routeAccessMap.ts` et la route `/archives` ne
+   le listent pas : l'entrée le mène à `/forbidden`. Anomalie **préexistante**, devenue
+   conséquente maintenant que les statistiques ne sont plus dans le profil. Côté serveur,
+   `/profiles/:id/statistics` lui est ouvert, les archives pédagogiques non. Ouvrir la route ou
+   retirer l'entrée : décision utilisateur.
+2. **Le formateur voit son profil financier mais ne peut rien y saisir.**
+   `PATCH /financial-profiles/:ownerId` lui reste fermé, alors que la spec du service lui promet
+   l'écriture sur son profil (coordonnées bancaires, tarifs). Non tranché, non ouvert.
+3. **L'`animateur_pedagogique` ne peut pas soumettre de demande de rémunération** —
+   `POST /teacher-payment-requests` reste réservé au rôle `formateur`.
+4. **Deux portes vers le même contenu pour le parent** : le rail gauche garde une entrée
+   « Profil financier » → `/finance`, en plus du nouvel onglet. Ce n'est pas le doublon visé par
+   la demande, donc laissé en l'état.
+5. **Cinq comptes de vérification laissés sur la pile** : `front.check.0811`, `front.fin.0811`,
+   `front.fin.parent.0811`, `verif.fin.teacher.0811`, `verif.fin.parent.0811`. Aucune route de
+   suppression n'existe ; un TI peut les suspendre.
+
+## E-mail : arbitrage rendu, à confirmer
+
+Provenance : la **session authentifiée**. `POST /auth/login` (201) et `GET /auth/me` (200)
+renvoient déjà `{id, loginIdentifier, email, role, validationStatus, emailVerified}`. Aucun
+appel supplémentaire, **aucun champ demandé à `profile-service`** — l'arbitrage du 2026-08-08
+est tenu.
+
+Deux choix retenus, tous deux fondés sur des réponses réelles :
+
+1. **Lecture seule.** Aucune route ne modifie l'e-mail d'un compte : `PUT /accounts/:id` → `404`,
+   et `PUT /profiles/:id/administrative {email}` → `400 property email should not exist`. Un
+   champ de saisie aurait accepté une frappe pour la jeter — le défaut que ce projet corrige
+   depuis des jours.
+2. **Son propre profil seulement.** `GET /accounts/:id` par le titulaire lui-même → `403
+   Insufficient role` (route réservée TI/RP/AF), et `GET /profiles/:userId` ne renvoie pas
+   l'e-mail. Le front n'a donc **aucune source** pour l'e-mail d'un tiers. S'y ajoute que
+   `email` n'est **pas au catalogue de visibilité** : son titulaire ne pourrait pas le masquer.
+   Faute de pouvoir le protéger, on ne l'expose pas.
+
+**À trancher par l'utilisateur s'il le souhaite** : ouvrir l'e-mail d'un tiers au RP/TI/AF
+supposerait un appel à `GET /accounts/:accountId` et l'entrée d'`email` au catalogue de
+visibilité. Non fait.
+
+## Effet de bord constaté le 2026-08-11 — les agents ne peuvent plus écrire leur rapport
+
+Le retrait de `Write(.claude/reports/**)` (commit `0b10e76`, PR #91) empêche la **création** d'un
+rapport : `Edit` exige un fichier existant. L'agent front n'a donc pas pu déposer le sien et a
+rendu ses conclusions directement. À arbitrer : rétablir `Write` sur ce dossier, ou acter que les
+rapports vivent désormais dans `docs/services/<service>.md`.
+
+## Reste à traiter, hors objectif courant
+
+- **UUID encore affichés**, en contradiction avec la règle « aucun UUID à l'écran sauf AF » :
+  `FinancialProfilePage.tsx:178` (« Identifiant propriétaire ») visible du parent, du formateur,
+  de l'AP et du RP ; `TeacherValidationPanel.tsx:133` (`validatedBy.slice(0,8)` en guise de nom,
+  alors que `usePersonDisplayName` existe) ; et celui déjà connu dans « Formateurs liés ».
+- **Compte de vérification laissé sur la pile** : `front.check.0811`, rôle élève, créé pour
+  obtenir les réponses HTTP citées. Aucune route de suppression n'existe ; un TI peut le
+  suspendre.
+- **6 tests front en échec, préexistants et sans lien** : `ParentLinkRequestsInboxPage` (3) et
+  `ParentLinkRequestPage` (1) attendent encore un `parentId` brut à l'écran — l'interface a cessé
+  d'afficher les UUID, ce sont les **tests** qui sont périmés ; `WorkflowStatusPage` (1) et
+  `HealthStatusPage` (1).
+
+## Objectif précédent, clos le 2026-08-11
+
+Permanence des champs côté élève : **validé par l'utilisateur** après son propre test manuel sur
+la pile réelle. Lots #87 (mauvais niveau, annulé), #88 (appartenance d'état, onglets gardés
+montés), #89 (généralisation à tous les champs) mergés ; front reconstruit et déployé le
+2026-08-11, bundle `index-D5m4QIQi.js` servi publiquement, marqueurs `onAdministrativeSaved` /
+`onPedagogicalSaved` présents alors qu'ils étaient absents du bundle précédent.
 
 ## Cause tranchée — erreur d'appartenance d'état, pas de fraîcheur
 

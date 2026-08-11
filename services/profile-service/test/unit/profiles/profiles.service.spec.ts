@@ -408,7 +408,6 @@ describe('ProfilesService', () => {
             city: null,
             country: null,
             avatarUrl: null,
-            department: null,
             passions: null,
             createdAt: undefined,
             updatedAt: undefined,
@@ -737,13 +736,27 @@ describe('ProfilesService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('accepts department and passions fields', async () => {
+    it('accepts the passions field', async () => {
       const actor = makeActor(UserRole.ELEVE, 'user-uuid');
-      const dto = { department: '75 - Paris', passions: ['Musique', 'Randonnée'] };
+      const dto = { passions: ['Musique', 'Randonnée'] };
       await service.updateAdministrativeProfile('user-uuid', dto, actor);
       expect(adminRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ department: '75 - Paris', passions: ['Musique', 'Randonnée'] }),
+        expect.objectContaining({ passions: ['Musique', 'Randonnée'] }),
       );
+    });
+
+    // `department` a été retiré le 2026-08-11. Son refus en entrée est porté
+    // par le DTO (`forbidNonWhitelisted`) et couvert en e2e ; ici on verrouille
+    // la SORTIE, seule chose que le service maîtrise : la vue exposée ne doit
+    // plus comporter la clé, même si une ligne héritée la portait encore.
+    it('n’expose plus department dans la réponse', async () => {
+      const actor = makeActor(UserRole.ELEVE, 'user-uuid');
+      const view = await service.updateAdministrativeProfile(
+        'user-uuid',
+        { firstName: 'Alice' },
+        actor,
+      );
+      expect(view).not.toHaveProperty('department');
     });
   });
 
@@ -857,15 +870,57 @@ describe('ProfilesService', () => {
       );
     });
 
-    it('enregistre context sur le profil élève', async () => {
+    it('enregistre familyContext et schoolContext séparément sur le profil élève', async () => {
       const actor = makeActor(UserRole.ELEVE, 'user-uuid');
       await service.updatePedagogicalProfile(
         'user-uuid',
-        { context: 'Redoublement en seconde' },
+        {
+          familyContext: 'Une sœur jumelle également suivie',
+          schoolContext: 'Redoublement en seconde',
+        },
         actor,
       );
       expect(studentPedaRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ context: 'Redoublement en seconde' }),
+        expect.objectContaining({
+          familyContext: 'Une sœur jumelle également suivie',
+          schoolContext: 'Redoublement en seconde',
+        }),
+      );
+      // L'ancien champ unique ne doit surtout pas être réintroduit au passage.
+      expect(studentPedaRepo.save).toHaveBeenCalledWith(
+        expect.not.objectContaining({ context: expect.anything() }),
+      );
+    });
+
+    it('enregistre schoolName et equipment sur le profil élève', async () => {
+      const actor = makeActor(UserRole.ELEVE, 'user-uuid');
+      await service.updatePedagogicalProfile(
+        'user-uuid',
+        {
+          schoolName: 'Lycée Montaigne, Bordeaux',
+          equipment: 'Bureau dans sa chambre, ordinateur portable partagé, fibre',
+        },
+        actor,
+      );
+      expect(studentPedaRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          schoolName: 'Lycée Montaigne, Bordeaux',
+          equipment: 'Bureau dans sa chambre, ordinateur portable partagé, fibre',
+        }),
+      );
+    });
+
+    // pickDefined ne doit poser que les champs réellement fournis : sans cela,
+    // enregistrer le contexte familial seul écraserait le contexte scolaire.
+    it('n’écrase pas schoolContext quand seul familyContext est fourni', async () => {
+      const actor = makeActor(UserRole.ELEVE, 'user-uuid');
+      await service.updatePedagogicalProfile(
+        'user-uuid',
+        { familyContext: 'Fratrie de quatre' },
+        actor,
+      );
+      expect(studentPedaRepo.save).toHaveBeenCalledWith(
+        expect.not.objectContaining({ schoolContext: expect.anything() }),
       );
     });
 

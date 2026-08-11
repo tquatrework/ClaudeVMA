@@ -1076,5 +1076,214 @@
         </item>
       </openPoints>
     </session>
+    <session date="2026-08-11" label="Champs eleve remanies, email du compte, remanence verifiee role par role (branche feat/champs-profils-eleve)">
+      <context>
+        Deux demandes de l'utilisateur, le back etant deja reconstruit et en ligne.
+        (1) Cinq modifications des formulaires eleve : ajouter l'email en administratif, retirer
+        « Departement », ajouter « Etablissement », separer « Contexte » en contexte familial et
+        contexte scolaire, ajouter « Materiel (lieu des cours, equipement) ».
+        (2) Verifier que parent, formateur, AP et RP beneficient de la meme remanence des
+        informations que l'eleve (lots #87/#88/#89, valides par l'utilisateur).
+      </context>
+
+      <decision id="student-declarative-fields-realigned">
+        `STUDENT_DECLARATIVE_FIELD_NAMES` et `STUDENT_FORM_FIELDS` suivent le nouveau contrat :
+        `level`, `schoolName`, `subjects`, `goals`, `difficulties`, `specificNeeds`,
+        `familyContext`, `schoolContext`, `equipment`. `context` et `department` sont retires
+        partout — types, catalogue, libelles, formulaires, fixtures de test. Les garder aurait
+        casse **tout** enregistrement : verifie contre la pile reelle, `PUT .../pedagogical`
+        repond `400 property context should not exist` et `PUT .../administrative`
+        `400 property department should not exist`, et ces deux formulaires renvoient chacun de
+        leurs champs a chaque enregistrement.
+        `equipment` est UN champ libre : la parenthese du libelle decrit le contenu attendu.
+      </decision>
+
+      <decision id="account-email-read-only">
+        Nouveau `src/components/profile/AccountEmailField.tsx`. L'email n'appartient pas a
+        `profile-service` : il est lu dans la session authentifiee (`user.email`, alimente par
+        `POST /auth/login` et `GET /auth/me`) et affiche **en lecture seule**, **sur son propre
+        profil uniquement**.
+        Deux constats contre la pile reelle le 2026-08-11 justifient ces deux choix :
+        `PUT /accounts/:accountId` repond `404 Cannot PUT /accounts/...` — aucune route ne change
+        l'email, un champ de saisie jetterait la saisie ; et `GET /accounts/:accountId` repond
+        `403 Insufficient role` meme pour soi-meme des lors qu'on n'est ni TI, ni RP, ni AF — le
+        front n'a donc aucune source pour l'email d'un tiers. S'ajoute qu'`email` n'est pas au
+        catalogue de visibilite : son titulaire ne pourrait pas le masquer.
+        `ADMINISTRATIVE_FIELD_NAMES` reste inchange : l'email n'y entre pas, et
+        `ACCOUNT_DISPLAY_FIELD_NAMES` marque explicitement cette provenance distincte.
+      </decision>
+
+      <decision id="form-contract-locked-by-test">
+        Nouveau `test/components/profile/ProfileFormContract.test.ts` : chaque formulaire est
+        confronte a sa liste de champs contractuelle, **dans les deux sens** — un champ du contrat
+        absent de l'ecran est invisible donc impossible a renseigner (defaut de `passions`, 2026-08-09),
+        un champ supprime reste a l'ecran casse l'enregistrement entier. Les descripteurs
+        `STUDENT_FORM_FIELDS` / `TEACHER_FORM_FIELDS` sont exportes pour cela.
+      </decision>
+
+      <decision id="remanence-verified-by-role">
+        Nouveau `test/pages/ProfileRemanenceByRole.test.tsx` (18 cas) : parent financeur, formateur,
+        AP et RP. Quatre proprietes par cas — reponse serveur reaffichee et non le corps envoye,
+        aller-retour d'onglet sans perte, `GET /profiles/:userId` appele une seule fois, saisie
+        conservee et message francais quand le serveur refuse. Sont couverts le bloc administratif
+        des quatre roles, la section declarative formateur (formateur et AP, sans ecraser la
+        prescription du RP), le bloc administratif d'un tiers vu par le RP, et le panneau de
+        validation formateur (RP/TI).
+        **Aucun correctif applicatif n'a ete necessaire** : le mecanisme d'appartenance de l'etat a
+        la page couvre deja ces roles, les ecrans etant communs. Ce qui manquait etait la
+        verification, pas le correctif.
+      </decision>
+
+      <openPoints>
+        <item id="uuid-on-financial-profile-page">
+          `src/pages/FinancialProfilePage.tsx:178` affiche « Identifiant proprietaire : &lt;uuid&gt; »
+          en `font-mono`. La page est ouverte au parent financeur, au formateur, a l'AP et au RP,
+          alors que seul l'AF a le droit de lire un identifiant technique (regle du 2026-08-09).
+          Signale, non corrige : hors du perimetre demande.
+        </item>
+        <item id="uuid-on-teacher-validation-panel">
+          `src/pages/TeacherValidationPanel.tsx:133` affiche `validatedBy.slice(0, 8)` — un fragment
+          d'UUID en guise de nom du valideur. `usePersonDisplayName` existe deja et resout un
+          identifiant en « Prenom Nom ». Meme famille que l'UUID connu du bloc « Formateurs lies ».
+        </item>
+        <item id="verification-account-left-on-dev-stack">
+          Compte de verification cree sur la pile reelle pour attester les reponses HTTP citees
+          ci-dessus : `front.check.0811` (role eleve). Aucune route de suppression de compte
+          n'existe ; a suspendre par un TI si l'utilisateur le souhaite.
+        </item>
+      </openPoints>
+    </session>
+
+    <session date="2026-08-11" label="Statistiques sorties du profil, profil financier promu en onglet (branche feat/champs-profils-eleve)">
+      <context>
+        Deux changements d'ecran demandes avant le merge de la PR #92, mot pour mot :
+        (1) « les statistiques pedagogiques doivent aller dans Stats/Archives (et pas dans le
+        profil) » ; (2) « le profil financier (qui apparait dans le profil administratif avec un
+        bouton gerer, doit en fait etre un troisieme onglet : profil financier, aussi bien pour
+        les parents que pour les formateurs ».
+      </context>
+
+      <decision id="statistics-moved-not-created">
+        La destination existait deja et n'a pas eu a etre inventee : l'entree de navigation haute
+        « Stats / Archives » pointe sur `/archives`, servie par `PedagogicalArchivePage`, dont le
+        **premier onglet** rend deja `ProfileStatisticsPanel`. La fiche de profil en portait donc
+        un second exemplaire. Seul le profil a change : `ProfilePage` n'importe plus le panneau,
+        `PedagogicalArchivePage` reste inchangee. Aucun fichier de statistiques supprime.
+      </decision>
+
+      <decision id="financial-profile-becomes-a-tab">
+        Nouvel onglet « Profil financier », place **apres « Profil pedagogique »** — troisieme
+        dans l'ordre canonique des onglets de profil, ce que dit la demande. Pour un parent
+        financeur, qui n'a pas d'onglet pedagogique, il apparait donc en deuxieme position :
+        l'ordre est stable, pas le rang.
+        Le contenu est extrait dans `src/components/finance/FinancialProfilePanel.tsx` +
+        `src/hooks/finance/useFinancialProfile.ts` + `src/components/finance/FinancialArchiveTable.tsx`.
+        `FinancialProfilePage` reste la page `/finance` et `/finance/:ownerId`, reduite au cadre,
+        au titre et a l'identification du titulaire : un seul contenu, deux emplacements.
+        La carte `ProfileLinkCard` « Profil financier / Gerer » disparait de l'onglet administratif.
+      </decision>
+
+      <decision id="financial-tab-visibility-by-role">
+        `roleHasFinancialProfile` (nouveau, dans `src/utils/profilePermissions.ts`) : parent
+        financeur, formateur, animateur pedagogique — sur leur **propre** fiche uniquement.
+        - L'eleve est exclu : il ne finance rien, c'est son parent financeur qui paie (`README.md`).
+        - L'AP suit le formateur : c'est un formateur promu, remunere comme tel.
+        - RP, AF et TI sont exclus : `docs/routes.md` leur ouvre la **lecture du profil financier
+          d'autrui** (`/finance/:ownerId`), pas un profil financier a eux. Leur en afficher un
+          aboutirait a l'etat vide. Ils gardent la page et, pour l'AF, l'entree du rail gauche.
+        Effet de bord corrige : la carte « Gerer » s'affichait pour le formateur et l'AP alors que
+        la route `/finance` leur est fermee (`routeAccessMap`, `App.tsx`) — elle les menait a
+        `/forbidden`. L'onglet n'emprunte aucune route et n'a pas ce defaut.
+      </decision>
+
+      <decision id="owner-shown-by-name-not-by-uuid">
+        `FinancialProfilePage` affichait « Identifiant proprietaire : &lt;uuid&gt; » en `font-mono`
+        a tout lecteur. Remplace par le nom du titulaire (`usePersonDisplayName`), affiche
+        seulement quand on consulte le profil **d'un tiers** ; l'administrateur financier garde en
+        plus la reference technique, seul role autorise a lire un identifiant (arbitrage du
+        2026-08-09).
+      </decision>
+
+      <decision id="absence-is-not-a-failure">
+        `404` sur `GET /finance/financial-profiles/:ownerId` n'est plus presente comme une erreur
+        (« Profil financier introuvable. ») mais comme un etat vide : le profil nait du premier
+        paiement d'inscription. Verifie contre la pile reelle le 2026-08-11 — un parent financeur
+        cree a l'instant recoit `404 Financial profile for owner … not found`, c'est donc l'etat
+        d'accueil ordinaire de tout nouveau compte.
+      </decision>
+
+      <decision id="french-labels-single-point">
+        `src/utils/financeLabels.ts` (nouveau) : moyens de paiement, type de compte et type
+        d'archive. Le type d'archive s'affichait jusqu'ici **brut** (`payment`, `ledger_entry`), et
+        `PAYMENT_METHOD_LABELS` vivait dans `PaymentMethodEditor`. Un point unique, comme l'exige
+        la regle de langue du 2026-08-09.
+      </decision>
+
+      <decision id="dead-success-message-revived">
+        `RegistrationPaymentSection` affichait la confirmation de paiement dans un bloc qui
+        disparait a l'instant ou le paiement reussit (le compte passe « membre ») : le message
+        etait mort-ne. Il remonte au panneau, qui reste a l'ecran.
+      </decision>
+
+      <decision id="tests">
+        `test/pages/ProfileFinancialTab.test.tsx` (15 cas) : visibilite role par role, disparition
+        du lien vers `/finance`, absence de chargement financier avant la premiere ouverture,
+        montage puis conservation (un aller-retour ne rejoue ni le profil ni les archives et garde
+        la saisie), absence d'UUID, et les cas `403` / `404` / archives en echec.
+        `test/pages/FinancialProfilePage.test.tsx` : trois cas sur l'identification du titulaire.
+        `test/pages/ProfileTabsState.test.tsx` : la preuve du montage paresseux ne pouvait plus
+        reposer sur l'appel de statistiques ; elle porte sur la presence du panneau dans le
+        document, et un cas dedie verifie qu'aucune statistique n'est plus demandee par la fiche.
+        Suite complete : 6 echecs, tous preexistants et etrangers a ce lot.
+      </decision>
+
+      <openPoints>
+        <item id="finance-refuses-the-formateur-role">
+          **Bloquant pour la moitie de la demande.** Verifie contre la pile reelle le 2026-08-11
+          avec un compte formateur reel (`front.fin.0811`) :
+          `GET /api/v1/finance/financial-profiles/&lt;son propre id&gt;` repond
+          `403 {"message":"Insufficient role"}`, et `GET /api/v1/finance/financial-archives/&lt;id&gt;`
+          aussi. Le meme appel par un parent financeur sur son propre identifiant repond `404`
+          (absence de profil) et les archives `200 []` : le role `parent_financeur` est donc
+          accepte, `formateur` refuse **avant** tout controle de propriete.
+          `docs/routes.md` documente pourtant « owner (soi-meme) » sur ces deux routes.
+          Consequence a l'ecran : l'onglet « Profil financier » d'un formateur affiche
+          « Acces refuse. ». Le front est pret ; le correctif appartient a
+          `finance-credit-service` (accepter `formateur` et `animateur_pedagogique` comme
+          proprietaires). A noter que le formateur a bien une surface financiere ouverte :
+          `GET /finance/teacher-payment-requests/by-teacher/:id` repond `200 []`.
+        </item>
+        <item id="ap-sees-stats-archives-but-cannot-open-it">
+          `TOP_NAV_CONFIG` autorise `animateur_pedagogique` sur « Stats / Archives », alors que
+          `routeAccessMap` et la route `/archives` de `App.tsx` ne le listent pas : l'entree mene
+          donc a `/forbidden`, ce que la regle de filtrage UI interdit. Anomalie **preexistante**,
+          mais elle devient consequente maintenant que les statistiques ne sont plus dans le
+          profil : l'AP n'a plus aucun chemin vers elles. Cote serveur,
+          `GET /profiles/:userId/statistics` lui est ouvert tandis que les archives pedagogiques
+          ne le sont pas (`docs/routes.md`) — la decision (ouvrir la route ou retirer l'entree)
+          appartient a l'utilisateur, elle n'a pas ete prise ici.
+        </item>
+        <item id="two-doors-to-the-financial-profile">
+          Le rail gauche du parent financeur (« Compte &gt; Profil financier » → `/finance`) et
+          celui de l'AF (« Finance &gt; Profils financiers » → `/finance`) pointent toujours sur la
+          page. Ce n'est pas le doublon vise par la demande — celui-ci etait la carte « Gerer » de
+          l'onglet administratif, supprimee — mais le parent dispose desormais de deux chemins
+          vers le meme contenu. Laisse en l'etat, a trancher.
+        </item>
+        <item id="registration-payment-unreachable-without-a-profile">
+          Le bloc « Activer votre compte » n'est rendu qu'une fois le profil financier charge :
+          un parent financeur en `404` (aucun profil, cas de tout nouveau compte) ne peut donc pas
+          declencher son paiement d'inscription depuis cet ecran. Defaut **preexistant**, non
+          corrige ici : `POST /finance/payments` cree pourtant le profil. A traiter avec le
+          parcours de paiement.
+        </item>
+        <item id="verification-accounts-left-on-dev-stack">
+          Comptes crees sur la pile reelle pour attester les reponses HTTP citees ci-dessus :
+          `front.fin.0811` (formateur) et `front.fin.parent.0811` (parent financeur), qui s'ajoutent
+          a `front.check.0811` (eleve) du lot precedent. Aucune route de suppression de compte
+          n'existe ; a suspendre par un TI.
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

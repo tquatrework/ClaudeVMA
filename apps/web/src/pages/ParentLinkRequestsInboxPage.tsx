@@ -6,6 +6,19 @@ import {
   rejectParentLinkRequest,
   type ParentLinkRequest,
 } from '../api/parentLinkRequest'
+import { useParentLinkPersonNames } from '../hooks/profile/useParentLinkPersonNames'
+import {
+  UNDISCLOSED_COUNTERPART_NOTICE,
+  formatCounterpartLabel,
+  getCounterpartSide,
+} from '../utils/parentLinkRequestLabels'
+
+/** Personne à nommer sur une demande : toujours celle qui l'a initiée. */
+function getCounterpartId(request: ParentLinkRequest): string {
+  return getCounterpartSide(request.direction) === 'student'
+    ? request.studentId
+    : request.parentId
+}
 
 export default function ParentLinkRequestsInboxPage() {
   const [pendingRequests, setPendingRequests] = useState<ParentLinkRequest[]>([])
@@ -13,6 +26,11 @@ export default function ParentLinkRequestsInboxPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set())
   const [actionError, setActionError] = useState<string | null>(null)
+
+  const { getPersonName } = useParentLinkPersonNames(pendingRequests.map(getCounterpartId))
+  const hasUndisclosedCounterpart = pendingRequests.some(
+    (request) => getPersonName(getCounterpartId(request)) === null,
+  )
 
   useEffect(() => {
     fetchParentLinkRequests()
@@ -87,52 +105,55 @@ export default function ParentLinkRequestsInboxPage() {
         ) : pendingRequests.length === 0 ? (
           <p className="text-sm text-gray-400">Aucune demande en attente.</p>
         ) : (
-          <ul className="space-y-4">
-            {pendingRequests.map((request) => {
-              const isProcessing = processingIds.has(request.id)
-              return (
-                <li
-                  key={request.id}
-                  className="p-4 bg-white border border-gray-200 rounded-xl"
-                >
-                  <div className="mb-3">
-                    <p className="text-sm font-medium text-gray-800">
-                      Demande de rattachement
-                    </p>
-                    <p className="text-sm text-gray-600 mt-0.5">
-                      {request.direction === 'student_initiated'
-                        ? `Élève : ELV-${request.studentId.slice(0, 8)}`
-                        : `Parent : PAR-${request.parentId.slice(0, 8)}`}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      Reçue le{' '}
-                      {new Date(request.requestedAt).toLocaleDateString('fr-FR', {
-                        day: 'numeric',
-                        month: 'long',
-                        year: 'numeric',
-                      })}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleApprove(request.id)}
-                      disabled={isProcessing}
-                      className="bg-green-600 text-white text-sm px-4 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
-                    >
-                      Accepter
-                    </button>
-                    <button
-                      onClick={() => handleReject(request.id)}
-                      disabled={isProcessing}
-                      className="bg-red-100 text-red-700 text-sm px-4 py-1.5 rounded-lg hover:bg-red-200 disabled:opacity-50 transition-colors border border-red-200"
-                    >
-                      Refuser
-                    </button>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
+          <>
+            {hasUndisclosedCounterpart && (
+              <p className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs">
+                {UNDISCLOSED_COUNTERPART_NOTICE}
+              </p>
+            )}
+            <ul className="space-y-4">
+              {pendingRequests.map((request) => {
+                const isProcessing = processingIds.has(request.id)
+                return (
+                  <li key={request.id} className="p-4 bg-white border border-gray-200 rounded-xl">
+                    <div className="mb-3">
+                      <p className="text-sm font-medium text-gray-800">Demande de rattachement</p>
+                      <p className="text-sm text-gray-600 mt-0.5">
+                        {formatCounterpartLabel(
+                          getPersonName(getCounterpartId(request)),
+                          getCounterpartSide(request.direction),
+                        )}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Reçue le{' '}
+                        {new Date(request.requestedAt).toLocaleDateString('fr-FR', {
+                          day: 'numeric',
+                          month: 'long',
+                          year: 'numeric',
+                        })}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleApprove(request.id)}
+                        disabled={isProcessing}
+                        className="bg-green-600 text-white text-sm px-4 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+                      >
+                        Accepter
+                      </button>
+                      <button
+                        onClick={() => handleReject(request.id)}
+                        disabled={isProcessing}
+                        className="bg-red-100 text-red-700 text-sm px-4 py-1.5 rounded-lg hover:bg-red-200 disabled:opacity-50 transition-colors border border-red-200"
+                      >
+                        Refuser
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </>
         )}
       </div>
     </Layout>

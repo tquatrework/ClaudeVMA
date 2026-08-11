@@ -1286,6 +1286,129 @@
       </openPoints>
     </session>
 
+    <session date="2026-08-11" label="UUID des demandes de rattachement remplaces par des noms, six tests rouges resorbes (branche fix/uuid-affiches-et-tests-rouges)">
+      <context>
+        Demande utilisateur, mot pour mot : « corrige les deux ecrans qui affichent des UUID et
+        les 6 rouges ». Les ecrans vises sont `ParentLinkRequestPage` et
+        `ParentLinkRequestsInboxPage`, qui affichaient `ELV-&lt;8 premiers caracteres de l'UUID&gt;`
+        et `PAR-&lt;...&gt;`. Les six tests rouges etaient prealables aux lots recents.
+      </context>
+
+      <decision id="who-can-read-the-name-established-against-the-real-stack">
+        Le point delicat etait de savoir si le nom est seulement **accessible** : une demande de
+        rattachement precede le lien qui ouvre le droit de lecture d'un profil. Etabli contre la
+        pile reelle le 2026-08-11, avec deux comptes crees pour l'occasion
+        (`camille.durand.26828`, eleve ; `sophie.moreau.26828`, parent financeur) :
+
+        | Appel | Demande `pending` | Apres acceptation |
+        |---|---|---|
+        | parent → `GET /profiles/&lt;eleve&gt;` | `403` | `200` |
+        | eleve → `GET /profiles/&lt;parent&gt;` | `403` | `403` |
+        | eleve → `GET /relations/finance-owner-student/by-student/&lt;lui&gt;` | — | `200` avec `financeOwnerName {firstName, lastName}` |
+        | parent → `GET /relations/finance-owner-student/&lt;lui&gt;` | — | `200` avec `studentName {firstName, lastName}` |
+        | les deux → `GET /parent-link-requests` | `200`, **identifiants seuls** | idem |
+
+        Le `403` de l'eleve sur le profil du parent persiste **apres** le rattachement
+        (`"An élève may only view their own profile"`). La seule source exploitable du nom est
+        donc la paire de routes de relations, qui le porte **deja resolu cote serveur**.
+        `GET /parent-link-requests` ne renvoie, lui, que `parentId` / `studentId`.
+      </decision>
+
+      <decision id="names-resolved-once-per-page-never-per-row">
+        Nouveau hook `src/hooks/profile/useParentLinkPersonNames.ts`. Il n'utilise pas
+        `usePersonDisplayName` : celui-ci appelle `GET /profiles/:userId` **par personne**, ce qui
+        aurait produit un `403` par ligne pour retomber sur un libelle generique. Le hook fait
+        **un** appel de relations selon le role du lecteur (parent → `fetchLinkedStudents`,
+        eleve → `fetchLinkedParents`), puis complete par `GET /profiles/:userId` **uniquement**
+        pour le RP et le TI, seuls roles autorises a lire n'importe quel profil. Aucun appel
+        voue au `403` n'est emis.
+      </decision>
+
+      <decision id="honest-french-label-instead-of-an-identifier">
+        Quand le nom n'est pas accessible, l'ecran ecrit « Élève — nom non communiqué » /
+        « Parent financeur — nom non communiqué », et non « nom non renseigne » : le nom existe,
+        c'est le droit de lecture qui manque. Libelles centralises dans
+        `src/utils/parentLinkRequestLabels.ts` (regle de langue du 2026-08-09 : un seul point de
+        correspondance). Les tables de statuts, jusque-la locales a `ParentLinkRequestPage`, y ont
+        ete deplacees.
+      </decision>
+
+      <decision id="inbox-warns-before-an-uninformed-decision">
+        La boite de reception n'affiche que des demandes `pending` : pour un **eleve**, aucun nom
+        n'est donc jamais disponible. Un bandeau l'annonce explicitement et invite a verifier
+        aupres de la personne concernee avant d'accepter. Le RP et le TI, eux, voient les noms.
+      </decision>
+
+      <decision id="the-six-red-tests-two-distinct-causes">
+        Quatre etaient des **tests perimes** : ils cherchaient `studentId` / `parentId` a l'ecran
+        et figeaient donc le defaut a corriger. Ils verifient desormais le prenom et le nom quand
+        ils sont accessibles, le libelle francais sinon, et l'**absence** de tout identifiant dans
+        le rendu (`container.textContent`), ce qu'ils ne verifiaient pas avant — le lot les
+        renforce au lieu de les affaiblir.
+        Les deux autres (`HealthStatusPage`, `WorkflowStatusPage`) etaient des **requetes trop
+        laches**, ecrans sains : le rail gauche du TI porte « État des services » et celui de l'AF
+        « Workflows », memes libelles que le titre des pages qu'ils ouvrent.
+        `getByText` trouvait deux noeuds et echouait — pour ces deux roles seulement, ce qui
+        explique qu'un seul test par fichier soit rouge. Remplace par
+        `getByRole('heading', { name })`, plus strict et explicite.
+      </decision>
+
+      <files>
+        <item path="apps/web/src/utils/parentLinkRequestLabels.ts">Nouveau — libelles francais et formatage du nom.</item>
+        <item path="apps/web/src/hooks/profile/useParentLinkPersonNames.ts">Nouveau — resolution des noms sans 403 provoque.</item>
+        <item path="apps/web/src/pages/ParentLinkRequestPage.tsx">Nom de l'eleve au lieu de `ELV-…`.</item>
+        <item path="apps/web/src/pages/ParentLinkRequestsInboxPage.tsx">Nom du demandeur au lieu de `PAR-…`, bandeau d'avertissement.</item>
+        <item path="apps/web/test/pages/ParentLinkRequestPage.test.tsx">Tests du nom affiche et de l'absence d'identifiant.</item>
+        <item path="apps/web/test/pages/ParentLinkRequestsInboxPage.test.tsx">Idem, plus le cas RP qui voit les noms.</item>
+        <item path="apps/web/test/pages/admin-observability/HealthStatusPage.test.tsx">Titre cible par role ARIA.</item>
+        <item path="apps/web/test/pages/orchestration/WorkflowStatusPage.test.tsx">Titre cible par role ARIA.</item>
+      </files>
+
+      <openPoints>
+        <item id="server-should-carry-the-name-in-the-request">
+          **Decision d'architecture a rendre.** Un eleve doit aujourd'hui accepter ou refuser un
+          rattachement **sans savoir qui le demande** : `GET /parent-link-requests` ne porte que
+          des identifiants, et il n'a le droit de lire aucun profil de parent, avant comme apres
+          le lien. Le front ne peut pas combler ce trou — il ne peut qu'ecrire honnetement que le
+          nom n'est pas communiqué. Correctif durable : que `profile-service` enrichisse la route
+          d'un `parentName` / `studentName`, exactement comme `financeOwnerName` / `studentName`
+          des routes de relations. Les composants `PendingParentInvitationsList` et
+          `PendingStudentRequestsList` (onglets du profil) portent deja la meme note.
+        </item>
+        <item id="third-screen-with-the-same-defect-out-of-scope">
+          `apps/web/src/pages/PedagogicalArchivePage.tsx` (lignes 93 et 96) retombe sur
+          `ELV-${studentId.slice(0, 8)}` par le meme mecanisme. **Non corrige ici** : `/archives`
+          appartient au perimetre de la branche `feat/acces-stats-archives-relations` (PR #94),
+          et empiler deux branches sur le meme fichier a ete explicitement ecarte.
+        </item>
+        <item id="gateway-502-on-every-profile-service-route">
+          **L'application est actuellement cassee sur toutes les routes de `profile-service`.**
+          Constate le 2026-08-11 : `GET /api/v1/profiles/avatar/constraints` et
+          `GET /api/v1/relations/...` repondent `502 {"statusCode":502,"message":"Service
+          temporarily unavailable"}` a travers la gateway, alors que
+          `wget http://profile-service:3002/health` depuis le conteneur `visiomath_gateway`
+          repond `200 {"status":"ok"}`. Journal de la gateway :
+          `connect() failed (111: Connection refused) ... upstream: "http://172.25.0.16:3002/..."`
+          tandis que le conteneur ecoute desormais sur `172.25.0.6` — nginx a resolu le nom au
+          chargement de sa configuration et garde l'ancienne adresse depuis le redemarrage de
+          `visiomath_profile`. Un `nginx -s reload` de la gateway suffit ; non fait ici, le
+          deploiement appartenant a l'utilisateur. Consequence directe : la preuve a l'ecran de ce
+          lot n'a pas pu etre produite via la gateway — les reponses citees plus haut ont ete
+          obtenues en interrogeant `profile-service` par son nom depuis le reseau Docker, meme
+          service, meme JWT, meme contrat.
+        </item>
+        <item id="student-link-request-requires-a-pedagogical-profile">
+          Effet de bord rencontre pendant la verification, **non corrige** (backend) :
+          `POST /parent-link-requests` sur un eleve tout juste inscrit repond
+          `400 {"message":"Aucun profil élève trouvé pour cet identifiant."}` tant que l'eleve n'a
+          pas enregistre un profil **pedagogique** — lequel est facultatif et absent a
+          l'inscription (arbitrage du 2026-08-07). Un parent ne peut donc pas rattacher un eleve
+          qui n'a pas encore rempli son profil pedagogique, et le message ne le dit pas.
+        </item>
+        <item id="verification-accounts-left-on-dev-stack-0811b">
+          Comptes crees sur la pile reelle pour attester les reponses HTTP citees ci-dessus :
+          `camille.durand.26828` (eleve) et `sophie.moreau.26828` (parent financeur), rattaches
+          l'un a l'autre. Aucune route de suppression de compte n'existe ; a suspendre par un TI.
     <session date="2026-08-11" label="Acces aux stats et archives des personnes reliees (branche feat/acces-stats-archives-relations)">
       <context>
         Demande utilisateur, mot pour mot : « Tout user peut avoir acces aux statistiques et

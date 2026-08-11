@@ -3,7 +3,7 @@
  *
  * Covers:
  * - Only pending requests are displayed
- * - Each request shows parentId and date
+ * - Chaque demande nomme le demandeur, jamais son identifiant technique
  * - Accepter button calls approveParentLinkRequest
  * - Refuser button calls rejectParentLinkRequest
  * - After approve: request disappears from list (status updated locally)
@@ -21,15 +21,30 @@ import ParentLinkRequestsInboxPage from '../../src/pages/ParentLinkRequestsInbox
 
 vi.mock('../../src/api/client')
 vi.mock('../../src/api/parentLinkRequest')
+vi.mock('../../src/api/relations')
 vi.mock('../../src/hooks/useAuth')
 
 import * as parentLinkRequestApi from '../../src/api/parentLinkRequest'
+import { fetchLinkedParents, fetchStudentProfile } from '../../src/api/relations'
 import { useAuth } from '../../src/hooks/useAuth'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockFetchParentLinkRequests = vi.mocked(parentLinkRequestApi.fetchParentLinkRequests)
 const mockApproveParentLinkRequest = vi.mocked(parentLinkRequestApi.approveParentLinkRequest)
 const mockRejectParentLinkRequest = vi.mocked(parentLinkRequestApi.rejectParentLinkRequest)
+const mockFetchLinkedParents = vi.mocked(fetchLinkedParents)
+const mockFetchStudentProfile = vi.mocked(fetchStudentProfile)
+
+/**
+ * Libellé de repli attendu tant que le nom du demandeur n'est pas accessible.
+ *
+ * Ce n'est pas un pis-aller de test : sur la pile réelle, un élève reçoit 403 sur
+ * `GET /profiles/<parent>` — avant comme après le rattachement (« An élève may
+ * only view their own profile »), et `GET /parent-link-requests` ne porte que des
+ * identifiants. L'écran n'a donc rien d'humain à afficher, et l'écrire vaut mieux
+ * que de recracher un UUID.
+ */
+const UNDISCLOSED_FINANCE_OWNER_LABEL = 'Parent financeur — nom non communiqué'
 
 const DEFAULT_AUTH = {
   user: {
@@ -47,11 +62,23 @@ const DEFAULT_AUTH = {
   refreshUser: vi.fn(),
 }
 
+const RESPONSABLE_PEDAGOGIQUE_AUTH = {
+  ...DEFAULT_AUTH,
+  user: {
+    id: 'rp-001',
+    email: 'rp@test.com',
+    role: 'responsable_pedagogique' as const,
+    validationStatus: 'active' as const,
+  },
+  isInternalRole: vi.fn(() => true),
+}
+
 const PENDING_REQUEST_ONE: parentLinkRequestApi.ParentLinkRequest = {
   id: 'req-001',
   parentId: 'parent-aaa',
   studentId: 'student-001',
   status: 'pending',
+  direction: 'parent_initiated',
   requestedAt: '2026-06-10T08:00:00Z',
 }
 
@@ -60,6 +87,7 @@ const PENDING_REQUEST_TWO: parentLinkRequestApi.ParentLinkRequest = {
   parentId: 'parent-bbb',
   studentId: 'student-001',
   status: 'pending',
+  direction: 'parent_initiated',
   requestedAt: '2026-06-11T09:00:00Z',
 }
 
@@ -68,6 +96,7 @@ const APPROVED_REQUEST: parentLinkRequestApi.ParentLinkRequest = {
   parentId: 'parent-ccc',
   studentId: 'student-001',
   status: 'approved',
+  direction: 'parent_initiated',
   requestedAt: '2026-06-05T07:00:00Z',
   processedAt: '2026-06-06T10:00:00Z',
   processedBy: 'student-001',
@@ -84,6 +113,9 @@ function renderPage() {
 beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue(DEFAULT_AUTH)
+  // Une demande en attente précède le rattachement : aucun parent lié, donc aucun
+  // nom résolu par les relations pour l'élève qui doit décider.
+  mockFetchLinkedParents.mockResolvedValue([])
 })
 
 describe('ParentLinkRequestsInboxPage', () => {
@@ -104,23 +136,58 @@ describe('ParentLinkRequestsInboxPage', () => {
 
       renderPage()
 
+      // Une seule demande affichée : la demande déjà approuvée n'a plus de décision
+      // à recueillir et ne doit pas encombrer la boîte de réception.
       await waitFor(() => {
-        expect(screen.getByText(PENDING_REQUEST_ONE.parentId, { exact: false })).toBeDefined()
+        expect(screen.getAllByRole('listitem').length).toBe(1)
       })
-
-      // approved request should not appear in the inbox
-      expect(screen.queryByText(APPROVED_REQUEST.parentId, { exact: false })).toBeNull()
+      expect(screen.getByText('10 juin 2026', { exact: false })).toBeDefined()
+      expect(screen.queryByText('5 juin 2026', { exact: false })).toBeNull()
     })
 
-    it('shows parentId for each pending request', async () => {
+    it('nomme le demandeur de chaque demande, jamais son identifiant', async () => {
       mockFetchParentLinkRequests.mockResolvedValue([PENDING_REQUEST_ONE, PENDING_REQUEST_TWO])
+
+      const { container } = renderPage()
+
+      await waitFor(() => {
+        expect(screen.getAllByText(UNDISCLOSED_FINANCE_OWNER_LABEL).length).toBe(2)
+      })
+
+      const renderedText = container.textContent ?? ''
+      expect(renderedText).not.toContain(PENDING_REQUEST_ONE.parentId)
+      expect(renderedText).not.toContain(PENDING_REQUEST_TWO.parentId)
+      expect(renderedText).not.toContain('PAR-')
+    })
+
+    it('avertit que le nom du demandeur n\'est pas communiqué avant acceptation', async () => {
+      mockFetchParentLinkRequests.mockResolvedValue([PENDING_REQUEST_ONE])
 
       renderPage()
 
       await waitFor(() => {
-        expect(screen.getByText(PENDING_REQUEST_ONE.parentId, { exact: false })).toBeDefined()
-        expect(screen.getByText(PENDING_REQUEST_TWO.parentId, { exact: false })).toBeDefined()
+        expect(
+          screen.getByText(/le nom du demandeur n'est pas communiqué par la plateforme/i),
+        ).toBeDefined()
       })
+    })
+
+    it('affiche le prénom et le nom du demandeur quand le lecteur peut les lire (RP)', async () => {
+      mockUseAuth.mockReturnValue(RESPONSABLE_PEDAGOGIQUE_AUTH)
+      mockFetchParentLinkRequests.mockResolvedValue([PENDING_REQUEST_ONE])
+      mockFetchStudentProfile.mockResolvedValue({
+        userId: 'parent-aaa',
+        loginIdentifier: 'sophie.moreau',
+        administrative: { firstName: 'Sophie', lastName: 'Moreau' },
+      })
+
+      const { container } = renderPage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Sophie Moreau')).toBeDefined()
+      })
+      expect(mockFetchStudentProfile).toHaveBeenCalledWith('parent-aaa')
+      expect(container.textContent ?? '').not.toContain(PENDING_REQUEST_ONE.parentId)
     })
 
     it('shows Accepter and Refuser buttons for each pending request', async () => {
@@ -312,10 +379,11 @@ describe('ParentLinkRequestsInboxPage', () => {
       await userEvent.click(acceptButtons[0])
 
       await waitFor(() => {
-        // Only one pending request should remain
+        // Only one pending request should remain — celle du 11 juin.
         expect(screen.getAllByRole('button', { name: /accepter/i }).length).toBe(1)
-        expect(screen.getByText(PENDING_REQUEST_TWO.parentId, { exact: false })).toBeDefined()
+        expect(screen.getByText('11 juin 2026', { exact: false })).toBeDefined()
       })
+      expect(screen.queryByText('10 juin 2026', { exact: false })).toBeNull()
     })
   })
 })

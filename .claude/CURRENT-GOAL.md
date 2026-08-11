@@ -7,27 +7,56 @@
 
 ## Besoin
 
-Une donnée enregistrée depuis une page de profil doit **rester affichée**. Ni un changement
-d'onglet, ni l'ouverture d'un panneau ne doivent faire réapparaître les valeurs d'avant
-l'enregistrement. L'utilisateur doit voir à l'écran ce que le serveur a réellement enregistré —
-y compris les champs que le serveur pose lui-même et que le client ne connaît pas
-(`filledBy`, `filledAt`, `avatarUrl`).
+Deux demandes de l'utilisateur du **2026-08-11**, après sa validation de la permanence côté
+élève (« cela fonctionne, pour les élèves au moins ») :
 
-Le besoin vaut pour les deux blocs, **administratif et pédagogique**, ainsi que pour la
-prescription. Il a été révélé par la photo de profil, mais il ne lui est pas propre.
+**1. Étendre la vérification de permanence aux autres rôles.** Parent, formateur, AP et RP
+doivent être traités exactement comme l'élève : une donnée enregistrée reste affichée, un
+changement d'onglet ne la fait pas disparaître. À vérifier écran par écran, pas à supposer
+depuis le fait que le mécanisme est générique.
+
+**2. Corriger le contenu des formulaires de l'élève** — cinq modifications :
+
+| # | Bloc | Demande |
+|---|---|---|
+| 1 | administratif | **ajouter l'email** (existe sans doute déjà à l'inscription, mais n'est pas affiché) |
+| 2 | administratif | **supprimer « Département »** |
+| 3 | pédagogique | **ajouter « Établissement »** |
+| 4 | pédagogique | **séparer en deux champs : « Contexte familial » et « Contexte scolaire »** |
+| 5 | pédagogique | **ajouter « Matériel »** (lieu des cours, équipement) |
+
+L'utilisateur demande en fin de travail la **liste des fichiers et dossiers touchés**, front et
+back.
+
+## Point d'architecture soulevé par la demande 1 — email
+
+`email` appartient à **`identity-access-service`**, pas à `profile-service` : c'est une donnée du
+compte (`{id, loginIdentifier, email, role}`), au même titre que `loginIdentifier`, et
+l'arbitrage du 2026-08-08 a acté que les deux ne sont pas un doublon. **Ajouter une colonne
+`email` à `profile-service` recréerait le problème d'appartenance déjà tranché pour
+`firstName`/`lastName`/`phone`.** L'affichage doit donc lire le compte, pas dupliquer le champ.
 
 ## Comment on saura que c'est fait
 
-Sur `https://claudevma.visioprof.fr`, parcours joué contre la pile réelle :
+Sur `https://claudevma.visioprof.fr`, parcours joué contre la pile réelle, capture ou réponse
+HTTP citée :
 
-1. un élève enregistre un champ du profil administratif, passe sur un autre onglet, revient →
-   la valeur enregistrée est toujours là, **sans rechargement de page** ;
-2. même chose sur le profil pédagogique ;
-3. un RP rédige la prescription → `filledBy` et `filledAt` s'affichent **immédiatement**, ce qui
-   prouve que l'écran lit la réponse du serveur et non le corps qu'il vient d'envoyer ;
-4. la photo envoyée reste visible au retour sur son onglet.
+1. le formulaire administratif d'un élève affiche son email et **ne comporte plus** de
+   « Département » ;
+2. le formulaire pédagogique porte « Établissement », « Contexte familial », « Contexte
+   scolaire » et « Matériel », chacun enregistrable et **rémanent** au changement d'onglet ;
+3. un compte de chaque autre rôle — parent, formateur, AP, RP — enregistre une donnée, change
+   d'onglet, revient : la valeur tient.
 
 Ni tests verts, ni PR ouverte ne valent preuve.
+
+## Objectif précédent, clos le 2026-08-11
+
+Permanence des champs côté élève : **validé par l'utilisateur** après son propre test manuel sur
+la pile réelle. Lots #87 (mauvais niveau, annulé), #88 (appartenance d'état, onglets gardés
+montés), #89 (généralisation à tous les champs) mergés ; front reconstruit et déployé le
+2026-08-11, bundle `index-D5m4QIQi.js` servi publiquement, marqueurs `onAdministrativeSaved` /
+`onPedagogicalSaved` présents alors qu'ils étaient absents du bundle précédent.
 
 ## Cause tranchée — erreur d'appartenance d'état, pas de fraîcheur
 

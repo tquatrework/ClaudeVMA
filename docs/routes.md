@@ -466,8 +466,11 @@ Le front connaît de toute façon `File.size` avant l'envoi : la clé qui compte
 | `city` | `string` | 100 max |
 | `country` | `string` | 100 max |
 | `avatarUrl` | `string` | **LECTURE SEULE — `400` si envoyé.** Géré par l'application depuis le 2026-08-10 : URL construite par le serveur vers `GET /profiles/:userId/avatar`, avec un jeton de version (`?v=`). Voir « Photo de profil » ci-dessus |
-| `department` | `string` | Département administratif français de résidence, e.g. `"75 - Paris"` (100 max) |
 | `passions` | `string[]` | Centres d'intérêt / hobbies |
+
+> `department` a été **supprimé le 2026-08-11** (demande utilisateur). La colonne `departement` est
+> droppée, le champ ne figure plus ni au catalogue de visibilité ni dans la réponse. L'envoyer
+> renvoie désormais `400 property department should not exist`.
 
 **Profil pédagogique — section déclarative** — `PUT /profiles/:userId/pedagogical`
 
@@ -476,10 +479,13 @@ Ce que le **titulaire** déclare sur lui-même.
 | Champ | Type | Profil | Remarque |
 |---|---|---|---|
 | `level` | `string` | Élève | Niveau scolaire suivi (100 max) |
+| `schoolName` | `string` | Élève | **Nom de l'établissement** scolaire fréquenté (200 max). Un nom propre, pas une description : tout ce qui relève de la situation scolaire va dans `schoolContext` |
 | `goals` | `string` | Élève | Objectifs pédagogiques (2000 max) |
 | `specificNeeds` | `string` | Élève | **Aménagements reconnus** : DYS, PAP, PPS (2000 max) |
 | `difficulties` | `string` | Élève | **Ce sur quoi l'élève bute** (2000 max). À ne PAS confondre avec `specificNeeds` : le premier est une difficulté d'apprentissage, le second un aménagement reconnu |
-| `context` | `string` | Élève | Situation scolaire et familiale utile au suivi (2000 max) |
+| `familyContext` | `string` | Élève | Situation **familiale** utile au suivi : fratrie, séparation, disponibilité des parents… (2000 max) |
+| `schoolContext` | `string` | Élève | Situation **scolaire** utile au suivi : redoublement, changement d'établissement, options, ambiance de classe… (2000 max) |
+| `equipment` | `string` | Élève | **Lieu des cours et équipement** : pièce dédiée, ordinateur, tablette, connexion, webcam… (2000 max). UN SEUL champ libre, volontairement pas deux |
 | `levels` | `string[]` | Formateur | Niveaux enseignés |
 | `experience` | `string` | Formateur | Expérience pédagogique (3000 max) |
 | `diplomas` | `string` | Formateur | Titres et certifications déclarés (2000 max) |
@@ -487,6 +493,11 @@ Ce que le **titulaire** déclare sur lui-même.
 | `particularities` | `string` | Formateur | Modalités, contraintes, publics particuliers (3000 max) |
 | `cvDocumentId` | `string` | Formateur | **Référence** du CV auprès d'`archive-document-service` (255 max). Jamais une URL de fichier : `profile-service` ne stocke aucun document |
 | `subjects` | `string[]` | Les deux | Matières étudiées (profil élève) ou enseignées (profil formateur). **Toujours un tableau**, jamais une chaîne |
+
+> Le champ unique `context` a été **séparé le 2026-08-11** en `familyContext` et `schoolContext`
+> (demande utilisateur). La colonne `context` est droppée ; son contenu a été recopié dans
+> `family_context` par la migration `1754910000000-SplitStudentContextAndDropDepartment`, avant le
+> DROP. Envoyer `context` renvoie désormais `400 property context should not exist`.
 
 **Profil pédagogique — section prescription** — `PUT /profiles/:userId/prescription` (**RP seul**)
 
@@ -540,17 +551,19 @@ bloc `pedagogical`.
 
 **Socle visible par défaut des personnes liées** (validé le 2026-08-09) : `firstName`, `lastName`,
 `avatarUrl`, `level`, `subjects`. **Tout le reste est `self` par défaut**, y compris l'adresse, le
-téléphone, `birthDate`, `difficulties`, `context`, `specificNeeds` et l'intégralité de la section
-prescription.
+téléphone, `birthDate`, `difficulties`, `familyContext`, `schoolContext`, `schoolName`,
+`equipment`, `specificNeeds` et l'intégralité de la section prescription.
 
 Le `fieldName` doit appartenir au catalogue (`src/profiles/field-visibility.catalog.ts`). Liste
 close, dans l'ordre alphabétique renvoyé par le message d'erreur `400` :
 `addressLine1`, `addressLine2`, `audienceType`, `avatarUrl`, `birthDate`, `city`, `comments`,
-`context`, `country`, `cvDocumentId`, `department`, `difficulties`, `diplomas`, `experience`,
+`country`, `cvDocumentId`, `difficulties`, `diplomas`, `equipment`, `experience`, `familyContext`,
 `firstName`, `generalAssessment`, `goals`, `lastName`, `level`, `levels`, `maxValidatedLevel`,
 `particularities`, `passions`, `phone`, `postalCode`, `recommendedActivities`, `recommendedPace`,
-`recommendedPath`, `recommendedTeacherProfile`, `specialties`, `specificNeeds`, `subjects`,
-`testComments`, `testResults`.
+`recommendedPath`, `recommendedTeacherProfile`, `schoolContext`, `schoolName`, `specialties`,
+`specificNeeds`, `subjects`, `testComments`, `testResults`.
+
+`context` et `department` ont quitté cette liste le 2026-08-11, en même temps que leurs colonnes.
 
 `comments` est marqué `isReserved: true` : c'est un champ du profil pédagogique élève au sens du
 CdC, dont le réglage de visibilité est conservé depuis le modèle hérité, mais qu'aucune colonne ne

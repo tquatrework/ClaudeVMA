@@ -390,7 +390,10 @@ describe('[E2E] Profiles', () => {
         lastName: 'Martin',
         birthDate: '2008-04-12',
         phone: '+33612345678',
-        avatarUrl: 'https://cdn.visiomath.fr/avatars/alice.jpg',
+        // `avatarUrl` NE FIGURE PAS ici : la photo est gérée par l'application
+        // depuis le 2026-08-10 et la route la refuse en 400 (test dédié plus
+        // bas). Le payload en portait encore une, ce test échouait donc en
+        // permanence — défaut préexistant, corrigé au passage.
         passions: ['Musique', 'Randonnée'],
       };
 

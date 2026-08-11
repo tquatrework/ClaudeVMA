@@ -666,9 +666,10 @@ Transitions autorisées (toute autre transition, y compris vers le statut couran
 
 | Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
 |---|---|---|---|---|---|
-| POST | /relations/finance-owner-student | 🔒 | responsable_pedagogique | Lier un parent financeur à un élève | `201 {financeOwnerId, studentId, createdAt}` · `400` body incomplet · `401` · `403` · `409` doublon |
-| GET | /relations/finance-owner-student/by-student/:studentId | 🔒 | eleve (soi-même), responsable_pedagogique, administrateur_financier, technicien_informatique | Lister les financeurs rattachés à un élève (symétrique) | `200 [{financeOwnerId, studentId, createdAt, financeOwnerName}]` — `financeOwnerName` est `{firstName, lastName}` (valeurs `string \| null`) résolu depuis le profil administratif du financeur, ou `null` si ce profil administratif n'existe pas · `401` · `403` |
-| GET | /relations/finance-owner-student/:financeOwnerId | 🔒 | parent_financeur (soi-même), responsable_pedagogique, administrateur_financier, technicien_informatique | Lister les élèves rattachés à un financeur | `200 [{financeOwnerId, studentId, createdAt, studentName}]` — `studentName` est `{firstName, lastName}` (valeurs `string \| null`) résolu depuis le profil administratif de l'élève, ou `null` si ce profil administratif n'existe pas · `401` · `403` |
+| POST | /relations/finance-owner-student | 🔒 | responsable_pedagogique, administrateur_financier | Lier un parent financeur à un élève | `201 {id, financeOwnerId, studentId, createdAt, endedAt: null, endedBy: null}` · `400` body incomplet · `401` · `403` · `409` **un lien ACTIF existe déjà** — le conflit porte sur l'état courant, pas sur l'existence d'une ligne : un lien rompu ne bloque jamais un nouveau rattachement |
+| DELETE | /relations/finance-owner-student/:financeOwnerId/:studentId | 🔒 | **piloté par la propriété du lien** (`@OwnerAccess()`, aucune liste de rôles) : les **deux parties** (le parent financeur, l'élève), plus RP et TI. L'**AF en est exclu** — il constate les rattachements, il ne décide pas de les rompre | **« Délier »** un parent financeur et un élève (2026-08-11), depuis l'un ou l'autre côté. **Aucune ligne n'est supprimée** malgré le verbe : la rupture renseigne `endedAt`/`endedBy`, la table est un journal — on doit pouvoir prouver que le lien a existé, puis a été rompu, et quand. **Idempotent** : deux appels renvoient `200`, avec la **même** date de rupture (la date initiale n'est jamais réécrite). **Referme d'un coup tous les droits ouverts par la relation** : profil, statistiques, et archives pédagogiques via `GET /internal/relations/...`. Publie `StudentUnlinkedFromFinanceOwner` | `200 {id, financeOwnerId, studentId, createdAt, endedAt, endedBy}` — `endedAt` non nul vaut confirmation · `400` UUID mal formé · `401` · `404` **aucun lien OU appelant sans droit sur ce lien : même code, même message** (`« Aucun lien de financement trouvé entre ces deux personnes »`) — un `403` révélerait à un tiers qui finance qui |
+| GET | /relations/finance-owner-student/by-student/:studentId | 🔒 | eleve (soi-même), responsable_pedagogique, administrateur_financier, technicien_informatique | Lister les financeurs **actifs** rattachés à un élève (symétrique). Un lien rompu n'y figure plus | `200 [{id, financeOwnerId, studentId, createdAt, endedAt: null, endedBy: null, financeOwnerName}]` — `financeOwnerName` est `{firstName, lastName}` (valeurs `string \| null`) résolu depuis le profil administratif du financeur, ou `null` si ce profil administratif n'existe pas · `401` · `403` |
+| GET | /relations/finance-owner-student/:financeOwnerId | 🔒 | parent_financeur (soi-même), responsable_pedagogique, administrateur_financier, technicien_informatique | Lister les élèves **actifs** rattachés à un financeur. Un lien rompu n'y figure plus | `200 [{id, financeOwnerId, studentId, createdAt, endedAt: null, endedBy: null, studentName}]` — `studentName` est `{firstName, lastName}` (valeurs `string \| null`) résolu depuis le profil administratif de l'élève, ou `null` si ce profil administratif n'existe pas · `401` · `403` |
 | POST | /relations/teacher-student | 🔒 | responsable_pedagogique | Lier un formateur à un élève (avec flag professeur principal) | `201 {teacherId, studentId, isPrincipalTeacher, createdAt}` · `400` · `401` · `403` · `409` doublon |
 | POST | /relations/pedagogical-coordinator | 🔒 | responsable_pedagogique | Lier un RP ou AP comme coordinateur pédagogique d'un élève | `201 {coordinatorId, studentId, coordinatorRole, createdAt}` · `400` rôle invalide · `401` · `403` · `409` doublon |
 | GET | /relations/pedagogical-coordinator/:coordinatorId | 🔒 | responsable_pedagogique, animateur_pedagogique (soi-même), technicien_informatique | Lister les liens de coordination d'un coordinateur | `200 [{coordinatorId, studentId, coordinatorRole}]` · `401` · `403` |
@@ -706,6 +707,15 @@ personne. La table étant vide à sa création, les liens doivent être créés 
 `student_of_finance_owner`, `teacher_of_student`, `student_of_teacher`, `animator_of_teacher`,
 `teacher_of_animator`, `coordinator_of_student`, `student_of_coordinator`,
 `finance_owner_of_student_of_teacher`, `teacher_of_student_of_finance_owner`.
+
+**Un lien rompu n'ouvre plus rien.** Depuis le 2026-08-11, un lien parent financeur ↔ élève peut être
+rompu (`DELETE /relations/finance-owner-student/:financeOwnerId/:studentId`). Toutes les résolutions de
+relation — celle-ci, `GET /relations/my-contacts`, `GET /internal/relations/:viewerId/:targetId` — ne
+lisent que les liens **actifs** (`endedAt IS NULL`). La rupture referme donc d'un seul geste le profil,
+les statistiques et les archives pédagogiques, sans qu'aucun service consommateur ait à être prévenu.
+Vérifié contre la pile réelle : après rupture, le parent reçoit `403` sur `GET /profiles/:studentId`,
+`404` sur `/statistics` et `404` sur `/api/v1/archives/students/:studentId/pedagogical-archives`, et
+`200 []` sur `my-contacts`.
 
 ### API interne inter-services (non exposée via nginx)
 
@@ -752,6 +762,11 @@ Flux en deux temps : le parent fournit le `studentId` qu'il connaît hors-platef
 
 Statuts : `pending` → `approved` (lien finance-owner-student créé) / `rejected`
 
+**Ce parcours reste utilisable après une rupture** (2026-08-11) : délier deux personnes ne les empêche
+jamais de se rattacher de nouveau. L'approbation crée une **nouvelle** ligne de lien, la ligne rompue
+restant en base comme preuve de la période passée. Vérifié contre la pile réelle : rupture, puis
+`POST /parent-link-requests` → `201`, approbation par l'élève → `201`, et les droits sont rouverts.
+
 | Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
 |---|---|---|---|---|---|
 | POST | /parent-link-requests | 🔒 | `parent_financeur` | Soumet une demande de rattachement (direction: parent_initiated) | Body : `{ studentLoginIdentifier }` · `201 { id, parentId, studentId, status: "pending", direction: "parent_initiated", requestedAt }` · `400` identifiant non trouvé ou compte non élève · `404` identifiant élève introuvable · `409` demande pending déjà en cours |
@@ -762,7 +777,12 @@ Statuts : `pending` → `approved` (lien finance-owner-student créé) / `reject
 
 ### Événements publiés
 
-`ProfileUpdated` · `StudentLinkedToFinanceOwner` · `TeacherLinkedToStudent` · `CoordinatorLinkedToStudent` · `AnimatorLinkedToTeacher` · `TeacherPromotedToPedagogicalAnimator` · `ParentLinkRequested` · `ParentLinkApproved` · `ParentLinkRejected`
+`ProfileUpdated` · `StudentLinkedToFinanceOwner` · `StudentUnlinkedFromFinanceOwner` · `TeacherLinkedToStudent` · `CoordinatorLinkedToStudent` · `AnimatorLinkedToTeacher` · `TeacherPromotedToPedagogicalAnimator` · `ParentLinkRequested` · `ParentLinkApproved` · `ParentLinkRejected`
+
+> `StudentUnlinkedFromFinanceOwner` (2026-08-11) est le **pendant** de `StudentLinkedToFinanceOwner` :
+> publier la liaison sans publier la rupture laisserait tout abonné sur une vue périmée. Aucun service
+> ne consomme aujourd'hui l'un ni l'autre — le publieur est un journal structuré, pas encore un bus.
+> Charge utile : `{financeOwnerId, studentId, actorId, endedAt}`.
 
 ---
 

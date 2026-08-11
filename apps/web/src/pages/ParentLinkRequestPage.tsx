@@ -5,21 +5,14 @@ import {
   createParentLinkRequest,
   fetchParentLinkRequests,
   type ParentLinkRequest,
-  type ParentLinkRequestStatus,
 } from '../api/parentLinkRequest'
 import { useAuth } from '../hooks/useAuth'
-
-const STATUS_LABELS: Record<ParentLinkRequestStatus, string> = {
-  pending: 'En attente',
-  approved: 'Approuvée',
-  rejected: 'Refusée',
-}
-
-const STATUS_BADGE_CLASSES: Record<ParentLinkRequestStatus, string> = {
-  pending: 'bg-yellow-100 text-yellow-700',
-  approved: 'bg-green-100 text-green-700',
-  rejected: 'bg-red-100 text-red-700',
-}
+import { useParentLinkPersonNames } from '../hooks/profile/useParentLinkPersonNames'
+import {
+  PARENT_LINK_REQUEST_STATUS_BADGE_CLASSES,
+  PARENT_LINK_REQUEST_STATUS_LABELS,
+  formatCounterpartLabel,
+} from '../utils/parentLinkRequestLabels'
 
 export default function ParentLinkRequestPage() {
   const { user } = useAuth()
@@ -35,6 +28,12 @@ export default function ParentLinkRequestPage() {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitSuccess, setSubmitSuccess] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+
+  // Le parent est toujours lui-même : la personne à nommer est l'élève visé,
+  // quelle que soit la direction de la demande.
+  const { getPersonName } = useParentLinkPersonNames(
+    existingRequests.map((request) => request.studentId),
+  )
 
   useEffect(() => {
     fetchParentLinkRequests()
@@ -158,7 +157,7 @@ export default function ParentLinkRequestPage() {
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-gray-800 truncate">
-                      Élève : ELV-{request.studentId.slice(0, 8)}
+                      {formatCounterpartLabel(getPersonName(request.studentId), 'student')}
                     </p>
                     <p className="text-xs text-gray-400 mt-0.5">
                       Envoyée le{' '}
@@ -180,9 +179,9 @@ export default function ParentLinkRequestPage() {
                     )}
                   </div>
                   <span
-                    className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE_CLASSES[request.status]}`}
+                    className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${PARENT_LINK_REQUEST_STATUS_BADGE_CLASSES[request.status]}`}
                   >
-                    {STATUS_LABELS[request.status]}
+                    {PARENT_LINK_REQUEST_STATUS_LABELS[request.status]}
                   </span>
                 </li>
               ))}

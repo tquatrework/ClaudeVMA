@@ -306,8 +306,15 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
       INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
       PORT: 3010
+      # Le droit de lire une archive pedagogique vient de la RELATION metier
+      # (arbitrage du 2026-08-11). profile-service en reste l'unique
+      # proprietaire : ce service la lui demande a chaque decision
+      # (GET /internal/relations/:viewerId/:targetId) et n'en tient aucune copie.
+      PROFILE_SERVICE_URL: http://profile-service:3002
     depends_on:
       postgres:
+        condition: service_healthy
+      profile-service:
         condition: service_healthy
     networks:
       - visiomath_network

@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   NotFoundException,
   ConflictException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -12,22 +13,23 @@ import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { PaginatedResponseDto } from './dto/paginated-response.dto';
 import { ArchiveItemType } from '../common/enums/archive-item-type.enum';
 import { UserRole } from '../common/enums/user-role.enum';
-
-/**
- * Rôles internes autorisés à accéder aux archives de n'importe quel élève.
- * Spec XML roleAccessRules : RP, TI, AF ont un accès étendu.
- */
-const INTERNAL_ROLES_WITH_BROAD_ACCESS: string[] = [
-  UserRole.RESPONSABLE_PEDAGOGIQUE,
-  UserRole.TECHNICIEN_INFORMATIQUE,
-  UserRole.ADMINISTRATEUR_FINANCIER,
-];
+import {
+  ProfileRelationsClient,
+  ProfileRelationsUnavailableError,
+} from '../common/clients/profile-relations.client';
+import {
+  ArchiveViewerPosition,
+  isArchiveReadAllowed,
+  resolveArchiveViewerPosition,
+} from './pedagogical-archive-access.policy';
 
 /**
  * Rôles autorisés à créer un lien archive pour un élève via cette route HTTP.
- * La route POST /students/:studentId/archive-links est réservée aux services sources
- * (formateurs) et aux rôles internes (RP, TI, AF).
- * Les élèves et parents financeurs ne peuvent pas créer d'archives directement.
+ * La route POST /archives/students/:studentId/archive-links est réservée aux
+ * services sources (formateurs) et aux rôles internes.
+ *
+ * Ceci reste une liste de rôles, à dessein : c'est une ÉCRITURE. Une relation
+ * ouvre la lecture, jamais l'écriture (arbitrage du 2026-08-07).
  */
 const ROLES_ALLOWED_TO_WRITE_ARCHIVES: string[] = [
   UserRole.FORMATEUR,
@@ -37,92 +39,107 @@ const ROLES_ALLOWED_TO_WRITE_ARCHIVES: string[] = [
   UserRole.ADMINISTRATEUR_FINANCIER,
 ];
 
+/**
+ * Message UNIQUE couvrant à la fois « aucune archive » et « aucun droit ».
+ *
+ * Arbitrage du 2026-08-11, point 5 : un accès refusé faute de relation ne doit
+ * pas révéler l'existence de ce qu'on refuse de montrer. Les deux cas sont donc
+ * volontairement indiscernables — même statut 404, même message, et aucun
+ * identifiant technique dans le texte (arbitrage du 2026-08-09 : aucun UUID
+ * sous les yeux d'un utilisateur).
+ */
+const NO_ARCHIVE_MESSAGE = 'Aucune archive pédagogique accessible pour cette personne';
+
 @Injectable()
 export class ArchiveService {
   constructor(
     @InjectRepository(ArchiveItem)
     private readonly archiveItemRepository: Repository<ArchiveItem>,
+    private readonly profileRelationsClient: ProfileRelationsClient,
   ) {}
 
   /**
-   * Vérifie si le demandeur est autorisé à accéder aux archives d'un élève.
-   * Spec XML roleAccessRules :
-   * - Élève : ses propres archives uniquement.
-   * - Parent financeur : archives de ses élèves liés, sauf carnet personnel.
-   * - Formateur : archives des élèves contacts selon rattachement.
-   * - RP : accès pédagogique large.
-   * - TI : accès incident selon autorisation.
-   * - AF : seulement si lié à contrôle financier/légal.
+   * Détermine la position du demandeur vis-à-vis des archives d'une personne,
+   * en demandant les relations à `profile-service` — unique propriétaire de ces
+   * liens, dont ce service ne tient aucune copie.
    *
-   * NOTE : la validation des relations parent↔élève et formateur↔élève est hors scope
-   * de ce service (profile-service en est propriétaire). On accepte ici la décision
-   * de ne pas re-vérifier ces liens localement — le JWT role suffit pour les rôles larges.
+   * Le contrôle a lieu AVANT toute lecture en base : une requête refusée ne
+   * doit pas même toucher les données qu'elle n'a pas le droit de voir.
+   *
+   * @throws NotFoundException  si aucune relation n'ouvre le droit (404, jamais 403)
+   * @throws ServiceUnavailableException si `profile-service` est injoignable —
+   *   on échoue bruyamment plutôt que de deviner : ouvrir par défaut livrerait
+   *   l'archive à un inconnu, fermer par défaut la retirerait à son titulaire.
    */
-  private assertReadAccess(
+  private async resolveViewerPosition(
     requesterId: string,
     requesterRole: string,
-    studentId: string,
-  ): void {
-    // Rôles internes : accès large sans restriction d'identité
-    if (INTERNAL_ROLES_WITH_BROAD_ACCESS.includes(requesterRole)) {
-      return;
+    archiveOwnerId: string,
+    correlationId?: string,
+  ): Promise<ArchiveViewerPosition> {
+    let position: ArchiveViewerPosition;
+    try {
+      const snapshot = await this.profileRelationsClient.resolveRelations(
+        requesterId,
+        archiveOwnerId,
+        requesterRole,
+        correlationId,
+      );
+      position = resolveArchiveViewerPosition(snapshot);
+    } catch (error) {
+      if (error instanceof ProfileRelationsUnavailableError) {
+        throw new ServiceUnavailableException(
+          'Impossible de vérifier les droits d\'accès aux archives pour le moment. Réessayez dans un instant.',
+        );
+      }
+      throw error;
     }
 
-    // L'élève accède à ses propres archives
-    if (requesterRole === UserRole.ELEVE && requesterId === studentId) {
-      return;
+    if (!isArchiveReadAllowed(position)) {
+      throw new NotFoundException(NO_ARCHIVE_MESSAGE);
     }
-
-    // Le parent financeur peut accéder aux archives des élèves liés
-    // (la liaison est gérée par profile-service ; on accepte le rôle)
-    if (requesterRole === UserRole.PARENT_FINANCEUR) {
-      // Sans accès au carnet personnel : géré au niveau du filtre retourné
-      return;
-    }
-
-    // Le formateur accède aux archives des élèves qui lui sont rattachés
-    // (le rattachement est géré par profile-service ; on accepte le rôle)
-    if (requesterRole === UserRole.FORMATEUR) {
-      return;
-    }
-
-    // AP : pas de règle explicite dans la spec, on refuse par défaut
-    throw new ForbiddenException(
-      `Le rôle ${requesterRole} n'est pas autorisé à accéder aux archives de cet élève`,
-    );
+    return position;
   }
 
   /**
-   * Détermine si les éléments de type CARNET_PERSONNEL doivent être filtrés
-   * selon le rôle du demandeur.
-   * Spec XML : "le carnet personnel n'est pas exposé au parent via les archives"
+   * Détermine si les éléments de type CARNET_PERSONNEL doivent être filtrés.
+   * Spec XML : « le carnet personnel n'est pas exposé au parent via les archives ».
+   *
+   * Le titulaire ne se masque jamais rien ; le parent financeur ne voit jamais
+   * le carnet personnel, quel que soit son lien.
    */
-  private shouldHideCarnetPersonnel(requesterRole: string, requesterId: string, studentId: string): boolean {
-    // L'élève lui-même voit son carnet personnel
-    if (requesterRole === UserRole.ELEVE && requesterId === studentId) {
-      return false;
-    }
-    // Le parent ne voit pas le carnet personnel
-    if (requesterRole === UserRole.PARENT_FINANCEUR) {
-      return true;
-    }
-    // Tous les autres rôles voient tout (pédagogique large pour RP, etc.)
-    return false;
+  private shouldHideCarnetPersonnel(
+    position: ArchiveViewerPosition,
+    requesterRole: string,
+  ): boolean {
+    if (position === 'owner') return false;
+    return requesterRole === UserRole.PARENT_FINANCEUR;
   }
 
   /**
-   * Liste les archives pédagogiques d'un élève avec pagination.
-   * GET /students/:studentId/pedagogical-archives
+   * Liste les archives pédagogiques d'une personne avec pagination.
+   * GET /archives/students/:studentId/pedagogical-archives
+   *
+   * Un titulaire sans aucune archive reçoit un 404 portant le même message
+   * qu'un refus : c'est ce qui rend les deux cas indiscernables. La pagination
+   * hors bornes, elle, reste un 200 avec une page vide — il y a bien des
+   * archives, la page demandée n'existe simplement pas.
    */
   async listPedagogicalArchives(
-    studentId: string,
+    archiveOwnerId: string,
     requesterId: string,
     requesterRole: string,
     pagination?: PaginationQueryDto,
+    correlationId?: string,
   ): Promise<PaginatedResponseDto<ArchiveItem>> {
-    this.assertReadAccess(requesterId, requesterRole, studentId);
+    const position = await this.resolveViewerPosition(
+      requesterId,
+      requesterRole,
+      archiveOwnerId,
+      correlationId,
+    );
 
-    const hideCarnet = this.shouldHideCarnetPersonnel(requesterRole, requesterId, studentId);
+    const hideCarnet = this.shouldHideCarnetPersonnel(position, requesterRole);
 
     const page = pagination?.page ?? 1;
     const limit = pagination?.limit ?? 20;
@@ -130,7 +147,7 @@ export class ArchiveService {
 
     const queryBuilder = this.archiveItemRepository
       .createQueryBuilder('item')
-      .where('item.studentId = :studentId', { studentId })
+      .where('item.studentId = :studentId', { studentId: archiveOwnerId })
       .orderBy('item.occurredAt', 'DESC');
 
     if (hideCarnet) {
@@ -140,6 +157,10 @@ export class ArchiveService {
     }
 
     const total = await queryBuilder.getCount();
+    if (total === 0) {
+      throw new NotFoundException(NO_ARCHIVE_MESSAGE);
+    }
+
     const data = await queryBuilder.skip(offset).take(limit).getMany();
 
     return {
@@ -153,15 +174,12 @@ export class ArchiveService {
 
   /**
    * Ajoute un lien archive depuis un service source.
-   * POST /students/:studentId/archive-links
+   * POST /archives/students/:studentId/archive-links
    * Supporte l'idempotence via idempotencyKey.
-   * Seuls les rôles autorisés (formateur, AP, RP, TI, AF) peuvent créer des archives.
-   * Les élèves et parents financeurs n'ont pas le droit d'écrire dans les archives.
    */
   async addArchiveLink(
-    studentId: string,
+    archiveOwnerId: string,
     dto: AddArchiveLinkDto,
-    requesterId: string,
     requesterRole: string,
   ): Promise<ArchiveItem> {
     if (!ROLES_ALLOWED_TO_WRITE_ARCHIVES.includes(requesterRole)) {
@@ -169,15 +187,15 @@ export class ArchiveService {
         `Le rôle ${requesterRole} n'est pas autorisé à créer des liens archive`,
       );
     }
-    // Vérification idempotence
+
     if (dto.idempotencyKey) {
       const existingItem = await this.archiveItemRepository.findOne({
         where: { idempotencyKey: dto.idempotencyKey },
       });
       if (existingItem) {
-        if (existingItem.studentId !== studentId) {
+        if (existingItem.studentId !== archiveOwnerId) {
           throw new ConflictException(
-            `La clé d'idempotence ${dto.idempotencyKey} appartient à un autre élève`,
+            `La clé d'idempotence ${dto.idempotencyKey} appartient à un autre titulaire`,
           );
         }
         return existingItem;
@@ -191,7 +209,7 @@ export class ArchiveService {
         : (dto.isParentVisible ?? true);
 
     const newItem = this.archiveItemRepository.create({
-      studentId,
+      studentId: archiveOwnerId,
       itemType: dto.itemType,
       sourceId: dto.sourceId,
       sourceService: dto.sourceService,
@@ -209,19 +227,24 @@ export class ArchiveService {
   }
 
   /**
-   * Retourne les archives en vue calendrier (groupées par date d'occurrence) avec pagination.
-   * La pagination s'applique sur les dates (groupes), pas sur les éléments individuels.
-   * GET /students/:studentId/archive-timeline
+   * Retourne les archives en vue calendrier (groupées par date d'occurrence).
+   * GET /archives/students/:studentId/archive-timeline
    */
   async getArchiveTimeline(
-    studentId: string,
+    archiveOwnerId: string,
     requesterId: string,
     requesterRole: string,
     pagination?: PaginationQueryDto,
+    correlationId?: string,
   ): Promise<PaginatedResponseDto<{ date: string; items: Partial<ArchiveItem>[] }>> {
-    this.assertReadAccess(requesterId, requesterRole, studentId);
+    const position = await this.resolveViewerPosition(
+      requesterId,
+      requesterRole,
+      archiveOwnerId,
+      correlationId,
+    );
 
-    const hideCarnet = this.shouldHideCarnetPersonnel(requesterRole, requesterId, studentId);
+    const hideCarnet = this.shouldHideCarnetPersonnel(position, requesterRole);
 
     const queryBuilder = this.archiveItemRepository
       .createQueryBuilder('item')
@@ -235,7 +258,7 @@ export class ArchiveService {
         'item.pedagogicalPoints',
         'item.occurredAt',
       ])
-      .where('item.studentId = :studentId', { studentId })
+      .where('item.studentId = :studentId', { studentId: archiveOwnerId })
       .orderBy('item.occurredAt', 'ASC');
 
     if (hideCarnet) {
@@ -245,6 +268,9 @@ export class ArchiveService {
     }
 
     const allItems = await queryBuilder.getMany();
+    if (allItems.length === 0) {
+      throw new NotFoundException(NO_ARCHIVE_MESSAGE);
+    }
 
     // Groupement par date (YYYY-MM-DD)
     const groupedByDate = new Map<string, Partial<ArchiveItem>[]>();
@@ -287,49 +313,58 @@ export class ArchiveService {
 
   /**
    * Récupère un élément archive par son ID pour le téléchargement.
-   * GET /archive-documents/:id/download
+   * GET /documents/:id/download
+   *
+   * Contrairement aux listes, le titulaire ne peut être connu qu'après lecture
+   * de l'élément : la vérification de relation vient donc APRÈS le `findOne`.
+   * En contrepartie, tous les refus — élément inexistant, aucune relation,
+   * carnet personnel demandé par un parent, absence d'URL — répondent le MÊME
+   * 404 avec le MÊME message. Un 403 sur le carnet personnel, comme le faisait
+   * la version précédente, révélait son existence à qui n'a pas le droit d'en
+   * connaître l'existence.
    */
   async getArchiveItemForDownload(
     archiveItemId: string,
     requesterId: string,
     requesterRole: string,
+    correlationId?: string,
   ): Promise<ArchiveItem> {
     const archiveItem = await this.archiveItemRepository.findOne({
       where: { id: archiveItemId },
     });
 
     if (!archiveItem) {
-      throw new NotFoundException(`Élément d'archive ${archiveItemId} non trouvé`);
+      throw new NotFoundException(NO_ARCHIVE_MESSAGE);
     }
 
-    this.assertReadAccess(requesterId, requesterRole, archiveItem.studentId);
+    const position = await this.resolveViewerPosition(
+      requesterId,
+      requesterRole,
+      archiveItem.studentId,
+      correlationId,
+    );
 
-    // Le parent ne peut pas télécharger le carnet personnel
     if (
-      requesterRole === UserRole.PARENT_FINANCEUR &&
+      this.shouldHideCarnetPersonnel(position, requesterRole) &&
       archiveItem.itemType === ArchiveItemType.CARNET_PERSONNEL
     ) {
-      throw new ForbiddenException(
-        'Le carnet personnel n\'est pas accessible aux parents financeurs',
-      );
+      throw new NotFoundException(NO_ARCHIVE_MESSAGE);
     }
 
     if (!archiveItem.downloadUrl) {
-      throw new NotFoundException(
-        `Aucun URL de téléchargement disponible pour l'élément ${archiveItemId}`,
-      );
+      throw new NotFoundException(NO_ARCHIVE_MESSAGE);
     }
 
     return archiveItem;
   }
 
   /**
-   * Route interne : liste des archives d'un élève sans filtrage de rôle.
+   * Route interne : liste des archives d'une personne sans filtrage.
    * Utilisée par l'orchestration-service pour les workflows.
    */
-  async listArchivesInternal(studentId: string): Promise<ArchiveItem[]> {
+  async listArchivesInternal(archiveOwnerId: string): Promise<ArchiveItem[]> {
     return this.archiveItemRepository.find({
-      where: { studentId },
+      where: { studentId: archiveOwnerId },
       order: { occurredAt: 'DESC' },
     });
   }

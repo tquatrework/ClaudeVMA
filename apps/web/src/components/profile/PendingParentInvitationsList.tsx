@@ -13,8 +13,7 @@ import {
 } from '../../api/parentLinkRequest'
 import { fetchStudentProfile } from '../../api/relations'
 import { formatPersonDisplayName } from '../../utils/nameFormat'
-
-const FINANCE_OWNER_GENERIC_LABEL = 'Financeur'
+import { FINANCE_OWNER_GENERIC_LABEL } from '../../utils/relationLabels'
 
 interface PendingParentInvitationsListProps {
   /** Appelé après acceptation d'une invitation, pour rafraîchir la liste des parents rattachés. */

@@ -83,14 +83,57 @@ Inscrits dans `docs/architecture.md` le 2026-08-11 :
 ## État
 
 - [x] Arbitrage rendu et inscrit dans `docs/architecture.md`
-- [ ] Back : statistiques (`profile-service`)
-- [ ] Back : archives pédagogiques (`archive-document-service`)
-- [ ] Back : vérification du financier (`finance-credit-service`)
-- [ ] Front : choix de la personne consultée, accès AP
-- [ ] Déployé sur la pile réelle
+- [x] **Back : statistiques (`profile-service`)** — le contrôle porte sur la relation, plus sur
+      une liste de rôles. Défaut trouvé au passage : **un AP sans aucun lien accédait aux
+      statistiques de n'importe qui**, aucune clause ne le concernant. La relation AP↔formateur
+      **n'existait dans aucune table** (`pedagogical_coordinator_links` lie un coordinateur à un
+      *élève*) : nouvelle table `animator_teacher_links` + `POST /relations/animator-teacher`
+      (RP seul). Route interne livrée pour les autres services, renvoyant des **faits** (nature
+      du lien) et non un verdict. Un refus répond `404` avec le même message qu'une absence,
+      **avant toute lecture en base**.
+- [x] **Back : archives pédagogiques (`archive-document-service`)** — deux défauts empilés, le
+      second masquant le premier. **Aucune route archive ne répondait à l'adresse appelée** : le
+      contrôleur était monté sur un préfixe différent de ce que transmet la gateway, quinze
+      sondes, quinze `404` **de Nest**. Le `404` que le front traitait comme « aucune archive »
+      masquait donc une fonctionnalité qui n'avait **jamais fonctionné de bout en bout**.
+      Derrière ce mur, le contrôle se faisait sur le seul rôle du JWT : **parent financeur et
+      formateur accédaient aux archives de n'importe quel élève, sans vérification de lien.**
+- [x] **Back : financier vérifié** — les quatre relations qui ouvrent le pédagogique n'ouvrent
+      rien côté argent : `403` pour formateur→son élève, élève→son formateur,
+      parent→formateur de son élève, AP→formateur animé ; `200` pour le titulaire et le RP.
+- [x] **Front** — barre de contexte « Personne consultée » sous le titre de `/archives`, soi-même
+      par défaut, prénom et nom jamais d'UUID. Onglets **masqués** et non grisés quand le lien
+      ne les ouvre pas. `ProfileStatisticsPanel` portait une **liste de rôles en dur** qui
+      bloquait l'affichage alors que le serveur répondait déjà `200` : garde supprimée, le front
+      ne porte plus de règle de droit. Contrat des archives aligné (enveloppe paginée, 7
+      `itemType` réels, `isParentVisible`). `MyStudentsPage` interroge enfin la bonne relation.
+      AP autorisé sur `/archives`.
+- [x] **Déployé** — `frontend`, `profile-service` et `archive-document-service` reconstruits.
+      Bundle servi `index-CU76DKcr.js` : « Personne consultée », « Revenir à mes données » et
+      `my-contacts` présents. Conteneurs `healthy`.
 - [ ] Preuve livrée à l'utilisateur
 - [ ] Validé par l'utilisateur
 - [ ] Mergé dans master
+
+## Points ouverts nés de ce lot
+
+1. **Les administrateurs n'ont pas d'annuaire.** RP, AF et TI accèdent à tout, mais
+   `GET /relations/my-contacts` leur renvoie `200 []` : leur sélecteur ne propose qu'eux-mêmes.
+   Il manque une recherche de personne côté serveur — **décision à prendre**, une liste globale
+   n'est pas anodine côté vie privée.
+2. **Aucun écran ne permet de créer un lien AP↔formateur.** La table naît vide : tant que le RP
+   n'en crée pas, un AP ne voit les statistiques d'aucun formateur. État correct au regard de la
+   règle, mais la fonctionnalité demandée reste inatteignable en pratique.
+3. **`GET /profiles/:userId` n'a pas été aligné** : il exempte encore l'AP par son rôle et refuse
+   à l'élève le profil de son formateur. Les statistiques sont donc **plus strictes** que le
+   profil qui sert les mêmes champs. Incohérence à résorber.
+4. **Le carnet personnel reste visible du formateur et des administrateurs** (`total 3` contre
+   `total 2` pour le parent). Comportement d'avant ce lot, préservé volontairement, mais
+   contraire au README (« espace réservé à l'élève »). À trancher.
+5. **L'URL dit `students/:studentId`** alors que le titulaire peut être un formateur depuis que
+   l'AP y accède. Renommer touche gateway, front et migration : à planifier séparément.
+6. **`GET /documents/:id/download` répond `302`** vers le service source ; le suivi de
+   redirection cross-origin n'a pas pu être testé, faute d'archive portant un `downloadUrl` réel.
 
 ## Décisions en attente de l'utilisateur, sans lien avec ce lot
 

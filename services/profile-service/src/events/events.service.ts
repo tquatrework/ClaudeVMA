@@ -5,6 +5,8 @@ export type ProfileEventType =
   | 'StudentLinkedToFinanceOwner'
   | 'TeacherLinkedToStudent'
   | 'CoordinatorLinkedToStudent'
+  /** AP rattaché à un formateur qu'il anime (arbitrage du 2026-08-11). */
+  | 'AnimatorLinkedToTeacher'
   | 'TeacherPromotedToPedagogicalAnimator'
   | 'TeacherValidated'
   | 'AdminProfileReminderCreated';

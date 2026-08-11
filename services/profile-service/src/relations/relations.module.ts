@@ -5,11 +5,13 @@ import { RelationsService } from './relations.service';
 import { FinanceOwnerStudentLink } from './entities/finance-owner-student-link.entity';
 import { TeacherStudentLink } from './entities/teacher-student-link.entity';
 import { PedagogicalCoordinatorLink } from './entities/pedagogical-coordinator-link.entity';
+import { AnimatorTeacherLink } from './entities/animator-teacher-link.entity';
 import { EventsModule } from '../events/events.module';
 import { ProfilesModule } from '../profiles/profiles.module';
 
 /**
- * Owns FinanceOwnerStudentLink, TeacherStudentLink and PedagogicalCoordinatorLink.
+ * Owns FinanceOwnerStudentLink, TeacherStudentLink, PedagogicalCoordinatorLink
+ * and AnimatorTeacherLink.
  * JWT/guards come from the global SecurityModule (see app.module.ts) — this
  * module no longer configures its own JwtModule.
  *
@@ -21,7 +23,12 @@ import { ProfilesModule } from '../profiles/profiles.module';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([FinanceOwnerStudentLink, TeacherStudentLink, PedagogicalCoordinatorLink]),
+    TypeOrmModule.forFeature([
+      FinanceOwnerStudentLink,
+      TeacherStudentLink,
+      PedagogicalCoordinatorLink,
+      AnimatorTeacherLink,
+    ]),
     EventsModule,
     forwardRef(() => ProfilesModule),
   ],

@@ -24,6 +24,9 @@ import { UserRole } from '../common/enums/user-role.enum';
 import { CreateFinanceOwnerStudentLinkDto } from './dto/create-finance-owner-student-link.dto';
 import { CreateTeacherStudentLinkDto } from './dto/create-teacher-student-link.dto';
 import { CreatePedagogicalCoordinatorLinkDto } from './dto/create-pedagogical-coordinator-link.dto';
+import { CreateAnimatorTeacherLinkDto } from './dto/create-animator-teacher-link.dto';
+import { OwnerAccess } from '../common/decorators/owner-access.decorator';
+import { RELATION_KINDS } from './relation-kind';
 
 @ApiTags('relations')
 @ApiBearerAuth()
@@ -31,6 +34,45 @@ import { CreatePedagogicalCoordinatorLinkDto } from './dto/create-pedagogical-co
 @Controller('relations')
 export class RelationsController {
   constructor(private readonly relationsService: RelationsService) {}
+
+  /**
+   * Déclaré AVANT les routes paramétrées : `my-contacts` est un segment
+   * littéral, aucune d'elles ne le capterait (elles sont toutes préfixées par un
+   * segment littéral distinct), mais l'ordre de lecture reste plus clair.
+   */
+  @Get('my-contacts')
+  @OwnerAccess()
+  @ApiOperation({
+    summary: 'Lister les personnes auxquelles je suis relié',
+    description:
+      "Renvoie les personnes reliées à l'utilisateur AUTHENTIFIÉ — jamais celles d'un tiers : " +
+      "il n'y a pas de paramètre d'identifiant, donc rien à falsifier.\n\n" +
+      'Chaque entrée porte le PRÉNOM et le NOM de la personne, et la nature du lien. ' +
+      "Elle sert à construire un sélecteur « qui consulter ? » (écran /archives, écran " +
+      '« mes élèves ») sans afficher un seul UUID : `userId` n\'est là que pour construire ' +
+      "l'appel suivant (`GET /profiles/:userId/statistics`, archives), jamais pour l'affichage " +
+      '(arbitrage du 2026-08-09).\n\n' +
+      `Valeurs possibles de \`relations[].kind\` : ${RELATION_KINDS.join(', ')}.\n\n` +
+      'Les liens INDIRECTS sont inclus : un parent financeur voit les formateurs de ses élèves ' +
+      "(`finance_owner_of_student_of_teacher`, avec l'élève commun dans `throughUserIds`), un " +
+      'formateur voit les parents financeurs de ses élèves. Aucune table ne porte ces liens : ' +
+      "ils sont dérivés de l'élève commun.\n\n" +
+      "Ouverte à TOUT compte authentifié, sans liste de rôles : une liste oublie un rôle à " +
+      "chaque évolution, et il n'y a rien à protéger — on ne renvoie que les relations du " +
+      'demandeur lui-même. Un compte sans aucun lien reçoit `200 []`, jamais une erreur.',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Liste triée par nom : `[{userId, firstName, lastName, relations: [{kind, isPrincipalTeacher?, throughUserIds?}]}]`. ' +
+      "`firstName`/`lastName` valent `null` si la personne n'a pas de profil administratif.",
+  })
+  @ApiResponse({ status: 401, description: 'Sans jeton' })
+  listMyRelatedPeople(
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<RelationsService['listRelatedPeople']>>> {
+    return this.relationsService.listRelatedPeople(actor.id);
+  }
 
   @Post('finance-owner-student')
   @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.ADMINISTRATEUR_FINANCIER)
@@ -160,5 +202,51 @@ export class RelationsController {
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<Awaited<ReturnType<RelationsService['getStudentsByCoordinator']>>> {
     return this.relationsService.getStudentsByCoordinator(coordinatorId, actor);
+  }
+
+  @Post('animator-teacher')
+  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE)
+  @ApiOperation({
+    summary: 'Rattacher un animateur pédagogique à un formateur',
+    description:
+      "Crée la relation AP → formateur. C'est elle, et elle seule, qui ouvre à l'AP la lecture " +
+      'des statistiques et des archives pédagogiques du formateur (arbitrage du 2026-08-11). ' +
+      "Aucune table ne la portait jusqu'ici : `pedagogical-coordinator` lie un coordinateur à un " +
+      'ÉLÈVE, pas à un formateur.\n\n' +
+      "Réservé au RP : c'est lui qui promeut un formateur en AP, c'est donc lui qui décide de ce " +
+      "qu'un AP anime — un AP ne se donne pas ses propres animés.",
+  })
+  @ApiResponse({ status: 201, description: 'Lien créé : `{id, animatorId, teacherId, createdAt}`' })
+  @ApiResponse({ status: 400, description: 'animatorId ou teacherId absent ou non-UUID' })
+  @ApiResponse({ status: 403, description: 'Interdit — RP uniquement' })
+  @ApiResponse({ status: 409, description: 'Ce lien existe déjà' })
+  linkAnimatorToTeacher(
+    @Body() dto: CreateAnimatorTeacherLinkDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<RelationsService['linkAnimatorToTeacher']>>> {
+    return this.relationsService.linkAnimatorToTeacher(dto, actor);
+  }
+
+  @Get('animator-teacher/:animatorId')
+  @ApiOperation({
+    summary: 'Lister les formateurs animés par un AP',
+    description:
+      "Renvoie les formateurs animés par l'AP désigné, enrichis de leur nom " +
+      "(`teacherName`, résolu depuis le profil administratif) pour qu'aucun écran n'ait à " +
+      'afficher un UUID. Accessible au RP, au TI et à l\'AP lui-même.',
+  })
+  @ApiParam({ name: 'animatorId', description: 'UUID du compte animateur pédagogique' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Liste des liens : `[{id, animatorId, teacherId, createdAt, teacherName}]` — ' +
+      "`teacherName` vaut `null` si le formateur n'a pas de profil administratif",
+  })
+  @ApiResponse({ status: 403, description: 'Interdit — droits insuffisants' })
+  getTeachersByAnimator(
+    @Param('animatorId', ParseUUIDPipe) animatorId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<RelationsService['getTeachersByAnimator']>>> {
+    return this.relationsService.getTeachersByAnimator(animatorId, actor);
   }
 }

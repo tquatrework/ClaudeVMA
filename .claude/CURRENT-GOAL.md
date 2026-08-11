@@ -71,8 +71,32 @@ Ni tests verts, ni PR ouverte ne valent preuve.
 - [x] **Front déployé** — bundle `index--GUGb3O2.js` servi publiquement, portant `schoolName`,
       `familyContext`, `schoolContext`, `equipment` et leurs libellés français ; `department`
       **absent** (0 occurrence).
-- [ ] **Validé par l'utilisateur** — son test manuel reste à faire.
-- [ ] Mergé dans master
+- [x] **Validé par l'utilisateur** — 2026-08-11, après son test manuel sur la pile réelle
+      (« très bien, c'est bon »).
+- [ ] Mergé dans master — PR #92, **retenue à sa demande** : deux changements d'écran à livrer
+      avant le merge, ci-dessous.
+
+## Deux changements demandés avant le merge — 2026-08-11
+
+Verbatim de l'utilisateur :
+
+> 1. les statistiques pédagogiques doivent aller dans Stats/Archives (et pas dans le profil)
+> 2. le profil financier (qui apparait dans le profil administratif avec un bouton gérer, doit
+>    en fait être un troisième onglet : profil financier, aussi bien pour les parents que pour
+>    les formateurs.
+
+Les deux relèvent du **placement des écrans**, pas du contenu des données : rien à changer côté
+services. Ils restent sur la branche `feat/champs-profils-eleve`, puisque l'utilisateur les veut
+avant le merge — une branche par besoin métier, pas une par lot.
+
+Contrainte qui s'applique aux deux : le profil financier devenant un onglet de la fiche, il entre
+dans le périmètre de la règle de permanence. Son état doit appartenir à la page, l'onglet reste
+monté une fois activé, et la réponse d'écriture est réaffichée telle que le serveur la renvoie.
+
+Conséquence sur un point déjà signalé : `FinancialProfilePage.tsx:178` affiche « Identifiant
+propriétaire » sous forme d'UUID au parent, au formateur, à l'AP et au RP. Déplacer cet écran
+dans la fiche de profil rend ce défaut plus visible ; il est corrigé au passage, puisqu'on
+touche précisément ce code — la règle « aucun UUID à l'écran, sauf AF » est générale.
 
 ## E-mail : arbitrage rendu, à confirmer
 

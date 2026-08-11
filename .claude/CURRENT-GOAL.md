@@ -5,13 +5,31 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
-## Aucun objectif en cours
+## Besoin — 2026-08-11
 
-Le précédent est mergé. La prochaine demande de l'utilisateur ouvre le suivant.
+Verbatim de l'utilisateur : « corrige la gateway à la racine ».
 
-## Deux candidats prêts, par ordre d'urgence
+**Un redéploiement d'un service back ne doit plus casser l'application.** Aujourd'hui il faut
+recharger la gateway à la main après chaque reconstruction, sans quoi toutes les routes du
+service concerné répondent `502` — silencieusement, et pour une durée qui dépend de qui s'en
+aperçoit.
 
-### 1. Chaque redéploiement d'un service back casse l'application en silence
+## Comment on saura que c'est fait
+
+Preuve directe, jouée contre `https://claudevma.visioprof.fr` : **reconstruire et relancer un
+service back, puis interroger immédiatement une de ses routes sans toucher à la gateway** — la
+réponse doit être celle du service (`401` sur une route protégée), jamais un `502`. C'est le
+seul test qui prouve la correction : tout le reste se comporte pareil avant et après.
+
+## État
+
+- [ ] Codé et committé
+- [ ] Déployé sur la pile réelle
+- [ ] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur
+- [ ] Mergé dans master
+
+## Le défaut, mesuré
 
 **Défaut d'exploitation constaté le 2026-08-11, réparé au coup par coup, pas corrigé à la
 racine.** Le plus grave trouvé ce jour-là.

@@ -9,6 +9,7 @@ import {
   Req,
   Headers,
   Redirect,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -84,6 +85,7 @@ export class ArchiveController {
     description: 'Liste paginée des archives retournée',
     type: PaginatedResponseDto,
   })
+  @ApiResponse({ status: 400, description: 'Identifiant de titulaire mal formé (UUID attendu)' })
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   @ApiResponse({ status: 404, description: NOT_FOUND_DESCRIPTION })
   @ApiResponse({
@@ -93,7 +95,7 @@ export class ArchiveController {
       'bruyamment plutôt que de deviner un droit.',
   })
   listPedagogicalArchives(
-    @Param('studentId') archiveOwnerId: string,
+    @Param('studentId', ParseUUIDPipe) archiveOwnerId: string,
     @Query() paginationQuery: PaginationQueryDto,
     @Req() request: any,
     @Headers('x-correlation-id') correlationId?: string,
@@ -137,7 +139,7 @@ export class ArchiveController {
   @ApiResponse({ status: 403, description: 'Rôle non autorisé à écrire dans les archives' })
   @ApiResponse({ status: 409, description: 'Conflit — clé d\'idempotence appartenant à un autre titulaire' })
   addArchiveLink(
-    @Param('studentId') archiveOwnerId: string,
+    @Param('studentId', ParseUUIDPipe) archiveOwnerId: string,
     @Body() dto: AddArchiveLinkDto,
     @Req() request: any,
     @Headers('x-correlation-id') _correlationId?: string,
@@ -168,11 +170,12 @@ export class ArchiveController {
     description: 'Vue calendrier paginée retournée',
     type: PaginatedResponseDto,
   })
+  @ApiResponse({ status: 400, description: 'Identifiant de titulaire mal formé (UUID attendu)' })
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   @ApiResponse({ status: 404, description: NOT_FOUND_DESCRIPTION })
   @ApiResponse({ status: 503, description: 'profile-service injoignable' })
   getArchiveTimeline(
-    @Param('studentId') archiveOwnerId: string,
+    @Param('studentId', ParseUUIDPipe) archiveOwnerId: string,
     @Query() paginationQuery: PaginationQueryDto,
     @Req() request: any,
     @Headers('x-correlation-id') correlationId?: string,
@@ -214,6 +217,7 @@ export class ArchiveDocumentController {
   @ApiParam({ name: 'id', description: 'UUID de l\'élément archive' })
   @ApiHeader({ name: 'x-correlation-id', required: false, description: 'Corrélation ID de traçabilité' })
   @ApiResponse({ status: 302, description: 'Redirection vers l\'URL de téléchargement' })
+  @ApiResponse({ status: 400, description: 'Identifiant de document mal formé (UUID attendu)' })
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   @ApiResponse({
     status: 404,
@@ -224,7 +228,7 @@ export class ArchiveDocumentController {
   @ApiResponse({ status: 503, description: 'profile-service injoignable' })
   @Redirect()
   async downloadArchiveDocument(
-    @Param('id') archiveItemId: string,
+    @Param('id', ParseUUIDPipe) archiveItemId: string,
     @Req() request: any,
     @Headers('x-correlation-id') correlationId?: string,
   ): Promise<{ url: string }> {

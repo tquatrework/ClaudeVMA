@@ -1289,8 +1289,10 @@ Types d'items (valeurs réelles renvoyées par le serveur) : `cahier_de_texte` �
 
 > **Correction du 2026-08-11.** Ce tableau annonçait jusqu'ici `pedagogical_log` · `course_summary` ·
 > `notebook_entry` · `recording` · `content_catalog` — cinq valeurs qui n'ont jamais existé côté
-> serveur, et que le front déclare encore dans `apps/web/src/api/archiveDocument.ts`. Deux noms pour
-> une même donnée : l'écart est résorbé côté documentation, il reste à l'être côté front.
+> serveur, et que le front déclarait dans `apps/web/src/api/archiveDocument.ts`. Deux noms pour une
+> même donnée : l'écart est résorbé des deux côtés — le front déclare les sept valeurs ci-dessus
+> depuis le 2026-08-11, avec un point unique `itemType` → libellé français
+> (`apps/web/src/utils/archiveLabels.ts`).
 
 #### Droit d'accès aux archives pédagogiques — piloté par la relation (2026-08-11)
 
@@ -1344,8 +1346,9 @@ archives de personne. La table naît vide.
 | GET | /api/v1/archives/students/:studentId/archive-timeline | Timeline chronologique des archives (groupée par date) | 🔒 | **piloté par la relation**, mêmes droits que la liste | `200 {data: [{date, items: [{id, itemType, title, sourceId, sourceService, score, pedagogicalPoints}]}], page, limit, total, totalPages}` · `400` · `401` · `404` · `503` |
 
 Pagination : `page` (défaut 1) et `limit` (défaut 20, max 100). La liste renvoie une **enveloppe**
-`{data, page, limit, total, totalPages}`, pas un tableau nu — le front lit encore un tableau
-(`Array.isArray(data) ? data : []`) et affiche donc un état vide : à aligner côté front.
+`{data, page, limit, total, totalPages}`, pas un tableau nu. Le front lisait un tableau
+(`Array.isArray(data) ? data : []`) et affichait donc un état vide ; le repli a été supprimé le
+2026-08-11 — une enveloppe inattendue doit se voir, pas se taire.
 
 ### Téléchargement
 

@@ -460,6 +460,39 @@ describe('ProfileVisibilitySettingsPage', () => {
     expect(saveButton.disabled).toBe(true)
   })
 
+  it('règle les quatre champs élève ajoutés le 2026-08-11, sous leur libellé français', async () => {
+    // Relevé sur la pile réelle le 2026-08-11 (`GET .../field-visibility`,
+    // HTTP 200, 36 entrées) : ces quatre champs sont au catalogue, hors socle
+    // (`defaultAudience: 'self'`). Sans libellé au point unique, l'écran
+    // afficherait « School name » et « Family context ».
+    mockFetchFieldVisibility.mockResolvedValue({
+      userId: 'student-1',
+      fields: [
+        buildEntry({ fieldName: 'schoolName', block: 'pedagogical-student' }),
+        buildEntry({ fieldName: 'familyContext', block: 'pedagogical-student' }),
+        buildEntry({ fieldName: 'schoolContext', block: 'pedagogical-student' }),
+        buildEntry({ fieldName: 'equipment', block: 'pedagogical-student' }),
+      ],
+    })
+
+    renderPage('student-1')
+
+    await waitFor(() => {
+      expect(screen.getByText('Établissement')).toBeDefined()
+    })
+    expect(screen.getByText('Contexte familial')).toBeDefined()
+    expect(screen.getByText('Contexte scolaire')).toBeDefined()
+    expect(screen.getByText('Matériel (lieu des cours, équipement)')).toBeDefined()
+
+    // Chacun est réglable comme les autres : trois publics proposés.
+    for (const fieldName of ['schoolName', 'familyContext', 'schoolContext', 'equipment']) {
+      expect(audienceRadiosOf(fieldName)).toHaveLength(3)
+    }
+    // Champs supprimés côté serveur : plus rien à régler à leur sujet.
+    expect(screen.queryByText('Contexte scolaire et familial')).toBeNull()
+    expect(screen.queryByText('Département')).toBeNull()
+  })
+
   it('keeps every field group rendered inside one form', async () => {
     mockFetchFieldVisibility.mockResolvedValue(CATALOG)
 

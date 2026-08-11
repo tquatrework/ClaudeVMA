@@ -50,6 +50,74 @@ HTTP citée :
 
 Ni tests verts, ni PR ouverte ne valent preuve.
 
+## État au 2026-08-11
+
+- [x] **Back codé, migré, déployé** — `visiomath_profile` reconstruit. `schoolName` (200),
+      `familyContext` / `schoolContext` / `equipment` (2000, texte long), tous **hors socle** de
+      visibilité (`self` par défaut). `department` et `context` supprimés : les envoyer renvoie
+      `400 property … should not exist`. Migration sans perte : 5 → 5 lignes pédagogiques,
+      24 → 24 administratives, `pg_dump` pris avant.
+- [x] **Donnée ambiguë tranchée par l'utilisateur** — l'ancien `context` valait
+      `"une jumelle\nlycée des Graves"`. Sur sa demande, `UPDATE 1` dans une transaction :
+      `schoolName = 'lycée des Graves'`, `familyContext = 'une jumelle'`.
+- [x] **Front codé** — les 4 champs, `department` et `context` retirés, e-mail affiché.
+- [x] **Permanence des autres rôles : vérifiée, aucun correctif nécessaire.** Le mécanisme
+      d'appartenance de l'état à la page couvrait déjà parent, formateur, AP et RP. 18 cas
+      ajoutés dans `apps/web/test/pages/ProfileRemanenceByRole.test.tsx`, chacun vérifiant
+      quatre propriétés : réponse serveur réaffichée (le serveur simulé répond volontairement
+      autre chose que la saisie), aller-retour d'onglet sans perte, `GET /profiles/:userId`
+      appelé **une seule fois**, saisie conservée avec message français en cas de refus.
+      Il manquait la vérification, pas le correctif.
+- [x] **Front déployé** — bundle `index--GUGb3O2.js` servi publiquement, portant `schoolName`,
+      `familyContext`, `schoolContext`, `equipment` et leurs libellés français ; `department`
+      **absent** (0 occurrence).
+- [ ] **Validé par l'utilisateur** — son test manuel reste à faire.
+- [ ] Mergé dans master
+
+## E-mail : arbitrage rendu, à confirmer
+
+Provenance : la **session authentifiée**. `POST /auth/login` (201) et `GET /auth/me` (200)
+renvoient déjà `{id, loginIdentifier, email, role, validationStatus, emailVerified}`. Aucun
+appel supplémentaire, **aucun champ demandé à `profile-service`** — l'arbitrage du 2026-08-08
+est tenu.
+
+Deux choix retenus, tous deux fondés sur des réponses réelles :
+
+1. **Lecture seule.** Aucune route ne modifie l'e-mail d'un compte : `PUT /accounts/:id` → `404`,
+   et `PUT /profiles/:id/administrative {email}` → `400 property email should not exist`. Un
+   champ de saisie aurait accepté une frappe pour la jeter — le défaut que ce projet corrige
+   depuis des jours.
+2. **Son propre profil seulement.** `GET /accounts/:id` par le titulaire lui-même → `403
+   Insufficient role` (route réservée TI/RP/AF), et `GET /profiles/:userId` ne renvoie pas
+   l'e-mail. Le front n'a donc **aucune source** pour l'e-mail d'un tiers. S'y ajoute que
+   `email` n'est **pas au catalogue de visibilité** : son titulaire ne pourrait pas le masquer.
+   Faute de pouvoir le protéger, on ne l'expose pas.
+
+**À trancher par l'utilisateur s'il le souhaite** : ouvrir l'e-mail d'un tiers au RP/TI/AF
+supposerait un appel à `GET /accounts/:accountId` et l'entrée d'`email` au catalogue de
+visibilité. Non fait.
+
+## Effet de bord constaté le 2026-08-11 — les agents ne peuvent plus écrire leur rapport
+
+Le retrait de `Write(.claude/reports/**)` (commit `0b10e76`, PR #91) empêche la **création** d'un
+rapport : `Edit` exige un fichier existant. L'agent front n'a donc pas pu déposer le sien et a
+rendu ses conclusions directement. À arbitrer : rétablir `Write` sur ce dossier, ou acter que les
+rapports vivent désormais dans `docs/services/<service>.md`.
+
+## Reste à traiter, hors objectif courant
+
+- **UUID encore affichés**, en contradiction avec la règle « aucun UUID à l'écran sauf AF » :
+  `FinancialProfilePage.tsx:178` (« Identifiant propriétaire ») visible du parent, du formateur,
+  de l'AP et du RP ; `TeacherValidationPanel.tsx:133` (`validatedBy.slice(0,8)` en guise de nom,
+  alors que `usePersonDisplayName` existe) ; et celui déjà connu dans « Formateurs liés ».
+- **Compte de vérification laissé sur la pile** : `front.check.0811`, rôle élève, créé pour
+  obtenir les réponses HTTP citées. Aucune route de suppression n'existe ; un TI peut le
+  suspendre.
+- **6 tests front en échec, préexistants et sans lien** : `ParentLinkRequestsInboxPage` (3) et
+  `ParentLinkRequestPage` (1) attendent encore un `parentId` brut à l'écran — l'interface a cessé
+  d'afficher les UUID, ce sont les **tests** qui sont périmés ; `WorkflowStatusPage` (1) et
+  `HealthStatusPage` (1).
+
 ## Objectif précédent, clos le 2026-08-11
 
 Permanence des champs côté élève : **validé par l'utilisateur** après son propre test manuel sur

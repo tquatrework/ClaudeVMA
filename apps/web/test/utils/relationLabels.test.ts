@@ -97,6 +97,24 @@ describe('describeUnlinkFailure', () => {
     expect(message).toContain('il ne vous appartient pas')
   })
 
+  it("traduit le 400 du serveur, dont le message est en anglais technique", () => {
+    const message = describeUnlinkFailure({
+      response: { status: 400, data: { message: 'Validation failed (uuid is expected)' } },
+    })
+
+    expect(message).not.toContain('Validation failed')
+    expect(message).toContain('Rechargez la page')
+  })
+
+  it("traduit le 401 du serveur, dont le message est « Unauthorized »", () => {
+    const message = describeUnlinkFailure({
+      response: { status: 401, data: { message: 'Unauthorized' } },
+    })
+
+    expect(message).not.toContain('Unauthorized')
+    expect(message).toContain('Votre session a expiré')
+  })
+
   it('reste en français sur une panne serveur', () => {
     expect(describeUnlinkFailure({ response: { status: 500, data: {} } })).toBe(
       'Le serveur rencontre un problème. Veuillez réessayer plus tard.',

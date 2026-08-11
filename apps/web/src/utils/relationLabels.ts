@@ -58,16 +58,28 @@ export function describeUnlinkConsequence(viewerSide: FinanceLinkViewerSide): st
 }
 
 /**
- * Message d'échec d'une rupture, en français.
+ * Refus documentés de `DELETE /relations/finance-owner-student/...`, traduits ici et
+ * non repris du serveur : ses messages sont en anglais technique pour le `400`
+ * (« Validation failed (uuid is expected) ») comme pour le `401` (« Unauthorized »),
+ * vérifié contre la pile réelle le 2026-08-11. Règle de langue du 2026-08-09 : tout
+ * ce que l'utilisateur lit est en français.
  *
- * Le `404` du serveur recouvre **deux causes indiscernables** — lien inexistant,
+ * Le `404` recouvre **deux causes volontairement indiscernables** — lien inexistant,
  * ou appelant sans droit sur ce lien. Le message les nomme toutes les deux sans en
- * choisir une : supposer laquelle s'applique reviendrait à révéler ce que le
- * serveur refuse justement de dire.
+ * choisir une : supposer laquelle s'applique reviendrait à révéler ce que le serveur
+ * refuse justement de dire.
  */
+const UNLINK_FAILURE_MESSAGES: Record<number, string> = {
+  400: "Ce lien n'a pas pu être rompu : la demande a été refusée. Rechargez la page, puis réessayez.",
+  401: 'Votre session a expiré. Reconnectez-vous, puis réessayez.',
+  404: "Ce lien n'a pas pu être rompu : il n'existe plus, ou il ne vous appartient pas.",
+}
+
+/** Message d'échec d'une rupture, en français quel que soit le refus. */
 export function describeUnlinkFailure(error: unknown): string {
-  if (getErrorStatus(error) === 404) {
-    return "Ce lien n'a pas pu être rompu : il n'existe plus, ou il ne vous appartient pas."
+  const status = getErrorStatus(error)
+  if (status !== undefined && UNLINK_FAILURE_MESSAGES[status]) {
+    return UNLINK_FAILURE_MESSAGES[status]
   }
   return getErrorMessage(error, "Le lien n'a pas pu être rompu. Réessayez dans un instant.")
 }

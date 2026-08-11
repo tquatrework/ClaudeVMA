@@ -204,14 +204,21 @@ describe('FinancialProfilePage', () => {
     })
   })
 
-  it('affiche un message d\'erreur 404', async () => {
+  /**
+   * `404` n'est pas une panne : le profil financier naît du premier paiement
+   * d'inscription. Vérifié le 2026-08-11 contre la pile réelle — un parent
+   * financeur tout juste inscrit reçoit `404 Financial profile for owner …
+   * not found`. C'est donc l'état d'accueil normal, pas une erreur.
+   */
+  it('annonce une absence, pas une erreur, sur un 404', async () => {
     mockApiClient.get = vi.fn().mockRejectedValue({ response: { status: 404 } })
 
     renderFinancialProfilePage()
 
     await waitFor(() => {
-      expect(screen.getByText('Profil financier introuvable.')).toBeDefined()
+      expect(screen.getByText(/Aucun profil financier pour l'instant/)).toBeDefined()
     })
+    expect(screen.queryByText(/introuvable/)).toBeNull()
   })
 
   it('déclenche un paiement d\'inscription via le formulaire', async () => {

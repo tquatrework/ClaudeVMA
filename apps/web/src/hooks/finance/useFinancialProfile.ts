@@ -35,6 +35,14 @@ export interface UseFinancialProfileResult {
   isLoadingProfile: boolean
   isLoadingArchives: boolean
   loadError: string | null
+  /**
+   * `404` sur la lecture du profil : **état normal**, pas une erreur. Le profil
+   * financier est créé au premier paiement d'inscription (`docs/routes.md`,
+   * finance-credit-service) — vérifié le 2026-08-11 contre la pile réelle, un
+   * parent financeur tout juste inscrit reçoit
+   * `404 Financial profile for owner … not found`.
+   */
+  hasNoFinancialProfileYet: boolean
 
   isSavingPaymentMethod: boolean
   savePaymentMethodError: string | null
@@ -55,6 +63,7 @@ export function useFinancialProfile(ownerId: string): UseFinancialProfileResult 
   const [isLoadingProfile, setIsLoadingProfile] = useState(true)
   const [isLoadingArchives, setIsLoadingArchives] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [hasNoFinancialProfileYet, setHasNoFinancialProfileYet] = useState(false)
 
   const [isSavingPaymentMethod, setIsSavingPaymentMethod] = useState(false)
   const [savePaymentMethodError, setSavePaymentMethodError] = useState<string | null>(null)
@@ -70,6 +79,7 @@ export function useFinancialProfile(ownerId: string): UseFinancialProfileResult 
 
     setIsLoadingProfile(true)
     setLoadError(null)
+    setHasNoFinancialProfileYet(false)
     fetchFinancialProfile(ownerId)
       .then((profile) => {
         if (isCurrentOwner) setFinancialProfile(profile)
@@ -80,7 +90,8 @@ export function useFinancialProfile(ownerId: string): UseFinancialProfileResult 
         if (statusCode === 403) {
           setLoadError('Accès refusé.')
         } else if (statusCode === 404) {
-          setLoadError('Profil financier introuvable.')
+          // Absence, pas échec : rien à signaler comme une erreur.
+          setHasNoFinancialProfileYet(true)
         } else {
           setLoadError('Impossible de charger le profil financier.')
         }
@@ -173,6 +184,7 @@ export function useFinancialProfile(ownerId: string): UseFinancialProfileResult 
     isLoadingProfile,
     isLoadingArchives,
     loadError,
+    hasNoFinancialProfileYet,
     isSavingPaymentMethod,
     savePaymentMethodError,
     savePaymentMethod,

@@ -26,6 +26,7 @@ import { PaymentMethodEditor } from './PaymentMethodEditor'
 import { RegistrationPaymentSection } from './RegistrationPaymentSection'
 import { FinancialArchiveTable } from './FinancialArchiveTable'
 import { ErrorMessage } from '../ui/ErrorMessage'
+import { EmptyState } from '../ui/EmptyState'
 import type { PaymentMethod } from '../../api/finance'
 
 const DEFAULT_REGISTRATION_AMOUNT_CENTS = 9900
@@ -43,6 +44,7 @@ export function FinancialProfilePanel({ ownerId }: FinancialProfilePanelProps) {
     isLoadingProfile,
     isLoadingArchives,
     loadError,
+    hasNoFinancialProfileYet,
     isSavingPaymentMethod,
     savePaymentMethodError,
     savePaymentMethod,
@@ -91,8 +93,16 @@ export function FinancialProfilePanel({ ownerId }: FinancialProfilePanelProps) {
     return <ErrorMessage message={loadError} />
   }
 
-  if (!financialProfile) {
-    return <p className="text-gray-400 text-sm">Profil financier introuvable.</p>
+  /**
+   * Absence, pas panne : le profil financier naît du premier paiement
+   * d'inscription. Un compte tout juste créé est donc **normalement** dans cet
+   * état, et l'annoncer comme « introuvable » ferait passer un état ordinaire
+   * pour une anomalie.
+   */
+  if (hasNoFinancialProfileYet || !financialProfile) {
+    return (
+      <EmptyState message="Aucun profil financier pour l'instant. Il sera créé lors du premier paiement d'inscription." />
+    )
   }
 
   const isMembre = financialProfile.profileType === 'membre'

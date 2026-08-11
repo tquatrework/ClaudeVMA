@@ -268,7 +268,7 @@ describe('Fiche profil — contenu et permanence de l’onglet financier', () =>
 })
 
 describe('Fiche profil — onglet financier, cas d’erreur', () => {
-  it('affiche « Profil financier introuvable. » sur un 404 sans casser la fiche', async () => {
+  it('annonce une absence, pas une erreur, sur un 404 — et la fiche reste utilisable', async () => {
     mockFetchFinancialProfile.mockRejectedValue({ response: { status: 404 } })
 
     renderProfilePage(TEACHER_ID, TEACHER_ID, 'formateur')
@@ -276,7 +276,7 @@ describe('Fiche profil — onglet financier, cas d’erreur', () => {
 
     clickTab(FINANCIAL_TAB_LABEL)
 
-    expect(await screen.findByText('Profil financier introuvable.')).toBeDefined()
+    expect(await screen.findByText(/Aucun profil financier pour l'instant/)).toBeDefined()
     // Les autres onglets restent utilisables.
     clickTab('Profil administratif')
     expect(screen.getByLabelText('Prénom')).toBeDefined()

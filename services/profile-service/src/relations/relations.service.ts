@@ -4,13 +4,15 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { FinanceOwnerStudentLink } from './entities/finance-owner-student-link.entity';
 import { TeacherStudentLink } from './entities/teacher-student-link.entity';
 import { PedagogicalCoordinatorLink } from './entities/pedagogical-coordinator-link.entity';
+import { AnimatorTeacherLink } from './entities/animator-teacher-link.entity';
 import { CreateFinanceOwnerStudentLinkDto } from './dto/create-finance-owner-student-link.dto';
 import { CreateTeacherStudentLinkDto } from './dto/create-teacher-student-link.dto';
 import { CreatePedagogicalCoordinatorLinkDto } from './dto/create-pedagogical-coordinator-link.dto';
+import { CreateAnimatorTeacherLinkDto } from './dto/create-animator-teacher-link.dto';
 import { EventsService } from '../events/events.service';
 import { UserRole } from '../common/enums/user-role.enum';
 import { Actor } from '../common/types/actor.type';
@@ -18,6 +20,21 @@ import {
   AdministrativeName,
   AdministrativeProfileLookupService,
 } from '../profiles/administrative-profile-lookup.service';
+import { RelationKind, ResolvedRelation } from './relation-kind';
+
+/**
+ * Une personne à laquelle l'utilisateur courant est relié, telle qu'un écran a
+ * besoin de la lire : un NOM, et la nature du lien. `userId` n'est là que pour
+ * construire l'appel suivant (`/statistics`, `/pedagogical-archives`) — il ne
+ * doit jamais être affiché (arbitrage du 2026-08-09 : aucun UUID à l'écran, sauf
+ * pour l'administrateur financier).
+ */
+export interface RelatedPerson {
+  userId: string;
+  firstName: string | null;
+  lastName: string | null;
+  relations: ResolvedRelation[];
+}
 
 @Injectable()
 export class RelationsService {
@@ -28,6 +45,8 @@ export class RelationsService {
     private readonly teacherRepo: Repository<TeacherStudentLink>,
     @InjectRepository(PedagogicalCoordinatorLink)
     private readonly coordinatorRepo: Repository<PedagogicalCoordinatorLink>,
+    @InjectRepository(AnimatorTeacherLink)
+    private readonly animatorRepo: Repository<AnimatorTeacherLink>,
     private readonly events: EventsService,
     private readonly administrativeProfileLookup: AdministrativeProfileLookupService,
   ) {}
@@ -222,6 +241,285 @@ export class RelationsService {
     return this.coordinatorRepo.find({ where: { coordinatorId }, order: { createdAt: 'ASC' } });
   }
 
+  /**
+   * Rattache un AP à un formateur qu'il anime (arbitrage du 2026-08-11).
+   * Réservé au RP : c'est lui qui promeut un formateur en AP
+   * (`POST /profiles/:teacherId/ap-status`), c'est donc lui qui décide de ce
+   * qu'un AP anime. Un AP ne se donne pas ses propres animés.
+   */
+  async linkAnimatorToTeacher(dto: CreateAnimatorTeacherLinkDto, actor: Actor) {
+    if (actor.role !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+      throw new ForbiddenException('Only RP can link an animateur pédagogique to a formateur');
+    }
+
+    const existing = await this.animatorRepo.findOne({
+      where: { animatorId: dto.animatorId, teacherId: dto.teacherId },
+    });
+    if (existing) {
+      throw new ConflictException('This animateur is already linked to this formateur');
+    }
+
+    const saved = await this.animatorRepo.save(this.animatorRepo.create(dto));
+
+    this.events.publish('AnimatorLinkedToTeacher', {
+      animatorId: dto.animatorId,
+      teacherId: dto.teacherId,
+      actorId: actor.id,
+    });
+
+    return saved;
+  }
+
+  /**
+   * Liste les formateurs animés par un AP.
+   * Accessible au RP, au TI et à l'AP lui-même.
+   */
+  async getTeachersByAnimator(animatorId: string, actor: Actor) {
+    const privileged = [
+      UserRole.RESPONSABLE_PEDAGOGIQUE,
+      UserRole.TECHNICIEN_INFORMATIQUE,
+    ];
+    if (!privileged.includes(actor.role) && actor.id !== animatorId) {
+      throw new ForbiddenException('You may only list the formateurs you animate');
+    }
+
+    const links = await this.animatorRepo.find({
+      where: { animatorId },
+      order: { createdAt: 'ASC' },
+    });
+    return this.attachTeacherNames(links);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Résolution des relations — socle du droit d'accès au pédagogique
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Toutes les relations métier entre deux personnes, ORIENTÉES du lecteur vers
+   * la cible. Liste vide = aucun lien.
+   *
+   * C'est le point unique consommé par :
+   *  - `GET /profiles/:userId/statistics` (ce service) ;
+   *  - `GET /internal/relations/:viewerId/:targetId` (archive-document-service).
+   * Un second calcul écrit ailleurs divergerait au premier arbitrage suivant.
+   *
+   * Coût : quatre requêtes à plat, quel que soit le nombre de liens. Les
+   * relations INDIRECTES (parent ↔ formateur, via l'élève commun) sont calculées
+   * en mémoire par intersection des élèves des deux parties — inutile d'aller
+   * chercher en base une jointure que ces deux ensembles suffisent à décider.
+   */
+  async resolveRelations(viewerId: string, targetId: string): Promise<ResolvedRelation[]> {
+    if (viewerId === targetId) return [];
+
+    const pair = [viewerId, targetId];
+    const [financeLinks, teacherLinks, animatorLinks, coordinatorLinks] = await Promise.all([
+      this.financeRepo.find({
+        where: [{ financeOwnerId: In(pair) }, { studentId: In(pair) }],
+      }),
+      this.teacherRepo.find({
+        where: [{ teacherId: In(pair) }, { studentId: In(pair) }],
+      }),
+      this.animatorRepo.find({
+        where: [{ animatorId: In(pair) }, { teacherId: In(pair) }],
+      }),
+      this.coordinatorRepo.find({
+        where: [{ coordinatorId: In(pair) }, { studentId: In(pair) }],
+      }),
+    ]);
+
+    const relations: ResolvedRelation[] = [];
+
+    // --- liens directs --------------------------------------------------------
+    for (const link of financeLinks) {
+      if (link.financeOwnerId === viewerId && link.studentId === targetId) {
+        relations.push({ kind: RelationKind.FINANCE_OWNER_OF_STUDENT });
+      }
+      if (link.financeOwnerId === targetId && link.studentId === viewerId) {
+        relations.push({ kind: RelationKind.STUDENT_OF_FINANCE_OWNER });
+      }
+    }
+
+    for (const link of teacherLinks) {
+      if (link.teacherId === viewerId && link.studentId === targetId) {
+        relations.push({
+          kind: RelationKind.TEACHER_OF_STUDENT,
+          isPrincipalTeacher: link.isPrincipalTeacher,
+        });
+      }
+      if (link.teacherId === targetId && link.studentId === viewerId) {
+        relations.push({
+          kind: RelationKind.STUDENT_OF_TEACHER,
+          isPrincipalTeacher: link.isPrincipalTeacher,
+        });
+      }
+    }
+
+    for (const link of animatorLinks) {
+      if (link.animatorId === viewerId && link.teacherId === targetId) {
+        relations.push({ kind: RelationKind.ANIMATOR_OF_TEACHER });
+      }
+      if (link.animatorId === targetId && link.teacherId === viewerId) {
+        relations.push({ kind: RelationKind.TEACHER_OF_ANIMATOR });
+      }
+    }
+
+    for (const link of coordinatorLinks) {
+      if (link.coordinatorId === viewerId && link.studentId === targetId) {
+        relations.push({ kind: RelationKind.COORDINATOR_OF_STUDENT });
+      }
+      if (link.coordinatorId === targetId && link.studentId === viewerId) {
+        relations.push({ kind: RelationKind.STUDENT_OF_COORDINATOR });
+      }
+    }
+
+    // --- liens indirects parent ↔ formateur, par l'élève commun ---------------
+    const studentsFinancedByViewer = financeLinks
+      .filter((link) => link.financeOwnerId === viewerId)
+      .map((link) => link.studentId);
+    const studentsFinancedByTarget = financeLinks
+      .filter((link) => link.financeOwnerId === targetId)
+      .map((link) => link.studentId);
+    const studentsTaughtByViewer = teacherLinks
+      .filter((link) => link.teacherId === viewerId)
+      .map((link) => link.studentId);
+    const studentsTaughtByTarget = teacherLinks
+      .filter((link) => link.teacherId === targetId)
+      .map((link) => link.studentId);
+
+    const viewerFinancesTargetsStudents = intersect(
+      studentsFinancedByViewer,
+      studentsTaughtByTarget,
+    );
+    if (viewerFinancesTargetsStudents.length > 0) {
+      relations.push({
+        kind: RelationKind.FINANCE_OWNER_OF_STUDENT_OF_TEACHER,
+        throughUserIds: viewerFinancesTargetsStudents,
+      });
+    }
+
+    const viewerTeachesTargetsStudents = intersect(
+      studentsTaughtByViewer,
+      studentsFinancedByTarget,
+    );
+    if (viewerTeachesTargetsStudents.length > 0) {
+      relations.push({
+        kind: RelationKind.TEACHER_OF_STUDENT_OF_FINANCE_OWNER,
+        throughUserIds: viewerTeachesTargetsStudents,
+      });
+    }
+
+    return relations;
+  }
+
+  /**
+   * Toutes les personnes auxquelles un utilisateur est relié, avec leur NOM et
+   * la nature du lien — de quoi construire un sélecteur « qui consulter ? » sans
+   * afficher un seul UUID et sans N+1 (un seul batch de résolution de noms).
+   *
+   * Les relations indirectes (parent ↔ formateur de son élève) sont incluses :
+   * c'est précisément ce qui permet à un parent de choisir le formateur de son
+   * enfant dans une liste, sans qu'aucune table ne porte ce lien.
+   */
+  async listRelatedPeople(userId: string): Promise<RelatedPerson[]> {
+    const [financeLinks, teacherLinks, animatorLinks, coordinatorLinks] = await Promise.all([
+      this.financeRepo.find({ where: [{ financeOwnerId: userId }, { studentId: userId }] }),
+      this.teacherRepo.find({ where: [{ teacherId: userId }, { studentId: userId }] }),
+      this.animatorRepo.find({ where: [{ animatorId: userId }, { teacherId: userId }] }),
+      this.coordinatorRepo.find({ where: [{ coordinatorId: userId }, { studentId: userId }] }),
+    ]);
+
+    const relationsByUserId = new Map<string, ResolvedRelation[]>();
+    const add = (otherUserId: string, relation: ResolvedRelation) => {
+      if (otherUserId === userId) return;
+      const existing = relationsByUserId.get(otherUserId) ?? [];
+      existing.push(relation);
+      relationsByUserId.set(otherUserId, existing);
+    };
+
+    for (const link of financeLinks) {
+      if (link.financeOwnerId === userId) {
+        add(link.studentId, { kind: RelationKind.FINANCE_OWNER_OF_STUDENT });
+      }
+      if (link.studentId === userId) {
+        add(link.financeOwnerId, { kind: RelationKind.STUDENT_OF_FINANCE_OWNER });
+      }
+    }
+
+    for (const link of teacherLinks) {
+      if (link.teacherId === userId) {
+        add(link.studentId, {
+          kind: RelationKind.TEACHER_OF_STUDENT,
+          isPrincipalTeacher: link.isPrincipalTeacher,
+        });
+      }
+      if (link.studentId === userId) {
+        add(link.teacherId, {
+          kind: RelationKind.STUDENT_OF_TEACHER,
+          isPrincipalTeacher: link.isPrincipalTeacher,
+        });
+      }
+    }
+
+    for (const link of animatorLinks) {
+      if (link.animatorId === userId) add(link.teacherId, { kind: RelationKind.ANIMATOR_OF_TEACHER });
+      if (link.teacherId === userId) add(link.animatorId, { kind: RelationKind.TEACHER_OF_ANIMATOR });
+    }
+
+    for (const link of coordinatorLinks) {
+      if (link.coordinatorId === userId) {
+        add(link.studentId, { kind: RelationKind.COORDINATOR_OF_STUDENT });
+      }
+      if (link.studentId === userId) {
+        add(link.coordinatorId, { kind: RelationKind.STUDENT_OF_COORDINATOR });
+      }
+    }
+
+    // --- relations indirectes, par les élèves du lecteur ----------------------
+    const financedStudentIds = financeLinks
+      .filter((link) => link.financeOwnerId === userId)
+      .map((link) => link.studentId);
+    const taughtStudentIds = teacherLinks
+      .filter((link) => link.teacherId === userId)
+      .map((link) => link.studentId);
+
+    if (financedStudentIds.length > 0) {
+      const teachersOfMyStudents = await this.teacherRepo.find({
+        where: { studentId: In(financedStudentIds) },
+      });
+      for (const link of teachersOfMyStudents) {
+        add(link.teacherId, {
+          kind: RelationKind.FINANCE_OWNER_OF_STUDENT_OF_TEACHER,
+          throughUserIds: [link.studentId],
+        });
+      }
+    }
+
+    if (taughtStudentIds.length > 0) {
+      const financeOwnersOfMyStudents = await this.financeRepo.find({
+        where: { studentId: In(taughtStudentIds) },
+      });
+      for (const link of financeOwnersOfMyStudents) {
+        add(link.financeOwnerId, {
+          kind: RelationKind.TEACHER_OF_STUDENT_OF_FINANCE_OWNER,
+          throughUserIds: [link.studentId],
+        });
+      }
+    }
+
+    const names = await this.administrativeProfileLookup.findNamesByUserIds([
+      ...relationsByUserId.keys(),
+    ]);
+
+    return [...relationsByUserId.entries()]
+      .map(([relatedUserId, relations]) => ({
+        userId: relatedUserId,
+        firstName: names.get(relatedUserId)?.firstName ?? null,
+        lastName: names.get(relatedUserId)?.lastName ?? null,
+        relations,
+      }))
+      .sort(byDisplayName);
+  }
+
   // ---------------------------------------------------------------------------
   // Ports consumed by other features (profiles, parent-link-requests, internal)
   // ---------------------------------------------------------------------------
@@ -361,4 +659,35 @@ export class RelationsService {
     );
     return links.map((link) => ({ ...link, financeOwnerName: names.get(link.financeOwnerId) ?? null }));
   }
+
+  /**
+   * Attache `teacherName` aux liens AP → formateur. Même garantie que les deux
+   * helpers ci-dessus : un formateur sans profil administratif ne fait jamais
+   * échouer la requête, son nom vaut simplement `null`.
+   */
+  private async attachTeacherNames<T extends { teacherId: string }>(
+    links: T[],
+  ): Promise<(T & { teacherName: AdministrativeName | null })[]> {
+    const names = await this.administrativeProfileLookup.findNamesByUserIds(
+      links.map((link) => link.teacherId),
+    );
+    return links.map((link) => ({ ...link, teacherName: names.get(link.teacherId) ?? null }));
+  }
+}
+
+/** Intersection dédoublonnée de deux listes d'identifiants. */
+function intersect(left: string[], right: string[]): string[] {
+  const rightSet = new Set(right);
+  return [...new Set(left.filter((value) => rightSet.has(value)))];
+}
+
+/**
+ * Tri par nom affichable. Les personnes sans nom saisi passent en dernier :
+ * elles ne peuvent être présentées que par un repli, autant ne pas les mettre en
+ * tête de liste.
+ */
+function byDisplayName(left: RelatedPerson, right: RelatedPerson): number {
+  const key = (person: RelatedPerson) =>
+    `${person.lastName ?? '￿'} ${person.firstName ?? '￿'}`.toLocaleLowerCase('fr');
+  return key(left).localeCompare(key(right), 'fr');
 }

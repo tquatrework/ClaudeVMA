@@ -1,21 +1,17 @@
 /**
- * ArchiveItemDetail — Phase 11
+ * ArchiveItemDetail — détail d'un élément d'archive sélectionné.
  *
- * Affiche le détail d'un élément d'archive sélectionné.
- * Propose les actions disponibles : ouvrir le lien source, télécharger le document.
- * Les carnet personnel restent réservés à l'élève (l'UI n'affiche pas le bouton pour le parent).
+ * Le carnet personnel reste réservé à l'élève : le parent financeur ne le reçoit
+ * même pas du serveur (il est filtré de la liste), mais le message de restriction
+ * est conservé pour les rares cas où un élément filtré transiterait quand même.
+ * Aucun champ `sourceUrl` n'existe côté serveur : seul `downloadUrl` ouvre une
+ * action, et le téléchargement passe par `GET /documents/:id/download`.
  */
 
 import React from 'react'
-import type { PedagogicalArchiveItem, ArchiveItemType } from '../../api/archiveDocument'
-
-const ITEM_TYPE_LABELS: Record<ArchiveItemType, string> = {
-  pedagogical_log: 'Cahier de texte',
-  course_summary: 'Résumé de cours',
-  notebook_entry: 'Carnet personnel',
-  recording: 'Enregistrement',
-  content_catalog: 'Contenu pédagogique',
-}
+import type { PedagogicalArchiveItem } from '../../api/archiveDocument'
+import { getArchiveItemTypeLabel } from '../../utils/archiveLabels'
+import { formatLocalDateTime } from '../../utils/dateFormat'
 
 interface ArchiveItemDetailProps {
   archiveItem: PedagogicalArchiveItem
@@ -30,9 +26,8 @@ export default function ArchiveItemDetail({
   isDownloadingDocument,
   onDownload,
 }: ArchiveItemDetailProps) {
-  const typeLabel = ITEM_TYPE_LABELS[archiveItem.itemType] ?? archiveItem.itemType
-  const isNotebookEntry = archiveItem.itemType === 'notebook_entry'
-  const hasSourceLink = Boolean(archiveItem.sourceUrl)
+  const typeLabel = getArchiveItemTypeLabel(archiveItem.itemType)
+  const isNotebookEntry = archiveItem.itemType === 'carnet_personnel'
   const hasDownloadLink = Boolean(archiveItem.downloadUrl)
 
   // Un parent financeur ne peut pas accéder aux entrées de carnet personnel
@@ -48,12 +43,7 @@ export default function ArchiveItemDetail({
             {typeLabel}
           </span>
         </div>
-        <p className="text-xs text-gray-400">
-          {new Date(archiveItem.occurredAt).toLocaleString('fr-FR', {
-            dateStyle: 'long',
-            timeStyle: 'short',
-          })}
-        </p>
+        <p className="text-xs text-gray-400">{formatLocalDateTime(archiveItem.occurredAt)}</p>
       </div>
 
       {/* Accès bloqué pour le parent financeur sur le carnet personnel */}
@@ -64,43 +54,31 @@ export default function ArchiveItemDetail({
         </div>
       ) : (
         <>
-          {/* Description */}
           {archiveItem.description && (
             <p className="text-sm text-gray-700">{archiveItem.description}</p>
           )}
 
-          {/* Résumé de cours permanent */}
-          {archiveItem.itemType === 'course_summary' && (
+          {archiveItem.score !== null && (
+            <p className="text-sm text-gray-700">Note obtenue : {archiveItem.score}</p>
+          )}
+
+          {archiveItem.itemType === 'resume_de_cours' && (
             <div className="text-xs text-green-700 bg-green-50 border border-green-100 rounded-lg px-3 py-2">
               Ce résumé est permanent et reste accessible même après expiration de
               l'enregistrement vidéo.
             </div>
           )}
 
-          {/* Actions */}
           <div className="flex flex-wrap gap-3">
-            {hasSourceLink && (
-              <a
-                href={archiveItem.sourceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-800 border border-indigo-200 rounded-lg px-4 py-2 hover:bg-indigo-50 transition-colors"
-              >
-                Ouvrir la source
-              </a>
-            )}
-
-            {hasDownloadLink && (
+            {hasDownloadLink ? (
               <ArchiveDocumentDownload
                 documentId={archiveItem.id}
                 isDownloading={isDownloadingDocument}
                 onDownload={onDownload}
               />
-            )}
-
-            {!hasSourceLink && !hasDownloadLink && (
+            ) : (
               <p className="text-xs text-gray-400 italic">
-                Aucun lien ou fichier associé à cette archive.
+                Aucun fichier associé à cette archive.
               </p>
             )}
           </div>

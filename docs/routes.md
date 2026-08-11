@@ -326,7 +326,7 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 | Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
 |---|---|---|---|---|---|
 | GET | /profiles/:userId | 🔒 | eleve (soi-même), formateur (contacts liés), parent_financeur (élèves liés), responsable_pedagogique, animateur_pedagogique, technicien_informatique, administrateur_financier | Lire un profil selon droits. **Strictement en lecture seule** : cette route ne crée jamais rien en base (voir « Existence du profil administratif/pédagogique » dans `docs/architecture.md`). **Filtrée champ par champ** selon les réglages du titulaire — voir « Visibilité champ par champ » ci-dessous | `200 {userId, loginIdentifier, administrative, pedagogical, pedagogicalType, visibility}` — `administrative`/`pedagogical` sont les **seuls** noms de ces blocs, ici comme sur les routes `/internal/*` (arbitrage du 2026-08-08) ; **`pedagogical` porte le profil pédagogique COMPLET, sections confondues et à plat** : champs déclaratifs *et* champs de prescription (le titulaire lit sa prescription, il ne l'écrit jamais) ; `pedagogicalType` vaut `"student"`, `"teacher"` ou `null` ; `loginIdentifier` peut être `null` si identity-access-service est injoignable ; `pedagogical` est `null` tant que l'utilisateur n'a pas renseigné son profil pédagogique (**état normal**, ce profil étant facultatif et créé au premier `PUT /profiles/:userId/pedagogical`) ; `visibility` = `{isFiltered, hiddenFields}` — un champ masqué est **absent** du bloc et **nommé** dans `hiddenFields`, jamais remplacé par `null` · `401` sans token · `403` accès refusé · `404` `userId` inconnu de identity-access-service · `500` compte existant mais sans profil administratif (incohérence de données, loguée côté serveur comme anomalie) |
-| GET | /profiles/:userId/statistics | 🔒 | mêmes règles que `GET /profiles/:userId` | Statistiques pédagogiques consolidées (phase 1 : données du profil pédagogique). **Filtrée par les mêmes réglages** que le bloc `pedagogical` — sinon elle en serait le contournement exact | `200 {userId, profileType, statistics, visibility}` — `visibility` suit le même contrat que ci-dessus ; `isAnimateurPedagogique` est structurel et jamais masqué · `401` · `403` · `404` aucun profil pédagogique |
+| GET | /profiles/:userId/statistics | 🔒 | **piloté par la relation, pas par une liste de rôles** (voir « Droit d'accès aux statistiques » ci-dessous) | Statistiques pédagogiques consolidées (phase 1 : données du profil pédagogique). **Filtrée par les mêmes réglages** que le bloc `pedagogical` — sinon elle en serait le contournement exact | `200 {userId, profileType, statistics, visibility}` — `visibility` suit le même contrat que ci-dessus ; `isAnimateurPedagogique` est structurel et jamais masqué · `401` · `404` aucune statistique **ou** aucune relation ouvrant ce droit (les deux cas sont volontairement indiscernables ; **cette route ne renvoie plus `403`**) |
 | PUT | /profiles/:userId/administrative | 🔒 | eleve (soi-même), responsable_pedagogique, technicien_informatique | Modifier le profil administratif (`firstName`/`lastName` restent optionnels pour ne pas modifier le champ, mais rejettent une chaîne vide). Champs acceptés : voir « Noms de champs des profils » ci-dessous | `200 {userId, ...champsAdmin}` · `400` firstName/lastName vide, champ inconnu, ou type invalide · `401` · `403` · `404` |
 | PUT | /profiles/:userId/pedagogical | 🔒 | eleve (soi-même), formateur (soi-même), responsable_pedagogique, technicien_informatique | Modifier la **section déclarative** du profil pédagogique — ce que le titulaire déclare sur lui-même. Le rôle cible (élève/formateur) est résolu depuis le rôle du compte auprès d'identity-access-service, puis à défaut depuis les champs présents. **N'accepte aucun champ de prescription** ni `filledBy`/`filledAt` ni `isAnimateurPedagogique` | `200 {userId, ...champsPedago}` · `400` champ inconnu, champ de prescription, ou champ appartenant à l'autre rôle (refusé au lieu d'être ignoré) · `401` · `403` · `404` |
 | PUT | /profiles/:userId/prescription | 🔒 | **responsable_pedagogique uniquement** | Modifier la **section prescription** du profil pédagogique — ce que le RP prescrit *sur* la personne. Réservé au RP **y compris quand la cible est l'appelant lui-même** : un élève ne rédige pas ses préconisations, un formateur pas ses résultats de test. `filledBy`/`filledAt` sont posés **côté serveur** (acteur authentifié + horloge serveur) et rendent la prescription opposable | `200 {userId, ...profilPédagoComplet, filledBy, filledAt}` · `400` champ inconnu (dont `filledBy`/`filledAt` ou tout champ déclaratif), corps mélangeant les deux rôles, ou champ de l'autre rôle · `401` · `403` tout rôle autre que RP · `404` |
@@ -582,8 +582,19 @@ depuis l'arbitrage du 2026-08-09 (`docs/architecture.md` > « Arbitrages rendus 
 | Le **parent financeur rattaché** | « Le parent financeur voit tout, sauf le carnet personnel. » Un élève **ne peut pas** masquer une donnée de profil à son parent financeur. Le carnet personnel appartient à `pedagogical-log-service` et n'est pas concerné par ce filtrage |
 | `responsable_pedagogique`, `animateur_pedagogique`, `technicien_informatique`, `administrateur_financier` | Administrateurs, chacun dans le périmètre de lecture déjà contrôlé par les règles d'accès. Le RP **écrit** la section prescription, dont tous les champs sont `self` par défaut : filtré, il ne relirait pas ce qu'il vient d'écrire |
 
-L'exemption du parent financeur est **conditionnelle au rattachement** : un parent non rattaché
-reçoit toujours `403`, avant tout filtrage — l'exemption suppose le lien, elle ne le remplace pas.
+L'exemption du parent financeur est **conditionnelle au rattachement** : un parent non rattaché est
+refusé avant tout filtrage — l'exemption suppose le lien, elle ne le remplace pas. (`403` sur
+`GET /profiles/:userId` ; `404` sur `GET /profiles/:userId/statistics` depuis le 2026-08-11.)
+
+> **Précision du 2026-08-11 pour `GET /profiles/:userId/statistics`.** Les exemptions ci-dessus y
+> sont **conditionnées à la relation**, et non au seul rôle :
+> - le **parent financeur** est exempté sur **ses élèves**, mais seulement *lié* — donc filtré — sur
+>   les **formateurs de ses élèves** : le lien indirect ouvre la lecture, il ne lève pas le masquage ;
+> - l'**animateur pédagogique** est exempté sur les **formateurs qu'il anime**, et n'a accès à
+>   personne d'autre : il n'est **pas** un administrateur.
+>
+> `GET /profiles/:userId` n'a **pas** été aligné dans ce lot : il y exempte encore l'AP par son seul
+> rôle et refuse à l'élève la lecture du profil de son formateur. Écart connu, à traiter séparément.
 
 **Soumis au filtrage :** les autres contacts liés — aujourd'hui le **formateur** rattaché, demain
 élève↔élève. Un lecteur `linked` voit les champs réglés `linked` ou `all` ; un lecteur authentifié
@@ -661,6 +672,40 @@ Transitions autorisées (toute autre transition, y compris vers le statut couran
 | POST | /relations/teacher-student | 🔒 | responsable_pedagogique | Lier un formateur à un élève (avec flag professeur principal) | `201 {teacherId, studentId, isPrincipalTeacher, createdAt}` · `400` · `401` · `403` · `409` doublon |
 | POST | /relations/pedagogical-coordinator | 🔒 | responsable_pedagogique | Lier un RP ou AP comme coordinateur pédagogique d'un élève | `201 {coordinatorId, studentId, coordinatorRole, createdAt}` · `400` rôle invalide · `401` · `403` · `409` doublon |
 | GET | /relations/pedagogical-coordinator/:coordinatorId | 🔒 | responsable_pedagogique, animateur_pedagogique (soi-même), technicien_informatique | Lister les liens de coordination d'un coordinateur | `200 [{coordinatorId, studentId, coordinatorRole}]` · `401` · `403` |
+| POST | /relations/animator-teacher | 🔒 | responsable_pedagogique | **Rattacher un AP à un formateur qu'il anime** (2026-08-11). Aucune table ne portait cette relation : `pedagogical-coordinator` lie un coordinateur à un **élève**, pas à un formateur. C'est elle, et elle seule, qui ouvre à l'AP la lecture des statistiques (et bientôt des archives) du formateur. Réservé au RP : c'est lui qui promeut un formateur en AP, c'est donc lui qui décide de ce qu'un AP anime | `201 {id, animatorId, teacherId, createdAt}` · `400` champ absent ou non-UUID · `401` · `403` tout rôle autre que RP, AP compris · `409` doublon |
+| GET | /relations/animator-teacher/:animatorId | 🔒 | responsable_pedagogique, technicien_informatique, animateur_pedagogique (soi-même) | Lister les formateurs animés par un AP | `200 [{id, animatorId, teacherId, createdAt, teacherName}]` — `teacherName` est `{firstName, lastName}`, ou `null` si le formateur n'a pas de profil administratif · `401` · `403` |
+| GET | /relations/my-contacts | 🔒 | **tout compte authentifié** (`@OwnerAccess()`, aucune liste de rôles) | **Les personnes auxquelles l'utilisateur AUTHENTIFIÉ est relié**, avec leur **prénom, nom** et la **nature du lien**. Aucun paramètre d'identifiant : il n'y a rien à falsifier, on ne renvoie jamais les relations d'un tiers. Destinée aux écrans qui doivent faire choisir « qui consulter ? » (`/archives`, « mes élèves ») **sans afficher un seul UUID** — `userId` n'y est que pour construire l'appel suivant. Inclut les liens **indirects** (parent ↔ formateur de son élève), qu'aucune table ne porte | `200 [{userId, firstName, lastName, relations: [{kind, isPrincipalTeacher?, throughUserIds?}]}]`, trié par nom, `firstName`/`lastName` à `null` sans profil administratif ; un compte sans lien reçoit `200 []` · `401` |
+
+#### Droit d'accès aux statistiques — piloté par la relation (2026-08-11)
+
+> Arbitrage du 2026-08-11 (`docs/architecture.md` > « Arbitrages rendus »). Il prolonge la règle du
+> 2026-08-07 sur la lecture d'un profil : **le droit vient de la relation métier**, pas d'une liste de
+> rôles — une liste oublie un rôle à chaque évolution, défaut corrigé le même jour dans
+> `finance-credit-service`, où `formateur` et `animateur_pedagogique` manquaient.
+
+| Lecteur | Voit les statistiques de | Filtrage champ par champ |
+|---|---|---|
+| Le **titulaire** | lui-même | aucun |
+| **RP, AF, TI** (administrateurs) | tout le monde, sans distinction pour l'instant | aucun |
+| **Parent financeur** | ses élèves | aucun (il voit tout de ses élèves) |
+| **Parent financeur** | les **formateurs de ses élèves** (lien indirect) | **oui** — le lien indirect ouvre la lecture, il ne lève pas le masquage |
+| **Élève** | ses formateurs | oui |
+| **Formateur** | ses élèves | oui |
+| **AP** | les formateurs qu'il anime | aucun (sinon il serait aveugle au dossier qu'il anime) |
+| **Coordinateur** (RP/AP) | les élèves qu'il coordonne | selon son rôle |
+
+Toute autre paire est **refusée en `404`**, avec le **même message** qu'une absence de statistiques
+(`No pedagogical statistics found for user <id>`) : un `403` révélerait l'existence de ce qu'on refuse
+de montrer — même règle que les médias masqués (2026-08-10). Le contrôle a lieu **avant** toute
+lecture en base.
+
+**L'AP n'est pas un administrateur** : sans lien `animator-teacher`, il ne voit les statistiques de
+personne. La table étant vide à sa création, les liens doivent être créés par le RP.
+
+**Valeurs de `kind`** (orientées lecteur → cible) : `finance_owner_of_student`,
+`student_of_finance_owner`, `teacher_of_student`, `student_of_teacher`, `animator_of_teacher`,
+`teacher_of_animator`, `coordinator_of_student`, `student_of_coordinator`,
+`finance_owner_of_student_of_teacher`, `teacher_of_student_of_finance_owner`.
 
 ### API interne inter-services (non exposée via nginx)
 
@@ -675,6 +720,7 @@ Transitions autorisées (toute autre transition, y compris vers le statut couran
 | POST | /internal/link-parent | Lier un parent financeur à un élève (idempotent par paire `studentId`/`financeOwnerId`) — utilisée par identity-access-service pour la liaison automatique élève+parent créés/liés dans le même appel de création de compte | `X-Internal-Secret` | `201 {linked: true, contacts: [financeOwnerId]}` · `401`/`403` |
 | POST | /internal/create-teacher-student-relation | Créer la relation formateur-élève | `X-Internal-Secret` | `201 {teacherId, studentId, isPrincipalTeacher}` · `409` doublon · `401`/`403` |
 | POST | /internal/link-coordinator | Lier un coordinateur pédagogique à un élève | `X-Internal-Secret` | `201 {coordinatorId, studentId, coordinatorRole}` · `400` rôle invalide · `409` doublon · `401`/`403` |
+| GET | /internal/relations/:viewerId/:targetId | **Lire la nature et le sens des relations entre deux personnes**, pour qu'un service appelant applique la même règle sans tenir de copie des relations — `profile-service` en reste l'unique propriétaire (arbitrage du 2026-08-11). Premier consommateur : `archive-document-service`. Query **obligatoire** `viewerRole` (`400` si absent ou hors énumération, avec la liste des valeurs acceptées) : le rôle accompagne systématiquement les appels interservices, `profile-service` ne le persiste ni ne l'expose. La réponse est **suffisante pour décider** : elle donne le **sens** du lien, pas un booléen — un élève voit les statistiques de son formateur mais **pas** ses archives pédagogiques, distinction impossible à faire sans lui. Ce service **ne rend pas le verdict** à la place de l'appelant : il fournit les faits, chaque service propriétaire décide de sa surface | `X-Internal-Secret` | `200 {viewerId, targetId, isSelf, isAdministrator, relations: [{kind, isPrincipalTeacher?, throughUserIds?}]}` — `relations: []` = aucun lien (et toujours `[]` quand `isSelf`) ; `isAdministrator` vaut `true` pour RP, AF, TI, **jamais pour l'AP** ; valeurs de `kind` : voir « Droit d'accès aux statistiques » ci-dessus · `400` UUID ou `viewerRole` invalide · `401` secret absent ou invalide |
 
 **Noms des blocs de profil — `administrative` / `pedagogical`, ici comme partout ailleurs.**
 
@@ -716,7 +762,7 @@ Statuts : `pending` → `approved` (lien finance-owner-student créé) / `reject
 
 ### Événements publiés
 
-`ProfileUpdated` · `StudentLinkedToFinanceOwner` · `TeacherLinkedToStudent` · `CoordinatorLinkedToStudent` · `TeacherPromotedToPedagogicalAnimator` · `ParentLinkRequested` · `ParentLinkApproved` · `ParentLinkRejected`
+`ProfileUpdated` · `StudentLinkedToFinanceOwner` · `TeacherLinkedToStudent` · `CoordinatorLinkedToStudent` · `AnimatorLinkedToTeacher` · `TeacherPromotedToPedagogicalAnimator` · `ParentLinkRequested` · `ParentLinkApproved` · `ParentLinkRejected`
 
 ---
 
@@ -1232,27 +1278,96 @@ Types de documents : `MANDAT_CLIENT`, `CONTRAT_FORMATEUR`.
 Phase 2 — Archives pédagogiques chronologiques et liens durables issus des activités.
 
 Règles métier clés :
-- Le parent financeur ne peut pas accéder aux entrées de type `notebook_entry` (carnet personnel réservé à l'élève).
-- Les résumés de cours (`course_summary`) sont permanents et restent accessibles après expiration de l'enregistrement vidéo (VID-AC-002).
+- Le parent financeur ne peut pas accéder aux entrées de type `carnet_personnel` (réservé à l'élève).
+- Les résumés de cours (`resume_de_cours`) sont permanents et restent accessibles après expiration de l'enregistrement vidéo (VID-AC-002).
+- **Ce service ne porte AUCUNE archive financière.** Les archives financières appartiennent à
+  `finance-credit-service` (`GET /api/v1/finance/financial-archives/:ownerId`) et restent au seul
+  titulaire et aux administrateurs : une relation pédagogique n'y ouvre rien.
 
-Types d'items : `pedagogical_log` · `course_summary` · `notebook_entry` · `recording` · `content_catalog`
+Types d'items (valeurs réelles renvoyées par le serveur) : `cahier_de_texte` · `carnet_personnel` ·
+`resume_de_cours` · `contenu_eleve` · `parcours` · `exercice_evaluation` · `video`
+
+> **Correction du 2026-08-11.** Ce tableau annonçait jusqu'ici `pedagogical_log` · `course_summary` ·
+> `notebook_entry` · `recording` · `content_catalog` — cinq valeurs qui n'ont jamais existé côté
+> serveur, et que le front déclarait dans `apps/web/src/api/archiveDocument.ts`. Deux noms pour une
+> même donnée : l'écart est résorbé des deux côtés — le front déclare les sept valeurs ci-dessus
+> depuis le 2026-08-11, avec un point unique `itemType` → libellé français
+> (`apps/web/src/utils/archiveLabels.ts`).
+
+#### Droit d'accès aux archives pédagogiques — piloté par la relation (2026-08-11)
+
+> Arbitrage du 2026-08-11 (`docs/architecture.md` > « Arbitrages rendus »), même règle que pour les
+> statistiques : **le droit vient de la relation métier**, pas d'une liste de rôles. Le contrôle
+> est fait par le serveur, qui demande les relations à `profile-service`
+> (`GET /internal/relations/:viewerId/:targetId`) — unique propriétaire, aucune copie ici.
+
+| Lecteur | Accède aux archives pédagogiques de |
+|---|---|
+| Le **titulaire** | les siennes |
+| **RP, AF, TI** (administrateurs) | tout le monde, sans distinction pour l'instant |
+| **Formateur** | ses élèves |
+| **Parent financeur** | ses élèves (hors `carnet_personnel`) |
+| **AP** | les formateurs qu'il anime |
+| **Coordinateur** (RP/AP) | les élèves qu'il coordonne |
+
+**L'asymétrie à ne pas manquer :** un élève et le parent de cet élève voient les **statistiques**
+pédagogiques du formateur (`profile-service`) mais **pas ses archives pédagogiques** — l'archive
+d'un formateur porte son historique d'exercice, elle ne regarde pas ses élèves. En termes de `kind` :
+`teacher_of_student`, `finance_owner_of_student`, `animator_of_teacher` et `coordinator_of_student`
+**ouvrent** ; `student_of_teacher`, `student_of_finance_owner`, `teacher_of_animator`,
+`student_of_coordinator`, `finance_owner_of_student_of_teacher` et
+`teacher_of_student_of_finance_owner` **n'ouvrent pas**.
+
+Toute paire refusée reçoit **`404`** avec le **même message** qu'une absence d'archive
+(`Aucune archive pédagogique accessible pour cette personne`), prononcé **avant toute lecture en
+base** : un `403` révélerait l'existence de ce qu'on refuse de montrer. **Ces routes ne renvoient
+plus `403` en lecture.** Un titulaire sans aucune archive reçoit donc lui aussi `404` — c'est ce qui
+rend les deux cas indiscernables, et c'est le comportement que le front traite déjà comme un état
+normal.
+
+**L'AP n'est pas un administrateur** : sans lien `animator-teacher` créé par un RP, il ne voit les
+archives de personne. La table naît vide.
 
 ### Archives pédagogiques
 
 > Préfixe gateway : `/api/v1/archives` → service reçoit `/archives/...`
 > Téléchargement : `/api/v1/documents` → service reçoit `/documents/...`
+>
+> **Corrigé le 2026-08-11 :** le contrôleur était monté sur `/students/...` et
+> `/archive-documents/...` alors que la gateway transmet `/archives/students/...` et
+> `/documents/...`. **Aucune route archive n'existait à l'adresse appelée** : la pile réelle
+> répondait `404 "Cannot GET /archives/students/…/pedagogical-archives"` à tous les rôles, y compris
+> au titulaire. Les préfixes du service sont désormais alignés sur ceux de la gateway.
 
 | Méthode | Chemin (via gateway) | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /api/v1/archives/students/:studentId/pedagogical-archives | Lister les archives pédagogiques d'un élève | 🔒 | élève (soi-même), formateur (liés), parent_financeur (hors carnet_personnel), RP, TI, AF | `200 [{id, studentId, itemType, title, description?, downloadUrl?, occurredAt, createdAt, isParentVisible}]` · `401` · `403` |
-| POST | /api/v1/archives/students/:studentId/archive-links | Créer un lien d'archive depuis un service source | 🔒 | formateur, RP, AP, TI | `201 {id, studentId, itemType, title, ...}` · `200` idempotent · `400` · `401` · `403` · `409` clé idempotence conflit |
-| GET | /api/v1/archives/students/:studentId/archive-timeline | Timeline chronologique des archives (groupée par date) | 🔒 | élève, formateur, parent_financeur (hors carnet_personnel), RP, TI, AF | `200 {data: [{date, items}], page, limit, total, totalPages}` · `401` · `403` |
+| GET | /api/v1/archives/students/:studentId/pedagogical-archives | Lister les archives pédagogiques d'un **titulaire** (élève, ou formateur quand un AP le consulte) | 🔒 | **piloté par la relation** (`@OwnerAccess()`, aucune liste de rôles) — voir le tableau ci-dessus | `200 {data: [{id, studentId, itemType, title, description, downloadUrl, score, pedagogicalPoints, occurredAt, isParentVisible, idempotencyKey, createdAt, updatedAt}], page, limit, total, totalPages}` · `400` UUID mal formé · `401` · `404` aucune archive **ou** aucune relation ouvrant ce droit (indiscernables) · `503` `profile-service` injoignable |
+| POST | /api/v1/archives/students/:studentId/archive-links | Créer un lien d'archive depuis un service source | 🔒 | **liste de rôles explicite** : formateur, AP, RP, TI, AF — une relation ouvre la lecture, jamais l'écriture | `201 {id, studentId, itemType, title, ...}` · `200` idempotent · `400` · `401` · `403` rôle non autorisé · `409` clé d'idempotence appartenant à un autre titulaire |
+| GET | /api/v1/archives/students/:studentId/archive-timeline | Timeline chronologique des archives (groupée par date) | 🔒 | **piloté par la relation**, mêmes droits que la liste | `200 {data: [{date, items: [{id, itemType, title, sourceId, sourceService, score, pedagogicalPoints}]}], page, limit, total, totalPages}` · `400` · `401` · `404` · `503` |
+
+Pagination : `page` (défaut 1) et `limit` (défaut 20, max 100). La liste renvoie une **enveloppe**
+`{data, page, limit, total, totalPages}`, pas un tableau nu. Le front lisait un tableau
+(`Array.isArray(data) ? data : []`) et affichait donc un état vide ; le repli a été supprimé le
+2026-08-11 — une enveloppe inattendue doit se voir, pas se taire.
 
 ### Téléchargement
 
-| Méthode | Chemin (via gateway) | Description | Auth | Réponse attendue |
+| Méthode | Chemin (via gateway) | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /api/v1/documents/:id/download | Télécharger un document d'archive (redirection 302 vers l'URL du service source) | 🔒 | **piloté par la relation**, mêmes droits que la liste | `302` redirect · `400` UUID mal formé · `401` · `404` document introuvable, aucune relation, `carnet_personnel` demandé par un parent financeur, ou aucune URL de téléchargement — **quatre cas, un seul message** · `503` |
+
+### API interne inter-services (non exposée via nginx)
+
+> Exclue de Swagger (`@ApiExcludeController`). Protégée par `X-Internal-Secret: <INTERNAL_SECRET>`.
+
+| Méthode | Chemin | Description | Header requis | Réponse attendue |
 |---|---|---|---|---|
-| GET | /api/v1/documents/:id/download | Télécharger un document d'archive (redirection 302 vers URL source) | 🔒 | Selon rôle et type d'archive | `302` redirect · `401` · `403` carnet_personnel interdit au parent · `404` introuvable ou pas d'URL |
+| GET | /internal/students/:studentId/archives | Lister toutes les archives d'un titulaire, **sans filtrage de relation ni de carnet personnel** — destinée aux workflows d'orchestration, jamais à un appelant utilisateur | `X-Internal-Secret` | `200 [{id, studentId, itemType, ...}]` · `401` secret absent ou invalide |
+
+**Dépendance sortante :** ce service appelle `GET /internal/relations/:viewerId/:targetId` de
+`profile-service` (variable `PROFILE_SERVICE_URL`, en-tête `X-Internal-Secret`, `x-correlation-id`
+propagé, délai 3 s) à **chaque lecture**. Il n'en conserve rien. Si l'appel échoue, la lecture
+répond `503` : on n'ouvre ni ne ferme un droit par défaut.
 
 ---
 

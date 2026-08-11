@@ -30,8 +30,10 @@ Légende : 🔒 = JWT requis · ⚠️ = gap gateway confirmé · (phase N) = no
 
 | Helper `src/api/` | Fonction | URL `apiClient` | Gateway nginx | Backend reçoit |
 |---|---|---|---|---|
+| `relations.ts` | `fetchMyContacts` | `/relations/my-contacts` | `/api/v1/relations` 🔒 | `/relations/my-contacts` |
 | `relations.ts` | `fetchLinkedStudents` | `/relations/finance-owner-student/:id` | `/api/v1/relations` 🔒 | `/relations/finance-owner-student/:id` |
 | `relations.ts` | *(getStudentProfile)* | `/profiles/:studentId` | `/api/v1/profiles` 🔒 | `/profiles/:studentId` |
+| `profile.ts` | `fetchProfileStatistics` | `/profiles/:userId/statistics` | `/api/v1/profiles` 🔒 | `/profiles/:userId/statistics` |
 | `parentLinkRequest.ts` | `submitParentLinkRequest` | `/parent-link-requests` | `/api/v1/parent-link-requests` 🔒 | `/parent-link-requests` |
 | `parentLinkRequest.ts` | `listParentLinkRequests` | `/parent-link-requests` | `/api/v1/parent-link-requests` 🔒 | `/parent-link-requests` |
 | `parentLinkRequest.ts` | `approveParentLinkRequest` | `/parent-link-requests/:id/approve` | `/api/v1/parent-link-requests` 🔒 | `/parent-link-requests/:id/approve` |

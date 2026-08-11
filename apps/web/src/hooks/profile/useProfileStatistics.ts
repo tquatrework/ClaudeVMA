@@ -1,5 +1,6 @@
 import { fetchProfileStatistics } from '../../api/profile'
 import type { ProfileStatisticsResponse, ProfileVisibility } from '../../types/profile'
+import { getErrorStatus } from '../../utils/apiError'
 import { useAsyncData } from '../useAsyncData'
 
 export interface UseProfileStatisticsResult {
@@ -8,38 +9,37 @@ export interface UseProfileStatisticsResult {
   /** Bloc `visibility` de la réponse : dit quels champs sont masqués au lecteur. */
   visibility?: ProfileVisibility
   isLoading: boolean
+  /** Vrai seulement pour un échec technique — un `404` est un état vide, pas une erreur. */
   hasError: boolean
 }
 
 /**
- * Ne résout jamais si `canView` est faux : le composant appelant retourne `null`
- * avant même de regarder `isLoading`/`statistics`, donc aucune mise à jour d'état
- * ne doit se produire (évite un warning React "act" en test et reproduit
- * l'absence totale d'appel réseau du garde initial de ProfileStatisticsPanel).
+ * useProfileStatistics — statistiques pédagogiques d'une personne.
+ *
+ * **Aucun garde de rôle côté client** (retiré le 2026-08-11). Le droit d'accès est
+ * piloté par la relation métier et contrôlé par `profile-service` : un élève lit les
+ * statistiques de SON formateur, un AP celles des formateurs qu'il anime. Un garde
+ * fondé sur une liste de rôles empêchait justement ces lectures — il masquait le
+ * panneau à l'élève avant même la requête. Une règle de droit portée côté client
+ * n'est pas une règle de droit ; ici elle était en plus fausse.
+ *
+ * Un accès refusé répond `404`, avec le même message qu'une absence de statistiques :
+ * les deux cas sont volontairement indiscernables et se rendent tous deux en état
+ * vide. Les autres échecs restent de vraies erreurs.
  */
-function pendingForever<T>(): Promise<T> {
-  return new Promise<T>(() => {})
+async function loadStatisticsFor(userId: string): Promise<ProfileStatisticsResponse | null> {
+  if (!userId) return null
+
+  try {
+    return await fetchProfileStatistics(userId)
+  } catch (caughtError: unknown) {
+    if (getErrorStatus(caughtError) === 404) return null
+    throw caughtError
+  }
 }
 
-/**
- * useProfileStatistics — charge les statistiques pédagogiques d'un utilisateur.
- * Ne déclenche aucun appel réseau si `canView` est faux (rôle non autorisé),
- * à l'image du garde initial de ProfileStatisticsPanel.
- *
- * Déballe l'enveloppe `{userId, profileType, statistics, visibility}` renvoyée
- * par la route, pour que l'écran n'ait pas à connaître sa forme.
- *
- * Le composant n'affiche jamais le détail de l'erreur (juste un message générique
- * "non disponible"), d'où l'exposition d'un simple booléen `hasError`.
- */
-export function useProfileStatistics(userId: string, canView: boolean): UseProfileStatisticsResult {
-  const { data, isLoading, error } = useAsyncData(
-    () =>
-      canView
-        ? fetchProfileStatistics(userId)
-        : pendingForever<ProfileStatisticsResponse | null>(),
-    [userId, canView],
-  )
+export function useProfileStatistics(userId: string): UseProfileStatisticsResult {
+  const { data, isLoading, error } = useAsyncData(() => loadStatisticsFor(userId), [userId])
 
   return {
     statistics: data?.statistics ?? null,

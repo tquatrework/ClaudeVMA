@@ -1,11 +1,21 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ForbiddenException, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  NotFoundException,
+  ConflictException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ArchiveService } from '../../../src/archive/archive.service';
 import { ArchiveItem } from '../../../src/archive/entities/archive-item.entity';
 import { AddArchiveLinkDto } from '../../../src/archive/dto/add-archive-link.dto';
 import { ArchiveItemType } from '../../../src/common/enums/archive-item-type.enum';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
+import {
+  ProfileRelationsClient,
+  ProfileRelationsUnavailableError,
+} from '../../../src/common/clients/profile-relations.client';
+import { RelationKind, ResolvedRelation } from '../../../src/common/relations/relation-kind';
 
 // ─── Mock du repository ────────────────────────────────────────────────────────
 
@@ -28,15 +38,59 @@ const mockArchiveItemRepo = {
   createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
 };
 
+const mockProfileRelationsClient = {
+  resolveRelations: jest.fn(),
+};
+
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const STUDENT_ID = 'student-uuid-1';
 const ANOTHER_STUDENT_ID = 'student-uuid-2';
 const PARENT_ID = 'parent-uuid-1';
 const FORMATEUR_ID = 'formateur-uuid-1';
+const AP_ID = 'ap-uuid-1';
 const RP_ID = 'rp-uuid-1';
-const TI_ID = 'ti-uuid-1';
-const AF_ID = 'af-uuid-1';
+
+/** Réponse type de `GET /internal/relations/:viewerId/:targetId`. */
+function relationSnapshot(options: {
+  viewerId: string;
+  targetId: string;
+  isSelf?: boolean;
+  isAdministrator?: boolean;
+  relations?: ResolvedRelation[];
+}) {
+  return {
+    viewerId: options.viewerId,
+    targetId: options.targetId,
+    isSelf: options.isSelf ?? false,
+    isAdministrator: options.isAdministrator ?? false,
+    relations: options.relations ?? [],
+  };
+}
+
+function givenRelations(relations: ResolvedRelation[], viewerId = FORMATEUR_ID) {
+  mockProfileRelationsClient.resolveRelations.mockResolvedValue(
+    relationSnapshot({ viewerId, targetId: STUDENT_ID, relations }),
+  );
+}
+
+function givenSelf(userId: string) {
+  mockProfileRelationsClient.resolveRelations.mockResolvedValue(
+    relationSnapshot({ viewerId: userId, targetId: userId, isSelf: true }),
+  );
+}
+
+function givenAdministrator(viewerId: string, targetId: string) {
+  mockProfileRelationsClient.resolveRelations.mockResolvedValue(
+    relationSnapshot({ viewerId, targetId, isAdministrator: true }),
+  );
+}
+
+function givenNoRelation(viewerId: string, targetId: string) {
+  mockProfileRelationsClient.resolveRelations.mockResolvedValue(
+    relationSnapshot({ viewerId, targetId, relations: [] }),
+  );
+}
 
 const baseArchiveItem: ArchiveItem = {
   id: 'item-uuid-1',
@@ -65,6 +119,9 @@ const carnetPersonnelItem: ArchiveItem = {
   isParentVisible: false,
 };
 
+/** Message unique : « aucune archive » et « aucun droit » sont indiscernables. */
+const NO_ARCHIVE_MESSAGE = 'Aucune archive pédagogique accessible pour cette personne';
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('ArchiveService', () => {
@@ -75,13 +132,13 @@ describe('ArchiveService', () => {
       providers: [
         ArchiveService,
         { provide: getRepositoryToken(ArchiveItem), useValue: mockArchiveItemRepo },
+        { provide: ProfileRelationsClient, useValue: mockProfileRelationsClient },
       ],
     }).compile();
 
     service = module.get<ArchiveService>(ArchiveService);
     jest.clearAllMocks();
 
-    // Réinitialiser le queryBuilder mock
     mockArchiveItemRepo.createQueryBuilder.mockReturnValue(mockQueryBuilder);
     mockQueryBuilder.where.mockReturnThis();
     mockQueryBuilder.andWhere.mockReturnThis();
@@ -89,37 +146,113 @@ describe('ArchiveService', () => {
     mockQueryBuilder.select.mockReturnThis();
     mockQueryBuilder.skip.mockReturnThis();
     mockQueryBuilder.take.mockReturnThis();
-    mockQueryBuilder.getMany.mockResolvedValue([]);
-    mockQueryBuilder.getCount.mockResolvedValue(0);
+    mockQueryBuilder.getMany.mockResolvedValue([baseArchiveItem]);
+    mockQueryBuilder.getCount.mockResolvedValue(1);
   });
 
-  // ─── listPedagogicalArchives ────────────────────────────────────────────────
+  // ─── listPedagogicalArchives : cas nominaux ─────────────────────────────────
 
-  describe('listPedagogicalArchives', () => {
-    it('permet à un élève d\'accéder à ses propres archives', async () => {
-      mockQueryBuilder.getMany.mockResolvedValue([baseArchiveItem]);
-      mockQueryBuilder.getCount.mockResolvedValue(1);
+  describe('listPedagogicalArchives — accès autorisé', () => {
+    it('le titulaire accède à ses propres archives', async () => {
+      givenSelf(STUDENT_ID);
 
       const result = await service.listPedagogicalArchives(STUDENT_ID, STUDENT_ID, UserRole.ELEVE);
 
       expect(result.data).toEqual([baseArchiveItem]);
-      expect(result.total).toBe(1);
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        'item.studentId = :studentId',
-        { studentId: STUDENT_ID },
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('item.studentId = :studentId', {
+        studentId: STUDENT_ID,
+      });
+    });
+
+    it('le formateur accède aux archives de SON élève (teacher_of_student)', async () => {
+      givenRelations([{ kind: RelationKind.TEACHER_OF_STUDENT, isPrincipalTeacher: true }]);
+
+      const result = await service.listPedagogicalArchives(
+        STUDENT_ID,
+        FORMATEUR_ID,
+        UserRole.FORMATEUR,
+      );
+
+      expect(result.data).toEqual([baseArchiveItem]);
+    });
+
+    it('le parent financeur accède aux archives de SON élève (finance_owner_of_student)', async () => {
+      givenRelations([{ kind: RelationKind.FINANCE_OWNER_OF_STUDENT }], PARENT_ID);
+
+      const result = await service.listPedagogicalArchives(
+        STUDENT_ID,
+        PARENT_ID,
+        UserRole.PARENT_FINANCEUR,
+      );
+
+      expect(result.data).toEqual([baseArchiveItem]);
+    });
+
+    it('l\'AP accède aux archives du formateur qu\'il anime (animator_of_teacher)', async () => {
+      mockProfileRelationsClient.resolveRelations.mockResolvedValue(
+        relationSnapshot({
+          viewerId: AP_ID,
+          targetId: FORMATEUR_ID,
+          relations: [{ kind: RelationKind.ANIMATOR_OF_TEACHER }],
+        }),
+      );
+
+      const result = await service.listPedagogicalArchives(
+        FORMATEUR_ID,
+        AP_ID,
+        UserRole.ANIMATEUR_PEDAGOGIQUE,
+      );
+
+      expect(result.data).toEqual([baseArchiveItem]);
+    });
+
+    it('le coordinateur accède aux archives de l\'élève qu\'il coordonne', async () => {
+      givenRelations([{ kind: RelationKind.COORDINATOR_OF_STUDENT }], AP_ID);
+
+      await expect(
+        service.listPedagogicalArchives(STUDENT_ID, AP_ID, UserRole.ANIMATEUR_PEDAGOGIQUE),
+      ).resolves.toBeDefined();
+    });
+
+    it.each([
+      [UserRole.RESPONSABLE_PEDAGOGIQUE],
+      [UserRole.TECHNICIEN_INFORMATIQUE],
+      [UserRole.ADMINISTRATEUR_FINANCIER],
+    ])('un administrateur (%s) accède aux archives de tout le monde', async (role) => {
+      givenAdministrator(RP_ID, STUDENT_ID);
+
+      await expect(
+        service.listPedagogicalArchives(STUDENT_ID, RP_ID, role),
+      ).resolves.toBeDefined();
+    });
+
+    it('transmet le rôle du demandeur à profile-service, qui l\'exige', async () => {
+      givenRelations([{ kind: RelationKind.TEACHER_OF_STUDENT }]);
+
+      await service.listPedagogicalArchives(
+        STUDENT_ID,
+        FORMATEUR_ID,
+        UserRole.FORMATEUR,
+        undefined,
+        'correlation-abc',
+      );
+
+      expect(mockProfileRelationsClient.resolveRelations).toHaveBeenCalledWith(
+        FORMATEUR_ID,
+        STUDENT_ID,
+        UserRole.FORMATEUR,
+        'correlation-abc',
       );
     });
 
     it('retourne les métadonnées de pagination correctes', async () => {
-      mockQueryBuilder.getMany.mockResolvedValue([baseArchiveItem]);
+      givenSelf(STUDENT_ID);
       mockQueryBuilder.getCount.mockResolvedValue(42);
 
-      const result = await service.listPedagogicalArchives(
-        STUDENT_ID,
-        STUDENT_ID,
-        UserRole.ELEVE,
-        { page: 2, limit: 10 },
-      );
+      const result = await service.listPedagogicalArchives(STUDENT_ID, STUDENT_ID, UserRole.ELEVE, {
+        page: 2,
+        limit: 10,
+      });
 
       expect(result.page).toBe(2);
       expect(result.limit).toBe(10);
@@ -128,8 +261,7 @@ describe('ArchiveService', () => {
     });
 
     it('utilise les valeurs de pagination par défaut (page=1, limit=20)', async () => {
-      mockQueryBuilder.getMany.mockResolvedValue([]);
-      mockQueryBuilder.getCount.mockResolvedValue(0);
+      givenSelf(STUDENT_ID);
 
       const result = await service.listPedagogicalArchives(STUDENT_ID, STUDENT_ID, UserRole.ELEVE);
 
@@ -138,83 +270,148 @@ describe('ArchiveService', () => {
       expect(mockQueryBuilder.skip).toHaveBeenCalledWith(0);
       expect(mockQueryBuilder.take).toHaveBeenCalledWith(20);
     });
+  });
 
-    it('refuse l\'accès à un élève qui tente de consulter les archives d\'un autre élève', async () => {
+  // ─── listPedagogicalArchives : cas de refus ─────────────────────────────────
+
+  describe('listPedagogicalArchives — accès refusé', () => {
+    it('REFUSE à l\'élève les archives de SON formateur (student_of_teacher)', async () => {
+      mockProfileRelationsClient.resolveRelations.mockResolvedValue(
+        relationSnapshot({
+          viewerId: STUDENT_ID,
+          targetId: FORMATEUR_ID,
+          relations: [{ kind: RelationKind.STUDENT_OF_TEACHER, isPrincipalTeacher: true }],
+        }),
+      );
+
       await expect(
-        service.listPedagogicalArchives(STUDENT_ID, ANOTHER_STUDENT_ID, UserRole.ELEVE),
-      ).rejects.toThrow(ForbiddenException);
+        service.listPedagogicalArchives(FORMATEUR_ID, STUDENT_ID, UserRole.ELEVE),
+      ).rejects.toThrow(new NotFoundException(NO_ARCHIVE_MESSAGE));
     });
 
-    it('permet au parent financeur d\'accéder aux archives de l\'élève lié', async () => {
-      mockQueryBuilder.getMany.mockResolvedValue([baseArchiveItem]);
-      mockQueryBuilder.getCount.mockResolvedValue(1);
+    it('REFUSE au parent les archives du formateur de son élève (finance_owner_of_student_of_teacher)', async () => {
+      mockProfileRelationsClient.resolveRelations.mockResolvedValue(
+        relationSnapshot({
+          viewerId: PARENT_ID,
+          targetId: FORMATEUR_ID,
+          relations: [
+            {
+              kind: RelationKind.FINANCE_OWNER_OF_STUDENT_OF_TEACHER,
+              throughUserIds: [STUDENT_ID],
+            },
+          ],
+        }),
+      );
 
-      const result = await service.listPedagogicalArchives(STUDENT_ID, PARENT_ID, UserRole.PARENT_FINANCEUR);
-
-      expect(result.data).toEqual([baseArchiveItem]);
+      await expect(
+        service.listPedagogicalArchives(FORMATEUR_ID, PARENT_ID, UserRole.PARENT_FINANCEUR),
+      ).rejects.toThrow(new NotFoundException(NO_ARCHIVE_MESSAGE));
     });
 
-    it('exclut le carnet personnel pour le parent financeur (spec XML : règle parent)', async () => {
-      mockQueryBuilder.getMany.mockResolvedValue([baseArchiveItem]);
-      mockQueryBuilder.getCount.mockResolvedValue(1);
+    it('refuse un élève qui consulte les archives d\'un autre élève', async () => {
+      givenNoRelation(STUDENT_ID, ANOTHER_STUDENT_ID);
+
+      await expect(
+        service.listPedagogicalArchives(ANOTHER_STUDENT_ID, STUDENT_ID, UserRole.ELEVE),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('refuse un formateur sur un élève qui ne lui est pas rattaché', async () => {
+      givenNoRelation(FORMATEUR_ID, ANOTHER_STUDENT_ID);
+
+      await expect(
+        service.listPedagogicalArchives(ANOTHER_STUDENT_ID, FORMATEUR_ID, UserRole.FORMATEUR),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('refuse un parent financeur sur un élève d\'une autre famille', async () => {
+      givenNoRelation(PARENT_ID, ANOTHER_STUDENT_ID);
+
+      await expect(
+        service.listPedagogicalArchives(ANOTHER_STUDENT_ID, PARENT_ID, UserRole.PARENT_FINANCEUR),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('refuse un AP sans lien animator_of_teacher — son rôle seul n\'ouvre rien', async () => {
+      givenNoRelation(AP_ID, FORMATEUR_ID);
+
+      await expect(
+        service.listPedagogicalArchives(FORMATEUR_ID, AP_ID, UserRole.ANIMATEUR_PEDAGOGIQUE),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('ne touche PAS la base quand l\'accès est refusé (contrôle avant lecture)', async () => {
+      givenNoRelation(PARENT_ID, ANOTHER_STUDENT_ID);
+
+      await expect(
+        service.listPedagogicalArchives(ANOTHER_STUDENT_ID, PARENT_ID, UserRole.PARENT_FINANCEUR),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(mockArchiveItemRepo.createQueryBuilder).not.toHaveBeenCalled();
+    });
+
+    it('répond le MÊME message qu\'une archive vide — les deux cas sont indiscernables', async () => {
+      givenNoRelation(PARENT_ID, ANOTHER_STUDENT_ID);
+      const refusal = await service
+        .listPedagogicalArchives(ANOTHER_STUDENT_ID, PARENT_ID, UserRole.PARENT_FINANCEUR)
+        .catch((error) => error);
+
+      jest.clearAllMocks();
+      mockArchiveItemRepo.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+      mockQueryBuilder.getCount.mockResolvedValue(0);
+      givenSelf(STUDENT_ID);
+      const emptiness = await service
+        .listPedagogicalArchives(STUDENT_ID, STUDENT_ID, UserRole.ELEVE)
+        .catch((error) => error);
+
+      expect(refusal).toBeInstanceOf(NotFoundException);
+      expect(emptiness).toBeInstanceOf(NotFoundException);
+      expect(refusal.message).toBe(emptiness.message);
+      expect(refusal.message).toBe(NO_ARCHIVE_MESSAGE);
+    });
+
+    it('ne cite aucun identifiant technique dans le message de refus', async () => {
+      givenNoRelation(PARENT_ID, ANOTHER_STUDENT_ID);
+
+      const error = await service
+        .listPedagogicalArchives(ANOTHER_STUDENT_ID, PARENT_ID, UserRole.PARENT_FINANCEUR)
+        .catch((thrown) => thrown);
+
+      expect(error.message).not.toContain(ANOTHER_STUDENT_ID);
+      expect(error.message).not.toContain(PARENT_ID);
+    });
+
+    it('échoue en 503 quand profile-service est injoignable — jamais d\'ouverture par défaut', async () => {
+      mockProfileRelationsClient.resolveRelations.mockRejectedValue(
+        new ProfileRelationsUnavailableError('unreachable'),
+      );
+
+      await expect(
+        service.listPedagogicalArchives(STUDENT_ID, FORMATEUR_ID, UserRole.FORMATEUR),
+      ).rejects.toThrow(ServiceUnavailableException);
+      expect(mockArchiveItemRepo.createQueryBuilder).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── Carnet personnel ───────────────────────────────────────────────────────
+
+  describe('carnet personnel', () => {
+    it('exclut le carnet personnel pour le parent financeur', async () => {
+      givenRelations([{ kind: RelationKind.FINANCE_OWNER_OF_STUDENT }], PARENT_ID);
 
       await service.listPedagogicalArchives(STUDENT_ID, PARENT_ID, UserRole.PARENT_FINANCEUR);
 
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
-        'item.itemType != :carnetType',
-        { carnetType: ArchiveItemType.CARNET_PERSONNEL },
-      );
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('item.itemType != :carnetType', {
+        carnetType: ArchiveItemType.CARNET_PERSONNEL,
+      });
     });
 
-    it('n\'exclut pas le carnet personnel pour l\'élève lui-même', async () => {
-      mockQueryBuilder.getMany.mockResolvedValue([baseArchiveItem, carnetPersonnelItem]);
-      mockQueryBuilder.getCount.mockResolvedValue(2);
+    it('n\'exclut pas le carnet personnel pour le titulaire lui-même', async () => {
+      givenSelf(STUDENT_ID);
 
       await service.listPedagogicalArchives(STUDENT_ID, STUDENT_ID, UserRole.ELEVE);
 
       expect(mockQueryBuilder.andWhere).not.toHaveBeenCalled();
-    });
-
-    it('permet au formateur d\'accéder aux archives des élèves rattachés', async () => {
-      mockQueryBuilder.getMany.mockResolvedValue([baseArchiveItem]);
-      mockQueryBuilder.getCount.mockResolvedValue(1);
-
-      const result = await service.listPedagogicalArchives(STUDENT_ID, FORMATEUR_ID, UserRole.FORMATEUR);
-
-      expect(result.data).toEqual([baseArchiveItem]);
-    });
-
-    it('permet au RP d\'accéder aux archives de n\'importe quel élève (accès pédagogique large)', async () => {
-      mockQueryBuilder.getMany.mockResolvedValue([baseArchiveItem]);
-      mockQueryBuilder.getCount.mockResolvedValue(1);
-
-      const result = await service.listPedagogicalArchives(STUDENT_ID, RP_ID, UserRole.RESPONSABLE_PEDAGOGIQUE);
-
-      expect(result.data).toEqual([baseArchiveItem]);
-    });
-
-    it('permet au TI d\'accéder aux archives (accès incident)', async () => {
-      mockQueryBuilder.getMany.mockResolvedValue([]);
-      mockQueryBuilder.getCount.mockResolvedValue(0);
-
-      await expect(
-        service.listPedagogicalArchives(STUDENT_ID, TI_ID, UserRole.TECHNICIEN_INFORMATIQUE),
-      ).resolves.toBeDefined();
-    });
-
-    it('permet à l\'AF d\'accéder aux archives (contrôle financier)', async () => {
-      mockQueryBuilder.getMany.mockResolvedValue([]);
-      mockQueryBuilder.getCount.mockResolvedValue(0);
-
-      await expect(
-        service.listPedagogicalArchives(STUDENT_ID, AF_ID, UserRole.ADMINISTRATEUR_FINANCIER),
-      ).resolves.toBeDefined();
-    });
-
-    it('refuse l\'accès à l\'animateur pédagogique (non listé dans les règles d\'accès)', async () => {
-      await expect(
-        service.listPedagogicalArchives(STUDENT_ID, 'ap-uuid-1', UserRole.ANIMATEUR_PEDAGOGIQUE),
-      ).rejects.toThrow(ForbiddenException);
     });
   });
 
@@ -231,178 +428,175 @@ describe('ArchiveService', () => {
     };
 
     it('crée un élément archive et le retourne', async () => {
-      mockArchiveItemRepo.findOne.mockResolvedValue(null);
       mockArchiveItemRepo.create.mockReturnValue(baseArchiveItem);
       mockArchiveItemRepo.save.mockResolvedValue(baseArchiveItem);
 
-      const result = await service.addArchiveLink(STUDENT_ID, addDto);
+      const result = await service.addArchiveLink(STUDENT_ID, addDto, UserRole.FORMATEUR);
 
       expect(result).toEqual(baseArchiveItem);
       expect(mockArchiveItemRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          studentId: STUDENT_ID,
-          itemType: ArchiveItemType.RESUME_DE_COURS,
-          sourceId: 'session-uuid-1',
-        }),
+        expect.objectContaining({ studentId: STUDENT_ID, itemType: ArchiveItemType.RESUME_DE_COURS }),
       );
-      expect(mockArchiveItemRepo.save).toHaveBeenCalled();
     });
 
-    it('force isParentVisible à false pour les éléments de type carnet_personnel (spec XML)', async () => {
-      const carnetDto: AddArchiveLinkDto = {
-        ...addDto,
-        itemType: ArchiveItemType.CARNET_PERSONNEL,
-        isParentVisible: true, // Tentative de forcer à true — doit être ignorée
-      };
+    it.each([[UserRole.ELEVE], [UserRole.PARENT_FINANCEUR]])(
+      'refuse l\'écriture au rôle %s — une relation ouvre la lecture, jamais l\'écriture',
+      async (role) => {
+        await expect(service.addArchiveLink(STUDENT_ID, addDto, role)).rejects.toThrow(
+          ForbiddenException,
+        );
+      },
+    );
 
-      mockArchiveItemRepo.findOne.mockResolvedValue(null);
+    it('n\'interroge pas profile-service en écriture : le droit vient du rôle', async () => {
+      mockArchiveItemRepo.create.mockReturnValue(baseArchiveItem);
+      mockArchiveItemRepo.save.mockResolvedValue(baseArchiveItem);
+
+      await service.addArchiveLink(STUDENT_ID, addDto, UserRole.FORMATEUR);
+
+      expect(mockProfileRelationsClient.resolveRelations).not.toHaveBeenCalled();
+    });
+
+    it('force isParentVisible à false pour les éléments de type carnet_personnel', async () => {
       mockArchiveItemRepo.create.mockReturnValue({ ...carnetPersonnelItem });
       mockArchiveItemRepo.save.mockResolvedValue({ ...carnetPersonnelItem });
 
-      await service.addArchiveLink(STUDENT_ID, carnetDto);
+      await service.addArchiveLink(
+        STUDENT_ID,
+        { ...addDto, itemType: ArchiveItemType.CARNET_PERSONNEL, isParentVisible: true },
+        UserRole.FORMATEUR,
+      );
 
       expect(mockArchiveItemRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({ isParentVisible: false }),
       );
     });
 
-    it('retourne l\'élément existant quand la clé d\'idempotence est déjà utilisée (même élève)', async () => {
-      const dtoWithIdempotencyKey: AddArchiveLinkDto = {
-        ...addDto,
-        idempotencyKey: 'unique-key-123',
-      };
+    it('retourne l\'élément existant quand la clé d\'idempotence est déjà utilisée', async () => {
       const existingItem = { ...baseArchiveItem, idempotencyKey: 'unique-key-123' };
       mockArchiveItemRepo.findOne.mockResolvedValue(existingItem);
 
-      const result = await service.addArchiveLink(STUDENT_ID, dtoWithIdempotencyKey);
+      const result = await service.addArchiveLink(
+        STUDENT_ID,
+        { ...addDto, idempotencyKey: 'unique-key-123' },
+        UserRole.FORMATEUR,
+      );
 
       expect(result).toEqual(existingItem);
       expect(mockArchiveItemRepo.save).not.toHaveBeenCalled();
     });
 
-    it('lève ConflictException si la clé d\'idempotence appartient à un autre élève', async () => {
-      const dtoWithIdempotencyKey: AddArchiveLinkDto = {
-        ...addDto,
+    it('lève ConflictException si la clé d\'idempotence appartient à un autre titulaire', async () => {
+      mockArchiveItemRepo.findOne.mockResolvedValue({
+        ...baseArchiveItem,
+        studentId: ANOTHER_STUDENT_ID,
         idempotencyKey: 'unique-key-123',
-      };
-      const existingItemOtherStudent = { ...baseArchiveItem, studentId: ANOTHER_STUDENT_ID, idempotencyKey: 'unique-key-123' };
-      mockArchiveItemRepo.findOne.mockResolvedValue(existingItemOtherStudent);
+      });
 
       await expect(
-        service.addArchiveLink(STUDENT_ID, dtoWithIdempotencyKey),
+        service.addArchiveLink(
+          STUDENT_ID,
+          { ...addDto, idempotencyKey: 'unique-key-123' },
+          UserRole.FORMATEUR,
+        ),
       ).rejects.toThrow(ConflictException);
     });
 
     it('initialise pedagogicalPoints à 0 si non fourni', async () => {
-      const dtoWithoutPoints: AddArchiveLinkDto = {
-        ...addDto,
-        pedagogicalPoints: undefined,
-      };
-      mockArchiveItemRepo.findOne.mockResolvedValue(null);
       mockArchiveItemRepo.create.mockReturnValue({ ...baseArchiveItem, pedagogicalPoints: 0 });
       mockArchiveItemRepo.save.mockResolvedValue({ ...baseArchiveItem, pedagogicalPoints: 0 });
 
-      await service.addArchiveLink(STUDENT_ID, dtoWithoutPoints);
+      await service.addArchiveLink(
+        STUDENT_ID,
+        { ...addDto, pedagogicalPoints: undefined },
+        UserRole.FORMATEUR,
+      );
 
       expect(mockArchiveItemRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({ pedagogicalPoints: 0 }),
       );
-    });
-
-    it('ne vérifie pas la clé d\'idempotence quand elle est absente', async () => {
-      mockArchiveItemRepo.create.mockReturnValue(baseArchiveItem);
-      mockArchiveItemRepo.save.mockResolvedValue(baseArchiveItem);
-
-      await service.addArchiveLink(STUDENT_ID, addDto);
-
-      expect(mockArchiveItemRepo.findOne).not.toHaveBeenCalled();
     });
   });
 
   // ─── getArchiveTimeline ─────────────────────────────────────────────────────
 
   describe('getArchiveTimeline', () => {
-    it('retourne les archives groupées par date avec pagination', async () => {
-      const item1 = { ...baseArchiveItem, occurredAt: new Date('2026-06-12T14:00:00Z') };
-      const item2 = {
-        ...baseArchiveItem,
-        id: 'item-uuid-3',
-        occurredAt: new Date('2026-06-15T10:00:00Z'),
-        title: 'Exercice algèbre',
-        itemType: ArchiveItemType.EXERCICE_EVALUATION,
-      };
-      mockQueryBuilder.getMany.mockResolvedValue([item1, item2]);
+    it('retourne les archives groupées par date pour le titulaire', async () => {
+      givenSelf(STUDENT_ID);
+      mockQueryBuilder.getMany.mockResolvedValue([
+        { ...baseArchiveItem, occurredAt: new Date('2026-06-12T14:00:00Z') },
+        { ...baseArchiveItem, id: 'item-uuid-3', occurredAt: new Date('2026-06-15T10:00:00Z') },
+      ]);
 
       const result = await service.getArchiveTimeline(STUDENT_ID, STUDENT_ID, UserRole.ELEVE);
 
       expect(result.data).toHaveLength(2);
       expect(result.data[0].date).toBe('2026-06-12');
       expect(result.data[1].date).toBe('2026-06-15');
-      expect(result.total).toBe(2);
-    });
-
-    it('retourne les métadonnées de pagination correctes pour la timeline', async () => {
-      const items = Array.from({ length: 5 }, (_, index) => ({
-        ...baseArchiveItem,
-        id: `item-uuid-${index}`,
-        occurredAt: new Date(`2026-06-${String(index + 1).padStart(2, '0')}T14:00:00Z`),
-      }));
-      mockQueryBuilder.getMany.mockResolvedValue(items);
-
-      const result = await service.getArchiveTimeline(
-        STUDENT_ID,
-        STUDENT_ID,
-        UserRole.ELEVE,
-        { page: 1, limit: 2 },
-      );
-
-      expect(result.data).toHaveLength(2);
-      expect(result.total).toBe(5);
-      expect(result.totalPages).toBe(3);
-      expect(result.page).toBe(1);
-      expect(result.limit).toBe(2);
     });
 
     it('regroupe plusieurs éléments de la même date', async () => {
-      const item1 = { ...baseArchiveItem, occurredAt: new Date('2026-06-12T08:00:00Z') };
-      const item2 = {
-        ...baseArchiveItem,
-        id: 'item-uuid-3',
-        occurredAt: new Date('2026-06-12T14:00:00Z'),
-        title: 'Exercice du matin',
-      };
-      mockQueryBuilder.getMany.mockResolvedValue([item1, item2]);
+      givenSelf(STUDENT_ID);
+      mockQueryBuilder.getMany.mockResolvedValue([
+        { ...baseArchiveItem, occurredAt: new Date('2026-06-12T08:00:00Z') },
+        { ...baseArchiveItem, id: 'item-uuid-3', occurredAt: new Date('2026-06-12T14:00:00Z') },
+      ]);
 
       const result = await service.getArchiveTimeline(STUDENT_ID, STUDENT_ID, UserRole.ELEVE);
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].date).toBe('2026-06-12');
       expect(result.data[0].items).toHaveLength(2);
     });
 
-    it('refuse l\'accès à un élève consultant les archives d\'un autre élève', async () => {
+    it('REFUSE à l\'élève la timeline de SON formateur', async () => {
+      mockProfileRelationsClient.resolveRelations.mockResolvedValue(
+        relationSnapshot({
+          viewerId: STUDENT_ID,
+          targetId: FORMATEUR_ID,
+          relations: [{ kind: RelationKind.STUDENT_OF_TEACHER }],
+        }),
+      );
+
       await expect(
-        service.getArchiveTimeline(STUDENT_ID, ANOTHER_STUDENT_ID, UserRole.ELEVE),
-      ).rejects.toThrow(ForbiddenException);
+        service.getArchiveTimeline(FORMATEUR_ID, STUDENT_ID, UserRole.ELEVE),
+      ).rejects.toThrow(new NotFoundException(NO_ARCHIVE_MESSAGE));
     });
 
-    it('exclut le carnet personnel pour le parent (spec XML : règle parent)', async () => {
-      mockQueryBuilder.getMany.mockResolvedValue([]);
+    it('refuse une timeline sans aucune relation, sans toucher la base', async () => {
+      givenNoRelation(PARENT_ID, ANOTHER_STUDENT_ID);
+
+      await expect(
+        service.getArchiveTimeline(ANOTHER_STUDENT_ID, PARENT_ID, UserRole.PARENT_FINANCEUR),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockArchiveItemRepo.createQueryBuilder).not.toHaveBeenCalled();
+    });
+
+    it('exclut le carnet personnel pour le parent financeur', async () => {
+      givenRelations([{ kind: RelationKind.FINANCE_OWNER_OF_STUDENT }], PARENT_ID);
 
       await service.getArchiveTimeline(STUDENT_ID, PARENT_ID, UserRole.PARENT_FINANCEUR);
 
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
-        'item.itemType != :carnetType',
-        { carnetType: ArchiveItemType.CARNET_PERSONNEL },
-      );
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('item.itemType != :carnetType', {
+        carnetType: ArchiveItemType.CARNET_PERSONNEL,
+      });
+    });
+
+    it('répond 404 quand la timeline est vide, comme la liste', async () => {
+      givenSelf(STUDENT_ID);
+      mockQueryBuilder.getMany.mockResolvedValue([]);
+
+      await expect(
+        service.getArchiveTimeline(STUDENT_ID, STUDENT_ID, UserRole.ELEVE),
+      ).rejects.toThrow(new NotFoundException(NO_ARCHIVE_MESSAGE));
     });
   });
 
   // ─── getArchiveItemForDownload ──────────────────────────────────────────────
 
   describe('getArchiveItemForDownload', () => {
-    it('retourne l\'élément archive avec son URL de téléchargement', async () => {
+    it('retourne l\'élément archive avec son URL pour le titulaire', async () => {
       mockArchiveItemRepo.findOne.mockResolvedValue(baseArchiveItem);
+      givenSelf(STUDENT_ID);
 
       const result = await service.getArchiveItemForDownload(
         baseArchiveItem.id,
@@ -413,70 +607,72 @@ describe('ArchiveService', () => {
       expect(result).toEqual(baseArchiveItem);
     });
 
-    it('lève NotFoundException si l\'élément n\'existe pas', async () => {
-      mockArchiveItemRepo.findOne.mockResolvedValue(null);
-
-      await expect(
-        service.getArchiveItemForDownload('nonexistent-id', STUDENT_ID, UserRole.ELEVE),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('lève ForbiddenException si le parent tente de télécharger le carnet personnel (spec XML)', async () => {
-      mockArchiveItemRepo.findOne.mockResolvedValue(carnetPersonnelItem);
-
-      await expect(
-        service.getArchiveItemForDownload(carnetPersonnelItem.id, PARENT_ID, UserRole.PARENT_FINANCEUR),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('lève NotFoundException si l\'élément n\'a pas d\'URL de téléchargement', async () => {
-      const itemWithoutDownload = { ...baseArchiveItem, downloadUrl: null };
-      mockArchiveItemRepo.findOne.mockResolvedValue(itemWithoutDownload);
-
-      await expect(
-        service.getArchiveItemForDownload(itemWithoutDownload.id, STUDENT_ID, UserRole.ELEVE),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('lève ForbiddenException si l\'élève tente d\'accéder aux archives d\'un autre élève', async () => {
-      mockArchiveItemRepo.findOne.mockResolvedValue(baseArchiveItem); // studentId = STUDENT_ID
-
-      await expect(
-        service.getArchiveItemForDownload(
-          baseArchiveItem.id,
-          ANOTHER_STUDENT_ID,
-          UserRole.ELEVE,
-        ),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('permet au RP de télécharger n\'importe quel document (accès large)', async () => {
+    it('autorise le formateur sur un document de SON élève', async () => {
       mockArchiveItemRepo.findOne.mockResolvedValue(baseArchiveItem);
+      givenRelations([{ kind: RelationKind.TEACHER_OF_STUDENT }]);
 
-      const result = await service.getArchiveItemForDownload(
-        baseArchiveItem.id,
-        RP_ID,
-        UserRole.RESPONSABLE_PEDAGOGIQUE,
-      );
+      await expect(
+        service.getArchiveItemForDownload(baseArchiveItem.id, FORMATEUR_ID, UserRole.FORMATEUR),
+      ).resolves.toEqual(baseArchiveItem);
+    });
 
-      expect(result).toEqual(baseArchiveItem);
+    it.each([
+      ['élément inexistant', null, () => givenSelf(STUDENT_ID)],
+      [
+        'aucune relation',
+        baseArchiveItem,
+        () => givenNoRelation(ANOTHER_STUDENT_ID, STUDENT_ID),
+      ],
+      [
+        'carnet personnel demandé par un parent financeur',
+        carnetPersonnelItem,
+        () => givenRelations([{ kind: RelationKind.FINANCE_OWNER_OF_STUDENT }], PARENT_ID),
+      ],
+      [
+        'aucune URL de téléchargement',
+        { ...baseArchiveItem, downloadUrl: null },
+        () => givenSelf(STUDENT_ID),
+      ],
+    ])('répond le même 404 pour « %s »', async (_label, item, arrangeRelations) => {
+      mockArchiveItemRepo.findOne.mockResolvedValue(item);
+      arrangeRelations();
+
+      const role = _label.includes('parent') ? UserRole.PARENT_FINANCEUR : UserRole.ELEVE;
+      const requesterId = _label.includes('parent')
+        ? PARENT_ID
+        : _label === 'aucune relation'
+          ? ANOTHER_STUDENT_ID
+          : STUDENT_ID;
+
+      await expect(
+        service.getArchiveItemForDownload('item-uuid-1', requesterId, role),
+      ).rejects.toThrow(new NotFoundException(NO_ARCHIVE_MESSAGE));
+    });
+
+    it('ne répond plus 403 sur le carnet personnel : un 403 révélerait son existence', async () => {
+      mockArchiveItemRepo.findOne.mockResolvedValue(carnetPersonnelItem);
+      givenRelations([{ kind: RelationKind.FINANCE_OWNER_OF_STUDENT }], PARENT_ID);
+
+      const error = await service
+        .getArchiveItemForDownload(carnetPersonnelItem.id, PARENT_ID, UserRole.PARENT_FINANCEUR)
+        .catch((thrown) => thrown);
+
+      expect(error).toBeInstanceOf(NotFoundException);
+      expect(error).not.toBeInstanceOf(ForbiddenException);
     });
   });
 
   // ─── listArchivesInternal ───────────────────────────────────────────────────
 
   describe('listArchivesInternal', () => {
-    it('retourne toutes les archives d\'un élève sans filtrage', async () => {
+    it('retourne toutes les archives sans filtrage ni appel de relation', async () => {
       const allItems = [baseArchiveItem, carnetPersonnelItem];
       mockArchiveItemRepo.find.mockResolvedValue(allItems);
 
       const result = await service.listArchivesInternal(STUDENT_ID);
 
       expect(result).toEqual(allItems);
-      expect(mockArchiveItemRepo.find).toHaveBeenCalledWith({
-        where: { studentId: STUDENT_ID },
-        order: { occurredAt: 'DESC' },
-      });
+      expect(mockProfileRelationsClient.resolveRelations).not.toHaveBeenCalled();
     });
   });
 });

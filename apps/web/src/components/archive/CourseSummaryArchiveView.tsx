@@ -1,13 +1,14 @@
 /**
- * CourseSummaryArchiveView — Phase 11
+ * CourseSummaryArchiveView — vue filtrée sur les résumés de cours.
  *
- * Vue filtrée sur les résumés de cours dans les archives pédagogiques.
- * Les résumés de cours sont permanents (survivent à l'expiration de l'enregistrement vidéo).
- * VID-AC-002 : isPermanent = true garantit la disponibilité longue durée.
+ * Les résumés de cours sont permanents : ils survivent à l'expiration de
+ * l'enregistrement vidéo (VID-AC-002). Le type serveur est `resume_de_cours` —
+ * `course_summary` n'a jamais existé côté serveur, ce qui vidait cet onglet.
  */
 
 import React from 'react'
 import type { PedagogicalArchiveItem } from '../../api/archiveDocument'
+import { formatLocalDate } from '../../utils/dateFormat'
 
 interface CourseSummaryArchiveViewProps {
   allArchiveItems: PedagogicalArchiveItem[]
@@ -17,7 +18,7 @@ export default function CourseSummaryArchiveView({
   allArchiveItems,
 }: CourseSummaryArchiveViewProps) {
   const courseSummaryItems = allArchiveItems.filter(
-    (item) => item.itemType === 'course_summary',
+    (item) => item.itemType === 'resume_de_cours',
   )
 
   if (courseSummaryItems.length === 0) {
@@ -53,30 +54,15 @@ export default function CourseSummaryArchiveView({
             key={summary.id}
             className="bg-white border border-gray-200 rounded-xl p-4 space-y-2"
           >
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1 flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-900 truncate">{summary.title}</p>
-                {summary.description && (
-                  <p className="text-xs text-gray-500 line-clamp-3">{summary.description}</p>
-                )}
-              </div>
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-gray-900 truncate">{summary.title}</p>
+              {summary.description && (
+                <p className="text-xs text-gray-500 line-clamp-3">{summary.description}</p>
+              )}
             </div>
             <p className="text-xs text-gray-400">
-              Séance du{' '}
-              {new Date(summary.occurredAt).toLocaleDateString('fr-FR', {
-                dateStyle: 'long',
-              })}
+              Séance du {formatLocalDate(summary.occurredAt)}
             </p>
-            {summary.sourceUrl && (
-              <a
-                href={summary.sourceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block text-xs text-indigo-600 hover:underline"
-              >
-                Voir le détail de la séance
-              </a>
-            )}
           </li>
         ))}
       </ul>

@@ -1,144 +1,92 @@
 /**
- * PedagogicalArchivePage — Phase 11 (archive-document-service)
+ * PedagogicalArchivePage — « Stats / Archives » (`/archives`, `/archives/:personId`)
  *
- * Affiche l'historique pédagogique archivé d'un élève.
- * Composition :
- *   - ArchiveTimeline : liste chronologique cliquable (panneau gauche)
- *   - ArchiveItemDetail : détail de l'élément sélectionné (panneau droit)
- *   - CourseSummaryArchiveView : onglet filtré sur les résumés de cours
+ * Un seul écran, une seule question posée à l'utilisateur : **qui consulte-t-on ?**
+ * Soi-même par défaut ; les personnes reliées ensuite, listées par prénom et nom
+ * grâce à `GET /relations/my-contacts` — un appel valable pour tous les rôles, là
+ * où l'ancien `fetchLinkedStudents(user.id)` n'interrogeait que la table
+ * financeur↔élève et servait une liste vide, sans message, à un formateur.
  *
- * Règles d'accès :
- *   - Élève : voit tout sauf les pages hiddenFromStudent
- *   - Parent financeur : voit tout SAUF le carnet personnel (notebook_entry)
- *   - Formateur, RP, AP, TI : accès complet
+ * Le droit appartient au serveur (`profile-service` pour les statistiques,
+ * `archive-document-service` pour les archives). Le front choisit seulement ce
+ * qu'il montre : les onglets d'archives sont retirés quand la nature du lien ne les
+ * ouvre pas — un élève voit les statistiques de son formateur, jamais ses archives.
  *
- * Routes API consommées :
- *   GET /students/:studentId/pedagogical-archives
- *   GET /students/:studentId/archive-timeline
- *   GET /archive-documents/:id/download
- *
- * Gestion des erreurs : 403 et erreurs génériques bloquent la page (message plein-page).
- * 404 = "pas encore d'archives" (non documenté comme "élève introuvable" dans
- * docs/routes.md) : ne bloque PAS la page, chaque onglet affiche son état vide.
+ * Chargement : au montage de la page, puis à chaque **changement de personne
+ * consultée** — changer de sujet est une navigation légitime, changer d'onglet non.
+ * Les panneaux sont montés à leur première activation et restent montés (`TabPanel`).
  */
 
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
-import {
-  fetchPedagogicalArchives,
-  fetchArchiveTimeline,
-  downloadArchiveDocument,
-  type PedagogicalArchiveItem,
-  type ArchiveTimelineEntry,
-} from '../api/archiveDocument'
-import { fetchLinkedStudents, fetchStudentProfile, type FinanceOwnerStudentLink } from '../api/relations'
+import { downloadArchiveDocument } from '../api/archiveDocument'
+import { usePedagogicalArchives } from '../hooks/archive/usePedagogicalArchives'
+import { useMyContacts } from '../hooks/relations/useMyContacts'
+import { usePersonDisplayName } from '../hooks/profile/usePersonDisplayName'
 import ArchiveTimeline from '../components/archive/ArchiveTimeline'
 import ArchiveItemDetail from '../components/archive/ArchiveItemDetail'
 import CourseSummaryArchiveView from '../components/archive/CourseSummaryArchiveView'
-import ProfileStatisticsPanel from './ProfileStatisticsPanel'
+import PersonScopeSelector from '../components/archive/PersonScopeSelector'
+import ProfileStatisticsPanel from '../components/profile/ProfileStatisticsPanel'
 import { ErrorMessage } from '../components/ui/ErrorMessage'
+import { Tabs, TabPanel, type TabDefinition } from '../components/ui/Tabs'
 import { getErrorMessage } from '../utils/apiError'
-import { ArchiveTabsNav, type ArchiveActiveTab } from '../components/archive/ArchiveTabsNav'
+import { canRelationsOpenArchives } from '../utils/relationAccess'
 
-interface StudentOption {
-  studentId: string
-  displayName: string
-}
+type ArchiveTabId = 'statistics' | 'timeline' | 'summaries'
 
-type ActiveTab = ArchiveActiveTab
+const STATISTICS_TAB: TabDefinition = { id: 'statistics', label: 'Statistiques' }
+const ARCHIVE_TABS: TabDefinition[] = [
+  { id: 'timeline', label: 'Archives' },
+  { id: 'summaries', label: 'Résumés de cours' },
+]
 
 export default function PedagogicalArchivePage() {
-  const { studentId } = useParams<{ studentId: string }>()
+  const { personId: personIdFromUrl } = useParams<{ personId: string }>()
   const { user, hasRole } = useAuth()
 
-  const [archiveItems, setArchiveItems] = useState<PedagogicalArchiveItem[]>([])
-  const [timelineEntries, setTimelineEntries] = useState<ArchiveTimelineEntry[]>([])
-  const [isLoadingArchives, setIsLoadingArchives] = useState(false)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const selfUserId = user?.id ?? ''
+  const { displayName: selfDisplayName } = usePersonDisplayName(selfUserId, 'Mon espace')
+
+  const [selectedPersonId, setSelectedPersonId] = useState<string>(personIdFromUrl ?? '')
+  const consultedPersonId = selectedPersonId || selfUserId
+
+  const {
+    contacts,
+    isLoading: isLoadingContacts,
+    error: contactsError,
+  } = useMyContacts()
+  const {
+    archiveItems,
+    timelineGroups,
+    isLoading: isLoadingArchives,
+    error: archivesError,
+  } = usePedagogicalArchives(consultedPersonId)
 
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
   const [isDownloadingDocument, setIsDownloadingDocument] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<ArchiveTabId>('statistics')
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>('statistics')
+  // Le parent financeur n'accède jamais au carnet personnel de son élève.
+  const canAccessNotebook = !hasRole('parent_financeur')
 
-  // Le parent financeur ne peut pas accéder au carnet personnel
-  const isParentFinanceur = hasRole('parent_financeur')
-  const canAccessNotebook = !isParentFinanceur
+  const consultedContact = contacts.find((contact) => contact.userId === consultedPersonId)
+  const isViewingOwnData = consultedPersonId === selfUserId
+  const canConsultArchives =
+    isViewingOwnData || canRelationsOpenArchives(consultedContact?.relations ?? [], user?.role)
 
-  // Sélecteur d'élève pour parent_financeur (quand pas de studentId en URL)
-  const [linkedStudentOptions, setLinkedStudentOptions] = useState<StudentOption[]>([])
-  const [selectedStudentId, setSelectedStudentId] = useState<string>('')
-  const [isLoadingStudentOptions, setIsLoadingStudentOptions] = useState(false)
+  const visibleTabs = canConsultArchives ? [STATISTICS_TAB, ...ARCHIVE_TABS] : [STATISTICS_TAB]
+  const effectiveTab: ArchiveTabId = visibleTabs.some((tab) => tab.id === activeTab)
+    ? activeTab
+    : 'statistics'
 
-  const resolvedStudentId = studentId ?? (isParentFinanceur ? selectedStudentId : user?.id ?? '')
-
-  // Chargement des élèves liés si parent sans studentId en URL
-  useEffect(() => {
-    if (!isParentFinanceur || studentId || !user?.id) return
-
-    setIsLoadingStudentOptions(true)
-    fetchLinkedStudents(user.id)
-      .then(async (links: FinanceOwnerStudentLink[]) => {
-        const options: StudentOption[] = await Promise.all(
-          links.map(async (link) => {
-            try {
-              const profile = await fetchStudentProfile(link.studentId)
-              const adminProfile = profile.administrative
-              const displayName =
-                adminProfile?.firstName && adminProfile?.lastName
-                  ? `${adminProfile.firstName} ${adminProfile.lastName}`
-                  : profile.loginIdentifier ?? `ELV-${link.studentId.slice(0, 8)}`
-              return { studentId: link.studentId, displayName }
-            } catch {
-              return { studentId: link.studentId, displayName: `ELV-${link.studentId.slice(0, 8)}` }
-            }
-          }),
-        )
-        setLinkedStudentOptions(options)
-        if (options.length > 0) {
-          setSelectedStudentId(options[0].studentId)
-        }
-      })
-      .catch(() => {
-        // non-bloquant : si le chargement échoue, le sélecteur reste vide
-      })
-      .finally(() => setIsLoadingStudentOptions(false))
-  }, [isParentFinanceur, studentId, user?.id])
-
-  useEffect(() => {
-    if (!resolvedStudentId) return
-
-    setIsLoadingArchives(true)
-    setLoadError(null)
-
-    Promise.all([
-      fetchPedagogicalArchives(resolvedStudentId),
-      fetchArchiveTimeline(resolvedStudentId),
-    ])
-      .then(([fetchedArchives, fetchedTimeline]) => {
-        setArchiveItems(fetchedArchives)
-        setTimelineEntries(fetchedTimeline)
-      })
-      .catch((error) => {
-        const statusCode = error?.response?.status
-        if (statusCode === 403) {
-          setLoadError('Accès refusé. Vous n\'êtes pas autorisé à consulter ces archives.')
-        } else if (statusCode === 404) {
-          // 404 = pas encore d'archives (voir commentaire d'en-tête) : pas de blocage.
-          setArchiveItems([])
-          setTimelineEntries([])
-        } else {
-          setLoadError('Impossible de charger les archives pédagogiques.')
-        }
-      })
-      .finally(() => setIsLoadingArchives(false))
-  }, [resolvedStudentId])
-
-  const handleSelectEntry = (entryId: string) => {
-    setSelectedItemId(entryId)
+  const handleSelectPerson = (personId: string) => {
+    setSelectedPersonId(personId)
+    setSelectedItemId(null)
+    setDownloadError(null)
   }
 
   const handleDownloadDocument = async (documentId: string) => {
@@ -164,26 +112,9 @@ export default function PedagogicalArchivePage() {
     ? archiveItems.find((item) => item.id === selectedItemId) ?? null
     : null
 
-  if (isLoadingArchives) {
-    return (
-      <Layout>
-        <p className="text-gray-400 text-sm">Chargement des archives…</p>
-      </Layout>
-    )
-  }
-
-  if (loadError) {
-    return (
-      <Layout>
-        <ErrorMessage message={loadError} />
-      </Layout>
-    )
-  }
-
   return (
     <Layout>
       <div className="space-y-6">
-        {/* En-tête */}
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Stats / Archives</h1>
           <p className="text-gray-500 text-sm mt-1">
@@ -191,85 +122,73 @@ export default function PedagogicalArchivePage() {
           </p>
         </div>
 
-        {/* Sélecteur d'élève pour parent_financeur sans studentId en URL */}
-        {isParentFinanceur && !studentId && (
-          <div className="bg-white border border-gray-200 rounded-xl p-4">
-            {isLoadingStudentOptions ? (
-              <p className="text-sm text-gray-400">Chargement des élèves rattachés…</p>
-            ) : linkedStudentOptions.length === 0 ? (
-              <p className="text-sm text-gray-400">
-                Aucun élève rattaché. Rattachez un élève depuis votre profil pour accéder à ses archives.
-              </p>
-            ) : (
-              <div className="flex items-center gap-3">
-                <label htmlFor="studentSelector" className="text-sm font-medium text-gray-700 shrink-0">
-                  Élève consulté :
-                </label>
-                <select
-                  id="studentSelector"
-                  value={selectedStudentId}
-                  onChange={(e) => setSelectedStudentId(e.target.value)}
-                  className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 flex-1 max-w-xs"
-                >
-                  {linkedStudentOptions.map((option) => (
-                    <option key={option.studentId} value={option.studentId}>
-                      {option.displayName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
-        )}
+        <PersonScopeSelector
+          selfDisplayName={selfDisplayName ?? 'Mon espace'}
+          contacts={contacts}
+          selectedUserId={consultedPersonId}
+          selfUserId={selfUserId}
+          onSelectPerson={handleSelectPerson}
+          isLoadingContacts={isLoadingContacts}
+          contactsError={contactsError}
+        />
 
-        {/* Onglets */}
-        <ArchiveTabsNav activeTab={activeTab} onTabChange={setActiveTab} />
+        <Tabs
+          tabs={visibleTabs}
+          activeTab={effectiveTab}
+          onTabChange={(tabId) => setActiveTab(tabId as ArchiveTabId)}
+          ariaLabel="Statistiques et archives"
+        />
 
-        {/* Onglet Statistiques pédagogiques */}
-        {activeTab === 'statistics' && (
-          <ProfileStatisticsPanel userId={resolvedStudentId} />
-        )}
+        {archivesError && <ErrorMessage message={archivesError} />}
 
-        {/* Onglet Archives — timeline chronologique */}
-        {activeTab === 'timeline' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Panneau gauche — timeline */}
-            <div>
-              <h2 className="text-sm font-semibold text-gray-700 mb-4">
-                Historique ({timelineEntries.length})
-              </h2>
-              <ArchiveTimeline
-                timelineEntries={timelineEntries}
-                onSelectEntry={handleSelectEntry}
-                selectedEntryId={selectedItemId}
-              />
-            </div>
+        <TabPanel tabId="statistics" activeTab={effectiveTab}>
+          <ProfileStatisticsPanel userId={consultedPersonId} />
+        </TabPanel>
 
-            {/* Panneau droit — détail */}
-            <div className="space-y-3">
-              {downloadError && <ErrorMessage message={downloadError} onClose={() => setDownloadError(null)} />}
-              {selectedArchiveItem ? (
-                <ArchiveItemDetail
-                  archiveItem={selectedArchiveItem}
-                  canAccessNotebook={canAccessNotebook}
-                  isDownloadingDocument={isDownloadingDocument}
-                  onDownload={handleDownloadDocument}
+        <TabPanel tabId="timeline" activeTab={effectiveTab}>
+          {isLoadingArchives ? (
+            <p className="text-gray-400 text-sm">Chargement des archives…</p>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-700 mb-4">Historique</h2>
+                <ArchiveTimeline
+                  timelineGroups={timelineGroups}
+                  onSelectItem={setSelectedItemId}
+                  selectedItemId={selectedItemId}
                 />
-              ) : (
-                <div className="bg-gray-50 border border-gray-200 rounded-xl p-8 text-center">
-                  <p className="text-gray-400 text-sm">
-                    Sélectionnez un élément dans la timeline pour afficher son détail.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+              </div>
 
-        {/* Onglet Résumés de cours */}
-        {activeTab === 'summaries' && (
-          <CourseSummaryArchiveView allArchiveItems={archiveItems} />
-        )}
+              <div className="space-y-3">
+                {downloadError && (
+                  <ErrorMessage message={downloadError} onClose={() => setDownloadError(null)} />
+                )}
+                {selectedArchiveItem ? (
+                  <ArchiveItemDetail
+                    archiveItem={selectedArchiveItem}
+                    canAccessNotebook={canAccessNotebook}
+                    isDownloadingDocument={isDownloadingDocument}
+                    onDownload={handleDownloadDocument}
+                  />
+                ) : (
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-8 text-center">
+                    <p className="text-gray-400 text-sm">
+                      Sélectionnez un élément de l'historique pour afficher son détail.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </TabPanel>
+
+        <TabPanel tabId="summaries" activeTab={effectiveTab}>
+          {isLoadingArchives ? (
+            <p className="text-gray-400 text-sm">Chargement des archives…</p>
+          ) : (
+            <CourseSummaryArchiveView allArchiveItems={archiveItems} />
+          )}
+        </TabPanel>
       </div>
     </Layout>
   )

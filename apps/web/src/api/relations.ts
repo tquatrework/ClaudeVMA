@@ -1,5 +1,24 @@
 import apiClient from './client'
 import type { PersonName, TeacherStudentRelation } from '../types/profile'
+import type { MyContact } from '../types/relations'
+
+/**
+ * GET /relations/my-contacts — les personnes auxquelles l'utilisateur AUTHENTIFIÉ
+ * est relié, tous rôles confondus, avec prénom, nom et nature du lien.
+ *
+ * Aucun paramètre d'identifiant : il n'y a rien à falsifier, et on ne renvoie jamais
+ * les relations d'un tiers. C'est la source unique des écrans qui font choisir « qui
+ * consulter ? » — un formateur y trouve ses élèves, un AP les formateurs qu'il anime,
+ * un parent ses élèves ET les professeurs de ses élèves (lien indirect).
+ *
+ * À préférer à `fetchLinkedStudents`, qui n'interroge que la table financeur↔élève et
+ * répond donc `200 []` — une liste vide, jamais un refus — à un formateur.
+ * Un compte sans aucun lien reçoit `200 []`.
+ */
+export async function fetchMyContacts(): Promise<MyContact[]> {
+  const { data } = await apiClient.get<MyContact[]>('/relations/my-contacts')
+  return data
+}
 
 /**
  * Lien financeur ↔ élève, tel que renvoyé par les deux routes de relations.

@@ -1409,6 +1409,224 @@
           Comptes crees sur la pile reelle pour attester les reponses HTTP citees ci-dessus :
           `camille.durand.26828` (eleve) et `sophie.moreau.26828` (parent financeur), rattaches
           l'un a l'autre. Aucune route de suppression de compte n'existe ; a suspendre par un TI.
+    <session date="2026-08-11" label="Acces aux stats et archives des personnes reliees (branche feat/acces-stats-archives-relations)">
+      <context>
+        Demande utilisateur, mot pour mot : « Tout user peut avoir acces aux statistiques et
+        archives pedagogiques des personnes auxquelles le user est relie […] Attention par contre
+        les statistiques et archives financieres ne sont accessibles qu'aux users eux-memes
+        (parents ou professeurs) et aux profils administrateurs. A toi de voir comment implementer
+        cela de facon fluide avec le design actuel dans notre front. »
+        La regle de droit etait deja faite cote serveur (arbitrage du 2026-08-11 dans
+        `docs/architecture.md`) : le travail portait sur son usage, pas sur sa definition.
+      </context>
+
+      <decision id="one-selector-one-screen">
+        Forme retenue pour choisir la personne consultee : une **barre de contexte sous le titre
+        de `/archives`**, portant une liste deroulante « Personne consultee », et — des qu'on
+        quitte son propre espace — le nom de la personne, la nature de l'acces et un bouton
+        « Revenir a mes donnees ».
+        Trois raisons de preferer cette forme a une liste laterale ou a une page intermediaire :
+        (1) la page proposait **deja** un selecteur d'eleve au parent financeur — on generalise un
+        geste connu au lieu d'en introduire un ; (2) `.claude/design/front-design.md` decrit le
+        « contexte actif » exactement ainsi (nom du contexte, type d'acces, retour a mon espace),
+        sans imposer d'ouvrir un contexte global imbrique ; (3) le choix de personne reste dans la
+        page, donc consulter une deuxieme personne ne coute pas une navigation.
+        `src/components/archive/PersonScopeSelector.tsx`.
+      </decision>
+
+      <decision id="self-by-default-and-never-a-uuid">
+        Soi-meme est selectionne par defaut : l'ecran est utile sans manipulation. Les personnes
+        reliees viennent de `GET /relations/my-contacts` — un seul appel, valable pour tous les
+        roles, qui porte **prenom, nom et nature du lien**. `userId` ne sert qu'a construire
+        l'appel suivant ; il n'apparait jamais a l'ecran (arbitrage du 2026-08-09). Une personne
+        sans profil administratif s'affiche « Contact (nom non renseigne) », jamais son UUID.
+        `src/hooks/relations/useMyContacts.ts`, `src/types/relations.ts`.
+      </decision>
+
+      <decision id="never-offer-what-will-be-refused">
+        Les onglets « Archives » et « Resumes de cours » sont **masques** — pas grises — quand la
+        nature du lien n'ouvre pas les archives de la personne consultee. Un eleve voit donc les
+        **statistiques** de son formateur et aucun onglet d'archives : proposer une action vouee
+        au 404 serait un defaut d'interface. Les quatre natures qui ouvrent (`teacher_of_student`,
+        `finance_owner_of_student`, `animator_of_teacher`, `coordinator_of_student`) sont listees
+        en un point unique, `src/utils/relationAccess.ts`, avec les libelles francais des liens.
+        Ce fichier ne decide d'aucun droit : le serveur reste seul juge et repond 404 aux refus.
+      </decision>
+
+      <decision id="client-side-role-guard-removed-from-statistics">
+        `ProfileStatisticsPanel` refusait d'afficher quoi que ce soit hors d'une liste de roles en
+        dur (`formateur`, `parent_financeur`, administrateurs) et hors de son propre profil. Ce
+        garde **interdisait precisement la lecture que l'arbitrage ouvre** : un eleve consultant
+        son formateur ne voyait rien, avant meme la moindre requete. Il est supprime — une regle
+        de droit portee cote client n'est pas une regle de droit, et celle-ci etait fausse.
+        Le composant a par la meme occasion quitte `src/pages/` (il n'est monte par aucune route)
+        pour `src/components/profile/ProfileStatisticsPanel.tsx`.
+      </decision>
+
+      <decision id="archive-contract-realigned-on-the-real-stack">
+        Trois ecarts corriges dans `src/api/archiveDocument.ts`, chacun verifie contre
+        `https://claudevma.visioprof.fr` :
+        (1) la liste renvoie une **enveloppe paginee** `{data, page, limit, total, totalPages}` ;
+        le repli `Array.isArray(data) ? data : []` transformait donc une reponse valide en « aucune
+        archive » ;
+        (2) les cinq `itemType` declares (`pedagogical_log`, `course_summary`, `notebook_entry`,
+        `recording`, `content_catalog`) n'ont **jamais** existe cote serveur — les sept valeurs
+        reelles sont `cahier_de_texte`, `carnet_personnel`, `resume_de_cours`, `contenu_eleve`,
+        `parcours`, `exercice_evaluation`, `video` ;
+        (3) le drapeau de visibilite parent s'appelle `isParentVisible`, pas
+        `isAccessibleToFinanceOwner`. `sourceUrl` n'existe pas non plus : le bouton « Ouvrir la
+        source » n'avait rien a ouvrir, il est retire. `POST .../archive-links` exige en outre
+        `sourceId` et `sourceService` (400 sinon), absents du payload declare.
+        La timeline est **groupee par date** cote serveur (`{date, items}`) : `ArchiveTimeline`
+        affiche ces groupes au lieu de retrier un `occurredAt` que la timeline ne porte pas.
+      </decision>
+
+      <decision id="empty-is-not-broken">
+        `usePedagogicalArchives` traite `404` en **etat vide** — absence d'archive et refus par
+        absence de relation repondent le meme message, volontairement indiscernables — et laisse
+        `500`/`503`/reseau remonter en **erreur visible**. C'est exactement la confusion qui avait
+        masque des semaines durant des routes montees sur le mauvais prefixe : un `404` de Nest
+        « Cannot GET … » etait lu comme « pas encore d'archives ».
+      </decision>
+
+      <decision id="my-students-asks-the-right-relation">
+        `MyStudentsPage` appelait `fetchLinkedStudents(user.id)` →
+        `GET /relations/finance-owner-student/:id`, c'est-a-dire la table **financeur↔eleve** : un
+        formateur y recevait `200 []`, une liste vide, jamais un refus, et sans message. La page
+        passe a `GET /relations/my-contacts` et ne retient que les liens ou l'utilisateur est
+        l'accompagnant. Elle gagne un lien « Stats / Archives » par personne, qui ouvre
+        `/archives/:personId` directement sur la bonne personne.
+      </decision>
+
+      <decision id="ap-can-finally-open-archives">
+        `animateur_pedagogique` ajoute a `routeAccessMap.ts` et aux deux routes `/archives` de
+        `App.tsx`. `TOP_NAV_CONFIG` lui affichait deja l'entree « Stats / Archives » : elle menait
+        a `/forbidden`. Le point ouvert `ap-sees-stats-archives-but-cannot-open-it` de la session
+        precedente est donc **clos**. Le parametre de route est renomme `:studentId` → `:personId` :
+        la personne consultee n'est pas forcement un eleve, un AP y consulte des formateurs.
+      </decision>
+
+      <decision id="financial-surface-untouched">
+        Rien n'a ete ajoute cote financier, et c'est volontaire : statistiques et archives
+        financieres restent au seul titulaire et aux administrateurs
+        (`finance-credit-service`, `/finance/financial-archives/:ownerId`). Aucun chemin de
+        `/archives` ne mene vers une donnee financiere ; le selecteur de personne n'y donne acces
+        a rien.
+      </decision>
+
+      <filesTouched>
+        <item path="src/api/archiveDocument.ts">Contrat aligne sur la pile reelle.</item>
+        <item path="src/api/relations.ts">`fetchMyContacts`.</item>
+        <item path="src/types/relations.ts">`RelationKind`, `ContactRelation`, `MyContact`.</item>
+        <item path="src/utils/relationAccess.ts">Libelles des liens, liens ouvrant les archives, roles administrateurs.</item>
+        <item path="src/utils/archiveLabels.ts">Point unique `itemType` → libelle et couleur.</item>
+        <item path="src/hooks/relations/useMyContacts.ts">Contacts + nom affichable.</item>
+        <item path="src/hooks/archive/usePedagogicalArchives.ts">Liste + timeline, 404 = vide.</item>
+        <item path="src/hooks/profile/useProfileStatistics.ts">Garde de role retire, 404 = vide.</item>
+        <item path="src/components/archive/PersonScopeSelector.tsx">Barre « Personne consultee ».</item>
+        <item path="src/components/archive/ArchiveTimeline.tsx">Groupes dates du serveur.</item>
+        <item path="src/components/archive/ArchiveItemDetail.tsx">Champs reels, plus de `sourceUrl`.</item>
+        <item path="src/components/archive/CourseSummaryArchiveView.tsx">Filtre `resume_de_cours`.</item>
+        <item path="src/components/profile/ProfileStatisticsPanel.tsx">Deplace depuis `src/pages/`.</item>
+        <item path="src/pages/PedagogicalArchivePage.tsx">Selecteur, onglets `Tabs`/`TabPanel`, etats.</item>
+        <item path="src/pages/MyStudentsPage.tsx">Passe a `my-contacts`.</item>
+        <item path="src/App.tsx">`:personId`, AP autorise.</item>
+        <item path="src/navigation/routeAccessMap.ts">AP sur `/archives`.</item>
+        <item path="src/components/archive/ArchiveTabsNav.tsx">Supprime au profit de `components/ui/Tabs`.</item>
+        <item path="test/fixtures/archives.ts">Fixtures copiees de la pile reelle.</item>
+      </filesTouched>
+
+      <realStackVerification gateway="https://claudevma.visioprof.fr" date="2026-08-11">
+        Jeu de comptes cree par les routes publiques d'inscription puis relie par le RP
+        `responsable.peda` (mot de passe commun `Archive!2026`), prefixe `frontrel.*` :
+          eleve      Lina Archivet    fd0fe655…
+          parent     Paul Archivet    11cfb3a7…  financeur de Lina
+          formateur  Nadia Formatrice 89968837…  professeur principal de Lina
+          AP         Omar Animateur   46c50802…  anime Nadia (POST /relations/animator-teacher 201)
+        Quatre archives creees par `POST /archives/students/:id/archive-links` (201 x4) : trois
+        pour l'eleve (resume_de_cours, cahier_de_texte, carnet_personnel), une pour le formateur.
+
+        GET /relations/my-contacts (jetons reels)
+          eleve  200 [{Paul Archivet, student_of_finance_owner},
+                      {Nadia Formatrice, student_of_teacher, isPrincipalTeacher:true}]
+          parent 200 [{Lina Archivet, finance_owner_of_student},
+                      {Nadia Formatrice, finance_owner_of_student_of_teacher, throughUserIds:[Lina]}]
+          prof   200 [{Omar Animateur, teacher_of_animator}, {Lina Archivet, teacher_of_student},
+                      {Paul Archivet, teacher_of_student_of_finance_owner}]
+          AP     200 [{Nadia Formatrice, animator_of_teacher}]
+          RP     200 []
+
+        GET /archives/students/:id/pedagogical-archives
+          eleve → les siennes        200, total 3, enveloppe {data,page,limit,total,totalPages}
+          prof  → son eleve          200, total 3
+          parent → son eleve         200, total 2 (carnet_personnel exclu, isParentVisible false)
+          AP    → le formateur       200, total 1
+          ELEVE → son formateur      404 {"message":"Aucune archive pédagogique accessible pour
+                                          cette personne"}
+          parent → ses propres arch. 404, meme message (aucune archive)
+        Forme d'un element, citee : {"id","studentId","itemType":"resume_de_cours","sourceId",
+          "sourceService","title","description","downloadUrl","score","pedagogicalPoints",
+          "occurredAt","isParentVisible","idempotencyKey","createdAt","updatedAt"} — ni `sourceUrl`
+          ni `isAccessibleToFinanceOwner`.
+        GET /archives/students/:id/archive-timeline (prof → son eleve) : 200,
+          data groupee {"date":"2026-03-03","items":[…]}, total 3.
+
+        GET /profiles/:userId/statistics
+          ELEVE → SON formateur      200 {"profileType":"teacher","statistics":{"subjects":
+                                     ["Mathematiques"],"isAnimateurPedagogique":false},
+                                     "visibility":{"isFiltered":true,"hiddenFields":["levels"]}}
+          PARENT → ce formateur      200, meme corps filtre
+          parent → son eleve         200, isFiltered:false
+          AP → le formateur anime    200, isFiltered:false, `levels` visible
+          AP → un eleve non relie    404 {"message":"No pedagogical statistics found for user …"}
+        Ces deux premieres lignes sont la preuve directe de la demande : avant ce lot, le front
+        n'affichait rien a l'eleve et au parent, garde de role oblige, alors que le serveur
+        repondait 200.
+      </realStackVerification>
+
+      <testCoverage>
+        `npx vitest run` : 121 fichiers, 1416 tests, 1410 verts. Les **6 rouges sont
+        preexistants** et sans lien avec ce lot — verifie en rejouant ces fichiers sur `src`
+        remis a l'etat d'origine : `ParentLinkRequestsInboxPage` (3), `ParentLinkRequestPage` (1),
+        `HealthStatusPage` (1), `WorkflowStatusPage` (1).
+        `tsc --noEmit` : 0 erreur. `vite build` : OK.
+        Rappel de la regle du projet : ces tests simulent tout le reseau et ne valent pas preuve ;
+        la preuve est dans `realStackVerification` ci-dessus.
+      </testCoverage>
+
+      <openPoints>
+        <item id="administrators-have-no-directory">
+          RP, AF et TI accedent aux statistiques et archives de **tout le monde**, mais aucune
+          route ne liste « tout le monde » : `GET /relations/my-contacts` leur renvoie `200 []`
+          (mesure sur la pile reelle). Leur selecteur ne propose donc qu'eux-memes, et ils doivent
+          passer par une URL `/archives/:personId` construite ailleurs (fiche eleve, demande…).
+          Ce n'est pas un defaut de ce lot : il manque une recherche de personne cote serveur.
+          A arbitrer — une liste globale n'est pas anodine du point de vue de la vie privee.
+        </item>
+        <item id="download-follows-a-redirect-cross-origin">
+          `GET /documents/:id/download` repond `302` vers l'URL du service source.
+          `downloadArchiveDocument` demande un blob via axios, qui suivra donc une redirection
+          **cross-origin** : selon l'hote cible, le navigateur peut la bloquer. Non teste contre la
+          pile reelle faute d'archive portant un `downloadUrl` reel. A verifier quand une source
+          en produira un.
+        </item>
+        <item id="coordinator-relations-never-observed">
+          `coordinator_of_student` / `student_of_coordinator` sont declares et traites, mais aucun
+          lien de coordination n'existait sur la pile au moment de la verification : ces deux
+          natures ne sont couvertes que par les tests unitaires.
+        </item>
+        <item id="profile-read-still-stricter-than-statistics">
+          Ecart cote serveur, signale par la session `profile-service` et non traite ici :
+          `GET /profiles/:userId` refuse encore a l'eleve la lecture du profil de son formateur,
+          alors que `GET /profiles/:userId/statistics` la lui accorde. Consequence front : depuis
+          `/archives`, un eleve lit les statistiques de son professeur mais un lien vers
+          `/profiles/:id` echouerait. Aucun lien de ce type n'a donc ete ajoute pour ce sens.
+        </item>
+        <item id="verification-accounts-left-on-dev-stack">
+          Comptes laisses sur la pile reelle : `frontrel.eleve`, `frontrel.parent`,
+          `frontrel.prof`, `frontrel.ap` (mot de passe `Archive!2026`), qui s'ajoutent aux
+          `relstats.*` de la session `profile-service` et aux `front.*` des lots precedents.
+          Aucune route de suppression de compte n'existe ; a suspendre par un TI.
         </item>
       </openPoints>
     </session>

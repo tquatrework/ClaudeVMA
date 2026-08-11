@@ -14,6 +14,7 @@ import { TeacherPedagogicalProfile } from '../../../src/profiles/entities/teache
 import { InternalProfileNote } from '../../../src/profiles/entities/internal-profile-note.entity';
 import { TeacherValidation } from '../../../src/profiles/entities/teacher-validation.entity';
 import { RelationsService } from '../../../src/relations/relations.service';
+import { RelationKind } from '../../../src/relations/relation-kind';
 import { EventsService } from '../../../src/events/events.service';
 import {
   IdentityAccessClient,
@@ -106,6 +107,9 @@ describe('ProfilesService', () => {
     relationsService = {
       isTeacherLinkedToStudent: jest.fn().mockResolvedValue(false),
       isFinanceOwnerLinkedToStudent: jest.fn().mockResolvedValue(false),
+      // Aucune relation par défaut : c'est l'état d'un lecteur quelconque, et
+      // désormais le socle du droit d'accès aux statistiques (arbitrage 2026-08-11).
+      resolveRelations: jest.fn().mockResolvedValue([]),
     };
     eventsService = { publish: jest.fn() };
 
@@ -648,7 +652,9 @@ describe('ProfilesService', () => {
     });
 
     it('applique le même filtrage qu\'au bloc pédagogique — pas de contournement', async () => {
-      relationsService.isTeacherLinkedToStudent.mockResolvedValue(true);
+      relationsService.resolveRelations.mockResolvedValue([
+        { kind: RelationKind.TEACHER_OF_STUDENT, isPrincipalTeacher: false },
+      ]);
       fieldVisibilityService.resolveAudiences.mockResolvedValue(
         audiencesFromCatalog({ level: 'self' }),
       );
@@ -663,7 +669,9 @@ describe('ProfilesService', () => {
     });
 
     it('n\'applique aucun filtrage au parent financeur rattaché', async () => {
-      relationsService.isFinanceOwnerLinkedToStudent.mockResolvedValue(true);
+      relationsService.resolveRelations.mockResolvedValue([
+        { kind: RelationKind.FINANCE_OWNER_OF_STUDENT },
+      ]);
       fieldVisibilityService.resolveAudiences.mockResolvedValue(
         audiencesFromCatalog({ level: 'self' }),
       );
@@ -673,6 +681,112 @@ describe('ProfilesService', () => {
 
       expect(result.statistics).toMatchObject({ level: '3ème' });
       expect(result.visibility.isFiltered).toBe(false);
+    });
+
+    // -------------------------------------------------------------------------
+    // Droit d'accès piloté par la RELATION (arbitrage du 2026-08-11)
+    // -------------------------------------------------------------------------
+
+    it('ouvre les statistiques du formateur à son élève — nouveau droit, symétrique', async () => {
+      studentPedaRepo.findOne.mockResolvedValue(null);
+      teacherPedaRepo.findOne.mockResolvedValue({
+        userId: 'teacher-uuid',
+        levels: ['Terminale'],
+        subjects: ['maths'],
+        isAnimateurPedagogique: false,
+      });
+      relationsService.resolveRelations.mockResolvedValue([
+        { kind: RelationKind.STUDENT_OF_TEACHER },
+      ]);
+      const actor = makeActor(UserRole.ELEVE, STUDENT_ID);
+
+      const result = await service.getPedagogicalStatistics('teacher-uuid', actor);
+
+      expect(result.profileType).toBe('teacher');
+      expect(result.visibility.isFiltered).toBe(true);
+    });
+
+    it("ouvre les statistiques du formateur au parent, par l'élève commun", async () => {
+      studentPedaRepo.findOne.mockResolvedValue(null);
+      teacherPedaRepo.findOne.mockResolvedValue({ userId: 'teacher-uuid', subjects: ['maths'] });
+      relationsService.resolveRelations.mockResolvedValue([
+        { kind: RelationKind.FINANCE_OWNER_OF_STUDENT_OF_TEACHER, throughUserIds: [STUDENT_ID] },
+      ]);
+      const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
+
+      const result = await service.getPedagogicalStatistics('teacher-uuid', actor);
+
+      // Lié, donc filtré : le lien indirect ouvre la lecture, il ne donne pas
+      // au parent le droit de voir ce que le formateur a masqué.
+      expect(result.visibility.isFiltered).toBe(true);
+    });
+
+    it("ouvre les statistiques du formateur à l'AP qui l'anime, sans filtrage", async () => {
+      studentPedaRepo.findOne.mockResolvedValue(null);
+      teacherPedaRepo.findOne.mockResolvedValue({ userId: 'teacher-uuid', levels: ['Terminale'] });
+      relationsService.resolveRelations.mockResolvedValue([
+        { kind: RelationKind.ANIMATOR_OF_TEACHER },
+      ]);
+      const actor = makeActor(UserRole.ANIMATEUR_PEDAGOGIQUE, 'ap-uuid');
+
+      const result = await service.getPedagogicalStatistics('teacher-uuid', actor);
+
+      expect(result.visibility.isFiltered).toBe(false);
+    });
+
+    it('ouvre tout aux administrateurs, sans relation — RP, AF et TI', async () => {
+      for (const role of [
+        UserRole.RESPONSABLE_PEDAGOGIQUE,
+        UserRole.ADMINISTRATEUR_FINANCIER,
+        UserRole.TECHNICIEN_INFORMATIQUE,
+      ]) {
+        const result = await service.getPedagogicalStatistics(STUDENT_ID, makeActor(role, 'admin-uuid'));
+        expect(result.visibility.isFiltered).toBe(false);
+      }
+    });
+
+    it.each([
+      ['formateur non rattaché', UserRole.FORMATEUR],
+      ['parent non rattaché', UserRole.PARENT_FINANCEUR],
+      ['élève tiers', UserRole.ELEVE],
+      ['AP sans lien d\'animation', UserRole.ANIMATEUR_PEDAGOGIQUE],
+    ])('refuse %s en 404, jamais en 403 — on ne révèle pas ce qu\'on masque', async (_label, role) => {
+      relationsService.resolveRelations.mockResolvedValue([]);
+      const actor = makeActor(role, 'stranger-uuid');
+
+      await expect(service.getPedagogicalStatistics(STUDENT_ID, actor)).rejects.toThrow(
+        NotFoundException,
+      );
+      await expect(service.getPedagogicalStatistics(STUDENT_ID, actor)).rejects.not.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('refuse un lecteur sans relation AVANT de lire la base — aucune fuite par le temps de réponse ni par le message', async () => {
+      relationsService.resolveRelations.mockResolvedValue([]);
+      studentPedaRepo.findOne.mockClear();
+      teacherPedaRepo.findOne.mockClear();
+
+      await expect(
+        service.getPedagogicalStatistics(STUDENT_ID, makeActor(UserRole.FORMATEUR, 'stranger-uuid')),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(studentPedaRepo.findOne).not.toHaveBeenCalled();
+      expect(teacherPedaRepo.findOne).not.toHaveBeenCalled();
+    });
+
+    it('donne le MÊME message pour « pas de statistiques » et « pas le droit »', async () => {
+      const denied = await service
+        .getPedagogicalStatistics(STUDENT_ID, makeActor(UserRole.FORMATEUR, 'stranger-uuid'))
+        .catch((error) => error.message);
+
+      studentPedaRepo.findOne.mockResolvedValue(null);
+      teacherPedaRepo.findOne.mockResolvedValue(null);
+      const missing = await service
+        .getPedagogicalStatistics(STUDENT_ID, makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE))
+        .catch((error) => error.message);
+
+      expect(denied).toBe(missing);
     });
 
     it('conserve isAnimateurPedagogique dans les statistiques formateur', async () => {
@@ -1626,11 +1740,18 @@ describe('ProfilesService', () => {
       expect(result.userId).toBe('student-uuid');
     });
 
-    it('throws 403 when élève tries to view another user statistics', async () => {
+    /**
+     * Ce test attendait un 403 : c'était le comportement d'avant l'arbitrage du
+     * 2026-08-11, quand le refus annonçait « cette personne existe, mais pas
+     * pour vous ». Il attend désormais un 404 — même code et même message qu'une
+     * absence de statistiques. Ce n'est pas un assouplissement : l'accès reste
+     * refusé, il ne dit simplement plus ce qu'il refuse.
+     */
+    it('refuse en 404 un élève qui consulte les statistiques d\'un tiers non relié', async () => {
       const actor = makeActor(UserRole.ELEVE, 'student-uuid');
       await expect(
         service.getPedagogicalStatistics('other-uuid', actor),
-      ).rejects.toThrow(ForbiddenException);
+      ).rejects.toThrow(NotFoundException);
     });
   });
 

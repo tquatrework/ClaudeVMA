@@ -1,18 +1,17 @@
 /**
- * Tests pour le module API archiveDocument (Phase 11)
+ * Tests du module API archiveDocument.
  *
- * Couvre :
- * - fetchPedagogicalArchives appelle le bon endpoint avec le bon studentId
- * - fetchArchiveTimeline appelle le bon endpoint avec le bon studentId
- * - downloadArchiveDocument appelle le bon endpoint avec responseType: 'blob'
- * - createArchiveLink appelle POST avec le bon payload
- * - Cas nominal : retour tableau vide si la réponse n'est pas un tableau
- * - Typage correct des erreurs HTTP (403, 404 propagés à l'appelant)
+ * Le contrat vérifié ici est celui de la **pile réelle** (2026-08-11) :
+ * enveloppe paginée `{data, page, limit, total, totalPages}`, timeline groupée par
+ * date, `sourceId`/`sourceService` obligatoires à la création.
+ *
+ * L'ancien jeu de tests validait un repli `Array.isArray(data) ? data : []` qui
+ * transformait une réponse valide du serveur en « aucune archive » : un test vert
+ * sur un comportement faux. Ce repli a disparu — une enveloppe inattendue doit se
+ * voir, pas se taire.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-
-// ─── Mock du client API ───────────────────────────────────────────────────────
 
 vi.mock('../src/api/client', () => ({
   default: {
@@ -27,116 +26,86 @@ import {
   fetchArchiveTimeline,
   downloadArchiveDocument,
   createArchiveLink,
-  type PedagogicalArchiveItem,
-  type ArchiveTimelineEntry,
   type CreateArchiveLinkPayload,
 } from '../src/api/archiveDocument'
+import {
+  COURSE_SUMMARY_ITEM,
+  STUDENT_ID,
+  TIMELINE_GROUPS,
+  paginate,
+} from './fixtures/archives'
 
 const mockGet = vi.mocked(apiClient.get)
 const mockPost = vi.mocked(apiClient.post)
-
-// ─── Fixtures ─────────────────────────────────────────────────────────────────
-
-const ARCHIVE_ITEM: PedagogicalArchiveItem = {
-  id: 'archive-1',
-  studentId: 'student-42',
-  itemType: 'course_summary',
-  title: 'Résumé — Algèbre',
-  description: 'Intro aux matrices.',
-  sourceUrl: 'https://example.com/session/1',
-  downloadUrl: undefined,
-  occurredAt: '2026-03-10T14:00:00.000Z',
-  createdAt: '2026-03-10T15:00:00.000Z',
-  isAccessibleToFinanceOwner: true,
-}
-
-const TIMELINE_ENTRY: ArchiveTimelineEntry = {
-  id: 'entry-1',
-  studentId: 'student-42',
-  itemType: 'course_summary',
-  title: 'Résumé — Algèbre',
-  occurredAt: '2026-03-10T14:00:00.000Z',
-  sourceUrl: 'https://example.com/session/1',
-  isAccessibleToFinanceOwner: true,
-}
 
 beforeEach(() => {
   vi.clearAllMocks()
 })
 
-// ─── fetchPedagogicalArchives ─────────────────────────────────────────────────
-
 describe('fetchPedagogicalArchives', () => {
-  it('appelle GET /students/:studentId/pedagogical-archives avec le bon id', async () => {
-    mockGet.mockResolvedValue({ data: [ARCHIVE_ITEM] })
+  it('appelle GET /archives/students/:userId/pedagogical-archives', async () => {
+    mockGet.mockResolvedValue({ data: paginate([COURSE_SUMMARY_ITEM]) })
 
-    const result = await fetchPedagogicalArchives('student-42')
+    const result = await fetchPedagogicalArchives(STUDENT_ID)
 
-    expect(mockGet).toHaveBeenCalledWith('/archives/students/student-42/pedagogical-archives')
-    expect(result).toHaveLength(1)
-    expect(result[0].id).toBe('archive-1')
+    expect(mockGet).toHaveBeenCalledWith(
+      `/archives/students/${STUDENT_ID}/pedagogical-archives`,
+    )
+    expect(result.total).toBe(1)
+    expect(result.data[0].id).toBe(COURSE_SUMMARY_ITEM.id)
   })
 
-  it('retourne un tableau vide si la réponse data n\'est pas un tableau', async () => {
-    mockGet.mockResolvedValue({ data: null })
+  it("expose l'enveloppe de pagination telle que le serveur la renvoie", async () => {
+    mockGet.mockResolvedValue({ data: paginate([COURSE_SUMMARY_ITEM]) })
 
-    const result = await fetchPedagogicalArchives('student-42')
+    const result = await fetchPedagogicalArchives(STUDENT_ID)
 
-    expect(result).toEqual([])
+    expect(result.page).toBe(1)
+    expect(result.limit).toBe(20)
+    expect(result.totalPages).toBe(1)
   })
 
-  it('propage l\'erreur 403 à l\'appelant', async () => {
-    const error403 = { response: { status: 403 } }
-    mockGet.mockRejectedValue(error403)
+  it('propage une erreur 404 — absence et refus sont indiscernables, à traiter en amont', async () => {
+    const notFoundError = { response: { status: 404 } }
+    mockGet.mockRejectedValue(notFoundError)
 
-    await expect(fetchPedagogicalArchives('student-42')).rejects.toEqual(error403)
+    await expect(fetchPedagogicalArchives(STUDENT_ID)).rejects.toEqual(notFoundError)
   })
 
-  it('propage l\'erreur 404 à l\'appelant', async () => {
-    const error404 = { response: { status: 404 } }
-    mockGet.mockRejectedValue(error404)
+  it('propage une erreur 503 quand profile-service est injoignable', async () => {
+    const unavailableError = { response: { status: 503 } }
+    mockGet.mockRejectedValue(unavailableError)
 
-    await expect(fetchPedagogicalArchives('student-42')).rejects.toEqual(error404)
+    await expect(fetchPedagogicalArchives(STUDENT_ID)).rejects.toEqual(unavailableError)
   })
 })
-
-// ─── fetchArchiveTimeline ─────────────────────────────────────────────────────
 
 describe('fetchArchiveTimeline', () => {
-  it('appelle GET /students/:studentId/archive-timeline avec le bon id', async () => {
-    mockGet.mockResolvedValue({ data: [TIMELINE_ENTRY] })
+  it('appelle GET /archives/students/:userId/archive-timeline', async () => {
+    mockGet.mockResolvedValue({ data: paginate(TIMELINE_GROUPS) })
 
-    const result = await fetchArchiveTimeline('student-42')
+    const result = await fetchArchiveTimeline(STUDENT_ID)
 
-    expect(mockGet).toHaveBeenCalledWith('/archives/students/student-42/archive-timeline')
-    expect(result).toHaveLength(1)
-    expect(result[0].id).toBe('entry-1')
+    expect(mockGet).toHaveBeenCalledWith(`/archives/students/${STUDENT_ID}/archive-timeline`)
+    expect(result.data).toHaveLength(3)
   })
 
-  it('retourne un tableau vide si la réponse data n\'est pas un tableau', async () => {
-    mockGet.mockResolvedValue({ data: undefined })
+  it('renvoie des groupes datés, pas des éléments à plat', async () => {
+    mockGet.mockResolvedValue({ data: paginate(TIMELINE_GROUPS) })
 
-    const result = await fetchArchiveTimeline('student-42')
+    const result = await fetchArchiveTimeline(STUDENT_ID)
 
-    expect(result).toEqual([])
+    expect(result.data[0].date).toBe('2026-03-03')
+    expect(result.data[0].items[0].title).toBe('Résumé du cours du 3 mars')
   })
 
-  it('propage l\'erreur 403 à l\'appelant', async () => {
-    const error403 = { response: { status: 403 } }
-    mockGet.mockRejectedValue(error403)
+  it("propage l'erreur 404 à l'appelant", async () => {
+    const notFoundError = { response: { status: 404 } }
+    mockGet.mockRejectedValue(notFoundError)
 
-    await expect(fetchArchiveTimeline('student-42')).rejects.toEqual(error403)
-  })
-
-  it('propage l\'erreur 404 à l\'appelant', async () => {
-    const error404 = { response: { status: 404 } }
-    mockGet.mockRejectedValue(error404)
-
-    await expect(fetchArchiveTimeline('student-42')).rejects.toEqual(error404)
+    await expect(fetchArchiveTimeline(STUDENT_ID)).rejects.toEqual(notFoundError)
   })
 })
-
-// ─── downloadArchiveDocument ──────────────────────────────────────────────────
 
 describe('downloadArchiveDocument', () => {
   it('appelle GET /documents/:id/download avec responseType blob', async () => {
@@ -151,55 +120,47 @@ describe('downloadArchiveDocument', () => {
     expect(result).toBeInstanceOf(Blob)
   })
 
-  it('propage l\'erreur 403 si le document est restreint', async () => {
-    const error403 = { response: { status: 403 } }
-    mockGet.mockRejectedValue(error403)
+  it("propage l'erreur 404 si le document est introuvable ou hors de portée", async () => {
+    const notFoundError = { response: { status: 404 } }
+    mockGet.mockRejectedValue(notFoundError)
 
-    await expect(downloadArchiveDocument('doc-restricted')).rejects.toEqual(error403)
-  })
-
-  it('propage l\'erreur 404 si le document n\'existe pas', async () => {
-    const error404 = { response: { status: 404 } }
-    mockGet.mockRejectedValue(error404)
-
-    await expect(downloadArchiveDocument('doc-missing')).rejects.toEqual(error404)
+    await expect(downloadArchiveDocument('doc-missing')).rejects.toEqual(notFoundError)
   })
 })
 
-// ─── createArchiveLink ────────────────────────────────────────────────────────
-
 describe('createArchiveLink', () => {
   const createPayload: CreateArchiveLinkPayload = {
-    itemType: 'course_summary',
+    itemType: 'resume_de_cours',
     title: 'Résumé manuel',
     description: 'Lien manuel créé par le formateur.',
-    sourceUrl: 'https://example.com/external/1',
+    sourceId: '7f0e6d38-1111-4a11-9111-000000000009',
+    sourceService: 'video-session-service',
     occurredAt: '2026-04-01T10:00:00.000Z',
   }
 
-  it('appelle POST /students/:studentId/archive-links avec le bon payload', async () => {
-    mockPost.mockResolvedValue({ data: { ...ARCHIVE_ITEM, ...createPayload, id: 'new-1' } })
+  it('appelle POST /archives/students/:userId/archive-links avec le bon payload', async () => {
+    mockPost.mockResolvedValue({ data: { ...COURSE_SUMMARY_ITEM, id: 'new-1' } })
 
-    const result = await createArchiveLink('student-42', createPayload)
+    const result = await createArchiveLink(STUDENT_ID, createPayload)
 
     expect(mockPost).toHaveBeenCalledWith(
-      '/archives/students/student-42/archive-links',
+      `/archives/students/${STUDENT_ID}/archive-links`,
       createPayload,
     )
     expect(result.id).toBe('new-1')
   })
 
-  it('propage l\'erreur 403 si le rôle n\'est pas autorisé', async () => {
-    const error403 = { response: { status: 403 } }
-    mockPost.mockRejectedValue(error403)
+  it("propage l'erreur 403 : une relation ouvre la lecture, jamais l'écriture", async () => {
+    const forbiddenError = { response: { status: 403 } }
+    mockPost.mockRejectedValue(forbiddenError)
 
-    await expect(createArchiveLink('student-42', createPayload)).rejects.toEqual(error403)
+    await expect(createArchiveLink(STUDENT_ID, createPayload)).rejects.toEqual(forbiddenError)
   })
 
-  it('propage l\'erreur 400 si le payload est invalide', async () => {
-    const error400 = { response: { status: 400 } }
-    mockPost.mockRejectedValue(error400)
+  it("propage l'erreur 400 quand sourceId ou sourceService manque", async () => {
+    const badRequestError = { response: { status: 400 } }
+    mockPost.mockRejectedValue(badRequestError)
 
-    await expect(createArchiveLink('student-42', createPayload)).rejects.toEqual(error400)
+    await expect(createArchiveLink(STUDENT_ID, createPayload)).rejects.toEqual(badRequestError)
   })
 })

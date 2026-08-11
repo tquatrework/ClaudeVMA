@@ -162,13 +162,17 @@ export const ROUTE_ACCESS_MAP: RouteAccessRule[] = [
     ],
   },
 
-  // Archives pédagogiques
+  // Statistiques et archives pédagogiques
+  // `animateur_pedagogique` ajouté le 2026-08-11 : TOP_NAV_CONFIG lui affichait
+  // déjà « Stats / Archives » alors que cette table l'en excluait — il tombait
+  // sur /forbidden depuis son propre menu.
   {
     prefix: '/archives',
     roles: [
       'eleve',
       'parent_financeur',
       'formateur',
+      'animateur_pedagogique',
       'responsable_pedagogique',
       'administrateur_financier',
       'technicien_informatique',

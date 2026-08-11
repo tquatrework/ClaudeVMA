@@ -53,7 +53,12 @@
       <endpoint method="PUT" path="/profiles/{userId}/internal-notes/{id}">Modifier une note interne (role : auteur, responsable_pedagogique).</endpoint>
       <endpoint method="DELETE" path="/profiles/{userId}/internal-notes/{id}">Supprimer une note interne (role : responsable_pedagogique).</endpoint>
       <endpoint method="PATCH" path="/teachers/{userId}/validation">Valider un formateur ou lui attribuer le statut AP.</endpoint>
-      <endpoint method="GET" path="/profiles/{userId}/statistics">Lire les statistiques pedagogiques consolidees.</endpoint>
+      <endpoint method="GET" path="/profiles/{userId}/statistics">Lire les statistiques pedagogiques consolidees. Droit PILOTE PAR LA RELATION depuis le 2026-08-11 (decision C16), pas par une liste de roles ; refus = 404 avec le meme message qu'une absence de statistiques, jamais 403.</endpoint>
+      <!-- Relations exposees, decision C16 (2026-08-11) -->
+      <endpoint method="GET" path="/relations/my-contacts">Lister les personnes auxquelles l'utilisateur AUTHENTIFIE est relie (prenom, nom, nature du lien). Aucun parametre d'identifiant. Tout compte authentifie.</endpoint>
+      <endpoint method="POST" path="/relations/animator-teacher">Rattacher un AP a un formateur qu'il anime (role : responsable_pedagogique SEUL).</endpoint>
+      <endpoint method="GET" path="/relations/animator-teacher/{animatorId}">Lister les formateurs animes par un AP (RP, TI, AP lui-meme).</endpoint>
+      <endpoint method="GET" path="/internal/relations/{viewerId}/{targetId}">Nature et SENS des relations entre deux personnes, pour un service appelant (archive-document-service). X-Internal-Secret ; query viewerRole obligatoire.</endpoint>
       <!-- Photo de profil — decisions C13 (routes) et C14 (plafond de taille), 2026-08-10 -->
       <endpoint method="GET" path="/profiles/avatar/constraints">Lire les contraintes d'envoi (maxUploadBytes, formats acceptes) AVANT de choisir un fichier. Sans :userId : elles ne dependent ni du profil vise ni du lecteur. Le front ne doit pas les coder en dur.</endpoint>
       <endpoint method="POST" path="/profiles/{userId}/avatar">Envoyer ou remplacer la photo (multipart, champ file ; titulaire SEUL). 413 structure au-dela de MEDIA_MAX_UPLOAD_BYTES, coupe en streaming par multer.</endpoint>
@@ -106,10 +111,18 @@
       <entity>AdminProfileNote</entity>
       <entity>TeacherValidation</entity>
       <entity>PedagogicalStatistic</entity>
+      <!-- Relations, proprietees de ce service et d'aucun autre -->
+      <entity>FinanceOwnerStudentLink</entity>
+      <entity>TeacherStudentLink</entity>
+      <entity>PedagogicalCoordinatorLink</entity>
+      <!-- AnimatorTeacherLink ajoutee le 2026-08-11 (decision C16) : la relation
+           AP -> formateur n'existait dans aucune table. -->
+      <entity>AnimatorTeacherLink</entity>
     </dataEntities>
     <events>
       <event>ProfileUpdated</event>
       <event>TeacherValidated</event>
+      <event>AnimatorLinkedToTeacher</event>
       <event>TeacherPromotedToAP</event>
       <event>AdminProfileReminderCreated</event>
     </events>
@@ -1527,7 +1540,234 @@
           migrée de `family_context` subsiste, à l'identique.
         </realStackVerification>
       </decision>
+      <decision id="C16" status="implemented" session="2026-08-11">
+        <title>La RELATION ouvre le droit sur les statistiques pédagogiques — et devient un contrat exposé aux autres services</title>
+        <filesTouched>
+          <file path="services/profile-service/src/relations/relation-kind.ts">
+            NOUVEAU. Énumération des 10 natures de relation, ORIENTÉES lecteur → cible, et type
+            `ResolvedRelation` ({kind, isPrincipalTeacher?, throughUserIds?}).
+          </file>
+          <file path="services/profile-service/src/relations/pedagogical-access.policy.ts">
+            NOUVEAU. `ADMINISTRATOR_ROLES` (RP, AF, TI — liste UNIQUE, consommée par une seule
+            fonction pour que la distinction par domaine reste bon marché à introduire),
+            `isAdministrator`, `resolveStatisticsViewerPosition`.
+          </file>
+          <file path="services/profile-service/src/relations/entities/animator-teacher-link.entity.ts">
+            NOUVEAU. Relation AP → formateur.
+          </file>
+          <file path="services/profile-service/src/migrations/1754960000000-CreateAnimatorTeacherLinks.ts">
+            NOUVEAU. Table `animator_teacher_links` + index sur les deux colonnes.
+          </file>
+          <file path="services/profile-service/src/relations/dto/create-animator-teacher-link.dto.ts">NOUVEAU.</file>
+          <file path="services/profile-service/src/internal/dto/resolve-relation.query.dto.ts">
+            NOUVEAU. `viewerRole` OBLIGATOIRE, validé sur l'énumération des rôles.
+          </file>
+          <file path="services/profile-service/src/common/decorators/owner-access.decorator.ts">
+            NOUVEAU. Repris à l'identique de finance-credit-service (2026-08-11).
+          </file>
+          <file path="services/profile-service/src/common/guards/roles.guard.ts">
+            Honore `OWNER_ACCESS_KEY` : appelant authentifié exigé, aucun filtrage par rôle.
+          </file>
+          <file path="services/profile-service/src/relations/relations.service.ts">
+            `resolveRelations`, `listRelatedPeople`, `linkAnimatorToTeacher`,
+            `getTeachersByAnimator`, helpers `attachTeacherNames` / `intersect` / `byDisplayName`.
+          </file>
+          <file path="services/profile-service/src/relations/relations.controller.ts">
+            GET /relations/my-contacts (@OwnerAccess), POST /relations/animator-teacher (RP),
+            GET /relations/animator-teacher/:animatorId.
+          </file>
+          <file path="services/profile-service/src/relations/relations.module.ts">AnimatorTeacherLink enregistrée.</file>
+          <file path="services/profile-service/src/profiles/profiles.service.ts">
+            `getPedagogicalStatistics` réécrite sur la relation ; nouveaux
+            `resolveStatisticsViewerPositionFor` et `noPedagogicalStatisticsMessage`.
+          </file>
+          <file path="services/profile-service/src/profiles/profiles.controller.ts">
+            @OwnerAccess sur les statistiques + Swagger entièrement réécrit (droits, 404 au lieu de 403).
+          </file>
+          <file path="services/profile-service/src/internal/internal.controller.ts">GET /internal/relations/:viewerId/:targetId.</file>
+          <file path="services/profile-service/src/internal/internal.service.ts">`resolveRelation`.</file>
+          <file path="services/profile-service/src/events/events.service.ts">Événement `AnimatorLinkedToTeacher`.</file>
+          <file path="services/profile-service/test/e2e/pedagogical-access.e2e-spec.ts">NOUVEAU, 44 tests.</file>
+          <file path="services/profile-service/test/unit/relations/pedagogical-access.policy.spec.ts">NOUVEAU, 11 tests.</file>
+          <file path="services/profile-service/test/unit/relations/relations.service.spec.ts">+20 tests.</file>
+          <file path="services/profile-service/test/unit/profiles/profiles.service.spec.ts">
+            Statistiques : mock relationnel, 8 tests ajoutés, un test 403 devenu 404.
+          </file>
+          <file path="services/profile-service/test/unit/common/roles.guard.spec.ts">
+            Mock désormais par CLÉ de métadonnée + 4 tests @OwnerAccess.
+          </file>
+          <file path="docs/routes.md">Statistiques, Relations, API interne, événements.</file>
+        </filesTouched>
+        <description>
+          Arbitrage du 2026-08-11 (`docs/architecture.md` &gt; « Arbitrages rendus ») : le droit
+          d'accès aux statistiques et aux archives pédagogiques est piloté par la RELATION métier,
+          pas par le rôle. Ce lot traite les statistiques (propriété de ce service) et EXPOSE la
+          relation aux autres services, `archive-document-service` en premier.
+
+          (1) ÉTAT CONSTATÉ AVANT (mesuré contre la pile réelle, comptes réels, via le gateway) :
+          `GET /profiles/:userId/statistics` appelait `assertReadAccess`, écrite pour la lecture
+          d'un PROFIL. Conséquences : un élève recevait 403 « An élève may only view their own
+          profile » sur les statistiques de SON formateur ; un parent recevait 403 sur le formateur
+          de son élève ; un AP — qui n'est pourtant pas administrateur — passait le contrôle pour
+          N'IMPORTE QUI, par simple absence de clause le concernant ; et un refus se distinguait
+          d'une absence de données (403 vs 404), donc révélait l'existence de la ressource.
+
+          (2) LE CONTRÔLE PORTE DÉSORMAIS SUR LA RELATION. `RelationsService.resolveRelations`
+          renvoie la nature ET le sens des liens entre deux personnes ; la politique
+          (`resolveStatisticsViewerPosition`) en déduit `owner` / `exempt` / `linked` / `denied`.
+          Aucune liste de rôles n'intervient, sinon pour reconnaître un administrateur. C'est le
+          défaut corrigé le même jour dans `finance-credit-service` (`@OwnerAccess()`), repris ici
+          dans la même forme, décorateur compris : une liste de rôles sur une lecture pilotée par
+          la propriété ou la relation oublie un rôle à chaque évolution.
+
+          (3) REFUS = 404, JAMAIS 403, avec le MÊME message qu'une absence de statistiques, et le
+          contrôle placé AVANT toute lecture en base (vérifié par un test qui assure qu'aucun
+          repository n'est interrogé sur un refus). Point 5 de l'arbitrage, dans la lignée de la
+          règle du 2026-08-10 sur les médias masqués.
+
+          (4) TABLE MANQUANTE — `animator_teacher_links`. La relation AP → FORMATEUR n'existait
+          nulle part : `pedagogical_coordinator_links` lie un coordinateur à un ÉLÈVE. Sans elle,
+          « l'AP voit les statistiques des formateurs qu'il anime » n'était applicable qu'en
+          ouvrant tout à son rôle, ce que l'arbitrage refuse. Conséquence assumée et à signaler :
+          la table naît vide, donc un AP ne voit les statistiques d'AUCUN formateur tant que le RP
+          n'a pas créé les liens (`POST /relations/animator-teacher`). C'est l'état correct au
+          regard de la règle, pas une régression silencieuse.
+
+          (5) RELATIONS INDIRECTES. Un parent n'est jamais lié en direct à un formateur : il l'est
+          par son élève. `finance_owner_of_student_of_teacher` (et son symétrique) est donc
+          CALCULÉ par intersection des élèves des deux parties, sans table ni jointure
+          supplémentaire, et porte l'élève commun dans `throughUserIds`. Le parent y est `linked`
+          et non `exempt` : le lien indirect ouvre la lecture, il ne lève pas le masquage que le
+          formateur a posé — l'exemption du parent vaut sur SES élèves, pas sur leurs formateurs.
+
+          (6) CONTRAT INTERSERVICES — `GET /internal/relations/:viewerId/:targetId?viewerRole=…`.
+          Il renvoie des FAITS (`isSelf`, `isAdministrator`, `relations[]`), jamais un verdict :
+          chaque service décide de sa propre surface. Il renvoie le SENS du lien et non un booléen,
+          parce que les droits en dépendent — un élève voit les statistiques de son formateur mais
+          PAS ses archives pédagogiques. `viewerRole` est obligatoire (400 explicite listant les
+          valeurs acceptées) : le rôle accompagne systématiquement les appels interservices
+          (arbitrage du 2026-08-07) et `identity-access-service` en reste l'unique propriétaire —
+          ce service le consomme comme contexte, ne le persiste pas et ne l'expose pas.
+
+          (7) ÉCRAN /archives — `GET /relations/my-contacts`. Aucun paramètre d'identifiant : la
+          route ne sert que les relations de l'appelant, il n'y a donc rien à falsifier ni à
+          protéger par une liste de rôles. Chaque entrée porte PRÉNOM et NOM ; `userId` n'y est que
+          pour construire l'appel suivant. Un seul appel de résolution de noms pour toute la liste
+          (pas de N+1). Les liens indirects y figurent : c'est ce qui permet à un parent de choisir
+          le formateur de son enfant dans une liste.
+
+          (8) `/my-students` — LE 403 DU FORMATEUR N'EST PAS DANS CE SERVICE. Mesuré contre la pile
+          réelle avec un jeton de connexion réel : `GET /relations/finance-owner-student/:id` — la
+          seule route appelée par `MyStudentsPage` (apps/web/src/api/relations.ts,
+          `fetchLinkedStudents`) — répond **200 []** à un formateur sur son propre identifiant, en
+          direct comme via le gateway. Le défaut est côté front : la page interroge la table des
+          liens FINANCEUR↔élève, qui ne contient évidemment aucun lien pour un formateur, dont les
+          élèves vivent dans `teacher_student_links`. Le formateur voit donc une liste vide, non un
+          403. `GET /relations/my-contacts` fournit désormais la liste correcte pour tous les rôles
+          d'un seul appel, noms compris ; le correctif est un changement d'appel côté front (voir
+          openPoints).
+
+          (9) HORS PÉRIMÈTRE, ÉCART SIGNALÉ : `GET /profiles/:userId` n'a PAS été aligné. Il
+          exempte encore l'AP par son seul rôle et refuse à l'élève la lecture du profil de son
+          formateur, alors que l'arbitrage du 2026-08-07 le lui accorde. Les statistiques y sont
+          donc désormais plus strictes que le profil qui sert les mêmes champs — dans le sens de la
+          prudence, jamais l'inverse, mais l'écart doit être résorbé (voir openPoints).
+        </description>
+        <testCoverage>
+          npm test (unitaires) : 18 suites, 515 tests, TOUS VERTS.
+          npm run test:e2e (USE_LOCAL_DB=true, base profile_test, --runInBand) : 234 tests, 233
+          verts. L'unique échec est [PROF-BR-010] (AF créant une note interne → 403), laissé rouge
+          à dessein depuis le 2026-08-04, sans lien avec ce lot.
+          npm run build : OK.
+        </testCoverage>
+        <realStackVerification>
+          Image reconstruite et conteneur `visiomath_profile` RECRÉÉ ; migration
+          `CreateAnimatorTeacherLinks1754960000000` jouée au démarrage contre la base réelle
+          `visiomath_profile` (« 1 migrations are new », exécutée, table + 2 index vérifiés en base).
+
+          Comptes RÉELS créés par les routes publiques d'inscription, via le gateway, et reliés :
+            Sonia Relation (parent, b9795e6c…) — finance → Théo Relation (élève, 371561b2…)
+            Farid Formateur (7ac2eac5…) — professeur principal de Théo
+            Awa Animatrice (8d31b72b…) — formateur promu `animateur_pedagogique` par
+              PUT /accounts/:id/roles, puis rattachée à Farid par POST /relations/animator-teacher
+              (201). Connexions réelles par POST /auth/login pour parent, élève, formateur et AP.
+
+          AVANT (même pile, code précédent) :
+            élève → statistiques de SON formateur   403 "An élève may only view their own profile"
+            parent → statistiques du formateur      403 "A parent may only view profiles of students…"
+            formateur → élève non relié             403
+          APRÈS (cité littéralement) :
+            élève → SON formateur    200 {"profileType":"teacher","statistics":{"subjects":
+              ["Mathématiques"],"isAnimateurPedagogique":false},"visibility":{"isFiltered":true,
+              "hiddenFields":["levels"]}}
+            parent → formateur de son élève  200, même corps filtré
+            AP → formateur qu'il anime       200 {"statistics":{"levels":["3e","2nde"],"subjects":
+              ["Mathématiques"],…},"visibility":{"isFiltered":false,"hiddenFields":[]}}
+            parent → SON élève / titulaire / RP → tout le monde : 200, isFiltered:false
+            formateur → SON élève            200, isFiltered:true
+            formateur → élève non relié      404 {"message":"No pedagogical statistics found for
+              user 87482274-…","error":"Not Found","statusCode":404}
+            AP → élève non relié             404, même message
+            parent → élève d'une autre famille 404, même message
+          GET /relations/my-contacts (jetons de connexion réels) :
+            formateur → [{Awa Animatrice, teacher_of_animator}, {Sonia Relation,
+              teacher_of_student_of_finance_owner, throughUserIds:[Théo]}, {Théo Relation,
+              teacher_of_student, isPrincipalTeacher:true}]
+            parent    → [{Farid Formateur, finance_owner_of_student_of_teacher}, {Théo Relation,
+              finance_owner_of_student}]
+            élève     → [{Farid Formateur, student_of_teacher, isPrincipalTeacher:true},
+              {Sonia Relation, student_of_finance_owner}]
+            AP        → [{Farid Formateur, animator_of_teacher}]
+          GET /internal/relations/:viewerId/:targetId (X-Internal-Secret) :
+            formateur→élève  {"isSelf":false,"isAdministrator":false,"relations":[{"kind":
+              "teacher_of_student","isPrincipalTeacher":true}]}
+            élève→formateur  kind "student_of_teacher"
+            parent→élève     kind "finance_owner_of_student"
+            parent→formateur kind "finance_owner_of_student_of_teacher", throughUserIds [Théo]
+            AP→formateur     kind "animator_of_teacher", isAdministrator FALSE
+            RP→élève         isAdministrator true, relations []
+            sans lien        relations []
+            sans viewerRole  400 {"message":["viewerRole must be one of: eleve, parent_financeur,
+              formateur, animateur_pedagogique, responsable_pedagogique, technicien_informatique,
+              administrateur_financier"]}
+          Les comptes de vérification restent en base (préfixe `relstats.*`, mot de passe commun) :
+          ils forment le premier jeu réel où un AP est relié à un formateur.
+        </realStackVerification>
+      </decision>
       <openPoints>
+        <item priority="high" status="to-do" raisedIn="C16" raisedOn="2026-08-11" owner="front">
+          `/my-students` — LE FORMATEUR VOIT UNE LISTE VIDE, PAS UN 403. `MyStudentsPage` appelle
+          `fetchLinkedStudents(user.id)` → `GET /relations/finance-owner-student/:id`, qui répond
+          200 [] à un formateur (mesuré contre la pile réelle) : c'est la table des liens
+          FINANCEUR↔élève, sans rapport avec `teacher_student_links`. Même défaut sur
+          `PedagogicalArchivePage`, qui ne propose de sélecteur qu'au parent financeur et retombe
+          sur `user.id` pour tous les autres rôles, et qui affiche `ELV-{uuid.slice(0,8)}` en repli
+          — un UUID à l'écran, contraire à l'arbitrage du 2026-08-09.
+          Correctif : un seul appel à `GET /relations/my-contacts`, qui porte prénom, nom et nature
+          du lien pour tous les rôles, liens indirects compris.
+        </item>
+        <item priority="medium" status="to-do" raisedIn="C16" raisedOn="2026-08-11">
+          ALIGNER `GET /profiles/:userId` SUR LA MÊME RÈGLE. Il exempte encore l'animateur
+          pédagogique par son seul rôle (il lit donc le profil de n'importe qui) et refuse à
+          l'élève la lecture du profil de SON formateur, alors que l'arbitrage du 2026-08-07
+          accorde la lecture aux personnes liées. Les statistiques sont désormais plus strictes que
+          le profil qui sert les mêmes champs : l'écart va dans le sens de la prudence, mais il est
+          bien réel. `resolveStatisticsViewerPositionFor` est prête à être réutilisée ; l'impact
+          front (écrans RP/AP) demande d'être mesuré avant, d'où le report.
+        </item>
+        <item priority="medium" status="to-do" raisedIn="C16" raisedOn="2026-08-11">
+          AUCUN LIEN AP↔FORMATEUR N'EXISTE EN PRODUCTION hors le jeu de vérification de cette
+          session. La table naît vide : tant que le RP n'en crée pas, un AP ne voit les
+          statistiques d'aucun formateur. Il n'existe par ailleurs aucun écran pour créer ces liens
+          (route `POST /relations/animator-teacher`, RP) — à prévoir côté front, ou à peupler par
+          l'onboarding formateur.
+        </item>
+        <item priority="low" status="to-do" raisedIn="C16" raisedOn="2026-08-11">
+          DISTINCTION RP / AF / TI, actée dans son principe et remise à plus tard par l'utilisateur
+          (arbitrage du 2026-08-11, point 3). Le code est prêt : une seule constante
+          (`ADMINISTRATOR_ROLES`) et une seule fonction (`isAdministrator`) à décliner par surface
+          le jour venu. Ne pas la coder par anticipation.
+        </item>
         <item priority="high" status="awaiting-arbitration" raisedIn="C15" raisedOn="2026-08-11">
           VENTILATION DE LA VALEUR MIGRÉE — la seule ligne non vide de l'ancien `context` mélange
           deux natures : « une jumelle » (familial) et « lycée des Graves » (nom d'établissement).

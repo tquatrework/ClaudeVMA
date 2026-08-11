@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ConflictException, ForbiddenException } from '@nestjs/common';
-import { RelationsService } from '../../../src/relations/relations.service';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { IsNull } from 'typeorm';
+import {
+  RelationsService,
+  noFinanceOwnerStudentLinkMessage,
+} from '../../../src/relations/relations.service';
 import { FinanceOwnerStudentLink } from '../../../src/relations/entities/finance-owner-student-link.entity';
 import { TeacherStudentLink } from '../../../src/relations/entities/teacher-student-link.entity';
 import { PedagogicalCoordinatorLink } from '../../../src/relations/entities/pedagogical-coordinator-link.entity';
@@ -272,8 +276,10 @@ describe('RelationsService', () => {
       const actor = makeActor(UserRole.PARENT_FINANCEUR, 'parent-uuid');
       const result = await service.getTeachersByStudent('student-uuid', actor);
       expect(result).toHaveLength(1);
+      // Le rattachement se lit sur le lien ACTIF : un parent délié ne liste plus
+      // les formateurs de son ex-élève.
       expect(financeRepo.findOne).toHaveBeenCalledWith({
-        where: { financeOwnerId: 'parent-uuid', studentId: 'student-uuid' },
+        where: { financeOwnerId: 'parent-uuid', studentId: 'student-uuid', endedAt: IsNull() },
       });
     });
 
@@ -666,6 +672,160 @@ describe('RelationsService', () => {
 
       expect(result.map((person) => person.lastName)).toEqual(['Amiot', 'Zerbib']);
       expect(administrativeProfileLookup.findNamesByUserIds).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // unlinkFinanceOwnerFromStudent — « Délier » (besoin du 2026-08-11)
+  // ---------------------------------------------------------------------------
+  describe('unlinkFinanceOwnerFromStudent', () => {
+    const financeOwnerId = 'finance-uuid';
+    const studentId = 'student-uuid';
+
+    /** Lien actif tel que la base le renvoie avant rupture. */
+    const activeLink = () => ({
+      id: 'link-uuid',
+      financeOwnerId,
+      studentId,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      endedAt: null,
+      endedBy: null,
+    });
+
+    beforeEach(() => {
+      financeRepo.save.mockImplementation(async (entity: any) => entity);
+    });
+
+    it.each([
+      ['le parent financeur lui-même', financeOwnerId, UserRole.PARENT_FINANCEUR],
+      ["l'élève lui-même", studentId, UserRole.ELEVE],
+      ['un RP', 'rp-uuid', UserRole.RESPONSABLE_PEDAGOGIQUE],
+      ['un TI', 'ti-uuid', UserRole.TECHNICIEN_INFORMATIQUE],
+    ])('%s peut délier', async (_label, actorId, role) => {
+      financeRepo.findOne.mockResolvedValue(activeLink());
+
+      const result = await service.unlinkFinanceOwnerFromStudent(
+        financeOwnerId,
+        studentId,
+        makeActor(role as UserRole, actorId as string),
+      );
+
+      expect(result.endedAt).toBeInstanceOf(Date);
+      expect(result.endedBy).toBe(actorId);
+      expect(eventsService.publish).toHaveBeenCalledWith(
+        'StudentUnlinkedFromFinanceOwner',
+        expect.objectContaining({ financeOwnerId, studentId, actorId }),
+      );
+    });
+
+    it("un tiers non concerné reçoit 404 — le même que si le lien n'existait pas", async () => {
+      financeRepo.findOne.mockResolvedValue(activeLink());
+
+      await expect(
+        service.unlinkFinanceOwnerFromStudent(
+          financeOwnerId,
+          studentId,
+          makeActor(UserRole.FORMATEUR, 'teacher-uuid'),
+        ),
+      ).rejects.toThrow(new NotFoundException(noFinanceOwnerStudentLinkMessage()));
+
+      expect(financeRepo.save).not.toHaveBeenCalled();
+    });
+
+    it("l'administrateur financier ne délie pas : il constate, il ne décide pas", async () => {
+      financeRepo.findOne.mockResolvedValue(activeLink());
+
+      await expect(
+        service.unlinkFinanceOwnerFromStudent(
+          financeOwnerId,
+          studentId,
+          makeActor(UserRole.ADMINISTRATEUR_FINANCIER, 'af-uuid'),
+        ),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it("un lien inexistant renvoie exactement le même message qu'un refus", async () => {
+      financeRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.unlinkFinanceOwnerFromStudent(
+          financeOwnerId,
+          studentId,
+          makeActor(UserRole.PARENT_FINANCEUR, financeOwnerId),
+        ),
+      ).rejects.toThrow(new NotFoundException(noFinanceOwnerStudentLinkMessage()));
+    });
+
+    it('délier deux fois est idempotent : même date de rupture, aucun second événement', async () => {
+      const alreadyEndedLink = {
+        ...activeLink(),
+        endedAt: new Date('2026-02-02T10:00:00.000Z'),
+        endedBy: 'someone-else',
+      };
+      financeRepo.findOne.mockResolvedValue(alreadyEndedLink);
+
+      const result = await service.unlinkFinanceOwnerFromStudent(
+        financeOwnerId,
+        studentId,
+        makeActor(UserRole.PARENT_FINANCEUR, financeOwnerId),
+      );
+
+      expect(result.endedAt).toEqual(new Date('2026-02-02T10:00:00.000Z'));
+      expect(result.endedBy).toBe('someone-else');
+      expect(financeRepo.save).not.toHaveBeenCalled();
+      expect(eventsService.publish).not.toHaveBeenCalled();
+    });
+
+    it("n'efface aucune ligne : la rupture passe par save, jamais par delete/remove", async () => {
+      financeRepo.findOne.mockResolvedValue(activeLink());
+
+      await service.unlinkFinanceOwnerFromStudent(
+        financeOwnerId,
+        studentId,
+        makeActor(UserRole.PARENT_FINANCEUR, financeOwnerId),
+      );
+
+      expect(financeRepo.save).toHaveBeenCalledTimes(1);
+      expect(financeRepo.delete).toBeUndefined();
+      expect(financeRepo.remove).toBeUndefined();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Réversibilité : un lien rompu ne bloque pas un nouveau rattachement
+  // ---------------------------------------------------------------------------
+  describe('réversibilité après rupture', () => {
+    const activeLinkCriteria = {
+      where: { financeOwnerId: 'finance-uuid', studentId: 'student-uuid', endedAt: IsNull() },
+    };
+
+    it("le 409 de création porte sur le lien ACTIF, pas sur l'existence d'une ligne", async () => {
+      await service.linkFinanceOwnerToStudent(
+        { financeOwnerId: 'finance-uuid', studentId: 'student-uuid' },
+        makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE),
+      );
+
+      expect(financeRepo.findOne).toHaveBeenCalledWith(activeLinkCriteria);
+    });
+
+    it('ensureFinanceOwnerStudentLink crée une ligne quand la précédente est rompue', async () => {
+      // La base ne renvoie rien pour un lien ACTIF : la ligne rompue est ignorée.
+      financeRepo.findOne.mockResolvedValue(null);
+
+      await service.ensureFinanceOwnerStudentLink('finance-uuid', 'student-uuid');
+
+      expect(financeRepo.findOne).toHaveBeenCalledWith(activeLinkCriteria);
+      expect(financeRepo.create).toHaveBeenCalled();
+      expect(financeRepo.save).toHaveBeenCalled();
+    });
+
+    it("un lien rompu n'ouvre plus aucun droit de lecture de profil", async () => {
+      financeRepo.findOne.mockResolvedValue(null);
+
+      const isLinked = await service.isFinanceOwnerLinkedToStudent('finance-uuid', 'student-uuid');
+
+      expect(isLinked).toBe(false);
+      expect(financeRepo.findOne).toHaveBeenCalledWith(activeLinkCriteria);
     });
   });
 });

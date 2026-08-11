@@ -4,7 +4,6 @@ import { useAuth } from '../hooks/useAuth'
 import { useProfileDetails } from '../hooks/profile/useProfileDetails'
 import Layout from '../components/Layout'
 import TeacherValidationPanel from './TeacherValidationPanel'
-import ProfileStatisticsPanel from './ProfileStatisticsPanel'
 import ParentFinanceurSection from '../components/profile/ParentFinanceurSection'
 import LinkedStudentsSection from '../components/profile/LinkedStudentsSection'
 import { Tabs, TabPanel, type TabDefinition } from '../components/ui/Tabs'
@@ -276,23 +275,23 @@ export default function ProfilePage() {
             {/* ── Onglet 2 : Profil pédagogique ── */}
             {showPedagogiqueTab && (
               <TabPanel tabId={TAB_PEDAGOGIQUE} activeTab={activeTab}>
-                <div className="space-y-6">
-                  {/* Deux sections : ce que le titulaire déclare — saisissable
-                      par lui, même quand aucun profil pédagogique n'existe
-                      encore — et ce que le RP prescrit sur lui, lisible mais
-                      jamais modifiable ici. */}
-                  <PedagogicalProfilePanel
-                    userId={userId}
-                    pedagogicalKind={pedagogicalKind}
-                    pedagogical={profile.pedagogical ?? null}
-                    visibility={profile.visibility}
-                    canEdit={canEditPedagogical}
-                    onSaved={applySavedPedagogical}
-                  />
+                {/* Deux sections : ce que le titulaire déclare — saisissable
+                    par lui, même quand aucun profil pédagogique n'existe
+                    encore — et ce que le RP prescrit sur lui, lisible mais
+                    jamais modifiable ici.
 
-                  {/* Statistiques pédagogiques */}
-                  {userId && <ProfileStatisticsPanel userId={userId} />}
-                </div>
+                    Les statistiques pédagogiques ne sont plus ici : elles ont
+                    rejoint « Stats / Archives » (`/archives`), leur destination
+                    d'application, le 2026-08-11. Une fiche de profil décrit une
+                    personne, elle ne mesure pas sa progression. */}
+                <PedagogicalProfilePanel
+                  userId={userId}
+                  pedagogicalKind={pedagogicalKind}
+                  pedagogical={profile.pedagogical ?? null}
+                  visibility={profile.visibility}
+                  canEdit={canEditPedagogical}
+                  onSaved={applySavedPedagogical}
+                />
               </TabPanel>
             )}
 

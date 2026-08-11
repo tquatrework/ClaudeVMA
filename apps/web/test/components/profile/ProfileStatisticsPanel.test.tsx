@@ -16,13 +16,13 @@
 
 import { render, screen, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import ProfileStatisticsPanel from '../../src/pages/ProfileStatisticsPanel'
+import ProfileStatisticsPanel from '../../../src/components/profile/ProfileStatisticsPanel'
 
-vi.mock('../../src/hooks/useAuth')
-vi.mock('../../src/api/profile')
+vi.mock('../../../src/hooks/useAuth')
+vi.mock('../../../src/api/profile')
 
-import { useAuth } from '../../src/hooks/useAuth'
-import { fetchProfileStatistics } from '../../src/api/profile'
+import { useAuth } from '../../../src/hooks/useAuth'
+import { fetchProfileStatistics } from '../../../src/api/profile'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockFetchProfileStatistics = vi.mocked(fetchProfileStatistics)
@@ -81,10 +81,27 @@ beforeEach(() => {
 })
 
 describe('ProfileStatisticsPanel — accès', () => {
-  it('does not render for a student viewing another student profile', () => {
+  /**
+   * Le garde de rôle côté client a été retiré le 2026-08-11 : le droit vient de la
+   * relation métier et appartient au serveur. Le garde empêchait précisément la
+   * lecture que l'arbitrage ouvre — un élève consultant SON formateur voyait un
+   * panneau vide, avant même la moindre requête.
+   */
+  it("interroge le serveur quand un élève consulte les statistiques de son formateur", async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
-    const { container } = render(<ProfileStatisticsPanel userId="student-2" />)
-    expect(container.firstChild).toBeNull()
+    mockFetchProfileStatistics.mockResolvedValue({
+      userId: 'teacher-1',
+      profileType: 'teacher' as const,
+      statistics: { subjects: ['Mathématiques'] },
+      visibility: { isFiltered: true, hiddenFields: ['levels'] },
+    })
+
+    render(<ProfileStatisticsPanel userId="teacher-1" />)
+
+    await waitFor(() => {
+      expect(mockFetchProfileStatistics).toHaveBeenCalledWith('teacher-1')
+    })
+    expect(screen.getByText('Mathématiques')).toBeDefined()
   })
 
   it('renders for a student viewing their own profile', async () => {
@@ -202,6 +219,20 @@ describe('ProfileStatisticsPanel — lecture filtrée', () => {
 })
 
 describe('ProfileStatisticsPanel — cas d’erreur et cas vides', () => {
+  it('traite un 404 comme un état vide, jamais comme une erreur', async () => {
+    // Refus par absence de relation et absence de statistiques répondent le même
+    // 404, avec le même message : les deux sont volontairement indiscernables.
+    mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
+    mockFetchProfileStatistics.mockRejectedValue({ response: { status: 404 } })
+
+    render(<ProfileStatisticsPanel userId="teacher-2" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Aucune statistique disponible')).toBeDefined()
+    })
+    expect(screen.queryByText('Statistiques non disponibles pour le moment')).toBeNull()
+  })
+
   it('shows "non disponible" message on fetch error', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
     mockFetchProfileStatistics.mockRejectedValue({ response: { status: 500 } })

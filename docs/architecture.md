@@ -291,4 +291,39 @@ Phase 3 enrichit l'offre :
   > chaque clic masquait le defaut au prix d'une requete par clic, alors que le serveur renvoyait
   > deja l'URL dans la reponse de l'envoi. Erreur d'appartenance d'etat, pas de fraicheur.
 
+- Droit d'acces aux statistiques et aux archives. Arbitrage rendu le 2026-08-11. Il prolonge la
+  regle du 2026-08-07 sur la lecture d'un profil — **le droit est pilote par les relations
+  metier**, pas par le seul role — et l'etend a deux surfaces qui n'etaient jusqu'ici ouvertes
+  qu'a leur titulaire.
+
+  1. **Pedagogique : la relation ouvre le droit.** Tout utilisateur accede aux statistiques et
+     aux archives pedagogiques des personnes auxquelles il est **relie**. Concretement :
+     un AP voit celles des formateurs qu'il anime ; un formateur celles de ses eleves ; un
+     parent financeur celles de ses eleves. Symetriquement, **parents et eleves voient les
+     statistiques pedagogiques des formateurs auxquels ils sont relies** — leurs statistiques
+     seulement, **pas leurs archives pedagogiques** : l'archive d'un formateur porte son
+     historique d'exercice, elle ne regarde pas ses eleves. Lecture faite de la formulation de
+     l'utilisateur, qui nomme les deux surfaces dans un sens et une seule dans l'autre ; a
+     rouvrir d'un mot si l'intention etait autre.
+  2. **Financier : la relation n'ouvre rien.** Les statistiques et archives financieres restent
+     accessibles au **seul titulaire** — parent financeur ou formateur — et aux administrateurs.
+     Une relation pedagogique ne donne aucun droit sur l'argent. C'est la difference de nature
+     entre les deux surfaces : le pedagogique se partage entre les personnes qui accompagnent un
+     meme eleve, le financier lie une personne a la plateforme.
+  3. **Administrateurs : acces a tout, sans distinction pour l'instant.** RP, AF et TI accedent
+     aux statistiques et archives de tous. La distinction souhaitable — RP sur le pedagogique,
+     AF sur le financier, TI sans besoin propre — est **actee dans son principe et remise a plus
+     tard**, choix explicite de l'utilisateur de rester simple. Ne pas la coder par anticipation,
+     mais ne pas non plus ecrire de code qui la rendrait couteuse a introduire.
+  4. **Le controle appartient au serveur, jamais au front.** Chaque service proprietaire verifie
+     lui-meme la relation avant de repondre — `profile-service` pour les statistiques,
+     `archive-document-service` pour les archives pedagogiques, `finance-credit-service` pour le
+     financier. Le front choisit ce qu'il **affiche**, il ne decide jamais ce qui est
+     **autorise** : une regle de droit portee cote client n'est pas une regle de droit.
+     Corollaire : `profile-service` reste l'unique proprietaire des relations ; les autres
+     services les lui demandent, ils n'en tiennent pas de copie.
+  5. **Un acces refuse par absence de relation se comporte comme les autres masquages.** La
+     regle du 2026-08-10 sur les medias vaut ici : on ne revele pas l'existence de ce qu'on
+     n'a pas le droit de voir.
+
 ## Points ouverts a arbitrer

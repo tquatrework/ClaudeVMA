@@ -1,4 +1,13 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { InternalGuard } from './internal.guard';
 import { InternalService } from './internal.service';
@@ -8,6 +17,7 @@ import { CreateTeacherProfilesDto } from './dto/create-teacher-profiles.dto';
 import { LinkParentDto } from './dto/link-parent.dto';
 import { CreateTeacherStudentRelationDto } from './dto/create-teacher-student-relation.dto';
 import { LinkCoordinatorDto } from './dto/link-coordinator.dto';
+import { ResolveRelationQueryDto } from './dto/resolve-relation.query.dto';
 
 /**
  * System-to-system routes consumed by orchestration-service during account
@@ -60,5 +70,24 @@ export class InternalController {
     @Body() dto: LinkCoordinatorDto,
   ): Promise<Awaited<ReturnType<InternalService['linkCoordinator']>>> {
     return this.internalService.linkCoordinator(dto);
+  }
+
+  /**
+   * `GET /internal/relations/:viewerId/:targetId?viewerRole=<rôle>`
+   *
+   * Renvoie la NATURE et le SENS des relations entre deux personnes, pour qu'un
+   * service appelant applique sa propre règle sans tenir de copie des relations
+   * (`archive-document-service` en premier). Voir `InternalService.resolveRelation`.
+   *
+   * `viewerRole` est obligatoire (`400` s'il manque ou s'il est inconnu) : le
+   * rôle accompagne systématiquement les appels interservices.
+   */
+  @Get('relations/:viewerId/:targetId')
+  resolveRelation(
+    @Param('viewerId', ParseUUIDPipe) viewerId: string,
+    @Param('targetId', ParseUUIDPipe) targetId: string,
+    @Query() query: ResolveRelationQueryDto,
+  ): Promise<Awaited<ReturnType<InternalService['resolveRelation']>>> {
+    return this.internalService.resolveRelation(viewerId, targetId, query.viewerRole);
   }
 }

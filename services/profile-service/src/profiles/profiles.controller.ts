@@ -20,6 +20,7 @@ import { FieldVisibilityService } from './field-visibility.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { OwnerAccess } from '../common/decorators/owner-access.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -219,27 +220,45 @@ export class ProfilesController {
   }
 
   @Get(':userId/statistics')
+  @OwnerAccess()
   @ApiOperation({
-    summary: 'Get pedagogical statistics for a user',
+    summary: 'Lire les statistiques pédagogiques d\'une personne',
     description:
-      'Returns consolidated pedagogical statistics. ' +
-      'Phase 1: returns data embedded in the pedagogical profile. ' +
-      'Access rules mirror GET /profiles/:userId.\n\n' +
-      'This route serves the SAME fields (level, subjects, levels) as the `pedagogical` block ' +
-      'of GET /profiles/:userId, so it applies the SAME per-field filtering — otherwise it ' +
-      'would be an exact bypass of it, letting a formateur read a `level` the student set to ' +
-      '`self`. `isAnimateurPedagogique` is structural and never hidden.',
+      'Statistiques pédagogiques consolidées. Phase 1 : les données portées par le profil ' +
+      'pédagogique.\n\n' +
+      '**DROIT D\'ACCÈS PILOTÉ PAR LA RELATION** (arbitrage du 2026-08-11), pas par une liste ' +
+      'de rôles — une liste oublie un rôle à chaque évolution. Y ont accès :\n' +
+      '- le **titulaire** ;\n' +
+      '- les **administrateurs** : RP, AF, TI (accès à tout, sans distinction pour l\'instant) ;\n' +
+      '- toute personne **reliée** à la cible : formateur ↔ élève (dans les deux sens), parent ' +
+      'financeur ↔ élève (dans les deux sens), parent financeur ↔ formateur de son élève (lien ' +
+      'indirect), AP → formateur qu\'il anime, coordinateur ↔ élève coordonné.\n\n' +
+      '**Un refus faute de relation renvoie `404`, jamais `403`** — même code et même message ' +
+      'qu\'une absence de statistiques. Un `403` révélerait l\'existence de ce qu\'on refuse de ' +
+      'montrer (même règle que les médias masqués, 2026-08-10).\n\n' +
+      'Cette route sert les MÊMES champs (`level`, `subjects`, `levels`) que le bloc ' +
+      '`pedagogical` de `GET /profiles/:userId` : elle applique donc le MÊME filtrage champ par ' +
+      'champ, sans quoi elle en serait le contournement exact. Le titulaire, les administrateurs, ' +
+      'le parent financeur DIRECT de la cible et l\'AP qui l\'anime en sont exemptés ; les autres ' +
+      'contacts liés y sont soumis — un parent voit donc du formateur de son élève ce que ce ' +
+      'formateur partage avec ses contacts liés, pas plus. `isAnimateurPedagogique` est ' +
+      'structurel et n\'est jamais masqué.',
   })
-  @ApiParam({ name: 'userId', description: 'Target user UUID' })
+  @ApiParam({ name: 'userId', description: 'UUID de la personne consultée' })
   @ApiResponse({
     status: 200,
     description:
-      'Shape: { userId, profileType, statistics, visibility }. `visibility` follows the same ' +
-      'contract as GET /profiles/:userId: hidden fields are absent from `statistics` and named ' +
-      'in `visibility.hiddenFields`, never replaced by a misleading value.',
+      'Forme : `{userId, profileType, statistics, visibility}`. `visibility` suit le même ' +
+      'contrat que `GET /profiles/:userId` : un champ masqué est ABSENT de `statistics` et ' +
+      'NOMMÉ dans `visibility.hiddenFields`, jamais remplacé par une valeur trompeuse.',
   })
-  @ApiResponse({ status: 403, description: 'Forbidden — insufficient rights' })
-  @ApiResponse({ status: 404, description: 'No pedagogical profile found' })
+  @ApiResponse({ status: 401, description: 'Sans jeton' })
+  @ApiResponse({
+    status: 404,
+    description:
+      'Aucune statistique pédagogique pour cette personne — **ou** aucune relation ouvrant ce ' +
+      'droit. Les deux cas sont volontairement indiscernables.',
+  })
   getPedagogicalStatistics(
     @Param('userId', ParseUUIDPipe) userId: string,
     @CurrentUser() actor: AuthenticatedUser,

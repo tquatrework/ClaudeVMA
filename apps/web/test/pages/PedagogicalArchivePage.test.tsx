@@ -1,25 +1,44 @@
 /**
- * Tests pour PedagogicalArchivePage (Phase 11)
+ * Tests de PedagogicalArchivePage — « Stats / Archives ».
  *
- * Couvre :
- * - L'élève voit la timeline chronologique de ses archives
- * - Le parent financeur ne voit pas les entrées de carnet personnel
- * - Un résumé de cours reste visible après expiration de l'enregistrement
- * - Un élément d'archive ouvre le lien source ou lance un téléchargement
- * - Gestion des erreurs 403 et 404
+ * Ce que cet écran doit garantir, et que ces tests verrouillent :
+ * - **soi-même par défaut**, sans manipulation ;
+ * - le choix d'une autre personne se fait par prénom + nom, **jamais** par UUID ;
+ * - on ne propose pas une action vouée au refus : les onglets d'archives
+ *   disparaissent quand la nature du lien ne les ouvre pas (élève → son formateur) ;
+ * - changer de personne consultée **redemande** les données ; changer d'onglet non ;
+ * - un `404` est un état vide, un `503` est une erreur — la confusion entre les deux
+ *   avait masqué pendant des semaines des routes montées sur le mauvais préfixe.
  */
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import PedagogicalArchivePage from '../../src/pages/PedagogicalArchivePage'
+import { expectNoTechnicalIdentifier, makeUseAuthReturn } from '../../src/test-helpers'
+import type { MyContact } from '../../src/types/relations'
+import {
+  COURSE_SUMMARY_ITEM,
+  NOTEBOOK_ENTRY_ITEM,
+  PEDAGOGICAL_LOG_ITEM,
+  TIMELINE_GROUPS,
+  paginate,
+} from '../fixtures/archives'
 
 vi.mock('../../src/hooks/useAuth')
 vi.mock('../../src/api/archiveDocument')
-// Mocker ProfileStatisticsPanel pour éviter les appels apiClient non mockés dans ce contexte
-vi.mock('../../src/pages/ProfileStatisticsPanel', () => ({
-  default: () => <div data-testid="mock-statistics-panel">Statistiques (mock)</div>,
+vi.mock('../../src/api/relations')
+// Le panneau de statistiques a ses propres tests ; on ne veut pas d'appel réseau ici.
+vi.mock('../../src/components/profile/ProfileStatisticsPanel', () => ({
+  default: ({ userId }: { userId: string }) => (
+    <div data-testid="statistics-panel" data-user-id={userId}>
+      Statistiques (mock)
+    </div>
+  ),
+}))
+vi.mock('../../src/hooks/profile/usePersonDisplayName', () => ({
+  usePersonDisplayName: () => ({ displayName: 'Lina Archivet', isLoading: false }),
 }))
 
 import { useAuth } from '../../src/hooks/useAuth'
@@ -28,422 +47,342 @@ import {
   fetchArchiveTimeline,
   downloadArchiveDocument,
 } from '../../src/api/archiveDocument'
+import { fetchMyContacts } from '../../src/api/relations'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockFetchPedagogicalArchives = vi.mocked(fetchPedagogicalArchives)
 const mockFetchArchiveTimeline = vi.mocked(fetchArchiveTimeline)
 const mockDownloadArchiveDocument = vi.mocked(downloadArchiveDocument)
+const mockFetchMyContacts = vi.mocked(fetchMyContacts)
 
-// ─── Fixtures utilisateurs ────────────────────────────────────────────────────
+const STUDENT_ID = 'fd0fe655-cd28-4f75-b225-846e8aad7e62'
+const TEACHER_ID = '89968837-c4bb-455e-b4e4-5a8c86c23a79'
+const PARENT_ID = '11cfb3a7-7866-4d72-ab9a-e078097940e5'
 
-const STUDENT_USER = {
-  id: 'student-1',
-  email: 'eleve@test.com',
-  role: 'eleve' as const,
-  validationStatus: 'active' as const,
-}
-
-const PARENT_USER = {
-  id: 'parent-1',
-  email: 'parent@test.com',
-  role: 'parent_financeur' as const,
-  validationStatus: 'active' as const,
-}
-
-const RP_USER = {
-  id: 'rp-1',
-  email: 'rp@test.com',
-  role: 'responsable_pedagogique' as const,
-  validationStatus: 'active' as const,
-}
-
-function buildAuthMock(userObj = STUDENT_USER) {
-  return {
-    user: userObj,
-    isAuthenticated: true,
-    isLoading: false,
-    login: vi.fn(),
-    logout: vi.fn(),
-    hasRole: vi.fn((...roles: string[]) => roles.includes(userObj.role)),
-    isInternalRole: vi.fn(() =>
-      (
-        [
-          'responsable_pedagogique',
-          'animateur_pedagogique',
-          'technicien_informatique',
-          'administrateur_financier',
-        ] as string[]
-      ).includes(userObj.role),
-    ),
-  }
-}
-
-// ─── Fixtures archives ────────────────────────────────────────────────────────
-
-const COURSE_SUMMARY_ITEM = {
-  id: 'archive-1',
-  studentId: 'student-1',
-  itemType: 'course_summary' as const,
-  title: 'Résumé séance — Algèbre linéaire',
-  description: 'Introduction aux matrices carrées.',
-  sourceUrl: 'https://example.com/summary/1',
-  downloadUrl: undefined,
-  occurredAt: '2026-03-15T10:00:00.000Z',
-  createdAt: '2026-03-15T11:00:00.000Z',
-  isAccessibleToFinanceOwner: true,
-}
-
-const PEDAGOGICAL_LOG_ITEM = {
-  id: 'archive-2',
-  studentId: 'student-1',
-  itemType: 'pedagogical_log' as const,
-  title: 'Cahier — Exercice 12',
-  description: 'Travail sur les dérivées.',
-  sourceUrl: undefined,
-  downloadUrl: 'https://example.com/download/2',
-  occurredAt: '2026-03-16T14:00:00.000Z',
-  createdAt: '2026-03-16T15:00:00.000Z',
-  isAccessibleToFinanceOwner: true,
-}
-
-const NOTEBOOK_ENTRY_ITEM = {
-  id: 'archive-3',
-  studentId: 'student-1',
-  itemType: 'notebook_entry' as const,
-  title: 'Note personnelle',
-  description: 'Idée de révision.',
-  sourceUrl: undefined,
-  downloadUrl: undefined,
-  occurredAt: '2026-03-17T09:00:00.000Z',
-  createdAt: '2026-03-17T09:05:00.000Z',
-  isAccessibleToFinanceOwner: false,
-}
-
-const TIMELINE_ENTRIES = [
+/** Contacts réels d'un élève : son professeur principal et son parent financeur. */
+const STUDENT_CONTACTS: MyContact[] = [
   {
-    id: 'archive-1',
-    studentId: 'student-1',
-    itemType: 'course_summary' as const,
-    title: 'Résumé séance — Algèbre linéaire',
-    description: 'Introduction aux matrices carrées.',
-    occurredAt: '2026-03-15T10:00:00.000Z',
-    sourceUrl: 'https://example.com/summary/1',
-    isAccessibleToFinanceOwner: true,
+    userId: TEACHER_ID,
+    firstName: 'Nadia',
+    lastName: 'Formatrice',
+    relations: [{ kind: 'student_of_teacher', isPrincipalTeacher: true }],
   },
   {
-    id: 'archive-2',
-    studentId: 'student-1',
-    itemType: 'pedagogical_log' as const,
-    title: 'Cahier — Exercice 12',
-    description: 'Travail sur les dérivées.',
-    occurredAt: '2026-03-16T14:00:00.000Z',
-    sourceUrl: undefined,
-    isAccessibleToFinanceOwner: true,
-  },
-  {
-    id: 'archive-3',
-    studentId: 'student-1',
-    itemType: 'notebook_entry' as const,
-    title: 'Note personnelle',
-    description: 'Idée de révision.',
-    occurredAt: '2026-03-17T09:00:00.000Z',
-    sourceUrl: undefined,
-    isAccessibleToFinanceOwner: false,
+    userId: PARENT_ID,
+    firstName: 'Paul',
+    lastName: 'Archivet',
+    relations: [{ kind: 'student_of_finance_owner' }],
   },
 ]
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+/** Contacts d'un formateur : son élève (archives ouvertes). */
+const TEACHER_CONTACTS: MyContact[] = [
+  {
+    userId: STUDENT_ID,
+    firstName: 'Lina',
+    lastName: 'Archivet',
+    relations: [{ kind: 'teacher_of_student', isPrincipalTeacher: true }],
+  },
+]
 
-function renderArchivePage(studentId = 'student-1') {
+function renderPage(initialEntry = '/archives') {
   return render(
-    <MemoryRouter initialEntries={[`/archives/${studentId}`]}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
-        <Route path="/archives/:studentId" element={<PedagogicalArchivePage />} />
+        <Route path="/archives" element={<PedagogicalArchivePage />} />
+        <Route path="/archives/:personId" element={<PedagogicalArchivePage />} />
       </Routes>
     </MemoryRouter>,
   )
 }
 
-// ─── Setup ────────────────────────────────────────────────────────────────────
+function asStudent() {
+  mockUseAuth.mockReturnValue(makeUseAuthReturn({ id: STUDENT_ID, role: 'eleve' }))
+}
+
+function asTeacher() {
+  mockUseAuth.mockReturnValue(makeUseAuthReturn({ id: TEACHER_ID, role: 'formateur' }))
+}
+
+function asParent() {
+  mockUseAuth.mockReturnValue(makeUseAuthReturn({ id: PARENT_ID, role: 'parent_financeur' }))
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockUseAuth.mockReturnValue(buildAuthMock())
-  mockFetchPedagogicalArchives.mockResolvedValue([])
-  mockFetchArchiveTimeline.mockResolvedValue([])
+  asStudent()
+  mockFetchMyContacts.mockResolvedValue([])
+  mockFetchPedagogicalArchives.mockResolvedValue(paginate([]))
+  mockFetchArchiveTimeline.mockResolvedValue(paginate([]))
   mockDownloadArchiveDocument.mockResolvedValue(new Blob(['data'], { type: 'application/pdf' }))
 })
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
+describe('PedagogicalArchivePage — personne consultée', () => {
+  it("consulte l'utilisateur lui-même par défaut", async () => {
+    renderPage()
 
-describe('PedagogicalArchivePage', () => {
-  it('affiche un état de chargement initialement', () => {
-    mockFetchPedagogicalArchives.mockReturnValue(new Promise(() => {}))
-    mockFetchArchiveTimeline.mockReturnValue(new Promise(() => {}))
-
-    renderArchivePage()
-
-    expect(screen.getByText('Chargement des archives…')).toBeDefined()
+    await waitFor(() => {
+      expect(screen.getByTestId('statistics-panel').getAttribute('data-user-id')).toBe(STUDENT_ID)
+    })
+    expect(mockFetchPedagogicalArchives).toHaveBeenCalledWith(STUDENT_ID)
   })
 
-  it('affiche "Aucune archive disponible" quand la timeline est vide', async () => {
-    mockFetchPedagogicalArchives.mockResolvedValue([])
-    mockFetchArchiveTimeline.mockResolvedValue([])
+  it('liste les personnes reliées par prénom et nom, jamais par UUID', async () => {
+    mockFetchMyContacts.mockResolvedValue(STUDENT_CONTACTS)
 
-    renderArchivePage()
-
-    // L'onglet par défaut est "Statistiques" — naviguer vers "Archives" pour voir la timeline
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Archives' })).toBeDefined()
-    })
-    await userEvent.click(screen.getByRole('button', { name: 'Archives' }))
+    const { container } = renderPage()
 
     await waitFor(() => {
-      expect(screen.getByText(/Aucune archive disponible/)).toBeDefined()
+      expect(screen.getByRole('option', { name: /Nadia Formatrice/ })).toBeDefined()
     })
+    expect(screen.getByRole('option', { name: /Mon professeur/ })).toBeDefined()
+    expectNoTechnicalIdentifier(container)
   })
 
-  it("l'élève voit la timeline chronologique avec les archives", async () => {
-    mockFetchPedagogicalArchives.mockResolvedValue([
-      COURSE_SUMMARY_ITEM,
-      PEDAGOGICAL_LOG_ITEM,
-      NOTEBOOK_ENTRY_ITEM,
-    ])
-    mockFetchArchiveTimeline.mockResolvedValue(TIMELINE_ENTRIES)
+  it('recharge les données au changement de personne consultée', async () => {
+    asTeacher()
+    mockFetchMyContacts.mockResolvedValue(TEACHER_CONTACTS)
 
-    renderArchivePage()
+    renderPage()
 
-    // Naviguer vers l'onglet "Archives" (l'onglet par défaut est "Statistiques")
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Archives' })).toBeDefined()
+      expect(screen.getByRole('option', { name: /Lina Archivet/ })).toBeDefined()
     })
-    await userEvent.click(screen.getByRole('button', { name: 'Archives' }))
+    mockFetchPedagogicalArchives.mockClear()
+
+    await userEvent.selectOptions(screen.getByLabelText('Personne consultée'), STUDENT_ID)
 
     await waitFor(() => {
-      expect(screen.getByText('Résumé séance — Algèbre linéaire')).toBeDefined()
-      expect(screen.getByText('Cahier — Exercice 12')).toBeDefined()
-      expect(screen.getByText('Note personnelle')).toBeDefined()
+      expect(mockFetchPedagogicalArchives).toHaveBeenCalledWith(STUDENT_ID)
     })
   })
 
-  it('sélectionner un élément de la timeline affiche son détail', async () => {
-    mockFetchPedagogicalArchives.mockResolvedValue([COURSE_SUMMARY_ITEM])
-    mockFetchArchiveTimeline.mockResolvedValue([TIMELINE_ENTRIES[0]])
+  it('annonce le contexte consulté et propose le retour à ses propres données', async () => {
+    asTeacher()
+    mockFetchMyContacts.mockResolvedValue(TEACHER_CONTACTS)
 
-    renderArchivePage()
+    renderPage()
 
-    // Naviguer vers l'onglet "Archives"
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Archives' })).toBeDefined()
+      expect(screen.getByRole('option', { name: /Lina Archivet/ })).toBeDefined()
     })
-    await userEvent.click(screen.getByRole('button', { name: 'Archives' }))
+    await userEvent.selectOptions(screen.getByLabelText('Personne consultée'), STUDENT_ID)
+
+    const returnButton = await screen.findByRole('button', { name: 'Revenir à mes données' })
+    await userEvent.click(returnButton)
 
     await waitFor(() => {
-      expect(screen.getByText('Résumé séance — Algèbre linéaire')).toBeDefined()
-    })
-
-    // Clique sur l'élément de timeline pour afficher le détail
-    await userEvent.click(screen.getByText('Résumé séance — Algèbre linéaire'))
-
-    await waitFor(() => {
-      // Le panneau de détail doit apparaître avec le lien source
-      expect(screen.getByText('Ouvrir la source')).toBeDefined()
+      expect(screen.getByTestId('statistics-panel').getAttribute('data-user-id')).toBe(TEACHER_ID)
     })
   })
 
-  it('le parent financeur voit le message de restriction pour le carnet personnel', async () => {
-    mockUseAuth.mockReturnValue(buildAuthMock(PARENT_USER))
-    mockFetchPedagogicalArchives.mockResolvedValue([NOTEBOOK_ENTRY_ITEM])
-    mockFetchArchiveTimeline.mockResolvedValue([TIMELINE_ENTRIES[2]])
+  it("ouvre directement la personne désignée par l'URL", async () => {
+    asTeacher()
+    mockFetchMyContacts.mockResolvedValue(TEACHER_CONTACTS)
 
-    renderArchivePage()
-
-    // Naviguer vers l'onglet "Archives"
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Archives' })).toBeDefined()
-    })
-    await userEvent.click(screen.getByRole('button', { name: 'Archives' }))
+    renderPage(`/archives/${STUDENT_ID}`)
 
     await waitFor(() => {
-      expect(screen.getByText('Note personnelle')).toBeDefined()
-    })
-
-    // Clique sur l'entrée de carnet
-    await userEvent.click(screen.getByText('Note personnelle'))
-
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Ce document est réservé à l'élève/),
-      ).toBeDefined()
+      expect(mockFetchPedagogicalArchives).toHaveBeenCalledWith(STUDENT_ID)
     })
   })
 
-  it("le parent financeur ne voit pas le bouton d'accès au carnet personnel", async () => {
-    mockUseAuth.mockReturnValue(buildAuthMock(PARENT_USER))
-    mockFetchPedagogicalArchives.mockResolvedValue([NOTEBOOK_ENTRY_ITEM])
-    mockFetchArchiveTimeline.mockResolvedValue([TIMELINE_ENTRIES[2]])
-
-    renderArchivePage()
-
-    // Naviguer vers l'onglet "Archives"
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Archives' })).toBeDefined()
-    })
-    await userEvent.click(screen.getByRole('button', { name: 'Archives' }))
+  it('explique l’absence de contact plutôt que de laisser un sélecteur muet', async () => {
+    renderPage()
 
     await waitFor(() => {
-      screen.getByText('Note personnelle')
-    })
-
-    await userEvent.click(screen.getByText('Note personnelle'))
-
-    await waitFor(() => {
-      expect(screen.queryByText('Ouvrir la source')).toBeNull()
-      expect(screen.queryByText('Télécharger')).toBeNull()
+      expect(screen.getByText(/Aucune personne reliée à votre compte/)).toBeDefined()
     })
   })
 
-  it("l'onglet 'Résumés de cours' affiche un résumé de cours permanent", async () => {
-    mockFetchPedagogicalArchives.mockResolvedValue([COURSE_SUMMARY_ITEM])
-    mockFetchArchiveTimeline.mockResolvedValue([TIMELINE_ENTRIES[0]])
+  it('reste utilisable si la lecture des contacts échoue', async () => {
+    mockFetchMyContacts.mockRejectedValue({ response: { status: 500 } })
 
-    renderArchivePage()
+    renderPage()
 
     await waitFor(() => {
-      expect(screen.getByText('Résumés de cours')).toBeDefined()
+      expect(screen.getByText(/Vous pouvez consulter vos propres données/)).toBeDefined()
     })
+    expect(screen.getByTestId('statistics-panel')).toBeDefined()
+  })
+})
 
-    await userEvent.click(screen.getByText('Résumés de cours'))
+describe('PedagogicalArchivePage — onglets proposés selon le lien', () => {
+  it("n'offre que les statistiques d'un formateur à son élève", async () => {
+    mockFetchMyContacts.mockResolvedValue(STUDENT_CONTACTS)
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /Nadia Formatrice/ })).toBeDefined()
+    })
+    await userEvent.selectOptions(screen.getByLabelText('Personne consultée'), TEACHER_ID)
+
+    await waitFor(() => {
+      expect(screen.queryByRole('tab', { name: 'Archives' })).toBeNull()
+    })
+    expect(screen.queryByRole('tab', { name: 'Résumés de cours' })).toBeNull()
+    expect(screen.getByRole('tab', { name: 'Statistiques' })).toBeDefined()
+  })
+
+  it("offre les archives d'un élève à son formateur", async () => {
+    asTeacher()
+    mockFetchMyContacts.mockResolvedValue(TEACHER_CONTACTS)
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /Lina Archivet/ })).toBeDefined()
+    })
+    await userEvent.selectOptions(screen.getByLabelText('Personne consultée'), STUDENT_ID)
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Archives' })).toBeDefined()
+    })
+  })
+
+  it('offre toujours ses propres archives à l’utilisateur', async () => {
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Archives' })).toBeDefined()
+    })
+  })
+})
+
+describe('PedagogicalArchivePage — contenu des archives', () => {
+  beforeEach(() => {
+    mockFetchPedagogicalArchives.mockResolvedValue(
+      paginate([COURSE_SUMMARY_ITEM, PEDAGOGICAL_LOG_ITEM, NOTEBOOK_ENTRY_ITEM]),
+    )
+    mockFetchArchiveTimeline.mockResolvedValue(paginate(TIMELINE_GROUPS))
+  })
+
+  it('affiche la timeline groupée par date', async () => {
+    renderPage()
+
+    await userEvent.click(await screen.findByRole('tab', { name: 'Archives' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Résumé du cours du 3 mars')).toBeDefined()
+    })
+    expect(screen.getByText('Cahier de texte — équations')).toBeDefined()
+    expect(screen.getByText('05/03/2026')).toBeDefined()
+  })
+
+  it('affiche le détail de l’élément sélectionné', async () => {
+    renderPage()
+
+    await userEvent.click(await screen.findByRole('tab', { name: 'Archives' }))
+    await userEvent.click(await screen.findByText('Cahier de texte — équations'))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Télécharger' })).toBeDefined()
+    })
+  })
+
+  it('lance le téléchargement du document choisi', async () => {
+    renderPage()
+
+    await userEvent.click(await screen.findByRole('tab', { name: 'Archives' }))
+    await userEvent.click(await screen.findByText('Cahier de texte — équations'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Télécharger' }))
+
+    await waitFor(() => {
+      expect(mockDownloadArchiveDocument).toHaveBeenCalledWith(PEDAGOGICAL_LOG_ITEM.id)
+    })
+  })
+
+  it('affiche l’échec de téléchargement sans casser la page', async () => {
+    mockDownloadArchiveDocument.mockRejectedValue({ response: { status: 404 } })
+
+    renderPage()
+
+    await userEvent.click(await screen.findByRole('tab', { name: 'Archives' }))
+    await userEvent.click(await screen.findByText('Cahier de texte — équations'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Télécharger' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Ressource introuvable.')).toBeDefined()
+    })
+  })
+
+  it('refuse le carnet personnel au parent financeur', async () => {
+    asParent()
+
+    renderPage()
+
+    await userEvent.click(await screen.findByRole('tab', { name: 'Archives' }))
+    await userEvent.click(await screen.findByText('Note personnelle'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Ce document est réservé à l'élève/)).toBeDefined()
+    })
+  })
+
+  it('affiche les résumés de cours dans leur onglet dédié', async () => {
+    renderPage()
+
+    await userEvent.click(await screen.findByRole('tab', { name: 'Résumés de cours' }))
 
     await waitFor(() => {
       expect(screen.getByText('Conservation permanente')).toBeDefined()
-      expect(screen.getByText('Résumé séance — Algèbre linéaire')).toBeDefined()
     })
   })
 
-  it("l'onglet 'Résumés de cours' affiche un message vide si aucun résumé", async () => {
-    // Uniquement un cahier de texte — pas de résumé
-    mockFetchPedagogicalArchives.mockResolvedValue([PEDAGOGICAL_LOG_ITEM])
-    mockFetchArchiveTimeline.mockResolvedValue([TIMELINE_ENTRIES[1]])
-
-    renderArchivePage()
+  it('ne recharge rien au changement d’onglet', async () => {
+    renderPage()
 
     await waitFor(() => {
-      screen.getByText('Résumés de cours')
+      expect(mockFetchPedagogicalArchives).toHaveBeenCalledTimes(1)
     })
 
-    await userEvent.click(screen.getByText('Résumés de cours'))
+    await userEvent.click(screen.getByRole('tab', { name: 'Archives' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Résumés de cours' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Archives' }))
 
-    await waitFor(() => {
-      expect(screen.getByText('Aucun résumé de cours archivé.')).toBeDefined()
-    })
+    expect(mockFetchPedagogicalArchives).toHaveBeenCalledTimes(1)
   })
 
-  it("le résumé de cours affiche le lien vers la séance source", async () => {
-    mockFetchPedagogicalArchives.mockResolvedValue([COURSE_SUMMARY_ITEM])
-    mockFetchArchiveTimeline.mockResolvedValue([TIMELINE_ENTRIES[0]])
+  it('garde monté un onglet déjà visité', async () => {
+    renderPage()
 
-    renderArchivePage()
+    await userEvent.click(await screen.findByRole('tab', { name: 'Archives' }))
+    await screen.findByText('Résumé du cours du 3 mars')
+    await userEvent.click(screen.getByRole('tab', { name: 'Statistiques' }))
 
-    await waitFor(() => {
-      screen.getByText('Résumés de cours')
-    })
-
-    await userEvent.click(screen.getByText('Résumés de cours'))
-
-    await waitFor(() => {
-      const sourceLink = screen.getByText('Voir le détail de la séance')
-      expect(sourceLink).toBeDefined()
-    })
+    // Le panneau reste dans le DOM, simplement masqué : revenir dessus ne
+    // reconstruit rien et ne perd rien.
+    const timelinePanel = document.getElementById('tabpanel-timeline')
+    expect(timelinePanel).not.toBeNull()
+    expect(timelinePanel?.hasAttribute('hidden')).toBe(true)
+    expect(within(timelinePanel as HTMLElement).getByText('Résumé du cours du 3 mars')).toBeDefined()
   })
+})
 
-  it('affiche une erreur 403 lors du chargement des archives', async () => {
-    mockFetchPedagogicalArchives.mockRejectedValue({ response: { status: 403 } })
-    mockFetchArchiveTimeline.mockRejectedValue({ response: { status: 403 } })
-
-    renderArchivePage()
-
-    await waitFor(() => {
-      expect(screen.getByText(/Accès refusé/)).toBeDefined()
-    })
-  })
-
-  it("une réponse 404 des archives n'affiche PAS d'erreur plein-page et garde la page utilisable", async () => {
-    // docs/routes.md ne documente pas de 404 "élève introuvable" sur ces routes :
-    // un 404 signifie "pas encore d'archives", pas "élève inexistant". La page doit
-    // rester visible (en-tête, onglets) et chaque onglet doit afficher son propre état vide.
+describe('PedagogicalArchivePage — états vides et erreurs', () => {
+  it('affiche un état vide sur 404, sans message d’erreur', async () => {
     mockFetchPedagogicalArchives.mockRejectedValue({ response: { status: 404 } })
     mockFetchArchiveTimeline.mockRejectedValue({ response: { status: 404 } })
 
-    renderArchivePage()
+    renderPage()
 
-    // L'en-tête et les onglets restent visibles — pas de message plein-page trompeur
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Stats / Archives' })).toBeDefined()
-      expect(screen.getByRole('button', { name: 'Archives' })).toBeDefined()
-    })
-    expect(screen.queryByText('Élève introuvable.')).toBeNull()
+    await userEvent.click(await screen.findByRole('tab', { name: 'Archives' }))
 
-    // L'onglet Archives affiche son état vide dédié
-    await userEvent.click(screen.getByRole('button', { name: 'Archives' }))
     await waitFor(() => {
       expect(screen.getByText(/Aucune archive disponible/)).toBeDefined()
     })
+    expect(screen.queryByText(/serveur rencontre un problème/i)).toBeNull()
   })
 
-  it('le RP voit les archives complètes y compris le carnet personnel', async () => {
-    mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
-    mockFetchPedagogicalArchives.mockResolvedValue([
-      COURSE_SUMMARY_ITEM,
-      NOTEBOOK_ENTRY_ITEM,
-    ])
-    mockFetchArchiveTimeline.mockResolvedValue([
-      TIMELINE_ENTRIES[0],
-      TIMELINE_ENTRIES[2],
-    ])
+  it('affiche une vraie erreur sur 503 — pas un état vide trompeur', async () => {
+    mockFetchPedagogicalArchives.mockRejectedValue({ response: { status: 503 } })
+    mockFetchArchiveTimeline.mockRejectedValue({ response: { status: 503 } })
 
-    renderArchivePage()
-
-    // Naviguer vers l'onglet "Archives"
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Archives' })).toBeDefined()
-    })
-    await userEvent.click(screen.getByRole('button', { name: 'Archives' }))
+    renderPage()
 
     await waitFor(() => {
-      expect(screen.getByText('Résumé séance — Algèbre linéaire')).toBeDefined()
-      expect(screen.getByText('Note personnelle')).toBeDefined()
-    })
-
-    // Clique sur l'entrée de carnet — le RP peut y accéder
-    await userEvent.click(screen.getByText('Note personnelle'))
-
-    await waitFor(() => {
-      // Pas de message de restriction pour le RP
-      expect(screen.queryByText(/Ce document est réservé à l'élève/)).toBeNull()
-    })
-  })
-
-  it("l'élément avec un lien de téléchargement propose le bouton Télécharger", async () => {
-    mockFetchPedagogicalArchives.mockResolvedValue([PEDAGOGICAL_LOG_ITEM])
-    mockFetchArchiveTimeline.mockResolvedValue([TIMELINE_ENTRIES[1]])
-
-    renderArchivePage()
-
-    // Naviguer vers l'onglet "Archives"
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Archives' })).toBeDefined()
-    })
-    await userEvent.click(screen.getByRole('button', { name: 'Archives' }))
-
-    await waitFor(() => {
-      screen.getByText('Cahier — Exercice 12')
-    })
-
-    await userEvent.click(screen.getByText('Cahier — Exercice 12'))
-
-    await waitFor(() => {
-      expect(screen.getByText('Télécharger')).toBeDefined()
+      expect(screen.getByText(/serveur rencontre un problème/i)).toBeDefined()
     })
   })
 })

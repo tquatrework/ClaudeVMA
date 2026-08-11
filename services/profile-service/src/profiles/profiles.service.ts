@@ -42,6 +42,10 @@ import {
 } from './profile-visibility-filter';
 import { UserRole } from '../common/enums/user-role.enum';
 import { Actor } from '../common/types/actor.type';
+import {
+  StatisticsViewerPosition,
+  resolveStatisticsViewerPosition,
+} from '../relations/pedagogical-access.policy';
 
 export { Actor };
 
@@ -844,19 +848,38 @@ export class ProfilesService {
   }
 
   /**
-   * Get consolidated pedagogical statistics for a user.
-   * Statistics are computed from external services (learning-activity-service, calendar-service)
-   * and are stored/cached here when received via events.
-   * For phase 1, returns the stored snapshot.
+   * Statistiques pédagogiques consolidées d'une personne.
+   *
+   * DROIT D'ACCÈS PILOTÉ PAR LA RELATION (arbitrage du 2026-08-11) — et non par
+   * une liste de rôles. Y ont accès : le titulaire, les administrateurs (RP, AF,
+   * TI, sans distinction pour l'instant) et TOUTE personne reliée à la cible :
+   * le formateur sur ses élèves, l'élève sur ses formateurs, le parent financeur
+   * sur ses élèves ET sur les formateurs de ses élèves, l'AP sur les formateurs
+   * qu'il anime, le coordinateur sur les élèves qu'il coordonne. Voir
+   * `RelationsService.resolveRelations` et `resolveStatisticsViewerPosition`.
+   *
+   * REFUS = 404, JAMAIS 403 (arbitrage du 2026-08-11, point 5, dans la lignée de
+   * la règle du 2026-08-10 sur les médias masqués) : un 403 dirait « cette
+   * personne existe et a des statistiques, mais vous n'y avez pas droit », ce qui
+   * révèle exactement ce qu'on refuse de montrer. Le message et le code sont donc
+   * STRICTEMENT identiques à ceux d'une absence de profil pédagogique — c'est
+   * voulu, et c'est ce qui rend les deux cas indiscernables de l'extérieur.
+   *
+   * Phase 1 : les statistiques sont les données portées par le profil
+   * pédagogique. Elles viendront plus tard de learning-activity-service et de
+   * calendar-service, sans que ce contrôle d'accès ait à changer.
    */
   async getPedagogicalStatistics(userId: string, actor: Actor) {
-    await this.assertReadAccess(userId, actor);
+    const position = await this.resolveStatisticsViewerPositionFor(userId, actor);
+    if (position === 'denied') {
+      throw new NotFoundException(this.noPedagogicalStatisticsMessage(userId));
+    }
 
     const studentProfile = await this.studentPedaRepo.findOne({ where: { userId } });
     const teacherProfile = await this.teacherPedaRepo.findOne({ where: { userId } });
 
     if (!studentProfile && !teacherProfile) {
-      throw new NotFoundException(`No pedagogical profile found for user ${userId}`);
+      throw new NotFoundException(this.noPedagogicalStatisticsMessage(userId));
     }
 
     /**
@@ -867,7 +890,7 @@ export class ProfilesService {
      * `isAnimateurPedagogique` est une donnée de structure, jamais masquée.
      */
     const profileType: PedagogicalTarget = studentProfile ? 'student' : 'teacher';
-    const relation = await this.resolveViewerRelation(userId, actor);
+    const relation: ViewerRelation = position;
     const audienceByFieldName =
       relation === 'owner' || relation === 'exempt'
         ? new Map<string, FieldAudience>()
@@ -902,6 +925,38 @@ export class ProfilesService {
         hiddenFields: filtered.hiddenFieldNames,
       },
     };
+  }
+
+  /**
+   * Position du lecteur pour les STATISTIQUES : titulaire, exempté de filtrage,
+   * contact lié filtré, ou refusé.
+   *
+   * Publique parce qu'elle est le port de décision de cette surface : un service
+   * qui aurait besoin de la même règle (aujourd'hui aucun ; demain une vue
+   * consolidée) doit l'emprunter plutôt que la réécrire.
+   */
+  async resolveStatisticsViewerPositionFor(
+    userId: string,
+    actor: Actor,
+  ): Promise<StatisticsViewerPosition> {
+    const relations =
+      actor.id === userId ? [] : await this.relationsService.resolveRelations(actor.id, userId);
+    return resolveStatisticsViewerPosition({
+      viewerId: actor.id,
+      viewerRole: actor.role,
+      targetId: userId,
+      relations,
+    });
+  }
+
+  /**
+   * Message UNIQUE des deux refus de `GET /profiles/:userId/statistics` :
+   * « pas de statistiques » et « pas le droit d'en voir ». Les rendre
+   * distinguables reviendrait à répondre « cette personne a bien des
+   * statistiques » à qui n'a pas le droit de le savoir.
+   */
+  private noPedagogicalStatisticsMessage(userId: string): string {
+    return `No pedagogical statistics found for user ${userId}`;
   }
 
   // Visibilité champ par champ : voir FieldVisibilityService.

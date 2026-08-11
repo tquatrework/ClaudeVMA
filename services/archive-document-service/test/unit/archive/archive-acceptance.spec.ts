@@ -16,13 +16,15 @@
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ArchiveService } from '../../../src/archive/archive.service';
 import { ArchiveItem } from '../../../src/archive/entities/archive-item.entity';
 import { AddArchiveLinkDto } from '../../../src/archive/dto/add-archive-link.dto';
 import { ArchiveItemType } from '../../../src/common/enums/archive-item-type.enum';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
+import { ProfileRelationsClient } from '../../../src/common/clients/profile-relations.client';
+import { RelationKind, ResolvedRelation } from '../../../src/common/relations/relation-kind';
 
 // ─── Mock du repository ────────────────────────────────────────────────────────
 
@@ -45,6 +47,10 @@ const mockArchiveItemRepo = {
   createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
 };
 
+const mockProfileRelationsClient = {
+  resolveRelations: jest.fn(),
+};
+
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const STUDENT_ID = 'student-uuid-1';
@@ -52,6 +58,17 @@ const PARENT_ID = 'parent-uuid-1';
 const FORMATEUR_ID = 'formateur-uuid-1';
 const TI_ID = 'ti-uuid-1';
 const AF_ID = 'af-uuid-1';
+
+/**
+ * Relations du jeu d'acceptance, telles que `profile-service` les renverrait
+ * pour une cible qui est TOUJOURS l'élève STUDENT_ID dans ce fichier.
+ */
+const RELATIONS_TOWARDS_STUDENT: Record<string, ResolvedRelation[]> = {
+  [FORMATEUR_ID]: [{ kind: RelationKind.TEACHER_OF_STUDENT, isPrincipalTeacher: true }],
+  [PARENT_ID]: [{ kind: RelationKind.FINANCE_OWNER_OF_STUDENT }],
+};
+
+const ADMINISTRATOR_IDS = [TI_ID, AF_ID];
 
 function buildArchiveItem(overrides: Partial<ArchiveItem> = {}): ArchiveItem {
   return {
@@ -84,11 +101,24 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
       providers: [
         ArchiveService,
         { provide: getRepositoryToken(ArchiveItem), useValue: mockArchiveItemRepo },
+        { provide: ProfileRelationsClient, useValue: mockProfileRelationsClient },
       ],
     }).compile();
 
     service = module.get<ArchiveService>(ArchiveService);
     jest.clearAllMocks();
+
+    // `profile-service` reste l'unique propriétaire des relations : on le
+    // simule ici tel qu'il répondrait pour ce jeu de personnes.
+    mockProfileRelationsClient.resolveRelations.mockImplementation(
+      async (viewerId: string, targetId: string) => ({
+        viewerId,
+        targetId,
+        isSelf: viewerId === targetId,
+        isAdministrator: ADMINISTRATOR_IDS.includes(viewerId),
+        relations: viewerId === targetId ? [] : (RELATIONS_TOWARDS_STUDENT[viewerId] ?? []),
+      }),
+    );
 
     mockArchiveItemRepo.createQueryBuilder.mockReturnValue(mockQueryBuilder);
     mockQueryBuilder.where.mockReturnThis();
@@ -97,8 +127,8 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
     mockQueryBuilder.select.mockReturnThis();
     mockQueryBuilder.skip.mockReturnThis();
     mockQueryBuilder.take.mockReturnThis();
-    mockQueryBuilder.getMany.mockResolvedValue([]);
-    mockQueryBuilder.getCount.mockResolvedValue(0);
+    mockQueryBuilder.getMany.mockResolvedValue([buildArchiveItem()]);
+    mockQueryBuilder.getCount.mockResolvedValue(1);
   });
 
   // ─── ADS-AC-001 : résumé de cours accessible après expiration de la vidéo ───
@@ -147,13 +177,14 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
       });
       mockArchiveItemRepo.findOne.mockResolvedValue(carnetItem);
 
+      // 404 et non 403 : un 403 révélerait au parent l'existence du carnet
+      // personnel qu'il n'a pas le droit de connaître (arbitrage du 2026-08-11).
       await expect(
         service.getArchiveItemForDownload(carnetItem.id, PARENT_ID, UserRole.PARENT_FINANCEUR),
-      ).rejects.toThrow(ForbiddenException);
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('la liste filtrée pour le parent exclut les éléments de type carnet_personnel', async () => {
-      mockQueryBuilder.getCount.mockResolvedValue(0);
       await service.listPedagogicalArchives(STUDENT_ID, PARENT_ID, UserRole.PARENT_FINANCEUR);
 
       expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
@@ -198,7 +229,7 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
 
       await expect(
         service.getArchiveItemForDownload(otherStudentItem.id, STUDENT_ID, UserRole.ELEVE),
-      ).rejects.toThrow(ForbiddenException);
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('addArchiveLink préserve la référence au service source (sourceService et sourceId)', async () => {
@@ -224,7 +255,7 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
       mockArchiveItemRepo.create.mockReturnValue(createdItem);
       mockArchiveItemRepo.save.mockResolvedValue(createdItem);
 
-      await service.addArchiveLink(STUDENT_ID, addDto);
+      await service.addArchiveLink(STUDENT_ID, addDto, UserRole.FORMATEUR);
 
       expect(mockArchiveItemRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -258,7 +289,7 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
       mockArchiveItemRepo.create.mockReturnValue(cahierItem);
       mockArchiveItemRepo.save.mockResolvedValue(cahierItem);
 
-      const result = await service.addArchiveLink(STUDENT_ID, cahierDto);
+      const result = await service.addArchiveLink(STUDENT_ID, cahierDto, UserRole.FORMATEUR);
 
       expect(result.itemType).toBe(ArchiveItemType.CAHIER_DE_TEXTE);
     });
@@ -288,7 +319,7 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
       mockArchiveItemRepo.create.mockReturnValue(contenuItem);
       mockArchiveItemRepo.save.mockResolvedValue(contenuItem);
 
-      await service.addArchiveLink(STUDENT_ID, contenuDto);
+      await service.addArchiveLink(STUDENT_ID, contenuDto, UserRole.FORMATEUR);
 
       expect(mockArchiveItemRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -323,7 +354,7 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
       mockArchiveItemRepo.create.mockReturnValue(parcoursItem);
       mockArchiveItemRepo.save.mockResolvedValue(parcoursItem);
 
-      const result = await service.addArchiveLink(STUDENT_ID, parcoursDto);
+      const result = await service.addArchiveLink(STUDENT_ID, parcoursDto, UserRole.FORMATEUR);
 
       expect(result.itemType).toBe(ArchiveItemType.PARCOURS);
       expect(result.downloadUrl).toContain('path-uuid-1');
@@ -379,7 +410,7 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
       mockArchiveItemRepo.create.mockReturnValue(videoItem);
       mockArchiveItemRepo.save.mockResolvedValue(videoItem);
 
-      await service.addArchiveLink(STUDENT_ID, videoDto);
+      await service.addArchiveLink(STUDENT_ID, videoDto, UserRole.FORMATEUR);
 
       expect(mockArchiveItemRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -494,7 +525,7 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
       mockArchiveItemRepo.create.mockReturnValue(newItem);
       mockArchiveItemRepo.save.mockResolvedValue(newItem);
 
-      await service.addArchiveLink(STUDENT_ID, addDto);
+      await service.addArchiveLink(STUDENT_ID, addDto, UserRole.FORMATEUR);
 
       expect(mockArchiveItemRepo.findOne).not.toHaveBeenCalled();
     });
@@ -514,7 +545,7 @@ describe('ArchiveService — critères d\'acceptance métier', () => {
       mockArchiveItemRepo.create.mockReturnValue(newItem);
       mockArchiveItemRepo.save.mockResolvedValue(newItem);
 
-      await service.addArchiveLink(STUDENT_ID, addDto);
+      await service.addArchiveLink(STUDENT_ID, addDto, UserRole.FORMATEUR);
 
       expect(mockArchiveItemRepo.findOne).toHaveBeenCalledWith({
         where: { idempotencyKey: 'key-xyz-123' },

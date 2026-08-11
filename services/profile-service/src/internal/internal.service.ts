@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { ProfilesService } from '../profiles/profiles.service';
 import { RelationsService } from '../relations/relations.service';
+import { isAdministrator } from '../relations/pedagogical-access.policy';
+import { UserRole } from '../common/enums/user-role.enum';
 
 /**
  * System-to-system adapter consumed by orchestration-service during account
@@ -132,6 +134,36 @@ export class InternalService {
       coordinatorId: saved.coordinatorId,
       studentId: saved.studentId,
       coordinatorRole: saved.coordinatorRole,
+    };
+  }
+
+  /**
+   * LECTURE de la relation entre deux personnes, pour un service appelant.
+   *
+   * `profile-service` reste l'unique propriétaire des relations : les autres
+   * services les lui demandent, ils n'en tiennent jamais de copie (arbitrage du
+   * 2026-08-11, point 4). Premier consommateur : `archive-document-service`, qui
+   * doit appliquer la même règle aux archives pédagogiques.
+   *
+   * La réponse est SUFFISANTE POUR DÉCIDER, et pas seulement pour savoir s'il y
+   * a un lien : elle donne la NATURE et le SENS de chaque relation. Les droits
+   * en dépendent — un élève voit les statistiques de son formateur mais PAS ses
+   * archives pédagogiques (l'archive d'un formateur porte son historique
+   * d'exercice, elle ne regarde pas ses élèves). Un booléen aurait rendu cette
+   * distinction impossible à faire côté appelant.
+   *
+   * Ce service ne rend PAS le verdict à la place de l'appelant : chaque service
+   * propriétaire décide de sa propre surface. Il fournit les faits — relations,
+   * identité, qualité d'administrateur — pas la conclusion.
+   */
+  async resolveRelation(viewerId: string, targetId: string, viewerRole: UserRole) {
+    const isSelf = viewerId === targetId;
+    return {
+      viewerId,
+      targetId,
+      isSelf,
+      isAdministrator: isAdministrator(viewerRole),
+      relations: isSelf ? [] : await this.relationsService.resolveRelations(viewerId, targetId),
     };
   }
 }

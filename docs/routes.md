@@ -1278,27 +1278,93 @@ Types de documents : `MANDAT_CLIENT`, `CONTRAT_FORMATEUR`.
 Phase 2 — Archives pédagogiques chronologiques et liens durables issus des activités.
 
 Règles métier clés :
-- Le parent financeur ne peut pas accéder aux entrées de type `notebook_entry` (carnet personnel réservé à l'élève).
-- Les résumés de cours (`course_summary`) sont permanents et restent accessibles après expiration de l'enregistrement vidéo (VID-AC-002).
+- Le parent financeur ne peut pas accéder aux entrées de type `carnet_personnel` (réservé à l'élève).
+- Les résumés de cours (`resume_de_cours`) sont permanents et restent accessibles après expiration de l'enregistrement vidéo (VID-AC-002).
+- **Ce service ne porte AUCUNE archive financière.** Les archives financières appartiennent à
+  `finance-credit-service` (`GET /api/v1/finance/financial-archives/:ownerId`) et restent au seul
+  titulaire et aux administrateurs : une relation pédagogique n'y ouvre rien.
 
-Types d'items : `pedagogical_log` · `course_summary` · `notebook_entry` · `recording` · `content_catalog`
+Types d'items (valeurs réelles renvoyées par le serveur) : `cahier_de_texte` · `carnet_personnel` ·
+`resume_de_cours` · `contenu_eleve` · `parcours` · `exercice_evaluation` · `video`
+
+> **Correction du 2026-08-11.** Ce tableau annonçait jusqu'ici `pedagogical_log` · `course_summary` ·
+> `notebook_entry` · `recording` · `content_catalog` — cinq valeurs qui n'ont jamais existé côté
+> serveur, et que le front déclare encore dans `apps/web/src/api/archiveDocument.ts`. Deux noms pour
+> une même donnée : l'écart est résorbé côté documentation, il reste à l'être côté front.
+
+#### Droit d'accès aux archives pédagogiques — piloté par la relation (2026-08-11)
+
+> Arbitrage du 2026-08-11 (`docs/architecture.md` > « Arbitrages rendus »), même règle que pour les
+> statistiques : **le droit vient de la relation métier**, pas d'une liste de rôles. Le contrôle
+> est fait par le serveur, qui demande les relations à `profile-service`
+> (`GET /internal/relations/:viewerId/:targetId`) — unique propriétaire, aucune copie ici.
+
+| Lecteur | Accède aux archives pédagogiques de |
+|---|---|
+| Le **titulaire** | les siennes |
+| **RP, AF, TI** (administrateurs) | tout le monde, sans distinction pour l'instant |
+| **Formateur** | ses élèves |
+| **Parent financeur** | ses élèves (hors `carnet_personnel`) |
+| **AP** | les formateurs qu'il anime |
+| **Coordinateur** (RP/AP) | les élèves qu'il coordonne |
+
+**L'asymétrie à ne pas manquer :** un élève et le parent de cet élève voient les **statistiques**
+pédagogiques du formateur (`profile-service`) mais **pas ses archives pédagogiques** — l'archive
+d'un formateur porte son historique d'exercice, elle ne regarde pas ses élèves. En termes de `kind` :
+`teacher_of_student`, `finance_owner_of_student`, `animator_of_teacher` et `coordinator_of_student`
+**ouvrent** ; `student_of_teacher`, `student_of_finance_owner`, `teacher_of_animator`,
+`student_of_coordinator`, `finance_owner_of_student_of_teacher` et
+`teacher_of_student_of_finance_owner` **n'ouvrent pas**.
+
+Toute paire refusée reçoit **`404`** avec le **même message** qu'une absence d'archive
+(`Aucune archive pédagogique accessible pour cette personne`), prononcé **avant toute lecture en
+base** : un `403` révélerait l'existence de ce qu'on refuse de montrer. **Ces routes ne renvoient
+plus `403` en lecture.** Un titulaire sans aucune archive reçoit donc lui aussi `404` — c'est ce qui
+rend les deux cas indiscernables, et c'est le comportement que le front traite déjà comme un état
+normal.
+
+**L'AP n'est pas un administrateur** : sans lien `animator-teacher` créé par un RP, il ne voit les
+archives de personne. La table naît vide.
 
 ### Archives pédagogiques
 
 > Préfixe gateway : `/api/v1/archives` → service reçoit `/archives/...`
 > Téléchargement : `/api/v1/documents` → service reçoit `/documents/...`
+>
+> **Corrigé le 2026-08-11 :** le contrôleur était monté sur `/students/...` et
+> `/archive-documents/...` alors que la gateway transmet `/archives/students/...` et
+> `/documents/...`. **Aucune route archive n'existait à l'adresse appelée** : la pile réelle
+> répondait `404 "Cannot GET /archives/students/…/pedagogical-archives"` à tous les rôles, y compris
+> au titulaire. Les préfixes du service sont désormais alignés sur ceux de la gateway.
 
 | Méthode | Chemin (via gateway) | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /api/v1/archives/students/:studentId/pedagogical-archives | Lister les archives pédagogiques d'un élève | 🔒 | élève (soi-même), formateur (liés), parent_financeur (hors carnet_personnel), RP, TI, AF | `200 [{id, studentId, itemType, title, description?, downloadUrl?, occurredAt, createdAt, isParentVisible}]` · `401` · `403` |
-| POST | /api/v1/archives/students/:studentId/archive-links | Créer un lien d'archive depuis un service source | 🔒 | formateur, RP, AP, TI | `201 {id, studentId, itemType, title, ...}` · `200` idempotent · `400` · `401` · `403` · `409` clé idempotence conflit |
-| GET | /api/v1/archives/students/:studentId/archive-timeline | Timeline chronologique des archives (groupée par date) | 🔒 | élève, formateur, parent_financeur (hors carnet_personnel), RP, TI, AF | `200 {data: [{date, items}], page, limit, total, totalPages}` · `401` · `403` |
+| GET | /api/v1/archives/students/:studentId/pedagogical-archives | Lister les archives pédagogiques d'un **titulaire** (élève, ou formateur quand un AP le consulte) | 🔒 | **piloté par la relation** (`@OwnerAccess()`, aucune liste de rôles) — voir le tableau ci-dessus | `200 {data: [{id, studentId, itemType, title, description, downloadUrl, score, pedagogicalPoints, occurredAt, isParentVisible, idempotencyKey, createdAt, updatedAt}], page, limit, total, totalPages}` · `400` UUID mal formé · `401` · `404` aucune archive **ou** aucune relation ouvrant ce droit (indiscernables) · `503` `profile-service` injoignable |
+| POST | /api/v1/archives/students/:studentId/archive-links | Créer un lien d'archive depuis un service source | 🔒 | **liste de rôles explicite** : formateur, AP, RP, TI, AF — une relation ouvre la lecture, jamais l'écriture | `201 {id, studentId, itemType, title, ...}` · `200` idempotent · `400` · `401` · `403` rôle non autorisé · `409` clé d'idempotence appartenant à un autre titulaire |
+| GET | /api/v1/archives/students/:studentId/archive-timeline | Timeline chronologique des archives (groupée par date) | 🔒 | **piloté par la relation**, mêmes droits que la liste | `200 {data: [{date, items: [{id, itemType, title, sourceId, sourceService, score, pedagogicalPoints}]}], page, limit, total, totalPages}` · `400` · `401` · `404` · `503` |
+
+Pagination : `page` (défaut 1) et `limit` (défaut 20, max 100). La liste renvoie une **enveloppe**
+`{data, page, limit, total, totalPages}`, pas un tableau nu — le front lit encore un tableau
+(`Array.isArray(data) ? data : []`) et affiche donc un état vide : à aligner côté front.
 
 ### Téléchargement
 
-| Méthode | Chemin (via gateway) | Description | Auth | Réponse attendue |
+| Méthode | Chemin (via gateway) | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /api/v1/documents/:id/download | Télécharger un document d'archive (redirection 302 vers l'URL du service source) | 🔒 | **piloté par la relation**, mêmes droits que la liste | `302` redirect · `400` UUID mal formé · `401` · `404` document introuvable, aucune relation, `carnet_personnel` demandé par un parent financeur, ou aucune URL de téléchargement — **quatre cas, un seul message** · `503` |
+
+### API interne inter-services (non exposée via nginx)
+
+> Exclue de Swagger (`@ApiExcludeController`). Protégée par `X-Internal-Secret: <INTERNAL_SECRET>`.
+
+| Méthode | Chemin | Description | Header requis | Réponse attendue |
 |---|---|---|---|---|
-| GET | /api/v1/documents/:id/download | Télécharger un document d'archive (redirection 302 vers URL source) | 🔒 | Selon rôle et type d'archive | `302` redirect · `401` · `403` carnet_personnel interdit au parent · `404` introuvable ou pas d'URL |
+| GET | /internal/students/:studentId/archives | Lister toutes les archives d'un titulaire, **sans filtrage de relation ni de carnet personnel** — destinée aux workflows d'orchestration, jamais à un appelant utilisateur | `X-Internal-Secret` | `200 [{id, studentId, itemType, ...}]` · `401` secret absent ou invalide |
+
+**Dépendance sortante :** ce service appelle `GET /internal/relations/:viewerId/:targetId` de
+`profile-service` (variable `PROFILE_SERVICE_URL`, en-tête `X-Internal-Secret`, `x-correlation-id`
+propagé, délai 3 s) à **chaque lecture**. Il n'en conserve rien. Si l'appel échoue, la lecture
+répond `503` : on n'ouvre ni ne ferme un droit par défaut.
 
 ---
 

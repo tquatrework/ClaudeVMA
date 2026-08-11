@@ -28,6 +28,26 @@ const ADMINISTRATIVE_EDITOR_ROLES: readonly UserRole[] = [
   'technicien_informatique',
 ]
 
+/**
+ * Rôles dont le compte porte un profil financier **personnel**.
+ *
+ * Le parent financeur paie les activités, le formateur est rémunéré, et
+ * l'animateur pédagogique est un formateur promu — il reste rémunéré comme tel.
+ * L'élève, lui, ne finance rien : c'est son parent financeur qui paie
+ * (`README.md`), lui présenter un profil financier serait lui promettre un
+ * écran vide.
+ *
+ * RP, AF et TI sont hors de cette liste : `docs/routes.md` leur ouvre la
+ * **lecture du profil financier d'autrui** (`/finance/:ownerId`), pas un profil
+ * financier à eux. Leur en afficher un aboutirait à « Profil financier
+ * introuvable ».
+ */
+const ROLES_WITH_FINANCIAL_PROFILE: readonly UserRole[] = [
+  'parent_financeur',
+  'formateur',
+  'animateur_pedagogique',
+]
+
 /** Rôles dont le compte porte un profil pédagogique (élève ou formateur). */
 const ROLES_WITH_PEDAGOGICAL_PROFILE: readonly UserRole[] = [
   'eleve',
@@ -43,6 +63,29 @@ const ROLES_WITH_PEDAGOGICAL_PROFILE: readonly UserRole[] = [
  */
 export function roleHasPedagogicalProfile(role: UserRole | undefined): boolean {
   return role !== undefined && ROLES_WITH_PEDAGOGICAL_PROFILE.includes(role)
+}
+
+/**
+ * Ce rôle a-t-il un profil financier personnel ?
+ *
+ * Commande l'affichage de l'onglet « Profil financier » de la fiche de profil.
+ */
+export function roleHasFinancialProfile(role: UserRole | undefined): boolean {
+  return role !== undefined && ROLES_WITH_FINANCIAL_PROFILE.includes(role)
+}
+
+/**
+ * Peut-on modifier le moyen de paiement du profil financier consulté ?
+ *
+ * `PATCH /financial-profiles/:ownerId` : le titulaire, l'administrateur
+ * financier et le technicien informatique. Le RP, qui peut lire, n'écrit pas.
+ */
+export function canEditFinancialProfile(
+  role: UserRole | undefined,
+  isOwnProfile: boolean,
+): boolean {
+  if (isOwnProfile) return true
+  return role === 'administrateur_financier' || role === 'technicien_informatique'
 }
 
 /**

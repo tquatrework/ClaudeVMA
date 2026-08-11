@@ -7,14 +7,7 @@
 
 import React from 'react'
 import type { PaymentMethod } from '../../api/finance'
-
-const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
-  cb: 'Carte bancaire',
-  virement: 'Virement',
-  paypal: 'PayPal',
-}
-
-const PAYMENT_METHOD_OPTIONS: PaymentMethod[] = ['cb', 'virement', 'paypal']
+import { PAYMENT_METHOD_LABELS, PAYMENT_METHOD_OPTIONS } from '../../utils/financeLabels'
 
 interface PaymentMethodEditorProps {
   currentPaymentMethod?: PaymentMethod

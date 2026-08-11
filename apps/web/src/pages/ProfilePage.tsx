@@ -18,13 +18,16 @@ import {
   canEditAdministrativeProfile,
   canEditDeclarativePedagogicalProfile,
   canEditProfileAvatar,
+  roleHasFinancialProfile,
   roleHasPedagogicalProfile,
 } from '../utils/profilePermissions'
+import { FinancialProfilePanel } from '../components/finance/FinancialProfilePanel'
 
 // ─── IDs d'onglets ────────────────────────────────────────────────────────────
 
 const TAB_ADMIN = 'admin'
 const TAB_PEDAGOGIQUE = 'pedagogique'
+const TAB_FINANCIER = 'financier'
 const TAB_RELATIONS = 'relations'
 const TAB_CONFIDENTIALITE = 'confidentialite'
 const TAB_DOCUMENTS = 'documents'
@@ -88,17 +91,22 @@ export default function ProfilePage() {
     isViewingOwnProfile || hasRole('responsable_pedagogique', 'technicien_informatique')
 
   /**
-   * Le profil financier est visible uniquement pour les rôles ayant une dimension financière :
-   * parent_financeur, formateur, animateur_pedagogique, responsable_pedagogique, administrateur_financier.
-   * L'élève n'a pas de profil financier propre.
+   * Onglet « Profil financier » — troisième onglet de la fiche depuis le
+   * 2026-08-11, demande de l'utilisateur : « le profil financier […] doit en
+   * fait être un troisième onglet […] aussi bien pour les parents que pour les
+   * formateurs ». Il remplace la carte « Gérer » qui vivait dans l'onglet
+   * administratif et renvoyait vers `/finance`.
+   *
+   * Les rôles concernés sont ceux qui ont un profil financier **à eux**
+   * (`roleHasFinancialProfile`) : le parent financeur qui paie, le formateur qui
+   * est rémunéré, et l'animateur pédagogique — un formateur promu, rémunéré
+   * comme tel. L'élève ne finance rien, c'est son parent financeur qui paie.
+   *
+   * Effet de bord corrigé au passage : la carte s'affichait pour le formateur et
+   * l'AP alors que la route `/finance` leur est fermée — « Gérer » les menait
+   * donc à `/forbidden`. L'onglet, lui, n'emprunte aucune route.
    */
-  const canSeeFinancialProfile = isViewingOwnProfile && hasRole(
-    'parent_financeur',
-    'formateur',
-    'animateur_pedagogique',
-    'responsable_pedagogique',
-    'administrateur_financier',
-  )
+  const showFinancierTab = isViewingOwnProfile && roleHasFinancialProfile(user?.role)
 
   /**
    * Les documents légaux (mandats, contrats) sont accessibles depuis le profil pour
@@ -169,6 +177,7 @@ export default function ProfilePage() {
   const tabs: TabDefinition[] = [
     { id: TAB_ADMIN, label: 'Profil administratif' },
     ...(showPedagogiqueTab ? [{ id: TAB_PEDAGOGIQUE, label: 'Profil pédagogique' }] : []),
+    ...(showFinancierTab ? [{ id: TAB_FINANCIER, label: 'Profil financier' }] : []),
     ...(showRelationsTab
       ? [
           {
@@ -240,16 +249,6 @@ export default function ProfilePage() {
                   onSaved={applySavedAdministrative}
                 />
 
-                {/* Profil financier — rôles ayant une dimension financière, sur leur propre profil */}
-                {canSeeFinancialProfile && (
-                  <ProfileLinkCard
-                    title="Profil financier"
-                    description="Moyens de paiement, crédits et historique financier"
-                    to="/finance"
-                    actionLabel="Gérer"
-                  />
-                )}
-
                 {/* Panneau de validation formateur (RP / TI) — placé dans l'onglet admin */}
                 {canSeeValidationPanel && userId && (
                   <TeacherValidationPanel teacherId={userId} />
@@ -295,7 +294,18 @@ export default function ProfilePage() {
               </TabPanel>
             )}
 
-            {/* ── Onglet 3 : Parents financeurs / Mes élèves ── */}
+            {/* ── Onglet 3 : Profil financier ── */}
+            {showFinancierTab && userId && (
+              <TabPanel tabId={TAB_FINANCIER} activeTab={activeTab}>
+                {/* Même panneau que la page `/finance`, monté ici sans sa route :
+                    un seul contenu, deux emplacements. Comme les autres onglets,
+                    il est monté à sa première ouverture puis conservé — un
+                    aller-retour ne redemande rien. */}
+                <FinancialProfilePanel ownerId={userId} />
+              </TabPanel>
+            )}
+
+            {/* ── Onglet 4 : Parents financeurs / Mes élèves ── */}
             {showRelationsTab && userId && (
               <TabPanel tabId={TAB_RELATIONS} activeTab={activeTab}>
                 {hasRole('eleve') ? (
@@ -306,7 +316,7 @@ export default function ProfilePage() {
               </TabPanel>
             )}
 
-            {/* ── Onglet 4 : Confidentialité ── */}
+            {/* ── Onglet 5 : Confidentialité ── */}
             {showConfidentialiteTab && (
               <TabPanel tabId={TAB_CONFIDENTIALITE} activeTab={activeTab}>
                 <ProfileLinkCard
@@ -318,7 +328,7 @@ export default function ProfilePage() {
               </TabPanel>
             )}
 
-            {/* ── Onglet 5 : Documents légaux ── */}
+            {/* ── Onglet 6 : Documents légaux */}
             {canSeeDocumentsLegaux && (
               <TabPanel tabId={TAB_DOCUMENTS} activeTab={activeTab}>
                 <div className="space-y-4">

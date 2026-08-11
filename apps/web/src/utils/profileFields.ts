@@ -35,7 +35,7 @@ import type { UserRole } from '../types/user'
 // ─── Listes de champs autorisées (miroir de docs/routes.md) ───────────────────
 
 /**
- * Les 11 champs éditables du profil administratif, **dans l'ordre d'écran**.
+ * Les 10 champs éditables du profil administratif, **dans l'ordre d'écran**.
  *
  * Cette liste est la seule source d'ordre : la fiche les liste tous, le
  * formulaire les propose tous, dans cette suite. Un champ qui n'y figurerait pas
@@ -48,6 +48,12 @@ import type { UserRole } from '../types/user'
  * L'envoyer à `PUT /profiles/:userId/administrative` renvoie désormais `400` —
  * le formulaire aurait donc cassé l'enregistrement de tout profil portant déjà
  * une photo. Voir `ADMINISTRATIVE_SERVER_MANAGED_FIELD_NAMES`.
+ *
+ * `department` en est **sorti le 2026-08-11**, sur demande utilisateur : la
+ * colonne est droppée côté serveur et l'envoyer renvoie
+ * `400 property department should not exist`. Le laisser dans cette liste aurait
+ * rendu **tout** enregistrement administratif impossible dès que le champ était
+ * rempli — exactement l'accident évité pour `avatarUrl` la veille.
  */
 export const ADMINISTRATIVE_FIELD_NAMES = [
   'firstName',
@@ -59,9 +65,21 @@ export const ADMINISTRATIVE_FIELD_NAMES = [
   'postalCode',
   'city',
   'country',
-  'department',
   'passions',
 ] as const satisfies readonly (keyof AdministrativeProfileFields)[]
+
+/**
+ * Champs de **compte** affichés dans le bloc administratif, mais qui
+ * n'appartiennent pas à `profile-service` : ils viennent de la session
+ * authentifiée (`POST /auth/login`, `GET /auth/me`), servie par
+ * `identity-access-service`.
+ *
+ * Ils ne sont donc **jamais** envoyés à `PUT /profiles/:userId/administrative` —
+ * `email` y renvoie `400 property email should not exist` (vérifié le 2026-08-11
+ * contre la pile réelle) — ni réglables par le catalogue de visibilité de
+ * `profile-service`, qui ne les connaît pas.
+ */
+export const ACCOUNT_DISPLAY_FIELD_NAMES = ['email'] as const
 
 /**
  * Champs du bloc `administrative` **gérés par le serveur** : lisibles dans la
@@ -100,14 +118,28 @@ export const ADMINISTRATIVE_DISPLAY_FIELD_NAMES = [
   ...ADMINISTRATIVE_TRACEABILITY_FIELD_NAMES,
 ] as const
 
-/** Section déclarative élève — seuls champs acceptés par `PUT .../pedagogical`. */
+/**
+ * Section déclarative élève — seuls champs acceptés par `PUT .../pedagogical`,
+ * **dans l'ordre d'écran**.
+ *
+ * Remaniée le 2026-08-11 (demande utilisateur) : `context` a été **séparé** en
+ * `familyContext` et `schoolContext`, et `schoolName` puis `equipment` ajoutés.
+ * `context` n'existe plus côté serveur : l'envoyer renvoie
+ * `400 property context should not exist`.
+ *
+ * `schoolName` est un **nom propre** (« Lycée Montaigne »), pas une description :
+ * tout ce qui relève de la situation scolaire va dans `schoolContext`.
+ */
 export const STUDENT_DECLARATIVE_FIELD_NAMES = [
   'level',
+  'schoolName',
   'subjects',
   'goals',
-  'specificNeeds',
   'difficulties',
-  'context',
+  'specificNeeds',
+  'familyContext',
+  'schoolContext',
+  'equipment',
 ] as const satisfies readonly (keyof StudentDeclarativeFields)[]
 
 /**
@@ -347,10 +379,13 @@ export function pedagogicalKindForRole(role: UserRole | undefined): PedagogicalP
  */
 const STUDENT_DISCRIMINATING_FIELD_NAMES = [
   'level',
+  'schoolName',
   'goals',
   'specificNeeds',
   'difficulties',
-  'context',
+  'familyContext',
+  'schoolContext',
+  'equipment',
   'generalAssessment',
   'recommendedPace',
   'recommendedTeacherProfile',

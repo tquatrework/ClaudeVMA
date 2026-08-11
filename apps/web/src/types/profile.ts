@@ -129,6 +129,15 @@ export interface CoordinatorRelation {
  * Liste exhaustive et fermée côté serveur : tout champ absent d'ici fait échouer
  * la requête en `400` (`forbidNonWhitelisted`). Ne jamais y réintroduire `address`
  * (l'adresse est découpée en `addressLine1` / `addressLine2`) ni un nom français.
+ *
+ * `department` en a été **retiré le 2026-08-11** (demande utilisateur) : la colonne
+ * est droppée côté serveur et l'envoyer renvoie désormais
+ * `400 property department should not exist`.
+ *
+ * `email` n'y figure pas et n'y figurera pas : l'adresse de contact appartient au
+ * **compte** (`identity-access-service`), pas au profil. L'envoyer ici renvoie
+ * `400 property email should not exist` — vérifié le 2026-08-11 contre la pile
+ * réelle. Elle s'affiche depuis la session authentifiée, voir `AccountEmailField`.
  */
 export interface AdministrativeProfileFields {
   firstName?: string
@@ -141,7 +150,6 @@ export interface AdministrativeProfileFields {
   city?: string
   country?: string
   avatarUrl?: string
-  department?: string
   passions?: string[]
 }
 
@@ -152,13 +160,22 @@ export interface AdministrativeProfileFields {
  * Il n'existe pas de champ `notes` : le besoin correspondant est `specificNeeds`.
  * `difficulties` (ce sur quoi l'élève bute) ne se confond pas avec
  * `specificNeeds` (aménagement reconnu : DYS, PAP, PPS).
+ *
+ * Le champ unique `context` a été **séparé le 2026-08-11** en `familyContext` et
+ * `schoolContext` (demande utilisateur) ; l'envoyer renvoie désormais
+ * `400 property context should not exist`. `schoolName` et `equipment` ont été
+ * ajoutés au même moment. `equipment` est **un seul champ libre** : la parenthèse
+ * de son libellé explique le contenu attendu, elle n'annonce pas deux sous-champs.
  */
 export interface StudentDeclarativeFields {
   level?: string
+  schoolName?: string
   goals?: string
-  specificNeeds?: string
   difficulties?: string
-  context?: string
+  specificNeeds?: string
+  familyContext?: string
+  schoolContext?: string
+  equipment?: string
   subjects?: string[]
 }
 

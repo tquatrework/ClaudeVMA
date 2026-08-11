@@ -60,7 +60,6 @@ export const EDITABLE_FIELDS = [
   { name: 'postalCode', type: 'text', placeholder: '75001' },
   { name: 'city', type: 'text', placeholder: 'Paris' },
   { name: 'country', type: 'text', placeholder: 'France' },
-  { name: 'department', type: 'text', placeholder: '75 - Paris' },
   {
     name: 'passions',
     type: 'text',

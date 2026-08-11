@@ -53,6 +53,19 @@ export default function ProfilePage() {
    */
   const canEditAvatar = canEditProfileAvatar(isViewingOwnProfile)
 
+  /**
+   * Adresse e-mail du compte : elle vient de la **session authentifiée**
+   * (`POST /auth/login` puis `GET /auth/me`, `identity-access-service`), jamais du
+   * profil — `profile-service` ne la porte pas et la refuse en écriture.
+   *
+   * Elle n'est donc connue que pour le lecteur lui-même : `GET /profiles/:userId`
+   * ne renvoie pas l'e-mail du titulaire consulté, et `GET /accounts/:accountId`
+   * répond `403` à tout rôle non administratif. Sur la fiche d'un tiers, on
+   * n'affiche rien plutôt qu'une donnée de contact que son titulaire ne peut même
+   * pas masquer — le catalogue de visibilité ne la connaît pas.
+   */
+  const accountEmail = isViewingOwnProfile ? (user?.email ?? null) : null
+
   const canSeeInternalNotes = hasRole('responsable_pedagogique', 'administrateur_financier')
   const canSeeRelations = hasRole(
     'responsable_pedagogique',
@@ -224,6 +237,7 @@ export default function ProfilePage() {
                   canEditAvatar={canEditAvatar}
                   avatarUrl={avatarUrl}
                   onAvatarUrlChange={setAvatarUrl}
+                  accountEmail={accountEmail}
                   onSaved={applySavedAdministrative}
                 />
 

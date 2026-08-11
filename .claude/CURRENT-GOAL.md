@@ -98,6 +98,53 @@ propriétaire » sous forme d'UUID au parent, au formateur, à l'AP et au RP. D�
 dans la fiche de profil rend ce défaut plus visible ; il est corrigé au passage, puisqu'on
 touche précisément ce code — la règle « aucun UUID à l'écran, sauf AF » est générale.
 
+### État au 2026-08-11 — livré et déployé, en attente du test utilisateur
+
+- [x] **Statistiques pédagogiques sorties du profil.** La destination existait déjà : l'entrée
+      de navigation « Stats / Archives » (`TOP_NAV_CONFIG`, id `archives`) mène à `/archives`,
+      dont le **premier onglet** rendait déjà `ProfileStatisticsPanel`. La fiche de profil en
+      portait un **second exemplaire** — c'est celui-là qui est retiré. Aucun fichier supprimé,
+      rien de dupliqué.
+- [x] **Profil financier devenu un onglet**, après « Profil pédagogique ». Le bouton « Gérer »
+      a disparu du profil administratif. Effet de bord corrigé : « Gérer » s'affichait au
+      formateur et à l'AP alors que `/finance` leur est fermée — il les menait à `/forbidden`.
+      L'onglet n'emprunte aucune route.
+- [x] **UUID « Identifiant propriétaire » corrigé** — nom du titulaire via `usePersonDisplayName`,
+      référence technique réservée à l'AF. Vérifié absent du bundle servi (0 occurrence).
+- [x] **Blocage back levé.** `finance-credit-service` refusait le rôle `formateur` sur son
+      **propre** profil financier (`403 Insufficient role`), le `RolesGuard` filtrant sur une
+      liste de rôles **avant** le contrôle de propriété. Les trois routes de lecture par
+      propriétaire portent désormais `@OwnerAccess()` : le contrôle porte sur la propriété, pas
+      sur une liste qui oublie un rôle à chaque évolution — `animateur_pedagogique` est couvert
+      par construction. Formateur sur son propre id : `404` (profil à créer) au lieu de `403`,
+      archives `200 []`. Sur un tiers : toujours `403`. Écriture inchangée.
+      Défaut corrigé au passage : `findByOwnerId` levait le `404` **avant** le contrôle de
+      permission, révélant l'existence d'un profil à un appelant non autorisé.
+- [x] **Déployé** — `frontend` et `finance-credit-service` reconstruits depuis la branche.
+      Bundle servi `index-CtxbcIKG.js` : « Profil financier » présent, « Identifiant
+      propriétaire » absent. Conteneur finance `healthy`, image porteuse du correctif.
+- [ ] **Validé par l'utilisateur**
+
+### Décisions qui lui reviennent, remontées et non prises
+
+1. **L'AP n'a plus aucun chemin vers les statistiques.** `TOP_NAV_CONFIG` affiche « Stats /
+   Archives » à l'`animateur_pedagogique`, mais `routeAccessMap.ts` et la route `/archives` ne
+   le listent pas : l'entrée le mène à `/forbidden`. Anomalie **préexistante**, devenue
+   conséquente maintenant que les statistiques ne sont plus dans le profil. Côté serveur,
+   `/profiles/:id/statistics` lui est ouvert, les archives pédagogiques non. Ouvrir la route ou
+   retirer l'entrée : décision utilisateur.
+2. **Le formateur voit son profil financier mais ne peut rien y saisir.**
+   `PATCH /financial-profiles/:ownerId` lui reste fermé, alors que la spec du service lui promet
+   l'écriture sur son profil (coordonnées bancaires, tarifs). Non tranché, non ouvert.
+3. **L'`animateur_pedagogique` ne peut pas soumettre de demande de rémunération** —
+   `POST /teacher-payment-requests` reste réservé au rôle `formateur`.
+4. **Deux portes vers le même contenu pour le parent** : le rail gauche garde une entrée
+   « Profil financier » → `/finance`, en plus du nouvel onglet. Ce n'est pas le doublon visé par
+   la demande, donc laissé en l'état.
+5. **Cinq comptes de vérification laissés sur la pile** : `front.check.0811`, `front.fin.0811`,
+   `front.fin.parent.0811`, `verif.fin.teacher.0811`, `verif.fin.parent.0811`. Aucune route de
+   suppression n'existe ; un TI peut les suspendre.
+
 ## E-mail : arbitrage rendu, à confirmer
 
 Provenance : la **session authentifiée**. `POST /auth/login` (201) et `GET /auth/me` (200)

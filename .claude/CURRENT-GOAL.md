@@ -125,6 +125,28 @@ touche précisément ce code — la règle « aucun UUID à l'écran, sauf AF »
       propriétaire » absent. Conteneur finance `healthy`, image porteuse du correctif.
 - [ ] **Validé par l'utilisateur**
 
+### Défaut trouvé le 2026-08-11 — un déploiement peut ne jamais atteindre l'utilisateur
+
+L'utilisateur a signalé voir encore les statistiques dans le profil et le bloc « Profil
+financier / Gérer → » dans l'onglet administratif, en collant le HTML rendu. Vérification faite
+**sur le bundle réellement servi** (`index-CtxbcIKG.js`, celui que référence `index.html`) : les
+chaînes `Moyens de paiement, crédits et historique financier`, `Gérer →` et `Identifiant
+propriétaire` y sont à **0 occurrence**, et le conteneur ne contient qu'**un seul** fichier JS.
+Le HTML collé ne peut donc pas venir du code en ligne.
+
+**Cause structurelle** : la configuration nginx du conteneur `frontend` (écrite en dur dans
+`apps/web/Dockerfile`) sert `index.html` **sans en-tête `Cache-Control`** — seuls `ETag` et
+`Last-Modified` sont posés. Le navigateur applique alors sa propre heuristique de fraîcheur et
+peut conserver l'ancien `index.html`, qui référence l'ancien bundle par son nom haché, lui aussi
+en cache. Un déploiement peut ainsi rester invisible **sans aucun signal**, et pollue chaque
+validation utilisateur d'un doute qui n'a pas lieu d'être.
+
+Correction retenue, non encore appliquée : `Cache-Control: no-cache` sur `index.html`, cache long
+immuable sur les fichiers hachés de `/assets/`. À faire dans `apps/web/Dockerfile`.
+
+Ne pas confondre avec un cache applicatif : la décision « aucun cache » du 2026-08-10 porte sur
+les données lues par l'application, pas sur les en-têtes HTTP de ses fichiers statiques.
+
 ### Décisions qui lui reviennent, remontées et non prises
 
 1. **L'AP n'a plus aucun chemin vers les statistiques.** `TOP_NAV_CONFIG` affiche « Stats /

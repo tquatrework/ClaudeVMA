@@ -4,16 +4,24 @@
  * sur lui-même.
  *
  * Deux jeux de champs distincts (docs/routes.md § « Noms de champs des profils ») :
- * - élève : `level`, `subjects`, `goals`, `specificNeeds`, `difficulties`, `context` ;
+ * - élève : `level`, `schoolName`, `subjects`, `goals`, `difficulties`,
+ *   `specificNeeds`, `familyContext`, `schoolContext`, `equipment` ;
  * - formateur : `levels`, `subjects`, `experience`, `diplomas`, `specialties`,
  *   `particularities`, `cvDocumentId`.
  *
- * Aucun champ de prescription n'y figure : le serveur les refuse en `400` sur
- * cette route, et c'est voulu — un élève ne rédige pas ses préconisations, un
- * formateur pas ses résultats de test. Ils s'éditent par `PrescriptionForm`.
+ * **Remaniement du 2026-08-11** (demande utilisateur, serveur déjà déployé) :
+ * l'unique `context` est séparé en `familyContext` et `schoolContext`, et
+ * `schoolName` puis `equipment` sont ajoutés. `context` n'existe plus côté
+ * serveur — l'envoyer renvoie `400 property context should not exist` (vérifié
+ * contre la pile réelle) : le laisser ici aurait rendu **tout** enregistrement
+ * pédagogique élève impossible, ce formulaire renvoyant chacun de ses champs.
+ * `equipment` est **un seul champ libre** : la parenthèse de son libellé décrit ce
+ * qu'on y met, elle n'annonce pas deux sous-champs.
  *
- * La forme éditée vient de `pedagogicalType` renvoyé par le serveur : le front ne
- * la déduit plus des champs présents.
+ * L'ordre d'écran suit `STUDENT_DECLARATIVE_FIELD_NAMES` /
+ * `TEACHER_DECLARATIVE_FIELD_NAMES`, seule source d'ordre — un test vérifie que
+ * les deux listes coïncident, faute de quoi un champ deviendrait invisible donc
+ * impossible à renseigner.
  */
 
 import React from 'react'
@@ -22,11 +30,14 @@ import { ProfileFieldsForm, type ProfileFieldDescriptor } from './ProfileFieldsF
 
 const STUDENT_FIELDS: readonly ProfileFieldDescriptor[] = [
   { name: 'level', placeholder: 'Ex : Terminale, Licence 2, BTS…' },
+  { name: 'schoolName', placeholder: 'Ex : lycée des Graves' },
   { name: 'subjects', placeholder: 'Ex : Mathématiques, Physique-Chimie…' },
   { name: 'goals', placeholder: 'Ex : rattraper les lacunes en algèbre, préparer le baccalauréat…', rows: 3 },
   { name: 'difficulties', placeholder: 'Ex : les fonctions dérivées, la rédaction des démonstrations…', rows: 3 },
   { name: 'specificNeeds', placeholder: 'Ex : PAP en cours, tiers-temps aux examens…', rows: 3 },
-  { name: 'context', placeholder: 'Ex : changement d’établissement en cours d’année, longue absence…', rows: 3 },
+  { name: 'familyContext', placeholder: 'Ex : une jumelle, parents séparés, garde alternée…', rows: 3 },
+  { name: 'schoolContext', placeholder: 'Ex : changement d’établissement en cours d’année, longue absence…', rows: 3 },
+  { name: 'equipment', placeholder: 'Ex : chambre au calme, ordinateur portable, webcam, fibre…', rows: 3 },
 ]
 
 const TEACHER_FIELDS: readonly ProfileFieldDescriptor[] = [

@@ -88,6 +88,8 @@ export const PROFILE_FIELD_LABELS: Record<string, string> = {
  * précision n'en affiche aucune, plutôt qu'un texte de remplissage.
  */
 export const PROFILE_FIELD_HINTS: Record<string, string> = {
+  email:
+    'Adresse de votre compte, utilisée pour vous joindre. Elle ne se modifie pas depuis le profil.',
   difficulties:
     "Ce sur quoi vous butez au quotidien — distinct d'un aménagement reconnu",
   specificNeeds: 'Aménagements reconnus : DYS, PAP, PPS…',

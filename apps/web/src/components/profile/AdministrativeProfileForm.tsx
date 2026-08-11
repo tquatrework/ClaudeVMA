@@ -8,11 +8,19 @@
  * découpée en `addressLine1` / `addressLine2` : il n'existe pas de champ
  * `address`, et l'envoyer déclenche un `400`.
  *
- * Le formulaire propose **les 11 champs du contrat**, ni plus ni moins : la
+ * Le formulaire propose **les 10 champs du contrat**, ni plus ni moins : la
  * liste `EDITABLE_FIELDS` est vérifiée par test contre
  * `ADMINISTRATIVE_FIELD_NAMES`. Elle en exposait 10 jusqu'au 2026-08-09 —
  * `avatarUrl` et `passions` étaient chargés, conservés et renvoyés, mais
  * introuvables à l'écran, donc impossibles à renseigner.
+ *
+ * `department` en est sorti le 2026-08-11 (demande utilisateur) : la colonne est
+ * droppée côté serveur et l'envoyer renvoie
+ * `400 property department should not exist` (vérifié contre la pile réelle).
+ *
+ * `email` n'y entre pas et n'y entrera pas : c'est une donnée du **compte**, pas
+ * du profil. Elle est affichée en lecture seule par `AccountEmailField`, en tête
+ * du même onglet.
  *
  * `avatarUrl` en est ressorti le 2026-08-10, dans l'autre sens : la photo est
  * devenue un fichier envoyé par ses propres routes, et le serveur répond

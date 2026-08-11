@@ -28,9 +28,13 @@ Deux niveaux, dans le même script :
    `client_max_body_size` déclaré et supérieur au plafond applicatif d'envoi, `error_page 413` en
    JSON, `proxy_pass_request_body off` en occurrence **unique** (la sous-requête d'auth, et elle
    seule — ailleurs, l'envoi de fichier arriverait vide au service).
-   Le conteneur de test est attaché au réseau docker de la pile : nginx résout les noms d'upstream
-   au démarrage, sans ce réseau le test échouerait sur `host not found in upstream` sans rien dire
-   de la configuration.
+   S'y ajoutent depuis le 2026-08-11 les garanties de **re-résolution DNS** : `resolver` déclaré
+   avec une validité courte et `ipv6=off`, aucun bloc `upstream` résiduel, **toute** cible de
+   `proxy_pass` portée par une variable, **aucun** `proxy_pass` réduit à l'hôte (sans partie URI,
+   nginx transmettrait `/api/v1/...` au service et celui-ci répondrait 404 sur toutes ses routes),
+   et les `map` de réécriture calculées sur `$request_uri` et non sur `$uri`.
+   Le conteneur de test utilise le réseau docker de la pile s'il existe, mais ne l'exige plus :
+   nginx ne résolvant plus aucun nom au démarrage, `nginx -t` passe même pile arrêtée.
 2. **Gateway vivante** (optionnel) — activé par `GATEWAY_URL` et `ACCESS_TOKEN`. Sans jeton, le
    script distingue déjà « route connue de la gateway » (401 JSON d'`auth_request`) de « préfixe non
    routé » (404 HTML de nginx). Avec jeton, il vérifie qu'une route sans `:userId` atteint bien le
@@ -38,6 +42,11 @@ Deux niveaux, dans le même script :
    Sans ces variables, ces cas sont affichés « ignorés », jamais « verts ».
 
 ## Services routés (Phase 1 — état au 2026-06-28)
+
+> Depuis le 2026-08-11, la colonne « Upstream » ne désigne plus un bloc `upstream` — ceux-ci ont été
+> supprimés — mais la variable `$upstream_<service>` qui porte le couple nom Docker / port interne.
+> Les chemins transmis, colonne « proxy_pass », sont **inchangés** : vérifiés identiques sur
+> 88 chemins avant/après. Voir « Session 2026-08-11 » plus bas.
 
 | Service | Locations nginx (gateway) | proxy_pass (upstream) | Upstream | Auth JWT | Notes |
 |---|---|---|---|---|---|
@@ -208,7 +217,102 @@ Vérification demandée à l'arrivée de `GET /profiles/avatar/constraints` (rou
 - **Multipart** : traverse sans réencodage ni parsing. Prouvé par des envois réels de 75 o,
   900 000 o et 1 048 000 o répondus `200 {avatarUrl}` à travers la gateway.
 
+### Session 2026-08-11 — Re-résolution DNS : corriger à la racine les 502 après redéploiement
+
+**Le défaut.** Reconstruire un conteneur de service lui donne une nouvelle adresse IP sur le réseau
+Docker. Avec un bloc `upstream { server profile-service:3002; }`, nginx résout le nom **une seule
+fois, au chargement de la configuration**, et garde l'adresse indéfiniment. Il continuait donc à
+appeler une adresse morte : 20 réponses `502` relevées le 2026-08-11 entre 14:31 et 14:43 sur toutes
+les routes de `profile-service`, alors que depuis le conteneur gateway
+`wget http://profile-service:3002/health` répondait `200`. Le contournement était un
+`docker exec visiomath_gateway nginx -s reload` à la main, à refaire à chaque redéploiement de
+chacun des seize services — ce n'est pas une correction, c'est un rappel à ne pas oublier.
+
+**La correction, en deux temps indissociables.**
+
+1. `resolver 127.0.0.11 valid=5s ipv6=off;` — le DNS interne de Docker, avec une validité courte.
+   `ipv6=off` parce que le DNS Docker répond aussi en AAAA et que nginx tenterait une connexion IPv6
+   vers un réseau qui n'en fait pas.
+2. La cible du `proxy_pass` portée par une **variable** (`$upstream_*`). C'est le point décisif :
+   sans variable, nginx résout au démarrage et met le résultat en cache pour toujours, `resolver`
+   ou pas.
+
+**Le piège traité : la réécriture d'URI.** Dès qu'un `proxy_pass` contient une variable, nginx
+**cesse** de substituer le préfixe du `location` par l'URI du `proxy_pass`. Or cette gateway
+réécrit : elle reçoit `/api/v1/profiles/...` et transmet `/profiles/...`. Une conversion naïve
+aurait envoyé `/api/v1/profiles/...` au service, qui aurait répondu `404` sur **toutes** ses routes
+— un défaut permanent en échange d'un `502` occasionnel. L'URI transmise est donc reconstruite
+explicitement par cinq `map`, chacune retirant un préfixe **constant** :
+
+| `map` | Rôle | Exemple |
+|---|---|---|
+| `$api_v1_suffix` | cas général, retire `/api/v1` | `/api/v1/profiles/x` → `/profiles/x` |
+| `$docs_suffix` | Swagger, consommé **uniquement** par les locations `.../docs` | `/api/v1/profiles/docs/swagger-ui.css` → `/api/docs/swagger-ui.css` |
+| `$teacher_requests_suffix` | le préfixe public ne porte pas le nom du contrôleur | `/api/v1/teacher-requests/77` → `/requests/77` |
+| `$finance_suffix` | retire `/api/v1/finance` (racine du service) | `/api/v1/finance/financial-profiles/x` → `/financial-profiles/x` |
+| `$orchestration_suffix` | retire `/api/v1/orchestration` | `/api/v1/orchestration/callbacks/x` → `/callbacks/x` |
+
+Trois précautions dans ces `map` :
+
+- elles partent de **`$request_uri`** (brut, chaîne de requête comprise) et non de `$uri`
+  (normalisé et **décodé**) : `$uri` réinjecterait des caractères décodés dans l'URL amont et
+  casserait tout chemin contenant `%20`, `%2B`, etc. ;
+- la chaîne de requête étant déjà dans `$request_uri`, **aucune** location n'ajoute
+  `$is_args$args` — ce serait un doublon ;
+- ce sont des `map`, ni des `rewrite` ni des `location ~` : la règle « la gateway ne réinterprète
+  jamais un segment d'URL » tient toujours.
+
+`$docs_suffix` est délibérément **local aux locations Swagger** et non appliqué globalement :
+appliqué partout, il aurait détourné `/api/v1/students/docs` vers `/api/docs` au lieu de le
+transmettre tel quel à `pedagogical-log-service`.
+
+**Non-régression des chemins, mesurée.** 88 chemins — un par préfixe de `location`, plus les cas
+encodés, les chaînes de requête et les sous-chemins Swagger — rejoués contre l'ancienne puis la
+nouvelle configuration, avec en aval un écho renvoyant l'URI reçue. **Diff vide**, à un seul écart
+près, volontaire et documenté : un double slash (`/api/v1/profiles//double`) était auparavant
+fusionné (`/profiles/double`, effet de `merge_slashes` sur `$uri`) et est désormais transmis tel
+quel (`/profiles//double`). C'est le prix de `$request_uri`, et c'est le bon sens de l'échange :
+préserver l'encodage est indispensable, fusionner des slashes que personne n'envoie ne l'est pas.
+Un second écart avait été trouvé puis corrigé en cours de route : `/api/v1/profiles/docsomething`
+servait le Swagger parce que `$docs_suffix` exigeait une frontière de segment ; le motif a été
+ramené à `.*`, qui reproduit exactement la substitution de préfixe de nginx.
+
+**Preuve du redéploiement sans rechargement**, jouée contre la pile réelle le 2026-08-11 à
+15:21 UTC, avec un **témoin** portant la configuration de `origin/master` :
+
+| | avant | après |
+|---|---|---|
+| IP de `profile-service` | `172.25.0.23` | `172.25.0.22` |
+| gateway | démarrée à 15:20:48, PID 2607005 | **identiques** — ni redémarrée ni rechargée |
+| nouvelle configuration | `200` | **`200`** dès la première requête (t+00 s) |
+| témoin, ancienne configuration | `200` | **`502`**, et toujours `502` 20 s plus tard |
+
+Journal de la gateway : `upstream=172.25.0.23:3002` avant, `upstream=172.25.0.22:3002` après — la
+nouvelle adresse, sans intervention. Le changement d'adresse a été **forcé** en faisant occuper
+l'ancienne par un conteneur témoin : un simple `--force-recreate` réattribue souvent la même IP, et
+le test n'aurait alors rien prouvé (c'est exactement ce qui s'était produit au premier essai).
+
+**Reliquat assumé.** `valid=5s` : nginx conserve une réponse DNS au moins le temps déclaré. La
+correction supprime la péremption **définitive**, pas la fenêtre de quelques secondes qui suit un
+changement d'adresse — fenêtre pendant laquelle le service redémarre de toute façon. Mesuré à
+`valid=10s` : un seul `502` à 15:18:40, suivi d'un `200` dans la même seconde. Ramené à 5 s.
+
+**Effet de bord bienvenu.** Les blocs `upstream` obligeaient nginx à résoudre les seize noms au
+démarrage : la gateway **refusait de démarrer** avec `host not found in upstream` si un seul service
+était absent. Ce n'est plus le cas — un service absent donne un `502` JSON sur ses seules routes.
+Conséquence pour les tests : `nginx -t` n'a plus besoin du réseau docker de la pile.
+
+**Préservé, vérifié explicitement** : `client_max_body_size 10m`, `error_page 413` en JSON,
+réponses d'erreur JSON en général, propagation de `x-correlation-id`. L'envoi de 1,1 Mo attaqué
+directement sur la gateway repart avec le `413` **applicatif**
+(`{"code":"UPLOAD_FILE_TOO_LARGE",...}`), pas un `413` HTML de nginx — le plafond qui coupe reste
+bien celui de l'application. Via l'URL publique, c'est `nginx-global` (nginx/1.27.5, hors dépôt,
+défaut de 1 Mio) qui coupe en HTML, situation inchangée et déjà actée.
+
 ## Points en suspens
+- `nginx-global` applique toujours son défaut de 1 Mio et coupe avant l'application sur les envois
+  de fichiers. Hors dépôt, relevé de nouveau le 2026-08-11 ; à traiter avant tout relèvement du
+  plafond applicatif.
 - `WEBHOOK_SECRET` à définir dans docker-compose/Kubernetes secrets (ne pas committer en clair).
 - Tests de charge / rate limiting à affiner pour les nouvelles routes activées (video, communication, logs, dashboards).
 - Health checks des services individuels non exposés via gateway — à prévoir (`/api/v1/<service>/health` ou route interne).

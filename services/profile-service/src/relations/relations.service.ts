@@ -2,9 +2,10 @@ import {
   Injectable,
   ForbiddenException,
   ConflictException,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { FinanceOwnerStudentLink } from './entities/finance-owner-student-link.entity';
 import { TeacherStudentLink } from './entities/teacher-student-link.entity';
 import { PedagogicalCoordinatorLink } from './entities/pedagogical-coordinator-link.entity';
@@ -61,9 +62,13 @@ export class RelationsService {
       throw new ForbiddenException('Only RP or AdministrateurFinancier can create financeur–étudiant links');
     }
 
-    const existing = await this.financeRepo.findOne({
-      where: { financeOwnerId: dto.financeOwnerId, studentId: dto.studentId },
-    });
+    /**
+     * Le conflit porte sur l'état COURANT (`endedAt IS NULL`), jamais sur
+     * l'existence d'une ligne : un lien rompu ne doit pas interdire à vie de
+     * rattacher de nouveau les mêmes personnes. C'est exactement le défaut du
+     * `409 "Consent already signed"` corrigé le 2026-08-09.
+     */
+    const existing = await this.findActiveFinanceLink(dto.financeOwnerId, dto.studentId);
     if (existing) {
       throw new ConflictException('This financeur is already linked to this student');
     }
@@ -96,7 +101,10 @@ export class RelationsService {
       throw new ForbiddenException('You may only list your own linked students');
     }
 
-    const links = await this.financeRepo.find({ where: { financeOwnerId }, order: { createdAt: 'ASC' } });
+    const links = await this.financeRepo.find({
+      where: { financeOwnerId, endedAt: IsNull() },
+      order: { createdAt: 'ASC' },
+    });
     return this.attachStudentNames(links);
   }
 
@@ -157,9 +165,7 @@ export class RelationsService {
 
     // A PARENT_FINANCEUR may see all teachers of a student they are linked to
     if (actor.role === UserRole.PARENT_FINANCEUR) {
-      const parentStudentLink = await this.financeRepo.findOne({
-        where: { financeOwnerId: actor.id, studentId },
-      });
+      const parentStudentLink = await this.findActiveFinanceLink(actor.id, studentId);
       if (!parentStudentLink) {
         throw new ForbiddenException(
           'You are not linked to this student and cannot list their teachers',
@@ -193,8 +199,91 @@ export class RelationsService {
       );
     }
 
-    const links = await this.financeRepo.find({ where: { studentId }, order: { createdAt: 'ASC' } });
+    const links = await this.financeRepo.find({
+      where: { studentId, endedAt: IsNull() },
+      order: { createdAt: 'ASC' },
+    });
     return this.attachFinanceOwnerNames(links);
+  }
+
+  /**
+   * Rompt le lien parent financeur ↔ élève (besoin du 2026-08-11, « Délier »).
+   *
+   * QUI A LE DROIT : les deux parties du lien, plus le RP et le TI. Le contrôle
+   * porte sur la PROPRIÉTÉ DU LIEN — « suis-je l'une des deux personnes
+   * nommées ? » — et non sur une liste de rôles, qui en oublierait un à chaque
+   * évolution (même forme que `@OwnerAccess()`). L'AF est volontairement exclu :
+   * il constate les rattachements, il ne décide pas de les rompre. Il peut en
+   * créer un (`POST /relations/finance-owner-student`) parce que c'est un acte
+   * d'administration à la demande ; le défaire engage la relation entre deux
+   * personnes, il revient à ces personnes ou au RP.
+   *
+   * REFUS = 404, AVEC LE MÊME MESSAGE QU'UNE ABSENCE. Un 403 dirait « ce lien
+   * existe, mais il ne vous regarde pas » : il révélerait précisément ce qu'on
+   * refuse de montrer (arbitrage du 2026-08-11, point 5). Un tiers ne peut donc
+   * pas se servir de cette route pour découvrir qui finance qui.
+   *
+   * IDEMPOTENCE : délier un lien DÉJÀ rompu renvoie 200 et la ligne telle
+   * quelle, sans toucher `endedAt`/`endedBy`. Motif : l'état visé — « ces deux
+   * personnes ne sont plus liées » — est atteint ; répondre en erreur ferait
+   * échouer un second clic, ou un rejeu réseau, sur une situation pourtant
+   * conforme. La date de rupture initiale est préservée : c'est elle qui a une
+   * valeur de preuve, l'écraser reviendrait à falsifier l'historique. La
+   * décision reste lisible côté appelant, qui lit `endedAt` dans la réponse.
+   *
+   * Ce que la rupture referme : toutes les requêtes de ce service ne lisent que
+   * les liens ACTIFS. Le parent perd donc, dans le même mouvement, la lecture du
+   * profil de l'ex-élève, ses statistiques pédagogiques et — via
+   * `GET /internal/relations/:viewerId/:targetId` — ses archives pédagogiques.
+   * Aucun autre service n'a à être prévenu pour cela.
+   */
+  async unlinkFinanceOwnerFromStudent(
+    financeOwnerId: string,
+    studentId: string,
+    actor: Actor,
+  ): Promise<FinanceOwnerStudentLink> {
+    /**
+     * On cherche le lien le plus récent de la paire, ACTIF OU ROMPU. Chercher
+     * uniquement l'actif rendrait le second appel indiscernable d'un lien
+     * inexistant, et surtout retirerait aux deux parties le droit de constater
+     * leur propre rupture : après le premier appel, elles ne sont plus « liées ».
+     */
+    const link = await this.financeRepo.findOne({
+      where: { financeOwnerId, studentId },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (!link || !this.mayUnlink(link, actor)) {
+      throw new NotFoundException(noFinanceOwnerStudentLinkMessage());
+    }
+
+    if (link.endedAt) return link;
+
+    link.endedAt = new Date();
+    link.endedBy = actor.id;
+    const saved = await this.financeRepo.save(link);
+
+    this.events.publish('StudentUnlinkedFromFinanceOwner', {
+      financeOwnerId,
+      studentId,
+      actorId: actor.id,
+      endedAt: saved.endedAt?.toISOString(),
+    });
+
+    return saved;
+  }
+
+  /**
+   * Propriété du lien : l'une des deux personnes nommées, ou un rôle habilité à
+   * arbitrer la relation (RP, TI). Volontairement écrit à part de la route :
+   * c'est la règle, pas un détail de transport.
+   */
+  private mayUnlink(link: FinanceOwnerStudentLink, actor: Actor): boolean {
+    if (actor.id === link.financeOwnerId || actor.id === link.studentId) return true;
+    return (
+      actor.role === UserRole.RESPONSABLE_PEDAGOGIQUE ||
+      actor.role === UserRole.TECHNICIEN_INFORMATIQUE
+    );
   }
 
   /**
@@ -313,8 +402,13 @@ export class RelationsService {
 
     const pair = [viewerId, targetId];
     const [financeLinks, teacherLinks, animatorLinks, coordinatorLinks] = await Promise.all([
+      // Liens ACTIFS seulement : un lien rompu ne doit plus rien ouvrir, ni ici
+      // ni chez les services qui consomment `/internal/relations/...`.
       this.financeRepo.find({
-        where: [{ financeOwnerId: In(pair) }, { studentId: In(pair) }],
+        where: [
+          { financeOwnerId: In(pair), endedAt: IsNull() },
+          { studentId: In(pair), endedAt: IsNull() },
+        ],
       }),
       this.teacherRepo.find({
         where: [{ teacherId: In(pair) }, { studentId: In(pair) }],
@@ -422,7 +516,12 @@ export class RelationsService {
    */
   async listRelatedPeople(userId: string): Promise<RelatedPerson[]> {
     const [financeLinks, teacherLinks, animatorLinks, coordinatorLinks] = await Promise.all([
-      this.financeRepo.find({ where: [{ financeOwnerId: userId }, { studentId: userId }] }),
+      this.financeRepo.find({
+        where: [
+          { financeOwnerId: userId, endedAt: IsNull() },
+          { studentId: userId, endedAt: IsNull() },
+        ],
+      }),
       this.teacherRepo.find({ where: [{ teacherId: userId }, { studentId: userId }] }),
       this.animatorRepo.find({ where: [{ animatorId: userId }, { teacherId: userId }] }),
       this.coordinatorRepo.find({ where: [{ coordinatorId: userId }, { studentId: userId }] }),
@@ -496,7 +595,7 @@ export class RelationsService {
 
     if (taughtStudentIds.length > 0) {
       const financeOwnersOfMyStudents = await this.financeRepo.find({
-        where: { studentId: In(taughtStudentIds) },
+        where: { studentId: In(taughtStudentIds), endedAt: IsNull() },
       });
       for (const link of financeOwnersOfMyStudents) {
         add(link.financeOwnerId, {
@@ -544,8 +643,23 @@ export class RelationsService {
    * a parent_financeur may only read profiles of students they are linked to.
    */
   async isFinanceOwnerLinkedToStudent(financeOwnerId: string, studentId: string): Promise<boolean> {
-    const link = await this.financeRepo.findOne({ where: { financeOwnerId, studentId } });
+    const link = await this.findActiveFinanceLink(financeOwnerId, studentId);
     return !!link;
+  }
+
+  /**
+   * Lien parent financeur ↔ élève ACTIF, ou `null`. Point unique : « lié » veut
+   * dire `endedAt IS NULL`, et cette définition ne doit exister qu'à un seul
+   * endroit — un oubli de ce filtre dans une seule requête laisserait un droit
+   * ouvert après rupture.
+   */
+  private findActiveFinanceLink(
+    financeOwnerId: string,
+    studentId: string,
+  ): Promise<FinanceOwnerStudentLink | null> {
+    return this.financeRepo.findOne({
+      where: { financeOwnerId, studentId, endedAt: IsNull() },
+    });
   }
 
   /**
@@ -559,7 +673,13 @@ export class RelationsService {
     financeOwnerId: string,
     studentId: string,
   ): Promise<FinanceOwnerStudentLink> {
-    const existing = await this.financeRepo.findOne({ where: { financeOwnerId, studentId } });
+    /**
+     * « Existe déjà » se lit sur le lien ACTIF : après une rupture, approuver
+     * une nouvelle demande de rattachement doit créer une NOUVELLE ligne, et non
+     * ressusciter la ligne rompue — qui reste, elle, la preuve de la période
+     * passée. C'est ce qui rend le cycle lier → délier → relier possible.
+     */
+    const existing = await this.findActiveFinanceLink(financeOwnerId, studentId);
     if (existing) return existing;
 
     const link = this.financeRepo.create({ financeOwnerId, studentId });
@@ -577,7 +697,7 @@ export class RelationsService {
     financeOwnerId: string,
     studentId: string,
   ): Promise<FinanceOwnerStudentLink> {
-    const existing = await this.financeRepo.findOne({ where: { financeOwnerId, studentId } });
+    const existing = await this.findActiveFinanceLink(financeOwnerId, studentId);
     if (existing) {
       throw new ConflictException('This financeur is already linked to this student');
     }
@@ -673,6 +793,16 @@ export class RelationsService {
     );
     return links.map((link) => ({ ...link, teacherName: names.get(link.teacherId) ?? null }));
   }
+}
+
+/**
+ * Message UNIQUE des deux refus de la rupture : « ce lien n'existe pas » et
+ * « ce lien ne vous regarde pas ». Les rendre distinguables reviendrait à
+ * répondre « ces deux personnes sont bien liées » à qui n'a pas le droit de le
+ * savoir — même règle que `GET /profiles/:userId/statistics`.
+ */
+export function noFinanceOwnerStudentLinkMessage(): string {
+  return 'Aucun lien de financement trouvé entre ces deux personnes';
 }
 
 /** Intersection dédoublonnée de deux listes d'identifiants. */

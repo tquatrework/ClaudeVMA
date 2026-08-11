@@ -1048,11 +1048,31 @@ Via gateway : `GET /api/v1/finance/financial-profiles/:ownerId` → backend reç
 
 | Méthode | Chemin (backend) | Description | Auth | Rôles autorisés | Body / Params | Réponse attendue |
 |---|---|---|---|---|---|---|
-| GET | /financial-profiles/:ownerId | Lire le profil financier d'un financeur | 🔒 | owner (soi-même), administrateur_financier, responsable_pedagogique, technicien_informatique | — | `200 {id, ownerId, profileType, pointsBalance, fundingEndDate, paymentMethod, paymentReference}` · `401` · `403` · `404` |
-| PATCH | /financial-profiles/:ownerId | Modifier les moyens de paiement ou paramètres | 🔒 | owner (soi-même), administrateur_financier, technicien_informatique | `{paymentMethod?, paymentReference?, fundingEndDate?}` | `200 {profileType mis à jour}` · `400` · `401` · `403` · `404` |
+| GET | /financial-profiles/:ownerId | Lire son propre profil financier, ou celui d'un tiers si rôle privilégié | 🔒 | **owner (soi-même), quel que soit son rôle** · sur un tiers : administrateur_financier, responsable_pedagogique, technicien_informatique | — | `200 {id, ownerId, profileType, pointsBalance, fundingEndDate, paymentMethod, paymentReference}` · `401` · `403` · `404` |
+| PATCH | /financial-profiles/:ownerId | Modifier les moyens de paiement ou paramètres | 🔒 | owner **si parent_financeur**, administrateur_financier, technicien_informatique | `{paymentMethod?, paymentReference?, fundingEndDate?}` | `200 {profileType mis à jour}` · `400` · `401` · `403` · `404` |
 
 Valeurs `profileType` : `limite` (compte non encore activé — inscription non payée) · `membre` (inscription payée).
 Valeurs `paymentMethod` : `cb` · `virement` · `paypal`.
+
+> **Corrigé le 2026-08-11 — le titulaire lit son propre profil financier quel que soit son rôle.**
+> La colonne « Rôles autorisés » annonçait déjà « owner (soi-même) », mais le code ne le faisait pas :
+> le `RolesGuard` filtrait sur une liste de rôles (`parent_financeur`, AF, RP, TI) **avant** que le
+> contrôle de propriété du service ne s'exécute. Un `formateur` demandant son **propre** profil
+> recevait `403 {"message":"Insufficient role"}`, alors que le README lui promet un suivi financier
+> et qu'il est rémunéré par ce service. `animateur_pedagogique` — un formateur promu, rémunéré de la
+> même façon — était touché à l'identique.
+> L'accès est désormais piloté par la **propriété**, pas par une liste de rôles qui oublie un rôle à
+> chaque évolution : les routes de lecture par propriétaire portent `@OwnerAccess()` et la décision
+> revient au service. **L'accès au profil d'autrui est inchangé** (AF, RP, TI).
+>
+> Distinction `403` / `404`, sur laquelle le front s'appuie :
+> - `403` = « pas le droit » ; le contrôle de permission passe **avant** la recherche en base, donc un
+>   `404` ne révèle jamais l'existence d'un profil à qui n'a pas le droit de le savoir ;
+> - `404` = « pas encore de profil », état **normal** que le client traite en « profil à créer ».
+>
+> **L'écriture (PATCH) n'a pas bougé** et reste plus restrictive que la lecture : un `formateur` ou un
+> `animateur_pedagogique` lit son profil financier mais ne peut pas encore l'écrire (`403 "Insufficient
+> role"`). Ouvrir l'écriture est une décision distincte, non prise ici.
 
 ### Paiements
 
@@ -1073,9 +1093,14 @@ Via gateway : `GET /api/v1/finance/financial-archives/:ownerId` → backend reç
 
 | Méthode | Chemin (backend) | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /financial-archives/:ownerId | Lister les archives financières d'un financeur | 🔒 | owner (soi-même), administrateur_financier, responsable_pedagogique, technicien_informatique | `200 [{id, ownerId, itemType, referenceId, label, amountCents, balanceSnapshot, occurredAt}]` · `401` · `403` |
+| GET | /financial-archives/:ownerId | Lister ses propres archives financières, ou celles d'un tiers si rôle privilégié | 🔒 | **owner (soi-même), quel que soit son rôle** · sur un tiers : administrateur_financier, responsable_pedagogique, technicien_informatique | `200 [{id, ownerId, itemType, referenceId, label, amountCents, balanceSnapshot, occurredAt}]` · `401` · `403` |
 
 Les archives sont triées par `occurredAt DESC`. Types d'items : `payment` · `invoice` · `ledger_entry`.
+Un titulaire sans aucun événement financier reçoit `200 []` — jamais une erreur.
+
+> **Corrigé le 2026-08-11**, même défaut et même correction que `GET /financial-profiles/:ownerId`
+> ci-dessus : un `formateur` demandant ses **propres** archives recevait `403 "Insufficient role"`.
+> L'accès est désormais piloté par la propriété ; l'accès aux archives d'autrui est inchangé.
 
 ### Paramètres financiers (rewards)
 
@@ -1113,9 +1138,20 @@ Via gateway : `/api/v1/finance/teacher-payment-requests` → backend reçoit `/t
 
 | Méthode | Chemin (backend) | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /teacher-payment-requests/by-teacher/:teacherId | Lister les demandes de rémunération d'un formateur donné | 🔒 | formateur (soi-même) | `200 [{id, teacherId, amountCents, status, ...}]` · `401` · `403` |
+| GET | /teacher-payment-requests/by-teacher/:teacherId | Lister ses propres demandes de rémunération, ou celles d'un tiers si rôle privilégié | 🔒 | **le formateur lui-même, `formateur` comme `animateur_pedagogique`** · sur un tiers : administrateur_financier, responsable_pedagogique, technicien_informatique | `200 [{id, teacherId, amountCents, status, ...}]` · `401` · `403` |
 | POST | /teacher-payment-requests | Créer une demande de rémunération | 🔒 | formateur | `201 {id, teacherId, amountCents, status, createdAt}` · `400` · `401` · `403` |
 | POST | /teacher-payment-requests/:id/validate | Valider une demande | 🔒 | administrateur_financier | `200 {id, status}` · `401` · `403` · `404` |
+
+> **Corrigé le 2026-08-11** sur `GET .../by-teacher/:teacherId` : la liste de rôles du contrôleur
+> (`formateur`, AF, TI) contredisait sa propre description Swagger, qui annonçait le RP — le
+> `responsable_pedagogique` était donc refusé à tort, et `animateur_pedagogique` ne pouvait pas voir
+> ses propres demandes. Route désormais pilotée par la propriété (`@OwnerAccess()`), comme les deux
+> routes de lecture financière ci-dessus.
+>
+> **Point en suspens (écriture, non tranché)** : `POST /teacher-payment-requests` reste réservé au rôle
+> `formateur`. Un `animateur_pedagogique` — formateur promu, rémunéré comme tel — ne peut donc pas
+> soumettre de demande de rémunération. C'est une écriture, hors périmètre de la correction du
+> 2026-08-11 ; à arbitrer.
 
 **Gap produit ouvert** : pas de route de liste globale/toutes-demandes-en-attente pour l'AF/TI — à arbitrer (nouvel endpoint backend `GET /teacher-payment-requests` avec filtrage par statut, ou autre mécanisme) avant que la validation groupée par l'AF soit réellement utilisable.
 

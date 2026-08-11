@@ -7,6 +7,13 @@
  * - Affichage de l'état global et détail par service
  * - Un utilisateur sans rôle autorisé voit un message d'accès refusé
  * - Gestion d'erreur de chargement
+ *
+ * Le titre de la page est cherché par son rôle ARIA (`heading`) et non par son
+ * texte : le rail gauche du TI porte une entrée « État des services » qui mène
+ * ici, si bien qu'un `getByText` trouvait deux nœuds et échouait — pour le TI
+ * seulement, le RP n'ayant pas cette entrée. C'était la requête qui était trop
+ * lâche, pas l'écran : un lien de navigation et le titre de la page qu'il ouvre
+ * portent légitimement le même libellé.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -125,7 +132,7 @@ describe('HealthStatusPage', () => {
   it('le TI voit le rapport de santé des services', async () => {
     renderPage()
     await waitFor(() => {
-      expect(screen.getByText('État des services')).toBeDefined()
+      expect(screen.getByRole('heading', { name: 'État des services' })).toBeDefined()
       expect(screen.getByText('identity-access-service')).toBeDefined()
       expect(screen.getByText('finance-credit-service')).toBeDefined()
     })
@@ -157,7 +164,7 @@ describe('HealthStatusPage', () => {
     mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
     renderPage()
     await waitFor(() => {
-      expect(screen.getByText('État des services')).toBeDefined()
+      expect(screen.getByRole('heading', { name: 'État des services' })).toBeDefined()
     })
   })
 

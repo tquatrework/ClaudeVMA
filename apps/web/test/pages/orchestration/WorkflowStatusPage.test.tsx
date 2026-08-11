@@ -9,6 +9,12 @@
  * - TI, RP et AF peuvent accéder à la page
  * - Gestion d'erreur de chargement
  * - Le formulaire de recherche d'instance est présent
+ *
+ * Le titre de la page est cherché par son rôle ARIA (`heading`) et non par son
+ * texte : les rails gauches de l'AF et du TI portent une entrée « Workflows »
+ * qui mène ici, si bien qu'un `getByText` trouvait deux nœuds et échouait — pour
+ * l'AF seulement, le RP n'ayant pas cette entrée. C'était la requête qui était
+ * trop lâche, pas l'écran.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -155,7 +161,7 @@ describe('WorkflowStatusPage', () => {
     mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
     renderPage()
     await waitFor(() => {
-      expect(screen.getByText('Workflows')).toBeDefined()
+      expect(screen.getByRole('heading', { name: 'Workflows' })).toBeDefined()
     })
   })
 
@@ -163,7 +169,7 @@ describe('WorkflowStatusPage', () => {
     mockUseAuth.mockReturnValue(buildAuthMock(AF_USER))
     renderPage()
     await waitFor(() => {
-      expect(screen.getByText('Workflows')).toBeDefined()
+      expect(screen.getByRole('heading', { name: 'Workflows' })).toBeDefined()
     })
   })
 

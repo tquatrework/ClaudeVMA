@@ -5,13 +5,77 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
-## Aucun objectif en cours
+## Besoin — 2026-08-11 — le flow de la demande de professeur
 
-Le précédent est mergé. La prochaine demande de l'utilisateur ouvre le suivant.
+L'utilisateur le qualifie lui-même de « plus important ». Verbatim :
 
-## Deux candidats prêts, par ordre d'urgence
+> 1. Pour rappel un élève peut demander un (nouveau) professeur (ou un parent pour son élève
+>    sélectionné...). cela conduit actuellement à une erreur (`POST /api/v1/teacher-requests`
+>    → **400 Bad Request**)
+> 2. cette demande est vue par les RP, un RP se saisit de la demande et (en ajoutant
+>    éventuellement des précisions) envoie une proposition à différents professeurs.
+> 3. un ou des professeur accepte.
+> 4. le RP valide une des acceptations professeur :
+>    4.1 un message « un professeur a été trouvé » est envoyé à l'élève et son parent financeur.
+>        Un message est envoyé aux professeurs non retenus, disant qu'un autre professeur a été
+>        sélectionné, et que la demande est finie, **qu'ils aient ou non répondu**. Un message
+>        enfin est envoyé au professeur choisi pour lui dire qu'il est désormais le professeur
+>        de l'élève.
+>    4.2 un lien est donc créé entre l'élève et son professeur
+>    4.3 l'ensemble des requêtes tombent (de l'élève au RP, et du RP aux professeurs)
 
-### 1. Chaque redéploiement d'un service back casse l'application en silence
+## Ce que ce besoin engage
+
+C'est le premier workflow **réellement transverse** de la plateforme, et `docs/microservices.md`
+le décrit déjà sous le nom `teacher-request-to-assignment` : `teacher-request-service`,
+`profile-service` (le lien formateur↔élève), `dashboard-notification-service` (les messages),
+sous la coordination d'`orchestration-service`. Les services propriétaires ne doivent pas se
+court-circuiter les uns les autres.
+
+Points d'attention connus avant de commencer :
+
+- **Le parent agit pour son élève.** Le droit d'agir doit se vérifier sur le lien parent
+  financeur↔élève, dont la rupture vient d'être livrée (PR #98). Un parent délié ne demande plus
+  rien pour cet élève.
+- **Le lien formateur↔élève existe déjà** (`teacher_student_links`, `profile-service`) et ouvre
+  depuis le 2026-08-11 la lecture des statistiques et archives. Le créer n'est donc pas anodin.
+- **4.3 exige un état terminal propre** : une fois une acceptation validée, toutes les
+  propositions pendantes tombent, y compris celles des professeurs qui n'ont jamais répondu.
+- **Idempotence et `x-correlation-id`** sont des contrats techniques du projet, et une erreur
+  métier ne doit jamais être transformée en succès technique.
+
+## Étape en cours : établir l'existant avant de concevoir
+
+Rien n'est codé tant que l'écart n'est pas relevé. Le `400` du point 1 est le fil à tirer : il
+dira si le contrat front/back est faux, si une donnée obligatoire manque, ou si la route ne fait
+pas ce qu'elle annonce — trois causes qui appellent trois corrections différentes.
+
+## État
+
+- [ ] Existant relevé, écart établi
+- [ ] Architecture arbitrée et écrite
+- [ ] Back
+- [ ] Front
+- [ ] Déployé sur la pile réelle
+- [ ] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur
+- [ ] Mergé dans master
+
+---
+
+## Deux PR livrées, prouvées, en attente de merge
+
+- **#97 gateway** — re-résolution DNS à chaque requête. Prouvée deux fois, dont une
+  indépendamment de l'agent, et confirmée en conditions réelles lors du déploiement de #98
+  (reconstruction de `profile-service` sans toucher la gateway, `401` immédiat, zéro `502`).
+  Tant qu'elle n'est pas mergée, une reconstruction de la gateway depuis `master` réinstalle le
+  défaut.
+- **#98 délier** — rupture du lien parent financeur↔élève dans les deux sens, historique
+  conservé, droits refermés (profil `403`, statistiques et archives `404`), relien vérifié.
+
+## Candidat suivant, diagnostiqué et non corrigé
+
+### Les déploiements front peuvent rester invisibles
 
 **Défaut d'exploitation constaté le 2026-08-11, réparé au coup par coup, pas corrigé à la
 racine.** Le plus grave trouvé ce jour-là.

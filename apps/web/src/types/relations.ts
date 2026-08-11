@@ -15,6 +15,8 @@
  * (arbitrage du 2026-08-09, aucun UUID à l'écran).
  */
 
+import type { PersonName } from './profile'
+
 export type RelationKind =
   | 'finance_owner_of_student'
   | 'student_of_finance_owner'
@@ -41,4 +43,37 @@ export interface MyContact {
   firstName: string | null
   lastName: string | null
   relations: ContactRelation[]
+}
+
+/**
+ * Lien de financement parent financeur ↔ élève, tel que renvoyé par les routes
+ * `/relations/finance-owner-student` (`docs/routes.md` § profile-service > Relations).
+ *
+ * Les deux routes de lecture renvoient **déjà** le nom de l'autre partie, résolu
+ * côté serveur depuis son profil administratif :
+ *   - `by-student/:studentId`   → `financeOwnerName`
+ *   - `:financeOwnerId`         → `studentName`
+ *
+ * Ces champs sont la SEULE source du nom à afficher. Ne jamais les ré-enrichir via
+ * `GET /profiles/:id` : un élève n'a pas le droit de lire le profil de son parent
+ * (403), ce qui faisait autrefois retomber l'affichage sur l'UUID.
+ *
+ * `endedAt`/`endedBy` portent la **rupture** du lien (« Délier », 2026-08-11) :
+ * aucune ligne n'est supprimée, la table est un journal. Les routes de lecture ne
+ * renvoient que les liens actifs (`endedAt: null`) ; seule la réponse du `DELETE`
+ * porte une date de rupture non nulle, et c'est elle qui vaut confirmation.
+ */
+export interface FinanceOwnerStudentLink {
+  id?: string
+  financeOwnerId: string
+  studentId: string
+  createdAt: string
+  /** Non nul une fois le lien rompu. `null` sur un lien actif. */
+  endedAt?: string | null
+  /** `userId` de l'auteur de la rupture. Jamais affiché — identifiant technique. */
+  endedBy?: string | null
+  /** Présent sur `GET /relations/finance-owner-student/by-student/:studentId`. */
+  financeOwnerName?: PersonName | null
+  /** Présent sur `GET /relations/finance-owner-student/:financeOwnerId`. */
+  studentName?: PersonName | null
 }

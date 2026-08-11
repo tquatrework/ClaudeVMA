@@ -5,6 +5,8 @@ import { RelationsService } from '../../../src/relations/relations.service';
 import { FinanceOwnerStudentLink } from '../../../src/relations/entities/finance-owner-student-link.entity';
 import { TeacherStudentLink } from '../../../src/relations/entities/teacher-student-link.entity';
 import { PedagogicalCoordinatorLink } from '../../../src/relations/entities/pedagogical-coordinator-link.entity';
+import { AnimatorTeacherLink } from '../../../src/relations/entities/animator-teacher-link.entity';
+import { RelationKind } from '../../../src/relations/relation-kind';
 import { EventsService } from '../../../src/events/events.service';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
 import { Actor } from '../../../src/profiles/profiles.service';
@@ -17,6 +19,7 @@ describe('RelationsService', () => {
   let financeRepo: any;
   let teacherRepo: any;
   let coordinatorRepo: any;
+  let animatorRepo: any;
   let eventsService: any;
   let administrativeProfileLookup: any;
 
@@ -42,6 +45,13 @@ describe('RelationsService', () => {
       save: jest.fn().mockImplementation(async (entity) => ({ id: 'link-uuid', ...entity, createdAt: new Date() })),
     };
 
+    animatorRepo = {
+      findOne: jest.fn().mockResolvedValue(null),
+      find: jest.fn().mockResolvedValue([]),
+      create: jest.fn().mockImplementation((dto) => dto),
+      save: jest.fn().mockImplementation(async (entity) => ({ id: 'link-uuid', ...entity, createdAt: new Date() })),
+    };
+
     eventsService = { publish: jest.fn() };
 
     administrativeProfileLookup = {
@@ -54,6 +64,7 @@ describe('RelationsService', () => {
         { provide: getRepositoryToken(FinanceOwnerStudentLink), useValue: financeRepo },
         { provide: getRepositoryToken(TeacherStudentLink), useValue: teacherRepo },
         { provide: getRepositoryToken(PedagogicalCoordinatorLink), useValue: coordinatorRepo },
+        { provide: getRepositoryToken(AnimatorTeacherLink), useValue: animatorRepo },
         { provide: EventsService, useValue: eventsService },
         { provide: AdministrativeProfileLookupService, useValue: administrativeProfileLookup },
       ],
@@ -408,6 +419,253 @@ describe('RelationsService', () => {
       await expect(
         service.createPedagogicalCoordinatorLinkForSystem('rp-uuid', 'student-uuid', 'responsable_pedagogique'),
       ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // linkAnimatorToTeacher — relation AP → formateur (arbitrage du 2026-08-11)
+  // ---------------------------------------------------------------------------
+  describe('linkAnimatorToTeacher', () => {
+    const dto = { animatorId: 'ap-uuid', teacherId: 'teacher-uuid' };
+
+    it('crée le lien quand le RP le demande', async () => {
+      const result = await service.linkAnimatorToTeacher(dto, makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE));
+      expect(animatorRepo.save).toHaveBeenCalled();
+      expect(result).toMatchObject(dto);
+      expect(eventsService.publish).toHaveBeenCalledWith(
+        'AnimatorLinkedToTeacher',
+        expect.objectContaining(dto),
+      );
+    });
+
+    it('refuse un AP qui se donnerait ses propres animés', async () => {
+      await expect(
+        service.linkAnimatorToTeacher(dto, makeActor(UserRole.ANIMATEUR_PEDAGOGIQUE, 'ap-uuid')),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('refuse le TI et le formateur', async () => {
+      await expect(
+        service.linkAnimatorToTeacher(dto, makeActor(UserRole.TECHNICIEN_INFORMATIQUE)),
+      ).rejects.toThrow(ForbiddenException);
+      await expect(
+        service.linkAnimatorToTeacher(dto, makeActor(UserRole.FORMATEUR)),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('renvoie 409 sur un doublon', async () => {
+      animatorRepo.findOne.mockResolvedValue({ id: 'existing' });
+      await expect(
+        service.linkAnimatorToTeacher(dto, makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE)),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('getTeachersByAnimator', () => {
+    it("laisse l'AP lister ses propres animés, avec leur nom", async () => {
+      animatorRepo.find.mockResolvedValue([{ animatorId: 'ap-uuid', teacherId: 'teacher-uuid' }]);
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(
+        new Map([['teacher-uuid', { firstName: 'Nadia', lastName: 'Belkacem' }]]),
+      );
+
+      const result = await service.getTeachersByAnimator(
+        'ap-uuid',
+        makeActor(UserRole.ANIMATEUR_PEDAGOGIQUE, 'ap-uuid'),
+      );
+
+      expect(result).toEqual([
+        expect.objectContaining({
+          teacherId: 'teacher-uuid',
+          teacherName: { firstName: 'Nadia', lastName: 'Belkacem' },
+        }),
+      ]);
+    });
+
+    it("refuse un AP qui consulte la liste d'un autre AP", async () => {
+      await expect(
+        service.getTeachersByAnimator('other-ap-uuid', makeActor(UserRole.ANIMATEUR_PEDAGOGIQUE, 'ap-uuid')),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // resolveRelations — nature ET sens du lien
+  // ---------------------------------------------------------------------------
+  describe('resolveRelations', () => {
+    const PARENT = 'parent-uuid';
+    const STUDENT = 'student-uuid';
+    const TEACHER = 'teacher-uuid';
+    const AP = 'ap-uuid';
+
+    it('ne renvoie rien pour deux personnes sans aucun lien', async () => {
+      expect(await service.resolveRelations(TEACHER, STUDENT)).toEqual([]);
+    });
+
+    it('ne se relie jamais à soi-même — le titulaire est traité en amont', async () => {
+      expect(await service.resolveRelations(STUDENT, STUDENT)).toEqual([]);
+      expect(financeRepo.find).not.toHaveBeenCalled();
+    });
+
+    it('formateur → élève et élève → formateur : les deux sens sont nommés', async () => {
+      teacherRepo.find.mockResolvedValue([
+        { teacherId: TEACHER, studentId: STUDENT, isPrincipalTeacher: true },
+      ]);
+
+      expect(await service.resolveRelations(TEACHER, STUDENT)).toEqual([
+        { kind: RelationKind.TEACHER_OF_STUDENT, isPrincipalTeacher: true },
+      ]);
+      expect(await service.resolveRelations(STUDENT, TEACHER)).toEqual([
+        { kind: RelationKind.STUDENT_OF_TEACHER, isPrincipalTeacher: true },
+      ]);
+    });
+
+    it('parent → élève et élève → parent', async () => {
+      financeRepo.find.mockResolvedValue([{ financeOwnerId: PARENT, studentId: STUDENT }]);
+
+      expect(await service.resolveRelations(PARENT, STUDENT)).toEqual([
+        { kind: RelationKind.FINANCE_OWNER_OF_STUDENT },
+      ]);
+      expect(await service.resolveRelations(STUDENT, PARENT)).toEqual([
+        { kind: RelationKind.STUDENT_OF_FINANCE_OWNER },
+      ]);
+    });
+
+    it('AP → formateur et formateur → AP', async () => {
+      animatorRepo.find.mockResolvedValue([{ animatorId: AP, teacherId: TEACHER }]);
+
+      expect(await service.resolveRelations(AP, TEACHER)).toEqual([
+        { kind: RelationKind.ANIMATOR_OF_TEACHER },
+      ]);
+      expect(await service.resolveRelations(TEACHER, AP)).toEqual([
+        { kind: RelationKind.TEACHER_OF_ANIMATOR },
+      ]);
+    });
+
+    it("parent ↔ formateur : lien INDIRECT, par l'élève commun", async () => {
+      financeRepo.find.mockResolvedValue([{ financeOwnerId: PARENT, studentId: STUDENT }]);
+      teacherRepo.find.mockResolvedValue([
+        { teacherId: TEACHER, studentId: STUDENT, isPrincipalTeacher: false },
+      ]);
+
+      expect(await service.resolveRelations(PARENT, TEACHER)).toEqual([
+        { kind: RelationKind.FINANCE_OWNER_OF_STUDENT_OF_TEACHER, throughUserIds: [STUDENT] },
+      ]);
+      expect(await service.resolveRelations(TEACHER, PARENT)).toEqual([
+        { kind: RelationKind.TEACHER_OF_STUDENT_OF_FINANCE_OWNER, throughUserIds: [STUDENT] },
+      ]);
+    });
+
+    it("aucun lien indirect quand l'élève n'est pas commun", async () => {
+      financeRepo.find.mockResolvedValue([{ financeOwnerId: PARENT, studentId: 'other-student' }]);
+      teacherRepo.find.mockResolvedValue([
+        { teacherId: TEACHER, studentId: STUDENT, isPrincipalTeacher: false },
+      ]);
+
+      expect(await service.resolveRelations(PARENT, TEACHER)).toEqual([]);
+    });
+
+    it('coordinateur ↔ élève', async () => {
+      coordinatorRepo.find.mockResolvedValue([
+        { coordinatorId: AP, studentId: STUDENT, coordinatorRole: 'animateur_pedagogique' },
+      ]);
+
+      expect(await service.resolveRelations(AP, STUDENT)).toEqual([
+        { kind: RelationKind.COORDINATOR_OF_STUDENT },
+      ]);
+      expect(await service.resolveRelations(STUDENT, AP)).toEqual([
+        { kind: RelationKind.STUDENT_OF_COORDINATOR },
+      ]);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // listRelatedPeople — ce que l'écran /archives consomme
+  // ---------------------------------------------------------------------------
+  describe('listRelatedPeople', () => {
+    it('renvoie une liste vide pour un compte sans aucun lien — jamais une erreur', async () => {
+      expect(await service.listRelatedPeople('lonely-uuid')).toEqual([]);
+    });
+
+    it('porte le prénom, le nom et la nature du lien, sans jamais exiger un UUID à afficher', async () => {
+      teacherRepo.find.mockResolvedValue([
+        { teacherId: 'teacher-uuid', studentId: 'student-uuid', isPrincipalTeacher: true },
+      ]);
+      financeRepo.find.mockResolvedValue([]);
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(
+        new Map([['student-uuid', { firstName: 'Théo', lastName: 'Relation' }]]),
+      );
+
+      expect(await service.listRelatedPeople('teacher-uuid')).toEqual([
+        {
+          userId: 'student-uuid',
+          firstName: 'Théo',
+          lastName: 'Relation',
+          relations: [{ kind: RelationKind.TEACHER_OF_STUDENT, isPrincipalTeacher: true }],
+        },
+      ]);
+    });
+
+    it("laisse le nom à null quand la personne n'a pas de profil administratif", async () => {
+      financeRepo.find.mockResolvedValue([
+        { financeOwnerId: 'parent-uuid', studentId: 'student-uuid' },
+      ]);
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(new Map());
+
+      expect(await service.listRelatedPeople('parent-uuid')).toEqual([
+        {
+          userId: 'student-uuid',
+          firstName: null,
+          lastName: null,
+          relations: [{ kind: RelationKind.FINANCE_OWNER_OF_STUDENT }],
+        },
+      ]);
+    });
+
+    it('inclut les formateurs des élèves financés — lien indirect, une seule entrée par personne', async () => {
+      financeRepo.find.mockResolvedValue([
+        { financeOwnerId: 'parent-uuid', studentId: 'student-uuid' },
+      ]);
+      // 1er appel : liens du parent (aucun en tant que formateur) ;
+      // 2e appel : formateurs de ses élèves.
+      teacherRepo.find
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          { teacherId: 'teacher-uuid', studentId: 'student-uuid', isPrincipalTeacher: true },
+        ]);
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(
+        new Map([
+          ['student-uuid', { firstName: 'Théo', lastName: 'Relation' }],
+          ['teacher-uuid', { firstName: 'Farid', lastName: 'Formateur' }],
+        ]),
+      );
+
+      const result = await service.listRelatedPeople('parent-uuid');
+
+      expect(result).toHaveLength(2);
+      expect(result.find((person) => person.userId === 'teacher-uuid')?.relations).toEqual([
+        {
+          kind: RelationKind.FINANCE_OWNER_OF_STUDENT_OF_TEACHER,
+          throughUserIds: ['student-uuid'],
+        },
+      ]);
+    });
+
+    it('trie par nom et ne résout les noms qu\'en un seul appel (pas de N+1)', async () => {
+      financeRepo.find.mockResolvedValue([
+        { financeOwnerId: 'parent-uuid', studentId: 'student-b' },
+        { financeOwnerId: 'parent-uuid', studentId: 'student-a' },
+      ]);
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(
+        new Map([
+          ['student-a', { firstName: 'Alice', lastName: 'Amiot' }],
+          ['student-b', { firstName: 'Bruno', lastName: 'Zerbib' }],
+        ]),
+      );
+
+      const result = await service.listRelatedPeople('parent-uuid');
+
+      expect(result.map((person) => person.lastName)).toEqual(['Amiot', 'Zerbib']);
+      expect(administrativeProfileLookup.findNamesByUserIds).toHaveBeenCalledTimes(1);
     });
   });
 });

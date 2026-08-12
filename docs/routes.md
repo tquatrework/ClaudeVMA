@@ -769,7 +769,9 @@ Précisions qui font contrat :
 | DELETE | /relations/finance-owner-student/:financeOwnerId/:studentId | 🔒 | **piloté par la propriété du lien** (`@OwnerAccess()`, aucune liste de rôles) : les **deux parties** (le parent financeur, l'élève), plus RP et TI. L'**AF en est exclu** — il constate les rattachements, il ne décide pas de les rompre | **« Délier »** un parent financeur et un élève (2026-08-11), depuis l'un ou l'autre côté. **Aucune ligne n'est supprimée** malgré le verbe : la rupture renseigne `endedAt`/`endedBy`, la table est un journal — on doit pouvoir prouver que le lien a existé, puis a été rompu, et quand. **Idempotent** : deux appels renvoient `200`, avec la **même** date de rupture (la date initiale n'est jamais réécrite). **Referme d'un coup tous les droits ouverts par la relation** : profil, statistiques, et archives pédagogiques via `GET /internal/relations/...`. Publie `StudentUnlinkedFromFinanceOwner` | `200 {id, financeOwnerId, studentId, createdAt, endedAt, endedBy}` — `endedAt` non nul vaut confirmation · `400` UUID mal formé · `401` · `404` **aucun lien OU appelant sans droit sur ce lien : même code, même message** (`« Aucun lien de financement trouvé entre ces deux personnes »`) — un `403` révélerait à un tiers qui finance qui |
 | GET | /relations/finance-owner-student/by-student/:studentId | 🔒 | eleve (soi-même), responsable_pedagogique, administrateur_financier, technicien_informatique | Lister les financeurs **actifs** rattachés à un élève (symétrique). Un lien rompu n'y figure plus | `200 [{id, financeOwnerId, studentId, createdAt, endedAt: null, endedBy: null, financeOwnerName}]` — `financeOwnerName` est `{firstName, lastName}` (valeurs `string \| null`) résolu depuis le profil administratif du financeur, ou `null` si ce profil administratif n'existe pas · `401` · `403` |
 | GET | /relations/finance-owner-student/:financeOwnerId | 🔒 | parent_financeur (soi-même), responsable_pedagogique, administrateur_financier, technicien_informatique | Lister les élèves **actifs** rattachés à un financeur. Un lien rompu n'y figure plus | `200 [{id, financeOwnerId, studentId, createdAt, endedAt: null, endedBy: null, studentName}]` — `studentName` est `{firstName, lastName}` (valeurs `string \| null`) résolu depuis le profil administratif de l'élève, ou `null` si ce profil administratif n'existe pas · `401` · `403` |
-| POST | /relations/teacher-student | 🔒 | responsable_pedagogique | Lier un formateur à un élève (avec flag professeur principal) | `201 {teacherId, studentId, isPrincipalTeacher, createdAt}` · `400` · `401` · `403` · `409` doublon |
+| POST | /relations/teacher-student | 🔒 | responsable_pedagogique | Lier un formateur à un élève (avec flag professeur principal) | `201 {id, teacherId, studentId, isPrincipalTeacher, createdAt, endedAt: null, endedBy: null, endReason: null}` · `400` · `401` · `403` · `409` **une relation ACTIVE existe déjà** — le conflit porte sur l'état courant, pas sur l'existence d'une ligne : une relation terminée ne bloque jamais une nouvelle affectation |
+| DELETE | /relations/teacher-student/:teacherId/:studentId | 🔒 | **responsable_pedagogique UNIQUEMENT** | **Mettre fin à la relation élève ↔ formateur** (2026-08-12), depuis la **fiche de l'élève**. **Différence assumée** avec le déliement parent financeur, où les deux parties peuvent rompre : une affectation pédagogique est prononcée par le RP, elle se défait par le RP. Le formateur, l'élève, le parent financeur, l'AF **et le TI** sont refusés. **Aucune ligne n'est supprimée** malgré le verbe et malgré le libellé « Supprimer » à l'écran : la fin renseigne `endedAt`/`endedBy`/`endReason`, la table est un journal. **Motif optionnel** dans le corps (`{reason?}`, ≤ 1000 caractères) — le déclencheur étant hors logiciel, le RP est le seul à pouvoir le consigner ; le corps entier peut être omis. **Idempotent** : deux appels renvoient `200`, avec la **même** date **et le même motif** (la trace initiale n'est jamais réécrite). **Referme d'un coup tous les droits ouverts par la relation** : profil, statistiques, et archives pédagogiques via `GET /internal/relations/...`. **Aucune fin automatique** : valider un nouveau professeur ne met pas fin au précédent. Publie `TeacherUnlinkedFromStudent` | `200 {id, teacherId, studentId, isPrincipalTeacher, createdAt, endedAt, endedBy, endReason}` — `endedAt` non nul vaut confirmation · `400` UUID mal formé ou motif > 1000 caractères · `401` · `403` tout rôle autre que RP · `404` aucune relation entre ces deux personnes, ni active ni terminée (`« Aucune relation trouvée entre ce professeur et cet élève »`) |
+| GET | /relations/teacher-student/:studentId | 🔒 | responsable_pedagogique, technicien_informatique, administrateur_financier, eleve (soi-même), parent_financeur lié à cet élève, formateur (**son propre lien uniquement**, PROF-FB-003) | Lister les formateurs **actifs** d'un élève — une relation terminée n'y figure plus. C'est la liste affichée sur la **fiche de l'élève**, à partir de laquelle le RP met fin à une relation | `200 [{id, teacherId, studentId, isPrincipalTeacher, createdAt, endedAt: null, endedBy: null, endReason: null, teacherName}]` — `teacherName` est `{firstName, lastName}` résolu depuis le profil administratif du formateur, ou `null` s'il n'en a pas ; **aucun écran n'a donc à afficher un UUID** · `401` · `403` |
 | POST | /relations/pedagogical-coordinator | 🔒 | responsable_pedagogique | Lier un RP ou AP comme coordinateur pédagogique d'un élève | `201 {coordinatorId, studentId, coordinatorRole, createdAt}` · `400` rôle invalide · `401` · `403` · `409` doublon |
 | GET | /relations/pedagogical-coordinator/:coordinatorId | 🔒 | responsable_pedagogique, animateur_pedagogique (soi-même), technicien_informatique | Lister les liens de coordination d'un coordinateur | `200 [{coordinatorId, studentId, coordinatorRole}]` · `401` · `403` |
 | POST | /relations/animator-teacher | 🔒 | responsable_pedagogique | **Rattacher un AP à un formateur qu'il anime** (2026-08-11). Aucune table ne portait cette relation : `pedagogical-coordinator` lie un coordinateur à un **élève**, pas à un formateur. C'est elle, et elle seule, qui ouvre à l'AP la lecture des statistiques (et bientôt des archives) du formateur. Réservé au RP : c'est lui qui promeut un formateur en AP, c'est donc lui qui décide de ce qu'un AP anime | `201 {id, animatorId, teacherId, createdAt}` · `400` champ absent ou non-UUID · `401` · `403` tout rôle autre que RP, AP compris · `409` doublon |
@@ -808,13 +810,20 @@ personne. La table étant vide à sa création, les liens doivent être créés 
 `finance_owner_of_student_of_teacher`, `teacher_of_student_of_finance_owner`.
 
 **Un lien rompu n'ouvre plus rien.** Depuis le 2026-08-11, un lien parent financeur ↔ élève peut être
-rompu (`DELETE /relations/finance-owner-student/:financeOwnerId/:studentId`). Toutes les résolutions de
-relation — celle-ci, `GET /relations/my-contacts`, `GET /internal/relations/:viewerId/:targetId` — ne
-lisent que les liens **actifs** (`endedAt IS NULL`). La rupture referme donc d'un seul geste le profil,
+rompu (`DELETE /relations/finance-owner-student/:financeOwnerId/:studentId`) ; depuis le 2026-08-12,
+une relation élève ↔ formateur peut prendre fin
+(`DELETE /relations/teacher-student/:teacherId/:studentId`, **RP uniquement**). Toutes les résolutions
+de relation — celle-ci, `GET /relations/my-contacts`, `GET /internal/relations/:viewerId/:targetId` —
+ne lisent que les liens **actifs** (`endedAt IS NULL`). La fin referme donc d'un seul geste le profil,
 les statistiques et les archives pédagogiques, sans qu'aucun service consommateur ait à être prévenu.
-Vérifié contre la pile réelle : après rupture, le parent reçoit `403` sur `GET /profiles/:studentId`,
-`404` sur `/statistics` et `404` sur `/api/v1/archives/students/:studentId/pedagogical-archives`, et
-`200 []` sur `my-contacts`.
+Vérifié contre la pile réelle pour le lien parent : après rupture, le parent reçoit `403` sur
+`GET /profiles/:studentId`, `404` sur `/statistics` et `404` sur
+`/api/v1/archives/students/:studentId/pedagogical-archives`, et `200 []` sur `my-contacts`.
+Vérifié contre la pile réelle pour la relation formateur (2026-08-12) : le formateur passe de `200` à
+**`403`** sur `GET /profiles/:studentId`, de `200` à **`404`** sur `/statistics`, et
+`GET /internal/relations/:teacherId/:studentId?viewerRole=formateur` passe de
+`[{kind: "teacher_of_student"}]` à **`[]`** — c'est cette dernière que consomme
+`archive-document-service`. Les trois redeviennent ouverts si le RP recrée la relation.
 
 ### API interne inter-services (non exposée via nginx)
 
@@ -894,12 +903,19 @@ restant en base comme preuve de la période passée. Vérifié contre la pile r�
 
 ### Événements publiés
 
-`ProfileUpdated` · `StudentLinkedToFinanceOwner` · `StudentUnlinkedFromFinanceOwner` · `TeacherLinkedToStudent` · `CoordinatorLinkedToStudent` · `AnimatorLinkedToTeacher` · `TeacherPromotedToPedagogicalAnimator` · `ParentLinkRequested` · `ParentLinkApproved` · `ParentLinkRejected`
+`ProfileUpdated` · `StudentLinkedToFinanceOwner` · `StudentUnlinkedFromFinanceOwner` · `TeacherLinkedToStudent` · `TeacherUnlinkedFromStudent` · `CoordinatorLinkedToStudent` · `AnimatorLinkedToTeacher` · `TeacherPromotedToPedagogicalAnimator` · `ParentLinkRequested` · `ParentLinkApproved` · `ParentLinkRejected`
 
 > `StudentUnlinkedFromFinanceOwner` (2026-08-11) est le **pendant** de `StudentLinkedToFinanceOwner` :
 > publier la liaison sans publier la rupture laisserait tout abonné sur une vue périmée. Aucun service
 > ne consomme aujourd'hui l'un ni l'autre — le publieur est un journal structuré, pas encore un bus.
 > Charge utile : `{financeOwnerId, studentId, actorId, endedAt}`.
+
+> `TeacherUnlinkedFromStudent` (2026-08-12) est le **pendant** de `TeacherLinkedToStudent`, pour la
+> même raison — et ici la vue périmée porterait des **droits** (statistiques, archives pédagogiques),
+> pas seulement un affichage. Publié uniquement sur une fin réelle : un rejeu idempotent n'émet
+> **rien**, sans quoi un abonné compterait deux fins pour une seule décision.
+> Charge utile : `{teacherId, studentId, actorId, endedAt, reason}` — `reason` vaut `null` quand le RP
+> n'en a pas consigné.
 
 ---
 

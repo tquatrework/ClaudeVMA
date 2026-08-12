@@ -1734,7 +1734,128 @@
           ils forment le premier jeu réel où un AP est relié à un formateur.
         </realStackVerification>
       </decision>
+      <decision id="C17" status="implemented" session="2026-08-11">
+        <title>Délier un parent financeur et un élève — la rupture s'enregistre, elle ne s'efface pas</title>
+        <filesTouched>
+          <file path="services/profile-service/src/relations/entities/finance-owner-student-link.entity.ts">
+            Colonnes `endedAt` / `endedBy`. La contrainte d'unicité pleine sur la paire est
+            remplacée par un index unique PARTIEL `WHERE ended_at IS NULL` : autant de liens
+            rompus qu'on veut pour une paire, jamais deux liens actifs.
+          </file>
+          <file path="services/profile-service/src/migrations/1755000000000-AddFinanceOwnerStudentLinkEnd.ts">
+            NOUVEAU. Ajoute les deux colonnes, supprime l'ancienne contrainte d'unicité (cherchée
+            par son RÔLE — colonnes + type — car son nom généré diffère d'une base à l'autre), crée
+            l'index partiel. Les lignes existantes restent actives (`ended_at NULL`).
+          </file>
+          <file path="services/profile-service/src/relations/relations.service.ts">
+            `unlinkFinanceOwnerFromStudent`, `mayUnlink`, `findActiveFinanceLink` (point UNIQUE de
+            la définition de « lié »), message partagé `noFinanceOwnerStudentLinkMessage`. Les 9
+            lectures du dépôt financier filtrent désormais sur `endedAt IS NULL`.
+          </file>
+          <file path="services/profile-service/src/relations/relations.controller.ts">
+            DELETE /relations/finance-owner-student/:financeOwnerId/:studentId, `@OwnerAccess()`,
+            Swagger complet.
+          </file>
+          <file path="services/profile-service/src/events/events.service.ts">
+            Événement `StudentUnlinkedFromFinanceOwner`.
+          </file>
+          <file path="services/profile-service/test/e2e/finance-owner-student-unlink.e2e-spec.ts">
+            NOUVEAU, 20 tests : droits ouverts avant, refermés après, idempotence, refus
+            indiscernable d'une absence, rupture depuis les deux côtés, nouveau rattachement.
+          </file>
+          <file path="services/profile-service/test/unit/relations/relations.service.spec.ts">
+            +11 tests (rupture, idempotence, réversibilité) ; un test existant aligné sur le
+            filtre `endedAt`.
+          </file>
+          <file path="docs/routes.md">Route de rupture, réponses des lectures, événement.</file>
+        </filesTouched>
+        <description>
+          Besoin exprimé le 2026-08-11 : un bouton « Délier » côté parent financeur comme côté
+          élève. Trois décisions structurent l'implémentation.
+
+          1. DÉLIER N'EFFACE PAS. Aucune ligne n'est supprimée : la rupture renseigne
+             `ended_at`/`ended_by`. Même raisonnement que le retrait d'un consentement (arbitrage
+             du 2026-08-09) — on doit pouvoir prouver que le lien a existé, puis a été rompu, et
+             quand ; un lien financier disparu sans trace serait ingérable côté facturation.
+
+          2. LE CONTRÔLE PORTE SUR LA PROPRIÉTÉ DU LIEN, pas sur une liste de rôles : les deux
+             parties nommées dans le lien, plus RP et TI. L'AF en est exclu — il constate les
+             rattachements, il ne décide pas de les rompre. Un refus renvoie `404` avec le MÊME
+             message qu'une absence de lien : un `403` révélerait à un tiers qui finance qui.
+
+          3. IDEMPOTENCE PAR L'ÉTAT VISÉ. Délier un lien déjà rompu renvoie `200` et la ligne
+             telle quelle, sans réécrire `ended_at` — la date initiale a valeur de preuve. Un
+             second clic, ou un rejeu réseau, ne doit pas échouer sur une situation conforme.
+
+          Ce que la rupture referme, sans qu'aucun service ait à être prévenu : toutes les
+          résolutions de relation ne lisent que les liens actifs, donc le profil, les statistiques
+          et — via `GET /internal/relations/:viewerId/:targetId` — les archives pédagogiques se
+          ferment ensemble. `profile-service` reste l'unique propriétaire des relations.
+
+          Réversibilité : le `409` de création et le « existe déjà » de
+          `ensureFinanceOwnerStudentLink` portent sur le lien ACTIF, jamais sur l'existence d'une
+          ligne — sinon une rupture interdirait à vie de se rattacher de nouveau, exactement le
+          défaut du `409 "Consent already signed"` corrigé le 2026-08-09. L'index unique partiel
+          est ce qui rend cette réversibilité possible au niveau du schéma.
+
+          Périmètre : seule la relation parent financeur ↔ élève est concernée. Les liens
+          formateur↔élève, coordinateur↔élève et AP↔formateur n'ont pas de rupture ; le besoin ne
+          la demandait pas et leur cycle de vie (arrêt avec préavis, côté
+          `teacher-request-service`) mérite son propre arbitrage.
+        </description>
+        <realStackVerification>
+          Migration jouée sur `visiomath_postgres` / `visiomath_profile` au démarrage du conteneur :
+          `AddFinanceOwnerStudentLinkEnd1755000000000 has been executed successfully`.
+          6 lignes avant, 6 après, 0 rompue — les liens existants restent actifs. Contrainte
+          `UQ_3ca67aa06a64b58a671075b63b5` remplacée par
+          `UQ_finance_owner_student_links_active … WHERE ended_at IS NULL`.
+
+          Parcours joué de bout en bout via https://claudevma.visioprof.fr (comptes
+          `paul.delieur.1786462956`, `theo.delie.1786462956`, `farid.formateur.1786462956`) :
+            AVANT   GET /profiles/:student                      200
+                    GET /profiles/:student/statistics           200 {"level":"3e"…}
+                    GET /archives/students/:student/pedagogical-archives 200 {total:1}
+                    GET /relations/my-contacts (parent)         200 [{Theo Delie, finance_owner_of_student}]
+            REFUS   DELETE … par un formateur tiers             404 "Aucun lien de financement trouvé
+                      entre ces deux personnes" — MÊME corps que sur une paire inexistante
+            RUPTURE DELETE … par le parent                      200 {"endedAt":"2026-08-11T15:44:31.161Z",
+                      "endedBy":"bdb0fb12-…"}
+            2e APPEL DELETE … (idempotence)                     200, MÊME endedAt
+            APRÈS   GET /profiles/:student                      403
+                    GET /profiles/:student/statistics           404
+                    GET /archives/students/:student/pedagogical-archives 404
+                    GET /relations/finance-owner-student/:parent 200 []
+                    GET /relations/finance-owner-student/by-student/:student 200 []
+                    GET /relations/my-contacts (parent ET élève) 200 []
+            RELIEN  POST /parent-link-requests                  201 pending
+                    POST /parent-link-requests/:id/approve      201 approved
+                    GET /relations/finance-owner-student/:parent 200 [nouvelle ligne, endedAt null]
+                    GET /profiles/:student/statistics           200
+                    GET /archives/…/pedagogical-archives        200
+            AUTRE CÔTÉ DELETE … par l'ÉLÈVE                     200 {"endedBy":"a5d896f3-…"}
+          Base après le parcours : deux lignes pour la paire, l'une rompue par le parent, l'autre
+          par l'élève — la période passée reste prouvable. Journal du service :
+          `{"type":"StudentUnlinkedFromFinanceOwner","payload":{"financeOwnerId":…,"studentId":…,
+          "actorId":…,"endedAt":…}}`, deux occurrences.
+        </realStackVerification>
+      </decision>
       <openPoints>
+        <item priority="medium" status="to-do" raisedIn="C17" raisedOn="2026-08-11" owner="back">
+          `GET /profiles/:userId` répond encore `403` à un parent non relié
+          (« A parent may only view profiles of students they are linked to »), là où les
+          statistiques et les archives répondent `404` avec un message d'absence. Mesuré contre la
+          pile réelle après une rupture. L'écart est antérieur à cette session et ne révèle rien
+          de plus qu'avant — le comportement est le même pour n'importe quel élève non relié —
+          mais il contredit le point 5 de l'arbitrage du 2026-08-11 (« un accès refusé se comporte
+          comme les autres masquages »). À aligner en session dédiée : le passage en 404 touche le
+          contrat de `GET /profiles/:userId` et le front qui distingue aujourd'hui les deux codes.
+        </item>
+        <item priority="low" status="to-do" raisedIn="C17" raisedOn="2026-08-11" owner="back">
+          Aucune trace de la rupture dans `admin-observability-service` : `profile-service` n'a
+          aucun client vers ce service. La base garde `ended_by`/`ended_at` et le journal porte
+          l'événement, ce qui satisfait le minimum exigé, mais une action sensible devrait
+          remonter à l'audit central quand ce câblage existera.
+        </item>
         <item priority="high" status="to-do" raisedIn="C16" raisedOn="2026-08-11" owner="front">
           `/my-students` — LE FORMATEUR VOIT UNE LISTE VIDE, PAS UN 403. `MyStudentsPage` appelle
           `fetchLinkedStudents(user.id)` → `GET /relations/finance-owner-student/:id`, qui répond

@@ -1,6 +1,6 @@
 import apiClient from './client'
-import type { PersonName, TeacherStudentRelation } from '../types/profile'
-import type { MyContact } from '../types/relations'
+import type { TeacherStudentRelation } from '../types/profile'
+import type { FinanceOwnerStudentLink, MyContact } from '../types/relations'
 
 /**
  * GET /relations/my-contacts — les personnes auxquelles l'utilisateur AUTHENTIFIÉ
@@ -18,32 +18,6 @@ import type { MyContact } from '../types/relations'
 export async function fetchMyContacts(): Promise<MyContact[]> {
   const { data } = await apiClient.get<MyContact[]>('/relations/my-contacts')
   return data
-}
-
-/**
- * Lien financeur ↔ élève, tel que renvoyé par les deux routes de relations.
- *
- * Les deux routes renvoient **déjà** le nom de l'autre partie, résolu côté serveur
- * depuis son profil administratif (docs/routes.md § profile-service > Relations) :
- *   - `by-student/:studentId`   → `financeOwnerName`
- *   - `:financeOwnerId`         → `studentName`
- *
- * Ces champs sont la SEULE source du nom à afficher. Ne jamais les ré-enrichir via
- * `GET /profiles/:id` : un élève n'a pas le droit de lire le profil de son parent
- * (403 « An élève may only view their own profile »), ce qui faisait autrefois
- * retomber l'affichage sur l'UUID. Un seul appel réseau, pas de N+1.
- *
- * `financeOwnerName`/`studentName` valent `null` si la personne n'a pas de profil
- * administratif — cas normal, à afficher comme un repli lisible, jamais comme un UUID.
- */
-export interface FinanceOwnerStudentLink {
-  financeOwnerId: string
-  studentId: string
-  createdAt: string
-  /** Présent sur `GET /relations/finance-owner-student/by-student/:studentId`. */
-  financeOwnerName?: PersonName | null
-  /** Présent sur `GET /relations/finance-owner-student/:financeOwnerId`. */
-  studentName?: PersonName | null
 }
 
 /**
@@ -77,6 +51,31 @@ export async function fetchLinkedStudents(financeOwnerId: string): Promise<Finan
 export async function fetchLinkedParents(studentId: string): Promise<FinanceOwnerStudentLink[]> {
   const { data } = await apiClient.get<FinanceOwnerStudentLink[]>(
     `/relations/finance-owner-student/by-student/${studentId}`,
+  )
+  return data
+}
+
+/**
+ * DELETE /relations/finance-owner-student/:financeOwnerId/:studentId — « Délier »
+ * un parent financeur et un élève, depuis l'un ou l'autre côté.
+ *
+ * Aucun corps de requête. **Aucune ligne n'est supprimée** malgré le verbe : la
+ * rupture renseigne `endedAt`/`endedBy`, la table reste un journal. L'appel est
+ * **idempotent** — deux appels renvoient `200` avec la **même** date de rupture.
+ *
+ * Le `404` couvre **deux cas volontairement indiscernables** : lien inexistant, et
+ * appelant sans droit sur ce lien. Un `403` révélerait à un tiers qui finance qui.
+ * Ne jamais écrire de message qui suppose l'une des deux causes.
+ *
+ * La réponse est la seule source de vérité de ce qui s'est passé : c'est elle, et
+ * non le corps envoyé, qui doit alimenter l'écran (règle du 2026-08-10).
+ */
+export async function unlinkFinanceOwnerAndStudent(
+  financeOwnerId: string,
+  studentId: string,
+): Promise<FinanceOwnerStudentLink> {
+  const { data } = await apiClient.delete<FinanceOwnerStudentLink>(
+    `/relations/finance-owner-student/${financeOwnerId}/${studentId}`,
   )
   return data
 }

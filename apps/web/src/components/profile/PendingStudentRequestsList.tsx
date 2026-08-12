@@ -13,8 +13,7 @@ import {
 } from '../../api/parentLinkRequest'
 import { fetchStudentProfile } from '../../api/relations'
 import { formatPersonDisplayName } from '../../utils/nameFormat'
-
-const STUDENT_GENERIC_LABEL = 'Élève'
+import { STUDENT_GENERIC_LABEL } from '../../utils/relationLabels'
 
 interface PendingStudentRequestsListProps {
   /** Appelé après acceptation d'une demande, pour rafraîchir la liste des élèves rattachés. */

@@ -4,7 +4,9 @@ import { ProfilesController } from './profiles.controller';
 import { ProfileAvatarController } from './profile-avatar.controller';
 import { ProfileInternalNotesController } from './profile-internal-notes.controller';
 import { TeacherValidationController } from './teacher-validation.controller';
+import { TeacherDirectoryController } from './teacher-directory.controller';
 import { ProfilesService } from './profiles.service';
+import { TeacherDirectoryService } from './teacher-directory.service';
 import { AvatarService } from './avatar.service';
 import { MediaModule } from '../media/media.module';
 import { FieldVisibilityService } from './field-visibility.service';
@@ -65,6 +67,13 @@ import { ClientsModule } from '../common/clients/clients.module';
     MediaModule,
   ],
   controllers: [
+    // Déclaré AVANT ProfilesController : Express sert la première route
+    // enregistrée qui correspond, et `GET /profiles/:userId` capterait tout
+    // segment unique. `teachers/validated` en comporte deux et ne peut donc pas
+    // être capté aujourd'hui — mais l'ordre rend la garantie indépendante des
+    // routes qu'on ajoutera demain. C'est cette collision qui faisait répondre
+    // `400` à `GET /profiles/teachers` (« teachers » lu comme un UUID).
+    TeacherDirectoryController,
     ProfilesController,
     ProfileAvatarController,
     ProfileInternalNotesController,
@@ -72,6 +81,7 @@ import { ClientsModule } from '../common/clients/clients.module';
   ],
   providers: [
     ProfilesService,
+    TeacherDirectoryService,
     AvatarService,
     FieldVisibilityService,
     AdministrativeProfileLookupService,

@@ -2,9 +2,14 @@
  * Tests pour RpDashboardPage (dashboard-notification-service / teacher-request-service)
  *
  * Couvre :
- * - Compteur de demandes professeur en attente (GET /requests)
- * - Dégradation vers 0 en cas d'échec (comportement préexistant préservé)
+ * - Compteur de demandes ouvertes (GET /teacher-requests?scope=open)
+ * - Dégradation vers 0 en cas d'échec (un indicateur secondaire n'alarme pas)
  * - Notifications affichées via ActivityFeed
+ *
+ * Le compteur interrogeait `/requests`, second nom de la même ressource que
+ * `/teacher-requests` — un seul nom par donnée, l'écart est résorbé. Et il filtrait
+ * `status === 'pending'` côté front alors que `scope=open` est la portée du flow :
+ * une demande `redirected` reste à instruire par le RP.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -17,11 +22,11 @@ vi.mock('../../src/api/teacherRequests')
 vi.mock('../../src/api/dashboardNotifications')
 
 import { useAuth } from '../../src/hooks/useAuth'
-import { fetchTeacherRequestsForDashboard } from '../../src/api/teacherRequests'
+import { fetchTeacherRequests } from '../../src/api/teacherRequests'
 import { fetchNotifications } from '../../src/api/dashboardNotifications'
 
 const mockUseAuth = vi.mocked(useAuth)
-const mockFetchTeacherRequestsForDashboard = vi.mocked(fetchTeacherRequestsForDashboard)
+const mockFetchTeacherRequests = vi.mocked(fetchTeacherRequests)
 const mockFetchNotifications = vi.mocked(fetchNotifications)
 
 const RP_USER = {
@@ -56,16 +61,27 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue(buildAuthMock())
   mockFetchNotifications.mockResolvedValue([])
-  mockFetchTeacherRequestsForDashboard.mockResolvedValue([])
+  mockFetchTeacherRequests.mockResolvedValue([])
 })
 
 describe('RpDashboardPage — demandes professeur en attente', () => {
-  it('compte uniquement les demandes au statut pending', async () => {
-    mockFetchTeacherRequestsForDashboard.mockResolvedValue([
+  it('demande la portée « ouverte » au serveur, sans refiltrer côté front', async () => {
+    mockFetchTeacherRequests.mockResolvedValue([])
+
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(mockFetchTeacherRequests).toHaveBeenCalledWith('open')
+    })
+  })
+
+  it('compte toutes les demandes ouvertes, y compris celles déjà proposées', async () => {
+    // Une demande `redirected` reste à instruire : le RP doit encore trancher.
+    // L'ancien filtre `status === 'pending'` la faisait disparaître du compteur.
+    mockFetchTeacherRequests.mockResolvedValue([
       { id: 'req-1', status: 'pending', createdAt: new Date().toISOString() },
-      { id: 'req-2', status: 'accepted', createdAt: new Date().toISOString() },
-      { id: 'req-3', status: 'pending', createdAt: new Date().toISOString() },
-    ])
+      { id: 'req-2', status: 'redirected', createdAt: new Date().toISOString() },
+    ] as never)
 
     renderDashboard()
 
@@ -76,7 +92,7 @@ describe('RpDashboardPage — demandes professeur en attente', () => {
   })
 
   it('retombe sur 0 (pas de message d\'erreur) en cas d\'échec de chargement', async () => {
-    mockFetchTeacherRequestsForDashboard.mockRejectedValue({ response: { status: 500 } })
+    mockFetchTeacherRequests.mockRejectedValue({ response: { status: 500 } })
 
     renderDashboard()
 

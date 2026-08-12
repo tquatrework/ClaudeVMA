@@ -117,9 +117,14 @@ export class RelationsService {
       throw new ForbiddenException('Only RP can create formateur–étudiant links');
     }
 
-    const existing = await this.teacherRepo.findOne({
-      where: { teacherId: dto.teacherId, studentId: dto.studentId },
-    });
+    /**
+     * Le conflit porte sur l'état COURANT (`endedAt IS NULL`), jamais sur
+     * l'existence d'une ligne : une relation terminée ne doit pas interdire à
+     * vie de relier les mêmes personnes (arbitrage du 2026-08-12, point 6 —
+     * « un arrêt n'est pas un bannissement »). Même correction que celle
+     * apportée au lien financeur le 2026-08-11.
+     */
+    const existing = await this.findActiveTeacherLink(dto.teacherId, dto.studentId);
     if (existing) {
       throw new ConflictException('This teacher is already linked to this student');
     }
@@ -142,10 +147,22 @@ export class RelationsService {
   }
 
   /**
-   * List all teachers linked to a student.
-   * Accessible to RP, TI, AdministrateurFinancier, the student themselves,
-   * and any PARENT_FINANCEUR who is actually linked to that student.
-   * Formateurs may also see their own links to that student.
+   * Liste les formateurs ACTIFS d'un élève.
+   * Accessible au RP, au TI, à l'AF, à l'élève lui-même, et à tout
+   * PARENT_FINANCEUR effectivement lié à cet élève. Un formateur n'y voit que
+   * son propre lien (PROF-FB-003).
+   *
+   * C'est la liste que le RP consulte sur la fiche de l'élève AVANT de proposer
+   * d'en terminer une (arbitrage du 2026-08-12, point 3 : le point d'action est
+   * la fiche de l'élève). Chaque entrée porte donc `teacherName` : sans lui
+   * l'écran n'aurait qu'un UUID à afficher, ce que l'arbitrage du 2026-08-09
+   * interdit. Même traitement que `getFinanceOwnersByStudent` et
+   * `getTeachersByAnimator`.
+   *
+   * Ne renvoie QUE les relations actives : une relation terminée n'a plus à
+   * apparaître comme un lien courant, et surtout ne doit plus offrir de bouton
+   * « supprimer ». L'historique reste en base, il n'est simplement pas ce que
+   * cette route décrit.
    */
   async getTeachersByStudent(studentId: string, actor: Actor) {
     const privileged = [
@@ -155,12 +172,21 @@ export class RelationsService {
     ];
 
     if (privileged.includes(actor.role) || actor.id === studentId) {
-      return this.teacherRepo.find({ where: { studentId }, order: { createdAt: 'ASC' } });
+      return this.attachTeacherNames(
+        await this.teacherRepo.find({
+          where: { studentId, endedAt: IsNull() },
+          order: { createdAt: 'ASC' },
+        }),
+      );
     }
 
     // A formateur may see only their own link to the student (PROF-FB-003)
     if (actor.role === UserRole.FORMATEUR) {
-      return this.teacherRepo.find({ where: { teacherId: actor.id, studentId } });
+      return this.attachTeacherNames(
+        await this.teacherRepo.find({
+          where: { teacherId: actor.id, studentId, endedAt: IsNull() },
+        }),
+      );
     }
 
     // A PARENT_FINANCEUR may see all teachers of a student they are linked to
@@ -171,7 +197,12 @@ export class RelationsService {
           'You are not linked to this student and cannot list their teachers',
         );
       }
-      return this.teacherRepo.find({ where: { studentId }, order: { createdAt: 'ASC' } });
+      return this.attachTeacherNames(
+        await this.teacherRepo.find({
+          where: { studentId, endedAt: IsNull() },
+          order: { createdAt: 'ASC' },
+        }),
+      );
     }
 
     throw new ForbiddenException('Insufficient rights to list teachers for this student');
@@ -274,9 +305,94 @@ export class RelationsService {
   }
 
   /**
+   * Met fin à la relation élève ↔ formateur (arbitrage du 2026-08-12).
+   *
+   * QUI A LE DROIT : le RP, et lui SEUL. Ni le formateur, ni l'élève, ni le
+   * parent financeur, ni même le TI. C'est une DIFFÉRENCE ASSUMÉE avec la
+   * rupture du lien parent financeur (2026-08-11), où chacune des deux parties
+   * peut rompre : un lien parent-élève est un arrangement familial privé, tandis
+   * qu'une relation élève↔formateur est une AFFECTATION PÉDAGOGIQUE PRONONCÉE
+   * PAR LE RP — la défaire lui revient donc aussi. `mayUnlink()` (propriété du
+   * lien) ne s'applique pas ici, et `@OwnerAccess()` non plus.
+   *
+   * POURQUOI 404 ET NON 403 SUR UN LIEN ABSENT : le contrôle de rôle est déjà
+   * fait en amont (403 pour un non-RP). L'appelant est donc nécessairement un
+   * RP, qui a de toute façon accès à tout (2026-08-11, point 3) : lui dire que
+   * la relation n'existe pas ne lui révèle rien qu'il ne puisse lire ailleurs.
+   * Le masquage par 404 de la route financeur répondait à un autre risque —
+   * l'appelant pouvait y être un tiers quelconque.
+   *
+   * IDEMPOTENCE : terminer une relation DÉJÀ terminée renvoie 200 et la ligne
+   * telle quelle, sans toucher `endedAt`/`endedBy`/`endReason`. Motif : l'état
+   * visé — « ces deux personnes ne sont plus liées » — est atteint ; répondre en
+   * erreur ferait échouer un second clic, ou un rejeu réseau, sur une situation
+   * pourtant conforme. La date de fin initiale est préservée : c'est elle qui a
+   * une valeur de preuve, l'écraser reviendrait à falsifier l'historique — et le
+   * motif initial serait perdu au profit d'un second, saisi après coup. La
+   * décision reste lisible côté appelant, qui lit `endedAt` dans la réponse.
+   *
+   * AUCUNE FIN AUTOMATIQUE (point 2) : cette méthode n'est appelée que par
+   * l'action explicite d'un RP. Valider un nouveau professeur ne met pas fin au
+   * précédent — aucun autre chemin du service ne l'invoque.
+   *
+   * CE QUE LA FIN REFERME : toutes les requêtes de ce service ne lisent que les
+   * relations ACTIVES. Le formateur perd donc, dans le même mouvement, la
+   * lecture du profil de l'ex-élève, ses statistiques pédagogiques et — via
+   * `GET /internal/relations/:viewerId/:targetId` — ses archives pédagogiques.
+   * Aucun autre service n'a à être prévenu pour cela.
+   */
+  async endTeacherStudentLink(
+    teacherId: string,
+    studentId: string,
+    actor: Actor,
+    reason?: string,
+  ): Promise<TeacherStudentLink> {
+    if (actor.role !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
+      throw new ForbiddenException(
+        'Seul un responsable pédagogique peut mettre fin à une relation élève-professeur.',
+      );
+    }
+
+    /**
+     * On cherche la relation la plus récente de la paire, ACTIVE OU TERMINÉE.
+     * Chercher uniquement l'active rendrait le second appel indiscernable d'une
+     * relation inexistante, et ferait donc échouer un rejeu pourtant conforme.
+     */
+    const link = await this.teacherRepo.findOne({
+      where: { teacherId, studentId },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (!link) {
+      throw new NotFoundException(noTeacherStudentLinkMessage());
+    }
+
+    if (link.endedAt) return link;
+
+    link.endedAt = new Date();
+    link.endedBy = actor.id;
+    link.endReason = reason ?? null;
+    const saved = await this.teacherRepo.save(link);
+
+    this.events.publish('TeacherUnlinkedFromStudent', {
+      teacherId,
+      studentId,
+      actorId: actor.id,
+      endedAt: saved.endedAt?.toISOString(),
+      reason: saved.endReason,
+    });
+
+    return saved;
+  }
+
+  /**
    * Propriété du lien : l'une des deux personnes nommées, ou un rôle habilité à
    * arbitrer la relation (RP, TI). Volontairement écrit à part de la route :
    * c'est la règle, pas un détail de transport.
+   *
+   * NE S'APPLIQUE QU'AU LIEN PARENT FINANCEUR ↔ ÉLÈVE. La fin d'une relation
+   * élève↔formateur suit une règle différente et volontairement plus étroite —
+   * le RP seul, voir `endTeacherStudentLink`.
    */
   private mayUnlink(link: FinanceOwnerStudentLink, actor: Actor): boolean {
     if (actor.id === link.financeOwnerId || actor.id === link.studentId) return true;
@@ -411,7 +527,10 @@ export class RelationsService {
         ],
       }),
       this.teacherRepo.find({
-        where: [{ teacherId: In(pair) }, { studentId: In(pair) }],
+        where: [
+          { teacherId: In(pair), endedAt: IsNull() },
+          { studentId: In(pair), endedAt: IsNull() },
+        ],
       }),
       this.animatorRepo.find({
         where: [{ animatorId: In(pair) }, { teacherId: In(pair) }],
@@ -522,7 +641,12 @@ export class RelationsService {
           { studentId: userId, endedAt: IsNull() },
         ],
       }),
-      this.teacherRepo.find({ where: [{ teacherId: userId }, { studentId: userId }] }),
+      this.teacherRepo.find({
+        where: [
+          { teacherId: userId, endedAt: IsNull() },
+          { studentId: userId, endedAt: IsNull() },
+        ],
+      }),
       this.animatorRepo.find({ where: [{ animatorId: userId }, { teacherId: userId }] }),
       this.coordinatorRepo.find({ where: [{ coordinatorId: userId }, { studentId: userId }] }),
     ]);
@@ -583,7 +707,7 @@ export class RelationsService {
 
     if (financedStudentIds.length > 0) {
       const teachersOfMyStudents = await this.teacherRepo.find({
-        where: { studentId: In(financedStudentIds) },
+        where: { studentId: In(financedStudentIds), endedAt: IsNull() },
       });
       for (const link of teachersOfMyStudents) {
         add(link.teacherId, {
@@ -634,7 +758,7 @@ export class RelationsService {
    * a formateur may only read profiles of students they are linked to.
    */
   async isTeacherLinkedToStudent(teacherId: string, studentId: string): Promise<boolean> {
-    const link = await this.teacherRepo.findOne({ where: { teacherId, studentId } });
+    const link = await this.findActiveTeacherLink(teacherId, studentId);
     return !!link;
   }
 
@@ -659,6 +783,22 @@ export class RelationsService {
   ): Promise<FinanceOwnerStudentLink | null> {
     return this.financeRepo.findOne({
       where: { financeOwnerId, studentId, endedAt: IsNull() },
+    });
+  }
+
+  /**
+   * Relation élève ↔ formateur ACTIVE, ou `null`. Point unique, exactement comme
+   * `findActiveFinanceLink` : « lié » veut dire `endedAt IS NULL`, et cette
+   * définition ne doit exister qu'à UN SEUL endroit — un oubli de ce filtre dans
+   * une seule requête laisserait un droit ouvert après la fin de la relation,
+   * ce qui viderait de sa substance le point 5 de l'arbitrage du 2026-08-12.
+   */
+  private findActiveTeacherLink(
+    teacherId: string,
+    studentId: string,
+  ): Promise<TeacherStudentLink | null> {
+    return this.teacherRepo.findOne({
+      where: { teacherId, studentId, endedAt: IsNull() },
     });
   }
 
@@ -738,7 +878,14 @@ export class RelationsService {
     studentId: string,
     isPrincipalTeacher = false,
   ): Promise<{ link: TeacherStudentLink; isCreated: boolean }> {
-    const existing = await this.teacherRepo.findOne({ where: { teacherId, studentId } });
+    /**
+     * « Existe déjà » se lit sur la relation ACTIVE : après une fin prononcée
+     * par le RP, valider une nouvelle demande de professeur doit créer une
+     * NOUVELLE ligne, et non ressusciter la ligne terminée — qui reste, elle, la
+     * preuve de la période passée. C'est ce qui rend le cycle lier → terminer →
+     * relier possible (arbitrage du 2026-08-12, point 6).
+     */
+    const existing = await this.findActiveTeacherLink(teacherId, studentId);
     if (existing) {
       if (existing.isPrincipalTeacher !== isPrincipalTeacher) {
         throw new ConflictException(
@@ -841,6 +988,19 @@ export class RelationsService {
  */
 export function noFinanceOwnerStudentLinkMessage(): string {
   return 'Aucun lien de financement trouvé entre ces deux personnes';
+}
+
+/**
+ * Refus de la fin d'une relation élève ↔ formateur quand AUCUNE relation
+ * n'existe entre les deux personnes.
+ *
+ * Contrairement à son équivalent financeur, ce message n'a pas à masquer quoi
+ * que ce soit : le contrôle de rôle a déjà écarté les non-RP par un 403, et un
+ * RP a de toute façon accès à l'ensemble des relations. Il peut donc être
+ * explicite, ce qui rend l'échec exploitable par l'écran.
+ */
+export function noTeacherStudentLinkMessage(): string {
+  return "Aucune relation trouvée entre ce professeur et cet élève";
 }
 
 /** Intersection dédoublonnée de deux listes d'identifiants. */

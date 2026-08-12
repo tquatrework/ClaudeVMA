@@ -24,6 +24,7 @@ import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { UserRole } from '../common/enums/user-role.enum';
 import { CreateFinanceOwnerStudentLinkDto } from './dto/create-finance-owner-student-link.dto';
 import { CreateTeacherStudentLinkDto } from './dto/create-teacher-student-link.dto';
+import { EndTeacherStudentLinkDto } from './dto/end-teacher-student-link.dto';
 import { CreatePedagogicalCoordinatorLinkDto } from './dto/create-pedagogical-coordinator-link.dto';
 import { CreateAnimatorTeacherLinkDto } from './dto/create-animator-teacher-link.dto';
 import { OwnerAccess } from '../common/decorators/owner-access.decorator';
@@ -197,17 +198,87 @@ export class RelationsController {
     return this.relationsService.linkTeacherToStudent(dto, actor);
   }
 
+  @Delete('teacher-student/:teacherId/:studentId')
+  @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE)
+  @ApiOperation({
+    summary: "Mettre fin à la relation entre un professeur et un élève",
+    description:
+      "Met fin à la relation élève ↔ formateur. Le bouton « Supprimer » affiché sur chaque " +
+      "formateur de la FICHE DE L'ÉLÈVE appelle cette route (arbitrage du 2026-08-12).\n\n" +
+      "AUCUNE LIGNE N'EST SUPPRIMÉE malgré le verbe HTTP ni le libellé du bouton : la fin " +
+      'renseigne `endedAt`, `endedBy` et `endReason`. On doit pouvoir prouver que la relation ' +
+      'a existé, puis a pris fin, et quand. `DELETE` décrit ce que voit l\'appelant (la ' +
+      "relation active disparaît) et apporte l'idempotence attendue du verbe.\n\n" +
+      "QUI PEUT : le RP, et LUI SEUL. Ni le formateur, ni l'élève, ni le parent financeur, ni " +
+      "le TI. Différence ASSUMÉE avec le déliement parent financeur ↔ élève, où chacune des " +
+      'deux parties peut rompre : un lien familial est un arrangement privé, une relation ' +
+      "élève↔formateur est une AFFECTATION PÉDAGOGIQUE prononcée par le RP — la défaire lui " +
+      'revient donc aussi.\n\n' +
+      "MOTIF OPTIONNEL : le déclencheur est hors logiciel (un appel, un courriel, plus tard la " +
+      'messagerie). Le RP est donc le seul à pouvoir consigner pourquoi, via `reason` dans le ' +
+      "corps. Le corps entier peut être omis : une fin sans motif est un cas normal.\n\n" +
+      'IDEMPOTENT : rejouer la fin renvoie `200` les deux fois, avec la même date de fin et le ' +
+      "même motif — l'état visé est atteint, et la trace initiale ne doit pas être réécrite.\n\n" +
+      "AUCUNE FIN AUTOMATIQUE : valider un nouveau professeur ne met pas fin au précédent, le " +
+      'RP agit explicitement.\n\n' +
+      "RÉVERSIBLE : après une fin, le flow normal de demande de professeur recrée une relation " +
+      "active. Un arrêt n'est pas un bannissement.\n\n" +
+      'CE QUE LA FIN REFERME : le profil de l\'élève, ses statistiques et ses archives ' +
+      "pédagogiques redeviennent inaccessibles à l'ex-formateur, avec les mêmes codes que les " +
+      'autres masquages.\n\n' +
+      'Publie `TeacherUnlinkedFromStudent`.',
+  })
+  @ApiParam({ name: 'teacherId', description: 'UUID du formateur' })
+  @ApiParam({ name: 'studentId', description: "UUID de l'élève" })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Relation terminée : `{id, teacherId, studentId, isPrincipalTeacher, createdAt, endedAt, ' +
+      'endedBy, endReason}`. `endedAt` non nul vaut confirmation.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'teacherId ou studentId non-UUID, ou motif dépassant 1000 caractères',
+  })
+  @ApiResponse({
+    status: 403,
+    description:
+      "Interdit — responsable pédagogique uniquement. Le formateur, l'élève, le parent " +
+      'financeur et le TI reçoivent ce code.',
+  })
+  @ApiResponse({
+    status: 404,
+    description: "Aucune relation entre ce professeur et cet élève, ni active ni terminée",
+  })
+  endTeacherStudentLink(
+    @Param('teacherId', ParseUUIDPipe) teacherId: string,
+    @Param('studentId', ParseUUIDPipe) studentId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+    @Body() dto?: EndTeacherStudentLinkDto,
+  ): Promise<Awaited<ReturnType<RelationsService['endTeacherStudentLink']>>> {
+    return this.relationsService.endTeacherStudentLink(teacherId, studentId, actor, dto?.reason);
+  }
+
   @Get('teacher-student/:studentId')
   @ApiOperation({
     summary: 'List teachers of a student',
     description:
-      'Returns all formateurs linked to the given student. ' +
-      'Accessible to RP, TI, AdministrateurFinancier, the student themselves, ' +
-      'any PARENT_FINANCEUR linked to that student, ' +
-      'and their linked teachers (own link only, PROF-FB-003).',
+      "Renvoie les formateurs ACTIFS de l'élève désigné — une relation terminée n'y figure " +
+      "plus. C'est la liste que le RP consulte sur la fiche de l'élève avant de proposer d'en " +
+      'terminer une.\n\n' +
+      "Chaque entrée porte `teacherName` ({firstName, lastName} ou `null`), résolu depuis le " +
+      "profil administratif du formateur, pour qu'aucun écran n'ait à afficher un UUID " +
+      '(arbitrage du 2026-08-09).\n\n' +
+      "Accessible au RP, au TI, à l'AF, à l'élève lui-même, à tout PARENT_FINANCEUR lié à cet " +
+      'élève, et aux formateurs liés (leur propre lien uniquement, PROF-FB-003).',
   })
   @ApiParam({ name: 'studentId', description: 'Student (élève) UUID' })
-  @ApiResponse({ status: 200, description: 'List of teacher–student links' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Relations actives : `[{id, teacherId, studentId, isPrincipalTeacher, createdAt, ' +
+      'endedAt, endedBy, endReason, teacherName}]`',
+  })
   @ApiResponse({ status: 403, description: 'Forbidden — insufficient rights' })
   getTeachersByStudent(
     @Param('studentId', ParseUUIDPipe) studentId: string,

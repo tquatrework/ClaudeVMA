@@ -456,4 +456,25 @@ Phase 3 enrichit l'offre :
   regle reste dans son role ; un service qui sequence des etapes appartenant a d'autres domaines
   en sort.
 
+- Annuaire des formateurs validés. Arbitrage rendu le 2026-08-12, en levée du blocage de l'etape 3
+  du flow professeur. Verifie contre la pile : seule `GET /profiles/teachers/pending-validation`
+  existe — elle liste les formateurs **en attente**, jamais ceux qui sont validés. Le RP n'a donc
+  aucun moyen de designer un formateur autrement qu'en saisissant un UUID, ce que l'arbitrage du
+  2026-08-09 interdit. Le composeur front est ecrit et teste ; il lui manque une source.
+  1. **`profile-service` en est le proprietaire.** Il porte deja les noms et le statut de
+     validation (`PATCH /profiles/:teacherId/validation`). Aucun autre service n'a a tenir cette
+     liste.
+  2. **Perimetre volontairement etroit : les formateurs *valides*, pour les administrateurs.**
+     Ce n'est **pas** l'annuaire global de tous les utilisateurs — cette question plus large reste
+     ouverte, et elle n'est pas anodine cote vie privee. Lister les formateurs valides a un RP
+     dont le metier est justement de les solliciter ne souleve pas la meme difficulte.
+  3. **Contenu limite au socle de visibilite** : identifiant technique, prenom, nom, et les champs
+     deja partages par defaut qui aident a choisir (niveau, matieres). Rien de plus. Le socle est
+     precisement ce qui est visible sans reglage particulier ; s'en ecarter ici rouvrirait le
+     filtrage champ par champ par une porte derobee, comme pour la resolution de nom.
+  4. **La recherche par niveau, disponibilites et points reste en phase 2**, comme le prevoit le
+     decoupage. On livre une liste, pas un moteur. Mais la forme retenue ne doit pas rendre son
+     ajout couteux : liste **bornee et paginee** des l'origine — plusieurs listes du projet sont
+     aujourd'hui non bornees, et un plafond non declare est un plafond cache.
+
 ## Points ouverts a arbitrer

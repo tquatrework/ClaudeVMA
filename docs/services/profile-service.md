@@ -63,6 +63,8 @@
       <endpoint method="GET" path="/internal/profiles/{userId}/display-name">Prenom et nom d'une personne, pour un service appelant (teacher-request-service). X-Internal-Secret. CONTRAT FIGE : firstName et lastName UNIQUEMENT, jamais un champ de plus — servie sans lecteur et sans filtrage champ par champ, tout ajout en ferait une porte derobee. Jamais exposee par api-gateway.</endpoint>
       <endpoint method="POST" path="/internal/profiles/display-names">Meme contrat PAR LOT ({userIds}, 200 maximum), pour qu'une liste ne coute pas un appel HTTP par ligne. Les userIds non resolus sont absents de la reponse.</endpoint>
       <endpoint method="POST" path="/internal/create-teacher-student-relation">Creer le lien eleve↔formateur a la validation du RP (teacher-request-service). IDEMPOTENTE : 201 creation, 200 rejeu, 409 seulement si le lien existe avec un statut de professeur principal different.</endpoint>
+      <!-- Annuaire des formateurs valides — decision C20 (2026-08-12) -->
+      <endpoint method="GET" path="/profiles/teachers/validated">Annuaire des formateurs dont la validation est 'validated', pour que le RP puisse DESIGNER les destinataires d'une proposition (etape 3 du flow demande de professeur). Roles administratifs SEULS (RP, AF, TI) — l'AP en est exclu. Contenu LIMITE AU SOCLE DE VISIBILITE : userId, firstName, lastName, levels, subjects. Liste bornee et paginee : page (defaut 1), limit (defaut 20, MAXIMUM 100 declare et refuse explicitement). Enveloppe {data, page, limit, total, totalPages}. Chemin a DEUX segments obligatoire : /profiles/teachers est capte par GET /profiles/:userId et repond 400.</endpoint>
       <!-- Photo de profil — decisions C13 (routes) et C14 (plafond de taille), 2026-08-10 -->
       <endpoint method="GET" path="/profiles/avatar/constraints">Lire les contraintes d'envoi (maxUploadBytes, formats acceptes) AVANT de choisir un fichier. Sans :userId : elles ne dependent ni du profil vise ni du lecteur. Le front ne doit pas les coder en dur.</endpoint>
       <endpoint method="POST" path="/profiles/{userId}/avatar">Envoyer ou remplacer la photo (multipart, champ file ; titulaire SEUL). 413 structure au-dela de MEDIA_MAX_UPLOAD_BYTES, coupe en streaming par multer.</endpoint>
@@ -2056,7 +2058,106 @@
           donc ouverte jusqu'au redéploiement.
         </verification>
       </decision>
+      <decision id="C20" status="implemented" session="2026-08-12">
+        <title>Annuaire des formateurs valides — GET /profiles/teachers/validated, levee du blocage de l'etape 3</title>
+        <filesTouched>
+          <file path="services/profile-service/src/profiles/dto/list-validated-teachers.query.dto.ts">
+            NOUVEAU. `page` / `limit` optionnels, convertis par `@Type(() => Number)`. Constantes
+            EXPORTEES `VALIDATED_TEACHERS_DEFAULT_PAGE` (1), `_DEFAULT_LIMIT` (20), `_MAX_LIMIT` (100),
+            relues par le service, Swagger, les tests et docs/routes.md — le plafond n'est ecrit
+            qu'une fois. Messages de refus en francais.
+          </file>
+          <file path="services/profile-service/src/profiles/teacher-directory.service.ts">
+            NOUVEAU. `listValidatedTeachers(query, actor)`. Un seul repository injecte
+            (`TeacherValidation`), les profils administratif et pedagogique etant joints par
+            QueryBuilder. Convertit les colonnes `simple-array` (une selection brute renvoie la
+            chaine stockee, pas un tableau : l'hydratation TypeORM n'a pas lieu).
+          </file>
+          <file path="services/profile-service/src/profiles/teacher-directory.controller.ts">
+            NOUVEAU. `GET profiles/teachers/validated`, `@Roles(RP, AF, TI)`, Swagger complet.
+          </file>
+          <file path="services/profile-service/src/profiles/profiles.module.ts">
+            Enregistrement du controleur EN PREMIER et du service.
+          </file>
+          <file path="services/profile-service/test/unit/profiles/teacher-directory.service.spec.ts">NOUVEAU, 23 tests.</file>
+          <file path="services/profile-service/test/unit/profiles/list-validated-teachers.query.dto.spec.ts">NOUVEAU, 12 tests.</file>
+          <file path="services/profile-service/test/e2e/teacher-directory.e2e-spec.ts">NOUVEAU, 26 tests contre un vrai PostgreSQL.</file>
+          <file path="docs/routes.md">Section « Annuaire des formateurs valides (2026-08-12) ».</file>
+        </filesTouched>
+        <description>
+          (1) LE BLOCAGE. Le flow « demande de professeur » etait livre sauf l'etape 3 : le RP ne
+          pouvait pas designer les formateurs a qui envoyer une proposition, faute de pouvoir les
+          lister. `GET /profiles/teachers/pending-validation` ne liste que les formateurs EN
+          ATTENTE — precisement ceux qu'on ne propose pas — et saisir un UUID est interdit
+          (arbitrage du 2026-08-09). Le composeur front etait deja ecrit et teste pour une
+          selection multiple ; il ne lui manquait qu'une source.
+          (2) POURQUOI `GET /profiles/teachers` REPONDAIT 400. Un seul segment : la route est
+          captee par `GET /profiles/:userId`, et `ParseUUIDPipe` refuse « teachers ». Le chemin
+          retenu comporte donc DEUX segments, comme `teachers/pending-validation` avant lui. Le
+          controleur est en outre declare AVANT `ProfilesController` dans le module : Express sert
+          la premiere route enregistree qui correspond, et l'ordre rend la garantie independante
+          des routes qu'on ajoutera demain.
+          (3) PERIMETRE ETROIT, ASSUME, A NE PAS ELARGIR. Formateurs `validated` seulement, roles
+          administratifs seulement (RP, AF, TI). L'ANIMATEUR PEDAGOGIQUE en est exclu : il n'est
+          pas un administrateur au sens de l'arbitrage du 2026-08-11, son droit passe par la
+          relation `animator_teacher_links`. Ce n'est pas l'annuaire global de tous les
+          utilisateurs — question laissee ouverte, non anodine cote vie privee.
+          (4) CONTENU LIMITE AU SOCLE, ALORS MEME QUE LES ADMINISTRATEURS SONT EXEMPTES DU
+          FILTRAGE CHAMP PAR CHAMP. La restriction est donc deliberee et non la consequence d'un
+          filtre : servir la fiche entiere ferait de cette liste une porte derobee au filtrage,
+          exactement ce que le contrat fige de `src/internal/display-name.ts` interdit par
+          ailleurs. `avatarUrl`, bien que dans le socle, n'y figure pas : il n'aide pas a choisir
+          et « rien de plus » a ete lu strictement. L'ajouter plus tard ne coute rien.
+          (5) LISTE BORNEE, PLAFOND DECLARE. `limit` > 100 renvoie 400 avec un message francais
+          citant le plafond ; la demande n'est JAMAIS ramenee a 100 en silence — rogner sans le
+          dire ferait croire a l'appelant qu'il a tout recu, meme famille de defauts que « accepter
+          puis ignorer un champ » (2026-08-09). Une page au-dela de la derniere renvoie 200 avec
+          `data: []`, jamais 404.
+          (6) TRI GLOBAL, PAS PAR PAGE. `ORDER BY lastName, firstName, teacherId` est applique
+          AVANT le fenetrage SQL. Trier apres decoupage donnerait des pages coherentes entre elles
+          mais un ordre global faux — defaut invisible tant qu'on ne depasse pas la premiere page.
+          Le troisieme critere departage les homonymes : sans lui, un meme formateur pourrait
+          apparaitre sur deux pages ou sur aucune.
+          (7) INCOHERENCE DE DONNEES TRAITEE EN LISTE, PAS EN 500. `leftJoin` et non `innerJoin` :
+          un formateur valide sans profil administratif reste VISIBLE, noms a `null`, trie en fin
+          de liste (`NULLS LAST`), et l'anomalie est journalisee. L'arbitrage du 2026-08-07 exige
+          un 500 sur `GET /profiles/:userId`, mais faire echouer tout l'annuaire pour un seul
+          enregistrement abime priverait le RP de son outil de travail.
+          (8) API-GATEWAY VERIFIE, NON MODIFIE. `/api/v1/profiles` est proxifie EN BLOC
+          (`location ^~ /api/v1/profiles`) : la route est jointe sans declaration nouvelle. Aucun
+          404 HTML nginx a craindre.
+          (9) RECHERCHE PAR NIVEAU, DISPONIBILITES ET POINTS : reste en phase 2. La forme retenue
+          (QueryBuilder + enveloppe paginee) ne rend pas son ajout couteux — un `WHERE` de plus.
+        </description>
+        <verification>
+          npm run build : OK.
+          npm test (unitaire) : 22 suites, 586 tests, TOUS VERTS (551 avant la session, +35).
+          npm run test:e2e (Testcontainers PostgreSQL, --runInBand) : 8 suites, 296 tests, 295
+          verts. Le seul echec est `[PROF-BR-010]`, preexistant et laisse rouge a dessein.
+          La nouvelle suite e2e couvre : chemin non capte par `GET /profiles/:userId`, exclusion
+          des formateurs en attente et des eleves, socle exact (aucune fuite de telephone ni de
+          champ de prescription), roles autorises (RP/AF/TI) et refuses (formateur, eleve, parent,
+          AP), 401 sans jeton, pagination aux bornes, tri global verifie sur deux pages, plafond
+          refuse, page vide au-dela de la derniere, parametre de requete inconnu refuse,
+          incoherence de donnees.
+          PREUVE CONTRE LA PILE REELLE NON PRODUITE : le conteneur `visiomath_profile` n'a pas ete
+          reconstruit (hors perimetre d'un agent de service). Tant que l'image n'est pas
+          reconstruite, `https://claudevma.visioprof.fr` ne sert pas cette route.
+        </verification>
+      </decision>
       <openPoints>
+        <item priority="medium" status="to-do" raisedIn="C20" raisedOn="2026-08-12" owner="front">
+          Brancher `useSelectableTeachers` sur `GET /profiles/teachers/validated`. Le hook renvoie
+          aujourd'hui `isDirectoryUnavailable: true` en dur. Il attend `{userId, firstName,
+          lastName}` ; la route sert en plus `levels` et `subjects`, utiles pour aider le RP a
+          choisir. Attention a l'enveloppe : la reponse est `{data, page, limit, total,
+          totalPages}`, pas un tableau nu.
+        </item>
+        <item priority="low" status="to-do" raisedIn="C20" raisedOn="2026-08-12" owner="produit">
+          `avatarUrl` fait partie du socle de visibilite mais n'est PAS servi par l'annuaire, la
+          consigne « rien de plus » ayant ete lue strictement. Si un trombinoscope est souhaite
+          cote front, c'est un ajout d'un champ, sans nouvel arbitrage de perimetre.
+        </item>
         <item priority="medium" status="to-do" raisedIn="C18" raisedOn="2026-08-12" owner="back">
           `POST /internal/create-teacher-student-relation` ne transporte pas l'identité du RP
           qui a validé : l'événement `TeacherLinkedToStudent` publié sur ce chemin porte donc

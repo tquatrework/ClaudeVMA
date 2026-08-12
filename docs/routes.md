@@ -662,6 +662,41 @@ Transitions autorisées (toute autre transition, y compris vers le statut couran
 | PATCH | /profiles/:teacherId/validation | 🔒 | responsable_pedagogique, technicien_informatique | Changer le statut de validation d'un formateur. Body : `{status: "pending"\|"in_review"\|"validated"\|"rejected", comment?}` (`comment` ≤ 2000 caractères). Upsert : l'enregistrement est créé s'il n'existe pas encore | `200 {id, teacherId, status, validatedBy, validatorRole, comment, createdAt, updatedAt}` · `400` statut hors énumération · `401` · `403` rôle non autorisé **ou transition interdite pour ce rôle** (voir tableau ci-dessus) |
 | GET | /profiles/:teacherId/validation | 🔒 | responsable_pedagogique, technicien_informatique, administrateur_financier, formateur (soi-même) | Lire le statut de validation courant d'un formateur | `200 {id, teacherId, status, validatedBy, validatorRole, comment, createdAt, updatedAt}` ou `200 {teacherId, status: "pending"}` si aucun enregistrement n'existe encore · `401` · `403` autre formateur |
 
+### Annuaire des formateurs validés (2026-08-12)
+
+> Arbitrage du 2026-08-12 (`docs/architecture.md` > « Annuaire des formateurs validés »), en levée du
+> blocage de l'**étape 3 du flow « demande de professeur »** : le RP devait désigner les formateurs
+> destinataires d'une proposition, sans qu'aucune route ne lui permette de les lister. Faire saisir un
+> UUID est interdit (arbitrage du 2026-08-09), et `GET /profiles/teachers/pending-validation` liste les
+> formateurs **en attente**, c'est-à-dire précisément ceux qu'on ne propose pas.
+
+| Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /profiles/teachers/validated | 🔒 | responsable_pedagogique, administrateur_financier, technicien_informatique | **Annuaire des formateurs dont la validation est `validated`.** Query : `page` (défaut `1`) et `limit` (défaut `20`, **maximum `100`**). Liste **triée par nom puis prénom sur l'ensemble**, pas page par page. Contenu **limité au socle de visibilité** — rien de plus, bien que les administrateurs soient exemptés du filtrage champ par champ : servir la fiche entière ferait de cette liste une porte dérobée à ce filtrage | `200 {data: [{userId, firstName, lastName, levels, subjects}], page, limit, total, totalPages}` · `400` `page`/`limit` non entier ou < 1, `limit` > 100, **ou paramètre de requête inconnu** · `401` · `403` tout autre rôle, **animateur pédagogique compris** |
+
+Précisions qui font contrat :
+
+- **Le chemin comporte deux segments à dessein.** `GET /profiles/teachers` est capté par
+  `GET /profiles/:userId` et répond `400` (« teachers » lu comme un UUID) : c'est le constat du
+  2026-08-12. Toute liste ajoutée sous `/profiles` doit comporter au moins deux segments.
+- **Le plafond est déclaré et refusé explicitement.** `limit=101` renvoie `400` avec un message en
+  français citant le plafond ; la demande n'est **jamais** ramenée à 100 en silence — rogner sans le
+  dire ferait croire à l'appelant qu'il a tout reçu.
+- **Une page au-delà de la dernière renvoie `200 {data: []}`**, jamais `404` : l'absence de formateur
+  à cet endroit de la liste n'est pas une erreur. `total` et `totalPages` valent `0` sur un annuaire vide.
+- `levels` / `subjects` à `null` = **non renseigné** (le profil pédagogique est facultatif) ; `[]` = liste
+  vide enregistrée. Les deux ne se confondent pas, comme partout ailleurs dans ce service.
+- `firstName` / `lastName` à `null` signalent une **incohérence de données** (le profil administratif est
+  obligatoire, créé à l'inscription). Le formateur reste **dans la liste** et l'anomalie est journalisée :
+  un enregistrement abîmé ne doit pas priver le RP de tout l'annuaire. Ces entrées sont triées en fin de
+  liste (`NULLS LAST`).
+- `userId` sert **uniquement** à désigner le formateur dans l'appel suivant ; il n'est jamais affiché
+  (arbitrage du 2026-08-09).
+- **La recherche par niveau, disponibilités et points reste en phase 2.** Cette route livre une liste,
+  pas un moteur.
+- Aucune modification de `api-gateway` n'a été nécessaire : `/api/v1/profiles` est proxifié **en bloc**
+  (`location ^~`), donc `/api/v1/profiles/teachers/validated` est joint sans déclaration nouvelle.
+
 ### Relations
 
 | Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |

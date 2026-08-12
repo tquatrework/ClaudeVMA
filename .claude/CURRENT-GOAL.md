@@ -174,14 +174,17 @@ Rencontrés en prouvant l'annuaire, **non corrigés**, sans lien avec le flow lu
       événements réels en outbox. `profile-service` : résolution de nom interne, lien rejouable,
       routes internes fermées. Preuves : 136+19 et 551+269 tests contre PostgreSQL réel, et
       migration jouée contre une copie de la base de production.
-- [ ] Front — formulaire élève déjà en ligne ; à construire : sélecteur d'élève pour le parent,
-      liste RP, composition de proposition, boîte formateur, validation RP
+- [x] Front — livré et déployé le 2026-08-12. Un seul formulaire (`description`), sélecteurs de
+      personne par prénom + nom, composeur RP peuplé par l'annuaire des formateurs validés,
+      boîte formateur branchée sur l'identifiant de proposition, validation RP, libellés en un
+      point unique. Bundle servi : `index-Du5nUbS9.js`
 - [ ] Notifications — **après** le flow, sur les événements réels qu'il émet
-- [x] Déployé sur la pile réelle — `teacher-request-service` et `profile-service` reconstruits
-      le 2026-08-12, gateway les atteint sans rechargement (correctif DNS #97 confirmé)
+- [x] Déployé sur la pile réelle — `teacher-request-service`, `profile-service` et `frontend`
+      reconstruits le 2026-08-12 ; gateway les atteint sans rechargement (correctif DNS #97
+      confirmé). Flow complet rejoué après déploiement intégral, sans régression.
 - [x] Preuve livrée à l'utilisateur — flow complet joué contre `https://claudevma.visioprof.fr`,
       voir `.claude/reports/preuve-flow-demande-professeur-2026-08-12.md`
-- [ ] Validé par l'utilisateur
+- [ ] Validé par l'utilisateur — **c'est la seule case qui reste**, elle vous appartient
 - [ ] Mergé dans master
 
 ---
@@ -379,11 +382,12 @@ Suite front après merge : **1421 tests verts**.
 
 ## État
 - [ ] Codé et committé
-- [x] Déployé sur la pile réelle — `teacher-request-service` et `profile-service` reconstruits
-      le 2026-08-12, gateway les atteint sans rechargement (correctif DNS #97 confirmé)
+- [x] Déployé sur la pile réelle — `teacher-request-service`, `profile-service` et `frontend`
+      reconstruits le 2026-08-12 ; gateway les atteint sans rechargement (correctif DNS #97
+      confirmé). Flow complet rejoué après déploiement intégral, sans régression.
 - [x] Preuve livrée à l'utilisateur — flow complet joué contre `https://claudevma.visioprof.fr`,
       voir `.claude/reports/preuve-flow-demande-professeur-2026-08-12.md`
-- [ ] Validé par l'utilisateur
+- [ ] Validé par l'utilisateur — **c'est la seule case qui reste**, elle vous appartient
 - [ ] Mergé dans master
 
 ## Bloqué par

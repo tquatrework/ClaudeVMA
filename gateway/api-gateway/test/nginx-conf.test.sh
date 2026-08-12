@@ -46,17 +46,19 @@ echo
 echo "== Configuration statique =="
 
 # --- Syntaxe -----------------------------------------------------------------
-# nginx resout les noms d'upstream au demarrage : le test doit tourner sur le
-# reseau docker de la pile, sinon il echoue sur « host not found in upstream »
-# sans rien dire de la configuration elle-meme.
+# Depuis le 2026-08-11, les cibles amont sont portees par des variables et non
+# plus par des blocs `upstream` : nginx ne resout plus aucun nom au demarrage.
+# Ce test n'a donc plus besoin du reseau docker de la pile, et la gateway ne
+# refuse plus de demarrer avec « host not found in upstream » quand un service
+# est absent. Le reseau reste utilise s'il existe, sans etre exige.
 dockerNetwork="${GATEWAY_TEST_NETWORK:-$(docker network ls --format '{{.Name}}' 2>/dev/null | grep -m1 'visiomath_network')}"
+networkArgs=()
+[ -n "$dockerNetwork" ] && networkArgs=(--network "$dockerNetwork")
 
 if ! command -v docker >/dev/null 2>&1; then
   skip "nginx -t accepte la configuration" "docker indisponible"
-elif [ -z "$dockerNetwork" ]; then
-  skip "nginx -t accepte la configuration" "reseau docker de la pile introuvable (pile arretee ?)"
 else
-  if syntaxOutput=$(docker run --rm --network "$dockerNetwork" \
+  if syntaxOutput=$(docker run --rm "${networkArgs[@]}" \
     -v "$(cd "$(dirname "$CONF")" && pwd)/nginx.conf":/etc/nginx/nginx.conf:ro \
     "$NGINX_IMAGE" nginx -t 2>&1); then
     pass "nginx -t accepte la configuration"
@@ -65,14 +67,63 @@ else
   fi
 fi
 
+# --- Re-resolution DNS des services ------------------------------------------
+# Defaut du 2026-08-11 : un conteneur reconstruit change d'adresse IP, et nginx
+# continuait d'appeler l'ancienne parce qu'un bloc `upstream` est resolu une
+# seule fois, au chargement de la configuration. Deux garanties, indissociables :
+# sans `resolver` nginx ne sait pas re-resoudre, et sans variable dans le
+# `proxy_pass` il ne re-resout pas, `resolver` ou pas.
+assert_match "un resolver designe le DNS interne de Docker" \
+  '^\s*resolver\s+127\.0\.0\.11\s'
+assert_match "la validite du cache DNS est courte et explicite" \
+  '^\s*resolver\s+127\.0\.0\.11\s+valid=[0-9]+s'
+assert_match "la resolution IPv6 est desactivee" \
+  '^\s*resolver\s+.*ipv6=off'
+assert_no_match "aucun bloc upstream ne subsiste (resolution figee au demarrage)" \
+  '^\s*upstream\s+[a-z_]+\s*\{'
+
+badProxyPass=$(grep -E '^\s*proxy_pass\s+http://[^$]' "$CONF")
+if [ -z "$badProxyPass" ]; then
+  pass "toute cible de proxy_pass passe par une variable (re-resolue a chaque requete)"
+else
+  fail "toute cible de proxy_pass passe par une variable" \
+    "cibles figees : $(printf '%s' "$badProxyPass" | tr -s ' \n' ' ')"
+fi
+
+# --- Reecriture d'URI apres passage aux variables -----------------------------
+# Des qu'un proxy_pass contient une variable, nginx cesse de substituer le
+# prefixe du location. L'URI transmise est donc reconstruite a la main : chaque
+# proxy_pass doit porter une partie URI, sinon nginx transmet l'URI CLIENT
+# entiere (/api/v1/...) et le service repond 404 sur toutes ses routes.
+missingUri=$(grep -E '^\s*proxy_pass\s+http://\$[a-z_]+;\s*$' "$CONF")
+if [ -z "$missingUri" ]; then
+  pass "aucun proxy_pass ne se limite a l'hote (l'URI transmise est toujours explicite)"
+else
+  fail "aucun proxy_pass ne se limite a l'hote" \
+    "sans partie URI, nginx transmettrait /api/v1/... au service : $(printf '%s' "$missingUri" | tr -s ' \n' ' ')"
+fi
+
+# La chaine de requete est deja portee par $request_uri, sur lequel les `map`
+# sont calculees. L'ajouter une seconde fois la dupliquerait (`?a=1?a=1`).
+assert_no_match "la chaine de requete n'est pas ajoutee deux fois" \
+  '^\s*proxy_pass\s.*\$is_args\$args'
+
+# Les `map` doivent partir de $request_uri (brut) et non de $uri (decode) :
+# $uri reinjecterait des caracteres decodes dans la requete amont et casserait
+# tout chemin contenant %20, %2B, etc.
+assert_no_match "aucune map de reecriture ne part de \$uri (encodage perdu)" \
+  '^\s*map\s+\$uri\s+\$(api_v1|docs|teacher_requests|finance|orchestration)_suffix'
+assert_match "la reecriture generale part de \$request_uri" \
+  '^\s*map\s+\$request_uri\s+\$api_v1_suffix'
+
 # --- Routage de profile-service ---------------------------------------------
 # La gateway doit proxifier /api/v1/profiles EN BLOC. Une declaration route par
 # route rendrait invisible toute nouvelle route du service — c'est exactement ce
 # qui serait arrive a GET /profiles/avatar/constraints.
 assert_match "le prefixe /api/v1/profiles est proxifie en bloc vers profile-service" \
   '^\s*location \^~ /api/v1/profiles \{'
-assert_match "le prefixe /api/v1/profiles pointe sur le controleur /profiles" \
-  '^\s*proxy_pass http://profile/profiles;'
+assert_match "le prefixe /api/v1/profiles pointe sur profile-service, chemin reecrit" \
+  '^\s*proxy_pass http://\$upstream_profile\$api_v1_suffix;'
 
 # --- Absence de capture de segment -------------------------------------------
 # nginx ne doit contenir aucune location par expression reguliere ni aucun rewrite :
@@ -201,11 +252,22 @@ PY
     -H "Authorization: Bearer ${ACCESS_TOKEN}" \
     -F "file=@/tmp/gwtest-oversized.png;type=image/png" \
     "${GATEWAY_URL}/api/v1/profiles/00000000-0000-0000-0000-000000000000/avatar")
+
+  # Attribution du refus. La gateway repond TOUJOURS en JSON, y compris sur 413
+  # (`error_page 413 = @payload_too_large`). Un 413 en HTML ne peut donc pas
+  # venir d'elle : il vient forcement d'un proxy en amont -- en pratique
+  # `nginx-global`, hors depot, qui applique encore le defaut de 1 Mio. Ce cas
+  # est signale « ignore » et non « KO » : ce n'est pas un defaut de gateway, et
+  # le maquiller en echec ferait passer inapercu un vrai defaut plus tard.
   if grep -q '413 Request Entity Too Large' /tmp/gwtest-upload; then
-    fail "un corps multipart de 1,1 Mo n'est plus coupe par la gateway" \
-      "413 HTML emis par nginx : la gateway reste le plafond"
+    upstreamProxy=$(grep -oE 'nginx/[0-9.]+' /tmp/gwtest-upload | head -1)
+    skip "un corps multipart de 1,1 Mo n'est pas coupe par la gateway" \
+      "coupe en amont par ${upstreamProxy:-un proxy} en HTML ; la gateway repond en JSON. Pointer GATEWAY_URL directement sur la gateway pour trancher"
+  elif grep -q '"message":"Payload Too Large"' /tmp/gwtest-upload; then
+    fail "un corps multipart de 1,1 Mo n'est pas coupe par la gateway" \
+      "413 JSON emis par la gateway elle-meme : client_max_body_size est trop bas"
   else
-    pass "un corps multipart de 1,1 Mo n'est plus coupe par la gateway (HTTP $status, reponse applicative)"
+    pass "un corps multipart de 1,1 Mo n'est pas coupe par la gateway (HTTP $status, reponse applicative)"
   fi
 fi
 

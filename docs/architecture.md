@@ -326,4 +326,22 @@ Phase 3 enrichit l'offre :
      regle du 2026-08-10 sur les medias vaut ici : on ne revele pas l'existence de ce qu'on
      n'a pas le droit de voir.
 
+- Rupture d'un lien parent financeur ↔ eleve. Arbitrage rendu le 2026-08-11, livre par la PR #98.
+  Il complete l'arbitrage ci-dessus sur l'acces par relation : si la relation ouvre des droits,
+  sa rupture doit les refermer.
+  1. **Delier n'efface pas l'historique.** On enregistre la **fin** du lien, on ne supprime pas la
+     ligne. Meme raisonnement que pour le retrait d'un consentement (2026-08-09) : on doit pouvoir
+     prouver que le lien a existe, puis a ete rompu, et quand. Un lien financier rompu sans trace
+     serait ingerable cote facturation. Corollaire : aucune suppression de ligne de relation,
+     jamais.
+  2. **Chacune des deux parties peut delier**, plus le RP et le TI. Forcer quelqu'un a rester lie
+     a un tiers n'aurait pas de sens, et la creation du lien exige deja l'accord des deux cotes.
+  3. **Le lien peut etre recree ensuite.** Comme pour les consentements, un refus definitif serait
+     un piege : le parcours de rattachement existant doit rester utilisable apres une rupture.
+  4. **La verification du lien se fait au moment de l'action, jamais en cache.** Puisqu'un lien
+     peut desormais etre rompu, un droit accorde a la creation d'un objet ne vaut plus pour les
+     actions ulterieures : un parent delie cesse d'agir immediatement pour cet eleve, y compris
+     sur une demande qu'il avait legitimement creee avant la rupture. Precision apportee le
+     2026-08-12, en consequence du releve sur `teacher-request-service`.
+
 ## Points ouverts a arbitrer

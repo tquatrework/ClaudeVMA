@@ -5,68 +5,138 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
-## Besoin — 2026-08-11
+## Besoin — 2026-08-11 — le flow de la demande de professeur
 
-Verbatim de l'utilisateur : « il reste un élément à faire, au niveau du Parent/financeur pour un
-élève ou des Élèves pour un Parent/Financeur, même si cela sera peu utilisé, c'est un bouton et
-une action back derrière "Délier" (ou supprimer) ».
+L'utilisateur le qualifie lui-même de « plus important ». Verbatim :
 
-**Rompre un lien parent financeur ↔ élève doit être possible depuis l'interface**, dans les deux
-sens : le parent depuis la liste de ses élèves, l'élève depuis la liste de ses parents financeurs.
+> 1. Pour rappel un élève peut demander un (nouveau) professeur (ou un parent pour son élève
+>    sélectionné...). cela conduit actuellement à une erreur (`POST /api/v1/teacher-requests`
+>    → **400 Bad Request**)
+> 2. cette demande est vue par les RP, un RP se saisit de la demande et (en ajoutant
+>    éventuellement des précisions) envoie une proposition à différents professeurs.
+> 3. un ou des professeur accepte.
+> 4. le RP valide une des acceptations professeur :
+>    4.1 un message « un professeur a été trouvé » est envoyé à l'élève et son parent financeur.
+>        Un message est envoyé aux professeurs non retenus, disant qu'un autre professeur a été
+>        sélectionné, et que la demande est finie, **qu'ils aient ou non répondu**. Un message
+>        enfin est envoyé au professeur choisi pour lui dire qu'il est désormais le professeur
+>        de l'élève.
+>    4.2 un lien est donc créé entre l'élève et son professeur
+>    4.3 l'ensemble des requêtes tombent (de l'élève au RP, et du RP aux professeurs)
 
-## Trois décisions prises, à corriger d'un mot si elles sont fausses
+## Ce que ce besoin engage
 
-1. **Délier n'efface pas l'historique.** On enregistre la **fin** du lien, on ne supprime pas la
-   ligne. Même raisonnement que pour le retrait d'un consentement (2026-08-09) : on doit pouvoir
-   prouver que le lien a existé, puis a été rompu, et quand. Un lien financier rompu sans trace
-   serait ingérable côté facturation.
-2. **Chacune des deux parties peut délier**, plus le RP et le TI. Forcer quelqu'un à rester lié
-   à un tiers n'aurait pas de sens, et la création du lien exige déjà l'accord des deux côtés.
-3. **Le lien peut être recréé ensuite.** Comme pour les consentements, un refus définitif serait
-   un piège : le parcours de rattachement existant doit rester utilisable après une rupture.
+C'est le premier workflow **réellement transverse** de la plateforme, et `docs/microservices.md`
+le décrit déjà sous le nom `teacher-request-to-assignment` : `teacher-request-service`,
+`profile-service` (le lien formateur↔élève), `dashboard-notification-service` (les messages),
+sous la coordination d'`orchestration-service`. Les services propriétaires ne doivent pas se
+court-circuiter les uns les autres.
 
-## Comment on saura que c'est fait
+Points d'attention connus avant de commencer :
 
-Sur `https://claudevma.visioprof.fr`, réponses HTTP citées :
+- **Le parent agit pour son élève.** Le droit d'agir doit se vérifier sur le lien parent
+  financeur↔élève, dont la rupture vient d'être livrée (PR #98). Un parent délié ne demande plus
+  rien pour cet élève.
+- **Le lien formateur↔élève existe déjà** (`teacher_student_links`, `profile-service`) et ouvre
+  depuis le 2026-08-11 la lecture des statistiques et archives. Le créer n'est donc pas anodin.
+- **4.3 exige un état terminal propre** : une fois une acceptation validée, toutes les
+  propositions pendantes tombent, y compris celles des professeurs qui n'ont jamais répondu.
+- **Idempotence et `x-correlation-id`** sont des contrats techniques du projet, et une erreur
+  métier ne doit jamais être transformée en succès technique.
 
-1. un parent délie un de ses élèves depuis l'interface → le lien disparaît de sa liste ;
-2. l'élève ne voit plus ce parent, et **réciproquement** les droits de lecture ouverts par la
-   relation se referment — le parent ne lit plus ni le profil, ni les statistiques, ni les
-   archives de l'ex-élève ;
-3. l'élève peut délier de son côté, avec le même résultat ;
-4. l'historique reste consultable en base — la ligne n'a pas disparu ;
-5. un rattachement peut être redemandé après coup et aboutir.
+## Existant relevé le 2026-08-11 — écart établi
+
+Deux investigations menées contre la pile réelle, rapports committés le 2026-08-12 après
+récupération dans des worktrees d'agents où ils étaient restés non sauvegardés :
+`.claude/reports/teacher-request-service-flow-2026-08-11.md` et
+`.claude/reports/front-flow-demande-professeur-2026-08-11.md`.
+
+### Cause du 400 : contrat front/back faux
+
+Le front envoie `{description}`, le serveur exige `{subject}`. `ValidationPipe({whitelist:true})`
+sans `forbidNonWhitelisted` **jette `description` en silence**, puis `subject` manque et le DTO
+échoue sur `"subject must be a string"` — message qui ne nomme jamais le vrai coupable. La route
+répond `201` dès qu'on lui parle sa langue : elle n'est pas cassée.
+
+Aggravant : **le même front porte déjà les deux formes** sur la même URL. `TeacherRequestsPage`
+(l'écran atteignable par l'élève) envoie `description` ; `SpecificTeacherRequestForm`
+(`/rp/teacher-requests`) envoie `{subject, level, sector, message?}` et fonctionne. Deux
+formulaires concurrents pour un même besoin, une seule route.
+
+### L'écart réel n'est pas le 400 : trois modèles de décision coexistent
+
+Le 400 est superficiel. Le vrai écart porte sur **qui décide** :
+
+1. **Implémenté et actif** — le premier formateur qui accepte devient le professeur.
+   `POST /proposals/:id/accept` crée immédiatement l'affectation. Mesuré : deux formateurs
+   acceptent → **deux affectations `active`** sur le même élève, la même demande, en silence.
+2. **Codé mais inatteignable** — le RP présélectionne, le **client** choisit
+   (`selected-candidates` puis `select`). Dès qu'un formateur a accepté, la demande est en
+   `assigned` et ces deux routes répondent `400 not in a selectable state`.
+3. **Demandé par l'utilisateur** — les formateurs se déclarent, **le RP tranche**. N'existe
+   nulle part : `POST /teacher-requests/:id/select` **exclut explicitement le RP** (`403`), et
+   aucune route ne permet au RP de lire qui a accepté.
+
+### Ce qui manque pour les étapes 2 à 4.3
+
+- **2** — « se saisir » d'une demande : aucun champ, aucune route. Ajouter des précisions :
+  `PATCH /teacher-requests/:id` → `404`. Envoi groupé : un formateur par appel, sans atomicité.
+  Recherche de formateur : inexistante — le RP saisit un **UUID à la main**.
+- **3** — le formateur ne voit ni sujet, ni niveau, ni nom d'élève ; `GET /teacher-requests/:id`
+  lui répond `403`.
+- **4** — le RP n'a **aucun moyen de lire les acceptations** (`GET .../proposals` → 404).
+- **4.1** — `EventsService.emit()` écrit **une ligne de log**. Aucun bus, aucun abonné, aucun
+  appel à `dashboard-notification-service` ni `communication-service`.
+- **4.2** — aucun appel à `profile-service`. Le service tient sa propre table `assignments`,
+  invisible du propriétaire des relations.
+- **4.3** — inexprimable : `ProposalStatus` n'a que `pending|accepted|declined`, et `assigned`
+  est un cul-de-sac sans transition sortante. Il manque *non retenue* et *caduque* côté
+  proposition, et un état terminal côté demande.
+
+### Trois défauts à traiter en même temps
+
+1. **Trou de droit** : un parent crée une demande pour **n'importe quel élève** → `201`. Aucune
+   vérification du lien. `profile-service` expose pourtant déjà
+   `GET /internal/relations/:viewerId/:targetId`. La rupture de lien (#98) durcit l'exigence :
+   vérification **au moment de l'action**, jamais mise en cache.
+2. **`PROFILE_SERVICE_URL` non défini** — le client retombe sur `http://profile-service:3000`
+   quand le service écoute sur **3002**, et n'envoie aucun jeton. Conséquence :
+   `studentName`/`teacherName` **`null` sur les 16 demandes**, donc le RP ne voit que des UUID.
+3. **`forbidNonWhitelisted` absent** sur tout le service : `{"subject":"X","urgency":"haute"}`
+   → `201`, `urgency` disparaît. Même défaut qu'arbitré le 2026-08-09.
+
+### Risque de sécurité à traiter hors de ce flow
+
+`JWT_SECRET` vaut `change_me_with_a_long_random_string_in_production` dans le conteneur en cours
+d'exécution, sur une machine **accessible publiquement**. Ce secret signe les jetons de **tous**
+les services. Signalé le 2026-08-12, non corrigé.
 
 ## État
 
-- [ ] Back : rupture du lien (`profile-service`)
-- [ ] Front : bouton « Délier » dans les deux sens, avec confirmation
+- [x] Existant relevé, écart établi — 2026-08-11, rapports committés le 2026-08-12
+- [ ] Architecture arbitrée et écrite
+- [ ] Back
+- [ ] Front
 - [ ] Déployé sur la pile réelle
 - [ ] Preuve livrée à l'utilisateur
 - [ ] Validé par l'utilisateur
 - [ ] Mergé dans master
 
-## Bloqué par
-
-Rien. Mais **PR #97 (gateway) attend une décision de merge** : l'image en ligne vient de sa
-branche, donc toute reconstruction depuis `master` réinstallerait le défaut de résolution DNS.
-
 ---
+
+## Deux PR livrées, prouvées, en attente de merge
+
+- **#97 gateway** — re-résolution DNS à chaque requête. Prouvée deux fois, dont une
+  indépendamment de l'agent, et confirmée en conditions réelles lors du déploiement de #98
+  (reconstruction de `profile-service` sans toucher la gateway, `401` immédiat, zéro `502`).
+  Tant qu'elle n'est pas mergée, une reconstruction de la gateway depuis `master` réinstalle le
+  défaut.
+- **#98 délier** — rupture du lien parent financeur↔élève dans les deux sens, historique
+  conservé, droits refermés (profil `403`, statistiques et archives `404`), relien vérifié.
 
 ## Candidat suivant, diagnostiqué et non corrigé
 
 ### Les déploiements front peuvent rester invisibles
-
-`apps/web/Dockerfile` sert `index.html` **sans en-tête `Cache-Control`** — seuls `ETag` et
-`Last-Modified` sont posés. Le navigateur peut donc conserver l'ancien `index.html`, qui
-référence l'ancien bundle par son nom haché, lui aussi en cache. C'est arrivé le 2026-08-11 :
-l'utilisateur voyait un écran dont les chaînes étaient à **0 occurrence** dans le bundle servi.
-
-Correction retenue : `Cache-Control: no-cache` sur `index.html`, cache long immuable sur
-`/assets/`. Ne pas confondre avec la décision « aucun cache » du 2026-08-10, qui porte sur les
-données lues par l'application, pas sur les en-têtes de ses fichiers statiques.
-
-## Objectif précédent — gateway, livré le 2026-08-11, PR #97 en attente de merge
 
 **Défaut d'exploitation constaté le 2026-08-11, réparé au coup par coup, pas corrigé à la
 racine.** Le plus grave trouvé ce jour-là.

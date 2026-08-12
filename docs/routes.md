@@ -720,7 +720,19 @@ Vérifié contre la pile réelle : après rupture, le parent reçoit `403` sur `
 ### API interne inter-services (non exposée via nginx)
 
 > Exclue de Swagger (`@ApiExcludeController`). Protégée par `X-Internal-Secret: <INTERNAL_SECRET>`.
-> Utilisée par orchestration-service dans les workflows d'onboarding.
+> Utilisée par orchestration-service dans les workflows d'onboarding, et depuis le 2026-08-12 par
+> `teacher-request-service` pour le flow « demande de professeur ».
+>
+> **Aucune de ces routes n'est exposée par api-gateway** — c'est leur protection, avec le secret
+> partagé, et elle doit le rester : `GET /internal/profiles/:userId/display-name` sert une identité
+> **sans contrôle de lecteur**. L'exclusion de Swagger est délibérée pour la même raison ; les
+> `@ApiOperation`/`@ApiResponse` du contrôleur documentent le contrat dans le code, **la référence
+> lisible est ce tableau**.
+>
+> ⚠️ **Sécurité, comportement inchangé mais à connaître** : si `INTERNAL_SECRET` n'est pas configuré,
+> `InternalGuard` journalise un avertissement puis **laisse passer** — ces routes sont alors sans
+> authentification. Signalé ici parce que la surface qu'elles exposent vient de s'élargir à la
+> résolution de nom.
 
 | Méthode | Chemin | Description | Header requis | Réponse attendue |
 |---|---|---|---|---|
@@ -728,8 +740,10 @@ Vérifié contre la pile réelle : après rupture, le parent reçoit `403` sur `
 | POST | /internal/create-student-profiles | Créer les profils initiaux d'un élève (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` | `201 {userId, administrative, pedagogical}` · `400` · `401`/`403` |
 | POST | /internal/create-teacher-profiles | Créer les profils initiaux d'un formateur (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` | `201 {userId, administrative, pedagogical}` · `400` · `401`/`403` |
 | POST | /internal/link-parent | Lier un parent financeur à un élève (idempotent par paire `studentId`/`financeOwnerId`) — utilisée par identity-access-service pour la liaison automatique élève+parent créés/liés dans le même appel de création de compte | `X-Internal-Secret` | `201 {linked: true, contacts: [financeOwnerId]}` · `401`/`403` |
-| POST | /internal/create-teacher-student-relation | Créer la relation formateur-élève | `X-Internal-Secret` | `201 {teacherId, studentId, isPrincipalTeacher}` · `409` doublon · `401`/`403` |
+| POST | /internal/create-teacher-student-relation | **Créer le lien élève↔formateur**, dont `profile-service` est l'unique propriétaire (arbitrage du 2026-08-12, point 5) — appelée par `teacher-request-service` quand le RP valide l'acceptation d'un formateur. Body : `{teacherId, studentId, isPrincipalTeacher?}` (UUID, `isPrincipalTeacher` optionnel, `false` par défaut). **Idempotente depuis le 2026-08-12** : rejouer la validation d'un RP ne crée pas de second lien et n'échoue pas. Le code HTTP distingue les deux cas, le corps est identique. Ce lien ouvre des droits de lecture réels (statistiques, archives pédagogiques) et publie `TeacherLinkedToStudent`, comme le chemin humain `POST /relations/teacher-student` | `X-Internal-Secret` | `201 {teacherId, studentId, isPrincipalTeacher}` création · `200` même corps, le lien identique existait déjà (rejeu) · `409` un lien existe avec un **statut de professeur principal différent** — ce n'est pas un rejeu et l'appelant doit le remonter · `400` UUID manquant ou invalide · `401` secret absent ou invalide |
 | POST | /internal/link-coordinator | Lier un coordinateur pédagogique à un élève | `X-Internal-Secret` | `201 {coordinatorId, studentId, coordinatorRole}` · `400` rôle invalide · `409` doublon · `401`/`403` |
+| GET | /internal/profiles/:userId/display-name | **Résoudre le prénom et le nom d'une personne** pour un service appelant (arbitrage du 2026-08-12, « Resolution des noms entre services »). Servie **sans lecteur** et **sans filtrage champ par champ** : un formateur qui reçoit une proposition n'est encore lié à aucun élève, la route publique lui répondrait `403` et l'écran retomberait sur un UUID. **Contrat figé : `firstName` et `lastName`, jamais un champ de plus** — l'étendre en ferait une porte dérobée contournant le filtrage de visibilité pour tout service détenant `INTERNAL_SECRET`. Tout autre besoin passe par `GET /profiles/:userId` et ses règles de droit. `x-correlation-id` accepté et propagé. **Jamais exposée par api-gateway** | `X-Internal-Secret` | `200 {userId, firstName, lastName}` — valeurs `string\|null` · `400` `userId` non-UUID · `401` secret absent ou invalide · `404` `userId` inconnu de identity-access-service · `500` compte connu **sans** profil administratif (incohérence de données, jamais masquée) |
+| POST | /internal/profiles/display-names | **Variante par lot** de la route ci-dessus, pour qu'une liste de N lignes ne coûte pas N appels HTTP (une seule requête SQL). `POST` alors que l'opération est une **lecture** : le corps porte la liste, qu'une query string ne peut pas transporter sans limite de longueur — d'où le `200`, aucune ressource n'est créée. Body : `{userIds: string[]}`, UUID, **200 identifiants au maximum** (plafond déclaré, pas de défaut caché). Ordre d'entrée conservé, doublons réduits à une entrée. Un `userId` sans profil administratif est **absent** de la réponse plutôt que de faire échouer le lot (l'anomalie reste tracée côté serveur) : un identifiant douteux ne prive pas l'appelant des autres noms. Même contrat figé que la route unitaire. **Jamais exposée par api-gateway** | `X-Internal-Secret` | `200 {displayNames: [{userId, firstName, lastName}]}` · `400` liste vide, au-delà du plafond, ou identifiant non-UUID · `401` secret absent ou invalide |
 | GET | /internal/relations/:viewerId/:targetId | **Lire la nature et le sens des relations entre deux personnes**, pour qu'un service appelant applique la même règle sans tenir de copie des relations — `profile-service` en reste l'unique propriétaire (arbitrage du 2026-08-11). Premier consommateur : `archive-document-service`. Query **obligatoire** `viewerRole` (`400` si absent ou hors énumération, avec la liste des valeurs acceptées) : le rôle accompagne systématiquement les appels interservices, `profile-service` ne le persiste ni ne l'expose. La réponse est **suffisante pour décider** : elle donne le **sens** du lien, pas un booléen — un élève voit les statistiques de son formateur mais **pas** ses archives pédagogiques, distinction impossible à faire sans lui. Ce service **ne rend pas le verdict** à la place de l'appelant : il fournit les faits, chaque service propriétaire décide de sa surface | `X-Internal-Secret` | `200 {viewerId, targetId, isSelf, isAdministrator, relations: [{kind, isPrincipalTeacher?, throughUserIds?}]}` — `relations: []` = aucun lien (et toujours `[]` quand `isSelf`) ; `isAdministrator` vaut `true` pour RP, AF, TI, **jamais pour l'AP** ; valeurs de `kind` : voir « Droit d'accès aux statistiques » ci-dessus · `400` UUID ou `viewerRole` invalide · `401` secret absent ou invalide |
 
 **Noms des blocs de profil — `administrative` / `pedagogical`, ici comme partout ailleurs.**
@@ -844,8 +858,9 @@ et l'interroge **à chaque action**, jamais en cache — un lien peut être romp
 | Appel | Usage | Politique d'échec |
 |---|---|---|
 | `GET /internal/relations/:viewerId/:targetId?viewerRole=` | Droit d'agir d'un parent, droit de lecture | **Refuse** l'action (`503`) — laisser passer donnerait l'illusion du contrôle |
-| `POST /internal/create-teacher-student-relation` | Créer le lien à la validation du RP. `409` traité comme un succès (le lien demandé existe) | **Fait échouer** la validation ; la demande reste ouverte |
-| `GET /internal/profiles/:userId/display-name` **(à créer)** | Afficher des noms plutôt que des UUID, y compris pour un formateur qu'aucune relation ne lie encore à l'élève | Retombe sur `GET /profiles/:userId` avec le jeton de l'appelant ; à défaut `null` |
+| `POST /internal/create-teacher-student-relation` | Créer le lien à la validation du RP. **Idempotente depuis le 2026-08-12** : `201` création, `200` rejeu — l'appelant n'a plus à traiter un `409` comme un succès, et le `409` restant (professeur principal différent) est un vrai conflit à remonter | **Fait échouer** la validation ; la demande reste ouverte |
+| `GET /internal/profiles/:userId/display-name` | Afficher des noms plutôt que des UUID, y compris pour un formateur qu'aucune relation ne lie encore à l'élève. **Livrée le 2026-08-12** | Retombe sur `GET /profiles/:userId` avec le jeton de l'appelant ; à défaut `null` |
+| `POST /internal/profiles/display-names` | Même chose **par lot**, pour qu'une liste RP ne coûte pas un appel HTTP par ligne. **Livrée le 2026-08-12** | Identifiants non résolus absents de la réponse ; l'appelant retombe sur son propre repli |
 
 ### Événements
 

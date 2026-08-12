@@ -59,6 +59,10 @@
       <endpoint method="POST" path="/relations/animator-teacher">Rattacher un AP a un formateur qu'il anime (role : responsable_pedagogique SEUL).</endpoint>
       <endpoint method="GET" path="/relations/animator-teacher/{animatorId}">Lister les formateurs animes par un AP (RP, TI, AP lui-meme).</endpoint>
       <endpoint method="GET" path="/internal/relations/{viewerId}/{targetId}">Nature et SENS des relations entre deux personnes, pour un service appelant (archive-document-service). X-Internal-Secret ; query viewerRole obligatoire.</endpoint>
+      <!-- Resolution de nom entre services — decision C18 (2026-08-12) -->
+      <endpoint method="GET" path="/internal/profiles/{userId}/display-name">Prenom et nom d'une personne, pour un service appelant (teacher-request-service). X-Internal-Secret. CONTRAT FIGE : firstName et lastName UNIQUEMENT, jamais un champ de plus — servie sans lecteur et sans filtrage champ par champ, tout ajout en ferait une porte derobee. Jamais exposee par api-gateway.</endpoint>
+      <endpoint method="POST" path="/internal/profiles/display-names">Meme contrat PAR LOT ({userIds}, 200 maximum), pour qu'une liste ne coute pas un appel HTTP par ligne. Les userIds non resolus sont absents de la reponse.</endpoint>
+      <endpoint method="POST" path="/internal/create-teacher-student-relation">Creer le lien eleve↔formateur a la validation du RP (teacher-request-service). IDEMPOTENTE : 201 creation, 200 rejeu, 409 seulement si le lien existe avec un statut de professeur principal different.</endpoint>
       <!-- Photo de profil — decisions C13 (routes) et C14 (plafond de taille), 2026-08-10 -->
       <endpoint method="GET" path="/profiles/avatar/constraints">Lire les contraintes d'envoi (maxUploadBytes, formats acceptes) AVANT de choisir un fichier. Sans :userId : elles ne dependent ni du profil vise ni du lecteur. Le front ne doit pas les coder en dur.</endpoint>
       <endpoint method="POST" path="/profiles/{userId}/avatar">Envoyer ou remplacer la photo (multipart, champ file ; titulaire SEUL). 413 structure au-dela de MEDIA_MAX_UPLOAD_BYTES, coupe en streaming par multer.</endpoint>
@@ -1839,7 +1843,154 @@
           "actorId":…,"endedAt":…}}`, deux occurrences.
         </realStackVerification>
       </decision>
+      <decision id="C18" status="implemented" session="2026-08-12">
+        <title>Résolution de nom entre services, et lien élève↔formateur rejouable</title>
+        <context>
+          Deux besoins remontés par `teacher-request-service` pour le flow « demande de
+          professeur » (arbitrage du 2026-08-12, docs/architecture.md).
+
+          1. Un formateur qui reçoit une proposition n'est ENCORE LIÉ À AUCUN ÉLÈVE. La route
+             publique `GET /profiles/:userId` lui répond donc 403, et l'écran retombe sur un
+             UUID — ce que l'arbitrage du 2026-08-09 interdit. Deux règles du projet se
+             contredisaient sur ce cas précis ; l'arbitrage tranche EN FAVEUR DU NOM.
+          2. Le lien élève↔formateur appartient à `profile-service` (arbitrage du 2026-08-12,
+             point 5). `teacher-request-service` le demande à la validation du RP, et traitait
+             le 409 sur doublon COMME UN SUCCÈS pour rendre la validation rejouable — une
+             erreur métier transformée en succès chez l'appelant, ce que les principes du
+             projet interdisent explicitement.
+        </context>
+        <filesTouched>
+          <file path="services/profile-service/src/internal/display-name.ts">
+            NOUVEAU. Contrat FIGÉ de la résolution de nom : `DisplayName` ({userId, firstName,
+            lastName}) et `DisplayNameBatch`. Le fichier porte, en tête, l'interdiction
+            d'étendre la forme — c'est le seul endroit du service où une identité sort SANS
+            contrôle de lecteur.
+          </file>
+          <file path="services/profile-service/src/internal/dto/resolve-display-names.dto.ts">
+            NOUVEAU. `ResolveDisplayNamesDto` + `DISPLAY_NAMES_BATCH_MAX_SIZE` (200), plafond
+            DÉCLARÉ et non laissé au défaut (règle du 2026-08-10 sur les plafonds cachés).
+          </file>
+          <file path="services/profile-service/src/internal/internal.service.ts">
+            `resolveDisplayName` / `resolveDisplayNames`, et `createTeacherStudentRelation`
+            renvoie désormais `{isCreated, relation}` — c'est le contrôleur qui traduit
+            `isCreated` en code HTTP. Injecte `AdministrativeProfileLookupService` (le port de
+            lecture de noms qui existait déjà pour les listes de relations) et
+            `IdentityAccessClient`.
+          </file>
+          <file path="services/profile-service/src/internal/internal.controller.ts">
+            GET /internal/profiles/:userId/display-name (ParseUUIDPipe, en-tête
+            `x-correlation-id` accepté et propagé) et POST /internal/profiles/display-names
+            (@HttpCode(200) : c'est une LECTURE, le POST ne sert qu'à porter la liste).
+            `create-teacher-student-relation` prend `@Res({passthrough: true})` pour répondre
+            201 à la création et 200 au rejeu. Swagger posé sur les nouvelles routes bien que
+            le contrôleur reste `@ApiExcludeController` (voir « décisions » ci-dessous).
+          </file>
+          <file path="services/profile-service/src/internal/internal.module.ts">
+            Importe `ClientsModule` pour `IdentityAccessClient`.
+          </file>
+          <file path="services/profile-service/src/relations/relations.service.ts">
+            `createTeacherStudentLinkForSystem` devient `ensureTeacherStudentLinkForSystem` et
+            renvoie `{link, isCreated}`. Publie `TeacherLinkedToStudent` à la création, comme
+            le chemin humain `linkTeacherToStudent`.
+          </file>
+          <file path="services/profile-service/test/unit/internal/internal.service.spec.ts">
+            +11 tests : contrat figé (garde-fou sur les clés exposées), 404/500/500-injoignable,
+            propagation du correlationId, lot (ordre, doublons, identifiant non résolu), rejeu.
+          </file>
+          <file path="services/profile-service/test/unit/relations/relations.service.spec.ts">
+            Bloc `ensureTeacherStudentLinkForSystem` : création + événement, défaut à false,
+            rejeu sans doublon ni événement, 409 sur professeur principal divergent.
+          </file>
+          <file path="services/profile-service/test/e2e/internal.e2e-spec.ts">
+            +17 tests e2e contre une VRAIE base : secret absent / invalide / JWT à la place du
+            secret, userId inconnu, compte sans profil administratif, non-UUID, lot au-delà du
+            plafond, et surtout le couple 201/200 vérifié sur la pile Nest réelle (le passage
+            du code de statut par `@Res({passthrough})` ne se prouve pas en test unitaire).
+          </file>
+        </filesTouched>
+        <decisions>
+          <item>
+            LE CONTRAT DE LA ROUTE DE NOM EST FIGÉ, PAS PROVISOIRE. Elle renvoie `firstName` et
+            `lastName`, jamais un champ de plus. Servie sans lecteur et sans filtrage champ par
+            champ, tout ajout en ferait une porte dérobée contournant le filtrage de visibilité
+            pour QUICONQUE détient `INTERNAL_SECRET`. L'interdiction est écrite à trois
+            endroits — le fichier de contrat, le contrôleur, `docs/routes.md` — et tenue par
+            deux tests qui comparent la liste EXACTE des clés exposées, unitaire et e2e.
+          </item>
+          <item>
+            Absence de profil administratif : même discipline que `GET /profiles/:userId`
+            (décision C8). userId inconnu de `identity-access-service` → 404 ; compte connu SANS
+            profil administratif → 500 (incohérence de données, jamais masquée par un nom vide) ;
+            `identity-access-service` injoignable → 500 également, jamais 404 — une panne ne doit
+            pas faire passer tous les profils pour supprimés. L'appel sortant n'a lieu QUE sur ce
+            chemin d'erreur : le cas nominal ne sort pas du service.
+          </item>
+          <item>
+            La variante par lot s'écarte volontairement sur un point : un userId sans profil est
+            ABSENT de la réponse au lieu de faire échouer le lot. Un identifiant douteux ne doit
+            pas priver l'appelant des N-1 autres noms. L'anomalie n'est pas silencieuse pour
+            autant : un log serveur explicite nomme les identifiants omis.
+          </item>
+          <item>
+            IDEMPOTENCE DU LIEN : 201 à la création, 200 au rejeu, MÊME CORPS. Renvoyer 201 sur
+            un rejeu annoncerait une création qui n'a pas eu lieu. L'appelant n'a plus à traiter
+            un 409 comme un succès — et `response.ok` couvre les deux codes, donc le changement
+            ne casse aucun appelant existant.
+          </item>
+          <item>
+            UN SEUL 409 SUBSISTE, et ce n'est pas un rejeu : le lien existe avec un statut de
+            professeur principal DIFFÉRENT de celui demandé. Répondre 200 en ignorant
+            `isPrincipalTeacher` reviendrait à accepter puis jeter un champ en silence
+            (corollaire du 2026-08-09) ; désigner le professeur principal est une opération
+            distincte, avec ses propres règles. Ce cas était déjà un 409 avant cette session :
+            aucun comportement ne régresse, la sémantique devient seulement honnête.
+          </item>
+          <item>
+            L'ÉVÉNEMENT `TeacherLinkedToStudent` EST DÉSORMAIS PUBLIÉ SUR LE CHEMIN SYSTÈME.
+            Il ne l'était pas : les méthodes `*ForSystem` avaient été écrites pour l'onboarding,
+            où le lien formateur↔élève n'existe pas encore. Depuis l'arbitrage du 2026-08-12, ce
+            lien NAÎT de cette route et non plus d'une action RP directe — ne pas le publier
+            aurait rendu toute création invisible à `dashboard-notification-service` le jour où
+            il s'y abonne. C'est le point le plus facile à manquer de cette session.
+          </item>
+          <item>
+            Swagger : le contrôleur reste `@ApiExcludeController`. Ces routes ne sont jamais
+            exposées par `api-gateway` et n'ont pas à figurer dans un catalogue public — a
+            fortiori celle qui sert une identité sans contrôle de lecteur. Les
+            `@ApiOperation`/`@ApiResponse` sont posés quand même : ils documentent le contrat
+            dans le code et prendraient effet si l'exclusion tombait. La référence lisible reste
+            `docs/routes.md`.
+          </item>
+        </decisions>
+        <verification>
+          Unitaires : 538 tests, 18 suites, TOUS VERTS (contre 500 avant la session).
+          E2E : 270 tests, 7 suites, joués contre une vraie base PostgreSQL (testcontainers) —
+          269 verts, 1 rouge PRÉEXISTANT et sans rapport avec cette session
+          (« [PROF-BR-010] Un administrateur financier peut ajouter une note interne », laissé
+          en échec à dessein en attente d'arbitrage, voir openPoints). Échec reproduit à
+          l'identique sur l'arbre pré-session avant d'être qualifié de préexistant.
+          La suite `internal.e2e-spec.ts` passe à 57 tests, tous verts.
+
+          PREUVE CONTRE LA PILE RÉELLE NON PRODUITE : le conteneur `visiomath_profile` n'a pas
+          été reconstruit dans cette session (hors périmètre d'un agent de service). Tant que
+          l'image n'est pas reconstruite, `https://claudevma.visioprof.fr` ne porte pas ce code.
+        </verification>
+      </decision>
       <openPoints>
+        <item priority="medium" status="to-do" raisedIn="C18" raisedOn="2026-08-12" owner="back">
+          `POST /internal/create-teacher-student-relation` ne transporte pas l'identité du RP
+          qui a validé : l'événement `TeacherLinkedToStudent` publié sur ce chemin porte donc
+          `actorId: null`. Le chemin humain (`POST /relations/teacher-student`) porte l'acteur.
+          Un lien qui ouvre des droits de lecture réels mériterait de savoir QUI l'a décidé.
+          Correctif possible sans casser l'appelant : un champ optionnel `validatedBy` dans le
+          DTO, que `teacher-request-service` remplirait avec l'identifiant du RP.
+        </item>
+        <item priority="low" status="to-do" raisedIn="C18" raisedOn="2026-08-12" owner="back">
+          La route de résolution de nom n'a aucune limite de débit. Elle est protégée par le
+          secret partagé et non exposée par la gateway, mais elle permet, pour qui détient le
+          secret, d'énumérer des noms sans trace autre que les logs applicatifs. À reconsidérer
+          si le secret devait un jour être partagé plus largement.
+        </item>
         <item priority="medium" status="to-do" raisedIn="C17" raisedOn="2026-08-11" owner="back">
           `GET /profiles/:userId` répond encore `403` à un parent non relié
           (« A parent may only view profiles of students they are linked to »), là où les
@@ -2110,17 +2261,22 @@
           a la lecture — c'est l'effet recherche, la correction se fait a la source via
           POST /internal/create-administrative-profile.
         </item>
-        <item>
-          Idempotence "de reponse" (200/201 silencieux) vs idempotence "d'etat" (409
-          explicite, jamais de doublon) sur les methodes *ForSystem de RelationsService
-          (createFinanceOwnerStudentLinkForSystem et les 2 methodes soeurs, utilisees par
-          POST /internal/link-parent, /internal/create-teacher-student-relation et
-          /internal/link-coordinator) : comportement intentionnel et deja teste (verifie par
-          lecture de code lors de cette session, non modifie), mais l'appelant
-          (identity-access-service pour l'auto-liaison eleve/parent a la creation, ou
-          orchestration-service en cas de retry) doit explicitement traiter un 409 sur ces
-          routes comme "deja lie" et non comme un echec bloquant. A confirmer explicitement
-          cote identity-access-service/orchestration-service au moment de l'integration.
+        <item priority="medium" status="partially-resolved" resolvedIn="C18" resolvedOn="2026-08-12">
+          Idempotence "de reponse" (200/201) vs idempotence "d'etat" (409 explicite, jamais de
+          doublon) sur les methodes *ForSystem de RelationsService.
+
+          RESOLU pour le lien eleve↔formateur (C18) : POST /internal/create-teacher-student-relation
+          est desormais idempotent — 201 a la creation, 200 au rejeu, meme corps. L'appelant n'a
+          plus a traiter un 409 comme un succes. Le seul 409 restant designe un vrai conflit
+          (statut de professeur principal different) et doit etre remonte, pas absorbe.
+
+          RESTE OUVERT pour POST /internal/link-coordinator, qui repond toujours 409 sur doublon
+          via createPedagogicalCoordinatorLinkForSystem. POST /internal/link-parent passe, lui,
+          par createFinanceOwnerStudentLinkForSystem et conserve aussi son 409 ; l'appelant
+          (identity-access-service pour l'auto-liaison eleve/parent, orchestration-service en cas
+          de retry) doit donc encore traiter ce 409 comme "deja lie". Aligner ces deux routes sur
+          le meme modele que le lien eleve↔formateur est le geste evident, non fait ici pour ne
+          pas modifier le comportement de routes hors du perimetre demande.
         </item>
         <item status="resolved" resolvedIn="C8" resolvedOn="2026-08-07">
           RESOLU — 3 tests echouaient dans updateTeacherValidation

@@ -1976,6 +1976,86 @@
           l'image n'est pas reconstruite, `https://claudevma.visioprof.fr` ne porte pas ce code.
         </verification>
       </decision>
+      <decision id="C19" status="implemented" session="2026-08-12">
+        <title>Le service refuse de démarrer sans INTERNAL_SECRET — fermeture du passage en clair d'InternalGuard</title>
+        <filesTouched>
+          <file path="services/profile-service/src/config/env.validation.ts">
+            NOUVEAU. `validateEnv` : `DATABASE_URL`, `JWT_SECRET` et `INTERNAL_SECRET` requis et
+            non vides ; `NODE_ENV` optionnel, contraint à development/test/production. Copie de
+            forme de `services/teacher-request-service/src/config/env.validation.ts`, à dessein.
+          </file>
+          <file path="services/profile-service/src/config/config.module.ts">
+            NOUVEAU. `AppConfigModule` : `ConfigModule.forRoot({ isGlobal: true, validate: validateEnv })`.
+          </file>
+          <file path="services/profile-service/src/app.module.ts">
+            `ConfigModule.forRoot({ isGlobal: true })` remplacé par `AppConfigModule`.
+          </file>
+          <file path="services/profile-service/src/internal/internal.guard.ts">
+            Suppression du `logger.warn(...) ; return true`. `config.getOrThrow('INTERNAL_SECRET')`
+            remplace `config.get(...)`. Le `Logger` n'a plus d'usage et est retiré.
+          </file>
+          <file path="services/profile-service/test/e2e/helpers/app.helper.ts">
+            Import de `AppModule` rendu paresseux (voir point 3).
+          </file>
+          <file path="services/profile-service/test/unit/config/env.validation.spec.ts">NOUVEAU, 8 tests.</file>
+          <file path="services/profile-service/test/unit/internal/internal.guard.spec.ts">NOUVEAU, 5 tests. Le guard n'avait aucun test unitaire.</file>
+          <file path="docs/routes.md">Signalement d'authentification remplacé par le constat de fermeture.</file>
+        </filesTouched>
+        <description>
+          (1) LE DÉFAUT. `InternalGuard` journalisait un avertissement puis **laissait passer**
+          quand `INTERNAL_SECRET` n'était pas configuré : toutes les routes `/internal/*` étaient
+          alors servies sans aucune authentification. Défaut préexistant, mais dont la surface
+          venait de s'élargir avec C18 — `GET /internal/profiles/:userId/display-name` et
+          `POST /internal/profiles/display-names` servent une identité (prénom, nom) **sans
+          contrôle de lecteur ni filtrage de visibilité**. Un `/internal/*` ouvert exposait donc
+          les noms de tous les utilisateurs à quiconque atteint le réseau Docker.
+          C'est le défaut de famille « plafond caché » arbitré le 2026-08-10 : une valeur par
+          défaut non déclarée qui échoue en silence. Une garde qui s'ouvre quand sa configuration
+          manque échoue dans le mauvais sens.
+          (2) CORRECTION. Le passage en clair est supprimé, et la validation remonte au démarrage :
+          le service ne démarre plus du tout sans `INTERNAL_SECRET`. Deux barrières, pas une :
+          `validateEnv` au bootstrap, et `getOrThrow` dans la garde — si un chemin de bootstrap
+          contournait la validation, la garde échoue en refusant, jamais en ouvrant. Une valeur
+          vide y est également sans effet : `provided !== ''` reste vrai pour une requête sans
+          en-tête, donc `401`.
+          (3) POINT DE VIGILANCE — POURQUOI L'IMPORT DE `AppModule` DEVIENT PARESSEUX EN E2E.
+          Nest évalue les arguments de `@Module()` dès la définition de la classe : le
+          `ConfigModule.forRoot({ validate })` est donc exécuté **à l'import** de `app.module.ts`,
+          et `@nestjs/config` conserve le résultat comme instantané prioritaire sur `process.env`
+          (`ConfigService.get` lit `VALIDATED_ENV` avant `process.env`). `app.helper.ts` importait
+          `AppModule` en tête de fichier, donc AVANT que `createTestApp()` ait posé `JWT_SECRET`,
+          `INTERNAL_SECRET` et surtout `DATABASE_URL` — dont l'URL Testcontainers n'est connue
+          qu'après démarrage du conteneur. Sans ce changement, la validation aurait échoué et,
+          pire, `ConfigService` aurait servi une URL de base périmée en ignorant le conteneur :
+          les e2e auraient tourné contre la base locale partagée sans le dire. L'import déplacé
+          dans `createTestApp()`, après la mise en place de l'environnement, supprime la fenêtre.
+          `teacher-request-service` a résolu le même problème par un `setupFiles` jest, possible
+          chez lui parce que son `DATABASE_URL` de test est fixe ; ici elle est dynamique.
+          (4) `docker-compose.yml` VÉRIFIÉ, NON MODIFIÉ. Le conteneur `profile-service` reçoit bien
+          `INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}` — la forme `:-` couvre la
+          variable absente ET la variable vide, la valeur n'est donc jamais vide. Rendre la
+          variable obligatoire n'empêche aucun démarrage. Aucune modification n'était nécessaire.
+          (5) HORS PÉRIMÈTRE, NON TOUCHÉ : le test e2e `[PROF-BR-010]` laissé rouge à dessein ; le
+          champ `validatedBy` (décision prise de ne pas câbler un champ que personne ne remplirait
+          aujourd'hui) ; les autres variables d'environnement (`MEDIA_*`, `IDENTITY_ACCESS_SERVICE_URL`,
+          `DASHBOARD_NOTIFICATION_SERVICE_URL`, `AVATAR_PUBLIC_PATH_PREFIX`), laissées non déclarées
+          et donc optionnelles — les déclarer aurait élargi la correction sans besoin établi.
+        </description>
+        <verification>
+          npm run build : OK.
+          npm test (unitaire) : 20 suites, 551 tests, TOUS VERTS (543 avant la session, +8 sur
+          `validateEnv` et +5 sur `InternalGuard`, deux suites qui n'existaient pas).
+          npm run test:e2e (USE_LOCAL_DB=true, base `profile_test` du conteneur PostgreSQL local,
+          --runInBand) : 7 suites, 270 tests, 269 verts. Le seul échec est `[PROF-BR-010]`,
+          préexistant et laissé rouge à dessein. `internal.e2e-spec.ts` reste intégralement vert,
+          y compris ses cas « sans en-tête → 401 », « secret incorrect → 401 » et « un JWT ne
+          remplace pas le secret interne → 401 ».
+          PREUVE CONTRE LA PILE RÉELLE NON PRODUITE : le conteneur `visiomath_profile` n'a pas été
+          reconstruit (hors périmètre d'un agent de service). Tant que l'image n'est pas
+          reconstruite, `https://claudevma.visioprof.fr` ne porte pas ce code — et la porte y reste
+          donc ouverte jusqu'au redéploiement.
+        </verification>
+      </decision>
       <openPoints>
         <item priority="medium" status="to-do" raisedIn="C18" raisedOn="2026-08-12" owner="back">
           `POST /internal/create-teacher-student-relation` ne transporte pas l'identité du RP

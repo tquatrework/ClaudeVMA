@@ -729,10 +729,13 @@ Vérifié contre la pile réelle : après rupture, le parent reçoit `403` sur `
 > `@ApiOperation`/`@ApiResponse` du contrôleur documentent le contrat dans le code, **la référence
 > lisible est ce tableau**.
 >
-> ⚠️ **Sécurité, comportement inchangé mais à connaître** : si `INTERNAL_SECRET` n'est pas configuré,
-> `InternalGuard` journalise un avertissement puis **laisse passer** — ces routes sont alors sans
-> authentification. Signalé ici parce que la surface qu'elles exposent vient de s'élargir à la
-> résolution de nom.
+> **Porte fermée le 2026-08-12.** `InternalGuard` journalisait auparavant un avertissement puis
+> **laissait passer** quand `INTERNAL_SECRET` n'était pas configuré : ces routes étaient alors
+> servies sans aucune authentification. Le passage en clair est supprimé, et
+> **`profile-service` refuse désormais de démarrer** si `INTERNAL_SECRET` est absent ou vide
+> (`src/config/env.validation.ts`, même forme que `teacher-request-service`). Une garde qui
+> s'ouvre quand sa configuration manque échoue dans le mauvais sens : un service mal configuré
+> doit refuser de servir, pas servir sans contrôle.
 
 | Méthode | Chemin | Description | Header requis | Réponse attendue |
 |---|---|---|---|---|

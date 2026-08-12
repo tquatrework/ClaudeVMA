@@ -1,13 +1,29 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 import { TeacherRequest, RequestStatus, RequestType } from '../../entities/teacher-request.entity';
-import { TeacherRequestWithNames } from '../../teacher-request.service';
 
+/** Demande enrichie des noms resolus aupres de profile-service. */
+export interface TeacherRequestWithNames extends TeacherRequest {
+  studentName: string | null;
+  chosenTeacherName: string | null;
+  acceptedProposalCount?: number;
+  pendingProposalCount?: number;
+}
+
+/**
+ * Forme de reponse d'une demande de professeur.
+ *
+ * `subject`, `level`, `sector`, `message` et `selectedTeacherIds` ne sont PLUS
+ * exposes : ils sont sortis du flow le 2026-08-12. Les colonnes restent en base
+ * tant qu'elles portent des donnees, mais une API qui continuerait a les
+ * publier entretiendrait la confusion avec `description` que l'arbitrage
+ * resorbe.
+ */
 export class TeacherRequestResponseDto {
   @ApiProperty()
   id: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: "Auteur de la demande — sert a construire l'appel suivant, jamais a etre affiche." })
   requesterId: string;
 
   @ApiProperty()
@@ -16,17 +32,14 @@ export class TeacherRequestResponseDto {
   @ApiProperty()
   studentId: string;
 
-  @ApiProperty()
-  subject: string;
+  @ApiPropertyOptional({
+    description: "Prenom et nom de l'eleve, a afficher a la place de son identifiant.",
+    nullable: true,
+  })
+  studentName: string | null;
 
-  @ApiPropertyOptional()
-  level: string | null;
-
-  @ApiPropertyOptional()
-  sector: string | null;
-
-  @ApiPropertyOptional()
-  message: string | null;
+  @ApiProperty({ description: 'Le besoin exprime par le demandeur — seul champ de saisie de la demande.' })
+  description: string | null;
 
   @ApiProperty({ enum: RequestStatus })
   status: RequestStatus;
@@ -34,20 +47,23 @@ export class TeacherRequestResponseDto {
   @ApiProperty({ enum: RequestType })
   type: RequestType;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ nullable: true })
   currentPpTeacherId: string | null;
 
-  @ApiPropertyOptional({ type: [String] })
-  selectedTeacherIds: string[] | null;
-
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Formateur retenu par le RP.', nullable: true })
   chosenTeacherId: string | null;
 
-  @ApiPropertyOptional({ description: 'Resolved student display name, when available' })
-  studentName?: string | null;
+  @ApiPropertyOptional({ description: 'Prenom et nom du formateur retenu.', nullable: true })
+  chosenTeacherName: string | null;
 
-  @ApiPropertyOptional({ description: 'Resolved chosen teacher display name, when available' })
-  teacherName?: string | null;
+  @ApiPropertyOptional({ description: 'Nombre de formateurs candidats.', nullable: true })
+  acceptedProposalCount?: number;
+
+  @ApiPropertyOptional({ description: "Nombre de formateurs n'ayant pas encore repondu.", nullable: true })
+  pendingProposalCount?: number;
+
+  @ApiPropertyOptional({ description: 'Date de cloture par le RP.', nullable: true })
+  closedAt: Date | null;
 
   @ApiProperty()
   createdAt: Date;
@@ -61,17 +77,16 @@ export class TeacherRequestResponseDto {
     dto.requesterId = entity.requesterId;
     dto.requesterRole = entity.requesterRole;
     dto.studentId = entity.studentId;
-    dto.subject = entity.subject;
-    dto.level = entity.level ?? null;
-    dto.sector = entity.sector ?? null;
-    dto.message = entity.message ?? null;
+    dto.studentName = 'studentName' in entity ? entity.studentName : null;
+    dto.description = entity.description ?? null;
     dto.status = entity.status;
     dto.type = entity.type;
     dto.currentPpTeacherId = entity.currentPpTeacherId ?? null;
-    dto.selectedTeacherIds = entity.selectedTeacherIds ?? null;
     dto.chosenTeacherId = entity.chosenTeacherId ?? null;
-    if ('studentName' in entity) dto.studentName = entity.studentName;
-    if ('teacherName' in entity) dto.teacherName = entity.teacherName;
+    dto.chosenTeacherName = 'chosenTeacherName' in entity ? entity.chosenTeacherName : null;
+    if ('acceptedProposalCount' in entity) dto.acceptedProposalCount = entity.acceptedProposalCount;
+    if ('pendingProposalCount' in entity) dto.pendingProposalCount = entity.pendingProposalCount;
+    dto.closedAt = entity.closedAt ?? null;
     dto.createdAt = entity.createdAt;
     dto.updatedAt = entity.updatedAt;
     return dto;

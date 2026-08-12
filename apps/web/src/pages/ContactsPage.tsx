@@ -124,7 +124,7 @@ export default function ContactsPage() {
               </p>
             </div>
             <Link
-              to={hasRole('responsable_pedagogique') ? '/rp/teacher-requests' : '/teacher-requests'}
+              to="/teacher-requests"
               className="inline-flex items-center gap-1.5 bg-indigo-600 text-white font-semibold text-xs px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors whitespace-nowrap shrink-0"
             >
               Nouvelle demande

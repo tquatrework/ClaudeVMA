@@ -54,6 +54,32 @@ const UNKNOWN_FIELDS_MESSAGE =
  */
 const UNKNOWN_FIELDS_MARKERS = ['accepted fields for this route', 'unknown field']
 
+/**
+ * Messages techniques en anglais émis par les gardes de rôle des services, qui ne
+ * doivent jamais atteindre l'écran (règle de langue du 2026-08-09 : tout ce que
+ * l'utilisateur lit est en français).
+ *
+ * Ils n'apportent rien de plus que le code HTTP, dont `STATUS_MESSAGES` porte déjà la
+ * traduction. Les vrais messages métier, eux, sont en français et restent affichés tels
+ * quels — c'est justement pour ne pas les écraser que la liste est nommément fermée
+ * plutôt que d'ignorer tout message sur un `401`/`403`.
+ *
+ * Constaté contre la pile réelle le 2026-08-12 : `teacher-request-service` répond
+ * `403 {"message":"You do not have the required role for this action"}` à un élève qui
+ * tenterait d'annuler sa demande.
+ */
+const UNTRANSLATED_GUARD_MESSAGES = [
+  'you do not have the required role for this action',
+  'insufficient role',
+  'forbidden',
+  'unauthorized',
+]
+
+/** Le message du serveur est-il un libellé technique anglais à ne pas afficher ? */
+function isUntranslatedGuardMessage(backendMessage: string): boolean {
+  return UNTRANSLATED_GUARD_MESSAGES.includes(backendMessage.trim().toLowerCase())
+}
+
 /** Concatène le message backend, qu'il soit une chaîne ou un tableau de violations. */
 export function readBackendMessage(error: unknown): string {
   const backendMessage = (error as ApiErrorShape)?.response?.data?.message
@@ -84,7 +110,9 @@ export function isUnknownFieldsRejection(error: unknown): boolean {
  * 0. Refus de champs inconnus (`400`) : message d'action dédié — le détail technique
  *    (noms de champs, anglais) est journalisé pour le développeur, jamais affiché.
  * 1. Message métier renvoyé par le backend (`response.data.message`), s'il existe — c'est
- *    l'information la plus précise (ex. règle métier violée).
+ *    l'information la plus précise (ex. règle métier violée). **Sauf** s'il s'agit d'un
+ *    libellé technique anglais de garde de rôle, qui n'apporte rien de plus que le code
+ *    HTTP et violerait la règle de langue ; on retombe alors sur le point 2.
  * 2. Message par défaut associé au code HTTP (401 / 403 / 404 / 409 / 400 / 422).
  * 3. Message générique « serveur indisponible » pour les codes 5xx.
  * 4. Message générique « réseau » si la requête n'a reçu aucune réponse.
@@ -109,7 +137,11 @@ export function getErrorMessage(error: unknown, fallback?: string): string {
 
   const backendMessage = apiError?.response?.data?.message
 
-  if (typeof backendMessage === 'string' && backendMessage.trim().length > 0) {
+  if (
+    typeof backendMessage === 'string' &&
+    backendMessage.trim().length > 0 &&
+    !isUntranslatedGuardMessage(backendMessage)
+  ) {
     return backendMessage
   }
 

@@ -24,6 +24,32 @@ L'utilisateur le qualifie lui-même de « plus important ». Verbatim :
 >    4.2 un lien est donc créé entre l'élève et son professeur
 >    4.3 l'ensemble des requêtes tombent (de l'élève au RP, et du RP aux professeurs)
 
+### Énoncé détaillé du 2026-08-12 — fait foi sur celui du 2026-08-11
+
+L'utilisateur a précisé le flow en huit étapes, et tranché le contenu du formulaire élève :
+
+> Ce que remplit l'élève est **déjà en ligne** : il clique sur « demander un professeur » dans son
+> dashboard, arrive sur `/teacher-requests`, clique « nouvelle demande », et là il a **juste une
+> description de la demande à faire (texte long)**.
+>
+> 2. le RP reçoit la demande (il a donc quelque part une liste de demandes en cours)
+> 3. à partir de cette demande (que le RP peut percevoir via une notification), le RP envoie une
+>    proposition aux professeurs qu'il a choisi (il rédige un nouveau texte, en reprenant
+>    éventuellement la description, avec peut-être 3 autres champs indicatifs optionnels :
+>    horaires possibles, rémunération et date limite de réponse)
+> 4. les professeurs reçoivent la demande (ainsi qu'une notification pour leur signaler) et
+>    peuvent accepter ou refuser (ou ne rien faire)
+> 5. le RP voit ces refus et ces acceptations. Il choisit parmi les professeurs qui ont accepté le
+>    nouveau professeur de l'élève.
+> 6. un lien est donc créé entre l'élève et le professeur
+> 7. une notification est envoyée au professeur choisi, à l'élève et à son/ses parents financeurs,
+>    annonçant le nouveau professeur et où trouver ses éléments dans l'interface. Une notification
+>    est aussi envoyée aux professeurs non choisis.
+> 8. les différentes demandes disparaissent de l'interface car « traitées ».
+
+Séquencement des notifications laissé à l'orchestrateur, et tranché : **le flow d'abord, les
+notifications ensuite** — voir l'arbitrage 7 dans `docs/architecture.md`.
+
 ## Ce que ce besoin engage
 
 C'est le premier workflow **réellement transverse** de la plateforme, et `docs/microservices.md`
@@ -107,19 +133,58 @@ Le 400 est superficiel. Le vrai écart porte sur **qui décide** :
 
 ### Risque de sécurité à traiter hors de ce flow
 
-`JWT_SECRET` vaut `change_me_with_a_long_random_string_in_production` dans le conteneur en cours
-d'exécution, sur une machine **accessible publiquement**. Ce secret signe les jetons de **tous**
-les services. Signalé le 2026-08-12, non corrigé.
+**Deux secrets partagés laissés à leur valeur par défaut**, sur une machine accessible
+publiquement. Signalés le 2026-08-12, **non corrigés** — c'est un point de déploiement, pas de
+code, et il dépasse le flow professeur.
+
+1. `JWT_SECRET` vaut `change_me_with_a_long_random_string_in_production` dans le conteneur en
+   cours d'exécution. Ce secret **signe les jetons de tous les services** : le connaître permet
+   de forger un jeton de n'importe quel rôle, RP ou TI compris.
+2. `INTERNAL_SECRET` est déclaré dans `docker-compose.yml` sous la forme
+   `${INTERNAL_SECRET:-change_me_in_production}`. Si le `.env` de la machine ne le définit pas,
+   **tous les services partagent ce secret public** — et il protège désormais une route qui sert
+   une identité sans contrôle de lecteur (`/internal/profiles/:userId/display-name`).
+
+La forme `:-` a un effet secondaire à connaître : elle garantit une valeur non vide, donc la
+validation au démarrage ajoutée le 2026-08-12 **ne détectera jamais** l'absence de la variable.
+La porte est fermée contre l'oubli de configuration, pas contre un secret faible.
+
+### Deux écarts trouvés en validant les formateurs (2026-08-12)
+
+Rencontrés en prouvant l'annuaire, **non corrigés**, sans lien avec le flow lui-même :
+
+1. **Un formateur sans enregistrement de validation est invisible de la liste des « en attente ».**
+   `GET /profiles/:teacherId/validation` renvoie un `pending` **synthétique** quand aucune ligne
+   n'existe, tandis que `GET /profiles/teachers/pending-validation` ne liste que les lignes
+   réelles. Mesuré : les deux formateurs `trsflow` étaient lus `pending` individuellement et
+   absents de la liste. Un RP ne peut donc pas voir les formateurs qu'il devrait valider — c'est
+   la même famille de défaut que le `404` des archives, où une absence masquait une fonction
+   jamais opérationnelle.
+2. **Message d'erreur en anglais** sur `PATCH /profiles/:teacherId/validation` :
+   `"Only TI may bypass the in_review step and move directly from pending to validated or
+   rejected"`. La règle métier est bonne — le RP passe par `in_review`, seul le TI saute l'étape —
+   mais elle est énoncée dans une langue que l'utilisateur ne lit pas.
 
 ## État
 
 - [x] Existant relevé, écart établi — 2026-08-11, rapports committés le 2026-08-12
-- [ ] Architecture arbitrée et écrite
-- [ ] Back
-- [ ] Front
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
-- [ ] Validé par l'utilisateur
+- [x] Architecture arbitrée et écrite — `docs/architecture.md`, 2026-08-12, 7 points
+- [x] Back — livré le 2026-08-12. `teacher-request-service` : modèle de décision renversé sur le
+      RP, `description` seul champ requis, états terminaux, lien parent vérifié à chaque action,
+      événements réels en outbox. `profile-service` : résolution de nom interne, lien rejouable,
+      routes internes fermées. Preuves : 136+19 et 551+269 tests contre PostgreSQL réel, et
+      migration jouée contre une copie de la base de production.
+- [x] Front — livré et déployé le 2026-08-12. Un seul formulaire (`description`), sélecteurs de
+      personne par prénom + nom, composeur RP peuplé par l'annuaire des formateurs validés,
+      boîte formateur branchée sur l'identifiant de proposition, validation RP, libellés en un
+      point unique. Bundle servi : `index-Du5nUbS9.js`
+- [ ] Notifications — **après** le flow, sur les événements réels qu'il émet
+- [x] Déployé sur la pile réelle — `teacher-request-service`, `profile-service` et `frontend`
+      reconstruits le 2026-08-12 ; gateway les atteint sans rechargement (correctif DNS #97
+      confirmé). Flow complet rejoué après déploiement intégral, sans régression.
+- [x] Preuve livrée à l'utilisateur — flow complet joué contre `https://claudevma.visioprof.fr`,
+      voir `.claude/reports/preuve-flow-demande-professeur-2026-08-12.md`
+- [ ] Validé par l'utilisateur — **c'est la seule case qui reste**, elle vous appartient
 - [ ] Mergé dans master
 
 ---
@@ -317,9 +382,12 @@ Suite front après merge : **1421 tests verts**.
 
 ## État
 - [ ] Codé et committé
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
-- [ ] Validé par l'utilisateur
+- [x] Déployé sur la pile réelle — `teacher-request-service`, `profile-service` et `frontend`
+      reconstruits le 2026-08-12 ; gateway les atteint sans rechargement (correctif DNS #97
+      confirmé). Flow complet rejoué après déploiement intégral, sans régression.
+- [x] Preuve livrée à l'utilisateur — flow complet joué contre `https://claudevma.visioprof.fr`,
+      voir `.claude/reports/preuve-flow-demande-professeur-2026-08-12.md`
+- [ ] Validé par l'utilisateur — **c'est la seule case qui reste**, elle vous appartient
 - [ ] Mergé dans master
 
 ## Bloqué par

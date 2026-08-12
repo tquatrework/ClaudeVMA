@@ -25,7 +25,6 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { AppModule } from '../../../src/app.module';
 import {
   IdentityAccessClient,
   IdentityAccessNotFoundError,
@@ -180,6 +179,17 @@ export async function createTestApp(): Promise<INestApplication> {
   }
 
   identityAccessStub.reset();
+
+  // AppModule est importe ICI, et non en tete de fichier, parce que Nest evalue
+  // les arguments de @Module() des la definition de la classe : le
+  // `ConfigModule.forRoot({ validate: validateEnv })` de AppConfigModule lit et
+  // FIGE l'environnement au moment de l'import. Un import statique se ferait
+  // donc avant que les lignes ci-dessus aient pose JWT_SECRET, INTERNAL_SECRET
+  // et surtout DATABASE_URL (dont l'URL Testcontainers n'est connue qu'apres le
+  // demarrage du conteneur) — la validation echouerait, et ConfigService
+  // servirait ensuite un instantane perime a la place des vraies valeurs.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { AppModule } = require('../../../src/app.module') as typeof import('../../../src/app.module');
 
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [AppModule],

@@ -1,14 +1,26 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException } from '@nestjs/common';
+import {
+  ConflictException,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InternalService } from '../../../src/internal/internal.service';
 import { ProfilesService } from '../../../src/profiles/profiles.service';
 import { RelationsService } from '../../../src/relations/relations.service';
+import { AdministrativeProfileLookupService } from '../../../src/profiles/administrative-profile-lookup.service';
+import {
+  IdentityAccessClient,
+  IdentityAccessNotFoundError,
+  IdentityAccessUnavailableError,
+} from '../../../src/common/clients/identity-access.client';
 import { toAdministrativeProfileView } from '../../../src/profiles/administrative-profile.view';
 
 describe('InternalService', () => {
   let service: InternalService;
   let profilesService: any;
   let relationsService: any;
+  let administrativeProfileLookup: any;
+  let identityAccessClient: any;
 
   beforeEach(async () => {
     profilesService = {
@@ -42,12 +54,11 @@ describe('InternalService', () => {
         financeOwnerId,
         studentId,
       })),
-      createTeacherStudentLinkForSystem: jest
+      ensureTeacherStudentLinkForSystem: jest
         .fn()
         .mockImplementation(async (teacherId, studentId, isPrincipalTeacher = false) => ({
-          teacherId,
-          studentId,
-          isPrincipalTeacher,
+          link: { teacherId, studentId, isPrincipalTeacher },
+          isCreated: true,
         })),
       createPedagogicalCoordinatorLinkForSystem: jest
         .fn()
@@ -58,11 +69,21 @@ describe('InternalService', () => {
         })),
     };
 
+    administrativeProfileLookup = {
+      findNamesByUserIds: jest.fn().mockResolvedValue(new Map()),
+    };
+
+    identityAccessClient = {
+      findAccountByUserId: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         InternalService,
         { provide: ProfilesService, useValue: profilesService },
         { provide: RelationsService, useValue: relationsService },
+        { provide: AdministrativeProfileLookupService, useValue: administrativeProfileLookup },
+        { provide: IdentityAccessClient, useValue: identityAccessClient },
       ],
     }).compile();
 
@@ -202,26 +223,183 @@ describe('InternalService', () => {
     it('creates a teacher–student link with isPrincipalTeacher defaulting to false', async () => {
       const dto = { teacherId: 'teacher-uuid', studentId: 'student-uuid' };
       const result = await service.createTeacherStudentRelation(dto);
-      expect(relationsService.createTeacherStudentLinkForSystem).toHaveBeenCalledWith(
+      expect(relationsService.ensureTeacherStudentLinkForSystem).toHaveBeenCalledWith(
         'teacher-uuid',
         'student-uuid',
         false,
       );
-      expect(result).toEqual({ teacherId: 'teacher-uuid', studentId: 'student-uuid', isPrincipalTeacher: false });
+      expect(result).toEqual({
+        isCreated: true,
+        relation: { teacherId: 'teacher-uuid', studentId: 'student-uuid', isPrincipalTeacher: false },
+      });
     });
 
     it('creates a teacher–student link with isPrincipalTeacher set to true', async () => {
       const dto = { teacherId: 'teacher-uuid', studentId: 'student-uuid', isPrincipalTeacher: true };
       const result = await service.createTeacherStudentRelation(dto);
-      expect(result).toHaveProperty('isPrincipalTeacher', true);
+      expect(result.relation).toHaveProperty('isPrincipalTeacher', true);
     });
 
-    it('throws 409 when teacher–student link already exists', async () => {
-      relationsService.createTeacherStudentLinkForSystem.mockRejectedValue(
-        new ConflictException('already linked'),
-      );
+    /**
+     * Rejeu de la validation d'un RP : l'appelant obtient le même corps, avec
+     * isCreated = false pour que le contrôleur réponde 200 et non 201. Aucune
+     * erreur — c'est tout l'objet de l'idempotence demandée le 2026-08-12.
+     */
+    it('reports a replay (isCreated: false) instead of failing when the link already exists', async () => {
+      relationsService.ensureTeacherStudentLinkForSystem.mockResolvedValue({
+        link: { teacherId: 'teacher-uuid', studentId: 'student-uuid', isPrincipalTeacher: false },
+        isCreated: false,
+      });
       const dto = { teacherId: 'teacher-uuid', studentId: 'student-uuid' };
+      const result = await service.createTeacherStudentRelation(dto);
+      expect(result).toEqual({
+        isCreated: false,
+        relation: { teacherId: 'teacher-uuid', studentId: 'student-uuid', isPrincipalTeacher: false },
+      });
+    });
+
+    /** Le seul conflit restant remonte tel quel : il n'est pas un rejeu. */
+    it('propagates the 409 raised on a diverging isPrincipalTeacher', async () => {
+      relationsService.ensureTeacherStudentLinkForSystem.mockRejectedValue(
+        new ConflictException('statut de professeur principal différent'),
+      );
+      const dto = { teacherId: 'teacher-uuid', studentId: 'student-uuid', isPrincipalTeacher: true };
       await expect(service.createTeacherStudentRelation(dto)).rejects.toThrow(ConflictException);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // resolveDisplayName / resolveDisplayNames
+  // ---------------------------------------------------------------------------
+  describe('resolveDisplayName', () => {
+    it('renvoie UNIQUEMENT userId, firstName et lastName', async () => {
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(
+        new Map([['student-uuid', { firstName: 'Camille', lastName: 'Durand' }]]),
+      );
+
+      const result = await service.resolveDisplayName('student-uuid');
+
+      expect(result).toEqual({
+        userId: 'student-uuid',
+        firstName: 'Camille',
+        lastName: 'Durand',
+      });
+      /**
+       * Garde-fou du contrat figé (arbitrage du 2026-08-12) : la route est
+       * servie sans lecteur et sans filtrage de visibilité. Tout champ
+       * supplémentaire ferait d'elle une porte dérobée — ce test doit casser
+       * si quelqu'un en ajoute un.
+       */
+      expect(Object.keys(result).sort()).toEqual(['firstName', 'lastName', 'userId']);
+      expect(identityAccessClient.findAccountByUserId).not.toHaveBeenCalled();
+    });
+
+    it('accepte un nom partiellement vide sans échouer', async () => {
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(
+        new Map([['student-uuid', { firstName: null, lastName: 'Durand' }]]),
+      );
+
+      await expect(service.resolveDisplayName('student-uuid')).resolves.toEqual({
+        userId: 'student-uuid',
+        firstName: null,
+        lastName: 'Durand',
+      });
+    });
+
+    it('404 quand identity-access-service ne connaît pas le userId', async () => {
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(new Map());
+      identityAccessClient.findAccountByUserId.mockRejectedValue(
+        new IdentityAccessNotFoundError('unknown'),
+      );
+
+      await expect(service.resolveDisplayName('inconnu-uuid')).rejects.toThrow(NotFoundException);
+    });
+
+    it('500 quand le compte existe mais n’a aucun profil administratif (incohérence)', async () => {
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(new Map());
+      identityAccessClient.findAccountByUserId.mockResolvedValue({
+        userId: 'orphelin-uuid',
+        loginIdentifier: 'camille.durand',
+        role: 'eleve',
+      });
+
+      await expect(service.resolveDisplayName('orphelin-uuid')).rejects.toThrow(
+        InternalServerErrorException,
+      );
+    });
+
+    it('500, et jamais 404, quand identity-access-service est injoignable', async () => {
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(new Map());
+      identityAccessClient.findAccountByUserId.mockRejectedValue(
+        new IdentityAccessUnavailableError('timeout'),
+      );
+
+      await expect(service.resolveDisplayName('quelconque-uuid')).rejects.toThrow(
+        InternalServerErrorException,
+      );
+    });
+
+    it('propage le correlationId à identity-access-service', async () => {
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(new Map());
+      identityAccessClient.findAccountByUserId.mockRejectedValue(
+        new IdentityAccessNotFoundError('unknown'),
+      );
+
+      await expect(service.resolveDisplayName('inconnu-uuid', 'corr-123')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(identityAccessClient.findAccountByUserId).toHaveBeenCalledWith(
+        'inconnu-uuid',
+        'corr-123',
+      );
+    });
+  });
+
+  describe('resolveDisplayNames', () => {
+    it('résout un lot en une seule requête, dans l’ordre d’entrée', async () => {
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(
+        new Map([
+          ['student-uuid', { firstName: 'Camille', lastName: 'Durand' }],
+          ['teacher-uuid', { firstName: 'Marie', lastName: 'Dupont' }],
+        ]),
+      );
+
+      const result = await service.resolveDisplayNames(['student-uuid', 'teacher-uuid']);
+
+      expect(administrativeProfileLookup.findNamesByUserIds).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({
+        displayNames: [
+          { userId: 'student-uuid', firstName: 'Camille', lastName: 'Durand' },
+          { userId: 'teacher-uuid', firstName: 'Marie', lastName: 'Dupont' },
+        ],
+      });
+    });
+
+    it('réduit les doublons à une seule entrée', async () => {
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(
+        new Map([['student-uuid', { firstName: 'Camille', lastName: 'Durand' }]]),
+      );
+
+      const result = await service.resolveDisplayNames(['student-uuid', 'student-uuid']);
+
+      expect(result.displayNames).toHaveLength(1);
+    });
+
+    /**
+     * Un identifiant douteux ne prive pas l'appelant des autres noms : il est
+     * absent de la réponse, l'anomalie restant visible par un log serveur.
+     */
+    it('omet les userIds sans profil administratif sans faire échouer le lot', async () => {
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(
+        new Map([['student-uuid', { firstName: 'Camille', lastName: 'Durand' }]]),
+      );
+
+      const result = await service.resolveDisplayNames(['student-uuid', 'inconnu-uuid']);
+
+      expect(result.displayNames).toEqual([
+        { userId: 'student-uuid', firstName: 'Camille', lastName: 'Durand' },
+      ]);
+      expect(identityAccessClient.findAccountByUserId).not.toHaveBeenCalled();
     });
   });
 

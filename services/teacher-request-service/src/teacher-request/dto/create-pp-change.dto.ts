@@ -1,22 +1,30 @@
-import { IsUUID, IsOptional, IsString, IsNotEmpty } from 'class-validator';
+import { IsUUID, IsOptional, IsString, IsNotEmpty, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
+import { DESCRIPTION_MAX_LENGTH } from './create-request.dto';
+
+/**
+ * Corps de `POST /requests/pp-change`.
+ *
+ * Aligne sur `CreateRequestDto` le 2026-08-12 : le texte du demandeur s'appelle
+ * `description` ici comme la-bas — c'est la meme donnee, elle porte donc le
+ * meme nom. `subject` n'est plus demande.
+ */
 export class CreatePpChangeDto {
-  @ApiProperty({ description: 'Student UUID whose principal teacher should change' })
-  @IsUUID()
+  @ApiProperty({ description: "Eleve dont le professeur principal doit changer." })
+  @IsUUID(undefined, { message: "L'identifiant de l'eleve est invalide." })
   studentId: string;
 
-  @ApiProperty({ description: 'UUID of the current principal teacher to be replaced' })
-  @IsUUID()
-  currentPpTeacherId: string;
-
-  @ApiProperty({ example: 'Mathématiques avancées' })
-  @IsString()
-  @IsNotEmpty()
-  subject: string;
-
-  @ApiPropertyOptional({ description: 'Reason or context for the change request' })
+  @ApiPropertyOptional({ description: 'Professeur principal actuel, si le demandeur le connait.' })
   @IsOptional()
-  @IsString()
-  message?: string;
+  @IsUUID(undefined, { message: "L'identifiant du professeur principal actuel est invalide." })
+  currentPpTeacherId?: string;
+
+  @ApiProperty({ description: 'Motif et contexte du changement demande.', maxLength: DESCRIPTION_MAX_LENGTH })
+  @IsString({ message: 'La description doit etre un texte.' })
+  @IsNotEmpty({ message: 'La description est obligatoire.' })
+  @MaxLength(DESCRIPTION_MAX_LENGTH, {
+    message: `La description ne peut pas depasser ${DESCRIPTION_MAX_LENGTH} caracteres.`,
+  })
+  description: string;
 }

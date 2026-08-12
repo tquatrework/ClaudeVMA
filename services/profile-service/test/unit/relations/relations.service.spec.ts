@@ -244,6 +244,87 @@ describe('RelationsService', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // ensureTeacherStudentLinkForSystem — chemin du flow « demande de professeur »
+  // (arbitrage du 2026-08-12 : le lien appartient à profile-service, et la
+  // validation d'un RP doit être rejouable)
+  // ---------------------------------------------------------------------------
+  describe('ensureTeacherStudentLinkForSystem', () => {
+    it('crée le lien et publie TeacherLinkedToStudent, comme le chemin humain', async () => {
+      const { link, isCreated } = await service.ensureTeacherStudentLinkForSystem(
+        'teacher-uuid',
+        'student-uuid',
+        true,
+      );
+
+      expect(isCreated).toBe(true);
+      expect(link).toMatchObject({
+        teacherId: 'teacher-uuid',
+        studentId: 'student-uuid',
+        isPrincipalTeacher: true,
+      });
+      /**
+       * L'événement n'est pas décoratif : depuis le 2026-08-12 le lien du flow
+       * naît de cette route et non plus d'une action RP directe. Ne pas le
+       * publier rendrait la création invisible à tout futur abonné.
+       */
+      expect(eventsService.publish).toHaveBeenCalledWith('TeacherLinkedToStudent', {
+        teacherId: 'teacher-uuid',
+        studentId: 'student-uuid',
+        isPrincipalTeacher: true,
+        actorId: null,
+      });
+    });
+
+    it('isPrincipalTeacher vaut false par défaut', async () => {
+      const { link } = await service.ensureTeacherStudentLinkForSystem(
+        'teacher-uuid',
+        'student-uuid',
+      );
+      expect(link).toHaveProperty('isPrincipalTeacher', false);
+    });
+
+    it('rejeu : renvoie le lien existant, sans doublon, sans erreur et sans nouvel événement', async () => {
+      const existing = {
+        id: 'existing',
+        teacherId: 'teacher-uuid',
+        studentId: 'student-uuid',
+        isPrincipalTeacher: false,
+      };
+      teacherRepo.findOne.mockResolvedValue(existing);
+
+      const { link, isCreated } = await service.ensureTeacherStudentLinkForSystem(
+        'teacher-uuid',
+        'student-uuid',
+        false,
+      );
+
+      expect(isCreated).toBe(false);
+      expect(link).toBe(existing);
+      expect(teacherRepo.save).not.toHaveBeenCalled();
+      expect(eventsService.publish).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Seul conflit restant : ce n'est pas un rejeu, c'est une demande de
+     * changement de professeur principal. L'accepter en silence reviendrait à
+     * absorber un champ (corollaire du 2026-08-09).
+     */
+    it('409 quand le lien existe avec un statut de professeur principal différent', async () => {
+      teacherRepo.findOne.mockResolvedValue({
+        id: 'existing',
+        teacherId: 'teacher-uuid',
+        studentId: 'student-uuid',
+        isPrincipalTeacher: false,
+      });
+
+      await expect(
+        service.ensureTeacherStudentLinkForSystem('teacher-uuid', 'student-uuid', true),
+      ).rejects.toThrow(ConflictException);
+      expect(teacherRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // getTeachersByStudent — PROF-FB-003
   // ---------------------------------------------------------------------------
   describe('getTeachersByStudent (PROF-FB-003)', () => {
@@ -389,25 +470,11 @@ describe('RelationsService', () => {
     });
   });
 
-  describe('createTeacherStudentLinkForSystem', () => {
-    it('creates the link with isPrincipalTeacher defaulting to false', async () => {
-      const result = await service.createTeacherStudentLinkForSystem('teacher-uuid', 'student-uuid');
-      expect(teacherRepo.save).toHaveBeenCalled();
-      expect(result).toHaveProperty('isPrincipalTeacher', false);
-    });
-
-    it('creates the link with isPrincipalTeacher set to true', async () => {
-      const result = await service.createTeacherStudentLinkForSystem('teacher-uuid', 'student-uuid', true);
-      expect(result).toHaveProperty('isPrincipalTeacher', true);
-    });
-
-    it('throws 409 when the link already exists', async () => {
-      teacherRepo.findOne.mockResolvedValue({ id: 'existing-link' });
-      await expect(
-        service.createTeacherStudentLinkForSystem('teacher-uuid', 'student-uuid'),
-      ).rejects.toThrow(ConflictException);
-    });
-  });
+  /**
+   * Le lien élève↔formateur créé par un service n'a plus de bloc ici : il est
+   * couvert plus haut, sous `ensureTeacherStudentLinkForSystem`, avec ses cas
+   * de rejeu et de conflit.
+   */
 
   describe('createPedagogicalCoordinatorLinkForSystem', () => {
     it('creates the coordinator link', async () => {

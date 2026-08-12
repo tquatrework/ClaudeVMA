@@ -662,6 +662,41 @@ Transitions autorisées (toute autre transition, y compris vers le statut couran
 | PATCH | /profiles/:teacherId/validation | 🔒 | responsable_pedagogique, technicien_informatique | Changer le statut de validation d'un formateur. Body : `{status: "pending"\|"in_review"\|"validated"\|"rejected", comment?}` (`comment` ≤ 2000 caractères). Upsert : l'enregistrement est créé s'il n'existe pas encore | `200 {id, teacherId, status, validatedBy, validatorRole, comment, createdAt, updatedAt}` · `400` statut hors énumération · `401` · `403` rôle non autorisé **ou transition interdite pour ce rôle** (voir tableau ci-dessus) |
 | GET | /profiles/:teacherId/validation | 🔒 | responsable_pedagogique, technicien_informatique, administrateur_financier, formateur (soi-même) | Lire le statut de validation courant d'un formateur | `200 {id, teacherId, status, validatedBy, validatorRole, comment, createdAt, updatedAt}` ou `200 {teacherId, status: "pending"}` si aucun enregistrement n'existe encore · `401` · `403` autre formateur |
 
+### Annuaire des formateurs validés (2026-08-12)
+
+> Arbitrage du 2026-08-12 (`docs/architecture.md` > « Annuaire des formateurs validés »), en levée du
+> blocage de l'**étape 3 du flow « demande de professeur »** : le RP devait désigner les formateurs
+> destinataires d'une proposition, sans qu'aucune route ne lui permette de les lister. Faire saisir un
+> UUID est interdit (arbitrage du 2026-08-09), et `GET /profiles/teachers/pending-validation` liste les
+> formateurs **en attente**, c'est-à-dire précisément ceux qu'on ne propose pas.
+
+| Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /profiles/teachers/validated | 🔒 | responsable_pedagogique, administrateur_financier, technicien_informatique | **Annuaire des formateurs dont la validation est `validated`.** Query : `page` (défaut `1`) et `limit` (défaut `20`, **maximum `100`**). Liste **triée par nom puis prénom sur l'ensemble**, pas page par page. Contenu **limité au socle de visibilité** — rien de plus, bien que les administrateurs soient exemptés du filtrage champ par champ : servir la fiche entière ferait de cette liste une porte dérobée à ce filtrage | `200 {data: [{userId, firstName, lastName, levels, subjects}], page, limit, total, totalPages}` · `400` `page`/`limit` non entier ou < 1, `limit` > 100, **ou paramètre de requête inconnu** · `401` · `403` tout autre rôle, **animateur pédagogique compris** |
+
+Précisions qui font contrat :
+
+- **Le chemin comporte deux segments à dessein.** `GET /profiles/teachers` est capté par
+  `GET /profiles/:userId` et répond `400` (« teachers » lu comme un UUID) : c'est le constat du
+  2026-08-12. Toute liste ajoutée sous `/profiles` doit comporter au moins deux segments.
+- **Le plafond est déclaré et refusé explicitement.** `limit=101` renvoie `400` avec un message en
+  français citant le plafond ; la demande n'est **jamais** ramenée à 100 en silence — rogner sans le
+  dire ferait croire à l'appelant qu'il a tout reçu.
+- **Une page au-delà de la dernière renvoie `200 {data: []}`**, jamais `404` : l'absence de formateur
+  à cet endroit de la liste n'est pas une erreur. `total` et `totalPages` valent `0` sur un annuaire vide.
+- `levels` / `subjects` à `null` = **non renseigné** (le profil pédagogique est facultatif) ; `[]` = liste
+  vide enregistrée. Les deux ne se confondent pas, comme partout ailleurs dans ce service.
+- `firstName` / `lastName` à `null` signalent une **incohérence de données** (le profil administratif est
+  obligatoire, créé à l'inscription). Le formateur reste **dans la liste** et l'anomalie est journalisée :
+  un enregistrement abîmé ne doit pas priver le RP de tout l'annuaire. Ces entrées sont triées en fin de
+  liste (`NULLS LAST`).
+- `userId` sert **uniquement** à désigner le formateur dans l'appel suivant ; il n'est jamais affiché
+  (arbitrage du 2026-08-09).
+- **La recherche par niveau, disponibilités et points reste en phase 2.** Cette route livre une liste,
+  pas un moteur.
+- Aucune modification de `api-gateway` n'a été nécessaire : `/api/v1/profiles` est proxifié **en bloc**
+  (`location ^~`), donc `/api/v1/profiles/teachers/validated` est joint sans déclaration nouvelle.
+
 ### Relations
 
 | Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
@@ -720,7 +755,22 @@ Vérifié contre la pile réelle : après rupture, le parent reçoit `403` sur `
 ### API interne inter-services (non exposée via nginx)
 
 > Exclue de Swagger (`@ApiExcludeController`). Protégée par `X-Internal-Secret: <INTERNAL_SECRET>`.
-> Utilisée par orchestration-service dans les workflows d'onboarding.
+> Utilisée par orchestration-service dans les workflows d'onboarding, et depuis le 2026-08-12 par
+> `teacher-request-service` pour le flow « demande de professeur ».
+>
+> **Aucune de ces routes n'est exposée par api-gateway** — c'est leur protection, avec le secret
+> partagé, et elle doit le rester : `GET /internal/profiles/:userId/display-name` sert une identité
+> **sans contrôle de lecteur**. L'exclusion de Swagger est délibérée pour la même raison ; les
+> `@ApiOperation`/`@ApiResponse` du contrôleur documentent le contrat dans le code, **la référence
+> lisible est ce tableau**.
+>
+> **Porte fermée le 2026-08-12.** `InternalGuard` journalisait auparavant un avertissement puis
+> **laissait passer** quand `INTERNAL_SECRET` n'était pas configuré : ces routes étaient alors
+> servies sans aucune authentification. Le passage en clair est supprimé, et
+> **`profile-service` refuse désormais de démarrer** si `INTERNAL_SECRET` est absent ou vide
+> (`src/config/env.validation.ts`, même forme que `teacher-request-service`). Une garde qui
+> s'ouvre quand sa configuration manque échoue dans le mauvais sens : un service mal configuré
+> doit refuser de servir, pas servir sans contrôle.
 
 | Méthode | Chemin | Description | Header requis | Réponse attendue |
 |---|---|---|---|---|
@@ -728,8 +778,10 @@ Vérifié contre la pile réelle : après rupture, le parent reçoit `403` sur `
 | POST | /internal/create-student-profiles | Créer les profils initiaux d'un élève (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` | `201 {userId, administrative, pedagogical}` · `400` · `401`/`403` |
 | POST | /internal/create-teacher-profiles | Créer les profils initiaux d'un formateur (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` | `201 {userId, administrative, pedagogical}` · `400` · `401`/`403` |
 | POST | /internal/link-parent | Lier un parent financeur à un élève (idempotent par paire `studentId`/`financeOwnerId`) — utilisée par identity-access-service pour la liaison automatique élève+parent créés/liés dans le même appel de création de compte | `X-Internal-Secret` | `201 {linked: true, contacts: [financeOwnerId]}` · `401`/`403` |
-| POST | /internal/create-teacher-student-relation | Créer la relation formateur-élève | `X-Internal-Secret` | `201 {teacherId, studentId, isPrincipalTeacher}` · `409` doublon · `401`/`403` |
+| POST | /internal/create-teacher-student-relation | **Créer le lien élève↔formateur**, dont `profile-service` est l'unique propriétaire (arbitrage du 2026-08-12, point 5) — appelée par `teacher-request-service` quand le RP valide l'acceptation d'un formateur. Body : `{teacherId, studentId, isPrincipalTeacher?}` (UUID, `isPrincipalTeacher` optionnel, `false` par défaut). **Idempotente depuis le 2026-08-12** : rejouer la validation d'un RP ne crée pas de second lien et n'échoue pas. Le code HTTP distingue les deux cas, le corps est identique. Ce lien ouvre des droits de lecture réels (statistiques, archives pédagogiques) et publie `TeacherLinkedToStudent`, comme le chemin humain `POST /relations/teacher-student` | `X-Internal-Secret` | `201 {teacherId, studentId, isPrincipalTeacher}` création · `200` même corps, le lien identique existait déjà (rejeu) · `409` un lien existe avec un **statut de professeur principal différent** — ce n'est pas un rejeu et l'appelant doit le remonter · `400` UUID manquant ou invalide · `401` secret absent ou invalide |
 | POST | /internal/link-coordinator | Lier un coordinateur pédagogique à un élève | `X-Internal-Secret` | `201 {coordinatorId, studentId, coordinatorRole}` · `400` rôle invalide · `409` doublon · `401`/`403` |
+| GET | /internal/profiles/:userId/display-name | **Résoudre le prénom et le nom d'une personne** pour un service appelant (arbitrage du 2026-08-12, « Resolution des noms entre services »). Servie **sans lecteur** et **sans filtrage champ par champ** : un formateur qui reçoit une proposition n'est encore lié à aucun élève, la route publique lui répondrait `403` et l'écran retomberait sur un UUID. **Contrat figé : `firstName` et `lastName`, jamais un champ de plus** — l'étendre en ferait une porte dérobée contournant le filtrage de visibilité pour tout service détenant `INTERNAL_SECRET`. Tout autre besoin passe par `GET /profiles/:userId` et ses règles de droit. `x-correlation-id` accepté et propagé. **Jamais exposée par api-gateway** | `X-Internal-Secret` | `200 {userId, firstName, lastName}` — valeurs `string\|null` · `400` `userId` non-UUID · `401` secret absent ou invalide · `404` `userId` inconnu de identity-access-service · `500` compte connu **sans** profil administratif (incohérence de données, jamais masquée) |
+| POST | /internal/profiles/display-names | **Variante par lot** de la route ci-dessus, pour qu'une liste de N lignes ne coûte pas N appels HTTP (une seule requête SQL). `POST` alors que l'opération est une **lecture** : le corps porte la liste, qu'une query string ne peut pas transporter sans limite de longueur — d'où le `200`, aucune ressource n'est créée. Body : `{userIds: string[]}`, UUID, **200 identifiants au maximum** (plafond déclaré, pas de défaut caché). Ordre d'entrée conservé, doublons réduits à une entrée. Un `userId` sans profil administratif est **absent** de la réponse plutôt que de faire échouer le lot (l'anomalie reste tracée côté serveur) : un identifiant douteux ne prive pas l'appelant des autres noms. Même contrat figé que la route unitaire. **Jamais exposée par api-gateway** | `X-Internal-Secret` | `200 {displayNames: [{userId, firstName, lastName}]}` · `400` liste vide, au-delà du plafond, ou identifiant non-UUID · `401` secret absent ou invalide |
 | GET | /internal/relations/:viewerId/:targetId | **Lire la nature et le sens des relations entre deux personnes**, pour qu'un service appelant applique la même règle sans tenir de copie des relations — `profile-service` en reste l'unique propriétaire (arbitrage du 2026-08-11). Premier consommateur : `archive-document-service`. Query **obligatoire** `viewerRole` (`400` si absent ou hors énumération, avec la liste des valeurs acceptées) : le rôle accompagne systématiquement les appels interservices, `profile-service` ne le persiste ni ne l'expose. La réponse est **suffisante pour décider** : elle donne le **sens** du lien, pas un booléen — un élève voit les statistiques de son formateur mais **pas** ses archives pédagogiques, distinction impossible à faire sans lui. Ce service **ne rend pas le verdict** à la place de l'appelant : il fournit les faits, chaque service propriétaire décide de sa surface | `X-Internal-Secret` | `200 {viewerId, targetId, isSelf, isAdministrator, relations: [{kind, isPrincipalTeacher?, throughUserIds?}]}` — `relations: []` = aucun lien (et toujours `[]` quand `isSelf`) ; `isAdministrator` vaut `true` pour RP, AF, TI, **jamais pour l'AP** ; valeurs de `kind` : voir « Droit d'accès aux statistiques » ci-dessus · `400` UUID ou `viewerRole` invalide · `401` secret absent ou invalide |
 
 **Noms des blocs de profil — `administrative` / `pedagogical`, ici comme partout ailleurs.**
@@ -788,17 +840,90 @@ restant en base comme preuve de la période passée. Vérifié contre la pile r�
 
 ## teacher-request-service
 
-Préfixe gateway canonique : `/api/v1/teacher-requests` → contrôleur `/teacher-requests`
+Préfixe gateway canonique : `/api/v1/teacher-requests` → contrôleur `/requests`.
+Également proxifiés : `/api/v1/requests` (historique), `/api/v1/proposals`, `/api/v1/assignments`.
+**`/api/v1/collaborations` n'est pas proxifié** — la route existe côté service mais reste
+inatteignable depuis le front (voir « Héritage » plus bas).
 
-| Méthode | Chemin | Description | Auth |
+> **Le flow a été refondu le 2026-08-12** (`docs/architecture.md` > « Flow de la demande de
+> professeur »). Trois modèles de décision coexistaient ; un seul subsiste : **c'est le RP qui
+> tranche, et lui seul**. L'acceptation d'un formateur enregistre une **candidature**, jamais une
+> affectation. Les routes `POST /requests/:id/select` (réservée à l'élève et au parent) et
+> `POST /requests/:id/selected-candidates` **ont été supprimées** : elles relevaient de modèles
+> abandonnés et étaient de toute façon inatteignables dès qu'un formateur avait répondu.
+
+Toutes les routes acceptent et **renvoient** `x-correlation-id` (généré si absent).
+Les commandes (`POST`) acceptent `Idempotency-Key` : rejouer la même clé renvoie la première
+réponse au lieu d'exécuter la commande une seconde fois.
+`ValidationPipe` global : `whitelist` + **`forbidNonWhitelisted`** + `transform` — un champ inconnu
+provoque un `400` explicite, en français, au lieu d'être absorbé en silence.
+**Tous les messages d'erreur sont en français.**
+
+### Le flow, étape par étape
+
+| Méthode | Chemin | Étape | Rôles autorisés | Description | Réponse attendue |
+|---|---|---|---|---|---|
+| POST | /requests | 1 | eleve, parent_financeur, responsable_pedagogique | Créer une demande. Body : **`{description}`** (texte long, **requis**, ≤ 5000 car.) et `studentId?` (obligatoire si l'appelant n'est pas l'élève). `subject`, `level`, `sector` **ne sont plus acceptés** (`400`). Le lien parent↔élève est vérifié **à chaque appel** auprès de `profile-service` | `201 {id, requesterId, requesterRole, studentId, studentName, description, status: "pending", type, chosenTeacherId, chosenTeacherName, closedAt, createdAt, updatedAt}` · `400` corps invalide ou champ inconnu · `401` · `403` rôle sans droit · **`404` élève inconnu OU aucun lien avec l'appelant — les deux cas sont indiscernables** · `503` profile-service injoignable |
+| GET | /requests | 2, 4 | eleve, parent_financeur, responsable_pedagogique, formateur | Query `scope` = `open` (**défaut**) / `closed` / `all`. **La forme dépend du rôle, jamais du contenu** : élève/parent/RP → demandes ; formateur → **boîte de réception** de ses propositions. Le parent ne voit que les demandes des élèves auxquels il est **encore** lié. Le RP reçoit en plus `acceptedProposalCount` et `pendingProposalCount` | `200 [TeacherRequest]` ou `200 [TeacherProposalInbox]` · `401` · `403` |
+| GET | /requests/:id | 2, 4 | élève concerné, parent lié et auteur, administrateurs, **formateur destinataire d'une proposition** | Détail. Le formateur y avait droit à un `403` avant le 2026-08-12 | `200 {…, studentName}` · `400` UUID mal formé · `401` · `404` inexistante **ou** hors de portée |
+| POST | /requests/:requestId/proposals | 3 | responsable_pedagogique | **Envoi groupé et atomique.** Body : `{teacherIds: string[] (1..50, uniques), message (requis, ≤ 5000), availabilityNote?, compensationNote?, responseDeadline?}` — les trois derniers sont les champs indicatifs *créneaux possibles*, *rémunération*, *date limite de réponse*. Bascule la demande en `redirected` | `201 [{id, requestId, teacherId, teacherName, message, availabilityNote, compensationNote, responseDeadline, status: "pending", respondedAt, createdAt, updatedAt}]` · `400` demande clôturée, ou formateur déjà sollicité · `401` · `403` · `404` |
+| GET | /requests/:requestId/proposals | 5 | responsable_pedagogique | **Lire qui a accepté, refusé ou n'a pas répondu.** Cette lecture n'existait pas : `404` avant le 2026-08-12, ce qui rendait l'arbitrage du RP impossible | `200 [TeacherProposal]` · `401` · `403` · `404` |
+| POST | /proposals/:proposalId/accept | 4 | formateur destinataire | **Enregistre une candidature, et rien d'autre** : aucune affectation n'est créée ici | `201 {id, requestId, requestDescription, studentName, message, …, status: "accepted", requestStatus}` · `400` réponse déjà donnée, ou demande clôturée · `401` · `403` · `404` inexistante **ou adressée à un autre formateur** |
+| POST | /proposals/:proposalId/decline | 4 | formateur destinataire | Refus du formateur | idem, `status: "declined"` |
+| POST | /requests/:id/validate | 5, 6 | responsable_pedagogique | **Point de décision unique.** Body : `{proposalId, isPrincipalTeacher?}`. Crée le lien élève↔formateur **dans `profile-service`**, clôture la demande, passe les autres candidats en `not_selected` et les propositions sans réponse en `expired`. Le lien est demandé **avant** la clôture : si `profile-service` refuse, rien n'est clôturé | `201 {…, status: "closed", chosenTeacherId, chosenTeacherName, closedAt}` · `400` demande déjà clôturée, proposition étrangère à la demande, ou formateur n'ayant pas accepté · `401` · `403` · `404` · `409` un lien élève↔formateur **contradictoire** existe déjà (statut de professeur principal différent) — remonté tel quel depuis `profile-service`, jamais transformé en succès · `503` |
+| PATCH | /requests/:id/status | — | responsable_pedagogique | Body `{status}` ∈ `declined` / `cancelled` / `closed`. **`closed` n'est accepté que sur une demande héritée restée en `assigned`** : une demande se clôture normalement en retenant un formateur. Solde les propositions ouvertes | `200 {…}` · `400` transition refusée · `401` · `403` · `404` |
+| DELETE | /requests/:id | — | responsable_pedagogique | Supprimer une demande | `204` · `401` · `403` · `404` |
+| POST | /requests/pp-change | hors flow | parent_financeur | Changement de professeur principal. Body : **`{studentId, currentPpTeacherId?, description}`** — aligné sur `POST /requests` (`subject` supprimé, `message` renommé `description`). Le lien parent↔élève est **désormais vérifié** | `201 {…, type: "pp_change"}` · `400` · `401` · `403` · `404` |
+
+### États
+
+**Demande** — `pending` → `redirected` → **`closed`** (état terminal créé le 2026-08-12, sans lequel
+« les demandes traitées disparaissent » était inexprimable). Terminaux : `closed`, `cancelled`,
+`declined`. Valeurs héritées, jamais écrites par le flow mais encore portées par des lignes :
+`assigned` (qui garde une transition sortante vers `closed`), `accepted`, `candidates_published`,
+`candidates_selected`, `candidate_chosen`.
+
+**Proposition** — `pending` → `accepted` / `declined`, puis, à la clôture de la demande :
+`not_selected` (**avait accepté, un autre a été choisi**) ou `expired` (**n'a jamais répondu**).
+Ces deux états sont créés par l'arbitrage : les confondre avec `declined` serait un mensonge
+affiché au formateur, `declined` signifiant « le formateur a refusé ».
+
+### Ce que le service demande à profile-service
+
+`profile-service` est l'**unique propriétaire des relations** ; ce service n'en tient aucune copie
+et l'interroge **à chaque action**, jamais en cache — un lien peut être rompu entre deux appels.
+
+| Appel | Usage | Politique d'échec |
+|---|---|---|
+| `GET /internal/relations/:viewerId/:targetId?viewerRole=` | Droit d'agir d'un parent, droit de lecture | **Refuse** l'action (`503`) — laisser passer donnerait l'illusion du contrôle |
+| `POST /internal/create-teacher-student-relation` | Créer le lien à la validation du RP. **Idempotente depuis le 2026-08-12** : `201` création, `200` rejeu — l'appelant ne traite plus un `409` comme un succès (branche retirée le 2026-08-12), et le `409` restant (professeur principal différent) est **remonté au RP en `409`**, avec un message français | **Fait échouer** la validation ; la demande reste ouverte |
+| `GET /internal/profiles/:userId/display-name` | Afficher des noms plutôt que des UUID, y compris pour un formateur qu'aucune relation ne lie encore à l'élève. **Livrée le 2026-08-12** | Retombe sur `GET /profiles/:userId` avec le jeton de l'appelant ; à défaut `null` |
+| `POST /internal/profiles/display-names` | Même chose **par lot**, pour qu'une liste RP ne coûte pas un appel HTTP par ligne. **Livrée le 2026-08-12** | Identifiants non résolus absents de la réponse ; l'appelant retombe sur son propre repli |
+
+### Événements
+
+`TeacherRequestCreated` · `TeacherRequestStatusUpdated` · `TeacherRequestDeleted` ·
+`TeacherRequestClosed` · `TeacherProposalSent` · `TeacherProposalAccepted` ·
+`TeacherProposalDeclined` · `TeacherProposalNotSelected` · `TeacherProposalExpired` ·
+`TeacherAssigned` · `MainTeacherAssigned` · `TeacherStopRequested`
+
+> Ils ne sont plus des `logger.log`. Chaque événement est écrit dans la table **`domain_events`**
+> (boîte d'envoi), **dans la même transaction** que le changement d'état qui le produit, puis remis
+> au flux Redis **`visiomath:events`** (`XADD`). Un flux, et non un `PUBLISH` : un abonné absent au
+> moment de l'émission pourra relire. Sans `REDIS_URL`, les événements restent en attente et ne sont
+> **jamais perdus**. Champs du flux : `eventId`, `eventName`, `aggregateType`, `aggregateId`,
+> `correlationId`, `occurredAt`, `payload` (JSON).
+
+### Héritage — routes conservées, non alimentées par le flow
+
+La table `assignments` n'est **plus écrite** : le lien élève↔formateur appartient à
+`profile-service`. Ces routes ne servent donc que les affectations créées par l'ancien modèle.
+
+| Méthode | Chemin | Rôles | Remarque |
 |---|---|---|---|
-| POST | /requests | Créer une demande | 🔒 |
-| GET | /requests | Lister toutes les demandes | 🔒 |
-| GET | /requests/:id | Détail d'une demande | 🔒 |
-| PATCH | /requests/:id/status | Changer le statut | 🔒 |
-| DELETE | /requests/:id | Supprimer une demande | 🔒 |
-
-Statuts : `pending` → `accepted` / `declined` / `cancelled`
+| POST | /assignments/:assignmentId/main-teacher | responsable_pedagogique, eleve | Sur le flow courant, le professeur principal se déclare via `isPrincipalTeacher` de `POST /requests/:id/validate` |
+| POST | /assignments/:assignmentId/termination | formateur | Arrêt avec préavis. Body `{noticeDate, reason?}` |
+| POST | /collaborations/:assignmentId/stop-request | formateur | **Alias strict** de la précédente (même code désormais), **non proxifié par la gateway** |
 
 ---
 

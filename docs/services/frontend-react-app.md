@@ -1797,5 +1797,319 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-08-12" label="Flow demande de professeur realigne sur le back refondu (branche feat/flow-demande-professeur)">
+      <context>
+        Le back a ete entierement repense, deploye et prouve le 2026-08-12
+        (`.claude/reports/preuve-flow-demande-professeur-2026-08-12.md`,
+        `docs/architecture.md` &gt; « Flow de la demande de professeur », 7 arbitrages).
+        Le front en etait reste au modele abandonne : deux formulaires concurrents postant
+        deux corps differents sur la meme route, trois composants rechargeant chacun
+        `GET /teacher-requests`, des UUID saisis a la main par le RP et par le parent, et
+        quatre appels vers des routes supprimees ou jamais proxifiees.
+        Releve de depart : `.claude/reports/front-flow-demande-professeur-2026-08-11.md`.
+      </context>
+
+      <decision id="one-route-one-contract-one-page">
+        `TeacherRequestPage` (`/rp/teacher-requests`) est **supprimee**, avec
+        `SpecificTeacherRequestForm` qui postait `{subject, level, sector, message?}` sur
+        `POST /teacher-requests` — champs desormais refuses en `400`. Il ne reste qu'un
+        formulaire, fonde sur `description`, dans `TeacherRequestsPage` (`/teacher-requests`).
+        L'adresse `/rp/teacher-requests` survit en **redirection** : les liens deja en
+        circulation ne cassent pas, mais il n'y a plus deux ecrans pour un meme domaine.
+        Supprimes dans la foulee : `RpTeacherSearchWorkspace` (une liste qui rechargeait la
+        meme requete que sa page), `TeacherCandidatesView`, `TeacherRequestInbox`,
+        `StopCollaborationRequestForm` (son prefixe `/teacher-collaborations` n'est pas
+        proxifie et repondait `404` HTML), et les six hooks correspondants.
+      </decision>
+
+      <decision id="page-level-loading-one-call-per-scope">
+        Trois hooks rechargeaient `GET /teacher-requests` de leur cote, avec **trois
+        normalisations differentes** de la meme reponse — l'un jetait l'enveloppe et renvoyait
+        `[]`. Un seul chargement par page desormais : `useTeacherRequestList` (eleve, parent,
+        RP), `useTeacherProposalInbox` (formateur), `useTeacherRequestDetail` (demande +
+        propositions du RP en un passage). Conforme a l'arbitrage du 2026-08-10 : chargement au
+        niveau de la page, la reponse d'ecriture remonte au proprietaire de l'etat, aucune
+        relecture apres ecriture, aucun cache.
+        Seule exception assumee : apres `POST /.../validate`, les **propositions** sont relues —
+        la cloture les solde toutes (`not_selected`, `expired`) et la reponse de validation ne
+        porte que la demande. Ce n'est pas un rechargement de page mais la lecture d'une
+        ressource distincte que l'ecriture vient de modifier.
+      </decision>
+
+      <decision id="no-uuid-typed-by-anyone">
+        Les trois champs de saisie d'UUID disparaissent sans remplacement :
+        « ID de l'eleve » (deux formulaires), « ID du formateur » (RP), et les deux champs
+        d'UUID de `ChangePrincipalTeacherDialog`.
+        L'eleve et le formateur se choisissent par leur **prenom et leur nom**, depuis
+        `GET /relations/my-contacts` deja charge par la page. Deux selecteurs purs sont
+        centralises dans `src/utils/contactSelectors.ts` : `selectFinancedStudents` et
+        `selectTeachersOfStudent` — ce dernier suit le lien **indirect**
+        `finance_owner_of_student_of_teacher` via `throughUserIds`, ce qui donne au parent la
+        liste des professeurs de son eleve sans aucun identifiant a l'ecran.
+        Le libelle principal d'une demande est `studentName`, jamais « Demande #c4fcaae5 » ;
+        quand le serveur n'a pas resolu le nom, on ecrit « Eleve (nom non renseigne) ».
+      </decision>
+
+      <decision id="rp-decides-alone">
+        Le bouton « Choisir » reserve a `isClient` (eleve/parent) relevait du modele abandonne,
+        et sa route `POST /teacher-requests/:id/select` **n'existe plus** (`404` verifie).
+        Le RP compose une proposition groupee (`TeacherProposalComposer`, `teacherIds` au
+        pluriel, message pre-rempli depuis la description **cote front uniquement** + les trois
+        indications facultatives), lit les reponses (`TeacherProposalList`) et tranche via
+        `POST /teacher-requests/:id/validate` avec `{proposalId, isPrincipalTeacher?}`.
+        « Retenir ce professeur » n'apparait que sur une proposition **acceptee** : le serveur
+        refuse les autres en `400`, on ne montre pas un bouton qui echouera.
+      </decision>
+
+      <decision id="one-place-for-labels">
+        `src/utils/teacherRequestLabels.ts`, sur le modele de `utils/archiveLabels.ts`. La table
+        statut → libelle vivait en **cinq** exemplaires avec deux contenus differents : un statut
+        connu d'un ecran affichait un badge **vide** sur un autre. Elle couvre les cinq statuts
+        du flow, les cinq valeurs heritees, et les cinq statuts de proposition — dont
+        `not_selected` (« Non retenu ») et `expired` (« Sans reponse (demande cloturee) »), que
+        rien ne doit confondre avec `declined` (« A refuse »).
+      </decision>
+
+      <decision id="hide-what-would-be-refused">
+        Verifie contre la pile reelle : l'eleve recoit `403` sur `PATCH /.../status`, `403` sur
+        `DELETE /.../:id` et `403` sur `GET /.../proposals`. « Annuler la demande » et
+        « Supprimer definitivement » sont donc **reserves au RP**, et la page de detail n'appelle
+        pas les propositions hors RP plutot que d'afficher un refus previsible.
+        A l'inverse, l'eleve gagne l'entree de navigation « Demandes » que
+        `.claude/design/front-design.md` prevoit et qu'il n'avait pas : il est le premier acteur
+        du flow et n'y accedait que par un bouton du tableau de bord.
+        `POST /teacher-requests/pp-change` etant reserve au parent financeur, le bouton
+        « Changer le professeur principal » n'est plus propose a l'eleve.
+      </decision>
+
+      <decision id="rp-does-not-create-requests">
+        Le serveur autorise le RP a creer une demande, le front ne le lui propose pas : aucun
+        annuaire d'eleves ne lui est accessible (`GET /relations/my-contacts` lui repond
+        `200 []`), lui offrir le formulaire reviendrait a lui redemander un UUID. Le flow ne le
+        prevoit pas non plus — le RP instruit, il ne demande pas. Masquer une capacite n'est pas
+        afficher une entree interdite ; a rouvrir si le besoin apparait, avec l'annuaire.
+      </decision>
+
+      <decision id="english-guard-messages-never-reach-the-screen">
+        `getErrorMessage` donnait la priorite au message serveur et affichait donc
+        `"You do not have the required role for this action"` sur un `403`. Une liste
+        **nommement fermee** de libelles techniques anglais est desormais remplacee par la
+        traduction du code HTTP (`src/utils/apiError.ts`). Fermee et non « tout message sur
+        401/403 » : les vrais messages metier de `teacher-request-service` sont en francais,
+        y compris sur `400`, `403` et `409`, et doivent continuer d'etre affiches tels quels.
+      </decision>
+
+      <realStackVerification date="2026-08-12" target="https://claudevma.visioprof.fr">
+        Les URL et les corps **exacts** emis par `src/api/teacherRequests.ts` ont ete rejoues,
+        avec les comptes `trsflow.*` :
+
+        1. Eleve, `POST /teacher-requests {"description":"..."}` → `201`,
+           `studentName: "Lea Bertrand"`, `status: "pending"`.
+        2. `GET /teacher-requests?scope=open` → `200`, la demande y figure ; le RP la voit avec
+           `acceptedProposalCount: 0` et `pendingProposalCount: 0`.
+        3. RP, `POST /teacher-requests/:id/proposals` avec `teacherIds` **au pluriel** (deux
+           formateurs), `message`, `availabilityNote`, `compensationNote`, `responseDeadline`
+           → `201`, deux propositions `pending`, `teacherName` resolu.
+        4. Formateur : `GET /teacher-requests?scope=open` renvoie la forme **proposition**, dont
+           `id` = `338d5b72-…` alors que `requestId` = `980f6d8b-…` — **deux identifiants
+           distincts**, exactement le defaut que corrigeait ce lot.
+           `POST /proposals/338d5b72-…/accept` → `201` `status: "accepted"`,
+           `requestStatus: "redirected"` ; le second formateur decline → `201`.
+        5. RP, `GET /teacher-requests/:id/proposals` → `200` : Nadia Lambert `accepted`,
+           Yanis Roche `declined`.
+        6. RP, `POST /teacher-requests/:id/validate {"proposalId":…,"isPrincipalTeacher":false}`
+           → **`409`** avec un message francais : « Un lien existe deja entre cet eleve et ce
+           formateur, avec un statut de professeur principal different de celui demande. »
+           Nadia etait deja professeur principal de Lea : le cas documente est reel, et c'est ce
+           message-la que l'ecran affiche. Rejoue avec `isPrincipalTeacher: true` → `201`,
+           `status: "closed"`, `chosenTeacherName: "Nadia Lambert"`, `closedAt` renseigne.
+        8. Disparition des listes ouvertes : `scope=open` → 0 occurrence pour l'eleve **et**
+           pour le RP ; `scope=closed` → 1.
+
+        Filtrage UI confirme par le serveur : eleve → `403` sur `PATCH /.../status`, `403` sur
+        `DELETE`, `403` sur `GET /.../proposals`.
+        Parent : `GET /relations/my-contacts` → Lea Bertrand (`finance_owner_of_student`),
+        Nadia Lambert et Yanis Roche (`finance_owner_of_student_of_teacher`) — de quoi remplir
+        les deux selecteurs sans un UUID. `POST /teacher-requests {description, studentId}` →
+        `201`. `POST /teacher-requests/pp-change {studentId, currentPpTeacherId, description}` →
+        `201`, `type: "pp_change"`.
+        Les corps et routes **du front d'avant** sont prouves casses :
+        `{currentTeacherId, requestedTeacherId, reason}` sur `pp-change` → `400` nommant les
+        trois champs ; `POST /teacher-requests/:id/select` → `404`.
+
+        Suite front : **1473 tests verts**, `tsc --noEmit` sans erreur, `vite build` reussi.
+        Ces tests simulent tout le reseau : ils ne valent pas preuve, seulement non-regression.
+        C'est la verification ci-dessus qui fait foi.
+      </realStackVerification>
+
+      <openPoints>
+        <item id="no-teacher-directory-for-the-rp" status="resolu-2026-08-12">
+          **Leve le 2026-08-12** par `GET /profiles/teachers/validated` cote serveur, puis
+          branche cote front — voir la session « Annuaire des formateurs valides » ci-dessous.
+          Constat d'origine conserve pour memoire :
+          **Blocage reel, cote serveur.** Aucune route ne permet au RP de lister les formateurs
+          de la plateforme. Verifie le 2026-08-12 avec son jeton :
+          `GET /profiles/teachers/pending-validation` → `200 []` (seulement les formateurs **en
+          attente de validation**, c'est-a-dire precisement ceux qu'on ne propose pas) ;
+          `GET /accounts` et `GET /accounts?role=formateur` → `403` ;
+          `GET /relations/my-contacts` → `200 []` (le RP n'est relie a personne) ;
+          `GET /profiles/teachers`, `/teachers`, `/profiles/search?role=` → `400` / `404`.
+          Consequence : l'etape 3 reste inutilisable tant que cette route n'existe pas.
+          `TeacherProposalComposer` est ecrit et teste pour une selection multiple par cases a
+          cocher ; il affiche aujourd'hui « La liste des professeurs n'est pas encore
+          disponible » et n'offre **aucun champ de repli**, un UUID saisi a la main etant
+          interdit (arbitrage du 2026-08-09). Le hook `useSelectableTeachers` documente le
+          constat et se remplace en une seule fonction.
+          Ce qui manque : une route de listage des formateurs **valides**, accessible au RP,
+          renvoyant `{userId, firstName, lastName}` — le socle suffit, comme
+          `GET /relations/my-contacts` le fait deja pour les contacts.
+        </item>
+        <item id="pp-change-has-no-screen-of-its-own">
+          `POST /teacher-requests/pp-change` cree une demande de `type: "pp_change"` qui apparait
+          dans les memes listes que les demandes ordinaires, sans rien qui la distingue a
+          l'ecran. Le RP n'a pas d'ecran dedie pour l'instruire — le flow arbitre le 2026-08-12
+          ne couvre pas ce cas. A traiter separement.
+        </item>
+        <item id="legacy-statuses-still-displayed">
+          Cinq statuts herites (`assigned`, `accepted`, `candidates_published`,
+          `candidates_selected`, `candidate_chosen`) sont encore portes par des lignes en base et
+          apparaissent donc a l'ecran. Ils sont libelles « … (ancien flow) » plutot que masques :
+          une demande qui existe doit se voir. A retirer quand ces lignes auront ete soldees.
+        </item>
+        <item id="no-correlation-id-nor-idempotency-key">
+          Le serveur accepte `x-correlation-id` et `Idempotency-Key` sur toutes les routes du
+          flow ; le front n'en emet aucun, ici comme ailleurs. Ecart transverse, non traite dans
+          ce lot — il releve de `src/api/client.ts`, seul point d'assemblage des en-tetes.
+        </item>
+        <item id="verification-traces-left-on-dev-stack">
+          Laisse sur la pile reelle par cette verification : deux demandes sur
+          `trsflow.eleve.0811` (une close avec Nadia Lambert professeur principal, une `pending`
+          creee par le parent) et une demande `pp_change`. S'ajoutent aux traces des sessions
+          precedentes.
+        </item>
+      </openPoints>
+    </session>
+
+    <session date="2026-08-12" label="Annuaire des formateurs valides branche sur l'etape 3 (branche feat/flow-demande-professeur)">
+      <context>
+        La session precedente laissait l'etape 3 inutilisable : `useSelectableTeachers`
+        renvoyait une liste vide et le composeur affichait « La liste des professeurs n'est pas
+        encore disponible ». `GET /profiles/teachers/validated` a ete livree et prouvee cote
+        serveur le 2026-08-12 (`docs/architecture.md` &gt; « Annuaire des formateurs valides »,
+        `docs/routes.md` &gt; profile-service). Ce lot la branche.
+      </context>
+
+      <fileTree>
+        apps/web/src/
+        ├── api/profile.ts                                  # + fetchValidatedTeachers, VALIDATED_TEACHERS_MAX_LIMIT
+        ├── api/archiveDocument.ts                           # PaginatedArchiveResponse = alias du type partage
+        ├── types/pagination.ts                              # NOUVEAU — PaginatedResponse&lt;T&gt;, enveloppe commune
+        ├── types/profile.ts                                 # + ValidatedTeacher
+        ├── types/teacherRequests.ts                         # + SelectableTeacher (deplace depuis le hook)
+        ├── utils/teacherDirectory.ts                        # NOUVEAU — formatTeacherExpertise, toSelectableTeacher
+        ├── hooks/teacher-requests/useSelectableTeachers.ts   # appel reel + pagination
+        ├── components/teacher-requests/TeacherProposalComposer.tsx
+        └── pages/TeacherRequestDetailPage.tsx
+        apps/web/test/
+        ├── validatedTeachers.api.test.ts                    # NOUVEAU
+        ├── utils/teacherDirectory.test.ts                   # NOUVEAU
+        └── pages/TeacherRequestDetailPage.test.tsx          # + 8 cas d'annuaire
+      </fileTree>
+
+      <decision id="envelope-not-array">
+        La reponse est une **enveloppe** `{data, page, limit, total, totalPages}`. Le hook lit
+        `response.data`, jamais la racine — c'est exactement le defaut qui avait vide l'ecran
+        des archives le 2026-08-11, et il n'est pas rejoue ici. L'enveloppe est desormais un
+        type partage (`src/types/pagination.ts`) : `archive-document-service` et
+        `profile-service` renvoient la meme forme, elle n'est plus declaree deux fois.
+      </decision>
+
+      <decision id="pagination-bounded-and-declared">
+        La liste est bornee a **100 par page** et le serveur refuse `limit=101` en `400`, sans
+        jamais rogner en silence. Le front demande donc exactement 100 et **enchaine les pages
+        jusqu'a `totalPages`** : deux formateurs aujourd'hui, mais coder « la premiere page
+        suffit » serait un plafond cache de plus. Garde-fou explicite `MAX_DIRECTORY_PAGES = 20`
+        (2 000 formateurs) : au-dela on cesse de paginer et **on le dit** a l'ecran
+        (`isTruncated`) — une boucle non bornee sur un `totalPages` aberrant enfermerait la page
+        dans une suite de requetes sans fin.
+      </decision>
+
+      <decision id="four-real-states-in-french">
+        Le message « pas encore disponible » est **supprime**. Quatre etats reels le remplacent :
+        chargement, annuaire vide (« Aucun professeur valide n'est disponible pour l'instant. »),
+        tous deja sollicites sur cette demande, et erreur — le message du serveur, affiche tel
+        quel. Les deux etats vides sont **distincts** : « il n'y a personne » et « ils ont tous
+        deja ete sollicites » ne disent pas la meme chose au RP.
+      </decision>
+
+      <decision id="null-is-not-empty-and-is-never-printed">
+        `levels` / `subjects` a `null` = non renseigne (le profil pedagogique est facultatif) ;
+        `[]` = liste vide enregistree. Les deux produisent la meme ligne discrete
+        « Niveaux et matieres non renseignes » — jamais le mot « null », jamais une etiquette
+        vide. Quand ils sont renseignes, ils s'affichent sous le nom : c'est ce qui permet de
+        choisir. `firstName`/`lastName` a `null` (incoherence de donnees signalee par le
+        serveur) donnent « Professeur (nom non renseigne) » via `formatPersonDisplayName`,
+        **jamais** l'UUID en repli.
+      </decision>
+
+      <decision id="no-call-for-roles-that-would-get-403">
+        La route est reservee aux administrateurs (RP, AF, TI) — l'AP recoit `403`, il n'est pas
+        administrateur au sens de l'arbitrage du 2026-08-11. `useSelectableTeachers(isEnabled)`
+        n'emet donc **aucun appel** hors RP sur cet ecran, au lieu d'aller chercher un refus.
+        Meme regle que pour `GET /.../proposals`.
+      </decision>
+
+      <decision id="composer-signature-changed">
+        Le composeur devait bouger, contrairement a ce qu'annoncait la note du hook : sa prop
+        `isDirectoryUnavailable` decrivait l'**absence de route**, un etat qui n'existe plus.
+        Elle est remplacee par `teachersLoadError` et `isDirectoryTruncated`, et la ligne
+        d'expertise est ajoutee sous chaque nom. La mecanique de selection multiple par cases a
+        cocher, elle, n'a pas change d'une ligne — c'est ce qui etait promis.
+        `SelectableTeacher` quitte le hook pour `src/types/teacherRequests.ts` (type partage par
+        trois fichiers) et gagne `expertise`.
+      </decision>
+
+      <realStackVerification date="2026-08-12" target="https://claudevma.visioprof.fr">
+        Compte `trsflow.rp.0811`, jeton lu dans `access_token`.
+
+        1. `GET /api/v1/profiles/teachers/validated?page=1&amp;limit=100` → `200`
+           `{"data":[{Nadia Lambert, levels:null, subjects:null},{Yanis Roche, levels:null,
+           subjects:null}],"page":1,"limit":100,"total":2,"totalPages":1}`.
+        2. `limit=101` → `400` « Le nombre de formateurs par page ne peut pas depasser 100.
+           Demandez les pages suivantes pour obtenir la suite de la liste. »
+        3. `page=9` (au-dela de la derniere) → `200 {"data":[],...}`, jamais `404`.
+        4. Jeton eleve (`trsflow.eleve.0811`) → `403 "Insufficient role"`.
+
+        Puis le **vrai code du front**, sans aucun mock, execute contre cette meme pile
+        (`loadValidatedTeacherDirectory` + `TeacherProposalComposer` rendus hors navigateur) :
+        - RP → « Formateurs recus : 2 / Pagination tronquee : false », puis le rendu du
+          composeur : « Nadia Lambert / Niveaux et matieres non renseignes », « Yanis Roche /
+          Niveaux et matieres non renseignes ». Les deux `userId` reels
+          (`a1c90ec9-…`, `2b02e211-…`) sont **absents du rendu**.
+        - Jeton eleve → message affiche : « Vous n'etes pas autorise a effectuer cette action. »
+
+        Suite front : **1495 tests verts**, `tsc --noEmit` sans erreur, `vite build` reussi.
+        Ces tests simulent tout le reseau : c'est la verification ci-dessus qui fait foi.
+      </realStackVerification>
+
+      <openPoints>
+        <item id="directory-not-reachable-outside-the-composer">
+          L'annuaire n'est charge que par `TeacherRequestDetailPage`, pour le RP. L'AF et le TI
+          y ont droit cote serveur mais aucun ecran ne le leur propose — a ouvrir si le besoin
+          apparait, le hook est deja parametre par `isEnabled`.
+        </item>
+        <item id="no-search-yet">
+          Recherche par niveau, disponibilites et points : **phase 2** par arbitrage. On livre
+          une liste, pas un moteur. Avec deux formateurs, aucun filtre n'est necessaire ; au-dela
+          de quelques dizaines, un champ de filtrage local sera le premier besoin.
+        </item>
+        <item id="levels-and-subjects-empty-on-the-dev-stack">
+          Les deux formateurs de test n'ont **pas de profil pedagogique** : `levels` et
+          `subjects` valent `null`. Le cas « renseigne » est donc couvert par les tests, pas par
+          la pile reelle — il le sera des qu'un formateur de test remplira son profil.
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

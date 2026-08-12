@@ -8,10 +8,13 @@ import { EventsModule } from './events/events.module';
 import { InternalModule } from './internal/internal.module';
 import { ParentLinkRequestsModule } from './parent-link-requests/parent-link-requests.module';
 import { SecurityModule } from './security/security.module';
+import { AppConfigModule } from './config/config.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    // Valide l'environnement au demarrage : le service refuse de demarrer si
+    // DATABASE_URL, JWT_SECRET ou INTERNAL_SECRET manque ou est vide.
+    AppConfigModule,
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({

@@ -11,6 +11,7 @@
  */
 
 import apiClient from './client'
+import type { PaginatedResponse } from '../types/pagination'
 import type {
   AdministrativeProfileFields,
   DeclarativePedagogicalFields,
@@ -22,6 +23,7 @@ import type {
   ProfileAvatarConstraints,
   ProfileStatisticsResponse,
   SavedProfileBlock,
+  ValidatedTeacher,
 } from '../types/profile'
 
 // ─── Profil ───────────────────────────────────────────────────────────────────
@@ -276,6 +278,38 @@ export async function updateFieldVisibility(
   const { data } = await apiClient.put<FieldVisibilitySettings>(
     `/profiles/${userId}/field-visibility`,
     { fields },
+  )
+  return data
+}
+
+// ─── Annuaire des formateurs validés ──────────────────────────────────────────
+
+/**
+ * Plafond de pagination **déclaré par le serveur** : `limit > 100` est refusé en
+ * `400`, jamais rogné en silence. On demande donc exactement le maximum, pour
+ * qu'un annuaire courant tienne en un seul aller-retour.
+ */
+export const VALIDATED_TEACHERS_MAX_LIMIT = 100
+
+/**
+ * GET /profiles/teachers/validated — Annuaire des formateurs validés.
+ *
+ * Réservé aux administrateurs (RP, AF, TI) ; tout autre rôle reçoit `403`,
+ * **l'animateur pédagogique compris**. Source de l'étape 3 du flow « demande de
+ * professeur » : le RP y désigne les destinataires d'une proposition sans jamais
+ * saisir d'identifiant technique.
+ *
+ * ⚠️ La réponse est une **enveloppe** `{data, page, limit, total, totalPages}`,
+ * pas un tableau nu : lire la racine ne renverrait jamais aucun formateur.
+ * Une page au-delà de la dernière répond `200 {data: []}`, jamais `404`.
+ */
+export async function fetchValidatedTeachers(
+  page = 1,
+  limit = VALIDATED_TEACHERS_MAX_LIMIT,
+): Promise<PaginatedResponse<ValidatedTeacher>> {
+  const { data } = await apiClient.get<PaginatedResponse<ValidatedTeacher>>(
+    '/profiles/teachers/validated',
+    { params: { page, limit } },
   )
   return data
 }

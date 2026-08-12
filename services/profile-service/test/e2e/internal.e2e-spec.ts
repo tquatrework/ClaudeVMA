@@ -12,13 +12,22 @@
  *   POST /internal/link-parent
  *   POST /internal/create-teacher-student-relation
  *   POST /internal/link-coordinator
+ *   GET  /internal/profiles/:userId/display-name
+ *   POST /internal/profiles/display-names
  *
  * Source : docs/services/profile-service.md — section InternalController
  */
 
 import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
-import { createTestApp, INTERNAL_SECRET, IDS } from './helpers/app.helper';
+import {
+  createTestApp,
+  identityAccessStub,
+  makeJwt,
+  INTERNAL_SECRET,
+  IDS,
+} from './helpers/app.helper';
+import { DISPLAY_NAMES_BATCH_MAX_SIZE } from '../../src/internal/dto/resolve-display-names.dto';
 
 const WRONG_SECRET = 'wrong_secret';
 
@@ -411,6 +420,44 @@ describe('[E2E] Internal routes', () => {
       expect(res.body).toHaveProperty('studentId', IDS.student1);
     });
 
+    /**
+     * Idempotence exigée le 2026-08-12 : rejouer la validation d'un RP ne doit
+     * ni créer un second lien, ni échouer. Le `200` (et non `201`) dit que rien
+     * n'a été créé — annoncer une création qui n'a pas eu lieu serait un
+     * mensonge de la même famille que ceux corrigés les jours précédents.
+     */
+    it('Rejeu à l’identique → 200, même corps, et un seul lien en base', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-teacher-student-relation')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ teacherId: IDS.teacher1, studentId: IDS.student1 });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        teacherId: IDS.teacher1,
+        studentId: IDS.student1,
+        isPrincipalTeacher: false,
+      });
+
+      // Un seul lien, malgré deux appels : c'est ce que « idempotent » veut dire.
+      const teachers = await request(app.getHttpServer())
+        .get(`/relations/teacher-student/${IDS.student1}`)
+        .set('Authorization', `Bearer ${makeJwt(IDS.rp1, 'responsable_pedagogique')}`);
+      expect(teachers.status).toBe(200);
+      expect(
+        teachers.body.filter((link: { teacherId: string }) => link.teacherId === IDS.teacher1),
+      ).toHaveLength(1);
+    });
+
+    it('Lien existant avec un professeur principal différent → 409 (ce n’est pas un rejeu)', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-teacher-student-relation')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ teacherId: IDS.teacher1, studentId: IDS.student1, isPrincipalTeacher: true });
+
+      expect(res.status).toBe(409);
+    });
+
     it('teacherId manquant → 400', async () => {
       const res = await request(app.getHttpServer())
         .post('/internal/create-teacher-student-relation')
@@ -418,6 +465,179 @@ describe('[E2E] Internal routes', () => {
         .send({ studentId: IDS.student1 });
 
       expect(res.status).toBe(400);
+    });
+
+    it('Sans x-internal-secret → 401', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/create-teacher-student-relation')
+        .send({ teacherId: IDS.teacher2, studentId: IDS.student2 });
+
+      expect(res.status).toBe(401);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────
+  // GET /internal/profiles/:userId/display-name
+  // POST /internal/profiles/display-names
+  //
+  // Résolution de nom entre services (arbitrage du 2026-08-12). Servie sans
+  // lecteur et sans filtrage champ par champ, d'où un périmètre volontairement
+  // minuscule : prénom et nom, rien d'autre. Ces routes ne sont jamais exposées
+  // par api-gateway.
+  // ──────────────────────────────────────────────────────────────
+
+  describe('GET /internal/profiles/:userId/display-name', () => {
+    beforeAll(async () => {
+      await request(app.getHttpServer())
+        .post('/internal/create-administrative-profile')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userId: IDS.student2, firstName: 'Camille', lastName: 'Durand' });
+    });
+
+    it('Renvoie le nom, et UNIQUEMENT le nom → 200', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/internal/profiles/${IDS.student2}/display-name`)
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .set('x-correlation-id', 'corr-e2e-display-name');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        userId: IDS.student2,
+        firstName: 'Camille',
+        lastName: 'Durand',
+      });
+      /**
+       * Garde-fou du contrat figé : aucun champ de plus ne doit jamais sortir
+       * d'ici, sans quoi la route devient une porte dérobée contournant le
+       * filtrage de visibilité pour tout service détenant INTERNAL_SECRET.
+       */
+      expect(Object.keys(res.body).sort()).toEqual(['firstName', 'lastName', 'userId']);
+    });
+
+    it('Sans x-internal-secret → 401', async () => {
+      const res = await request(app.getHttpServer()).get(
+        `/internal/profiles/${IDS.student2}/display-name`,
+      );
+
+      expect(res.status).toBe(401);
+    });
+
+    it('Avec un secret incorrect → 401', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/internal/profiles/${IDS.student2}/display-name`)
+        .set('x-internal-secret', WRONG_SECRET);
+
+      expect(res.status).toBe(401);
+    });
+
+    it('Un JWT ne remplace pas le secret interne → 401', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/internal/profiles/${IDS.student2}/display-name`)
+        .set('Authorization', `Bearer ${makeJwt(IDS.rp1, 'responsable_pedagogique')}`);
+
+      expect(res.status).toBe(401);
+    });
+
+    it('userId inconnu de identity-access-service → 404', async () => {
+      identityAccessStub.markAccountUnknown(IDS.unknown);
+
+      const res = await request(app.getHttpServer())
+        .get(`/internal/profiles/${IDS.unknown}/display-name`)
+        .set('x-internal-secret', INTERNAL_SECRET);
+
+      expect(res.status).toBe(404);
+    });
+
+    it('Compte connu mais sans profil administratif → 500 (incohérence, jamais masquée)', async () => {
+      identityAccessStub.registerAccount(
+        IDS.accountWithoutAdminProfile,
+        'compte.orphelin',
+        'eleve',
+      );
+
+      const res = await request(app.getHttpServer())
+        .get(`/internal/profiles/${IDS.accountWithoutAdminProfile}/display-name`)
+        .set('x-internal-secret', INTERNAL_SECRET);
+
+      expect(res.status).toBe(500);
+    });
+
+    it('userId non-UUID → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/internal/profiles/pas-un-uuid/display-name')
+        .set('x-internal-secret', INTERNAL_SECRET);
+
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('POST /internal/profiles/display-names', () => {
+    it('Résout un lot en un seul appel → 200', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/profiles/display-names')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userIds: [IDS.student2, IDS.genericAccount1] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.displayNames).toEqual(
+        expect.arrayContaining([
+          { userId: IDS.student2, firstName: 'Camille', lastName: 'Durand' },
+        ]),
+      );
+      res.body.displayNames.forEach((displayName: Record<string, unknown>) => {
+        expect(Object.keys(displayName).sort()).toEqual(['firstName', 'lastName', 'userId']);
+      });
+    });
+
+    it('Un userId sans profil est absent de la réponse, sans faire échouer le lot → 200', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/profiles/display-names')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userIds: [IDS.student2, IDS.unknown] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.displayNames).toHaveLength(1);
+      expect(res.body.displayNames[0]).toHaveProperty('userId', IDS.student2);
+    });
+
+    it('Liste vide → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/profiles/display-names')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userIds: [] });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('Identifiant non-UUID → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/profiles/display-names')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userIds: ['pas-un-uuid'] });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('Lot au-delà du plafond déclaré → 400', async () => {
+      const tooManyUserIds = Array.from(
+        { length: DISPLAY_NAMES_BATCH_MAX_SIZE + 1 },
+        () => IDS.student2,
+      );
+
+      const res = await request(app.getHttpServer())
+        .post('/internal/profiles/display-names')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ userIds: tooManyUserIds });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('Sans x-internal-secret → 401', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/internal/profiles/display-names')
+        .send({ userIds: [IDS.student2] });
+
+      expect(res.status).toBe(401);
     });
   });
 

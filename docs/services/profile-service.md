@@ -59,6 +59,12 @@
       <endpoint method="POST" path="/relations/animator-teacher">Rattacher un AP a un formateur qu'il anime (role : responsable_pedagogique SEUL).</endpoint>
       <endpoint method="GET" path="/relations/animator-teacher/{animatorId}">Lister les formateurs animes par un AP (RP, TI, AP lui-meme).</endpoint>
       <endpoint method="GET" path="/internal/relations/{viewerId}/{targetId}">Nature et SENS des relations entre deux personnes, pour un service appelant (archive-document-service). X-Internal-Secret ; query viewerRole obligatoire.</endpoint>
+      <!-- Resolution de nom entre services — decision C18 (2026-08-12) -->
+      <endpoint method="GET" path="/internal/profiles/{userId}/display-name">Prenom et nom d'une personne, pour un service appelant (teacher-request-service). X-Internal-Secret. CONTRAT FIGE : firstName et lastName UNIQUEMENT, jamais un champ de plus — servie sans lecteur et sans filtrage champ par champ, tout ajout en ferait une porte derobee. Jamais exposee par api-gateway.</endpoint>
+      <endpoint method="POST" path="/internal/profiles/display-names">Meme contrat PAR LOT ({userIds}, 200 maximum), pour qu'une liste ne coute pas un appel HTTP par ligne. Les userIds non resolus sont absents de la reponse.</endpoint>
+      <endpoint method="POST" path="/internal/create-teacher-student-relation">Creer le lien eleve↔formateur a la validation du RP (teacher-request-service). IDEMPOTENTE : 201 creation, 200 rejeu, 409 seulement si le lien existe avec un statut de professeur principal different.</endpoint>
+      <!-- Annuaire des formateurs valides — decision C20 (2026-08-12) -->
+      <endpoint method="GET" path="/profiles/teachers/validated">Annuaire des formateurs dont la validation est 'validated', pour que le RP puisse DESIGNER les destinataires d'une proposition (etape 3 du flow demande de professeur). Roles administratifs SEULS (RP, AF, TI) — l'AP en est exclu. Contenu LIMITE AU SOCLE DE VISIBILITE : userId, firstName, lastName, levels, subjects. Liste bornee et paginee : page (defaut 1), limit (defaut 20, MAXIMUM 100 declare et refuse explicitement). Enveloppe {data, page, limit, total, totalPages}. Chemin a DEUX segments obligatoire : /profiles/teachers est capte par GET /profiles/:userId et repond 400.</endpoint>
       <!-- Photo de profil — decisions C13 (routes) et C14 (plafond de taille), 2026-08-10 -->
       <endpoint method="GET" path="/profiles/avatar/constraints">Lire les contraintes d'envoi (maxUploadBytes, formats acceptes) AVANT de choisir un fichier. Sans :userId : elles ne dependent ni du profil vise ni du lecteur. Le front ne doit pas les coder en dur.</endpoint>
       <endpoint method="POST" path="/profiles/{userId}/avatar">Envoyer ou remplacer la photo (multipart, champ file ; titulaire SEUL). 413 structure au-dela de MEDIA_MAX_UPLOAD_BYTES, coupe en streaming par multer.</endpoint>
@@ -1839,7 +1845,333 @@
           "actorId":…,"endedAt":…}}`, deux occurrences.
         </realStackVerification>
       </decision>
+      <decision id="C18" status="implemented" session="2026-08-12">
+        <title>Résolution de nom entre services, et lien élève↔formateur rejouable</title>
+        <context>
+          Deux besoins remontés par `teacher-request-service` pour le flow « demande de
+          professeur » (arbitrage du 2026-08-12, docs/architecture.md).
+
+          1. Un formateur qui reçoit une proposition n'est ENCORE LIÉ À AUCUN ÉLÈVE. La route
+             publique `GET /profiles/:userId` lui répond donc 403, et l'écran retombe sur un
+             UUID — ce que l'arbitrage du 2026-08-09 interdit. Deux règles du projet se
+             contredisaient sur ce cas précis ; l'arbitrage tranche EN FAVEUR DU NOM.
+          2. Le lien élève↔formateur appartient à `profile-service` (arbitrage du 2026-08-12,
+             point 5). `teacher-request-service` le demande à la validation du RP, et traitait
+             le 409 sur doublon COMME UN SUCCÈS pour rendre la validation rejouable — une
+             erreur métier transformée en succès chez l'appelant, ce que les principes du
+             projet interdisent explicitement.
+        </context>
+        <filesTouched>
+          <file path="services/profile-service/src/internal/display-name.ts">
+            NOUVEAU. Contrat FIGÉ de la résolution de nom : `DisplayName` ({userId, firstName,
+            lastName}) et `DisplayNameBatch`. Le fichier porte, en tête, l'interdiction
+            d'étendre la forme — c'est le seul endroit du service où une identité sort SANS
+            contrôle de lecteur.
+          </file>
+          <file path="services/profile-service/src/internal/dto/resolve-display-names.dto.ts">
+            NOUVEAU. `ResolveDisplayNamesDto` + `DISPLAY_NAMES_BATCH_MAX_SIZE` (200), plafond
+            DÉCLARÉ et non laissé au défaut (règle du 2026-08-10 sur les plafonds cachés).
+          </file>
+          <file path="services/profile-service/src/internal/internal.service.ts">
+            `resolveDisplayName` / `resolveDisplayNames`, et `createTeacherStudentRelation`
+            renvoie désormais `{isCreated, relation}` — c'est le contrôleur qui traduit
+            `isCreated` en code HTTP. Injecte `AdministrativeProfileLookupService` (le port de
+            lecture de noms qui existait déjà pour les listes de relations) et
+            `IdentityAccessClient`.
+          </file>
+          <file path="services/profile-service/src/internal/internal.controller.ts">
+            GET /internal/profiles/:userId/display-name (ParseUUIDPipe, en-tête
+            `x-correlation-id` accepté et propagé) et POST /internal/profiles/display-names
+            (@HttpCode(200) : c'est une LECTURE, le POST ne sert qu'à porter la liste).
+            `create-teacher-student-relation` prend `@Res({passthrough: true})` pour répondre
+            201 à la création et 200 au rejeu. Swagger posé sur les nouvelles routes bien que
+            le contrôleur reste `@ApiExcludeController` (voir « décisions » ci-dessous).
+          </file>
+          <file path="services/profile-service/src/internal/internal.module.ts">
+            Importe `ClientsModule` pour `IdentityAccessClient`.
+          </file>
+          <file path="services/profile-service/src/relations/relations.service.ts">
+            `createTeacherStudentLinkForSystem` devient `ensureTeacherStudentLinkForSystem` et
+            renvoie `{link, isCreated}`. Publie `TeacherLinkedToStudent` à la création, comme
+            le chemin humain `linkTeacherToStudent`.
+          </file>
+          <file path="services/profile-service/test/unit/internal/internal.service.spec.ts">
+            +11 tests : contrat figé (garde-fou sur les clés exposées), 404/500/500-injoignable,
+            propagation du correlationId, lot (ordre, doublons, identifiant non résolu), rejeu.
+          </file>
+          <file path="services/profile-service/test/unit/relations/relations.service.spec.ts">
+            Bloc `ensureTeacherStudentLinkForSystem` : création + événement, défaut à false,
+            rejeu sans doublon ni événement, 409 sur professeur principal divergent.
+          </file>
+          <file path="services/profile-service/test/e2e/internal.e2e-spec.ts">
+            +17 tests e2e contre une VRAIE base : secret absent / invalide / JWT à la place du
+            secret, userId inconnu, compte sans profil administratif, non-UUID, lot au-delà du
+            plafond, et surtout le couple 201/200 vérifié sur la pile Nest réelle (le passage
+            du code de statut par `@Res({passthrough})` ne se prouve pas en test unitaire).
+          </file>
+        </filesTouched>
+        <decisions>
+          <item>
+            LE CONTRAT DE LA ROUTE DE NOM EST FIGÉ, PAS PROVISOIRE. Elle renvoie `firstName` et
+            `lastName`, jamais un champ de plus. Servie sans lecteur et sans filtrage champ par
+            champ, tout ajout en ferait une porte dérobée contournant le filtrage de visibilité
+            pour QUICONQUE détient `INTERNAL_SECRET`. L'interdiction est écrite à trois
+            endroits — le fichier de contrat, le contrôleur, `docs/routes.md` — et tenue par
+            deux tests qui comparent la liste EXACTE des clés exposées, unitaire et e2e.
+          </item>
+          <item>
+            Absence de profil administratif : même discipline que `GET /profiles/:userId`
+            (décision C8). userId inconnu de `identity-access-service` → 404 ; compte connu SANS
+            profil administratif → 500 (incohérence de données, jamais masquée par un nom vide) ;
+            `identity-access-service` injoignable → 500 également, jamais 404 — une panne ne doit
+            pas faire passer tous les profils pour supprimés. L'appel sortant n'a lieu QUE sur ce
+            chemin d'erreur : le cas nominal ne sort pas du service.
+          </item>
+          <item>
+            La variante par lot s'écarte volontairement sur un point : un userId sans profil est
+            ABSENT de la réponse au lieu de faire échouer le lot. Un identifiant douteux ne doit
+            pas priver l'appelant des N-1 autres noms. L'anomalie n'est pas silencieuse pour
+            autant : un log serveur explicite nomme les identifiants omis.
+          </item>
+          <item>
+            IDEMPOTENCE DU LIEN : 201 à la création, 200 au rejeu, MÊME CORPS. Renvoyer 201 sur
+            un rejeu annoncerait une création qui n'a pas eu lieu. L'appelant n'a plus à traiter
+            un 409 comme un succès — et `response.ok` couvre les deux codes, donc le changement
+            ne casse aucun appelant existant.
+          </item>
+          <item>
+            UN SEUL 409 SUBSISTE, et ce n'est pas un rejeu : le lien existe avec un statut de
+            professeur principal DIFFÉRENT de celui demandé. Répondre 200 en ignorant
+            `isPrincipalTeacher` reviendrait à accepter puis jeter un champ en silence
+            (corollaire du 2026-08-09) ; désigner le professeur principal est une opération
+            distincte, avec ses propres règles. Ce cas était déjà un 409 avant cette session :
+            aucun comportement ne régresse, la sémantique devient seulement honnête.
+          </item>
+          <item>
+            L'ÉVÉNEMENT `TeacherLinkedToStudent` EST DÉSORMAIS PUBLIÉ SUR LE CHEMIN SYSTÈME.
+            Il ne l'était pas : les méthodes `*ForSystem` avaient été écrites pour l'onboarding,
+            où le lien formateur↔élève n'existe pas encore. Depuis l'arbitrage du 2026-08-12, ce
+            lien NAÎT de cette route et non plus d'une action RP directe — ne pas le publier
+            aurait rendu toute création invisible à `dashboard-notification-service` le jour où
+            il s'y abonne. C'est le point le plus facile à manquer de cette session.
+          </item>
+          <item>
+            Swagger : le contrôleur reste `@ApiExcludeController`. Ces routes ne sont jamais
+            exposées par `api-gateway` et n'ont pas à figurer dans un catalogue public — a
+            fortiori celle qui sert une identité sans contrôle de lecteur. Les
+            `@ApiOperation`/`@ApiResponse` sont posés quand même : ils documentent le contrat
+            dans le code et prendraient effet si l'exclusion tombait. La référence lisible reste
+            `docs/routes.md`.
+          </item>
+        </decisions>
+        <verification>
+          Unitaires : 538 tests, 18 suites, TOUS VERTS (contre 500 avant la session).
+          E2E : 270 tests, 7 suites, joués contre une vraie base PostgreSQL (testcontainers) —
+          269 verts, 1 rouge PRÉEXISTANT et sans rapport avec cette session
+          (« [PROF-BR-010] Un administrateur financier peut ajouter une note interne », laissé
+          en échec à dessein en attente d'arbitrage, voir openPoints). Échec reproduit à
+          l'identique sur l'arbre pré-session avant d'être qualifié de préexistant.
+          La suite `internal.e2e-spec.ts` passe à 57 tests, tous verts.
+
+          PREUVE CONTRE LA PILE RÉELLE NON PRODUITE : le conteneur `visiomath_profile` n'a pas
+          été reconstruit dans cette session (hors périmètre d'un agent de service). Tant que
+          l'image n'est pas reconstruite, `https://claudevma.visioprof.fr` ne porte pas ce code.
+        </verification>
+      </decision>
+      <decision id="C19" status="implemented" session="2026-08-12">
+        <title>Le service refuse de démarrer sans INTERNAL_SECRET — fermeture du passage en clair d'InternalGuard</title>
+        <filesTouched>
+          <file path="services/profile-service/src/config/env.validation.ts">
+            NOUVEAU. `validateEnv` : `DATABASE_URL`, `JWT_SECRET` et `INTERNAL_SECRET` requis et
+            non vides ; `NODE_ENV` optionnel, contraint à development/test/production. Copie de
+            forme de `services/teacher-request-service/src/config/env.validation.ts`, à dessein.
+          </file>
+          <file path="services/profile-service/src/config/config.module.ts">
+            NOUVEAU. `AppConfigModule` : `ConfigModule.forRoot({ isGlobal: true, validate: validateEnv })`.
+          </file>
+          <file path="services/profile-service/src/app.module.ts">
+            `ConfigModule.forRoot({ isGlobal: true })` remplacé par `AppConfigModule`.
+          </file>
+          <file path="services/profile-service/src/internal/internal.guard.ts">
+            Suppression du `logger.warn(...) ; return true`. `config.getOrThrow('INTERNAL_SECRET')`
+            remplace `config.get(...)`. Le `Logger` n'a plus d'usage et est retiré.
+          </file>
+          <file path="services/profile-service/test/e2e/helpers/app.helper.ts">
+            Import de `AppModule` rendu paresseux (voir point 3).
+          </file>
+          <file path="services/profile-service/test/unit/config/env.validation.spec.ts">NOUVEAU, 8 tests.</file>
+          <file path="services/profile-service/test/unit/internal/internal.guard.spec.ts">NOUVEAU, 5 tests. Le guard n'avait aucun test unitaire.</file>
+          <file path="docs/routes.md">Signalement d'authentification remplacé par le constat de fermeture.</file>
+        </filesTouched>
+        <description>
+          (1) LE DÉFAUT. `InternalGuard` journalisait un avertissement puis **laissait passer**
+          quand `INTERNAL_SECRET` n'était pas configuré : toutes les routes `/internal/*` étaient
+          alors servies sans aucune authentification. Défaut préexistant, mais dont la surface
+          venait de s'élargir avec C18 — `GET /internal/profiles/:userId/display-name` et
+          `POST /internal/profiles/display-names` servent une identité (prénom, nom) **sans
+          contrôle de lecteur ni filtrage de visibilité**. Un `/internal/*` ouvert exposait donc
+          les noms de tous les utilisateurs à quiconque atteint le réseau Docker.
+          C'est le défaut de famille « plafond caché » arbitré le 2026-08-10 : une valeur par
+          défaut non déclarée qui échoue en silence. Une garde qui s'ouvre quand sa configuration
+          manque échoue dans le mauvais sens.
+          (2) CORRECTION. Le passage en clair est supprimé, et la validation remonte au démarrage :
+          le service ne démarre plus du tout sans `INTERNAL_SECRET`. Deux barrières, pas une :
+          `validateEnv` au bootstrap, et `getOrThrow` dans la garde — si un chemin de bootstrap
+          contournait la validation, la garde échoue en refusant, jamais en ouvrant. Une valeur
+          vide y est également sans effet : `provided !== ''` reste vrai pour une requête sans
+          en-tête, donc `401`.
+          (3) POINT DE VIGILANCE — POURQUOI L'IMPORT DE `AppModule` DEVIENT PARESSEUX EN E2E.
+          Nest évalue les arguments de `@Module()` dès la définition de la classe : le
+          `ConfigModule.forRoot({ validate })` est donc exécuté **à l'import** de `app.module.ts`,
+          et `@nestjs/config` conserve le résultat comme instantané prioritaire sur `process.env`
+          (`ConfigService.get` lit `VALIDATED_ENV` avant `process.env`). `app.helper.ts` importait
+          `AppModule` en tête de fichier, donc AVANT que `createTestApp()` ait posé `JWT_SECRET`,
+          `INTERNAL_SECRET` et surtout `DATABASE_URL` — dont l'URL Testcontainers n'est connue
+          qu'après démarrage du conteneur. Sans ce changement, la validation aurait échoué et,
+          pire, `ConfigService` aurait servi une URL de base périmée en ignorant le conteneur :
+          les e2e auraient tourné contre la base locale partagée sans le dire. L'import déplacé
+          dans `createTestApp()`, après la mise en place de l'environnement, supprime la fenêtre.
+          `teacher-request-service` a résolu le même problème par un `setupFiles` jest, possible
+          chez lui parce que son `DATABASE_URL` de test est fixe ; ici elle est dynamique.
+          (4) `docker-compose.yml` VÉRIFIÉ, NON MODIFIÉ. Le conteneur `profile-service` reçoit bien
+          `INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}` — la forme `:-` couvre la
+          variable absente ET la variable vide, la valeur n'est donc jamais vide. Rendre la
+          variable obligatoire n'empêche aucun démarrage. Aucune modification n'était nécessaire.
+          (5) HORS PÉRIMÈTRE, NON TOUCHÉ : le test e2e `[PROF-BR-010]` laissé rouge à dessein ; le
+          champ `validatedBy` (décision prise de ne pas câbler un champ que personne ne remplirait
+          aujourd'hui) ; les autres variables d'environnement (`MEDIA_*`, `IDENTITY_ACCESS_SERVICE_URL`,
+          `DASHBOARD_NOTIFICATION_SERVICE_URL`, `AVATAR_PUBLIC_PATH_PREFIX`), laissées non déclarées
+          et donc optionnelles — les déclarer aurait élargi la correction sans besoin établi.
+        </description>
+        <verification>
+          npm run build : OK.
+          npm test (unitaire) : 20 suites, 551 tests, TOUS VERTS (543 avant la session, +8 sur
+          `validateEnv` et +5 sur `InternalGuard`, deux suites qui n'existaient pas).
+          npm run test:e2e (USE_LOCAL_DB=true, base `profile_test` du conteneur PostgreSQL local,
+          --runInBand) : 7 suites, 270 tests, 269 verts. Le seul échec est `[PROF-BR-010]`,
+          préexistant et laissé rouge à dessein. `internal.e2e-spec.ts` reste intégralement vert,
+          y compris ses cas « sans en-tête → 401 », « secret incorrect → 401 » et « un JWT ne
+          remplace pas le secret interne → 401 ».
+          PREUVE CONTRE LA PILE RÉELLE NON PRODUITE : le conteneur `visiomath_profile` n'a pas été
+          reconstruit (hors périmètre d'un agent de service). Tant que l'image n'est pas
+          reconstruite, `https://claudevma.visioprof.fr` ne porte pas ce code — et la porte y reste
+          donc ouverte jusqu'au redéploiement.
+        </verification>
+      </decision>
+      <decision id="C20" status="implemented" session="2026-08-12">
+        <title>Annuaire des formateurs valides — GET /profiles/teachers/validated, levee du blocage de l'etape 3</title>
+        <filesTouched>
+          <file path="services/profile-service/src/profiles/dto/list-validated-teachers.query.dto.ts">
+            NOUVEAU. `page` / `limit` optionnels, convertis par `@Type(() => Number)`. Constantes
+            EXPORTEES `VALIDATED_TEACHERS_DEFAULT_PAGE` (1), `_DEFAULT_LIMIT` (20), `_MAX_LIMIT` (100),
+            relues par le service, Swagger, les tests et docs/routes.md — le plafond n'est ecrit
+            qu'une fois. Messages de refus en francais.
+          </file>
+          <file path="services/profile-service/src/profiles/teacher-directory.service.ts">
+            NOUVEAU. `listValidatedTeachers(query, actor)`. Un seul repository injecte
+            (`TeacherValidation`), les profils administratif et pedagogique etant joints par
+            QueryBuilder. Convertit les colonnes `simple-array` (une selection brute renvoie la
+            chaine stockee, pas un tableau : l'hydratation TypeORM n'a pas lieu).
+          </file>
+          <file path="services/profile-service/src/profiles/teacher-directory.controller.ts">
+            NOUVEAU. `GET profiles/teachers/validated`, `@Roles(RP, AF, TI)`, Swagger complet.
+          </file>
+          <file path="services/profile-service/src/profiles/profiles.module.ts">
+            Enregistrement du controleur EN PREMIER et du service.
+          </file>
+          <file path="services/profile-service/test/unit/profiles/teacher-directory.service.spec.ts">NOUVEAU, 23 tests.</file>
+          <file path="services/profile-service/test/unit/profiles/list-validated-teachers.query.dto.spec.ts">NOUVEAU, 12 tests.</file>
+          <file path="services/profile-service/test/e2e/teacher-directory.e2e-spec.ts">NOUVEAU, 26 tests contre un vrai PostgreSQL.</file>
+          <file path="docs/routes.md">Section « Annuaire des formateurs valides (2026-08-12) ».</file>
+        </filesTouched>
+        <description>
+          (1) LE BLOCAGE. Le flow « demande de professeur » etait livre sauf l'etape 3 : le RP ne
+          pouvait pas designer les formateurs a qui envoyer une proposition, faute de pouvoir les
+          lister. `GET /profiles/teachers/pending-validation` ne liste que les formateurs EN
+          ATTENTE — precisement ceux qu'on ne propose pas — et saisir un UUID est interdit
+          (arbitrage du 2026-08-09). Le composeur front etait deja ecrit et teste pour une
+          selection multiple ; il ne lui manquait qu'une source.
+          (2) POURQUOI `GET /profiles/teachers` REPONDAIT 400. Un seul segment : la route est
+          captee par `GET /profiles/:userId`, et `ParseUUIDPipe` refuse « teachers ». Le chemin
+          retenu comporte donc DEUX segments, comme `teachers/pending-validation` avant lui. Le
+          controleur est en outre declare AVANT `ProfilesController` dans le module : Express sert
+          la premiere route enregistree qui correspond, et l'ordre rend la garantie independante
+          des routes qu'on ajoutera demain.
+          (3) PERIMETRE ETROIT, ASSUME, A NE PAS ELARGIR. Formateurs `validated` seulement, roles
+          administratifs seulement (RP, AF, TI). L'ANIMATEUR PEDAGOGIQUE en est exclu : il n'est
+          pas un administrateur au sens de l'arbitrage du 2026-08-11, son droit passe par la
+          relation `animator_teacher_links`. Ce n'est pas l'annuaire global de tous les
+          utilisateurs — question laissee ouverte, non anodine cote vie privee.
+          (4) CONTENU LIMITE AU SOCLE, ALORS MEME QUE LES ADMINISTRATEURS SONT EXEMPTES DU
+          FILTRAGE CHAMP PAR CHAMP. La restriction est donc deliberee et non la consequence d'un
+          filtre : servir la fiche entiere ferait de cette liste une porte derobee au filtrage,
+          exactement ce que le contrat fige de `src/internal/display-name.ts` interdit par
+          ailleurs. `avatarUrl`, bien que dans le socle, n'y figure pas : il n'aide pas a choisir
+          et « rien de plus » a ete lu strictement. L'ajouter plus tard ne coute rien.
+          (5) LISTE BORNEE, PLAFOND DECLARE. `limit` > 100 renvoie 400 avec un message francais
+          citant le plafond ; la demande n'est JAMAIS ramenee a 100 en silence — rogner sans le
+          dire ferait croire a l'appelant qu'il a tout recu, meme famille de defauts que « accepter
+          puis ignorer un champ » (2026-08-09). Une page au-dela de la derniere renvoie 200 avec
+          `data: []`, jamais 404.
+          (6) TRI GLOBAL, PAS PAR PAGE. `ORDER BY lastName, firstName, teacherId` est applique
+          AVANT le fenetrage SQL. Trier apres decoupage donnerait des pages coherentes entre elles
+          mais un ordre global faux — defaut invisible tant qu'on ne depasse pas la premiere page.
+          Le troisieme critere departage les homonymes : sans lui, un meme formateur pourrait
+          apparaitre sur deux pages ou sur aucune.
+          (7) INCOHERENCE DE DONNEES TRAITEE EN LISTE, PAS EN 500. `leftJoin` et non `innerJoin` :
+          un formateur valide sans profil administratif reste VISIBLE, noms a `null`, trie en fin
+          de liste (`NULLS LAST`), et l'anomalie est journalisee. L'arbitrage du 2026-08-07 exige
+          un 500 sur `GET /profiles/:userId`, mais faire echouer tout l'annuaire pour un seul
+          enregistrement abime priverait le RP de son outil de travail.
+          (8) API-GATEWAY VERIFIE, NON MODIFIE. `/api/v1/profiles` est proxifie EN BLOC
+          (`location ^~ /api/v1/profiles`) : la route est jointe sans declaration nouvelle. Aucun
+          404 HTML nginx a craindre.
+          (9) RECHERCHE PAR NIVEAU, DISPONIBILITES ET POINTS : reste en phase 2. La forme retenue
+          (QueryBuilder + enveloppe paginee) ne rend pas son ajout couteux — un `WHERE` de plus.
+        </description>
+        <verification>
+          npm run build : OK.
+          npm test (unitaire) : 22 suites, 586 tests, TOUS VERTS (551 avant la session, +35).
+          npm run test:e2e (Testcontainers PostgreSQL, --runInBand) : 8 suites, 296 tests, 295
+          verts. Le seul echec est `[PROF-BR-010]`, preexistant et laisse rouge a dessein.
+          La nouvelle suite e2e couvre : chemin non capte par `GET /profiles/:userId`, exclusion
+          des formateurs en attente et des eleves, socle exact (aucune fuite de telephone ni de
+          champ de prescription), roles autorises (RP/AF/TI) et refuses (formateur, eleve, parent,
+          AP), 401 sans jeton, pagination aux bornes, tri global verifie sur deux pages, plafond
+          refuse, page vide au-dela de la derniere, parametre de requete inconnu refuse,
+          incoherence de donnees.
+          PREUVE CONTRE LA PILE REELLE NON PRODUITE : le conteneur `visiomath_profile` n'a pas ete
+          reconstruit (hors perimetre d'un agent de service). Tant que l'image n'est pas
+          reconstruite, `https://claudevma.visioprof.fr` ne sert pas cette route.
+        </verification>
+      </decision>
       <openPoints>
+        <item priority="medium" status="to-do" raisedIn="C20" raisedOn="2026-08-12" owner="front">
+          Brancher `useSelectableTeachers` sur `GET /profiles/teachers/validated`. Le hook renvoie
+          aujourd'hui `isDirectoryUnavailable: true` en dur. Il attend `{userId, firstName,
+          lastName}` ; la route sert en plus `levels` et `subjects`, utiles pour aider le RP a
+          choisir. Attention a l'enveloppe : la reponse est `{data, page, limit, total,
+          totalPages}`, pas un tableau nu.
+        </item>
+        <item priority="low" status="to-do" raisedIn="C20" raisedOn="2026-08-12" owner="produit">
+          `avatarUrl` fait partie du socle de visibilite mais n'est PAS servi par l'annuaire, la
+          consigne « rien de plus » ayant ete lue strictement. Si un trombinoscope est souhaite
+          cote front, c'est un ajout d'un champ, sans nouvel arbitrage de perimetre.
+        </item>
+        <item priority="medium" status="to-do" raisedIn="C18" raisedOn="2026-08-12" owner="back">
+          `POST /internal/create-teacher-student-relation` ne transporte pas l'identité du RP
+          qui a validé : l'événement `TeacherLinkedToStudent` publié sur ce chemin porte donc
+          `actorId: null`. Le chemin humain (`POST /relations/teacher-student`) porte l'acteur.
+          Un lien qui ouvre des droits de lecture réels mériterait de savoir QUI l'a décidé.
+          Correctif possible sans casser l'appelant : un champ optionnel `validatedBy` dans le
+          DTO, que `teacher-request-service` remplirait avec l'identifiant du RP.
+        </item>
+        <item priority="low" status="to-do" raisedIn="C18" raisedOn="2026-08-12" owner="back">
+          La route de résolution de nom n'a aucune limite de débit. Elle est protégée par le
+          secret partagé et non exposée par la gateway, mais elle permet, pour qui détient le
+          secret, d'énumérer des noms sans trace autre que les logs applicatifs. À reconsidérer
+          si le secret devait un jour être partagé plus largement.
+        </item>
         <item priority="medium" status="to-do" raisedIn="C17" raisedOn="2026-08-11" owner="back">
           `GET /profiles/:userId` répond encore `403` à un parent non relié
           (« A parent may only view profiles of students they are linked to »), là où les
@@ -2110,17 +2442,22 @@
           a la lecture — c'est l'effet recherche, la correction se fait a la source via
           POST /internal/create-administrative-profile.
         </item>
-        <item>
-          Idempotence "de reponse" (200/201 silencieux) vs idempotence "d'etat" (409
-          explicite, jamais de doublon) sur les methodes *ForSystem de RelationsService
-          (createFinanceOwnerStudentLinkForSystem et les 2 methodes soeurs, utilisees par
-          POST /internal/link-parent, /internal/create-teacher-student-relation et
-          /internal/link-coordinator) : comportement intentionnel et deja teste (verifie par
-          lecture de code lors de cette session, non modifie), mais l'appelant
-          (identity-access-service pour l'auto-liaison eleve/parent a la creation, ou
-          orchestration-service en cas de retry) doit explicitement traiter un 409 sur ces
-          routes comme "deja lie" et non comme un echec bloquant. A confirmer explicitement
-          cote identity-access-service/orchestration-service au moment de l'integration.
+        <item priority="medium" status="partially-resolved" resolvedIn="C18" resolvedOn="2026-08-12">
+          Idempotence "de reponse" (200/201) vs idempotence "d'etat" (409 explicite, jamais de
+          doublon) sur les methodes *ForSystem de RelationsService.
+
+          RESOLU pour le lien eleve↔formateur (C18) : POST /internal/create-teacher-student-relation
+          est desormais idempotent — 201 a la creation, 200 au rejeu, meme corps. L'appelant n'a
+          plus a traiter un 409 comme un succes. Le seul 409 restant designe un vrai conflit
+          (statut de professeur principal different) et doit etre remonte, pas absorbe.
+
+          RESTE OUVERT pour POST /internal/link-coordinator, qui repond toujours 409 sur doublon
+          via createPedagogicalCoordinatorLinkForSystem. POST /internal/link-parent passe, lui,
+          par createFinanceOwnerStudentLinkForSystem et conserve aussi son 409 ; l'appelant
+          (identity-access-service pour l'auto-liaison eleve/parent, orchestration-service en cas
+          de retry) doit donc encore traiter ce 409 comme "deja lie". Aligner ces deux routes sur
+          le meme modele que le lien eleve↔formateur est le geste evident, non fait ici pour ne
+          pas modifier le comportement de routes hors du perimetre demande.
         </item>
         <item status="resolved" resolvedIn="C8" resolvedOn="2026-08-07">
           RESOLU — 3 tests echouaient dans updateTeacherValidation

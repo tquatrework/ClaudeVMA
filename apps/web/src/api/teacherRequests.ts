@@ -1,120 +1,179 @@
 /**
- * Module API — demandes professeur (teacher-request-service)
- * Toutes les requêtes passent par apiClient (base /api/v1).
+ * Module API — flow « demande de professeur » (teacher-request-service).
+ * Toutes les requêtes passent par apiClient (base `/api/v1`).
  *
- * Écarts signalés (non documentés dans docs/routes.md, comportements runtime préservés
- * tel quels — voir rapport de migration du lot) :
- * - GET/PATCH /profiles/:teacherId/validation (utilisé par TeacherValidationPanel ;
- *   seul `POST /profiles/:teacherId/ap-status` est documenté pour profile-service).
- * - POST /teacher-requests/pp-change (ChangePrincipalTeacherDialog).
- * - POST /teacher-collaborations/:id/stop-request (StopCollaborationRequestForm) —
- *   `teacher-collaborations` n'apparaît nulle part dans docs/routes.md.
- * - POST /teacher-requests/:id/proposals, POST /proposals/:id/accept|decline,
- *   POST /teacher-requests/:id/select (TeacherCandidatesView, TeacherRequestInbox) —
- *   seules les routes `/requests` (CRUD de base) sont documentées pour
- *   teacher-request-service ; candidats/propositions/sélection en sont absents.
+ * Les chemins ci-dessous sont ceux de `docs/routes.md` > teacher-request-service,
+ * vérifiés contre la pile réelle le 2026-08-12. Le préfixe gateway canonique est
+ * `/api/v1/teacher-requests` ; `/proposals` est proxifié séparément.
+ *
+ * Routes du modèle abandonné, **supprimées côté serveur** le 2026-08-12 et retirées ici :
+ * - `POST /teacher-requests/:id/select` (le client choisissait le formateur) ;
+ * - `POST /teacher-requests/:id/selected-candidates`.
+ * `POST /teacher-collaborations/:id/stop-request` a également disparu : ce préfixe n'est
+ * pas proxifié par la gateway et répondait `404` HTML.
  */
 
 import apiClient from './client'
-import type { TeacherCandidate } from '../components/teacher-requests/TeacherCandidatesView'
 import type {
   CreateTeacherRequestPayload,
   PpChangeRequestPayload,
-  PpChangeResponse,
-  SpecificTeacherRequestCreated,
-  SpecificTeacherRequestPayload,
-  StopCollaborationPayload,
-  TeacherRequestDetail,
-  TeacherRequestSummary,
+  SendTeacherProposalsPayload,
+  TeacherProposal,
+  TeacherProposalInboxItem,
+  TeacherProposalStatus,
+  TeacherRequest,
+  TeacherRequestScope,
   UpdateTeacherRequestStatusPayload,
+  ValidateTeacherRequestPayload,
 } from '../types/teacherRequests'
 import type {
   TeacherValidationStatus,
   UpdateTeacherValidationPayload,
 } from '../types/profile'
 
-// ─── Demandes professeur ────────────────────────────────────────────────────────
+// ─── Étape 1 — l'élève ou son parent crée la demande ───────────────────────────
 
 /**
- * GET /teacher-requests
- * Retourne la forme brute de la réponse : certains appelants reçoivent un tableau,
- * d'autres une enveloppe `{ data: [...] }` — la normalisation reste à la charge du
- * hook appelant, qui reproduit le comportement historique propre à chaque page.
+ * POST /teacher-requests — crée une demande. Un seul champ de saisie : `description`.
  */
-export async function fetchTeacherRequests(): Promise<
-  TeacherRequestSummary[] | { data: TeacherRequestSummary[] }
-> {
-  const { data } = await apiClient.get<TeacherRequestSummary[] | { data: TeacherRequestSummary[] }>(
-    '/teacher-requests',
+export async function createTeacherRequest(
+  payload: CreateTeacherRequestPayload,
+): Promise<TeacherRequest> {
+  const { data } = await apiClient.post<TeacherRequest>('/teacher-requests', payload)
+  return data
+}
+
+// ─── Étapes 2, 4 et 8 — lire les demandes ou la boîte de réception ─────────────
+
+/**
+ * GET /teacher-requests — la forme dépend du **rôle**, jamais du contenu :
+ * élève / parent / RP reçoivent des demandes (`fetchTeacherRequests`), le formateur
+ * reçoit sa boîte de réception de propositions (`fetchTeacherProposalInbox`).
+ *
+ * `scope` vaut `open` par défaut côté serveur : les demandes traitées disparaissent
+ * des listes ouvertes (étape 8).
+ */
+export async function fetchTeacherRequests(
+  scope: TeacherRequestScope = 'open',
+): Promise<TeacherRequest[]> {
+  const { data } = await apiClient.get<TeacherRequest[]>('/teacher-requests', {
+    params: { scope },
+  })
+  return data
+}
+
+/** GET /teacher-requests — même route, forme renvoyée au formateur destinataire. */
+export async function fetchTeacherProposalInbox(
+  scope: TeacherRequestScope = 'open',
+): Promise<TeacherProposalInboxItem[]> {
+  const { data } = await apiClient.get<TeacherProposalInboxItem[]>('/teacher-requests', {
+    params: { scope },
+  })
+  return data
+}
+
+/** GET /teacher-requests/:id — détail d'une demande. */
+export async function fetchTeacherRequest(requestId: string): Promise<TeacherRequest> {
+  const { data } = await apiClient.get<TeacherRequest>(`/teacher-requests/${requestId}`)
+  return data
+}
+
+// ─── Étape 3 — le RP propose la demande à plusieurs formateurs ─────────────────
+
+/**
+ * POST /teacher-requests/:requestId/proposals — envoi **groupé et atomique** à
+ * plusieurs formateurs. Bascule la demande en `redirected`.
+ */
+export async function sendTeacherProposals(
+  requestId: string,
+  payload: SendTeacherProposalsPayload,
+): Promise<TeacherProposal[]> {
+  const { data } = await apiClient.post<TeacherProposal[]>(
+    `/teacher-requests/${requestId}/proposals`,
+    payload,
   )
   return data
 }
 
-/**
- * POST /teacher-requests
- * Crée une demande professeur.
- */
-export async function createTeacherRequest(
-  payload: CreateTeacherRequestPayload,
-): Promise<TeacherRequestSummary> {
-  const { data } = await apiClient.post<TeacherRequestSummary>('/teacher-requests', payload)
+// ─── Étape 5 — le RP lit les réponses ─────────────────────────────────────────
+
+/** GET /teacher-requests/:requestId/proposals — qui a accepté, refusé, ou n'a rien dit. */
+export async function fetchTeacherProposals(requestId: string): Promise<TeacherProposal[]> {
+  const { data } = await apiClient.get<TeacherProposal[]>(
+    `/teacher-requests/${requestId}/proposals`,
+  )
   return data
 }
 
+// ─── Étape 4 — le formateur répond ────────────────────────────────────────────
+
 /**
- * GET /teacher-requests/:id
- * Lit le détail d'une demande professeur.
+ * POST /proposals/:proposalId/accept — ou `/decline`.
+ * `proposalId` est l'identifiant de la **proposition**, jamais celui de la demande.
+ * Accepter n'enregistre qu'une candidature : aucune affectation n'est créée ici.
  */
-export async function fetchTeacherRequest(requestId: string): Promise<TeacherRequestDetail> {
-  const { data } = await apiClient.get<TeacherRequestDetail>(`/teacher-requests/${requestId}`)
+export async function respondToTeacherProposal(
+  proposalId: string,
+  responseStatus: Extract<TeacherProposalStatus, 'accepted' | 'declined'>,
+): Promise<TeacherProposalInboxItem> {
+  const action = responseStatus === 'accepted' ? 'accept' : 'decline'
+  const { data } = await apiClient.post<TeacherProposalInboxItem>(
+    `/proposals/${proposalId}/${action}`,
+    {},
+  )
   return data
 }
 
+// ─── Étapes 5 et 6 — le RP tranche, le lien élève↔professeur est créé ──────────
+
 /**
- * PATCH /teacher-requests/:id/status
- * Change le statut d'une demande (actions RP, annulation client).
+ * POST /teacher-requests/:id/validate — point de décision unique du RP.
+ * Crée le lien élève↔formateur dans profile-service et clôture la demande.
  */
+export async function validateTeacherRequest(
+  requestId: string,
+  payload: ValidateTeacherRequestPayload,
+): Promise<TeacherRequest> {
+  const { data } = await apiClient.post<TeacherRequest>(
+    `/teacher-requests/${requestId}/validate`,
+    payload,
+  )
+  return data
+}
+
+// ─── Actions RP hors flow nominal ─────────────────────────────────────────────
+
+/** PATCH /teacher-requests/:id/status — RP uniquement (l'élève reçoit `403`). */
 export async function updateTeacherRequestStatus(
   requestId: string,
   payload: UpdateTeacherRequestStatusPayload,
-): Promise<TeacherRequestDetail> {
-  const { data } = await apiClient.patch<TeacherRequestDetail>(
+): Promise<TeacherRequest> {
+  const { data } = await apiClient.patch<TeacherRequest>(
     `/teacher-requests/${requestId}/status`,
     payload,
   )
   return data
 }
 
-/**
- * DELETE /teacher-requests/:id
- * Supprime définitivement une demande professeur.
- */
+/** DELETE /teacher-requests/:id — RP uniquement (l'élève reçoit `403`). */
 export async function deleteTeacherRequest(requestId: string): Promise<void> {
   await apiClient.delete(`/teacher-requests/${requestId}`)
 }
 
 /**
- * GET /requests — Compter les demandes en attente pour RpDashboardPage.
- *
- * Écart signalé (non documenté dans docs/routes.md, comportement runtime préservé tel quel) :
- * RpDashboardPage appelle historiquement `/requests`, alors que le reste de ce module
- * (fetchTeacherRequests ci-dessus) appelle `/teacher-requests`. Reproduit à l'identique —
- * non corrigé dans ce lot structurel.
+ * POST /teacher-requests/pp-change — changement de professeur principal,
+ * parent financeur uniquement. Corps aligné sur `POST /teacher-requests`.
  */
-export async function fetchTeacherRequestsForDashboard(): Promise<
-  TeacherRequestSummary[] | { data: TeacherRequestSummary[] }
-> {
-  const { data } = await apiClient.get<TeacherRequestSummary[] | { data: TeacherRequestSummary[] }>(
-    '/requests',
-  )
+export async function createPpChangeRequest(
+  payload: PpChangeRequestPayload,
+): Promise<TeacherRequest> {
+  const { data } = await apiClient.post<TeacherRequest>('/teacher-requests/pp-change', payload)
   return data
 }
 
-// ─── Validation formateur (TeacherValidationPanel) ──────────────────────────────
+// ─── Validation formateur (TeacherValidationPanel — profile-service) ──────────
 
-/**
- * GET /profiles/:teacherId/validation
- */
+/** GET /profiles/:teacherId/validation */
 export async function fetchTeacherValidationStatus(
   teacherId: string,
 ): Promise<TeacherValidationStatus> {
@@ -122,10 +181,7 @@ export async function fetchTeacherValidationStatus(
   return data
 }
 
-/**
- * PATCH /profiles/:teacherId/validation
- * Transition de statut (prise en charge, validation, rejet).
- */
+/** PATCH /profiles/:teacherId/validation — prise en charge, validation, rejet. */
 export async function updateTeacherValidationStatus(
   teacherId: string,
   payload: UpdateTeacherValidationPayload,
@@ -135,87 +191,4 @@ export async function updateTeacherValidationStatus(
     payload,
   )
   return data
-}
-
-// ─── Changement de professeur principal (ChangePrincipalTeacherDialog) ─────────
-
-/**
- * POST /teacher-requests/pp-change
- */
-export async function createPpChangeRequest(
-  payload: PpChangeRequestPayload,
-): Promise<PpChangeResponse> {
-  const { data } = await apiClient.post<PpChangeResponse>('/teacher-requests/pp-change', payload)
-  return data
-}
-
-// ─── Demande professeur spécifique (SpecificTeacherRequestForm) ────────────────
-
-/**
- * POST /teacher-requests
- * Variante « sujet/niveau/filière » de SpecificTeacherRequestForm — même route que
- * createTeacherRequest ci-dessus, mais payload/réponse de forme différente.
- */
-export async function createSpecificTeacherRequest(
-  payload: SpecificTeacherRequestPayload,
-): Promise<SpecificTeacherRequestCreated> {
-  const { data } = await apiClient.post<SpecificTeacherRequestCreated>('/teacher-requests', payload)
-  return data
-}
-
-// ─── Arrêt de collaboration (StopCollaborationRequestForm) ─────────────────────
-
-/**
- * POST /teacher-collaborations/:id/stop-request
- */
-export async function requestCollaborationStop(
-  collaborationId: string,
-  payload: StopCollaborationPayload,
-): Promise<void> {
-  await apiClient.post(`/teacher-collaborations/${collaborationId}/stop-request`, payload)
-}
-
-// ─── Candidats / propositions (TeacherCandidatesView, TeacherRequestInbox) ─────
-
-/**
- * POST /teacher-requests/:id/proposals
- * Ajoute un candidat formateur à une demande (RP). Retourne `data.candidates` tel
- * quel (potentiellement `undefined`) — l'appelant reproduit le fallback historique
- * `data.candidates ?? candidates`.
- */
-export async function addTeacherCandidate(
-  requestId: string,
-  teacherId: string,
-): Promise<TeacherCandidate[] | undefined> {
-  const { data } = await apiClient.post<{ candidates: TeacherCandidate[] }>(
-    `/teacher-requests/${requestId}/proposals`,
-    { teacherId },
-  )
-  return data.candidates
-}
-
-/**
- * POST /proposals/:id/accept ou POST /proposals/:id/decline
- * Réponse du formateur à une proposition, ou réponse d'inbox — même route sous-jacente.
- */
-export async function respondToTeacherProposal(
-  proposalId: string,
-  responseStatus: 'accepted' | 'declined',
-): Promise<void> {
-  const action = responseStatus === 'accepted' ? 'accept' : 'decline'
-  await apiClient.post(`/proposals/${proposalId}/${action}`, {})
-}
-
-/**
- * POST /teacher-requests/:id/select
- * Sélection d'un candidat par le client (élève/parent) — clôture la demande.
- */
-export async function selectTeacherCandidate(
-  requestId: string,
-  proposalId: string,
-): Promise<string> {
-  const { data } = await apiClient.post<{ status: string }>(`/teacher-requests/${requestId}/select`, {
-    proposalId,
-  })
-  return data.status
 }

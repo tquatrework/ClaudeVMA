@@ -1,5 +1,4 @@
-import { fetchTeacherRequestsForDashboard } from '../../api/teacherRequests'
-import { normalizeListResponse } from '../../utils/dashboardFormat'
+import { fetchTeacherRequests } from '../../api/teacherRequests'
 import { useAsyncData } from '../useAsyncData'
 
 export interface UsePendingTeacherRequestCountResult {
@@ -8,25 +7,26 @@ export interface UsePendingTeacherRequestCountResult {
 }
 
 /**
- * En cas d'échec, RpDashboardPage affichait historiquement un compteur à 0 (jamais de
- * message d'erreur) — reproduit ici en absorbant l'erreur au niveau du chargement plutôt
- * qu'en la laissant remonter comme `error` non affiché.
+ * Nombre de demandes **ouvertes** à instruire, pour la carte du tableau de bord RP.
+ *
+ * `scope=open` est la portée du flow : les demandes traitées disparaissent des listes
+ * ouvertes (étape 8). Le hook interrogeait auparavant `/requests`, second nom de la même
+ * ressource que `/teacher-requests` — un seul nom par donnée, l'écart est résorbé.
+ *
+ * En cas d'échec, la carte affiche `0` plutôt qu'un message : c'est un indicateur
+ * secondaire du tableau de bord, pas l'objet de la page.
  */
-async function loadPendingCount(): Promise<number> {
+async function loadOpenRequestCount(): Promise<number> {
   try {
-    const requests = await fetchTeacherRequestsForDashboard()
-    return normalizeListResponse(requests).filter((request) => request.status === 'pending').length
+    const requests = await fetchTeacherRequests('open')
+    return requests.length
   } catch {
     return 0
   }
 }
 
-/**
- * usePendingTeacherRequestCount — compte les demandes professeur en attente pour
- * RpDashboardPage (carte "Demandes ouvertes").
- */
 export function usePendingTeacherRequestCount(): UsePendingTeacherRequestCountResult {
-  const { data, isLoading } = useAsyncData(loadPendingCount, [])
+  const { data, isLoading } = useAsyncData(loadOpenRequestCount, [])
 
   return {
     pendingRequestCount: data ?? null,

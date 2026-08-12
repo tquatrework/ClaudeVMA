@@ -65,7 +65,10 @@ export const TOP_NAV_CONFIG: TopNavItem[] = [
     id: 'demandes',
     label: 'Demandes',
     path: '/teacher-requests',
-    allowedRoles: ['parent_financeur', 'responsable_pedagogique'],
+    // L'élève est le premier acteur du flow — c'est lui qui demande un professeur.
+    // Il n'avait pourtant aucune entrée de navigation vers ses demandes, alors que
+    // `.claude/design/front-design.md` la prévoit pour « élève, parent, RP ».
+    allowedRoles: ['eleve', 'parent_financeur', 'responsable_pedagogique'],
   },
   {
     id: 'archives',
@@ -176,7 +179,7 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
       items: [
         { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
         { label: 'Mes élèves', path: '/my-students', icon: '👥' },
-        { label: 'Demandes prof.', path: '/teacher-requests', icon: '📋' },
+        { label: 'Propositions reçues', path: '/teacher-requests', icon: '📋' },
       ],
     },
     {
@@ -199,7 +202,7 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
     {
       groupLabel: 'Gestion',
       items: [
-        { label: 'Demandes professeurs', path: '/rp/teacher-requests', icon: '🎓' },
+        { label: 'Demandes professeurs', path: '/teacher-requests', icon: '🎓' },
         { label: 'Comptes', path: '/admin/accounts', icon: '🔑' },
         { label: 'Délégations', path: '/delegations', icon: '🔗' },
       ],

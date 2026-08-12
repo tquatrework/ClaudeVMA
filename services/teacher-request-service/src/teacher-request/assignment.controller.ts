@@ -8,11 +8,15 @@ import { TerminationResponseDto } from './dto/response/termination-response.dto'
 import { JwtAuthGuard } from '../common/jwt.guard';
 import { RolesGuard } from '../common/roles.guard';
 import { Roles } from '../common/roles.decorator';
-import { CurrentUser } from '../common/current-user.decorator';
-import { JwtPayload } from '../common/jwt.guard';
+import { Context, RequestContext } from '../common/request-context.decorator';
 import { UserRole } from '../common/user-role.enum';
 
-// ── /assignments routes ───────────────────────────────────────────────────────
+/**
+ * HERITAGE. Ces routes travaillent sur la table `assignments`, que le flow
+ * n'alimente plus depuis l'arbitrage du 2026-08-12 : le lien eleve↔formateur
+ * appartient a profile-service. Elles restent en service pour les affectations
+ * creees par l'ancien modele.
+ */
 @ApiTags('assignments')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -23,35 +27,41 @@ export class AssignmentController {
   @Post(':assignmentId/main-teacher')
   @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.ELEVE)
   @ApiOperation({
-    summary: 'Designate main teacher',
-    description: 'RP or ELEVE sets the main teacher for an assignment.',
+    summary: 'Designer le professeur principal (affectation heritee)',
+    description:
+      'Sur le flow courant, le professeur principal se declare a la validation du RP ' +
+      '(`isPrincipalTeacher` de `POST /requests/:id/validate`), qui le transmet a profile-service.',
   })
-  @ApiParam({ name: 'assignmentId', description: 'Assignment UUID' })
-  @ApiResponse({ status: 201, description: 'Main teacher flag set' })
-  @ApiResponse({ status: 403, description: 'Forbidden' })
+  @ApiParam({ name: 'assignmentId', description: "Identifiant de l'affectation" })
+  @ApiResponse({ status: 201, description: 'Professeur principal designe', type: AssignmentResponseDto })
+  @ApiResponse({ status: 400, description: 'Affectation inactive' })
+  @ApiResponse({ status: 401, description: 'Jeton absent ou invalide' })
+  @ApiResponse({ status: 403, description: 'Role sans droit' })
+  @ApiResponse({ status: 404, description: 'Affectation inexistante' })
   async setMainTeacher(
     @Param('assignmentId', ParseUUIDPipe) assignmentId: string,
-    @CurrentUser() user: JwtPayload,
+    @Context() context: RequestContext,
   ): Promise<AssignmentResponseDto> {
-    const updated = await this.service.setMainTeacher(assignmentId, user);
-    return AssignmentResponseDto.fromEntity(updated);
+    return AssignmentResponseDto.fromEntity(await this.service.setMainTeacher(assignmentId, context));
   }
 
   @Post(':assignmentId/termination')
   @Roles(UserRole.FORMATEUR)
   @ApiOperation({
-    summary: 'Request assignment termination (FORMATEUR only)',
-    description: 'Teacher requests to end relation with a notice date.',
+    summary: "Demander l'arret d'une collaboration avec preavis (formateur)",
+    description: 'Route de reference pour l\'arret ; `POST /collaborations/:id/stop-request` en est un alias.',
   })
-  @ApiParam({ name: 'assignmentId', description: 'Assignment UUID' })
-  @ApiResponse({ status: 201, description: 'Termination request created' })
-  @ApiResponse({ status: 403, description: 'Forbidden — not the teacher on this assignment' })
+  @ApiParam({ name: 'assignmentId', description: "Identifiant de l'affectation" })
+  @ApiResponse({ status: 201, description: 'Demande d\'arret enregistree', type: TerminationResponseDto })
+  @ApiResponse({ status: 400, description: 'Affectation inactive' })
+  @ApiResponse({ status: 401, description: 'Jeton absent ou invalide' })
+  @ApiResponse({ status: 403, description: 'Reserve aux formateurs' })
+  @ApiResponse({ status: 404, description: 'Affectation inexistante ou confiee a un autre formateur' })
   async createTermination(
     @Param('assignmentId', ParseUUIDPipe) assignmentId: string,
     @Body() dto: CreateTerminationDto,
-    @CurrentUser() user: JwtPayload,
+    @Context() context: RequestContext,
   ): Promise<TerminationResponseDto> {
-    const termination = await this.service.createTermination(assignmentId, dto, user);
-    return TerminationResponseDto.fromEntity(termination);
+    return TerminationResponseDto.fromEntity(await this.service.createTermination(assignmentId, dto, context));
   }
 }

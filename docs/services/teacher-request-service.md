@@ -186,6 +186,200 @@
             mise en conformite, non traite non plus a cette etape la-bas.</item>
         </openPoints>
       </session>
+      <session date="2026-08-12" label="Refonte du flow de la demande de professeur : le RP tranche, et lui seul">
+        <context>
+          Application de l'arbitrage du 2026-08-12 (docs/architecture.md, « Flow de la
+          demande de professeur », 7 points), lui-meme fonde sur le releve du 2026-08-11
+          (.claude/reports/teacher-request-service-flow-2026-08-11.md) mene contre la pile
+          reelle. Ce releve avait etabli que TROIS modeles de decision coexistaient dans le
+          service : « le premier formateur qui accepte gagne » (implemente et actif, qui
+          produisait deux affectations actives sur le meme eleve), « le RP preselectionne,
+          le client choisit » (code, inatteignable) et le modele attendu. Un seul est
+          retenu : l'acceptation d'un formateur enregistre une CANDIDATURE, l'affectation
+          nait de la seule validation du RP.
+        </context>
+
+        <treeChanges>
+          <item>src/events/ (nouveau) — entities/domain-event.entity.ts (boite d'envoi),
+            events.service.ts (ecriture transactionnelle), event-publisher.service.ts
+            (remise au flux Redis), events.module.ts. Remplace
+            src/teacher-request/events.service.ts, supprime.</item>
+          <item>src/idempotency/ (nouveau) — idempotency-record.entity.ts,
+            idempotency.service.ts, idempotency.module.ts.</item>
+          <item>src/migrations/ (nouveau) — 1754960000000-flow-demande-professeur.ts,
+            PREMIERE migration du service : les tables venaient jusqu'ici d'un
+            `synchronize` desormais reserve aux tests, donc aucune colonne ajoutee
+            n'aurait jamais existe en production.</item>
+          <item>src/common/ — correlation-id.middleware.ts, request-context.decorator.ts
+            (acteur + correlation + cle d'idempotence + jeton relaye), validation.pipe.ts
+            (forbidNonWhitelisted + messages francais).</item>
+          <item>src/teacher-request/dto/ — validate-candidate.dto.ts (nouveau) ;
+            select-candidate.dto.ts et publish-selected-candidates.dto.ts supprimes ;
+            response/teacher-proposal-inbox.dto.ts (nouveau, vue formateur).</item>
+        </treeChanges>
+
+        <changeset id="modele-de-decision">
+          <item>POST /proposals/:id/accept ne cree plus d'affectation. Elle enregistre une
+            candidature (status accepted + respondedAt) et laisse la demande en
+            `redirected`.</item>
+          <item>POST /requests/:id/validate (nouveau, RP uniquement) devient le point de
+            decision unique. Ordre volontaire : le lien est demande a profile-service AVANT
+            la cloture locale — si l'appel echoue, rien n'est cloture et le RP peut
+            recommencer ; si la cloture echoue apres coup, le rejeu retombe sur un 409
+            traite comme un succes.</item>
+          <item>POST /requests/:id/select et POST /requests/:id/selected-candidates
+            supprimees (modeles abandonnes).</item>
+          <item>Etats crees : RequestStatus.CLOSED (terminal) ; ProposalStatus.NOT_SELECTED
+            et ProposalStatus.EXPIRED. Les valeurs heritees restent declarees car des lignes
+            les portent ; `assigned` gagne une transition sortante vers `closed`.</item>
+        </changeset>
+
+        <changeset id="contrat-front">
+          <item>POST /requests prend {description (requis), studentId?}. subject/level/sector
+            sortent du flow : plus exiges, plus acceptes, plus exposes en reponse. Les
+            colonnes restent en base et la migration reprend message/subject dans
+            description pour les lignes existantes.</item>
+          <item>POST /requests/:id/proposals passe de teacherId (un par appel) a
+            teacherIds[] (envoi atomique), avec message requis et trois champs indicatifs
+            optionnels : availabilityNote, compensationNote, responseDeadline.</item>
+          <item>GET /requests/:id/proposals (nouveau) : le RP n'avait AUCUN moyen de savoir
+            qui avait accepte.</item>
+          <item>La forme de GET /requests depend du ROLE et non du contenu de la liste — le
+            test `'requestId' in results[0]` rendait la forme indevinable sur liste vide.</item>
+          <item>Le formateur voit la description de la demande et le nom de l'eleve, et
+            GET /requests/:id ne lui repond plus 403.</item>
+          <item>CreatePpChangeDto aligne : subject supprime, message renomme description.</item>
+        </changeset>
+
+        <changeset id="droits">
+          <item>Le lien parent↔eleve est verifie a CHAQUE action via
+            GET /internal/relations/:viewerId/:targetId, jamais en cache — un lien peut etre
+            rompu depuis la PR #98. Cela referme le trou mesure le 2026-08-11 (un parent
+            creait une demande pour n'importe quel eleve en 201) et le TODO S3-B laisse dans
+            createPpChangeRequest.</item>
+          <item>Un studentId sans lien renvoie 404 avec le meme message qu'un eleve
+            inexistant ; idem pour une proposition adressee a un autre formateur.</item>
+          <item>Le parent cesse de voir les demandes des eleves dont il a ete delie, y
+            compris celles qu'il avait creees.</item>
+        </changeset>
+
+        <changeset id="dette-technique">
+          <item>PROFILE_SERVICE_URL et INTERNAL_SECRET declares dans docker-compose.yml ET
+            exiges par env.validation.ts. Le client retombait sur un defaut code en dur
+            (http://profile-service:3000) alors que profile-service ecoute sur 3002, et
+            n'envoyait aucun jeton : d'ou studentName/teacherName toujours nuls, donc des
+            UUID affiches au RP. Troisieme cause corrigee au passage : le client lisait
+            firstName a la racine alors que GET /profiles/:userId renvoie une enveloppe
+            {administrative, pedagogical, ...}.</item>
+          <item>forbidNonWhitelisted active. C'est ce defaut qui rendait le 400 du front
+            incomprehensible : `description` etait absorbe en silence avant validation, puis
+            `subject` manquait.</item>
+          <item>x-correlation-id accepte, genere si absent, renvoye en reponse et propage a
+            tous les appels sortants.</item>
+          <item>Idempotency-Key sur les commandes ; trois POST identiques ne creent plus
+            trois demandes.</item>
+          <item>Tous les messages d'erreur passes en francais.</item>
+          <item>Les evenements ne sont plus des logger.log : ecriture dans domain_events
+            (meme transaction que le changement d'etat) puis remise au flux Redis
+            visiomath:events. Sans REDIS_URL, ils restent en attente et ne sont pas perdus.</item>
+        </changeset>
+
+        <verification>
+          <item>133 tests unitaires + 18 tests e2e (base PostgreSQL locale
+            teacher_request_test) verts. L'e2e prouve le defaut central corrige : deux
+            formateurs acceptent, aucune affectation n'est creee, la validation du RP cree
+            le lien une seule fois et solde les autres propositions.</item>
+          <item>Migration jouee contre une COPIE de la base de production (16 demandes, 3
+            propositions, 3 affectations) : subject devenu nullable, description ajoutee et
+            remplie, index crees, domain_events et idempotency_records crees. Second
+            demarrage sans rejeu ni erreur.</item>
+          <item>Demarrage sans PROFILE_SERVICE_URL ni INTERNAL_SECRET : refus explicite au
+            bootstrap, plus de defaut silencieux.</item>
+        </verification>
+
+        <blockers>
+          <item>BLOQUANT PARTIEL — la route interne
+            GET /internal/profiles/:userId/display-name n'existe pas cote profile-service.
+            Sans elle, un formateur destinataire d'une proposition ne peut pas lire le nom de
+            l'eleve (aucune relation ne les lie encore, la route publique lui repondrait 403)
+            et la reponse porte studentName: null. Le client la tente d'abord puis retombe sur
+            GET /profiles/:userId avec le jeton de l'appelant, ce qui suffit au RP et a
+            l'eleve mais pas au formateur.</item>
+          <item>LEVE le 2026-08-12 — le corps de
+            POST /internal/create-teacher-student-relation est confirme identique a ce que le
+            client envoie : {teacherId, studentId, isPrincipalTeacher}. Voir la session
+            « Le 409 du lien eleve↔formateur cesse d'etre avale » ci-dessous.</item>
+        </blockers>
+
+        <openPoints>
+          <item>La table assignments n'est PLUS alimentee : le lien appartient a
+            profile-service. Les routes /assignments/:id/main-teacher,
+            /assignments/:id/termination et /collaborations/:id/stop-request ne servent donc
+            que les affectations creees par l'ancien modele. L'arret de collaboration doit
+            etre reconstruit sur les relations de profile-service ; en l'etat, une
+            collaboration nee du nouveau flow ne peut pas etre arretee par ces routes.</item>
+          <item>createTermination et createCollaborationStopRequest ne sont plus dupliquees
+            (la seconde delegue a la premiere), mais /collaborations reste non proxifie par
+            la gateway : la route est inatteignable depuis le front.</item>
+          <item>La resolution des noms fait un appel HTTP par identifiant distinct. Une
+            route de resolution par lot cote profile-service eviterait N appels sur une
+            liste RP.</item>
+          <item>Les listes ne sont toujours pas bornees (pas de pagination).</item>
+          <item>Le front appelle encore POST /teacher-requests/:id/select (supprimee),
+            envoie {teacherId} et non {teacherIds} sur les propositions, et poste
+            {currentTeacherId, requestedTeacherId, reason} sur pp-change la ou le serveur
+            attend {studentId, currentPpTeacherId?, description}. A traiter cote front.</item>
+        </openPoints>
+      </session>
+      <session date="2026-08-12" label="Le 409 du lien eleve↔formateur cesse d'etre avale">
+        <context>
+          profile-service a livre le meme jour la version REJOUABLE de
+          POST /internal/create-teacher-student-relation : un rejeu repond desormais 200, plus
+          409. Le seul 409 encore renvoye signale un VRAI conflit — un lien existant dont le
+          isPrincipalTeacher differe de celui demande. La branche « 409 → succes » de
+          ProfileServiceClient, ecrite pour l'idempotence, etait donc devenue dangereuse : le RP
+          designait un professeur principal, le serveur refusait, et l'application lui affichait
+          un succes. C'est exactement « une erreur metier transformee en succes technique », que
+          les principes du projet interdisent.
+        </context>
+
+        <changeset id="409-remonte">
+          <item>src/teacher-request/clients/profile-service.client.ts —
+            createTeacherStudentRelation ne renvoie plus sur 409 : elle leve une
+            ConflictException portant un message francais exploitable par le RP (« Un lien
+            existe deja entre cet eleve et ce formateur, avec un statut de professeur principal
+            different de celui demande. Verifiez qui est le professeur principal de cet eleve
+            avant de valider. »). Le log passe de log a warn.</item>
+          <item>Le succes reste teste par response.ok, qui couvre le 201 d'une creation ET le
+            200 d'un rejeu — verifie par test, pas suppose.</item>
+          <item>Aucun renommage : chemin, en-tetes et corps
+            {teacherId, studentId, isPrincipalTeacher} correspondent exactement au contrat de
+            profile-service.</item>
+          <item>Commentaires de validateCandidate corriges : le rejeu retombe sur un 200, plus
+            sur un « 409 traite comme un succes ».</item>
+        </changeset>
+
+        <verification>
+          <item>136 tests unitaires + 19 tests e2e verts (base PostgreSQL locale
+            teacher_request_test), plus nest build.</item>
+          <item>Cas couverts : 201 creation → succes ; 200 rejeu → succes (le RP va au bout, la
+            demande est cloturee) ; 409 conflit reel → ConflictException remontee, ni la
+            demande ni les propositions ne sont sauvegardees ; e2e : POST
+            /requests/:id/validate repond 409 avec un message mentionnant « professeur
+            principal » et la demande reste en `redirected`.</item>
+        </verification>
+
+        <openPoints>
+          <item>validatedBy (identite du RP qui valide, pour l'evenement TeacherLinkedToStudent)
+            propose par profile-service : NON ajoute, decision prise le 2026-08-12 — personne ne
+            le remplirait aujourd'hui. A rouvrir quand un consommateur en aura besoin.</item>
+          <item>Le script npm `test:e2e` (`jest --testMatch ...`) n'utilise PAS
+            test/jest-e2e.json et ne charge donc pas setupFiles/setup-env.ts : la suite e2e
+            echoue sur la validation d'environnement. Elle passe avec
+            `npx jest --config test/jest-e2e.json`. Ecart preexistant, non corrige ici
+            (perimetre volontairement limite au 409).</item>
+        </openPoints>
+      </session>
     </technicalSessions>
   </service>
 </serviceFunctionalSpecification>

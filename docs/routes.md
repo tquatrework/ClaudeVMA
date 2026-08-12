@@ -788,17 +788,89 @@ restant en base comme preuve de la période passée. Vérifié contre la pile r�
 
 ## teacher-request-service
 
-Préfixe gateway canonique : `/api/v1/teacher-requests` → contrôleur `/teacher-requests`
+Préfixe gateway canonique : `/api/v1/teacher-requests` → contrôleur `/requests`.
+Également proxifiés : `/api/v1/requests` (historique), `/api/v1/proposals`, `/api/v1/assignments`.
+**`/api/v1/collaborations` n'est pas proxifié** — la route existe côté service mais reste
+inatteignable depuis le front (voir « Héritage » plus bas).
 
-| Méthode | Chemin | Description | Auth |
+> **Le flow a été refondu le 2026-08-12** (`docs/architecture.md` > « Flow de la demande de
+> professeur »). Trois modèles de décision coexistaient ; un seul subsiste : **c'est le RP qui
+> tranche, et lui seul**. L'acceptation d'un formateur enregistre une **candidature**, jamais une
+> affectation. Les routes `POST /requests/:id/select` (réservée à l'élève et au parent) et
+> `POST /requests/:id/selected-candidates` **ont été supprimées** : elles relevaient de modèles
+> abandonnés et étaient de toute façon inatteignables dès qu'un formateur avait répondu.
+
+Toutes les routes acceptent et **renvoient** `x-correlation-id` (généré si absent).
+Les commandes (`POST`) acceptent `Idempotency-Key` : rejouer la même clé renvoie la première
+réponse au lieu d'exécuter la commande une seconde fois.
+`ValidationPipe` global : `whitelist` + **`forbidNonWhitelisted`** + `transform` — un champ inconnu
+provoque un `400` explicite, en français, au lieu d'être absorbé en silence.
+**Tous les messages d'erreur sont en français.**
+
+### Le flow, étape par étape
+
+| Méthode | Chemin | Étape | Rôles autorisés | Description | Réponse attendue |
+|---|---|---|---|---|---|
+| POST | /requests | 1 | eleve, parent_financeur, responsable_pedagogique | Créer une demande. Body : **`{description}`** (texte long, **requis**, ≤ 5000 car.) et `studentId?` (obligatoire si l'appelant n'est pas l'élève). `subject`, `level`, `sector` **ne sont plus acceptés** (`400`). Le lien parent↔élève est vérifié **à chaque appel** auprès de `profile-service` | `201 {id, requesterId, requesterRole, studentId, studentName, description, status: "pending", type, chosenTeacherId, chosenTeacherName, closedAt, createdAt, updatedAt}` · `400` corps invalide ou champ inconnu · `401` · `403` rôle sans droit · **`404` élève inconnu OU aucun lien avec l'appelant — les deux cas sont indiscernables** · `503` profile-service injoignable |
+| GET | /requests | 2, 4 | eleve, parent_financeur, responsable_pedagogique, formateur | Query `scope` = `open` (**défaut**) / `closed` / `all`. **La forme dépend du rôle, jamais du contenu** : élève/parent/RP → demandes ; formateur → **boîte de réception** de ses propositions. Le parent ne voit que les demandes des élèves auxquels il est **encore** lié. Le RP reçoit en plus `acceptedProposalCount` et `pendingProposalCount` | `200 [TeacherRequest]` ou `200 [TeacherProposalInbox]` · `401` · `403` |
+| GET | /requests/:id | 2, 4 | élève concerné, parent lié et auteur, administrateurs, **formateur destinataire d'une proposition** | Détail. Le formateur y avait droit à un `403` avant le 2026-08-12 | `200 {…, studentName}` · `400` UUID mal formé · `401` · `404` inexistante **ou** hors de portée |
+| POST | /requests/:requestId/proposals | 3 | responsable_pedagogique | **Envoi groupé et atomique.** Body : `{teacherIds: string[] (1..50, uniques), message (requis, ≤ 5000), availabilityNote?, compensationNote?, responseDeadline?}` — les trois derniers sont les champs indicatifs *créneaux possibles*, *rémunération*, *date limite de réponse*. Bascule la demande en `redirected` | `201 [{id, requestId, teacherId, teacherName, message, availabilityNote, compensationNote, responseDeadline, status: "pending", respondedAt, createdAt, updatedAt}]` · `400` demande clôturée, ou formateur déjà sollicité · `401` · `403` · `404` |
+| GET | /requests/:requestId/proposals | 5 | responsable_pedagogique | **Lire qui a accepté, refusé ou n'a pas répondu.** Cette lecture n'existait pas : `404` avant le 2026-08-12, ce qui rendait l'arbitrage du RP impossible | `200 [TeacherProposal]` · `401` · `403` · `404` |
+| POST | /proposals/:proposalId/accept | 4 | formateur destinataire | **Enregistre une candidature, et rien d'autre** : aucune affectation n'est créée ici | `201 {id, requestId, requestDescription, studentName, message, …, status: "accepted", requestStatus}` · `400` réponse déjà donnée, ou demande clôturée · `401` · `403` · `404` inexistante **ou adressée à un autre formateur** |
+| POST | /proposals/:proposalId/decline | 4 | formateur destinataire | Refus du formateur | idem, `status: "declined"` |
+| POST | /requests/:id/validate | 5, 6 | responsable_pedagogique | **Point de décision unique.** Body : `{proposalId, isPrincipalTeacher?}`. Crée le lien élève↔formateur **dans `profile-service`**, clôture la demande, passe les autres candidats en `not_selected` et les propositions sans réponse en `expired`. Le lien est demandé **avant** la clôture : si `profile-service` refuse, rien n'est clôturé | `201 {…, status: "closed", chosenTeacherId, chosenTeacherName, closedAt}` · `400` demande déjà clôturée, proposition étrangère à la demande, ou formateur n'ayant pas accepté · `401` · `403` · `404` · `503` |
+| PATCH | /requests/:id/status | — | responsable_pedagogique | Body `{status}` ∈ `declined` / `cancelled` / `closed`. **`closed` n'est accepté que sur une demande héritée restée en `assigned`** : une demande se clôture normalement en retenant un formateur. Solde les propositions ouvertes | `200 {…}` · `400` transition refusée · `401` · `403` · `404` |
+| DELETE | /requests/:id | — | responsable_pedagogique | Supprimer une demande | `204` · `401` · `403` · `404` |
+| POST | /requests/pp-change | hors flow | parent_financeur | Changement de professeur principal. Body : **`{studentId, currentPpTeacherId?, description}`** — aligné sur `POST /requests` (`subject` supprimé, `message` renommé `description`). Le lien parent↔élève est **désormais vérifié** | `201 {…, type: "pp_change"}` · `400` · `401` · `403` · `404` |
+
+### États
+
+**Demande** — `pending` → `redirected` → **`closed`** (état terminal créé le 2026-08-12, sans lequel
+« les demandes traitées disparaissent » était inexprimable). Terminaux : `closed`, `cancelled`,
+`declined`. Valeurs héritées, jamais écrites par le flow mais encore portées par des lignes :
+`assigned` (qui garde une transition sortante vers `closed`), `accepted`, `candidates_published`,
+`candidates_selected`, `candidate_chosen`.
+
+**Proposition** — `pending` → `accepted` / `declined`, puis, à la clôture de la demande :
+`not_selected` (**avait accepté, un autre a été choisi**) ou `expired` (**n'a jamais répondu**).
+Ces deux états sont créés par l'arbitrage : les confondre avec `declined` serait un mensonge
+affiché au formateur, `declined` signifiant « le formateur a refusé ».
+
+### Ce que le service demande à profile-service
+
+`profile-service` est l'**unique propriétaire des relations** ; ce service n'en tient aucune copie
+et l'interroge **à chaque action**, jamais en cache — un lien peut être rompu entre deux appels.
+
+| Appel | Usage | Politique d'échec |
+|---|---|---|
+| `GET /internal/relations/:viewerId/:targetId?viewerRole=` | Droit d'agir d'un parent, droit de lecture | **Refuse** l'action (`503`) — laisser passer donnerait l'illusion du contrôle |
+| `POST /internal/create-teacher-student-relation` | Créer le lien à la validation du RP. `409` traité comme un succès (le lien demandé existe) | **Fait échouer** la validation ; la demande reste ouverte |
+| `GET /internal/profiles/:userId/display-name` **(à créer)** | Afficher des noms plutôt que des UUID, y compris pour un formateur qu'aucune relation ne lie encore à l'élève | Retombe sur `GET /profiles/:userId` avec le jeton de l'appelant ; à défaut `null` |
+
+### Événements
+
+`TeacherRequestCreated` · `TeacherRequestStatusUpdated` · `TeacherRequestDeleted` ·
+`TeacherRequestClosed` · `TeacherProposalSent` · `TeacherProposalAccepted` ·
+`TeacherProposalDeclined` · `TeacherProposalNotSelected` · `TeacherProposalExpired` ·
+`TeacherAssigned` · `MainTeacherAssigned` · `TeacherStopRequested`
+
+> Ils ne sont plus des `logger.log`. Chaque événement est écrit dans la table **`domain_events`**
+> (boîte d'envoi), **dans la même transaction** que le changement d'état qui le produit, puis remis
+> au flux Redis **`visiomath:events`** (`XADD`). Un flux, et non un `PUBLISH` : un abonné absent au
+> moment de l'émission pourra relire. Sans `REDIS_URL`, les événements restent en attente et ne sont
+> **jamais perdus**. Champs du flux : `eventId`, `eventName`, `aggregateType`, `aggregateId`,
+> `correlationId`, `occurredAt`, `payload` (JSON).
+
+### Héritage — routes conservées, non alimentées par le flow
+
+La table `assignments` n'est **plus écrite** : le lien élève↔formateur appartient à
+`profile-service`. Ces routes ne servent donc que les affectations créées par l'ancien modèle.
+
+| Méthode | Chemin | Rôles | Remarque |
 |---|---|---|---|
-| POST | /requests | Créer une demande | 🔒 |
-| GET | /requests | Lister toutes les demandes | 🔒 |
-| GET | /requests/:id | Détail d'une demande | 🔒 |
-| PATCH | /requests/:id/status | Changer le statut | 🔒 |
-| DELETE | /requests/:id | Supprimer une demande | 🔒 |
-
-Statuts : `pending` → `accepted` / `declined` / `cancelled`
+| POST | /assignments/:assignmentId/main-teacher | responsable_pedagogique, eleve | Sur le flow courant, le professeur principal se déclare via `isPrincipalTeacher` de `POST /requests/:id/validate` |
+| POST | /assignments/:assignmentId/termination | formateur | Arrêt avec préavis. Body `{noticeDate, reason?}` |
+| POST | /collaborations/:assignmentId/stop-request | formateur | **Alias strict** de la précédente (même code désormais), **non proxifié par la gateway** |
 
 ---
 

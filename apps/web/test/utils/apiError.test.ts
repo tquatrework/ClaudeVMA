@@ -129,6 +129,41 @@ describe('getErrorMessage', () => {
   })
 })
 
+describe("getErrorMessage — libellés techniques anglais des gardes de rôle", () => {
+  // Constaté contre la pile réelle le 2026-08-12 : `teacher-request-service` répond
+  // `403 {"message":"You do not have the required role for this action"}`. Ce texte
+  // n'apporte rien de plus que le code HTTP et ne doit jamais atteindre l'écran.
+  it.each([
+    'You do not have the required role for this action',
+    'Insufficient role',
+    'Forbidden',
+    'Unauthorized',
+  ])('remplace « %s » par le message français du code HTTP', (guardMessage) => {
+    const message = getErrorMessage({
+      response: { status: 403, data: { message: guardMessage } },
+    })
+
+    expect(message).toBe("Vous n'êtes pas autorisé à effectuer cette action.")
+  })
+
+  it('laisse passer un message métier français porté par le même code HTTP', () => {
+    const businessMessage =
+      'Un lien existe deja entre cet eleve et ce formateur, avec un statut de professeur principal different de celui demande.'
+
+    expect(
+      getErrorMessage({ response: { status: 409, data: { message: businessMessage } } }),
+    ).toBe(businessMessage)
+  })
+
+  it("n'écrase pas un message métier contenant l'un de ces mots", () => {
+    const businessMessage = "Cette action est interdite : la demande est deja cloturee."
+
+    expect(
+      getErrorMessage({ response: { status: 400, data: { message: businessMessage } } }),
+    ).toBe(businessMessage)
+  })
+})
+
 describe('getErrorStatus', () => {
   it('extrait le statut HTTP quand il existe', () => {
     expect(getErrorStatus({ response: { status: 404 } })).toBe(404)

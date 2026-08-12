@@ -3,25 +3,35 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
-import { TeacherRequestService } from '../../src/teacher-request/teacher-request.service';
-import { TeacherRequest, RequestStatus, RequestType } from '../../src/teacher-request/entities/teacher-request.entity';
+import { RequestScope, TeacherRequestService } from '../../src/teacher-request/teacher-request.service';
+import {
+  TeacherRequest,
+  RequestStatus,
+  RequestType,
+} from '../../src/teacher-request/entities/teacher-request.entity';
 import { TeacherProposal, ProposalStatus } from '../../src/teacher-request/entities/teacher-proposal.entity';
 import { Assignment, AssignmentStatus } from '../../src/teacher-request/entities/assignment.entity';
 import { TerminationRequest } from '../../src/teacher-request/entities/termination-request.entity';
-import { EventsService } from '../../src/teacher-request/events.service';
+import { EventsService, TeacherRequestEvent } from '../../src/events/events.service';
 import { ProfileServiceClient } from '../../src/teacher-request/clients/profile-service.client';
+import { ManualRequestStatus } from '../../src/teacher-request/dto/update-status.dto';
+import { RequestContext } from '../../src/common/request-context.decorator';
 import { UserRole } from '../../src/common/user-role.enum';
 
 const makeRepo = () => ({
-  create: jest.fn((dto) => ({ ...dto })),
-  save: jest.fn((entity) => Promise.resolve({ id: 'uuid-1', ...entity })),
+  create: jest.fn((dto) => (Array.isArray(dto) ? dto.map((item) => ({ ...item })) : { ...dto })),
+  save: jest.fn((entity) =>
+    Promise.resolve(
+      Array.isArray(entity)
+        ? entity.map((item, index) => ({ id: `uuid-${index + 1}`, ...item }))
+        : { id: 'uuid-1', ...entity },
+    ),
+  ),
   find: jest.fn(() => Promise.resolve([])),
-  findOne: jest.fn(),
+  findOne: jest.fn(() => Promise.resolve(null)),
   remove: jest.fn(() => Promise.resolve()),
 });
 
-/** Build a DataSource mock whose transaction() executes the callback with a manager
- *  that delegates getRepository() calls to the provided repo map. */
 const makeDataSource = (repoMap: Record<string, ReturnType<typeof makeRepo>>) => ({
   transaction: jest.fn(async (callback: (manager: unknown) => Promise<unknown>) => {
     const manager = {
@@ -31,11 +41,55 @@ const makeDataSource = (repoMap: Record<string, ReturnType<typeof makeRepo>>) =>
   }),
 });
 
-const studentUser = { id: 'student-1', role: UserRole.ELEVE, loginIdentifier: 'student.one' };
-const parentUser = { id: 'parent-1', role: UserRole.PARENT_FINANCEUR, loginIdentifier: 'parent.one' };
-const rpUser = { id: 'rp-1', role: UserRole.RESPONSABLE_PEDAGOGIQUE, loginIdentifier: 'rp.one' };
-const teacherUser = { id: 'teacher-1', role: UserRole.FORMATEUR, loginIdentifier: 'teacher.one' };
-const adminFinUser = { id: 'admin-fin-1', role: UserRole.ADMINISTRATEUR_FINANCIER, loginIdentifier: 'admin.fin.one' };
+const buildContext = (user: { id: string; role: string }): RequestContext => ({
+  user: { ...user, loginIdentifier: `${user.id}.login` },
+  correlationId: 'corr-test',
+  callerAuthorization: 'Bearer jeton',
+});
+
+const studentContext = buildContext({ id: 'student-1', role: UserRole.ELEVE });
+const parentContext = buildContext({ id: 'parent-1', role: UserRole.PARENT_FINANCEUR });
+const rpContext = buildContext({ id: 'rp-1', role: UserRole.RESPONSABLE_PEDAGOGIQUE });
+const teacherContext = buildContext({ id: 'teacher-1', role: UserRole.FORMATEUR });
+const financeAdminContext = buildContext({ id: 'af-1', role: UserRole.ADMINISTRATEUR_FINANCIER });
+
+const openRequest = (overrides: Partial<TeacherRequest> = {}): TeacherRequest =>
+  ({
+    id: 'request-1',
+    requesterId: 'student-1',
+    requesterRole: UserRole.ELEVE,
+    studentId: 'student-1',
+    description: 'Je voudrais un professeur de maths',
+    subject: null,
+    level: null,
+    sector: null,
+    message: null,
+    status: RequestStatus.PENDING,
+    type: RequestType.SPECIFIC,
+    currentPpTeacherId: null,
+    selectedTeacherIds: null,
+    chosenTeacherId: null,
+    closedAt: null,
+    createdAt: new Date('2026-08-12T09:00:00.000Z'),
+    updatedAt: new Date('2026-08-12T09:00:00.000Z'),
+    ...overrides,
+  }) as TeacherRequest;
+
+const proposal = (overrides: Partial<TeacherProposal> = {}): TeacherProposal =>
+  ({
+    id: 'proposal-1',
+    requestId: 'request-1',
+    teacherId: 'teacher-1',
+    message: 'Un eleve de terminale cherche un professeur',
+    availabilityNote: null,
+    compensationNote: null,
+    responseDeadline: null,
+    status: ProposalStatus.PENDING,
+    respondedAt: null,
+    createdAt: new Date('2026-08-12T10:00:00.000Z'),
+    updatedAt: new Date('2026-08-12T10:00:00.000Z'),
+    ...overrides,
+  }) as TeacherProposal;
 
 describe('TeacherRequestService', () => {
   let service: TeacherRequestService;
@@ -43,23 +97,46 @@ describe('TeacherRequestService', () => {
   let proposalRepo: ReturnType<typeof makeRepo>;
   let assignmentRepo: ReturnType<typeof makeRepo>;
   let terminationRepo: ReturnType<typeof makeRepo>;
-  let dataSource: ReturnType<typeof makeDataSource>;
-  let eventsService: { emit: jest.Mock };
-  let profileServiceClient: { resolveDisplayName: jest.Mock };
+  let events: { record: jest.Mock; requestPublication: jest.Mock };
+  let profileServiceClient: {
+    resolveDisplayName: jest.Mock;
+    getRelations: jest.Mock;
+    createTeacherStudentRelation: jest.Mock;
+  };
+
+  const linkedParentRelations = {
+    viewerId: 'parent-1',
+    targetId: 'student-1',
+    isSelf: false,
+    isAdministrator: false,
+    relations: [{ kind: 'finance_owner_of_student' }],
+  };
+  const unlinkedRelations = {
+    viewerId: 'parent-1',
+    targetId: 'student-9',
+    isSelf: false,
+    isAdministrator: false,
+    relations: [],
+  };
+  const administratorRelations = {
+    viewerId: 'rp-1',
+    targetId: 'student-1',
+    isSelf: false,
+    isAdministrator: true,
+    relations: [],
+  };
 
   beforeEach(async () => {
     requestRepo = makeRepo();
     proposalRepo = makeRepo();
     assignmentRepo = makeRepo();
     terminationRepo = makeRepo();
-    dataSource = makeDataSource({
-      TeacherRequest: requestRepo,
-      TeacherProposal: proposalRepo,
-      Assignment: assignmentRepo,
-      TerminationRequest: terminationRepo,
-    });
-    eventsService = { emit: jest.fn() };
-    profileServiceClient = { resolveDisplayName: jest.fn().mockResolvedValue(null) };
+    events = { record: jest.fn().mockResolvedValue(undefined), requestPublication: jest.fn() };
+    profileServiceClient = {
+      resolveDisplayName: jest.fn().mockResolvedValue('Alice Dupont'),
+      getRelations: jest.fn().mockResolvedValue(linkedParentRelations),
+      createTeacherStudentRelation: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -68,8 +145,16 @@ describe('TeacherRequestService', () => {
         { provide: getRepositoryToken(TeacherProposal), useValue: proposalRepo },
         { provide: getRepositoryToken(Assignment), useValue: assignmentRepo },
         { provide: getRepositoryToken(TerminationRequest), useValue: terminationRepo },
-        { provide: EventsService, useValue: eventsService },
-        { provide: DataSource, useValue: dataSource },
+        { provide: EventsService, useValue: events },
+        {
+          provide: DataSource,
+          useValue: makeDataSource({
+            TeacherRequest: requestRepo,
+            TeacherProposal: proposalRepo,
+            Assignment: assignmentRepo,
+            TerminationRequest: terminationRepo,
+          }),
+        },
         { provide: ProfileServiceClient, useValue: profileServiceClient },
       ],
     }).compile();
@@ -77,856 +162,672 @@ describe('TeacherRequestService', () => {
     service = module.get(TeacherRequestService);
   });
 
-  // ── createRequest ──────────────────────────────────────────────────────────
+  // ── Etape 1 : creation ─────────────────────────────────────────────────────
 
   describe('createRequest', () => {
-    it('eleve creates request — studentId defaults to their own id', async () => {
-      const dto = { subject: 'Algèbre', level: 'Terminale' };
-      const result = await service.createRequest(dto, studentUser);
-      expect(requestRepo.save).toHaveBeenCalled();
-      expect(result).toMatchObject({ studentId: 'student-1', requesterId: 'student-1', subject: 'Algèbre' });
+    it("l'eleve cree une demande pour lui-meme, sans fournir d'identifiant", async () => {
+      const created = await service.createRequest({ description: 'Besoin en geometrie' }, studentContext);
+
+      expect(created).toMatchObject({
+        studentId: 'student-1',
+        requesterId: 'student-1',
+        description: 'Besoin en geometrie',
+        status: RequestStatus.PENDING,
+      });
+      expect(profileServiceClient.getRelations).not.toHaveBeenCalled();
     });
 
-    it('parent_financeur creates request with explicit studentId', async () => {
-      const dto = { subject: 'Géométrie', studentId: 'student-2' };
-      const result = await service.createRequest(dto, parentUser);
-      expect(result).toMatchObject({ studentId: 'student-2', requesterId: 'parent-1' });
+    it('enregistre un evenement TeacherRequestCreated dans la transaction', async () => {
+      await service.createRequest({ description: 'Besoin en geometrie' }, studentContext);
+
+      expect(events.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventName: TeacherRequestEvent.REQUEST_CREATED,
+          correlationId: 'corr-test',
+        }),
+        expect.anything(),
+      );
+      expect(events.requestPublication).toHaveBeenCalled();
     });
 
-    it('parent_financeur without studentId throws BadRequestException', async () => {
-      await expect(service.createRequest({ subject: 'Calcul' }, parentUser))
-        .rejects.toThrow(BadRequestException);
+    it('le parent lie a l\'eleve peut creer la demande', async () => {
+      const created = await service.createRequest(
+        { description: 'Besoin en algebre', studentId: 'student-1' },
+        parentContext,
+      );
+
+      expect(created).toMatchObject({ studentId: 'student-1', requesterId: 'parent-1' });
+      expect(profileServiceClient.getRelations).toHaveBeenCalledWith(
+        'parent-1',
+        'student-1',
+        UserRole.PARENT_FINANCEUR,
+        expect.objectContaining({ correlationId: 'corr-test' }),
+      );
     });
 
-    it('responsable_pedagogique can create a teacher request on behalf of a student', async () => {
-      const dto = { subject: 'Algèbre', studentId: 'student-1' };
-      const result = await service.createRequest(dto, rpUser);
-      expect(requestRepo.save).toHaveBeenCalled();
-      expect(result).toMatchObject({ studentId: 'student-1', requesterId: 'rp-1' });
+    it("un parent sans lien recoit 404, jamais 403 : l'existence de l'eleve n'est pas revelee", async () => {
+      profileServiceClient.getRelations.mockResolvedValue(unlinkedRelations);
+
+      await expect(
+        service.createRequest({ description: 'Besoin', studentId: 'student-9' }, parentContext),
+      ).rejects.toThrow(NotFoundException);
+      expect(requestRepo.save).not.toHaveBeenCalled();
     });
 
-    it('responsable_pedagogique without studentId throws BadRequestException', async () => {
-      await expect(service.createRequest({ subject: 'Test' }, rpUser))
-        .rejects.toThrow(BadRequestException);
+    it("un eleve ne peut pas creer de demande pour un autre eleve", async () => {
+      await expect(
+        service.createRequest({ description: 'Besoin', studentId: 'student-2' }, studentContext),
+      ).resolves.toMatchObject({ studentId: 'student-1' });
     });
 
-    it('formateur cannot create a teacher request', async () => {
-      await expect(service.createRequest({ subject: 'Test' }, teacherUser))
-        .rejects.toThrow(ForbiddenException);
+    it('le RP, administrateur, cree une demande pour un eleve quelconque', async () => {
+      profileServiceClient.getRelations.mockResolvedValue(administratorRelations);
+
+      const created = await service.createRequest(
+        { description: 'Besoin', studentId: 'student-1' },
+        rpContext,
+      );
+
+      expect(created).toMatchObject({ requesterId: 'rp-1', studentId: 'student-1' });
     });
 
-    it('administrateur_financier cannot create a teacher request', async () => {
-      await expect(service.createRequest({ subject: 'Test' }, adminFinUser))
-        .rejects.toThrow(ForbiddenException);
+    it("un parent qui ne precise aucun eleve recoit une erreur explicite", async () => {
+      await expect(service.createRequest({ description: 'Besoin' }, parentContext)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('un formateur ne peut pas creer de demande', async () => {
+      await expect(
+        service.createRequest({ description: 'Besoin', studentId: 'student-1' }, teacherContext),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it("l'administrateur financier ne peut pas creer de demande", async () => {
+      await expect(
+        service.createRequest({ description: 'Besoin', studentId: 'student-1' }, financeAdminContext),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 
-  // ── listRequests ───────────────────────────────────────────────────────────
+  describe('createPpChangeRequest', () => {
+    it('verifie le lien parent↔eleve avant de creer la demande', async () => {
+      const created = await service.createPpChangeRequest(
+        { studentId: 'student-1', description: 'Le courant ne passe pas' },
+        parentContext,
+      );
+
+      expect(profileServiceClient.getRelations).toHaveBeenCalled();
+      expect(created).toMatchObject({ type: RequestType.PP_CHANGE, studentId: 'student-1' });
+    });
+
+    it('refuse un parent delie sans reveler l\'eleve', async () => {
+      profileServiceClient.getRelations.mockResolvedValue(unlinkedRelations);
+
+      await expect(
+        service.createPpChangeRequest({ studentId: 'student-9', description: 'Motif' }, parentContext),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('refuse un eleve', async () => {
+      await expect(
+        service.createPpChangeRequest({ studentId: 'student-1', description: 'Motif' }, studentContext),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ── Etape 2 : lecture ──────────────────────────────────────────────────────
 
   describe('listRequests', () => {
-    it('eleve queries by studentId', async () => {
-      await service.listRequests(studentUser);
+    it('par defaut, les demandes traitees ne sont pas renvoyees', async () => {
+      await service.listRequests(studentContext);
+
+      expect(requestRepo.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ studentId: 'student-1', status: expect.anything() }),
+        }),
+      );
+    });
+
+    it('scope=all ne filtre aucun statut', async () => {
+      await service.listRequests(studentContext, RequestScope.ALL);
+
       expect(requestRepo.find).toHaveBeenCalledWith(
         expect.objectContaining({ where: { studentId: 'student-1' } }),
       );
     });
 
-    it('parent_financeur queries by requesterId', async () => {
-      await service.listRequests(parentUser);
-      expect(requestRepo.find).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { requesterId: 'parent-1' } }),
+    it('le parent ne voit plus les demandes des eleves dont il a ete delie', async () => {
+      requestRepo.find.mockResolvedValue([
+        openRequest({ id: 'request-1', studentId: 'student-1', requesterId: 'parent-1' }),
+        openRequest({ id: 'request-2', studentId: 'student-9', requesterId: 'parent-1' }),
+      ]);
+      profileServiceClient.getRelations.mockImplementation(async (_viewerId, targetId: string) =>
+        targetId === 'student-1' ? linkedParentRelations : unlinkedRelations,
       );
+
+      const visibleRequests = await service.listRequests(parentContext);
+
+      expect(visibleRequests.map((request) => request.id)).toEqual(['request-1']);
     });
 
-    it('responsable_pedagogique sees all requests', async () => {
-      await service.listRequests(rpUser);
-      expect(requestRepo.find).toHaveBeenCalledWith(expect.objectContaining({ order: { createdAt: 'DESC' } }));
+    it('le RP recoit des noms et des compteurs de candidatures, pas des UUID nus', async () => {
+      requestRepo.find.mockResolvedValue([openRequest()]);
+      proposalRepo.find.mockResolvedValue([
+        proposal({ id: 'proposal-1', status: ProposalStatus.ACCEPTED }),
+        proposal({ id: 'proposal-2', status: ProposalStatus.PENDING }),
+      ]);
+
+      const [firstRequest] = await service.listRequests(rpContext);
+
+      expect(firstRequest.studentName).toBe('Alice Dupont');
+      expect(firstRequest.acceptedProposalCount).toBe(1);
+      expect(firstRequest.pendingProposalCount).toBe(1);
     });
 
-    it('formateur sees only their own proposals (TRQ-FB-001)', async () => {
-      await service.listRequests(teacherUser);
-      expect(proposalRepo.find).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { teacherId: 'teacher-1' } }),
-      );
+    it('un role sans droit de lecture est refuse', async () => {
+      await expect(service.listRequests(financeAdminContext)).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('listProposalsForTeacher', () => {
+    it('le formateur voit la description et le nom de l\'eleve', async () => {
+      proposalRepo.find.mockResolvedValue([proposal()]);
+      requestRepo.find.mockResolvedValue([openRequest({ status: RequestStatus.REDIRECTED })]);
+
+      const [inboxItem] = await service.listProposalsForTeacher(teacherContext);
+
+      expect(inboxItem).toMatchObject({
+        requestDescription: 'Je voudrais un professeur de maths',
+        studentName: 'Alice Dupont',
+        requestStatus: RequestStatus.REDIRECTED,
+      });
+    });
+
+    it('les propositions des demandes cloturees sortent de la boite de reception', async () => {
+      proposalRepo.find.mockResolvedValue([proposal({ status: ProposalStatus.NOT_SELECTED })]);
+      requestRepo.find.mockResolvedValue([openRequest({ status: RequestStatus.CLOSED })]);
+
+      await expect(service.listProposalsForTeacher(teacherContext)).resolves.toEqual([]);
+      await expect(service.listProposalsForTeacher(teacherContext, RequestScope.CLOSED)).resolves.toHaveLength(1);
+    });
+
+    it('une boite vide ne declenche aucune lecture de demandes', async () => {
+      proposalRepo.find.mockResolvedValue([]);
+
+      await expect(service.listProposalsForTeacher(teacherContext)).resolves.toEqual([]);
       expect(requestRepo.find).not.toHaveBeenCalled();
     });
-
-    it('administrateur_financier throws ForbiddenException', async () => {
-      await expect(service.listRequests(adminFinUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('enriches results via ProfileServiceClient (typed interservice adapter)', async () => {
-      requestRepo.find.mockResolvedValueOnce([
-        { id: 'req-1', studentId: 'student-1', chosenTeacherId: 'teacher-1' },
-      ]);
-      profileServiceClient.resolveDisplayName
-        .mockResolvedValueOnce('Alice Dupont')
-        .mockResolvedValueOnce('Bob Martin');
-
-      const [enriched] = (await service.listRequests(rpUser)) as any[];
-
-      expect(profileServiceClient.resolveDisplayName).toHaveBeenCalledWith('student-1');
-      expect(profileServiceClient.resolveDisplayName).toHaveBeenCalledWith('teacher-1');
-      expect(enriched.studentName).toBe('Alice Dupont');
-      expect(enriched.teacherName).toBe('Bob Martin');
-    });
-
-    it('resolves names to null when ProfileServiceClient cannot resolve them (best-effort)', async () => {
-      requestRepo.find.mockResolvedValueOnce([{ id: 'req-1', studentId: 'student-1', chosenTeacherId: null }]);
-      profileServiceClient.resolveDisplayName.mockResolvedValueOnce(null);
-
-      const [enriched] = (await service.listRequests(rpUser)) as any[];
-
-      expect(enriched.studentName).toBeNull();
-      expect(enriched.teacherName).toBeNull();
-    });
   });
-
-  // ── getRequest ─────────────────────────────────────────────────────────────
 
   describe('getRequest', () => {
-    it('responsable_pedagogique can access any request', async () => {
-      requestRepo.findOne.mockResolvedValue({ id: 'req-1', studentId: 'student-99', requesterId: 'other-user' });
-      const result = await service.getRequest('req-1', rpUser);
-      expect(result).toMatchObject({ id: 'req-1' });
-    });
+    it("le formateur destinataire d'une proposition lit la demande", async () => {
+      requestRepo.findOne.mockResolvedValue(openRequest({ status: RequestStatus.REDIRECTED }));
+      proposalRepo.findOne.mockResolvedValue(proposal());
 
-    it('eleve can access their own request', async () => {
-      requestRepo.findOne.mockResolvedValue({ id: 'req-1', studentId: 'student-1', requesterId: 'student-1' });
-      const result = await service.getRequest('req-1', studentUser);
-      expect(result).toMatchObject({ id: 'req-1' });
-    });
-
-    it("eleve cannot access another student's request", async () => {
-      requestRepo.findOne.mockResolvedValue({ id: 'req-1', studentId: 'student-99', requesterId: 'other-user' });
-      await expect(service.getRequest('req-1', studentUser)).rejects.toThrow(ForbiddenException);
-    });
-
-    it('unknown requestId throws NotFoundException', async () => {
-      requestRepo.findOne.mockResolvedValue(null);
-      await expect(service.getRequest('bad-id', rpUser)).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  // ── updateRequestStatus ────────────────────────────────────────────────────
-
-  describe('updateRequestStatus', () => {
-    beforeEach(() => {
-      requestRepo.findOne.mockResolvedValue({ id: 'req-1', status: RequestStatus.PENDING });
-    });
-
-    it('responsable_pedagogique can transition pending → accepted', async () => {
-      const result = await service.updateRequestStatus('req-1', RequestStatus.ACCEPTED, rpUser);
-      expect(result).toMatchObject({ status: RequestStatus.ACCEPTED });
-    });
-
-    it('responsable_pedagogique can transition pending → declined', async () => {
-      const result = await service.updateRequestStatus('req-1', RequestStatus.DECLINED, rpUser);
-      expect(result).toMatchObject({ status: RequestStatus.DECLINED });
-    });
-
-    it('responsable_pedagogique can transition pending → cancelled', async () => {
-      const result = await service.updateRequestStatus('req-1', RequestStatus.CANCELLED, rpUser);
-      expect(result).toMatchObject({ status: RequestStatus.CANCELLED });
-    });
-
-    it('formateur cannot update request status', async () => {
-      await expect(service.updateRequestStatus('req-1', RequestStatus.ACCEPTED, teacherUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('parent cannot update request status', async () => {
-      await expect(service.updateRequestStatus('req-1', RequestStatus.ACCEPTED, parentUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('already-accepted request cannot be re-accepted (invalid transition)', async () => {
-      requestRepo.findOne.mockResolvedValue({ id: 'req-1', status: RequestStatus.ACCEPTED });
-      await expect(service.updateRequestStatus('req-1', RequestStatus.ACCEPTED, rpUser))
-        .rejects.toThrow(BadRequestException);
-    });
-
-    it('unknown requestId throws NotFoundException', async () => {
-      requestRepo.findOne.mockResolvedValue(null);
-      await expect(service.updateRequestStatus('bad-id', RequestStatus.ACCEPTED, rpUser))
-        .rejects.toThrow(NotFoundException);
-    });
-  });
-
-  // ── deleteRequest ──────────────────────────────────────────────────────────
-
-  describe('deleteRequest', () => {
-    beforeEach(() => {
-      requestRepo.findOne.mockResolvedValue({ id: 'req-1', status: RequestStatus.PENDING });
-    });
-
-    it('responsable_pedagogique can delete any request', async () => {
-      await service.deleteRequest('req-1', rpUser);
-      expect(requestRepo.remove).toHaveBeenCalled();
-    });
-
-    it('formateur cannot delete a request', async () => {
-      await expect(service.deleteRequest('req-1', teacherUser)).rejects.toThrow(ForbiddenException);
-    });
-
-    it('parent cannot delete a request', async () => {
-      await expect(service.deleteRequest('req-1', parentUser)).rejects.toThrow(ForbiddenException);
-    });
-
-    it('unknown requestId throws NotFoundException', async () => {
-      requestRepo.findOne.mockResolvedValue(null);
-      await expect(service.deleteRequest('bad-id', rpUser)).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  // ── createProposal ─────────────────────────────────────────────────────────
-
-  describe('createProposal', () => {
-    beforeEach(() => {
-      requestRepo.findOne.mockResolvedValue({ id: 'req-1', status: RequestStatus.PENDING });
-    });
-
-    it('responsable_pedagogique redirects a pending request to a teacher', async () => {
-      const result = await service.createProposal('req-1', { teacherId: 'teacher-1' }, rpUser);
-      expect(result).toMatchObject({ requestId: 'req-1', teacherId: 'teacher-1' });
-      expect(requestRepo.save).toHaveBeenCalledWith(expect.objectContaining({ status: RequestStatus.REDIRECTED }));
-    });
-
-    it('formateur cannot create proposals', async () => {
-      await expect(service.createProposal('req-1', { teacherId: 'teacher-1' }, teacherUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('unknown requestId throws NotFoundException', async () => {
-      requestRepo.findOne.mockResolvedValue(null);
-      await expect(service.createProposal('bad-id', { teacherId: 'teacher-1' }, rpUser))
-        .rejects.toThrow(NotFoundException);
-    });
-
-    it('already-assigned request cannot be redirected', async () => {
-      requestRepo.findOne.mockResolvedValue({ id: 'req-1', status: RequestStatus.ASSIGNED });
-      await expect(service.createProposal('req-1', { teacherId: 'teacher-1' }, rpUser))
-        .rejects.toThrow(BadRequestException);
-    });
-  });
-
-  // ── acceptProposal ─────────────────────────────────────────────────────────
-
-  describe('acceptProposal', () => {
-    beforeEach(() => {
-      proposalRepo.findOne.mockResolvedValue({
-        id: 'prop-1',
-        teacherId: 'teacher-1',
-        requestId: 'req-1',
-        status: ProposalStatus.PENDING,
-      });
-      requestRepo.findOne.mockResolvedValue({ id: 'req-1', studentId: 'student-1', status: RequestStatus.REDIRECTED });
-    });
-
-    it('formateur accepts their own proposal — creates assignment', async () => {
-      const result = await service.acceptProposal('prop-1', teacherUser);
-      expect(result).toMatchObject({ studentId: 'student-1', teacherId: 'teacher-1' });
-      expect(assignmentRepo.save).toHaveBeenCalled();
-    });
-
-    it("formateur cannot accept another teacher's proposal (TRQ-FB-001)", async () => {
-      const otherTeacher = { id: 'teacher-2', role: UserRole.FORMATEUR, loginIdentifier: 'teacher.two' };
-      await expect(service.acceptProposal('prop-1', otherTeacher))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('eleve cannot accept a proposal', async () => {
-      await expect(service.acceptProposal('prop-1', studentUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('already-accepted proposal throws BadRequestException', async () => {
-      proposalRepo.findOne.mockResolvedValue({
-        id: 'prop-1', teacherId: 'teacher-1', requestId: 'req-1', status: ProposalStatus.ACCEPTED,
-      });
-      await expect(service.acceptProposal('prop-1', teacherUser))
-        .rejects.toThrow(BadRequestException);
-    });
-  });
-
-  // ── setMainTeacher ─────────────────────────────────────────────────────────
-
-  describe('setMainTeacher', () => {
-    beforeEach(() => {
-      assignmentRepo.findOne.mockResolvedValue({
-        id: 'asgn-1',
-        studentId: 'student-1',
-        teacherId: 'teacher-1',
-        status: AssignmentStatus.ACTIVE,
-        isMainTeacher: false,
+      await expect(service.getRequest('request-1', teacherContext)).resolves.toMatchObject({
+        id: 'request-1',
       });
     });
 
-    it('responsable_pedagogique can set main teacher on any active assignment', async () => {
-      const result = await service.setMainTeacher('asgn-1', rpUser);
-      expect(result).toMatchObject({ isMainTeacher: true });
-    });
-
-    it('eleve can set main teacher for their own assignment', async () => {
-      const result = await service.setMainTeacher('asgn-1', studentUser);
-      expect(result).toMatchObject({ isMainTeacher: true });
-    });
-
-    it("eleve cannot set main teacher on another student's assignment (TRQ-FB-003)", async () => {
-      assignmentRepo.findOne.mockResolvedValue({
-        id: 'asgn-1', studentId: 'student-99', teacherId: 'teacher-1', status: AssignmentStatus.ACTIVE,
-      });
-      await expect(service.setMainTeacher('asgn-1', studentUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('formateur cannot set main teacher', async () => {
-      await expect(service.setMainTeacher('asgn-1', teacherUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('inactive assignment throws BadRequestException (TRQ-FB-003)', async () => {
-      assignmentRepo.findOne.mockResolvedValue({
-        id: 'asgn-1', studentId: 'student-1', teacherId: 'teacher-1', status: AssignmentStatus.TERMINATED,
-      });
-      await expect(service.setMainTeacher('asgn-1', rpUser))
-        .rejects.toThrow(BadRequestException);
-    });
-  });
-
-  // ── createTermination ──────────────────────────────────────────────────────
-
-  describe('createTermination', () => {
-    beforeEach(() => {
-      assignmentRepo.findOne.mockResolvedValue({
-        id: 'asgn-1',
-        studentId: 'student-1',
-        teacherId: 'teacher-1',
-        status: AssignmentStatus.ACTIVE,
-      });
-    });
-
-    it('formateur requests termination with notice date', async () => {
-      const dto = { noticeDate: '2026-09-01', reason: 'Personal reasons' };
-      await service.createTermination('asgn-1', dto, teacherUser);
-      expect(terminationRepo.save).toHaveBeenCalled();
-      expect(assignmentRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ status: AssignmentStatus.TERMINATION_REQUESTED }),
-      );
-    });
-
-    it("formateur cannot terminate another teacher's assignment", async () => {
-      assignmentRepo.findOne.mockResolvedValue({
-        id: 'asgn-1', studentId: 'student-1', teacherId: 'teacher-99', status: AssignmentStatus.ACTIVE,
-      });
-      await expect(service.createTermination('asgn-1', { noticeDate: '2026-09-01' }, teacherUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('responsable_pedagogique cannot request termination', async () => {
-      await expect(service.createTermination('asgn-1', { noticeDate: '2026-09-01' }, rpUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('already-terminated assignment throws BadRequestException (TRQ-FB-002)', async () => {
-      assignmentRepo.findOne.mockResolvedValue({
-        id: 'asgn-1', studentId: 'student-1', teacherId: 'teacher-1', status: AssignmentStatus.TERMINATED,
-      });
-      await expect(service.createTermination('asgn-1', { noticeDate: '2026-09-01' }, teacherUser))
-        .rejects.toThrow(BadRequestException);
-    });
-  });
-
-  // ── createPpChangeRequest ──────────────────────────────────────────────────
-
-  describe('createPpChangeRequest', () => {
-    const ppChangeDto = {
-      studentId: 'student-1',
-      currentPpTeacherId: 'teacher-old',
-      subject: 'Mathématiques avancées',
-      message: 'Le professeur actuel ne convient plus',
-    };
-
-    it('parent_financeur can request a PP change', async () => {
-      const result = await service.createPpChangeRequest(ppChangeDto, parentUser);
-      expect(requestRepo.save).toHaveBeenCalled();
-      expect(result).toMatchObject({
-        studentId: 'student-1',
-        requesterId: 'parent-1',
-        type: RequestType.PP_CHANGE,
-        currentPpTeacherId: 'teacher-old',
-      });
-    });
-
-    it('eleve cannot request a PP change (functionality 002)', async () => {
-      await expect(service.createPpChangeRequest(ppChangeDto, studentUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('responsable_pedagogique cannot request a PP change', async () => {
-      await expect(service.createPpChangeRequest(ppChangeDto, rpUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('formateur cannot request a PP change', async () => {
-      await expect(service.createPpChangeRequest(ppChangeDto, teacherUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('emits TeacherRequestCreated event with PP_CHANGE type', async () => {
-      const eventsEmit = jest.spyOn(
-        (service as any).events,
-        'emit',
-      );
-      await service.createPpChangeRequest(ppChangeDto, parentUser);
-      expect(eventsEmit).toHaveBeenCalledWith(
-        'TeacherRequestCreated',
-        expect.objectContaining({ type: RequestType.PP_CHANGE }),
-      );
-    });
-  });
-
-  // ── declineProposal ────────────────────────────────────────────────────────
-
-  describe('declineProposal', () => {
-    beforeEach(() => {
-      proposalRepo.findOne.mockResolvedValue({
-        id: 'prop-1',
-        teacherId: 'teacher-1',
-        requestId: 'req-1',
-        status: ProposalStatus.PENDING,
-      });
-    });
-
-    it('formateur declines their own proposal', async () => {
-      const result = await service.declineProposal('prop-1', teacherUser);
-      expect(result).toMatchObject({ status: ProposalStatus.DECLINED });
-    });
-
-    it("formateur cannot decline another teacher's proposal", async () => {
-      const otherTeacher = { id: 'teacher-2', role: UserRole.FORMATEUR, loginIdentifier: 'teacher.two' };
-      await expect(service.declineProposal('prop-1', otherTeacher))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('eleve cannot decline a proposal', async () => {
-      await expect(service.declineProposal('prop-1', studentUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('responsable_pedagogique cannot decline a proposal', async () => {
-      await expect(service.declineProposal('prop-1', rpUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('already-declined proposal throws BadRequestException', async () => {
-      proposalRepo.findOne.mockResolvedValue({
-        id: 'prop-1', teacherId: 'teacher-1', requestId: 'req-1', status: ProposalStatus.DECLINED,
-      });
-      await expect(service.declineProposal('prop-1', teacherUser))
-        .rejects.toThrow(BadRequestException);
-    });
-
-    it('unknown proposalId throws NotFoundException', async () => {
+    it('un formateur non sollicite ne sait pas que la demande existe', async () => {
+      requestRepo.findOne.mockResolvedValue(openRequest());
       proposalRepo.findOne.mockResolvedValue(null);
-      await expect(service.declineProposal('bad-id', teacherUser))
-        .rejects.toThrow(NotFoundException);
-    });
-  });
 
-  // ── publishSelectedCandidates ──────────────────────────────────────────────
-
-  describe('publishSelectedCandidates', () => {
-    const publishDto = { teacherIds: ['teacher-1', 'teacher-2'] };
-
-    beforeEach(() => {
-      requestRepo.findOne.mockResolvedValue({
-        id: 'req-1',
-        studentId: 'student-1',
-        requesterId: 'parent-1',
-        status: RequestStatus.REDIRECTED,
-      });
-      proposalRepo.find.mockResolvedValue([
-        { id: 'prop-1', requestId: 'req-1', teacherId: 'teacher-1', status: ProposalStatus.ACCEPTED },
-        { id: 'prop-2', requestId: 'req-1', teacherId: 'teacher-2', status: ProposalStatus.ACCEPTED },
-        { id: 'prop-3', requestId: 'req-1', teacherId: 'teacher-3', status: ProposalStatus.ACCEPTED },
-      ]);
+      await expect(service.getRequest('request-1', teacherContext)).rejects.toThrow(NotFoundException);
     });
 
-    it('RP publie 2 formateurs sur 3 ayant accepté → statut CANDIDATES_PUBLISHED, événement émis', async () => {
-      const eventsEmit = jest.spyOn((service as any).events, 'emit');
-      const result = await service.publishSelectedCandidates('req-1', publishDto, rpUser);
+    it('un parent delie perd l\'acces a la demande qu\'il avait creee', async () => {
+      requestRepo.findOne.mockResolvedValue(openRequest({ requesterId: 'parent-1' }));
+      profileServiceClient.getRelations.mockResolvedValue(unlinkedRelations);
 
-      expect(requestRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          status: RequestStatus.CANDIDATES_PUBLISHED,
-          selectedTeacherIds: ['teacher-1', 'teacher-2'],
-        }),
-      );
-      expect(eventsEmit).toHaveBeenCalledWith(
-        'TeacherCandidatesSelected',
-        expect.objectContaining({
-          requestId: 'req-1',
-          selectedTeacherIds: ['teacher-1', 'teacher-2'],
-        }),
-      );
-      expect(result).toMatchObject({ status: RequestStatus.CANDIDATES_PUBLISHED });
+      await expect(service.getRequest('request-1', parentContext)).rejects.toThrow(NotFoundException);
     });
 
-    it('teacherId sans proposition acceptée → BadRequestException (400)', async () => {
-      // teacher-99 n'a pas de proposition acceptée
-      const invalidDto = { teacherIds: ['teacher-1', 'teacher-99'] };
-      await expect(service.publishSelectedCandidates('req-1', invalidDto, rpUser))
-        .rejects.toThrow(BadRequestException);
-    });
-
-    it('non-RP ne peut pas publier les candidats → ForbiddenException (403)', async () => {
-      await expect(service.publishSelectedCandidates('req-1', publishDto, studentUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('non-RP formateur → ForbiddenException (403)', async () => {
-      await expect(service.publishSelectedCandidates('req-1', publishDto, teacherUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('non-RP parent_financeur → ForbiddenException (403)', async () => {
-      await expect(service.publishSelectedCandidates('req-1', publishDto, parentUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('request introuvable → NotFoundException', async () => {
+    it('une demande inexistante renvoie 404', async () => {
       requestRepo.findOne.mockResolvedValue(null);
-      await expect(service.publishSelectedCandidates('bad-id', publishDto, rpUser))
-        .rejects.toThrow(NotFoundException);
-    });
 
-    it('request au statut PENDING → BadRequestException (mauvais statut)', async () => {
-      requestRepo.findOne.mockResolvedValue({
-        id: 'req-1',
-        studentId: 'student-1',
-        status: RequestStatus.PENDING,
-      });
-      await expect(service.publishSelectedCandidates('req-1', publishDto, rpUser))
-        .rejects.toThrow(BadRequestException);
-    });
-
-    it('request au statut CANDIDATES_SELECTED → accepté (déjà dans la phase de sélection)', async () => {
-      requestRepo.findOne.mockResolvedValue({
-        id: 'req-1',
-        studentId: 'student-1',
-        status: RequestStatus.CANDIDATES_SELECTED,
-      });
-      const result = await service.publishSelectedCandidates('req-1', publishDto, rpUser);
-      expect(result).toMatchObject({ status: RequestStatus.CANDIDATES_PUBLISHED });
-    });
-
-    it('emits TeacherCandidatesSelected with correct payload', async () => {
-      const eventsEmit = jest.spyOn((service as any).events, 'emit');
-      await service.publishSelectedCandidates('req-1', publishDto, rpUser);
-      expect(eventsEmit).toHaveBeenCalledWith(
-        'TeacherCandidatesSelected',
-        expect.objectContaining({
-          requestId: 'req-1',
-          selectedTeacherIds: ['teacher-1', 'teacher-2'],
-          publishedBy: 'rp-1',
-        }),
-      );
+      await expect(service.getRequest('request-1', rpContext)).rejects.toThrow(NotFoundException);
     });
   });
 
-  // ── selectCandidate ────────────────────────────────────────────────────────
+  // ── Etape 3 : propositions ─────────────────────────────────────────────────
 
-  describe('selectCandidate', () => {
-    const selectDto = { proposalId: 'prop-1' };
-
+  describe('createProposals', () => {
     beforeEach(() => {
-      requestRepo.findOne.mockResolvedValue({
-        id: 'req-1',
-        studentId: 'student-1',
-        requesterId: 'parent-1',
-        status: RequestStatus.REDIRECTED,
-      });
-      proposalRepo.findOne.mockResolvedValue({
-        id: 'prop-1',
-        requestId: 'req-1',
-        teacherId: 'teacher-1',
-        status: ProposalStatus.ACCEPTED,
-      });
+      requestRepo.findOne.mockResolvedValue(openRequest());
+      proposalRepo.find.mockResolvedValue([]);
     });
 
-    it('eleve can select a candidate for their own request', async () => {
-      const result = await service.selectCandidate('req-1', selectDto, studentUser);
-      expect(result).toMatchObject({
-        status: RequestStatus.CANDIDATE_CHOSEN,
-        chosenTeacherId: 'teacher-1',
-      });
-    });
-
-    it('parent_financeur can select a candidate for a request they created', async () => {
-      const result = await service.selectCandidate('req-1', selectDto, parentUser);
-      expect(result).toMatchObject({
-        status: RequestStatus.CANDIDATE_CHOSEN,
-        chosenTeacherId: 'teacher-1',
-      });
-    });
-
-    it('responsable_pedagogique cannot select a candidate', async () => {
-      await expect(service.selectCandidate('req-1', selectDto, rpUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('formateur cannot select a candidate', async () => {
-      await expect(service.selectCandidate('req-1', selectDto, teacherUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it("eleve cannot select on another student's request", async () => {
-      requestRepo.findOne.mockResolvedValue({
-        id: 'req-1',
-        studentId: 'student-99',
-        requesterId: 'parent-1',
-        status: RequestStatus.REDIRECTED,
-      });
-      await expect(service.selectCandidate('req-1', selectDto, studentUser))
-        .rejects.toThrow(ForbiddenException);
-    });
-
-    it('request not in REDIRECTED/CANDIDATES_SELECTED/CANDIDATES_PUBLISHED state throws BadRequestException', async () => {
-      requestRepo.findOne.mockResolvedValue({
-        id: 'req-1',
-        studentId: 'student-1',
-        requesterId: 'parent-1',
-        status: RequestStatus.PENDING,
-      });
-      await expect(service.selectCandidate('req-1', selectDto, studentUser))
-        .rejects.toThrow(BadRequestException);
-    });
-
-    it('eleve can select from CANDIDATES_PUBLISHED state', async () => {
-      requestRepo.findOne.mockResolvedValue({
-        id: 'req-1',
-        studentId: 'student-1',
-        requesterId: 'parent-1',
-        status: RequestStatus.CANDIDATES_PUBLISHED,
-      });
-      const result = await service.selectCandidate('req-1', selectDto, studentUser);
-      expect(result).toMatchObject({
-        status: RequestStatus.CANDIDATE_CHOSEN,
-        chosenTeacherId: 'teacher-1',
-      });
-    });
-
-    it('proposal not accepted by teacher throws BadRequestException', async () => {
-      proposalRepo.findOne.mockResolvedValue({
-        id: 'prop-1',
-        requestId: 'req-1',
-        teacherId: 'teacher-1',
-        status: ProposalStatus.PENDING,
-      });
-      await expect(service.selectCandidate('req-1', selectDto, studentUser))
-        .rejects.toThrow(BadRequestException);
-    });
-
-    it('proposal belonging to another request throws BadRequestException', async () => {
-      proposalRepo.findOne.mockResolvedValue({
-        id: 'prop-1',
-        requestId: 'req-OTHER',
-        teacherId: 'teacher-1',
-        status: ProposalStatus.ACCEPTED,
-      });
-      await expect(service.selectCandidate('req-1', selectDto, studentUser))
-        .rejects.toThrow(BadRequestException);
-    });
-
-    it('unknown requestId throws NotFoundException', async () => {
-      requestRepo.findOne.mockResolvedValue(null);
-      await expect(service.selectCandidate('bad-id', selectDto, studentUser))
-        .rejects.toThrow(NotFoundException);
-    });
-
-    it('emits TeacherCandidateChosen event', async () => {
-      const eventsEmit = jest.spyOn((service as any).events, 'emit');
-      await service.selectCandidate('req-1', selectDto, studentUser);
-      expect(eventsEmit).toHaveBeenCalledWith(
-        'TeacherCandidateChosen',
-        expect.objectContaining({ chosenTeacherId: 'teacher-1', requestId: 'req-1' }),
+    it('envoie la proposition a plusieurs formateurs en une seule fois', async () => {
+      const createdProposals = await service.createProposals(
+        'request-1',
+        { teacherIds: ['teacher-1', 'teacher-2'], message: 'Voici le besoin' },
+        rpContext,
       );
-    });
-  });
 
-  // ── createCollaborationStopRequest ─────────────────────────────────────────
-
-  describe('createCollaborationStopRequest', () => {
-    beforeEach(() => {
-      assignmentRepo.findOne.mockResolvedValue({
-        id: 'asgn-1',
-        studentId: 'student-1',
-        teacherId: 'teacher-1',
-        status: AssignmentStatus.ACTIVE,
-      });
-    });
-
-    it('delegates to createTermination — emits TeacherStopRequested event', async () => {
-      await service.createCollaborationStopRequest('asgn-1', { noticeDate: '2026-09-01' }, teacherUser);
-      expect(eventsService.emit).toHaveBeenCalledWith(
-        'TeacherStopRequested',
-        expect.objectContaining({ assignmentId: 'asgn-1', teacherId: 'teacher-1' }),
+      expect(createdProposals).toHaveLength(2);
+      expect(events.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventName: TeacherRequestEvent.PROPOSAL_SENT }),
+        expect.anything(),
       );
     });
 
-    it('formateur can stop a collaboration they own', async () => {
-      await service.createCollaborationStopRequest('asgn-1', { noticeDate: '2026-09-01' }, teacherUser);
-      expect(terminationRepo.save).toHaveBeenCalled();
-      expect(assignmentRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ status: AssignmentStatus.TERMINATION_REQUESTED }),
-      );
-    });
+    it('bascule la demande en « transmise »', async () => {
+      await service.createProposals('request-1', { teacherIds: ['teacher-1'], message: 'Voici' }, rpContext);
 
-    it('eleve cannot stop a collaboration', async () => {
-      await expect(
-        service.createCollaborationStopRequest('asgn-1', { noticeDate: '2026-09-01' }, studentUser),
-      ).rejects.toThrow(ForbiddenException);
-    });
-  });
-
-  // ── Transaction integrity tests ────────────────────────────────────────────
-
-  describe('acceptProposal — transaction integrity', () => {
-    beforeEach(() => {
-      proposalRepo.findOne.mockResolvedValue({
-        id: 'prop-1',
-        teacherId: 'teacher-1',
-        requestId: 'req-1',
-        status: ProposalStatus.PENDING,
-      });
-      requestRepo.findOne.mockResolvedValue({
-        id: 'req-1',
-        studentId: 'student-1',
-        status: RequestStatus.REDIRECTED,
-      });
-    });
-
-    it('nominal: all three saves are called inside the transaction and event is emitted', async () => {
-      const result = await service.acceptProposal('prop-1', teacherUser);
-
-      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
-      expect(assignmentRepo.save).toHaveBeenCalledTimes(1);
-      expect(proposalRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ status: ProposalStatus.ACCEPTED }),
-      );
-      expect(requestRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ status: RequestStatus.ASSIGNED }),
-      );
-      expect(result).toMatchObject({ studentId: 'student-1', teacherId: 'teacher-1' });
-      expect(eventsService.emit).toHaveBeenCalledWith('TeacherAssigned', expect.any(Object));
-    });
-
-    it('rollback: error on proposalRepo.save rolls back — no event is emitted', async () => {
-      dataSource.transaction = jest.fn(async (callback: (manager: unknown) => Promise<unknown>) => {
-        const faultyProposalRepo = {
-          ...makeRepo(),
-          save: jest.fn().mockRejectedValue(new Error('DB failure on proposal save')),
-        };
-        const manager = {
-          getRepository: jest.fn((entity: { name: string }) => {
-            if (entity.name === 'TeacherProposal') return faultyProposalRepo;
-            if (entity.name === 'Assignment') return assignmentRepo;
-            if (entity.name === 'TeacherRequest') return requestRepo;
-            return makeRepo();
-          }),
-        };
-        return callback(manager);
-      });
-
-      await expect(service.acceptProposal('prop-1', teacherUser)).rejects.toThrow('DB failure on proposal save');
-      // requestRepo.save is inside the transaction callback — it was not reached before the throw
-      expect(requestRepo.save).not.toHaveBeenCalled();
-      expect(eventsService.emit).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('createTermination — transaction integrity', () => {
-    beforeEach(() => {
-      assignmentRepo.findOne.mockResolvedValue({
-        id: 'asgn-1',
-        studentId: 'student-1',
-        teacherId: 'teacher-1',
-        status: AssignmentStatus.ACTIVE,
-      });
-    });
-
-    it('nominal: both saves are called inside the transaction and event is emitted', async () => {
-      const dto = { noticeDate: '2026-09-01', reason: 'Departure' };
-      const result = await service.createTermination('asgn-1', dto, teacherUser);
-
-      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
-      expect(terminationRepo.save).toHaveBeenCalledTimes(1);
-      expect(assignmentRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ status: AssignmentStatus.TERMINATION_REQUESTED }),
-      );
-      expect(result).toMatchObject({ assignmentId: 'asgn-1', teacherId: 'teacher-1' });
-      expect(eventsService.emit).toHaveBeenCalledWith('TeacherRelationTerminationRequested', expect.any(Object));
-    });
-
-    it('rollback: error on assignmentRepo.save rolls back — no event is emitted', async () => {
-      dataSource.transaction = jest.fn(async (callback: (manager: unknown) => Promise<unknown>) => {
-        const faultyAssignmentRepo = {
-          ...makeRepo(),
-          save: jest.fn().mockRejectedValue(new Error('DB failure on assignment save')),
-        };
-        const manager = {
-          getRepository: jest.fn((entity: { name: string }) => {
-            if (entity.name === 'Assignment') return faultyAssignmentRepo;
-            if (entity.name === 'TerminationRequest') return terminationRepo;
-            return makeRepo();
-          }),
-        };
-        return callback(manager);
-      });
-
-      const dto = { noticeDate: '2026-09-01', reason: 'Departure' };
-      await expect(service.createTermination('asgn-1', dto, teacherUser)).rejects.toThrow('DB failure on assignment save');
-      expect(eventsService.emit).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('createProposal — transaction integrity', () => {
-    beforeEach(() => {
-      requestRepo.findOne.mockResolvedValue({ id: 'req-1', status: RequestStatus.PENDING });
-    });
-
-    it('nominal: both saves are called inside the transaction and event is emitted', async () => {
-      const result = await service.createProposal('req-1', { teacherId: 'teacher-1' }, rpUser);
-
-      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
-      expect(proposalRepo.save).toHaveBeenCalledTimes(1);
       expect(requestRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({ status: RequestStatus.REDIRECTED }),
       );
-      expect(result).toMatchObject({ requestId: 'req-1', teacherId: 'teacher-1' });
-      expect(eventsService.emit).toHaveBeenCalledWith('TeacherProposalSent', expect.any(Object));
     });
 
-    it('rollback: error on requestRepo.save rolls back — no event is emitted', async () => {
-      dataSource.transaction = jest.fn(async (callback: (manager: unknown) => Promise<unknown>) => {
-        const faultyRequestRepo = {
-          ...makeRepo(),
-          save: jest.fn().mockRejectedValue(new Error('DB failure on request save')),
-        };
-        const manager = {
-          getRepository: jest.fn((entity: { name: string }) => {
-            if (entity.name === 'TeacherRequest') return faultyRequestRepo;
-            if (entity.name === 'TeacherProposal') return proposalRepo;
-            return makeRepo();
-          }),
-        };
-        return callback(manager);
+    it('refuse de solliciter deux fois le meme formateur sur une demande', async () => {
+      proposalRepo.find.mockResolvedValue([proposal({ status: ProposalStatus.PENDING })]);
+
+      await expect(
+        service.createProposals('request-1', { teacherIds: ['teacher-1'], message: 'Voici' }, rpContext),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('un formateur ecarte precedemment peut etre resollicite', async () => {
+      proposalRepo.find.mockResolvedValue([proposal({ status: ProposalStatus.DECLINED })]);
+
+      await expect(
+        service.createProposals('request-1', { teacherIds: ['teacher-1'], message: 'Voici' }, rpContext),
+      ).resolves.toHaveLength(1);
+    });
+
+    it('refuse de transmettre une demande cloturee', async () => {
+      requestRepo.findOne.mockResolvedValue(openRequest({ status: RequestStatus.CLOSED }));
+
+      await expect(
+        service.createProposals('request-1', { teacherIds: ['teacher-1'], message: 'Voici' }, rpContext),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('refuse un role autre que RP', async () => {
+      await expect(
+        service.createProposals('request-1', { teacherIds: ['teacher-1'], message: 'Voici' }, teacherContext),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('refuse une demande inexistante', async () => {
+      requestRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.createProposals('request-1', { teacherIds: ['teacher-1'], message: 'Voici' }, rpContext),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('listProposalsOfRequest', () => {
+    it('le RP lit les reponses des formateurs, avec leurs noms', async () => {
+      requestRepo.findOne.mockResolvedValue(openRequest());
+      proposalRepo.find.mockResolvedValue([proposal({ status: ProposalStatus.ACCEPTED })]);
+
+      const [firstProposal] = await service.listProposalsOfRequest('request-1', rpContext);
+
+      expect(firstProposal).toMatchObject({ status: ProposalStatus.ACCEPTED, teacherName: 'Alice Dupont' });
+    });
+
+    it("l'eleve ne lit pas les candidatures : la decision appartient au RP", async () => {
+      await expect(service.listProposalsOfRequest('request-1', studentContext)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('refuse une demande inexistante', async () => {
+      requestRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.listProposalsOfRequest('request-1', rpContext)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ── Etape 4 : reponse du formateur ─────────────────────────────────────────
+
+  describe('acceptProposal', () => {
+    beforeEach(() => {
+      proposalRepo.findOne.mockResolvedValue(proposal());
+      requestRepo.findOne.mockResolvedValue(openRequest({ status: RequestStatus.REDIRECTED }));
+    });
+
+    it("l'acceptation enregistre une candidature et AUCUNE affectation", async () => {
+      const accepted = await service.acceptProposal('proposal-1', teacherContext);
+
+      expect(accepted.status).toBe(ProposalStatus.ACCEPTED);
+      expect(accepted.respondedAt).toBeInstanceOf(Date);
+      expect(assignmentRepo.save).not.toHaveBeenCalled();
+      expect(requestRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('emet TeacherProposalAccepted', async () => {
+      await service.acceptProposal('proposal-1', teacherContext);
+
+      expect(events.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventName: TeacherRequestEvent.PROPOSAL_ACCEPTED }),
+        expect.anything(),
+      );
+    });
+
+    it('une proposition adressee a un autre formateur reste invisible (404)', async () => {
+      proposalRepo.findOne.mockResolvedValue(proposal({ teacherId: 'teacher-9' }));
+
+      await expect(service.acceptProposal('proposal-1', teacherContext)).rejects.toThrow(NotFoundException);
+    });
+
+    it('on ne repond pas deux fois a la meme proposition', async () => {
+      proposalRepo.findOne.mockResolvedValue(proposal({ status: ProposalStatus.ACCEPTED }));
+
+      await expect(service.acceptProposal('proposal-1', teacherContext)).rejects.toThrow(BadRequestException);
+    });
+
+    it('on ne repond plus a une demande cloturee', async () => {
+      requestRepo.findOne.mockResolvedValue(openRequest({ status: RequestStatus.CLOSED }));
+
+      await expect(service.acceptProposal('proposal-1', teacherContext)).rejects.toThrow(BadRequestException);
+    });
+
+    it('seul un formateur repond a une proposition', async () => {
+      await expect(service.acceptProposal('proposal-1', rpContext)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('une proposition inexistante renvoie 404', async () => {
+      proposalRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.acceptProposal('proposal-1', teacherContext)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('declineProposal', () => {
+    it('« refusee » signifie que le formateur a refuse', async () => {
+      proposalRepo.findOne.mockResolvedValue(proposal());
+      requestRepo.findOne.mockResolvedValue(openRequest({ status: RequestStatus.REDIRECTED }));
+
+      const declined = await service.declineProposal('proposal-1', teacherContext);
+
+      expect(declined.status).toBe(ProposalStatus.DECLINED);
+      expect(events.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventName: TeacherRequestEvent.PROPOSAL_DECLINED }),
+        expect.anything(),
+      );
+    });
+  });
+
+  // ── Etapes 5 et 6 : validation du RP ───────────────────────────────────────
+
+  describe('validateCandidate', () => {
+    beforeEach(() => {
+      requestRepo.findOne.mockResolvedValue(openRequest({ status: RequestStatus.REDIRECTED }));
+      proposalRepo.findOne.mockResolvedValue(proposal({ status: ProposalStatus.ACCEPTED }));
+      proposalRepo.find.mockResolvedValue([
+        proposal({ id: 'proposal-1', status: ProposalStatus.ACCEPTED, teacherId: 'teacher-1' }),
+        proposal({ id: 'proposal-2', status: ProposalStatus.ACCEPTED, teacherId: 'teacher-2' }),
+        proposal({ id: 'proposal-3', status: ProposalStatus.PENDING, teacherId: 'teacher-3' }),
+      ]);
+    });
+
+    it('cree le lien eleve↔formateur dans profile-service', async () => {
+      await service.validateCandidate('request-1', { proposalId: 'proposal-1' }, rpContext);
+
+      expect(profileServiceClient.createTeacherStudentRelation).toHaveBeenCalledWith(
+        { teacherId: 'teacher-1', studentId: 'student-1', isPrincipalTeacher: false },
+        expect.objectContaining({ correlationId: 'corr-test' }),
+      );
+    });
+
+    it('transmet la designation de professeur principal', async () => {
+      await service.validateCandidate(
+        'request-1',
+        { proposalId: 'proposal-1', isPrincipalTeacher: true },
+        rpContext,
+      );
+
+      expect(profileServiceClient.createTeacherStudentRelation).toHaveBeenCalledWith(
+        expect.objectContaining({ isPrincipalTeacher: true }),
+        expect.anything(),
+      );
+    });
+
+    it('cloture la demande et retient le formateur', async () => {
+      const closed = await service.validateCandidate('request-1', { proposalId: 'proposal-1' }, rpContext);
+
+      expect(closed).toMatchObject({ status: RequestStatus.CLOSED, chosenTeacherId: 'teacher-1' });
+      expect(closed.closedAt).toBeInstanceOf(Date);
+    });
+
+    it('les autres candidats deviennent « non retenus », les silencieux « caduques »', async () => {
+      await service.validateCandidate('request-1', { proposalId: 'proposal-1' }, rpContext);
+
+      expect(proposalRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'proposal-2', status: ProposalStatus.NOT_SELECTED }),
+      );
+      expect(proposalRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'proposal-3', status: ProposalStatus.EXPIRED }),
+      );
+      expect(proposalRepo.save).not.toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'proposal-1', status: ProposalStatus.NOT_SELECTED }),
+      );
+    });
+
+    it('emet TeacherAssigned et TeacherRequestClosed', async () => {
+      await service.validateCandidate('request-1', { proposalId: 'proposal-1' }, rpContext);
+
+      const emittedEventNames = events.record.mock.calls.map(([input]) => input.eventName);
+      expect(emittedEventNames).toContain(TeacherRequestEvent.TEACHER_ASSIGNED);
+      expect(emittedEventNames).toContain(TeacherRequestEvent.REQUEST_CLOSED);
+    });
+
+    it('ne cloture rien si profile-service refuse de creer le lien', async () => {
+      profileServiceClient.createTeacherStudentRelation.mockRejectedValue(new Error('injoignable'));
+
+      await expect(
+        service.validateCandidate('request-1', { proposalId: 'proposal-1' }, rpContext),
+      ).rejects.toThrow();
+      expect(requestRepo.save).not.toHaveBeenCalled();
+    });
+
+    it("refuse un formateur qui n'a pas accepte", async () => {
+      proposalRepo.findOne.mockResolvedValue(proposal({ status: ProposalStatus.PENDING }));
+
+      await expect(
+        service.validateCandidate('request-1', { proposalId: 'proposal-1' }, rpContext),
+      ).rejects.toThrow(BadRequestException);
+      expect(profileServiceClient.createTeacherStudentRelation).not.toHaveBeenCalled();
+    });
+
+    it("refuse une proposition qui ne concerne pas cette demande", async () => {
+      proposalRepo.findOne.mockResolvedValue(
+        proposal({ requestId: 'request-9', status: ProposalStatus.ACCEPTED }),
+      );
+
+      await expect(
+        service.validateCandidate('request-1', { proposalId: 'proposal-1' }, rpContext),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('refuse une demande deja cloturee', async () => {
+      requestRepo.findOne.mockResolvedValue(openRequest({ status: RequestStatus.CLOSED }));
+
+      await expect(
+        service.validateCandidate('request-1', { proposalId: 'proposal-1' }, rpContext),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("l'eleve ne valide pas : la decision appartient au RP", async () => {
+      await expect(
+        service.validateCandidate('request-1', { proposalId: 'proposal-1' }, studentContext),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('refuse une proposition inexistante', async () => {
+      proposalRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.validateCandidate('request-1', { proposalId: 'proposal-1' }, rpContext),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ── Cloture manuelle ───────────────────────────────────────────────────────
+
+  describe('updateRequestStatus', () => {
+    it('le RP renonce a une demande en cours', async () => {
+      requestRepo.findOne.mockResolvedValue(openRequest());
+      proposalRepo.find.mockResolvedValue([]);
+
+      const updated = await service.updateRequestStatus('request-1', ManualRequestStatus.CANCELLED, rpContext);
+
+      expect(updated.status).toBe(RequestStatus.CANCELLED);
+    });
+
+    it('les propositions en attente deviennent caduques quand la demande se referme', async () => {
+      requestRepo.findOne.mockResolvedValue(openRequest({ status: RequestStatus.REDIRECTED }));
+      proposalRepo.find.mockResolvedValue([
+        proposal({ id: 'proposal-1', status: ProposalStatus.PENDING }),
+        proposal({ id: 'proposal-2', status: ProposalStatus.ACCEPTED }),
+      ]);
+
+      await service.updateRequestStatus('request-1', ManualRequestStatus.DECLINED, rpContext);
+
+      expect(proposalRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'proposal-1', status: ProposalStatus.EXPIRED }),
+      );
+      expect(proposalRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'proposal-2', status: ProposalStatus.NOT_SELECTED }),
+      );
+    });
+
+    it('« closed » a la main est refuse sur une demande en cours', async () => {
+      requestRepo.findOne.mockResolvedValue(openRequest({ status: RequestStatus.REDIRECTED }));
+
+      await expect(
+        service.updateRequestStatus('request-1', ManualRequestStatus.CLOSED, rpContext),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('« closed » debloque une demande heritee restee en « assigned »', async () => {
+      requestRepo.findOne.mockResolvedValue(openRequest({ status: RequestStatus.ASSIGNED }));
+      proposalRepo.find.mockResolvedValue([]);
+
+      const updated = await service.updateRequestStatus('request-1', ManualRequestStatus.CLOSED, rpContext);
+
+      expect(updated.status).toBe(RequestStatus.CLOSED);
+    });
+
+    it('une demande deja cloturee ne bouge plus', async () => {
+      requestRepo.findOne.mockResolvedValue(openRequest({ status: RequestStatus.CANCELLED }));
+
+      await expect(
+        service.updateRequestStatus('request-1', ManualRequestStatus.DECLINED, rpContext),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('reserve au RP', async () => {
+      await expect(
+        service.updateRequestStatus('request-1', ManualRequestStatus.CANCELLED, studentContext),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('demande inexistante', async () => {
+      requestRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.updateRequestStatus('request-1', ManualRequestStatus.CANCELLED, rpContext),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('deleteRequest', () => {
+    it('le RP supprime une demande et l\'evenement est trace', async () => {
+      requestRepo.findOne.mockResolvedValue(openRequest());
+
+      await service.deleteRequest('request-1', rpContext);
+
+      expect(requestRepo.remove).toHaveBeenCalled();
+      expect(events.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventName: TeacherRequestEvent.REQUEST_DELETED }),
+      );
+    });
+
+    it('reserve au RP', async () => {
+      await expect(service.deleteRequest('request-1', studentContext)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('demande inexistante', async () => {
+      requestRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.deleteRequest('request-1', rpContext)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ── Heritage ───────────────────────────────────────────────────────────────
+
+  describe('affectations heritees', () => {
+    const activeAssignment = {
+      id: 'assignment-1',
+      studentId: 'student-1',
+      teacherId: 'teacher-1',
+      proposalId: 'proposal-1',
+      requestId: 'request-1',
+      isMainTeacher: false,
+      status: AssignmentStatus.ACTIVE,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as Assignment;
+
+    it('le RP designe le professeur principal', async () => {
+      assignmentRepo.findOne.mockResolvedValue(activeAssignment);
+
+      const updated = await service.setMainTeacher('assignment-1', rpContext);
+
+      expect(updated.isMainTeacher).toBe(true);
+    });
+
+    it('une affectation inactive refuse la designation', async () => {
+      assignmentRepo.findOne.mockResolvedValue({
+        ...activeAssignment,
+        status: AssignmentStatus.TERMINATED,
       });
 
-      await expect(service.createProposal('req-1', { teacherId: 'teacher-1' }, rpUser)).rejects.toThrow('DB failure on request save');
-      expect(eventsService.emit).not.toHaveBeenCalled();
+      await expect(service.setMainTeacher('assignment-1', rpContext)).rejects.toThrow(BadRequestException);
+    });
+
+    it("un eleve ne designe pas le professeur principal d'un autre", async () => {
+      assignmentRepo.findOne.mockResolvedValue({ ...activeAssignment, studentId: 'student-9' });
+
+      await expect(service.setMainTeacher('assignment-1', studentContext)).rejects.toThrow(NotFoundException);
+    });
+
+    it("le formateur demande l'arret avec preavis", async () => {
+      assignmentRepo.findOne.mockResolvedValue(activeAssignment);
+
+      const termination = await service.createTermination(
+        'assignment-1',
+        { noticeDate: '2026-09-01' },
+        teacherContext,
+      );
+
+      expect(termination).toMatchObject({ assignmentId: 'assignment-1', teacherId: 'teacher-1' });
+      expect(events.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventName: TeacherRequestEvent.STOP_REQUESTED }),
+        expect.anything(),
+      );
+    });
+
+    it("un formateur etranger a l'affectation ne sait pas qu'elle existe", async () => {
+      assignmentRepo.findOne.mockResolvedValue({ ...activeAssignment, teacherId: 'teacher-9' });
+
+      await expect(
+        service.createTermination('assignment-1', { noticeDate: '2026-09-01' }, teacherContext),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it("l'alias /collaborations applique exactement les memes regles", async () => {
+      assignmentRepo.findOne.mockResolvedValue(activeAssignment);
+
+      await expect(
+        service.createCollaborationStopRequest('assignment-1', { noticeDate: '2026-09-01' }, teacherContext),
+      ).resolves.toMatchObject({ assignmentId: 'assignment-1' });
     });
   });
 });

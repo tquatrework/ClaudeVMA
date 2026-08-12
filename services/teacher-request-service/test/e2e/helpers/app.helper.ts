@@ -1,96 +1,132 @@
 /**
- * Helper to bootstrap the NestJS application for e2e tests.
+ * Amorcage de l'application NestJS pour les tests e2e.
  *
- * Uses the local PostgreSQL instance (visiomath credentials) with a dedicated
- * test database so that tests run against a production-equivalent database engine
- * without requiring Docker / testcontainers.
+ * S'appuie sur l'instance PostgreSQL locale (identifiants visiomath) et une base
+ * dediee, pour tourner contre le meme moteur qu'en production sans exiger
+ * Docker ni testcontainers.
  *
- * TypeORM synchronize=true (enabled for NODE_ENV !== 'production') ensures
- * the schema is up-to-date before each suite. Each suite should clean up
- * its own data or rely on the isolated database name.
+ * `synchronize` est actif pour NODE_ENV=test : le schema est aligne sur les
+ * entites avant chaque suite.
  *
- * JWT tokens are signed with the same JWT_SECRET defined below
- * so that JwtAuthGuard accepts them during tests.
+ * profile-service est SIMULE. C'est une dependance externe : la tester ici
+ * reviendrait a tester le reseau. Le double permet en revanche de decrire
+ * precisement l'etat des relations, y compris un lien rompu.
  */
 
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { AppModule } from '../../../src/app.module';
 import * as jwt from 'jsonwebtoken';
+
+import { AppModule } from '../../../src/app.module';
+import { createValidationPipe } from '../../../src/common/validation.pipe';
+import {
+  ProfileServiceClient,
+  RelationLookup,
+} from '../../../src/teacher-request/clients/profile-service.client';
 
 export const TEST_JWT_SECRET = 'test_jwt_secret_for_e2e';
 
 /**
- * Local PostgreSQL connection details.
- * The teacher_request_test database must exist before running the tests.
- * Create it once with:
+ * Connexion PostgreSQL locale. La base teacher_request_test doit exister :
  *   PGPASSWORD=visiomath_secret psql -h localhost -U visiomath \
  *     -c "CREATE DATABASE teacher_request_test OWNER visiomath;"
  */
-const PG_TEST_URL =
-  'postgresql://visiomath:visiomath_secret@localhost:5432/teacher_request_test';
+const PG_TEST_URL = 'postgresql://visiomath:visiomath_secret@localhost:5432/teacher_request_test';
 
-/**
- * Set all environment variables required by the service before the NestJS
- * module is compiled — ConfigModule reads them synchronously at startup.
- */
 function setTestEnv(): void {
   process.env.NODE_ENV = 'test';
   process.env.JWT_SECRET = TEST_JWT_SECRET;
   process.env.DATABASE_URL = PG_TEST_URL;
+  process.env.PROFILE_SERVICE_URL = 'http://profile-service.test:3002';
+  process.env.INTERNAL_SECRET = 'test_internal_secret_for_e2e';
+  delete process.env.REDIS_URL;
 }
 
-/**
- * Build and start a test application instance backed by a local PostgreSQL
- * database. TypeORM synchronize is enabled for NODE_ENV=test so the schema
- * is always up-to-date.
- */
-export async function createTestApp(): Promise<INestApplication> {
+/** Double de profile-service, pilotable depuis les tests. */
+export class ProfileServiceStub {
+  /** Paires (viewerId → studentId) considerees comme liees. */
+  readonly financeOwnerLinks = new Set<string>();
+  readonly administrators = new Set<string>();
+  readonly createdTeacherStudentLinks: {
+    teacherId: string;
+    studentId: string;
+    isPrincipalTeacher: boolean;
+  }[] = [];
+  shouldFailLinkCreation = false;
+
+  linkFinanceOwner(financeOwnerId: string, studentId: string): void {
+    this.financeOwnerLinks.add(`${financeOwnerId}:${studentId}`);
+  }
+
+  unlinkFinanceOwner(financeOwnerId: string, studentId: string): void {
+    this.financeOwnerLinks.delete(`${financeOwnerId}:${studentId}`);
+  }
+
+  async resolveDisplayName(userId: string): Promise<string | null> {
+    return `Nom ${userId.slice(-4)}`;
+  }
+
+  async getRelations(viewerId: string, targetId: string): Promise<RelationLookup> {
+    return {
+      viewerId,
+      targetId,
+      isSelf: viewerId === targetId,
+      isAdministrator: this.administrators.has(viewerId),
+      relations: this.financeOwnerLinks.has(`${viewerId}:${targetId}`)
+        ? [{ kind: 'finance_owner_of_student' }]
+        : [],
+    };
+  }
+
+  async createTeacherStudentRelation(link: {
+    teacherId: string;
+    studentId: string;
+    isPrincipalTeacher: boolean;
+  }): Promise<void> {
+    if (this.shouldFailLinkCreation) throw new Error('profile-service injoignable');
+    this.createdTeacherStudentLinks.push(link);
+  }
+}
+
+export interface TestApp {
+  app: INestApplication;
+  profileService: ProfileServiceStub;
+}
+
+export async function createTestApp(): Promise<TestApp> {
   setTestEnv();
+  const profileService = new ProfileServiceStub();
 
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [AppModule],
-  }).compile();
+  })
+    .overrideProvider(ProfileServiceClient)
+    .useValue(profileService)
+    .compile();
 
   const app = moduleFixture.createNestApplication();
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
+  app.useGlobalPipes(createValidationPipe());
   await app.init();
 
-  return app;
+  return { app, profileService };
 }
 
-/**
- * Generate a signed JWT access token for the given role and userId.
- * Mirrors the token shape expected by JwtAuthGuard in the service.
- */
-export function makeJwt(
-  userId: string,
-  role: string,
-  secret: string = TEST_JWT_SECRET,
-): string {
-  return jwt.sign(
-    {
-      sub: userId,
-      role,
-      type: 'access',
-    },
-    secret,
-    { expiresIn: '1h' },
-  );
+/** Jeton d'acces signe comme ceux d'identity-access-service. */
+export function makeJwt(userId: string, role: string, secret: string = TEST_JWT_SECRET): string {
+  return jwt.sign({ sub: userId, role, type: 'access' }, secret, { expiresIn: '1h' });
 }
 
-/**
- * UUID helpers for readable test data.
- */
+/** Identifiants lisibles, en UUID de version 4 (exiges par ParseUUIDPipe). */
 export const IDS = {
-  student1: '00000000-0000-0000-0000-000000000001',
-  student2: '00000000-0000-0000-0000-000000000002',
-  parent1: '00000000-0000-0000-0000-000000000010',
-  teacher1: '00000000-0000-0000-0000-000000000020',
-  teacher2: '00000000-0000-0000-0000-000000000021',
-  rp1: '00000000-0000-0000-0000-000000000030',
-  ap1: '00000000-0000-0000-0000-000000000031',
-  adminFin: '00000000-0000-0000-0000-000000000040',
-  ti: '00000000-0000-0000-0000-000000000050',
-  unknown: '00000000-0000-0000-0000-999999999999',
+  student1: '00000000-0000-4000-8000-000000000001',
+  student2: '00000000-0000-4000-8000-000000000002',
+  parent1: '00000000-0000-4000-8000-000000000010',
+  teacher1: '00000000-0000-4000-8000-000000000020',
+  teacher2: '00000000-0000-4000-8000-000000000021',
+  teacher3: '00000000-0000-4000-8000-000000000022',
+  rp1: '00000000-0000-4000-8000-000000000030',
+  ap1: '00000000-0000-4000-8000-000000000031',
+  adminFin: '00000000-0000-4000-8000-000000000040',
+  ti: '00000000-0000-4000-8000-000000000050',
+  unknown: '00000000-0000-4000-8000-000000009999',
 };

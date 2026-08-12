@@ -30,6 +30,6 @@ export class CreateRequestDto {
       "Identifiant de l'eleve concerne. Obligatoire quand la demande n'est pas creee par l'eleve lui-meme.",
   })
   @IsOptional()
-  @IsUUID('4', { message: "L'identifiant de l'eleve est invalide." })
+  @IsUUID(undefined, { message: "L'identifiant de l'eleve est invalide." })
   studentId?: string;
 }

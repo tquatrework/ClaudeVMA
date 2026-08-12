@@ -1,498 +1,367 @@
 /**
- * E2E — Teacher Requests CRUD & business rules
+ * E2E — le flow de la demande de professeur, de bout en bout, contre une vraie
+ * base PostgreSQL.
  *
- * Critères couverts (source : docs/routes.md — teacher-request-service
- * + docs/microservices.md — workflows et règles métier) :
+ * Le point central : DEUX formateurs acceptent, et il ne se cree AUCUNE
+ * affectation tant que le RP n'a pas tranche. C'est exactement ce que la pile
+ * reelle ne faisait pas le 2026-08-11 — deux acceptations produisaient deux
+ * affectations actives sur le meme eleve.
  *
- *   TR-AUTH-001  Toutes les routes requièrent un JWT valide
- *   TR-BR-001    Un parent ou un élève peut créer une demande → 201
- *   TR-BR-002    Un RP peut créer une demande → 201
- *   TR-BR-003    Une demande créée a le statut initial "pending"
- *   TR-BR-004    Un RP peut lister toutes les demandes → 200
- *   TR-BR-005    Un élève/parent ne voit que ses propres demandes → liste filtrée
- *   TR-BR-006    GET /requests/:id → 200 avec détail complet
- *   TR-BR-007    GET /requests/:id → 404 pour un id inexistant
- *   TR-BR-008    Un RP peut faire passer le statut pending → accepted
- *   TR-BR-009    Un RP peut faire passer le statut pending → declined
- *   TR-BR-010    Un RP peut faire passer le statut pending → cancelled
- *   TR-BR-011    Seul un RP peut passer une demande en cancelled ; parent/élève → 403
- *   TR-BR-012    Une demande accepted ne peut plus être acceptée (transition invalide → 4xx)
- *   TR-BR-013    Un formateur ne peut pas changer le statut d'une demande → 403
- *   TR-BR-014    DELETE /requests/:id → 200/204 (RP ou demandeur)
- *   TR-BR-015    DELETE /requests/:id d'une id inexistante → 404
- *   TR-BR-016    POST /requests — body invalide (champs manquants) → 400
- *
- * Routes testées :
- *   POST   /requests
- *   GET    /requests
- *   GET    /requests/:id
- *   PATCH  /requests/:id/status
- *   DELETE /requests/:id
- *
- * Auth : JWT Bearer (type: "access") via JwtAuthGuard
- * Statuts : pending → accepted / declined / cancelled
+ * Etapes couvertes (enonce du 2026-08-12) :
+ *   1. l'eleve (ou son parent lie) cree une demande, un seul champ : description
+ *   2. le RP dispose de la liste des demandes en cours
+ *   3. le RP envoie une proposition aux formateurs de son choix
+ *   4. les formateurs acceptent, refusent, ou ne repondent pas
+ *   5. le RP lit les reponses et choisit
+ *   6. le lien eleve↔formateur est cree dans profile-service
+ *   8. la demande traitee disparait de la liste
  */
-
 import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
-import { createTestApp, makeJwt, IDS } from './helpers/app.helper';
+import { DataSource } from 'typeorm';
 
-describe('[E2E] Teacher Requests', () => {
+import { createTestApp, makeJwt, IDS, ProfileServiceStub } from './helpers/app.helper';
+
+describe('[E2E] Flow de la demande de professeur', () => {
   let app: INestApplication;
+  let profileService: ProfileServiceStub;
+  let dataSource: DataSource;
 
-  let studentToken: string;
-  let parentToken: string;
-  let teacher1Token: string;
-  let rpToken: string;
-  let apToken: string;
-  let tiToken: string;
+  const studentToken = makeJwt(IDS.student1, 'eleve');
+  const parentToken = makeJwt(IDS.parent1, 'parent_financeur');
+  const rpToken = makeJwt(IDS.rp1, 'responsable_pedagogique');
+  const teacher1Token = makeJwt(IDS.teacher1, 'formateur');
+  const teacher2Token = makeJwt(IDS.teacher2, 'formateur');
+  const teacher3Token = makeJwt(IDS.teacher3, 'formateur');
 
   beforeAll(async () => {
-    app = await createTestApp();
-
-    studentToken  = makeJwt(IDS.student1,  'eleve');
-    parentToken   = makeJwt(IDS.parent1,   'parent_financeur');
-    teacher1Token = makeJwt(IDS.teacher1,  'formateur');
-    rpToken       = makeJwt(IDS.rp1,       'responsable_pedagogique');
-    apToken       = makeJwt(IDS.ap1,       'animateur_pedagogique');
-    tiToken       = makeJwt(IDS.ti,        'technicien_informatique');
+    const testApp = await createTestApp();
+    app = testApp.app;
+    profileService = testApp.profileService;
+    dataSource = app.get(DataSource);
   });
 
   afterAll(async () => {
     await app.close();
   });
 
-  // ──────────────────────────────────────────────────────────────
-  // Helper
-  // ──────────────────────────────────────────────────────────────
+  beforeEach(async () => {
+    await dataSource.query('TRUNCATE teacher_proposals, teacher_requests, domain_events, idempotency_records');
+    profileService.financeOwnerLinks.clear();
+    profileService.administrators.clear();
+    profileService.createdTeacherStudentLinks.length = 0;
+    profileService.shouldFailLinkCreation = false;
+    profileService.administrators.add(IDS.rp1);
+  });
 
-  /** Créer une demande valide avec le token fourni, retourner la réponse. */
-  async function createRequest(
-    token: string,
-    overrides: Record<string, unknown> = {},
-  ) {
-    return request(app.getHttpServer())
+  const createRequestAsStudent = async (description = 'Je voudrais un professeur de maths') => {
+    const response = await request(app.getHttpServer())
       .post('/requests')
-      .set('Authorization', `Bearer ${token}`)
-      .send({
-        studentId: IDS.student1,
-        subject: 'Mathematiques',
-        level: '3eme',
-        message: 'Besoin d\'aide en algebre',
-        ...overrides,
-      });
-  }
+      .set('Authorization', `Bearer ${studentToken}`)
+      .send({ description });
+    expect(response.status).toBe(201);
+    return response.body;
+  };
 
-  // ──────────────────────────────────────────────────────────────
-  // TR-AUTH-001 — Garde d'authentification
-  // ──────────────────────────────────────────────────────────────
+  const sendProposals = async (requestId: string, teacherIds: string[]) => {
+    const response = await request(app.getHttpServer())
+      .post(`/requests/${requestId}/proposals`)
+      .set('Authorization', `Bearer ${rpToken}`)
+      .send({ teacherIds, message: 'Un eleve cherche un professeur', availabilityNote: 'Mercredi soir' });
+    expect(response.status).toBe(201);
+    return response.body as { id: string; teacherId: string }[];
+  };
 
-  describe('[TR-AUTH-001] Auth guard', () => {
-    it('POST /requests — 401 sans token', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/requests')
-        .send({ studentId: IDS.student1, subject: 'Maths', level: '3eme' });
-      expect(res.status).toBe(401);
+  // ── Etape 1 ────────────────────────────────────────────────────────────────
+
+  it("l'eleve cree une demande avec le seul champ description", async () => {
+    const created = await createRequestAsStudent();
+
+    expect(created).toMatchObject({
+      studentId: IDS.student1,
+      requesterId: IDS.student1,
+      description: 'Je voudrais un professeur de maths',
+      status: 'pending',
     });
-
-    it('GET /requests — 401 sans token', async () => {
-      const res = await request(app.getHttpServer()).get('/requests');
-      expect(res.status).toBe(401);
-    });
-
-    it('GET /requests/:id — 401 avec token malformé', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`/requests/${IDS.unknown}`)
-        .set('Authorization', 'Bearer not.a.real.token');
-      expect(res.status).toBe(401);
-    });
-
-    it('PATCH /requests/:id/status — 401 sans token', async () => {
-      const res = await request(app.getHttpServer())
-        .patch(`/requests/${IDS.unknown}/status`)
-        .send({ status: 'accepted' });
-      expect(res.status).toBe(401);
-    });
-
-    it('DELETE /requests/:id — 401 sans token', async () => {
-      const res = await request(app.getHttpServer())
-        .delete(`/requests/${IDS.unknown}`);
-      expect(res.status).toBe(401);
-    });
+    expect(created).not.toHaveProperty('subject');
   });
 
-  // ──────────────────────────────────────────────────────────────
-  // TR-BR-001 / TR-BR-003 — Création d'une demande
-  // ──────────────────────────────────────────────────────────────
+  it('un champ inconnu est refuse explicitement, jamais absorbe', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/requests')
+      .set('Authorization', `Bearer ${studentToken}`)
+      .send({ description: 'Besoin', urgency: 'haute' });
 
-  describe('[TR-BR-001, TR-BR-003] POST /requests — création', () => {
-    it('[TR-BR-001] Un parent peut créer une demande professeur → 201', async () => {
-      const res = await createRequest(parentToken);
+    expect(response.status).toBe(400);
+    expect(response.body.message).toContain("Le champ « urgency » n'est pas attendu par cette route.");
+  });
 
-      expect(res.status).toBe(201);
-      expect(res.body).toHaveProperty('id');
-      // TR-BR-003 : statut initial = pending
-      expect(res.body).toHaveProperty('status', 'pending');
-    });
+  it('un parent lie peut creer la demande, un parent delie recoit 404', async () => {
+    profileService.linkFinanceOwner(IDS.parent1, IDS.student1);
+    const allowed = await request(app.getHttpServer())
+      .post('/requests')
+      .set('Authorization', `Bearer ${parentToken}`)
+      .send({ description: 'Besoin', studentId: IDS.student1 });
+    expect(allowed.status).toBe(201);
 
-    it('[TR-BR-001] Un élève peut créer une demande professeur → 201', async () => {
-      const res = await createRequest(studentToken);
+    profileService.unlinkFinanceOwner(IDS.parent1, IDS.student1);
+    const refused = await request(app.getHttpServer())
+      .post('/requests')
+      .set('Authorization', `Bearer ${parentToken}`)
+      .send({ description: 'Besoin', studentId: IDS.student1 });
+    expect(refused.status).toBe(404);
+  });
 
-      expect(res.status).toBe(201);
-      expect(res.body).toHaveProperty('id');
-      expect(res.body).toHaveProperty('status', 'pending');
-    });
-
-    it('[TR-BR-002] Un RP peut créer une demande professeur → 201', async () => {
-      const res = await createRequest(rpToken);
-
-      expect(res.status).toBe(201);
-      expect(res.body).toHaveProperty('id');
-      expect(res.body).toHaveProperty('status', 'pending');
-    });
-
-    it('[TR-BR-003] Le statut initial d\'une nouvelle demande est "pending"', async () => {
-      const res = await createRequest(parentToken);
-
-      expect(res.status).toBe(201);
-      expect(res.body.status).toBe('pending');
-    });
-
-    it('[TR-BR-016] Body invalide (champs manquants) → 400', async () => {
-      const res = await request(app.getHttpServer())
+  it("la meme cle d'idempotence ne cree pas deux demandes", async () => {
+    const send = () =>
+      request(app.getHttpServer())
         .post('/requests')
-        .set('Authorization', `Bearer ${parentToken}`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .set('Idempotency-Key', 'cle-unique')
+        .send({ description: 'Besoin' });
+
+    const first = await send();
+    const second = await send();
+
+    expect(first.status).toBe(201);
+    expect(second.body.id).toBe(first.body.id);
+    const [{ count }] = await dataSource.query('SELECT COUNT(*)::int AS count FROM teacher_requests');
+    expect(count).toBe(1);
+  });
+
+  // ── Etapes 2 a 6 : le flow complet ─────────────────────────────────────────
+
+  it('deux formateurs acceptent : aucune affectation avant la validation du RP', async () => {
+    const createdRequest = await createRequestAsStudent();
+    const proposals = await sendProposals(createdRequest.id, [IDS.teacher1, IDS.teacher2, IDS.teacher3]);
+    const proposalOfTeacher1 = proposals.find((proposal) => proposal.teacherId === IDS.teacher1)!;
+    const proposalOfTeacher2 = proposals.find((proposal) => proposal.teacherId === IDS.teacher2)!;
+
+    for (const [token, proposalId] of [
+      [teacher1Token, proposalOfTeacher1.id],
+      [teacher2Token, proposalOfTeacher2.id],
+    ] as const) {
+      const accepted = await request(app.getHttpServer())
+        .post(`/proposals/${proposalId}/accept`)
+        .set('Authorization', `Bearer ${token}`)
         .send({});
-      // Validation par class-validator — 400 attendu
-      expect(res.status).toBe(400);
-    });
+      expect(accepted.status).toBe(201);
+      expect(accepted.body.status).toBe('accepted');
+    }
+
+    // Aucune affectation cote profile-service, aucune cloture locale.
+    expect(profileService.createdTeacherStudentLinks).toHaveLength(0);
+    const detail = await request(app.getHttpServer())
+      .get(`/requests/${createdRequest.id}`)
+      .set('Authorization', `Bearer ${rpToken}`);
+    expect(detail.body.status).toBe('redirected');
+    expect(detail.body.acceptedProposalCount).toBe(2);
+    expect(detail.body.pendingProposalCount).toBe(1);
   });
 
-  // ──────────────────────────────────────────────────────────────
-  // TR-BR-004 / TR-BR-005 — Liste des demandes
-  // ──────────────────────────────────────────────────────────────
+  it('la validation du RP cree le lien, cloture la demande et solde les autres propositions', async () => {
+    const createdRequest = await createRequestAsStudent();
+    const proposals = await sendProposals(createdRequest.id, [IDS.teacher1, IDS.teacher2, IDS.teacher3]);
+    const proposalOfTeacher1 = proposals.find((proposal) => proposal.teacherId === IDS.teacher1)!;
+    const proposalOfTeacher2 = proposals.find((proposal) => proposal.teacherId === IDS.teacher2)!;
 
-  describe('[TR-BR-004, TR-BR-005] GET /requests — liste', () => {
-    beforeAll(async () => {
-      // Seed : au moins une demande créée par le parent et une par l'élève
-      await createRequest(parentToken);
-      await createRequest(studentToken);
-    });
+    await request(app.getHttpServer())
+      .post(`/proposals/${proposalOfTeacher1.id}/accept`)
+      .set('Authorization', `Bearer ${teacher1Token}`)
+      .send({});
+    await request(app.getHttpServer())
+      .post(`/proposals/${proposalOfTeacher2.id}/accept`)
+      .set('Authorization', `Bearer ${teacher2Token}`)
+      .send({});
 
-    it('[TR-BR-004] Un RP peut lister toutes les demandes → 200 avec tableau', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/requests')
-        .set('Authorization', `Bearer ${rpToken}`);
+    const validated = await request(app.getHttpServer())
+      .post(`/requests/${createdRequest.id}/validate`)
+      .set('Authorization', `Bearer ${rpToken}`)
+      .send({ proposalId: proposalOfTeacher1.id, isPrincipalTeacher: true });
 
-      expect(res.status).toBe(200);
-      expect(Array.isArray(res.body)).toBe(true);
-      expect(res.body.length).toBeGreaterThan(0);
-    });
+    expect(validated.status).toBe(201);
+    expect(validated.body).toMatchObject({ status: 'closed', chosenTeacherId: IDS.teacher1 });
+    expect(profileService.createdTeacherStudentLinks).toEqual([
+      { teacherId: IDS.teacher1, studentId: IDS.student1, isPrincipalTeacher: true },
+    ]);
 
-    it('[TR-BR-005] Un parent ne voit que ses propres demandes dans la liste', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/requests')
-        .set('Authorization', `Bearer ${parentToken}`);
-
-      expect(res.status).toBe(200);
-      expect(Array.isArray(res.body)).toBe(true);
-      // Chaque demande retournée doit appartenir au parent ou à son élève
-      if (res.body.length > 0) {
-        res.body.forEach((req: any) => {
-          // La demande doit avoir été créée par le parent (requesterId = parent1)
-          // ou concerner son étudiant — selon la politique d'accès implémentée.
-          // On vérifie au minimum que la réponse ne lève pas d'erreur.
-          expect(req).toHaveProperty('id');
-          expect(req).toHaveProperty('status');
-        });
-      }
-    });
-
-    it('[TR-BR-005] Un élève ne voit que ses propres demandes dans la liste', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/requests')
-        .set('Authorization', `Bearer ${studentToken}`);
-
-      expect(res.status).toBe(200);
-      expect(Array.isArray(res.body)).toBe(true);
-    });
+    const proposalStatuses = await dataSource.query(
+      'SELECT teacher_id, status FROM teacher_proposals WHERE request_id = $1 ORDER BY teacher_id',
+      [createdRequest.id],
+    );
+    expect(proposalStatuses).toEqual([
+      { teacher_id: IDS.teacher1, status: 'accepted' },
+      { teacher_id: IDS.teacher2, status: 'not_selected' },
+      { teacher_id: IDS.teacher3, status: 'expired' },
+    ]);
   });
 
-  // ──────────────────────────────────────────────────────────────
-  // TR-BR-006 / TR-BR-007 — Détail d'une demande
-  // ──────────────────────────────────────────────────────────────
+  it('la demande traitee disparait de la liste par defaut et reste lisible en scope=closed', async () => {
+    const createdRequest = await createRequestAsStudent();
+    const [proposal] = await sendProposals(createdRequest.id, [IDS.teacher1]);
+    await request(app.getHttpServer())
+      .post(`/proposals/${proposal.id}/accept`)
+      .set('Authorization', `Bearer ${teacher1Token}`)
+      .send({});
+    await request(app.getHttpServer())
+      .post(`/requests/${createdRequest.id}/validate`)
+      .set('Authorization', `Bearer ${rpToken}`)
+      .send({ proposalId: proposal.id });
 
-  describe('[TR-BR-006, TR-BR-007] GET /requests/:id — détail', () => {
-    let createdId: string;
+    const openList = await request(app.getHttpServer())
+      .get('/requests')
+      .set('Authorization', `Bearer ${rpToken}`);
+    expect(openList.body).toHaveLength(0);
 
-    beforeAll(async () => {
-      const res = await createRequest(rpToken);
-      createdId = res.body.id;
-    });
-
-    it('[TR-BR-006] Un RP peut lire le détail d\'une demande → 200', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`/requests/${createdId}`)
-        .set('Authorization', `Bearer ${rpToken}`);
-
-      expect(res.status).toBe(200);
-      expect(res.body).toHaveProperty('id', createdId);
-      expect(res.body).toHaveProperty('status');
-      expect(res.body).toHaveProperty('studentId');
-    });
-
-    it('[TR-BR-006] Le créateur peut lire le détail de sa propre demande → 200', async () => {
-      // Le RP a créé la demande, il peut la lire
-      const res = await request(app.getHttpServer())
-        .get(`/requests/${createdId}`)
-        .set('Authorization', `Bearer ${rpToken}`);
-
-      expect(res.status).toBe(200);
-    });
-
-    it('[TR-BR-007] GET /requests/:id avec id inexistant → 404', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`/requests/${IDS.unknown}`)
-        .set('Authorization', `Bearer ${rpToken}`);
-
-      expect(res.status).toBe(404);
-    });
+    const closedList = await request(app.getHttpServer())
+      .get('/requests?scope=closed')
+      .set('Authorization', `Bearer ${rpToken}`);
+    expect(closedList.body).toHaveLength(1);
   });
 
-  // ──────────────────────────────────────────────────────────────
-  // TR-BR-008 / TR-BR-009 / TR-BR-010 — Changement de statut par RP
-  // ──────────────────────────────────────────────────────────────
+  it('si profile-service refuse le lien, la demande reste ouverte', async () => {
+    const createdRequest = await createRequestAsStudent();
+    const [proposal] = await sendProposals(createdRequest.id, [IDS.teacher1]);
+    await request(app.getHttpServer())
+      .post(`/proposals/${proposal.id}/accept`)
+      .set('Authorization', `Bearer ${teacher1Token}`)
+      .send({});
+    profileService.shouldFailLinkCreation = true;
 
-  describe('[TR-BR-008 à TR-BR-010] PATCH /requests/:id/status — transitions par RP', () => {
-    it('[TR-BR-008] Un RP peut faire passer le statut pending → accepted', async () => {
-      const created = await createRequest(parentToken);
-      expect(created.status).toBe(201);
-      const id = created.body.id;
+    const validated = await request(app.getHttpServer())
+      .post(`/requests/${createdRequest.id}/validate`)
+      .set('Authorization', `Bearer ${rpToken}`)
+      .send({ proposalId: proposal.id });
 
-      const res = await request(app.getHttpServer())
-        .patch(`/requests/${id}/status`)
-        .set('Authorization', `Bearer ${rpToken}`)
-        .send({ status: 'accepted' });
-
-      expect(res.status).toBe(200);
-      expect(res.body).toHaveProperty('status', 'accepted');
-    });
-
-    it('[TR-BR-009] Un RP peut faire passer le statut pending → declined', async () => {
-      const created = await createRequest(parentToken);
-      const id = created.body.id;
-
-      const res = await request(app.getHttpServer())
-        .patch(`/requests/${id}/status`)
-        .set('Authorization', `Bearer ${rpToken}`)
-        .send({ status: 'declined' });
-
-      expect(res.status).toBe(200);
-      expect(res.body).toHaveProperty('status', 'declined');
-    });
-
-    it('[TR-BR-010] Un RP peut faire passer le statut pending → cancelled', async () => {
-      const created = await createRequest(parentToken);
-      const id = created.body.id;
-
-      const res = await request(app.getHttpServer())
-        .patch(`/requests/${id}/status`)
-        .set('Authorization', `Bearer ${rpToken}`)
-        .send({ status: 'cancelled' });
-
-      expect(res.status).toBe(200);
-      expect(res.body).toHaveProperty('status', 'cancelled');
-    });
-
-    it('PATCH /requests/:id/status avec id inexistant → 404', async () => {
-      const res = await request(app.getHttpServer())
-        .patch(`/requests/${IDS.unknown}/status`)
-        .set('Authorization', `Bearer ${rpToken}`)
-        .send({ status: 'accepted' });
-
-      expect(res.status).toBe(404);
-    });
+    expect(validated.status).toBeGreaterThanOrEqual(500);
+    const [row] = await dataSource.query('SELECT status FROM teacher_requests WHERE id = $1', [
+      createdRequest.id,
+    ]);
+    expect(row.status).toBe('redirected');
   });
 
-  // ──────────────────────────────────────────────────────────────
-  // TR-BR-011 — Annulation : RP seul autorisé, parent/élève refusés
-  // Règle métier tranchée : seul un RP peut passer status → cancelled.
-  // ──────────────────────────────────────────────────────────────
+  // ── Etape 4 : ce que voit le formateur ─────────────────────────────────────
 
-  describe('[TR-BR-011] PATCH /requests/:id/status — annulation (cancelled)', () => {
-    it('[TR-BR-011] Un parent qui tente d\'annuler une demande reçoit 403', async () => {
-      const created = await createRequest(parentToken);
-      const id = created.body.id;
+  it("le formateur voit la description et le nom de l'eleve, et lit la demande", async () => {
+    const createdRequest = await createRequestAsStudent('Besoin en trigonometrie');
+    const [proposal] = await sendProposals(createdRequest.id, [IDS.teacher1]);
 
-      const res = await request(app.getHttpServer())
-        .patch(`/requests/${id}/status`)
-        .set('Authorization', `Bearer ${parentToken}`)
-        .send({ status: 'cancelled' });
+    const inbox = await request(app.getHttpServer())
+      .get('/requests')
+      .set('Authorization', `Bearer ${teacher1Token}`);
 
-      expect(res.status).toBe(403);
+    expect(inbox.status).toBe(200);
+    expect(inbox.body[0]).toMatchObject({
+      id: proposal.id,
+      requestDescription: 'Besoin en trigonometrie',
+      message: 'Un eleve cherche un professeur',
+      availabilityNote: 'Mercredi soir',
+      status: 'pending',
     });
+    expect(inbox.body[0].studentName).toEqual(expect.any(String));
 
-    it('[TR-BR-011] Un élève qui tente d\'annuler une demande reçoit 403', async () => {
-      const created = await createRequest(studentToken);
-      const id = created.body.id;
-
-      const res = await request(app.getHttpServer())
-        .patch(`/requests/${id}/status`)
-        .set('Authorization', `Bearer ${studentToken}`)
-        .send({ status: 'cancelled' });
-
-      expect(res.status).toBe(403);
-    });
-
-    it('[TR-BR-011] Un RP peut annuler une demande (pending → cancelled) → 200', async () => {
-      const created = await createRequest(parentToken);
-      const id = created.body.id;
-
-      const res = await request(app.getHttpServer())
-        .patch(`/requests/${id}/status`)
-        .set('Authorization', `Bearer ${rpToken}`)
-        .send({ status: 'cancelled' });
-
-      expect([200, 201]).toContain(res.status);
-      expect(res.body).toHaveProperty('status', 'cancelled');
-    });
+    const detail = await request(app.getHttpServer())
+      .get(`/requests/${createdRequest.id}`)
+      .set('Authorization', `Bearer ${teacher1Token}`);
+    expect(detail.status).toBe(200);
   });
 
-  // ──────────────────────────────────────────────────────────────
-  // TR-BR-012 — Transition invalide sur demande déjà traitée
-  // ──────────────────────────────────────────────────────────────
+  it("un formateur non sollicite ne sait pas que la demande existe", async () => {
+    const createdRequest = await createRequestAsStudent();
 
-  describe('[TR-BR-012] Transition de statut invalide', () => {
-    it('Une demande accepted ne peut pas être re-acceptée → 4xx', async () => {
-      // Créer et accepter une demande
-      const created = await createRequest(parentToken);
-      const id = created.body.id;
+    const detail = await request(app.getHttpServer())
+      .get(`/requests/${createdRequest.id}`)
+      .set('Authorization', `Bearer ${teacher2Token}`);
 
-      await request(app.getHttpServer())
-        .patch(`/requests/${id}/status`)
-        .set('Authorization', `Bearer ${rpToken}`)
-        .send({ status: 'accepted' });
-
-      // Tenter une seconde transition accepted → accepted
-      const res = await request(app.getHttpServer())
-        .patch(`/requests/${id}/status`)
-        .set('Authorization', `Bearer ${rpToken}`)
-        .send({ status: 'accepted' });
-
-      // Doit retourner une erreur 4xx (400 ou 409 selon implémentation)
-      expect(res.status).toBeGreaterThanOrEqual(400);
-      expect(res.status).toBeLessThan(500);
-    });
-
-    it('Une demande declined ne peut pas être acceptée → 4xx', async () => {
-      const created = await createRequest(parentToken);
-      const id = created.body.id;
-
-      await request(app.getHttpServer())
-        .patch(`/requests/${id}/status`)
-        .set('Authorization', `Bearer ${rpToken}`)
-        .send({ status: 'declined' });
-
-      const res = await request(app.getHttpServer())
-        .patch(`/requests/${id}/status`)
-        .set('Authorization', `Bearer ${rpToken}`)
-        .send({ status: 'accepted' });
-
-      expect(res.status).toBeGreaterThanOrEqual(400);
-      expect(res.status).toBeLessThan(500);
-    });
-
-    it('Statut inexistant → 400', async () => {
-      const created = await createRequest(parentToken);
-      const id = created.body.id;
-
-      const res = await request(app.getHttpServer())
-        .patch(`/requests/${id}/status`)
-        .set('Authorization', `Bearer ${rpToken}`)
-        .send({ status: 'INVALID_STATUS' });
-
-      expect(res.status).toBe(400);
-    });
+    expect(detail.status).toBe(404);
   });
 
-  // ──────────────────────────────────────────────────────────────
-  // TR-BR-013 — Contrôle d'accès : formateur ne peut pas changer le statut
-  // ──────────────────────────────────────────────────────────────
+  it('un formateur ne repond pas deux fois a la meme proposition', async () => {
+    const createdRequest = await createRequestAsStudent();
+    const [proposal] = await sendProposals(createdRequest.id, [IDS.teacher1]);
 
-  describe('[TR-BR-013] PATCH /requests/:id/status — accès refusé (formateur)', () => {
-    it('Un formateur ne peut pas changer le statut d\'une demande → 403', async () => {
-      const created = await createRequest(rpToken);
-      const id = created.body.id;
+    await request(app.getHttpServer())
+      .post(`/proposals/${proposal.id}/decline`)
+      .set('Authorization', `Bearer ${teacher1Token}`)
+      .send({});
+    const secondAnswer = await request(app.getHttpServer())
+      .post(`/proposals/${proposal.id}/accept`)
+      .set('Authorization', `Bearer ${teacher1Token}`)
+      .send({});
 
-      const res = await request(app.getHttpServer())
-        .patch(`/requests/${id}/status`)
-        .set('Authorization', `Bearer ${teacher1Token}`)
-        .send({ status: 'accepted' });
-
-      expect(res.status).toBe(403);
-    });
-
-    it('Un élève ne peut pas accepter ou refuser une demande → 403', async () => {
-      const created = await createRequest(rpToken);
-      const id = created.body.id;
-
-      const res = await request(app.getHttpServer())
-        .patch(`/requests/${id}/status`)
-        .set('Authorization', `Bearer ${studentToken}`)
-        .send({ status: 'accepted' });
-
-      expect(res.status).toBe(403);
-    });
+    expect(secondAnswer.status).toBe(400);
+    expect(secondAnswer.body.message).toBe('Vous avez deja repondu a cette proposition.');
   });
 
-  // ──────────────────────────────────────────────────────────────
-  // TR-BR-014 / TR-BR-015 — Suppression d'une demande
-  // ──────────────────────────────────────────────────────────────
+  // ── Etape 5 : la lecture du RP ─────────────────────────────────────────────
 
-  describe('[TR-BR-014, TR-BR-015] DELETE /requests/:id', () => {
-    it('[TR-BR-014] Un RP peut supprimer une demande → 200 ou 204', async () => {
-      const created = await createRequest(parentToken);
-      const id = created.body.id;
+  it('le RP lit les reponses des formateurs', async () => {
+    const createdRequest = await createRequestAsStudent();
+    const proposals = await sendProposals(createdRequest.id, [IDS.teacher1, IDS.teacher2]);
+    await request(app.getHttpServer())
+      .post(`/proposals/${proposals[0].id}/decline`)
+      .set('Authorization', `Bearer ${teacher1Token}`)
+      .send({});
 
-      const res = await request(app.getHttpServer())
-        .delete(`/requests/${id}`)
-        .set('Authorization', `Bearer ${rpToken}`);
+    const readProposals = await request(app.getHttpServer())
+      .get(`/requests/${createdRequest.id}/proposals`)
+      .set('Authorization', `Bearer ${rpToken}`);
 
-      expect([200, 204]).toContain(res.status);
-    });
+    expect(readProposals.status).toBe(200);
+    expect(readProposals.body).toHaveLength(2);
+    expect(readProposals.body.map((proposal: { status: string }) => proposal.status).sort()).toEqual([
+      'declined',
+      'pending',
+    ]);
+    expect(readProposals.body[0].teacherName).toEqual(expect.any(String));
+  });
 
-    it('[TR-BR-014] Après suppression, la demande n\'est plus accessible → 404', async () => {
-      const created = await createRequest(parentToken);
-      const id = created.body.id;
+  it("l'eleve ne lit pas les candidatures", async () => {
+    const createdRequest = await createRequestAsStudent();
 
-      await request(app.getHttpServer())
-        .delete(`/requests/${id}`)
-        .set('Authorization', `Bearer ${rpToken}`);
+    const readProposals = await request(app.getHttpServer())
+      .get(`/requests/${createdRequest.id}/proposals`)
+      .set('Authorization', `Bearer ${studentToken}`);
 
-      const res = await request(app.getHttpServer())
-        .get(`/requests/${id}`)
-        .set('Authorization', `Bearer ${rpToken}`);
+    expect(readProposals.status).toBe(403);
+  });
 
-      expect(res.status).toBe(404);
-    });
+  // ── Evenements ─────────────────────────────────────────────────────────────
 
-    it('[TR-BR-015] DELETE /requests/:id avec id inexistant → 404', async () => {
-      const res = await request(app.getHttpServer())
-        .delete(`/requests/${IDS.unknown}`)
-        .set('Authorization', `Bearer ${rpToken}`);
+  it('le flow ecrit de vrais evenements en base, avec leur correlation', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/requests')
+      .set('Authorization', `Bearer ${studentToken}`)
+      .set('x-correlation-id', 'corr-e2e')
+      .send({ description: 'Besoin' });
 
-      expect(res.status).toBe(404);
-    });
+    expect(response.headers['x-correlation-id']).toBe('corr-e2e');
+    const events = await dataSource.query(
+      'SELECT event_name, correlation_id, published_at FROM domain_events WHERE aggregate_id = $1',
+      [response.body.id],
+    );
+    expect(events).toEqual([
+      { event_name: 'TeacherRequestCreated', correlation_id: 'corr-e2e', published_at: null },
+    ]);
+  });
 
-    it('Un formateur ne peut pas supprimer une demande → 403', async () => {
-      const created = await createRequest(parentToken);
-      const id = created.body.id;
+  // ── Authentification ───────────────────────────────────────────────────────
 
-      const res = await request(app.getHttpServer())
-        .delete(`/requests/${id}`)
-        .set('Authorization', `Bearer ${teacher1Token}`);
+  it('toutes les routes exigent un jeton valide', async () => {
+    const withoutToken = await request(app.getHttpServer()).get('/requests');
+    expect(withoutToken.status).toBe(401);
 
-      expect(res.status).toBe(403);
-    });
+    const withBadToken = await request(app.getHttpServer())
+      .get(`/requests/${IDS.unknown}`)
+      .set('Authorization', 'Bearer pas.un.jeton');
+    expect(withBadToken.status).toBe(401);
+  });
+
+  it('une demande inexistante renvoie 404', async () => {
+    const detail = await request(app.getHttpServer())
+      .get(`/requests/${IDS.unknown}`)
+      .set('Authorization', `Bearer ${rpToken}`);
+
+    expect(detail.status).toBe(404);
   });
 });

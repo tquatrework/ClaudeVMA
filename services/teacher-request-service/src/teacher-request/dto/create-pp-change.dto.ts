@@ -12,12 +12,12 @@ import { DESCRIPTION_MAX_LENGTH } from './create-request.dto';
  */
 export class CreatePpChangeDto {
   @ApiProperty({ description: "Eleve dont le professeur principal doit changer." })
-  @IsUUID('4', { message: "L'identifiant de l'eleve est invalide." })
+  @IsUUID(undefined, { message: "L'identifiant de l'eleve est invalide." })
   studentId: string;
 
   @ApiPropertyOptional({ description: 'Professeur principal actuel, si le demandeur le connait.' })
   @IsOptional()
-  @IsUUID('4', { message: "L'identifiant du professeur principal actuel est invalide." })
+  @IsUUID(undefined, { message: "L'identifiant du professeur principal actuel est invalide." })
   currentPpTeacherId?: string;
 
   @ApiProperty({ description: 'Motif et contexte du changement demande.', maxLength: DESCRIPTION_MAX_LENGTH })

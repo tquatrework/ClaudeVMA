@@ -13,7 +13,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
  */
 export class ValidateCandidateDto {
   @ApiProperty({ description: 'Proposition acceptee retenue par le RP.' })
-  @IsUUID('4', { message: "L'identifiant de la proposition est invalide." })
+  @IsUUID(undefined, { message: "L'identifiant de la proposition est invalide." })
   proposalId: string;
 
   @ApiPropertyOptional({

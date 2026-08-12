@@ -42,7 +42,7 @@ export class CreateProposalDto {
     message: `Vous ne pouvez pas envoyer une proposition a plus de ${PROPOSAL_MAX_RECIPIENTS} formateurs a la fois.`,
   })
   @ArrayUnique({ message: 'Un meme formateur ne peut figurer qu\'une fois dans la liste.' })
-  @IsUUID('4', { each: true, message: "L'identifiant d'un formateur est invalide." })
+  @IsUUID(undefined, { each: true, message: "L'identifiant d'un formateur est invalide." })
   teacherIds: string[];
 
   @ApiProperty({

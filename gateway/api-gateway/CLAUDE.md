@@ -47,6 +47,17 @@ routage et de taille de corps. Partie « gateway vivante » activée par `GATEWA
 - **Proxifier par préfixe, jamais route par route** : une nouvelle route d'un service doit être
   jointe sans toucher à ce fichier. Corollaire : aucune `location` par expression régulière, aucun
   `rewrite` — la gateway ne réinterprète jamais un segment d'URL.
+- **Toute cible de `proxy_pass` passe par une variable `$upstream_*`**, jamais par un bloc
+  `upstream`. C'est ce qui fait re-résoudre le nom Docker à chaque requête : sans variable, nginx
+  résout au chargement et appelle l'ancienne IP après chaque reconstruction de conteneur (défaut du
+  2026-08-11, 20 réponses `502`). Le `resolver 127.0.0.11` seul ne suffit pas.
+- **Conséquence à ne jamais oublier : avec une variable, nginx ne substitue plus le préfixe du
+  `location`.** Chaque `proxy_pass` doit donc porter une partie URI explicite
+  (`$api_v1_suffix`, `/api/docs$docs_suffix`, …). Un `proxy_pass http://$upstream_x;` nu
+  transmettrait `/api/v1/...` au service, qui répondrait 404 sur toutes ses routes.
+- Les `map` de réécriture partent de **`$request_uri`** (brut) et jamais de `$uri` (décodé), sinon
+  tout chemin contenant `%20` ou `%2B` est cassé. Ne jamais y ajouter `$is_args$args` : la chaîne
+  de requête est déjà dans `$request_uri`.
 - **`client_max_body_size` doit rester déclaré** et au-dessus du plafond applicatif d'envoi. Sans
   directive, nginx applique 1 Mio et la gateway devient un plafond caché qui répond en HTML.
   Voir `docs/services/api-gateway.md`.

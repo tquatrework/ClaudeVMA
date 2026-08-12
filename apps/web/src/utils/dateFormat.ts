@@ -70,6 +70,21 @@ export function formatLocalDate(dateStr: string): string {
 }
 
 /**
+ * Formate une date en toutes lettres, sans heure.
+ * Ex : "3 juillet 2026"
+ *
+ * Employée par les listes de liens de financement (« Depuis le … »), où la même
+ * expression était recopiée dans les deux sections symétriques.
+ */
+export function formatLongDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString('fr-FR', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+}
+
+/**
  * Formate une date-heure complète en locale longue.
  * Ex : "3 juil. 2026 à 14:02"
  */

@@ -1630,5 +1630,172 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-08-11" label="Delier un parent financeur et un eleve (branche feat/delier-parent-eleve)">
+      <context>
+        Demande utilisateur, mot pour mot : « il reste un element a faire, au niveau du
+        Parent/financeur pour un eleve ou des Eleves pour un Parent/Financeur, meme si cela sera
+        peu utilise, c'est un bouton et une action back derriere "Delier" (ou supprimer) ».
+        L'action serveur etait deja faite et deployee
+        (`DELETE /relations/finance-owner-student/:financeOwnerId/:studentId`) : le travail
+        portait sur les deux ecrans, dans les deux sens.
+      </context>
+
+      <decision id="the-button-lives-where-the-list-lives">
+        Le bouton est place **dans les deux listes du lien**, onglet « Relations » de la fiche
+        profil, sur son propre profil uniquement :
+        `ParentFinanceurSection` (role `eleve`, onglet « Parents financeurs ») et
+        `LinkedStudentsSection` (role `parent_financeur`, onglet « Mes eleves / enfants »).
+        Ce sont les deux seuls ecrans qui affichent la relation **comme relation** — la ligne
+        porte deja « Depuis le … », delier y est le geste symetrique du rattachement, place a cote
+        du formulaire d'invitation et des demandes en attente.
+        `MyStudentsPage` n'en recoit **pas** : elle liste toutes les personnes accompagnees, tous
+        types de lien confondus (`GET /relations/my-contacts`, corrigee le meme jour), et un
+        bouton n'y agissant que sur un lien de financement serait un piege. Le formateur ne peut
+        pas delier ses eleves ; y afficher « Delier » sur une ligne et pas sur l'autre aurait
+        demande a l'ecran d'expliquer une regle de droit qui ne lui appartient pas.
+      </decision>
+
+      <decision id="confirm-and-name-the-person">
+        Une confirmation modale precede l'action (`UnlinkFinanceRelationDialog`), sur le modele de
+        `ConsentWithdrawalDialog` : meme forme, meme place des boutons, meme parti pris — en cas
+        d'echec **la boite reste ouverte** avec le message, plutot que de se fermer en laissant
+        croire le lien rompu.
+        Elle **nomme la personne** — prenom + nom resolus par le serveur
+        (`financeOwnerName` / `studentName`), jamais un UUID — et dit en une phrase ce que
+        « Delier » veut dire : la personne n'est pas supprimee, le lien est rompu a la date du
+        jour, et il pourra etre recree par une demande de rattachement.
+        Verbe retenu : **« Delier »**, pas « Supprimer ». Le bouton de ligne affiche « Delier » ;
+        le nom de la personne part dans l'`aria-label`, sinon plusieurs boutons identiques d'une
+        meme liste seraient indiscernables au lecteur d'ecran.
+      </decision>
+
+      <decision id="the-server-response-updates-the-list">
+        La reponse `200` du `DELETE` porte `endedAt`/`endedBy` : c'est **elle** qui retire la
+        ligne, par la paire qu'elle nomme. Aucune relecture de la liste n'est declenchee, aucun
+        cache n'est introduit (decisions du 2026-08-10). La liste vidée retombe sur son message
+        normal (« Aucun parent financeur rattache pour l'instant. »).
+        Un double clic n'envoie qu'une requete : bouton desactive pendant l'envoi, **et** garde
+        par reference dans le hook — un double clic rapide declenche les deux appels avant le
+        moindre rendu. L'action est pourtant idempotente cote serveur : la garde protege
+        l'utilisateur d'un envoi en rafale, elle ne repare pas un defaut serveur.
+      </decision>
+
+      <decision id="one-hook-two-directions">
+        Les deux sens regardent la meme table depuis deux cotes : un seul hook,
+        `useFinanceOwnerStudentLinks({viewerSide, viewerId})`, porte la liste, la confirmation en
+        attente et la rupture. Seule la route de **lecture** change (`by-student/:studentId` vs
+        `:financeOwnerId`) ; la rupture est strictement la meme requete — elle nomme la paire, pas
+        un point de vue. La ligne, identique des deux cotes, est extraite en
+        `FinanceOwnerStudentLinkList`. Les deux sections tombent de ~90 a ~75 lignes et ne
+        contiennent plus une seule requete.
+      </decision>
+
+      <decision id="french-messages-not-taken-from-the-server">
+        `describeUnlinkFailure` traduit les refus documentes plutot que de relayer le message du
+        serveur : verifie contre la pile reelle, le `400` repond « Validation failed (uuid is
+        expected) » et le `401` « Unauthorized », tous deux en anglais technique.
+        Le `404` couvre **deux causes volontairement indiscernables** — lien inexistant, appelant
+        sans droit. Le message les nomme toutes les deux sans en choisir une : « Ce lien n'a pas
+        pu etre rompu : il n'existe plus, ou il ne vous appartient pas. » Supposer laquelle
+        s'applique reviendrait a reveler ce que le serveur refuse de dire.
+      </decision>
+
+      <decision id="labels-in-one-place">
+        Nouveau point unique `src/utils/relationLabels.ts` : verbe de l'action, replis generiques
+        (« Financeur », « Eleve »), nom de l'autre partie, consequence de la rupture selon le
+        cote, messages d'echec. Les constantes `FINANCE_OWNER_GENERIC_LABEL` /
+        `STUDENT_GENERIC_LABEL`, jusque-la redeclarees dans quatre composants, y sont ramenees.
+        `FinanceOwnerStudentLink` quitte `src/api/relations.ts` pour `src/types/relations.ts`,
+        avec `id`, `endedAt` et `endedBy` que le contrat portait deja et que le front ignorait.
+        `formatLongDate` rejoint `src/utils/dateFormat.ts` : la meme expression de date etait
+        recopiee dans les deux sections symetriques.
+      </decision>
+
+      <decision id="closed-rights-degrade-quietly">
+        Rompre le lien referme profil, statistiques et archives pedagogiques, dans les deux sens.
+        Aucun ecran n'a eu a etre modifie pour cela, ce qui a ete verifie plutot que suppose :
+        `useProfileDetails` traduit deja le `403` en « Acces refuse » (le message serveur, anglais
+        et portant un code de regle, n'atteint jamais l'ecran), `useProfileStatistics` et
+        `usePedagogicalArchives` traitent le `404` en **etat vide** et non en erreur. Cote
+        navigation, la personne disparait de `my-contacts` : `/my-students` et le selecteur de
+        `/archives` ne la proposent plus, donc aucun lien de l'interface ne mene vers une donnee
+        devenue inaccessible.
+      </decision>
+
+      <filesTouched>
+        <item path="src/types/relations.ts">`FinanceOwnerStudentLink` centralise, `endedAt`/`endedBy` ajoutes.</item>
+        <item path="src/api/relations.ts">`unlinkFinanceOwnerAndStudent`, type deplace.</item>
+        <item path="src/utils/relationLabels.ts">Point unique des libelles du lien de financement.</item>
+        <item path="src/utils/dateFormat.ts">`formatLongDate`.</item>
+        <item path="src/hooks/relations/useFinanceOwnerStudentLinks.ts">Liste + rupture, les deux sens.</item>
+        <item path="src/components/profile/FinanceOwnerStudentLinkList.tsx">Ligne de lien partagee.</item>
+        <item path="src/components/profile/UnlinkFinanceRelationDialog.tsx">Confirmation nommant la personne.</item>
+        <item path="src/components/profile/ParentFinanceurSection.tsx">Passe au hook et aux composants partages.</item>
+        <item path="src/components/profile/LinkedStudentsSection.tsx">Idem, sens parent financeur.</item>
+        <item path="src/components/profile/PendingParentInvitationsList.tsx">Libelle generique importe.</item>
+        <item path="src/components/profile/PendingStudentRequestsList.tsx">Libelle generique importe.</item>
+        <item path="test/components/profile/UnlinkFinanceRelation.test.tsx">12 tests, les deux sens.</item>
+        <item path="test/utils/relationLabels.test.ts">12 tests des fonctions pures.</item>
+      </filesTouched>
+
+      <realStackVerification gateway="https://claudevma.visioprof.fr" date="2026-08-11">
+        Comptes crees par la route publique `POST /accounts/parents` (`studentAccountMode: 'new'`),
+        qui lie automatiquement le parent et l'eleve : `jeanne.delier.1786464003` (parent
+        financeur) et `leo.delier.1786464003` (eleve), mot de passe `MotDePasse!2026`.
+        Requetes jouees avec les jetons reels, aux URL exactes construites par le front :
+
+        1. `GET /relations/finance-owner-student/&lt;parent&gt;` → `200`
+           `[{id, financeOwnerId, studentId, createdAt, endedAt: null, endedBy: null,
+           studentName: {"firstName":"Leo","lastName":"Delier"}}]` — la liste affiche donc un nom,
+           jamais un UUID.
+        2. `DELETE /relations/finance-owner-student/&lt;parent&gt;/&lt;eleve&gt;` → `200`
+           `{…, "endedAt":"2026-08-11T16:00:22.883Z", "endedBy":"&lt;parent&gt;"}`.
+        3. Meme appel repete (double clic) → `200` avec la **meme** `endedAt` — idempotence
+           confirmee contre la pile, pas seulement dans la doc.
+        4. `GET /relations/finance-owner-student/&lt;parent&gt;` → `200 []` et
+           `GET /relations/my-contacts` → `200 []`.
+        5. Droits refermes pour le parent sur l'ex-eleve : `GET /profiles/&lt;eleve&gt;` → `403`,
+           `/statistics` → `404`, `GET /archives/students/&lt;eleve&gt;/pedagogical-archives` →
+           `404`. Tous trois sont deja traduits ou traites en etat vide par le front.
+        6. Relien : `POST /parent-link-requests/student-initiated` (eleve) → `201`, approbation
+           par le parent → `201`. Le lien est recree, avec un **nouvel** `id` — la ligne rompue
+           reste en base.
+        7. Sens eleve : `GET /relations/finance-owner-student/by-student/&lt;eleve&gt;` → `200`
+           avec `financeOwnerName {"firstName":"Jeanne","lastName":"Delier"}`, puis
+           `DELETE /relations/finance-owner-student/&lt;parent&gt;/&lt;eleve&gt;` avec le jeton de
+           l'**eleve** → `200`, `endedBy` = eleve. Liste ensuite `200 []`.
+        8. Refus : lien inexistant → `404 {"message":"Aucun lien de financement trouve entre ces
+           deux personnes"}` ; sans jeton → `401 {"message":"Unauthorized"}` ; UUID mal forme →
+           `400 {"message":"Validation failed (uuid is expected)"}`. Les deux derniers sont en
+           anglais, d'ou la traduction cote front.
+
+        Suite front : **1445 tests verts**, `tsc --noEmit` sans erreur, `npm run build` reussi.
+        Ces tests simulent tout le reseau : ils ne valent pas preuve, seulement non-regression.
+      </realStackVerification>
+
+      <openPoints>
+        <item id="unlink-not-offered-to-rp-and-ti">
+          Le serveur autorise aussi le RP et le TI a rompre un lien ; aucun ecran ne le leur
+          propose. L'onglet « Relations » n'existe que sur son propre profil, pour un `eleve` ou
+          un `parent_financeur`. Un ecran d'administration des rattachements reste a definir —
+          rien n'a ete devine ici.
+        </item>
+        <item id="link-request-needs-a-pedagogical-profile">
+          Constat de la verification, sans rapport direct avec la rupture :
+          `POST /parent-link-requests` (parent → eleve) repond
+          `400 "Aucun profil eleve trouve pour cet identifiant."` pour un compte eleve tout juste
+          cree, qui n'a pas encore de profil pedagogique — celui-ci etant facultatif par
+          arbitrage. Le sens inverse (`student-initiated`) fonctionne. A remonter cote
+          `profile-service`.
+        </item>
+        <item id="verification-accounts-left-on-dev-stack">
+          Comptes laisses sur la pile reelle : `jeanne.delier.1786464003`,
+          `leo.delier.1786464003`. Ils s'ajoutent aux `frontrel.*`, `relstats.*` et `front.*` des
+          sessions precedentes. Aucune route de suppression de compte n'existe ; a suspendre par
+          un TI.
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

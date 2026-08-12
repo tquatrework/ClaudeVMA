@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Delete,
   Param,
   Body,
   UseGuards,
@@ -91,6 +92,52 @@ export class RelationsController {
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<Awaited<ReturnType<RelationsService['linkFinanceOwnerToStudent']>>> {
     return this.relationsService.linkFinanceOwnerToStudent(dto, actor);
+  }
+
+  @Delete('finance-owner-student/:financeOwnerId/:studentId')
+  @OwnerAccess()
+  @ApiOperation({
+    summary: 'Unlink a finance owner from a student',
+    description:
+      "Rompt le lien parent financeur ↔ élève. Le bouton « Délier » des deux écrans " +
+      "(« mes élèves » côté parent, « mes financeurs » côté élève) appelle cette route.\n\n" +
+      "AUCUNE LIGNE N'EST SUPPRIMÉE malgré le verbe HTTP : la rupture renseigne " +
+      '`endedAt` et `endedBy`. On doit pouvoir prouver que le lien a existé, puis a été ' +
+      'rompu, et quand — un lien financier disparu sans trace serait ingérable côté ' +
+      'facturation. `DELETE` décrit ce que voit l\'appelant (le lien actif disparaît) et ' +
+      'apporte l\'idempotence attendue du verbe.\n\n' +
+      "QUI PEUT : les DEUX parties du lien (le parent financeur, l'élève), le RP et le TI. " +
+      "Le contrôle porte sur la propriété du lien, pas sur une liste de rôles. L'AF en est " +
+      'volontairement absent : il constate les rattachements, il ne décide pas de les rompre.\n\n' +
+      'IDEMPOTENT : délier deux fois renvoie `200` les deux fois, avec la même date de ' +
+      "rupture — l'état visé est atteint, et la date initiale ne doit pas être réécrite.\n\n" +
+      'RÉVERSIBLE : après une rupture, le parcours normal de rattachement ' +
+      '(`POST /parent-link-requests` puis approbation) recrée un lien actif. Le refus ' +
+      "porte sur l'état courant, jamais sur l'existence d'une ligne.\n\n" +
+      'Publie `StudentUnlinkedFromFinanceOwner`.',
+  })
+  @ApiParam({ name: 'financeOwnerId', description: 'UUID du parent financeur' })
+  @ApiParam({ name: 'studentId', description: "UUID de l'élève" })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Lien rompu : `{id, financeOwnerId, studentId, createdAt, endedAt, endedBy}`. ' +
+      '`endedAt` non nul vaut confirmation.',
+  })
+  @ApiResponse({ status: 400, description: 'financeOwnerId ou studentId non-UUID' })
+  @ApiResponse({
+    status: 404,
+    description:
+      "Aucun lien entre ces deux personnes — OU appelant sans droit sur ce lien. Les deux " +
+      "cas renvoient le MÊME code et le MÊME message : un 403 révélerait l'existence du " +
+      'lien à un tiers.',
+  })
+  unlinkFinanceOwnerFromStudent(
+    @Param('financeOwnerId', ParseUUIDPipe) financeOwnerId: string,
+    @Param('studentId', ParseUUIDPipe) studentId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<RelationsService['unlinkFinanceOwnerFromStudent']>>> {
+    return this.relationsService.unlinkFinanceOwnerFromStudent(financeOwnerId, studentId, actor);
   }
 
   @Get('finance-owner-student/by-student/:studentId')

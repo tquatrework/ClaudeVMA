@@ -755,7 +755,7 @@ export class ProfilesService {
       if (!isResponsablePedagogique) {
         throw new ForbiddenException(
           'Seul le responsable pédagogique peut prendre en charge le dossier d’un formateur ' +
-            '(passage de « en attente » à « en cours d’examen »).',
+            `(passage de « ${statusLabel('pending')} » à « ${statusLabel('in_review')} »).`,
         );
       }
       return;
@@ -776,8 +776,9 @@ export class ProfilesService {
     ) {
       if (!isTechnicienInformatique) {
         throw new ForbiddenException(
-          'Seul le technicien informatique peut sauter l’étape « en cours d’examen » et ' +
-            'passer directement de « en attente » à « validé » ou « refusé ». Le responsable ' +
+          `Seul le technicien informatique peut sauter l’étape « ${statusLabel('in_review')} » ` +
+            `et passer directement de « ${statusLabel('pending')} » à ` +
+            `« ${statusLabel('validated')} » ou « ${statusLabel('rejected')} ». Le responsable ` +
             'pédagogique doit d’abord prendre le dossier en charge.',
         );
       }

@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ProfilesService, Actor } from '../../../src/profiles/profiles.service';
@@ -1609,56 +1610,62 @@ describe('ProfilesService', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // listTeachersPendingValidation
+  // bootstrapTeacherValidation — arbitrage du 2026-08-12
+  //
+  // Tout compte formateur porte un enregistrement de validation, CRÉÉ À
+  // L'INSCRIPTION. Sans lui, le formateur n'apparaît dans aucune file du RP :
+  // jamais vu, jamais validé, jamais proposable.
   // ---------------------------------------------------------------------------
-  describe('listTeachersPendingValidation', () => {
-    it('RP can list pending teachers, enriched with a single batched admin-profile query (no N+1)', async () => {
-      teacherValidationRepo.find.mockResolvedValue([
-        { id: 'v1', teacherId: 'teacher-1', status: 'pending', createdAt: new Date('2026-01-01') },
-        { id: 'v2', teacherId: 'teacher-2', status: 'pending', createdAt: new Date('2026-01-02') },
-      ]);
-      adminRepo.find.mockResolvedValue([
-        { userId: 'teacher-1', firstName: 'Alice', lastName: 'Martin' },
-        { userId: 'teacher-2', firstName: 'Bob', lastName: 'Dupont' },
-      ]);
+  describe('bootstrapTeacherValidation', () => {
+    it("crée l'enregistrement au statut pending quand aucun n'existe", async () => {
+      teacherValidationRepo.findOne.mockResolvedValue(null);
+      teacherValidationRepo.create.mockImplementation((data: unknown) => data);
+      teacherValidationRepo.save.mockImplementation(async (data: unknown) => ({
+        id: 'v-new',
+        ...(data as object),
+      }));
 
-      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
-      const result = await service.listTeachersPendingValidation(actor);
+      const { validation, isCreated } =
+        await service.bootstrapTeacherValidation('teacher-uuid');
 
-      expect(adminRepo.find).toHaveBeenCalledTimes(1);
-      expect(adminRepo.findOne).not.toHaveBeenCalled();
-      expect(result).toEqual([
-        { id: 'v1', teacherId: 'teacher-1', firstName: 'Alice', lastName: 'Martin', createdAt: new Date('2026-01-01') },
-        { id: 'v2', teacherId: 'teacher-2', firstName: 'Bob', lastName: 'Dupont', createdAt: new Date('2026-01-02') },
-      ]);
+      expect(isCreated).toBe(true);
+      expect(teacherValidationRepo.create).toHaveBeenCalledWith({
+        teacherId: 'teacher-uuid',
+        status: 'pending',
+      });
+      expect(validation).toMatchObject({ teacherId: 'teacher-uuid', status: 'pending' });
     });
 
-    it('returns null firstName/lastName when no administrative profile exists for a pending teacher', async () => {
-      teacherValidationRepo.find.mockResolvedValue([
-        { id: 'v1', teacherId: 'teacher-1', status: 'pending', createdAt: new Date('2026-01-01') },
-      ]);
-      adminRepo.find.mockResolvedValue([]);
+    it('est idempotent : un enregistrement pending existant est renvoyé sans réécriture', async () => {
+      const existing = { id: 'v1', teacherId: 'teacher-uuid', status: 'pending' };
+      teacherValidationRepo.findOne.mockResolvedValue(existing);
 
-      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
-      const result = await service.listTeachersPendingValidation(actor);
+      const { validation, isCreated } =
+        await service.bootstrapTeacherValidation('teacher-uuid');
 
-      expect(result).toEqual([
-        { id: 'v1', teacherId: 'teacher-1', firstName: null, lastName: null, createdAt: new Date('2026-01-01') },
-      ]);
+      expect(isCreated).toBe(false);
+      expect(validation).toBe(existing);
+      expect(teacherValidationRepo.save).not.toHaveBeenCalled();
     });
 
-    it('does not query administrative profiles when there is no pending validation', async () => {
-      teacherValidationRepo.find.mockResolvedValue([]);
-      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
-      const result = await service.listTeachersPendingValidation(actor);
-      expect(adminRepo.find).not.toHaveBeenCalled();
-      expect(result).toEqual([]);
-    });
+    // Cas d'erreur le plus grave : repasser un formateur validé en pending
+    // annulerait la décision d'un RP sans trace, et rouvrirait l'accès d'un
+    // formateur refusé.
+    it.each(['validated', 'rejected', 'in_review'])(
+      'ne repasse JAMAIS un formateur « %s » à pending',
+      async (status) => {
+        const existing = { id: 'v1', teacherId: 'teacher-uuid', status };
+        teacherValidationRepo.findOne.mockResolvedValue(existing);
 
-    it('throws 403 for a non-RP actor', async () => {
-      const actor = makeActor(UserRole.TECHNICIEN_INFORMATIQUE);
-      await expect(service.listTeachersPendingValidation(actor)).rejects.toThrow(ForbiddenException);
-    });
+        const { validation, isCreated } =
+          await service.bootstrapTeacherValidation('teacher-uuid');
+
+        expect(isCreated).toBe(false);
+        expect(validation).toHaveProperty('status', status);
+        expect(teacherValidationRepo.save).not.toHaveBeenCalled();
+        expect(teacherValidationRepo.create).not.toHaveBeenCalled();
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -1676,10 +1683,43 @@ describe('ProfilesService', () => {
       expect(result).toHaveProperty('status', 'validated');
     });
 
-    it('returns default pending when no record exists', async () => {
+    /**
+     * Le repli de synthèse SUBSISTE — refuser la lecture n'aiderait ni le
+     * formateur ni le RP — mais il ne doit plus MASQUER (arbitrage du
+     * 2026-08-12, point 2). C'est l'absorption silencieuse qui faisait mentir
+     * l'écran : le formateur se croyait en attente d'examen alors que personne
+     * ne devait jamais l'examiner.
+     */
+    it("renvoie un pending de repli quand aucun enregistrement n'existe, ET TRACE l'anomalie", async () => {
+      const logAnomaly = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+
       const result = await service.getTeacherValidation('teacher-uuid', actor);
+
       expect(result).toEqual({ teacherId: 'teacher-uuid', status: 'pending' });
+      expect(logAnomaly).toHaveBeenCalledTimes(1);
+      expect(logAnomaly.mock.calls[0][0]).toContain('ANOMALIE DE DONNEES');
+      expect(logAnomaly.mock.calls[0][0]).toContain('teacher-uuid');
+      logAnomaly.mockRestore();
+    });
+
+    it("ne trace aucune anomalie quand l'enregistrement existe", async () => {
+      const logAnomaly = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+      teacherValidationRepo.findOne.mockResolvedValue({
+        id: 'v-uuid',
+        teacherId: 'teacher-uuid',
+        status: 'pending',
+      });
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+      await service.getTeacherValidation('teacher-uuid', actor);
+
+      expect(logAnomaly).not.toHaveBeenCalled();
+      logAnomaly.mockRestore();
     });
 
     it('teacher can view their own validation status', async () => {

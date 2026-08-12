@@ -33,7 +33,7 @@ export const TEACHER_VALIDATION_STATUSES: TeacherValidationStatus[] = [
  */
 const TEACHER_VALIDATION_STATUS_LABELS: Record<TeacherValidationStatus, string> = {
   pending: 'en attente',
-  in_review: "en cours d'examen",
+  in_review: 'en cours d’examen',
   validated: 'validé',
   rejected: 'refusé',
 };

@@ -23,6 +23,7 @@ import { CreateStudentProfilesDto } from './dto/create-student-profiles.dto';
 import { CreateTeacherProfilesDto } from './dto/create-teacher-profiles.dto';
 import { LinkParentDto } from './dto/link-parent.dto';
 import { CreateTeacherStudentRelationDto } from './dto/create-teacher-student-relation.dto';
+import { EnsureTeacherValidationsDto } from './dto/ensure-teacher-validations.dto';
 import { LinkCoordinatorDto } from './dto/link-coordinator.dto';
 import { ResolveRelationQueryDto } from './dto/resolve-relation.query.dto';
 
@@ -109,6 +110,43 @@ export class InternalController {
     const { isCreated, relation } = await this.internalService.createTeacherStudentRelation(dto);
     response.status(isCreated ? HttpStatus.CREATED : HttpStatus.OK);
     return relation;
+  }
+
+  /**
+   * `POST /internal/teachers/ensure-validations`
+   *
+   * REPRISE DE STOCK des formateurs sans enregistrement de validation, invisibles
+   * du responsable pédagogique (arbitrage du 2026-08-12, point 3).
+   *
+   * Route et non migration SQL : `profile-service` ne connaît pas les rôles, et
+   * aucune de ses tables ne permet de dire qui est formateur sans le deviner
+   * (voir `InternalService.ensureTeacherValidations`). La liste vient donc de
+   * son propriétaire, identity-access-service, via
+   * `scripts/maintenance/backfill-teacher-validations.ts`.
+   *
+   * `200` et non `201` : l'opération est idempotente et ne crée rien dans le cas
+   * nominal d'un rejeu. Le corps dit précisément ce qui a été créé et ce qui
+   * existait déjà — un décompte muet ne permettrait pas de vérifier la reprise.
+   */
+  @ApiOperation({
+    summary: 'Créer les enregistrements de validation manquants (reprise de stock)',
+    description:
+      'Idempotente et NON DESTRUCTRICE : un formateur déjà `validated` ou `rejected` est ' +
+      'laissé strictement intact et compté dans `alreadyPresent`. Ne repasse jamais un ' +
+      'statut existant à `pending`.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '`{created: string[], alreadyPresent: string[]}`',
+  })
+  @ApiResponse({ status: 400, description: 'Liste vide, au-delà du plafond, ou UUID invalide.' })
+  @ApiResponse({ status: 401, description: 'X-Internal-Secret absent ou invalide.' })
+  @HttpCode(HttpStatus.OK)
+  @Post('teachers/ensure-validations')
+  ensureTeacherValidations(
+    @Body() dto: EnsureTeacherValidationsDto,
+  ): Promise<{ created: string[]; alreadyPresent: string[] }> {
+    return this.internalService.ensureTeacherValidations(dto.teacherIds);
   }
 
   @Post('link-coordinator')

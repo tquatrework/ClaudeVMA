@@ -4,6 +4,19 @@ import { UserRole } from '../enums/user-role.enum';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { OWNER_ACCESS_KEY } from '../decorators/owner-access.decorator';
 
+/**
+ * Refus générique de rôle, EN FRANÇAIS (règle de langue du 2026-08-09 : les
+ * clés d'API sont en anglais, tout ce que l'utilisateur lit est en français).
+ * Le message anglais « Insufficient role » remontait jusqu'à l'écran.
+ *
+ * Volontairement VAGUE sur ce qui est refusé : ce guard ne connaît pas la
+ * ressource, et un message précis révélerait ce que l'appelant n'a pas le droit
+ * de voir. Les services qui peuvent être précis le sont — voir les refus
+ * détaillés de la validation des formateurs.
+ */
+export const FORBIDDEN_ROLE_MESSAGE =
+  "Votre rôle ne vous permet pas d'accéder à cette ressource.";
+
 @Injectable()
 export class RolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
@@ -24,7 +37,7 @@ export class RolesGuard implements CanActivate {
     ]);
     if (isOwnerAccessRoute) {
       if (!user) {
-        throw new ForbiddenException('Insufficient role');
+        throw new ForbiddenException(FORBIDDEN_ROLE_MESSAGE);
       }
       return true;
     }
@@ -36,7 +49,7 @@ export class RolesGuard implements CanActivate {
     if (!required || required.length === 0) return true;
 
     if (!user || !required.includes(user.role)) {
-      throw new ForbiddenException('Insufficient role');
+      throw new ForbiddenException(FORBIDDEN_ROLE_MESSAGE);
     }
     return true;
   }

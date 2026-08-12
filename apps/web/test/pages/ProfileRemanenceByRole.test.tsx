@@ -39,17 +39,15 @@ import {
   fetchProfileAvatarBlob,
   fetchProfileAvatarConstraints,
   fetchProfileStatistics,
+  fetchTeacherValidationStatus,
   updateAdministrativeProfile,
   updatePedagogicalProfile,
+  updateTeacherValidationStatus,
 } from '../../src/api/profile'
 import {
   fetchLinkedStudents,
   fetchTeacherStudentRelations,
 } from '../../src/api/relations'
-import {
-  fetchTeacherValidationStatus,
-  updateTeacherValidationStatus,
-} from '../../src/api/teacherRequests'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockApiClient = vi.mocked(apiClient)
@@ -192,7 +190,7 @@ beforeEach(() => {
   )
   vi.mocked(fetchTeacherValidationStatus).mockResolvedValue({
     teacherId: 'teacher-1',
-    validationStatus: 'in_review',
+    status: 'in_review',
   } as never)
   mockUpdateAdministrativeProfile.mockResolvedValue(SAVED_ADMINISTRATIVE)
   mockUpdatePedagogicalProfile.mockResolvedValue(SAVED_TEACHER_PEDAGOGICAL)
@@ -353,8 +351,8 @@ describe('responsable pédagogique sur la fiche d’un formateur', () => {
     // être rechargé ni retomber sur la valeur d'avant l'action.
     mockUpdateTeacherValidationStatus.mockResolvedValue({
       teacherId: TEACHER_USER.id,
-      validationStatus: 'validated',
-      validatedAt: '2026-08-11T09:45:00.000Z',
+      status: 'validated',
+      updatedAt: '2026-08-11T09:45:00.000Z',
     } as never)
 
     renderProfilePage(TEACHER_USER.id)

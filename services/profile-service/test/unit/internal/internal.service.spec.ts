@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import {
   ConflictException,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InternalService } from '../../../src/internal/internal.service';
@@ -14,6 +15,7 @@ import {
   IdentityAccessUnavailableError,
 } from '../../../src/common/clients/identity-access.client';
 import { toAdministrativeProfileView } from '../../../src/profiles/administrative-profile.view';
+import { UserRole } from '../../../src/common/enums/user-role.enum';
 
 describe('InternalService', () => {
   let service: InternalService;
@@ -47,6 +49,15 @@ describe('InternalService', () => {
       presentAdministrativeProfile: jest
         .fn()
         .mockImplementation((profile) => toAdministrativeProfileView(profile)),
+      /**
+       * Idempotent et non destructeur côté ProfilesService (testé là-bas) :
+       * on simule ici la création, `isCreated` disant lequel des deux cas
+       * s'est produit.
+       */
+      bootstrapTeacherValidation: jest.fn().mockImplementation(async (teacherId) => ({
+        validation: { id: 'v-1', teacherId, status: 'pending' },
+        isCreated: true,
+      })),
     };
 
     relationsService = {
@@ -149,6 +160,135 @@ describe('InternalService', () => {
       expect(result).toHaveProperty('userId', 'teacher-uuid');
       expect(result).toHaveProperty('pedagogical.subjects', ['Mathématiques']);
     });
+
+    /**
+     * Arbitrage du 2026-08-12 : tout compte formateur porte un enregistrement
+     * de validation, créé à l'inscription. Sans lui, le formateur n'apparaît
+     * dans aucune file du RP — jamais vu, jamais validé, jamais proposable.
+     */
+    it("crée l'enregistrement de validation et le renvoie dans la réponse", async () => {
+      const result = await service.createTeacherProfiles({ userId: 'teacher-uuid' });
+
+      expect(profilesService.bootstrapTeacherValidation).toHaveBeenCalledWith('teacher-uuid');
+      expect(result).toHaveProperty('validation.status', 'pending');
+      expect(result).toHaveProperty('validation.teacherId', 'teacher-uuid');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Enregistrement de validation à l'inscription — arbitrage du 2026-08-12
+  //
+  // C'est `create-administrative-profile` que `POST /accounts/teachers`
+  // emprunte réellement (mesuré contre la pile le 2026-08-12), et non
+  // `create-teacher-profiles`. Le déclenchement doit donc exister ici aussi,
+  // sans quoi la correction ne vaudrait que pour un chemin que l'inscription
+  // n'emprunte pas.
+  // ---------------------------------------------------------------------------
+  describe('createAdministrativeProfile — enregistrement de validation', () => {
+    const teacherDto = {
+      userId: 'teacher-uuid',
+      firstName: 'Jean',
+      lastName: 'Formateur',
+      role: UserRole.FORMATEUR,
+    };
+
+    it("crée l'enregistrement de validation quand le rôle est formateur", async () => {
+      await service.createAdministrativeProfile(teacherDto);
+
+      expect(profilesService.bootstrapTeacherValidation).toHaveBeenCalledWith('teacher-uuid');
+    });
+
+    it.each([
+      UserRole.ELEVE,
+      UserRole.PARENT_FINANCEUR,
+      UserRole.RESPONSABLE_PEDAGOGIQUE,
+      UserRole.TECHNICIEN_INFORMATIQUE,
+      UserRole.ADMINISTRATEUR_FINANCIER,
+      UserRole.ANIMATEUR_PEDAGOGIQUE,
+    ])('ne crée aucun enregistrement de validation pour le rôle %s', async (role) => {
+      await service.createAdministrativeProfile({
+        userId: 'user-uuid',
+        firstName: 'Marie',
+        lastName: 'Dupont',
+        role,
+      });
+
+      expect(profilesService.bootstrapTeacherValidation).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Rien n'est deviné : sans rôle transmis, aucun enregistrement n'est créé.
+     * Mais l'omission a des conséquences (un formateur resterait invisible),
+     * elle est donc journalisée — un champ manquant qui compte ne doit pas
+     * passer inaperçu.
+     */
+    it('sans rôle transmis : ne crée rien et journalise un avertissement', async () => {
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+      await service.createAdministrativeProfile({
+        userId: 'user-uuid',
+        firstName: 'Marie',
+        lastName: 'Dupont',
+      });
+
+      expect(profilesService.bootstrapTeacherValidation).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('user-uuid'));
+      warn.mockRestore();
+    });
+
+    it("le rôle n'apparaît pas dans la réponse : profile-service ne l'expose pas", async () => {
+      const result = await service.createAdministrativeProfile(teacherDto);
+
+      expect(result).not.toHaveProperty('role');
+      expect(result.administrative).not.toHaveProperty('role');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Reprise de stock — arbitrage du 2026-08-12, point 3
+  // ---------------------------------------------------------------------------
+  describe('ensureTeacherValidations', () => {
+    it('sépare ce qui a été créé de ce qui existait déjà', async () => {
+      profilesService.bootstrapTeacherValidation
+        .mockResolvedValueOnce({ validation: {}, isCreated: true })
+        .mockResolvedValueOnce({ validation: {}, isCreated: false });
+
+      const result = await service.ensureTeacherValidations(['new-teacher', 'known-teacher']);
+
+      expect(result).toEqual({
+        created: ['new-teacher'],
+        alreadyPresent: ['known-teacher'],
+      });
+    });
+
+    it('réduit les doublons de la liste à un seul traitement', async () => {
+      await service.ensureTeacherValidations(['teacher-1', 'teacher-1', 'teacher-1']);
+
+      expect(profilesService.bootstrapTeacherValidation).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * Rejouer le script ne doit rien changer après le premier passage : c'est
+     * ce qui rend la reprise de stock sûre à relancer.
+     */
+    it('est idempotent : un second passage ne crée plus rien', async () => {
+      profilesService.bootstrapTeacherValidation.mockResolvedValue({
+        validation: {},
+        isCreated: false,
+      });
+
+      const result = await service.ensureTeacherValidations(['teacher-1', 'teacher-2']);
+
+      expect(result.created).toEqual([]);
+      expect(result.alreadyPresent).toEqual(['teacher-1', 'teacher-2']);
+    });
+
+    it('liste vide : ne touche à rien', async () => {
+      const result = await service.ensureTeacherValidations([]);
+
+      expect(result).toEqual({ created: [], alreadyPresent: [] });
+      expect(profilesService.bootstrapTeacherValidation).not.toHaveBeenCalled();
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -186,7 +326,14 @@ describe('InternalService', () => {
 
     it('createTeacherProfiles n\'expose pas la paire longue', async () => {
       const result = await service.createTeacherProfiles({ userId: 'teacher-uuid' });
-      expect(Object.keys(result)).toEqual(['userId', 'administrative', 'pedagogical']);
+      // `validation` s'ajoute depuis le 2026-08-12 : on renvoie l'état
+      // enregistré plutôt que de laisser l'appelant le supposer.
+      expect(Object.keys(result)).toEqual([
+        'userId',
+        'administrative',
+        'pedagogical',
+        'validation',
+      ]);
       for (const forbiddenKey of FORBIDDEN_KEYS) {
         expect(result).not.toHaveProperty(forbiddenKey);
       }

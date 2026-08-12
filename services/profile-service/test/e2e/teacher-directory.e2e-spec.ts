@@ -172,7 +172,10 @@ describe('[E2E] Annuaire des formateurs validés', () => {
       const pending = await asRp('/profiles/teachers/pending-validation').expect(200);
       const validated = await asRp('/profiles/teachers/validated').expect(200);
 
-      const pendingIds = pending.body.map((entry: { teacherId: string }) => entry.teacherId);
+      // Les deux listes servent désormais la MÊME enveloppe et le MÊME nom
+      // d'identifiant (`userId`) : c'est ce qui garantit qu'elles ne peuvent
+      // plus diverger (arbitrage du 2026-08-12).
+      const pendingIds = pending.body.data.map((entry: { userId: string }) => entry.userId);
       const validatedIds = validated.body.data.map((entry: { userId: string }) => entry.userId);
 
       expect(validatedIds.some((id: string) => pendingIds.includes(id))).toBe(false);

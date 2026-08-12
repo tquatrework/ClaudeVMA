@@ -4,11 +4,11 @@ import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
 import {
-  ListValidatedTeachersQueryDto,
-  VALIDATED_TEACHERS_DEFAULT_LIMIT,
-  VALIDATED_TEACHERS_DEFAULT_PAGE,
-  VALIDATED_TEACHERS_MAX_LIMIT,
-} from '../../../src/profiles/dto/list-validated-teachers.query.dto';
+  TeachersPageQueryDto,
+  TEACHERS_PAGE_DEFAULT_LIMIT,
+  TEACHERS_PAGE_DEFAULT_PAGE,
+  TEACHERS_PAGE_MAX_LIMIT,
+} from '../../../src/profiles/dto/teachers-page.query.dto';
 
 /**
  * La query arrive toujours en chaînes de caractères : ces tests passent donc
@@ -17,20 +17,20 @@ import {
  * conversion.
  */
 const parse = (query: Record<string, unknown>) =>
-  plainToInstance(ListValidatedTeachersQueryDto, query, { enableImplicitConversion: false });
+  plainToInstance(TeachersPageQueryDto, query, { enableImplicitConversion: false });
 
 const errorsOf = (query: Record<string, unknown>) => validateSync(parse(query));
 
 const messagesOf = (query: Record<string, unknown>) =>
   errorsOf(query).flatMap((error) => Object.values(error.constraints ?? {}));
 
-describe('ListValidatedTeachersQueryDto', () => {
+describe('TeachersPageQueryDto', () => {
   describe('valeurs par défaut', () => {
     it('applique page 1 et la taille de page par défaut quand rien n\'est fourni', () => {
       const dto = parse({});
 
-      expect(dto.page).toBe(VALIDATED_TEACHERS_DEFAULT_PAGE);
-      expect(dto.limit).toBe(VALIDATED_TEACHERS_DEFAULT_LIMIT);
+      expect(dto.page).toBe(TEACHERS_PAGE_DEFAULT_PAGE);
+      expect(dto.limit).toBe(TEACHERS_PAGE_DEFAULT_LIMIT);
       expect(errorsOf({})).toHaveLength(0);
     });
   });
@@ -62,8 +62,8 @@ describe('ListValidatedTeachersQueryDto', () => {
       expect(errorsOf({ page: '1', limit: '1' })).toHaveLength(0);
     });
 
-    it(`accepte la borne haute : limit ${VALIDATED_TEACHERS_MAX_LIMIT}`, () => {
-      expect(errorsOf({ limit: String(VALIDATED_TEACHERS_MAX_LIMIT) })).toHaveLength(0);
+    it(`accepte la borne haute : limit ${TEACHERS_PAGE_MAX_LIMIT}`, () => {
+      expect(errorsOf({ limit: String(TEACHERS_PAGE_MAX_LIMIT) })).toHaveLength(0);
     });
 
     it('refuse page 0 — la pagination commence à 1', () => {
@@ -82,11 +82,11 @@ describe('ListValidatedTeachersQueryDto', () => {
   });
 
   describe('plafond déclaré, jamais rogné en silence', () => {
-    it(`refuse un limit au-dessus de ${VALIDATED_TEACHERS_MAX_LIMIT}`, () => {
-      const messages = messagesOf({ limit: String(VALIDATED_TEACHERS_MAX_LIMIT + 1) });
+    it(`refuse un limit au-dessus de ${TEACHERS_PAGE_MAX_LIMIT}`, () => {
+      const messages = messagesOf({ limit: String(TEACHERS_PAGE_MAX_LIMIT + 1) });
 
       expect(messages).toHaveLength(1);
-      expect(messages[0]).toContain(String(VALIDATED_TEACHERS_MAX_LIMIT));
+      expect(messages[0]).toContain(String(TEACHERS_PAGE_MAX_LIMIT));
     });
 
     it('annonce le plafond en français dans le message de refus', () => {

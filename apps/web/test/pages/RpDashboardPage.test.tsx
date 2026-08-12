@@ -20,14 +20,21 @@ import RpDashboardPage from '../../src/pages/RpDashboardPage'
 vi.mock('../../src/hooks/useAuth')
 vi.mock('../../src/api/teacherRequests')
 vi.mock('../../src/api/dashboardNotifications')
+vi.mock('../../src/api/profile')
 
 import { useAuth } from '../../src/hooks/useAuth'
 import { fetchTeacherRequests } from '../../src/api/teacherRequests'
 import { fetchNotifications } from '../../src/api/dashboardNotifications'
+import { fetchPendingTeachers } from '../../src/api/profile'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockFetchTeacherRequests = vi.mocked(fetchTeacherRequests)
 const mockFetchNotifications = vi.mocked(fetchNotifications)
+const mockFetchPendingTeachers = vi.mocked(fetchPendingTeachers)
+
+function buildPendingTeachersPage(total: number) {
+  return { data: [], page: 1, limit: 1, total, totalPages: total }
+}
 
 const RP_USER = {
   id: 'rp-1',
@@ -62,6 +69,7 @@ beforeEach(() => {
   mockUseAuth.mockReturnValue(buildAuthMock())
   mockFetchNotifications.mockResolvedValue([])
   mockFetchTeacherRequests.mockResolvedValue([])
+  mockFetchPendingTeachers.mockResolvedValue(buildPendingTeachersPage(0))
 })
 
 describe('RpDashboardPage — demandes professeur en attente', () => {
@@ -113,6 +121,39 @@ describe('RpDashboardPage — notifications', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Compte à valider')).toBeDefined()
+    })
+  })
+})
+
+describe('RpDashboardPage — nouveaux formateurs à examiner', () => {
+  it('compte le total de la file, pas la longueur de la page reçue', async () => {
+    // La file est paginée : compter `data.length` annoncerait « 1 » sur 17.
+    mockFetchPendingTeachers.mockResolvedValue(buildPendingTeachersPage(17))
+
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(screen.getAllByText('17').length).toBeGreaterThan(0)
+    })
+    expect(mockFetchPendingTeachers).toHaveBeenCalledWith(1, 1)
+  })
+
+  it('mène à la file de validation', async () => {
+    mockFetchPendingTeachers.mockResolvedValue(buildPendingTeachersPage(3))
+
+    renderDashboard()
+
+    const link = await screen.findByRole('link', { name: /nouveaux formateurs à examiner/i })
+    expect(link.getAttribute('href')).toBe('/rp/teacher-validations')
+  })
+
+  it("retombe sur 0 sans alarmer quand la file n'est pas lisible", async () => {
+    mockFetchPendingTeachers.mockRejectedValue({ response: { status: 403 } })
+
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(screen.getAllByText('0').length).toBeGreaterThan(0)
     })
   })
 })

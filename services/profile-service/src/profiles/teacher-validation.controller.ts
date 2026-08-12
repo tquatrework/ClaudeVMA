@@ -5,17 +5,29 @@ import {
   Patch,
   Param,
   Body,
+  Query,
   UseGuards,
   ParseUUIDPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
+  ApiQuery,
   ApiResponse,
   ApiParam,
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { ProfilesService } from './profiles.service';
+import {
+  PendingTeachersPage,
+  TeacherDirectoryService,
+} from './teacher-directory.service';
+import {
+  TeachersPageQueryDto,
+  TEACHERS_PAGE_DEFAULT_LIMIT,
+  TEACHERS_PAGE_DEFAULT_PAGE,
+  TEACHERS_PAGE_MAX_LIMIT,
+} from './dto/teachers-page.query.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -34,26 +46,80 @@ import { UpdateTeacherValidationDto } from './dto/update-teacher-validation.dto'
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('profiles')
 export class TeacherValidationController {
-  constructor(private readonly profilesService: ProfilesService) {}
+  constructor(
+    private readonly profilesService: ProfilesService,
+    /**
+     * La FILE d'attente est servie par `TeacherDirectoryService`, qui porte
+     * déjà la liste des formateurs validés : ce sont deux tranches de la même
+     * population, et les tenir séparément avait laissé l'une bornée et paginée
+     * quand l'autre renvoyait un tableau nu. Le CYCLE de validation
+     * (statut, transitions, promotion AP) reste sur `ProfilesService`.
+     */
+    private readonly teacherDirectoryService: TeacherDirectoryService,
+  ) {}
 
   @Get('teachers/pending-validation')
   @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE)
   @ApiOperation({
-    summary: 'List teachers pending validation',
+    summary: 'Lister les formateurs en attente de validation (file du RP)',
     description:
-      'Returns all formateurs whose validation status is pending. ' +
-      'Restricted to RP only. ' +
-      'Name fields are joined from administrative profiles when available.',
+      'File de travail du responsable pédagogique : les formateurs dont la validation est ' +
+      '`pending`, **triés par ancienneté** — le premier inscrit est le premier examiné. ' +
+      "Réservée au RP : instruire un dossier de formateur est son métier ; le TI peut " +
+      'trancher un dossier ouvert sans avoir à disposer de la file.\n\n' +
+      "**Tout formateur y figure dès son inscription** (arbitrage du 2026-08-12) : " +
+      "l'enregistrement de validation est créé par le workflow d'onboarding, jamais par une " +
+      'lecture. Avant cette correction, la lecture unitaire fabriquait un `pending` de ' +
+      "synthèse pour une ligne absente, si bien qu'un formateur pouvait se croire en attente " +
+      "d'examen sans apparaître ici — donc sans jamais être examiné.\n\n" +
+      '**À ne pas confondre avec `GET /profiles/teachers/validated`**, qui liste les ' +
+      'formateurs déjà validés, c\'est-à-dire ceux qu\'on peut solliciter.\n\n' +
+      "**LISTE BORNÉE**, même forme et mêmes plafonds que l'annuaire des validés : `page` " +
+      `(défaut ${TEACHERS_PAGE_DEFAULT_PAGE}) et \`limit\` (défaut ` +
+      `${TEACHERS_PAGE_DEFAULT_LIMIT}, maximum ${TEACHERS_PAGE_MAX_LIMIT}). Un \`limit\` ` +
+      "au-dessus du plafond est refusé en `400`, jamais ramené en silence.",
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: `Numéro de page, à partir de 1. Défaut : ${TEACHERS_PAGE_DEFAULT_PAGE}.`,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description:
+      `Nombre de formateurs par page. Défaut : ${TEACHERS_PAGE_DEFAULT_LIMIT}, ` +
+      `maximum : ${TEACHERS_PAGE_MAX_LIMIT}.`,
   })
   @ApiResponse({
     status: 200,
-    description: 'List of formateurs pending validation (may be empty)',
+    description:
+      'Enveloppe `{data, page, limit, total, totalPages}` — jamais un tableau nu. Chaque ' +
+      'entrée : `{userId, firstName, lastName, levels, subjects, pendingSince}`. ' +
+      "`pendingSince` est la date depuis laquelle le formateur attend (création de " +
+      "l'enregistrement de validation, donc son inscription). `levels`/`subjects` valent " +
+      '`null` quand le profil pédagogique — facultatif — ne les porte pas ; ' +
+      '`firstName`/`lastName` à `null` signalent une incohérence de données journalisée côté ' +
+      'serveur, jamais un formateur retiré de la file en silence.',
   })
-  @ApiResponse({ status: 403, description: 'Forbidden — RP only' })
+  @ApiResponse({
+    status: 400,
+    description:
+      '`page` ou `limit` non entier, inférieur à 1, ou `limit` au-dessus du plafond ; ' +
+      'paramètre de requête inconnu (`forbidNonWhitelisted`)',
+  })
+  @ApiResponse({ status: 401, description: 'Sans jeton' })
+  @ApiResponse({
+    status: 403,
+    description: 'Rôle non autorisé — responsable pédagogique seulement',
+  })
   listTeachersPendingValidation(
+    @Query() query: TeachersPageQueryDto,
     @CurrentUser() actor: AuthenticatedUser,
-  ): Promise<Awaited<ReturnType<ProfilesService['listTeachersPendingValidation']>>> {
-    return this.profilesService.listTeachersPendingValidation(actor);
+  ): Promise<PendingTeachersPage> {
+    return this.teacherDirectoryService.listTeachersPendingValidation(query, actor);
   }
 
   @Post(':teacherId/ap-status')

@@ -65,6 +65,9 @@
       <endpoint method="POST" path="/internal/create-teacher-student-relation">Creer le lien eleve↔formateur a la validation du RP (teacher-request-service). IDEMPOTENTE : 201 creation, 200 rejeu, 409 seulement si le lien existe avec un statut de professeur principal different.</endpoint>
       <!-- Annuaire des formateurs valides — decision C20 (2026-08-12) -->
       <endpoint method="GET" path="/profiles/teachers/validated">Annuaire des formateurs dont la validation est 'validated', pour que le RP puisse DESIGNER les destinataires d'une proposition (etape 3 du flow demande de professeur). Roles administratifs SEULS (RP, AF, TI) — l'AP en est exclu. Contenu LIMITE AU SOCLE DE VISIBILITE : userId, firstName, lastName, levels, subjects. Liste bornee et paginee : page (defaut 1), limit (defaut 20, MAXIMUM 100 declare et refuse explicitement). Enveloppe {data, page, limit, total, totalPages}. Chemin a DEUX segments obligatoire : /profiles/teachers est capte par GET /profiles/:userId et repond 400.</endpoint>
+      <!-- Validation des nouveaux formateurs — decision C21 (2026-08-12) -->
+      <endpoint method="GET" path="/profiles/teachers/pending-validation">FILE DE TRAVAIL DU RP : formateurs dont la validation est 'pending', tries par ANCIENNETE (le premier inscrit est le premier examine). RP SEUL — le TI peut trancher un dossier ouvert, il n'a pas a disposer de la file. BORNEE ET PAGINEE depuis le 2026-08-12, meme forme et memes plafonds que /profiles/teachers/validated : enveloppe {data, page, limit, total, totalPages}, entree {userId, firstName, lastName, levels, subjects, pendingSince}. CHANGEMENT DE CONTRAT : renvoyait auparavant un tableau nu NON BORNE d'entrees {id, teacherId, firstName, lastName, createdAt}.</endpoint>
+      <endpoint method="POST" path="/internal/teachers/ensure-validations">REPRISE DE STOCK des formateurs sans enregistrement de validation. Body {teacherIds} (200 maximum). IDEMPOTENTE ET NON DESTRUCTRICE : un formateur deja validated/rejected est laisse intact — statut ET commentaire — et compte dans alreadyPresent. 200 et non 201 : dans le cas nominal du rejeu, rien n'est cree. X-Internal-Secret ; jamais exposee par api-gateway.</endpoint>
       <!-- Photo de profil — decisions C13 (routes) et C14 (plafond de taille), 2026-08-10 -->
       <endpoint method="GET" path="/profiles/avatar/constraints">Lire les contraintes d'envoi (maxUploadBytes, formats acceptes) AVANT de choisir un fichier. Sans :userId : elles ne dependent ni du profil vise ni du lecteur. Le front ne doit pas les coder en dur.</endpoint>
       <endpoint method="POST" path="/profiles/{userId}/avatar">Envoyer ou remplacer la photo (multipart, champ file ; titulaire SEUL). 413 structure au-dela de MEDIA_MAX_UPLOAD_BYTES, coupe en streaming par multer.</endpoint>
@@ -86,8 +89,12 @@
         etait implementee dans le code (assertValidationTransition) et dans le
         front, mais n'apparaissait nulle part dans docs/ : elle est desormais
         documentee ici et dans docs/routes.md.
-        L'absence d'enregistrement TeacherValidation equivaut au statut
-        'pending' (getTeacherValidation renvoie un objet synthetique).
+        DEPUIS LE 2026-08-12 (decision C21), l'enregistrement TeacherValidation
+        est CREE A L'INSCRIPTION de tout formateur. Son absence n'est donc plus
+        un etat normal mais une INCOHERENCE DE DONNEES : getTeacherValidation
+        renvoie encore un objet synthetique 'pending' — refuser la lecture
+        n'aiderait ni le formateur ni le RP — mais journalise desormais
+        l'anomalie en error au lieu de l'absorber en silence.
       </description>
       <state id="pending" initial="true">Formateur inscrit, dossier non instruit.</state>
       <state id="in_review">Dossier pris en charge et instruit par le RP.</state>
@@ -2061,6 +2068,9 @@
       <decision id="C20" status="implemented" session="2026-08-12">
         <title>Annuaire des formateurs valides — GET /profiles/teachers/validated, levee du blocage de l'etape 3</title>
         <filesTouched>
+          <!-- RENOMME le 2026-08-12 par la decision C21 en dto/teachers-page.query.dto.ts,
+               partage avec la file de validation : deux DTO jumeaux auraient laisse leurs
+               plafonds diverger en silence. Constantes renommees TEACHERS_PAGE_*. -->
           <file path="services/profile-service/src/profiles/dto/list-validated-teachers.query.dto.ts">
             NOUVEAU. `page` / `limit` optionnels, convertis par `@Type(() => Number)`. Constantes
             EXPORTEES `VALIDATED_TEACHERS_DEFAULT_PAGE` (1), `_DEFAULT_LIMIT` (20), `_MAX_LIMIT` (100),
@@ -2143,6 +2153,142 @@
           PREUVE CONTRE LA PILE REELLE NON PRODUITE : le conteneur `visiomath_profile` n'a pas ete
           reconstruit (hors perimetre d'un agent de service). Tant que l'image n'est pas
           reconstruite, `https://claudevma.visioprof.fr` ne sert pas cette route.
+        </verification>
+      </decision>
+      <decision id="C21" status="implemented" session="2026-08-12">
+        <title>Validation des nouveaux formateurs — l'enregistrement est cree a l'inscription, plus jamais fabrique a la lecture</title>
+        <filesTouched>
+          <file path="services/profile-service/src/profiles/profiles.service.ts">
+            NOUVEAU `bootstrapTeacherValidation(teacherId)` : cree la ligne au statut `pending`.
+            IDEMPOTENT et surtout NON DESTRUCTEUR — un enregistrement existant est renvoye TEL
+            QUEL, quel que soit son statut. `listTeachersPendingValidation` RETIREE d'ici (voir
+            teacher-directory.service.ts). `getTeacherValidation` journalise desormais
+            « ANOMALIE DE DONNEES » quand aucune ligne n'existe. Messages de refus traduits.
+          </file>
+          <file path="services/profile-service/src/profiles/entities/teacher-validation.entity.ts">
+            NOUVEAUX `TEACHER_VALIDATION_STATUSES` et `statusLabel()` — libelles francais des
+            statuts EN UN SEUL POINT, relus par les messages d'erreur et par le DTO. Les
+            messages qui ecrivaient « en cours d'examen » en dur les consomment maintenant.
+          </file>
+          <file path="services/profile-service/src/profiles/dto/teachers-page.query.dto.ts">
+            NOUVEAU, remplace `list-validated-teachers.query.dto.ts` (supprime). UN SEUL DTO de
+            pagination pour LES DEUX listes de formateurs. Constantes `TEACHERS_PAGE_*`.
+          </file>
+          <file path="services/profile-service/src/profiles/teacher-directory.service.ts">
+            ACCUEILLE la file de validation. Mecanique commune
+            `listTeachersByValidationStatus(status, query, toEntry, order)` : memes jointures,
+            meme pagination, meme signalement d'incoherence ; seuls varient le statut filtre, le
+            tri et la projection. `PendingTeacherSummary` ajoute `pendingSince`.
+          </file>
+          <file path="services/profile-service/src/profiles/teacher-validation.controller.ts">
+            `GET teachers/pending-validation` prend `@Query() TeachersPageQueryDto` et delegue a
+            `TeacherDirectoryService`. Swagger reecrit en francais.
+          </file>
+          <file path="services/profile-service/src/profiles/dto/update-teacher-validation.dto.ts">
+            `TeacherValidationStatus` IMPORTE de l'entite au lieu d'y etre redeclare (le fichier
+            en portait une copie litterale). Messages de validation en francais.
+          </file>
+          <file path="services/profile-service/src/internal/dto/create-administrative-profile.dto.ts">
+            NOUVEAU champ `role`, facultatif, valide contre `UserRole`.
+          </file>
+          <file path="services/profile-service/src/internal/dto/ensure-teacher-validations.dto.ts">
+            NOUVEAU. `{teacherIds}`, plafond declare a 200.
+          </file>
+          <file path="services/profile-service/src/internal/internal.service.ts">
+            `createTeacherProfiles` cree la validation inconditionnellement et la renvoie ;
+            `createAdministrativeProfile` la cree si `role === formateur` et journalise en `warn`
+            l'absence de role ; NOUVEAU `ensureTeacherValidations(teacherIds)`.
+          </file>
+          <file path="services/profile-service/src/internal/internal.controller.ts">
+            NOUVELLE route `POST /internal/teachers/ensure-validations` (`@HttpCode(200)`).
+          </file>
+          <file path="services/profile-service/src/common/guards/roles.guard.ts">
+            `Insufficient role` traduit (`FORBIDDEN_ROLE_MESSAGE`). Volontairement vague : le
+            guard ne connait pas la ressource, un message precis revelerait ce qui est masque.
+          </file>
+          <file path="scripts/maintenance/backfill-teacher-validations.ts">
+            NOUVEAU. Liste les formateurs aupres de leur proprietaire
+            (`GET /internal/accounts?role=formateur`) puis appelle la route de reprise, par lots.
+            `--dry-run` disponible.
+          </file>
+          <file path="services/profile-service/test/e2e/teacher-validation.e2e-spec.ts">NOUVEAU, 33 tests contre un vrai PostgreSQL.</file>
+          <file path="docs/routes.md">Encadre « L'enregistrement est cree a l'inscription », tableau du changement de contrat, deux routes internes.</file>
+        </filesTouched>
+        <description>
+          (1) LE DEFAUT, mesure contre la pile. Un formateur cree par `POST /accounts/teachers`
+          etait lu `pending` par `GET /profiles/:teacherId/validation` mais n'apparaissait JAMAIS
+          dans `GET /profiles/teachers/pending-validation`. L'inscription ne creait aucune ligne ;
+          la lecture unitaire en fabriquait une de synthese, la liste ne montrait que les lignes
+          reelles. Jamais vu du RP, donc jamais valide, donc jamais proposable : cul-de-sac
+          silencieux. Le flow « demande de professeur » ne fonctionnait que parce que deux
+          formateurs avaient ete forces en `validated` a la main.
+          (2) LA CAUSE EXACTE, ET POURQUOI ELLE N'ETAIT PAS OU ON LA CHERCHAIT. On aurait pose la
+          correction dans `createTeacherProfiles` — c'est le nom qui l'appelle. Mesure faite le
+          2026-08-12 en creant un compte reel : `POST /accounts/teachers` appelle
+          `POST /internal/create-administrative-profile`, PAS `create-teacher-profiles` (aucun
+          profil pedagogique formateur n'est cree non plus). La correction posee la seule aurait
+          ete du CODE MORT pour l'inscription reelle. Les deux chemins sont donc couverts.
+          (3) LE ROLE MANQUAIT DANS LE DTO, contrairement a l'arbitrage du 2026-08-07 qui prevoit
+          explicitement que « `CreateAdministrativeProfileDto` transporte le role ». Il est
+          ajoute, FACULTATIF : l'exiger ferait echouer toute creation de compte en `400` tant que
+          `identity-access-service` ne l'envoie pas, c'est-a-dire casserait l'inscription entiere
+          pour corriger un defaut de validation. Non persiste et non expose — `identity-access-service`
+          reste l'unique proprietaire du role. Son absence est journalisee en `warn`, avec la
+          consequence metier ecrite en toutes lettres.
+          (4) POURQUOI LA REPRISE DE STOCK N'EST PAS UNE MIGRATION SQL. `profile-service` ne
+          connait pas les roles et a interdiction de les persister : aucune table locale ne dit
+          qui est formateur. `teacher_pedagogical_profiles` ne peut pas en tenir lieu — mesure en
+          base le 2026-08-12 : 17 formateurs pour 5 lignes, et les deux formateurs `validated`
+          n'y figuraient meme pas. Une migration SQL ne pourrait que deviner, donc creer des
+          enregistrements de validation pour des eleves et des parents. La liste est demandee a
+          son proprietaire par un script de maintenance, sur le modele de `backfill-profiles.ts`.
+          (5) LE REPLI DE SYNTHESE SUBSISTE MAIS NE MASQUE PLUS. `getTeacherValidation` repond
+          toujours `200 {teacherId, status:'pending'}` faute de ligne — refuser la lecture
+          n'aiderait ni le formateur ni le RP — mais journalise « ANOMALIE DE DONNEES » en error,
+          en nommant les deux causes possibles et le script de reprise. C'est l'absorption
+          SILENCIEUSE qui faisait mentir l'ecran, pas le repli lui-meme.
+          (6) LES DEUX LISTES DE FORMATEURS SONT FUSIONNEES DANS UNE SEULE MECANIQUE. La file
+          renvoyait un tableau nu non borne quand l'annuaire, livre le matin meme, etait borne et
+          pagine. C'est precisement parce qu'elles vivaient dans deux services distincts
+          (`ProfilesService` / `TeacherDirectoryService`) que la divergence avait pu naitre. Elles
+          partagent desormais un DTO de pagination et une methode de requete : la divergence
+          n'est plus reintroductible sans le voir.
+          (7) DEUX ECARTS DE NOMMAGE RESORBES AU PASSAGE, pas documentes (arbitrage du
+          2026-08-08). L'identifiant d'une personne s'appelait `teacherId` dans cette liste et
+          `userId` dans l'autre : c'est `userId` partout. Et `createdAt`, dans une liste de
+          PERSONNES, se lisait « date de creation du formateur » alors qu'il s'agit de la date de
+          l'enregistrement de validation : c'est `pendingSince`, qui dit aussi pourquoi la liste
+          est triee ainsi. Le champ `id` disparait : `PATCH` adresse par `teacherId`, le front
+          n'en avait aucun usage, et c'etait un UUID de plus expose (arbitrage du 2026-08-09).
+          (8) LANGUE. Les messages du cycle de validation etaient en anglais et remontaient
+          jusqu'a l'ecran. Traduits, avec les libelles d'etat tenus en un point unique plutot que
+          reecrits dans chaque message. Le refus generique de `RolesGuard` — partage par TOUTES
+          les routes du service — l'etait aussi : corrige.
+        </description>
+        <verification>
+          622 tests unitaires verts, 328 e2e verts contre un vrai PostgreSQL. `[PROF-BR-010]`
+          reste rouge : preexistant, laisse a dessein, hors perimetre.
+
+          PREUVE CONTRE LA PILE REELLE, image reconstruite et conteneur recree le 2026-08-12 :
+          - reprise de stock jouee sur la base reelle : `{"created":[16 identifiants],
+            "alreadyPresent":["a1c90ec9-…","2b02e211-…"]}`. Les deux formateurs deja `validated`
+            ont conserve statut ET commentaire (« Validation de demonstration du flow
+            professeur. ») ; la base compte ensuite 16 `pending` + 2 `validated`.
+          - `GET /api/v1/profiles/teachers/pending-validation?limit=3` via
+            `https://claudevma.visioprof.fr` : `200` avec l'enveloppe
+            `{data:[…], page:1, limit:3, total:16, totalPages:6}`.
+          - lecture unitaire et liste CONCORDENT pour un formateur neuf : la premiere renvoie
+            `status:"pending"`, la seconde le contient (`total` passe de 16 a 17).
+          - refus en francais : `PATCH …/validation {status:"validated"}` par le RP repond `403`
+            « Seul le technicien informatique peut sauter l'etape « en cours d'examen »… ».
+
+          LIMITE CONNUE ET NON MASQUEE : une inscription reelle par `POST /accounts/teachers` ne
+          cree TOUJOURS PAS l'enregistrement, parce qu'`identity-access-service` n'envoie pas
+          encore `role` a `create-administrative-profile`. Verifie le 2026-08-12 : le compte
+          `preuve.prof.1786545…` n'a recu aucune ligne, et le `warn` attendu a bien ete emis. Le
+          cote RECEVEUR est complet et prouve — rejouer le meme appel AVEC `role:"formateur"` cree
+          la ligne et fait apparaitre le formateur dans la file. Il manque une ligne chez
+          l'appelant ; voir openPoints.
         </verification>
       </decision>
       <openPoints>
@@ -2505,6 +2651,14 @@
           en miroir du decoupage deja fait sur les controleurs (decision C2), est recommande
           en session dediee. RelationsService (364 lignes) est au-dessus du seuil
           de 300 lignes ; jugee non bloquant pour l'instant (3 repositories, cohesion claire).
+        </item>
+        <item>
+          BLOQUANT COTE APPELANT (decision C21, 2026-08-12) : `identity-access-service` doit
+          ajouter `role` au corps qu'il envoie a `POST /internal/create-administrative-profile`
+          — une ligne, champ facultatif, aucun risque de regression. Sans elle, tout formateur
+          qui s'inscrit reste invisible du RP, et il faut relancer la reprise de stock
+          periodiquement pour rattraper les nouveaux comptes. Le cote receveur est livre, teste
+          et prouve contre la pile.
         </item>
         <item>
           Listes non bornees : plusieurs methodes de liste (RelationsService.

@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { ProfileServiceClient, ProfileServiceUnavailableError } from '../../../src/common/clients/profile-service.client';
+import { UserRole } from '../../../src/auth/entities/user.entity';
 
 /**
  * ProfileServiceClient est le pendant symétrique de IdentityAccessClient côté
@@ -107,6 +108,46 @@ describe('ProfileServiceClient', () => {
           }),
         }),
       );
+    });
+
+    it('forwards the role in the outgoing body (same name on both sides, no mapping)', async () => {
+      fetchMock.mockResolvedValue({ status: 201, ok: true });
+
+      await client.createAdministrativeProfile({
+        userId: 'user-uuid',
+        firstName: 'Marie',
+        lastName: 'Martin',
+        role: UserRole.FORMATEUR,
+      });
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://profile-service:3002/internal/create-administrative-profile',
+        expect.objectContaining({
+          body: JSON.stringify({
+            userId: 'user-uuid',
+            firstName: 'Marie',
+            lastName: 'Martin',
+            role: 'formateur',
+          }),
+        }),
+      );
+    });
+
+    it('sends the role value as stored, never a translated or renamed variant', async () => {
+      fetchMock.mockResolvedValue({ status: 201, ok: true });
+
+      for (const role of Object.values(UserRole)) {
+        fetchMock.mockClear();
+        await client.createAdministrativeProfile({
+          userId: 'user-uuid',
+          firstName: 'Jean',
+          lastName: 'Dupont',
+          role,
+        });
+
+        const sentBody = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body);
+        expect(sentBody.role).toBe(role);
+      }
     });
 
     it('throws ProfileServiceUnavailableError and logs an error with the userId on a network failure / timeout', async () => {

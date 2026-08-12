@@ -13,6 +13,7 @@ import { ActivityFeed } from '../components/ui/ActivityFeed'
 import { PageTitle } from '../components/ui/PageTitle'
 import { useDashboardNotifications } from '../hooks/dashboard/useDashboardNotifications'
 import { usePendingTeacherRequestCount } from '../hooks/dashboard/usePendingTeacherRequestCount'
+import { usePendingTeacherValidationCount } from '../hooks/dashboard/usePendingTeacherValidationCount'
 
 interface ActionItem {
   label: string
@@ -26,12 +27,21 @@ export default function RpDashboardPage() {
   const firstName = user?.loginIdentifier ?? 'vous'
 
   const { pendingRequestCount, isLoadingRequests } = usePendingTeacherRequestCount()
+  const { pendingTeacherCount, isLoadingTeacherCount } = usePendingTeacherValidationCount()
   const { notifications, isLoadingNotifications } = useDashboardNotifications(8)
 
   const topNavItems = filterTopNavItems('responsable_pedagogique', hasRole)
   const railGroups = getRailGroupsForRole('responsable_pedagogique')
 
+  // Les deux files du plan de travail du RP (arbitrage du 2026-08-12) en tête,
+  // dans le même ordre que le rail.
   const actionItems: ActionItem[] = [
+    {
+      label: 'Nouveaux formateurs à examiner',
+      count: pendingTeacherCount ?? 0,
+      path: '/rp/teacher-validations',
+      urgency: pendingTeacherCount && pendingTeacherCount > 0 ? 'high' : 'low',
+    },
     {
       label: 'Demandes professeur en attente',
       count: pendingRequestCount ?? 0,
@@ -81,9 +91,9 @@ export default function RpDashboardPage() {
             isAlert: (pendingRequestCount ?? 0) > 0,
           },
           {
-            label: 'Formateurs actifs',
-            value: '—', // TODO: brancher API
-            isAlert: false,
+            label: 'Formateurs à examiner',
+            value: isLoadingTeacherCount ? '…' : String(pendingTeacherCount ?? 0),
+            isAlert: (pendingTeacherCount ?? 0) > 0,
           },
           {
             label: 'Contenus en attente',

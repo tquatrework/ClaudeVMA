@@ -2111,5 +2111,165 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-08-12" label="File de validation des nouveaux formateurs pour le RP (branche feat/validation-nouveaux-professeurs)">
+      <context>
+        Arbitrage du 2026-08-12 (`docs/architecture.md` &gt; « Validation des nouveaux formateurs,
+        et plan de travail du RP ») : « le RP a un plan de travail, pas des ecrans epars ». Il
+        lui faut au minimum deux files — les nouveaux formateurs a valider ou refuser, et les
+        demandes de professeur des eleves. Cote front, la validation n'etait atteignable que
+        depuis la fiche d'un formateur (`TeacherValidationPanel` monte dans `ProfilePage`) : le
+        RP ne pouvait agir que sur quelqu'un qu'il connaissait deja, ce qui suppose resolu le
+        probleme que l'ecran devrait resoudre. Cote serveur, le defaut qui rendait les
+        formateurs invisibles a ete corrige et 16 enregistrements de validation manquants ont
+        ete rattrapes : 17 formateurs attendaient reellement en base au debut de cette session.
+      </context>
+
+      <fileTree>
+        apps/web/src/
+        ├── api/profile.ts                                       # + fetchPendingTeachers, fetchTeacherValidationStatus,
+        │                                                        #   updateTeacherValidationStatus (deplacees depuis teacherRequests.ts),
+        │                                                        #   PENDING_TEACHERS_PAGE_SIZE / _MAX_LIMIT
+        ├── api/teacherRequests.ts                               # - bloc validation formateur (routes profile-service)
+        ├── types/profile.ts                                     # + TeacherValidationState, TeacherValidationRecord, PendingTeacher,
+        │                                                        #   TEACHER_VALIDATION_COMMENT_MAX_LENGTH ; contrat corrige
+        ├── utils/teacherValidationLabels.ts                     # NOUVEAU — libelles FR, couleurs, transitions autorisees
+        ├── navigation/navigationConfig.ts                       # + RP_WORK_QUEUES, groupe de rail « A traiter »
+        ├── hooks/teacher-requests/useTeacherValidationActions.ts # NOUVEAU — les trois transitions, sans lecture
+        ├── hooks/teacher-requests/useTeacherValidation.ts        # delegue aux actions, contrat corrige
+        ├── hooks/teacher-requests/usePendingTeacherValidations.ts # NOUVEAU — file paginee, proprietaire de l'etat
+        ├── hooks/dashboard/usePendingTeacherValidationCount.ts   # NOUVEAU — compteur du tableau de bord RP
+        ├── components/teacher-requests/PendingTeacherCard.tsx    # NOUVEAU — une ligne de file
+        ├── components/teacher-requests/RpWorkQueueNav.tsx        # NOUVEAU — bandeau « Plan de travail »
+        ├── components/profile/TeacherValidationPanel.tsx         # DEPLACE depuis pages/ ; UUID du validateur remplace par son nom
+        ├── pages/TeacherValidationQueuePage.tsx                  # NOUVEAU — /rp/teacher-validations
+        ├── pages/TeacherRequestsPage.tsx                         # + bandeau de plan de travail (RP)
+        ├── pages/RpDashboardPage.tsx                             # + carte et statistique « Formateurs a examiner »
+        └── App.tsx                                               # + route /rp/teacher-validations (RP seul)
+        apps/web/test/
+        ├── pendingTeachers.api.test.ts                           # NOUVEAU
+        ├── pages/TeacherValidationQueuePage.test.tsx             # NOUVEAU — 17 cas
+        ├── components/TeacherValidationPanel.test.tsx            # DEPLACE depuis test/pages/, contrat corrige
+        ├── pages/RpDashboardPage.test.tsx                        # + 3 cas de compteur
+        └── pages/ProfileRemanenceByRole.test.tsx                 # rebranche sur api/profile
+      </fileTree>
+
+      <decision id="contract-was-wrong-and-silently-broken">
+        Le front envoyait `{validationStatus, rejectionReason}` a
+        `PATCH /profiles/:teacherId/validation`. Mesure contre la pile reelle : **`400`**
+        « property validationStatus should not exist ». Le serveur attend `{status, comment?}`
+        et repond `{id, teacherId, status, validatedBy, validatorRole, comment, createdAt,
+        updatedAt}`. Toute la validation formateur etait donc inoperante depuis l'ecran, sans
+        qu'aucun test le voie — ils validaient le corps errone. Les noms front sont desormais
+        ceux du serveur, conformement a la regle « un seul nom par donnee ».
+      </decision>
+
+      <decision id="two-queues-not-one-page">
+        Deux entrees de rail voisines dans un groupe **« A traiter »**, plus un bandeau
+        « Plan de travail » present sur les deux pages, plutot qu'une page unique a deux
+        sections. Motif : les deux files n'ont ni la meme source (`profile-service` /
+        `teacher-request-service`), ni la meme pagination, ni le meme rythme de traitement.
+        Les fusionner obligerait a charger les deux pour en consulter une, ce que la regle de
+        chargement au niveau de la page (2026-08-10) deconseille. La parente reste visible :
+        la liste des files est declaree **une seule fois** (`RP_WORK_QUEUES`) et alimente a la
+        fois le rail et le bandeau.
+      </decision>
+
+      <decision id="no-action-that-would-receive-403">
+        Depuis `pending`, le RP ne se voit proposer que « Prendre en charge ». Valider ou
+        refuser d'emblee est reserve au TI et recoit `403`. La regle vit en un seul endroit
+        (`canTakeChargeFromState` / `canDecideFromState`) et sert la file **et** la fiche : un
+        meme dossier ne peut pas offrir deux jeux d'actions selon l'ecran.
+      </decision>
+
+      <decision id="a-decision-does-not-reload-the-page">
+        La reponse du `PATCH` remonte a `usePendingTeacherValidations`, proprietaire de l'etat :
+        la ligne quitte la file quand la decision est terminale, sinon elle change d'etat sur
+        place. **Aucun rechargement complet** — recharger effacerait la position de lecture du
+        RP au milieu d'une file de dix-sept dossiers. Verifie par test : `fetchPendingTeachers`
+        reste appelee une seule fois apres deux transitions.
+      </decision>
+
+      <decision id="counter-reads-total-not-page-length">
+        La carte du tableau de bord lit le `total` de l'enveloppe, jamais `data.length` :
+        compter la premiere page annoncerait « 20 » sur une file de 40. Elle demande donc
+        `limit=1` — seul le compteur l'interesse, la file s'ouvre sur sa propre page.
+      </decision>
+
+      <decision id="validator-named-not-truncated">
+        `TeacherValidationPanel` affichait `validatedBy.slice(0, 8)` — un fragment d'UUID en
+        guise de nom, defaut connu et interdit depuis le 2026-08-09. Remplace par
+        `usePersonDisplayName`. Quand le nom n'est pas resolvable, l'ecran affiche
+        « Un responsable » : un libelle francais, jamais un identifiant de repli.
+      </decision>
+
+      <decision id="labels-in-one-place">
+        Les libelles d'etat etaient recopies dans le composant. Ils vivent maintenant dans
+        `utils/teacherValidationLabels.ts`, sur le modele de `teacherRequestLabels.ts`. Deux
+        tables distinctes a dessein : un flow de demande d'eleve d'un cote, un cycle de vie de
+        compte formateur de l'autre.
+      </decision>
+
+      <decision id="panel-moved-out-of-pages">
+        `TeacherValidationPanel` vivait dans `src/pages/` sans etre monte par le routeur, contre
+        la convention du projet. Deplace dans `src/components/profile/`, avec son test.
+      </decision>
+
+      <realStackVerification>
+        Contre la pile reelle (https://claudevma.visioprof.fr), compte RP `trsflow.rp.0811`,
+        jeton lu dans `access_token` :
+
+        1. `GET /api/v1/profiles/teachers/pending-validation?page=1&amp;limit=3` → `200`
+           `{"data":[{userId, "firstName":"prof","lastName":"lycee", levels:null, subjects:null,
+           "pendingSince":"2026-08-12T15:20:17.694Z"}, …],"page":1,"limit":3,"total":17,
+           "totalPages":6}` — **17 formateurs reels**, dont un avec `levels:["college"]` et
+           `subjects:["mathematiques et physique"]` : les deux cas, `null` et rempli, existent
+           bien en base.
+        2. Corps **precedemment envoye par le front** `{"validationStatus":"in_review"}` →
+           `400` « property validationStatus should not exist ».
+        3. `pending` → `validated` demande par le RP → `403` « Seul le technicien informatique
+           peut sauter l'etape « en cours d'examen »… » — en francais, affiche tel quel.
+        4. `limit=101` → `400` « Le nombre de formateurs par page ne peut pas depasser 100. »
+        5. Cycle complet **avec les corps que le front envoie desormais** :
+           `{"status":"in_review"}` → `200` ; puis
+           `{"status":"validated","comment":"Dossier conforme - verifie depuis la file RP le
+           2026-08-12"}` → `200`, `validatorRole:"responsable_pedagogique"`.
+        6. La file retombe de **17 a 16**, et « prof lycee » apparait dans
+           `GET /profiles/teachers/validated` (4 formateurs valides).
+        7. `page=2&amp;limit=10` → `200 {"page":2,"totalPages":2}`, 6 lignes.
+
+        Suite front : **1527 tests verts**, `tsc --noEmit` sans erreur, `vite build` reussi.
+        Ces tests simulent tout le reseau : c'est la verification ci-dessus qui fait foi.
+      </realStackVerification>
+
+      <openPoints>
+        <item id="no-screenshot">
+          La verification porte sur les appels et sur le vrai code du front en test ; **aucune
+          capture d'ecran** n'a ete produite. Le rendu reel de `/rp/teacher-validations` reste
+          a constater par l'utilisateur.
+        </item>
+        <item id="validator-name-empty-on-the-dev-stack">
+          Le compte RP de test n'a ni prenom ni nom dans son profil administratif
+          (`GET /profiles/c4219392-…` → `firstName: null`). L'ecran affiche donc « Un
+          responsable ». Le repli est bien celui prevu, mais le cas nominal — un validateur
+          nomme — n'est couvert que par les tests.
+        </item>
+        <item id="ti-has-no-queue">
+          `GET /profiles/teachers/pending-validation` est **RP seul**. Le TI peut trancher un
+          dossier depuis la fiche, mais ne dispose d'aucune file : c'est le contrat serveur, et
+          la route front le reflete. A rouvrir si le TI doit balayer les dossiers.
+        </item>
+        <item id="no-search-by-person">
+          Le RP a droit aux fiches de tous, eleves comme formateurs, mais aucune **recherche de
+          personne** n'existe : il n'atteint une fiche que depuis une file ou un contact.
+          Point ouvert nomme par l'arbitrage du 2026-08-12, hors perimetre de ce lot.
+        </item>
+        <item id="no-decision-history">
+          La file ne montre que les dossiers `pending`. Un RP qui veut revoir ce qu'il a decide
+          n'a aucun ecran : il faut passer par la fiche du formateur. Une file « traites »,
+          symetrique de l'onglet « Traitees » des demandes, serait le prolongement naturel.
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

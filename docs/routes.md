@@ -281,21 +281,40 @@ Réponse `GET /internal/accounts/by-user-id/:userId` : `{userId, loginIdentifier
 > d'auto-inscription directe par rôle (`students`/`teachers`/`parents`) déclenchent cet appel sortant ;
 > `POST /accounts` et `POST /internal/create-account` ne le déclenchent jamais (ils ne collectent pas
 > ces champs).
+>
+> Conséquence à connaître depuis le 2026-08-12 : le `role` transmis à profile-service (voir ci-dessous)
+> ne l'est donc **que** par ces 3 routes. Un formateur créé par le workflow `teacher-onboarding` via
+> `POST /internal/create-account` n'obtient d'enregistrement de validation que si **orchestration-service**
+> transmet lui-même le rôle lors de son propre appel à `create-administrative-profile` —
+> identity-access-service n'est pas sur ce chemin.
 
 Après validation de forme (DTO) et avant de retourner `201`, `POST /accounts/students`,
 `POST /accounts/teachers` et `POST /accounts/parents` appellent en sortant, **dans la même transaction
 locale** que la création du ou des comptes :
 
 1. `POST /internal/create-administrative-profile` sur profile-service avec `{userId, firstName,
-   lastName, phone?, birthDate?}` (header `X-Internal-Secret`) — une fois par compte nouvellement créé
-   (jamais pour un compte parent/élève simplement **lié** à un compte préexistant : son profil existant
-   n'est jamais écrasé par les champs saisis côté élève/parent lors de la liaison). Le champ est nommé
-   `phone` côté profile-service (convention déjà établie sur ses autres routes internes) alors que le DTO
-   d'entrée public d'identity-access-service utilise `phoneNumber` — seul le mapping effectué au moment
-   de cet appel sortant fait la conversion de nom. `birthDate` porte en revanche le même nom des deux
-   côtés (aucun mapping) et n'est envoyé que par `POST /accounts/students`, seule route dont le
+   lastName, phone?, birthDate?, role}` (header `X-Internal-Secret`) — une fois par compte nouvellement
+   créé (jamais pour un compte parent/élève simplement **lié** à un compte préexistant : son profil
+   existant n'est jamais écrasé par les champs saisis côté élève/parent lors de la liaison). Le champ est
+   nommé `phone` côté profile-service (convention déjà établie sur ses autres routes internes) alors que
+   le DTO d'entrée public d'identity-access-service utilise `phoneNumber` — seul le mapping effectué au
+   moment de cet appel sortant fait la conversion de nom. `birthDate` porte en revanche le même nom des
+   deux côtés (aucun mapping) et n'est envoyé que par `POST /accounts/students`, seule route dont le
    formulaire collecte une date de naissance ; il est omis du corps quand il n'a pas été saisi, et jamais
    envoyé pour un compte lié créé en parallèle.
+
+   `role` (valeurs de `UserRole`, mêmes chaînes que partout ailleurs : `eleve`, `parent_financeur`,
+   `formateur`, …) est envoyé **pour tous les rôles et à chaque appel**, au même titre que
+   `x-correlation-id` (arbitrage du 2026-08-07, « Propagation du rôle ») : le destinataire applique ses
+   règles sans avoir à le redemander ni à le deviner. Il est **facultatif côté receveur** — ne rien
+   envoyer ne casse rien — mais seul `formateur` a aujourd'hui un effet observable : profile-service crée
+   alors l'enregistrement de validation qui fait apparaître le nouveau formateur dans la file du RP
+   (arbitrage du 2026-08-12, « Validation des nouveaux formateurs »). Sans ce champ, un formateur
+   fraîchement inscrit n'est jamais vu du RP, donc jamais validé, donc jamais proposable.
+   identity-access-service reste l'**unique propriétaire** du rôle : il le transporte comme contexte de
+   décision, profile-service ne le persiste pas comme donnée propre et ne l'expose pas en lecture.
+   Ajouté le 2026-08-12 ; couvre le chemin **réellement emprunté** par `POST /accounts/teachers`, qui
+   passe par `create-administrative-profile` et non par une route `create-teacher-profiles`.
 2. Si un élève et un parent financeur sont créés/rattachés dans le même appel (`POST /accounts/students`
    avec `parentAccountMode` `'existing'` ou `'new'`, ou `POST /accounts/parents` avec
    `studentAccountMode` `'existing'` ou `'new'`) : `POST /internal/link-parent` sur profile-service avec
@@ -642,9 +661,32 @@ finaux, n'ont aucun acteur authentifié et ne passent pas par `GET /profiles/:us
 
 Machine à trois états : `pending` → `in_review` → `validated` | `rejected`.
 
-- `pending` : état initial d'un formateur nouvellement inscrit. L'absence d'enregistrement de validation équivaut à `pending`.
+- `pending` : état initial d'un formateur nouvellement inscrit. **L'enregistrement est créé à
+  l'inscription** (arbitrage du 2026-08-12) — voir l'encadré ci-dessous.
 - `in_review` : le RP a pris le dossier en charge et l'instruit.
 - `validated` / `rejected` : états terminaux.
+
+> **L'enregistrement de validation est créé à l'inscription, jamais par une lecture (2026-08-12).**
+>
+> Défaut corrigé, mesuré contre la pile : un formateur créé par `POST /accounts/teachers` était lu
+> `pending` par `GET /profiles/:teacherId/validation` mais **n'apparaissait jamais** dans
+> `GET /profiles/teachers/pending-validation`. L'inscription ne créait aucune ligne ; la lecture
+> unitaire en fabriquait une de synthèse, la liste ne montrait que les lignes réelles. Le formateur
+> n'était donc jamais vu du RP, jamais validé, jamais proposable — cul-de-sac silencieux.
+>
+> - **Même règle que le profil administratif** : l'enregistrement existe dès la création du compte.
+>   Son absence pour un formateur est une **incohérence de données**, pas un état normal — à la
+>   différence du profil pédagogique, facultatif par nature.
+> - **Le repli de synthèse subsiste, mais ne masque plus.** `GET /profiles/:teacherId/validation`
+>   répond toujours `200 {teacherId, status: "pending"}` quand aucune ligne n'existe — refuser la
+>   lecture n'aiderait ni le formateur ni le RP — mais l'anomalie est désormais **journalisée en
+>   `error`** côté serveur (« ANOMALIE DE DONNEES »), avec le renvoi vers le script de reprise.
+> - **Deux chemins de création**, tous deux couverts : `POST /internal/create-teacher-profiles`
+>   (workflow orchestré, inconditionnel) et `POST /internal/create-administrative-profile` **avec
+>   `role: "formateur"`** — c'est ce dernier qu'emprunte réellement `POST /accounts/teachers`.
+> - **Reprise de stock** : `POST /internal/teachers/ensure-validations`, appelée par
+>   `scripts/maintenance/backfill-teacher-validations.ts`. Jouée le 2026-08-12 sur la base réelle :
+>   **16 enregistrements créés, 2 déjà présents laissés intacts** (statut *et* commentaire du RP).
 
 Transitions autorisées (toute autre transition, y compris vers le statut courant, → `403`) :
 
@@ -658,9 +700,31 @@ Transitions autorisées (toute autre transition, y compris vers le statut couran
 
 | Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /profiles/teachers/pending-validation | 🔒 | responsable_pedagogique | Lister les formateurs en attente de validation (statut `pending`), triés par ancienneté, enrichis du nom depuis le profil administratif | `200 [{id, teacherId, firstName, lastName, createdAt}]` (liste éventuellement vide ; `firstName`/`lastName` à `null` si aucun profil administratif) · `401` · `403` rôle ≠ RP |
+| GET | /profiles/teachers/pending-validation | 🔒 | responsable_pedagogique | **File de travail du RP** : les formateurs dont la validation est `pending`, **triés par ancienneté** (le premier inscrit est le premier examiné), enrichis du nom depuis le profil administratif. **Bornée et paginée depuis le 2026-08-12**, même forme et mêmes plafonds que `/profiles/teachers/validated` : query `page` (défaut `1`) et `limit` (défaut `20`, **maximum `100`**). RP seul : instruire un dossier de formateur est son métier ; le TI peut trancher un dossier ouvert sans disposer de la file | `200 {data: [{userId, firstName, lastName, levels, subjects, pendingSince}], page, limit, total, totalPages}` · `400` `page`/`limit` non entier ou < 1, `limit` > 100, **ou paramètre de requête inconnu** · `401` · `403` tout autre rôle |
 | PATCH | /profiles/:teacherId/validation | 🔒 | responsable_pedagogique, technicien_informatique | Changer le statut de validation d'un formateur. Body : `{status: "pending"\|"in_review"\|"validated"\|"rejected", comment?}` (`comment` ≤ 2000 caractères). Upsert : l'enregistrement est créé s'il n'existe pas encore | `200 {id, teacherId, status, validatedBy, validatorRole, comment, createdAt, updatedAt}` · `400` statut hors énumération · `401` · `403` rôle non autorisé **ou transition interdite pour ce rôle** (voir tableau ci-dessus) |
-| GET | /profiles/:teacherId/validation | 🔒 | responsable_pedagogique, technicien_informatique, administrateur_financier, formateur (soi-même) | Lire le statut de validation courant d'un formateur | `200 {id, teacherId, status, validatedBy, validatorRole, comment, createdAt, updatedAt}` ou `200 {teacherId, status: "pending"}` si aucun enregistrement n'existe encore · `401` · `403` autre formateur |
+| GET | /profiles/:teacherId/validation | 🔒 | responsable_pedagogique, technicien_informatique, administrateur_financier, formateur (soi-même) | Lire le statut de validation courant d'un formateur | `200 {id, teacherId, status, validatedBy, validatorRole, comment, createdAt, updatedAt}` · `200 {teacherId, status: "pending"}` **repli d'incohérence de données** si aucun enregistrement n'existe : depuis le 2026-08-12 ce n'est plus un état normal, et le serveur journalise « ANOMALIE DE DONNEES » · `401` · `403` autre formateur |
+
+**Changement de contrat du 2026-08-12 sur `pending-validation`** — le front doit être rebranché :
+
+| | Avant | Après |
+|---|---|---|
+| Enveloppe | tableau nu, **non borné** | `{data, page, limit, total, totalPages}` |
+| Identifiant | `teacherId` | `userId` — même nom que dans `/teachers/validated` et partout ailleurs |
+| Date | `createdAt` | `pendingSince` — dans une liste de *personnes*, `createdAt` se lisait « date de création du formateur » |
+| Champ `id` | id de l'enregistrement de validation | **supprimé** : `PATCH /profiles/:teacherId/validation` adresse par `teacherId`, le front n'en avait aucun usage, et c'était un UUID de plus exposé |
+| Champs ajoutés | — | `levels`, `subjects` : le RP décide plus vite, et les deux listes deviennent identiques au champ `pendingSince` près |
+
+Les deux listes de formateurs partagent désormais **un seul DTO de pagination**
+(`TeachersPageQueryDto`) et **une seule mécanique de requête** (`TeacherDirectoryService`). C'est ce
+qui rend la divergence impossible à réintroduire : c'est précisément parce qu'elles vivaient dans
+deux services distincts que l'une était bornée et l'autre pas.
+
+**Messages de refus en français** (règle du 2026-08-09) : les messages du cycle de validation
+étaient en anglais (`"Only TI may bypass the in_review step…"`) et remontaient jusqu'à l'écran. Ils
+sont traduits, et les libellés d'état (`en attente`, `en cours d'examen`, `validé`, `refusé`) sont
+tenus **en un point unique** côté serveur (`teacher-validation.entity.ts`) plutôt que réécrits dans
+chaque message. Le refus générique de `RolesGuard` (`"Insufficient role"`), partagé par **toutes**
+les routes du service, est traduit lui aussi.
 
 ### Annuaire des formateurs validés (2026-08-12)
 
@@ -774,9 +838,10 @@ Vérifié contre la pile réelle : après rupture, le parent reçoit `403` sur `
 
 | Méthode | Chemin | Description | Header requis | Réponse attendue |
 |---|---|---|---|---|
-| POST | /internal/create-administrative-profile | Créer (ou mettre à jour) le profil administratif d'un compte quelconque (élève, formateur, parent, générique) juste après sa création par identity-access-service. Body : `{userId, firstName, lastName, phone?, birthDate?}`. `firstName`/`lastName` obligatoires (`400` sinon), `phone` optionnel mais validé (`@IsNotEmpty @MaxLength(20)` si fourni), **`birthDate` optionnel au format ISO `YYYY-MM-DD`** (`@IsDateString`, `400` si mal formée) — accepté à la création depuis le 2026-08-09 pour qu'identity-access-service puisse le relayer dès l'inscription : la colonne existait déjà et le champ était modifiable, mais la création l'ignorait, ce qui avait fait retirer `birthDate` du formulaire d'inscription. **Seul point d'écriture** pour firstName/lastName/phone : identity-access-service ne persiste plus ces champs lui-même et appelle cette route de façon obligatoire (non best-effort) à chaque création de compte (le DTO d'entrée d'identity-access-service utilise `phoneNumber`, mappé vers `phone` au moment de l'appel). **Seul point de création** d'un profil administratif : `GET /profiles/:userId` ne crée plus rien à la volée depuis l'arbitrage du 2026-08-07. Upsert idempotent par `userId` : si une ligne existe déjà (rappel de la route, ou ligne héritée de l'ancien lazy-init), elle est mise à jour avec les valeurs reçues (y compris `phone`) au lieu d'échouer sur la contrainte d'unicité — voir décision C6/C7/C8 dans `docs/services/profile-service.md`. Erreurs de validation → `400` explicite (distinct d'un `5xx`) | `X-Internal-Secret` | `201 {userId, administrative}` · `400` validation · `401`/`403` secret absent ou invalide |
+| POST | /internal/create-administrative-profile | Créer (ou mettre à jour) le profil administratif d'un compte quelconque (élève, formateur, parent, générique) juste après sa création par identity-access-service. Body : `{userId, firstName, lastName, phone?, birthDate?}`. `firstName`/`lastName` obligatoires (`400` sinon), `phone` optionnel mais validé (`@IsNotEmpty @MaxLength(20)` si fourni), **`birthDate` optionnel au format ISO `YYYY-MM-DD`** (`@IsDateString`, `400` si mal formée) — accepté à la création depuis le 2026-08-09 pour qu'identity-access-service puisse le relayer dès l'inscription : la colonne existait déjà et le champ était modifiable, mais la création l'ignorait, ce qui avait fait retirer `birthDate` du formulaire d'inscription. **Seul point d'écriture** pour firstName/lastName/phone : identity-access-service ne persiste plus ces champs lui-même et appelle cette route de façon obligatoire (non best-effort) à chaque création de compte (le DTO d'entrée d'identity-access-service utilise `phoneNumber`, mappé vers `phone` au moment de l'appel). **Seul point de création** d'un profil administratif : `GET /profiles/:userId` ne crée plus rien à la volée depuis l'arbitrage du 2026-08-07. Upsert idempotent par `userId` : si une ligne existe déjà (rappel de la route, ou ligne héritée de l'ancien lazy-init), elle est mise à jour avec les valeurs reçues (y compris `phone`) au lieu d'échouer sur la contrainte d'unicité — voir décision C6/C7/C8 dans `docs/services/profile-service.md`. Erreurs de validation → `400` explicite (distinct d'un `5xx`). **`role` accepté depuis le 2026-08-12** (facultatif, valeurs de `UserRole`) : le rôle doit accompagner systématiquement les appels interservices (arbitrage du 2026-08-07), et `role: "formateur"` déclenche la création de l'enregistrement de validation — c'est cette route qu'emprunte réellement `POST /accounts/teachers`. **Non persisté, non exposé** : `identity-access-service` reste l'unique propriétaire du rôle, `profile-service` ne s'en sert que comme contexte de décision. Facultatif à dessein — l'exiger ferait échouer toute création de compte en `400` tant que l'appelant ne l'envoie pas ; son absence est en revanche journalisée en `warn` | `X-Internal-Secret` | `201 {userId, administrative}` · `400` validation · `401`/`403` secret absent ou invalide |
 | POST | /internal/create-student-profiles | Créer les profils initiaux d'un élève (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` | `201 {userId, administrative, pedagogical}` · `400` · `401`/`403` |
-| POST | /internal/create-teacher-profiles | Créer les profils initiaux d'un formateur (`firstName`/`lastName` obligatoires, `400` sinon) | `X-Internal-Secret` | `201 {userId, administrative, pedagogical}` · `400` · `401`/`403` |
+| POST | /internal/create-teacher-profiles | Créer les profils initiaux d'un formateur (`firstName`/`lastName` obligatoires, `400` sinon). **Crée aussi l'enregistrement de validation au statut `pending`** depuis le 2026-08-12, inconditionnellement — la route dit elle-même que le compte est un formateur, aucun rôle n'a à être transmis. Idempotent et **non destructeur** : rejouer l'appel ne repasse jamais un formateur `validated`/`rejected` à `pending` | `X-Internal-Secret` | `201 {userId, administrative, pedagogical, validation}` · `400` · `401`/`403` |
+| POST | /internal/teachers/ensure-validations | **Reprise de stock** des formateurs sans enregistrement de validation (arbitrage du 2026-08-12, point 3). Body : `{teacherIds: string[]}` (UUID, **200 au maximum**, plafond déclaré). **Idempotente et non destructrice** : un formateur déjà `validated` ou `rejected` est laissé strictement intact — statut *et* commentaire — et compté dans `alreadyPresent`. Doublons réduits à une entrée. `200` et non `201` : dans le cas nominal du rejeu, rien n'est créé. Appelée par `scripts/maintenance/backfill-teacher-validations.ts`. **Jamais exposée par api-gateway** | `X-Internal-Secret` | `200 {created: string[], alreadyPresent: string[]}` · `400` liste vide, au-delà du plafond, ou UUID invalide · `401` secret absent ou invalide |
 | POST | /internal/link-parent | Lier un parent financeur à un élève (idempotent par paire `studentId`/`financeOwnerId`) — utilisée par identity-access-service pour la liaison automatique élève+parent créés/liés dans le même appel de création de compte | `X-Internal-Secret` | `201 {linked: true, contacts: [financeOwnerId]}` · `401`/`403` |
 | POST | /internal/create-teacher-student-relation | **Créer le lien élève↔formateur**, dont `profile-service` est l'unique propriétaire (arbitrage du 2026-08-12, point 5) — appelée par `teacher-request-service` quand le RP valide l'acceptation d'un formateur. Body : `{teacherId, studentId, isPrincipalTeacher?}` (UUID, `isPrincipalTeacher` optionnel, `false` par défaut). **Idempotente depuis le 2026-08-12** : rejouer la validation d'un RP ne crée pas de second lien et n'échoue pas. Le code HTTP distingue les deux cas, le corps est identique. Ce lien ouvre des droits de lecture réels (statistiques, archives pédagogiques) et publie `TeacherLinkedToStudent`, comme le chemin humain `POST /relations/teacher-student` | `X-Internal-Secret` | `201 {teacherId, studentId, isPrincipalTeacher}` création · `200` même corps, le lien identique existait déjà (rejeu) · `409` un lien existe avec un **statut de professeur principal différent** — ce n'est pas un rejeu et l'appelant doit le remonter · `400` UUID manquant ou invalide · `401` secret absent ou invalide |
 | POST | /internal/link-coordinator | Lier un coordinateur pédagogique à un élève | `X-Internal-Secret` | `201 {coordinatorId, studentId, coordinatorRole}` · `400` rôle invalide · `409` doublon · `401`/`403` |

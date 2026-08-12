@@ -477,4 +477,32 @@ Phase 3 enrichit l'offre :
      ajout couteux : liste **bornee et paginee** des l'origine — plusieurs listes du projet sont
      aujourd'hui non bornees, et un plafond non declare est un plafond cache.
 
+- Validation des nouveaux formateurs, et plan de travail du RP. Arbitrage rendu le 2026-08-12,
+  apres constat contre la pile reelle : un formateur cree par `POST /accounts/teachers` est lu
+  `pending` individuellement mais **n'apparait jamais** dans
+  `GET /profiles/teachers/pending-validation`. L'inscription ne cree aucun enregistrement de
+  validation, et la liste ne montre que les lignes reelles. Consequence : un formateur qui
+  s'inscrit n'est jamais vu du RP, donc jamais valide, donc jamais proposable — cul-de-sac
+  silencieux.
+  1. **Tout compte formateur porte un enregistrement de validation, cree a l'inscription.** Meme
+     regle que le profil administratif (arbitrage du 2026-08-07) : il existe des la creation du
+     compte, par le workflow d'onboarding, jamais par une lecture. Son absence pour un formateur
+     existant est une **incoherence de donnees**, pas un etat normal — a la difference du profil
+     pedagogique, facultatif par nature.
+  2. **Le `pending` de synthese renvoye a la lecture masquait le trou.** Une valeur fabriquee a la
+     volee pour une ligne absente donne un ecran qui ment : le formateur se croit en attente
+     d'examen alors que personne ne le verra jamais. C'est la meme famille que le `404` des
+     archives, ou une absence masquait une fonction jamais operationnelle.
+  3. **Les formateurs deja inscrits doivent etre rattrapes** par une migration. Sans elle, la
+     correction ne vaut que pour les inscriptions futures et le stock reste invisible.
+  4. **Le RP a un plan de travail, pas des ecrans epars.** Il lui faut au minimum deux files : les
+     **nouveaux formateurs a valider ou refuser**, et les **demandes de professeur des eleves**.
+     Aujourd'hui la validation n'est atteignable que depuis la fiche d'un formateur
+     (`TeacherValidationPanel` monte dans `ProfilePage`) : le RP ne peut agir que sur quelqu'un
+     qu'il connait deja, ce qui suppose resolu le probleme que l'ecran devrait resoudre.
+  5. **Le RP accede aux fiches de tous, eleves comme formateurs.** Deja acquis par l'arbitrage du
+     2026-08-07 (les administrateurs voient tout) ; rappele ici parce que son plan de travail en
+     depend. La **recherche de personne** qui le rendrait pleinement utilisable reste un point
+     ouvert, distinct de l'annuaire des formateurs valides livre le 2026-08-12.
+
 ## Points ouverts a arbitrer

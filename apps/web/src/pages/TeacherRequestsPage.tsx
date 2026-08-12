@@ -25,6 +25,7 @@ import ChangePrincipalTeacherDialog from '../components/teacher-requests/ChangeP
 import TeacherProposalInbox from '../components/teacher-requests/TeacherProposalInbox'
 import TeacherRequestCard from '../components/teacher-requests/TeacherRequestCard'
 import TeacherRequestForm from '../components/teacher-requests/TeacherRequestForm'
+import RpWorkQueueNav from '../components/teacher-requests/RpWorkQueueNav'
 import { ErrorMessage } from '../components/ui/ErrorMessage'
 import { PageHeader } from '../components/ui/PageHeader'
 
@@ -205,6 +206,13 @@ function TeacherRequestsSection({
           </div>
         }
       />
+
+      {/*
+        Seconde file du plan de travail du RP : le bandeau la relie à celle des
+        nouveaux formateurs. Les autres rôles n'ont qu'une file, il ne s'affiche
+        donc pas pour eux.
+      */}
+      {isResponsablePedagogique && <RpWorkQueueNav currentPath="/teacher-requests" />}
 
       {successMessage && (
         <ErrorMessage

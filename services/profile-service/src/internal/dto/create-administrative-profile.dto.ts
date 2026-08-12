@@ -1,11 +1,13 @@
 import {
   IsDateString,
+  IsEnum,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
 } from 'class-validator';
+import { UserRole } from '../../common/enums/user-role.enum';
 
 /**
  * Body for POST /internal/create-administrative-profile.
@@ -44,4 +46,37 @@ export class CreateAdministrativeProfileDto {
    * les autres champs lorsqu'il est fourni.
    */
   @IsOptional() @IsDateString() birthDate?: string;
+
+  /**
+   * RÔLE DU COMPTE créé, transporté par l'appel plutôt que redemandé.
+   *
+   * Attendu par l'arbitrage du 2026-08-07 : « le rôle conditionne la
+   * quasi-totalité des règles de droit, il doit accompagner systématiquement les
+   * appels interservices, au même titre que `x-correlation-id`. Aucun service ne
+   * doit avoir à le redemander ni à le deviner. En conséquence,
+   * `CreateAdministrativeProfileDto` transporte le rôle. » Ce champ manquait
+   * encore au 2026-08-12.
+   *
+   * CE QU'IL DÉCLENCHE ICI, et rien de plus : `formateur` fait créer
+   * l'enregistrement de validation au statut `pending` (arbitrage du
+   * 2026-08-12), sans quoi le formateur n'apparaît dans aucune file du
+   * responsable pédagogique et ne peut jamais être validé. Il ne préinitialise
+   * AUCUN profil pédagogique — celui-ci reste facultatif.
+   *
+   * NON PERSISTÉ, NON EXPOSÉ. `identity-access-service` reste l'unique
+   * propriétaire du rôle ; `profile-service` le consomme comme contexte de
+   * décision. Le stocker recréerait exactement le problème d'appartenance
+   * tranché pour `firstName`/`lastName`/`phone`.
+   *
+   * OPTIONNEL À DESSEIN : le rendre obligatoire ferait échouer en `400` toute
+   * création de compte tant qu'identity-access-service ne l'envoie pas, c'est-à-dire
+   * casserait l'inscription entière pour corriger un défaut de validation. Son
+   * absence est en revanche journalisée en `warn` côté service — un champ
+   * manquant qui a des conséquences ne doit pas passer inaperçu.
+   */
+  @IsOptional()
+  @IsEnum(UserRole, {
+    message: `Le rôle doit être l'une des valeurs suivantes : ${Object.values(UserRole).join(', ')}.`,
+  })
+  role?: UserRole;
 }

@@ -1,231 +1,282 @@
-import React, { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { useAuth } from '../hooks/useAuth'
+/**
+ * TeacherRequestsPage — `/teacher-requests`, point d'entrée unique du flow
+ * « demande de professeur ».
+ *
+ * Une seule page pour un même domaine : `TeacherRequestPage` (`/rp/teacher-requests`)
+ * en était un doublon, avec un second formulaire postant un autre corps sur la même
+ * route, et rechargeait `GET /teacher-requests` trois fois par montage.
+ *
+ * La forme dépend du rôle, comme la réponse du serveur :
+ *   - élève, parent financeur, RP → leurs demandes, ouvertes ou clôturées ;
+ *   - formateur → sa boîte de réception de propositions.
+ *
+ * Chargement au niveau de la page, un appel par portée (arbitrage du 2026-08-10).
+ */
+
+import React, { useState } from 'react'
 import Layout from '../components/Layout'
-import { useTeacherRequests } from '../hooks/teacher-requests/useTeacherRequests'
-import type { TeacherRequestSummary } from '../types/teacherRequests'
+import { useAuth } from '../hooks/useAuth'
+import { useMyContacts } from '../hooks/relations/useMyContacts'
+import { useTeacherProposalInbox } from '../hooks/teacher-requests/useTeacherProposalInbox'
+import { useTeacherRequestList } from '../hooks/teacher-requests/useTeacherRequestList'
+import { selectFinancedStudents } from '../utils/contactSelectors'
+import type { TeacherRequestScope } from '../types/teacherRequests'
+import ChangePrincipalTeacherDialog from '../components/teacher-requests/ChangePrincipalTeacherDialog'
+import TeacherProposalInbox from '../components/teacher-requests/TeacherProposalInbox'
+import TeacherRequestCard from '../components/teacher-requests/TeacherRequestCard'
+import TeacherRequestForm from '../components/teacher-requests/TeacherRequestForm'
+import { ErrorMessage } from '../components/ui/ErrorMessage'
+import { PageHeader } from '../components/ui/PageHeader'
 
-const STATUS_LABELS: Record<string, string> = {
-  pending: 'En attente',
-  accepted: 'Acceptée',
-  declined: 'Refusée',
-  cancelled: 'Annulée',
-}
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-700',
-  accepted: 'bg-green-100 text-green-700',
-  declined: 'bg-red-100 text-red-700',
-  cancelled: 'bg-gray-100 text-gray-500',
-}
+const SCOPE_TABS: ReadonlyArray<{ value: TeacherRequestScope; label: string }> = [
+  { value: 'open', label: 'En cours' },
+  { value: 'closed', label: 'Traitées' },
+]
 
 export default function TeacherRequestsPage() {
   const { hasRole } = useAuth()
-  const { requests, isLoadingRequests, loadError, submitRequest, isSubmittingRequest, submitError } =
-    useTeacherRequests()
 
-  // Create form state
-  const [isCreating, setIsCreating] = useState(false)
-  const [newDescription, setNewDescription] = useState('')
-  const [newStudentId, setNewStudentId] = useState('')
+  const isFormateur = hasRole('formateur')
+  const isEleve = hasRole('eleve')
+  const isParentFinanceur = hasRole('parent_financeur')
+  const isResponsablePedagogique = hasRole('responsable_pedagogique')
 
-  const canCreate = hasRole('eleve', 'parent_financeur', 'responsable_pedagogique')
-
-  const error = submitError ?? loadError
-  const [isErrorDismissed, setIsErrorDismissed] = useState(false)
-  useEffect(() => {
-    setIsErrorDismissed(false)
-  }, [error])
-
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newDescription.trim()) return
-    const payload: { description: string; studentId?: string } = {
-      description: newDescription.trim(),
-    }
-    if (newStudentId.trim()) {
-      payload.studentId = newStudentId.trim()
-    }
-    const success = await submitRequest(payload)
-    if (success) {
-      setNewDescription('')
-      setNewStudentId('')
-      setIsCreating(false)
-    }
-  }
-
-  const statusFilter = (status: TeacherRequestSummary['status'] | 'all') => {
-    if (status === 'all') return requests
-    return requests.filter((r) => r.status === status)
-  }
-
-  const [activeFilter, setActiveFilter] = useState<TeacherRequestSummary['status'] | 'all'>('all')
-  const visibleRequests = statusFilter(activeFilter)
+  const [scope, setScope] = useState<TeacherRequestScope>('open')
 
   return (
     <Layout>
-      <div className="max-w-3xl">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Demandes professeur</h1>
-            <p className="text-sm text-gray-500 mt-1">
-              {requests.length} demande{requests.length !== 1 ? 's' : ''}
-            </p>
+      <div className="max-w-3xl space-y-6">
+        {isFormateur ? (
+          <TeacherInboxSection scope={scope} onScopeChange={setScope} />
+        ) : (
+          <TeacherRequestsSection
+            scope={scope}
+            onScopeChange={setScope}
+            isEleve={isEleve}
+            isParentFinanceur={isParentFinanceur}
+            isResponsablePedagogique={isResponsablePedagogique}
+          />
+        )}
+      </div>
+    </Layout>
+  )
+}
+
+// ─── Vue formateur ────────────────────────────────────────────────────────────
+
+function ScopeTabs({
+  scope,
+  onScopeChange,
+}: {
+  scope: TeacherRequestScope
+  onScopeChange: (scope: TeacherRequestScope) => void
+}) {
+  return (
+    <div className="flex gap-2">
+      {SCOPE_TABS.map((tab) => (
+        <button
+          key={tab.value}
+          type="button"
+          onClick={() => onScopeChange(tab.value)}
+          className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+            scope === tab.value
+              ? 'bg-indigo-600 text-white border-indigo-600'
+              : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
+          }`}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function TeacherInboxSection({
+  scope,
+  onScopeChange,
+}: {
+  scope: TeacherRequestScope
+  onScopeChange: (scope: TeacherRequestScope) => void
+}) {
+  const inbox = useTeacherProposalInbox(scope)
+
+  return (
+    <>
+      <PageHeader
+        title="Propositions reçues"
+        subtitle="Demandes d'élèves que le responsable pédagogique vous adresse."
+        action={<ScopeTabs scope={scope} onScopeChange={onScopeChange} />}
+      />
+      <TeacherProposalInbox
+        proposals={inbox.proposals}
+        isLoading={inbox.isLoading}
+        loadError={inbox.loadError}
+        respondingProposalId={inbox.respondingProposalId}
+        respondError={inbox.respondError}
+        onClearRespondError={inbox.clearRespondError}
+        successMessage={inbox.successMessage}
+        onClearSuccessMessage={inbox.clearSuccessMessage}
+        onRespond={inbox.respond}
+      />
+    </>
+  )
+}
+
+// ─── Vue élève, parent financeur et RP ────────────────────────────────────────
+
+interface TeacherRequestsSectionProps {
+  scope: TeacherRequestScope
+  onScopeChange: (scope: TeacherRequestScope) => void
+  isEleve: boolean
+  isParentFinanceur: boolean
+  isResponsablePedagogique: boolean
+}
+
+function TeacherRequestsSection({
+  scope,
+  onScopeChange,
+  isEleve,
+  isParentFinanceur,
+  isResponsablePedagogique,
+}: TeacherRequestsSectionProps) {
+  const {
+    requests,
+    isLoading,
+    loadError,
+    submitRequest,
+    isSubmitting,
+    submitError,
+    clearSubmitError,
+  } = useTeacherRequestList(scope)
+
+  const { contacts, isLoading: isLoadingContacts, error: contactsError } = useMyContacts()
+  const financedStudents = selectFinancedStudents(contacts)
+
+  const [isFormOpen, setIsFormOpen] = useState(false)
+  const [isPpDialogOpen, setIsPpDialogOpen] = useState(false)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+
+  // Le RP instruit les demandes, il n'en crée pas : le serveur l'y autorise, mais aucun
+  // annuaire d'élèves ne lui est accessible — lui offrir le formulaire reviendrait à lui
+  // redemander un UUID.
+  const canCreateRequest = isEleve || isParentFinanceur
+  // `POST /teacher-requests/pp-change` est réservé au parent financeur : l'afficher à
+  // l'élève le mènerait à un 403.
+  const canRequestPpChange = isParentFinanceur && financedStudents.length > 0
+
+  const handleSubmit = async (payload: Parameters<typeof submitRequest>[0]) => {
+    const isCreated = await submitRequest(payload)
+    if (isCreated) {
+      setIsFormOpen(false)
+      setSuccessMessage('Votre demande a bien été transmise au responsable pédagogique.')
+    }
+    return isCreated
+  }
+
+  return (
+    <>
+      <PageHeader
+        title="Demandes professeur"
+        subtitle={
+          isResponsablePedagogique
+            ? 'Demandes des élèves à instruire.'
+            : 'Suivez vos demandes de professeur.'
+        }
+        action={
+          <div className="flex gap-2 flex-wrap justify-end">
+            {canCreateRequest && !isFormOpen && (
+              <button
+                type="button"
+                onClick={() => setIsFormOpen(true)}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+              >
+                Nouvelle demande
+              </button>
+            )}
+            {canRequestPpChange && (
+              <button
+                type="button"
+                onClick={() => setIsPpDialogOpen(true)}
+                className="bg-white text-indigo-600 border border-indigo-300 px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-50 transition-colors"
+              >
+                Changer le professeur principal
+              </button>
+            )}
           </div>
-          {canCreate && !isCreating && (
+        }
+      />
+
+      {successMessage && (
+        <ErrorMessage
+          message={successMessage}
+          variant="success"
+          onClose={() => setSuccessMessage(null)}
+        />
+      )}
+
+      {isFormOpen && (
+        <TeacherRequestForm
+          linkedStudents={financedStudents}
+          isLoadingStudents={isLoadingContacts}
+          studentsError={contactsError}
+          isStudentRequired={isParentFinanceur}
+          onSubmit={handleSubmit}
+          isSubmitting={isSubmitting}
+          errorMessage={submitError}
+          onClearError={clearSubmitError}
+          onCancel={() => setIsFormOpen(false)}
+        />
+      )}
+
+      {isPpDialogOpen && (
+        <ChangePrincipalTeacherDialog
+          linkedStudents={financedStudents}
+          allContacts={contacts}
+          onSuccess={() => {
+            setIsPpDialogOpen(false)
+            setSuccessMessage(
+              'Votre demande de changement de professeur principal a été transmise.',
+            )
+          }}
+          onCancel={() => setIsPpDialogOpen(false)}
+        />
+      )}
+
+      <ScopeTabs scope={scope} onScopeChange={onScopeChange} />
+
+      {loadError && <ErrorMessage message={loadError} />}
+
+      {isLoading && <p className="text-gray-400 text-sm">Chargement…</p>}
+
+      {!isLoading && !loadError && requests.length === 0 && (
+        <div className="text-center py-12 bg-white border border-gray-200 rounded-xl">
+          <p className="text-gray-500 text-sm font-medium">
+            {scope === 'closed'
+              ? 'Aucune demande traitée pour le moment.'
+              : "Vous n'avez pas pour l'instant de demande en cours."}
+          </p>
+          {canCreateRequest && scope === 'open' && !isFormOpen && (
             <button
-              onClick={() => setIsCreating(true)}
-              className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700"
+              type="button"
+              onClick={() => setIsFormOpen(true)}
+              className="mt-3 text-indigo-600 hover:underline text-sm"
             >
-              Nouvelle demande
+              Demander un professeur
             </button>
           )}
         </div>
+      )}
 
-        {error && !isErrorDismissed && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-center justify-between">
-            <span>{error}</span>
-            <button onClick={() => setIsErrorDismissed(true)} className="text-red-400 hover:text-red-600 ml-3">
-              ✕
-            </button>
-          </div>
-        )}
-
-        {/* Create form */}
-        {isCreating && (
-          <form
-            onSubmit={handleCreate}
-            className="mb-6 bg-white border border-gray-200 rounded-xl p-5 space-y-4 shadow-sm"
-          >
-            <h2 className="text-base font-semibold text-gray-800">Nouvelle demande professeur</h2>
-
-            {hasRole('responsable_pedagogique') && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  ID de l'élève (optionnel)
-                </label>
-                <input
-                  type="text"
-                  value={newStudentId}
-                  onChange={(e) => setNewStudentId(e.target.value)}
-                  placeholder="UUID de l'élève concerné"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                />
-              </div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Description <span className="text-red-500">*</span>
-              </label>
-              <textarea
-                required
-                value={newDescription}
-                onChange={(e) => setNewDescription(e.target.value)}
-                placeholder="Décrivez le besoin pédagogique, le niveau, les disponibilités souhaitées…"
-                rows={4}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
-              />
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                type="submit"
-                disabled={isSubmittingRequest || !newDescription.trim()}
-                className="bg-indigo-600 text-white px-5 py-2 rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {isSubmittingRequest ? 'Envoi…' : 'Soumettre la demande'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsCreating(false)
-                  setNewDescription('')
-                  setNewStudentId('')
-                }}
-                className="bg-gray-100 text-gray-700 px-5 py-2 rounded-lg text-sm hover:bg-gray-200"
-              >
-                Annuler
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* Filter tabs */}
-        {!isLoadingRequests && requests.length > 0 && (
-          <div className="flex gap-2 mb-4 flex-wrap">
-            {(['all', 'pending', 'accepted', 'declined', 'cancelled'] as const).map((filterValue) => (
-              <button
-                key={filterValue}
-                onClick={() => setActiveFilter(filterValue)}
-                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
-                  activeFilter === filterValue
-                    ? 'bg-indigo-600 text-white border-indigo-600'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
-                }`}
-              >
-                {filterValue === 'all' ? 'Toutes' : STATUS_LABELS[filterValue]}
-                {filterValue === 'all'
-                  ? ` (${requests.length})`
-                  : ` (${requests.filter((r) => r.status === filterValue).length})`}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {isLoadingRequests && <p className="text-gray-400 text-sm">Chargement…</p>}
-
-        {!isLoadingRequests && visibleRequests.length === 0 && (
-          <div className="text-center py-12 bg-white border border-gray-200 rounded-xl">
-            <p className="text-gray-400 text-sm">
-              {activeFilter === 'all' ? 'Aucune demande' : `Aucune demande avec le statut « ${STATUS_LABELS[activeFilter]} »`}
-            </p>
-            {canCreate && activeFilter === 'all' && (
-              <button
-                onClick={() => setIsCreating(true)}
-                className="mt-3 text-indigo-600 hover:underline text-sm"
-              >
-                Créer la première demande
-              </button>
-            )}
-          </div>
-        )}
-
-        <ul className="space-y-3">
-          {visibleRequests.map((req) => (
-            <li key={req.id}>
-              <Link
-                to={`/teacher-requests/${req.id}`}
-                className="block p-4 bg-white border border-gray-200 rounded-xl hover:border-indigo-300 hover:shadow-sm transition-all"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-800">
-                    {req.studentName ?? `Demande #${req.id.slice(0, 8)}`}
-                  </span>
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[req.status]}`}
-                  >
-                    {STATUS_LABELS[req.status]}
-                  </span>
-                </div>
-                {req.description && (
-                  <p className="mt-1 text-xs text-gray-500 line-clamp-2">{req.description}</p>
-                )}
-                {req.studentId && (
-                  <p className="mt-1 text-xs text-gray-400">Élève : {req.studentId.slice(0, 8)}…</p>
-                )}
-                <p className="mt-2 text-xs text-gray-400">
-                  {new Date(req.createdAt).toLocaleDateString('fr-FR', {
-                    day: 'numeric',
-                    month: 'long',
-                    year: 'numeric',
-                  })}
-                </p>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </Layout>
+      <ul className="space-y-3">
+        {requests.map((request) => (
+          <li key={request.id}>
+            <TeacherRequestCard
+              request={request}
+              showProposalCounts={isResponsablePedagogique}
+            />
+          </li>
+        ))}
+      </ul>
+    </>
   )
 }

@@ -25,9 +25,11 @@ export const ROUTE_ACCESS_MAP: RouteAccessRule[] = [
     prefix: '/teacher-requests',
     roles: ['eleve', 'parent_financeur', 'formateur', 'responsable_pedagogique'],
   },
+  // `/rp/teacher-requests` n'est plus qu'une redirection vers `/teacher-requests` :
+  // mêmes rôles que la règle ci-dessus, pas de règle propre à maintenir en double.
   {
     prefix: '/rp/teacher-requests',
-    roles: ['responsable_pedagogique', 'formateur', 'eleve', 'parent_financeur'],
+    roles: ['eleve', 'parent_financeur', 'formateur', 'responsable_pedagogique'],
   },
 
   // Calendrier

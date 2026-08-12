@@ -35,7 +35,7 @@ export default function RpDashboardPage() {
     {
       label: 'Demandes professeur en attente',
       count: pendingRequestCount ?? 0,
-      path: '/rp/teacher-requests',
+      path: '/teacher-requests',
       urgency: pendingRequestCount && pendingRequestCount > 0 ? 'high' : 'low',
     },
     {

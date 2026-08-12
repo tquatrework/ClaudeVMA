@@ -1,150 +1,225 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   deleteTeacherRequest,
+  fetchTeacherProposals,
   fetchTeacherRequest,
+  sendTeacherProposals,
   updateTeacherRequestStatus,
+  validateTeacherRequest,
 } from '../../api/teacherRequests'
-import type { TeacherRequestDetail } from '../../types/teacherRequests'
-import type { TeacherCandidate } from '../../components/teacher-requests/TeacherCandidatesView'
+import type {
+  SendTeacherProposalsPayload,
+  TeacherProposal,
+  TeacherRequest,
+  UpdateTeacherRequestStatusPayload,
+  ValidateTeacherRequestPayload,
+} from '../../types/teacherRequests'
 import { useAsyncData } from '../useAsyncData'
-import { getErrorMessage, getErrorStatus } from '../../utils/apiError'
+import { getErrorMessage } from '../../utils/apiError'
 
-function pendingForever<T>(): Promise<T> {
-  return new Promise<T>(() => {})
-}
-
-async function loadTeacherRequestDetail(
-  requestId: string | undefined,
-): Promise<TeacherRequestDetail> {
-  if (!requestId) return pendingForever<TeacherRequestDetail>()
-
-  try {
-    return await fetchTeacherRequest(requestId)
-  } catch (caughtError) {
-    const status = getErrorStatus(caughtError)
-    const message =
-      status === 403
-        ? 'Accès refusé'
-        : status === 404
-          ? 'Demande introuvable'
-          : 'Erreur lors du chargement'
-    // Forme reconnue en priorité par getErrorMessage (response.data.message), pour reproduire
-    // exactement les messages historiques de TeacherRequestDetailPage selon le statut HTTP.
-    throw { response: { data: { message } } }
-  }
-}
-
-export interface UseTeacherRequestDetailResult {
-  request: TeacherRequestDetail | null
-  isLoading: boolean
-  loadError: string | null
-
-  /** Candidats affichés par TeacherCandidatesView — initialisés depuis le chargement puis
-   * remplacés localement par ce composant via `setCandidates` (pas de rechargement réseau). */
-  candidates: TeacherCandidate[]
-  setCandidates: (candidates: TeacherCandidate[]) => void
-
-  /** PATCH /teacher-requests/:id/status — remplace intégralement la demande affichée. */
-  updateStatus: (newStatus: string) => Promise<TeacherRequestDetail | null>
-  isUpdatingStatus: boolean
-  statusError: string | null
-
-  /** Reflète localement un changement de statut décidé par TeacherCandidatesView (sélection
-   * d'un candidat par le client), sans appel réseau ni rechargement — reproduit l'ancien
-   * `setRequest((previous) => previous ? { ...previous, status: newStatus } : previous)`. */
-  overrideStatus: (newStatus: string) => void
-
-  /** DELETE /teacher-requests/:id */
-  deleteRequest: () => Promise<boolean>
-  deleteError: string | null
+interface TeacherRequestDetailData {
+  request: TeacherRequest
+  proposals: TeacherProposal[]
 }
 
 /**
- * useTeacherRequestDetail — charge le détail d'une demande professeur et expose le
- * changement de statut (RP, annulation client) et la suppression pour
- * TeacherRequestDetailPage.
+ * Un seul chargement pour toute la page : la demande, et — pour le RP seul — les
+ * propositions déjà envoyées. `GET /teacher-requests/:id/proposals` répond `403` à tout
+ * autre rôle : on ne l'appelle donc pas, plutôt que d'afficher un refus prévisible.
+ */
+async function loadTeacherRequestDetail(
+  requestId: string | undefined,
+  canManageProposals: boolean,
+): Promise<TeacherRequestDetailData> {
+  if (!requestId) {
+    // Sans identifiant de route, il n'y a rien à charger et rien à afficher : on laisse
+    // la page en chargement plutôt que d'inventer une erreur que l'utilisateur ne peut
+    // pas corriger.
+    return new Promise<TeacherRequestDetailData>(() => {})
+  }
+
+  const request = await fetchTeacherRequest(requestId)
+  const proposals = canManageProposals ? await fetchTeacherProposals(requestId) : []
+  return { request, proposals }
+}
+
+export interface UseTeacherRequestDetailResult {
+  request: TeacherRequest | null
+  proposals: TeacherProposal[]
+  isLoading: boolean
+  loadError: string | null
+
+  /** Étape 3 — POST /teacher-requests/:id/proposals (envoi groupé). */
+  sendProposals: (payload: SendTeacherProposalsPayload) => Promise<boolean>
+  isSendingProposals: boolean
+
+  /** Étapes 5 et 6 — POST /teacher-requests/:id/validate. */
+  validateProposal: (payload: ValidateTeacherRequestPayload) => Promise<boolean>
+  isValidating: boolean
+
+  /** PATCH /teacher-requests/:id/status — RP uniquement. */
+  changeStatus: (payload: UpdateTeacherRequestStatusPayload) => Promise<boolean>
+  isChangingStatus: boolean
+
+  /** DELETE /teacher-requests/:id — RP uniquement. */
+  removeRequest: () => Promise<boolean>
+
+  actionError: string | null
+  clearActionError: () => void
+  successMessage: string | null
+  clearSuccessMessage: () => void
+}
+
+/**
+ * useTeacherRequestDetail — état de la page de détail d'une demande.
  *
- * `updateStatus` remplace intégralement la demande affichée par la réponse serveur
- * (comme le faisait l'ancien `setRequest(data)`), sans jamais réinitialiser
- * `candidates` — ce tableau reste sous le contrôle exclusif de TeacherCandidatesView
- * (composant hors périmètre de cette migration, toujours branché sur `apiClient`),
- * à l'image du comportement préexistant.
+ * Toutes les écritures **réaffichent la réponse reçue** et jamais le corps envoyé
+ * (arbitrage du 2026-08-10) : le serveur pose `chosenTeacherName`, `closedAt` et le
+ * statut réel, que le client ne peut pas deviner. Aucune relecture n'est déclenchée
+ * après une écriture.
  */
 export function useTeacherRequestDetail(
   requestId: string | undefined,
+  canManageProposals: boolean,
 ): UseTeacherRequestDetailResult {
   const { data, isLoading, error: loadError } = useAsyncData(
-    () => loadTeacherRequestDetail(requestId),
-    [requestId],
+    () => loadTeacherRequestDetail(requestId, canManageProposals),
+    [requestId, canManageProposals],
+    { fallbackErrorMessage: 'Impossible de charger cette demande.' },
   )
 
-  const [detailOverride, setDetailOverride] = useState<TeacherRequestDetail | null>(null)
-  const [candidatesOverride, setCandidatesOverride] = useState<TeacherCandidate[] | null>(null)
+  const [requestOverride, setRequestOverride] = useState<TeacherRequest | null>(null)
+  const [proposalsOverride, setProposalsOverride] = useState<TeacherProposal[] | null>(null)
+  const [isSendingProposals, setIsSendingProposals] = useState(false)
+  const [isValidating, setIsValidating] = useState(false)
+  const [isChangingStatus, setIsChangingStatus] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   useEffect(() => {
-    setDetailOverride(null)
-    setCandidatesOverride(null)
+    setRequestOverride(null)
+    setProposalsOverride(null)
+    setActionError(null)
+    setSuccessMessage(null)
   }, [requestId])
 
-  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false)
-  const [statusError, setStatusError] = useState<string | null>(null)
-
-  const updateStatus = useCallback(
-    async (newStatus: string): Promise<TeacherRequestDetail | null> => {
-      if (!requestId) return null
-      setIsUpdatingStatus(true)
-      setStatusError(null)
+  const sendProposals = useCallback(
+    async (payload: SendTeacherProposalsPayload): Promise<boolean> => {
+      if (!requestId) return false
+      setIsSendingProposals(true)
+      setActionError(null)
       try {
-        const updated = await updateTeacherRequestStatus(requestId, { status: newStatus })
-        setDetailOverride(updated)
-        return updated
+        const createdProposals = await sendTeacherProposals(requestId, payload)
+        setProposalsOverride((previous) => [
+          ...createdProposals,
+          ...(previous ?? data?.proposals ?? []),
+        ])
+        // La demande bascule en `redirected` : on le reflète sans relire le serveur.
+        setRequestOverride((previous) => {
+          const currentRequest = previous ?? data?.request
+          return currentRequest ? { ...currentRequest, status: 'redirected' } : previous
+        })
+        setSuccessMessage(
+          `Proposition envoyée à ${createdProposals.length} formateur${
+            createdProposals.length > 1 ? 's' : ''
+          }.`,
+        )
+        return true
       } catch (caughtError) {
-        setStatusError(getErrorMessage(caughtError, 'Erreur lors de la mise à jour'))
-        return null
+        setActionError(
+          getErrorMessage(caughtError, "La proposition n'a pas pu être envoyée."),
+        )
+        return false
       } finally {
-        setIsUpdatingStatus(false)
+        setIsSendingProposals(false)
+      }
+    },
+    [requestId, data],
+  )
+
+  const validateProposal = useCallback(
+    async (payload: ValidateTeacherRequestPayload): Promise<boolean> => {
+      if (!requestId) return false
+      setIsValidating(true)
+      setActionError(null)
+      try {
+        const closedRequest = await validateTeacherRequest(requestId, payload)
+        setRequestOverride(closedRequest)
+        // La clôture solde toutes les propositions : on relit celles-ci, seule donnée que
+        // la réponse ne porte pas. Ce n'est pas un rechargement de la page, mais la
+        // lecture d'une ressource distincte que l'écriture vient de modifier.
+        try {
+          setProposalsOverride(await fetchTeacherProposals(requestId))
+        } catch {
+          setProposalsOverride(null)
+        }
+        setSuccessMessage(
+          closedRequest.chosenTeacherName
+            ? `${closedRequest.chosenTeacherName} accompagnera désormais cet élève.`
+            : 'Le professeur retenu accompagnera désormais cet élève.',
+        )
+        return true
+      } catch (caughtError) {
+        setActionError(
+          getErrorMessage(caughtError, "Le professeur n'a pas pu être retenu."),
+        )
+        return false
+      } finally {
+        setIsValidating(false)
       }
     },
     [requestId],
   )
 
-  const overrideStatus = useCallback(
-    (newStatus: string) => {
-      setDetailOverride((previous) => {
-        const base = previous ?? data
-        return base ? { ...base, status: newStatus } : previous
-      })
+  const changeStatus = useCallback(
+    async (payload: UpdateTeacherRequestStatusPayload): Promise<boolean> => {
+      if (!requestId) return false
+      setIsChangingStatus(true)
+      setActionError(null)
+      try {
+        const updatedRequest = await updateTeacherRequestStatus(requestId, payload)
+        setRequestOverride(updatedRequest)
+        setSuccessMessage('Le statut de la demande a été mis à jour.')
+        return true
+      } catch (caughtError) {
+        setActionError(
+          getErrorMessage(caughtError, "Le statut n'a pas pu être modifié."),
+        )
+        return false
+      } finally {
+        setIsChangingStatus(false)
+      }
     },
-    [data],
+    [requestId],
   )
 
-  const [deleteError, setDeleteError] = useState<string | null>(null)
-
-  const deleteRequest = useCallback(async (): Promise<boolean> => {
+  const removeRequest = useCallback(async (): Promise<boolean> => {
     if (!requestId) return false
+    setActionError(null)
     try {
       await deleteTeacherRequest(requestId)
       return true
     } catch (caughtError) {
-      setDeleteError(getErrorMessage(caughtError, 'Erreur lors de la suppression'))
+      setActionError(getErrorMessage(caughtError, "La demande n'a pas pu être supprimée."))
       return false
     }
   }, [requestId])
 
-  const request = data ? (detailOverride ?? data) : null
-  const candidates = candidatesOverride ?? data?.candidates ?? []
-
   return {
-    request,
+    request: data ? (requestOverride ?? data.request) : null,
+    proposals: proposalsOverride ?? data?.proposals ?? [],
     isLoading,
     loadError,
-    candidates,
-    setCandidates: setCandidatesOverride,
-    updateStatus,
-    isUpdatingStatus,
-    statusError,
-    overrideStatus,
-    deleteRequest,
-    deleteError,
+    sendProposals,
+    isSendingProposals,
+    validateProposal,
+    isValidating,
+    changeStatus,
+    isChangingStatus,
+    removeRequest,
+    actionError,
+    clearActionError: useCallback(() => setActionError(null), []),
+    successMessage,
+    clearSuccessMessage: useCallback(() => setSuccessMessage(null), []),
   }
 }

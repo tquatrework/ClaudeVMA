@@ -418,4 +418,42 @@ Phase 3 enrichit l'offre :
      le choix fait le 2026-08-11 pour les demandes de rattachement, ou `usePersonDisplayName`
      avait ete ecarte parce qu'il provoquait un `403` par ligne.
 
+- Frontiere entre un service metier et `orchestration-service`. Arbitrage rendu le 2026-08-12, sur
+  question de l'utilisateur : « `teacher-request-service` prend d'une certaine facon la place de
+  l'orchestrateur pour ce workflow ; si c'est absurde on peut ne plus utiliser ce service ».
+  Le constat est juste — ce service appelle `profile-service`, tient une machine a etats et
+  sequence des appels. Mais la conclusion retenue est **de le garder**, et de nommer la frontiere
+  plutot que de supprimer un des deux.
+  1. **Ce qui distingue les deux n'est pas « qui appelle qui », c'est « qui possede la regle ».**
+     `teacher-request-service` possede des donnees et des regles que personne d'autre ne peut
+     porter : ce qu'est une demande, ce qu'est une proposition, qui a le droit d'accepter, et la
+     difference entre *non retenue* et *caduque*. Le dissoudre obligerait a poser ces regles
+     ailleurs — dans `orchestration-service`, ce que les principes du projet interdisent
+     explicitement (« ne porte pas les regles metier detaillees des autres services »), ou dans
+     `profile-service`, qui possederait alors deux domaines.
+  2. **Appeler un autre service n'est pas orchestrer.** Un service appelle legitimement un pair
+     pour (a) **lire un fait** dont sa propre regle a besoin — « je ne cree pas cette demande si
+     le parent n'est pas lie a l'eleve » est une regle de `teacher-request-service`, le fait
+     appartient a `profile-service` ; ou (b) **demander au proprietaire d'ecrire chez lui** —
+     creer le lien eleve↔formateur. C'est une dependance, pas une coordination.
+  3. **`orchestration-service` gagne sa place quand aucun service ne possede l'ensemble** et que
+     le flux exige reprise, compensation ou idempotence *entre* les etapes. Ce n'est pas le cas
+     ici : `teacher-request-service` possede tout le cycle de vie, et la seule ecriture distante
+     est idempotente. La faire transiter par l'orchestrateur ajouterait un saut reseau sans
+     ajouter de garantie.
+  4. **Le point ou la bascule devra se faire est identifie.** `POST /requests/:id/validate` ecrit
+     deja dans deux services. Aujourd'hui l'ordre suffit — le lien est demande **avant** la
+     cloture, donc un refus de `profile-service` ne laisse rien de cloture, et le rejeu est sans
+     effet. Quand l'etape 7 (notifications), puis le calendrier et la finance s'y ajouteront,
+     ce ne sera plus un ordre mais une saga : c'est **la** que `orchestration-service` doit
+     reprendre la main, pas avant.
+  5. **Ce qui rend cette bascule peu couteuse est deja en place** : le flow emet de vrais
+     evenements (contrepartie du point 7 de l'arbitrage precedent). Deplacer la coordination
+     consistera a y abonner l'orchestrateur, pas a reecrire le workflow. C'est la raison pour
+     laquelle cette contrepartie etait non negociable.
+  Regle generale qui en decoule : **un service metier coordonne ses propres regles, l'orchestrateur
+  coordonne ce qui n'appartient a personne.** Un service qui appelle un pair pour appliquer sa
+  regle reste dans son role ; un service qui sequence des etapes appartenant a d'autres domaines
+  en sort.
+
 ## Points ouverts a arbitrer

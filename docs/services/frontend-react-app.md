@@ -2271,5 +2271,124 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-08-12" label="En-tetes de cache du front : index.html revalide, actifs haches figes (branche fix/cache-control-index-html)">
+      <context>
+        Correction d'infrastructure, aucune fonctionnalite. Mesure contre la pile reelle avant
+        intervention : `GET /` et `GET /assets/index-*.js` renvoyaient `Last-Modified` et `ETag`
+        mais **aucun `Cache-Control`**. Le navigateur appliquait donc son heuristique et pouvait
+        garder un `index.html` perime, qui reference l'ancien bundle **par son nom hache**,
+        lui-meme en cache. L'utilisateur regardait une version de la veille en croyant voir celle
+        du jour — constate le 2026-08-11 (ecran affichant des chaines a **0 occurrence** dans le
+        bundle reellement servi), puis de nouveau le 2026-08-12. Tant que ce defaut vivait,
+        **toute validation visuelle de l'utilisateur restait sujette au doute** : c'est la vraie
+        raison de ce lot, bien plus que la bande passante.
+      </context>
+
+      <fileTree>
+        apps/web/
+        ├── nginx.conf     # NOUVEAU — configuration du serveur statique, sortie du Dockerfile
+        └── Dockerfile     # le `printf ... > default.conf` en ligne devient `COPY nginx.conf`
+      </fileTree>
+
+      <decision id="no-cache-on-index-not-no-store">
+        `index.html` passe en **`no-cache`**, jamais `no-store`. Les deux sont souvent confondus :
+        `no-cache` n'interdit pas la mise en cache, il impose de **revalider** avant reutilisation.
+        Avec l'`ETag` que nginx emet deja, une page inchangee coute un `304` vide au lieu d'un
+        telechargement. `no-store` aurait force un retelechargement complet a chaque navigation,
+        sans aucun benefice sur la fraicheur.
+      </decision>
+
+      <decision id="immutable-on-hashed-assets">
+        `/assets/*` passe en **`public, max-age=31536000, immutable`**. C'est sur parce que Vite
+        **hache le nom** de chaque fichier : un contenu different produit un nom different, il n'y
+        a donc rien a revalider. Avant ce lot ces fichiers etaient revalides a chaque chargement
+        de page — un aller-retour reseau par actif, pour un contenu qui ne peut pas changer.
+      </decision>
+
+      <decision id="two-locations-plus-the-spa-fallback">
+        Le piege classique de ce reglage est l'interaction entre `try_files` et les blocs
+        `location`. Retenu : **deux blocs freres**, `location /assets/` et `location /`. Le repli
+        SPA reste dans le second (`try_files $uri $uri/ /index.html`) ; la redirection **interne**
+        vers `/index.html` repasse par ce meme bloc, l'en-tete `no-cache` s'applique donc aussi
+        bien a `/` qu'aux routes profondes. Aucun `location = /index.html` separe : il aurait
+        duplique la regle sans rien resoudre.
+        `location /assets/` porte `try_files $uri =404` et **non** un repli sur `index.html` : un
+        bundle manquant doit se voir en `404`, pas etre servi comme du HTML que le navigateur
+        tenterait d'executer en JavaScript.
+      </decision>
+
+      <decision id="always-only-where-it-serves">
+        `add_header ... always` sur `no-cache` (il doit valoir quel que soit le code de reponse),
+        **pas** sur les actifs. Premiere version deployee, puis corrigee dans la foulee apres
+        mesure : un `404` d'actif repartait avec « immutable, un an », ce qui aurait fait garder
+        une **absence** en cache aussi longtemps que le fichier lui-meme.
+      </decision>
+
+      <decision id="conf-out-of-the-dockerfile">
+        La configuration nginx etait ecrite **en ligne** par un `printf` a continuations `\n\`.
+        Elle vit desormais dans `apps/web/nginx.conf`, copie par le `Dockerfile`. Motif : elle est
+        relue et modifiee bien plus souvent qu'ecrite, et un caractere de continuation oublie
+        produisait un nginx qui refuse de demarrer, pour un diff illisible en revue.
+      </decision>
+
+      <decision id="distinct-from-the-no-application-cache-rule">
+        A ne pas confondre avec la decision du 2026-08-10 « aucun cache pour l'instant » : celle-la
+        porte sur les **donnees lues par l'application** (pas de cache client entre deux appels
+        API), celle-ci sur les **en-tetes de ses fichiers statiques**. Les deux coexistent sans se
+        contredire.
+      </decision>
+
+      <realStackVerification>
+        Reconstruction et redeploiement (`docker compose up -d --build --no-deps frontend`), puis
+        mesure contre https://claudevma.visioprof.fr :
+
+        1. `GET /` → `200`, `Content-Type: text/html`, `ETag: "6a7caeee-18a"`,
+           **`Cache-Control: no-cache`**.
+        2. `GET /assets/index-CY7rLQil.js` → `200`, `Content-Type: application/javascript`,
+           **`Cache-Control: public, max-age=31536000, immutable`**.
+        3. `GET /assets/index-wK7uZK4N.css` → `200`, meme `Cache-Control`.
+        4. **Repli SPA intact** : `/rp/teacher-validations`, `/login`, `/profile`,
+           `/teacher-requests`, `/archives`, `/dashboard` → tous `200 text/html`, 394 octets,
+           `Cache-Control: no-cache`, corps = la page React referencant le bundle courant.
+           Aucun `404`.
+        5. **Revalidation effective** : `GET /` avec `If-None-Match: "6a7caeee-18a"` →
+           `304 Not Modified`, corps vide. C'est exactement le comportement vise par `no-cache`.
+        6. `GET /assets/index-DISPARU.js` → `404`, **sans** `Cache-Control` (apres la correction
+           du point `always` ci-dessus).
+        7. `GET /api/v1/auth/me` sans jeton → `401 application/json` : le routage API n'est pas
+           affecte par les blocs `location` ajoutes.
+        8. Le bundle servi est bien celui du HEAD : « Plan de travail », « Formateurs à examiner »
+           et `teacher-validations` y sont presents — la verification que le defaut corrige ici
+           rendait justement impossible.
+
+        Suite front : **1527 tests verts (128 fichiers)**, `tsc --noEmit` sans erreur,
+        `vite build` reussi. Rappel : ces tests simulent tout le reseau, ce sont les en-tetes
+        ci-dessus qui font foi.
+      </realStackVerification>
+
+      <openPoints>
+        <item id="nginx-global-does-not-strip">
+          `nginx-global`, hors depot, **n'ecrase pas** ces en-tetes : ils traversent intacts,
+          verifie ci-dessus. Aucune intervention n'y est donc necessaire. Point note parce que
+          c'etait le risque principal du lot.
+        </item>
+        <item id="package-lock-not-used-by-the-image">
+          Le `Dockerfile` copie `package.json` **sans** `package-lock.json`, et lance
+          `npm install` : l'image resout donc ses dependances a chaque construction. Constate
+          ici — le meme commit produit `index-j26QbPD9.js` en local et `index-CY7rLQil.js` dans
+          l'image. Les deux contiennent bien le code du HEAD (verifie par chaines), mais
+          **« meme commit » ne garantit pas « memes octets »**. Ce n'est pas le defaut corrige
+          dans ce lot et le changement (`npm ci` + copie du lock) touche la reproductibilite des
+          builds de tous les services : a arbitrer separement.
+        </item>
+        <item id="one-year-is-a-promise">
+          `immutable` sur un an suppose que le nom hache change a chaque changement de contenu.
+          C'est le comportement de Vite aujourd'hui. Si un jour un fichier non hache atterrissait
+          dans `/assets/`, il serait fige un an chez les visiteurs — la configuration de build est
+          donc devenue une dependance de la politique de cache.
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

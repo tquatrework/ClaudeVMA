@@ -18,15 +18,11 @@ FROM nginx:alpine AS runner
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# SPA fallback: redirect all routes to index.html
-RUN printf 'server {\n\
-    listen 80;\n\
-    root /usr/share/nginx/html;\n\
-    index index.html;\n\
-    location / {\n\
-        try_files $uri $uri/ /index.html;\n\
-    }\n\
-}\n' > /etc/nginx/conf.d/default.conf
+# Repli SPA + politique de cache : voir apps/web/nginx.conf.
+# Fichier a part plutot qu'un `printf` en ligne — la configuration est relue et
+# modifiee bien plus souvent qu'elle n'est ecrite, et les `\n\` de continuation
+# rendaient toute correction risquee (un caractere oublie = nginx qui ne demarre pas).
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 

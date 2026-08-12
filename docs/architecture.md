@@ -397,4 +397,25 @@ Phase 3 enrichit l'offre :
      des maintenant, pour que `dashboard-notification-service` s'y abonne sans retoucher le
      workflow. Un evenement qui n'est qu'un `logger.log` n'est pas un evenement.
 
+- Resolution des noms entre services : route interne dediee, limitee au socle. Arbitrage rendu le
+  2026-08-12, en reponse au besoin remonte par `teacher-request-service`.
+  Le probleme : un formateur qui recoit une proposition n'est **encore lie a aucun eleve**. La
+  route publique `GET /profiles/:userId` lui repondrait donc `403`, et l'ecran retomberait sur un
+  UUID — ce que l'arbitrage du 2026-08-09 interdit. Deux regles du projet se contredisaient donc
+  sur ce cas precis.
+  1. **Tranche en faveur du nom.** `profile-service` expose une route interne de resolution de
+     nom, protegee par `X-Internal-Secret`, sans lecteur et sans filtrage champ par champ.
+     Afficher « Camille Durand » a un formateur que le RP a **deliberement** sollicite est moins
+     grave que de lui afficher un UUID : c'est un administrateur qui a choisi de le mettre en
+     relation.
+  2. **Strictement limitee au socle, et pour toujours.** Cette route ne renvoie que
+     `firstName` / `lastName`. Elle ne doit **jamais** etre etendue a d'autres champs : ce serait
+     une porte derobee contournant le filtrage de visibilite pour tout service detenant le
+     secret. Tout besoin d'un champ supplementaire passe par la route publique et ses regles de
+     droit, pas par un elargissement de celle-ci.
+  3. **Reservee aux appels interservices.** Elle n'est jamais exposee par `api-gateway`. Un front
+     qui aurait besoin d'un nom passe par une route publique portant deja le nom resolu — c'est
+     le choix fait le 2026-08-11 pour les demandes de rattachement, ou `usePersonDisplayName`
+     avait ete ecarte parce qu'il provoquait un `403` par ligne.
+
 ## Points ouverts a arbitrer

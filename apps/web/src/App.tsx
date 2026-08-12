@@ -19,6 +19,7 @@ import ProfilePage from './pages/ProfilePage'
 import ProfileEditPage from './pages/ProfileEditPage'
 import TeacherRequestsPage from './pages/TeacherRequestsPage'
 import TeacherRequestDetailPage from './pages/TeacherRequestDetailPage'
+import TeacherValidationQueuePage from './pages/TeacherValidationQueuePage'
 import CalendarPage from './pages/CalendarPage'
 import ActivityDetailPage from './pages/ActivityDetailPage'
 import VideoPage from './pages/VideoPage'
@@ -142,6 +143,19 @@ export default function App() {
                 allowedRoles={['eleve', 'parent_financeur', 'formateur', 'responsable_pedagogique']}
               >
                 <TeacherRequestsPage />
+              </ProtectedRoute>
+            }
+          />
+          {/*
+            File de validation des nouveaux formateurs — RP seul, comme
+            `GET /profiles/teachers/pending-validation` : le TI peut trancher un
+            dossier ouvert depuis la fiche, mais ne dispose pas de la file.
+          */}
+          <Route
+            path="/rp/teacher-validations"
+            element={
+              <ProtectedRoute allowedRoles={['responsable_pedagogique']}>
+                <TeacherValidationQueuePage />
               </ProtectedRoute>
             }
           />

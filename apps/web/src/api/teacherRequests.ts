@@ -26,10 +26,6 @@ import type {
   UpdateTeacherRequestStatusPayload,
   ValidateTeacherRequestPayload,
 } from '../types/teacherRequests'
-import type {
-  TeacherValidationStatus,
-  UpdateTeacherValidationPayload,
-} from '../types/profile'
 
 // ─── Étape 1 — l'élève ou son parent crée la demande ───────────────────────────
 
@@ -168,27 +164,5 @@ export async function createPpChangeRequest(
   payload: PpChangeRequestPayload,
 ): Promise<TeacherRequest> {
   const { data } = await apiClient.post<TeacherRequest>('/teacher-requests/pp-change', payload)
-  return data
-}
-
-// ─── Validation formateur (TeacherValidationPanel — profile-service) ──────────
-
-/** GET /profiles/:teacherId/validation */
-export async function fetchTeacherValidationStatus(
-  teacherId: string,
-): Promise<TeacherValidationStatus> {
-  const { data } = await apiClient.get<TeacherValidationStatus>(`/profiles/${teacherId}/validation`)
-  return data
-}
-
-/** PATCH /profiles/:teacherId/validation — prise en charge, validation, rejet. */
-export async function updateTeacherValidationStatus(
-  teacherId: string,
-  payload: UpdateTeacherValidationPayload,
-): Promise<TeacherValidationStatus> {
-  const { data } = await apiClient.patch<TeacherValidationStatus>(
-    `/profiles/${teacherId}/validation`,
-    payload,
-  )
   return data
 }

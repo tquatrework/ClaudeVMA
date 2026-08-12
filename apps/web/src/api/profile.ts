@@ -19,10 +19,13 @@ import type {
   FieldVisibilityUpdate,
   InternalNote,
   PrescriptionFields,
+  PendingTeacher,
   Profile,
   ProfileAvatarConstraints,
   ProfileStatisticsResponse,
   SavedProfileBlock,
+  TeacherValidationRecord,
+  UpdateTeacherValidationPayload,
   ValidatedTeacher,
 } from '../types/profile'
 
@@ -310,6 +313,74 @@ export async function fetchValidatedTeachers(
   const { data } = await apiClient.get<PaginatedResponse<ValidatedTeacher>>(
     '/profiles/teachers/validated',
     { params: { page, limit } },
+  )
+  return data
+}
+
+// ─── Validation des nouveaux formateurs ───────────────────────────────────────
+
+/**
+ * Taille de page de la file de validation. Le serveur plafonne `limit` à 100 et
+ * refuse au-delà en `400` (message français citant le plafond), jamais en
+ * rognant en silence. On reste volontairement sous le plafond : la file
+ * s'examine dossier par dossier, une page trop longue ne se traite pas.
+ */
+export const PENDING_TEACHERS_PAGE_SIZE = 20
+
+/** Plafond déclaré par le serveur, jamais dépassé par le front. */
+export const PENDING_TEACHERS_MAX_LIMIT = 100
+
+/**
+ * GET /profiles/teachers/pending-validation — file de travail du RP.
+ *
+ * **RP seul** : tout autre rôle reçoit `403`, le TI compris (il peut trancher un
+ * dossier ouvert, pas disposer de la file). Triée par ancienneté : le premier
+ * inscrit est le premier examiné.
+ *
+ * ⚠️ Depuis le 2026-08-12 la réponse est une **enveloppe**
+ * `{data, page, limit, total, totalPages}`, pas un tableau nu ; l'identifiant est
+ * `userId` (et non `teacherId`) et la date `pendingSince` (et non `createdAt`).
+ * Lire la racine comme un tableau ne renverrait jamais aucun formateur.
+ */
+export async function fetchPendingTeachers(
+  page = 1,
+  limit = PENDING_TEACHERS_PAGE_SIZE,
+): Promise<PaginatedResponse<PendingTeacher>> {
+  const { data } = await apiClient.get<PaginatedResponse<PendingTeacher>>(
+    '/profiles/teachers/pending-validation',
+    { params: { page, limit } },
+  )
+  return data
+}
+
+/**
+ * GET /profiles/:teacherId/validation — statut de validation d'un formateur.
+ * Ouvert au RP, au TI, à l'AF et au formateur lui-même.
+ */
+export async function fetchTeacherValidationStatus(
+  teacherId: string,
+): Promise<TeacherValidationRecord> {
+  const { data } = await apiClient.get<TeacherValidationRecord>(
+    `/profiles/${teacherId}/validation`,
+  )
+  return data
+}
+
+/**
+ * PATCH /profiles/:teacherId/validation — prise en charge, validation, refus.
+ *
+ * Corps `{status, comment?}`. Une transition interdite pour le rôle appelant
+ * (typiquement `pending` → `validated` demandée par un RP) est refusée en `403`
+ * avec un message en français : il est affiché tel quel, jamais remplacé par un
+ * message générique.
+ */
+export async function updateTeacherValidationStatus(
+  teacherId: string,
+  payload: UpdateTeacherValidationPayload,
+): Promise<TeacherValidationRecord> {
+  const { data } = await apiClient.patch<TeacherValidationRecord>(
+    `/profiles/${teacherId}/validation`,
+    payload,
   )
   return data
 }

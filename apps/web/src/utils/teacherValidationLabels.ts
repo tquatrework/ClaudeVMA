@@ -1,0 +1,58 @@
+/**
+ * Point unique de correspondance état technique → libellé français et couleur,
+ * pour la **validation des nouveaux formateurs** (profile-service).
+ *
+ * Règle de langue du 2026-08-09 : noms techniques en anglais, libellés en
+ * français, correspondance en un seul endroit. Ces tables vivaient jusqu'ici en
+ * dur dans `TeacherValidationPanel` ; la file de validation du RP en aurait fait
+ * une seconde copie, avec le risque habituel qu'un même état s'affiche
+ * différemment selon l'écran.
+ *
+ * Domaine distinct de `teacherRequestLabels.ts` : là un flow de demande d'élève,
+ * ici un cycle de vie de compte formateur. Deux domaines, deux tables.
+ */
+
+import type { TeacherValidationState } from '../types/profile'
+
+export const TEACHER_VALIDATION_STATE_LABELS: Record<TeacherValidationState, string> = {
+  pending: 'En attente de prise en charge',
+  in_review: "En cours d'examen",
+  validated: 'Validé',
+  rejected: 'Refusé',
+}
+
+export const TEACHER_VALIDATION_STATE_COLORS: Record<TeacherValidationState, string> = {
+  pending: 'bg-yellow-100 text-yellow-700',
+  in_review: 'bg-blue-100 text-blue-700',
+  validated: 'bg-green-100 text-green-700',
+  rejected: 'bg-red-100 text-red-700',
+}
+
+/** Libellé français d'un état, y compris si le serveur en introduit un inconnu. */
+export function getTeacherValidationStateLabel(status: string): string {
+  return TEACHER_VALIDATION_STATE_LABELS[status as TeacherValidationState] ?? status
+}
+
+/**
+ * États terminaux : le dossier quitte la file de travail du RP.
+ * `in_review` n'en fait pas partie — le dossier reste à instruire.
+ */
+export function isTerminalValidationState(status: TeacherValidationState): boolean {
+  return status === 'validated' || status === 'rejected'
+}
+
+/**
+ * Le RP peut-il valider ou refuser directement depuis cet état ?
+ *
+ * Non depuis `pending` : le serveur réserve ce raccourci au TI et répond `403`.
+ * Le front n'affiche donc pas l'action — règle projet : ne jamais proposer une
+ * entrée qui mène à un refus.
+ */
+export function canDecideFromState(status: TeacherValidationState): boolean {
+  return status === 'in_review'
+}
+
+/** Le dossier peut-il être pris en charge (passage en `in_review`) ? */
+export function canTakeChargeFromState(status: TeacherValidationState): boolean {
+  return status === 'pending'
+}

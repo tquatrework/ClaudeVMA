@@ -325,21 +325,69 @@ export interface FieldVisibilityUpdate {
 }
 
 /**
- * Statut de validation d'un formateur (TeacherValidationPanel, RP/TI uniquement).
- * Écart : `GET/PATCH /profiles/:teacherId/validation` n'apparaissent pas dans
- * docs/routes.md (seul `POST /profiles/:teacherId/ap-status` y est documenté).
+ * États de la machine de validation d'un formateur :
+ * `pending` → `in_review` → `validated` | `rejected`.
+ *
+ * Le RP **ne peut pas** sauter l'étape `in_review` ; seul le TI le peut
+ * (`docs/routes.md` § « Validation des formateurs »). Le front n'affiche donc
+ * jamais à un RP une action qui recevrait `403`.
  */
-export interface TeacherValidationStatus {
+export type TeacherValidationState = 'pending' | 'in_review' | 'validated' | 'rejected'
+
+/**
+ * Enregistrement de validation d'un formateur, tel que renvoyé par
+ * `GET` et `PATCH /profiles/:teacherId/validation`.
+ *
+ * ⚠️ Noms alignés sur le serveur (règle « un seul nom par donnée ») : `status`
+ * et `comment`, **pas** `validationStatus` / `rejectionReason`. Vérifié contre la
+ * pile réelle le 2026-08-12 : un corps `{validationStatus}` est refusé en `400`
+ * (« property validationStatus should not exist »).
+ *
+ * `id`, `validatedBy` et `validatorRole` sont des identifiants techniques : ils
+ * servent aux appels et à la résolution de nom, jamais à l'affichage
+ * (arbitrage du 2026-08-09).
+ */
+export interface TeacherValidationRecord {
+  /** Absent du repli de synthèse renvoyé quand aucune ligne n'existe encore. */
+  id?: string
   teacherId: string
-  validationStatus: 'pending' | 'in_review' | 'validated' | 'rejected'
-  validatedAt?: string
-  validatedBy?: string
-  rejectionReason?: string
+  status: TeacherValidationState
+  validatedBy?: string | null
+  validatorRole?: string | null
+  comment?: string | null
+  createdAt?: string
+  updatedAt?: string
 }
 
+/** Corps de `PATCH /profiles/:teacherId/validation`. */
 export interface UpdateTeacherValidationPayload {
-  validationStatus: 'in_review' | 'validated' | 'rejected'
-  rejectionReason?: string
+  status: TeacherValidationState
+  /** Motif ou note d'instruction, ≤ 2000 caractères côté serveur. */
+  comment?: string
+}
+
+/** Longueur maximale du commentaire, déclarée par le serveur. */
+export const TEACHER_VALIDATION_COMMENT_MAX_LENGTH = 2000
+
+/**
+ * Une ligne de la file de validation du RP
+ * (`GET /profiles/teachers/pending-validation`), triée par ancienneté.
+ *
+ * Mêmes nuances que `ValidatedTeacher` : `levels` / `subjects` à `null` =
+ * **non renseigné**, `[]` = liste vide enregistrée — ni l'un ni l'autre ne doit
+ * produire le mot « null » à l'écran. `firstName` / `lastName` à `null`
+ * signalent une incohérence de données ; le formateur reste dans la file.
+ *
+ * `pendingSince` (et non `createdAt`) : dans une liste de *personnes*,
+ * `createdAt` se lisait « date de création du formateur ».
+ */
+export interface PendingTeacher {
+  userId: string
+  firstName: string | null
+  lastName: string | null
+  levels: string[] | null
+  subjects: string[] | null
+  pendingSince: string
 }
 
 /**

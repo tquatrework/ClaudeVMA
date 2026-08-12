@@ -104,6 +104,45 @@ export function filterTopNavItems(
 }
 
 /* ─────────────────────────────────────────────────────────
+   PLAN DE TRAVAIL DU RESPONSABLE PÉDAGOGIQUE
+───────────────────────────────────────────────────────── */
+
+/**
+ * Les files de travail du RP, déclarées **une seule fois**.
+ *
+ * L'arbitrage du 2026-08-12 le formule ainsi : « le RP a un plan de travail, pas
+ * des écrans épars ». Ses deux files sont de la même famille — un dossier arrive,
+ * il l'instruit, il tranche — et doivent donc être voisines dans le rail *et*
+ * atteignables l'une depuis l'autre (`RpWorkQueueNav`).
+ *
+ * Deux entrées plutôt qu'une page à deux sections : les deux files n'ont ni la
+ * même source (`profile-service` / `teacher-request-service`), ni la même
+ * pagination, ni le même rythme de traitement. Les fusionner obligerait à charger
+ * les deux pour en consulter une, ce que la règle de chargement au niveau de la
+ * page (2026-08-10) déconseille.
+ */
+export const RP_WORK_QUEUES = [
+  {
+    id: 'teacher-validations',
+    label: 'Nouveaux formateurs',
+    shortLabel: 'Formateurs',
+    path: '/rp/teacher-validations',
+    icon: '🧑‍🏫',
+    description: 'Formateurs inscrits en attente d\'examen.',
+  },
+  {
+    id: 'teacher-requests',
+    label: 'Demandes professeurs',
+    shortLabel: 'Demandes',
+    path: '/teacher-requests',
+    icon: '🎓',
+    description: 'Demandes des élèves à instruire.',
+  },
+] as const
+
+export type RpWorkQueue = (typeof RP_WORK_QUEUES)[number]
+
+/* ─────────────────────────────────────────────────────────
    RAIL GAUCHE PAR RÔLE
 ───────────────────────────────────────────────────────── */
 
@@ -199,10 +238,17 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
   ],
 
   responsable_pedagogique: [
+    // Plan de travail du RP (arbitrage du 2026-08-12) : ses deux files sont
+    // voisines et en tête de rail, pas dispersées dans « Gestion » et
+    // « Validation ». Voir RP_WORK_QUEUES ci-dessous, qui les rend également
+    // visibles l'une depuis l'autre.
+    {
+      groupLabel: 'À traiter',
+      items: RP_WORK_QUEUES.map(({ label, path, icon }) => ({ label, path, icon })),
+    },
     {
       groupLabel: 'Gestion',
       items: [
-        { label: 'Demandes professeurs', path: '/teacher-requests', icon: '🎓' },
         { label: 'Comptes', path: '/admin/accounts', icon: '🔑' },
         { label: 'Délégations', path: '/delegations', icon: '🔗' },
       ],

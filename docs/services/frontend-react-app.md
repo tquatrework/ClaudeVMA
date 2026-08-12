@@ -1944,7 +1944,10 @@
       </realStackVerification>
 
       <openPoints>
-        <item id="no-teacher-directory-for-the-rp">
+        <item id="no-teacher-directory-for-the-rp" status="resolu-2026-08-12">
+          **Leve le 2026-08-12** par `GET /profiles/teachers/validated` cote serveur, puis
+          branche cote front — voir la session « Annuaire des formateurs valides » ci-dessous.
+          Constat d'origine conserve pour memoire :
           **Blocage reel, cote serveur.** Aucune route ne permet au RP de lister les formateurs
           de la plateforme. Verifie le 2026-08-12 avec son jeton :
           `GET /profiles/teachers/pending-validation` → `200 []` (seulement les formateurs **en
@@ -1984,6 +1987,127 @@
           `trsflow.eleve.0811` (une close avec Nadia Lambert professeur principal, une `pending`
           creee par le parent) et une demande `pp_change`. S'ajoutent aux traces des sessions
           precedentes.
+        </item>
+      </openPoints>
+    </session>
+
+    <session date="2026-08-12" label="Annuaire des formateurs valides branche sur l'etape 3 (branche feat/flow-demande-professeur)">
+      <context>
+        La session precedente laissait l'etape 3 inutilisable : `useSelectableTeachers`
+        renvoyait une liste vide et le composeur affichait « La liste des professeurs n'est pas
+        encore disponible ». `GET /profiles/teachers/validated` a ete livree et prouvee cote
+        serveur le 2026-08-12 (`docs/architecture.md` &gt; « Annuaire des formateurs valides »,
+        `docs/routes.md` &gt; profile-service). Ce lot la branche.
+      </context>
+
+      <fileTree>
+        apps/web/src/
+        ├── api/profile.ts                                  # + fetchValidatedTeachers, VALIDATED_TEACHERS_MAX_LIMIT
+        ├── api/archiveDocument.ts                           # PaginatedArchiveResponse = alias du type partage
+        ├── types/pagination.ts                              # NOUVEAU — PaginatedResponse&lt;T&gt;, enveloppe commune
+        ├── types/profile.ts                                 # + ValidatedTeacher
+        ├── types/teacherRequests.ts                         # + SelectableTeacher (deplace depuis le hook)
+        ├── utils/teacherDirectory.ts                        # NOUVEAU — formatTeacherExpertise, toSelectableTeacher
+        ├── hooks/teacher-requests/useSelectableTeachers.ts   # appel reel + pagination
+        ├── components/teacher-requests/TeacherProposalComposer.tsx
+        └── pages/TeacherRequestDetailPage.tsx
+        apps/web/test/
+        ├── validatedTeachers.api.test.ts                    # NOUVEAU
+        ├── utils/teacherDirectory.test.ts                   # NOUVEAU
+        └── pages/TeacherRequestDetailPage.test.tsx          # + 8 cas d'annuaire
+      </fileTree>
+
+      <decision id="envelope-not-array">
+        La reponse est une **enveloppe** `{data, page, limit, total, totalPages}`. Le hook lit
+        `response.data`, jamais la racine — c'est exactement le defaut qui avait vide l'ecran
+        des archives le 2026-08-11, et il n'est pas rejoue ici. L'enveloppe est desormais un
+        type partage (`src/types/pagination.ts`) : `archive-document-service` et
+        `profile-service` renvoient la meme forme, elle n'est plus declaree deux fois.
+      </decision>
+
+      <decision id="pagination-bounded-and-declared">
+        La liste est bornee a **100 par page** et le serveur refuse `limit=101` en `400`, sans
+        jamais rogner en silence. Le front demande donc exactement 100 et **enchaine les pages
+        jusqu'a `totalPages`** : deux formateurs aujourd'hui, mais coder « la premiere page
+        suffit » serait un plafond cache de plus. Garde-fou explicite `MAX_DIRECTORY_PAGES = 20`
+        (2 000 formateurs) : au-dela on cesse de paginer et **on le dit** a l'ecran
+        (`isTruncated`) — une boucle non bornee sur un `totalPages` aberrant enfermerait la page
+        dans une suite de requetes sans fin.
+      </decision>
+
+      <decision id="four-real-states-in-french">
+        Le message « pas encore disponible » est **supprime**. Quatre etats reels le remplacent :
+        chargement, annuaire vide (« Aucun professeur valide n'est disponible pour l'instant. »),
+        tous deja sollicites sur cette demande, et erreur — le message du serveur, affiche tel
+        quel. Les deux etats vides sont **distincts** : « il n'y a personne » et « ils ont tous
+        deja ete sollicites » ne disent pas la meme chose au RP.
+      </decision>
+
+      <decision id="null-is-not-empty-and-is-never-printed">
+        `levels` / `subjects` a `null` = non renseigne (le profil pedagogique est facultatif) ;
+        `[]` = liste vide enregistree. Les deux produisent la meme ligne discrete
+        « Niveaux et matieres non renseignes » — jamais le mot « null », jamais une etiquette
+        vide. Quand ils sont renseignes, ils s'affichent sous le nom : c'est ce qui permet de
+        choisir. `firstName`/`lastName` a `null` (incoherence de donnees signalee par le
+        serveur) donnent « Professeur (nom non renseigne) » via `formatPersonDisplayName`,
+        **jamais** l'UUID en repli.
+      </decision>
+
+      <decision id="no-call-for-roles-that-would-get-403">
+        La route est reservee aux administrateurs (RP, AF, TI) — l'AP recoit `403`, il n'est pas
+        administrateur au sens de l'arbitrage du 2026-08-11. `useSelectableTeachers(isEnabled)`
+        n'emet donc **aucun appel** hors RP sur cet ecran, au lieu d'aller chercher un refus.
+        Meme regle que pour `GET /.../proposals`.
+      </decision>
+
+      <decision id="composer-signature-changed">
+        Le composeur devait bouger, contrairement a ce qu'annoncait la note du hook : sa prop
+        `isDirectoryUnavailable` decrivait l'**absence de route**, un etat qui n'existe plus.
+        Elle est remplacee par `teachersLoadError` et `isDirectoryTruncated`, et la ligne
+        d'expertise est ajoutee sous chaque nom. La mecanique de selection multiple par cases a
+        cocher, elle, n'a pas change d'une ligne — c'est ce qui etait promis.
+        `SelectableTeacher` quitte le hook pour `src/types/teacherRequests.ts` (type partage par
+        trois fichiers) et gagne `expertise`.
+      </decision>
+
+      <realStackVerification date="2026-08-12" target="https://claudevma.visioprof.fr">
+        Compte `trsflow.rp.0811`, jeton lu dans `access_token`.
+
+        1. `GET /api/v1/profiles/teachers/validated?page=1&amp;limit=100` → `200`
+           `{"data":[{Nadia Lambert, levels:null, subjects:null},{Yanis Roche, levels:null,
+           subjects:null}],"page":1,"limit":100,"total":2,"totalPages":1}`.
+        2. `limit=101` → `400` « Le nombre de formateurs par page ne peut pas depasser 100.
+           Demandez les pages suivantes pour obtenir la suite de la liste. »
+        3. `page=9` (au-dela de la derniere) → `200 {"data":[],...}`, jamais `404`.
+        4. Jeton eleve (`trsflow.eleve.0811`) → `403 "Insufficient role"`.
+
+        Puis le **vrai code du front**, sans aucun mock, execute contre cette meme pile
+        (`loadValidatedTeacherDirectory` + `TeacherProposalComposer` rendus hors navigateur) :
+        - RP → « Formateurs recus : 2 / Pagination tronquee : false », puis le rendu du
+          composeur : « Nadia Lambert / Niveaux et matieres non renseignes », « Yanis Roche /
+          Niveaux et matieres non renseignes ». Les deux `userId` reels
+          (`a1c90ec9-…`, `2b02e211-…`) sont **absents du rendu**.
+        - Jeton eleve → message affiche : « Vous n'etes pas autorise a effectuer cette action. »
+
+        Suite front : **1495 tests verts**, `tsc --noEmit` sans erreur, `vite build` reussi.
+        Ces tests simulent tout le reseau : c'est la verification ci-dessus qui fait foi.
+      </realStackVerification>
+
+      <openPoints>
+        <item id="directory-not-reachable-outside-the-composer">
+          L'annuaire n'est charge que par `TeacherRequestDetailPage`, pour le RP. L'AF et le TI
+          y ont droit cote serveur mais aucun ecran ne le leur propose — a ouvrir si le besoin
+          apparait, le hook est deja parametre par `isEnabled`.
+        </item>
+        <item id="no-search-yet">
+          Recherche par niveau, disponibilites et points : **phase 2** par arbitrage. On livre
+          une liste, pas un moteur. Avec deux formateurs, aucun filtre n'est necessaire ; au-dela
+          de quelques dizaines, un champ de filtrage local sera le premier besoin.
+        </item>
+        <item id="levels-and-subjects-empty-on-the-dev-stack">
+          Les deux formateurs de test n'ont **pas de profil pedagogique** : `levels` et
+          `subjects` valent `null`. Le cas « renseigne » est donc couvert par les tests, pas par
+          la pile reelle — il le sera des qu'un formateur de test remplira son profil.
         </item>
       </openPoints>
     </session>

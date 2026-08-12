@@ -42,9 +42,14 @@ function pendingForever<T>(): Promise<T> {
   return new Promise<T>(() => {})
 }
 
-async function loadDirectory(isEnabled: boolean): Promise<ValidatedTeacherDirectory> {
-  if (!isEnabled) return pendingForever<ValidatedTeacherDirectory>()
-
+/**
+ * Parcourt l'annuaire page par page et rend la liste prête à afficher.
+ *
+ * Exporté — et non caché dans le hook — pour pouvoir être joué **contre la pile
+ * réelle** : la suite de tests front simule tout le réseau, un vert n'y vaut donc
+ * pas validation sur ce projet.
+ */
+export async function loadValidatedTeacherDirectory(): Promise<ValidatedTeacherDirectory> {
   const collectedTeachers: ValidatedTeacher[] = []
   let currentPage = 1
   let totalPages = 1
@@ -77,9 +82,14 @@ export interface UseSelectableTeachersResult {
  *   lui-même n'est pas affiché.
  */
 export function useSelectableTeachers(isEnabled: boolean): UseSelectableTeachersResult {
-  const { data, isLoading, error } = useAsyncData(() => loadDirectory(isEnabled), [isEnabled], {
-    fallbackErrorMessage: "Impossible de charger la liste des professeurs.",
-  })
+  const { data, isLoading, error } = useAsyncData(
+    () =>
+      isEnabled
+        ? loadValidatedTeacherDirectory()
+        : pendingForever<ValidatedTeacherDirectory>(),
+    [isEnabled],
+    { fallbackErrorMessage: 'Impossible de charger la liste des professeurs.' },
+  )
 
   return {
     teachers: data?.teachers ?? [],

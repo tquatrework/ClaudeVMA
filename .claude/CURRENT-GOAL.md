@@ -184,12 +184,54 @@ Rencontrés en prouvant l'annuaire, **non corrigés**, sans lien avec le flow lu
       confirmé). Flow complet rejoué après déploiement intégral, sans régression.
 - [x] Preuve livrée à l'utilisateur — flow complet joué contre `https://claudevma.visioprof.fr`,
       voir `.claude/reports/preuve-flow-demande-professeur-2026-08-12.md`
-- [ ] Validé par l'utilisateur — **c'est la seule case qui reste**, elle vous appartient
-- [ ] Mergé dans master
+- [~] Validé par l'utilisateur — **mergé sur sa décision le 2026-08-12** (« Il faut merger »).
+      La preuve livrée porte sur les réponses HTTP des huit étapes, jouées deux fois contre la
+      pile réelle. **Le constat écran par écran n'a pas été fait** : ce n'est donc pas une
+      validation par usage, au même titre que le merge du 2026-08-11 sur l'accès par relation.
+- [x] Mergé dans master — PR #100, squash, `d057bc5`, branche supprimée
 
 ---
 
-## Deux PR livrées, prouvées, en attente de merge
+## Suite immédiate — les notifications (étape 7)
+
+Le flow est actif mais **silencieux** : personne n'est prévenu de rien. Le RP doit aller voir sa
+liste, le formateur ouvrir sa boîte, l'élève et son parent découvrir le résultat par eux-mêmes.
+C'est le séquencement tranché le 2026-08-12 (arbitrage 7), pas un oubli.
+
+Ce qui rend la suite peu coûteuse est déjà en place : `teacher-request-service` émet de **vrais
+événements** en outbox, pas des lignes de log. `dashboard-notification-service` doit s'y abonner
+sans que le workflow soit retouché.
+
+Quatre destinataires à l'étape 7 : le professeur choisi, l'élève, son ou ses parents financeurs,
+et les professeurs non retenus — **qu'ils aient répondu ou non**.
+
+## Points ouverts hérités de cet objectif
+
+1. **Deux secrets partagés à leur valeur par défaut**, sur machine publique — `JWT_SECRET` (signe
+   les jetons de tous les services) et `INTERNAL_SECRET`. Configuration, pas code. **Le point le
+   plus grave ouvert.**
+2. **Un formateur sans ligne de validation est invisible** de `GET /profiles/teachers/pending-validation`,
+   alors qu'il est lu `pending` individuellement. Le RP ne voit donc pas qui valider.
+3. **Message d'erreur en anglais** sur `PATCH /profiles/:teacherId/validation`.
+4. **Ni `x-correlation-id` ni clé d'idempotence** émis par le front — écart transverse,
+   `src/api/client.ts`.
+5. **Écran d'instruction `pp-change` pour le RP** : la route existe, l'écran non.
+6. **Cinq statuts hérités** encore affichés côté front, libellés « … (ancien flow) ».
+7. **La table `assignments` n'est plus alimentée** : une collaboration née du nouveau flow ne peut
+   pas être arrêtée par `/assignments/:id/termination`. À reconstruire sur les relations de
+   `profile-service`.
+8. **Seuls 2 formateurs sont validés** en base, ceux de la démonstration. Un RP qui compose une
+   proposition ne verra qu'eux.
+9. **`index.html` servi sans `Cache-Control`** — un déploiement front peut rester invisible.
+   Diagnostiqué le 2026-08-11, toujours non corrigé.
+
+---
+
+## Objectif clos — le flow de la demande de professeur, mergé le 2026-08-12 (PR #100)
+
+---
+
+## Historique — PR livrées avant cet objectif
 
 - **#97 gateway** — re-résolution DNS à chaque requête. Prouvée deux fois, dont une
   indépendamment de l'agent, et confirmée en conditions réelles lors du déploiement de #98
@@ -387,8 +429,11 @@ Suite front après merge : **1421 tests verts**.
       confirmé). Flow complet rejoué après déploiement intégral, sans régression.
 - [x] Preuve livrée à l'utilisateur — flow complet joué contre `https://claudevma.visioprof.fr`,
       voir `.claude/reports/preuve-flow-demande-professeur-2026-08-12.md`
-- [ ] Validé par l'utilisateur — **c'est la seule case qui reste**, elle vous appartient
-- [ ] Mergé dans master
+- [~] Validé par l'utilisateur — **mergé sur sa décision le 2026-08-12** (« Il faut merger »).
+      La preuve livrée porte sur les réponses HTTP des huit étapes, jouées deux fois contre la
+      pile réelle. **Le constat écran par écran n'a pas été fait** : ce n'est donc pas une
+      validation par usage, au même titre que le merge du 2026-08-11 sur l'accès par relation.
+- [x] Mergé dans master — PR #100, squash, `d057bc5`, branche supprimée
 
 ## Bloqué par
 <rien, ou la dépendance précise>

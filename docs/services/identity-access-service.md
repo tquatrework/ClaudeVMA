@@ -1388,5 +1388,118 @@
         <status>open</status>
       </openItem>
     </session>
+
+    <session date="2026-08-12" topic="propagation-du-role">
+      <title>Le role accompagne la creation du profil administratif</title>
+      <context>
+        Un formateur qui s'inscrivait n'apparaissait JAMAIS devant le RP : aucun enregistrement de
+        validation n'etait cree, donc jamais valide, donc jamais proposable a un eleve — cul-de-sac
+        silencieux, mesure contre la pile reelle (arbitrage du 2026-08-12, « Validation des nouveaux
+        formateurs »).
+        profile-service a livre sa moitie : il cree l'enregistrement de validation a la creation d'un
+        profil administratif QUAND il sait que la personne est un formateur. Il ne peut pas le deviner —
+        identity-access-service est l'unique proprietaire du role (arbitrage du 2026-08-07, « Propriete
+        du role »). Il manquait donc un seul champ dans un corps deja envoye.
+        Trouvaille du diagnostic, verifiee contre la pile : POST /accounts/teachers passe par
+        create-administrative-profile, et NON par une route create-teacher-profiles que le nom laisserait
+        supposer. C'est le chemin reellement emprunte qui a ete couvert.
+      </context>
+
+      <arborescence>
+        src/common/clients/
+          profile-service.client.ts     `role?: UserRole` ajoute a CreateAdministrativeProfileInput
+        src/accounts/
+          accounts.service.ts           persistAdministrativeProfile prend `role` (requis) et le relaie ;
+                                        5 points d'appel mis a jour
+        test/unit/
+          accounts.service.spec.ts      describe « role propagation to profile-service » (7 tests)
+          common/profile-service.client.spec.ts  role dans le corps sortant, valeur non traduite
+        docs/routes.md                  contrat sortant create-administrative-profile + consequence pour
+                                        POST /internal/create-account
+      </arborescence>
+
+      <decision id="S-role-sent-for-every-role">
+        <title>Envoye pour tous les roles, pas seulement formateur</title>
+        <description>
+          Le role accompagne systematiquement les appels interservices, au meme titre que
+          x-correlation-id (arbitrage du 2026-08-07) : le destinataire applique ses regles sans redemander
+          ni deviner. N'envoyer que `formateur` aurait fait du champ un drapeau deguise, a re-elargir des
+          le premier autre besoin. Le champ est facultatif cote receveur — ne rien envoyer ne casse rien —
+          mais seul `formateur` a un effet observable aujourd'hui.
+          Valeur transmise telle qu'elle est stockee (`eleve`, `parent_financeur`, `formateur`, …) : meme
+          nom et meme valeur des deux cotes, aucun mapping, contrairement a phoneNumber → phone. Un test
+          parcourt tout l'enum pour verrouiller l'absence de traduction.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="S-role-required-in-internal-helper">
+        <title>Parametre requis cote helper, facultatif cote contrat</title>
+        <description>
+          `role` est optionnel dans CreateAdministrativeProfileInput (le contrat de profile-service le
+          declare facultatif) mais REQUIS dans persistAdministrativeProfile. Le compilateur interdit ainsi
+          qu'un futur point d'appel l'oublie en silence — l'oubli reproduirait exactement le defaut qu'on
+          vient de corriger : un formateur cree sans role transmis n'obtient aucun enregistrement de
+          validation et redevient invisible du RP.
+          La valeur passee est `savedX.role`, c'est-a-dire le role reellement persiste, et non une
+          constante recopiee a cote de l'appel.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="S-role-transported-never-owned">
+        <title>Transporte comme contexte, jamais delegue</title>
+        <description>
+          Rien de nouveau n'est stocke ni duplique ici : identity-access-service reste l'unique
+          proprietaire du role. profile-service le consomme comme contexte de decision, ne le persiste pas
+          comme donnee propre et ne l'expose pas en lecture — sinon on recreerait le probleme
+          d'appartenance tranche pour firstName/lastName/phone (arbitrage du 2026-08-06).
+          L'appel reste bloquant et obligatoire, comme avant : un echec fait echouer la transaction et
+          renvoie 503, aucun AccountCreated n'est publie. Un test le verrouille explicitement pour eviter
+          qu'un ajout de champ ne fasse glisser l'appel vers du best-effort.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <validation date="2026-08-12">
+        <title>Suite complete et build</title>
+        <description>
+          Suite complete : 371/371 verts, 20 suites (unitaires + e2e), dont 9 tests ajoutes par cette
+          session. `nest build` sans erreur.
+          Reserve explicite : ces tests simulent profile-service (le client est un stub). Ils prouvent que
+          le role part, pas que le RP voit le formateur — la preuve reelle demande une inscription
+          formateur contre la pile deployee, puis une lecture de
+          GET /profiles/teachers/pending-validation.
+        </description>
+      </validation>
+
+      <openItem id="TD-role-not-sent-by-orchestrated-onboarding">
+        <title>Le workflow orchestre ne passe pas par ce chemin</title>
+        <description>
+          POST /accounts (generique) et POST /internal/create-account n'appellent PAS
+          create-administrative-profile : ils ne collectent ni nom, ni prenom, ni telephone, et
+          orchestration-service cree lui-meme le profil dans le workflow teacher-onboarding. Le correctif
+          de cette session ne couvre donc que les 3 routes d'auto-inscription directe.
+          Consequence : un formateur cree par le workflow orchestre n'obtiendra son enregistrement de
+          validation que si orchestration-service transmet lui-meme le role dans SON appel a
+          create-administrative-profile. A verifier cote orchestration-service — hors perimetre de ce
+          service, signale ici pour ne pas etre perdu.
+        </description>
+        <status>open</status>
+      </openItem>
+
+      <openItem id="TD-deploy-both-services-together">
+        <title>Ordre de deploiement</title>
+        <description>
+          Le champ etant facultatif cote profile-service, deployer identity-access-service avant lui ne
+          casse rien de plus qu'aujourd'hui — mais tant que la moitie de profile-service n'est pas en
+          service, le formateur reste invisible du RP. Les deux moities appartiennent a la meme branche
+          feat/validation-nouveaux-professeurs et gagnent a etre deployees ensemble. La migration de
+          rattrapage du stock de formateurs deja inscrits appartient a profile-service (point 3 de
+          l'arbitrage du 2026-08-12).
+        </description>
+        <status>open</status>
+      </openItem>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

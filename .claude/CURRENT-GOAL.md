@@ -5,7 +5,57 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
-## Besoin — 2026-08-11 — le flow de la demande de professeur
+## Besoin — 2026-08-12 — le plan de travail du RP
+
+Validé par l'utilisateur et **mergé** (PR #102) : « OK c'est bon pour le flow "nouveau professeur"
+au niveau du RP. »
+
+Verbatim du besoin :
+
+> Le RP doit avoir dans ses flux de travaux 2 choses au moins : les nouveaux professeurs, à passer
+> en validé (ou non validé), et ensuite les demandes de professeurs faites par les élèves. Il doit
+> de toute façon avoir accès aux fiches de tous, élèves comme professeurs.
+
+### Ce qui était cassé — deux défauts, pas un
+
+1. **Un formateur qui s'inscrivait n'apparaissait jamais devant le RP.** L'inscription ne créait
+   aucun enregistrement de validation ; la lecture individuelle fabriquait un `pending` de
+   synthèse. Le formateur se croyait en attente d'examen, personne ne le voyait jamais — donc
+   jamais validé, jamais dans l'annuaire, jamais proposable.
+2. **Même en le trouvant, le RP ne pouvait pas le valider.** Le front envoyait
+   `{validationStatus, rejectionReason}` là où le serveur attend `{status, comment}` → `400`. La
+   validation était inopérante depuis l'interface, y compris depuis la fiche. Aucun test ne le
+   voyait : ils figeaient le corps erroné.
+
+Le flow « demande de professeur » livré le matin même ne tenait donc que parce que deux formateurs
+avaient été forcés en `validated` à la main.
+
+### Livré et prouvé contre la pile réelle
+
+Inscription réelle → file du RP (18 en attente) → validation en deux temps → annuaire des
+proposables → sortie de la file (17). Écran `/rp/teacher-validations`, groupe de rail « À traiter »
+réunissant les deux files du RP.
+
+### Reste ouvert sur ce sujet
+
+- **Aucune recherche de personne** : le RP n'atteint que les gens présents dans une liste. C'est le
+  manque suivant pour que son poste de travail soit complet.
+- **Aucun chemin applicatif pour créer le premier RP** — l'auto-inscription avec un rôle interne
+  est refusée et la promotion exige un RP ou un TI déjà connecté. C'est ce qui a forcé un `UPDATE`
+  SQL le 2026-08-11, lequel a produit un compte **sans profil administratif** : toute
+  l'application cassait après connexion (`GET /profiles/:id` → `500`). Réparé en base le
+  2026-08-12 par la route interne, **pas dans le code**. Rien ne détecte ni ne signale les comptes
+  dans cet état.
+- `orchestration-service` ne transmet pas le rôle dans `teacher-onboarding` : un formateur créé
+  par ce chemin resterait invisible.
+- La reprise de stock est un **script**, pas une migration.
+- Pas de file « traités » : le RP ne peut pas revoir ses décisions autrement que par la fiche.
+
+---
+
+## Objectif précédent — le flow de la demande de professeur, mergé le 2026-08-12 (PR #100)
+
+### Besoin d'origine — 2026-08-11
 
 L'utilisateur le qualifie lui-même de « plus important ». Verbatim :
 

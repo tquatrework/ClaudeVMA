@@ -579,6 +579,7 @@ export class AccountsService {
       // enregistré, jamais écrasé par les champs saisis par l'élève ici.
       await this.persistAdministrativeProfile({
         userId: savedStudent.id,
+        role: savedStudent.role,
         firstName: dto.firstName,
         lastName: dto.lastName,
         phoneNumber: dto.phoneNumber,
@@ -589,6 +590,7 @@ export class AccountsService {
         // naissance pour le compte lié (aucun champ parentBirthDate n'existe).
         await this.persistAdministrativeProfile({
           userId: savedParent.id,
+          role: savedParent.role,
           firstName: dto.parentFirstName as string,
           lastName: dto.parentLastName as string,
         });
@@ -676,8 +678,14 @@ export class AccountsService {
       );
       if (activatedAccount) savedTeacher = activatedAccount;
 
+      // Chemin réellement emprunté par POST /accounts/teachers : c'est bien
+      // create-administrative-profile, et non une route create-teacher-profiles
+      // que le nom laisserait supposer. C'est donc ici, et nulle part ailleurs,
+      // que le rôle `formateur` doit parvenir à profile-service pour que
+      // l'enregistrement de validation soit créé à l'inscription.
       await this.persistAdministrativeProfile({
         userId: savedTeacher.id,
+        role: savedTeacher.role,
         firstName: dto.firstName,
         lastName: dto.lastName,
         phoneNumber: dto.phoneNumber,
@@ -804,6 +812,7 @@ export class AccountsService {
 
       await this.persistAdministrativeProfile({
         userId: savedParent.id,
+        role: savedParent.role,
         firstName: dto.firstName,
         lastName: dto.lastName,
         phoneNumber: dto.phoneNumber,
@@ -813,6 +822,7 @@ export class AccountsService {
         // sur POST /accounts/parents, le formulaire n'en collecte pas.
         await this.persistAdministrativeProfile({
           userId: savedStudent.id,
+          role: savedStudent.role,
           firstName: dto.studentFirstName as string,
           lastName: dto.studentLastName as string,
         });
@@ -1177,17 +1187,28 @@ export class AccountsService {
    */
   private async persistAdministrativeProfile(input: {
     userId: string;
+    role: UserRole;
     firstName: string;
     lastName: string;
     phoneNumber?: string;
     birthDate?: string;
   }): Promise<void> {
-    const { userId, firstName, lastName, phoneNumber, birthDate } = input;
+    const { userId, role, firstName, lastName, phoneNumber, birthDate } = input;
     try {
       await this.profileServiceClient.createAdministrativeProfile({
         userId,
         firstName,
         lastName,
+        // Rôle transmis pour TOUS les rôles, au même titre que
+        // x-correlation-id (arbitrage du 2026-08-07, « Propagation du rôle ») :
+        // le destinataire applique ses règles sans redemander ni deviner.
+        // Paramètre requis ici — et non optionnel — pour qu'aucun futur point
+        // d'appel ne puisse l'oublier en silence : un formateur créé sans rôle
+        // transmis n'obtiendrait aucun enregistrement de validation et
+        // n'apparaîtrait jamais devant le RP (arbitrage du 2026-08-12).
+        // identity-access-service reste l'unique propriétaire du rôle : il le
+        // transporte, il ne le délègue pas.
+        role,
         // Mapping de nom de champ : phoneNumber côté DTO d'entrée
         // d'identity-access-service → phone côté contrat profile-service
         // (convention déjà établie sur ses autres routes internes).

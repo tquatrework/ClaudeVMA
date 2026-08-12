@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { UserRole } from '../../auth/entities/user.entity';
+
 const DEFAULT_TIMEOUT_MS = 3000;
 
 /**
@@ -26,6 +28,22 @@ export interface CreateAdministrativeProfileInput {
    * plutôt que transformé en 503 par l'échec de l'appel sortant.
    */
   birthDate?: string | null;
+  /**
+   * Rôle du compte, transporté comme contexte de décision — jamais comme donnée
+   * possédée par le destinataire (arbitrage du 2026-08-07, « Propriété du
+   * rôle » : identity-access-service reste l'unique propriétaire du rôle,
+   * profile-service ne le persiste pas comme donnée propre et ne l'expose pas
+   * en lecture).
+   *
+   * Envoyé pour tous les rôles, au même titre que `x-correlation-id`, pour que
+   * le destinataire applique ses règles sans avoir à redemander ni deviner.
+   * Aujourd'hui seul `formateur` a un effet observable : profile-service crée
+   * l'enregistrement de validation qui fait apparaître le nouveau formateur
+   * dans la file du RP (arbitrage du 2026-08-12, « Validation des nouveaux
+   * formateurs »). Champ facultatif côté receveur : ne rien envoyer ne casse
+   * rien, mais un formateur inscrit sans rôle transmis reste invisible du RP.
+   */
+  role?: UserRole;
 }
 
 export interface LinkParentToStudentInput {

@@ -281,21 +281,40 @@ Réponse `GET /internal/accounts/by-user-id/:userId` : `{userId, loginIdentifier
 > d'auto-inscription directe par rôle (`students`/`teachers`/`parents`) déclenchent cet appel sortant ;
 > `POST /accounts` et `POST /internal/create-account` ne le déclenchent jamais (ils ne collectent pas
 > ces champs).
+>
+> Conséquence à connaître depuis le 2026-08-12 : le `role` transmis à profile-service (voir ci-dessous)
+> ne l'est donc **que** par ces 3 routes. Un formateur créé par le workflow `teacher-onboarding` via
+> `POST /internal/create-account` n'obtient d'enregistrement de validation que si **orchestration-service**
+> transmet lui-même le rôle lors de son propre appel à `create-administrative-profile` —
+> identity-access-service n'est pas sur ce chemin.
 
 Après validation de forme (DTO) et avant de retourner `201`, `POST /accounts/students`,
 `POST /accounts/teachers` et `POST /accounts/parents` appellent en sortant, **dans la même transaction
 locale** que la création du ou des comptes :
 
 1. `POST /internal/create-administrative-profile` sur profile-service avec `{userId, firstName,
-   lastName, phone?, birthDate?}` (header `X-Internal-Secret`) — une fois par compte nouvellement créé
-   (jamais pour un compte parent/élève simplement **lié** à un compte préexistant : son profil existant
-   n'est jamais écrasé par les champs saisis côté élève/parent lors de la liaison). Le champ est nommé
-   `phone` côté profile-service (convention déjà établie sur ses autres routes internes) alors que le DTO
-   d'entrée public d'identity-access-service utilise `phoneNumber` — seul le mapping effectué au moment
-   de cet appel sortant fait la conversion de nom. `birthDate` porte en revanche le même nom des deux
-   côtés (aucun mapping) et n'est envoyé que par `POST /accounts/students`, seule route dont le
+   lastName, phone?, birthDate?, role}` (header `X-Internal-Secret`) — une fois par compte nouvellement
+   créé (jamais pour un compte parent/élève simplement **lié** à un compte préexistant : son profil
+   existant n'est jamais écrasé par les champs saisis côté élève/parent lors de la liaison). Le champ est
+   nommé `phone` côté profile-service (convention déjà établie sur ses autres routes internes) alors que
+   le DTO d'entrée public d'identity-access-service utilise `phoneNumber` — seul le mapping effectué au
+   moment de cet appel sortant fait la conversion de nom. `birthDate` porte en revanche le même nom des
+   deux côtés (aucun mapping) et n'est envoyé que par `POST /accounts/students`, seule route dont le
    formulaire collecte une date de naissance ; il est omis du corps quand il n'a pas été saisi, et jamais
    envoyé pour un compte lié créé en parallèle.
+
+   `role` (valeurs de `UserRole`, mêmes chaînes que partout ailleurs : `eleve`, `parent_financeur`,
+   `formateur`, …) est envoyé **pour tous les rôles et à chaque appel**, au même titre que
+   `x-correlation-id` (arbitrage du 2026-08-07, « Propagation du rôle ») : le destinataire applique ses
+   règles sans avoir à le redemander ni à le deviner. Il est **facultatif côté receveur** — ne rien
+   envoyer ne casse rien — mais seul `formateur` a aujourd'hui un effet observable : profile-service crée
+   alors l'enregistrement de validation qui fait apparaître le nouveau formateur dans la file du RP
+   (arbitrage du 2026-08-12, « Validation des nouveaux formateurs »). Sans ce champ, un formateur
+   fraîchement inscrit n'est jamais vu du RP, donc jamais validé, donc jamais proposable.
+   identity-access-service reste l'**unique propriétaire** du rôle : il le transporte comme contexte de
+   décision, profile-service ne le persiste pas comme donnée propre et ne l'expose pas en lecture.
+   Ajouté le 2026-08-12 ; couvre le chemin **réellement emprunté** par `POST /accounts/teachers`, qui
+   passe par `create-administrative-profile` et non par une route `create-teacher-profiles`.
 2. Si un élève et un parent financeur sont créés/rattachés dans le même appel (`POST /accounts/students`
    avec `parentAccountMode` `'existing'` ou `'new'`, ou `POST /accounts/parents` avec
    `studentAccountMode` `'existing'` ou `'new'`) : `POST /internal/link-parent` sur profile-service avec

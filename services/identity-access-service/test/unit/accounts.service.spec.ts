@@ -952,6 +952,7 @@ describe('AccountsService', () => {
 
       expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith({
         userId: 'user-uuid',
+        role: UserRole.ELEVE,
         firstName: 'Lucas',
         lastName: 'Petit',
         phone: '+33 6 01 02 03 04',
@@ -969,6 +970,7 @@ describe('AccountsService', () => {
 
       expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith({
         userId: 'user-uuid',
+        role: UserRole.ELEVE,
         firstName: 'Lucas',
         lastName: 'Petit',
       });
@@ -1009,6 +1011,7 @@ describe('AccountsService', () => {
 
       expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith({
         userId: 'user-uuid',
+        role: UserRole.PARENT_FINANCEUR,
         firstName: 'Nathalie',
         lastName: 'Petit',
       });
@@ -1036,6 +1039,7 @@ describe('AccountsService', () => {
 
       expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith({
         userId: 'user-uuid',
+        role: UserRole.FORMATEUR,
         firstName: 'Marie',
         lastName: 'Martin',
       });
@@ -1064,6 +1068,7 @@ describe('AccountsService', () => {
 
       expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith({
         userId: 'user-uuid',
+        role: UserRole.PARENT_FINANCEUR,
         firstName: 'Sophie',
         lastName: 'Bernard',
       });
@@ -1160,6 +1165,147 @@ describe('AccountsService', () => {
         }),
       ).rejects.toThrow(ServiceUnavailableException);
 
+      expect(eventsService.publish).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Propagation du rôle à profile-service (arbitrages des 2026-08-07 et 2026-08-12) ──
+  //
+  // Le rôle accompagne systématiquement l'appel interservices, au même titre que
+  // x-correlation-id : le destinataire applique ses règles sans redemander ni
+  // deviner. Effet observable aujourd'hui : `formateur` déclenche côté
+  // profile-service la création de l'enregistrement de validation, sans lequel un
+  // formateur fraîchement inscrit n'apparaît jamais devant le RP.
+
+  describe('role propagation to profile-service', () => {
+    const roleOfProfileCallFor = (expectedFirstName: string): UserRole | undefined => {
+      const matchingCall = profileServiceClient.createAdministrativeProfile.mock.calls.find(
+        (call: unknown[]) => (call[0] as { firstName: string }).firstName === expectedFirstName,
+      );
+      return (matchingCall?.[0] as { role?: UserRole } | undefined)?.role;
+    };
+
+    it("createTeacherAccount: transmits the 'formateur' role — without it the RP never sees the new teacher", async () => {
+      await service.createTeacherAccount({
+        email: 'teacher-role@test.com',
+        password: 'password123',
+        firstName: 'Marie',
+        lastName: 'Martin',
+      });
+
+      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ role: UserRole.FORMATEUR }),
+      );
+    });
+
+    it("createStudentAccount: transmits the 'eleve' role for the student", async () => {
+      await service.createStudentAccount({
+        email: 'student-role@test.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+      });
+
+      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ role: UserRole.ELEVE }),
+      );
+    });
+
+    it('createStudentAccount: transmits each account its own role when a parent is created in the same call', async () => {
+      await service.createStudentAccount({
+        email: 'student-role2@test.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        parentAccountMode: LinkedAccountMode.NEW,
+        parentLoginIdentifier: 'nathalie.petit',
+        parentEmail: 'parent-role2@test.com',
+        parentPassword: 'parentpass123',
+        parentFirstName: 'Nathalie',
+        parentLastName: 'Petit',
+      });
+
+      expect(roleOfProfileCallFor('Lucas')).toBe(UserRole.ELEVE);
+      expect(roleOfProfileCallFor('Nathalie')).toBe(UserRole.PARENT_FINANCEUR);
+    });
+
+    it("createParentAccount: transmits the 'parent_financeur' role for the parent", async () => {
+      await service.createParentAccount({
+        email: 'parent-role@test.com',
+        password: 'password123',
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+      });
+
+      expect(profileServiceClient.createAdministrativeProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ role: UserRole.PARENT_FINANCEUR }),
+      );
+    });
+
+    it('createParentAccount: transmits each account its own role when a student is created in the same call', async () => {
+      await service.createParentAccount({
+        email: 'parent-role2@test.com',
+        password: 'password123',
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+        studentAccountMode: LinkedAccountMode.NEW,
+        studentLoginIdentifier: 'lucas.bernard',
+        studentEmail: 'student-role3@test.com',
+        studentPassword: 'studentpass123',
+        studentFirstName: 'Lucas',
+        studentLastName: 'Bernard',
+      });
+
+      expect(roleOfProfileCallFor('Sophie')).toBe(UserRole.PARENT_FINANCEUR);
+      expect(roleOfProfileCallFor('Lucas')).toBe(UserRole.ELEVE);
+    });
+
+    it('never omits the role: every profile call carries one, whatever the creation route', async () => {
+      await service.createTeacherAccount({
+        email: 'teacher-never-omit@test.com',
+        password: 'password123',
+        firstName: 'Marie',
+        lastName: 'Martin',
+      });
+      await service.createStudentAccount({
+        email: 'student-never-omit@test.com',
+        password: 'password123',
+        firstName: 'Lucas',
+        lastName: 'Petit',
+        parentAccountMode: LinkedAccountMode.NEW,
+        parentLoginIdentifier: 'nathalie.petit',
+        parentEmail: 'parent-never-omit@test.com',
+        parentPassword: 'parentpass123',
+        parentFirstName: 'Nathalie',
+        parentLastName: 'Petit',
+      });
+      await service.createParentAccount({
+        email: 'parent-never-omit2@test.com',
+        password: 'password123',
+        firstName: 'Sophie',
+        lastName: 'Bernard',
+      });
+
+      const allProfileCalls = profileServiceClient.createAdministrativeProfile.mock.calls;
+      expect(allProfileCalls.length).toBe(4);
+      for (const [profilePayload] of allProfileCalls) {
+        expect(Object.values(UserRole)).toContain((profilePayload as { role: UserRole }).role);
+      }
+    });
+
+    it('keeps the profile call mandatory: a rejection still fails the teacher creation with 503', async () => {
+      profileServiceClient.createAdministrativeProfile.mockRejectedValueOnce(new Error('HTTP 400'));
+
+      await expect(
+        service.createTeacherAccount({
+          email: 'teacher-role-fail@test.com',
+          password: 'password123',
+          firstName: 'Marie',
+          lastName: 'Martin',
+        }),
+      ).rejects.toThrow(ServiceUnavailableException);
+
+      // Non best-effort : aucun AccountCreated publié, la transaction est annulée.
       expect(eventsService.publish).not.toHaveBeenCalled();
     });
   });

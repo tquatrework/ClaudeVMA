@@ -44,15 +44,76 @@ Points d'attention connus avant de commencer :
 - **Idempotence et `x-correlation-id`** sont des contrats techniques du projet, et une erreur
   métier ne doit jamais être transformée en succès technique.
 
-## Étape en cours : établir l'existant avant de concevoir
+## Existant relevé le 2026-08-11 — écart établi
 
-Rien n'est codé tant que l'écart n'est pas relevé. Le `400` du point 1 est le fil à tirer : il
-dira si le contrat front/back est faux, si une donnée obligatoire manque, ou si la route ne fait
-pas ce qu'elle annonce — trois causes qui appellent trois corrections différentes.
+Deux investigations menées contre la pile réelle, rapports committés le 2026-08-12 après
+récupération dans des worktrees d'agents où ils étaient restés non sauvegardés :
+`.claude/reports/teacher-request-service-flow-2026-08-11.md` et
+`.claude/reports/front-flow-demande-professeur-2026-08-11.md`.
+
+### Cause du 400 : contrat front/back faux
+
+Le front envoie `{description}`, le serveur exige `{subject}`. `ValidationPipe({whitelist:true})`
+sans `forbidNonWhitelisted` **jette `description` en silence**, puis `subject` manque et le DTO
+échoue sur `"subject must be a string"` — message qui ne nomme jamais le vrai coupable. La route
+répond `201` dès qu'on lui parle sa langue : elle n'est pas cassée.
+
+Aggravant : **le même front porte déjà les deux formes** sur la même URL. `TeacherRequestsPage`
+(l'écran atteignable par l'élève) envoie `description` ; `SpecificTeacherRequestForm`
+(`/rp/teacher-requests`) envoie `{subject, level, sector, message?}` et fonctionne. Deux
+formulaires concurrents pour un même besoin, une seule route.
+
+### L'écart réel n'est pas le 400 : trois modèles de décision coexistent
+
+Le 400 est superficiel. Le vrai écart porte sur **qui décide** :
+
+1. **Implémenté et actif** — le premier formateur qui accepte devient le professeur.
+   `POST /proposals/:id/accept` crée immédiatement l'affectation. Mesuré : deux formateurs
+   acceptent → **deux affectations `active`** sur le même élève, la même demande, en silence.
+2. **Codé mais inatteignable** — le RP présélectionne, le **client** choisit
+   (`selected-candidates` puis `select`). Dès qu'un formateur a accepté, la demande est en
+   `assigned` et ces deux routes répondent `400 not in a selectable state`.
+3. **Demandé par l'utilisateur** — les formateurs se déclarent, **le RP tranche**. N'existe
+   nulle part : `POST /teacher-requests/:id/select` **exclut explicitement le RP** (`403`), et
+   aucune route ne permet au RP de lire qui a accepté.
+
+### Ce qui manque pour les étapes 2 à 4.3
+
+- **2** — « se saisir » d'une demande : aucun champ, aucune route. Ajouter des précisions :
+  `PATCH /teacher-requests/:id` → `404`. Envoi groupé : un formateur par appel, sans atomicité.
+  Recherche de formateur : inexistante — le RP saisit un **UUID à la main**.
+- **3** — le formateur ne voit ni sujet, ni niveau, ni nom d'élève ; `GET /teacher-requests/:id`
+  lui répond `403`.
+- **4** — le RP n'a **aucun moyen de lire les acceptations** (`GET .../proposals` → 404).
+- **4.1** — `EventsService.emit()` écrit **une ligne de log**. Aucun bus, aucun abonné, aucun
+  appel à `dashboard-notification-service` ni `communication-service`.
+- **4.2** — aucun appel à `profile-service`. Le service tient sa propre table `assignments`,
+  invisible du propriétaire des relations.
+- **4.3** — inexprimable : `ProposalStatus` n'a que `pending|accepted|declined`, et `assigned`
+  est un cul-de-sac sans transition sortante. Il manque *non retenue* et *caduque* côté
+  proposition, et un état terminal côté demande.
+
+### Trois défauts à traiter en même temps
+
+1. **Trou de droit** : un parent crée une demande pour **n'importe quel élève** → `201`. Aucune
+   vérification du lien. `profile-service` expose pourtant déjà
+   `GET /internal/relations/:viewerId/:targetId`. La rupture de lien (#98) durcit l'exigence :
+   vérification **au moment de l'action**, jamais mise en cache.
+2. **`PROFILE_SERVICE_URL` non défini** — le client retombe sur `http://profile-service:3000`
+   quand le service écoute sur **3002**, et n'envoie aucun jeton. Conséquence :
+   `studentName`/`teacherName` **`null` sur les 16 demandes**, donc le RP ne voit que des UUID.
+3. **`forbidNonWhitelisted` absent** sur tout le service : `{"subject":"X","urgency":"haute"}`
+   → `201`, `urgency` disparaît. Même défaut qu'arbitré le 2026-08-09.
+
+### Risque de sécurité à traiter hors de ce flow
+
+`JWT_SECRET` vaut `change_me_with_a_long_random_string_in_production` dans le conteneur en cours
+d'exécution, sur une machine **accessible publiquement**. Ce secret signe les jetons de **tous**
+les services. Signalé le 2026-08-12, non corrigé.
 
 ## État
 
-- [ ] Existant relevé, écart établi
+- [x] Existant relevé, écart établi — 2026-08-11, rapports committés le 2026-08-12
 - [ ] Architecture arbitrée et écrite
 - [ ] Back
 - [ ] Front

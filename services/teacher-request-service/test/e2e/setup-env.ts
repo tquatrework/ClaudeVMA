@@ -13,3 +13,5 @@ process.env.NODE_ENV = process.env.NODE_ENV ?? 'test';
 process.env.JWT_SECRET = process.env.JWT_SECRET ?? 'test_jwt_secret_for_e2e';
 process.env.DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgresql://visiomath:visiomath_secret@localhost:5432/teacher_request_test';
+process.env.PROFILE_SERVICE_URL = process.env.PROFILE_SERVICE_URL ?? 'http://profile-service.test:3002';
+process.env.INTERNAL_SECRET = process.env.INTERNAL_SECRET ?? 'test_internal_secret_for_e2e';

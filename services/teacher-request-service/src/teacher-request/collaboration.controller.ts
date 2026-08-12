@@ -7,11 +7,16 @@ import { TerminationResponseDto } from './dto/response/termination-response.dto'
 import { JwtAuthGuard } from '../common/jwt.guard';
 import { RolesGuard } from '../common/roles.guard';
 import { Roles } from '../common/roles.decorator';
-import { CurrentUser } from '../common/current-user.decorator';
-import { JwtPayload } from '../common/jwt.guard';
+import { Context, RequestContext } from '../common/request-context.decorator';
 import { UserRole } from '../common/user-role.enum';
 
-// ── /collaborations routes ────────────────────────────────────────────────────
+/**
+ * HERITAGE, et alias strict de `POST /assignments/:id/termination` : meme
+ * traitement, meme regles. Les deux routes existaient avec deux
+ * implementations quasi identiques ; elles partagent desormais la meme, en
+ * attendant qu'une seule survive. `/collaborations` n'est aujourd'hui pas
+ * proxifie par la gateway.
+ */
 @ApiTags('collaborations')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -22,20 +27,22 @@ export class CollaborationController {
   @Post(':assignmentId/stop-request')
   @Roles(UserRole.FORMATEUR)
   @ApiOperation({
-    summary: 'Request collaboration stop (FORMATEUR only)',
-    description: 'Teacher requests to end an active collaboration with a notice date.',
+    summary: "Demander l'arret d'une collaboration (formateur) — alias",
+    description: 'Identique a `POST /assignments/:assignmentId/termination`.',
   })
-  @ApiParam({ name: 'assignmentId', description: 'Assignment UUID' })
-  @ApiResponse({ status: 201, description: 'Stop request created' })
-  @ApiResponse({ status: 400, description: 'Assignment is not active' })
-  @ApiResponse({ status: 403, description: 'Forbidden — not the assigned teacher' })
-  @ApiResponse({ status: 404, description: 'Assignment not found' })
+  @ApiParam({ name: 'assignmentId', description: "Identifiant de l'affectation" })
+  @ApiResponse({ status: 201, description: "Demande d'arret enregistree", type: TerminationResponseDto })
+  @ApiResponse({ status: 400, description: 'Affectation inactive' })
+  @ApiResponse({ status: 401, description: 'Jeton absent ou invalide' })
+  @ApiResponse({ status: 403, description: 'Reserve aux formateurs' })
+  @ApiResponse({ status: 404, description: 'Affectation inexistante ou confiee a un autre formateur' })
   async createCollaborationStopRequest(
     @Param('assignmentId', ParseUUIDPipe) assignmentId: string,
     @Body() dto: CreateTerminationDto,
-    @CurrentUser() user: JwtPayload,
+    @Context() context: RequestContext,
   ): Promise<TerminationResponseDto> {
-    const termination = await this.service.createCollaborationStopRequest(assignmentId, dto, user);
-    return TerminationResponseDto.fromEntity(termination);
+    return TerminationResponseDto.fromEntity(
+      await this.service.createCollaborationStopRequest(assignmentId, dto, context),
+    );
   }
 }

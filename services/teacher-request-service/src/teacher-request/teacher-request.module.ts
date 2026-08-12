@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { TeacherRequest } from './entities/teacher-request.entity';
@@ -11,14 +11,18 @@ import { ProposalController } from './proposal.controller';
 import { AssignmentController } from './assignment.controller';
 import { CollaborationController } from './collaboration.controller';
 import { TeacherRequestService } from './teacher-request.service';
-import { EventsService } from './events.service';
 import { ProfileServiceClient } from './clients/profile-service.client';
 import { SecurityModule } from '../security/security.module';
+import { EventsModule } from '../events/events.module';
+import { IdempotencyModule } from '../idempotency/idempotency.module';
+import { CorrelationIdMiddleware } from '../common/correlation-id.middleware';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([TeacherRequest, TeacherProposal, Assignment, TerminationRequest]),
     SecurityModule,
+    EventsModule,
+    IdempotencyModule,
   ],
   controllers: [
     TeacherRequestController,
@@ -27,6 +31,10 @@ import { SecurityModule } from '../security/security.module';
     AssignmentController,
     CollaborationController,
   ],
-  providers: [TeacherRequestService, EventsService, ProfileServiceClient],
+  providers: [TeacherRequestService, ProfileServiceClient],
 })
-export class TeacherRequestModule {}
+export class TeacherRequestModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(CorrelationIdMiddleware).forRoutes('*');
+  }
+}

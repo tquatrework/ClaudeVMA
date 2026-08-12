@@ -232,9 +232,22 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_teacher_request
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
       PORT: 3006
+      # Sans cette variable, le client retombait sur un defaut code en dur
+      # (`http://profile-service:3000`) alors que profile-service ecoute sur
+      # 3002 : le lien parent↔eleve n'etait jamais verifie et le RP ne lisait
+      # que des UUID. profile-service reste l'unique proprietaire des relations
+      # (arbitrages des 2026-08-11 et 2026-08-12).
+      PROFILE_SERVICE_URL: http://profile-service:3002
+      # Bus des evenements metier. Sans lui, les evenements restent dans la
+      # table `domain_events` et ne sont pas perdus, mais aucun abonne ne les
+      # recoit.
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - visiomath_network

@@ -161,8 +161,10 @@ La porte est fermée contre l'oubli de configuration, pas contre un secret faibl
 - [ ] Front — formulaire élève déjà en ligne ; à construire : sélecteur d'élève pour le parent,
       liste RP, composition de proposition, boîte formateur, validation RP
 - [ ] Notifications — **après** le flow, sur les événements réels qu'il émet
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+- [x] Déployé sur la pile réelle — `teacher-request-service` et `profile-service` reconstruits
+      le 2026-08-12, gateway les atteint sans rechargement (correctif DNS #97 confirmé)
+- [x] Preuve livrée à l'utilisateur — flow complet joué contre `https://claudevma.visioprof.fr`,
+      voir `.claude/reports/preuve-flow-demande-professeur-2026-08-12.md`
 - [ ] Validé par l'utilisateur
 - [ ] Mergé dans master
 
@@ -361,8 +363,10 @@ Suite front après merge : **1421 tests verts**.
 
 ## État
 - [ ] Codé et committé
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+- [x] Déployé sur la pile réelle — `teacher-request-service` et `profile-service` reconstruits
+      le 2026-08-12, gateway les atteint sans rechargement (correctif DNS #97 confirmé)
+- [x] Preuve livrée à l'utilisateur — flow complet joué contre `https://claudevma.visioprof.fr`,
+      voir `.claude/reports/preuve-flow-demande-professeur-2026-08-12.md`
 - [ ] Validé par l'utilisateur
 - [ ] Mergé dans master
 

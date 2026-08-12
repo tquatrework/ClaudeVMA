@@ -133,15 +133,31 @@ Le 400 est superficiel. Le vrai écart porte sur **qui décide** :
 
 ### Risque de sécurité à traiter hors de ce flow
 
-`JWT_SECRET` vaut `change_me_with_a_long_random_string_in_production` dans le conteneur en cours
-d'exécution, sur une machine **accessible publiquement**. Ce secret signe les jetons de **tous**
-les services. Signalé le 2026-08-12, non corrigé.
+**Deux secrets partagés laissés à leur valeur par défaut**, sur une machine accessible
+publiquement. Signalés le 2026-08-12, **non corrigés** — c'est un point de déploiement, pas de
+code, et il dépasse le flow professeur.
+
+1. `JWT_SECRET` vaut `change_me_with_a_long_random_string_in_production` dans le conteneur en
+   cours d'exécution. Ce secret **signe les jetons de tous les services** : le connaître permet
+   de forger un jeton de n'importe quel rôle, RP ou TI compris.
+2. `INTERNAL_SECRET` est déclaré dans `docker-compose.yml` sous la forme
+   `${INTERNAL_SECRET:-change_me_in_production}`. Si le `.env` de la machine ne le définit pas,
+   **tous les services partagent ce secret public** — et il protège désormais une route qui sert
+   une identité sans contrôle de lecteur (`/internal/profiles/:userId/display-name`).
+
+La forme `:-` a un effet secondaire à connaître : elle garantit une valeur non vide, donc la
+validation au démarrage ajoutée le 2026-08-12 **ne détectera jamais** l'absence de la variable.
+La porte est fermée contre l'oubli de configuration, pas contre un secret faible.
 
 ## État
 
 - [x] Existant relevé, écart établi — 2026-08-11, rapports committés le 2026-08-12
 - [x] Architecture arbitrée et écrite — `docs/architecture.md`, 2026-08-12, 7 points
-- [ ] Back — `teacher-request-service` (le flow), `profile-service` (le lien)
+- [x] Back — livré le 2026-08-12. `teacher-request-service` : modèle de décision renversé sur le
+      RP, `description` seul champ requis, états terminaux, lien parent vérifié à chaque action,
+      événements réels en outbox. `profile-service` : résolution de nom interne, lien rejouable,
+      routes internes fermées. Preuves : 136+19 et 551+269 tests contre PostgreSQL réel, et
+      migration jouée contre une copie de la base de production.
 - [ ] Front — formulaire élève déjà en ligne ; à construire : sélecteur d'élève pour le parent,
       liste RP, composition de proposition, boîte formateur, validation RP
 - [ ] Notifications — **après** le flow, sur les événements réels qu'il émet

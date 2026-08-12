@@ -1,4 +1,4 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 /** Une relation metier entre deux personnes, telle que profile-service la decrit. */
@@ -162,9 +162,17 @@ export class ProfileServiceClient {
   /**
    * Cree le lien eleve↔formateur, propriete de profile-service.
    *
-   * Le `409` renvoye sur doublon est traite comme un succes : le lien demande
-   * existe, l'intention de l'appelant est satisfaite. C'est ce qui rend la
-   * validation du RP rejouable sans creer de doublon.
+   * Depuis le 2026-08-12, la route est REJOUABLE cote profile-service : un
+   * rejeu de la validation du RP repond `200` (lien identique deja present) la
+   * ou une creation repond `201`. Les deux sont des succes, et `response.ok`
+   * les couvre tous les deux.
+   *
+   * Le `409` restant n'est donc plus un doublon : il signale un lien existant
+   * dont le statut de professeur principal DIFFERE de celui demande. C'est un
+   * vrai conflit metier, il est remonte tel quel au RP. Le traiter comme un
+   * succes — ce que faisait la version precedente, ecrite pour l'idempotence —
+   * afficherait « valide » a un RP dont la demande vient d'etre refusee : une
+   * erreur metier transformee en succes technique.
    */
   async createTeacherStudentRelation(
     link: { teacherId: string; studentId: string; isPrincipalTeacher: boolean },
@@ -188,9 +196,17 @@ export class ProfileServiceClient {
     }
 
     if (response.status === 409) {
-      this.logger.log(`Lien eleve↔formateur deja existant (${link.teacherId} ↔ ${link.studentId})`);
-      return;
+      this.logger.warn(
+        `Lien eleve↔formateur en conflit (${link.teacherId} ↔ ${link.studentId}) : ` +
+          `isPrincipalTeacher=${link.isPrincipalTeacher} demande contre un lien existant different`,
+      );
+      throw new ConflictException(
+        "Un lien existe deja entre cet eleve et ce formateur, avec un statut de professeur principal " +
+          "different de celui demande. Verifiez qui est le professeur principal de cet eleve avant de valider.",
+      );
     }
+    // `response.ok` couvre le `201` d'une creation comme le `200` d'un rejeu :
+    // les deux laissent le lien demande en place, la validation du RP se poursuit.
     if (!response.ok) {
       this.logger.error(`Creation du lien eleve↔formateur refusee : HTTP ${response.status}`);
       throw new ServiceUnavailableException(

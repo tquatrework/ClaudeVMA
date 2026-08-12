@@ -1,6 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 import { RequestScope, TeacherRequestService } from '../../src/teacher-request/teacher-request.service';
@@ -624,6 +629,28 @@ describe('TeacherRequestService', () => {
         service.validateCandidate('request-1', { proposalId: 'proposal-1' }, rpContext),
       ).rejects.toThrow();
       expect(requestRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('remonte le conflit de lien au RP au lieu de lui afficher un succes', async () => {
+      profileServiceClient.createTeacherStudentRelation.mockRejectedValue(
+        new ConflictException('Un lien existe deja entre cet eleve et ce formateur, avec un statut different.'),
+      );
+
+      await expect(
+        service.validateCandidate('request-1', { proposalId: 'proposal-1' }, rpContext),
+      ).rejects.toThrow(ConflictException);
+      expect(requestRepo.save).not.toHaveBeenCalled();
+      expect(proposalRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('un rejeu reussi de profile-service cloture bien la demande', async () => {
+      // profile-service repond `200` sur un lien identique deja present : le
+      // client resout, la validation du RP doit aller jusqu'au bout.
+      profileServiceClient.createTeacherStudentRelation.mockResolvedValue(undefined);
+
+      const closed = await service.validateCandidate('request-1', { proposalId: 'proposal-1' }, rpContext);
+
+      expect(closed.status).toBe(RequestStatus.CLOSED);
     });
 
     it("refuse un formateur qui n'a pas accepte", async () => {

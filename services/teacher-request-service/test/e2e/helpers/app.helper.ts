@@ -13,7 +13,7 @@
  * precisement l'etat des relations, y compris un lien rompu.
  */
 
-import { INestApplication } from '@nestjs/common';
+import { ConflictException, INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as jwt from 'jsonwebtoken';
 
@@ -54,6 +54,12 @@ export class ProfileServiceStub {
   }[] = [];
   shouldFailLinkCreation = false;
 
+  /**
+   * Reproduit le `409` de profile-service : un lien existe deja pour ce couple
+   * avec un statut de professeur principal different. Ce n'est pas un rejeu.
+   */
+  shouldConflictOnLinkCreation = false;
+
   linkFinanceOwner(financeOwnerId: string, studentId: string): void {
     this.financeOwnerLinks.add(`${financeOwnerId}:${studentId}`);
   }
@@ -84,6 +90,12 @@ export class ProfileServiceStub {
     isPrincipalTeacher: boolean;
   }): Promise<void> {
     if (this.shouldFailLinkCreation) throw new Error('profile-service injoignable');
+    if (this.shouldConflictOnLinkCreation) {
+      throw new ConflictException(
+        "Un lien existe deja entre cet eleve et ce formateur, avec un statut de professeur principal " +
+          "different de celui demande. Verifiez qui est le professeur principal de cet eleve avant de valider.",
+      );
+    }
     this.createdTeacherStudentLinks.push(link);
   }
 }

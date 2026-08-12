@@ -663,9 +663,14 @@ export class TeacherRequestService {
    *
    * Ordre volontaire : le lien est demande a profile-service AVANT la cloture
    * locale. Si l'appel echoue, rien n'est cloture et le RP peut recommencer ;
-   * si la cloture echoue apres coup, le rejeu retombe sur un `409` traite comme
-   * un succes. Cloturer d'abord aurait produit une demande « traitee » sans
-   * aucun lien — une erreur metier transformee en succes technique.
+   * si la cloture echoue apres coup, le rejeu redemande le meme lien et
+   * profile-service repond `200` (route rejouable depuis le 2026-08-12).
+   * Cloturer d'abord aurait produit une demande « traitee » sans aucun lien —
+   * une erreur metier transformee en succes technique.
+   *
+   * Un `409` de profile-service n'est PAS un rejeu : il signale un lien
+   * existant contradictoire. Il remonte au RP tel quel, la demande reste
+   * ouverte.
    */
   async validateCandidate(
     requestId: string,

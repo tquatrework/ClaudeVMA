@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { ServiceUnavailableException } from '@nestjs/common';
+import { ConflictException, ServiceUnavailableException } from '@nestjs/common';
 
 import { ProfileServiceClient } from '../../src/teacher-request/clients/profile-service.client';
 
@@ -132,10 +132,12 @@ describe('ProfileServiceClient', () => {
   describe('createTeacherStudentRelation', () => {
     const link = { teacherId: 'teacher-1', studentId: 'student-1', isPrincipalTeacher: true };
 
-    it('poste le lien sur la route interne', async () => {
+    it('poste le lien sur la route interne, et traite le 201 de creation comme un succes', async () => {
       global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 201 }) as unknown as typeof fetch;
 
-      await client.createTeacherStudentRelation(link, { correlationId: 'corr-7' });
+      await expect(
+        client.createTeacherStudentRelation(link, { correlationId: 'corr-7' }),
+      ).resolves.toBeUndefined();
 
       expect(global.fetch).toHaveBeenCalledWith(
         `${PROFILE_BASE_URL}/internal/create-teacher-student-relation`,
@@ -147,10 +149,20 @@ describe('ProfileServiceClient', () => {
       );
     });
 
-    it('traite le 409 comme un succes : le lien demande existe', async () => {
-      global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 409 }) as unknown as typeof fetch;
+    it('traite le 200 du rejeu comme un succes : le lien identique existait deja', async () => {
+      global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200 }) as unknown as typeof fetch;
 
       await expect(client.createTeacherStudentRelation(link)).resolves.toBeUndefined();
+    });
+
+    it('remonte le 409 comme une erreur metier en francais, sans jamais l\'avaler', async () => {
+      global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 409 }) as unknown as typeof fetch;
+
+      const call = client.createTeacherStudentRelation(link);
+
+      await expect(call).rejects.toBeInstanceOf(ConflictException);
+      await expect(call).rejects.toThrow(/lien existe deja entre cet eleve et ce formateur/);
+      await expect(call).rejects.toThrow(/professeur principal/);
     });
 
     it('leve quand la creation du lien est refusee', async () => {

@@ -305,11 +305,10 @@
             et la reponse porte studentName: null. Le client la tente d'abord puis retombe sur
             GET /profiles/:userId avec le jeton de l'appelant, ce qui suffit au RP et a
             l'eleve mais pas au formateur.</item>
-          <item>A CONFIRMER — le corps exact de
-            POST /internal/create-teacher-student-relation. Le client envoie
-            {teacherId, studentId, isPrincipalTeacher} ; docs/routes.md documente la reponse
-            {teacherId, studentId, isPrincipalTeacher} et un 409 sur doublon, mais pas le
-            corps d'entree.</item>
+          <item>LEVE le 2026-08-12 — le corps de
+            POST /internal/create-teacher-student-relation est confirme identique a ce que le
+            client envoie : {teacherId, studentId, isPrincipalTeacher}. Voir la session
+            « Le 409 du lien eleve↔formateur cesse d'etre avale » ci-dessous.</item>
         </blockers>
 
         <openPoints>
@@ -330,6 +329,55 @@
             envoie {teacherId} et non {teacherIds} sur les propositions, et poste
             {currentTeacherId, requestedTeacherId, reason} sur pp-change la ou le serveur
             attend {studentId, currentPpTeacherId?, description}. A traiter cote front.</item>
+        </openPoints>
+      </session>
+      <session date="2026-08-12" label="Le 409 du lien eleve↔formateur cesse d'etre avale">
+        <context>
+          profile-service a livre le meme jour la version REJOUABLE de
+          POST /internal/create-teacher-student-relation : un rejeu repond desormais 200, plus
+          409. Le seul 409 encore renvoye signale un VRAI conflit — un lien existant dont le
+          isPrincipalTeacher differe de celui demande. La branche « 409 → succes » de
+          ProfileServiceClient, ecrite pour l'idempotence, etait donc devenue dangereuse : le RP
+          designait un professeur principal, le serveur refusait, et l'application lui affichait
+          un succes. C'est exactement « une erreur metier transformee en succes technique », que
+          les principes du projet interdisent.
+        </context>
+
+        <changeset id="409-remonte">
+          <item>src/teacher-request/clients/profile-service.client.ts —
+            createTeacherStudentRelation ne renvoie plus sur 409 : elle leve une
+            ConflictException portant un message francais exploitable par le RP (« Un lien
+            existe deja entre cet eleve et ce formateur, avec un statut de professeur principal
+            different de celui demande. Verifiez qui est le professeur principal de cet eleve
+            avant de valider. »). Le log passe de log a warn.</item>
+          <item>Le succes reste teste par response.ok, qui couvre le 201 d'une creation ET le
+            200 d'un rejeu — verifie par test, pas suppose.</item>
+          <item>Aucun renommage : chemin, en-tetes et corps
+            {teacherId, studentId, isPrincipalTeacher} correspondent exactement au contrat de
+            profile-service.</item>
+          <item>Commentaires de validateCandidate corriges : le rejeu retombe sur un 200, plus
+            sur un « 409 traite comme un succes ».</item>
+        </changeset>
+
+        <verification>
+          <item>136 tests unitaires + 19 tests e2e verts (base PostgreSQL locale
+            teacher_request_test), plus nest build.</item>
+          <item>Cas couverts : 201 creation → succes ; 200 rejeu → succes (le RP va au bout, la
+            demande est cloturee) ; 409 conflit reel → ConflictException remontee, ni la
+            demande ni les propositions ne sont sauvegardees ; e2e : POST
+            /requests/:id/validate repond 409 avec un message mentionnant « professeur
+            principal » et la demande reste en `redirected`.</item>
+        </verification>
+
+        <openPoints>
+          <item>validatedBy (identite du RP qui valide, pour l'evenement TeacherLinkedToStudent)
+            propose par profile-service : NON ajoute, decision prise le 2026-08-12 — personne ne
+            le remplirait aujourd'hui. A rouvrir quand un consommateur en aura besoin.</item>
+          <item>Le script npm `test:e2e` (`jest --testMatch ...`) n'utilise PAS
+            test/jest-e2e.json et ne charge donc pas setupFiles/setup-env.ts : la suite e2e
+            echoue sur la validation d'environnement. Elle passe avec
+            `npx jest --config test/jest-e2e.json`. Ecart preexistant, non corrige ici
+            (perimetre volontairement limite au 409).</item>
         </openPoints>
       </session>
     </technicalSessions>

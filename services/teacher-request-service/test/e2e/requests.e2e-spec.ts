@@ -51,6 +51,7 @@ describe('[E2E] Flow de la demande de professeur', () => {
     profileService.administrators.clear();
     profileService.createdTeacherStudentLinks.length = 0;
     profileService.shouldFailLinkCreation = false;
+    profileService.shouldConflictOnLinkCreation = false;
     profileService.administrators.add(IDS.rp1);
   });
 
@@ -234,6 +235,28 @@ describe('[E2E] Flow de la demande de professeur', () => {
       .send({ proposalId: proposal.id });
 
     expect(validated.status).toBeGreaterThanOrEqual(500);
+    const [row] = await dataSource.query('SELECT status FROM teacher_requests WHERE id = $1', [
+      createdRequest.id,
+    ]);
+    expect(row.status).toBe('redirected');
+  });
+
+  it('un lien contradictoire est remonte au RP en 409, jamais affiche comme un succes', async () => {
+    const createdRequest = await createRequestAsStudent();
+    const [proposal] = await sendProposals(createdRequest.id, [IDS.teacher1]);
+    await request(app.getHttpServer())
+      .post(`/proposals/${proposal.id}/accept`)
+      .set('Authorization', `Bearer ${teacher1Token}`)
+      .send({});
+    profileService.shouldConflictOnLinkCreation = true;
+
+    const validated = await request(app.getHttpServer())
+      .post(`/requests/${createdRequest.id}/validate`)
+      .set('Authorization', `Bearer ${rpToken}`)
+      .send({ proposalId: proposal.id, isPrincipalTeacher: true });
+
+    expect(validated.status).toBe(409);
+    expect(validated.body.message).toContain('professeur principal');
     const [row] = await dataSource.query('SELECT status FROM teacher_requests WHERE id = $1', [
       createdRequest.id,
     ]);

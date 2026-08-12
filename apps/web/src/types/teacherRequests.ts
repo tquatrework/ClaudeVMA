@@ -156,3 +156,20 @@ export interface PpChangeRequestPayload {
   currentPpTeacherId?: string
   description: string
 }
+
+/**
+ * Un formateur tel que le composeur de l'étape 3 le propose au RP : un nom
+ * lisible, l'expertise quand elle est renseignée, et l'identifiant technique
+ * réservé à l'appel suivant.
+ *
+ * Forme d'affichage dérivée de `ValidatedTeacher` (`src/types/profile.ts`) par
+ * `toSelectableTeacher` : le composeur ne formate rien lui-même et n'a donc
+ * aucun moyen de faire apparaître un UUID par mégarde.
+ */
+export interface SelectableTeacher {
+  /** Jamais affiché — sert uniquement à construire `teacherIds`. */
+  userId: string
+  displayName: string
+  /** Niveaux et matières en une ligne, `null` quand rien n'est renseigné. */
+  expertise: string | null
+}

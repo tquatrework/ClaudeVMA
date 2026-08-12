@@ -24,6 +24,7 @@
  */
 
 import apiClient from './client'
+import type { PaginatedResponse } from '../types/pagination'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -37,14 +38,11 @@ export type ArchiveItemType =
   | 'exercice_evaluation'
   | 'video'
 
-/** Enveloppe de pagination commune aux deux routes de lecture. */
-export interface PaginatedArchiveResponse<T> {
-  data: T[]
-  page: number
-  limit: number
-  total: number
-  totalPages: number
-}
+/**
+ * Enveloppe de pagination commune aux deux routes de lecture — même forme que
+ * celle des autres listes bornées du projet, d'où le type partagé.
+ */
+export type PaginatedArchiveResponse<T> = PaginatedResponse<T>
 
 export interface PedagogicalArchiveItem {
   id: string

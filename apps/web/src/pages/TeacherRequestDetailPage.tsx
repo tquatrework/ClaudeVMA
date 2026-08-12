@@ -55,8 +55,14 @@ export default function TeacherRequestDetailPage() {
     clearSuccessMessage,
   } = useTeacherRequestDetail(requestId, isResponsablePedagogique)
 
-  const { teachers, isLoading: isLoadingTeachers, isDirectoryUnavailable } =
-    useSelectableTeachers()
+  // L'annuaire des formateurs validés est réservé aux administrateurs : on ne
+  // l'appelle pas pour un rôle qui recevrait `403`.
+  const {
+    teachers,
+    isLoading: isLoadingTeachers,
+    loadError: teachersLoadError,
+    isTruncated: isDirectoryTruncated,
+  } = useSelectableTeachers(isResponsablePedagogique)
 
   const [isComposerOpen, setIsComposerOpen] = useState(false)
 
@@ -171,7 +177,8 @@ export default function TeacherRequestDetailPage() {
                 requestDescription={request.description}
                 teachers={teachers}
                 isLoadingTeachers={isLoadingTeachers}
-                isDirectoryUnavailable={isDirectoryUnavailable}
+                teachersLoadError={teachersLoadError}
+                isDirectoryTruncated={isDirectoryTruncated}
                 alreadyProposedTeacherIds={proposals.map((proposal) => proposal.teacherId)}
                 onSubmit={async (payload) => {
                   const isSent = await sendProposals(payload)

@@ -7,14 +7,17 @@
  * `description` (rédigée par l'élève) et `message` (rédigé par le RP) sont deux données
  * distinctes, portées par deux entités différentes.
  *
- * Aucun UUID n'est saisi : la sélection se fait par cases à cocher sur des noms. Tant
- * qu'aucune route d'annuaire n'existe côté serveur, le composeur le dit et n'offre pas de
- * champ de repli — voir `hooks/teacher-requests/useSelectableTeachers.ts`.
+ * Aucun UUID n'est saisi : la sélection se fait par cases à cocher sur des noms, servis
+ * par `GET /profiles/teachers/validated` — voir `hooks/teacher-requests/useSelectableTeachers.ts`.
+ * Les niveaux et matières accompagnent chaque nom quand ils sont renseignés : c'est ce
+ * qui permet au RP de choisir.
  */
 
 import React, { useState } from 'react'
-import type { SelectableTeacher } from '../../hooks/teacher-requests/useSelectableTeachers'
-import type { SendTeacherProposalsPayload } from '../../types/teacherRequests'
+import type {
+  SelectableTeacher,
+  SendTeacherProposalsPayload,
+} from '../../types/teacherRequests'
 import { ErrorMessage } from '../ui/ErrorMessage'
 
 interface TeacherProposalComposerProps {
@@ -22,7 +25,10 @@ interface TeacherProposalComposerProps {
   requestDescription: string
   teachers: SelectableTeacher[]
   isLoadingTeachers: boolean
-  isDirectoryUnavailable: boolean
+  /** Message français d'échec du chargement de l'annuaire, `null` si tout va bien. */
+  teachersLoadError: string | null
+  /** `true` quand la pagination a été coupée par le garde-fou du hook. */
+  isDirectoryTruncated: boolean
   /** Formateurs déjà sollicités sur cette demande — le serveur refuse un doublon. */
   alreadyProposedTeacherIds: string[]
   onSubmit: (payload: SendTeacherProposalsPayload) => Promise<boolean>
@@ -34,7 +40,8 @@ export default function TeacherProposalComposer({
   requestDescription,
   teachers,
   isLoadingTeachers,
-  isDirectoryUnavailable,
+  teachersLoadError,
+  isDirectoryTruncated,
   alreadyProposedTeacherIds,
   onSubmit,
   isSubmitting,
@@ -96,33 +103,51 @@ export default function TeacherProposalComposer({
           <p className="text-sm text-gray-400">Chargement des professeurs…</p>
         )}
 
-        {!isLoadingTeachers && isDirectoryUnavailable && (
-          <ErrorMessage
-            variant="warning"
-            message="La liste des professeurs n'est pas encore disponible : cette étape sera activée dès que l'annuaire des professeurs sera en ligne."
-          />
+        {!isLoadingTeachers && teachersLoadError && (
+          <ErrorMessage message={teachersLoadError} />
         )}
 
-        {!isLoadingTeachers && !isDirectoryUnavailable && selectableTeachers.length === 0 && (
+        {!isLoadingTeachers && !teachersLoadError && teachers.length === 0 && (
           <p className="text-sm text-gray-500">
-            Tous les professeurs disponibles ont déjà été sollicités sur cette demande.
+            Aucun professeur validé n'est disponible pour l'instant.
           </p>
         )}
+
+        {!isLoadingTeachers &&
+          !teachersLoadError &&
+          teachers.length > 0 &&
+          selectableTeachers.length === 0 && (
+            <p className="text-sm text-gray-500">
+              Tous les professeurs disponibles ont déjà été sollicités sur cette demande.
+            </p>
+          )}
 
         {selectableTeachers.map((teacher) => (
           <label
             key={teacher.userId}
-            className="flex items-center gap-2 text-sm text-gray-700"
+            className="flex items-start gap-2 text-sm text-gray-700"
           >
             <input
               type="checkbox"
+              className="mt-1"
               checked={selectedTeacherIds.includes(teacher.userId)}
               onChange={() => toggleTeacher(teacher.userId)}
               disabled={isSubmitting}
             />
-            {teacher.displayName}
+            <span>
+              {teacher.displayName}
+              <span className="block text-xs text-gray-400">
+                {teacher.expertise ?? 'Niveaux et matières non renseignés'}
+              </span>
+            </span>
           </label>
         ))}
+
+        {isDirectoryTruncated && (
+          <p className="text-xs text-gray-400">
+            Seuls les premiers professeurs de l'annuaire sont affichés.
+          </p>
+        )}
       </fieldset>
 
       <div>

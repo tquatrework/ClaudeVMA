@@ -14,6 +14,7 @@ import type { TeacherProposal, TeacherRequest } from '../../src/types/teacherReq
 
 vi.mock('../../src/hooks/useAuth')
 vi.mock('../../src/api/teacherRequests')
+vi.mock('../../src/api/profile')
 
 import { useAuth } from '../../src/hooks/useAuth'
 import {
@@ -24,8 +25,12 @@ import {
   updateTeacherRequestStatus,
   validateTeacherRequest,
 } from '../../src/api/teacherRequests'
+import { fetchValidatedTeachers } from '../../src/api/profile'
+import type { ValidatedTeacher } from '../../src/types/profile'
+import type { PaginatedResponse } from '../../src/types/pagination'
 
 const mockUseAuth = vi.mocked(useAuth)
+const mockFetchValidatedTeachers = vi.mocked(fetchValidatedTeachers)
 const mockFetchTeacherRequest = vi.mocked(fetchTeacherRequest)
 const mockFetchTeacherProposals = vi.mocked(fetchTeacherProposals)
 const mockSendTeacherProposals = vi.mocked(sendTeacherProposals)
@@ -85,6 +90,39 @@ function buildProposal(overrides: Partial<TeacherProposal> = {}): TeacherProposa
   }
 }
 
+function buildValidatedTeacher(
+  overrides: Partial<ValidatedTeacher> = {},
+): ValidatedTeacher {
+  return {
+    userId: 'teacher-nadia',
+    firstName: 'Nadia',
+    lastName: 'Lambert',
+    levels: ['seconde', 'premiere'],
+    subjects: ['mathematiques'],
+    ...overrides,
+  }
+}
+
+/** Enveloppe `{data, page, limit, total, totalPages}` — jamais un tableau nu. */
+function buildDirectoryPage(
+  teachers: ValidatedTeacher[],
+  overrides: Partial<PaginatedResponse<ValidatedTeacher>> = {},
+): PaginatedResponse<ValidatedTeacher> {
+  return {
+    data: teachers,
+    page: 1,
+    limit: 100,
+    total: teachers.length,
+    totalPages: teachers.length > 0 ? 1 : 0,
+    ...overrides,
+  }
+}
+
+async function openComposer() {
+  await waitFor(() => screen.getByRole('button', { name: 'Proposer à des professeurs' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Proposer à des professeurs' }))
+}
+
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={[`/teacher-requests/${REQUEST_ID}`]}>
@@ -100,6 +138,18 @@ beforeEach(() => {
   mockUseAuth.mockReturnValue(buildAuthMock('responsable_pedagogique'))
   mockFetchTeacherRequest.mockResolvedValue(buildRequest())
   mockFetchTeacherProposals.mockResolvedValue([])
+  mockFetchValidatedTeachers.mockResolvedValue(
+    buildDirectoryPage([
+      buildValidatedTeacher(),
+      buildValidatedTeacher({
+        userId: 'teacher-yanis',
+        firstName: 'Yanis',
+        lastName: 'Roche',
+        levels: null,
+        subjects: null,
+      }),
+    ]),
+  )
 })
 
 describe('TeacherRequestDetailPage — affichage commun', () => {
@@ -165,6 +215,9 @@ describe('TeacherRequestDetailPage — rôles sans droit RP', () => {
 
       // `GET /.../proposals` répond 403 hors RP : on ne l'appelle pas.
       expect(mockFetchTeacherProposals).not.toHaveBeenCalled()
+      // `GET /profiles/teachers/validated` est réservé aux administrateurs (RP, AF,
+      // TI) : un élève, un parent ou un formateur y recevrait 403 — on n'essaie pas.
+      expect(mockFetchValidatedTeachers).not.toHaveBeenCalled()
       // Ces actions répondent 403 à l'élève et au parent : elles ne sont pas affichées.
       expect(screen.queryByRole('button', { name: 'Annuler la demande' })).toBeNull()
       expect(screen.queryByRole('button', { name: 'Supprimer définitivement' })).toBeNull()
@@ -184,24 +237,9 @@ describe('TeacherRequestDetailPage — étape 3, le RP propose', () => {
     })
   })
 
-  it("annonce que l'annuaire des professeurs n'est pas encore disponible", async () => {
-    renderPage()
-
-    await waitFor(() => screen.getByRole('button', { name: 'Proposer à des professeurs' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Proposer à des professeurs' }))
-
-    expect(
-      screen.getByText(
-        /La liste des professeurs n'est pas encore disponible/,
-      ),
-    ).toBeDefined()
-  })
-
   it('ne propose jamais de saisir un identifiant de formateur', async () => {
     renderPage()
-
-    await waitFor(() => screen.getByRole('button', { name: 'Proposer à des professeurs' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Proposer à des professeurs' }))
+    await openComposer()
 
     expect(screen.queryByPlaceholderText(/UUID/i)).toBeNull()
     expect(screen.queryByLabelText(/ID du formateur/i)).toBeNull()
@@ -209,9 +247,7 @@ describe('TeacherRequestDetailPage — étape 3, le RP propose', () => {
 
   it('pré-remplit le message avec la description rédigée par l’élève', async () => {
     renderPage()
-
-    await waitFor(() => screen.getByRole('button', { name: 'Proposer à des professeurs' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Proposer à des professeurs' }))
+    await openComposer()
 
     const messageField = screen.getByLabelText(/Message aux professeurs/) as HTMLTextAreaElement
     expect(messageField.value).toBe('Besoin de soutien en analyse')
@@ -219,13 +255,133 @@ describe('TeacherRequestDetailPage — étape 3, le RP propose', () => {
 
   it('refuse l’envoi tant qu’aucun professeur n’est sélectionné', async () => {
     renderPage()
-
-    await waitFor(() => screen.getByRole('button', { name: 'Proposer à des professeurs' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Proposer à des professeurs' }))
+    await openComposer()
 
     const submitButton = screen.getByRole('button', { name: 'Envoyer la proposition' })
     expect(submitButton.hasAttribute('disabled')).toBe(true)
     expect(mockSendTeacherProposals).not.toHaveBeenCalled()
+  })
+})
+
+describe('TeacherRequestDetailPage — étape 3, annuaire des professeurs validés', () => {
+  it('coche les professeurs par leur nom, jamais par un identifiant technique', async () => {
+    renderPage()
+    await openComposer()
+
+    expect(screen.getByLabelText(/Nadia Lambert/)).toBeDefined()
+    expect(screen.getByLabelText(/Yanis Roche/)).toBeDefined()
+    expect(screen.queryByText('teacher-nadia')).toBeNull()
+    expect(screen.queryByText('teacher-yanis')).toBeNull()
+  })
+
+  it('affiche niveaux et matières quand ils sont renseignés', async () => {
+    renderPage()
+    await openComposer()
+
+    expect(
+      screen.getByText('Niveaux : seconde, premiere · Matières : mathematiques'),
+    ).toBeDefined()
+  })
+
+  it("dit « non renseignés » plutôt que « null » quand le profil pédagogique manque", async () => {
+    renderPage()
+    await openComposer()
+
+    expect(screen.getByText('Niveaux et matières non renseignés')).toBeDefined()
+    expect(screen.queryByText(/null/)).toBeNull()
+  })
+
+  it('reste lisible en français quand le serveur renvoie un nom absent', async () => {
+    mockFetchValidatedTeachers.mockResolvedValue(
+      buildDirectoryPage([
+        buildValidatedTeacher({ firstName: null, lastName: null }),
+      ]),
+    )
+
+    renderPage()
+    await openComposer()
+
+    expect(screen.getByLabelText(/Professeur \(nom non renseigné\)/)).toBeDefined()
+    expect(screen.queryByText('teacher-nadia')).toBeNull()
+  })
+
+  it('envoie les identifiants des professeurs cochés', async () => {
+    mockSendTeacherProposals.mockResolvedValue([])
+
+    renderPage()
+    await openComposer()
+
+    await userEvent.click(screen.getByLabelText(/Nadia Lambert/))
+    await userEvent.click(screen.getByRole('button', { name: 'Envoyer la proposition' }))
+
+    await waitFor(() => {
+      expect(mockSendTeacherProposals).toHaveBeenCalledWith(REQUEST_ID, {
+        teacherIds: ['teacher-nadia'],
+        message: 'Besoin de soutien en analyse',
+      })
+    })
+  })
+
+  it('affiche un état vide quand aucun professeur validé n’existe', async () => {
+    mockFetchValidatedTeachers.mockResolvedValue(buildDirectoryPage([]))
+
+    renderPage()
+    await openComposer()
+
+    expect(
+      screen.getByText("Aucun professeur validé n'est disponible pour l'instant."),
+    ).toBeDefined()
+  })
+
+  it('distingue « annuaire vide » de « tous déjà sollicités »', async () => {
+    mockFetchTeacherProposals.mockResolvedValue([
+      buildProposal({ teacherId: 'teacher-nadia' }),
+      buildProposal({ id: 'proposal-yanis', teacherId: 'teacher-yanis' }),
+    ])
+
+    renderPage()
+    await openComposer()
+
+    expect(
+      screen.getByText(
+        'Tous les professeurs disponibles ont déjà été sollicités sur cette demande.',
+      ),
+    ).toBeDefined()
+  })
+
+  it("affiche le message du serveur quand l'annuaire est refusé", async () => {
+    mockFetchValidatedTeachers.mockRejectedValue({
+      response: { status: 403, data: { message: 'Accès réservé aux administrateurs.' } },
+    })
+
+    renderPage()
+    await openComposer()
+
+    await waitFor(() => {
+      expect(screen.getByText('Accès réservé aux administrateurs.')).toBeDefined()
+    })
+    expect(screen.queryByLabelText(/Nadia Lambert/)).toBeNull()
+  })
+
+  it('enchaîne les pages suivantes au lieu de s’arrêter à la première', async () => {
+    mockFetchValidatedTeachers.mockImplementation(async (page = 1) =>
+      page === 1
+        ? buildDirectoryPage([buildValidatedTeacher()], { total: 2, totalPages: 2 })
+        : buildDirectoryPage(
+            [buildValidatedTeacher({ userId: 'teacher-yanis', firstName: 'Yanis', lastName: 'Roche' })],
+            { page: 2, total: 2, totalPages: 2 },
+          ),
+    )
+
+    renderPage()
+    await openComposer()
+
+    await waitFor(() => {
+      expect(mockFetchValidatedTeachers).toHaveBeenCalledTimes(2)
+    })
+    expect(mockFetchValidatedTeachers).toHaveBeenNthCalledWith(1, 1, 100)
+    expect(mockFetchValidatedTeachers).toHaveBeenNthCalledWith(2, 2, 100)
+    expect(screen.getByLabelText(/Yanis Roche/)).toBeDefined()
   })
 })
 

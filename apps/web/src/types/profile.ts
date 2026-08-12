@@ -343,6 +343,32 @@ export interface UpdateTeacherValidationPayload {
 }
 
 /**
+ * Une entrée de l'annuaire des formateurs validés
+ * (`GET /profiles/teachers/validated`, livrée le 2026-08-12).
+ *
+ * Contenu volontairement limité au **socle de visibilité** : rien de plus que
+ * l'identifiant technique, le nom et les deux champs qui aident à choisir
+ * (`docs/architecture.md` > « Annuaire des formateurs validés »).
+ *
+ * Deux nuances qui font contrat, à ne pas confondre :
+ * - `levels` / `subjects` à `null` = **non renseigné** (le profil pédagogique est
+ *   facultatif, arbitrage du 2026-08-07) ; `[]` = liste vide enregistrée ;
+ * - `firstName` / `lastName` à `null` = **incohérence de données** côté serveur.
+ *   Le formateur reste dans la liste (trié en fin) : un enregistrement abîmé ne
+ *   doit priver le RP ni de l'annuaire, ni d'un libellé lisible.
+ *
+ * `userId` sert **uniquement** à désigner le formateur dans l'appel suivant ; il
+ * n'est jamais affiché (arbitrage du 2026-08-09).
+ */
+export interface ValidatedTeacher {
+  userId: string
+  firstName: string | null
+  lastName: string | null
+  levels: string[] | null
+  subjects: string[] | null
+}
+
+/**
  * Réponse de `GET /profiles/avatar/constraints` — contraintes d'envoi de la
  * photo de profil, **en vigueur côté serveur**.
  *

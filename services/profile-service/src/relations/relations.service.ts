@@ -707,22 +707,60 @@ export class RelationsService {
   }
 
   /**
-   * System-triggered link creation used by InternalService during account
-   * onboarding (no human actor). Mirrors linkTeacherToStudent without a role
-   * check or event publication.
+   * Création IDEMPOTENTE du lien élève↔formateur demandée par un autre service
+   * (aucun acteur humain : l'autorisation est vérifiée en amont par
+   * InternalGuard/X-Internal-Secret).
+   *
+   * Idempotence (besoin du 2026-08-12) : rejouer la validation d'un RP ne doit
+   * ni créer un second lien, ni échouer. Le lien existant est donc renvoyé tel
+   * quel, et `isCreated` dit à l'appelant lequel des deux cas s'est produit —
+   * c'est lui qui porte le code HTTP (201 création / 200 rejeu). Auparavant
+   * cette méthode levait un 409 sur doublon, que `teacher-request-service`
+   * traitait comme un succès : une erreur métier transformée en succès chez
+   * l'appelant, exactement ce que les principes du projet interdisent.
+   *
+   * Un 409 subsiste, mais sur le SEUL cas qui n'est pas un rejeu : le lien
+   * existe avec un statut de professeur principal DIFFÉRENT de celui demandé.
+   * Renvoyer un succès en ignorant `isPrincipalTeacher` serait accepter puis
+   * jeter un champ en silence (corollaire du 2026-08-09) ; désigner le
+   * professeur principal est une opération distincte, avec ses propres règles.
+   *
+   * L'événement `TeacherLinkedToStudent` est publié ici comme il l'est sur le
+   * chemin humain (`linkTeacherToStudent`) : depuis l'arbitrage du 2026-08-12,
+   * le lien du flow « demande de professeur » naît de cette route, et non plus
+   * d'une action RP directe. Ne pas le publier aurait rendu la création
+   * invisible à tout futur abonné (`dashboard-notification-service`).
+   * `actorId` est nul : cette route ne transporte pas encore l'identité du RP
+   * qui a validé (voir docs/services/profile-service.md, points en suspens).
    */
-  async createTeacherStudentLinkForSystem(
+  async ensureTeacherStudentLinkForSystem(
     teacherId: string,
     studentId: string,
     isPrincipalTeacher = false,
-  ): Promise<TeacherStudentLink> {
+  ): Promise<{ link: TeacherStudentLink; isCreated: boolean }> {
     const existing = await this.teacherRepo.findOne({ where: { teacherId, studentId } });
     if (existing) {
-      throw new ConflictException('This teacher is already linked to this student');
+      if (existing.isPrincipalTeacher !== isPrincipalTeacher) {
+        throw new ConflictException(
+          "Ce formateur est déjà lié à cet élève, avec un statut de professeur principal " +
+            "différent de celui demandé. Désigner le professeur principal est une opération " +
+            "distincte, que cette route ne réalise pas.",
+        );
+      }
+      return { link: existing, isCreated: false };
     }
 
     const link = this.teacherRepo.create({ teacherId, studentId, isPrincipalTeacher });
-    return this.teacherRepo.save(link);
+    const saved = await this.teacherRepo.save(link);
+
+    this.events.publish('TeacherLinkedToStudent', {
+      teacherId: saved.teacherId,
+      studentId: saved.studentId,
+      isPrincipalTeacher: saved.isPrincipalTeacher,
+      actorId: null,
+    });
+
+    return { link: saved, isCreated: true };
   }
 
   /**

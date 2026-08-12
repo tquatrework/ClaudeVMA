@@ -344,4 +344,57 @@ Phase 3 enrichit l'offre :
      sur une demande qu'il avait legitimement creee avant la rupture. Precision apportee le
      2026-08-12, en consequence du releve sur `teacher-request-service`.
 
+- Flow de la demande de professeur. Arbitrage rendu le 2026-08-12, sur enonce de l'utilisateur.
+  C'est le premier workflow reellement transverse de la plateforme. Le releve du 2026-08-11
+  (`.claude/reports/teacher-request-service-flow-2026-08-11.md` et
+  `.claude/reports/front-flow-demande-professeur-2026-08-11.md`) avait etabli que **trois modeles
+  de decision coexistaient** dans `teacher-request-service`. Un seul est retenu.
+
+  1. **C'est le RP qui tranche, et lui seul.** L'acceptation d'un formateur enregistre une
+     **candidature**, elle ne cree jamais d'affectation. L'affectation nait de la validation du
+     RP, et d'elle seule. Cela ferme les deux autres modeles : « le premier qui accepte gagne »
+     (implemente et actif, qui produisait deux affectations actives sur le meme eleve) et « le RP
+     preselectionne, le client choisit » (code, inatteignable). Les routes `select` et
+     `selected-candidates` relevaient du modele abandonne.
+  2. **La demande de l'eleve porte un seul champ de saisie : `description`, texte long, requis.**
+     Pas de matiere, pas de niveau, pas de secteur. C'est l'ecran deja en ligne
+     (`/teacher-requests`, « Nouvelle demande ») et il fait autorite : **le serveur s'aligne sur
+     le front**, l'inverse serait compliquer un ecran juste parce qu'un DTO diverge. Le nom
+     retenu est `description` — mot de l'utilisateur, deja celui du front. `subject`, `level` et
+     `sector` sortent du flow ; ils ne sont pas supprimes de la base tant qu'ils portent des
+     donnees, mais aucun ecran ne les demande plus et aucune route ne les exige.
+  3. **La proposition du RP est une entite distincte, avec son propre texte.** Le RP redige un
+     message (qu'il peut pre-remplir depuis la description, cote front uniquement), plus **trois
+     champs indicatifs optionnels** : creneaux possibles, remuneration, date limite de reponse.
+     `description` sur la demande et `message` sur la proposition ne sont pas la meme donnee —
+     auteurs differents, entites differentes, destinataires differents. La regle « un seul nom par
+     donnee » n'est donc pas en cause : elle interdit deux noms pour une donnee, pas deux donnees
+     distinctes portant chacune le sien.
+  4. **Deux etats terminaux manquants sont crees.** Cote proposition, *non retenue* (le formateur
+     avait accepte, un autre a ete choisi) et *caduque* (jamais repondue, la demande est close) —
+     les confondre avec *refusee* serait un mensonge, `declined` signifie que le formateur a
+     refuse. Cote demande, un etat terminal apres affectation ; `assigned` est aujourd'hui un
+     cul-de-sac sans transition sortante. Sans ces etats, l'etape 8 (« les demandes disparaissent
+     car traitees ») est inexprimable.
+  5. **Le lien eleve↔formateur appartient a `profile-service`.** `teacher-request-service` le lui
+     demande, il ne le fabrique pas dans sa propre table `assignments`. Corollaire de la regle
+     posee le 2026-08-11 : `profile-service` est l'unique proprietaire des relations. Ce lien
+     ouvre des droits de lecture reels (statistiques, archives pedagogiques) — le creer n'est pas
+     anodin.
+  6. **Le droit d'agir d'un parent se verifie a chaque action**, contre le lien financeur↔eleve,
+     via `GET /internal/relations/:viewerId/:targetId`. Mesure le 2026-08-11 : un parent creait
+     une demande pour **n'importe quel eleve** en `201`, sans aucune verification. Un `studentId`
+     sur lequel l'appelant n'a aucun lien ne doit pas reveler l'existence de l'eleve — meme
+     traitement que les autres masquages.
+  7. **Les notifications viennent apres le flow, mais les evenements sont reels des le flow.**
+     Choix de sequencement laisse a l'orchestrateur et rendu ainsi : l'etape 7 (notifier les
+     quatre parties) est une **projection** d'evenements que le flow produit de toute facon, et
+     les etapes 2 a 6 sont observables sans elle — le RP a une liste de demandes, le formateur a
+     une boite de reception. Construire les deux de front ferait dependre un workflow non
+     stabilise d'un contrat interservices qui n'existe pas encore.
+     **Contrepartie non negociable** : `EventsService.emit()` ecrit aujourd'hui **une ligne de
+     log** et rien d'autre — aucun bus, aucun abonne. Le flow doit emettre de **vrais evenements**
+     des maintenant, pour que `dashboard-notification-service` s'y abonne sans retoucher le
+     workflow. Un evenement qui n'est qu'un `logger.log` n'est pas un evenement.
+
 ## Points ouverts a arbitrer

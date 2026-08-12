@@ -8,10 +8,10 @@ import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { UserRole } from '../common/enums/user-role.enum';
 import { TeacherDirectoryService, ValidatedTeachersPage } from './teacher-directory.service';
 import {
-  ListValidatedTeachersQueryDto,
-  VALIDATED_TEACHERS_DEFAULT_LIMIT,
-  VALIDATED_TEACHERS_MAX_LIMIT,
-} from './dto/list-validated-teachers.query.dto';
+  TeachersPageQueryDto,
+  TEACHERS_PAGE_DEFAULT_LIMIT,
+  TEACHERS_PAGE_MAX_LIMIT,
+} from './dto/teachers-page.query.dto';
 
 /**
  * Adaptateur HTTP de l'ANNUAIRE DES FORMATEURS VALIDÉS (arbitrage du
@@ -59,7 +59,7 @@ export class TeacherDirectoryController {
       'ferait de cette liste une porte dérobée à ce filtrage. Tout autre champ passe par ' +
       '`GET /profiles/:userId`.\n\n' +
       "**LISTE BORNÉE.** `page` (défaut 1) et `limit` (défaut " +
-      `${VALIDATED_TEACHERS_DEFAULT_LIMIT}, maximum ${VALIDATED_TEACHERS_MAX_LIMIT}). Un ` +
+      `${TEACHERS_PAGE_DEFAULT_LIMIT}, maximum ${TEACHERS_PAGE_MAX_LIMIT}). Un ` +
       '`limit` supérieur au plafond est refusé en `400` avec un message en français — il ' +
       "n'est jamais ramené en silence au plafond. Une page au-delà de la dernière renvoie " +
       '`200` avec `data: []`, pas `404` : aucun formateur à cet endroit de la liste n\'est ' +
@@ -79,8 +79,8 @@ export class TeacherDirectoryController {
     required: false,
     type: Number,
     description:
-      `Nombre de formateurs par page. Défaut : ${VALIDATED_TEACHERS_DEFAULT_LIMIT}, ` +
-      `maximum : ${VALIDATED_TEACHERS_MAX_LIMIT}.`,
+      `Nombre de formateurs par page. Défaut : ${TEACHERS_PAGE_DEFAULT_LIMIT}, ` +
+      `maximum : ${TEACHERS_PAGE_MAX_LIMIT}.`,
   })
   @ApiResponse({
     status: 200,
@@ -106,7 +106,7 @@ export class TeacherDirectoryController {
     description: 'Rôle non autorisé — RP, AF et TI seulement',
   })
   listValidatedTeachers(
-    @Query() query: ListValidatedTeachersQueryDto,
+    @Query() query: TeachersPageQueryDto,
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<ValidatedTeachersPage> {
     return this.teacherDirectoryService.listValidatedTeachers(query, actor);

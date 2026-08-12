@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { AdministrativeProfile } from './entities/administrative-profile.entity';
 import {
   AdministrativeProfileView,
@@ -18,7 +18,7 @@ import {
 import { StudentPedagogicalProfile } from './entities/student-pedagogical-profile.entity';
 import { TeacherPedagogicalProfile } from './entities/teacher-pedagogical-profile.entity';
 import { InternalProfileNote } from './entities/internal-profile-note.entity';
-import { TeacherValidation } from './entities/teacher-validation.entity';
+import { TeacherValidation, statusLabel } from './entities/teacher-validation.entity';
 import { RelationsService } from '../relations/relations.service';
 import {
   IdentityAccount,
@@ -642,7 +642,10 @@ export class ProfilesService {
    */
   async promoteToAnimateurPedagogique(teacherId: string, actor: Actor) {
     if (actor.role !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
-      throw new ForbiddenException('Only RP can promote a teacher to Animateur Pédagogique');
+      throw new ForbiddenException(
+        'Seul le responsable pédagogique peut promouvoir un formateur au rôle ' +
+          'd’animateur pédagogique.',
+      );
     }
 
     let profile = await this.teacherPedaRepo.findOne({ where: { userId: teacherId } });
@@ -682,7 +685,8 @@ export class ProfilesService {
 
     if (!isResponsablePedagogique && !isTechnicienInformatique) {
       throw new ForbiddenException(
-        'Only RP or TI may update a teacher validation status',
+        'Seuls le responsable pédagogique et le technicien informatique peuvent modifier ' +
+          'le statut de validation d’un formateur.',
       );
     }
 
@@ -741,7 +745,8 @@ export class ProfilesService {
 
     if (currentStatus === targetStatus) {
       throw new ForbiddenException(
-        `Teacher validation status is already '${currentStatus}' — no transition needed`,
+        `Ce formateur est déjà au statut « ${statusLabel(currentStatus)} » : ` +
+          'aucun changement à effectuer.',
       );
     }
 
@@ -749,7 +754,8 @@ export class ProfilesService {
     if (currentStatus === 'pending' && targetStatus === 'in_review') {
       if (!isResponsablePedagogique) {
         throw new ForbiddenException(
-          'Only RP may move a formateur from pending to in_review',
+          'Seul le responsable pédagogique peut prendre en charge le dossier d’un formateur ' +
+            '(passage de « en attente » à « en cours d’examen »).',
         );
       }
       return;
@@ -770,7 +776,9 @@ export class ProfilesService {
     ) {
       if (!isTechnicienInformatique) {
         throw new ForbiddenException(
-          'Only TI may bypass the in_review step and move directly from pending to validated or rejected',
+          'Seul le technicien informatique peut sauter l’étape « en cours d’examen » et ' +
+            'passer directement de « en attente » à « validé » ou « refusé ». Le responsable ' +
+            'pédagogique doit d’abord prendre le dossier en charge.',
         );
       }
       return;
@@ -778,58 +786,66 @@ export class ProfilesService {
 
     // All other transitions are forbidden
     throw new ForbiddenException(
-      `Transition from '${currentStatus}' to '${targetStatus}' is not allowed`,
+      `Le passage du statut « ${statusLabel(currentStatus)} » à « ${statusLabel(targetStatus)} » ` +
+        "n'est pas autorisé.",
     );
   }
 
   /**
-   * List all formateurs whose validation status is 'pending'.
-   * Restricted to RP only.
-   * Joins with administrative_profiles to return name fields when available.
+   * CRÉE L'ENREGISTREMENT DE VALIDATION D'UN FORMATEUR, au statut `pending`.
+   *
+   * Arbitrage du 2026-08-12 (« Validation des nouveaux formateurs ») : tout
+   * compte formateur porte un enregistrement de validation, créé À
+   * L'INSCRIPTION par le workflow d'onboarding — JAMAIS par une lecture. Même
+   * règle que le profil administratif (arbitrage du 2026-08-07), et règle
+   * inverse du profil pédagogique, facultatif par nature.
+   *
+   * Ce qu'on corrige : sans cette ligne, le formateur était lu `pending`
+   * individuellement (valeur fabriquée à la volée) mais n'apparaissait JAMAIS
+   * dans `GET /profiles/teachers/pending-validation`, qui ne montre que les
+   * lignes réelles. Il n'était donc jamais vu du RP, jamais validé, jamais
+   * proposable — cul-de-sac silencieux, avec un écran qui affichait « en
+   * attente d'examen » alors que personne ne devait jamais l'examiner.
+   *
+   * IDEMPOTENTE, ET SURTOUT NON DESTRUCTRICE. Un enregistrement existant est
+   * renvoyé TEL QUEL, quel que soit son statut : rejouer l'inscription (ou la
+   * reprise de stock) ne doit jamais renvoyer en `pending` un formateur déjà
+   * `validated` ou `rejected`. Ce serait annuler la décision d'un RP sans
+   * trace, et rouvrir l'accès d'un formateur refusé.
    */
-  async listTeachersPendingValidation(actor: Actor): Promise<{
-    id: string;
-    teacherId: string;
-    firstName: string | null;
-    lastName: string | null;
-    createdAt: Date;
-  }[]> {
-    if (actor.role !== UserRole.RESPONSABLE_PEDAGOGIQUE) {
-      throw new ForbiddenException(
-        'Only RP may list teachers pending validation',
-      );
+  async bootstrapTeacherValidation(teacherId: string): Promise<{
+    validation: TeacherValidation;
+    isCreated: boolean;
+  }> {
+    const existing = await this.teacherValidationRepo.findOne({ where: { teacherId } });
+    if (existing) {
+      return { validation: existing, isCreated: false };
     }
 
-    const pendingValidations = await this.teacherValidationRepo.find({
-      where: { status: 'pending' },
-      order: { createdAt: 'ASC' },
-    });
-
-    // Batch-fetch all administrative profiles in a single query instead of
-    // one findOne() per pending validation (services-convention: avoid N+1).
-    const teacherIds = pendingValidations.map((validation) => validation.teacherId);
-    const adminProfiles = teacherIds.length
-      ? await this.adminRepo.find({ where: { userId: In(teacherIds) } })
-      : [];
-    const adminProfileByTeacherId = new Map(
-      adminProfiles.map((adminProfile) => [adminProfile.userId, adminProfile]),
+    const validation = await this.teacherValidationRepo.save(
+      this.teacherValidationRepo.create({ teacherId, status: 'pending' }),
     );
-
-    return pendingValidations.map((validation) => {
-      const adminProfile = adminProfileByTeacherId.get(validation.teacherId);
-      return {
-        id: validation.id,
-        teacherId: validation.teacherId,
-        firstName: adminProfile?.firstName ?? null,
-        lastName: adminProfile?.lastName ?? null,
-        createdAt: validation.createdAt,
-      };
-    });
+    this.logger.log(
+      `Enregistrement de validation créé au statut « pending » pour le formateur ` +
+        `teacherId=${teacherId}. Il apparaît désormais dans la file du responsable pédagogique.`,
+    );
+    return { validation, isCreated: true };
   }
 
   /**
-   * Get the current validation status of a formateur.
-   * Accessible to RP, TI, and the teacher themselves.
+   * Lecture du statut de validation courant d'un formateur.
+   * Accessible au RP, au TI, à l'AF et au formateur lui-même.
+   *
+   * LE REPLI DE SYNTHÈSE N'EST PLUS QU'UN FILET, ET IL TRACE (arbitrage du
+   * 2026-08-12, point 2). Depuis que l'enregistrement est créé à l'inscription,
+   * son absence pour un formateur n'est plus un état normal mais une
+   * INCOHÉRENCE DE DONNÉES : compte créé avant la correction et non repris par
+   * le script de rattrapage, ou `teacherId` qui ne désigne pas un formateur.
+   *
+   * On continue de répondre `200 {teacherId, status: 'pending'}` plutôt que de
+   * lever une erreur — refuser la lecture n'aiderait ni le formateur ni le RP —
+   * mais l'anomalie est journalisée en `error` et non plus absorbée en silence.
+   * C'est cette absorption silencieuse qui faisait mentir l'écran.
    */
   async getTeacherValidation(teacherId: string, actor: Actor) {
     const allowedRoles = [
@@ -839,12 +855,24 @@ export class ProfilesService {
     ];
     if (!allowedRoles.includes(actor.role) && actor.id !== teacherId) {
       throw new ForbiddenException(
-        'You may only view your own validation status',
+        'Vous ne pouvez consulter que votre propre statut de validation.',
       );
     }
 
     const validation = await this.teacherValidationRepo.findOne({ where: { teacherId } });
-    return validation ?? { teacherId, status: 'pending' };
+    if (validation) {
+      return validation;
+    }
+
+    this.logger.error(
+      `ANOMALIE DE DONNEES : aucun enregistrement de validation pour teacherId=${teacherId}. ` +
+        "Depuis l'arbitrage du 2026-08-12, cet enregistrement est créé à l'inscription de tout " +
+        'formateur : son absence signifie soit un compte antérieur non repris par ' +
+        'scripts/maintenance/backfill-teacher-validations.ts, soit un identifiant qui ne ' +
+        "désigne pas un formateur. Le statut « pending » renvoyé ici est un REPLI : ce " +
+        "formateur n'apparaît dans AUCUNE file de validation et ne sera donc jamais examiné.",
+    );
+    return { teacherId, status: 'pending' as const };
   }
 
   /**

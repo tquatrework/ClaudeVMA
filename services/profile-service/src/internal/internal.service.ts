@@ -66,14 +66,45 @@ export class InternalService {
     return this.profilesService.presentAdministrativeProfile(profile);
   }
 
+  /**
+   * Création du profil administratif à l'inscription — TOUS RÔLES CONFONDUS.
+   *
+   * C'est par ICI que passe réellement `POST /accounts/teachers` : mesuré
+   * contre la pile le 2026-08-12, identity-access-service appelle cette route,
+   * et NON `create-teacher-profiles` (qui sert le workflow orchestré). C'est la
+   * raison pour laquelle l'enregistrement de validation d'un formateur doit
+   * être créé ici aussi, sans quoi la correction ne vaudrait que pour un chemin
+   * que l'inscription réelle n'emprunte pas.
+   *
+   * `role` est OPTIONNEL et son absence n'est pas une erreur : rien n'est
+   * deviné, on ne crée un enregistrement de validation que si l'appelant a
+   * explicitement annoncé un formateur. `profile-service` ne persiste pas ce
+   * rôle et ne l'expose pas — identity-access-service en reste l'unique
+   * propriétaire (arbitrage du 2026-08-07) ; il ne sert ici qu'à initialiser la
+   * structure qui revient à ce service.
+   */
   async createAdministrativeProfile(dto: {
     userId: string;
     firstName: string;
     lastName: string;
     phone?: string;
     birthDate?: string;
+    role?: UserRole;
   }) {
     const administrative = await this.bootstrapAndPresentAdministrativeProfile(dto);
+
+    if (dto.role === UserRole.FORMATEUR) {
+      await this.profilesService.bootstrapTeacherValidation(dto.userId);
+    } else if (dto.role === undefined) {
+      this.logger.warn(
+        `Profil administratif créé pour userId=${dto.userId} SANS rôle transmis. Le rôle doit ` +
+          'accompagner systématiquement les appels interservices (arbitrage du 2026-08-07). ' +
+          "Conséquence concrète si ce compte est un formateur : aucun enregistrement de " +
+          "validation n'est créé, il n'apparaîtra dans aucune file du responsable pédagogique " +
+          'et ne sera donc jamais validé.',
+      );
+    }
+
     return { userId: dto.userId, administrative };
   }
 
@@ -95,6 +126,20 @@ export class InternalService {
     };
   }
 
+  /**
+   * Profils initiaux d'un formateur — chemin du workflow orchestré
+   * `teacher-onboarding`.
+   *
+   * Ici le rôle n'a pas à être transmis : la route elle-même dit que le compte
+   * est un formateur. L'enregistrement de validation est donc créé
+   * INCONDITIONNELLEMENT, au statut `pending` (arbitrage du 2026-08-12).
+   *
+   * `validation` figure dans la réponse pour que l'appelant puisse constater ce
+   * qui a été créé plutôt que de le supposer — on renvoie l'état enregistré, pas
+   * le corps reçu (règle du 2026-08-10, point 3bis). L'ajout est sans risque
+   * pour les consommateurs actuels : identity-access-service ne lit que le code
+   * HTTP de ces routes.
+   */
   async createTeacherProfiles(dto: {
     userId: string;
     firstName?: string;
@@ -106,12 +151,59 @@ export class InternalService {
   }) {
     const administrative = await this.bootstrapAndPresentAdministrativeProfile(dto);
     const pedagogical = await this.profilesService.bootstrapTeacherPedagogicalProfile(dto);
+    const { validation } = await this.profilesService.bootstrapTeacherValidation(dto.userId);
 
     return {
       userId: dto.userId,
       administrative,
       pedagogical,
+      validation,
     };
+  }
+
+  /**
+   * REPRISE DE STOCK des formateurs inscrits AVANT le 2026-08-12, qui n'ont
+   * aucun enregistrement de validation et sont donc invisibles du responsable
+   * pédagogique (arbitrage du 2026-08-12, point 3 : « les formateurs déjà
+   * inscrits doivent être rattrapés »).
+   *
+   * POURQUOI UNE ROUTE ET NON UNE MIGRATION SQL. `profile-service` ne connaît
+   * pas les rôles — identity-access-service en est l'unique propriétaire
+   * (arbitrage du 2026-08-07) et aucune table locale ne dit qui est formateur.
+   * `teacher_pedagogical_profiles` ne peut pas en tenir lieu : mesuré contre la
+   * pile le 2026-08-12, 17 formateurs existent pour 5 lignes dans cette table,
+   * et les deux formateurs `validated` n'y figurent même pas. Une migration SQL
+   * ne pourrait donc que deviner, c'est-à-dire créer des enregistrements de
+   * validation pour des élèves et des parents. La liste des formateurs est
+   * demandée à son propriétaire, par
+   * `scripts/maintenance/backfill-teacher-validations.ts`.
+   *
+   * IDEMPOTENTE ET NON DESTRUCTRICE : un formateur déjà `validated` ou
+   * `rejected` est laissé strictement intact et compté dans `alreadyPresent`.
+   * Rejouer le script autant de fois qu'on veut ne change rien après le premier
+   * passage.
+   */
+  async ensureTeacherValidations(teacherIds: string[]): Promise<{
+    created: string[];
+    alreadyPresent: string[];
+  }> {
+    const created: string[] = [];
+    const alreadyPresent: string[] = [];
+
+    for (const teacherId of [...new Set(teacherIds)]) {
+      const { isCreated } = await this.profilesService.bootstrapTeacherValidation(teacherId);
+      if (isCreated) {
+        created.push(teacherId);
+      } else {
+        alreadyPresent.push(teacherId);
+      }
+    }
+
+    this.logger.log(
+      `Reprise de stock des enregistrements de validation : ${created.length} créé(s), ` +
+        `${alreadyPresent.length} déjà présent(s) et laissé(s) intact(s).`,
+    );
+    return { created, alreadyPresent };
   }
 
   async linkParent(dto: { studentId: string; financeOwnerId: string }) {

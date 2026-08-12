@@ -149,6 +149,22 @@ La forme `:-` a un effet secondaire à connaître : elle garantit une valeur non
 validation au démarrage ajoutée le 2026-08-12 **ne détectera jamais** l'absence de la variable.
 La porte est fermée contre l'oubli de configuration, pas contre un secret faible.
 
+### Deux écarts trouvés en validant les formateurs (2026-08-12)
+
+Rencontrés en prouvant l'annuaire, **non corrigés**, sans lien avec le flow lui-même :
+
+1. **Un formateur sans enregistrement de validation est invisible de la liste des « en attente ».**
+   `GET /profiles/:teacherId/validation` renvoie un `pending` **synthétique** quand aucune ligne
+   n'existe, tandis que `GET /profiles/teachers/pending-validation` ne liste que les lignes
+   réelles. Mesuré : les deux formateurs `trsflow` étaient lus `pending` individuellement et
+   absents de la liste. Un RP ne peut donc pas voir les formateurs qu'il devrait valider — c'est
+   la même famille de défaut que le `404` des archives, où une absence masquait une fonction
+   jamais opérationnelle.
+2. **Message d'erreur en anglais** sur `PATCH /profiles/:teacherId/validation` :
+   `"Only TI may bypass the in_review step and move directly from pending to validated or
+   rejected"`. La règle métier est bonne — le RP passe par `in_review`, seul le TI saute l'étape —
+   mais elle est énoncée dans une langue que l'utilisateur ne lit pas.
+
 ## État
 
 - [x] Existant relevé, écart établi — 2026-08-11, rapports committés le 2026-08-12

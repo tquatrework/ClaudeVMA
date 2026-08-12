@@ -125,4 +125,26 @@ describe('RolesGuard', () => {
       expect(guard.canActivate(makeMockExecutionContext(UserRole.FORMATEUR))).toBe(true);
     });
   });
+
+  /**
+   * Règle de langue du 2026-08-09 : tout ce que l'utilisateur lit est en
+   * français. Ce message-ci remontait jusqu'à l'écran en anglais
+   * (« Insufficient role »), constaté contre la pile le 2026-08-12.
+   */
+  describe('langue du refus', () => {
+    it('refuse en français, jamais en anglais', () => {
+      metadata({ roles: [UserRole.RESPONSABLE_PEDAGOGIQUE] });
+      const context = makeMockExecutionContext(UserRole.ELEVE);
+
+      expect(() => guard.canActivate(context)).toThrow(/Votre rôle ne vous permet pas/);
+      expect(() => guard.canActivate(context)).not.toThrow(/Insufficient role/);
+    });
+
+    it('refuse aussi en français un appel non authentifié sur une route @OwnerAccess', () => {
+      metadata({ ownerAccess: true });
+      const context = makeMockExecutionContext(null);
+
+      expect(() => guard.canActivate(context)).toThrow(/Votre rôle ne vous permet pas/);
+    });
+  });
 });

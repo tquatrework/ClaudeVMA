@@ -537,4 +537,27 @@ Phase 3 enrichit l'offre :
      alimentee. Les laisser en place, mortes, entretiendrait la confusion sur qui decide, qui est
      precisement la question que le flow du 2026-08-12 a tranchee.
 
+- Visibilite du statut de validation, cote formateur. Arbitrage rendu le 2026-08-13. Constat
+  prealable : le statut de validation d'un formateur (`pending` / `in_review` / `validated` /
+  `rejected`, porte par `profile-service`, PR #102) n'etait affiche nulle part dans le parcours du
+  formateur lui-meme — seul `TeacherValidationPanel` l'affiche, et sa condition d'affichage
+  (`canSeeValidationPanel`) est reservee au RP et au TI, y compris quand le formateur consulte sa
+  propre fiche. Un formateur en attente, en cours d'examen ou refuse n'avait donc aucun moyen de
+  savoir ou il en etait.
+  1. **Le formateur voit desormais son propre statut**, sur son propre parcours (dashboard ou
+     fiche de profil). `pending` et `in_review` s'affichent tous deux comme **« En attente de
+     validation »** — la distinction entre les deux n'a de sens que pour le RP qui instruit le
+     dossier, pas pour le formateur qui attend.
+  2. **`rejected` s'affiche comme « Refuse — annee {AAAA} »**, ou l'annee est celle a laquelle le
+     refus a ete prononce (a deriver de l'horodatage de la derniere transition vers `rejected`).
+     Objectif explicite : signaler au formateur qu'il pourra se representer l'annee suivante.
+  3. **Ceci reste une indication, pas une contrainte technique.** Aucune regle de blocage de
+     nouvelle candidature avant l'annee suivante n'est introduite par cet arbitrage — le parcours
+     de re-inscription/re-soumission reste celui qui existe deja. Si un blocage effectif est
+     souhaite plus tard, c'est un arbitrage distinct.
+  4. **Corollaire sur le droit de lecture** : `profile-service` doit permettre au formateur de lire
+     son propre enregistrement de validation (aujourd'hui reserve au RP/TI cote lecture, a
+     verifier et corriger si besoin) — meme principe que « l'utilisateur lit son propre profil »
+     (2026-08-07), applique ici a une entite liee au profil plutot qu'au profil lui-meme.
+
 ## Points ouverts a arbitrer

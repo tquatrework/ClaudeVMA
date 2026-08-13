@@ -380,6 +380,52 @@
             (perimetre volontairement limite au 409).</item>
         </openPoints>
       </session>
+      <session date="2026-08-13" label="Retrait des routes d'arret pilotees par le formateur">
+        <context>
+          Application du point 7 de l'arbitrage du 2026-08-12 (docs/architecture.md, « Fin d'une
+          relation eleve-formateur ») : seul le RP met fin a une relation eleve-formateur, via
+          DELETE /relations/teacher-student/:teacherId/:studentId livre par profile-service
+          (PR #105, mergee sur master). Les deux routes heritees ou le formateur decidait de
+          l'arret portaient donc un modele deja tranche comme abandonne, et s'appuyaient sur la
+          table `assignments` que le flow ne remplit plus depuis le 2026-08-12. Verifie contre le
+          code avant retrait : aucun chemin ne cree plus de ligne `assignments`
+          (assignmentRepo n'est utilise que pour lire/mettre a jour une affectation existante,
+          via setMainTeacher et l'ancien createTermination) ; le constat de la doc etait exact.
+        </context>
+
+        <changeset id="retrait">
+          <item>POST /assignments/:assignmentId/termination et son alias
+            POST /collaborations/:assignmentId/stop-request retires. Supprimes : le controleur
+            src/teacher-request/collaboration.controller.ts (entierement dedie a l'alias),
+            les methodes TeacherRequestService.createTermination /
+            createCollaborationStopRequest, l'injection inutilisee de TerminationRequest
+            (terminationRepo n'etait deja plus utilise directement, la transaction passait par
+            manager.getRepository), l'entite entities/termination-request.entity.ts, les DTO
+            dto/create-termination.dto.ts et dto/response/termination-response.dto.ts,
+            l'evenement TeacherRequestEvent.STOP_REQUESTED et les 3 tests unitaires dedies.</item>
+          <item>AssignmentController ne porte plus que POST :assignmentId/main-teacher
+            (professeur principal, route heritee conservee). TeacherRequestModule ne declare
+            plus TerminationRequest ni CollaborationController.</item>
+          <item>Aucun changement cote api-gateway : /api/v1/assignments est proxifie par prefixe
+            generique (gateway/api-gateway/nginx.conf, `location ^~ /api/v1/assignments`), pas
+            route par route ; /api/v1/collaborations n'avait aucune location declaree (confirme
+            la doc anterieure « non proxifie »). Le retrait cote service suffit.</item>
+        </changeset>
+
+        <verification>
+          <item>nest build sans erreur ; 133 tests unitaires verts (9 suites). Suite e2e non
+            rejouee dans cet environnement (DATABASE_URL/JWT_SECRET/PROFILE_SERVICE_URL/
+            INTERNAL_SECRET absents ici, aucun Postgres local demarre) — aucun test e2e ne
+            referencait /termination ni /stop-request avant retrait.</item>
+        </verification>
+
+        <openPoints>
+          <item>Les valeurs heritees AssignmentStatus.TERMINATION_REQUESTED et
+            AssignmentStatus.TERMINATED restent declarees dans entities/assignment.entity.ts
+            (hors perimetre de cette session : Assignment reste utilisee par setMainTeacher, et
+            la table peut porter des lignes historiques dans cet etat).</item>
+        </openPoints>
+      </session>
     </technicalSessions>
   </service>
 </serviceFunctionalSpecification>

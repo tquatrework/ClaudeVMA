@@ -18,7 +18,6 @@ export enum TeacherRequestEvent {
   PROPOSAL_EXPIRED = 'TeacherProposalExpired',
   TEACHER_ASSIGNED = 'TeacherAssigned',
   MAIN_TEACHER_ASSIGNED = 'MainTeacherAssigned',
-  STOP_REQUESTED = 'TeacherStopRequested',
 }
 
 export interface DomainEventInput {

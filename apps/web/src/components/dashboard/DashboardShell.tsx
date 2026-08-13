@@ -7,6 +7,7 @@ export type { NavItem, RailItem, RailGroup } from '../../types/navigation'
 import type { NavItem, RailGroup } from '../../types/navigation'
 import { DashboardMobileRailDrawer } from './DashboardMobileRailDrawer'
 import { DashboardMobileTopMenu } from './DashboardMobileTopMenu'
+import { AccountStatusBanners } from '../layout/AccountStatusBanners'
 
 interface DashboardShellProps {
   accentClass: string
@@ -39,24 +40,14 @@ export default function DashboardShell({
   const isActive = (path: string) =>
     location.pathname === path || location.pathname.startsWith(`${path}/`)
 
-  const hasConsentWarning = user?.validationStatus === 'pending'
-
   const railWidth = isRailCollapsed ? '56px' : 'var(--rail-width)'
 
   return (
     <div
       className={`vm-shell ${accentClass} min-h-screen bg-[var(--color-bg)] text-[color:var(--color-ink)] font-[var(--font-body)] flex flex-col`}
     >
-      {/* Bannière consentement */}
-      {hasConsentWarning && (
-        <div className="bg-yellow-50 border-b border-amber-200 py-2 px-6 text-center text-[var(--font-size-body-sm)] text-amber-800">
-          Votre compte n'est pas encore activé.{' '}
-          <Link to="/consents" className="underline font-semibold">
-            Signer les consentements
-          </Link>{' '}
-          pour activer votre espace.
-        </div>
-      )}
+      {/* Bannières statut de compte (consentement, dossier formateur) */}
+      <AccountStatusBanners />
 
       {/* TOP BAR */}
       {/* box-shadow gardé en inline : la syntaxe Tailwind shadow-[var(...)] interprète

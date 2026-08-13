@@ -38,6 +38,12 @@ Thumbs.db
 coverage/
 .nyc_output/
 
+# Playwright (apps/web/e2e)
+test-results/
+playwright-report/
+playwright/.cache/
+blob-report/
+
 # Docker
 .docker/
 

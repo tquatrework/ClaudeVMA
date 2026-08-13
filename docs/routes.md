@@ -923,8 +923,6 @@ restant en base comme preuve de la période passée. Vérifié contre la pile r�
 
 Préfixe gateway canonique : `/api/v1/teacher-requests` → contrôleur `/requests`.
 Également proxifiés : `/api/v1/requests` (historique), `/api/v1/proposals`, `/api/v1/assignments`.
-**`/api/v1/collaborations` n'est pas proxifié** — la route existe côté service mais reste
-inatteignable depuis le front (voir « Héritage » plus bas).
 
 > **Le flow a été refondu le 2026-08-12** (`docs/architecture.md` > « Flow de la demande de
 > professeur »). Trois modèles de décision coexistaient ; un seul subsiste : **c'est le RP qui
@@ -986,7 +984,7 @@ et l'interroge **à chaque action**, jamais en cache — un lien peut être romp
 `TeacherRequestCreated` · `TeacherRequestStatusUpdated` · `TeacherRequestDeleted` ·
 `TeacherRequestClosed` · `TeacherProposalSent` · `TeacherProposalAccepted` ·
 `TeacherProposalDeclined` · `TeacherProposalNotSelected` · `TeacherProposalExpired` ·
-`TeacherAssigned` · `MainTeacherAssigned` · `TeacherStopRequested`
+`TeacherAssigned` · `MainTeacherAssigned`
 
 > Ils ne sont plus des `logger.log`. Chaque événement est écrit dans la table **`domain_events`**
 > (boîte d'envoi), **dans la même transaction** que le changement d'état qui le produit, puis remis
@@ -995,16 +993,23 @@ et l'interroge **à chaque action**, jamais en cache — un lien peut être romp
 > **jamais perdus**. Champs du flux : `eventId`, `eventName`, `aggregateType`, `aggregateId`,
 > `correlationId`, `occurredAt`, `payload` (JSON).
 
-### Héritage — routes conservées, non alimentées par le flow
+### Héritage — route conservée, non alimentée par le flow
 
 La table `assignments` n'est **plus écrite** : le lien élève↔formateur appartient à
-`profile-service`. Ces routes ne servent donc que les affectations créées par l'ancien modèle.
+`profile-service`. Cette route ne sert donc que les affectations créées par l'ancien modèle.
 
 | Méthode | Chemin | Rôles | Remarque |
 |---|---|---|---|
 | POST | /assignments/:assignmentId/main-teacher | responsable_pedagogique, eleve | Sur le flow courant, le professeur principal se déclare via `isPrincipalTeacher` de `POST /requests/:id/validate` |
-| POST | /assignments/:assignmentId/termination | formateur | Arrêt avec préavis. Body `{noticeDate, reason?}` |
-| POST | /collaborations/:assignmentId/stop-request | formateur | **Alias strict** de la précédente (même code désormais), **non proxifié par la gateway** |
+
+> **Retiré le 2026-08-13** (arbitrage du 2026-08-12, « Fin d'une relation élève-formateur »,
+> point 7) : `POST /assignments/:assignmentId/termination` et son alias
+> `POST /collaborations/:assignmentId/stop-request` (formateur, body `{noticeDate, reason?}`)
+> portaient le modèle abandonné où le formateur décidait de l'arrêt. Seul le RP met désormais fin
+> à une relation élève↔formateur, via `DELETE /relations/teacher-student/:teacherId/:studentId`
+> sur `profile-service`. Le contrôleur `/collaborations` et l'entité `termination_requests` ont été
+> supprimés du service ; `/api/v1/assignments` reste proxifié par la gateway (prefixe générique,
+> aucun changement nécessaire côté `api-gateway`).
 
 ---
 

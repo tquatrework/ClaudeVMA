@@ -4,12 +4,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { TeacherRequest } from './entities/teacher-request.entity';
 import { TeacherProposal } from './entities/teacher-proposal.entity';
 import { Assignment } from './entities/assignment.entity';
-import { TerminationRequest } from './entities/termination-request.entity';
 import { TeacherRequestController } from './teacher-request.controller';
 import { RequestProposalsController } from './request-proposals.controller';
 import { ProposalController } from './proposal.controller';
 import { AssignmentController } from './assignment.controller';
-import { CollaborationController } from './collaboration.controller';
 import { TeacherRequestService } from './teacher-request.service';
 import { ProfileServiceClient } from './clients/profile-service.client';
 import { SecurityModule } from '../security/security.module';
@@ -19,7 +17,7 @@ import { CorrelationIdMiddleware } from '../common/correlation-id.middleware';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([TeacherRequest, TeacherProposal, Assignment, TerminationRequest]),
+    TypeOrmModule.forFeature([TeacherRequest, TeacherProposal, Assignment]),
     SecurityModule,
     EventsModule,
     IdempotencyModule,
@@ -29,7 +27,6 @@ import { CorrelationIdMiddleware } from '../common/correlation-id.middleware';
     RequestProposalsController,
     ProposalController,
     AssignmentController,
-    CollaborationController,
   ],
   providers: [TeacherRequestService, ProfileServiceClient],
 })

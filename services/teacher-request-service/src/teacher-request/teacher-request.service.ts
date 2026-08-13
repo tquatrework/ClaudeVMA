@@ -15,10 +15,8 @@ import {
 } from './entities/teacher-request.entity';
 import { TeacherProposal, ProposalStatus } from './entities/teacher-proposal.entity';
 import { Assignment, AssignmentStatus } from './entities/assignment.entity';
-import { TerminationRequest } from './entities/termination-request.entity';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { CreateProposalDto } from './dto/create-proposal.dto';
-import { CreateTerminationDto } from './dto/create-termination.dto';
 import { CreatePpChangeDto } from './dto/create-pp-change.dto';
 import { ValidateCandidateDto } from './dto/validate-candidate.dto';
 import { ManualRequestStatus } from './dto/update-status.dto';
@@ -54,15 +52,20 @@ const UNKNOWN_STUDENT_MESSAGE = "Aucun eleve correspondant n'a ete trouve.";
 
 /**
  * Cohesion note (services-convention.md §"À partir de 300 lignes..."):
- * this service intentionally owns four repositories (TeacherRequest,
- * TeacherProposal, Assignment, TerminationRequest) because they form a
- * single lifecycle aggregate — request → proposal → assignment →
- * termination — with no independent existence or reuse outside this flow.
+ * this service intentionally owns three repositories (TeacherRequest,
+ * TeacherProposal, Assignment) because they form a single lifecycle
+ * aggregate — request → proposal → assignment — with no independent
+ * existence or reuse outside this flow.
  *
  * Attention : depuis l'arbitrage du 2026-08-12, `Assignment` n'est PLUS
  * alimente par le flow. Le lien eleve↔formateur appartient a profile-service ;
  * la table ne conserve que les affectations creees par l'ancien modele, dont
- * dependent encore les routes d'arret de collaboration (hors flow).
+ * ne depend plus que la designation du professeur principal heritee
+ * (`setMainTeacher`) — les routes d'arret de collaboration pilotees par le
+ * formateur ont ete retirees le 2026-08-13 (arbitrage du 2026-08-12, « Fin
+ * d'une relation eleve-formateur », point 7) : seul le RP met fin a une
+ * relation, via `DELETE /relations/teacher-student/:teacherId/:studentId`
+ * sur profile-service.
  */
 @Injectable()
 export class TeacherRequestService {
@@ -70,7 +73,6 @@ export class TeacherRequestService {
     @InjectRepository(TeacherRequest) private readonly requestRepo: Repository<TeacherRequest>,
     @InjectRepository(TeacherProposal) private readonly proposalRepo: Repository<TeacherProposal>,
     @InjectRepository(Assignment) private readonly assignmentRepo: Repository<Assignment>,
-    @InjectRepository(TerminationRequest) private readonly terminationRepo: Repository<TerminationRequest>,
     private readonly events: EventsService,
     private readonly dataSource: DataSource,
     private readonly profileServiceClient: ProfileServiceClient,
@@ -877,10 +879,9 @@ export class TeacherRequestService {
   // ── Heritage : affectations creees par l'ancien modele ─────────────────────
 
   /**
-   * Ces trois methodes travaillent sur la table `assignments`, que le flow
+   * Cette methode travaille sur la table `assignments`, que le flow
    * n'alimente PLUS : le lien eleve↔formateur appartient a profile-service.
-   * Elles restent en service pour les affectations existantes, en attendant que
-   * l'arret de collaboration soit reconstruit sur les relations.
+   * Elle reste en service pour les affectations existantes.
    */
   async setMainTeacher(assignmentId: string, context: RequestContext): Promise<Assignment> {
     const { user } = context;
@@ -905,65 +906,5 @@ export class TeacherRequestService {
     });
     this.events.requestPublication();
     return updated;
-  }
-
-  async createTermination(
-    assignmentId: string,
-    dto: CreateTerminationDto,
-    context: RequestContext,
-  ): Promise<TerminationRequest> {
-    const { user } = context;
-    if (user.role !== UserRole.FORMATEUR) {
-      throw new ForbiddenException('Seul un formateur peut demander l\'arret d\'une collaboration.');
-    }
-    const assignment = await this.assignmentRepo.findOne({ where: { id: assignmentId } });
-    if (!assignment) throw new NotFoundException("Cette affectation n'existe pas.");
-    if (assignment.teacherId !== user.id) throw new NotFoundException("Cette affectation n'existe pas.");
-    if (assignment.status !== AssignmentStatus.ACTIVE) {
-      throw new BadRequestException("Cette affectation n'est plus active.");
-    }
-
-    const savedTermination = await this.dataSource.transaction(async (manager) => {
-      const terminationRepository = manager.getRepository(TerminationRequest);
-      const assignmentRepository = manager.getRepository(Assignment);
-
-      const createdTermination = await terminationRepository.save(
-        terminationRepository.create({
-          assignmentId,
-          teacherId: user.id,
-          noticeDate: new Date(dto.noticeDate),
-          reason: dto.reason,
-        }),
-      );
-      await assignmentRepository.save({ ...assignment, status: AssignmentStatus.TERMINATION_REQUESTED });
-      await this.events.record(
-        {
-          eventName: TeacherRequestEvent.STOP_REQUESTED,
-          aggregateType: 'Assignment',
-          aggregateId: assignmentId,
-          payload: {
-            terminationId: createdTermination.id,
-            assignmentId,
-            teacherId: user.id,
-            studentId: assignment.studentId,
-            noticeDate: dto.noticeDate,
-          },
-          correlationId: context.correlationId,
-        },
-        manager,
-      );
-      return createdTermination;
-    });
-    this.events.requestPublication();
-    return savedTermination;
-  }
-
-  /** Doublon historique de `createTermination`, conserve le temps que la gateway et le front convergent. */
-  async createCollaborationStopRequest(
-    assignmentId: string,
-    dto: CreateTerminationDto,
-    context: RequestContext,
-  ): Promise<TerminationRequest> {
-    return this.createTermination(assignmentId, dto, context);
   }
 }

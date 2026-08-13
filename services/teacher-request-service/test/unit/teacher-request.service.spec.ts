@@ -16,7 +16,6 @@ import {
 } from '../../src/teacher-request/entities/teacher-request.entity';
 import { TeacherProposal, ProposalStatus } from '../../src/teacher-request/entities/teacher-proposal.entity';
 import { Assignment, AssignmentStatus } from '../../src/teacher-request/entities/assignment.entity';
-import { TerminationRequest } from '../../src/teacher-request/entities/termination-request.entity';
 import { EventsService, TeacherRequestEvent } from '../../src/events/events.service';
 import { ProfileServiceClient } from '../../src/teacher-request/clients/profile-service.client';
 import { ManualRequestStatus } from '../../src/teacher-request/dto/update-status.dto';
@@ -101,7 +100,6 @@ describe('TeacherRequestService', () => {
   let requestRepo: ReturnType<typeof makeRepo>;
   let proposalRepo: ReturnType<typeof makeRepo>;
   let assignmentRepo: ReturnType<typeof makeRepo>;
-  let terminationRepo: ReturnType<typeof makeRepo>;
   let events: { record: jest.Mock; requestPublication: jest.Mock };
   let profileServiceClient: {
     resolveDisplayName: jest.Mock;
@@ -135,7 +133,6 @@ describe('TeacherRequestService', () => {
     requestRepo = makeRepo();
     proposalRepo = makeRepo();
     assignmentRepo = makeRepo();
-    terminationRepo = makeRepo();
     events = { record: jest.fn().mockResolvedValue(undefined), requestPublication: jest.fn() };
     profileServiceClient = {
       resolveDisplayName: jest.fn().mockResolvedValue('Alice Dupont'),
@@ -149,7 +146,6 @@ describe('TeacherRequestService', () => {
         { provide: getRepositoryToken(TeacherRequest), useValue: requestRepo },
         { provide: getRepositoryToken(TeacherProposal), useValue: proposalRepo },
         { provide: getRepositoryToken(Assignment), useValue: assignmentRepo },
-        { provide: getRepositoryToken(TerminationRequest), useValue: terminationRepo },
         { provide: EventsService, useValue: events },
         {
           provide: DataSource,
@@ -157,7 +153,6 @@ describe('TeacherRequestService', () => {
             TeacherRequest: requestRepo,
             TeacherProposal: proposalRepo,
             Assignment: assignmentRepo,
-            TerminationRequest: terminationRepo,
           }),
         },
         { provide: ProfileServiceClient, useValue: profileServiceClient },
@@ -823,38 +818,6 @@ describe('TeacherRequestService', () => {
       assignmentRepo.findOne.mockResolvedValue({ ...activeAssignment, studentId: 'student-9' });
 
       await expect(service.setMainTeacher('assignment-1', studentContext)).rejects.toThrow(NotFoundException);
-    });
-
-    it("le formateur demande l'arret avec preavis", async () => {
-      assignmentRepo.findOne.mockResolvedValue(activeAssignment);
-
-      const termination = await service.createTermination(
-        'assignment-1',
-        { noticeDate: '2026-09-01' },
-        teacherContext,
-      );
-
-      expect(termination).toMatchObject({ assignmentId: 'assignment-1', teacherId: 'teacher-1' });
-      expect(events.record).toHaveBeenCalledWith(
-        expect.objectContaining({ eventName: TeacherRequestEvent.STOP_REQUESTED }),
-        expect.anything(),
-      );
-    });
-
-    it("un formateur etranger a l'affectation ne sait pas qu'elle existe", async () => {
-      assignmentRepo.findOne.mockResolvedValue({ ...activeAssignment, teacherId: 'teacher-9' });
-
-      await expect(
-        service.createTermination('assignment-1', { noticeDate: '2026-09-01' }, teacherContext),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it("l'alias /collaborations applique exactement les memes regles", async () => {
-      assignmentRepo.findOne.mockResolvedValue(activeAssignment);
-
-      await expect(
-        service.createCollaborationStopRequest('assignment-1', { noticeDate: '2026-09-01' }, teacherContext),
-      ).resolves.toMatchObject({ assignmentId: 'assignment-1' });
     });
   });
 });

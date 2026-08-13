@@ -86,17 +86,41 @@ export async function fetchStudentProfile(studentId: string): Promise<StudentPro
 }
 
 /**
- * GET /relations/teacher-student/:studentId — Lister les formateurs liés à un élève
- *
- * Écart : cette route n'apparaît pas dans docs/routes.md, qui documente uniquement
- * `POST /relations/teacher-student`. Reproduite ici à l'identique du comportement
- * préexistant — non corrigée dans ce lot structurel.
+ * GET /relations/teacher-student/:studentId — Lister les formateurs **actifs** liés à
+ * un élève. C'est la liste affichée sur la fiche de l'élève, à partir de laquelle le RP
+ * met fin à une relation (docs/routes.md § profile-service > Relations).
  */
 export async function fetchTeacherStudentRelations(
   studentId: string,
 ): Promise<TeacherStudentRelation[]> {
   const { data } = await apiClient.get<TeacherStudentRelation[]>(
     `/relations/teacher-student/${studentId}`,
+  )
+  return data
+}
+
+/**
+ * DELETE /relations/teacher-student/:teacherId/:studentId — Mettre fin à la relation
+ * élève ↔ formateur (arbitrage du 2026-08-12, « Fin d'une relation élève↔formateur »).
+ * **RP uniquement** côté serveur ; le front n'affiche l'action qu'à ce rôle, mais ne
+ * remplace jamais le contrôle serveur.
+ *
+ * `reason` est un motif optionnel (≤ 1000 caractères), consigné par le RP puisque le
+ * déclencheur est hors logiciel. **Aucune ligne n'est supprimée** malgré le verbe : la
+ * réponse porte `endedAt`/`endedBy`/`endReason`, la table reste un journal. L'appel est
+ * **idempotent** — deux appels renvoient `200` avec la **même** date et le même motif.
+ *
+ * La réponse est la seule source de vérité de ce qui s'est passé (règle du 2026-08-10) :
+ * c'est elle, et non le corps envoyé, qui doit sortir la relation de la liste affichée.
+ */
+export async function unlinkTeacherStudentRelation(
+  teacherId: string,
+  studentId: string,
+  reason?: string,
+): Promise<TeacherStudentRelation> {
+  const { data } = await apiClient.delete<TeacherStudentRelation>(
+    `/relations/teacher-student/${teacherId}/${studentId}`,
+    reason ? { data: { reason } } : undefined,
   )
   return data
 }

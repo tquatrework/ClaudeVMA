@@ -108,11 +108,32 @@ export interface InternalNote {
   updatedAt?: string
 }
 
+/**
+ * Lien élève ↔ formateur, tel que renvoyé par `GET /relations/teacher-student/:studentId`
+ * (`docs/routes.md` § profile-service > Relations). C'est la liste affichée sur la fiche
+ * de l'élève, à partir de laquelle le RP met fin à une relation (arbitrage du 2026-08-12,
+ * « Fin d'une relation élève↔formateur »).
+ *
+ * `endedAt`/`endedBy`/`endReason` portent la **fin** de la relation : aucune ligne n'est
+ * supprimée, la table est un journal. La route de lecture ne renvoie que les relations
+ * actives (`endedAt: null`) ; seule la réponse du `DELETE` porte une date de fin non nulle,
+ * et c'est elle qui vaut confirmation — même contrat que `FinanceOwnerStudentLink`.
+ */
 export interface TeacherStudentRelation {
+  /** Absent tant que le serveur ne le renvoie pas (formes historiques). */
+  id?: string
   teacherId: string
   studentId: string
   isPrincipalTeacher?: boolean
   createdAt?: string
+  /** Non nul une fois la relation terminée. `null` sur une relation active. */
+  endedAt?: string | null
+  /** `userId` de l'auteur de la fin (le RP). Jamais affiché — identifiant technique. */
+  endedBy?: string | null
+  /** Motif consigné par le RP à la fin de la relation, `null`/absent sinon. */
+  endReason?: string | null
+  /** Nom du formateur, résolu côté serveur — jamais un UUID à l'écran. */
+  teacherName?: PersonName | null
 }
 
 export interface CoordinatorRelation {

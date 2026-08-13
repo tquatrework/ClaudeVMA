@@ -9,6 +9,7 @@
  */
 
 import type { FinanceOwnerStudentLink } from '../types/relations'
+import type { TeacherStudentRelation } from '../types/profile'
 import { formatPersonName } from './nameFormat'
 import { getErrorMessage, getErrorStatus } from './apiError'
 
@@ -82,4 +83,52 @@ export function describeUnlinkFailure(error: unknown): string {
     return UNLINK_FAILURE_MESSAGES[status]
   }
   return getErrorMessage(error, "Le lien n'a pas pu être rompu. Réessayez dans un instant.")
+}
+
+/**
+ * Fin d'une relation élève ↔ formateur — RP uniquement, depuis la fiche de l'élève
+ * (arbitrage du 2026-08-12, « Fin d'une relation élève↔formateur »).
+ *
+ * Verbe retenu à l'écran : « Mettre fin ». Le libellé « Supprimer » serait trompeur —
+ * aucune ligne n'est supprimée, la relation peut être recréée par le flow normal de
+ * demande de professeur.
+ */
+export const TERMINATE_TEACHER_RELATION_ACTION_LABEL = 'Mettre fin'
+
+/** Motif consigné par le RP — même plafond que côté serveur (`docs/routes.md`). */
+export const TERMINATE_TEACHER_RELATION_REASON_MAX_LENGTH = 1000
+
+/** Repli lisible quand le formateur n'a pas de profil administratif. */
+export const TEACHER_GENERIC_LABEL = 'Formateur'
+
+/** Nom affichable du formateur d'une relation. Le nom vient du serveur (`teacherName`). */
+export function describeTeacherRelationName(relation: TeacherStudentRelation): string {
+  return formatPersonName(relation.teacherName, TEACHER_GENERIC_LABEL)
+}
+
+/**
+ * Refus documentés de `DELETE /relations/teacher-student/:teacherId/:studentId`, traduits
+ * ici plutôt que repris du serveur, comme pour la rupture du lien de financement.
+ *
+ * Le `404` recouvre un seul cas ici (contrairement à la rupture financière) : aucune
+ * relation, active ou terminée, entre ces deux personnes — le serveur ne masque rien de
+ * plus, l'action étant déjà réservée au RP par un contrôle de rôle distinct (`403`).
+ */
+const TERMINATE_TEACHER_RELATION_FAILURE_MESSAGES: Record<number, string> = {
+  400: "Cette relation n'a pas pu être terminée : la demande a été refusée. Rechargez la page, puis réessayez.",
+  401: 'Votre session a expiré. Reconnectez-vous, puis réessayez.',
+  403: 'Seul un responsable pédagogique peut mettre fin à une relation élève ↔ formateur.',
+  404: "Aucune relation trouvée entre cet élève et ce formateur. Rechargez la page.",
+}
+
+/** Message d'échec d'une fin de relation élève ↔ formateur, en français quel que soit le refus. */
+export function describeTerminateTeacherRelationFailure(error: unknown): string {
+  const status = getErrorStatus(error)
+  if (status !== undefined && TERMINATE_TEACHER_RELATION_FAILURE_MESSAGES[status]) {
+    return TERMINATE_TEACHER_RELATION_FAILURE_MESSAGES[status]
+  }
+  return getErrorMessage(
+    error,
+    "Cette relation n'a pas pu être terminée. Réessayez dans un instant.",
+  )
 }

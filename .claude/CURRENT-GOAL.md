@@ -5,7 +5,44 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
-## Besoin — 2026-08-12 — le plan de travail du RP
+## Besoin — 2026-08-12/13 — fin d'une relation élève↔formateur
+
+Arbitrage rendu le 2026-08-12 dans `docs/architecture.md` (« Fin d'une relation
+élève↔formateur ») : seul le RP peut y mettre fin, depuis la fiche de l'élève, sans effacer
+l'historique (`endedAt`/`endedBy`/`endReason`), et sans fin automatique.
+
+### État réel constaté le 2026-08-13, avant tout travail de cette session
+
+Une implémentation backend complète existait déjà, **écrite, testée (e2e + unitaire) et poussée
+sur `origin/worktree-agent-a10185c500589032e`**, mais jamais fusionnée dans la branche de
+fonctionnalité `feat/fin-relation-eleve-professeur` — restée, elle, au seul commit d'arbitrage.
+Trouvée en traitant les résidus signalés par le hook `Stop` (worktree d'agent orphelin). Ce
+fichier n'avait pas été mis à jour en conséquence : il pointait encore vers l'objectif précédent,
+déjà mergé.
+
+### Consolidé le 2026-08-13
+
+Fusionné dans `feat/fin-relation-eleve-professeur` et poussé (commit `0e6a377`) :
+`DELETE /relations/teacher-student/:teacherId/:studentId` côté `profile-service` — DTO, entité,
+migration, contrôleur/service, tests e2e et unitaires, `docs/routes.md` et
+`docs/services/profile-service.md` à jour.
+
+### Reste ouvert — non vérifié à ce stade
+
+- **Exposition via `api-gateway`** : non confirmée par cette session.
+- **UI côté front** : l'arbitrage place l'action sur la fiche de l'élève ; aucune preuve que cet
+  écran existe.
+- **Aucune preuve contre la pile réelle** (`https://claudevma.visioprof.fr`) — condition stricte de
+  ce projet avant de qualifier quoi que ce soit de terminé. Les tests e2e/unitaires verts ne
+  valent pas cette preuve.
+- **Aucune PR ouverte** pour `feat/fin-relation-eleve-professeur`.
+- `docs/routes.md` liste encore les anciennes routes d'arrêt pilotées par le formateur
+  (`POST /assignments/:id/termination`, `POST /collaborations/:id/stop-request`) que l'arbitrage
+  du 2026-08-12 dit pourtant retirées — a vérifier, pas encore traité.
+
+---
+
+## Objectif précédent — 2026-08-12 — le plan de travail du RP
 
 Validé par l'utilisateur et **mergé** (PR #102) : « OK c'est bon pour le flow "nouveau professeur"
 au niveau du RP. »

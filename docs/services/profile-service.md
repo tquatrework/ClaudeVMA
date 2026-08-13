@@ -2291,7 +2291,139 @@
           l'appelant ; voir openPoints.
         </verification>
       </decision>
+      <decision id="C22" status="implemented" session="2026-08-12">
+        <title>Fin d'une relation eleve↔formateur — seul le RP decide, la fin s'enregistre et referme les droits</title>
+        <filesTouched>
+          <file path="services/profile-service/src/relations/entities/teacher-student-link.entity.ts">
+            Colonnes `endedAt` / `endedBy` / `endReason`. La contrainte d'unicite pleine sur la
+            paire est remplacee par un index unique PARTIEL `WHERE ended_at IS NULL` : autant de
+            relations terminees qu'on veut pour une paire, jamais deux relations actives. C'est ce
+            qui rend la relation RECREABLE — un arret n'est pas un bannissement.
+          </file>
+          <file path="services/profile-service/src/migrations/1755100000000-AddTeacherStudentLinkEnd.ts">
+            NOUVEAU. Calque exact de la migration du lien financeur : ajoute les trois colonnes,
+            supprime l'ancienne contrainte d'unicite (cherchee par son ROLE — colonnes + type —
+            car son nom genere differe d'une base a l'autre), cree l'index partiel. Les lignes
+            existantes restent actives (`ended_at NULL`).
+          </file>
+          <file path="services/profile-service/src/relations/dto/end-teacher-student-link.dto.ts">
+            NOUVEAU. Corps ENTIEREMENT optionnel `{reason?}`, plafond DECLARE a 1000 caracteres
+            (`END_REASON_MAX_LENGTH`), messages de validation en francais.
+          </file>
+          <file path="services/profile-service/src/relations/relations.service.ts">
+            `endTeacherStudentLink`, `findActiveTeacherLink` (point UNIQUE de la definition de
+            « lie », comme `findActiveFinanceLink`), message `noTeacherStudentLinkMessage`. Les 9
+            lectures du depot formateur filtrent desormais sur `endedAt IS NULL`.
+            `getTeachersByStudent` attache en plus `teacherName`.
+          </file>
+          <file path="services/profile-service/src/relations/relations.controller.ts">
+            DELETE /relations/teacher-student/:teacherId/:studentId, `@Roles(RP)`, Swagger complet.
+            Swagger de `GET /relations/teacher-student/:studentId` reecrit (formateurs ACTIFS,
+            `teacherName`).
+          </file>
+          <file path="services/profile-service/src/events/events.service.ts">
+            Evenement `TeacherUnlinkedFromStudent`.
+          </file>
+          <file path="services/profile-service/test/e2e/teacher-student-link-end.e2e-spec.ts">
+            NOUVEAU, 23 tests : droits ouverts avant, refermes apres, six roles refuses,
+            idempotence, aucune ligne supprimee, aucune fin automatique, recreabilite.
+          </file>
+          <file path="services/profile-service/test/unit/relations/relations.service.spec.ts">
+            +18 tests (12 sur la fin elle-meme, 6 sur la fermeture des droits) ; un test existant
+            aligne sur le filtre `endedAt`.
+          </file>
+          <file path="docs/routes.md">
+            Route de fin, route de lecture qui n'etait PAS documentee, evenement, note « un lien
+            rompu n'ouvre plus rien » etendue a la relation formateur avec les mesures reelles.
+          </file>
+        </filesTouched>
+        <description>
+          Constat : `POST /relations/teacher-student` creait le lien, AUCUNE route ne le terminait.
+          Arbitrage du 2026-08-12. Cinq points structurent l'implementation.
+
+          1. SEUL LE RP. Le controle est un controle de ROLE (`@Roles(RESPONSABLE_PEDAGOGIQUE)`),
+             pas un controle de propriete du lien : `@OwnerAccess()` et `mayUnlink()` ne
+             s'appliquent PAS ici. Difference ASSUMEE avec le deliement parent financeur, ou les
+             deux parties peuvent rompre. Le TI, qui peut rompre un lien parent, ne peut PAS
+             defaire une affectation pedagogique.
+
+          2. LE 404 N'EST PAS UN MASQUAGE ICI. Sur la route financeur, « lien absent » et
+             « appelant sans droit » partagent code et message pour qu'un tiers ne puisse pas s'en
+             servir comme oracle. Ici le controle de role a deja ecarte les non-RP par un 403, et
+             un RP accede de toute facon a tout : le 404 peut donc etre explicite, ce qui rend
+             l'echec exploitable par l'ecran. Ce n'est pas un relachement de la regle, c'est le
+             constat que le risque qu'elle couvre n'existe pas sur cette route.
+
+          3. LE MOTIF EST OPTIONNEL ET NON REECRIT. Le declencheur etant hors logiciel, le RP est
+             le seul a pouvoir consigner pourquoi. Le rejeu ne reecrit NI la date NI le motif : la
+             trace initiale a valeur de preuve, et un second motif saisi apres coup ecraserait le
+             vrai. L'evenement n'est publie que sur une fin REELLE — un rejeu n'emet rien, sans
+             quoi un abonne compterait deux fins pour une seule decision.
+
+          4. LA FERMETURE DES DROITS TIENT A UN SEUL POINT. `resolveRelations` alimente A LA FOIS
+             `GET /profiles/:userId/statistics` et `GET /internal/relations/:viewerId/:targetId`,
+             que lit `archive-document-service`. Ajouter `endedAt IS NULL` a sa requete referme
+             donc statistiques ET archives d'un seul geste, sans prevenir aucun service.
+             `isTeacherLinkedToStudent` referme le profil.
+
+          5. LA LECTURE EXISTAIT MAIS SERVAIT DES UUID NUS.
+             `GET /relations/teacher-student/:studentId` existait deja — inutile d'en creer une —
+             mais ne portait pas le nom du formateur, alors que c'est l'ecran depuis lequel le RP
+             met fin a la relation. `attachTeacherNames` lui est applique, comme il l'est deja a
+             `getFinanceOwnersByStudent` et `getTeachersByAnimator` (arbitrage du 2026-08-09 :
+             aucun UUID a l'ecran). Cette route n'etait par ailleurs PAS documentee dans
+             docs/routes.md ; elle l'est maintenant.
+        </description>
+        <verification>
+          Mesure contre la pile reelle le 2026-08-12, apres `docker compose build` + migration
+          appliquee au demarrage (`AddTeacherStudentLinkEnd1755100000000 has been executed
+          successfully`), via api-gateway sur `/api/v1`. Comptes crees par les routes reelles
+          d'inscription, eleve dote d'un profil pedagogique pour que `/statistics` ait des donnees
+          a servir (sans quoi il repond 404 pour tout le monde, absence de donnee et absence de
+          droit etant volontairement indiscernables).
+
+          Droits du formateur sur l'eleve, mesures aux trois etats :
+            GET /profiles/:studentId              200  -> 403 -> 200
+            GET /profiles/:studentId/statistics   200  -> 404 -> 200
+            GET /internal/relations/:t/:s         [teacher_of_student] -> [] -> [teacher_of_student]
+          (avant la fin -> apres la fin -> apres recreation par le RP)
+
+          Autres mesures : DELETE par le formateur et par l'eleve -> 403 ; DELETE sur une paire
+          inconnue -> 404 « Aucune relation trouvee entre ce professeur et cet eleve » ; DELETE par
+          le RP -> 200 avec `endedBy` = RP et `endReason` consigne ; rejeu -> 200 avec la MEME date
+          et le MEME motif ; `GET /relations/teacher-student/:studentId` passe de une entree portant
+          `teacherName {Marc, Dubois}` a `[]` ; en base, DEUX lignes subsistent apres recreation —
+          la periode passee (avec son motif) et la nouvelle — aucune suppression.
+
+          Suites : 640 tests unitaires verts (22 suites) ; 351 tests e2e verts sur 352, le seul
+          rouge etant `[PROF-BR-010]`, preexistant et laisse a dessein.
+        </verification>
+      </decision>
       <openPoints>
+        <item priority="high" status="to-do" raisedIn="C22" raisedOn="2026-08-12" owner="front">
+          AUCUN ECRAN NE MET FIN A LA RELATION. La route est livree et prouvee, mais le point
+          d'action voulu par l'arbitrage — un bouton sur chaque formateur de la FICHE DE L'ELEVE —
+          reste a construire. La liste a afficher est `GET /relations/teacher-student/:studentId`,
+          qui porte desormais `teacherName` pour qu'aucun UUID ne soit montre. Le libelle peut dire
+          « Supprimer » : la donnee, elle, conserve la trace. Prevoir un champ de motif FACULTATIF —
+          le rendre obligatoire cote front contredirait le choix serveur et produirait des motifs
+          saisis pour la forme.
+        </item>
+        <item priority="medium" status="to-do" raisedIn="C22" raisedOn="2026-08-12" owner="back">
+          ROUTES D'ARRET PILOTEES PAR LE FORMATEUR A RETIRER, chez `teacher-request-service` :
+          `POST /assignments/:id/termination` et `POST /collaborations/:id/stop-request` (point 7 de
+          l'arbitrage). Elles portent le modele abandonne — celui ou le formateur decidait — et
+          s'appuient sur la table `assignments` que le flow refondu n'alimente plus. HORS PERIMETRE
+          de cette session, volontairement : `profile-service` n'y touche pas.
+        </item>
+        <item priority="low" status="to-do" raisedIn="C22" raisedOn="2026-08-12" owner="back">
+          `endReason` N'EST LISIBLE QUE PAR LA REPONSE DE LA FIN et par la base : aucune route ne
+          sert l'HISTORIQUE des relations terminees d'un eleve. `GET /relations/teacher-student/
+          :studentId` ne renvoie que les relations actives, ce qui est le bon contrat pour l'ecran
+          d'action. Une vue « anciens professeurs » supposerait une route distincte (ou un
+          parametre explicite), a arbitrer si le besoin apparait — ne pas la deviner en elargissant
+          la route existante, qui deviendrait ambigue.
+        </item>
         <item priority="medium" status="to-do" raisedIn="C20" raisedOn="2026-08-12" owner="front">
           Brancher `useSelectableTeachers` sur `GET /profiles/teachers/validated`. Le hook renvoie
           aujourd'hui `isDirectoryUnavailable: true` en dur. Il attend `{userId, firstName,

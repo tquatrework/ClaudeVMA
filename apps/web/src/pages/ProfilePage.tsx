@@ -9,6 +9,7 @@ import LinkedStudentsSection from '../components/profile/LinkedStudentsSection'
 import { Tabs, TabPanel, type TabDefinition } from '../components/ui/Tabs'
 import { InternalNotesPanel } from '../components/profile/InternalNotesPanel'
 import { LinkedTeachersPanel } from '../components/profile/LinkedTeachersPanel'
+import { TerminateTeacherRelationDialog } from '../components/profile/TerminateTeacherRelationDialog'
 import { AdministrativeProfilePanel } from '../components/profile/AdministrativeProfilePanel'
 import { PedagogicalProfilePanel } from '../components/profile/PedagogicalProfilePanel'
 import { FilteredProfileNotice } from '../components/profile/FilteredProfileNotice'
@@ -22,6 +23,8 @@ import {
   roleHasPedagogicalProfile,
 } from '../utils/profilePermissions'
 import { FinancialProfilePanel } from '../components/finance/FinancialProfilePanel'
+import { useTerminateTeacherRelation } from '../hooks/relations/useTerminateTeacherRelation'
+import { describeTeacherRelationName } from '../utils/relationLabels'
 
 // ─── IDs d'onglets ────────────────────────────────────────────────────────────
 
@@ -77,6 +80,15 @@ export default function ProfilePage() {
     'formateur',
   )
   const canSeeValidationPanel = hasRole('responsable_pedagogique', 'technicien_informatique')
+
+  /**
+   * Mettre fin à une relation élève ↔ formateur : réservé au RP, et seulement
+   * depuis la fiche de l'élève (arbitrage du 2026-08-12). Ni le formateur, ni
+   * l'élève, ni le parent financeur, ni le TI ni l'AF ne voient ce bouton — le
+   * serveur les refuserait de toute façon, mais l'action ne doit pas apparaître
+   * pour un rôle qu'elle mènerait vers un refus (règle de filtrage UI).
+   */
+  const canTerminateTeacherRelation = hasRole('responsable_pedagogique')
 
   /**
    * Onglet "relations" : visible pour l'élève (ses parents) ou le parent (ses élèves)
@@ -139,7 +151,20 @@ export default function ProfilePage() {
     setAvatarUrl,
     applySavedAdministrative,
     applySavedPedagogical,
+    removeTeacherRelation,
   } = useProfileDetails(userId, canSeeRelations, canSeeInternalNotes)
+
+  const {
+    pendingTermination,
+    requestTermination,
+    cancelTermination,
+    reason: terminationReason,
+    setReason: setTerminationReason,
+    reasonMaxLength: terminationReasonMaxLength,
+    isTerminating,
+    terminationError,
+    confirmTermination,
+  } = useTerminateTeacherRelation(removeTeacherRelation)
 
   /**
    * L'onglet actif est un simple état d'affichage : changer d'onglet ne
@@ -254,9 +279,14 @@ export default function ProfilePage() {
                   <TeacherValidationPanel teacherId={userId} />
                 )}
 
-                {/* Formateurs liés — visible pour RP, AP, TI, AF, formateur */}
+                {/* Formateurs liés — visible pour RP, AP, TI, AF, formateur. Le RP y
+                    trouve, sur chaque formateur, de quoi mettre fin à la relation. */}
                 {canSeeRelations && (
-                  <LinkedTeachersPanel teacherRelations={teacherRelations} />
+                  <LinkedTeachersPanel
+                    teacherRelations={teacherRelations}
+                    canTerminate={canTerminateTeacherRelation}
+                    onRequestTermination={requestTermination}
+                  />
                 )}
 
                 {/* Notes internes — RP / administrateur financier */}
@@ -342,6 +372,19 @@ export default function ProfilePage() {
               </TabPanel>
             )}
           </>
+        )}
+
+        {pendingTermination && (
+          <TerminateTeacherRelationDialog
+            teacherName={describeTeacherRelationName(pendingTermination)}
+            reason={terminationReason}
+            onReasonChange={setTerminationReason}
+            reasonMaxLength={terminationReasonMaxLength}
+            isSubmitting={isTerminating}
+            errorMessage={terminationError}
+            onConfirm={confirmTermination}
+            onCancel={cancelTermination}
+          />
         )}
       </div>
     </Layout>

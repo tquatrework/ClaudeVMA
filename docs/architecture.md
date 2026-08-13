@@ -505,4 +505,36 @@ Phase 3 enrichit l'offre :
      depend. La **recherche de personne** qui le rendrait pleinement utilisable reste un point
      ouvert, distinct de l'annuaire des formateurs valides livre le 2026-08-12.
 
+- Fin d'une relation eleve↔formateur. Arbitrage rendu le 2026-08-12, sur enonce de l'utilisateur.
+  Constat : `POST /relations/teacher-student` cree le lien, **aucune route ne le termine**. Les
+  deux routes existantes (`POST /assignments/:id/termination`,
+  `POST /collaborations/:id/stop-request`) laissent le **formateur** arreter, et reposent sur la
+  table privee `assignments` que le flow refondu du 2026-08-12 n'alimente plus.
+  1. **Seul le RP met fin a une relation eleve↔formateur.** Ni le formateur, ni l'eleve, ni le
+     parent financeur. C'est une **difference assumee** avec le deliement parent↔eleve
+     (2026-08-11), ou chacune des deux parties peut rompre : un lien parent-eleve est un
+     arrangement familial prive, tandis qu'une relation eleve↔formateur est une **affectation
+     pedagogique prononcee par le RP** — la defaire lui revient donc aussi.
+  2. **Le declencheur est hors logiciel.** Le RP apprend par un appel, un courriel, ou plus tard
+     par la messagerie, qu'un formateur ou un eleve veut arreter ; ou bien un nouveau professeur
+     est demande. L'application n'a pas a modeliser ce declencheur : elle porte **l'acte**, pas
+     sa cause. Corollaire : **aucune fin automatique** — valider un nouveau professeur ne met pas
+     fin au precedent, le RP agit explicitement.
+  3. **Le point d'action est la fiche de l'eleve.** Le RP consulte le profil de l'eleve et y
+     trouve, sur chaque formateur lie, de quoi mettre fin a la relation. C'est le seul endroit ou
+     il dispose deja du contexte pour decider.
+  4. **La fin n'efface pas l'historique**, exactement comme pour le lien parent financeur : on
+     enregistre la **fin** du lien, on ne supprime pas la ligne. Meme si le libelle a l'ecran dit
+     « supprimer », la donnee conserve la trace — on doit pouvoir prouver que la relation a
+     existe, puis a pris fin, et quand. Corollaire : aucune suppression de ligne, jamais.
+  5. **Les droits ouverts par la relation se referment**, comme a la rupture d'un lien parent :
+     profil, statistiques et archives pedagogiques de l'eleve redeviennent inaccessibles a
+     l'ex-formateur, avec les memes codes que les autres masquages.
+  6. **La relation peut etre recreee ensuite** par le flow normal de demande de professeur. Un
+     arret n'est pas un bannissement.
+  7. **Les routes d'arret pilotees par le formateur sont retirees.** Elles portent un modele
+     abandonne — celui ou le formateur decidait — et s'appuient sur une table qui n'est plus
+     alimentee. Les laisser en place, mortes, entretiendrait la confusion sur qui decide, qui est
+     precisement la question que le flow du 2026-08-12 a tranchee.
+
 ## Points ouverts a arbitrer

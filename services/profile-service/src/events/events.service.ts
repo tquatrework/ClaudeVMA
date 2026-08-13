@@ -12,6 +12,16 @@ export type ProfileEventType =
    */
   | 'StudentUnlinkedFromFinanceOwner'
   | 'TeacherLinkedToStudent'
+  /**
+   * Fin d'une relation élève ↔ formateur, prononcée par un RP (arbitrage du
+   * 2026-08-12). Pendant obligatoire de `TeacherLinkedToStudent`, pour la même
+   * raison que ci-dessus : publier l'affectation sans publier sa fin laisserait
+   * tout abonné futur sur une vue périmée — et ici la vue périmée porterait des
+   * DROITS (statistiques, archives pédagogiques), pas seulement un affichage.
+   * Charge utile : `{teacherId, studentId, actorId, endedAt, reason}` — `reason`
+   * vaut `null` quand le RP n'en a pas consigné.
+   */
+  | 'TeacherUnlinkedFromStudent'
   | 'CoordinatorLinkedToStudent'
   /** AP rattaché à un formateur qu'il anime (arbitrage du 2026-08-11). */
   | 'AnimatorLinkedToTeacher'

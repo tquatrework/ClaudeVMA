@@ -17,7 +17,7 @@
  * réseau réel pendant ces tests, sans changer leur comportement.
  */
 
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -37,7 +37,7 @@ import {
   fetchProfileStatistics,
   updateAdministrativeProfile,
 } from '../../src/api/profile'
-import { fetchTeacherStudentRelations } from '../../src/api/relations'
+import { fetchTeacherStudentRelations, unlinkTeacherStudentRelation } from '../../src/api/relations'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockApiClient = vi.mocked(apiClient)
@@ -47,6 +47,7 @@ const mockFetchInternalNotes = vi.mocked(fetchInternalNotes)
 const mockCreateInternalNote = vi.mocked(createInternalNote)
 const mockFetchProfileStatistics = vi.mocked(fetchProfileStatistics)
 const mockFetchTeacherStudentRelations = vi.mocked(fetchTeacherStudentRelations)
+const mockUnlinkTeacherStudentRelation = vi.mocked(unlinkTeacherStudentRelation)
 
 const STUDENT_USER = {
   id: 'student-1',
@@ -669,6 +670,171 @@ describe('ProfilePage', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Suivi trimestriel')).toBeDefined()
+    })
+  })
+
+  /**
+   * Fin d'une relation élève ↔ formateur (arbitrage du 2026-08-12, « Fin d'une
+   * relation élève↔formateur ») : le point d'action est la fiche de l'élève,
+   * réservé au RP.
+   */
+  describe('formateurs liés — mettre fin à une relation (RP)', () => {
+    const LINKED_TEACHER_RELATION = {
+      id: 'relation-1',
+      teacherId: 'teacher-1',
+      studentId: 'student-1',
+      isPrincipalTeacher: false,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      endedAt: null,
+      teacherName: { firstName: 'Paul', lastName: 'Martin' },
+    }
+
+    it('affiche le nom du formateur, jamais son identifiant technique', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+      mockFetchTeacherStudentRelations.mockResolvedValue([LINKED_TEACHER_RELATION])
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Formateurs liés')).toBeDefined()
+      })
+
+      expect(screen.getByText('Paul Martin')).toBeDefined()
+      expect(screen.queryByText('teacher-1')).toBeNull()
+    })
+
+    it('propose « Mettre fin » au RP, jamais au formateur', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+      mockFetchTeacherStudentRelations.mockResolvedValue([LINKED_TEACHER_RELATION])
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Paul Martin')).toBeDefined()
+      })
+      expect(screen.getByRole('button', { name: 'Mettre fin Paul Martin' })).toBeDefined()
+    })
+
+    it("ne propose pas « Mettre fin » à un formateur consultant la fiche", async () => {
+      const TEACHER_USER = {
+        id: 'teacher-1',
+        email: 'prof@test.com',
+        role: 'formateur' as const,
+        validationStatus: 'active' as const,
+      }
+      mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+      mockFetchTeacherStudentRelations.mockResolvedValue([LINKED_TEACHER_RELATION])
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Paul Martin')).toBeDefined()
+      })
+      expect(screen.queryByRole('button', { name: 'Mettre fin Paul Martin' })).toBeNull()
+    })
+
+    it('demande confirmation, appelle le DELETE puis retire le formateur de la liste', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+      mockFetchTeacherStudentRelations.mockResolvedValue([LINKED_TEACHER_RELATION])
+      mockUnlinkTeacherStudentRelation.mockResolvedValue({
+        ...LINKED_TEACHER_RELATION,
+        endedAt: '2026-08-13T10:00:00.000Z',
+        endedBy: 'rp-1',
+        endReason: null,
+      })
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Paul Martin')).toBeDefined()
+      })
+
+      await userEvent.click(screen.getByRole('button', { name: 'Mettre fin Paul Martin' }))
+
+      // La boîte de confirmation nomme le formateur, jamais un UUID.
+      const dialog = screen.getByRole('dialog')
+      expect(dialog.textContent).toContain('Mettre fin à la relation avec Paul Martin ?')
+
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Mettre fin' }))
+
+      await waitFor(() => {
+        expect(mockUnlinkTeacherStudentRelation).toHaveBeenCalledWith(
+          'teacher-1',
+          'student-1',
+          undefined,
+        )
+      })
+
+      // La réponse du serveur fait foi : le formateur quitte la liste sans
+      // nouvelle requête de lecture (règle du 2026-08-10).
+      await waitFor(() => {
+        expect(screen.queryByText('Paul Martin')).toBeNull()
+      })
+      expect(mockFetchTeacherStudentRelations).toHaveBeenCalledTimes(1)
+    })
+
+    it('transmet le motif saisi, une fois trimmé', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+      mockFetchTeacherStudentRelations.mockResolvedValue([LINKED_TEACHER_RELATION])
+      mockUnlinkTeacherStudentRelation.mockResolvedValue({
+        ...LINKED_TEACHER_RELATION,
+        endedAt: '2026-08-13T10:00:00.000Z',
+        endedBy: 'rp-1',
+        endReason: 'Formateur indisponible',
+      })
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Paul Martin')).toBeDefined()
+      })
+
+      await userEvent.click(screen.getByRole('button', { name: 'Mettre fin Paul Martin' }))
+      await userEvent.type(
+        screen.getByLabelText('Motif (optionnel)'),
+        '  Formateur indisponible  ',
+      )
+      const dialog = screen.getByRole('dialog')
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Mettre fin' }))
+
+      await waitFor(() => {
+        expect(mockUnlinkTeacherStudentRelation).toHaveBeenCalledWith(
+          'teacher-1',
+          'student-1',
+          'Formateur indisponible',
+        )
+      })
+    })
+
+    it('affiche le refus et garde le formateur dans la liste si le serveur refuse', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+      mockFetchTeacherStudentRelations.mockResolvedValue([LINKED_TEACHER_RELATION])
+      mockUnlinkTeacherStudentRelation.mockRejectedValue({ response: { status: 404 } })
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Paul Martin')).toBeDefined()
+      })
+
+      await userEvent.click(screen.getByRole('button', { name: 'Mettre fin Paul Martin' }))
+      const dialog = screen.getByRole('dialog')
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Mettre fin' }))
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Aucune relation trouvée entre cet élève et ce formateur. Rechargez la page.'),
+        ).toBeDefined()
+      })
+
+      // La boîte reste ouverte, le formateur reste affiché : rien n'a été perdu.
+      expect(screen.getByText('Paul Martin')).toBeDefined()
     })
   })
 })

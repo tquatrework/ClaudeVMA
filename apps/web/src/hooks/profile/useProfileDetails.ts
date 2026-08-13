@@ -89,6 +89,13 @@ export interface UseProfileDetailsResult {
    * effacerait les préconisations du RP à l'écran.
    */
   applySavedPedagogical: (savedBlock: SavedProfileBlock) => void
+  /**
+   * Retire un formateur de la liste affichée après la fin de la relation
+   * (`DELETE /relations/teacher-student/:teacherId/:studentId`, RP uniquement,
+   * arbitrage du 2026-08-12). La réponse du serveur fait foi — c'est elle qui
+   * nomme la relation à retirer, sans nouvelle requête (règle du 2026-08-10).
+   */
+  removeTeacherRelation: (endedRelation: TeacherStudentRelation) => void
 }
 
 /**
@@ -153,6 +160,31 @@ export function useProfileDetails(
     [setProfile],
   )
 
+  /**
+   * Les formateurs liés sont **détenus par la fiche**, comme le profil : le
+   * chargement fait autorité au montage, une fin de relation retire ensuite la
+   * ligne concernée sans passer par une nouvelle requête.
+   */
+  const [teacherRelations, setTeacherRelations] = useOwnedValue<TeacherStudentRelation[]>(
+    data,
+    data?.teacherRelations ?? [],
+  )
+
+  const removeTeacherRelation = useCallback(
+    (endedRelation: TeacherStudentRelation) => {
+      setTeacherRelations((previous) =>
+        previous.filter(
+          (relation) =>
+            !(
+              relation.teacherId === endedRelation.teacherId &&
+              relation.studentId === endedRelation.studentId
+            ),
+        ),
+      )
+    },
+    [setTeacherRelations],
+  )
+
   const [addedNotes, setAddedNotes] = useState<InternalNote[]>([])
   useEffect(() => {
     setAddedNotes([])
@@ -187,7 +219,7 @@ export function useProfileDetails(
 
   return {
     profile,
-    teacherRelations: data?.teacherRelations ?? [],
+    teacherRelations,
     internalNotes,
     isLoading,
     loadError,
@@ -198,5 +230,6 @@ export function useProfileDetails(
     setAvatarUrl,
     applySavedAdministrative,
     applySavedPedagogical,
+    removeTeacherRelation,
   }
 }

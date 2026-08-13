@@ -5,6 +5,7 @@ import { IsNull } from 'typeorm';
 import {
   RelationsService,
   noFinanceOwnerStudentLinkMessage,
+  noTeacherStudentLinkMessage,
 } from '../../../src/relations/relations.service';
 import { FinanceOwnerStudentLink } from '../../../src/relations/entities/finance-owner-student-link.entity';
 import { TeacherStudentLink } from '../../../src/relations/entities/teacher-student-link.entity';
@@ -346,8 +347,9 @@ describe('RelationsService', () => {
       teacherRepo.find.mockResolvedValue([{ teacherId: 'teacher-uuid', studentId: 'student-uuid' }]);
       const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
       await service.getTeachersByStudent('student-uuid', actor);
+      // `endedAt: IsNull()` : une relation terminée ne se liste plus (2026-08-12).
       expect(teacherRepo.find).toHaveBeenCalledWith({
-        where: { teacherId: 'teacher-uuid', studentId: 'student-uuid' },
+        where: { teacherId: 'teacher-uuid', studentId: 'student-uuid', endedAt: IsNull() },
       });
     });
 
@@ -893,6 +895,243 @@ describe('RelationsService', () => {
 
       expect(isLinked).toBe(false);
       expect(financeRepo.findOne).toHaveBeenCalledWith(activeLinkCriteria);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // endTeacherStudentLink — fin d'une relation élève ↔ formateur (2026-08-12)
+  // ---------------------------------------------------------------------------
+  describe('endTeacherStudentLink', () => {
+    const teacherId = 'teacher-uuid';
+    const studentId = 'student-uuid';
+    const rpActor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE, 'rp-uuid');
+
+    /** Relation active telle que la base la renvoie avant la fin. */
+    const activeLink = () => ({
+      id: 'link-uuid',
+      teacherId,
+      studentId,
+      isPrincipalTeacher: false,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      endedAt: null,
+      endedBy: null,
+      endReason: null,
+    });
+
+    beforeEach(() => {
+      teacherRepo.save.mockImplementation(async (entity: any) => entity);
+    });
+
+    it('le RP met fin à la relation : endedAt et endedBy sont renseignés', async () => {
+      teacherRepo.findOne.mockResolvedValue(activeLink());
+
+      const result = await service.endTeacherStudentLink(teacherId, studentId, rpActor);
+
+      expect(result.endedAt).toBeInstanceOf(Date);
+      expect(result.endedBy).toBe('rp-uuid');
+      expect(eventsService.publish).toHaveBeenCalledWith(
+        'TeacherUnlinkedFromStudent',
+        expect.objectContaining({ teacherId, studentId, actorId: 'rp-uuid' }),
+      );
+    });
+
+    it('le motif optionnel est enregistré et publié tel quel', async () => {
+      teacherRepo.findOne.mockResolvedValue(activeLink());
+
+      const result = await service.endTeacherStudentLink(
+        teacherId,
+        studentId,
+        rpActor,
+        "L'élève a demandé un nouveau professeur.",
+      );
+
+      expect(result.endReason).toBe("L'élève a demandé un nouveau professeur.");
+      expect(eventsService.publish).toHaveBeenCalledWith(
+        'TeacherUnlinkedFromStudent',
+        expect.objectContaining({ reason: "L'élève a demandé un nouveau professeur." }),
+      );
+    });
+
+    it('une fin sans motif est un cas normal : endReason vaut null, pas une erreur', async () => {
+      teacherRepo.findOne.mockResolvedValue(activeLink());
+
+      const result = await service.endTeacherStudentLink(teacherId, studentId, rpActor);
+
+      expect(result.endReason).toBeNull();
+    });
+
+    /**
+     * Point 1 de l'arbitrage : SEUL le RP. La différence avec le déliement
+     * parent financeur — où les deux parties peuvent rompre — est assumée, et
+     * c'est précisément ce que ce tableau verrouille. Le TI y figure : il n'a
+     * PAS ce droit, contrairement à la rupture du lien financeur.
+     */
+    it.each([
+      ['le formateur concerné', teacherId, UserRole.FORMATEUR],
+      ["l'élève concerné", studentId, UserRole.ELEVE],
+      ['un parent financeur', 'parent-uuid', UserRole.PARENT_FINANCEUR],
+      ['un TI', 'ti-uuid', UserRole.TECHNICIEN_INFORMATIQUE],
+      ['un administrateur financier', 'af-uuid', UserRole.ADMINISTRATEUR_FINANCIER],
+      ['un AP', 'ap-uuid', UserRole.ANIMATEUR_PEDAGOGIQUE],
+    ])('%s ne peut PAS mettre fin à la relation', async (_label, actorId, role) => {
+      teacherRepo.findOne.mockResolvedValue(activeLink());
+
+      await expect(
+        service.endTeacherStudentLink(
+          teacherId,
+          studentId,
+          makeActor(role as UserRole, actorId as string),
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(teacherRepo.save).not.toHaveBeenCalled();
+      expect(eventsService.publish).not.toHaveBeenCalled();
+    });
+
+    it('une relation inexistante renvoie 404', async () => {
+      teacherRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.endTeacherStudentLink(teacherId, studentId, rpActor),
+      ).rejects.toThrow(new NotFoundException(noTeacherStudentLinkMessage()));
+
+      expect(teacherRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejouer la fin est idempotent : même date, même motif, aucun second événement', async () => {
+      const alreadyEnded = {
+        ...activeLink(),
+        endedAt: new Date('2026-02-02T10:00:00.000Z'),
+        endedBy: 'another-rp',
+        endReason: 'Motif initial',
+      };
+      teacherRepo.findOne.mockResolvedValue(alreadyEnded);
+
+      const result = await service.endTeacherStudentLink(
+        teacherId,
+        studentId,
+        rpActor,
+        'Motif saisi au second appel',
+      );
+
+      // La trace initiale a valeur de preuve : la réécrire serait la falsifier.
+      expect(result.endedAt).toEqual(new Date('2026-02-02T10:00:00.000Z'));
+      expect(result.endedBy).toBe('another-rp');
+      expect(result.endReason).toBe('Motif initial');
+      expect(teacherRepo.save).not.toHaveBeenCalled();
+      expect(eventsService.publish).not.toHaveBeenCalled();
+    });
+
+    it("n'efface aucune ligne : la fin passe par save, jamais par delete/remove", async () => {
+      teacherRepo.findOne.mockResolvedValue(activeLink());
+
+      await service.endTeacherStudentLink(teacherId, studentId, rpActor);
+
+      expect(teacherRepo.save).toHaveBeenCalledTimes(1);
+      expect(teacherRepo.delete).toBeUndefined();
+      expect(teacherRepo.remove).toBeUndefined();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Ce que la fin REFERME — point 5 de l'arbitrage du 2026-08-12.
+  // C'est le point à prouver, pas seulement à coder : après la fin, l'ex-formateur
+  // ne doit plus lire le profil, les statistiques ni les archives pédagogiques.
+  // ---------------------------------------------------------------------------
+  describe('une relation terminée ne rouvre aucun droit', () => {
+    const teacherId = 'teacher-uuid';
+    const studentId = 'student-uuid';
+
+    /** Ce que la base renvoie quand on ne demande QUE les relations actives. */
+    const activeTeacherLinkCriteria = {
+      where: { teacherId, studentId, endedAt: IsNull() },
+    };
+
+    it("isTeacherLinkedToStudent est faux — le profil de l'élève se referme (PROF-FB-003)", async () => {
+      teacherRepo.findOne.mockResolvedValue(null);
+
+      const isLinked = await service.isTeacherLinkedToStudent(teacherId, studentId);
+
+      expect(isLinked).toBe(false);
+      expect(teacherRepo.findOne).toHaveBeenCalledWith(activeTeacherLinkCriteria);
+    });
+
+    /**
+     * `resolveRelations` est le point unique consommé par
+     * `GET /profiles/:userId/statistics` ET par
+     * `GET /internal/relations/:viewerId/:targetId`, que lit
+     * `archive-document-service`. Qu'il cesse de rapporter la relation referme
+     * donc les statistiques ET les archives pédagogiques d'un seul geste.
+     */
+    it('resolveRelations ne rapporte plus la relation — statistiques et archives se referment', async () => {
+      // La base ne renvoie AUCUNE relation active pour cette paire.
+      teacherRepo.find.mockResolvedValue([]);
+
+      const relations = await service.resolveRelations(teacherId, studentId);
+
+      expect(relations).toEqual([]);
+      expect(teacherRepo.find).toHaveBeenCalledWith({
+        where: [
+          { teacherId: expect.anything(), endedAt: IsNull() },
+          { studentId: expect.anything(), endedAt: IsNull() },
+        ],
+      });
+    });
+
+    it('resolveRelations rapporte bien la relation tant qu\'elle est ACTIVE', async () => {
+      teacherRepo.find.mockResolvedValue([
+        { teacherId, studentId, isPrincipalTeacher: true, endedAt: null },
+      ]);
+
+      const relations = await service.resolveRelations(teacherId, studentId);
+
+      expect(relations).toContainEqual({
+        kind: RelationKind.TEACHER_OF_STUDENT,
+        isPrincipalTeacher: true,
+      });
+    });
+
+    it("listRelatedPeople ne liste plus l'ex-élève parmi les contacts du formateur", async () => {
+      teacherRepo.find.mockResolvedValue([]);
+
+      const people = await service.listRelatedPeople(teacherId);
+
+      expect(people).toEqual([]);
+      expect(teacherRepo.find).toHaveBeenCalledWith({
+        where: [
+          { teacherId, endedAt: IsNull() },
+          { studentId: teacherId, endedAt: IsNull() },
+        ],
+      });
+    });
+
+    /**
+     * Point 6 : « un arrêt n'est pas un bannissement ». Le 409 de création doit
+     * porter sur l'état COURANT, sinon une fin interdirait définitivement de
+     * relier les deux mêmes personnes.
+     */
+    it('la relation reste RECRÉABLE après une fin : le 409 porte sur la relation active', async () => {
+      teacherRepo.findOne.mockResolvedValue(null);
+
+      await service.linkTeacherToStudent(
+        { teacherId, studentId },
+        makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE),
+      );
+
+      expect(teacherRepo.findOne).toHaveBeenCalledWith(activeTeacherLinkCriteria);
+      expect(teacherRepo.save).toHaveBeenCalled();
+    });
+
+    it('ensureTeacherStudentLinkForSystem crée une NOUVELLE ligne après une fin', async () => {
+      // La ligne terminée est ignorée : on ne la ressuscite pas, elle est la preuve
+      // de la période passée.
+      teacherRepo.findOne.mockResolvedValue(null);
+
+      const { isCreated } = await service.ensureTeacherStudentLinkForSystem(teacherId, studentId);
+
+      expect(isCreated).toBe(true);
+      expect(teacherRepo.findOne).toHaveBeenCalledWith(activeTeacherLinkCriteria);
+      expect(teacherRepo.create).toHaveBeenCalled();
     });
   });
 });

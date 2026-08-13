@@ -453,6 +453,12 @@ export class TeacherRequestService {
       );
     }
 
+    // Arbitrage du 2026-08-13 (« Reprise de candidature apres un refus
+    // formateur », point 6) : un formateur non `validated` ne doit jamais
+    // recevoir de proposition. L'envoi est atomique — un seul formateur non
+    // valide dans le lot refuse la requete entiere, jamais un envoi partiel.
+    await this.assertTeachersAreValidated(dto.teacherIds, context);
+
     const savedProposals = await this.dataSource.transaction(async (manager) => {
       const proposalRepository = manager.getRepository(TeacherProposal);
       const requestRepository = manager.getRepository(TeacherRequest);
@@ -496,6 +502,36 @@ export class TeacherRequestService {
     this.events.requestPublication();
 
     return this.enrichProposalsWithTeacherNames(savedProposals, context);
+  }
+
+  /**
+   * Refuse explicitement toute la requete si un ou plusieurs formateurs de la
+   * liste ne sont pas `validated` aupres de profile-service — jamais une
+   * acceptation silencieuse (arbitrage du 2026-08-13, point 6). Les noms des
+   * formateurs concernes sont affiches au RP, jamais leur UUID (arbitrage du
+   * 2026-08-09).
+   */
+  private async assertTeachersAreValidated(teacherIds: string[], context: RequestContext): Promise<void> {
+    const outboundContext = this.toOutboundContext(context);
+    const validationEntries = await Promise.all(
+      teacherIds.map(async (teacherId) => ({
+        teacherId,
+        status: await this.profileServiceClient.getTeacherValidationStatus(teacherId, outboundContext),
+      })),
+    );
+    const notValidatedEntries = validationEntries.filter((entry) => entry.status !== 'validated');
+    if (notValidatedEntries.length === 0) return;
+
+    const namesById = await this.resolveDisplayNames(
+      notValidatedEntries.map((entry) => entry.teacherId),
+      outboundContext,
+    );
+    const names = notValidatedEntries.map((entry) => namesById.get(entry.teacherId) ?? 'un formateur');
+    const isPlural = names.length > 1;
+    throw new BadRequestException(
+      `Impossible d'envoyer la proposition : ${names.join(', ')} n'${isPlural ? 'ont' : 'a'} pas ete ` +
+        `valide${isPlural ? 's' : ''} par un responsable pedagogique.`,
+    );
   }
 
   private async enrichProposalsWithTeacherNames(

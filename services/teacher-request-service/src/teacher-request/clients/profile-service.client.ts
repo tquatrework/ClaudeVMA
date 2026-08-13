@@ -29,7 +29,7 @@ const PROFILE_CALL_TIMEOUT_MS = 3000;
 /**
  * Adaptateur type des appels a profile-service.
  *
- * Trois usages, avec trois politiques d'echec DIFFERENTES et assumees :
+ * Quatre usages, avec des politiques d'echec DIFFERENTES et assumees :
  *
  * 1. `resolveDisplayName` — confort d'affichage : un echec renvoie `null`.
  *    Attention, `null` n'autorise jamais a retomber sur un UUID cote reponse
@@ -41,6 +41,12 @@ const PROFILE_CALL_TIMEOUT_MS = 3000;
  *    la validation du RP. Le lien eleve↔formateur appartient a profile-service
  *    (arbitrage du 2026-08-12, point 5) ; une demande cloturee sans lien cree
  *    serait une erreur metier transformee en succes technique.
+ * 4. `getTeacherValidationStatus` — regle de droit, meme politique que
+ *    `getRelations` : un echec REFUSE l'action (arbitrage du 2026-08-13,
+ *    « Reprise de candidature apres un refus formateur », point 6). Un
+ *    formateur non `validated` ne doit jamais recevoir de proposition, et une
+ *    verification qui echoue en silence laisserait passer un formateur non
+ *    valide.
  */
 @Injectable()
 export class ProfileServiceClient {
@@ -213,5 +219,54 @@ export class ProfileServiceClient {
         "Le lien entre l'eleve et le formateur n'a pas pu etre cree : la demande reste ouverte.",
       );
     }
+  }
+
+  /**
+   * Lit le statut de validation courant d'un formateur, via la route publique
+   * `GET /profiles/:teacherId/validation` — il n'existe pas de route interne
+   * dediee, cette route accepte deja le RP par son role (arbitrage du
+   * 2026-08-13). Le jeton relaye est celui de l'appelant : cette route exige
+   * un role precis (RP, TI, AF, ou le formateur lui-meme), le secret interne
+   * ne suffirait pas a s'y substituer.
+   *
+   * Regle de droit : un echec (reseau, HTTP non-2xx, ou aucun jeton
+   * d'appelant a relayer) REFUSE l'action plutot que de la laisser passer.
+   */
+  async getTeacherValidationStatus(teacherId: string, context: OutboundCallContext = {}): Promise<string> {
+    if (!context.callerAuthorization) {
+      this.logger.error(
+        `Statut de validation illisible pour ${teacherId} : aucun jeton d'appelant a relayer.`,
+      );
+      throw new ServiceUnavailableException(
+        "Le service des profils n'a pas pu confirmer le statut de validation de ce formateur.",
+      );
+    }
+
+    let response: Response;
+    try {
+      response = await this.fetchWithTimeout(`${this.baseUrl}/profiles/${teacherId}/validation`, {
+        headers: this.buildHeaders(context, { authorization: context.callerAuthorization }),
+      });
+    } catch (error) {
+      this.logger.error(
+        `Statut de validation injoignable pour ${teacherId} : ${(error as Error).message}`,
+      );
+      throw new ServiceUnavailableException(
+        "Le service des profils est momentanement injoignable : impossible de verifier le statut de " +
+          'validation de ce formateur.',
+      );
+    }
+
+    if (!response.ok) {
+      this.logger.error(
+        `Lecture du statut de validation refusee pour ${teacherId} : HTTP ${response.status}`,
+      );
+      throw new ServiceUnavailableException(
+        "Le service des profils n'a pas pu confirmer le statut de validation de ce formateur.",
+      );
+    }
+
+    const payload = (await response.json()) as { status?: string };
+    return payload.status ?? 'pending';
   }
 }

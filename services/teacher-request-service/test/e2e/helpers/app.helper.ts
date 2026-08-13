@@ -54,6 +54,9 @@ export class ProfileServiceStub {
   }[] = [];
   shouldFailLinkCreation = false;
 
+  /** Formateurs dont le statut de validation N'est PAS `validated` (teacherId → statut). */
+  readonly nonValidatedTeachers = new Map<string, string>();
+
   /**
    * Reproduit le `409` de profile-service : un lien existe deja pour ce couple
    * avec un statut de professeur principal different. Ce n'est pas un rejeu.
@@ -97,6 +100,10 @@ export class ProfileServiceStub {
       );
     }
     this.createdTeacherStudentLinks.push(link);
+  }
+
+  async getTeacherValidationStatus(teacherId: string): Promise<string> {
+    return this.nonValidatedTeachers.get(teacherId) ?? 'validated';
   }
 }
 

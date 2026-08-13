@@ -105,6 +105,7 @@ describe('TeacherRequestService', () => {
     resolveDisplayName: jest.Mock;
     getRelations: jest.Mock;
     createTeacherStudentRelation: jest.Mock;
+    getTeacherValidationStatus: jest.Mock;
   };
 
   const linkedParentRelations = {
@@ -138,6 +139,7 @@ describe('TeacherRequestService', () => {
       resolveDisplayName: jest.fn().mockResolvedValue('Alice Dupont'),
       getRelations: jest.fn().mockResolvedValue(linkedParentRelations),
       createTeacherStudentRelation: jest.fn().mockResolvedValue(undefined),
+      getTeacherValidationStatus: jest.fn().mockResolvedValue('validated'),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -457,6 +459,70 @@ describe('TeacherRequestService', () => {
       await expect(
         service.createProposals('request-1', { teacherIds: ['teacher-1'], message: 'Voici' }, rpContext),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('verifie le statut de validation de chaque formateur avant l\'envoi', async () => {
+      await service.createProposals(
+        'request-1',
+        { teacherIds: ['teacher-1', 'teacher-2'], message: 'Voici' },
+        rpContext,
+      );
+
+      expect(profileServiceClient.getTeacherValidationStatus).toHaveBeenCalledWith(
+        'teacher-1',
+        expect.objectContaining({ correlationId: 'corr-test' }),
+      );
+      expect(profileServiceClient.getTeacherValidationStatus).toHaveBeenCalledWith(
+        'teacher-2',
+        expect.objectContaining({ correlationId: 'corr-test' }),
+      );
+    });
+
+    it("refuse explicitement (400) un formateur qui n'est pas valide, sans creer de proposition", async () => {
+      profileServiceClient.getTeacherValidationStatus.mockResolvedValue('pending');
+
+      await expect(
+        service.createProposals('request-1', { teacherIds: ['teacher-1'], message: 'Voici' }, rpContext),
+      ).rejects.toThrow(BadRequestException);
+      expect(requestRepo.save).not.toHaveBeenCalled();
+      expect(proposalRepo.save).not.toHaveBeenCalled();
+    });
+
+    it("le message de refus cite le nom du formateur concerne, jamais son UUID", async () => {
+      profileServiceClient.getTeacherValidationStatus.mockResolvedValue('rejected');
+      profileServiceClient.resolveDisplayName.mockResolvedValue('Camille Durand');
+
+      await expect(
+        service.createProposals('request-1', { teacherIds: ['teacher-1'], message: 'Voici' }, rpContext),
+      ).rejects.toThrow(/Camille Durand/);
+    });
+
+    it('un envoi groupe est refuse en entier des qu\'un seul formateur du lot n\'est pas valide', async () => {
+      profileServiceClient.getTeacherValidationStatus.mockImplementation(async (teacherId: string) =>
+        teacherId === 'teacher-2' ? 'in_review' : 'validated',
+      );
+
+      await expect(
+        service.createProposals(
+          'request-1',
+          { teacherIds: ['teacher-1', 'teacher-2'], message: 'Voici' },
+          rpContext,
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(requestRepo.save).not.toHaveBeenCalled();
+      expect(proposalRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('un envoi groupe ou tous les formateurs sont valides est accepte', async () => {
+      profileServiceClient.getTeacherValidationStatus.mockResolvedValue('validated');
+
+      await expect(
+        service.createProposals(
+          'request-1',
+          { teacherIds: ['teacher-1', 'teacher-2'], message: 'Voici' },
+          rpContext,
+        ),
+      ).resolves.toHaveLength(2);
     });
   });
 

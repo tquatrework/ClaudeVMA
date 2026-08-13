@@ -177,4 +177,52 @@ describe('ProfileServiceClient', () => {
       await expect(client.createTeacherStudentRelation(link)).rejects.toThrow(ServiceUnavailableException);
     });
   });
+
+  describe('getTeacherValidationStatus', () => {
+    it("lit le statut sur la route publique avec le jeton de l'appelant", async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ teacherId: 'teacher-1', status: 'validated' }),
+      }) as unknown as typeof fetch;
+
+      const status = await client.getTeacherValidationStatus('teacher-1', {
+        callerAuthorization: 'Bearer jeton',
+        correlationId: 'corr-9',
+      });
+
+      expect(status).toBe('validated');
+      expect(global.fetch).toHaveBeenCalledWith(
+        `${PROFILE_BASE_URL}/profiles/teacher-1/validation`,
+        expect.objectContaining({
+          headers: { authorization: 'Bearer jeton', 'x-correlation-id': 'corr-9' },
+        }),
+      );
+    });
+
+    it('refuse plutot que de laisser passer sans jeton d\'appelant a relayer', async () => {
+      const fetchMock = jest.fn();
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      await expect(client.getTeacherValidationStatus('teacher-1')).rejects.toThrow(
+        ServiceUnavailableException,
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('refuse plutot que de laisser passer quand profile-service repond en erreur', async () => {
+      global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500 }) as unknown as typeof fetch;
+
+      await expect(
+        client.getTeacherValidationStatus('teacher-1', { callerAuthorization: 'Bearer jeton' }),
+      ).rejects.toThrow(ServiceUnavailableException);
+    });
+
+    it('refuse plutot que de laisser passer quand le reseau tombe', async () => {
+      global.fetch = jest.fn().mockRejectedValue(new Error('timeout')) as unknown as typeof fetch;
+
+      await expect(
+        client.getTeacherValidationStatus('teacher-1', { callerAuthorization: 'Bearer jeton' }),
+      ).rejects.toThrow(ServiceUnavailableException);
+    });
+  });
 });

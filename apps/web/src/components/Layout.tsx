@@ -17,8 +17,10 @@ import React, { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useRoleAccent } from '../hooks/useRoleAccent'
+import { useMyTeacherValidationStatus } from '../hooks/profile/useMyTeacherValidationStatus'
 import { filterTopNavItems, getRailGroupsForRole } from '../navigation/navigationConfig'
 import type { UserRole } from '../context/AuthContext'
+import { getOwnTeacherValidationMessage } from '../utils/teacherValidationLabels'
 import { MobileRailDrawer } from './layout/MobileRailDrawer'
 
 /* ─────────────────────────────────────────────────────────
@@ -60,6 +62,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const hasConsentWarning =
     isAuthenticated && user?.validationStatus === 'pending'
 
+  // Statut du DOSSIER formateur (profile-service), distinct de user.validationStatus
+  // ci-dessus (statut du COMPTE, identity-access-service). Voir teacherValidationLabels.ts.
+  const { validationRecord: myTeacherValidationRecord } = useMyTeacherValidationStatus()
+  const ownTeacherValidationMessage = getOwnTeacherValidationMessage(myTeacherValidationRecord)
+
   const userName = user?.loginIdentifier ?? ''
   const userAvatarLetter = userName.charAt(0).toUpperCase() || '?'
 
@@ -75,6 +82,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             Signer les consentements
           </Link>{' '}
           pour activer votre espace.
+        </div>
+      )}
+
+      {/* ── Bannière statut de validation formateur (profile-service) ──── */}
+      {ownTeacherValidationMessage && (
+        <div
+          className={
+            ownTeacherValidationMessage.tone === 'rejected'
+              ? 'bg-red-50 border-b border-red-200 py-2 px-6 text-center text-[var(--font-size-body-sm)] text-red-800'
+              : 'bg-yellow-50 border-b border-amber-200 py-2 px-6 text-center text-[var(--font-size-body-sm)] text-amber-800'
+          }
+        >
+          {ownTeacherValidationMessage.message}
         </div>
       )}
 

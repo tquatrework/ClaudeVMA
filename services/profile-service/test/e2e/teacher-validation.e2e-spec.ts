@@ -26,6 +26,10 @@
 import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import { createTestApp, makeJwt, INTERNAL_SECRET, IDS } from './helpers/app.helper';
+import {
+  computeReapplyEligibleAt,
+  formatFrenchDate,
+} from '../../src/profiles/teacher-validation.view';
 
 /** Identifiants dédiés à ce fichier — plage `b*`, pour n'entrer en collision avec aucun autre. */
 const TEACHERS = {
@@ -454,6 +458,123 @@ describe('[E2E] Validation des nouveaux formateurs', () => {
         .expect(403);
 
       expect(response.body.message).toContain('votre propre statut');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Journal append-only et reprise de candidature — arbitrage du 2026-08-13
+  // « Reprise de candidature après un refus formateur »
+  // ---------------------------------------------------------------------------
+
+  describe('journal append-only et reprise de candidature (arbitrage du 2026-08-13)', () => {
+    /** Plage `c*`, dédiée à ce bloc pour n'entrer en collision avec aucun autre. */
+    const REJECTED_TEACHER = '00000000-0000-4000-8000-0000000000c1';
+    const OTHER_TEACHER = '00000000-0000-4000-8000-0000000000c2';
+
+    const readValidationAs = (teacherId: string, token: string) =>
+      request(server)
+        .get(`/profiles/${teacherId}/validation`)
+        .set('Authorization', `Bearer ${token}`);
+
+    const reapplyAs = (teacherId: string, token: string) =>
+      request(server)
+        .post(`/profiles/${teacherId}/validation/reapply`)
+        .set('Authorization', `Bearer ${token}`);
+
+    let rejectedTeacherToken: string;
+    let otherTeacherToken: string;
+
+    beforeAll(async () => {
+      rejectedTeacherToken = makeJwt(REJECTED_TEACHER, 'formateur');
+      otherTeacherToken = makeJwt(OTHER_TEACHER, 'formateur');
+
+      for (const [userId, firstName, lastName] of [
+        [REJECTED_TEACHER, 'Rachel', 'Refusée'],
+        [OTHER_TEACHER, 'Oscar', 'Autre'],
+      ]) {
+        await request(server)
+          .post('/internal/create-administrative-profile')
+          .set(internalHeaders)
+          .send({ userId, firstName, lastName, role: 'formateur' })
+          .expect(201);
+      }
+
+      // pending → in_review → rejected : trois transitions, donc trois lignes
+      // journalisées si l'append-only fonctionne.
+      await request(server)
+        .patch(`/profiles/${REJECTED_TEACHER}/validation`)
+        .set('Authorization', `Bearer ${rpToken}`)
+        .send({ status: 'in_review' })
+        .expect(200);
+
+      await request(server)
+        .patch(`/profiles/${REJECTED_TEACHER}/validation`)
+        .set('Authorization', `Bearer ${rpToken}`)
+        .send({ status: 'rejected', comment: 'Expérience insuffisante.' })
+        .expect(200);
+    });
+
+    it("GET renvoie le statut « rejected » avec reapplyEligibleAt, calculé sur l'année scolaire du refus", async () => {
+      const response = await readValidationAs(REJECTED_TEACHER, rpToken).expect(200);
+
+      expect(response.body.status).toBe('rejected');
+      expect(response.body.comment).toBe('Expérience insuffisante.');
+      expect(response.body).toHaveProperty('reapplyEligibleAt');
+
+      const rejectedAt = new Date(response.body.createdAt);
+      const expected = computeReapplyEligibleAt(rejectedAt);
+      expect(new Date(response.body.reapplyEligibleAt)).toEqual(expected);
+    });
+
+    it("GET ne porte PAS reapplyEligibleAt pour un statut autre que rejected", async () => {
+      const response = await readValidationAs(TEACHERS.orchestrated, rpToken).expect(200);
+
+      expect(response.body.status).not.toBe('rejected');
+      expect(response.body).not.toHaveProperty('reapplyEligibleAt');
+    });
+
+    it("la ligne « rejected » n'est jamais réécrite : le commentaire de la transition précédente n'apparaît pas dessus", async () => {
+      const response = await readValidationAs(REJECTED_TEACHER, rpToken).expect(200);
+
+      // Seul le commentaire de la DERNIÈRE transition (rejected) doit
+      // apparaître ; la prise en charge (in_review) n'en portait aucun.
+      expect(response.body.comment).toBe('Expérience insuffisante.');
+    });
+
+    it('refuse la reprise (400, message français citant la date) tant que l\'échéance n\'est pas atteinte', async () => {
+      const response = await reapplyAs(REJECTED_TEACHER, rejectedTeacherToken).expect(400);
+
+      const expectedDate = formatFrenchDate(
+        computeReapplyEligibleAt(new Date(
+          (await readValidationAs(REJECTED_TEACHER, rpToken).expect(200)).body.createdAt,
+        )),
+      );
+      expect(response.body.message).toContain(expectedDate);
+    });
+
+    it('refuse la reprise (400) pour un formateur dont le statut courant n\'est pas rejected', async () => {
+      const response = await reapplyAs(TEACHERS.orchestrated, makeJwt(TEACHERS.orchestrated, 'formateur'))
+        .expect(400);
+
+      expect(response.body.message).toBeDefined();
+    });
+
+    it('refuse la reprise (403) pour un autre formateur que celui concerné', async () => {
+      await reapplyAs(REJECTED_TEACHER, otherTeacherToken).expect(403);
+    });
+
+    it('refuse la reprise (403) pour le RP — pas de droit de contournement dans cette tâche', async () => {
+      await reapplyAs(REJECTED_TEACHER, rpToken).expect(403);
+    });
+
+    it('refuse la reprise (403) pour le TI — pas de droit de contournement dans cette tâche', async () => {
+      await reapplyAs(REJECTED_TEACHER, tiToken).expect(403);
+    });
+
+    it('refuse la reprise sans jeton (401)', async () => {
+      await request(server)
+        .post(`/profiles/${REJECTED_TEACHER}/validation/reapply`)
+        .expect(401);
     });
   });
 });

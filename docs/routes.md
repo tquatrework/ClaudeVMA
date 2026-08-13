@@ -697,12 +697,27 @@ Transitions autorisées (toute autre transition, y compris vers le statut couran
 | `in_review` → `rejected` | responsable_pedagogique, technicien_informatique | Aucun événement publié |
 | `pending` → `validated` | technicien_informatique **uniquement** | Bypass administratif de l'étape `in_review`. Publie `TeacherValidated` |
 | `pending` → `rejected` | technicien_informatique **uniquement** | Bypass administratif de l'étape `in_review` |
+| `rejected` → `pending` | **le formateur lui-même seulement**, via `POST /profiles/:teacherId/validation/reapply` | Reprise de candidature (voir encadré ci-dessous) — **pas** une transition du PATCH RP/TI |
+
+> **`teacher_validations` est un JOURNAL APPEND-ONLY depuis le 2026-08-13** (arbitrage « Reprise de
+> candidature après un refus formateur »). Jusque-là, une seule ligne par formateur était réécrite à
+> chaque transition — un refus disparaissait dès la transition suivante, rendant impossible toute
+> preuve qu'un formateur avait été refusé puis autorisé à se représenter. Désormais, **chaque
+> transition (PATCH du RP/TI, comme reprise de candidature) insère une nouvelle ligne** ; aucune
+> ligne n'est jamais réécrite ni supprimée. Le « statut courant » se lit comme la ligne la plus
+> récente (`created_at` décroissant). Conséquence directe : `teacher_id` n'est plus une clé unique en
+> base (voir la migration `MakeTeacherValidationsAppendOnly`), et l'annuaire des formateurs validés
+> comme la file de validation du RP (`GET /profiles/teachers/validated` et
+> `/profiles/teachers/pending-validation`) ne considèrent que la ligne la plus récente de chaque
+> formateur — sans quoi un formateur refusé puis revalidé serait affiché sous les deux statuts à la
+> fois.
 
 | Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
 |---|---|---|---|---|---|
 | GET | /profiles/teachers/pending-validation | 🔒 | responsable_pedagogique | **File de travail du RP** : les formateurs dont la validation est `pending`, **triés par ancienneté** (le premier inscrit est le premier examiné), enrichis du nom depuis le profil administratif. **Bornée et paginée depuis le 2026-08-12**, même forme et mêmes plafonds que `/profiles/teachers/validated` : query `page` (défaut `1`) et `limit` (défaut `20`, **maximum `100`**). RP seul : instruire un dossier de formateur est son métier ; le TI peut trancher un dossier ouvert sans disposer de la file | `200 {data: [{userId, firstName, lastName, levels, subjects, pendingSince}], page, limit, total, totalPages}` · `400` `page`/`limit` non entier ou < 1, `limit` > 100, **ou paramètre de requête inconnu** · `401` · `403` tout autre rôle |
-| PATCH | /profiles/:teacherId/validation | 🔒 | responsable_pedagogique, technicien_informatique | Changer le statut de validation d'un formateur. Body : `{status: "pending"\|"in_review"\|"validated"\|"rejected", comment?}` (`comment` ≤ 2000 caractères). Upsert : l'enregistrement est créé s'il n'existe pas encore | `200 {id, teacherId, status, validatedBy, validatorRole, comment, createdAt, updatedAt}` · `400` statut hors énumération · `401` · `403` rôle non autorisé **ou transition interdite pour ce rôle** (voir tableau ci-dessus) |
-| GET | /profiles/:teacherId/validation | 🔒 | responsable_pedagogique, technicien_informatique, administrateur_financier, formateur (soi-même) | Lire le statut de validation courant d'un formateur | `200 {id, teacherId, status, validatedBy, validatorRole, comment, createdAt, updatedAt}` · `200 {teacherId, status: "pending"}` **repli d'incohérence de données** si aucun enregistrement n'existe : depuis le 2026-08-12 ce n'est plus un état normal, et le serveur journalise « ANOMALIE DE DONNEES » · `401` · `403` autre formateur |
+| PATCH | /profiles/:teacherId/validation | 🔒 | responsable_pedagogique, technicien_informatique | Changer le statut de validation d'un formateur. Body : `{status: "pending"\|"in_review"\|"validated"\|"rejected", comment?}` (`comment` ≤ 2000 caractères). **INSÈRE une nouvelle ligne depuis le 2026-08-13** — journal append-only, la ligne précédente n'est jamais réécrite. `comment` porte donc sur **cette transition uniquement** : il n'est plus reporté d'une ligne à l'autre quand il est omis | `200 {id, teacherId, status, validatedBy, validatorRole, comment, createdAt, updatedAt}` (+ `reapplyEligibleAt` si `status: "rejected"`, voir ci-dessous) · `400` statut hors énumération · `401` · `403` rôle non autorisé **ou transition interdite pour ce rôle** (voir tableau ci-dessus) |
+| GET | /profiles/:teacherId/validation | 🔒 | responsable_pedagogique, technicien_informatique, administrateur_financier, formateur (soi-même) | Lire le statut de validation **courant** d'un formateur — depuis le 2026-08-13, « courant » se lit comme la ligne la plus récente du journal | `200 {id, teacherId, status, validatedBy, validatorRole, comment, createdAt, updatedAt}` (+ `reapplyEligibleAt` si `status: "rejected"`, voir ci-dessous) · `200 {teacherId, status: "pending"}` **repli d'incohérence de données** si aucun enregistrement n'existe : depuis le 2026-08-12 ce n'est plus un état normal, et le serveur journalise « ANOMALIE DE DONNEES » · `401` · `403` autre formateur |
+| POST | /profiles/:teacherId/validation/reapply | 🔒 | **le formateur concerné, et lui seul** (403 y compris pour RP et TI — aucun droit de contournement dans cette livraison, voir point ouvert ci-dessous) | **Reprise de candidature en self-service** (arbitrage du 2026-08-13). Insère une nouvelle ligne `pending` — la ligne `rejected` précédente n'est **jamais** réécrite ni supprimée, elle reste la preuve du refus | `201` même forme que le `GET`, statut `pending` (sans `reapplyEligibleAt`) · `400` statut courant différent de `rejected`, ou échéance non atteinte — **message français citant la date** (ex. « Vous pourrez relancer votre candidature à partir du 01/08/2027 ») · `401` · `403` un autre formateur que `:teacherId` (RP et TI compris) |
 
 **Lecture par le formateur lui-même, vérifiée le 2026-08-13** (arbitrage « Visibilité du statut de
 validation, côté formateur ») : `getTeacherValidation` autorisait déjà le titulaire à lire sa propre
@@ -710,13 +725,23 @@ ligne (`actor.id === teacherId` court-circuite la liste de rôles), et aucun `@R
 la route côté `TeacherValidationController` — c'était déjà en place et testé depuis la PR #102
 (2026-08-12), avant même que l'arbitrage ne soit rendu. Aucun code n'a été modifié ici.
 
-**Horodatage exploitable pour l'année de refus** : `updatedAt` est fiable pour dériver l'année de la
-dernière transition vers `rejected`. `rejected` est un état **terminal** — `assertValidationTransition`
-n'autorise aucune transition sortante depuis `rejected` — et `bootstrapTeacherValidation` (reprise de
-stock, rejeu d'inscription) ne réécrit **jamais** un enregistrement existant, quel que soit son
-statut. Une fois `rejected`, `updatedAt` ne bouge donc plus : `new Date(updatedAt).getFullYear()` sur
-la réponse de `GET /profiles/:teacherId/validation` donne l'année du refus, sans champ dédié à
-ajouter. Vérifié contre PostgreSQL réel le 2026-08-13.
+**`reapplyEligibleAt` — échéance de reprise (arbitrage du 2026-08-13, « Reprise de candidature après
+un refus formateur »)**, remplace l'approche précédente de ce document (dériver l'année depuis
+`updatedAt` côté front, sans champ dédié) : **le calcul est désormais fait côté serveur** et exposé
+tel quel, conformément à la règle du projet « le front affiche, il ne décide jamais ». Présent
+**uniquement** quand le statut courant est `rejected` (absent — jamais `null` — pour tout autre
+statut). Date ISO, toujours un 1er août à minuit UTC.
+
+- **Année scolaire : du 1er août (inclus) au 31 juillet (inclus) de l'année suivante.** Un refus
+  survenu en août-décembre de l'année N appartient à l'année scolaire [1er août N, 31 juillet N+1] →
+  `reapplyEligibleAt` = 1er août N+1. Un refus survenu en janvier-juillet de l'année N appartient à
+  l'année scolaire précédente [1er août N-1, 31 juillet N] → `reapplyEligibleAt` = 1er août N.
+- Calculé sur le `createdAt` de la ligne `rejected` la plus récente (journal append-only).
+- Consommé par `POST /profiles/:teacherId/validation/reapply`, qui refuse la reprise en `400` tant
+  que `aujourd'hui < reapplyEligibleAt`.
+- **Point laissé ouvert par cette livraison** : aucun droit de contournement RP/TI n'existe sur
+  `reapply` — un RP qui voudrait rouvrir un dossier avant l'échéance n'a aujourd'hui aucun moyen de
+  le faire. Signalé comme proposition non tranchée dans `docs/architecture.md`, pas implémenté.
 
 **Changement de contrat du 2026-08-12 sur `pending-validation`** — le front doit être rebranché :
 

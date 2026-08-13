@@ -19,6 +19,12 @@ import { StudentPedagogicalProfile } from './entities/student-pedagogical-profil
 import { TeacherPedagogicalProfile } from './entities/teacher-pedagogical-profile.entity';
 import { InternalProfileNote } from './entities/internal-profile-note.entity';
 import { TeacherValidation, statusLabel } from './entities/teacher-validation.entity';
+import {
+  TeacherValidationView,
+  computeReapplyEligibleAt,
+  formatFrenchDate,
+  toTeacherValidationView,
+} from './teacher-validation.view';
 import { RelationsService } from '../relations/relations.service';
 import {
   IdentityAccount,
@@ -664,7 +670,7 @@ export class ProfilesService {
   }
 
   /**
-   * Update (upsert) the validation status of a formateur.
+   * Update the validation status of a formateur.
    *
    * Transition rules (PROF-BR):
    *   pending     → in_review  : RP only
@@ -673,13 +679,20 @@ export class ProfilesService {
    *   pending     → validated  : TI only (bypass administratif autorisé)
    *   pending     → rejected   : TI only (bypass administratif autorisé)
    *
+   * JOURNAL APPEND-ONLY depuis l'arbitrage du 2026-08-13 : cette méthode
+   * n'ÉCRIT PLUS SUR PLACE. Chaque transition acceptée INSÈRE une nouvelle
+   * ligne ; la ligne précédente (y compris son `comment`) reste intacte comme
+   * preuve. `comment` porte donc sur CETTE transition uniquement — il n'est
+   * plus reporté d'une ligne à l'autre quand il est omis, à la différence du
+   * comportement de mutation d'avant cette date.
+   *
    * Publishes TeacherValidated when status transitions to 'validated'.
    */
   async updateTeacherValidation(
     teacherId: string,
     dto: UpdateTeacherValidationDto,
     actor: Actor,
-  ) {
+  ): Promise<TeacherValidationView> {
     const isResponsablePedagogique = actor.role === UserRole.RESPONSABLE_PEDAGOGIQUE;
     const isTechnicienInformatique = actor.role === UserRole.TECHNICIEN_INFORMATIQUE;
 
@@ -690,37 +703,27 @@ export class ProfilesService {
       );
     }
 
-    // Fetch or initialise the validation record
-    let validation = await this.teacherValidationRepo.findOne({ where: { teacherId } });
-    const currentStatus = validation?.status ?? 'pending';
+    const current = await this.findLatestTeacherValidation(teacherId);
+    const currentStatus = current?.status ?? 'pending';
     const targetStatus = dto.status;
 
     this.assertValidationTransition(currentStatus, targetStatus, actor);
 
-    if (!validation) {
-      validation = this.teacherValidationRepo.create({
+    const created = await this.teacherValidationRepo.save(
+      this.teacherValidationRepo.create({
         teacherId,
         status: targetStatus,
         validatedBy: actor.id,
         validatorRole: actor.role,
         comment: dto.comment,
-      });
-    } else {
-      validation.status = targetStatus;
-      validation.validatedBy = actor.id;
-      validation.validatorRole = actor.role;
-      if (dto.comment !== undefined) {
-        validation.comment = dto.comment;
-      }
-    }
-
-    const saved = await this.teacherValidationRepo.save(validation);
+      }),
+    );
 
     if (targetStatus === 'validated') {
       this.events.publish('TeacherValidated', { teacherId, actorId: actor.id });
     }
 
-    return saved;
+    return toTeacherValidationView(created);
   }
 
   /**
@@ -818,7 +821,7 @@ export class ProfilesService {
     validation: TeacherValidation;
     isCreated: boolean;
   }> {
-    const existing = await this.teacherValidationRepo.findOne({ where: { teacherId } });
+    const existing = await this.findLatestTeacherValidation(teacherId);
     if (existing) {
       return { validation: existing, isCreated: false };
     }
@@ -847,8 +850,18 @@ export class ProfilesService {
    * lever une erreur — refuser la lecture n'aiderait ni le formateur ni le RP —
    * mais l'anomalie est journalisée en `error` et non plus absorbée en silence.
    * C'est cette absorption silencieuse qui faisait mentir l'écran.
+   *
+   * DEPUIS LA JOURNALISATION APPEND-ONLY (arbitrage du 2026-08-13) : « le
+   * statut courant » se lit désormais comme la ligne la plus RÉCENTE
+   * (`findLatestTeacherValidation`), jamais comme une ligne unique. Quand ce
+   * statut est `rejected`, la réponse porte en plus `reapplyEligibleAt` —
+   * l'échéance à partir de laquelle le formateur peut relancer sa candidature
+   * via `POST /profiles/:teacherId/validation/reapply`.
    */
-  async getTeacherValidation(teacherId: string, actor: Actor) {
+  async getTeacherValidation(
+    teacherId: string,
+    actor: Actor,
+  ): Promise<TeacherValidationView | { teacherId: string; status: 'pending' }> {
     const allowedRoles = [
       UserRole.RESPONSABLE_PEDAGOGIQUE,
       UserRole.TECHNICIEN_INFORMATIQUE,
@@ -860,9 +873,9 @@ export class ProfilesService {
       );
     }
 
-    const validation = await this.teacherValidationRepo.findOne({ where: { teacherId } });
+    const validation = await this.findLatestTeacherValidation(teacherId);
     if (validation) {
-      return validation;
+      return toTeacherValidationView(validation);
     }
 
     this.logger.error(
@@ -874,6 +887,82 @@ export class ProfilesService {
         "formateur n'apparaît dans AUCUNE file de validation et ne sera donc jamais examiné.",
     );
     return { teacherId, status: 'pending' as const };
+  }
+
+  /**
+   * REPRISE DE CANDIDATURE — self-service, arbitrage du 2026-08-13.
+   *
+   * Réservée au FORMATEUR CONCERNÉ, et lui seul : ni le RP ni le TI (aucun
+   * droit de contournement n'est ouvert par cette tâche — voir le rapport de
+   * session pour le point laissé en suspens).
+   *
+   * Refusée en 400, avec un message français citant la date, si :
+   *  - le statut courant n'est pas `rejected` ;
+   *  - OU l'échéance de reprise (`reapplyEligibleAt`, calculée sur le refus le
+   *    plus récent) n'est pas encore atteinte.
+   *
+   * Si autorisée : INSÈRE une nouvelle ligne `pending` — la ligne `rejected`
+   * précédente n'est jamais réécrite ni supprimée, elle reste la preuve du
+   * refus (arbitrage du 2026-08-13, point 5, même règle que les consentements
+   * du 2026-08-09 et les relations du 2026-08-11/12).
+   */
+  async reapplyTeacherValidation(
+    teacherId: string,
+    actor: Actor,
+  ): Promise<TeacherValidationView> {
+    if (actor.id !== teacherId) {
+      throw new ForbiddenException(
+        'Seul le formateur concerné peut relancer sa propre candidature.',
+      );
+    }
+
+    const current = await this.findLatestTeacherValidation(teacherId);
+    if (!current || current.status !== 'rejected') {
+      throw new BadRequestException(
+        'Vous ne pouvez relancer votre candidature que si votre dossier a été refusé. ' +
+          `Statut actuel : « ${statusLabel(current?.status ?? 'pending')} ».`,
+      );
+    }
+
+    const reapplyEligibleAt = computeReapplyEligibleAt(current.createdAt);
+    const now = new Date();
+    if (now < reapplyEligibleAt) {
+      throw new BadRequestException(
+        'Vous pourrez relancer votre candidature à partir du ' +
+          `${formatFrenchDate(reapplyEligibleAt)} (année scolaire suivant votre refus).`,
+      );
+    }
+
+    const created = await this.teacherValidationRepo.save(
+      this.teacherValidationRepo.create({ teacherId, status: 'pending' }),
+    );
+
+    this.logger.log(
+      `Reprise de candidature : nouvelle ligne « pending » créée pour teacherId=${teacherId}, ` +
+        `après un refus du ${formatFrenchDate(current.createdAt)}.`,
+    );
+    this.events.publish('TeacherValidationReapplied', { teacherId, actorId: actor.id });
+
+    return toTeacherValidationView(created);
+  }
+
+  /**
+   * Ligne la plus RÉCENTE de l'historique de validation d'un formateur — c'est
+   * elle qui porte le statut « courant » depuis la journalisation append-only
+   * (arbitrage du 2026-08-13). Départage par `id` en cas d'égalité stricte de
+   * `createdAt` (résolution en microsecondes, conflit très improbable en
+   * pratique) : arbitraire mais déterministe, même logique que l'index créé
+   * par la migration `MakeTeacherValidationsAppendOnly`.
+   *
+   * Publique : partagée par `getTeacherValidation`, `updateTeacherValidation`,
+   * `bootstrapTeacherValidation` et `reapplyTeacherValidation`, qui doivent
+   * tous lire le même « statut courant ».
+   */
+  async findLatestTeacherValidation(teacherId: string): Promise<TeacherValidation | null> {
+    return this.teacherValidationRepo.findOne({
+      where: { teacherId },
+      order: { createdAt: 'DESC', id: 'DESC' },
+    });
   }
 
   /**

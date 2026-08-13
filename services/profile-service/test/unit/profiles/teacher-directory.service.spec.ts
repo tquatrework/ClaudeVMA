@@ -29,6 +29,9 @@ function makeQueryBuilderStub(rows: unknown[], total: number) {
   for (const method of [
     'leftJoin',
     'where',
+    // `andWhere` : filtre « ligne la plus récente de chaque formateur »,
+    // ajouté par la journalisation append-only (arbitrage du 2026-08-13).
+    'andWhere',
     'select',
     'addSelect',
     'orderBy',

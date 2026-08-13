@@ -56,6 +56,16 @@ import {
  * dépasse déjà largement les seuils de `docs/conventions/services-convention.md`,
  * et ces listes n'ont besoin d'aucune de ses dépendances (ni relations, ni
  * événements, ni identity-access, ni visibilité).
+ *
+ * DEPUIS LA JOURNALISATION APPEND-ONLY DE `teacher_validations` (arbitrage du
+ * 2026-08-13) : un formateur peut désormais porter PLUSIEURS lignes (une par
+ * transition, y compris une reprise de candidature après refus). Filtrer sur
+ * `validation.status = :status` sans restriction supplémentaire listerait un
+ * formateur sous CHAQUE statut qu'il a un jour porté — un formateur refusé
+ * puis revalidé resterait affiché indéfiniment dans la file « en attente »
+ * via sa toute première ligne `pending`. `listTeachersByValidationStatus` ne
+ * considère donc que la ligne la PLUS RÉCENTE de chaque formateur, exactement
+ * comme `ProfilesService.findLatestTeacherValidation`.
  */
 
 /**
@@ -253,7 +263,22 @@ export class TeacherDirectoryService {
         'pedagogical',
         'pedagogical.userId = validation.teacherId',
       )
-      .where('validation.status = :status', { status });
+      .where('validation.status = :status', { status })
+      // Ne retient que la ligne la PLUS RÉCENTE de chaque formateur (voir le
+      // commentaire de classe) : aucune ligne plus récente pour le même
+      // `teacher_id` ne doit exister. Départage par `id` en cas d'égalité
+      // stricte de `created_at`, même logique que
+      // `ProfilesService.findLatestTeacherValidation`.
+      .andWhere(
+        `NOT EXISTS (
+          SELECT 1 FROM teacher_validations newer
+          WHERE newer.teacher_id = validation.teacher_id
+            AND (
+              newer.created_at > validation.created_at
+              OR (newer.created_at = validation.created_at AND newer.id > validation.id)
+            )
+        )`,
+      );
 
     const total = await baseQuery.clone().getCount();
 

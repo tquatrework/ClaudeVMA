@@ -68,6 +68,8 @@
       <!-- Validation des nouveaux formateurs — decision C21 (2026-08-12) -->
       <endpoint method="GET" path="/profiles/teachers/pending-validation">FILE DE TRAVAIL DU RP : formateurs dont la validation est 'pending', tries par ANCIENNETE (le premier inscrit est le premier examine). RP SEUL — le TI peut trancher un dossier ouvert, il n'a pas a disposer de la file. BORNEE ET PAGINEE depuis le 2026-08-12, meme forme et memes plafonds que /profiles/teachers/validated : enveloppe {data, page, limit, total, totalPages}, entree {userId, firstName, lastName, levels, subjects, pendingSince}. CHANGEMENT DE CONTRAT : renvoyait auparavant un tableau nu NON BORNE d'entrees {id, teacherId, firstName, lastName, createdAt}.</endpoint>
       <endpoint method="POST" path="/internal/teachers/ensure-validations">REPRISE DE STOCK des formateurs sans enregistrement de validation. Body {teacherIds} (200 maximum). IDEMPOTENTE ET NON DESTRUCTRICE : un formateur deja validated/rejected est laisse intact — statut ET commentaire — et compte dans alreadyPresent. 200 et non 201 : dans le cas nominal du rejeu, rien n'est cree. X-Internal-Secret ; jamais exposee par api-gateway.</endpoint>
+      <!-- Reprise de candidature apres refus, journal append-only — decision C24 (2026-08-13) -->
+      <endpoint method="POST" path="/profiles/{teacherId}/validation/reapply">REPRISE DE CANDIDATURE self-service. Reservee au FORMATEUR CONCERNE seul (403 y compris RP/TI — aucun contournement dans cette livraison). Refuse en 400 (message francais citant la date) si le statut courant n'est pas 'rejected' ou si l'echeance reapplyEligibleAt n'est pas atteinte. Si autorisee : INSERE une nouvelle ligne 'pending', la ligne 'rejected' precedente n'est jamais reecrite ni supprimee. 201, meme forme que GET .../validation.</endpoint>
       <!-- Photo de profil — decisions C13 (routes) et C14 (plafond de taille), 2026-08-10 -->
       <endpoint method="GET" path="/profiles/avatar/constraints">Lire les contraintes d'envoi (maxUploadBytes, formats acceptes) AVANT de choisir un fichier. Sans :userId : elles ne dependent ni du profil vise ni du lecteur. Le front ne doit pas les coder en dur.</endpoint>
       <endpoint method="POST" path="/profiles/{userId}/avatar">Envoyer ou remplacer la photo (multipart, champ file ; titulaire SEUL). 413 structure au-dela de MEDIA_MAX_UPLOAD_BYTES, coupe en streaming par multer.</endpoint>
@@ -83,7 +85,7 @@
       Le chemin candidat /teachers/{userId}/validation ci-dessus n'a jamais ete
       implemente tel quel : tout vit sous la racine /profiles.
     -->
-    <teacherValidationStateMachine documentedOn="2026-08-07">
+    <teacherValidationStateMachine documentedOn="2026-08-07" revisedOn="2026-08-13">
       <description>
         Machine a trois etats du dossier de validation d'un formateur. Elle
         etait implementee dans le code (assertValidationTransition) et dans le
@@ -95,11 +97,18 @@
         renvoie encore un objet synthetique 'pending' — refuser la lecture
         n'aiderait ni le formateur ni le RP — mais journalise desormais
         l'anomalie en error au lieu de l'absorber en silence.
+        DEPUIS LE 2026-08-13 (decision C24), la table teacher_validations est un
+        JOURNAL APPEND-ONLY : chaque transition (PATCH RP/TI comme reprise de
+        candidature) INSERE une nouvelle ligne, aucune n'est jamais reecrite ni
+        supprimee. Le "statut courant" se lit comme la ligne la plus RECENTE
+        (findLatestTeacherValidation, ORDER BY created_at DESC puis id DESC en
+        departage). teacher_id N'EST PLUS UNIQUE en base (voir la migration
+        MakeTeacherValidationsAppendOnly).
       </description>
-      <state id="pending" initial="true">Formateur inscrit, dossier non instruit.</state>
+      <state id="pending" initial="true">Formateur inscrit, dossier non instruit. Egalement l'etat d'une reprise de candidature acceptee.</state>
       <state id="in_review">Dossier pris en charge et instruit par le RP.</state>
       <state id="validated" terminal="true">Formateur valide. Publie l'evenement TeacherValidated.</state>
-      <state id="rejected" terminal="true">Formateur refuse. Aucun evenement publie.</state>
+      <state id="rejected" terminal="true">Formateur refuse. Aucun evenement publie. Depuis le 2026-08-13, porte une echeance reapplyEligibleAt calculee cote serveur.</state>
       <transition from="pending" to="in_review" allowedRoles="responsable_pedagogique">
         Prise en charge du dossier par le RP. Le TI ne peut pas effectuer cette transition.
       </transition>
@@ -111,8 +120,14 @@
       <transition from="pending" to="rejected" allowedRoles="technicien_informatique">
         Bypass administratif de l'etape in_review, reserve au TI.
       </transition>
+      <transition from="rejected" to="pending" allowedRoles="self-service">
+        REPRISE DE CANDIDATURE (decision C24, 2026-08-13). Reservee au formateur CONCERNE, via
+        POST /profiles/{teacherId}/validation/reapply — PAS le PATCH RP/TI. Refusee (400) tant que
+        aujourd'hui &lt; reapplyEligibleAt (1er aout suivant la fin de l'annee scolaire du refus).
+      </transition>
       <rule>Toute autre transition est refusee en 403, y compris une transition vers le statut courant.</rule>
       <rule>Seuls le RP et le TI peuvent appeler PATCH /profiles/{teacherId}/validation ; les autres roles recoivent 403 avant meme l'evaluation de la transition.</rule>
+      <rule>Depuis le 2026-08-13, PATCH n'ecrit plus sur place : chaque appel accepte INSERE une nouvelle ligne. Le champ comment porte donc sur la transition en cours uniquement, il n'est plus reporte d'une ligne a l'autre quand il est omis.</rule>
     </teacherValidationStateMachine>
     <dataEntities>
       <entity>AdministrativeProfile</entity>
@@ -138,6 +153,8 @@
       <event>AnimatorLinkedToTeacher</event>
       <event>TeacherPromotedToAP</event>
       <event>AdminProfileReminderCreated</event>
+      <!-- Ajoute le 2026-08-13 (decision C24) -->
+      <event>TeacherValidationReapplied</event>
     </events>
     <acceptanceCriteria>
       <criterion>Un eleve peut masquer difficultes/commentaires aux contacts non prioritaires.</criterion>
@@ -2451,7 +2468,99 @@
           annee derivee `2026`.
         </verification>
       </decision>
+      <decision id="C24" status="implemented" session="2026-08-13">
+        <title>Reprise de candidature apres un refus formateur — journal append-only + self-service</title>
+        <filesTouched>
+          <file path="src/profiles/entities/teacher-validation.entity.ts">
+            `teacherId` n'est plus `unique`. Index compose (teacher_id, created_at) ajoute.
+            Commentaire de classe reecrit pour documenter le journal append-only.
+          </file>
+          <file path="src/migrations/1755200000000-MakeTeacherValidationsAppendOnly.ts">NOUVEAU. Supprime la contrainte d'unicite sur teacher_id (recherchee par role, pas par nom genere — meme motif que les migrations soeurs sur les liens de relation), cree l'index (teacher_id, created_at).</file>
+          <file path="src/profiles/teacher-validation.view.ts">NOUVEAU. `TeacherValidationView` (liste blanche des noms de champs EXISTANTS, inchanges), `computeReapplyEligibleAt` (annee scolaire aout-juillet), `formatFrenchDate`, `toTeacherValidationView` (ajoute reapplyEligibleAt UNIQUEMENT si status === 'rejected').</file>
+          <file path="src/profiles/profiles.service.ts">
+            NOUVEAU `findLatestTeacherValidation(teacherId)` : lit la ligne la plus recente
+            (ORDER BY created_at DESC, id DESC), point de passage partage par getTeacherValidation,
+            updateTeacherValidation, bootstrapTeacherValidation et le nouveau reapplyTeacherValidation.
+            `updateTeacherValidation` n'ecrit plus sur place : il INSERE desormais une nouvelle ligne a
+            chaque transition acceptee (comment ne se reporte plus d'une ligne a l'autre quand il est
+            omis — c'est un changement de comportement assume, voir description). NOUVEAU
+            `reapplyTeacherValidation(teacherId, actor)` : 403 si `actor.id !== teacherId` (y compris
+            RP/TI), 400 si statut courant != 'rejected' ou echeance non atteinte (message francais
+            citant la date), sinon INSERE une ligne 'pending' et publie TeacherValidationReapplied.
+          </file>
+          <file path="src/profiles/teacher-directory.service.ts">
+            `listTeachersByValidationStatus` ajoute un `andWhere` NOT EXISTS (sous-requete sur
+            teacher_validations) pour ne retenir que la ligne la PLUS RECENTE de chaque formateur —
+            consequence directe du journal append-only : sans ce filtre, un formateur refuse puis
+            revalide serait liste sous les DEUX statuts simultanement (sa toute premiere ligne
+            'pending' ne disparaissant jamais). Impacte /profiles/teachers/validated ET
+            /profiles/teachers/pending-validation, qui partagent cette mecanique depuis C20/C21.
+          </file>
+          <file path="src/profiles/teacher-validation.controller.ts">NOUVELLE route `POST /profiles/{teacherId}/validation/reapply`. Documentation Swagger de GET/PATCH mise a jour (reapplyEligibleAt, journal append-only).</file>
+          <file path="src/events/events.service.ts">NOUVEAU type d'evenement `TeacherValidationReapplied`.</file>
+          <file path="test/unit/profiles/teacher-validation.view.spec.ts">NOUVEAU. Bornes de computeReapplyEligibleAt (aout/decembre -> annee N+1, janvier/juillet -> annee N, bascule exacte 31 juillet / 1er aout), formatFrenchDate, toTeacherValidationView (champ present/absent selon statut, noms de champs inchanges).</file>
+          <file path="test/unit/profiles/profiles.service.spec.ts">Tests updateTeacherValidation reecrits pour le comportement append-only (INSERT au lieu de reecriture, non-report du commentaire). Nouveaux tests reapplyTeacherValidation (droits, dates figees via jest.useFakeTimers, idempotence du cycle refus->reprise->refus). Nouveaux tests getTeacherValidation sur la presence/absence de reapplyEligibleAt. Mock par defaut de teacherValidationRepo.save complete avec un createdAt.</file>
+          <file path="test/unit/profiles/teacher-directory.service.spec.ts">Stub de QueryBuilder complete avec `andWhere`.</file>
+          <file path="test/e2e/teacher-validation.e2e-spec.ts">Nouveau bloc `journal append-only et reprise de candidature` : reapplyEligibleAt calcule contre PostgreSQL reel, non-reecriture du commentaire d'une transition anterieure, droits de /reapply (403 RP/TI/autre formateur, 401, 400 avant echeance et hors statut rejected).</file>
+          <file path="docs/routes.md">Section « Validation des formateurs » reecrite : encadre journal append-only, ligne PATCH/GET mises a jour, nouvelle ligne POST .../reapply, encadre reapplyEligibleAt. L'ancien encadre « Horodatage exploitable pour l'annee de refus » (base sur updatedAt, sans champ dedie) est remplace — il decrivait l'approche que cette decision rend obsolete.</file>
+        </filesTouched>
+        <description>
+          Arbitrage du 2026-08-13 (docs/architecture.md, « Reprise de candidature apres un refus
+          formateur »), qui REVISE explicitement un point de l'arbitrage C23 de la veille (« aucune
+          regle de blocage n'est introduite ») : un bandeau promettant « vous pourrez vous representer
+          l'annee prochaine » sans aucun moyen de le faire aurait ete un mensonge.
+
+          1. ANNEE SCOLAIRE, premiere notion du genre dans le projet : du 1er aout (inclus) au
+             31 juillet (inclus) de l'annee suivante. Refus en aout-decembre N -> eligible le
+             1er aout N+1. Refus en janvier-juillet N -> eligible le 1er aout N (annee scolaire
+             precedente). Calcule entierement en UTC (jour calendaire, pas un instant).
+          2. JOURNAL APPEND-ONLY, meme mecanique que consent_records (identity-access-service) et les
+             tables de relation de ce service (finance_owner_student_links, teacher_student_links) :
+             chaque transition INSERE, aucune n'est reecrite ni supprimee. Consequence en cascade sur
+             TOUTE lecture de "statut courant" du service — pas seulement GET/PATCH sur .../validation
+             comme l'enonce initial le suggerait : l'annuaire des formateurs valides et la file de
+             validation du RP lisaient directement `status = :status` sur la table, ce qui aurait
+             affiche un formateur refuse-puis-revalide sous ses DEUX statuts. Corrige par un filtre
+             "derniere ligne uniquement" (NOT EXISTS) applique aux deux listes.
+          3. SELF-SERVICE STRICT : reserve au formateur concerne, aucun contournement RP/TI dans cette
+             livraison — l'arbitrage note lui-meme que le point RP n'est "pas confirme mot pour mot"
+             et le signale comme proposition, pas comme decision. Laisse en openPoint plutot
+             qu'implemente par anticipation.
+          4. COMPORTEMENT CHANGE, ASSUME : avant cette session, un `comment` omis sur une transition
+             etait CONSERVE depuis la ligne precedente (mutation sur place). Depuis l'append-only,
+             chaque ligne est autonome : un `comment` omis produit une ligne sans commentaire, meme si
+             la transition precedente en portait un. C'est la lecture la plus coherente d'un journal
+             (chaque entree documente SA transition), et c'est explicitement teste (e2e et unitaire).
+          5. `reapplyEligibleAt` REMPLACE l'approche C23 (deriver l'annee depuis `updatedAt` cote
+             front, sans champ dedie) : le calcul est desormais fait cote serveur et expose tel quel,
+             conformement a la regle "le front affiche, il ne decide jamais". Present UNIQUEMENT
+             quand le statut courant est 'rejected' — jamais `null` pour les autres statuts, absence
+             pure (meme convention que les autres champs optionnels de ce service).
+        </description>
+        <verification>
+          `npx tsc --noEmit` (app et tests) : 0 erreur. 665 tests unitaires verts (23 suites, +30 par
+          rapport a la session precedente). Suite e2e complete : 360 verts sur 361 (10 suites) ; le seul
+          rouge est `[PROF-BR-010] Un administrateur financier peut ajouter une note interne`,
+          PREEXISTANT et sans rapport avec cette session — reproduit a l'identique sur le commit de
+          depart via `git stash`. 42 tests e2e verts dans teacher-validation.e2e-spec.ts (dont 9
+          nouveaux pour le journal et /reapply), joues contre PostgreSQL reel via Testcontainers.
+        </verification>
+      </decision>
       <openPoints>
+        <item priority="medium" status="to-do" raisedIn="C24" raisedOn="2026-08-13" owner="produit">
+          AUCUN DROIT DE CONTOURNEMENT RP/TI SUR /reapply. Un RP qui voudrait rouvrir un dossier avant
+          l'echeance reapplyEligibleAt n'a aujourd'hui aucun moyen de le faire — la route est reservee
+          au formateur concerne, sans exception. L'arbitrage du 2026-08-13 propose ce contournement
+          sans le confirmer mot pour mot ("proposition retenue par l'orchestrateur, non confirmee...").
+          A trancher explicitement avant implementation.
+        </item>
+        <item priority="low" status="to-do" raisedIn="C24" raisedOn="2026-08-13" owner="front">
+          AUCUN ECRAN NE CONSOMME reapplyEligibleAt NI /validation/reapply. Le champ est expose par
+          GET/PATCH .../validation quand status === 'rejected' ; le formateur refuse devrait pouvoir
+          lire l'echeance et declencher la reprise depuis son propre dashboard/profil (meme zone que
+          la bannière de statut livree par C22/#108-#109). Non construit dans cette session, back
+          uniquement.
+        </item>
         <item priority="high" status="to-do" raisedIn="C22" raisedOn="2026-08-12" owner="front">
           AUCUN ECRAN NE MET FIN A LA RELATION. La route est livree et prouvee, mais le point
           d'action voulu par l'arbitrage — un bouton sur chaque formateur de la FICHE DE L'ELEVE —

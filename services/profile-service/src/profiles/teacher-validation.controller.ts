@@ -166,16 +166,59 @@ export class TeacherValidationController {
   @ApiOperation({
     summary: 'Get teacher validation status',
     description:
-      'Returns the current validation record for a formateur. ' +
-      'Accessible to RP, TI, AdministrateurFinancier and the teacher themselves.',
+      'Returns the current (i.e. most recent) validation record for a formateur — the ' +
+      "validation history is an append-only journal since the 2026-08-13 arbitrage. " +
+      'Accessible to RP, TI, AdministrateurFinancier and the teacher themselves.\n\n' +
+      "When the current status is `rejected`, the response includes `reapplyEligibleAt` " +
+      '(ISO date, always a 1st of August at midnight UTC): the date from which the teacher ' +
+      'may reapply via `POST /profiles/:teacherId/validation/reapply`. Absent for every ' +
+      'other status.',
   })
   @ApiParam({ name: 'teacherId', description: 'Teacher (formateur) UUID' })
-  @ApiResponse({ status: 200, description: 'Validation record' })
+  @ApiResponse({ status: 200, description: 'Validation record (current = most recent)' })
   @ApiResponse({ status: 403, description: 'Forbidden — insufficient rights' })
   getTeacherValidation(
     @Param('teacherId', ParseUUIDPipe) teacherId: string,
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<Awaited<ReturnType<ProfilesService['getTeacherValidation']>>> {
     return this.profilesService.getTeacherValidation(teacherId, actor);
+  }
+
+  @Post(':teacherId/validation/reapply')
+  @ApiOperation({
+    summary: 'Reprise de candidature après un refus (self-service)',
+    description:
+      "Permet au formateur REFUSÉ de relancer lui-même sa candidature, une fois l'échéance " +
+      "de reprise atteinte (arbitrage du 2026-08-13, docs/architecture.md > « Reprise de " +
+      "candidature après un refus formateur »). Réservée au formateur CONCERNÉ : ni le RP ni " +
+      "le TI ne peuvent l'actionner pour un tiers (aucun droit de contournement n'est ouvert " +
+      "par cette route — point non tranché, voir le rapport de session).\n\n" +
+      'Année scolaire : du 1er août (inclus) au 31 juillet (inclus) de l’année suivante. ' +
+      "L'échéance de reprise est le 1er août suivant la fin de l'année scolaire du refus.\n\n" +
+      "Crée une NOUVELLE ligne `pending` — la ligne `rejected` précédente n'est jamais " +
+      'réécrite ni supprimée : elle reste la preuve que le formateur a été refusé, puis ' +
+      'autorisé à se représenter.',
+  })
+  @ApiParam({ name: 'teacherId', description: 'Teacher (formateur) UUID' })
+  @ApiResponse({
+    status: 201,
+    description: 'Nouvelle candidature créée, statut `pending` (même forme que le GET)',
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      "Statut courant différent de `rejected`, ou échéance de reprise pas encore atteinte " +
+      '— message français citant la date',
+  })
+  @ApiResponse({ status: 401, description: 'Sans jeton' })
+  @ApiResponse({
+    status: 403,
+    description: 'Formateur différent de :teacherId — y compris RP et TI',
+  })
+  reapplyTeacherValidation(
+    @Param('teacherId', ParseUUIDPipe) teacherId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<ProfilesService['reapplyTeacherValidation']>>> {
+    return this.profilesService.reapplyTeacherValidation(teacherId, actor);
   }
 }

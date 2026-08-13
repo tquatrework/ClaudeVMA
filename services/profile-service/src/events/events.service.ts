@@ -27,6 +27,13 @@ export type ProfileEventType =
   | 'AnimatorLinkedToTeacher'
   | 'TeacherPromotedToPedagogicalAnimator'
   | 'TeacherValidated'
+  /**
+   * Reprise de candidature après un refus formateur (arbitrage du 2026-08-13) :
+   * le formateur relance lui-même son dossier, une fois l'échéance atteinte.
+   * Distinct de `TeacherValidated` — cet événement signale la création d'une
+   * nouvelle ligne `pending`, pas une validation.
+   */
+  | 'TeacherValidationReapplied'
   | 'AdminProfileReminderCreated';
 
 export interface DomainEvent {

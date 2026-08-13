@@ -102,7 +102,16 @@ describe('ProfilesService', () => {
       findOne: jest.fn().mockResolvedValue(null),
       find: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockImplementation((dto) => dto),
-      save: jest.fn().mockImplementation(async (entity) => ({ id: 'validation-uuid', ...entity, updatedAt: new Date() })),
+      // `createdAt` par défaut : nécessaire depuis que `toTeacherValidationView`
+      // calcule `reapplyEligibleAt` à partir de cette date pour tout
+      // enregistrement `rejected` (arbitrage du 2026-08-13). Placé AVANT le
+      // spread de `entity` pour rester substituable par un `createdAt` explicite.
+      save: jest.fn().mockImplementation(async (entity) => ({
+        id: 'validation-uuid',
+        createdAt: new Date(),
+        ...entity,
+        updatedAt: new Date(),
+      })),
     };
 
     relationsService = {
@@ -1578,19 +1587,41 @@ describe('ProfilesService', () => {
       );
     });
 
-    it('updates the existing validation record instead of creating a new one', async () => {
+    // Journal append-only depuis l'arbitrage du 2026-08-13 : une transition
+    // n'écrase JAMAIS la ligne existante, elle en insère une nouvelle. La
+    // ligne précédente (id, comment compris) reste intacte comme preuve.
+    it('crée une NOUVELLE ligne plutôt que de réécrire la ligne existante (journal append-only)', async () => {
       withCurrentStatus('in_review');
       const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
 
       await service.updateTeacherValidation('teacher-uuid', { status: 'validated' }, actor);
 
-      expect(teacherValidationRepo.create).not.toHaveBeenCalled();
-      expect(teacherValidationRepo.save).toHaveBeenCalledWith(
+      expect(teacherValidationRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          id: 'existing-uuid',
+          teacherId: 'teacher-uuid',
           status: 'validated',
           validatedBy: actor.id,
         }),
+      );
+      const savedArg = teacherValidationRepo.save.mock.calls[0][0];
+      expect(savedArg.id).not.toBe('existing-uuid');
+    });
+
+    it("ne reporte pas le commentaire d'une transition précédente sur la nouvelle ligne", async () => {
+      teacherValidationRepo.findOne.mockResolvedValue({
+        id: 'existing-uuid',
+        teacherId: 'teacher-uuid',
+        status: 'in_review',
+        validatedBy: null,
+        comment: 'notes prises à la prise en charge',
+      });
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+      // Validation sans nouveau commentaire.
+      await service.updateTeacherValidation('teacher-uuid', { status: 'validated' }, actor);
+
+      expect(teacherValidationRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ comment: undefined }),
       );
     });
 
@@ -1734,6 +1765,156 @@ describe('ProfilesService', () => {
       await expect(
         service.getTeacherValidation('teacher-uuid', actor),
       ).rejects.toThrow(ForbiddenException);
+    });
+
+    // reapplyEligibleAt — arbitrage du 2026-08-13, « Reprise de candidature
+    // après un refus formateur ».
+    it('includes reapplyEligibleAt when the current status is rejected', async () => {
+      teacherValidationRepo.findOne.mockResolvedValue({
+        id: 'v-uuid',
+        teacherId: 'teacher-uuid',
+        status: 'rejected',
+        createdAt: new Date('2026-09-15T10:00:00.000Z'),
+        updatedAt: new Date('2026-09-15T10:00:00.000Z'),
+      });
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+      const result = await service.getTeacherValidation('teacher-uuid', actor);
+
+      expect((result as { reapplyEligibleAt?: Date }).reapplyEligibleAt).toEqual(
+        new Date(Date.UTC(2027, 7, 1)),
+      );
+    });
+
+    it('does NOT include reapplyEligibleAt for any other status', async () => {
+      teacherValidationRepo.findOne.mockResolvedValue({
+        id: 'v-uuid',
+        teacherId: 'teacher-uuid',
+        status: 'validated',
+        createdAt: new Date('2026-09-15T10:00:00.000Z'),
+        updatedAt: new Date('2026-09-15T10:00:00.000Z'),
+      });
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+
+      const result = await service.getTeacherValidation('teacher-uuid', actor);
+
+      expect(result).not.toHaveProperty('reapplyEligibleAt');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // reapplyTeacherValidation — self-service, arbitrage du 2026-08-13
+  //
+  // « Reprise de candidature après un refus formateur » : seul le formateur
+  // concerné peut relancer sa candidature, et seulement une fois l'échéance
+  // (1er août suivant la fin de l'année scolaire du refus) atteinte.
+  // ---------------------------------------------------------------------------
+  describe('reapplyTeacherValidation', () => {
+    /** Fige `new Date()` (sans argument) sur l'instant donné, pour tester la comparaison à l'échéance. */
+    function freezeNow(iso: string) {
+      jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] }).setSystemTime(new Date(iso));
+    }
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('throws 403 when the caller is not the teacher concerned', async () => {
+      const actor = makeActor(UserRole.FORMATEUR, 'other-teacher-uuid');
+      await expect(
+        service.reapplyTeacherValidation('teacher-uuid', actor),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws 403 even for RP acting on someone else’s behalf (no bypass in this task)', async () => {
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE, 'rp-uuid');
+      await expect(
+        service.reapplyTeacherValidation('teacher-uuid', actor),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws 400 when the current status is not rejected', async () => {
+      teacherValidationRepo.findOne.mockResolvedValue({
+        id: 'v-uuid',
+        teacherId: 'teacher-uuid',
+        status: 'pending',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      });
+      const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+
+      await expect(
+        service.reapplyTeacherValidation('teacher-uuid', actor),
+      ).rejects.toThrow(BadRequestException);
+      expect(teacherValidationRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('throws 400 when no validation record exists at all', async () => {
+      teacherValidationRepo.findOne.mockResolvedValue(null);
+      const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+
+      await expect(
+        service.reapplyTeacherValidation('teacher-uuid', actor),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws 400 with a French message citing the date when the eligibility date is not reached yet', async () => {
+      teacherValidationRepo.findOne.mockResolvedValue({
+        id: 'v-uuid',
+        teacherId: 'teacher-uuid',
+        status: 'rejected',
+        createdAt: new Date('2026-09-15T10:00:00.000Z'), // -> éligible 01/08/2027
+      });
+      freezeNow('2027-06-01T00:00:00.000Z'); // avant l'échéance
+      const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+
+      await expect(
+        service.reapplyTeacherValidation('teacher-uuid', actor),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.reapplyTeacherValidation('teacher-uuid', actor),
+      ).rejects.toThrow(/01\/08\/2027/);
+      expect(teacherValidationRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('creates a new pending row (never overwrites the rejected one) once eligible', async () => {
+      teacherValidationRepo.findOne.mockResolvedValue({
+        id: 'rejected-uuid',
+        teacherId: 'teacher-uuid',
+        status: 'rejected',
+        createdAt: new Date('2026-09-15T10:00:00.000Z'), // -> éligible 01/08/2027
+      });
+      freezeNow('2027-08-01T00:00:00.000Z'); // exactement l'échéance
+      const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+
+      const result = await service.reapplyTeacherValidation('teacher-uuid', actor);
+
+      expect(teacherValidationRepo.create).toHaveBeenCalledWith({
+        teacherId: 'teacher-uuid',
+        status: 'pending',
+      });
+      const savedArg = teacherValidationRepo.save.mock.calls[0][0];
+      expect(savedArg.id).not.toBe('rejected-uuid');
+      expect(result.status).toBe('pending');
+      expect(eventsService.publish).toHaveBeenCalledWith(
+        'TeacherValidationReapplied',
+        expect.objectContaining({ teacherId: 'teacher-uuid' }),
+      );
+    });
+
+    it('accepts a reapplication any number of times after each new rejection (idempotent journal, not a one-shot)', async () => {
+      teacherValidationRepo.findOne.mockResolvedValue({
+        id: 'rejected-again-uuid',
+        teacherId: 'teacher-uuid',
+        status: 'rejected',
+        createdAt: new Date('2026-02-01T00:00:00.000Z'), // -> éligible 01/08/2026
+      });
+      freezeNow('2026-08-01T00:00:00.000Z');
+      const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+
+      await service.reapplyTeacherValidation('teacher-uuid', actor);
+      await service.reapplyTeacherValidation('teacher-uuid', actor);
+
+      expect(teacherValidationRepo.save).toHaveBeenCalledTimes(2);
     });
   });
 

@@ -384,3 +384,22 @@ export async function updateTeacherValidationStatus(
   )
   return data
 }
+
+/**
+ * POST /profiles/:teacherId/validation/reapply — le formateur relance lui-même
+ * une candidature après un refus (arbitrage du 2026-08-13, `docs/architecture.md`
+ * > « Reprise de candidature après un refus formateur »).
+ *
+ * Crée un nouvel enregistrement `pending`. Refusé en `400` si appelé avant
+ * `reapplyEligibleAt` — le front n'affiche déjà l'action qu'après cette date,
+ * mais l'erreur reste traduite au cas où la fenêtre se referme entre l'affichage
+ * et le clic.
+ */
+export async function reapplyTeacherValidation(
+  teacherId: string,
+): Promise<TeacherValidationRecord> {
+  const { data } = await apiClient.post<TeacherValidationRecord>(
+    `/profiles/${teacherId}/validation/reapply`,
+  )
+  return data
+}

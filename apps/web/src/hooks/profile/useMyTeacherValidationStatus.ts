@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { fetchTeacherValidationStatus } from '../../api/profile'
 import type { TeacherValidationRecord } from '../../types/profile'
 import { useAsyncData } from '../useAsyncData'
@@ -11,6 +12,13 @@ function pendingForever<T>(): Promise<T> {
 export interface UseMyTeacherValidationStatusResult {
   validationRecord: TeacherValidationRecord | null
   isLoadingValidationStatus: boolean
+  /**
+   * Remonte au propriétaire de l'état le nouvel enregistrement renvoyé par
+   * `POST /profiles/:teacherId/validation/reapply` (règle du 2026-08-10 : on
+   * réaffiche la réponse du serveur, on ne relance jamais une lecture après une
+   * écriture).
+   */
+  applyReapplyResult: (record: TeacherValidationRecord) => void
 }
 
 /**
@@ -44,8 +52,16 @@ export function useMyTeacherValidationStatus(): UseMyTeacherValidationStatusResu
     [isTeacher, teacherId],
   )
 
+  // Remplace la donnée chargée après une relance de candidature — jamais rechargée depuis le
+  // serveur, réinitialisée si le compte formateur change.
+  const [reapplyOverride, setReapplyOverride] = useState<TeacherValidationRecord | null>(null)
+  useEffect(() => {
+    setReapplyOverride(null)
+  }, [teacherId])
+
   return {
-    validationRecord: isTeacher ? (data ?? null) : null,
+    validationRecord: isTeacher ? (reapplyOverride ?? data ?? null) : null,
     isLoadingValidationStatus: isTeacher ? isLoading : false,
+    applyReapplyResult: setReapplyOverride,
   }
 }

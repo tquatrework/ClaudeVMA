@@ -9,9 +9,15 @@
  * Contrat vérifié contre la pile réelle le 2026-08-13 : un formateur qui lit
  * `GET /profiles/:teacherId/validation` sur sa propre ligne reçoit `200`
  * (pas `403`) — même route et même forme de réponse que `TeacherValidationPanel`.
+ *
+ * Complété le 2026-08-13 (« Reprise de candidature après un refus formateur ») :
+ * le message de refus s'appuie désormais sur `reapplyEligibleAt` renvoyé par le
+ * serveur, et un bouton de relance en self-service apparaît une fois l'échéance
+ * dépassée.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import Layout from '../../src/components/Layout'
@@ -20,10 +26,11 @@ vi.mock('../../src/hooks/useAuth')
 vi.mock('../../src/api/profile')
 
 import { useAuth } from '../../src/hooks/useAuth'
-import { fetchTeacherValidationStatus } from '../../src/api/profile'
+import { fetchTeacherValidationStatus, reapplyTeacherValidation } from '../../src/api/profile'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockFetchTeacherValidationStatus = vi.mocked(fetchTeacherValidationStatus)
+const mockReapplyTeacherValidation = vi.mocked(reapplyTeacherValidation)
 
 const TEACHER_USER = {
   id: 'teacher-1',
@@ -101,21 +108,72 @@ describe('Layout — statut de validation formateur', () => {
     })
   })
 
-  it('affiche « refusée — année 2026 » et l\'année de re-candidature pour un dossier rejected', async () => {
+  it("affiche l'échéance de reprise de candidature pour un dossier rejected, sans bouton avant l'échéance", async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
     mockFetchTeacherValidationStatus.mockResolvedValue({
       teacherId: 'teacher-1',
       status: 'rejected',
       updatedAt: '2026-08-12T09:45:00.000Z',
       comment: 'Dossier incomplet',
+      reapplyEligibleAt: '2027-08-01',
     })
 
     renderLayout()
 
     await waitFor(() => {
-      expect(screen.getByText(/année 2026/)).toBeDefined()
-      expect(screen.getByText(/représenter en 2027/)).toBeDefined()
+      expect(screen.getByText(/1er août 2027/)).toBeDefined()
     })
+    expect(screen.queryByRole('button', { name: /relancer ma candidature/i })).toBeNull()
+  })
+
+  it("affiche un bouton de relance une fois l'échéance dépassée, et remonte le nouveau statut sans rechargement", async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
+    const pastEligibleDate = new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString()
+    mockFetchTeacherValidationStatus.mockResolvedValue({
+      teacherId: 'teacher-1',
+      status: 'rejected',
+      updatedAt: '2025-08-12T09:45:00.000Z',
+      reapplyEligibleAt: pastEligibleDate,
+    })
+    mockReapplyTeacherValidation.mockResolvedValue({
+      teacherId: 'teacher-1',
+      status: 'pending',
+    })
+
+    renderLayout()
+
+    const reapplyButton = await screen.findByRole('button', { name: /relancer ma candidature/i })
+    await userEvent.click(reapplyButton)
+
+    await waitFor(() => {
+      expect(mockReapplyTeacherValidation).toHaveBeenCalledWith('teacher-1')
+      expect(
+        screen.getByText(/dossier formateur est en attente de validation/i),
+      ).toBeDefined()
+    })
+    expect(screen.queryByRole('button', { name: /relancer ma candidature/i })).toBeNull()
+  })
+
+  it('affiche un message d\'erreur en français si la relance échoue', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
+    const pastEligibleDate = new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString()
+    mockFetchTeacherValidationStatus.mockResolvedValue({
+      teacherId: 'teacher-1',
+      status: 'rejected',
+      reapplyEligibleAt: pastEligibleDate,
+    })
+    mockReapplyTeacherValidation.mockRejectedValue(new Error('network error'))
+
+    renderLayout()
+
+    const reapplyButton = await screen.findByRole('button', { name: /relancer ma candidature/i })
+    await userEvent.click(reapplyButton)
+
+    await waitFor(() => {
+      expect(mockReapplyTeacherValidation).toHaveBeenCalled()
+    })
+    // Le bouton reste disponible pour réessayer, la candidature n'a pas basculé.
+    expect(await screen.findByRole('button', { name: /relancer ma candidature/i })).toBeDefined()
   })
 
   it("n'affiche rien pour un formateur validé", async () => {

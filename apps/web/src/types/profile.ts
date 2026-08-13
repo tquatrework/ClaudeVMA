@@ -378,6 +378,14 @@ export interface TeacherValidationRecord {
   comment?: string | null
   createdAt?: string
   updatedAt?: string
+  /**
+   * Date (ISO) à partir de laquelle un formateur `rejected` peut relancer une
+   * candidature — arbitrage du 2026-08-13, `docs/architecture.md` > « Reprise
+   * de candidature après un refus formateur ». Présent uniquement quand
+   * `status === 'rejected'`. Porte la vraie règle (année scolaire, 1er août) :
+   * le front ne la dérive plus lui-même depuis `updatedAt`.
+   */
+  reapplyEligibleAt?: string | null
 }
 
 /** Corps de `PATCH /profiles/:teacherId/validation`. */

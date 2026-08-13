@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { useMyTeacherValidationStatus } from '../../hooks/profile/useMyTeacherValidationStatus'
-import { getOwnTeacherValidationMessage } from '../../utils/teacherValidationLabels'
+import { useTeacherValidationReapply } from '../../hooks/profile/useTeacherValidationReapply'
+import { getOwnTeacherValidationMessage, isReapplyEligible } from '../../utils/teacherValidationLabels'
 
 /**
  * AccountStatusBanners — bannières transverses de statut de compte, affichées
@@ -30,8 +31,17 @@ export function AccountStatusBanners() {
 
   // Statut du DOSSIER formateur (profile-service), distinct de user.validationStatus
   // ci-dessus (statut du COMPTE, identity-access-service). Voir teacherValidationLabels.ts.
-  const { validationRecord: myTeacherValidationRecord } = useMyTeacherValidationStatus()
+  const {
+    validationRecord: myTeacherValidationRecord,
+    applyReapplyResult,
+  } = useMyTeacherValidationStatus()
   const ownTeacherValidationMessage = getOwnTeacherValidationMessage(myTeacherValidationRecord)
+  const canReapply = isReapplyEligible(myTeacherValidationRecord)
+
+  const { reapply, isReapplying, reapplyError } = useTeacherValidationReapply(
+    user?.id,
+    applyReapplyResult,
+  )
 
   return (
     <>
@@ -54,6 +64,20 @@ export function AccountStatusBanners() {
           }
         >
           {ownTeacherValidationMessage.message}
+          {canReapply && (
+            <>
+              {' '}
+              <button
+                type="button"
+                onClick={reapply}
+                disabled={isReapplying}
+                className="underline font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isReapplying ? 'Envoi en cours…' : 'Relancer ma candidature'}
+              </button>
+            </>
+          )}
+          {reapplyError && <div className="mt-1 text-[var(--font-size-body-sm)]">{reapplyError}</div>}
         </div>
       )}
     </>

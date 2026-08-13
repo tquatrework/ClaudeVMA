@@ -12,6 +12,7 @@
  * ici un cycle de vie de compte formateur. Deux domaines, deux tables.
  */
 
+import { formatLongDate } from './dateFormat'
 import type { TeacherValidationRecord, TeacherValidationState } from '../types/profile'
 
 export const TEACHER_VALIDATION_STATE_LABELS: Record<TeacherValidationState, string> = {
@@ -91,8 +92,8 @@ export function getOwnTeacherValidationMessage(
   }
 
   if (record.status === 'rejected') {
-    const rejectedYear = getRejectedYear(record)
-    if (rejectedYear === null) {
+    const reapplyDateLabel = getReapplyEligibleDateLabel(record)
+    if (reapplyDateLabel === null) {
       return {
         message: 'Votre candidature formateur n\'a pas été retenue. Vous pourrez vous représenter l\'année prochaine.',
         tone: 'rejected',
@@ -100,8 +101,8 @@ export function getOwnTeacherValidationMessage(
     }
     return {
       message:
-        `Votre candidature formateur n'a pas été retenue — année ${rejectedYear}. ` +
-        `Vous pourrez vous représenter en ${rejectedYear + 1}.`,
+        `Votre candidature formateur n'a pas été retenue. Vous pourrez vous représenter ` +
+        `à partir du ${reapplyDateLabel}.`,
       tone: 'rejected',
     }
   }
@@ -110,13 +111,31 @@ export function getOwnTeacherValidationMessage(
 }
 
 /**
- * Année de la dernière transition vers `rejected`, dérivée de `updatedAt` —
- * seul horodatage porté par l'enregistrement, mis à jour à chaque transition
- * de statut (`PATCH /profiles/:teacherId/validation`).
+ * Libellé français de `reapplyEligibleAt`, tel que renvoyé par le serveur
+ * (`GET /profiles/:teacherId/validation`) — porte la vraie règle (année
+ * scolaire, 1er août), le front ne la dérive plus depuis `updatedAt`.
+ *
+ * `formatLongDate` produit « 1 août 2026 » (jour cardinal) : on substitue « 1er »
+ * quand le jour vaut 1, seul cas réellement produit par la règle serveur, pour
+ * un français correct sans réécrire le formateur de date général.
  */
-function getRejectedYear(record: TeacherValidationRecord): number | null {
-  if (!record.updatedAt) return null
-  const parsedDate = new Date(record.updatedAt)
+function getReapplyEligibleDateLabel(record: TeacherValidationRecord): string | null {
+  if (!record.reapplyEligibleAt) return null
+  const parsedDate = new Date(record.reapplyEligibleAt)
   if (Number.isNaN(parsedDate.getTime())) return null
-  return parsedDate.getFullYear()
+  const longDateLabel = formatLongDate(record.reapplyEligibleAt)
+  return longDateLabel.startsWith('1 ') ? `1er ${longDateLabel.slice(2)}` : longDateLabel
+}
+
+/**
+ * Le formateur peut-il relancer une candidature dès maintenant ? Vrai
+ * uniquement pour un dossier `rejected` dont `reapplyEligibleAt` est passé
+ * (arbitrage du 2026-08-13). Avant cette date, seul le message d'échéance
+ * s'affiche — pas de bouton.
+ */
+export function isReapplyEligible(record: TeacherValidationRecord | null): boolean {
+  if (!record || record.status !== 'rejected' || !record.reapplyEligibleAt) return false
+  const parsedDate = new Date(record.reapplyEligibleAt)
+  if (Number.isNaN(parsedDate.getTime())) return false
+  return parsedDate.getTime() <= Date.now()
 }

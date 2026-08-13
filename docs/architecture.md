@@ -560,4 +560,38 @@ Phase 3 enrichit l'offre :
      verifier et corriger si besoin) — meme principe que « l'utilisateur lit son propre profil »
      (2026-08-07), applique ici a une entite liee au profil plutot qu'au profil lui-meme.
 
+- Reprise de candidature apres un refus formateur. Arbitrage rendu le 2026-08-13, sur demande de
+  l'utilisateur, en complement direct de l'arbitrage precedent. **Revise le point 3 ci-dessus** :
+  un blocage technique est desormais introduit, la ou l'arbitrage precedent l'excluait
+  explicitement — le bandeau promettant « vous pourrez vous representer l'annee prochaine » sans
+  aucun moyen de le faire, et sans aucune garde, aurait ete soit un mensonge, soit une porte
+  ouverte a une re-candidature immediate qui viderait la promesse de son sens.
+  1. **Annee scolaire : du 1er aout (inclus) au 31 juillet (inclus) de l'annee suivante.** Premiere
+     notion d'annee scolaire du projet — jusqu'ici seule l'annee civile existait (docs, factures,
+     etc.), aucun autre flux ne s'y refere. Calcul de l'echeance : un refus survenu un jour donne
+     appartient a l'annee scolaire qui le contient (aout de l'annee N a juillet N+1 si le refus
+     tombe entre aout et decembre de l'annee N, ou aout N-1 a juillet N si le refus tombe entre
+     janvier et juillet de l'annee N) ; la re-candidature devient possible au 1er aout suivant la
+     fin de cette annee scolaire.
+  2. **Le formateur relance lui-meme sa candidature** (self-service), des que l'echeance est
+     atteinte — pas de re-candidature portee par le RP en temps normal.
+  3. **L'echeance est calculee et verifiee cote serveur, jamais cote front.** Meme principe que
+     partout ailleurs dans ce projet : le front affiche, il ne decide pas.
+  4. **Le RP garde une voie de contournement** pour rouvrir une candidature avant l'echeance —
+     coherent avec le principe deja etabli que les blocages automatiques restent defaisables par
+     un role administratif (le TI peut deja forcer un changement en cas de blocage). Ce point est
+     la proposition retenue par l'orchestrateur, non confirmee mot pour mot par l'utilisateur —
+     a corriger si l'intention etait un blocage sans aucune exception.
+  5. **La re-candidature n'efface pas le refus precedent.** Meme regle que les consentements
+     (2026-08-09) et les relations (2026-08-11/12) : l'enregistrement de validation devient un
+     journal append-only, pas une ligne unique reecrite. Une nouvelle candidature ajoute une
+     nouvelle entree `pending`, l'entree `rejected` precedente reste intacte comme preuve. Le
+     statut courant se lit comme la derniere entree.
+  6. **`teacher-request-service` doit verifier le statut de validation aupres de
+     `profile-service` avant d'accepter un `teacherId`** dans `POST /requests/:requestId/proposals`
+     — refus explicite (400) si le formateur n'est pas `validated`, jamais une acceptation
+     silencieuse. Constat du 2026-08-13 : rien dans le contrat documente de cette route ne
+     mentionne aujourd'hui un tel controle ; le seul filtre existant est que l'annuaire du RP ne
+     liste que les formateurs valides — un filtre d'affichage cote front, pas une regle de droit.
+
 ## Points ouverts a arbitrer

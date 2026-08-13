@@ -426,6 +426,53 @@
             la table peut porter des lignes historiques dans cet etat).</item>
         </openPoints>
       </session>
+      <session date="2026-08-13" label="Seuls les formateurs valides peuvent recevoir une proposition">
+        <context>
+          Application du point 6 de l'arbitrage du 2026-08-13 (docs/architecture.md, « Reprise de
+          candidature apres un refus formateur ») : rien dans le contrat documente de
+          POST /requests/:requestId/proposals ne controlait le statut de validation d'un
+          teacherId avant envoi. Le seul filtre existant etait l'annuaire du RP
+          (GET /profiles/teachers/validated cote profile-service), qui ne liste que les formateurs
+          deja valides — un filtre d'affichage cote front, pas une regle de droit cote serveur. Un
+          RP pouvait donc envoyer une proposition a un formateur pending/in_review/rejected en
+          composant l'appel a la main (ou via un ecran obsolete).
+        </context>
+
+        <changeset id="controle-validation">
+          <item>src/teacher-request/clients/profile-service.client.ts — nouvelle methode
+            getTeacherValidationStatus(teacherId, context) : GET /profiles/:teacherId/validation
+            sur profile-service, avec le jeton de l'appelant relaye (cette route publique accepte
+            deja le RP par son role ; aucune route interne equivalente n'existe). Politique
+            d'echec alignee sur getRelations (regle de droit) : un echec REFUSE l'action
+            (ServiceUnavailableException), y compris quand aucun jeton d'appelant n'est
+            disponible a relayer — jamais un silence qui laisserait passer un formateur non
+            valide.</item>
+          <item>src/teacher-request/teacher-request.service.ts — TeacherRequestService.createProposals
+            appelle desormais assertTeachersAreValidated(dto.teacherIds, context) avant d'ouvrir
+            la transaction d'ecriture. Verifie TOUS les teacherIds de l'envoi groupe en parallele ;
+            si un seul n'est pas validated, la requete entiere est refusee en 400 (BadRequestException)
+            AVANT toute ecriture — l'envoi reste atomique, aucun envoi partiel. Le message cite les
+            NOMS des formateurs concernes (resolveDisplayNames), jamais leur UUID (arbitrage du
+            2026-08-09).</item>
+        </changeset>
+
+        <verification>
+          <item>142 tests unitaires (dont 9 nouveaux : 4 dans profile-service.client.spec.ts,
+            5 dans teacher-request.service.spec.ts) et 22 tests e2e (+3, base PostgreSQL locale
+            teacher_request_test) verts, plus nest build. Cas e2e couverts :
+            un formateur non valide refuse en 400 sans creer de ligne teacher_proposals ; un envoi
+            groupe ou un seul formateur sur deux n'est pas valide est refuse en entier, la demande
+            reste pending ; un envoi ou tous les formateurs sont valides est accepte.</item>
+        </verification>
+
+        <openPoints>
+          <item>Aucune route interne dediee n'existe pour lire un statut de validation (a la
+            difference de la resolution de nom ou des relations) : l'appel emprunte la route
+            publique avec le jeton du RP relaye. Si un appelant sans jeton relayable avait un jour
+            besoin de ce controle (job planifie, orchestrateur), une route interne serait a
+            ajouter cote profile-service plutot que de contourner le controle de role existant.</item>
+        </openPoints>
+      </session>
     </technicalSessions>
   </service>
 </serviceFunctionalSpecification>

@@ -52,6 +52,7 @@ describe('[E2E] Flow de la demande de professeur', () => {
     profileService.createdTeacherStudentLinks.length = 0;
     profileService.shouldFailLinkCreation = false;
     profileService.shouldConflictOnLinkCreation = false;
+    profileService.nonValidatedTeachers.clear();
     profileService.administrators.add(IDS.rp1);
   });
 
@@ -128,6 +129,54 @@ describe('[E2E] Flow de la demande de professeur', () => {
     expect(second.body.id).toBe(first.body.id);
     const [{ count }] = await dataSource.query('SELECT COUNT(*)::int AS count FROM teacher_requests');
     expect(count).toBe(1);
+  });
+
+  // ── Etape 3 : seuls les formateurs valides peuvent recevoir une proposition ─
+
+  it("refuse (400) la proposition a un formateur qui n'est pas valide", async () => {
+    profileService.nonValidatedTeachers.set(IDS.teacher1, 'pending');
+    const createdRequest = await createRequestAsStudent();
+
+    const response = await request(app.getHttpServer())
+      .post(`/requests/${createdRequest.id}/proposals`)
+      .set('Authorization', `Bearer ${rpToken}`)
+      .send({ teacherIds: [IDS.teacher1], message: 'Un eleve cherche un professeur' });
+
+    expect(response.status).toBe(400);
+    const [{ count }] = await dataSource.query(
+      'SELECT COUNT(*)::int AS count FROM teacher_proposals WHERE request_id = $1',
+      [createdRequest.id],
+    );
+    expect(count).toBe(0);
+  });
+
+  it("refuse en entier un envoi groupe des qu'un seul formateur du lot n'est pas valide (atomique)", async () => {
+    profileService.nonValidatedTeachers.set(IDS.teacher2, 'in_review');
+    const createdRequest = await createRequestAsStudent();
+
+    const response = await request(app.getHttpServer())
+      .post(`/requests/${createdRequest.id}/proposals`)
+      .set('Authorization', `Bearer ${rpToken}`)
+      .send({ teacherIds: [IDS.teacher1, IDS.teacher2], message: 'Un eleve cherche un professeur' });
+
+    expect(response.status).toBe(400);
+    const [{ count }] = await dataSource.query(
+      'SELECT COUNT(*)::int AS count FROM teacher_proposals WHERE request_id = $1',
+      [createdRequest.id],
+    );
+    expect(count).toBe(0);
+    const requestRow = await dataSource.query('SELECT status FROM teacher_requests WHERE id = $1', [
+      createdRequest.id,
+    ]);
+    expect(requestRow[0].status).toBe('pending');
+  });
+
+  it('accepte la proposition des que tous les formateurs du lot sont valides', async () => {
+    const createdRequest = await createRequestAsStudent();
+
+    const proposals = await sendProposals(createdRequest.id, [IDS.teacher1, IDS.teacher2]);
+
+    expect(proposals).toHaveLength(2);
   });
 
   // ── Etapes 2 a 6 : le flow complet ─────────────────────────────────────────

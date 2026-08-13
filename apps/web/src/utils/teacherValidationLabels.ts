@@ -12,7 +12,7 @@
  * ici un cycle de vie de compte formateur. Deux domaines, deux tables.
  */
 
-import type { TeacherValidationState } from '../types/profile'
+import type { TeacherValidationRecord, TeacherValidationState } from '../types/profile'
 
 export const TEACHER_VALIDATION_STATE_LABELS: Record<TeacherValidationState, string> = {
   pending: 'En attente de prise en charge',
@@ -55,4 +55,68 @@ export function canDecideFromState(status: TeacherValidationState): boolean {
 /** Le dossier peut-il être pris en charge (passage en `in_review`) ? */
 export function canTakeChargeFromState(status: TeacherValidationState): boolean {
   return status === 'pending'
+}
+
+/**
+ * Message affiché AU FORMATEUR LUI-MÊME à propos de son propre statut de
+ * validation (arbitrage du 2026-08-13, `docs/architecture.md` > « Visibilité du
+ * statut de validation, côté formateur »).
+ *
+ * `pending` et `in_review` se confondent volontairement : la distinction n'a de
+ * sens que pour le RP qui instruit le dossier, pas pour le formateur qui
+ * attend. `validated` n'affiche rien — aucune exigence posée par l'arbitrage.
+ *
+ * À ne pas confondre avec `user.validationStatus` (`AuthContext`) : celui-ci
+ * porte le statut du **compte** (consentements signés, identity-access-service)
+ * et alimente la bannière « Votre compte n'est pas encore activé » de
+ * `Layout.tsx`. Ici, la donnée vient de `profile-service` et porte le statut du
+ * **dossier formateur** instruit par le RP — deux données distinctes, un seul
+ * nom chacune.
+ */
+export interface OwnTeacherValidationMessage {
+  message: string
+  tone: 'pending' | 'rejected'
+}
+
+export function getOwnTeacherValidationMessage(
+  record: TeacherValidationRecord | null,
+): OwnTeacherValidationMessage | null {
+  if (!record) return null
+
+  if (record.status === 'pending' || record.status === 'in_review') {
+    return {
+      message: 'Votre dossier formateur est en attente de validation par notre équipe pédagogique.',
+      tone: 'pending',
+    }
+  }
+
+  if (record.status === 'rejected') {
+    const rejectedYear = getRejectedYear(record)
+    if (rejectedYear === null) {
+      return {
+        message: 'Votre candidature formateur n\'a pas été retenue. Vous pourrez vous représenter l\'année prochaine.',
+        tone: 'rejected',
+      }
+    }
+    return {
+      message:
+        `Votre candidature formateur n'a pas été retenue — année ${rejectedYear}. ` +
+        `Vous pourrez vous représenter en ${rejectedYear + 1}.`,
+      tone: 'rejected',
+    }
+  }
+
+  return null
+}
+
+/**
+ * Année de la dernière transition vers `rejected`, dérivée de `updatedAt` —
+ * seul horodatage porté par l'enregistrement, mis à jour à chaque transition
+ * de statut (`PATCH /profiles/:teacherId/validation`).
+ */
+function getRejectedYear(record: TeacherValidationRecord): number | null {
+  if (!record.updatedAt) return null
+  const parsedDate = new Date(record.updatedAt)
+  if (Number.isNaN(parsedDate.getTime())) return null
+  return parsedDate.getFullYear()
 }

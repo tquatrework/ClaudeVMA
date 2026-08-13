@@ -704,6 +704,20 @@ Transitions autorisées (toute autre transition, y compris vers le statut couran
 | PATCH | /profiles/:teacherId/validation | 🔒 | responsable_pedagogique, technicien_informatique | Changer le statut de validation d'un formateur. Body : `{status: "pending"\|"in_review"\|"validated"\|"rejected", comment?}` (`comment` ≤ 2000 caractères). Upsert : l'enregistrement est créé s'il n'existe pas encore | `200 {id, teacherId, status, validatedBy, validatorRole, comment, createdAt, updatedAt}` · `400` statut hors énumération · `401` · `403` rôle non autorisé **ou transition interdite pour ce rôle** (voir tableau ci-dessus) |
 | GET | /profiles/:teacherId/validation | 🔒 | responsable_pedagogique, technicien_informatique, administrateur_financier, formateur (soi-même) | Lire le statut de validation courant d'un formateur | `200 {id, teacherId, status, validatedBy, validatorRole, comment, createdAt, updatedAt}` · `200 {teacherId, status: "pending"}` **repli d'incohérence de données** si aucun enregistrement n'existe : depuis le 2026-08-12 ce n'est plus un état normal, et le serveur journalise « ANOMALIE DE DONNEES » · `401` · `403` autre formateur |
 
+**Lecture par le formateur lui-même, vérifiée le 2026-08-13** (arbitrage « Visibilité du statut de
+validation, côté formateur ») : `getTeacherValidation` autorisait déjà le titulaire à lire sa propre
+ligne (`actor.id === teacherId` court-circuite la liste de rôles), et aucun `@Roles()` ne restreint
+la route côté `TeacherValidationController` — c'était déjà en place et testé depuis la PR #102
+(2026-08-12), avant même que l'arbitrage ne soit rendu. Aucun code n'a été modifié ici.
+
+**Horodatage exploitable pour l'année de refus** : `updatedAt` est fiable pour dériver l'année de la
+dernière transition vers `rejected`. `rejected` est un état **terminal** — `assertValidationTransition`
+n'autorise aucune transition sortante depuis `rejected` — et `bootstrapTeacherValidation` (reprise de
+stock, rejeu d'inscription) ne réécrit **jamais** un enregistrement existant, quel que soit son
+statut. Une fois `rejected`, `updatedAt` ne bouge donc plus : `new Date(updatedAt).getFullYear()` sur
+la réponse de `GET /profiles/:teacherId/validation` donne l'année du refus, sans champ dédié à
+ajouter. Vérifié contre PostgreSQL réel le 2026-08-13.
+
 **Changement de contrat du 2026-08-12 sur `pending-validation`** — le front doit être rebranché :
 
 | | Avant | Après |

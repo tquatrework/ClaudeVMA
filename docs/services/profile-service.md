@@ -2399,6 +2399,58 @@
           rouge etant `[PROF-BR-010]`, preexistant et laisse a dessein.
         </verification>
       </decision>
+      <decision id="C23" status="verified-no-change" session="2026-08-13">
+        <title>Visibilite du statut de validation cote formateur — deja acquis par C21/#102, aucun code touche</title>
+        <filesTouched>
+          <file path="docs/routes.md">
+            Deux notes ajoutees sous la ligne `GET /profiles/:teacherId/validation` : la lecture par
+            le titulaire etait deja en place et testee avant l'arbitrage du 2026-08-13, et `updatedAt`
+            est l'horodatage exploitable pour l'annee de refus.
+          </file>
+        </filesTouched>
+        <description>
+          L'arbitrage du 2026-08-13 (docs/architecture.md, « Visibilite du statut de validation, cote
+          formateur ») partait du constat que la lecture etait « aujourd'hui reservee au RP et au TI ».
+          Verification faite : ce n'est plus le cas depuis la decision C21 / PR #102 (2026-08-12), soit
+          la veille de l'arbitrage.
+
+          1. `TeacherValidationController.getTeacherValidation` (GET /profiles/:teacherId/validation)
+             ne porte AUCUN `@Roles()` : `RolesGuard` laisse donc passer tout appelant authentifie et
+             delegue entierement la decision au service, exactement le motif documente dans
+             `roles.guard.ts` pour les routes pilotees par la propriete.
+          2. `ProfilesService.getTeacherValidation` autorise `RESPONSABLE_PEDAGOGIQUE`,
+             `TECHNICIEN_INFORMATIQUE`, `ADMINISTRATEUR_FINANCIER`, ET `actor.id === teacherId` — le
+             titulaire peut donc deja lire sa propre ligne, sans lecture pour aucun autre role (parent,
+             autre formateur).
+          3. Deux tests unitaires couvraient deja ce cas AVANT cette session :
+             `getTeacherValidation > teacher can view their own validation status` et
+             `> throws 403 when formateur tries to view another teacher validation`
+             (test/unit/profiles/profiles.service.spec.ts). Un test e2e couvrait deja le refus croise
+             (`un formateur ne peut pas lire le statut d'un autre`).
+          4. HORODATAGE POUR L'ANNEE DE REFUS : `updatedAt` (`@UpdateDateColumn`) convient sans ajout
+             de champ. `assertValidationTransition` n'autorise aucune transition SORTANTE depuis
+             `rejected` (les seules cibles listees sont `in_review`, `validated`, `rejected` depuis
+             `pending`/`in_review` — rien ne part de `rejected`), et `bootstrapTeacherValidation`
+             (reprise de stock, rejeu d'inscription) renvoie un enregistrement existant TEL QUEL sans
+             jamais le reecrire. Une fois `rejected`, `updatedAt` est donc stable : c'est bien
+             l'horodatage de la derniere transition vers `rejected`, pas une date de derniere
+             modification quelconque.
+          5. AUCUN CODE MODIFIE. Une preuve e2e ponctuelle a ete jouee contre PostgreSQL reel (fichier
+             temporaire, supprime apres execution, jamais committe) pour verifier le comportement de
+             bout en bout plutot que de se fier a la seule lecture du code : lecture par le titulaire
+             (200, `updatedAt` present), refus pour un autre formateur (403) et pour un parent (403),
+             puis transition vers `rejected` suivie d'une lecture par le titulaire confirmant
+             `status: "rejected"` et une annee derivable de `updatedAt`.
+        </description>
+        <verification>
+          640 tests unitaires verts, 33 tests e2e verts sur `teacher-validation.e2e-spec.ts` (aucun
+          modifie). Preuve ponctuelle contre PostgreSQL reel (`docker exec visiomath_postgres`, base
+          `profile_test`) : GET self pending -> `200 {..., updatedAt}` ; GET par un autre formateur ->
+          `403 "Vous ne pouvez consulter que votre propre statut de validation."` ; GET par un parent ->
+          meme `403` ; PATCH vers `rejected` puis GET self -> `200 {status:"rejected", updatedAt}`,
+          annee derivee `2026`.
+        </verification>
+      </decision>
       <openPoints>
         <item priority="high" status="to-do" raisedIn="C22" raisedOn="2026-08-12" owner="front">
           AUCUN ECRAN NE MET FIN A LA RELATION. La route est livree et prouvee, mais le point

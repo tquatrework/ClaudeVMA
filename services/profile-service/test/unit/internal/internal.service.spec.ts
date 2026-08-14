@@ -78,6 +78,7 @@ describe('InternalService', () => {
           studentId,
           coordinatorRole,
         })),
+      getFinanceOwnersByStudent: jest.fn().mockResolvedValue([]),
     };
 
     administrativeProfileLookup = {
@@ -571,6 +572,69 @@ describe('InternalService', () => {
       );
       const dto = { coordinatorId: 'rp-uuid', studentId: 'student-uuid', coordinatorRole: 'responsable_pedagogique' };
       await expect(service.linkCoordinator(dto)).rejects.toThrow(ConflictException);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // getFinanceOwnersByStudent — arbitrage du 2026-08-14, point 5
+  // ---------------------------------------------------------------------------
+  describe('getFinanceOwnersByStudent', () => {
+    it('délègue à RelationsService.getFinanceOwnersByStudent et ne renvoie que les userId', async () => {
+      relationsService.getFinanceOwnersByStudent.mockResolvedValue([
+        {
+          financeOwnerId: 'parent-1-uuid',
+          studentId: 'student-uuid',
+          financeOwnerName: { firstName: 'Marie', lastName: 'Dupont' },
+        },
+        {
+          financeOwnerId: 'parent-2-uuid',
+          studentId: 'student-uuid',
+          financeOwnerName: null,
+        },
+      ]);
+
+      const result = await service.getFinanceOwnersByStudent('student-uuid');
+
+      expect(relationsService.getFinanceOwnersByStudent).toHaveBeenCalledWith(
+        'student-uuid',
+        expect.objectContaining({ role: UserRole.RESPONSABLE_PEDAGOGIQUE }),
+      );
+      expect(result).toEqual({
+        studentId: 'student-uuid',
+        financeOwnerUserIds: ['parent-1-uuid', 'parent-2-uuid'],
+      });
+    });
+
+    /**
+     * Périmètre volontairement étroit (arbitrage du 2026-08-14) : ni nom, ni
+     * statut de lien ne doivent fuiter par cette route. Un ajout de champ ici
+     * serait une régression du même genre que sur `resolveDisplayName`.
+     */
+    it('ne renvoie que studentId et financeOwnerUserIds, rien d’autre', async () => {
+      relationsService.getFinanceOwnersByStudent.mockResolvedValue([
+        { financeOwnerId: 'parent-1-uuid', studentId: 'student-uuid', financeOwnerName: null },
+      ]);
+
+      const result = await service.getFinanceOwnersByStudent('student-uuid');
+
+      expect(Object.keys(result).sort()).toEqual(['financeOwnerUserIds', 'studentId']);
+    });
+
+    it("renvoie une liste vide quand l'élève n'a aucun parent financeur actif", async () => {
+      relationsService.getFinanceOwnersByStudent.mockResolvedValue([]);
+
+      const result = await service.getFinanceOwnersByStudent('student-sans-parent-uuid');
+
+      expect(result).toEqual({
+        studentId: 'student-sans-parent-uuid',
+        financeOwnerUserIds: [],
+      });
+    });
+
+    it('propage les erreurs levées par RelationsService', async () => {
+      relationsService.getFinanceOwnersByStudent.mockRejectedValue(new Error('boom'));
+
+      await expect(service.getFinanceOwnersByStudent('student-uuid')).rejects.toThrow('boom');
     });
   });
 });

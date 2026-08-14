@@ -407,4 +407,57 @@ export class InternalService {
       relations: isSelf ? [] : await this.relationsService.resolveRelations(viewerId, targetId),
     };
   }
+
+  /**
+   * LECTURE des parents financeurs d'un élève, POUR UN APPEL INTERSERVICES —
+   * arbitrage du 2026-08-14 (`docs/architecture.md` > « Systeme de
+   * notifications transversal », point 5).
+   *
+   * Premier consommateur : `dashboard-notification-service`, qui doit pouvoir
+   * notifier les parents financeurs d'un élève (ex. professeur validé pour cet
+   * élève) sans détenir de jeton utilisateur humain — `RelationsService`
+   * n'était accessible que via `GET /relations/finance-owner-student/by-student/:studentId`,
+   * protégée par `JwtAuthGuard`.
+   *
+   * RÉUTILISE `RelationsService.getFinanceOwnersByStudent`, propriétaire de la
+   * donnée et de sa logique de sélection (liens actifs uniquement), au lieu de
+   * la dupliquer. Cette méthode exige un `Actor` pour son contrôle de droit
+   * humain (self ou rôle privilégié) : comme il n'y a ici aucun acteur humain,
+   * l'appel est fait avec un acteur système portant un rôle privilégié
+   * (`RESPONSABLE_PEDAGOGIQUE`) — l'autorisation réelle de cette route est déjà
+   * tranchée en amont par `InternalGuard` (X-Internal-Secret), au même titre
+   * que les autres routes `/internal/*`.
+   *
+   * PÉRIMÈTRE VOLONTAIREMENT ÉTROIT : ne renvoie que les `userId`, jamais les
+   * noms ni le statut du lien — la résolution de nom passe par la route dédiée
+   * `GET /internal/profiles/:userId/display-name` / `POST /internal/profiles/display-names`,
+   * séparément.
+   */
+  async getFinanceOwnersByStudent(studentId: string): Promise<{
+    studentId: string;
+    financeOwnerUserIds: string[];
+  }> {
+    const links = await this.relationsService.getFinanceOwnersByStudent(
+      studentId,
+      INTERNAL_SYSTEM_ACTOR,
+    );
+    return {
+      studentId,
+      financeOwnerUserIds: links.map((link) => link.financeOwnerId),
+    };
+  }
 }
+
+/**
+ * Acteur synthétique utilisé UNIQUEMENT pour satisfaire la signature `Actor`
+ * de méthodes de `RelationsService` réutilisées par des routes `/internal/*`
+ * sans acteur humain. `id` n'a aucune signification (aucun `studentId` ne
+ * peut jamais l'égaler par construction, un UUID nul n'étant attribué à
+ * personne) ; `role` est privilégié pour que le contrôle de droit interne à
+ * `RelationsService` s'efface — l'autorisation réelle est celle
+ * d'`InternalGuard`, en amont.
+ */
+const INTERNAL_SYSTEM_ACTOR: { id: string; role: UserRole } = {
+  id: '00000000-0000-0000-0000-000000000000',
+  role: UserRole.RESPONSABLE_PEDAGOGIQUE,
+};

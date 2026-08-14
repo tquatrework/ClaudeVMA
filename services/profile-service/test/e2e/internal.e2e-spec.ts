@@ -14,6 +14,7 @@
  *   POST /internal/link-coordinator
  *   GET  /internal/profiles/:userId/display-name
  *   POST /internal/profiles/display-names
+ *   GET  /internal/relations/finance-owners/:studentId
  *
  * Source : docs/services/profile-service.md — section InternalController
  */
@@ -710,6 +711,114 @@ describe('[E2E] Internal routes', () => {
         });
 
       expect(res.status).toBe(400);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────
+  // GET /internal/relations/finance-owners/:studentId
+  //
+  // Arbitrage du 2026-08-14 (« Systeme de notifications transversal », point
+  // 5) : dashboard-notification-service doit retrouver les parents financeurs
+  // d'un élève sans jeton utilisateur humain, pour les notifier (ex. professeur
+  // validé pour cet élève). Réutilise RelationsService.getFinanceOwnersByStudent.
+  // ──────────────────────────────────────────────────────────────
+
+  describe('GET /internal/relations/finance-owners/:studentId', () => {
+    beforeAll(async () => {
+      await request(app.getHttpServer())
+        .post('/internal/link-parent')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ studentId: IDS.studentWithFinanceOwners, financeOwnerId: IDS.financeOwnerA });
+
+      await request(app.getHttpServer())
+        .post('/internal/link-parent')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ studentId: IDS.studentWithFinanceOwners, financeOwnerId: IDS.financeOwnerB });
+    });
+
+    it('Renvoie {studentId, financeOwnerUserIds} avec les deux parents liés → 200', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/internal/relations/finance-owners/${IDS.studentWithFinanceOwners}`)
+        .set('x-internal-secret', INTERNAL_SECRET);
+
+      expect(res.status).toBe(200);
+      expect(res.body.studentId).toBe(IDS.studentWithFinanceOwners);
+      expect(res.body.financeOwnerUserIds.sort()).toEqual(
+        [IDS.financeOwnerA, IDS.financeOwnerB].sort(),
+      );
+    });
+
+    /**
+     * Garde-fou du périmètre volontairement étroit (arbitrage du 2026-08-14,
+     * point 5) : ni nom, ni statut de lien ne doivent sortir de cette route.
+     */
+    it('Ne renvoie que studentId et financeOwnerUserIds, rien d’autre', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/internal/relations/finance-owners/${IDS.studentWithFinanceOwners}`)
+        .set('x-internal-secret', INTERNAL_SECRET);
+
+      expect(res.status).toBe(200);
+      expect(Object.keys(res.body).sort()).toEqual(['financeOwnerUserIds', 'studentId']);
+    });
+
+    it("Élève sans parent financeur → 200 avec une liste vide, jamais une erreur", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/internal/relations/finance-owners/${IDS.studentWithoutFinanceOwners}`)
+        .set('x-internal-secret', INTERNAL_SECRET);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        studentId: IDS.studentWithoutFinanceOwners,
+        financeOwnerUserIds: [],
+      });
+    });
+
+    it('studentId non-UUID → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/internal/relations/finance-owners/pas-un-uuid')
+        .set('x-internal-secret', INTERNAL_SECRET);
+
+      expect(res.status).toBe(400);
+    });
+
+    it('Sans x-internal-secret → 401', async () => {
+      const res = await request(app.getHttpServer()).get(
+        `/internal/relations/finance-owners/${IDS.studentWithFinanceOwners}`,
+      );
+
+      expect(res.status).toBe(401);
+    });
+
+    it('Avec un secret incorrect → 401', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/internal/relations/finance-owners/${IDS.studentWithFinanceOwners}`)
+        .set('x-internal-secret', WRONG_SECRET);
+
+      expect(res.status).toBe(401);
+    });
+
+    it('Un JWT ne remplace pas le secret interne → 401', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/internal/relations/finance-owners/${IDS.studentWithFinanceOwners}`)
+        .set('Authorization', `Bearer ${makeJwt(IDS.rp1, 'responsable_pedagogique')}`);
+
+      expect(res.status).toBe(401);
+    });
+
+    /**
+     * Le segment littéral `finance-owners` ne doit jamais être capturé comme
+     * `:viewerId` par `GET /internal/relations/:viewerId/:targetId` — vérifié
+     * en positif ici : la route dédiée répond bien la forme attendue, pas
+     * `{viewerId, targetId, isSelf, isAdministrator, relations}`.
+     */
+    it("N'est pas confondue avec GET /internal/relations/:viewerId/:targetId", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/internal/relations/finance-owners/${IDS.studentWithFinanceOwners}`)
+        .set('x-internal-secret', INTERNAL_SECRET);
+
+      expect(res.status).toBe(200);
+      expect(res.body).not.toHaveProperty('viewerId');
+      expect(res.body).not.toHaveProperty('relations');
     });
   });
 

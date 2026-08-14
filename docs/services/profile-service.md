@@ -59,6 +59,8 @@
       <endpoint method="POST" path="/relations/animator-teacher">Rattacher un AP a un formateur qu'il anime (role : responsable_pedagogique SEUL).</endpoint>
       <endpoint method="GET" path="/relations/animator-teacher/{animatorId}">Lister les formateurs animes par un AP (RP, TI, AP lui-meme).</endpoint>
       <endpoint method="GET" path="/internal/relations/{viewerId}/{targetId}">Nature et SENS des relations entre deux personnes, pour un service appelant (archive-document-service). X-Internal-Secret ; query viewerRole obligatoire.</endpoint>
+      <!-- Resolution des parents financeurs — decision C24 (2026-08-14) -->
+      <endpoint method="GET" path="/internal/relations/finance-owners/{studentId}">Parents financeurs (userId uniquement, aucun nom) d'un eleve, pour un service appelant (dashboard-notification-service). X-Internal-Secret. Reutilise RelationsService.getFinanceOwnersByStudent (liens actifs uniquement). DECLAREE AVANT la route generique ci-dessus dans le controleur pour eviter que 'finance-owners' soit capture comme :viewerId. Jamais exposee par api-gateway.</endpoint>
       <!-- Resolution de nom entre services — decision C18 (2026-08-12) -->
       <endpoint method="GET" path="/internal/profiles/{userId}/display-name">Prenom et nom d'une personne, pour un service appelant (teacher-request-service). X-Internal-Secret. CONTRAT FIGE : firstName et lastName UNIQUEMENT, jamais un champ de plus — servie sans lecteur et sans filtrage champ par champ, tout ajout en ferait une porte derobee. Jamais exposee par api-gateway.</endpoint>
       <endpoint method="POST" path="/internal/profiles/display-names">Meme contrat PAR LOT ({userIds}, 200 maximum), pour qu'une liste ne coute pas un appel HTTP par ligne. Les userIds non resolus sont absents de la reponse.</endpoint>
@@ -2449,6 +2451,80 @@
           `403 "Vous ne pouvez consulter que votre propre statut de validation."` ; GET par un parent ->
           meme `403` ; PATCH vers `rejected` puis GET self -> `200 {status:"rejected", updatedAt}`,
           annee derivee `2026`.
+        </verification>
+      </decision>
+      <decision id="C24" status="implemented" session="2026-08-14">
+        <title>GET /internal/relations/finance-owners/:studentId — resolution des parents financeurs pour dashboard-notification-service</title>
+        <filesTouched>
+          <file path="services/profile-service/src/internal/internal.controller.ts">
+            Nouvelle route `GET /internal/relations/finance-owners/:studentId`, declaree AVANT
+            `GET /internal/relations/:viewerId/:targetId` : meme nombre de segments, `:viewerId`
+            capturerait sinon silencieusement le litteral `finance-owners`.
+          </file>
+          <file path="services/profile-service/src/internal/internal.service.ts">
+            `InternalService.getFinanceOwnersByStudent(studentId)` : appelle
+            `RelationsService.getFinanceOwnersByStudent(studentId, actor)` avec un acteur systeme
+            synthetique (`INTERNAL_SYSTEM_ACTOR`, role privilegie) puisque cette methode exige un
+            `Actor` pour son controle de droit humain (self ou role privilegie) et qu'il n'y a ici
+            aucun acteur humain — l'autorisation reelle de la route est deja tranchee en amont par
+            `InternalGuard`. Projette le resultat vers `{studentId, financeOwnerUserIds: string[]}`,
+            en ne gardant que `financeOwnerId` de chaque lien.
+          </file>
+          <file path="services/profile-service/test/unit/internal/internal.service.spec.ts">
+            Mock `relationsService.getFinanceOwnersByStudent` ajoute ; 4 tests : delegation avec
+            l'acteur systeme, perimetre etroit de la reponse, liste vide, propagation d'erreur.
+          </file>
+          <file path="services/profile-service/test/e2e/internal.e2e-spec.ts">
+            8 tests contre PostgreSQL reel : 2 parents lies -&gt; les deux `userId` ; perimetre
+            etroit (aucune cle en plus) ; eleve sans parent -&gt; liste vide ; `studentId` non-UUID
+            -&gt; 400 ; sans secret -&gt; 401 ; secret errone -&gt; 401 ; JWT humain refuse -&gt; 401 ;
+            non-confusion avec la route generique `:viewerId/:targetId` (verifie que la reponse ne
+            porte ni `viewerId` ni `relations`).
+          </file>
+          <file path="services/profile-service/test/e2e/helpers/app.helper.ts">
+            4 nouveaux `IDS` dedies (`studentWithFinanceOwners`, `financeOwnerA`, `financeOwnerB`,
+            `studentWithoutFinanceOwners`), isoles des IDs deja mobilises ailleurs dans le fichier
+            pour ne pas dependre de l'ordre d'execution des tests.
+          </file>
+          <file path="docs/routes.md">Route ajoutee, avant la route generique existante.</file>
+        </filesTouched>
+        <description>
+          Arbitrage du 2026-08-14 (`docs/architecture.md` &gt; « Systeme de notifications
+          transversal (cloche front) », point 5), demande explicitement par l'orchestrateur en
+          preparation de `dashboard-notification-service`.
+
+          BESOIN : notifier les parents financeurs d'un eleve (ex. professeur valide pour cet
+          eleve) suppose de retrouver leurs `userId` a partir d'un `studentId`.
+          `RelationsService.getFinanceOwnersByStudent` fait deja ce travail mais n'etait exposee
+          que par `GET /relations/finance-owner-student/by-student/:studentId`, protegee par
+          `JwtAuthGuard` — inatteignable par un appel interservice sans jeton utilisateur humain.
+
+          PERIMETRE VOLONTAIREMENT ETROIT, comme les autres routes `/internal/*` de resolution
+          (`display-name`, `resolveRelation`) : `userId` uniquement, jamais de nom ni de statut de
+          lien. Les noms se resolvent separement via les routes de resolution de nom deja
+          existantes — melanger les deux aurait recreer la porte derobee que ces routes evitent
+          deliberement.
+
+          REUTILISE `RelationsService.getFinanceOwnersByStudent` sans dupliquer sa logique (ne
+          lit que les liens `endedAt IS NULL`, donc un parent delie n'apparait plus — coherent
+          avec l'arbitrage du 2026-08-11 sur la rupture d'un lien). Cette methode attend un
+          `Actor` humain pour son controle de droit (privilegie ou `actor.id === studentId`) ; un
+          acteur systeme synthetique avec un role privilegie (`RESPONSABLE_PEDAGOGIQUE`) satisfait
+          ce controle sans en biaiser le resultat — `getFinanceOwnersByStudent` ne filtre pas les
+          LIENS selon l'acteur une fois le controle de droit passe, seulement l'ACCES a la route.
+
+          ORDRE DE DECLARATION DANS LE CONTROLEUR : point de vigilance explicite en commentaire et
+          verifie par un test e2e dedie — `finance-owners` et `:viewerId` ont le meme nombre de
+          segments, Express/Nest resout dans l'ordre de declaration et non par specificite du
+          segment. Une route parametree declaree avant une route a segment litteral capturerait ce
+          dernier silencieusement.
+        </description>
+        <verification>
+          65 tests e2e verts sur `internal.e2e-spec.ts` (dont les 8 nouveaux), contre PostgreSQL
+          reel (testcontainers). 648 tests unitaires verts au total. Suite e2e complete du service
+          rejouee : 359 verts, 1 echec preexistant et non lie
+          (`profiles.e2e-spec.ts` &gt; note interne par un administrateur financier, confirme
+          identique sur la copie non modifiee via `git stash`).
         </verification>
       </decision>
       <openPoints>

@@ -5,6 +5,32 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-14 — système de notifications (cloche front)
+
+Demande directe de l'utilisateur : mettre en place les notifications pour chaque flow (en
+premier lieu le flow demande de professeur, cf. section « Suite immédiate — les notifications
+(étape 7) » ci-dessous, laissée ouverte le 2026-08-12). Accessible via une cloche au niveau du
+front, avec un compteur de non-lues, et chaque ligne cliquable bascule de non-lue à lue. Les
+types de notification (événements déclencheurs) doivent être modélisés en base, pas codés en dur
+dans un texte libre.
+
+### Comment on saura que c'est fait
+
+Réponse HTTP citée contre `https://claudevma.visioprof.fr` montrant : une notification créée par
+un événement réel du flow demande de professeur, le compteur de non-lues qui reflète son
+existence, et son passage à lue par clic. Capture d'écran de la cloche si le front est
+vérifiable en session.
+
+### État
+
+- [ ] Recherche du contrat existant (outbox `teacher-request-service`, état actuel
+      `dashboard-notification-service`, gateway, front) — en cours
+- [ ] Architecture du contrat interservice arbitrée et écrite dans `docs/architecture.md`
+- [ ] Codé et committé
+- [ ] Déployé sur la pile réelle
+- [ ] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur
+
 ## Besoin — 2026-08-12/13 — fin d'une relation élève↔formateur
 
 Arbitrage rendu le 2026-08-12 dans `docs/architecture.md` (« Fin d'une relation

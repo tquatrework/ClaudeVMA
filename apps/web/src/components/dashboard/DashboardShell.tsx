@@ -8,6 +8,7 @@ import type { NavItem, RailGroup } from '../../types/navigation'
 import { DashboardMobileRailDrawer } from './DashboardMobileRailDrawer'
 import { DashboardMobileTopMenu } from './DashboardMobileTopMenu'
 import { AccountStatusBanners } from '../layout/AccountStatusBanners'
+import { NotificationBell } from '../layout/NotificationBell'
 
 interface DashboardShellProps {
   accentClass: string
@@ -114,15 +115,8 @@ export default function DashboardShell({
 
         {/* Avatar / profil */}
         <div className="flex items-center gap-2 shrink-0 pr-1">
-          {/* Icône notifications */}
-          <Link
-            to="/notifications"
-            title="Notifications"
-            aria-label="Notifications"
-            className="flex items-center justify-center w-[30px] h-[30px] rounded-[var(--radius-field)] text-[color:var(--color-text-secondary)] no-underline text-[17px] transition-colors duration-150 ease-in-out shrink-0 vm-avatar-name"
-          >
-            🔔
-          </Link>
+          {/* Notifications */}
+          <NotificationBell />
 
           <Link
             to={user ? `/profiles/${user.id}` : '/dashboard'}

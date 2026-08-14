@@ -13,6 +13,7 @@ const mockNotificationRepository = () => ({
   findOne: jest.fn(),
   find: jest.fn(),
   findAndCount: jest.fn(),
+  count: jest.fn(),
   update: jest.fn(),
   remove: jest.fn(),
 });
@@ -178,6 +179,27 @@ describe('NotificationService', () => {
       expect(notificationRepository.find).toHaveBeenCalledWith(
         expect.objectContaining({ take: 5 }),
       );
+    });
+  });
+
+  describe('countUnread', () => {
+    it('counts only the actor own unread notifications', async () => {
+      const actor = buildActor();
+      notificationRepository.count.mockResolvedValue(4);
+
+      const result = await notificationService.countUnread(actor);
+
+      expect(notificationRepository.count).toHaveBeenCalledWith({ where: { userId: actor.id, isRead: false } });
+      expect(result).toEqual({ count: 4 });
+    });
+
+    it('returns zero when there are no unread notifications', async () => {
+      const actor = buildActor();
+      notificationRepository.count.mockResolvedValue(0);
+
+      const result = await notificationService.countUnread(actor);
+
+      expect(result).toEqual({ count: 0 });
     });
   });
 

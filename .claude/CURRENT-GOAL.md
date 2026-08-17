@@ -5,6 +5,35 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## RÈGLE PERMANENTE — 2026-08-17 — pas de changement de menu sans approbation
+
+L'utilisateur a explicitement demandé : ne plus ajouter d'élément au menu du haut ni au rail
+latéral gauche sans son approbation préalable explicite. Il tient à sa structure de navigation
+initiale. Voir mémoire `feedback-no-menu-changes-without-approval`. Cette règle s'applique à
+toute délégation future à `front-developper` : proposer, ne pas ajouter directement.
+
+## Besoin — 2026-08-17 — retirer FAMILLE/Mes parents financeurs du rail gauche élève
+
+Demande explicite de l'utilisateur : l'entrée de rail latéral gauche « FAMILLE / Mes parents
+financeurs » côté élève doit être retirée. Cette information (qui finance l'élève) doit rester
+consultable **uniquement via le profil**, pas comme entrée de navigation dédiée. Voir mémoire
+`feedback-remove-family-finance-owners-menu`.
+
+### Comment on saura que c'est fait
+
+Capture d'écran du rail gauche élève sur `https://claudevma.visioprof.fr` montrant l'absence de
+cette entrée, et confirmation que l'information reste accessible depuis le profil de l'élève.
+
+### État
+
+- [ ] Localiser l'entrée dans le rail gauche (front)
+- [ ] Retirer l'entrée de navigation, sans retirer l'information du profil
+- [ ] Déployé sur la pile réelle
+- [ ] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur
+
+---
+
 ## Besoin — 2026-08-17 — le formateur ne trouve pas où gérer une proposition reçue
 
 Constat direct de l'utilisateur, en testant le flow demande professeur : élève (`eleve.sixieme`)

@@ -65,7 +65,10 @@ assertion que l'URL devient `/teacher-requests`, puis que les boutons « Me port
 - [x] Preuve livrée à l'utilisateur — test Playwright + captures ci-dessus, sur la branche
       `fix/front-acceptation-proposition-formateur` (poussée, non mergée sur décision de
       l'utilisateur)
-- [ ] Validé par l'utilisateur
+- [x] Validé par l'utilisateur — 2026-08-17 : « la demande existe dans "Propositions reçues" [...]
+      je valide pour l'instant ». Confirme aussi que le besoin réel était bien le lien depuis la
+      notification (« il faut inclure dans les notifications, un lien vers ce menu ») — exactement
+      ce que corrige `getNotificationTargetPath`.
 
 ---
 

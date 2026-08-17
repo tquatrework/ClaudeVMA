@@ -5,6 +5,35 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-17 — réorganisation du rail gauche formateur (COURS / SUIVI)
+
+Demande explicite de l'utilisateur (donc conforme à la règle permanente posée le 2026-08-17 sur
+les menus — approbation explicite obtenue ici) :
+
+1. Dans le groupe **COURS** du rail gauche formateur, l'entrée **« Demandes ouvertes »** fait
+   doublon avec « Propositions reçues » du groupe SUIVI, sans que l'utilisateur sache à quoi elle
+   correspond. Supprimer « Demandes ouvertes » et la remplacer, dans le groupe COURS, par
+   **« Propositions reçues »** (même destination que l'entrée SUIVI existante).
+2. Conséquence dans le groupe **SUIVI** : il ne doit plus rester que « Cahier de texte » et
+   « Mes élèves » (l'entrée « Propositions reçues » déménage vers COURS). Inverser leur ordre :
+   **« Mes élèves » d'abord, puis « Cahier de texte »**.
+
+### Comment on saura que c'est fait
+
+Capture d'écran du rail gauche formateur sur `https://claudevma.visioprof.fr` montrant : COURS
+avec « Propositions reçues » (plus de « Demandes ouvertes ») et SUIVI avec « Mes élèves » puis
+« Cahier de texte », dans cet ordre.
+
+### État
+
+- [ ] Localiser les entrées dans la config de navigation front
+- [ ] Appliquer les changements (COURS et SUIVI)
+- [ ] Déployé sur la pile réelle
+- [ ] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur
+
+---
+
 ## Besoin — 2026-08-17 — le formateur ne trouve pas où gérer une proposition reçue
 
 Constat direct de l'utilisateur, en testant le flow demande professeur : élève (`eleve.sixieme`)

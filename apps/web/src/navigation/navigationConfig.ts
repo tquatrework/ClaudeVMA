@@ -65,10 +65,10 @@ export const TOP_NAV_CONFIG: TopNavItem[] = [
     id: 'demandes',
     label: 'Demandes',
     path: '/teacher-requests',
-    // L'élève est le premier acteur du flow — c'est lui qui demande un professeur.
-    // Il n'avait pourtant aucune entrée de navigation vers ses demandes, alors que
-    // `.claude/design/front-design.md` la prévoit pour « élève, parent, RP ».
-    allowedRoles: ['eleve', 'parent_financeur', 'responsable_pedagogique'],
+    // Retiré du rôle élève le 2026-08-17 (demande explicite utilisateur) : l'entrée
+    // vit désormais dans le rail gauche élève, sous le nom « Demandes professeurs »,
+    // juste sous « Visio ». Conservée ici pour parent_financeur et responsable_pedagogique.
+    allowedRoles: ['parent_financeur', 'responsable_pedagogique'],
   },
   {
     id: 'archives',
@@ -152,6 +152,10 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
       groupLabel: 'Cours',
       items: [
         { label: 'Visio', path: '/activities', icon: '🎥' },
+        // Déplacé depuis le menu du haut le 2026-08-17 (demande explicite utilisateur) :
+        // l'entrée « Demandes » du menu du haut, côté élève, devient « Demandes
+        // professeurs » ici, juste sous « Visio ». Route inchangée.
+        { label: 'Demandes professeurs', path: '/teacher-requests', icon: '🎓' },
         { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
         { label: 'Mémo', path: '/memos', icon: '💡' },
         { label: 'Carnet personnel', path: '/notebook/', icon: '📓' },

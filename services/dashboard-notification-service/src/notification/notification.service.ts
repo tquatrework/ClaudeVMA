@@ -61,6 +61,12 @@ export class NotificationService {
     return notifications.map((notification) => NotificationResponseDto.fromEntity(notification));
   }
 
+  /** Use case: count the actor's unread notifications, for the front's bell badge. */
+  async countUnread(actor: Actor): Promise<{ count: number }> {
+    const count = await this.notificationRepository.count({ where: { userId: actor.id, isRead: false } });
+    return { count };
+  }
+
   /** Use case: mark one of the actor's own notifications as read. */
   async markAsRead(id: string, actor: Actor): Promise<NotificationResponseDto> {
     const notification = await this.notificationRepository.findOne({ where: { id, userId: actor.id } });

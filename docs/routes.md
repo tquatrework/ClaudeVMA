@@ -1268,8 +1268,17 @@ Préfixes gateway : `/api/v1/notifications` · `/api/v1/dashboard` (🔒) → da
 | Méthode | Chemin | Description | Auth |
 |---|---|---|---|
 | GET | /notifications | Lister mes notifications | 🔒 |
+| GET | /notifications/unread-count | Compter mes notifications non lues (badge de la cloche front) — chargé une fois au montage, mis à jour localement après chaque lecture, pas de polling (arbitrage du 2026-08-14, point 10) | 🔒 |
 | POST | /notifications/:id/read | Marquer une notification comme lue | 🔒 |
 | DELETE | /notifications/:id | Supprimer une notification | 🔒 |
+
+Réponse `GET /notifications/unread-count` : `200 {count: number}`.
+
+`title`/`message` de `NotificationResponseDto` sont désormais **nullables** (2026-08-14) : les
+notifications produites par le consommateur du flux Redis (voir ci-dessous) laissent ces deux
+champs à `null` et portent leur contenu structuré dans `metadata` uniquement — un seul point de
+traduction technique→français, côté front (règle du 2026-08-09). Les notifications créées via
+`POST /internal/notify` (orchestrateur) continuent de porter `title`/`message`, inchangé.
 
 ### Tableaux de bord
 
@@ -1279,6 +1288,33 @@ Préfixes gateway : `/api/v1/notifications` · `/api/v1/dashboard` (🔒) → da
 | PUT | /dashboards/me/preferences | Mettre à jour les préférences | 🔒 |
 
 API interne (non exposée via nginx) : `POST /internal/initialize-dashboard`, `POST /internal/notify` — protégées par `X-Internal-Secret`.
+
+### Consommateur d'événements — flux Redis `visiomath:events`
+
+> Ajouté le 2026-08-14 (`docs/architecture.md` > « Systeme de notifications transversal »).
+> Ce n'est pas une route HTTP : `dashboard-notification-service` s'abonne au flux Redis déjà
+> produit par `teacher-request-service` (`XADD`, boîte d'envoi `domain_events`), via un groupe de
+> consommateurs nommé `dashboard-notification-service` (`XGROUP`/`XREADGROUP`/`XACK`). Démarré
+> depuis le **début** du flux (`0`, pas `$`) pour ne perdre aucun événement publié avant que ce
+> consommateur n'existe — sûr grâce à la déduplication par `eventId` (table `processed_events`).
+> Une passe périodique (`@nestjs/schedule`, toutes les 30s, `XAUTOCLAIM`) réclame les entrées
+> restées non acquittées plus de 60s (crash, ou échec transitoire d'un appel à profile-service) et
+> les rejoue.
+>
+> Types traités, et destinataire(s) : `TeacherRequestCreated` → rôle RP · `TeacherProposalSent` →
+> le formateur sollicité · `TeacherProposalAccepted`/`TeacherProposalDeclined` → rôle RP ·
+> `TeacherProposalNotSelected`/`TeacherProposalExpired` → le formateur concerné ·
+> `TeacherAssigned`/`MainTeacherAssigned` (legacy) → le formateur choisi, l'élève, et chaque parent
+> financeur (résolus via `GET /internal/relations/finance-owners/:studentId` sur profile-service)
+> · `TeacherRequestStatusUpdated` → l'élève et ses parents financeurs · `TeacherRequestClosed` et
+> `TeacherRequestDeleted` → aucune notification. Tout `eventName` non reconnu est journalisé en
+> avertissement puis acquitté sans effet — un type inconnu ne doit jamais bloquer le flux.
+>
+> Avant de créer une notification, les noms sont résolus via `GET /internal/profiles/:userId/display-name`
+> / `POST /internal/profiles/display-names` sur profile-service (jamais d'UUID stocké comme donnée
+> d'affichage) et stockés dans `metadata`. **Si la résolution de nom ou des parents financeurs
+> échoue, l'entrée du flux n'est pas acquittée** (retry via XAUTOCLAIM) plutôt que de publier une
+> notification dégradée — voir `EventProcessorService`.
 
 ---
 

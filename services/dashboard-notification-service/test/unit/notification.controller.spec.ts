@@ -7,6 +7,7 @@ import { JwtAuthGuard } from '../../src/common/guards/jwt-auth.guard';
 
 const mockNotificationService = () => ({
   findByUser: jest.fn(),
+  countUnread: jest.fn(),
   markAsRead: jest.fn(),
   remove: jest.fn(),
 });
@@ -51,6 +52,18 @@ describe('NotificationController', () => {
 
       expect(service.findByUser).toHaveBeenCalledWith({ id: user.id, role: user.role }, { page: 1, limit: 20 });
       expect(result).toBe(expectedResponse);
+    });
+  });
+
+  describe('unreadCount', () => {
+    it('delegates to the service with a typed Actor', async () => {
+      const user = buildAuthUser();
+      service.countUnread.mockResolvedValue({ count: 3 });
+
+      const result = await controller.unreadCount(user);
+
+      expect(service.countUnread).toHaveBeenCalledWith({ id: user.id, role: user.role });
+      expect(result).toEqual({ count: 3 });
     });
   });
 

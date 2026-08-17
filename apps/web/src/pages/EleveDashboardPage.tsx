@@ -26,6 +26,10 @@ import { useRoleAccent } from '../hooks/useRoleAccent'
 import { useUpcomingCourses } from '../hooks/dashboard/useUpcomingCourses'
 import { useDashboardNotifications } from '../hooks/dashboard/useDashboardNotifications'
 import { useDashboardContacts } from '../hooks/dashboard/useDashboardContacts'
+import { useAssignedTeacher } from '../hooks/dashboard/useAssignedTeacher'
+import { useReadOnlyAvatar } from '../hooks/profile/useReadOnlyAvatar'
+import { describeTeacherRelationName } from '../utils/relationLabels'
+import { getInitials } from '../utils/role'
 
 // Alias pour la rétrocompatibilité interne
 const Card = DashboardCard
@@ -40,6 +44,7 @@ export default function EleveDashboardPage() {
   const { nextCourse, upcomingCourses, isLoadingCourses } = useUpcomingCourses(user?.id, 3)
   const { notifications, isLoadingNotifications } = useDashboardNotifications(5)
   const { contacts, isLoadingContacts } = useDashboardContacts(5)
+  const { assignedTeacher, isLoadingTeacher } = useAssignedTeacher(user?.id)
 
   const topNavItems = filterTopNavItems('eleve', hasRole)
 
@@ -54,10 +59,12 @@ export default function EleveDashboardPage() {
       }))
     : baseRailGroups
 
-  // Détecter le professeur principal parmi les contacts
-  const principalTeacher = contacts.find(
-    (contact) => contact.role === 'formateur' && contact.mandatory,
-  ) ?? contacts.find((contact) => contact.role === 'formateur') ?? null
+  // Professeur assigné, résolu depuis la relation élève↔formateur de profile-service
+  // (source de vérité de l'affectation pédagogique — pas les contacts de
+  // communication-service). Nom et photo suivent les mêmes règles UX que partout
+  // ailleurs : jamais d'UUID, dégradation silencieuse vers des initiales sans photo.
+  const teacherDisplayName = assignedTeacher ? describeTeacherRelationName(assignedTeacher) : null
+  const { photoObjectUrl: teacherPhotoObjectUrl } = useReadOnlyAvatar(assignedTeacher?.teacherId)
 
   const isVisioSoon =
     nextCourse !== null &&
@@ -82,16 +89,24 @@ export default function EleveDashboardPage() {
             Mon professeur
           </p>
 
-          {principalTeacher ? (
+          {assignedTeacher ? (
             <div>
               {/* Avatar + nom */}
               <div className="flex items-center gap-3 mb-3.5">
-                <div className="w-11 h-11 rounded-full bg-[var(--accent-alpha-15)] border-2 border-[var(--accent)] flex items-center justify-center text-[color:var(--accent)] font-bold text-[18px] shrink-0">
-                  {(principalTeacher.displayName ?? '?').charAt(0).toUpperCase()}
+                <div className="w-11 h-11 rounded-full bg-[var(--accent-alpha-15)] border-2 border-[var(--accent)] flex items-center justify-center text-[color:var(--accent)] font-bold text-[18px] shrink-0 overflow-hidden">
+                  {teacherPhotoObjectUrl ? (
+                    <img
+                      src={teacherPhotoObjectUrl}
+                      alt={`Photo de ${teacherDisplayName}`}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    getInitials(teacherDisplayName ?? '')
+                  )}
                 </div>
                 <div>
                   <p className="text-[14px] font-semibold text-[color:var(--color-ink)] m-0">
-                    {principalTeacher.displayName ?? 'Formateur'}
+                    {teacherDisplayName}
                   </p>
                   <p className="text-[12px] text-[color:var(--color-text-secondary)] mt-0.5 mb-0">
                     Mathématiques
@@ -102,10 +117,16 @@ export default function EleveDashboardPage() {
               {/* Actions */}
               <div className="flex flex-col gap-2">
                 <Link
-                  to={`/profiles/${principalTeacher.id}`}
+                  to={`/profiles/${assignedTeacher.teacherId}`}
                   className="text-[12px] font-medium text-[color:var(--accent)] border border-[var(--color-surface)] rounded-[var(--radius-field)] py-[7px] px-3 no-underline text-center block"
                 >
                   Voir le profil
+                </Link>
+                <Link
+                  to="/teacher-requests"
+                  className="text-[12px] font-medium text-[color:var(--color-text-secondary)] border border-[var(--color-surface)] rounded-[var(--radius-field)] py-[7px] px-3 no-underline text-center block"
+                >
+                  Changer de professeur
                 </Link>
                 {isVisioSoon && nextCourse && (
                   <Link
@@ -195,12 +216,26 @@ export default function EleveDashboardPage() {
                 </div>
               )}
             </div>
+          ) : assignedTeacher ? (
+            <div className="text-center py-4">
+              <p className="text-[14px] text-[color:var(--color-text-secondary)] mb-4">
+                Vous n'avez pas de prochain cours
+              </p>
+              <button
+                type="button"
+                disabled
+                title="Bientôt disponible, via la messagerie"
+                className="text-[13px] font-medium text-[color:var(--color-text-secondary)] border border-[var(--color-surface)] rounded-[var(--radius-pill)] py-2 px-5 opacity-60 cursor-not-allowed"
+              >
+                Contacter mon professeur
+              </button>
+            </div>
           ) : (
             <div className="text-center py-4">
               <p className="text-[14px] text-[color:var(--color-text-secondary)] mb-4">
                 Aucun cours à venir
               </p>
-              {!isLoadingContacts && principalTeacher === null && (
+              {!isLoadingTeacher && (
                 <Link
                   to="/contacts"
                   className="text-[13px] font-medium text-[color:var(--accent)] border border-[var(--accent)] rounded-[var(--radius-pill)] py-2 px-5 no-underline"

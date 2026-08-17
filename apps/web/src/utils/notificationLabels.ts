@@ -53,11 +53,14 @@ const NOTIFICATION_LABEL_BUILDERS: Record<string, NotificationLabelBuilder> = {
   teacher_proposal_declined: (metadata) =>
     `${teacherLabel(metadata)} a refusé la proposition pour ${studentLabel(metadata)}`,
 
+  // Deux libellés distincts pour un formateur non retenu, arbitrage du 2026-08-17 : le
+  // destinataire de ces deux types est toujours le formateur concerné (arbitrage du
+  // 2026-08-14, point 8), d'où le « vous » — pas de vérification de rôle nécessaire ici,
+  // contrairement à `teacher_assigned` ci-dessus dont les destinataires diffèrent.
   teacher_proposal_not_selected: (metadata) =>
-    `${teacherLabel(metadata)} n'a pas été retenu pour ${studentLabel(metadata)}`,
+    `Un autre professeur a été retenu pour ${studentLabel(metadata)}`,
 
-  teacher_proposal_expired: (metadata) =>
-    `La proposition envoyée à ${teacherLabel(metadata)} pour ${studentLabel(metadata)} est restée sans réponse`,
+  teacher_proposal_expired: (metadata) => `Vous n'avez pas été retenu pour ${studentLabel(metadata)}`,
 
   // Formulation distincte côté formateur (« vous ») et côté élève/parent (« un professeur »),
   // arbitrage du 2026-08-14 : « utilise userId/rôle courant si besoin ».

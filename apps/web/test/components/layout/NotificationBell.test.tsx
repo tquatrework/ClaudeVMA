@@ -126,6 +126,47 @@ describe('NotificationBell', () => {
     expect(screen.queryByText('Un professeur a été trouvé pour Camille Durand')).toBeNull()
   })
 
+  it(
+    'affiche deux libellés distincts pour teacher_proposal_not_selected et ' +
+      "teacher_proposal_expired (correctif du 2026-08-17, .claude/CURRENT-GOAL.md)",
+    async () => {
+      const notSelected: DashboardNotification = {
+        id: 'notif-not-selected',
+        userId: 'user-1',
+        type: 'teacher_proposal_not_selected',
+        title: null,
+        message: null,
+        isRead: false,
+        metadata: { studentName: 'Camille Durand' },
+        createdAt: '2026-08-17T10:00:00.000Z',
+      }
+      const expired: DashboardNotification = {
+        id: 'notif-expired',
+        userId: 'user-1',
+        type: 'teacher_proposal_expired',
+        title: null,
+        message: null,
+        isRead: false,
+        metadata: { studentName: 'Camille Durand' },
+        createdAt: '2026-08-17T10:00:00.000Z',
+      }
+      renderBell({
+        notifications: [notSelected, expired],
+        unreadCount: 2,
+        isLoading: false,
+        loadError: null,
+        markAsRead: vi.fn(),
+      })
+
+      await userEvent.click(screen.getByRole('button', { name: /notifications/i }))
+
+      expect(
+        screen.getByText('Un autre professeur a été retenu pour Camille Durand'),
+      ).toBeDefined()
+      expect(screen.getByText("Vous n'avez pas été retenu pour Camille Durand")).toBeDefined()
+    },
+  )
+
   it("affiche un état vide explicite quand il n'y a aucune notification récente", async () => {
     renderBell({ notifications: [], unreadCount: 0, isLoading: false, loadError: null, markAsRead: vi.fn() })
 

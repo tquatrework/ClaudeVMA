@@ -2527,7 +2527,188 @@
           identique sur la copie non modifiee via `git stash`).
         </verification>
       </decision>
+      <decision id="C25" status="implemented" session="2026-08-17">
+        <title>Defauts de visibilite champ par champ : firstName/lastName non masquables, defaut commun `linked`, catalogue filtre par role reel</title>
+        <filesTouched>
+          <file path="services/profile-service/src/profiles/field-visibility.catalog.ts">
+            `firstName`/`lastName` retires du catalogue (plus jamais reglables ni masquables).
+            `DEFAULT_LINKED_FIELDS` et la logique `isSocle` supprimees ; `define()` applique
+            desormais un defaut UNIQUE `linked` (`CATALOG_DEFAULT_AUDIENCE`) a tous les champs
+            restants, section prescription comprise — plus de distinction "champ du socle".
+          </file>
+          <file path="services/profile-service/src/profiles/field-visibility.service.ts">
+            Injecte `IdentityAccessClient`. Nouvelles methodes privees
+            `resolveCatalogForTarget(userId)` / `resolveTargetPedagogicalBlock(userId)` :
+            resolvent le role REEL du titulaire aupres de identity-access-service (source
+            d'autorite du role, cf. `docs/architecture.md` > "Propriete du role") et restreignent
+            le catalogue expose par `getFieldVisibility`/`updateFieldVisibility` au bloc
+            `administrative` + AU SEUL bloc pedagogique correspondant (eleve -&gt;
+            pedagogical-student, formateur -&gt; pedagogical-teacher, tout autre role -&gt; aucun
+            bloc pedagogique). `userId` inconnu de identity-access-service -&gt; 404
+            (`NotFoundException`, meme motif que `ProfilesService.getProfile`) ; service
+            indisponible -&gt; degrade au bloc administratif SEUL (jamais les deux par defaut, ce
+            qui reproduirait le bug corrige). `updateFieldVisibility` rejette desormais en 400
+            tout `fieldName` hors du sous-catalogue applicable a CE titulaire (donc `firstName`/
+            `lastName`, et tout champ du bloc pedagogique de l'AUTRE role), avec la liste des
+            noms acceptes POUR CE TITULAIRE dans le message.
+          </file>
+          <file path="services/profile-service/src/profiles/profile-visibility-filter.ts">
+            Commentaire d'en-tete mis a jour : `firstName`/`lastName`, absents du catalogue,
+            tombent dans la branche "champ absent du catalogue" de `filterProfileBlock` et sont
+            donc TOUJOURS renvoyes, quel que soit le lecteur — aucun changement de code necessaire
+            dans cette fonction, le mecanisme de passthrough existait deja pour les champs hors
+            catalogue.
+          </file>
+          <file path="services/profile-service/src/profiles/profiles.controller.ts">
+            Swagger de GET/PUT `/profiles/:userId/field-visibility` : documente le filtrage par
+            role reel, le nouveau defaut commun `linked`, le retrait de `firstName`/`lastName` du
+            catalogue, et le nouveau `404` (identity-access-service ne connait pas le titulaire).
+          </file>
+          <file path="services/profile-service/test/unit/profiles/field-visibility.catalog.spec.ts">
+            Reecrit : verrou "aucun champ ne subsiste avec un defaut autre que `linked`" (y
+            compris la section prescription), verrou "firstName/lastName absents du catalogue".
+          </file>
+          <file path="services/profile-service/test/unit/profiles/field-visibility.service.spec.ts">
+            Reecrit avec un mock `IdentityAccessClient` (par defaut : `OWNER_ID` = compte `eleve`
+            connu). Nouveaux tests : filtrage du catalogue par role (eleve/formateur/role sans
+            bloc pedagogique), 404 si compte inconnu, degradation "bloc administratif seul" si
+            identity-access-service indisponible, rejet 400 de `firstName`/`lastName` et d'un
+            champ du bloc de l'autre role.
+          </file>
+          <file path="services/profile-service/test/unit/profiles/profile-visibility-filter.spec.ts">
+            Reecrit : les fixtures `audiences()` refletent desormais le defaut commun `linked` ;
+            les tests de masquage passent par des overrides EXPLICITES (`self`) plutot que de
+            compter sur un defaut restrictif qui n'existe plus. Nouveaux tests verrouillant que
+            `firstName`/`lastName` restent visibles meme si une entree `self` orpheline existe
+            dans la map d'audiences, et meme pour un lecteur `authenticated` sans lien.
+          </file>
+          <file path="services/profile-service/test/unit/profiles/profiles.service.spec.ts">
+            Un test de `getProfile` ajuste : la prescription n'est plus masquee par defaut a un
+            formateur lie (defaut desormais `linked`) — le test verifie desormais le masquage
+            quand l'eleve regle EXPLICITEMENT toute la section prescription a `self`.
+          </file>
+          <file path="services/profile-service/test/e2e/field-visibility-filtering.e2e-spec.ts">
+            Le scenario "le formateur ne voit NI la prescription NI ses metadonnees" est
+            remplace par deux tests : visibilite par defaut de la prescription (nouveau defaut),
+            puis masquage verifie apres reglage EXPLICITE de toute la section a `self` (avec
+            restauration en fin de test pour ne pas affecter la suite).
+          </file>
+          <file path="services/profile-service/test/e2e/profiles.e2e-spec.ts">
+            Suite `GET/PUT field-visibility` etendue : filtrage du catalogue par role reel
+            (eleve vs formateur, verifie sur `IDS.student1`/`IDS.teacher1`), rejet 400 de
+            `firstName`/`lastName`, `GET /profiles/:userId` continuant de renvoyer `firstName`/
+            `lastName` a un formateur lie malgre l'ancien test. Le test "enregistre un reglage
+            puis le relit" est ajuste au nouveau `defaultAudience` (`linked`).
+          </file>
+        </filesTouched>
+        <description>
+          Arbitrage rapporte par l'orchestrateur le 2026-08-17, portant sur 3 points distincts
+          (le point "repli du nom masque sur le pseudo" du meme arbitrage est explicitement
+          REPORTE, non traite dans cette session) :
+
+          POINT DE VIGILANCE PREALABLE : au moment de cette session, `docs/architecture.md` ne
+          portait AUCUNE section "Defauts de visibilite champ par champ..." — verifie par grep
+          avant toute implementation. L'arbitrage complet a ete fourni en clair dans la tache,
+          donc l'implementation s'appuie dessus ; mais la persistance dans `docs/architecture.md`
+          (regle "persister les arbitrages d'architecture immediatement") reste a faire par
+          l'orchestrateur, hors perimetre de ce subagent qui n'edite pas ce fichier.
+
+          (1) `firstName`/`lastName` NE PEUVENT PLUS ETRE MASQUES. Retires du catalogue
+          plutot que traites comme un cas special dans le filtre : `PUT` sur un fieldName hors
+          catalogue etait DEJA refuse en 400 avec la liste des noms acceptes (mecanisme existant
+          depuis la creation du catalogue) — aucun code de rejet nouveau n'a ete necessaire, le
+          retrait du catalogue suffit a produire le 400 explicite demande. En lecture,
+          `filterProfileBlock` laissait DEJA passer sans condition tout champ absent du catalogue
+          d'un bloc (mecanisme concu pour les colonnes non encore cataloguees) : `firstName`/
+          `lastName` en beneficient donc automatiquement, sans qu'il ait ete necessaire de les
+          declarer "structurels" au sens de `STRUCTURAL_PROFILE_FIELDS` (ce sont des donnees
+          personnelles, pas des metadonnees techniques — distinction gardee dans les commentaires
+          pour ne pas brouiller la difference).
+          VERIFIE contre la pile de test AVANT modification que la lecture (`GET /profiles/:userId`)
+          exposait deja `firstName`/`lastName` par defaut (socle `linked` herite du 2026-08-09) —
+          rien n'etait casse a ce niveau, le changement se limite a rendre le masquage IMPOSSIBLE
+          plutot que "juste peu probable par defaut".
+
+          (2) NOUVEAU DEFAUT COMMUN : tout champ restant au catalogue — section declarative ET
+          section prescription, sans exception — passe de son ancien defaut (`linked` pour le
+          socle etroit avatarUrl/level/subjects, `self` pour tout le reste) a un DEFAUT UNIQUE
+          `linked`. VERIFIE AVANT implementation, point explicitement demande par la tache : le
+          defaut est CALCULE A LA LECTURE (`defaultAudienceOf`, `FieldVisibilityService.
+          resolveAudiences`/`getFieldVisibility`), jamais ecrit en base a la creation d'un profil
+          — la table `profile_field_visibility` ne contient QUE des derogations explicites (une
+          ligne = un choix de l'utilisateur, commentaire deja present dans l'entite avant cette
+          session : "Ne pas materialiser les valeurs par defaut"). CONSEQUENCE : le changement de
+          defaut s'applique a TOUS les profils existants sans migration ni backfill, y compris
+          ceux crees avant cette session — un profil qui n'a jamais rien regle explicitement voit
+          son defaut changer immediatement au prochain appel. Aucune migration de donnees n'a
+          donc ete necessaire ni ecrite pour ce point.
+
+          (3) CATALOGUE FILTRE PAR LE ROLE REEL DU TITULAIRE. Bug reproduit AVANT correction :
+          `GET /profiles/:userId/field-visibility` renvoyait l'INTEGRALITE du catalogue (bloc
+          administratif + LES DEUX blocs pedagogiques) a tout titulaire, quel que soit son role —
+          un eleve se voyait donc proposer de regler la visibilite de champs du profil
+          pedagogique FORMATEUR (`levels`, `experience`, `diplomas`, `testResults`...), et
+          reciproquement. Root cause : `getFieldVisibility`/`updateFieldVisibility` mappaient tout
+          `FIELD_VISIBILITY_CATALOG` sans jamais consulter le role du titulaire. Corrige en
+          resolvant le role REEL aupres de `identity-access-service` (seule source d'autorite du
+          role dans le projet, jamais une copie locale) plutot qu'en devinant a partir de la
+          presence d'un profil pedagogique existant — deliberement, car le profil pedagogique est
+          FACULTATIF (arbitrage du 2026-08-07) et peut n'exister pour personne au moment ou
+          l'ecran de confidentialite est ouvert ; se fier a sa presence aurait laisse le bug
+          intact pour tout utilisateur n'ayant pas encore rempli son profil pedagogique.
+        </description>
+        <verification>
+          npm run build : OK (aucune erreur de type).
+          npm test (unitaire, hors e2e) : 659/659 verts (22 suites), incluant les 3 fichiers
+          reecrits pour cette session.
+          npm run test:e2e (USE_LOCAL_DB non requis dans cette session : Testcontainers a
+          fonctionne directement, Docker disponible sur la machine) : 364 tests, 363 verts.
+          Le seul echec est [PROF-BR-010] (note interne par un administrateur financier),
+          confirme PREEXISTANT et SANS LIEN avec cette session : deja documente comme "laisse
+          rouge a dessein, arbitrage produit en attente" dans les sessions precedentes (voir
+          decision C8 et openPoints), et localise dans une suite totalement etrangere
+          (`POST /profiles/:userId/internal-notes`) que cette session n'a pas touchee.
+          PREUVE HTTP CONTRE LA PILE DE TEST REELLE (PostgreSQL via Testcontainers), les 3
+          points demandes :
+            - Point 3 (filtrage par role) : `GET /profiles/{studentId}/field-visibility` (titulaire
+              eleve) -&gt; 200, `blocks present: ["administrative","pedagogical-student"]`, champ
+              `levels` (formateur) absent, champ `level` (eleve) present. Meme route sur un
+              titulaire formateur -&gt; 200, `blocks present: ["administrative","pedagogical-teacher"]`,
+              `levels` present, `level` absent — jamais les deux blocs pour personne.
+            - Point 1 (firstName/lastName non masquables) : `PUT /profiles/{studentId}/
+              field-visibility` avec `{fieldName:"firstName",audience:"self"}` -&gt; 400
+              `{"message":"Unknown profile field(s): firstName. Accepted field names:
+              addressLine1, addressLine2, avatarUrl, birthDate, city, comments, country,
+              difficulties, equipment, familyContext, generalAssessment, goals, level, passions,
+              phone, postalCode, recommendedActivities, recommendedPace, recommendedPath,
+              recommendedTeacherProfile, schoolContext, schoolName, specificNeeds, subjects"}` —
+              `firstName` absent de la liste des noms acceptes, jamais absorbe en silence.
+              `GET /profiles/{studentId}` relu ensuite -&gt; 200, `firstName:"Alice"` toujours present.
+            - Point 2 (nouveau defaut `linked`) : `GET /profiles/{studentId}/field-visibility`,
+              champ `phone` jamais regle -&gt;
+              `{"fieldName":"phone","block":"administrative","audience":"linked",
+              "defaultAudience":"linked","isExplicit":false,"isPrescription":false,
+              "isReserved":false}`.
+          Ces 4 appels ont ete rejoues dans un fichier e2e temporaire
+          (`test/e2e/zzz-proof-2026-08-17.e2e-spec.ts`), execute avec succes (4/4 verts) puis
+          SUPPRIME avant le commit — il ne fait pas partie de la suite permanente, son seul role
+          etait de produire une preuve HTTP horodatee pour cette session.
+        </verification>
+      </decision>
       <openPoints>
+        <item priority="medium" status="to-do" raisedIn="C25" raisedOn="2026-08-17" owner="orchestrateur">
+          `docs/architecture.md` ne portait AUCUNE section "Defauts de visibilite champ par
+          champ..." au moment de cette session, alors que la tache la presentait comme deja
+          consignee — verifie par grep avant toute implementation. L'implementation C25 s'appuie
+          sur l'arbitrage transmis en clair dans la tache, mais sa PERSISTANCE dans
+          `docs/architecture.md` (regle projet "persister les arbitrages d'architecture
+          immediatement") reste a faire ; ce subagent n'edite pas ce fichier (hors de son
+          perimetre de contexte).
+        </item>
+        <item priority="low" status="deferred" raisedIn="C25" raisedOn="2026-08-17" owner="orchestrateur">
+          POINT 2 DE L'ARBITRAGE DU 2026-08-17 EXPLICITEMENT REPORTE, NON TRAITE PAR CETTE
+          SESSION : "repli du nom masque sur le pseudo". A specifier avant implementation.
+        </item>
         <item priority="high" status="to-do" raisedIn="C22" raisedOn="2026-08-12" owner="front">
           AUCUN ECRAN NE MET FIN A LA RELATION. La route est livree et prouvee, mais le point
           d'action voulu par l'arbitrage — un bouton sur chaque formateur de la FICHE DE L'ELEVE —

@@ -270,16 +270,24 @@ export class ProfilesController {
   @ApiOperation({
     summary: 'Get per-field visibility settings',
     description:
-      'Returns the effective visibility of EVERY field of the visibility catalog, so that a ' +
-      'confidentiality screen can be built from a single call without duplicating the ' +
+      'Returns the effective visibility of every ADMINISTRABLE field for this profile owner, so ' +
+      'that a confidentiality screen can be built from a single call without duplicating the ' +
       'catalog or the defaults on the client.\n\n' +
       'Shape: { userId, fields: [{ fieldName, block, audience, defaultAudience, isExplicit, ' +
       'isPrescription, isReserved }] }.\n' +
       '`audience` is what actually applies; `defaultAudience` is the block default, useful to ' +
       'offer a "reset" action; `isExplicit` tells whether the user set it themselves.\n' +
       '`block` is one of administrative | pedagogical-student | pedagogical-teacher.\n\n' +
-      'Default baseline (validated 2026-08-09): firstName, lastName, avatarUrl, level and ' +
-      'subjects are visible to linked people; everything else is `self` by default.\n\n' +
+      'FILTERED BY THE OWNER\'S REAL ROLE (arbitrage du 2026-08-17): the `administrative` block ' +
+      'is always included, but only ONE pedagogical block is — the one matching the profile ' +
+      'owner\'s actual role (élève → pedagogical-student, formateur → pedagogical-teacher), ' +
+      'resolved against identity-access-service, never both. A role without a pedagogical ' +
+      'profile (parent, RP, AP, TI, AF…) only gets the administrative block. `firstName` and ' +
+      '`lastName` are NOT part of the catalog: they can never be configured here, and are ' +
+      'always visible on GET /profiles/:userId regardless of any setting.\n\n' +
+      'Default baseline (revised 2026-08-17): every remaining catalog field — declarative and ' +
+      'prescription alike — defaults to `linked` (visible to linked people). A stricter default ' +
+      '(`self`) is only reached by an explicit setting from the owner.\n\n' +
       'These settings ARE enforced on reads since the 2026-08-09 arbitrage (see ' +
       'GET /profiles/:userId). They apply to linked contacts only: the finance owner and the ' +
       'administrative roles are exempt, and the owner always sees their own record in full — ' +
@@ -290,6 +298,7 @@ export class ProfilesController {
   @ApiParam({ name: 'userId', description: 'Profile owner UUID' })
   @ApiResponse({ status: 200, description: 'Effective per-field visibility settings' })
   @ApiResponse({ status: 403, description: 'Forbidden — own account or admin roles only' })
+  @ApiResponse({ status: 404, description: 'No account known to identity-access-service for this userId' })
   getFieldVisibility(
     @Param('userId', ParseUUIDPipe) userId: string,
     @CurrentUser() actor: AuthenticatedUser,
@@ -305,14 +314,18 @@ export class ProfilesController {
       'fields are modified — a field left out keeps its current setting rather than being ' +
       'reset, so a screen that knows part of the catalog cannot wipe the rest. ' +
       'To go back to a default, send that field with its `defaultAudience`.\n\n' +
-      '`audience` ∈ self | linked | all. `fieldName` must belong to the visibility catalog: ' +
-      'an unknown name returns 400 listing the accepted names, never a silent no-op. ' +
-      'A field name repeated twice in the same body also returns 400.\n\n' +
+      '`audience` ∈ self | linked | all. `fieldName` must belong to the catalog APPLICABLE TO ' +
+      'THIS PROFILE OWNER (administrative + the one pedagogical block matching their real role, ' +
+      'see GET /profiles/:userId/field-visibility): an unknown name — including `firstName`/ ' +
+      '`lastName`, which are never configurable, and any field of the OTHER pedagogical role — ' +
+      'returns 400 listing the accepted names, never a silent no-op. A field name repeated ' +
+      'twice in the same body also returns 400.\n\n' +
       'EFFECT ON READS (since the 2026-08-09 arbitrage): setting a field to `self` hides it ' +
       'from linked contacts (today the formateur) on GET /profiles/:userId and ' +
       'GET /profiles/:userId/statistics. It does NOT hide it from the linked finance owner ' +
       '(parent), from the administrative roles, nor from the owner — a student cannot hide a ' +
-      'profile field from their finance owner.\n\n' +
+      'profile field from their finance owner. `firstName`/`lastName` can never be hidden from ' +
+      'anyone, by anyone, regardless of any setting (arbitrage du 2026-08-17).\n\n' +
       'Returns the same payload as GET /profiles/:userId/field-visibility.',
   })
   @ApiParam({ name: 'userId', description: 'Profile owner UUID' })
@@ -320,9 +333,11 @@ export class ProfilesController {
   @ApiResponse({
     status: 400,
     description:
-      'Unknown fieldName, duplicated fieldName, invalid audience, empty or malformed fields array',
+      'Unknown fieldName (including firstName/lastName or a field of the other pedagogical ' +
+      'role), duplicated fieldName, invalid audience, empty or malformed fields array',
   })
   @ApiResponse({ status: 403, description: 'Forbidden — own account or admin roles only' })
+  @ApiResponse({ status: 404, description: 'No account known to identity-access-service for this userId' })
   updateFieldVisibility(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Body() dto: UpdateFieldVisibilityDto,

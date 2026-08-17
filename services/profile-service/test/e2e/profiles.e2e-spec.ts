@@ -872,7 +872,7 @@ describe('[E2E] Profiles', () => {
   // ──────────────────────────────────────────────────────────────
 
   describe('GET/PUT /profiles/:userId/field-visibility', () => {
-    it('Renvoie tout le catalogue avec le socle par défaut → 200', async () => {
+    it('Renvoie le catalogue administratif + pédagogique ÉLÈVE, défaut commun `linked` → 200', async () => {
       const res = await request(app.getHttpServer())
         .get(`/profiles/${IDS.student1}/field-visibility`)
         .set('Authorization', `Bearer ${studentToken}`);
@@ -884,14 +884,17 @@ describe('[E2E] Profiles', () => {
         res.body.fields.map((field: any) => [field.fieldName, field]),
       );
 
-      // Socle validé le 2026-08-09 : visible des personnes liées par défaut.
-      for (const fieldName of ['firstName', 'lastName', 'avatarUrl', 'level', 'subjects']) {
-        expect(byName[fieldName].audience).toBe('linked');
-        expect(byName[fieldName].isExplicit).toBe(false);
-      }
-      // Tout le reste masqué par défaut, y compris les quatre champs ajoutés le
-      // 2026-08-11 — ils sont sensibles et n'entrent pas au socle.
+      // Révision du 2026-08-17 : `firstName`/`lastName` ont quitté le catalogue,
+      // ils ne sont plus réglables — jamais renvoyés ici.
+      expect(byName).not.toHaveProperty('firstName');
+      expect(byName).not.toHaveProperty('lastName');
+
+      // Défaut commun `linked` désormais appliqué à TOUS les champs restants,
+      // section prescription comprise.
       for (const fieldName of [
+        'avatarUrl',
+        'level',
+        'subjects',
         'difficulties',
         'familyContext',
         'schoolContext',
@@ -900,19 +903,78 @@ describe('[E2E] Profiles', () => {
         'specificNeeds',
         'phone',
         'birthDate',
+        'generalAssessment',
+        'recommendedPace',
       ]) {
-        expect(byName[fieldName].audience).toBe('self');
+        expect(byName[fieldName].audience).toBe('linked');
+        expect(byName[fieldName].isExplicit).toBe(false);
       }
+
       // `department` et `context` ont disparu du catalogue avec leurs colonnes.
       expect(byName).not.toHaveProperty('department');
       expect(byName).not.toHaveProperty('context');
+
+      // IDS.student1 est un compte ÉLÈVE : jamais le bloc pédagogique FORMATEUR
+      // (arbitrage du 2026-08-17, filtrage par rôle réel du titulaire).
+      expect(byName).not.toHaveProperty('levels');
+      expect(byName).not.toHaveProperty('experience');
+      expect(byName).not.toHaveProperty('diplomas');
+      expect(byName).not.toHaveProperty('testResults');
+      expect(res.body.fields.every((field: any) => field.block !== 'pedagogical-teacher')).toBe(true);
+    });
+
+    it('Renvoie le bloc pédagogique FORMATEUR — jamais le bloc élève — pour un titulaire formateur', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.teacher1}/field-visibility`)
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
+      expect(res.status).toBe(200);
+
+      const byName = Object.fromEntries(
+        res.body.fields.map((field: any) => [field.fieldName, field]),
+      );
+
+      expect(byName).toHaveProperty('levels');
+      expect(byName).toHaveProperty('experience');
+      expect(byName).not.toHaveProperty('level');
+      expect(byName).not.toHaveProperty('difficulties');
+      expect(res.body.fields.every((field: any) => field.block !== 'pedagogical-student')).toBe(true);
+    });
+
+    it('Une tentative de régler firstName ou lastName → 400, jamais un silence (arbitrage du 2026-08-17)', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/field-visibility`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ fields: [{ fieldName: 'firstName', audience: 'self' }] });
+
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(res.body.message)).toContain('firstName');
+
+      const resLastName = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/field-visibility`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ fields: [{ fieldName: 'lastName', audience: 'all' }] });
+
+      expect(resLastName.status).toBe(400);
+    });
+
+    it('GET /profiles/:userId renvoie toujours firstName/lastName, quel que soit le lecteur ou un ancien réglage', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.student1}`)
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.administrative.firstName).toBeTruthy();
+      expect(res.body.administrative.lastName).toBeTruthy();
+      expect(res.body.visibility.hiddenFields).not.toContain('firstName');
+      expect(res.body.visibility.hiddenFields).not.toContain('lastName');
     });
 
     it('Enregistre un réglage puis le relit → 200, isExplicit true', async () => {
       const put = await request(app.getHttpServer())
         .put(`/profiles/${IDS.student1}/field-visibility`)
         .set('Authorization', `Bearer ${studentToken}`)
-        .send({ fields: [{ fieldName: 'difficulties', audience: 'linked' }] });
+        .send({ fields: [{ fieldName: 'difficulties', audience: 'self' }] });
 
       expect(put.status).toBe(200);
 
@@ -921,11 +983,20 @@ describe('[E2E] Profiles', () => {
         .set('Authorization', `Bearer ${studentToken}`);
 
       const difficulties = read.body.fields.find((f: any) => f.fieldName === 'difficulties');
+      // Défaut commun `linked` depuis le 2026-08-17 : la dérogation ci-dessus
+      // (`self`) diffère volontairement du défaut pour que ce test reste
+      // significatif.
       expect(difficulties).toMatchObject({
-        audience: 'linked',
-        defaultAudience: 'self',
+        audience: 'self',
+        defaultAudience: 'linked',
         isExplicit: true,
       });
+
+      // Remis au défaut pour ne pas affecter les tests suivants du fichier.
+      await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/field-visibility`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ fields: [{ fieldName: 'difficulties', audience: 'linked' }] });
     });
 
     it('Upsert partiel : un champ absent du corps garde son réglage', async () => {

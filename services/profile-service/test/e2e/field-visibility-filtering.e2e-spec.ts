@@ -215,7 +215,33 @@ describe('[E2E] Filtrage de la visibilité champ par champ', () => {
       expect(res.body.pedagogical.subjects).toEqual(['maths']);
     });
 
-    it('ne voit NI la prescription NI ses métadonnées', async () => {
+    it('voit désormais la prescription et ses métadonnées par défaut (défaut commun `linked` depuis le 2026-08-17)', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/profiles/${IDS.student1}`)
+        .set('Authorization', `Bearer ${linkedTeacherToken}`)
+        .expect(200);
+
+      expect(res.body.pedagogical.generalAssessment).toBe('Élève sérieuse');
+      expect(res.body.pedagogical.recommendedPace).toBe('2h par semaine');
+      expect(res.body.pedagogical.filledBy).toBe(IDS.rp1);
+      expect(res.body.pedagogical).toHaveProperty('filledAt');
+    });
+
+    it('peut retrouver la prescription masquée si l’élève règle explicitement TOUTE la section `self`', async () => {
+      const hide = await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/field-visibility`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({
+          fields: [
+            { fieldName: 'generalAssessment', audience: 'self' },
+            { fieldName: 'recommendedPace', audience: 'self' },
+            { fieldName: 'recommendedTeacherProfile', audience: 'self' },
+            { fieldName: 'recommendedPath', audience: 'self' },
+            { fieldName: 'recommendedActivities', audience: 'self' },
+          ],
+        });
+      expect(hide.status).toBe(200);
+
       const res = await request(app.getHttpServer())
         .get(`/profiles/${IDS.student1}`)
         .set('Authorization', `Bearer ${linkedTeacherToken}`)
@@ -225,6 +251,20 @@ describe('[E2E] Filtrage de la visibilité champ par champ', () => {
       expect(res.body.pedagogical).not.toHaveProperty('recommendedPace');
       expect(res.body.pedagogical).not.toHaveProperty('filledBy');
       expect(res.body.pedagogical).not.toHaveProperty('filledAt');
+
+      // Restauré pour ne pas affecter les tests suivants du fichier.
+      await request(app.getHttpServer())
+        .put(`/profiles/${IDS.student1}/field-visibility`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({
+          fields: [
+            { fieldName: 'generalAssessment', audience: 'linked' },
+            { fieldName: 'recommendedPace', audience: 'linked' },
+            { fieldName: 'recommendedTeacherProfile', audience: 'linked' },
+            { fieldName: 'recommendedPath', audience: 'linked' },
+            { fieldName: 'recommendedActivities', audience: 'linked' },
+          ],
+        });
     });
 
     it('conserve les champs de structure dont le front a besoin', async () => {

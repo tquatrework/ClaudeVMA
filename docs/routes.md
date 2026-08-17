@@ -349,8 +349,8 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 | PUT | /profiles/:userId/administrative | 🔒 | eleve (soi-même), responsable_pedagogique, technicien_informatique | Modifier le profil administratif (`firstName`/`lastName` restent optionnels pour ne pas modifier le champ, mais rejettent une chaîne vide). Champs acceptés : voir « Noms de champs des profils » ci-dessous | `200 {userId, ...champsAdmin}` · `400` firstName/lastName vide, champ inconnu, ou type invalide · `401` · `403` · `404` |
 | PUT | /profiles/:userId/pedagogical | 🔒 | eleve (soi-même), formateur (soi-même), responsable_pedagogique, technicien_informatique | Modifier la **section déclarative** du profil pédagogique — ce que le titulaire déclare sur lui-même. Le rôle cible (élève/formateur) est résolu depuis le rôle du compte auprès d'identity-access-service, puis à défaut depuis les champs présents. **N'accepte aucun champ de prescription** ni `filledBy`/`filledAt` ni `isAnimateurPedagogique` | `200 {userId, ...champsPedago}` · `400` champ inconnu, champ de prescription, ou champ appartenant à l'autre rôle (refusé au lieu d'être ignoré) · `401` · `403` · `404` |
 | PUT | /profiles/:userId/prescription | 🔒 | **responsable_pedagogique uniquement** | Modifier la **section prescription** du profil pédagogique — ce que le RP prescrit *sur* la personne. Réservé au RP **y compris quand la cible est l'appelant lui-même** : un élève ne rédige pas ses préconisations, un formateur pas ses résultats de test. `filledBy`/`filledAt` sont posés **côté serveur** (acteur authentifié + horloge serveur) et rendent la prescription opposable | `200 {userId, ...profilPédagoComplet, filledBy, filledAt}` · `400` champ inconnu (dont `filledBy`/`filledAt` ou tout champ déclaratif), corps mélangeant les deux rôles, ou champ de l'autre rôle · `401` · `403` tout rôle autre que RP · `404` |
-| GET | /profiles/:userId/field-visibility | 🔒 | eleve/formateur (soi-même), responsable_pedagogique, technicien_informatique, administrateur_financier | Lire la visibilité **effective de tous les champs** du catalogue (défauts compris) — un seul appel suffit à construire l'écran de confidentialité | `200 {userId, fields: [{fieldName, block, audience, defaultAudience, isExplicit, isPrescription, isReserved}]}` · `401` · `403` |
-| PUT | /profiles/:userId/field-visibility | 🔒 | eleve/formateur (soi-même), responsable_pedagogique, technicien_informatique, administrateur_financier | Régler la visibilité champ par champ. Body `{fields: [{fieldName, audience}]}`. **Upsert partiel** : seuls les champs listés sont modifiés, les autres gardent leur réglage. Pour revenir au défaut, renvoyer le champ avec son `defaultAudience` | `200` (même forme que le `GET`) · `400` `fieldName` hors catalogue (message listant les noms acceptés), `fieldName` dupliqué, `audience` hors énumération, tableau `fields` vide · `401` · `403` |
+| GET | /profiles/:userId/field-visibility | 🔒 | eleve/formateur (soi-même), responsable_pedagogique, technicien_informatique, administrateur_financier | Lire la visibilité **effective des champs administrables pour ce titulaire** — un seul appel suffit à construire l'écran de confidentialité. **Filtré par le rôle réel du titulaire** (arbitrage du 2026-08-17, résolu auprès d'identity-access-service) : le bloc `administrative` est toujours présent, mais un **seul** bloc pédagogique l'est — celui du rôle réel (élève → `pedagogical-student`, formateur → `pedagogical-teacher`), **jamais les deux** ; un rôle sans profil pédagogique (parent, RP, AP, TI, AF) n'a que le bloc administratif. **`firstName`/`lastName` ne figurent plus au catalogue** : ils ne sont plus réglables et restent toujours visibles, quel que soit le lecteur. **Défaut commun `linked` depuis le 2026-08-17** pour tous les autres champs, section prescription comprise (l'ancien défaut plus restrictif `self` disparaît, sauf réglage explicite du titulaire) | `200 {userId, fields: [{fieldName, block, audience, defaultAudience, isExplicit, isPrescription, isReserved}]}` · `401` · `403` · `404` `userId` inconnu de identity-access-service |
+| PUT | /profiles/:userId/field-visibility | 🔒 | eleve/formateur (soi-même), responsable_pedagogique, technicien_informatique, administrateur_financier | Régler la visibilité champ par champ. Body `{fields: [{fieldName, audience}]}`. **Upsert partiel** : seuls les champs listés sont modifiés, les autres gardent leur réglage. Pour revenir au défaut, renvoyer le champ avec son `defaultAudience`. Le `fieldName` doit appartenir au **sous-catalogue applicable à ce titulaire** (administratif + son seul bloc pédagogique) : `firstName`/`lastName`, ou un champ du bloc pédagogique de l'**autre** rôle, sont refusés comme n'importe quel `fieldName` hors catalogue | `200` (même forme que le `GET`) · `400` `fieldName` hors du catalogue applicable — dont `firstName`/`lastName` (jamais réglables) et tout champ du bloc pédagogique de l'autre rôle — (message listant les noms acceptés pour ce titulaire), `fieldName` dupliqué, `audience` hors énumération, tableau `fields` vide · `401` · `403` · `404` `userId` inconnu de identity-access-service |
 | POST | /profiles/:teacherId/ap-status | 🔒 | responsable_pedagogique | Promouvoir un formateur en Animateur Pédagogique. **Seul point d'écriture** de `isAnimateurPedagogique` : c'est un droit, pas une déclaration, et il a été retiré du DTO de `PUT /profiles/:userId/pedagogical` | `201 {userId, isAnimateurPedagogique: true}` · `401` · `403` · `404` |
 | GET | /profiles/:userId/internal-notes | 🔒 | responsable_pedagogique, animateur_pedagogique, technicien_informatique, administrateur_financier | Lister les notes internes confidentielles (non visibles par l'élève, le parent/financeur ni le formateur) | `200 [{id, authorId, content, createdAt}]` · `401` · `403` |
 | POST | /profiles/:userId/internal-notes | 🔒 | responsable_pedagogique, animateur_pedagogique | Créer une note interne confidentielle (non visible par l'élève, le parent/financeur ni le formateur) | `201 {id, authorId, content, createdAt}` · `400` body vide · `401` · `403` |
@@ -568,21 +568,36 @@ bloc `pedagogical`.
 `audience` ∈ `self` (titulaire et administrateurs seuls) | `linked` (aussi les personnes liées) |
 `all` (tout utilisateur authentifié).
 
-**Socle visible par défaut des personnes liées** (validé le 2026-08-09) : `firstName`, `lastName`,
-`avatarUrl`, `level`, `subjects`. **Tout le reste est `self` par défaut**, y compris l'adresse, le
-téléphone, `birthDate`, `difficulties`, `familyContext`, `schoolContext`, `schoolName`,
-`equipment`, `specificNeeds` et l'intégralité de la section prescription.
+**Révision du 2026-08-17.** `firstName` et `lastName` **ont quitté le catalogue** : ils ne sont
+plus réglables (`PUT` les refuse en `400`) et sont **toujours visibles**, quel que soit le lecteur —
+aucun réglage ne peut plus les masquer. **Tous les champs restant au catalogue** — section
+déclarative et section prescription confondues, sans exception — partagent désormais **le même
+défaut : `linked`** (visible des personnes liées). L'ancien socle étroit
+(`avatarUrl`/`level`/`subjects` seuls visibles par défaut, tout le reste `self`) a disparu. Un
+défaut plus restrictif (`self`) reste atteignable par un réglage explicite du titulaire. Ce
+changement de défaut s'applique **sans migration** aux profils existants : le défaut est calculé à
+la lecture, jamais écrit en base à la création d'un profil.
 
-Le `fieldName` doit appartenir au catalogue (`src/profiles/field-visibility.catalog.ts`). Liste
-close, dans l'ordre alphabétique renvoyé par le message d'erreur `400` :
+**Catalogue filtré par le rôle réel du titulaire** (même révision) : `GET`/`PUT` sur
+`/profiles/:userId/field-visibility` ne portent que sur le bloc `administrative` **et** le seul
+bloc pédagogique correspondant au rôle réel de `:userId` (résolu auprès d'identity-access-service)
+— élève → `pedagogical-student` uniquement, formateur → `pedagogical-teacher` uniquement, tout
+autre rôle → aucun bloc pédagogique. Avant cette révision, le catalogue entier (les deux blocs
+pédagogiques) était renvoyé à tout titulaire — un élève se voyait proposer de régler des champs du
+profil pédagogique **formateur**, bug corrigé ici.
+
+Le `fieldName` doit appartenir au sous-catalogue **applicable à ce titulaire**
+(`src/profiles/field-visibility.catalog.ts`, filtré comme ci-dessus). Liste complète du catalogue
+(avant filtrage par rôle), dans l'ordre alphabétique renvoyé par le message d'erreur `400` :
 `addressLine1`, `addressLine2`, `audienceType`, `avatarUrl`, `birthDate`, `city`, `comments`,
 `country`, `cvDocumentId`, `difficulties`, `diplomas`, `equipment`, `experience`, `familyContext`,
-`firstName`, `generalAssessment`, `goals`, `lastName`, `level`, `levels`, `maxValidatedLevel`,
+`generalAssessment`, `goals`, `level`, `levels`, `maxValidatedLevel`,
 `particularities`, `passions`, `phone`, `postalCode`, `recommendedActivities`, `recommendedPace`,
 `recommendedPath`, `recommendedTeacherProfile`, `schoolContext`, `schoolName`, `specialties`,
 `specificNeeds`, `subjects`, `testComments`, `testResults`.
 
 `context` et `department` ont quitté cette liste le 2026-08-11, en même temps que leurs colonnes.
+`firstName` et `lastName` en sont sortis le 2026-08-17 (voir ci-dessus).
 
 `comments` est marqué `isReserved: true` : c'est un champ du profil pédagogique élève au sens du
 CdC, dont le réglage de visibilité est conservé depuis le modèle hérité, mais qu'aucune colonne ne

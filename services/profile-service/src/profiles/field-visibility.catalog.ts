@@ -1,7 +1,7 @@
 /**
  * Catalogue des champs de profil dont la visibilité est réglable, et
  * visibilité par défaut de chaque bloc (docs/proposition-profils.md §8,
- * socle validé le 2026-08-09).
+ * socle validé le 2026-08-09, révisé le 2026-08-17).
  *
  * Ce fichier est la SOURCE DE VÉRITÉ de deux choses :
  *  1. la liste close des `fieldName` acceptés par
@@ -10,10 +10,24 @@
  *  2. la visibilité par défaut appliquée à un champ pour lequel l'utilisateur
  *     n'a enregistré aucune dérogation.
  *
- * Règle du socle : `firstName`, `lastName`, `avatarUrl`, `level` et `subjects`
- * sont visibles des personnes liées par défaut. TOUT LE RESTE est masqué par
- * défaut (`self`) — adresse, téléphone, date de naissance, difficultés,
- * contexte, besoins spécifiques, et l'intégralité de la section prescription.
+ * RÉVISION DU 2026-08-17 (arbitrage produit rapporté par l'orchestrateur,
+ * à consigner dans `docs/architecture.md` — absent du fichier au moment de
+ * cette session, voir le rapport de session) :
+ *  - `firstName` et `lastName` NE FONT PLUS PARTIE DU CATALOGUE. Ils ne sont
+ *    donc plus réglables (PUT les refuse en 400, « champ inconnu ») et ne
+ *    sont jamais masqués en lecture : `filterProfileBlock` (profile-
+ *    visibility-filter.ts) laisse passer sans condition toute clé absente du
+ *    catalogue d'un bloc — exactement le mécanisme qui protège déjà `userId`
+ *    et consorts, sans qu'il soit besoin de les déclarer « structurels » (ce
+ *    ne sont pas des métadonnées mais des données personnelles, jugées non
+ *    masquables par décision produit).
+ *  - L'ancien « socle élargi » (`avatarUrl`, `level`, `subjects` visibles des
+ *    personnes liées, tout le reste masqué par défaut) disparaît. TOUS les
+ *    champs restant au catalogue — section déclarative ET section
+ *    prescription — partagent désormais le MÊME défaut : `linked`, visible
+ *    des personnes liées. Il n'y a donc plus de distinction « champ du
+ *    socle » ; un défaut plus restrictif (`self`) reste atteignable via un
+ *    réglage explicite du titulaire.
  */
 
 /** Audiences possibles pour un champ de profil. */
@@ -50,33 +64,31 @@ export interface FieldVisibilityDefinition {
   isReserved?: boolean;
 }
 
-/** Socle visible par défaut des personnes liées (§8, validé le 2026-08-09). */
-export const DEFAULT_LINKED_FIELDS = [
-  'firstName',
-  'lastName',
-  'avatarUrl',
-  'level',
-  'subjects',
-] as const;
+/**
+ * Défaut UNIQUE appliqué à tout champ du catalogue sans dérogation
+ * enregistrée, depuis la révision du 2026-08-17. Conservé comme constante
+ * nommée (plutôt qu'une littérale répétée) pour que le prochain changement de
+ * défaut reste un seul endroit à modifier.
+ */
+const CATALOG_DEFAULT_AUDIENCE: FieldAudience = 'linked';
 
 function define(
   fieldName: string,
   block: ProfileBlock,
   options: { isPrescription?: boolean; isReserved?: boolean } = {},
 ): FieldVisibilityDefinition {
-  const isSocle = (DEFAULT_LINKED_FIELDS as readonly string[]).includes(fieldName);
   return {
     fieldName,
     block,
-    defaultAudience: isSocle ? 'linked' : 'self',
+    defaultAudience: CATALOG_DEFAULT_AUDIENCE,
     ...options,
   };
 }
 
 export const FIELD_VISIBILITY_CATALOG: readonly FieldVisibilityDefinition[] = [
   // --- Profil administratif -------------------------------------------------
-  define('firstName', 'administrative'),
-  define('lastName', 'administrative'),
+  // `firstName` et `lastName` ont quitté le catalogue le 2026-08-17 : ils ne
+  // sont plus réglables et ne sont jamais masqués (voir l'en-tête de fichier).
   define('avatarUrl', 'administrative'),
   define('birthDate', 'administrative'),
   define('phone', 'administrative'),
@@ -95,12 +107,10 @@ export const FIELD_VISIBILITY_CATALOG: readonly FieldVisibilityDefinition[] = [
   define('specificNeeds', 'pedagogical-student'),
   define('difficulties', 'pedagogical-student'),
   // `context` remplacé le 2026-08-11 par `familyContext` + `schoolContext`.
-  // Les trois nouveaux champs restent HORS SOCLE (`self` par défaut) : le socle
-  // se limite à firstName/lastName/avatarUrl/level/subjects, et une situation
-  // familiale, une situation scolaire ou l'équipement du domicile sont des
-  // données sensibles qui n'ont pas à être visibles sans décision de l'élève.
-  // `schoolName` suit la même règle : nommer l'établissement d'un mineur
-  // permet de le localiser.
+  // Ces champs suivent le défaut commun `linked` depuis le 2026-08-17, comme
+  // tout le reste du catalogue ; le titulaire peut les repasser à `self` s'il
+  // juge une situation familiale, scolaire ou l'équipement du domicile trop
+  // sensible pour être partagée sans décision explicite.
   define('schoolName', 'pedagogical-student'),
   define('familyContext', 'pedagogical-student'),
   define('schoolContext', 'pedagogical-student'),

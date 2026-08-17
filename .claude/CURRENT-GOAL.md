@@ -5,6 +5,33 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-17 — le formateur ne trouve pas où gérer une proposition reçue
+
+Constat direct de l'utilisateur, en testant le flow demande professeur : élève (`eleve.sixieme`)
+crée une demande, RP (`responsable.peda`) envoie une proposition à deux formateurs
+(`prof.sixieme`, `prof.lycee`). Le formateur reçoit bien une notification, mais l'utilisateur ne
+trouve dans l'interface front aucun endroit où le formateur peut accepter ou refuser cette
+proposition. Possible régression, à vérifier avant de corriger.
+
+Le backend fonctionne (vérifié cette session même : `POST /proposals/:id/accept` répond `201`
+contre la pile réelle). Le problème est circonscrit au front — écran manquant, mal routé, ou
+lien cassé depuis la notification.
+
+### Comment on saura que c'est fait
+
+Capture d'écran ou réponse HTTP montrant : depuis le compte `prof.sixieme` (ou équivalent), un
+chemin dans l'interface qui mène à la proposition reçue avec des actions accepter/refuser, testé
+contre `https://claudevma.visioprof.fr`.
+
+### État
+
+- [ ] Vérifier si l'écran existe déjà (régression d'accès) ou n'a jamais existé (trou fonctionnel)
+- [ ] Corriger côté front si besoin
+- [ ] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur
+
+---
+
 ## Besoin — 2026-08-14 — système de notifications (cloche front)
 
 Demande directe de l'utilisateur : mettre en place les notifications pour chaque flow (en

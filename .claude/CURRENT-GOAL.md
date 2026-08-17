@@ -5,6 +5,13 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## RÈGLE PERMANENTE — 2026-08-17 — pas de changement de menu sans approbation
+
+L'utilisateur a explicitement demandé : ne plus ajouter d'élément au menu du haut ni au rail
+latéral gauche sans son approbation préalable explicite. Il tient à sa structure de navigation
+initiale. Voir mémoire `feedback-no-menu-changes-without-approval`. Cette règle s'applique à
+toute délégation future à `front-developper` : proposer, ne pas ajouter directement.
+
 ## Besoin — 2026-08-17 — réorganisation du rail gauche formateur (COURS / SUIVI)
 
 Demande explicite de l'utilisateur (donc conforme à la règle permanente posée le 2026-08-17 sur
@@ -30,11 +37,50 @@ avec « Propositions reçues » (plus de « Demandes ouvertes ») et SUIVI avec 
 - [x] Appliquer les changements (COURS et SUIVI)
 - [x] Déployé sur la pile réelle (rebuild + redémarrage `visiomath_frontend`)
 - [x] Preuve livrée à l'utilisateur (capture d'écran, compte formateur de test)
-- [ ] Validé par l'utilisateur
+- [x] Validé par l'utilisateur — 2026-08-17 (« ok merge »)
 
-Commit poussé sur `fix/reorganisation-menu-formateur` (non mergé, sur demande explicite de
-l'utilisateur — il merge lui-même après avoir vu la preuve). Fichier modifié :
-`apps/web/src/navigation/navigationConfig.ts`.
+Fichier modifié : `apps/web/src/navigation/navigationConfig.ts`. Mergé dans `master` — PR #115.
+
+---
+
+## Besoin — 2026-08-17 — retirer FAMILLE/Mes parents financeurs du rail gauche élève
+
+Demande explicite de l'utilisateur : l'entrée de rail latéral gauche « FAMILLE / Mes parents
+financeurs » côté élève doit être retirée. Cette information (qui finance l'élève) doit rester
+consultable **uniquement via le profil**, pas comme entrée de navigation dédiée. Voir mémoire
+`feedback-remove-family-finance-owners-menu`.
+
+### Comment on saura que c'est fait
+
+Capture d'écran du rail gauche élève sur `https://claudevma.visioprof.fr` montrant l'absence de
+cette entrée, et confirmation que l'information reste accessible depuis le profil de l'élève.
+
+### État
+
+- [x] Localisée : `apps/web/src/navigation/navigationConfig.ts`, groupe `Famille` du rail
+      `eleve` (un seul item, « Mes parents financeurs » → `/parent-link-requests/inbox`).
+      Le groupe entier disparaît, c'était son seul item.
+- [x] Entrée retirée, information du profil intacte — l'onglet « Parents financeurs » de
+      `ProfilePage` (`ParentFinanceurSection` + `useFinanceOwnerStudentLinks` +
+      `FinanceOwnerStudentLinkList`) existait déjà, indépendant de cette route de rail, et n'a
+      pas été touché. La route `/parent-link-requests/inbox` reste ouverte à `eleve` dans
+      `App.tsx` (accessible par URL directe) ; seule l'entrée de rail dédiée a disparu. L'entrée
+      homonyme du rail RP (« Demandes rattachement », même chemin, but différent : le RP y
+      valide les demandes en attente) a été laissée intacte — aucun autre menu du haut ni du
+      rail gauche n'a été touché, conformément à la règle permanente ci-dessus.
+- [x] Déployé sur la pile réelle — `frontend` reconstruit et redémarré, bundle
+      `index-DOem2XZu.js` servi (`Mes parents financeurs` : 0 occurrence, `Parents financeurs` :
+      1 occurrence, vérifié sur les octets du bundle).
+- [x] Preuve livrée à l'utilisateur — test Playwright
+      `apps/web/e2e/repro-remove-family-rail-entry.spec.ts`, joué contre
+      `https://claudevma.visioprof.fr` avec un élève et son parent financeur créés par les
+      routes réelles d'inscription : rail gauche sans le groupe « Famille » (capture
+      `test-results/proof-rail-eleve-sans-famille.png`), puis onglet « Parents financeurs » du
+      profil affichant « Marc Railtest » avec option « Délier » (capture
+      `test-results/proof-profil-onglet-parents-financeurs.png`). Vert.
+- [x] Validé par l'utilisateur — 2026-08-17 (« ok merge »)
+
+Mergé dans `master` — PR #114.
 
 ---
 

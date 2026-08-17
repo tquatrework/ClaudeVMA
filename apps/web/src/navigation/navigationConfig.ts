@@ -159,12 +159,6 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
       ],
     },
     {
-      groupLabel: 'Famille',
-      items: [
-        { label: 'Mes parents financeurs', path: '/parent-link-requests/inbox', icon: '👨‍👩‍👧' },
-      ],
-    },
-    {
       groupLabel: 'Contenus',
       items: [
         { label: 'Exercices', path: '/content/exercises', icon: '📐' },

@@ -32,11 +32,28 @@ Capture d'écran du dashboard d'un élève ayant un professeur assigné, sur
 
 ### État
 
-- [ ] Localiser le dashboard élève et la donnée source (relation élève↔formateur, avatar)
-- [ ] Implémenter les 4 points
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+- [x] Localisée : `GET /relations/teacher-student/:studentId` (`profile-service`), déjà
+      accessible à l'élève, renvoie `teacherName` déjà résolu (préfère la relation
+      `isPrincipalTeacher`). Changement de source par rapport à l'existant : le dashboard
+      utilisait jusqu'ici `GET /contacts` (`communication-service`), non lié à l'affectation
+      pédagogique réelle créée par le RP.
+- [x] Implémenté — `useAssignedTeacher` (nouveau hook), `useReadOnlyAvatar` (nouveau hook,
+      `GET /profiles/:teacherId/avatar`), tuiles « Mon professeur » / « Prochain cours »
+      modifiées dans `EleveDashboardPage.tsx`, bouton « Demander un professeur » conditionné à
+      l'absence de professeur assigné, bouton « Changer de professeur » ajouté.
+- [x] Déployé sur la pile réelle — `frontend` reconstruit, bundle `index-iGnwmnj5.js`.
+- [x] Preuve livrée à l'utilisateur — capture d'écran envoyée, test Playwright
+      `apps/web/e2e/proof-dashboard-eleve-professeur-assigne.spec.ts` contre
+      `https://claudevma.visioprof.fr` avec élève + formateur + relation créés via les vraies
+      routes (inscription, avatar, RP).
 - [ ] Validé par l'utilisateur
+
+**Écart backend découvert en chemin, hors périmètre de cette tâche** : `GET /profiles/:teacherId/avatar`
+répond `403` à l'élève même avec une relation active (« An élève may only view their own
+profile ») — recoupe le point ouvert déjà noté dans `docs/architecture.md` (« Décisions en
+attente », point 3 : `GET /profiles/:userId` pas aligné sur `/statistics`). Le front dégrade
+proprement vers un avatar d'initiales, jamais d'UUID ni d'erreur visible — mais la vraie photo
+du professeur ne s'affichera pas tant que ce point n'est pas corrigé côté `profile-service`.
 
 ---
 

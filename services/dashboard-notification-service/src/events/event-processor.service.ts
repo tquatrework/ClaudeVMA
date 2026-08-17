@@ -4,6 +4,7 @@ import { DataSource, Repository } from 'typeorm';
 import { Notification, NotificationType } from '../notification/entities/notification.entity';
 import { ProcessedEvent } from './entities/processed-event.entity';
 import { ProfileServiceClient, DisplayName } from './profile-service.client';
+import { IdentityAccessServiceClient } from '../common/clients/identity-access-service.client';
 
 const POSTGRES_UNIQUE_VIOLATION = '23505';
 
@@ -11,11 +12,6 @@ interface NotificationRecipient {
   userId: string;
   type: NotificationType;
   metadata: Record<string, unknown>;
-}
-
-/** `POST /internal/notify`'s own convention for a role broadcast — reused as-is, see InternalController. */
-function roleTarget(role: string): string {
-  return `role:${role}`;
 }
 
 function displayName(entry: DisplayName | undefined): string | null {
@@ -50,7 +46,26 @@ export class EventProcessorService {
     @InjectRepository(ProcessedEvent) private readonly processedEventRepository: Repository<ProcessedEvent>,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly profileServiceClient: ProfileServiceClient,
+    private readonly identityAccessServiceClient: IdentityAccessServiceClient,
   ) {}
+
+  /**
+   * Resolve every real userId currently holding `role` via
+   * identity-access-service (the sole owner of the role) and build one
+   * recipient per account — a real fan-out. Replaces the former pis-aller
+   * of a single recipient keyed by a synthetic `userId = "role:<role>"`
+   * that never matched a real account and was therefore invisible to
+   * `GET /notifications`. Fixed 2026-08-17 — see
+   * docs/services/dashboard-notification-service.md.
+   */
+  private async resolveRoleRecipients(
+    role: string,
+    type: NotificationType,
+    metadata: Record<string, unknown>,
+  ): Promise<NotificationRecipient[]> {
+    const userIds = await this.identityAccessServiceClient.listUserIdsByRole(role);
+    return userIds.map((userId) => ({ userId, type, metadata }));
+  }
 
   async process(fields: Record<string, string>): Promise<void> {
     const eventId = fields.eventId;
@@ -138,9 +153,12 @@ export class EventProcessorService {
       requesterRole: payload.requesterRole,
       type: payload.type,
     };
-    await this.persist(eventId, eventName, [
-      { userId: roleTarget('responsable_pedagogique'), type: NotificationType.TEACHER_REQUEST_CREATED, metadata },
-    ]);
+    const recipients = await this.resolveRoleRecipients(
+      'responsable_pedagogique',
+      NotificationType.TEACHER_REQUEST_CREATED,
+      metadata,
+    );
+    await this.persist(eventId, eventName, recipients);
   }
 
   private async handleTeacherProposalSent(eventId: string, eventName: string, payload: Record<string, unknown>): Promise<void> {
@@ -176,7 +194,8 @@ export class EventProcessorService {
       teacherId,
       teacherName: displayName(names.get(teacherId)),
     };
-    await this.persist(eventId, eventName, [{ userId: roleTarget('responsable_pedagogique'), type, metadata }]);
+    const recipients = await this.resolveRoleRecipients('responsable_pedagogique', type, metadata);
+    await this.persist(eventId, eventName, recipients);
   }
 
   private async handleProposalOutcomeForTeacher(

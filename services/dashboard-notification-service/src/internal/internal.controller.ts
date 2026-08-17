@@ -47,25 +47,32 @@ export class InternalController {
     description:
       'Called by orchestration-service to push a notification. ' +
       'Provide either targetUserId or targetRole (not both). ' +
-      'When targetRole is provided, a single notification record is created with userId set to the role value — ' +
-      'the frontend filters by role until a full fan-out mechanism is in place.',
+      'When targetRole is provided, one notification record is created per real account currently ' +
+      'holding that role (resolved via identity-access-service, the sole owner of the role) — a real ' +
+      "fan-out, not the former single row keyed by a synthetic userId=\"role:<role>\" that never " +
+      'matched a real account. See docs/architecture.md > "Propriete du role" and ' +
+      'docs/services/dashboard-notification-service.md (correctif 2026-08-17).',
   })
-  @ApiResponse({ status: 201, description: 'Notification created', type: NotificationResponseDto })
+  @ApiResponse({ status: 201, description: 'Notification(s) created', type: NotificationResponseDto, isArray: true })
   @ApiResponse({ status: 400, description: 'Neither targetUserId nor targetRole provided' })
   @ApiResponse({ status: 401, description: 'Missing or invalid X-Internal-Secret' })
-  async notify(@Body() dto: InternalNotifyDto): Promise<NotificationResponseDto> {
+  async notify(@Body() dto: InternalNotifyDto): Promise<NotificationResponseDto[]> {
     if (!dto.targetUserId && !dto.targetRole) {
       throw new BadRequestException('Either targetUserId or targetRole must be provided');
     }
 
-    const userId = dto.targetUserId ?? `role:${dto.targetRole}`;
-
-    return this.notificationService.create({
-      userId,
+    const payload = {
       type: dto.type as NotificationType,
       title: dto.title,
       message: dto.message,
       metadata: dto.metadata,
-    });
+    };
+
+    if (dto.targetRole) {
+      return this.notificationService.createForRole(dto.targetRole, payload);
+    }
+
+    const notification = await this.notificationService.create({ userId: dto.targetUserId as string, ...payload });
+    return [notification];
   }
 }

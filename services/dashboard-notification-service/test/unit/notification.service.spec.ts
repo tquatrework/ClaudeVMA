@@ -6,6 +6,7 @@ import { Notification, NotificationType } from '../../src/notification/entities/
 import { CreateNotificationDto } from '../../src/notification/dto/create-notification.dto';
 import { ListNotificationsDto } from '../../src/notification/dto/list-notifications.dto';
 import { Actor } from '../../src/common/types/actor';
+import { IdentityAccessServiceClient } from '../../src/common/clients/identity-access-service.client';
 
 const mockNotificationRepository = () => ({
   create: jest.fn(),
@@ -18,6 +19,10 @@ const mockNotificationRepository = () => ({
   remove: jest.fn(),
 });
 
+const mockIdentityAccessServiceClient = () => ({
+  listUserIdsByRole: jest.fn(),
+});
+
 const buildActor = (overrides: Partial<Actor> = {}): Actor => ({
   id: 'user-uuid-001',
   role: 'eleve',
@@ -27,6 +32,7 @@ const buildActor = (overrides: Partial<Actor> = {}): Actor => ({
 describe('NotificationService', () => {
   let notificationService: NotificationService;
   let notificationRepository: ReturnType<typeof mockNotificationRepository>;
+  let identityAccessServiceClient: ReturnType<typeof mockIdentityAccessServiceClient>;
 
   beforeEach(async () => {
     const moduleRef: TestingModule = await Test.createTestingModule({
@@ -36,11 +42,16 @@ describe('NotificationService', () => {
           provide: getRepositoryToken(Notification),
           useFactory: mockNotificationRepository,
         },
+        {
+          provide: IdentityAccessServiceClient,
+          useFactory: mockIdentityAccessServiceClient,
+        },
       ],
     }).compile();
 
     notificationService = moduleRef.get<NotificationService>(NotificationService);
     notificationRepository = moduleRef.get(getRepositoryToken(Notification));
+    identityAccessServiceClient = moduleRef.get(IdentityAccessServiceClient);
   });
 
   describe('create', () => {
@@ -85,6 +96,59 @@ describe('NotificationService', () => {
       const result = await notificationService.create(dto);
 
       expect(result).not.toHaveProperty('internalDebugFlag');
+    });
+  });
+
+  describe('createForRole', () => {
+    it('resolves userIds by role and creates one notification per real account (real fan-out)', async () => {
+      const dto: Omit<CreateNotificationDto, 'userId'> = {
+        type: NotificationType.TEACHER_REQUEST_CREATED,
+        title: 'Nouvelle demande',
+        message: 'Une demande professeur a été créée.',
+      };
+      identityAccessServiceClient.listUserIdsByRole.mockResolvedValue(['rp-1', 'rp-2']);
+      notificationRepository.create.mockImplementation((entity) => entity);
+      notificationRepository.save.mockResolvedValue([
+        { id: 'notif-1', userId: 'rp-1', ...dto, isRead: false, metadata: null, createdAt: new Date('2024-01-01T00:00:00.000Z') },
+        { id: 'notif-2', userId: 'rp-2', ...dto, isRead: false, metadata: null, createdAt: new Date('2024-01-01T00:00:00.000Z') },
+      ]);
+
+      const result = await notificationService.createForRole('responsable_pedagogique', dto);
+
+      expect(identityAccessServiceClient.listUserIdsByRole).toHaveBeenCalledWith('responsable_pedagogique');
+      expect(notificationRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({ userId: 'rp-1', ...dto }),
+        expect.objectContaining({ userId: 'rp-2', ...dto }),
+      ]);
+      expect(result.map((notification) => notification.id)).toEqual(['notif-1', 'notif-2']);
+    });
+
+    it('creates nothing and does not call save when no account holds the role', async () => {
+      const dto: Omit<CreateNotificationDto, 'userId'> = {
+        type: NotificationType.SYSTEM,
+        title: 'Titre',
+        message: 'Message',
+      };
+      identityAccessServiceClient.listUserIdsByRole.mockResolvedValue([]);
+
+      const result = await notificationService.createForRole('administrateur_financier', dto);
+
+      expect(notificationRepository.save).not.toHaveBeenCalled();
+      expect(result).toEqual([]);
+    });
+
+    it('propagates a role resolution failure instead of degrading silently', async () => {
+      const dto: Omit<CreateNotificationDto, 'userId'> = {
+        type: NotificationType.SYSTEM,
+        title: 'Titre',
+        message: 'Message',
+      };
+      identityAccessServiceClient.listUserIdsByRole.mockRejectedValue(new Error('identity-access-service unreachable'));
+
+      await expect(notificationService.createForRole('responsable_pedagogique', dto)).rejects.toThrow(
+        'identity-access-service unreachable',
+      );
+      expect(notificationRepository.save).not.toHaveBeenCalled();
     });
   });
 

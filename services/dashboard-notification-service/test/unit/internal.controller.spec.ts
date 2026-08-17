@@ -13,6 +13,7 @@ const mockDashboardService = () => ({
 
 const mockNotificationService = () => ({
   create: jest.fn(),
+  createForRole: jest.fn(),
 });
 
 /** Guard passthrough for unit tests — authentication is tested separately */
@@ -56,7 +57,7 @@ describe('InternalController', () => {
   });
 
   describe('notify', () => {
-    it('creates a notification for a targetUserId', async () => {
+    it('creates a notification for a targetUserId and wraps it in an array', async () => {
       const targetUserId = '00000000-0000-0000-0000-000000000010';
       const dto = {
         targetUserId,
@@ -89,25 +90,34 @@ describe('InternalController', () => {
         message: dto.message,
         metadata: undefined,
       });
-      expect(result).toEqual(createdNotification);
+      expect(notificationService.createForRole).not.toHaveBeenCalled();
+      expect(result).toEqual([createdNotification]);
     });
 
-    it('creates a notification for a targetRole using role: prefix', async () => {
+    it('delegates a targetRole broadcast to the real fan-out (NotificationService.createForRole)', async () => {
       const dto = {
         targetRole: 'responsable_pedagogique',
         type: NotificationType.PAYMENT_FAILED,
         title: 'Défaut de paiement',
         message: 'Un paiement a échoué.',
       };
-      const expectedNotif = { id: 'notif-002', userId: 'role:responsable_pedagogique', ...dto };
+      const createdNotifications = [
+        { id: 'notif-002', userId: 'rp-1', ...dto },
+        { id: 'notif-003', userId: 'rp-2', ...dto },
+      ];
 
-      notificationService.create.mockResolvedValue(expectedNotif);
+      notificationService.createForRole.mockResolvedValue(createdNotifications);
 
       const result = await internalController.notify(dto);
 
-      expect(notificationService.create).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: 'role:responsable_pedagogique' }),
-      );
+      expect(notificationService.createForRole).toHaveBeenCalledWith('responsable_pedagogique', {
+        type: dto.type,
+        title: dto.title,
+        message: dto.message,
+        metadata: undefined,
+      });
+      expect(notificationService.create).not.toHaveBeenCalled();
+      expect(result).toEqual(createdNotifications);
     });
 
     it('throws BadRequestException when neither targetUserId nor targetRole provided', async () => {
@@ -119,6 +129,7 @@ describe('InternalController', () => {
 
       await expect(internalController.notify(dto as any)).rejects.toThrow(BadRequestException);
       expect(notificationService.create).not.toHaveBeenCalled();
+      expect(notificationService.createForRole).not.toHaveBeenCalled();
     });
 
     it('passes metadata to the notification when provided', async () => {

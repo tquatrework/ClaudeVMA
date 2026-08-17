@@ -18,4 +18,6 @@ process.env.INTERNAL_SECRET = process.env.INTERNAL_SECRET ?? 'test-internal-secr
 // of prerequisite, not a new one.
 process.env.REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 process.env.PROFILE_SERVICE_URL = process.env.PROFILE_SERVICE_URL ?? 'http://localhost:3002';
+// Required since 2026-08-17 (correctif fan-out par role) — see env.validation.ts.
+process.env.IDENTITY_ACCESS_SERVICE_URL = process.env.IDENTITY_ACCESS_SERVICE_URL ?? 'http://localhost:3001';
 process.env.NODE_ENV = 'test';

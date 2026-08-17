@@ -1289,6 +1289,22 @@ traduction technique→français, côté front (règle du 2026-08-09). Les notif
 
 API interne (non exposée via nginx) : `POST /internal/initialize-dashboard`, `POST /internal/notify` — protégées par `X-Internal-Secret`.
 
+**`POST /internal/notify`, correctif du 2026-08-17 (vrai fan-out par rôle).** `{targetUserId?, targetRole?, type, title, message, metadata?}`,
+exactement l'un des deux `target*` requis (`400` sinon). Réponse **toujours un tableau**
+`201 NotificationResponseDto[]` — un élément pour `targetUserId`, un élément par compte réel
+détenant le rôle pour `targetRole` (potentiellement `[]` si aucun compte ne détient ce rôle,
+jamais une erreur). Avant ce correctif, `targetRole` créait une **unique** ligne avec
+`userId = "role:<role>"`, un identifiant fictif ne correspondant à aucun compte — invisible pour
+tout utilisateur réel puisque `GET /notifications` filtre toujours par l'`userId` réel de
+l'appelant. `dashboard-notification-service` résout désormais la liste des `userId` réels auprès
+de `identity-access-service` (`GET /internal/accounts?role=...`, route déjà existante et
+inchangée) — `identity-access-service` reste l'unique propriétaire du rôle
+(`docs/architecture.md` > « Propriété du rôle »). Le même correctif s'applique au fan-out interne
+du consommateur d'événements Redis (`EventProcessorService`, événements `TeacherRequestCreated`,
+`TeacherProposalAccepted`, `TeacherProposalDeclined` → rôle RP) — voir
+`docs/services/dashboard-notification-service.md`, section « Correctif — vrai fan-out des
+notifications par rôle ».
+
 ### Consommateur d'événements — flux Redis `visiomath:events`
 
 > Ajouté le 2026-08-14 (`docs/architecture.md` > « Systeme de notifications transversal »).

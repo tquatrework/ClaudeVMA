@@ -269,3 +269,119 @@ services/dashboard-notification-service/src/
   boucle microtask non maitrisee) : les methodes privees pertinentes
   (`handleEntries`, `ensureConsumerGroup`, `reclaimStuckEntries`) sont
   exercees directement.
+
+## Correctif — vrai fan-out des notifications par role (2026-08-17)
+
+### Cause racine confirmee contre la pile reelle
+
+Une notification ciblant un **role** (`TeacherRequestCreated` → RP,
+`TeacherProposalAccepted`/`Declined` → RP, `POST /internal/notify` avec
+`targetRole`) etait enregistree en une **seule** ligne avec
+`userId = "role:<role>"` — un identifiant fictif ne correspondant a aucun
+compte reel. `GET /notifications` filtre systematiquement
+`WHERE userId = actor.id` (l'`userId` reel de l'appelant authentifie) : une
+telle ligne n'apparaissait donc **jamais** pour aucun utilisateur. Verifie
+contre `https://claudevma.visioprof.fr` : le compte de test RP
+`trsflow.rp.0811` ne recevait jamais les notifications de role, alors que
+les notifications ciblant un `userId` precis (`TeacherProposalSent`,
+`TeacherAssigned`) fonctionnaient. Confirme en lisant `notification.service.ts`
+(`findByUser`) et `internal.controller.ts`/`event-processor.service.ts`
+(construction de `userId = roleTarget(role)`).
+
+### Solution appliquee — definitive, pas un pis-aller
+
+Vrai fan-out : au moment de diffuser vers un role, resolution de la liste
+des `userId` reels detenant ce role aupres d'**identity-access-service**
+(seul proprietaire du role, `docs/architecture.md` > « Propriete du role »),
+puis creation d'**une ligne de notification par utilisateur reel**. La route
+interne necessaire existait deja et n'a pas eu besoin d'etre creee :
+`GET /internal/accounts?role=...` (documentee dans `docs/routes.md`,
+« API interne inter-services » de identity-access-service), confirmee
+fonctionnelle par appel direct depuis le conteneur
+(`docker exec visiomath_dashboard_notification wget ...`) avant integration.
+
+Arborescence ajoutee/modifiee (src/) :
+
+```
+services/dashboard-notification-service/src/
+├── common/
+│   └── clients/                              # NOUVEAU dossier
+│       ├── identity-access-service.client.ts # NOUVEAU — GET /internal/accounts?role=...
+│       └── clients.module.ts                 # NOUVEAU — exporte IdentityAccessServiceClient
+├── config/
+│   └── env.validation.ts                     # + IDENTITY_ACCESS_SERVICE_URL (requis, fail-fast)
+├── notification/
+│   ├── notification.module.ts                # importe ClientsModule
+│   └── notification.service.ts               # + createForRole(role, dto) : vrai fan-out
+├── internal/
+│   └── internal.controller.ts                # notify() delegue a createForRole quand targetRole ;
+│                                               # retourne desormais NotificationResponseDto[] (toujours
+│                                               # un tableau, y compris pour un targetUserId unique)
+└── events/
+    ├── events.module.ts                       # importe ClientsModule
+    └── event-processor.service.ts             # roleTarget() retire ; resolveRoleRecipients()
+                                                 # resout les userId reels avant persist()
+```
+
+### Decisions techniques
+
+- **`identity-access-service` reste l'unique proprietaire du role** : ce
+  service lui demande la liste courante, ne la persiste jamais comme copie
+  propre. Un role inconnu ou sans titulaire resout legitimement vers une
+  liste vide — zero notification creee, pas une erreur.
+- **Meme discipline d'erreur que `ProfileServiceClient`** :
+  `IdentityAccessServiceClient` leve sur tout echec (reseau, timeout,
+  non-2xx) plutot que de degrader silencieusement — une resolution de role
+  ratee ne doit jamais se traduire par « personne n'est notifie » en
+  silence. Cote `EventProcessorService`, l'entree Redis reste donc non
+  acquittee et sera rejouee (`XAUTOCLAIM`), meme discipline que
+  `resolveNames`/`getFinanceOwners`.
+- **`POST /internal/notify` renvoie desormais toujours un tableau**
+  (`NotificationResponseDto[]`), y compris pour un `targetUserId` unique
+  (tableau a un element) — contrat volontairement uniformise plutot que de
+  faire varier la forme de la reponse selon `targetUserId`/`targetRole`.
+  Aucun appelant reel ne consommait cette route avec `targetRole` en
+  production (seul le consommateur Redis, qui n'y passe pas, geree en
+  interne par `EventProcessorService`) : pas de rupture de contrat observee.
+- **Nettoyage `EventProcessorService`** : la fonction `roleTarget()` (qui
+  fabriquait le `userId` fictif, documentee comme « convention reutilisee
+  telle quelle ») est retiree, remplacee par
+  `resolveRoleRecipients(role, type, metadata)` qui appelle
+  `IdentityAccessServiceClient.listUserIdsByRole` et construit un
+  `NotificationRecipient` par compte reel.
+- **Aucune migration de donnees pour les lignes deja creees** avec l'ancien
+  `userId = "role:<role>"` : elles restent en base, invisibles comme avant
+  (pas de lecteur possible pour un `userId` fictif). Hors perimetre de ce
+  correctif — a traiter separement si l'historique de ces notifications
+  s'avere necessaire (purge, ou migration vers les vrais destinataires si
+  reconstituables depuis `metadata`).
+
+### Verification contre la pile reelle (2026-08-17)
+
+1. Confirmation prealable de la route : appel direct
+   `GET http://identity-access-service:3001/internal/accounts?role=responsable_pedagogique`
+   depuis le conteneur `dashboard-notification-service` → 8 comptes RP reels
+   retournes, dont `trsflow.rp.0811` (`userId c4219392-...`).
+2. Image reconstruite et conteneur redemarre avec `IDENTITY_ACCESS_SERVICE_URL`.
+3. `POST /internal/notify` avec `targetRole: "responsable_pedagogique"` →
+   8 lignes creees, une par `userId` reel (dont `trsflow.rp.0811`),
+   confirme par requete SQL directe sur `notifications` (`user_id =
+   'c4219392-6c28-4c57-b2ec-b9b8d79dae45'`).
+4. Chemin complet du consommateur Redis exerce en publiant un evenement
+   `TeacherRequestCreated` reel sur `visiomath:events` (`XADD`) : traite par
+   `EventStreamConsumerService`/`EventProcessorService`, `processed_events`
+   alimente, 8 notifications `teacher_request_created` creees avec les
+   memes `userId` reels — chemin de production identique a celui emprunte
+   par `teacher-request-service`, pas seulement la route interne de test.
+5. Donnees de verification nettoyees apres coup
+   (`DELETE FROM notifications ...`, `DELETE FROM processed_events ...`).
+
+### Points en suspens
+
+- Notifications de role deja creees avant ce correctif, avec
+  `userId = "role:<role>"` : ni purgees ni migrees (voir ci-dessus).
+- Deux entrees Redis anciennes et sans rapport avec ce correctif
+  (`TeacherProposalExpired`, `TeacherProposalNotSelected`) echouent en
+  boucle sur `XAUTOCLAIM` avec `profile-service ... 400` — probleme
+  preexistant (payload ou `studentId` invalide), constate mais non
+  investigue ici, hors perimetre de la tache.

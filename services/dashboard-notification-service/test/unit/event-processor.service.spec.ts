@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
 import { EventProcessorService } from '../../src/events/event-processor.service';
 import { ProfileServiceClient } from '../../src/events/profile-service.client';
+import { IdentityAccessServiceClient } from '../../src/common/clients/identity-access-service.client';
 import { Notification, NotificationType } from '../../src/notification/entities/notification.entity';
 import { ProcessedEvent } from '../../src/events/entities/processed-event.entity';
 
@@ -10,10 +11,15 @@ const mockProfileServiceClient = () => ({
   getFinanceOwners: jest.fn(),
 });
 
+const mockIdentityAccessServiceClient = () => ({
+  listUserIdsByRole: jest.fn(),
+});
+
 describe('EventProcessorService', () => {
   let processor: EventProcessorService;
   let processedEventRepository: { findOne: jest.Mock; save: jest.Mock; create: jest.Mock };
   let profileServiceClient: ReturnType<typeof mockProfileServiceClient>;
+  let identityAccessServiceClient: ReturnType<typeof mockIdentityAccessServiceClient>;
   let dataSource: { transaction: jest.Mock };
   let txNotificationRepository: { create: jest.Mock; save: jest.Mock };
   let txProcessedEventRepository: { create: jest.Mock; save: jest.Mock };
@@ -40,13 +46,18 @@ describe('EventProcessorService', () => {
         { provide: getRepositoryToken(ProcessedEvent), useValue: processedEventRepository },
         { provide: getDataSourceToken(), useValue: dataSource },
         { provide: ProfileServiceClient, useFactory: mockProfileServiceClient },
+        { provide: IdentityAccessServiceClient, useFactory: mockIdentityAccessServiceClient },
       ],
     }).compile();
 
     processor = moduleRef.get<EventProcessorService>(EventProcessorService);
     profileServiceClient = moduleRef.get(ProfileServiceClient);
+    identityAccessServiceClient = moduleRef.get(IdentityAccessServiceClient);
 
     processedEventRepository.findOne.mockResolvedValue(null);
+    // Default: a single RP account, matching the shape of a real fan-out.
+    // Individual tests override this when they need several RPs or none.
+    identityAccessServiceClient.listUserIdsByRole.mockResolvedValue(['rp-1']);
   });
 
   const displayNames = (entries: Record<string, { firstName: string | null; lastName: string | null }>) => {
@@ -117,8 +128,9 @@ describe('EventProcessorService', () => {
   });
 
   describe('TeacherRequestCreated', () => {
-    it('notifies the RP role with the resolved student name', async () => {
+    it('notifies every real RP userId (real fan-out) with the resolved student name', async () => {
       displayNames({ 'student-1': { firstName: 'Camille', lastName: 'Durand' } });
+      identityAccessServiceClient.listUserIdsByRole.mockResolvedValue(['rp-1', 'rp-2']);
 
       await processor.process({
         eventId: 'evt-1',
@@ -126,15 +138,34 @@ describe('EventProcessorService', () => {
         payload: JSON.stringify({ requestId: 'req-1', studentId: 'student-1', requesterId: 'u-1', requesterRole: 'eleve', type: 'standard' }),
       });
 
+      expect(identityAccessServiceClient.listUserIdsByRole).toHaveBeenCalledWith('responsable_pedagogique');
+      const recipients = txNotificationRepository.save.mock.calls.map(([n]: any) => n.userId);
+      expect(recipients).toEqual(['rp-1', 'rp-2']);
       expect(txNotificationRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({
-          userId: 'role:responsable_pedagogique',
+          userId: 'rp-1',
           type: NotificationType.TEACHER_REQUEST_CREATED,
           title: null,
           message: null,
           metadata: expect.objectContaining({ requestId: 'req-1', studentId: 'student-1', studentName: 'Camille Durand' }),
         }),
       );
+      expect(txProcessedEventRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ eventId: 'evt-1', eventName: 'TeacherRequestCreated' }),
+      );
+    });
+
+    it('marks the event as processed without creating any notification when no account holds the RP role', async () => {
+      displayNames({ 'student-1': { firstName: 'Camille', lastName: 'Durand' } });
+      identityAccessServiceClient.listUserIdsByRole.mockResolvedValue([]);
+
+      await processor.process({
+        eventId: 'evt-1',
+        eventName: 'TeacherRequestCreated',
+        payload: JSON.stringify({ requestId: 'req-1', studentId: 'student-1', requesterId: 'u-1', requesterRole: 'eleve', type: 'standard' }),
+      });
+
+      expect(txNotificationRepository.save).not.toHaveBeenCalled();
       expect(txProcessedEventRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({ eventId: 'evt-1', eventName: 'TeacherRequestCreated' }),
       );
@@ -150,6 +181,21 @@ describe('EventProcessorService', () => {
           payload: JSON.stringify({ requestId: 'req-1', studentId: 'student-1', requesterId: 'u-1', requesterRole: 'eleve', type: 'standard' }),
         }),
       ).rejects.toThrow(/Unresolved display name/);
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('does not acknowledge (throws) when RP userIds cannot be resolved', async () => {
+      displayNames({ 'student-1': { firstName: 'Camille', lastName: 'Durand' } });
+      identityAccessServiceClient.listUserIdsByRole.mockRejectedValue(new Error('identity-access-service unreachable'));
+
+      await expect(
+        processor.process({
+          eventId: 'evt-1',
+          eventName: 'TeacherRequestCreated',
+          payload: JSON.stringify({ requestId: 'req-1', studentId: 'student-1', requesterId: 'u-1', requesterRole: 'eleve', type: 'standard' }),
+        }),
+      ).rejects.toThrow('identity-access-service unreachable');
 
       expect(dataSource.transaction).not.toHaveBeenCalled();
     });
@@ -186,11 +232,12 @@ describe('EventProcessorService', () => {
     it.each([
       ['TeacherProposalAccepted', NotificationType.TEACHER_PROPOSAL_ACCEPTED],
       ['TeacherProposalDeclined', NotificationType.TEACHER_PROPOSAL_DECLINED],
-    ])('notifies the RP role with both names for %s', async (eventName, expectedType) => {
+    ])('notifies every real RP userId (real fan-out) with both names for %s', async (eventName, expectedType) => {
       displayNames({
         'student-1': { firstName: 'Camille', lastName: 'Durand' },
         'teacher-1': { firstName: 'Alex', lastName: 'Martin' },
       });
+      identityAccessServiceClient.listUserIdsByRole.mockResolvedValue(['rp-1']);
 
       await processor.process({
         eventId: 'evt-3',
@@ -198,9 +245,10 @@ describe('EventProcessorService', () => {
         payload: JSON.stringify({ proposalId: 'prop-1', requestId: 'req-1', teacherId: 'teacher-1', studentId: 'student-1' }),
       });
 
+      expect(identityAccessServiceClient.listUserIdsByRole).toHaveBeenCalledWith('responsable_pedagogique');
       expect(txNotificationRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({
-          userId: 'role:responsable_pedagogique',
+          userId: 'rp-1',
           type: expectedType,
           metadata: expect.objectContaining({ studentName: 'Camille Durand', teacherName: 'Alex Martin' }),
         }),

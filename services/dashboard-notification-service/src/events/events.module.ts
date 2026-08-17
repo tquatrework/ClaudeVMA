@@ -6,6 +6,7 @@ import { ProfileServiceClient } from './profile-service.client';
 import { EventProcessorService } from './event-processor.service';
 import { EventStreamConsumerService } from './event-stream-consumer.service';
 import { EventStreamReclaimService } from './event-stream-reclaim.service';
+import { ClientsModule } from '../common/clients/clients.module';
 
 /**
  * Wires the Redis event consumer described in docs/architecture.md >
@@ -16,7 +17,7 @@ import { EventStreamReclaimService } from './event-stream-reclaim.service';
  * cases.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([Notification, ProcessedEvent])],
+  imports: [TypeOrmModule.forFeature([Notification, ProcessedEvent]), ClientsModule],
   providers: [ProfileServiceClient, EventProcessorService, EventStreamConsumerService, EventStreamReclaimService],
 })
 export class EventsModule {}

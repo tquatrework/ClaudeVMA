@@ -16,11 +16,18 @@ deux cas au lieu d'un seul libellé générique :
 2. **« Vous n'avez pas été retenu pour {élève} »** — quand le RP a expressément refusé ce
    formateur, sans qu'un autre ait forcément été choisi.
 
-À vérifier avant d'implémenter : ces deux cas sont-ils déjà distinguables dans les données
-existantes (type d'événement, métadonnées) émises par `teacher-request-service`, ou faut-il un
-changement backend ? Ne pas inventer une distinction que les données ne permettent pas de faire
-réellement — si le backend ne distingue pas aujourd'hui ces deux cas, remonter le point plutôt
-que de deviner côté front.
+Investigation faite par l'orchestrateur avant délégation (`docs/routes.md`, section
+teacher-request-service) : le backend distingue **déjà** ces deux cas, sans changement
+nécessaire. À la clôture d'une demande (`POST /requests/:id/validate`), les candidatures non
+retenues se répartissent en deux états distincts, déjà notifiés séparément au formateur
+concerné (arbitrage du 2026-08-14, point 8) :
+- `not_selected` (le formateur avait **accepté**, un autre a été choisi) → événement
+  `TeacherProposalNotSelected` → **« Un autre professeur a été retenu pour {élève} »**.
+- `expired` (le formateur n'avait **jamais répondu**) → événement `TeacherProposalExpired` →
+  **« Vous n'avez pas été retenu pour {élève} »**.
+Il ne s'agit donc que d'un correctif de libellés front sur deux types déjà distincts — pas d'un
+changement backend. À vérifier côté front : `notificationLabels.ts` porte-t-il aujourd'hui un
+libellé unique ou incorrect pour l'un des deux ?
 
 ### Comment on saura que c'est fait
 

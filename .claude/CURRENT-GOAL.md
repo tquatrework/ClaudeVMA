@@ -26,10 +26,27 @@ cette entrée, et confirmation que l'information reste accessible depuis le prof
 
 ### État
 
-- [ ] Localiser l'entrée dans le rail gauche (front)
-- [ ] Retirer l'entrée de navigation, sans retirer l'information du profil
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+- [x] Localisée : `apps/web/src/navigation/navigationConfig.ts`, groupe `Famille` du rail
+      `eleve` (un seul item, « Mes parents financeurs » → `/parent-link-requests/inbox`).
+      Le groupe entier disparaît, c'était son seul item.
+- [x] Entrée retirée, information du profil intacte — l'onglet « Parents financeurs » de
+      `ProfilePage` (`ParentFinanceurSection` + `useFinanceOwnerStudentLinks` +
+      `FinanceOwnerStudentLinkList`) existait déjà, indépendant de cette route de rail, et n'a
+      pas été touché. La route `/parent-link-requests/inbox` reste ouverte à `eleve` dans
+      `App.tsx` (accessible par URL directe) ; seule l'entrée de rail dédiée a disparu. L'entrée
+      homonyme du rail RP (« Demandes rattachement », même chemin, but différent : le RP y
+      valide les demandes en attente) a été laissée intacte — aucun autre menu du haut ni du
+      rail gauche n'a été touché, conformément à la règle permanente ci-dessus.
+- [x] Déployé sur la pile réelle — `frontend` reconstruit et redémarré, bundle
+      `index-DOem2XZu.js` servi (`Mes parents financeurs` : 0 occurrence, `Parents financeurs` :
+      1 occurrence, vérifié sur les octets du bundle).
+- [x] Preuve livrée à l'utilisateur — test Playwright
+      `apps/web/e2e/repro-remove-family-rail-entry.spec.ts`, joué contre
+      `https://claudevma.visioprof.fr` avec un élève et son parent financeur créés par les
+      routes réelles d'inscription : rail gauche sans le groupe « Famille » (capture
+      `test-results/proof-rail-eleve-sans-famille.png`), puis onglet « Parents financeurs » du
+      profil affichant « Marc Railtest » avec option « Délier » (capture
+      `test-results/proof-profil-onglet-parents-financeurs.png`). Vert.
 - [ ] Validé par l'utilisateur
 
 ---

@@ -46,16 +46,25 @@ sur les défauts de visibilité et le périmètre administrable, **consigné dan
    `/visibilite` montre aujourd'hui les deux blocs pédagogiques (élève ET formateur) sans filtrer
    par rôle du titulaire.
 
-**Chantier pas encore lancé** — j'ai signalé à l'utilisateur que le repli nom→pseudo (point 2)
-est potentiellement large (peut toucher tout écran affichant un nom de personne dans l'app, pas
-seulement le profil), et j'attends son feu vert avant de déléguer l'implémentation (probablement
-deux chantiers : `profile-service` pour les défauts et le filtrage par rôle à la source,
-`front-developper` pour le rendu du repli et l'écran `/visibilite`).
+**Périmètre retenu par l'utilisateur (2026-08-17)**, après signalement que le repli nom→pseudo
+(point 2) était potentiellement large : **le point 2 est reporté**, pas implémenté maintenant.
+À la place :
+- **Prénom et nom ne doivent plus du tout être réglables** dans `/visibilite` — retirés de
+  l'écran, et le serveur doit les traiter comme toujours visibles à tous, quoi qu'il arrive
+  (aucun repli sur le pseudo à construire pour l'instant, puisqu'ils ne peuvent plus être masqués
+  du tout).
+- **Le reste est à mettre à jour** : points 3 (tous les autres champs par défaut aux seuls
+  contacts liés) et 4 (un utilisateur n'administre que les champs de son propre rôle — corriger
+  le bug `/visibilite` qui montre les deux blocs pédagogiques).
+
+Deux chantiers : `profile-service` (défauts des autres champs, catalogue filtré par rôle,
+prénom/nom jamais masquables même via l'API), `front-developper` (retirer prénom/nom de l'écran
+`/visibilite`, filtrer les champs affichés par rôle réel du titulaire).
 
 ### État
 
-- [ ] Feu vert de l'utilisateur pour lancer l'implémentation
-- [ ] Implémenté
+- [ ] Implémenté côté `profile-service`
+- [ ] Implémenté côté front
 - [ ] Déployé sur la pile réelle
 - [ ] Preuve livrée à l'utilisateur
 - [ ] Validé par l'utilisateur

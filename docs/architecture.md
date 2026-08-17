@@ -684,11 +684,13 @@ Phase 3 enrichit l'offre :
   1. **L'identifiant de connexion (`loginIdentifier`, le pseudo) ne peut jamais etre masque.** Il
      n'entre pas dans les reglages de visibilite : il est toujours disponible, et devient le
      **repli** du point 2 ci-dessous.
-  2. **Prenom et nom sont partages a tout le monde par defaut.** Si l'utilisateur choisit
-     explicitement de les masquer, alors **partout ou son prenom/nom seraient affiches**, c'est
-     son `loginIdentifier` qui s'affiche a la place — jamais un champ vide, jamais un UUID.
-     Extension de la regle du 2026-08-09 sur l'affichage des identifiants techniques : un nom
-     masque n'est pas une absence, il a un repli defini et stable, le pseudo.
+  2. **Prenom et nom sont partages a tout le monde, et ne peuvent pas etre masques.**
+     **Precision du 2026-08-17** : ce point est **simplifie a l'implementation** — plutot que de
+     construire le repli sur `loginIdentifier` (potentiellement large, tout ecran affichant un nom
+     de personne dans l'app), le reglage de visibilite du prenom/nom est **retire de l'ecran**
+     `/visibilite` et le serveur les traite comme **toujours visibles**, sans possibilite de les
+     masquer, meme via l'API. Le mecanisme de repli sur le pseudo reste une idee a reprendre plus
+     tard si le besoin de masquer le nom redevient reel — non implemente pour l'instant.
   3. **Tous les autres champs sont partages par defaut aux seuls contacts lies**, jamais a tout le
      monde. Ceci remplace l'ancien "socle" qui incluait aussi la photo, le niveau et les matieres
      dans un partage plus large par defaut — desormais seuls le nom et le prenom (points 1-2) ont

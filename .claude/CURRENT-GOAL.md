@@ -25,10 +25,40 @@ fait réellement l'écran `/visibilite`.
 
 ### État
 
-- [ ] Investigation front reçue
-- [ ] Réponse claire donnée à l'utilisateur, décision sur la suite (créer l'écran manquant ?
-      ajouter le type « droit à l'image » ? corriger la règle de visibilité ?) laissée ouverte
-      tant que l'utilisateur n'a pas tranché
+- [x] Investigation front reçue : écran `/consents` existe déjà (fonctionnel) mais **invisible**
+      — dans aucun menu, seul point d'entrée une bannière visible uniquement compte `pending`.
+      « Profil/Confidentialité » ne mène qu'à `/visibilite` (visibilité champ par champ), aucun
+      rapport avec les consentements. « Droit à l'image » n'existe nulle part (ni backend, ni
+      texte du formulaire d'inscription) — attente de l'utilisateur sans base dans le code.
+- [x] Réponse donnée à l'utilisateur — 2026-08-17
+
+### Suite — arbitrage rendu par l'utilisateur sur la visibilité champ par champ (2026-08-17)
+
+En réponse à la question sur la règle non respectée, l'utilisateur a précisé un arbitrage complet
+sur les défauts de visibilité et le périmètre administrable, **consigné dans
+`docs/architecture.md`** (section « Defauts de visibilite champ par champ... ») :
+1. `loginIdentifier` (pseudo) jamais masquable, sert de repli.
+2. Prénom/nom partagés à tous par défaut ; si masqués, repli sur le pseudo **partout** où un nom
+   serait affiché — jamais un vide, jamais un UUID.
+3. Tous les autres champs partagés par défaut aux seuls contacts liés (remplace l'ancien socle
+   qui incluait aussi photo/niveau/matières).
+4. Seuls les champs du rôle réel de l'utilisateur sont administrables par lui — **bug confirmé** :
+   `/visibilite` montre aujourd'hui les deux blocs pédagogiques (élève ET formateur) sans filtrer
+   par rôle du titulaire.
+
+**Chantier pas encore lancé** — j'ai signalé à l'utilisateur que le repli nom→pseudo (point 2)
+est potentiellement large (peut toucher tout écran affichant un nom de personne dans l'app, pas
+seulement le profil), et j'attends son feu vert avant de déléguer l'implémentation (probablement
+deux chantiers : `profile-service` pour les défauts et le filtrage par rôle à la source,
+`front-developper` pour le rendu du repli et l'écran `/visibilite`).
+
+### État
+
+- [ ] Feu vert de l'utilisateur pour lancer l'implémentation
+- [ ] Implémenté
+- [ ] Déployé sur la pile réelle
+- [ ] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur
 
 ---
 

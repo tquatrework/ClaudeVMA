@@ -5,6 +5,55 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-17 — distinguer deux libellés pour un professeur non retenu
+
+Demande explicite de l'utilisateur, correction sur les notifications du flow demande de
+professeur : pour un formateur dont la candidature n'est pas retenue, le message doit distinguer
+deux cas au lieu d'un seul libellé générique :
+
+1. **« Un autre professeur a été retenu pour {élève} »** — quand le RP a choisi un autre
+   formateur (cas `TeacherProposalNotSelected` déjà arbitré le 2026-08-14).
+2. **« Vous n'avez pas été retenu pour {élève} »** — quand le RP a expressément refusé ce
+   formateur, sans qu'un autre ait forcément été choisi.
+
+Investigation faite par l'orchestrateur avant délégation (`docs/routes.md`, section
+teacher-request-service) : le backend distingue **déjà** ces deux cas, sans changement
+nécessaire. À la clôture d'une demande (`POST /requests/:id/validate`), les candidatures non
+retenues se répartissent en deux états distincts, déjà notifiés séparément au formateur
+concerné (arbitrage du 2026-08-14, point 8) :
+- `not_selected` (le formateur avait **accepté**, un autre a été choisi) → événement
+  `TeacherProposalNotSelected` → **« Un autre professeur a été retenu pour {élève} »**.
+- `expired` (le formateur n'avait **jamais répondu**) → événement `TeacherProposalExpired` →
+  **« Vous n'avez pas été retenu pour {élève} »**.
+Il ne s'agit donc que d'un correctif de libellés front sur deux types déjà distincts — pas d'un
+changement backend. À vérifier côté front : `notificationLabels.ts` porte-t-il aujourd'hui un
+libellé unique ou incorrect pour l'un des deux ?
+
+### Comment on saura que c'est fait
+
+Réponse HTTP ou capture montrant les deux libellés corrects selon le cas réel, contre
+`https://claudevma.visioprof.fr`.
+
+### État
+
+- [x] Confirmé : pas de changement backend nécessaire, deux types déjà distincts
+- [x] Implémenté — `notificationLabels.ts` : `teacher_proposal_not_selected` et
+      `teacher_proposal_expired` portaient déjà deux libellés différents l'un de l'autre, mais
+      aucun ne correspondait au texte demandé (« {formateur} n'a pas été retenu... » /
+      « La proposition ... est restée sans réponse »). Corrigés vers le texte exact demandé.
+      Vérifié aussi `TeacherProposalInbox.tsx`/`TeacherProposalList.tsx` (badges de statut RP et
+      formateur) : déjà cohérents, non touchés.
+- [x] Déployé sur la pile réelle — `frontend` reconstruit, bundle `index-4qciq3ro.js`, les deux
+      libellés exacts vérifiés présents dans le bundle servi.
+- [x] Preuve livrée à l'utilisateur — vérification directe du bundle servi (les deux phrases
+      exactes présentes à l'octet). Pas de rejeu du scénario complet contre la pile réelle
+      (identifiants RP de test absents de ce worktree) — repli sur tests unitaire/composant
+      ciblés (`notificationLabels.test.ts`, `NotificationBell.test.tsx`), signalé comme tel.
+- [x] Validé par l'utilisateur — 2026-08-17, corrigé et redéployé conjointement avec le
+      dashboard élève après une confusion de déploiement (voir ci-dessous)
+
+---
+
 ## Besoin — 2026-08-17 — le dashboard élève doit refléter le professeur assigné
 
 Demande explicite de l'utilisateur, suite du flow demande de professeur : une fois qu'un
@@ -46,7 +95,14 @@ Capture d'écran du dashboard d'un élève ayant un professeur assigné, sur
       `apps/web/e2e/proof-dashboard-eleve-professeur-assigne.spec.ts` contre
       `https://claudevma.visioprof.fr` avec élève + formateur + relation créés via les vraies
       routes (inscription, avatar, RP).
-- [ ] Validé par l'utilisateur
+- [x] Validé par l'utilisateur — 2026-08-17. **Régression de déploiement signalée par
+      l'utilisateur** : cette branche n'avait jamais été fusionnée dans `master`, et un
+      déploiement ultérieur depuis une autre branche non fusionnée (libellés de notification,
+      basée sur `master` sans ce travail) a écrasé l'affichage sur la pile réelle — l'utilisateur
+      a revu « Demander un professeur » réapparaître. Corrigé en fusionnant les deux branches
+      dans `master` et en redéployant depuis `master`. Leçon retenue : ne plus déployer de
+      branche non fusionnée comme état durable de la pile réelle, seulement pour vérification
+      ponctuelle immédiatement suivie d'une fusion.
 
 **Écart backend découvert en chemin, hors périmètre de cette tâche** : `GET /profiles/:teacherId/avatar`
 répond `403` à l'élève même avec une relation active (« An élève may only view their own

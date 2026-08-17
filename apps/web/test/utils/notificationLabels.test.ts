@@ -37,24 +37,40 @@ describe('getNotificationDisplayText', () => {
     expect(text).toBe('Marc Petit a refusé la proposition pour Camille Durand')
   })
 
-  it('résout teacher_proposal_not_selected', () => {
+  it('résout teacher_proposal_not_selected — un autre formateur a été retenu', () => {
     const text = getNotificationDisplayText({
       type: 'teacher_proposal_not_selected',
       metadata: { teacherName: 'Marc Petit', studentName: 'Camille Durand' },
       title: '',
       message: '',
     })
-    expect(text).toBe("Marc Petit n'a pas été retenu pour Camille Durand")
+    expect(text).toBe('Un autre professeur a été retenu pour Camille Durand')
   })
 
-  it('résout teacher_proposal_expired', () => {
+  it('résout teacher_proposal_expired — le formateur n\'a jamais répondu, distinct de not_selected', () => {
     const text = getNotificationDisplayText({
       type: 'teacher_proposal_expired',
       metadata: { teacherName: 'Marc Petit', studentName: 'Camille Durand' },
       title: '',
       message: '',
     })
-    expect(text).toBe('La proposition envoyée à Marc Petit pour Camille Durand est restée sans réponse')
+    expect(text).toBe("Vous n'avez pas été retenu pour Camille Durand")
+  })
+
+  it('teacher_proposal_not_selected et teacher_proposal_expired ont des libellés distincts', () => {
+    const notSelected = getNotificationDisplayText({
+      type: 'teacher_proposal_not_selected',
+      metadata: { studentName: 'Camille Durand' },
+      title: '',
+      message: '',
+    })
+    const expired = getNotificationDisplayText({
+      type: 'teacher_proposal_expired',
+      metadata: { studentName: 'Camille Durand' },
+      title: '',
+      message: '',
+    })
+    expect(notSelected).not.toBe(expired)
   })
 
   it('résout teacher_request_status_updated', () => {

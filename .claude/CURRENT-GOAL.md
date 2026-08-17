@@ -5,6 +5,37 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-17 — « Demande en cours » sur le dashboard élève pendant une demande active
+
+Demande explicite de l'utilisateur, troisième état du dashboard élève (après « pas de
+professeur » et « professeur assigné », livrés plus tôt aujourd'hui) : **pendant qu'une demande
+de professeur est en cours de traitement** (soumise par l'élève, pas encore résolue par une
+affectation), le bouton **« Demander un professeur »** ne doit plus s'afficher — remplacé par un
+message **« Demande en cours »**.
+
+À déterminer côté front : comment savoir qu'une demande est « en cours » (par opposition à
+close/résolue) — probablement via le statut de la demande de l'élève auprès de
+`teacher-request-service` (`pending`/`redirected` vs `closed`/`assigned`/etc., cf.
+`docs/routes.md` section teacher-request-service). Ne pas deviner l'état à partir d'autre chose
+que la vraie donnée de statut.
+
+### Comment on saura que c'est fait
+
+Capture d'écran du dashboard d'un élève ayant une demande de professeur active (non résolue),
+sur `https://claudevma.visioprof.fr`, montrant « Demande en cours » et l'absence du bouton
+« Demander un professeur ».
+
+### État
+
+- [ ] Localiser la donnée de statut de la demande active de l'élève
+- [ ] Implémenter le troisième état du dashboard
+- [ ] Déployé sur la pile réelle (fusionné dans `master` avant tout autre déploiement, pour
+      éviter la régression rencontrée plus tôt aujourd'hui)
+- [ ] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur
+
+---
+
 ## Besoin — 2026-08-17 — déplacer « Demandes » du menu du haut vers le rail gauche élève
 
 Demande explicite de l'utilisateur (conforme à la règle permanente sur les menus — approbation

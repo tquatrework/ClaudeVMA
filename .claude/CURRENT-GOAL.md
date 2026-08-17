@@ -5,6 +5,41 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-17 — le dashboard élève doit refléter le professeur assigné
+
+Demande explicite de l'utilisateur, suite du flow demande de professeur : une fois qu'un
+professeur a été choisi pour l'élève (`TeacherAssigned`), son écran d'accueil doit changer.
+
+1. Tuile **« Mon professeur »** : afficher la photo de profil du professeur, son prénom et son
+   nom.
+2. Tuile **« Prochains cours »** : si aucun cours à venir, afficher « Vous n'avez pas de prochain
+   cours » avec un bouton — **le bouton est affiché mais sa fonctionnalité réelle (contacter le
+   professeur) sera implémentée plus tard, avec la messagerie**. Ne pas construire de faux
+   parcours de contact maintenant, juste préparer la place.
+3. Le bouton **« Demander un professeur »** doit disparaître une fois qu'un professeur est
+   assigné (il n'a plus de sens).
+4. Garder un bouton **« Changer de professeur »** dans la tuile « Mon professeur », qui mène à
+   l'écran des demandes de professeur (`/teacher-requests`).
+
+Ceci concerne des tuiles du dashboard, pas le menu du haut ni le rail gauche — la règle
+permanente ci-dessous sur les menus ne s'applique pas ici, mais reste en vigueur pour toute
+navigation.
+
+### Comment on saura que c'est fait
+
+Capture d'écran du dashboard d'un élève ayant un professeur assigné, sur
+`https://claudevma.visioprof.fr`, montrant les 4 points ci-dessus.
+
+### État
+
+- [ ] Localiser le dashboard élève et la donnée source (relation élève↔formateur, avatar)
+- [ ] Implémenter les 4 points
+- [ ] Déployé sur la pile réelle
+- [ ] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur
+
+---
+
 ## RÈGLE PERMANENTE — 2026-08-17 — pas de changement de menu sans approbation
 
 L'utilisateur a explicitement demandé : ne plus ajouter d'élément au menu du haut ni au rail

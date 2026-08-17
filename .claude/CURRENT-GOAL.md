@@ -26,11 +26,15 @@ avec « Propositions reçues » (plus de « Demandes ouvertes ») et SUIVI avec 
 
 ### État
 
-- [ ] Localiser les entrées dans la config de navigation front
-- [ ] Appliquer les changements (COURS et SUIVI)
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+- [x] Localiser les entrées dans la config de navigation front
+- [x] Appliquer les changements (COURS et SUIVI)
+- [x] Déployé sur la pile réelle (rebuild + redémarrage `visiomath_frontend`)
+- [x] Preuve livrée à l'utilisateur (capture d'écran, compte formateur de test)
 - [ ] Validé par l'utilisateur
+
+Commit poussé sur `fix/reorganisation-menu-formateur` (non mergé, sur demande explicite de
+l'utilisateur — il merge lui-même après avoir vu la preuve). Fichier modifié :
+`apps/web/src/navigation/navigationConfig.ts`.
 
 ---
 

@@ -85,3 +85,35 @@ export function getNotificationDisplayText(
   }
   return notification.title?.trim() || notification.message?.trim() || FALLBACK_TEXT
 }
+
+/**
+ * Point unique de correspondance type technique → route de destination.
+ *
+ * Avant ce mapping, cliquer sur une notification ne faisait que la marquer
+ * lue : rien n'emmenait l'utilisateur vers l'écran concerné. Un formateur
+ * recevant `teacher_proposal_sent` n'avait donc aucun chemin direct vers sa
+ * boîte de réception (`/teacher-requests`), alors que l'écran existe et y
+ * répond déjà par les actions accepter/refuser — trou de navigation, pas de
+ * trou fonctionnel.
+ *
+ * Les 8 types émis par le flow « demande de professeur » convergent tous vers
+ * `/teacher-requests` : c'est le seul hub de ce flow, quel que soit le rôle
+ * (boîte de réception formateur, liste de demandes élève/parent/RP).
+ * Un type absent de cette table (hérité ou futur) ne navigue nulle part —
+ * mieux vaut ne rien faire que d'emmener l'utilisateur au mauvais endroit.
+ */
+const NOTIFICATION_TARGET_PATHS: Record<string, string> = {
+  teacher_request_created: '/teacher-requests',
+  teacher_proposal_sent: '/teacher-requests',
+  teacher_proposal_accepted: '/teacher-requests',
+  teacher_proposal_declined: '/teacher-requests',
+  teacher_proposal_not_selected: '/teacher-requests',
+  teacher_proposal_expired: '/teacher-requests',
+  teacher_assigned: '/teacher-requests',
+  teacher_request_status_updated: '/teacher-requests',
+}
+
+/** Route vers laquelle naviguer au clic sur une notification, ou `null` si aucune n'est définie. */
+export function getNotificationTargetPath(type: DashboardNotification['type']): string | null {
+  return NOTIFICATION_TARGET_PATHS[type] ?? null
+}

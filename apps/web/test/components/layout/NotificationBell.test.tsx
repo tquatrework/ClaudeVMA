@@ -3,18 +3,25 @@
  * récentes (système de notifications transversal, arbitrage du 2026-08-14).
  *
  * Couvre : badge de compteur (masqué si 0), ouverture/fermeture du menu,
- * marquage lu au clic sans fermer le menu, lien "Tout voir", et le repli sûr
- * en l'absence de `<NotificationsProvider>`.
+ * marquage lu et navigation vers l'écran concerné au clic (correctif
+ * 2026-08-17 — voir `.claude/CURRENT-GOAL.md`), lien "Tout voir", et le
+ * repli sûr en l'absence de `<NotificationsProvider>`.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NotificationBell } from '../../../src/components/layout/NotificationBell'
 import { NotificationsContext, type NotificationsState } from '../../../src/context/NotificationsContext'
 import { makeUseAuthReturn } from '../../../src/test-helpers'
 import type { DashboardNotification } from '../../../src/types/dashboard'
+
+/** Affiche le chemin courant, pour vérifier qu'un clic a bien déclenché une navigation. */
+function LocationDisplay() {
+  const location = useLocation()
+  return <div data-testid="location-display">{location.pathname}</div>
+}
 
 vi.mock('../../../src/hooks/useAuth')
 
@@ -35,8 +42,9 @@ const NOTIF_UNREAD: DashboardNotification = {
 
 function renderBell(contextValue: NotificationsState | null) {
   const tree = (
-    <MemoryRouter>
+    <MemoryRouter initialEntries={['/dashboard']}>
       <NotificationBell />
+      <LocationDisplay />
     </MemoryRouter>
   )
   if (contextValue === null) {
@@ -92,7 +100,7 @@ describe('NotificationBell', () => {
     expect(screen.getByRole('link', { name: 'Tout voir' }).getAttribute('href')).toBe('/notifications')
   })
 
-  it('marque une notification comme lue au clic, sans fermer le menu', async () => {
+  it('marque une notification comme lue et navigue vers son écran au clic', async () => {
     const markAsRead = vi.fn().mockResolvedValue({ ...NOTIF_UNREAD, isRead: true })
     renderBell({
       notifications: [NOTIF_UNREAD],
@@ -108,8 +116,14 @@ describe('NotificationBell', () => {
     await waitFor(() => {
       expect(markAsRead).toHaveBeenCalledWith('notif-1')
     })
-    // Le menu reste ouvert : la ligne cliquée est toujours visible.
-    expect(screen.getByText('Un professeur a été trouvé pour Camille Durand')).toBeDefined()
+    // Correctif 2026-08-17 : le clic navigue désormais vers l'écran concerné (ici
+    // `/teacher-requests`, seul hub du flow demande de professeur) — avant, cliquer une
+    // notification ne faisait que la marquer lue, sans emmener l'utilisateur nulle part.
+    await waitFor(() => {
+      expect(screen.getByTestId('location-display')).toHaveTextContent('/teacher-requests')
+    })
+    // Le menu se referme une fois la navigation déclenchée.
+    expect(screen.queryByText('Un professeur a été trouvé pour Camille Durand')).toBeNull()
   })
 
   it("affiche un état vide explicite quand il n'y a aucune notification récente", async () => {

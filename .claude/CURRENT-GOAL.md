@@ -5,6 +5,73 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-17 — le formateur ne trouve pas où gérer une proposition reçue
+
+Constat direct de l'utilisateur, en testant le flow demande professeur : élève (`eleve.sixieme`)
+crée une demande, RP (`responsable.peda`) envoie une proposition à deux formateurs
+(`prof.sixieme`, `prof.lycee`). Le formateur reçoit bien une notification, mais l'utilisateur ne
+trouve dans l'interface front aucun endroit où le formateur peut accepter ou refuser cette
+proposition. Possible régression, à vérifier avant de corriger.
+
+Le backend fonctionne (vérifié cette session même : `POST /proposals/:id/accept` répond `201`
+contre la pile réelle). Le problème est circonscrit au front — écran manquant, mal routé, ou
+lien cassé depuis la notification.
+
+### Diagnostic (2026-08-17)
+
+Reproduit avec un scénario neuf (compte formateur jamais connecté, créé via les routes réelles
+d'inscription) et Playwright contre `https://claudevma.visioprof.fr` : **ce n'est pas un trou
+fonctionnel**, `/teacher-requests` existait déjà avec « Me porter candidat » / « Décliner » pour
+le formateur (livré avec le flow, PR #100, 2026-08-12), et l'entrée de rail gauche « Propositions
+reçues » (groupe « Suivi ») y mène. Une exploration à froid la trouve sans peine.
+
+Le vrai trou : **cliquer sur la notification de la cloche ne faisait que la marquer lue**, sans
+jamais emmener l'utilisateur vers l'écran concerné (`NotificationBell.tsx` et `NotificationsPage.tsx`
+n'avaient aucune navigation associée à un type de notification). Un formateur qui ne remarque pas
+l'entrée de rail — la seule qui existait — n'avait donc aucun chemin direct depuis la notification
+qu'il vient de recevoir. Régression de découvrabilité, pas de régression d'accès ni de trou
+fonctionnel.
+
+### Correctif livré
+
+`getNotificationTargetPath` (nouveau, `src/utils/notificationLabels.ts`) fait correspondre les 8
+types de notification du flow demande de professeur à `/teacher-requests` (seul hub de ce flow,
+quel que soit le rôle). `NotificationBell` et `NotificationsPage` naviguent désormais vers cette
+route après avoir marqué la notification lue.
+
+### Comment on saura que c'est fait
+
+Capture d'écran ou réponse HTTP montrant : depuis le compte `prof.sixieme` (ou équivalent), un
+chemin dans l'interface qui mène à la proposition reçue avec des actions accepter/refuser, testé
+contre `https://claudevma.visioprof.fr`.
+
+**Fait** — test Playwright `apps/web/e2e/repro-proposal-visibility.spec.ts`, joué contre la pile
+réelle après reconstruction et redéploiement de `visiomath_frontend` : connexion formateur, clic
+sur la notification « Nouvelle proposition de professeur pour Camille Reprotest » dans la cloche,
+assertion que l'URL devient `/teacher-requests`, puis que les boutons « Me porter candidat » et
+« Décliner » y sont visibles. Vert, captures `test-results/proof-1-notification-menu-open.png` et
+`test-results/proof-2-teacher-requests-after-click.png` (non committées, `test-results/` gitignoré).
+
+### État
+
+- [x] Vérifier si l'écran existe déjà (régression d'accès) ou n'a jamais existé (trou fonctionnel)
+      — l'écran existait déjà ; le trou était la navigation depuis la notification
+- [x] Corriger côté front — `getNotificationTargetPath`, branché dans `NotificationBell` et
+      `NotificationsPage`
+- [x] Déployé sur la pile réelle — `visiomath_frontend` reconstruit et redémarré (bundle
+      `index-9ZheGy2w.js`), en copiant les fichiers modifiés depuis le worktree d'agent vers le
+      checkout principal (`/home/debian/Documents/claudeVMA/apps/web`, seul contexte de build
+      docker-compose), git étant refusé sur ce chemin pour un agent isolé en worktree
+- [x] Preuve livrée à l'utilisateur — test Playwright + captures ci-dessus, sur la branche
+      `fix/front-acceptation-proposition-formateur` (poussée, non mergée sur décision de
+      l'utilisateur)
+- [x] Validé par l'utilisateur — 2026-08-17 : « la demande existe dans "Propositions reçues" [...]
+      je valide pour l'instant ». Confirme aussi que le besoin réel était bien le lien depuis la
+      notification (« il faut inclure dans les notifications, un lien vers ce menu ») — exactement
+      ce que corrige `getNotificationTargetPath`.
+
+---
+
 ## Besoin — 2026-08-14 — système de notifications (cloche front)
 
 Demande directe de l'utilisateur : mettre en place les notifications pour chaque flow (en

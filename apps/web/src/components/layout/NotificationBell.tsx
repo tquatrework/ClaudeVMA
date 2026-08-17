@@ -1,9 +1,10 @@
 import { useContext, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { NotificationsContext } from '../../context/NotificationsContext'
-import { getNotificationDisplayText } from '../../utils/notificationLabels'
+import { getNotificationDisplayText, getNotificationTargetPath } from '../../utils/notificationLabels'
 import { formatActivityDate } from '../../utils/dateFormat'
+import type { DashboardNotification } from '../../types/dashboard'
 
 /**
  * NotificationBell — bouton cloche + menu déroulant des notifications
@@ -47,12 +48,22 @@ export function NotificationBell() {
   const unreadCount = notificationsState?.unreadCount ?? 0
   const isLoading = notificationsState?.isLoading ?? false
   const markAsRead = notificationsState?.markAsRead
+  const navigate = useNavigate()
 
-  const handleRowClick = (notificationId: string, isRead: boolean) => {
-    if (isRead || !markAsRead) return
-    markAsRead(notificationId).catch(() => {
-      // Échec du marquage : la ligne reste visuellement non lue, l'utilisateur peut recliquer.
-    })
+  // Marque lu (si nécessaire) PUIS navigue vers l'écran concerné — un formateur qui reçoit
+  // « Nouvelle proposition de professeur » doit atterrir directement sur sa boîte de
+  // réception (`/teacher-requests`), pas seulement voir la ligne passer à lue.
+  const handleRowClick = (notification: DashboardNotification) => {
+    if (!notification.isRead && markAsRead) {
+      markAsRead(notification.id).catch(() => {
+        // Échec du marquage : la ligne reste visuellement non lue, l'utilisateur peut recliquer.
+      })
+    }
+    setIsOpen(false)
+    const targetPath = getNotificationTargetPath(notification.type)
+    if (targetPath) {
+      navigate(targetPath)
+    }
   }
 
   return (
@@ -104,7 +115,7 @@ export function NotificationBell() {
               <button
                 key={notification.id}
                 type="button"
-                onClick={() => handleRowClick(notification.id, notification.isRead)}
+                onClick={() => handleRowClick(notification)}
                 style={{
                   background: notification.isRead
                     ? 'transparent'

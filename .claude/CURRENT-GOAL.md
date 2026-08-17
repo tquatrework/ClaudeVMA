@@ -41,7 +41,10 @@ vérifiable en session.
       Flow complet rejoué contre `https://claudevma.visioprof.fr` : les 6 événements notifient le
       bon destinataire (réponses HTTP citées). Un bug réel trouvé en testant (notifications par
       rôle RP jamais reçues) et corrigé en cours de route — voir rapport pour le détail.
-- [ ] Validé par l'utilisateur
+- [~] Validé par l'utilisateur — **mergé sur sa décision le 2026-08-17** (« merge directement »),
+      après avoir reçu la preuve HTTP ci-dessus. Comme pour les objectifs précédents mergés sur
+      décision, ce n'est pas une validation par constat écran par écran.
+- [x] Mergé dans master — PR #111, squash, `fde54c2`, branche supprimée
 
 ## Besoin — 2026-08-12/13 — fin d'une relation élève↔formateur
 

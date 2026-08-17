@@ -226,6 +226,47 @@ export class InternalController {
   }
 
   /**
+   * `GET /internal/relations/finance-owners/:studentId`
+   *
+   * Résout les PARENTS FINANCEURS d'un élève pour un appelant interservices —
+   * arbitrage du 2026-08-14 (`docs/architecture.md` > « Systeme de
+   * notifications transversal », point 5). Premier consommateur :
+   * `dashboard-notification-service`, pour notifier les parents financeurs
+   * quand un professeur est validé pour leur élève.
+   *
+   * DÉCLARÉE AVANT `GET /internal/relations/:viewerId/:targetId` ci-dessous :
+   * les deux routes ont le même nombre de segments, et `:viewerId` capturerait
+   * silencieusement le littéral `finance-owners` si la route paramétrée était
+   * enregistrée en premier — Express résout dans l'ordre de déclaration, pas
+   * par spécificité du segment. Ne jamais réordonner sans vérifier ce point.
+   *
+   * PÉRIMÈTRE VOLONTAIREMENT ÉTROIT : ne renvoie que les `userId`, rien
+   * d'autre — pas de nom, pas de statut du lien. Les noms se résolvent via
+   * `GET /internal/profiles/:userId/display-name` /
+   * `POST /internal/profiles/display-names`, séparément. Réutilise
+   * directement `RelationsService.getFinanceOwnersByStudent`, qui ne renvoie
+   * que les liens ACTIFS (un parent délié n'apparaît plus).
+   *
+   * Jamais exposée par `api-gateway`.
+   */
+  @ApiOperation({
+    summary: 'Résoudre les parents financeurs d’un élève (interservices)',
+    description:
+      'Renvoie {studentId, financeOwnerUserIds}. Liens actifs uniquement. Aucun nom, aucun ' +
+      'statut de lien — la résolution de nom passe par les routes dédiées. Jamais exposée par ' +
+      'api-gateway.',
+  })
+  @ApiResponse({ status: 200, description: '{studentId, financeOwnerUserIds: string[]}' })
+  @ApiResponse({ status: 400, description: 'studentId n’est pas un UUID.' })
+  @ApiResponse({ status: 401, description: 'X-Internal-Secret absent ou invalide.' })
+  @Get('relations/finance-owners/:studentId')
+  getFinanceOwnersByStudent(
+    @Param('studentId', ParseUUIDPipe) studentId: string,
+  ): Promise<Awaited<ReturnType<InternalService['getFinanceOwnersByStudent']>>> {
+    return this.internalService.getFinanceOwnersByStudent(studentId);
+  }
+
+  /**
    * `GET /internal/relations/:viewerId/:targetId?viewerRole=<rôle>`
    *
    * Renvoie la NATURE et le SENS des relations entre deux personnes, pour qu'un

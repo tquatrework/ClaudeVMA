@@ -302,4 +302,13 @@ export const IDS = {
   accountWithoutPedaProfile: '00000000-0000-4000-8000-000000000071',
   /** userId identity-access-service does not know at all → 404. */
   unknown:  '00000000-0000-4000-8000-999999999999',
+  /**
+   * Comptes dédiés à `GET /internal/relations/finance-owners/:studentId`
+   * (arbitrage du 2026-08-14), isolés des IDs déjà mobilisés ailleurs dans le
+   * fichier pour ne pas dépendre de l'ordre d'exécution des tests.
+   */
+  studentWithFinanceOwners: '00000000-0000-4000-8000-000000000080',
+  financeOwnerA: '00000000-0000-4000-8000-000000000081',
+  financeOwnerB: '00000000-0000-4000-8000-000000000082',
+  studentWithoutFinanceOwners: '00000000-0000-4000-8000-000000000083',
 };

@@ -22,6 +22,7 @@ import { ListNotificationsDto } from './dto/list-notifications.dto';
 import { NotificationResponseDto } from './dto/notification-response.dto';
 import { PaginatedNotificationsResponseDto } from './dto/paginated-notifications-response.dto';
 import { DeleteNotificationResponseDto } from './dto/delete-notification-response.dto';
+import { UnreadCountResponseDto } from './dto/unread-count-response.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 
@@ -47,6 +48,19 @@ export class NotificationController {
     @Query() query: ListNotificationsDto,
   ): Promise<PaginatedNotificationsResponseDto> {
     return this.service.findByUser({ id: user.id, role: user.role }, query);
+  }
+
+  @Get('unread-count')
+  @ApiOperation({
+    summary: 'Count my unread notifications',
+    description:
+      'Returns the number of unread notifications for the authenticated user, for the front-end bell badge. ' +
+      'The count is loaded once on page mount and updated locally after each read action — no polling.',
+  })
+  @ApiResponse({ status: 200, description: 'Unread notification count', type: UnreadCountResponseDto })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  unreadCount(@CurrentUser() user: AuthUser): Promise<UnreadCountResponseDto> {
+    return this.service.countUnread({ id: user.id, role: user.role });
   }
 
   @Post(':notificationId/read')

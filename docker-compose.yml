@@ -175,11 +175,25 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
+      # Necessaire au consommateur du flux Redis visiomath:events pour
+      # resoudre les noms (jamais d'UUID affiche) et les parents financeurs
+      # d'un eleve (arbitrage du 2026-08-14, "Systeme de notifications
+      # transversal"). profile-service reste l'unique proprietaire de ces
+      # donnees ; ce service ne fait que les lui demander.
+      PROFILE_SERVICE_URL: http://profile-service:3002
+      # Necessaire au vrai fan-out des notifications par role (correctif
+      # 2026-08-17) : identity-access-service reste l'unique proprietaire du
+      # role (docs/architecture.md > "Propriete du role"), ce service lui
+      # demande GET /internal/accounts?role=... pour resoudre les userId
+      # reels au lieu d'une ligne fictive userId="role:<role>".
+      IDENTITY_ACCESS_SERVICE_URL: http://identity-access-service:3001
       PORT: 3003
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      profile-service:
         condition: service_healthy
     networks:
       - visiomath_network

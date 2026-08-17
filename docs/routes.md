@@ -870,6 +870,7 @@ Vérifié contre la pile réelle pour la relation formateur (2026-08-12) : le fo
 | POST | /internal/link-coordinator | Lier un coordinateur pédagogique à un élève | `X-Internal-Secret` | `201 {coordinatorId, studentId, coordinatorRole}` · `400` rôle invalide · `409` doublon · `401`/`403` |
 | GET | /internal/profiles/:userId/display-name | **Résoudre le prénom et le nom d'une personne** pour un service appelant (arbitrage du 2026-08-12, « Resolution des noms entre services »). Servie **sans lecteur** et **sans filtrage champ par champ** : un formateur qui reçoit une proposition n'est encore lié à aucun élève, la route publique lui répondrait `403` et l'écran retomberait sur un UUID. **Contrat figé : `firstName` et `lastName`, jamais un champ de plus** — l'étendre en ferait une porte dérobée contournant le filtrage de visibilité pour tout service détenant `INTERNAL_SECRET`. Tout autre besoin passe par `GET /profiles/:userId` et ses règles de droit. `x-correlation-id` accepté et propagé. **Jamais exposée par api-gateway** | `X-Internal-Secret` | `200 {userId, firstName, lastName}` — valeurs `string\|null` · `400` `userId` non-UUID · `401` secret absent ou invalide · `404` `userId` inconnu de identity-access-service · `500` compte connu **sans** profil administratif (incohérence de données, jamais masquée) |
 | POST | /internal/profiles/display-names | **Variante par lot** de la route ci-dessus, pour qu'une liste de N lignes ne coûte pas N appels HTTP (une seule requête SQL). `POST` alors que l'opération est une **lecture** : le corps porte la liste, qu'une query string ne peut pas transporter sans limite de longueur — d'où le `200`, aucune ressource n'est créée. Body : `{userIds: string[]}`, UUID, **200 identifiants au maximum** (plafond déclaré, pas de défaut caché). Ordre d'entrée conservé, doublons réduits à une entrée. Un `userId` sans profil administratif est **absent** de la réponse plutôt que de faire échouer le lot (l'anomalie reste tracée côté serveur) : un identifiant douteux ne prive pas l'appelant des autres noms. Même contrat figé que la route unitaire. **Jamais exposée par api-gateway** | `X-Internal-Secret` | `200 {displayNames: [{userId, firstName, lastName}]}` · `400` liste vide, au-delà du plafond, ou identifiant non-UUID · `401` secret absent ou invalide |
+| GET | /internal/relations/finance-owners/:studentId | **Résoudre les parents financeurs d'un élève** pour un appelant interservices — arbitrage du 2026-08-14 (`docs/architecture.md` > « Systeme de notifications transversal », point 5). Premier consommateur : `dashboard-notification-service`, pour notifier les parents financeurs quand un professeur est validé pour leur élève. Réutilise directement `RelationsService.getFinanceOwnersByStudent` (liens **actifs** uniquement — un parent délié n'apparaît plus). **Périmètre volontairement étroit : `userId` uniquement**, jamais de nom ni de statut de lien — la résolution de nom passe séparément par `GET /internal/profiles/:userId/display-name` / `POST /internal/profiles/display-names`. **Déclarée avant** `GET /internal/relations/:viewerId/:targetId` ci-dessous dans le contrôleur : même nombre de segments, `finance-owners` serait sinon capturé comme `:viewerId`. **Jamais exposée par api-gateway** | `X-Internal-Secret` | `200 {studentId, financeOwnerUserIds: string[]}` — liste vide si aucun parent financeur actif · `400` `studentId` non-UUID · `401` secret absent ou invalide |
 | GET | /internal/relations/:viewerId/:targetId | **Lire la nature et le sens des relations entre deux personnes**, pour qu'un service appelant applique la même règle sans tenir de copie des relations — `profile-service` en reste l'unique propriétaire (arbitrage du 2026-08-11). Premier consommateur : `archive-document-service`. Query **obligatoire** `viewerRole` (`400` si absent ou hors énumération, avec la liste des valeurs acceptées) : le rôle accompagne systématiquement les appels interservices, `profile-service` ne le persiste ni ne l'expose. La réponse est **suffisante pour décider** : elle donne le **sens** du lien, pas un booléen — un élève voit les statistiques de son formateur mais **pas** ses archives pédagogiques, distinction impossible à faire sans lui. Ce service **ne rend pas le verdict** à la place de l'appelant : il fournit les faits, chaque service propriétaire décide de sa surface | `X-Internal-Secret` | `200 {viewerId, targetId, isSelf, isAdministrator, relations: [{kind, isPrincipalTeacher?, throughUserIds?}]}` — `relations: []` = aucun lien (et toujours `[]` quand `isSelf`) ; `isAdministrator` vaut `true` pour RP, AF, TI, **jamais pour l'AP** ; valeurs de `kind` : voir « Droit d'accès aux statistiques » ci-dessus · `400` UUID ou `viewerRole` invalide · `401` secret absent ou invalide |
 
 **Noms des blocs de profil — `administrative` / `pedagogical`, ici comme partout ailleurs.**
@@ -1267,8 +1268,17 @@ Préfixes gateway : `/api/v1/notifications` · `/api/v1/dashboard` (🔒) → da
 | Méthode | Chemin | Description | Auth |
 |---|---|---|---|
 | GET | /notifications | Lister mes notifications | 🔒 |
+| GET | /notifications/unread-count | Compter mes notifications non lues (badge de la cloche front) — chargé une fois au montage, mis à jour localement après chaque lecture, pas de polling (arbitrage du 2026-08-14, point 10) | 🔒 |
 | POST | /notifications/:id/read | Marquer une notification comme lue | 🔒 |
 | DELETE | /notifications/:id | Supprimer une notification | 🔒 |
+
+Réponse `GET /notifications/unread-count` : `200 {count: number}`.
+
+`title`/`message` de `NotificationResponseDto` sont désormais **nullables** (2026-08-14) : les
+notifications produites par le consommateur du flux Redis (voir ci-dessous) laissent ces deux
+champs à `null` et portent leur contenu structuré dans `metadata` uniquement — un seul point de
+traduction technique→français, côté front (règle du 2026-08-09). Les notifications créées via
+`POST /internal/notify` (orchestrateur) continuent de porter `title`/`message`, inchangé.
 
 ### Tableaux de bord
 
@@ -1278,6 +1288,49 @@ Préfixes gateway : `/api/v1/notifications` · `/api/v1/dashboard` (🔒) → da
 | PUT | /dashboards/me/preferences | Mettre à jour les préférences | 🔒 |
 
 API interne (non exposée via nginx) : `POST /internal/initialize-dashboard`, `POST /internal/notify` — protégées par `X-Internal-Secret`.
+
+**`POST /internal/notify`, correctif du 2026-08-17 (vrai fan-out par rôle).** `{targetUserId?, targetRole?, type, title, message, metadata?}`,
+exactement l'un des deux `target*` requis (`400` sinon). Réponse **toujours un tableau**
+`201 NotificationResponseDto[]` — un élément pour `targetUserId`, un élément par compte réel
+détenant le rôle pour `targetRole` (potentiellement `[]` si aucun compte ne détient ce rôle,
+jamais une erreur). Avant ce correctif, `targetRole` créait une **unique** ligne avec
+`userId = "role:<role>"`, un identifiant fictif ne correspondant à aucun compte — invisible pour
+tout utilisateur réel puisque `GET /notifications` filtre toujours par l'`userId` réel de
+l'appelant. `dashboard-notification-service` résout désormais la liste des `userId` réels auprès
+de `identity-access-service` (`GET /internal/accounts?role=...`, route déjà existante et
+inchangée) — `identity-access-service` reste l'unique propriétaire du rôle
+(`docs/architecture.md` > « Propriété du rôle »). Le même correctif s'applique au fan-out interne
+du consommateur d'événements Redis (`EventProcessorService`, événements `TeacherRequestCreated`,
+`TeacherProposalAccepted`, `TeacherProposalDeclined` → rôle RP) — voir
+`docs/services/dashboard-notification-service.md`, section « Correctif — vrai fan-out des
+notifications par rôle ».
+
+### Consommateur d'événements — flux Redis `visiomath:events`
+
+> Ajouté le 2026-08-14 (`docs/architecture.md` > « Systeme de notifications transversal »).
+> Ce n'est pas une route HTTP : `dashboard-notification-service` s'abonne au flux Redis déjà
+> produit par `teacher-request-service` (`XADD`, boîte d'envoi `domain_events`), via un groupe de
+> consommateurs nommé `dashboard-notification-service` (`XGROUP`/`XREADGROUP`/`XACK`). Démarré
+> depuis le **début** du flux (`0`, pas `$`) pour ne perdre aucun événement publié avant que ce
+> consommateur n'existe — sûr grâce à la déduplication par `eventId` (table `processed_events`).
+> Une passe périodique (`@nestjs/schedule`, toutes les 30s, `XAUTOCLAIM`) réclame les entrées
+> restées non acquittées plus de 60s (crash, ou échec transitoire d'un appel à profile-service) et
+> les rejoue.
+>
+> Types traités, et destinataire(s) : `TeacherRequestCreated` → rôle RP · `TeacherProposalSent` →
+> le formateur sollicité · `TeacherProposalAccepted`/`TeacherProposalDeclined` → rôle RP ·
+> `TeacherProposalNotSelected`/`TeacherProposalExpired` → le formateur concerné ·
+> `TeacherAssigned`/`MainTeacherAssigned` (legacy) → le formateur choisi, l'élève, et chaque parent
+> financeur (résolus via `GET /internal/relations/finance-owners/:studentId` sur profile-service)
+> · `TeacherRequestStatusUpdated` → l'élève et ses parents financeurs · `TeacherRequestClosed` et
+> `TeacherRequestDeleted` → aucune notification. Tout `eventName` non reconnu est journalisé en
+> avertissement puis acquitté sans effet — un type inconnu ne doit jamais bloquer le flux.
+>
+> Avant de créer une notification, les noms sont résolus via `GET /internal/profiles/:userId/display-name`
+> / `POST /internal/profiles/display-names` sur profile-service (jamais d'UUID stocké comme donnée
+> d'affichage) et stockés dans `metadata`. **Si la résolution de nom ou des parents financeurs
+> échoue, l'entrée du flux n'est pas acquittée** (retry via XAUTOCLAIM) plutôt que de publier une
+> notification dégradée — voir `EventProcessorService`.
 
 ---
 

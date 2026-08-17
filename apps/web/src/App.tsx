@@ -1,6 +1,7 @@
 import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
+import { NotificationsProvider } from './context/NotificationsContext'
 import ProtectedRoute from './components/ProtectedRoute'
 
 // Dashboards par rôle
@@ -84,6 +85,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+      <NotificationsProvider>
         <Routes>
           {/* ── Public routes ────────────────────────────────────────── */}
           <Route path="/login" element={<LoginPage />} />
@@ -892,6 +894,7 @@ export default function App() {
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
+      </NotificationsProvider>
       </AuthProvider>
     </BrowserRouter>
   )

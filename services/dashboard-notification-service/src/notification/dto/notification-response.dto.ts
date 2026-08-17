@@ -15,11 +15,11 @@ export class NotificationResponseDto {
   @ApiProperty({ enum: NotificationType })
   type: NotificationType;
 
-  @ApiProperty()
-  title: string;
+  @ApiPropertyOptional({ description: 'Null for notifications produced from the Redis event consumer — see metadata' })
+  title: string | null;
 
-  @ApiProperty()
-  message: string;
+  @ApiPropertyOptional({ description: 'Null for notifications produced from the Redis event consumer — see metadata' })
+  message: string | null;
 
   @ApiProperty()
   isRead: boolean;

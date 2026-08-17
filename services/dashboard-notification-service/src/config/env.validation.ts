@@ -23,6 +23,26 @@ export class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   INTERNAL_SECRET: string;
+
+  // Required since 2026-08-14 (arbitrage "Systeme de notifications
+  // transversal"): the Redis event consumer and the profile-service
+  // client both fail fast at boot rather than discovering a missing
+  // configuration at the first event.
+  @IsString()
+  @IsNotEmpty()
+  REDIS_URL: string;
+
+  @IsString()
+  @IsNotEmpty()
+  PROFILE_SERVICE_URL: string;
+
+  // Required since 2026-08-17 (correctif fan-out par role) : identity-access-service
+  // reste l'unique proprietaire du role (docs/architecture.md > "Propriete du
+  // role") ; ce service lui demande GET /internal/accounts?role=... pour
+  // resoudre les userId reels au lieu d'une ligne fictive userId="role:<role>".
+  @IsString()
+  @IsNotEmpty()
+  IDENTITY_ACCESS_SERVICE_URL: string;
 }
 
 export function validateEnvironment(config: Record<string, unknown>): EnvironmentVariables {

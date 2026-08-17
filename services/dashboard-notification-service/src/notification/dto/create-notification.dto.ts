@@ -12,13 +12,19 @@ export class CreateNotificationDto {
   @IsEnum(NotificationType)
   type?: NotificationType;
 
-  @ApiProperty({ example: 'Séance confirmée' })
+  // Optional since 2026-08-14: the Redis event consumer never invents a
+  // French sentence server-side, it only fills structured `metadata` (see
+  // EventProcessorService). `POST /internal/notify` still sends both —
+  // its own DTO (InternalNotifyDto) keeps them required for that route.
+  @ApiPropertyOptional({ example: 'Séance confirmée' })
+  @IsOptional()
   @IsString()
-  title: string;
+  title?: string | null;
 
-  @ApiProperty({ example: 'Votre séance du 10/06 à 14h est confirmée.' })
+  @ApiPropertyOptional({ example: 'Votre séance du 10/06 à 14h est confirmée.' })
+  @IsOptional()
   @IsString()
-  message: string;
+  message?: string | null;
 
   @ApiPropertyOptional({ description: 'Additional event metadata (JSONB)' })
   @IsOptional()

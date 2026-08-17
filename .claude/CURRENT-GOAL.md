@@ -5,6 +5,44 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-14 — système de notifications (cloche front)
+
+Demande directe de l'utilisateur : mettre en place les notifications pour chaque flow (en
+premier lieu le flow demande de professeur, cf. section « Suite immédiate — les notifications
+(étape 7) » ci-dessous, laissée ouverte le 2026-08-12). Accessible via une cloche au niveau du
+front, avec un compteur de non-lues, et chaque ligne cliquable bascule de non-lue à lue. Les
+types de notification (événements déclencheurs) doivent être modélisés en base, pas codés en dur
+dans un texte libre.
+
+### Comment on saura que c'est fait
+
+Réponse HTTP citée contre `https://claudevma.visioprof.fr` montrant : une notification créée par
+un événement réel du flow demande de professeur, le compteur de non-lues qui reflète son
+existence, et son passage à lue par clic. Capture d'écran de la cloche si le front est
+vérifiable en session.
+
+### État
+
+- [x] Recherche du contrat existant (outbox `teacher-request-service`, état actuel
+      `dashboard-notification-service`, gateway, front)
+- [x] Architecture du contrat interservice arbitrée et écrite dans `docs/architecture.md`
+      (2026-08-14, section « Systeme de notifications transversal »)
+- [x] Codé et committé — front (cloche, contexte, libellés), `profile-service` (route interne
+      finance-owners), `teacher-request-service` (studentId dans les événements),
+      `dashboard-notification-service` (consommateur Redis, dédup, migration). Le backend
+      consommateur avait été codé dans un worktree d'agent orphelin (2026-08-14, jamais fusionné) ;
+      retrouvé et fusionné dans `feat/systeme-notifications` le 2026-08-17. 84 tests unitaires
+      passent, migration rejouée avec succès contre PostgreSQL réel.
+- [x] Déployé sur la pile réelle — 2026-08-17 : `dashboard-notification-service`,
+      `profile-service`, `teacher-request-service`, `frontend` reconstruits et redémarrés,
+      tous sains (`docker ps` healthy). Volume Postgres nommé (`claudevma_postgres_data`)
+      préservé malgré la recréation du conteneur (nouveau `depends_on` entre services).
+- [x] Preuve livrée à l'utilisateur — 2026-08-17, voir `.claude/reports/front-tester-2026-08-17.md`.
+      Flow complet rejoué contre `https://claudevma.visioprof.fr` : les 6 événements notifient le
+      bon destinataire (réponses HTTP citées). Un bug réel trouvé en testant (notifications par
+      rôle RP jamais reçues) et corrigé en cours de route — voir rapport pour le détail.
+- [ ] Validé par l'utilisateur
+
 ## Besoin — 2026-08-12/13 — fin d'une relation élève↔formateur
 
 Arbitrage rendu le 2026-08-12 dans `docs/architecture.md` (« Fin d'une relation

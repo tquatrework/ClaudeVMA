@@ -8,6 +8,7 @@ import { NotificationResponseDto } from './dto/notification-response.dto';
 import { PaginatedNotificationsResponseDto, PaginationMetaDto } from './dto/paginated-notifications-response.dto';
 import { DeleteNotificationResponseDto } from './dto/delete-notification-response.dto';
 import { Actor } from '../common/types/actor';
+import { IdentityAccessServiceClient } from '../common/clients/identity-access-service.client';
 
 const MAX_PAGE_SIZE = 100;
 
@@ -15,12 +16,44 @@ const MAX_PAGE_SIZE = 100;
 export class NotificationService {
   constructor(
     @InjectRepository(Notification) private readonly notificationRepository: Repository<Notification>,
+    private readonly identityAccessServiceClient: IdentityAccessServiceClient,
   ) {}
 
-  /** Use case: create a notification for a target user or role broadcast. */
+  /** Use case: create a notification for a single target user. */
   async create(dto: CreateNotificationDto): Promise<NotificationResponseDto> {
     const notification = await this.notificationRepository.save(this.notificationRepository.create(dto));
     return NotificationResponseDto.fromEntity(notification);
+  }
+
+  /**
+   * Use case: broadcast a notification to every account holding `role`.
+   *
+   * Real fan-out, one row per real `userId` — replaces the former
+   * pis-aller of a single row keyed by a synthetic `userId = "role:<role>"`
+   * that never matched a real account and was therefore invisible to
+   * `GET /notifications` (always filtered by the caller's own `userId`).
+   * Confirmed root cause and fixed 2026-08-17, see
+   * docs/services/dashboard-notification-service.md.
+   *
+   * `identity-access-service` remains the sole owner of the role
+   * (docs/architecture.md > "Propriete du role"); this service only asks
+   * it for the current list of userIds, never persists its own copy.
+   * An unknown/empty role legitimately resolves to zero recipients — not
+   * an error, nothing is created.
+   */
+  async createForRole(
+    role: string,
+    dto: Omit<CreateNotificationDto, 'userId'>,
+  ): Promise<NotificationResponseDto[]> {
+    const userIds = await this.identityAccessServiceClient.listUserIdsByRole(role);
+    if (userIds.length === 0) {
+      return [];
+    }
+
+    const notifications = await this.notificationRepository.save(
+      userIds.map((userId) => this.notificationRepository.create({ ...dto, userId })),
+    );
+    return notifications.map((notification) => NotificationResponseDto.fromEntity(notification));
   }
 
   /** Use case: list the authenticated actor's own notifications, bounded and ordered. */
@@ -59,6 +92,12 @@ export class NotificationService {
       take: limit,
     });
     return notifications.map((notification) => NotificationResponseDto.fromEntity(notification));
+  }
+
+  /** Use case: count the actor's unread notifications, for the front's bell badge. */
+  async countUnread(actor: Actor): Promise<{ count: number }> {
+    const count = await this.notificationRepository.count({ where: { userId: actor.id, isRead: false } });
+    return { count };
   }
 
   /** Use case: mark one of the actor's own notifications as read. */

@@ -594,4 +594,86 @@ Phase 3 enrichit l'offre :
      mentionne aujourd'hui un tel controle ; le seul filtre existant est que l'annuaire du RP ne
      liste que les formateurs valides — un filtre d'affichage cote front, pas une regle de droit.
 
+- Systeme de notifications transversal (cloche front). Arbitrage rendu le 2026-08-14, sur demande
+  directe de l'utilisateur, en reprise du point laisse ouvert le 2026-08-12 (« Suite immediate —
+  les notifications, etape 7 » du flow demande de professeur). Verifie contre le code reel des
+  quatre services concernes avant tranchage — pas de nouvelle infra inventee, la transport existe
+  deja.
+  1. **Le transport est le flux Redis deja produit, pas une nouvelle route de polling.**
+     `teacher-request-service` ecrit deja ses evenements dans un outbox transactionnel
+     (`domain_events`) et les publie par `XADD` sur le stream Redis `visiomath:events`
+     (`EventPublisher`, `REDIS_URL` deja configure sur les deux services). Construire une route
+     interne de polling aurait duplique un mecanisme deja en place et deja garanti *at-least-once*.
+     `dashboard-notification-service` devient un **consommateur** de ce stream via un groupe de
+     consommateurs Redis (`XGROUP`/`XREADGROUP`/`XACK`), nom de groupe `dashboard-notification-service`.
+     Ce choix rend le mecanisme **generique pour les autres flux** ("idem pour les autres flux"
+     demande par l'utilisateur) : tout service qui adoptera plus tard le meme pattern outbox +
+     `XADD` sur `visiomath:events` sera consomme sans toucher `dashboard-notification-service`.
+     Implementer les evenements des 15 autres services **n'est pas fait dans cette passe** — seul
+     `teacher-request-service` emet reellement aujourd'hui ; c'est un point ouvert, pas un oubli.
+  2. **Idempotence a la charge du consommateur.** La publication n'est pas transactionnelle avec la
+     mise a jour de `published_at` cote `teacher-request-service` (`XADD` puis `UPDATE` en deux
+     temps) : un crash entre les deux republie le meme `eventId` au redemarrage. Consequence :
+     `dashboard-notification-service` doit deduplique lui-meme par `eventId` (table de suivi des
+     evenements traites) avant de creer une notification, jamais supposer une livraison unique.
+  3. **`type` est technique, le libelle affiche est francais et compose au front, en un point
+     unique.** Meme regle que partout ailleurs dans le projet (2026-08-09) : la table
+     `notifications` porte un `type` (ex. `teacher_proposal_sent`) et une `metadata` structuree
+     (noms deja resolus, jamais d'UUID — voir point 4), pas une phrase figee cote serveur. Le front
+     traduit via un fichier dedie `notificationLabels.ts`, sur le modele des autres fichiers de
+     libelles du projet (`teacherRequestLabels.ts` etc.).
+  4. **Aucun UUID dans une notification.** Regle du 2026-08-09 appliquee ici : avant de creer une
+     notification, `dashboard-notification-service` resout `studentName`/`teacherName` via les
+     routes internes existantes de `profile-service`
+     (`GET /internal/profiles/:userId/display-name`, ou la variante en masse
+     `POST /internal/profiles/display-names`) et stocke les noms dans `metadata`, jamais les
+     `userId` seuls comme donnee d'affichage. Les identifiants techniques (`requestId`,
+     `proposalId`) peuvent rester en metadata pour un usage interne futur (lien profond), jamais
+     pour affichage direct.
+  5. **Notifier un parent financeur exige une route interne nouvelle, minimale.**
+     `profile-service` sait deja retrouver les parents financeurs d'un eleve
+     (`RelationsService.getFinanceOwnersByStudent`), mais uniquement derriere
+     `GET /relations/finance-owner-student/by-student/:studentId`, protegee par JWT humain — donc
+     inatteignable par un appel interservice. `profile-service` expose une route interne
+     equivalente, protegee par `X-Internal-Secret`, sur le meme modele que les autres routes
+     `/internal/*` : `GET /internal/relations/finance-owners/:studentId`. Perimetre volontairement
+     etroit — elle ne renvoie que les `userId` des parents financeurs, rien d'autre.
+  6. **Trois evenements de `teacher-request-service` manquent de `studentId` dans leur payload**
+     (`TeacherProposalNotSelected`, `TeacherProposalExpired`, `TeacherRequestStatusUpdated`) —
+     constat du 2026-08-14. Sans lui, impossible de nommer l'eleve dans le message ("recherche de
+     professeur pour {nom eleve} terminee") sans un appel supplementaire couteux. Ces trois
+     evenements sont enrichis d'un champ `studentId`, deja disponible dans le contexte qui les
+     emet — correctif mineur, aucune regle metier retouchee.
+  7. **`TeacherRequestClosed` n'engendre pas de notification separee.** Son fait generateur
+     (`reason: 'teacher_assigned'`) est deja couvert par la notification issue de `TeacherAssigned`
+     — en creer une seconde doublonnerait le message recu par les memes destinataires.
+  8. **Recipients par evenement, tranches le 2026-08-14** (roles/`userId` resolus par
+     `dashboard-notification-service`, jamais par le front) :
+     - `TeacherRequestCreated` → role RP (large, l'annuaire des RP nommes n'existe pas encore).
+     - `TeacherProposalSent` → le formateur sollicite.
+     - `TeacherProposalAccepted` / `TeacherProposalDeclined` → role RP.
+     - `TeacherProposalNotSelected` / `TeacherProposalExpired` → le formateur concerne.
+     - `TeacherAssigned` (et `MainTeacherAssigned`, legacy toujours actif) → le formateur choisi,
+       l'eleve, et le ou les parents financeurs (point 5).
+     - `TeacherRequestStatusUpdated` (cloture manuelle declined/cancelled) → l'eleve et ses parents
+       financeurs.
+     - `TeacherRequestDeleted` → aucune notification (le demandeur est l'acteur de sa propre
+       suppression).
+  9. **Notification par role** s'appuie sur `POST /internal/notify` deja existant
+     (`targetUserId` XOR `targetRole`) cote `dashboard-notification-service` — aucune nouvelle
+     route necessaire pour ce cas, seul le declenchement change (consommateur Redis au lieu d'un
+     appel HTTP externe).
+  10. **Pas de rafraichissement temps reel pour l'instant.** Le compteur de non-lues se charge au
+      montage de l'application (regle de chargement du 2026-08-10, etendue ici a un etat partage
+      entre toutes les pages puisque la cloche vit dans le header commun) et se met a jour
+      localement apres chaque marquage lu, jamais par re-fetch. Aucun polling ni WebSocket
+      n'existe ailleurs dans le projet ; en ajouter un maintenant serait disproportionne par
+      rapport a la demande. Point a rouvrir si l'utilisateur demande explicitement du temps reel.
+  11. **Migrations absentes de `dashboard-notification-service` — corrige a cette occasion, pas
+      une extension de perimetre.** Le service n'a jamais eu de migration TypeORM (schema pousse
+      par `synchronize`, explicitement reserve aux tests par un commentaire du code lui-meme) :
+      impossible d'ajouter sans risque les nouvelles valeurs de `type` et la table de deduplication
+      des evenements sans ce mecanisme. Mise en place minimale requise, sur le modele deja suivi
+      par les autres services (`teacher-request-service` notamment).
+
 ## Points ouverts a arbitrer

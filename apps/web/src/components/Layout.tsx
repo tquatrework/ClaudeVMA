@@ -21,6 +21,7 @@ import { filterTopNavItems, getRailGroupsForRole } from '../navigation/navigatio
 import type { UserRole } from '../context/AuthContext'
 import { MobileRailDrawer } from './layout/MobileRailDrawer'
 import { AccountStatusBanners } from './layout/AccountStatusBanners'
+import { NotificationBell } from './layout/NotificationBell'
 
 /* ─────────────────────────────────────────────────────────
    Composant principal
@@ -111,15 +112,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {/* Identité + déconnexion */}
         {isAuthenticated && (
           <div className="flex items-center gap-2.5 shrink-0 ml-auto">
-            {/* Icône notifications */}
-            <Link
-              to="/notifications"
-              title="Notifications"
-              aria-label="Notifications"
-              className="flex items-center justify-center w-[30px] h-[30px] rounded-[var(--radius-field)] text-[color:var(--color-text-secondary)] no-underline text-[17px] transition-colors duration-150 ease-in-out shrink-0"
-            >
-              🔔
-            </Link>
+            {/* Notifications */}
+            <NotificationBell />
 
             <Link
               to={user ? `/profiles/${user.id}` : '/dashboard'}

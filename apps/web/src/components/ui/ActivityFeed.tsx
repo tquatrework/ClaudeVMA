@@ -8,6 +8,7 @@
 import React from 'react'
 import type { DashboardNotification } from '../../types/dashboard'
 import { formatActivityDate } from '../../utils/dateFormat'
+import { getNotificationDisplayText } from '../../utils/notificationLabels'
 import { DashboardSectionTitle } from './DashboardCard'
 
 interface ActivityFeedProps {
@@ -46,7 +47,7 @@ export function ActivityFeed({ notifications, isLoading, title = 'Activité réc
                   width: '7px',
                   height: '7px',
                   borderRadius: '50%',
-                  background: notification.read ? 'var(--color-surface)' : 'var(--accent)',
+                  background: notification.isRead ? 'var(--color-surface)' : 'var(--accent)',
                   flexShrink: 0,
                   marginTop: '4px',
                 }}
@@ -56,14 +57,14 @@ export function ActivityFeed({ notifications, isLoading, title = 'Activité réc
                   style={{
                     fontSize: '13px',
                     color: 'var(--color-ink)',
-                    fontWeight: notification.read ? 400 : 500,
+                    fontWeight: notification.isRead ? 400 : 500,
                     margin: '0 0 2px',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {notification.message}
+                  {getNotificationDisplayText(notification)}
                 </p>
                 <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: 0 }}>
                   {formatActivityDate(notification.createdAt)}

@@ -37,8 +37,10 @@ vérifiable en session.
       `profile-service`, `teacher-request-service`, `frontend` reconstruits et redémarrés,
       tous sains (`docker ps` healthy). Volume Postgres nommé (`claudevma_postgres_data`)
       préservé malgré la recréation du conteneur (nouveau `depends_on` entre services).
-- [ ] Preuve livrée à l'utilisateur — rejeu du flow bout en bout en cours (agent `front-tester`),
-      pas encore reçue
+- [x] Preuve livrée à l'utilisateur — 2026-08-17, voir `.claude/reports/front-tester-2026-08-17.md`.
+      Flow complet rejoué contre `https://claudevma.visioprof.fr` : les 6 événements notifient le
+      bon destinataire (réponses HTTP citées). Un bug réel trouvé en testant (notifications par
+      rôle RP jamais reçues) et corrigé en cours de route — voir rapport pour le détail.
 - [ ] Validé par l'utilisateur
 
 ## Besoin — 2026-08-12/13 — fin d'une relation élève↔formateur

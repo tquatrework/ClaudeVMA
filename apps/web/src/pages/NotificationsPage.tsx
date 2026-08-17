@@ -9,28 +9,39 @@
  */
 
 import React from 'react'
+import { useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { PageHeader } from '../components/ui/PageHeader'
 import { ErrorMessage } from '../components/ui/ErrorMessage'
 import { useAuth } from '../hooks/useAuth'
 import { useNotifications } from '../hooks/useNotifications'
 import { useNotificationsHistory } from '../hooks/dashboard/useNotificationsHistory'
-import { getNotificationDisplayText } from '../utils/notificationLabels'
+import { getNotificationDisplayText, getNotificationTargetPath } from '../utils/notificationLabels'
 import { formatActivityDate } from '../utils/dateFormat'
+import type { DashboardNotification } from '../types/dashboard'
 
 export default function NotificationsPage() {
   const { user } = useAuth()
   const { markAsRead } = useNotifications()
   const { notifications, isLoading, loadError, page, totalPages, total, goToPage, applyRead } =
     useNotificationsHistory()
+  const navigate = useNavigate()
 
-  const handleRowClick = async (notificationId: string, isRead: boolean) => {
-    if (isRead) return
-    try {
-      const updated = await markAsRead(notificationId)
-      applyRead(updated)
-    } catch {
-      // Le marquage a échoué : la notification reste non lue à l'écran, l'utilisateur peut réessayer.
+  // Marque lu (si nécessaire) PUIS navigue vers l'écran concerné — même comportement que la
+  // cloche du header (`NotificationBell`), pour que l'historique complet mène lui aussi
+  // directement à l'action attendue (ex. la boîte de réception du formateur).
+  const handleRowClick = async (notification: DashboardNotification) => {
+    if (!notification.isRead) {
+      try {
+        const updated = await markAsRead(notification.id)
+        applyRead(updated)
+      } catch {
+        // Le marquage a échoué : la notification reste non lue à l'écran, l'utilisateur peut réessayer.
+      }
+    }
+    const targetPath = getNotificationTargetPath(notification.type)
+    if (targetPath) {
+      navigate(targetPath)
     }
   }
 
@@ -70,7 +81,7 @@ export default function NotificationsPage() {
               <li key={notification.id} className="border-b border-[var(--color-surface)] last:border-b-0">
                 <button
                   type="button"
-                  onClick={() => handleRowClick(notification.id, notification.isRead)}
+                  onClick={() => handleRowClick(notification)}
                   style={{
                     background: notification.isRead
                       ? 'transparent'

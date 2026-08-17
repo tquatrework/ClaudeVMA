@@ -11,12 +11,28 @@ import {
 
 const PASSWORD = 'E2eTest!2026'
 
-test('reproduction — le formateur retrouve-t-il sa proposition en attente ?', async ({ page }) => {
+/**
+ * Preuve à la pile réelle du correctif « le formateur ne trouve pas où gérer une
+ * proposition reçue » (`.claude/CURRENT-GOAL.md`, besoin du 2026-08-17).
+ *
+ * Constat avant correctif : l'écran `/teacher-requests` existait déjà avec les actions
+ * accepter/refuser (rail gauche « Propositions reçues », livré avec le flow PR #100), et une
+ * exploration à froid (compte de test jamais connecté) le trouvait sans peine. Le vrai trou
+ * était ailleurs : cliquer sur la notification de la cloche ne faisait que la marquer lue,
+ * sans emmener l'utilisateur vers l'écran concerné — c'est ce que ce test prouve corrigé.
+ */
+test('cliquer sur la notification "proposition envoyée" emmène le formateur sur sa boîte de réception', async ({
+  page,
+}) => {
   test.setTimeout(120_000)
   const uniqueSuffix = Date.now().toString()
 
   const { student } = await createTestStudentWithParent(
-    uniqueSuffix, 'Camille', 'Reprotest', 'Paula', 'Reprotest',
+    uniqueSuffix,
+    'Camille',
+    'Reprotest',
+    'Paula',
+    'Reprotest',
   )
   const teacher = await createTestTeacher(uniqueSuffix, 'Julien', 'Reprotest')
 
@@ -24,7 +40,7 @@ test('reproduction — le formateur retrouve-t-il sa proposition en attente ?', 
   await validateTeacher(rpToken, teacher.id)
 
   const studentLoginRes = await login(student.loginIdentifier, PASSWORD)
-  expect(studentLoginRes.status).toBe(201)
+  expect(studentLoginRes.status, 'connexion élève').toBe(201)
   const studentToken = studentLoginRes.body.access_token
 
   const createRes = await createTeacherRequest(
@@ -32,55 +48,57 @@ test('reproduction — le formateur retrouve-t-il sa proposition en attente ?', 
     'Recherche un professeur de mathématiques niveau sixième.',
   )
   console.log(`POST /requests -> ${createRes.status} ${JSON.stringify(createRes.body)}`)
-  expect(createRes.status).toBe(201)
+  expect(createRes.status, 'création de la demande').toBe(201)
   const requestId = createRes.body.id
 
   const proposalRes = await sendTeacherProposals(
-    rpToken, requestId, [teacher.id],
+    rpToken,
+    requestId,
+    [teacher.id],
     'Bonjour, seriez-vous disponible pour ce cours ?',
   )
-  console.log(`POST /requests/${requestId}/proposals -> ${proposalRes.status} ${JSON.stringify(proposalRes.body)}`)
-  expect(proposalRes.status).toBe(201)
+  console.log(
+    `POST /requests/${requestId}/proposals -> ${proposalRes.status} ${JSON.stringify(proposalRes.body)}`,
+  )
+  expect(proposalRes.status, 'envoi de la proposition').toBe(201)
 
-  console.log(`Compte formateur de test : ${teacher.loginIdentifier} / ${PASSWORD}`)
-
-  // ── Connexion formateur, exploration écran ──
+  // ── Connexion formateur ──
   await page.goto('/login')
   await page.getByPlaceholder('jean.dupont').fill(teacher.loginIdentifier)
   await page.getByPlaceholder('••••••••').fill(PASSWORD)
   await page.getByRole('button', { name: 'Se connecter' }).click()
   await expect(page).toHaveURL(/\/dashboard/)
-  await page.screenshot({ path: 'test-results/repro-1-dashboard.png', fullPage: true })
 
-  // Cloche notifications
+  // ── Ouvre la cloche, clique la notification reçue ──
   const bellLink = page.locator('[aria-label^="Notifications"]')
-  console.log('cloche visible ?', await bellLink.isVisible().catch(() => false))
-  if (await bellLink.isVisible().catch(() => false)) {
-    await bellLink.click()
-    await page.waitForTimeout(1000)
-    await page.screenshot({ path: 'test-results/repro-2-notif-menu.png', fullPage: true })
-    const bodyText = await page.textContent('body')
-    console.log('Texte visible après clic cloche (extrait) :', bodyText?.slice(0, 2000))
-  }
+  await expect(bellLink, 'cloche visible dans le header').toBeVisible()
+  await bellLink.click()
 
-  await page.goto('/notifications')
-  await page.waitForTimeout(500)
-  await page.screenshot({ path: 'test-results/repro-3-notifications-page.png', fullPage: true })
+  // `getByText` seul matche aussi l'aperçu identique dans « Activité récente » du dashboard
+  // rendu derrière le menu déroulant : on cible spécifiquement la ligne cliquable de la
+  // cloche, rendue comme un `<button>` (voir `NotificationBell.tsx`).
+  const notificationRow = page.getByRole('button', {
+    name: /Nouvelle proposition de professeur pour Camille Reprotest/,
+  })
+  await expect(notificationRow, 'notification "proposition envoyée" visible dans le menu').toBeVisible()
+  await page.screenshot({ path: 'test-results/proof-1-notification-menu-open.png', fullPage: true })
 
-  const proposalNotifText = page.getByText(/proposition|professeur/i).first()
-  console.log('notif proposal visible sur /notifications ?', await proposalNotifText.isVisible().catch(() => false))
+  await notificationRow.click()
 
-  // Rail gauche — chercher "Propositions reçues"
-  await page.goto('/dashboard')
-  await page.waitForTimeout(500)
-  const railLink = page.getByText('Propositions reçues')
-  console.log('lien rail "Propositions reçues" visible sur dashboard ?', await railLink.isVisible().catch(() => false))
-  await page.screenshot({ path: 'test-results/repro-4-dashboard-rail.png', fullPage: true })
+  // ── C'est le cœur de la preuve : le clic doit emmener sur /teacher-requests ──
+  await expect(page, 'le clic sur la notification navigue vers /teacher-requests').toHaveURL(
+    /\/teacher-requests$/,
+    { timeout: 10_000 },
+  )
+  await page.screenshot({ path: 'test-results/proof-2-teacher-requests-after-click.png', fullPage: true })
 
-  // Aller directement sur /teacher-requests
-  await page.goto('/teacher-requests')
-  await page.waitForTimeout(1000)
-  await page.screenshot({ path: 'test-results/repro-5-teacher-requests-page.png', fullPage: true })
-  const acceptButton = page.getByRole('button', { name: /candidat/i })
-  console.log('bouton "Me porter candidat" visible sur /teacher-requests ?', await acceptButton.isVisible().catch(() => false))
+  // ── Et sur cet écran, les actions accepter/refuser sont bien présentes ──
+  const acceptButton = page.getByRole('button', { name: /Me porter candidat/i })
+  await expect(acceptButton, 'bouton "Me porter candidat" visible après navigation').toBeVisible()
+  const declineButton = page.getByRole('button', { name: /Décliner/i })
+  await expect(declineButton, 'bouton "Décliner" visible après navigation').toBeVisible()
+
+  console.log(
+    `Preuve : notification cliquée -> URL ${page.url()} -> boutons accepter/refuser présents pour ${teacher.loginIdentifier}.`,
+  )
 })

@@ -5,6 +5,33 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-17 — où sont les consentements légaux (RGPD/CGU/marketing) côté front ?
+
+Question de l'utilisateur, pas encore une tâche de correction : il pensait que « Profil /
+Confidentialité » affichait les signatures légales de l'inscription (RGPD, droit à l'image,
+marketing), mais ce menu mène en réalité à `/visibilite`, qui gère la visibilité champ par champ
+du profil — un sujet différent. Il note aussi que la règle générale déjà posée sur la visibilité
+champ par champ (`docs/architecture.md`) ne serait pas respectée par cet écran.
+
+Investigation faite côté orchestrateur (`docs/routes.md`, identity-access-service) : les routes
+`GET /consents` (état courant), `GET /consents/history` (journal), `POST /consents`,
+`POST /consents/:type/withdraw` existent déjà côté backend. **Seuls 3 types existent : `rgpd`,
+`cgu`, `marketing` — aucun « droit à l'image » distinct côté backend.**
+
+Investigation front déléguée (lecture seule, pas de correctif) : où mène réellement « Profil /
+Confidentialité » aujourd'hui, existe-t-il un écran affichant `GET /consents` ailleurs, le
+formulaire d'inscription mentionne-t-il un « droit à l'image » nulle part présent en base, et que
+fait réellement l'écran `/visibilite`.
+
+### État
+
+- [ ] Investigation front reçue
+- [ ] Réponse claire donnée à l'utilisateur, décision sur la suite (créer l'écran manquant ?
+      ajouter le type « droit à l'image » ? corriger la règle de visibilité ?) laissée ouverte
+      tant que l'utilisateur n'a pas tranché
+
+---
+
 ## Besoin — 2026-08-17 — « Demande en cours » sur le dashboard élève pendant une demande active
 
 Demande explicite de l'utilisateur, troisième état du dashboard élève (après « pas de

@@ -23,12 +23,22 @@ vérifiable en session.
 
 ### État
 
-- [ ] Recherche du contrat existant (outbox `teacher-request-service`, état actuel
-      `dashboard-notification-service`, gateway, front) — en cours
-- [ ] Architecture du contrat interservice arbitrée et écrite dans `docs/architecture.md`
-- [ ] Codé et committé
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+- [x] Recherche du contrat existant (outbox `teacher-request-service`, état actuel
+      `dashboard-notification-service`, gateway, front)
+- [x] Architecture du contrat interservice arbitrée et écrite dans `docs/architecture.md`
+      (2026-08-14, section « Systeme de notifications transversal »)
+- [x] Codé et committé — front (cloche, contexte, libellés), `profile-service` (route interne
+      finance-owners), `teacher-request-service` (studentId dans les événements),
+      `dashboard-notification-service` (consommateur Redis, dédup, migration). Le backend
+      consommateur avait été codé dans un worktree d'agent orphelin (2026-08-14, jamais fusionné) ;
+      retrouvé et fusionné dans `feat/systeme-notifications` le 2026-08-17. 84 tests unitaires
+      passent, migration rejouée avec succès contre PostgreSQL réel.
+- [x] Déployé sur la pile réelle — 2026-08-17 : `dashboard-notification-service`,
+      `profile-service`, `teacher-request-service`, `frontend` reconstruits et redémarrés,
+      tous sains (`docker ps` healthy). Volume Postgres nommé (`claudevma_postgres_data`)
+      préservé malgré la recréation du conteneur (nouveau `depends_on` entre services).
+- [ ] Preuve livrée à l'utilisateur — rejeu du flow bout en bout en cours (agent `front-tester`),
+      pas encore reçue
 - [ ] Validé par l'utilisateur
 
 ## Besoin — 2026-08-12/13 — fin d'une relation élève↔formateur

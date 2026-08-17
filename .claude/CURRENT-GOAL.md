@@ -36,11 +36,19 @@ Réponse HTTP ou capture montrant les deux libellés corrects selon le cas réel
 
 ### État
 
-- [ ] Vérifier si la distinction existe déjà dans les données (type/metadata) ou nécessite un
-      changement backend
-- [ ] Implémenter les deux libellés
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+- [x] Confirmé : pas de changement backend nécessaire, deux types déjà distincts
+- [x] Implémenté — `notificationLabels.ts` : `teacher_proposal_not_selected` et
+      `teacher_proposal_expired` portaient déjà deux libellés différents l'un de l'autre, mais
+      aucun ne correspondait au texte demandé (« {formateur} n'a pas été retenu... » /
+      « La proposition ... est restée sans réponse »). Corrigés vers le texte exact demandé.
+      Vérifié aussi `TeacherProposalInbox.tsx`/`TeacherProposalList.tsx` (badges de statut RP et
+      formateur) : déjà cohérents, non touchés.
+- [x] Déployé sur la pile réelle — `frontend` reconstruit, bundle `index-4qciq3ro.js`, les deux
+      libellés exacts vérifiés présents dans le bundle servi.
+- [x] Preuve livrée à l'utilisateur — vérification directe du bundle servi (les deux phrases
+      exactes présentes à l'octet). Pas de rejeu du scénario complet contre la pile réelle
+      (identifiants RP de test absents de ce worktree) — repli sur tests unitaire/composant
+      ciblés (`notificationLabels.test.ts`, `NotificationBell.test.tsx`), signalé comme tel.
 - [ ] Validé par l'utilisateur
 
 ---

@@ -27,9 +27,11 @@ import { useUpcomingCourses } from '../hooks/dashboard/useUpcomingCourses'
 import { useDashboardNotifications } from '../hooks/dashboard/useDashboardNotifications'
 import { useDashboardContacts } from '../hooks/dashboard/useDashboardContacts'
 import { useAssignedTeacher } from '../hooks/dashboard/useAssignedTeacher'
+import { useActiveTeacherRequest } from '../hooks/dashboard/useActiveTeacherRequest'
 import { useReadOnlyAvatar } from '../hooks/profile/useReadOnlyAvatar'
 import { describeTeacherRelationName } from '../utils/relationLabels'
 import { getInitials } from '../utils/role'
+import { StatusBadge } from '../components/ui/StatusBadge'
 
 // Alias pour la rétrocompatibilité interne
 const Card = DashboardCard
@@ -45,6 +47,11 @@ export default function EleveDashboardPage() {
   const { notifications, isLoadingNotifications } = useDashboardNotifications(5)
   const { contacts, isLoadingContacts } = useDashboardContacts(5)
   const { assignedTeacher, isLoadingTeacher } = useAssignedTeacher(user?.id)
+  // Troisième état du dashboard élève : une demande de professeur (ou de changement de
+  // professeur principal) est encore ouverte. `GET /teacher-requests?scope=open` renvoie déjà
+  // les seules demandes non terminales — pending/redirected — donc la présence d'une ligne
+  // suffit (docs/routes.md § teacher-request-service).
+  const { hasActiveRequest, isLoadingActiveRequest } = useActiveTeacherRequest(user?.id)
 
   const topNavItems = filterTopNavItems('eleve', hasRole)
 
@@ -122,12 +129,23 @@ export default function EleveDashboardPage() {
                 >
                   Voir le profil
                 </Link>
-                <Link
-                  to="/teacher-requests"
-                  className="text-[12px] font-medium text-[color:var(--color-text-secondary)] border border-[var(--color-surface)] rounded-[var(--radius-field)] py-[7px] px-3 no-underline text-center block"
-                >
-                  Changer de professeur
-                </Link>
+                {!isLoadingActiveRequest &&
+                  (hasActiveRequest ? (
+                    <div className="text-center py-[7px] px-3">
+                      <StatusBadge
+                        status="pending"
+                        label="Demande de changement en cours"
+                        badgeClasses={{ pending: 'bg-yellow-100 text-yellow-700' }}
+                      />
+                    </div>
+                  ) : (
+                    <Link
+                      to="/teacher-requests"
+                      className="text-[12px] font-medium text-[color:var(--color-text-secondary)] border border-[var(--color-surface)] rounded-[var(--radius-field)] py-[7px] px-3 no-underline text-center block"
+                    >
+                      Changer de professeur
+                    </Link>
+                  ))}
                 {isVisioSoon && nextCourse && (
                   <Link
                     to={`/activities/${nextCourse.id}`}
@@ -146,12 +164,22 @@ export default function EleveDashboardPage() {
               <p className="text-[13px] text-[color:var(--color-text-secondary)] mb-3.5 leading-[1.4]">
                 Vous n'avez pas pour l'instant de professeur attitré
               </p>
-              <Link
-                to="/teacher-requests"
-                className="text-[12px] font-semibold text-white bg-[var(--accent)] rounded-[var(--radius-field)] py-2 px-3.5 no-underline inline-block"
-              >
-                Demander un professeur
-              </Link>
+              {!isLoadingActiveRequest &&
+                (hasActiveRequest ? (
+                  <StatusBadge
+                    status="pending"
+                    label="Demande en cours"
+                    badgeClasses={{ pending: 'bg-yellow-100 text-yellow-700' }}
+                    size="md"
+                  />
+                ) : (
+                  <Link
+                    to="/teacher-requests"
+                    className="text-[12px] font-semibold text-white bg-[var(--accent)] rounded-[var(--radius-field)] py-2 px-3.5 no-underline inline-block"
+                  >
+                    Demander un professeur
+                  </Link>
+                ))}
             </div>
           )}
         </Card>
@@ -235,14 +263,23 @@ export default function EleveDashboardPage() {
               <p className="text-[14px] text-[color:var(--color-text-secondary)] mb-4">
                 Aucun cours à venir
               </p>
-              {!isLoadingTeacher && (
-                <Link
-                  to="/contacts"
-                  className="text-[13px] font-medium text-[color:var(--accent)] border border-[var(--accent)] rounded-[var(--radius-pill)] py-2 px-5 no-underline"
-                >
-                  Demander un professeur
-                </Link>
-              )}
+              {!isLoadingTeacher &&
+                !isLoadingActiveRequest &&
+                (hasActiveRequest ? (
+                  <StatusBadge
+                    status="pending"
+                    label="Demande en cours"
+                    badgeClasses={{ pending: 'bg-yellow-100 text-yellow-700' }}
+                    size="md"
+                  />
+                ) : (
+                  <Link
+                    to="/contacts"
+                    className="text-[13px] font-medium text-[color:var(--accent)] border border-[var(--accent)] rounded-[var(--radius-pill)] py-2 px-5 no-underline"
+                  >
+                    Demander un professeur
+                  </Link>
+                ))}
             </div>
           )}
         </Card>

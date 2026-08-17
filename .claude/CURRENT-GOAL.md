@@ -5,6 +5,29 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-17 — déplacer « Demandes » du menu du haut vers le rail gauche élève
+
+Demande explicite de l'utilisateur (conforme à la règle permanente sur les menus — approbation
+obtenue ici) : l'entrée **« Demandes »** du menu du haut, côté élève, doit être retirée du menu
+du haut et ajoutée au rail latéral gauche sous le nom **« Demandes professeurs »**, positionnée
+**juste sous « Visio »**.
+
+### Comment on saura que c'est fait
+
+Capture d'écran du dashboard élève sur `https://claudevma.visioprof.fr` montrant : absence de
+« Demandes » dans le menu du haut, présence de « Demandes professeurs » dans le rail gauche juste
+sous « Visio ».
+
+### État
+
+- [ ] Localiser l'entrée « Demandes » du menu du haut élève et le rail gauche élève
+- [ ] Déplacer et renommer
+- [ ] Déployé sur la pile réelle
+- [ ] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur
+
+---
+
 ## Besoin — 2026-08-17 — distinguer deux libellés pour un professeur non retenu
 
 Demande explicite de l'utilisateur, correction sur les notifications du flow demande de

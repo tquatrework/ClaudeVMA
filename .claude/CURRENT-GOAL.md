@@ -12,6 +12,37 @@ latéral gauche sans son approbation préalable explicite. Il tient à sa struct
 initiale. Voir mémoire `feedback-no-menu-changes-without-approval`. Cette règle s'applique à
 toute délégation future à `front-developper` : proposer, ne pas ajouter directement.
 
+## Besoin — 2026-08-17 — réorganisation du rail gauche formateur (COURS / SUIVI)
+
+Demande explicite de l'utilisateur (donc conforme à la règle permanente posée le 2026-08-17 sur
+les menus — approbation explicite obtenue ici) :
+
+1. Dans le groupe **COURS** du rail gauche formateur, l'entrée **« Demandes ouvertes »** fait
+   doublon avec « Propositions reçues » du groupe SUIVI, sans que l'utilisateur sache à quoi elle
+   correspond. Supprimer « Demandes ouvertes » et la remplacer, dans le groupe COURS, par
+   **« Propositions reçues »** (même destination que l'entrée SUIVI existante).
+2. Conséquence dans le groupe **SUIVI** : il ne doit plus rester que « Cahier de texte » et
+   « Mes élèves » (l'entrée « Propositions reçues » déménage vers COURS). Inverser leur ordre :
+   **« Mes élèves » d'abord, puis « Cahier de texte »**.
+
+### Comment on saura que c'est fait
+
+Capture d'écran du rail gauche formateur sur `https://claudevma.visioprof.fr` montrant : COURS
+avec « Propositions reçues » (plus de « Demandes ouvertes ») et SUIVI avec « Mes élèves » puis
+« Cahier de texte », dans cet ordre.
+
+### État
+
+- [x] Localiser les entrées dans la config de navigation front
+- [x] Appliquer les changements (COURS et SUIVI)
+- [x] Déployé sur la pile réelle (rebuild + redémarrage `visiomath_frontend`)
+- [x] Preuve livrée à l'utilisateur (capture d'écran, compte formateur de test)
+- [x] Validé par l'utilisateur — 2026-08-17 (« ok merge »)
+
+Fichier modifié : `apps/web/src/navigation/navigationConfig.ts`. Mergé dans `master` — PR #115.
+
+---
+
 ## Besoin — 2026-08-17 — retirer FAMILLE/Mes parents financeurs du rail gauche élève
 
 Demande explicite de l'utilisateur : l'entrée de rail latéral gauche « FAMILLE / Mes parents
@@ -47,7 +78,9 @@ cette entrée, et confirmation que l'information reste accessible depuis le prof
       `test-results/proof-rail-eleve-sans-famille.png`), puis onglet « Parents financeurs » du
       profil affichant « Marc Railtest » avec option « Délier » (capture
       `test-results/proof-profil-onglet-parents-financeurs.png`). Vert.
-- [ ] Validé par l'utilisateur
+- [x] Validé par l'utilisateur — 2026-08-17 (« ok merge »)
+
+Mergé dans `master` — PR #114.
 
 ---
 

@@ -204,15 +204,14 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
       groupLabel: 'Cours',
       items: [
         { label: 'Visio', path: '/activities', icon: '🎥' },
-        { label: 'Demandes ouvertes', path: '/open-activities', icon: '📢' },
+        { label: 'Propositions reçues', path: '/teacher-requests', icon: '📋' },
       ],
     },
     {
       groupLabel: 'Suivi',
       items: [
-        { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
         { label: 'Mes élèves', path: '/my-students', icon: '👥' },
-        { label: 'Propositions reçues', path: '/teacher-requests', icon: '📋' },
+        { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
       ],
     },
     {

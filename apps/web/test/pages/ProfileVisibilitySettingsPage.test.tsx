@@ -15,8 +15,10 @@
  * 2. l'enregistrement est un **upsert partiel** — seuls les champs réellement
  *    changés partent, jamais le catalogue entier ;
  * 3. `firstName`/`lastName` ne sont **plus réglables** ici (arbitrage du
- *    2026-08-17) — jamais affichés comme option, jamais envoyés en `PUT`, même
- *    si le catalogue serveur les contient encore ;
+ *    2026-08-17, précisé le 2026-08-18) — mais restent **affichés**, en dur
+ *    côté front, grisés et verrouillés sur « Tous les membres », sans aucun
+ *    sélecteur actif, et **jamais envoyés en `PUT`**, même si le catalogue
+ *    serveur les contient encore ;
  * 4. seul le bloc pédagogique du **rôle réel du titulaire consulté** s'affiche
  *    (élève → `pedagogical-student`, formateur → `pedagogical-teacher`), jamais
  *    les deux — filtré côté front quel que soit le catalogue reçu.
@@ -246,7 +248,7 @@ describe('ProfileVisibilitySettingsPage', () => {
     expect(screen.queryByRole('heading', { name: 'Profil pédagogique — élève' })).toBeNull()
   })
 
-  it('never offers firstName/lastName as a setting, even though the server catalog still carries them', async () => {
+  it('always shows firstName/lastName, greyed out and locked on "Tous les membres", with no selector', async () => {
     mockFetchFieldVisibility.mockResolvedValue(CATALOG)
 
     renderPage('student-1')
@@ -254,10 +256,25 @@ describe('ProfileVisibilitySettingsPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Téléphone')).toBeDefined()
     })
-    expect(screen.queryByText('Prénom')).toBeNull()
-    expect(screen.queryByText('Nom')).toBeNull()
+    // Affichés, contrairement à avant le 2026-08-18 : l'utilisateur doit
+    // pouvoir constater que son prénom et son nom sont toujours visibles.
+    const firstNameLabel = screen.getByText('Prénom')
+    const lastNameLabel = screen.getByText('Nom')
+    expect(firstNameLabel).toBeDefined()
+    expect(lastNameLabel).toBeDefined()
+
+    // Aucun sélecteur actif : pas de boutons radio pour ces deux champs.
     expect(audienceRadiosOf('firstName')).toHaveLength(0)
     expect(audienceRadiosOf('lastName')).toHaveLength(0)
+
+    // Verrouillés sur "Tous les membres" — même libellé que partout ailleurs
+    // sur cet écran pour le public `all` — avec une indication du pourquoi.
+    const firstNameRow = firstNameLabel.closest('li') as HTMLElement
+    const lastNameRow = lastNameLabel.closest('li') as HTMLElement
+    expect(within(firstNameRow).getByText('Tous les membres')).toBeDefined()
+    expect(within(firstNameRow).getByText('Toujours visible, non modifiable')).toBeDefined()
+    expect(within(lastNameRow).getByText('Tous les membres')).toBeDefined()
+    expect(within(lastNameRow).getByText('Toujours visible, non modifiable')).toBeDefined()
   })
 
   it('never sends firstName/lastName in a PUT, even though the server catalog still carries them', async () => {

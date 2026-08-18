@@ -94,4 +94,53 @@ export class ActivitiesController {
   ): Promise<ScheduledActivity> {
     return this.activitiesService.findOne(activityId, actor);
   }
+
+  @Post(':activityId/accept')
+  @Roles(UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE, UserRole.ADMINISTRATEUR_FINANCIER) // seul le destinataire visé peut répondre, vérifié dans le service
+  @ApiParam({ name: 'activityId', description: 'Activity UUID' })
+  @ApiHeader({ name: 'x-correlation-id', required: false })
+  @ApiOperation({
+    summary: 'Accept a proposed activity (course/pedagogical meeting slot)',
+    description:
+      'Chantier calendrier de disponibilités, point 3. Transitions a PROPOSED ' +
+      'activity to CONFIRMED. The requesting user must be the targeted recipient ' +
+      "(present in participantIds) — the activity's creator cannot accept their " +
+      'own proposal. Publishes ActivityConfirmed event.',
+  })
+  @ApiResponse({ status: 201, description: 'Activity confirmed — emits ActivityConfirmed event' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — not the targeted recipient' })
+  @ApiResponse({ status: 404, description: 'Activity not found' })
+  @ApiResponse({ status: 409, description: 'Activity already processed (status is not PROPOSED)' })
+  acceptActivity(
+    @Param('activityId', ParseUUIDPipe) activityId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+    @CorrelationId() correlationId?: string,
+  ): Promise<ScheduledActivity> {
+    return this.activitiesService.accept(activityId, actor, correlationId);
+  }
+
+  @Post(':activityId/decline')
+  @Roles(UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE, UserRole.ADMINISTRATEUR_FINANCIER) // seul le destinataire visé peut répondre, vérifié dans le service
+  @ApiParam({ name: 'activityId', description: 'Activity UUID' })
+  @ApiHeader({ name: 'x-correlation-id', required: false })
+  @ApiOperation({
+    summary: 'Decline a proposed activity (course/pedagogical meeting slot)',
+    description:
+      'Chantier calendrier de disponibilités, point 3. Transitions a PROPOSED ' +
+      'activity to CANCELLED. The requesting user must be the targeted recipient ' +
+      '(present in participantIds). Publishes ActivityDeclined event.',
+  })
+  @ApiResponse({ status: 201, description: 'Activity cancelled — emits ActivityDeclined event' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — not the targeted recipient' })
+  @ApiResponse({ status: 404, description: 'Activity not found' })
+  @ApiResponse({ status: 409, description: 'Activity already processed (status is not PROPOSED)' })
+  declineActivity(
+    @Param('activityId', ParseUUIDPipe) activityId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+    @CorrelationId() correlationId?: string,
+  ): Promise<ScheduledActivity> {
+    return this.activitiesService.decline(activityId, actor, correlationId);
+  }
 }

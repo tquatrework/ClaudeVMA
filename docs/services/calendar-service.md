@@ -520,6 +520,107 @@
             visio) toujours non traites — inchange par cette session, hors mandat.</item>
         </openPoints>
       </session>
+
+      <session date="2026-08-18" label="Calendrier de disponibilites, point 3 — proposer/accepter/refuser un creneau de cours">
+        <context>Branche `feat/calendrier-proposition-creneau`. Le verbe API reste inchange :
+          `POST /activities` (deja existant) continue de creer l'entite a `status: proposed`. Ce
+          qui manquait reellement : les routes `accept`/`decline`, et une correction de securite
+          reelle deja identifiee au plan — `ActivitiesService.validateActivityCreation` ne
+          verifiait aucun lien metier avant de creer une proposition (un formateur pouvait
+          proposer un cours a n'importe quel eleve). Portee volontairement limitee aux
+          propositions 1 proposeur -&gt; 1 destinataire (`cours` par un FORMATEUR, ou
+          `reunion_pedagogique` par un ANIMATEUR_PEDAGOGIQUE) ; les usages multi-participants
+          existants (`entretien_rp`, `rappel`, `autre`, `reunion_pedagogique` RP a plusieurs
+          formateurs) ne sont pas touches. Aucun changement `orchestration-service` (verification
+          de lecture bilaterale entre deux services deja proprietaires, pas une saga).</context>
+
+        <changeset id="accept-decline">
+          <item>Nouvelles routes `POST /activities/:activityId/accept` et
+            `.../decline`, sur le modele exact d'`EventInvitationsController` deja en place :
+            garde de statut (`409` si l'activite n'est plus `proposed`), verification que
+            l'appelant est bien le destinataire vise (present dans `participantIds` — le createur
+            lui-meme ne peut pas accepter sa propre proposition), transition
+            `proposed -&gt; confirmed` (accept, publie `ActivityConfirmed`) ou
+            `proposed -&gt; cancelled` (decline, publie `ActivityDeclined`). Nouveaux types
+            d'evenement ajoutes a `CalendarEventType` (`events/events.service.ts`).</item>
+        </changeset>
+
+        <changeset id="verification-lien-creation">
+          <item>`ActivitiesService.validateActivityCreation` devient async et reutilise
+            `ProfileRelationsClient` (deja construit au point 2, meme service — pas duplique) :
+            `type=cours` cree par un `FORMATEUR` exige une relation `TEACHER_OF_STUDENT` avec
+            l'eleve cible ; `type=reunion_pedagogique` cree par un `ANIMATEUR_PEDAGOGIQUE` exige
+            `ANIMATOR_OF_TEACHER` avec le formateur cible ; `RESPONSABLE_PEDAGOGIQUE` : aucune
+            verification de lien (acces non conditionnel partout ailleurs dans ce service).
+            `403` si le lien est absent, `503` si `profile-service` est injoignable ou hors delai
+            (echec ferme, meme posture que `CalendarsService.getBusyFree`).</item>
+          <item>Contrainte de nombre associee, distincte de la verification de lien : ces deux
+            memes cas (`cours`/FORMATEUR, `reunion_pedagogique`/AP) exigent desormais
+            `participantIds` de taille exactement 1 (`400` sinon) — ce sont les seuls cas
+            couverts par le flow accepter/refuser 1-vers-1. Une `reunion_pedagogique` creee par
+            un RP a plusieurs formateurs (usage existant) n'est PAS soumise a cette contrainte,
+            lecture retenue de l'enonce de la tache et confirmee par un test e2e dedie.</item>
+          <item>`ActivitiesModule` : `ProfileRelationsClient` ajoute a ses propres `providers`
+            (instance propre a ce module, pas de dependance vers `CalendarsModule` qui importe au
+            contraire `ActivitiesModule` — `ConfigService`, sa seule dependance, est global).</item>
+        </changeset>
+
+        <changeset id="tests">
+          <item>`test/unit/activities/activities.service.spec.ts` : 29 tests (etait ~15) —
+            creation avec lien present/absent pour FORMATEUR et AP, relation de nature non
+            pertinente refusee (ex. `STUDENT_OF_TEACHER` au lieu de `TEACHER_OF_STUDENT`), RP
+            multi-formateurs non affecte, `ProfileRelationsUnavailableError` -&gt; `503`, erreur
+            inattendue propagee telle quelle, contrainte de nombre (400) pour les deux cas
+            concernes, `accept`/`decline` (nominal, `409` deja traite, `403` non-destinataire,
+            `403` createur qui tente d'accepter sa propre proposition, `404` inconnue).</item>
+          <item>`test/e2e/calendar.e2e-spec.ts` : bascule de `createTestApp()` vers
+            `createTestAppWithFakeProfileRelations()` (necessaire des qu'un FORMATEUR cree un
+            `cours` — sinon appel reseau reel vers un `profile-service.test` volontairement non
+            resolvable, `503`). Releve un vrai risque de regression : sans ce changement, le test
+            existant « Un formateur peut creer une activite → 201 » aurait echoue une fois la
+            verification de lien en place — corrige en posant une relation `TEACHER_OF_STUDENT`
+            (`teacher1`/`student1`) et `ANIMATOR_OF_TEACHER` (`ap1`/`teacher1`) au `beforeAll`,
+            `teacher2` restant volontairement sans relation pour les cas de refus. Nouvelles
+            sections : verification de lien a la creation (5 tests : 403 sans lien, 400 sur
+            nombre, 403 AP sans lien, 201 AP avec lien, 201 RP multi-formateurs inchange) et
+            accept/decline (8 tests : nominal x2, tiers non destinataire 403, createur 403, deja
+            traite 409 x2, sans token 401, activite inconnue 404). 60 tests dans ce fichier
+            (etait 47), 83 e2e au total pour le service, 198 unitaires — tous verts,
+            `--runInBand` toujours requis (defaut preexistant, non corrige dans cette
+            session).</item>
+        </changeset>
+
+        <changeset id="documentation">
+          <item>`docs/routes.md` : nouvelle section « Activités planifiées » — les routes
+            `/activities` n'avaient **jamais** ete documentees avant cette session (constat fait
+            en explorant, cause du `404` front deja signale au plan sur `api/calendar.ts`).
+            Body/reponse exacts de `POST /activities`, forme identique renvoyee par
+            `GET`/`PUT`/`accept`/`decline`, tableau de la verification de lien avec les 3 lignes
+            (FORMATEUR, AP, RP). Evenements `ActivityConfirmed`/`ActivityDeclined` ajoutes a la
+            liste des evenements publies.</item>
+        </changeset>
+
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <item>Point 4 du chantier (integration LiveKit) non traite — a livrer par une tache
+            ulterieure distincte.</item>
+          <item>`DELETE /activities/:activityId` (bouton « Supprimer » cote front, actuellement
+            mort — deja tranche dans le plan : la route est ajoutee, pas le bouton retire) n'etait
+            **pas** dans le perimetre explicite de cette tache et n'a donc pas ete implementee ici
+            — a confirmer aupres de l'orchestrateur si elle doit etre livree avec ce point 3 ou
+            separement, avant de dispatcher le front.</item>
+          <item>Front non touche par cette session (perimetre explicitement backend) :
+            `apps/web/src/api/calendar.ts` appelle toujours `/calendar`/`/calendar/:id` (404) au
+            lieu de `/activities` — assainissement signale au plan, toujours non fait.</item>
+          <item>Ambiguite d'enonce resolue par lecture, a confirmer : la contrainte "exactement un
+            destinataire" a ete appliquee UNIQUEMENT a `cours`/FORMATEUR et
+            `reunion_pedagogique`/ANIMATEUR_PEDAGOGIQUE, PAS a `reunion_pedagogique`/RP — pour
+            preserver l'usage existant RP-a-plusieurs-formateurs explicitement signale comme "a
+            ne pas toucher" dans l'enonce de la tache. Une lecture alternative existait (appliquer
+            aussi au RP) ; verifie par test e2e dedie que l'usage multi-formateurs RP repond
+            toujours `201`.</item>
+        </openPoints>
+      </session>
     </technicalSessions>
   </service>
 </serviceFunctionalSpecification>

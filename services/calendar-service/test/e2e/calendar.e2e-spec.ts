@@ -7,6 +7,8 @@
  *   POST   /activities                         create a scheduled activity
  *   PUT    /activities/:activityId             update a scheduled activity
  *   GET    /activities/:activityId             get an activity by ID
+ *   POST   /activities/:activityId/accept       accept a PROPOSED activity (chantier calendrier, point 3)
+ *   POST   /activities/:activityId/decline      decline a PROPOSED activity (chantier calendrier, point 3)
  *
  *   Calendars
  *   GET    /calendars/:ownerId                                 get a user calendar (slots + activities)
@@ -34,6 +36,19 @@
  *   CAL-BR-010  PUT /activities/:id modifie une activite → 200
  *   CAL-BR-011  PUT /activities/:id sur activite inexistante → 404
  *
+ *   Verification de lien a la creation (chantier calendrier, point 3 — corrige un
+ *   trou de securite reel : jusqu'ici aucun lien n'etait verifie)
+ *   Un FORMATEUR propose un cours a un eleve auquel il n'est PAS lie → 403
+ *   Un FORMATEUR propose un cours a plus d'un destinataire → 400
+ *   Un AP propose une reunion_pedagogique a un formateur qu'il n'anime PAS → 403
+ *   Un RP cree une reunion_pedagogique a plusieurs formateurs → 201 (usage existant, inchange)
+ *
+ *   Acceptation / refus d'une proposition (chantier calendrier, point 3)
+ *   Le destinataire vise accepte une activite PROPOSED → 201, status CONFIRMED
+ *   Le destinataire vise refuse une activite PROPOSED → 201, status CANCELLED
+ *   Un tiers (non destinataire) tente d'accepter → 403
+ *   Une activite deja CONFIRMED est acceptee de nouveau → 409
+ *
  *   Calendriers
  *   CAL-BR-005  GET /calendars/:ownerId retourne le calendrier → 200
  *   CAL-BR-001  PUT /calendars/:ownerId/availability met a jour les creneaux → 200
@@ -49,7 +64,13 @@
 
 import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
-import { createTestApp, makeJwt, IDS } from './helpers/app.helper';
+import {
+  createTestAppWithFakeProfileRelations,
+  FakeProfileRelationsClient,
+  makeJwt,
+  IDS,
+} from './helpers/app.helper';
+import { RelationKind } from '../../src/common/relations/relation-kind';
 
 // ─── Payload minimal valide pour creer une activite ──────────────────────────
 
@@ -68,22 +89,50 @@ function validActivityPayload(overrides: Record<string, unknown> = {}): Record<s
 
 describe('[E2E] Calendar Service', () => {
   let app: INestApplication;
+  let profileRelations: FakeProfileRelationsClient;
 
   let rpToken: string;
   let teacher1Token: string;
+  let teacher2Token: string;
   let student1Token: string;
+  let apToken: string;
 
   // Activity ID captured after seed creation
   let createdActivityId: string;
 
   beforeAll(async () => {
-    app = await createTestApp();
+    ({ app, profileRelations } = await createTestAppWithFakeProfileRelations());
 
     rpToken       = makeJwt(IDS.rp1,      'responsable_pedagogique');
     teacher1Token = makeJwt(IDS.teacher1, 'formateur');
+    teacher2Token = makeJwt(IDS.teacher2, 'formateur');
     student1Token = makeJwt(IDS.student1, 'eleve');
+    apToken       = makeJwt(IDS.ap1,      'animateur_pedagogique');
 
-    // Seed: create one activity used by read/update tests
+    // Chantier calendrier de disponibilites, point 3 : `teacher1` est lie a
+    // `student1` (TEACHER_OF_STUDENT) et `ap1` anime `teacher1`
+    // (ANIMATOR_OF_TEACHER) — relations consommees par la verification de
+    // lien a la creation d'un `cours`/`reunion_pedagogique` 1-vers-1.
+    // `teacher2` reste volontairement SANS relation posee, pour les tests
+    // de refus (403).
+    profileRelations.setSnapshot(IDS.teacher1, IDS.student1, {
+      viewerId: IDS.teacher1,
+      targetId: IDS.student1,
+      isSelf: false,
+      isAdministrator: false,
+      relations: [{ kind: RelationKind.TEACHER_OF_STUDENT }],
+    });
+    profileRelations.setSnapshot(IDS.ap1, IDS.teacher1, {
+      viewerId: IDS.ap1,
+      targetId: IDS.teacher1,
+      isSelf: false,
+      isAdministrator: false,
+      relations: [{ kind: RelationKind.ANIMATOR_OF_TEACHER }],
+    });
+
+    // Seed: create one activity used by read/update tests (RP : aucune
+    // verification de lien, `validActivityPayload()` par defaut = cours vers
+    // `student1`).
     const res = await request(app.getHttpServer())
       .post('/activities')
       .set('Authorization', `Bearer ${rpToken}`)
@@ -247,6 +296,64 @@ describe('[E2E] Calendar Service', () => {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
+  // Verification de lien a la creation (chantier calendrier, point 3)
+  // Corrige un trou de securite reel : jusqu'ici aucun lien n'etait verifie
+  // avant de creer une proposition de cours/reunion pedagogique.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('POST /activities — verification de lien 1 proposeur → 1 destinataire', () => {
+    it("Un formateur propose un cours a un eleve auquel il n'est PAS lie → 403", async () => {
+      const res = await request(app.getHttpServer())
+        .post('/activities')
+        .set('Authorization', `Bearer ${teacher2Token}`) // teacher2 : aucune relation posee
+        .send(validActivityPayload());
+
+      expect(res.status).toBe(403);
+    });
+
+    it('Un formateur propose un cours a plus d\'un destinataire → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/activities')
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send(validActivityPayload({ participantIds: [IDS.student1, IDS.student2] }));
+
+      expect(res.status).toBe(400);
+    });
+
+    it("Un AP propose une reunion_pedagogique a un formateur qu'il n'anime PAS → 403", async () => {
+      const res = await request(app.getHttpServer())
+        .post('/activities')
+        .set('Authorization', `Bearer ${apToken}`)
+        .send(validActivityPayload({ type: 'reunion_pedagogique', participantIds: [IDS.teacher2] }));
+
+      expect(res.status).toBe(403);
+    });
+
+    it('Un AP propose une reunion_pedagogique au formateur qu\'il anime → 201', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/activities')
+        .set('Authorization', `Bearer ${apToken}`)
+        .send(validActivityPayload({ type: 'reunion_pedagogique', participantIds: [IDS.teacher1] }));
+
+      expect(res.status).toBe(201);
+    });
+
+    it('Un RP cree une reunion_pedagogique a plusieurs formateurs → 201 (usage existant, inchange)', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/activities')
+        .set('Authorization', `Bearer ${rpToken}`)
+        .send(
+          validActivityPayload({
+            type: 'reunion_pedagogique',
+            participantIds: [IDS.teacher1, IDS.teacher2],
+          }),
+        );
+
+      expect(res.status).toBe(201);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
   // GET /activities/:id — lecture par ID (CAL-BR-008, CAL-BR-009)
   // ──────────────────────────────────────────────────────────────────────────
 
@@ -303,6 +410,106 @@ describe('[E2E] Calendar Service', () => {
         .set('Authorization', `Bearer ${rpToken}`)
         .send({ title: 'x' });
 
+      expect(res.status).toBe(404);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // POST /activities/:id/accept · /decline (chantier calendrier, point 3)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('POST /activities/:id/accept — /decline — reponse a une proposition', () => {
+    async function createCoursProposal(): Promise<string> {
+      const res = await request(app.getHttpServer())
+        .post('/activities')
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send(validActivityPayload());
+      expect(res.status).toBe(201);
+      return res.body.id;
+    }
+
+    it('Le destinataire vise accepte une proposition → 201, status CONFIRMED', async () => {
+      const activityId = await createCoursProposal();
+
+      const res = await request(app.getHttpServer())
+        .post(`/activities/${activityId}/accept`)
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('id', activityId);
+      expect(res.body.status).toBe('confirmed');
+    });
+
+    it('Le destinataire vise refuse une proposition → 201, status CANCELLED', async () => {
+      const activityId = await createCoursProposal();
+
+      const res = await request(app.getHttpServer())
+        .post(`/activities/${activityId}/decline`)
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('id', activityId);
+      expect(res.body.status).toBe('cancelled');
+    });
+
+    it("Un tiers qui n'est pas le destinataire vise ne peut pas accepter → 403", async () => {
+      const activityId = await createCoursProposal();
+
+      const res = await request(app.getHttpServer())
+        .post(`/activities/${activityId}/accept`)
+        .set('Authorization', `Bearer ${teacher2Token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it("Le proposeur (createur) ne peut pas accepter sa propre proposition → 403", async () => {
+      const activityId = await createCoursProposal();
+
+      const res = await request(app.getHttpServer())
+        .post(`/activities/${activityId}/accept`)
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('Une activite deja CONFIRMED ne peut pas etre acceptee de nouveau → 409', async () => {
+      const activityId = await createCoursProposal();
+      const first = await request(app.getHttpServer())
+        .post(`/activities/${activityId}/accept`)
+        .set('Authorization', `Bearer ${student1Token}`);
+      expect(first.status).toBe(201);
+
+      const second = await request(app.getHttpServer())
+        .post(`/activities/${activityId}/accept`)
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      expect(second.status).toBe(409);
+    });
+
+    it('Une activite deja CANCELLED (declinee) ne peut pas etre refusee de nouveau → 409', async () => {
+      const activityId = await createCoursProposal();
+      const first = await request(app.getHttpServer())
+        .post(`/activities/${activityId}/decline`)
+        .set('Authorization', `Bearer ${student1Token}`);
+      expect(first.status).toBe(201);
+
+      const second = await request(app.getHttpServer())
+        .post(`/activities/${activityId}/decline`)
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      expect(second.status).toBe(409);
+    });
+
+    it('POST /activities/:id/accept sans token → 401', async () => {
+      const activityId = await createCoursProposal();
+      const res = await request(app.getHttpServer()).post(`/activities/${activityId}/accept`);
+      expect(res.status).toBe(401);
+    });
+
+    it('POST /activities/:id/accept sur une activite inexistante → 404', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/activities/${IDS.unknown}/accept`)
+        .set('Authorization', `Bearer ${student1Token}`);
       expect(res.status).toBe(404);
     });
   });

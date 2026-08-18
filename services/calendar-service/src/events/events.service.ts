@@ -4,6 +4,8 @@ export type CalendarEventType =
   | 'AvailabilityUpdated'
   | 'ActivityScheduled'
   | 'ActivityUpdated'
+  | 'ActivityConfirmed'
+  | 'ActivityDeclined'
   | 'ReminderCreated'
   | 'CalendarEventCreated'
   | 'InvitationAccepted'

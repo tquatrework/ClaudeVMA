@@ -1154,6 +1154,92 @@ les ait fournis avec ou sans millisecondes :
   Un compte inconnu d'`identity-access-service` (`404`) reste traité comme un rôle inconnu, même
   repli fermé qu'avant.
 
+### Activités planifiées — cours, réunions pédagogiques, entretiens, rappels
+
+Ces routes existaient déjà côté code mais n'avaient **jamais été documentées** (constat du
+2026-08-18, chantier calendrier de disponibilités, point 3) — décalage qui avait causé un `404`
+front sur `apps/web/src/api/calendar.ts`, qui appelait à tort `/calendar` au lieu de `/activities`.
+Section écrite ici pour la première fois, avec le contrat exact.
+
+| Méthode | Chemin | Description | Auth | Rôles / Remarques |
+|---|---|---|---|---|
+| POST | /activities | Créer une activité planifiée (`cours`, `reunion_pedagogique`, `entretien_rp`, `rappel`, `autre`) — naît à `status: proposed` | 🔒 | `formateur`, `animateur_pedagogique`, `responsable_pedagogique`. Voir « Vérification de lien à la création » ci-dessous. |
+| GET | /activities/:activityId | Lire une activité par id | 🔒 | Créateur, participant déclaré, ou rôle interne (RP, TI, AF). `403` sinon (IDOR), `404` si inconnue. |
+| PUT | /activities/:activityId | Modifier une activité (titre, participants, horaires, statut, description…) | 🔒 | Créateur, RP ou TI uniquement (CAL-FB-001). `403` sinon, `404` si inconnue. |
+| POST | /activities/:activityId/accept | Accepter une activité `proposed` → `confirmed` (chantier calendrier, point 3) | 🔒 | Seul le destinataire visé (présent dans `participantIds`) — le créateur ne peut pas accepter sa propre proposition. `409` si déjà traitée, `403` si l'appelant n'est pas le destinataire, `404` si inconnue. Publie `ActivityConfirmed`. |
+| POST | /activities/:activityId/decline | Refuser une activité `proposed` → `cancelled` (chantier calendrier, point 3) | 🔒 | Mêmes règles que `accept` ci-dessus. Publie `ActivityDeclined`. |
+
+Body `POST /activities` :
+
+```json
+{
+  "title": "Cours de géométrie",
+  "type": "cours",
+  "participantIds": ["8d9a2c10-3b21-4b2b-9e9e-000000000001"],
+  "startTime": "2026-09-10T14:00:00Z",
+  "endTime": "2026-09-10T15:00:00Z",
+  "description": "Révision du chapitre 3"
+}
+```
+
+- `type` : `cours` · `reunion_pedagogique` · `entretien_rp` · `rappel` · `autre` (minuscules,
+  exactement comme `AvailabilitySlot.kind`/`recurrence` — un enum envoyé en majuscules est
+  rejeté en `400`, piège déjà rencontré au point 1 de ce chantier).
+- `participantIds` : tableau d'UUID v4, **au moins un** élément (`400` si vide — CAL-FB-002).
+  Voir « Vérification de lien » ci-dessous pour le cas où la taille exacte est imposée à 1.
+- `startTime`/`endTime` : ISO 8601 avec fuseau (ex. `2026-09-10T14:00:00Z`), même format que les
+  créneaux de disponibilité.
+- `description` et `correlationId` sont optionnels.
+
+Réponse `201` (`POST /activities`), `200` (`GET`/`PUT`), `201` (`accept`/`decline` — défaut
+`@Post` de NestJS, comme `POST /events/:id/invitees/:userId/accept` ci-dessous) — forme identique
+dans les quatre cas, c'est l'entité `ScheduledActivity` telle qu'enregistrée :
+
+```json
+{
+  "id": "3fa1b6e0-...",
+  "title": "Cours de géométrie",
+  "type": "cours",
+  "creatorId": "...",
+  "creatorRole": "formateur",
+  "participantIds": ["8d9a2c10-3b21-4b2b-9e9e-000000000001"],
+  "startTime": "2026-09-10T14:00:00.000Z",
+  "endTime": "2026-09-10T15:00:00.000Z",
+  "status": "proposed",
+  "description": "Révision du chapitre 3",
+  "correlationId": null,
+  "createdAt": "2026-09-01T10:00:00.000Z",
+  "updatedAt": "2026-09-01T10:00:00.000Z"
+}
+```
+
+`status` : `proposed` (valeur à la création) · `confirmed` (après `accept`) · `cancelled` (après
+`decline`, ou toute autre annulation) · `completed` (hors du périmètre de ce chantier, non
+atteignable par ces routes).
+
+`POST /activities/:activityId/accept` et `.../decline` ne prennent **aucun corps** — seul le
+`activityId` dans l'URL et le token du destinataire suffisent, exactement comme
+`POST /events/:id/invitees/:userId/accept` ci-dessous.
+
+#### Vérification de lien à la création — 1 proposeur → 1 destinataire (chantier calendrier, point 3)
+
+Corrige un vrai trou de sécurité : jusqu'ici **aucun lien réel n'était vérifié** — un formateur
+pouvait proposer un cours à n'importe quel élève. Portée volontairement limitée aux deux cas
+suivants (les autres types/usages multi-participants existants — `entretien_rp`, `rappel`,
+`autre`, ou une `reunion_pedagogique` créée par un RP à plusieurs formateurs — ne sont **pas**
+concernés, ni par la contrainte de nombre ni par la vérification de lien) :
+
+| Créateur | `type` | Contrainte sur `participantIds` | Lien exigé avec le destinataire | Sinon |
+|---|---|---|---|---|
+| `formateur` | `cours` | Exactement 1 élément | `TEACHER_OF_STUDENT` (le formateur enseigne à cet élève) | `400` (nombre) ou `403` (lien absent) |
+| `animateur_pedagogique` | `reunion_pedagogique` | Exactement 1 élément | `ANIMATOR_OF_TEACHER` (l'AP anime ce formateur) | `400` (nombre) ou `403` (lien absent) |
+| `responsable_pedagogique` | tout type | Aucune (peut cibler plusieurs formateurs, usage existant préservé) | Aucune — accès non conditionnel, comme partout ailleurs dans ce service | — |
+
+Le lien est vérifié auprès de `profile-service`
+(`GET /internal/relations/:viewerId/:targetId?viewerRole=...`), même client et même politique
+d'échec fermé que `GET /calendars/:ownerId/busy` (point 2 de ce chantier) : `503` si
+`profile-service` est injoignable ou hors délai (3s), jamais une création acceptée par défaut.
+
 ### Invitations
 
 | Méthode | Chemin | Description | Auth |
@@ -1186,7 +1272,14 @@ Body : `{delay: "1week"|"1day"|"1hour"|"15min"|"none"}`
 
 ### Événements publiés
 
-`CalendarEventCreated` · `InvitationAccepted` · `InvitationDeclined` · `CancellationRequested` · `ReminderDue`
+`CalendarEventCreated` · `InvitationAccepted` · `InvitationDeclined` · `CancellationRequested` · `ReminderDue` · `AvailabilityUpdated` · `ActivityScheduled` · `ActivityUpdated` · `ActivityConfirmed` · `ActivityDeclined`
+
+`ActivityConfirmed` (`accept`) et `ActivityDeclined` (`decline`) sont nouveaux (chantier
+calendrier de disponibilités, point 3). Payload minimal : `{activityId, confirmedBy}` /
+`{activityId, declinedBy}`. Comme les autres événements de ce service, `EventsService.publish`
+reste un stub qui journalise une ligne structurée (aucun bus, aucun abonné pour l'instant) — voir
+`docs/architecture.md`, arbitrage du 2026-08-14 sur les notifications, pour le précédent déjà
+traité côté `teacher-request-service`.
 
 ---
 

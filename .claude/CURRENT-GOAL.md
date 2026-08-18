@@ -41,7 +41,18 @@ Ordre de livraison retenu, une branche par étape :
 
 - [x] Exploration (2 agents) + conception (1 agent Plan) — état du code réel établi, plan écrit
 - [x] Plan approuvé par l'utilisateur, avec 3 précisions (ci-dessus)
-- [ ] Point 1 — CRUD disponibilités + récurrence
+- [x] Point 1 — CRUD disponibilités + récurrence. Backend : mécanisme de migrations créé (absent
+      jusqu'ici), entité étendue (`recurrenceEndDate`, `kind`), 3 routes CRUD, bug `@Roles` corrigé
+      (AP retiré, **ELEVE ajouté** — élève bloqué en 403 avant même ce chantier), fonction pure
+      `expandSlotToOccurrences`. 121 tests unitaires + 49 e2e, migration vérifiée réellement
+      (up/down/re-run + comparaison schéma réel). Front : onglet "Mes disponibilités" dans
+      `/calendar`, grille Tailwind faite main (clic-cellule/clic-bloc), `date-fns`, 55 tests.
+      Déployé sur la pile réelle, routes confirmées mappées au démarrage du service. **Preuve HTTP
+      obtenue par l'orchestrateur** contre `https://claudevma.visioprof.fr` (compte élève réel) :
+      `POST` créneau récurrent avec date de fin → `201` ; `PATCH` redimensionnement → `200` ;
+      `PATCH recurrenceEndDate:null` (repasse en illimité) → `200` ; `GET` reflète les changements ;
+      `DELETE` → `204` ; `GET` confirme la disparition. Preuve à l'écran déléguée à `front-tester`,
+      en cours.
 - [ ] Point 2 — visibilité busy/free par relation
 - [ ] Point 3 — proposition/acceptation de créneau
 - [ ] Point 4 — intégration LiveKit

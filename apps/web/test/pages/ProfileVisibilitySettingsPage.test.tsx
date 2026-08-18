@@ -7,13 +7,19 @@
  * désormais). Le serveur renvoie maintenant le **catalogue complet** des champs,
  * groupés par `block`, avec `audience` et `defaultAudience`.
  *
- * Deux propriétés sont gardées ici :
+ * Propriétés gardées ici :
  *
  * 1. le front ne duplique **ni la liste des champs ni les défauts** — il n'affiche
  *    que ce que le serveur lui envoie, un catalogue tronqué produit un écran
  *    tronqué et rien d'inventé ;
  * 2. l'enregistrement est un **upsert partiel** — seuls les champs réellement
- *    changés partent, jamais le catalogue entier.
+ *    changés partent, jamais le catalogue entier ;
+ * 3. `firstName`/`lastName` ne sont **plus réglables** ici (arbitrage du
+ *    2026-08-17) — jamais affichés comme option, jamais envoyés en `PUT`, même
+ *    si le catalogue serveur les contient encore ;
+ * 4. seul le bloc pédagogique du **rôle réel du titulaire consulté** s'affiche
+ *    (élève → `pedagogical-student`, formateur → `pedagogical-teacher`), jamais
+ *    les deux — filtré côté front quel que soit le catalogue reçu.
  *
  * Les libellés affichés sont en français (règle projet du 2026-08-09) et viennent
  * du point unique `src/utils/profileFieldLabels.ts`.
@@ -24,22 +30,30 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import ProfileVisibilitySettingsPage from '../../src/pages/ProfileVisibilitySettingsPage'
-import type { FieldVisibilityEntry, FieldVisibilitySettings } from '../../src/types/profile'
+import type { FieldVisibilityEntry, FieldVisibilitySettings, Profile } from '../../src/types/profile'
 
 vi.mock('../../src/hooks/useAuth')
 vi.mock('../../src/api/profile')
 
 import { useAuth } from '../../src/hooks/useAuth'
-import { fetchFieldVisibility, updateFieldVisibility } from '../../src/api/profile'
+import { fetchFieldVisibility, fetchProfile, updateFieldVisibility } from '../../src/api/profile'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockFetchFieldVisibility = vi.mocked(fetchFieldVisibility)
+const mockFetchProfile = vi.mocked(fetchProfile)
 const mockUpdateFieldVisibility = vi.mocked(updateFieldVisibility)
 
 const STUDENT_USER = {
   id: 'student-1',
   email: 'eleve@test.com',
   role: 'eleve' as const,
+  validationStatus: 'active' as const,
+}
+
+const TEACHER_USER = {
+  id: 'teacher-1',
+  email: 'formateur@test.com',
+  role: 'formateur' as const,
   validationStatus: 'active' as const,
 }
 
@@ -55,6 +69,22 @@ const PARENT_USER = {
   email: 'parent@test.com',
   role: 'parent_financeur' as const,
   validationStatus: 'active' as const,
+}
+
+/**
+ * Réponse par défaut de `GET /profiles/:userId` : `pedagogicalType` et
+ * `pedagogical` à `null`, comme un compte n'ayant pas encore renseigné son
+ * profil pédagogique (état normal, arbitrage du 2026-08-07). Sur son PROPRE
+ * profil, `resolvePedagogicalProfileKind` retombe alors sur le rôle de
+ * l'appelant — c'est ce chemin que la majorité des tests ci-dessous exercent.
+ */
+function buildProfile(overrides: Partial<Profile> = {}): Profile {
+  return {
+    userId: 'student-1',
+    pedagogicalType: null,
+    pedagogical: null,
+    ...overrides,
+  }
 }
 
 function buildAuthMock(userObj = STUDENT_USER) {
@@ -157,6 +187,7 @@ async function clickSave() {
 beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue(buildAuthMock())
+  mockFetchProfile.mockResolvedValue(buildProfile())
 })
 
 describe('ProfileVisibilitySettingsPage', () => {
@@ -168,8 +199,11 @@ describe('ProfileVisibilitySettingsPage', () => {
     expect(screen.getByText('Chargement…')).toBeDefined()
   })
 
-  it('groups the fields by block, with French section titles', async () => {
+  it('groups the fields by block, with French section titles — only the block of the real role of the profile owner', async () => {
     mockFetchFieldVisibility.mockResolvedValue(CATALOG)
+    // Élève sur son propre profil : le bloc pédagogique formateur ne le concerne
+    // jamais, même si le catalogue serveur le contient encore.
+    mockFetchProfile.mockResolvedValue(buildProfile({ pedagogicalType: null, pedagogical: null }))
 
     renderPage('student-1')
 
@@ -178,40 +212,105 @@ describe('ProfileVisibilitySettingsPage', () => {
     })
     expect(screen.getByRole('heading', { name: 'Informations administratives' })).toBeDefined()
     expect(screen.getByRole('heading', { name: 'Profil pédagogique — élève' })).toBeDefined()
-    expect(screen.getByRole('heading', { name: 'Profil pédagogique — formateur' })).toBeDefined()
+    expect(screen.queryByRole('heading', { name: 'Profil pédagogique — formateur' })).toBeNull()
   })
 
-  it('labels every field in French, technical names never shown', async () => {
+  it('shows only the teacher block on a teacher’s own profile', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
+    mockFetchFieldVisibility.mockResolvedValue({ ...CATALOG, userId: 'teacher-1' })
+    mockFetchProfile.mockResolvedValue(
+      buildProfile({ userId: 'teacher-1', pedagogicalType: null, pedagogical: null }),
+    )
+
+    renderPage('teacher-1')
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Profil pédagogique — formateur' })).toBeDefined()
+    })
+    expect(screen.queryByRole('heading', { name: 'Profil pédagogique — élève' })).toBeNull()
+    expect(screen.getByText('Diplômes et certifications')).toBeDefined()
+  })
+
+  it('trusts the server-declared pedagogicalType over a mismatched viewer role (RP consulting a third party)', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+    mockFetchFieldVisibility.mockResolvedValue(CATALOG)
+    // Le RP consulte la fiche d'un formateur : `pedagogicalType` du serveur fait
+    // foi, le rôle de l'appelant (RP) n'est jamais utilisé pour un tiers.
+    mockFetchProfile.mockResolvedValue(buildProfile({ pedagogicalType: 'teacher' }))
+
+    renderPage('student-1')
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Profil pédagogique — formateur' })).toBeDefined()
+    })
+    expect(screen.queryByRole('heading', { name: 'Profil pédagogique — élève' })).toBeNull()
+  })
+
+  it('never offers firstName/lastName as a setting, even though the server catalog still carries them', async () => {
     mockFetchFieldVisibility.mockResolvedValue(CATALOG)
 
     renderPage('student-1')
 
     await waitFor(() => {
-      expect(screen.getByText('Prénom')).toBeDefined()
+      expect(screen.getByText('Téléphone')).toBeDefined()
     })
-    expect(screen.getByText('Téléphone')).toBeDefined()
+    expect(screen.queryByText('Prénom')).toBeNull()
+    expect(screen.queryByText('Nom')).toBeNull()
+    expect(audienceRadiosOf('firstName')).toHaveLength(0)
+    expect(audienceRadiosOf('lastName')).toHaveLength(0)
+  })
+
+  it('never sends firstName/lastName in a PUT, even though the server catalog still carries them', async () => {
+    mockFetchFieldVisibility.mockResolvedValue(CATALOG)
+    mockUpdateFieldVisibility.mockResolvedValue(CATALOG)
+
+    renderPage('student-1')
+
+    await waitFor(() => {
+      expect(audienceRadiosOf('phone')).toHaveLength(3)
+    })
+    await selectAudience('phone', /mes contacts liés/i)
+    await clickSave()
+
+    await waitFor(() => {
+      expect(mockUpdateFieldVisibility).toHaveBeenCalled()
+    })
+    const [, sentFields] = mockUpdateFieldVisibility.mock.calls[0]
+    expect(sentFields.some((field) => field.fieldName === 'firstName')).toBe(false)
+    expect(sentFields.some((field) => field.fieldName === 'lastName')).toBe(false)
+  })
+
+  it('labels every visible field in French, technical names never shown', async () => {
+    mockFetchFieldVisibility.mockResolvedValue(CATALOG)
+
+    renderPage('student-1')
+
+    await waitFor(() => {
+      expect(screen.getByText('Téléphone')).toBeDefined()
+    })
     expect(screen.getByText('Difficultés rencontrées')).toBeDefined()
     expect(screen.getByText('Type de formateur préconisé')).toBeDefined()
-    expect(screen.getByText('Diplômes et certifications')).toBeDefined()
     // Les noms techniques de l'API ne fuient jamais à l'écran.
     expect(screen.queryByText('difficulties')).toBeNull()
     expect(screen.queryByText('recommendedTeacherProfile')).toBeNull()
+    // Bloc formateur : hors du rôle de l'élève, jamais affiché ici.
+    expect(screen.queryByText('Diplômes et certifications')).toBeNull()
   })
 
   it('displays only the fields sent by the server, and invents none', async () => {
     mockFetchFieldVisibility.mockResolvedValue({
       userId: 'student-1',
-      fields: [buildEntry({ fieldName: 'firstName', audience: 'linked' })],
+      fields: [buildEntry({ fieldName: 'phone', audience: 'linked' })],
     })
 
     renderPage('student-1')
 
     await waitFor(() => {
-      expect(screen.getByText('Prénom')).toBeDefined()
+      expect(screen.getByText('Téléphone')).toBeDefined()
     })
     // Le catalogue et les défauts appartiennent au serveur : un catalogue
     // tronqué donne un écran tronqué, pas une liste recopiée côté front.
-    expect(screen.queryByText('Téléphone')).toBeNull()
+    expect(screen.queryByText('Adresse (ligne 1)')).toBeNull()
     expect(screen.queryByText('Difficultés rencontrées')).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Profil pédagogique — élève' })).toBeNull()
   })
@@ -222,17 +321,17 @@ describe('ProfileVisibilitySettingsPage', () => {
     renderPage('student-1')
 
     await waitFor(() => {
-      expect(audienceRadiosOf('firstName')).toHaveLength(3)
+      expect(audienceRadiosOf('phone')).toHaveLength(3)
     })
 
-    const firstNameRadios = audienceRadiosOf('firstName')
-    expect(firstNameRadios.map((radio) => radio.value)).toEqual(['self', 'linked', 'all'])
-    // `firstName` fait partie du socle visible des personnes liées.
-    expect(firstNameRadios.find((radio) => radio.checked)?.value).toBe('linked')
-    // Tout le reste est `self` par défaut.
-    expect(audienceRadiosOf('phone').find((radio) => radio.checked)?.value).toBe('self')
+    const phoneRadios = audienceRadiosOf('phone')
+    expect(phoneRadios.map((radio) => radio.value)).toEqual(['self', 'linked', 'all'])
+    // Tout est `self` par défaut, sauf réglage explicite.
+    expect(phoneRadios.find((radio) => radio.checked)?.value).toBe('self')
     // Réglage explicite du titulaire : il prime sur le défaut.
     expect(audienceRadiosOf('birthDate').find((radio) => radio.checked)?.value).toBe('all')
+    // Champ du socle "linked" par défaut, non explicite.
+    expect(audienceRadiosOf('level').find((radio) => radio.checked)?.value).toBe('linked')
   })
 
   it('shows the default only for fields the user has not set explicitly', async () => {
@@ -414,11 +513,13 @@ describe('ProfileVisibilitySettingsPage', () => {
     expect(screen.getByText('Accès refusé')).toBeDefined()
     // Aucun appel n'est tenté : on n'ouvre pas une porte qui répondrait 403.
     expect(mockFetchFieldVisibility).not.toHaveBeenCalled()
+    expect(mockFetchProfile).not.toHaveBeenCalled()
   })
 
-  it('allows a pedagogical manager to open any student settings', async () => {
+  it('allows a pedagogical manager to open any student settings, filtered on the student’s own block', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
     mockFetchFieldVisibility.mockResolvedValue(CATALOG)
+    mockFetchProfile.mockResolvedValue(buildProfile({ pedagogicalType: 'student' }))
 
     renderPage('student-1')
 
@@ -426,6 +527,9 @@ describe('ProfileVisibilitySettingsPage', () => {
       expect(screen.getByText('Confidentialité')).toBeDefined()
     })
     expect(mockFetchFieldVisibility).toHaveBeenCalledWith('student-1')
+    expect(mockFetchProfile).toHaveBeenCalledWith('student-1')
+    expect(screen.getByRole('heading', { name: 'Profil pédagogique — élève' })).toBeDefined()
+    expect(screen.queryByRole('heading', { name: 'Profil pédagogique — formateur' })).toBeNull()
   })
 
   it('navigates back to the profile page', async () => {
@@ -493,16 +597,16 @@ describe('ProfileVisibilitySettingsPage', () => {
     expect(screen.queryByText('Département')).toBeNull()
   })
 
-  it('keeps every field group rendered inside one form', async () => {
+  it('keeps every visible field group rendered inside one form', async () => {
     mockFetchFieldVisibility.mockResolvedValue(CATALOG)
 
     const { container } = renderPage('student-1')
 
     await waitFor(() => {
-      expect(screen.getByText('Prénom')).toBeDefined()
+      expect(screen.getByText('Téléphone')).toBeDefined()
     })
     const form = container.querySelector('form')
     expect(form).not.toBeNull()
-    expect(within(form as HTMLElement).getByText('Diplômes et certifications')).toBeDefined()
+    expect(within(form as HTMLElement).getByText('Difficultés rencontrées')).toBeDefined()
   })
 })

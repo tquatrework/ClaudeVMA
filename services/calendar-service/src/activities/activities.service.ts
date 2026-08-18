@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ScheduledActivity, ActivityType } from './entities/scheduled-activity.entity';
+import { ScheduledActivity, ActivityType, ActivityStatus } from './entities/scheduled-activity.entity';
 import { CreateActivityDto } from './dto/create-activity.dto';
 import { UpdateActivityDto } from './dto/update-activity.dto';
 import { EventsService } from '../events/events.service';
@@ -110,6 +110,39 @@ export class ActivitiesService {
     return this.activityRepo
       .createQueryBuilder('activity')
       .where("activity.participant_ids LIKE :uid", { uid: `%${userId}%` })
+      .orderBy('activity.start_time', 'ASC')
+      .getMany();
+  }
+
+  /**
+   * Activités où `userId` est créateur OU participant, à l'état
+   * `PROPOSED`/`CONFIRMED` (les seuls qui occupent réellement le calendrier —
+   * `CANCELLED`/`COMPLETED` n'ont plus de raison de bloquer un créneau),
+   * chevauchant `[from, to)`.
+   *
+   * Consommé par `CalendarsService.getBusyFree` pour produire `busyBlocks`
+   * de `GET /calendars/:ownerId/busy` — jamais exposé tel quel (pas d'id, de
+   * titre, de type ni de participants dans la réponse busy/free, voir
+   * `docs/routes.md`).
+   *
+   * `participant_ids` est une colonne `simple-json` : filtrage par `LIKE`,
+   * même approche que `findByParticipant` ci-dessus, pour la même raison de
+   * portabilité (pas de fonction JSON spécifique au moteur).
+   */
+  async findActiveInRange(userId: string, from: Date, to: Date): Promise<ScheduledActivity[]> {
+    return this.activityRepo
+      .createQueryBuilder('activity')
+      .where('(activity.creator_id = :userId OR activity.participant_ids LIKE :uid)', {
+        userId,
+        uid: `%${userId}%`,
+      })
+      .andWhere('activity.status IN (:...statuses)', {
+        statuses: [ActivityStatus.PROPOSED, ActivityStatus.CONFIRMED],
+      })
+      // Chevauchement demi-ouvert, même sémantique que `intersects()` dans
+      // `recurrence.util.ts` : start < to ET end > from.
+      .andWhere('activity.start_time < :to', { to })
+      .andWhere('activity.end_time > :from', { from })
       .orderBy('activity.start_time', 'ASC')
       .getMany();
   }

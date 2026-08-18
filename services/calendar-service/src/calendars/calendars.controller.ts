@@ -8,6 +8,7 @@ import {
   Param,
   ParseUUIDPipe,
   Body,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -27,10 +28,11 @@ import { CorrelationId } from '../common/decorators/correlation-id.decorator';
 import { CurrentUser } from '../common/current-user.decorator';
 import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 import { UserRole } from '../common/enums/user-role.enum';
-import { CalendarsService } from './calendars.service';
+import { CalendarsService, CalendarBusyFreeResponse } from './calendars.service';
 import { UpdateAvailabilityDto } from './dto/update-availability.dto';
 import { CreateAvailabilitySlotDto } from './dto/create-availability-slot.dto';
 import { UpdateAvailabilitySlotDto } from './dto/update-availability-slot.dto';
+import { GetCalendarBusyQueryDto } from './dto/get-calendar-busy.query.dto';
 import { Calendar } from './entities/calendar.entity';
 import { AvailabilitySlot } from './entities/availability-slot.entity';
 import { PaymentScheduleEntry } from './entities/payment-schedule-entry.entity';
@@ -81,6 +83,49 @@ export class CalendarsController {
     @CorrelationId() correlationId?: string,
   ): Promise<Calendar & { paymentEntries?: PaymentScheduleEntry[] }> {
     return this.calendarsService.getCalendar(ownerId, actor, correlationId);
+  }
+
+  @Get(':ownerId/busy')
+  @Roles(UserRole.ELEVE, UserRole.PARENT_FINANCEUR, UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE, UserRole.ADMINISTRATEUR_FINANCIER) // accès filtré par relation métier dans le service
+  @ApiParam({ name: 'ownerId', description: 'User ID whose busy/free calendar to read' })
+  @ApiHeader({ name: 'x-correlation-id', required: false, description: 'Correlation ID for tracing' })
+  @ApiOperation({
+    summary: 'Get a busy/free view of a linked calendar',
+    description:
+      "Réponse volontairement pauvre : jamais d'id, de titre, de type ni de participants — " +
+      'seulement des fenêtres de temps. Accès piloté par la relation métier réelle avec ' +
+      "profile-service (titulaire, RP sans condition de lien, ou relation adéquate), jamais " +
+      'par une liste de rôles codée en dur. Voir docs/routes.md pour le détail du contrat.',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      '{ownerId, from, to, availableWindows: [{start,end}], unavailableBlocks: [{start,end}], ' +
+      'busyBlocks: [{start,end}]}',
+  })
+  @ApiResponse({ status: 400, description: 'from/to invalides ou to <= from' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({
+    status: 403,
+    description: "CAL-FB-004 : aucune relation n'ouvre le busy/free de ce titulaire",
+  })
+  @ApiResponse({
+    status: 503,
+    description: 'profile-service injoignable — impossible de vérifier le droit',
+  })
+  getBusyFree(
+    @Param('ownerId', ParseUUIDPipe) ownerId: string,
+    @Query() query: GetCalendarBusyQueryDto,
+    @CurrentUser() actor: AuthenticatedUser,
+    @CorrelationId() correlationId?: string,
+  ): Promise<CalendarBusyFreeResponse> {
+    return this.calendarsService.getBusyFree(
+      ownerId,
+      actor,
+      new Date(query.from),
+      new Date(query.to),
+      correlationId,
+    );
   }
 
   @Put(':ownerId/availability')

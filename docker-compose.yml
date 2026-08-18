@@ -229,6 +229,13 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_calendar
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
+      # Chantier calendrier de disponibilites, point 2 (visibilite busy/free
+      # pilotee par relation metier). profile-service reste l'unique
+      # proprietaire des relations (arbitrages des 2026-08-11/12). Declaree
+      # explicitement, jamais laissee au defaut code en dur du client — meme
+      # port que partout ailleurs dans ce fichier.
+      PROFILE_SERVICE_URL: http://profile-service:3002
       PORT: 3005
     depends_on:
       postgres:

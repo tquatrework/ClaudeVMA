@@ -76,11 +76,10 @@ Ordre de livraison retenu, une branche par étape :
       `200` ; tiers non lié → élève : `403` ; tiers non lié → formateur : `403`. Contenu vérifié :
       un créneau créé par l'élève apparaît dans `availableWindows` du parent **sans aucun autre
       détail** (pas d'id, titre, participants). **Pas de preuve écran** — le composant
-      `LinkedCalendarView` n'a volontairement aucun point de montage dans la navigation, prévu avec
-      le point 3 (intégré au flux de proposition de créneau). En attente de validation utilisateur
-      avant merge (préciser si la preuve écran doit attendre le point 3 ou être montée
-      temporairement maintenant).
-      Branche `feat/calendrier-visibilite-relation`, prête à merger.
+      `LinkedCalendarView` n'a volontairement aucun point de montage dans la navigation ; décision
+      explicite de l'utilisateur (2026-08-18) : la preuve écran attendra son intégration réelle au
+      point 3, pas de page de test jetable entre-temps. **Validé par l'utilisateur** sur cette
+      base — mergé dans master.
 - [ ] Point 3 — proposition/acceptation de créneau
 - [ ] Point 4 — intégration LiveKit
 - [ ] Preuve livrée à l'utilisateur pour chaque point

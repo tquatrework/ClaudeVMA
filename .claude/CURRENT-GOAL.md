@@ -126,9 +126,20 @@ menus ne s'applique donc pas ici) :
   champ par champ, ex-`/visibilite`) devient **« Détails »** et passe **en dessous** des
   consentements.
 
-- [ ] Implémenté côté front — délégué à `front-developper`
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur (captures des deux points 1 et 2 ensemble, pile réelle)
+- [x] Implémenté côté front — `fix/front-visibilite-defauts-role`, commit `101aaa1`, poussé.
+      `ProfileConsentsSection` (nouveau) réutilise le mécanisme `/consents` existant
+      (`useConsents`, `ConsentCard`, `ConsentWithdrawalDialog`) sans dupliquer d'appel API,
+      affiché uniquement sur son propre profil (`GET /consents` ne renvoie que les consentements
+      de l'appelant). Tuile visibilité renommée « Confidentialité » → « Détails », repositionnée
+      en dessous. Retrait proposé uniquement pour `marketing`. 1591/1593 tests verts (2 échecs
+      préexistants sans rapport, `EleveDashboardPage.test.tsx`).
+- [x] Déployé sur la pile réelle — déploiement de vérification (même principe que précédemment,
+      pas encore mergé dans `master`) : branche locale `verify/visibilite-defauts-role` refaite à
+      partir de `origin/master` + les trois branches, sans conflit ; `frontend` reconstruit et
+      redéployé, bundle servi confirmé `assets/index-sbHSCu-z.js`, gateway rechargée.
+- [~] Preuve livrée à l'utilisateur — capture déléguée à `front-tester`, en cours (couvre les
+      points 1 et 2 ensemble : prénom/nom grisés sur `/visibilite`, consentements en haut de
+      l'onglet Confidentialité avec tuile « Détails » en dessous).
 - [ ] Validé par l'utilisateur
 
 #### Preuve HTTP citée (2026-08-18, contre `https://claudevma.visioprof.fr`)

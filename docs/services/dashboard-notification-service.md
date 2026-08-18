@@ -385,3 +385,80 @@ services/dashboard-notification-service/src/
   boucle sur `XAUTOCLAIM` avec `profile-service ... 400` — probleme
   preexistant (payload ou `studentId` invalide), constate mais non
   investigue ici, hors perimetre de la tache.
+
+## Correctif — le parent financeur est notifie de la creation d'une demande professeur (2026-08-18)
+
+### Constat
+
+`TeacherRequestCreated` ne notifiait que le role RP (arbitrage du 2026-08-14,
+point 8). Un parent financeur dont l'eleve venait de creer une demande n'en
+etait jamais informe — seul `TeacherAssigned` le notifiait, une fois le flow
+termine. Demande explicite de l'utilisateur : le parent doit recevoir deux
+notifications distinctes, une a la creation de la demande, une quand un
+professeur est trouve.
+
+### Verifie avant modification (existant confirme, pas suppose)
+
+- `handleTeacherRequestCreated` ne resolvait que le role RP
+  (`resolveRoleRecipients('responsable_pedagogique', ...)`), aucun appel a
+  `getFinanceOwners`.
+- Le helper `ProfileServiceClient.getFinanceOwners` (route interne
+  `GET /internal/relations/finance-owners/:studentId`) est deja **partage**,
+  utilise par `handleTeacherAssigned`, `handleMainTeacherAssigned` et
+  `handleTeacherRequestStatusUpdated` — aucune logique ad-hoc a dupliquer,
+  seul un appel supplementaire dans `handleTeacherRequestCreated` etait
+  necessaire.
+- `TeacherRequestCreated` porte deja `studentId` dans son payload (utilise
+  pour resoudre `studentName`) — **aucun changement necessaire cote
+  `teacher-request-service`**.
+- Le libelle front `teacher_request_created` (« Nouvelle demande de
+  professeur pour {eleve} ») est une phrase neutre qui ne s'adresse ni au RP
+  ni au parent specifiquement — elle reste correcte telle quelle pour les
+  deux audiences, contrairement a `teacher_assigned` qui distingue deja
+  cote-formateur/cote-eleve-parent. Aucun changement de libelle requis ; a
+  reconsiderer seulement si l'utilisateur souhaite un texte explicitement
+  adresse au parent (« votre enfant a demande un professeur »).
+
+### Modification appliquee
+
+`handleTeacherRequestCreated` (event-processor.service.ts) resout desormais
+`getFinanceOwners(studentId)` en parallele de la resolution du nom de
+l'eleve, et ajoute chaque parent financeur actif comme destinataire
+supplementaire, **en plus** du fan-out par role RP (jamais a la place). Meme
+type de notification (`teacher_request_created`) pour les deux audiences —
+un parent et un RP ne recoivent pas des notifications de types differents
+pour le meme fait. Meme discipline d'erreur que partout ailleurs dans ce
+fichier : un echec de resolution des parents financeurs fait **echouer**
+`process()` (l'entree reste non acquittee, rejouee par XAUTOCLAIM) plutot
+que de degrader silencieusement vers « RP seul ».
+
+### Verifie contre la pile reelle (2026-08-18)
+
+1. Service reconstruit et redeploye (`docker compose -p claudevma build/up
+   dashboard-notification-service`) avec le correctif.
+2. Eleve + parent financeur crees et lies via `POST /accounts/students`
+   (`parentAccountMode: "new"`).
+3. `POST /api/v1/teacher-requests` par l'eleve → `201`.
+4. `GET /api/v1/notifications` du parent → **une notification
+   `teacher_request_created` avec `studentName` resolu**, `unread-count`
+   passe de `0` a `1`. Confirme que le trou signale par l'utilisateur est
+   comble.
+5. `TeacherAssigned` verifie separement (le doute exprime par l'utilisateur
+   sur ce qui etait « deja cense fonctionner ») : un formateur reel cree,
+   puis un evenement `TeacherAssigned` publie directement sur le flux Redis
+   `visiomath:events` (memes champs qu'un `XADD` reel de
+   `teacher-request-service`) avec le `studentId`/`teacherId` reels →
+   **notification `teacher_assigned` recue par le parent**, avec
+   `studentName` et `teacherName` resolus. Confirme que ce chemin
+   fonctionnait deja correctement avant ce correctif — rien a y changer.
+6. Notifications et comptes de verification nettoyes apres coup
+   (`DELETE /api/v1/notifications/:id` pour les deux lignes ; comptes de
+   test laisses en base, meme pratique que les sessions precedentes).
+
+### Tests
+
+`event-processor.service.spec.ts` : nouveau cas « also notifies every
+finance owner of the student, in addition to the RP role », et cas d'echec
+« does not acknowledge (throws) when finance owners cannot be resolved » sur
+`TeacherRequestCreated`, sur le meme modele que la suite existante de
+`TeacherAssigned`. Suite complete du service : 96 tests, tous verts.

@@ -45,10 +45,10 @@ export type AvailabilityKind = 'AVAILABLE' | 'UNAVAILABLE'
  * Créneau de disponibilité/indisponibilité d'un calendrier, récurrent sur un jour de la
  * semaine (`dayOfWeek` = 0 dimanche … 6 samedi, alignée `Date.getDay()`).
  *
- * Source API : GET /calendars/:ownerId/availability (lecture),
- * POST/PATCH/DELETE /calendars/:ownerId/availability-slots[/:slotId] (écriture) —
- * contrat encore hors `docs/routes.md` au moment de l'écriture, backend en cours
- * d'implémentation en parallèle sur la même branche.
+ * Source API : GET /calendars/:ownerId (lecture, bloc `availabilitySlots` — corrigé le
+ * 2026-08-18, l'ancienne route `/calendars/:ownerId/availability` n'a jamais existé côté
+ * calendar-service), POST/PATCH/DELETE /calendars/:ownerId/availability-slots[/:slotId]
+ * (écriture).
  */
 export interface AvailabilitySlot {
   id: string

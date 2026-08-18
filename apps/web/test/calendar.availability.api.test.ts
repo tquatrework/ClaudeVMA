@@ -1,10 +1,12 @@
 /**
- * Contrat HTTP des 3 fonctions CRUD de disponibilités ajoutées à `src/api/calendar.ts`.
+ * Contrat HTTP des fonctions de disponibilités de `src/api/calendar.ts`.
  *
- * `fetchAvailability` (déjà existante, déjà documentée dans `docs/routes.md`) n'est pas
- * re-testée ici. Les 3 nouvelles fonctions consomment un contrat encore hors
- * `docs/routes.md` au moment de l'écriture (backend en cours d'implémentation en parallèle
- * sur la même branche) — voir l'en-tête de `src/api/calendar.ts`.
+ * `fetchAvailability` — corrigée le 2026-08-18 : `GET /calendars/:ownerId/availability`
+ * n'a jamais existé côté calendar-service (404 confirmé contre la pile réelle). La vraie
+ * route est `GET /calendars/:ownerId`, dont la réponse porte les créneaux dans le bloc
+ * `availabilitySlots`. Les 3 fonctions CRUD consomment un contrat encore hors
+ * `docs/routes.md` au moment de leur écriture (backend en cours d'implémentation en
+ * parallèle sur la même branche) — voir l'en-tête de `src/api/calendar.ts`.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -22,9 +24,11 @@ import apiClient from '../src/api/client'
 import {
   createAvailabilitySlot,
   deleteAvailabilitySlot,
+  fetchAvailability,
   updateAvailabilitySlot,
 } from '../src/api/calendar'
 
+const mockGet = vi.mocked(apiClient.get)
 const mockPost = vi.mocked(apiClient.post)
 const mockPatch = vi.mocked(apiClient.patch)
 const mockDelete = vi.mocked(apiClient.delete)
@@ -34,6 +38,37 @@ const SLOT_ID = 'slot-1'
 
 beforeEach(() => {
   vi.clearAllMocks()
+})
+
+describe('fetchAvailability', () => {
+  it('GET /calendars/:ownerId et extrait le bloc availabilitySlots', async () => {
+    const slot = {
+      id: SLOT_ID,
+      ownerId: OWNER_ID,
+      dayOfWeek: 1,
+      startTime: '09:00',
+      endTime: '10:00',
+      recurrence: 'WEEKLY' as const,
+      recurrenceEndDate: null,
+      kind: 'AVAILABLE' as const,
+    }
+    mockGet.mockResolvedValue({
+      data: { availabilitySlots: [slot], events: [] },
+    })
+
+    const result = await fetchAvailability(OWNER_ID)
+
+    expect(mockGet).toHaveBeenCalledWith(`/calendars/${OWNER_ID}`)
+    expect(result).toEqual([slot])
+  })
+
+  it('renvoie un tableau vide si availabilitySlots est absent de la réponse', async () => {
+    mockGet.mockResolvedValue({ data: {} })
+
+    const result = await fetchAvailability(OWNER_ID)
+
+    expect(result).toEqual([])
+  })
 })
 
 describe('createAvailabilitySlot', () => {

@@ -122,18 +122,22 @@ export async function deleteActivity(activityId: string): Promise<void> {
 
 // ─── Disponibilités (AvailabilityTab) ───────────────────────────────────────────
 //
-// Écart supplémentaire à `docs/routes.md`, signalé à part : `createAvailabilitySlot`,
-// `updateAvailabilitySlot` et `deleteAvailabilitySlot` consomment un contrat CRUD encore en
-// cours d'implémentation en parallèle sur `calendar-service`, non documenté à l'heure où ce
-// module est écrit. `fetchAvailability` reste inchangée, elle est déjà documentée.
+// Corrigé le 2026-08-18 : `GET /calendars/:ownerId/availability` n'a jamais existé côté
+// calendar-service (404 confirmé contre la pile réelle). `docs/routes.md` documente désormais
+// la vraie route — `GET /calendars/:ownerId`, qui renvoie le calendrier complet et porte les
+// créneaux de disponibilité dans son bloc `availabilitySlots`.
+
+interface OwnerCalendarResponse {
+  availabilitySlots?: AvailabilitySlot[]
+}
 
 /**
- * GET /calendars/:ownerId/availability — Lit les créneaux de disponibilité d'un calendrier.
- * Utilisé par AvailabilityTab.
+ * GET /calendars/:ownerId — Lit le calendrier complet d'un titulaire et en extrait les
+ * créneaux de disponibilité (`availabilitySlots`). Utilisé par AvailabilityTab.
  */
 export async function fetchAvailability(ownerId: string): Promise<AvailabilitySlot[]> {
-  const { data } = await apiClient.get<AvailabilitySlot[]>(`/calendars/${ownerId}/availability`)
-  return Array.isArray(data) ? data : []
+  const { data } = await apiClient.get<OwnerCalendarResponse>(`/calendars/${ownerId}`)
+  return Array.isArray(data?.availabilitySlots) ? data.availabilitySlots : []
 }
 
 /**

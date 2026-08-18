@@ -56,8 +56,13 @@ Ordre de livraison retenu, une branche par étape :
       inexistante ; formulaire envoyant heure seule + enums majuscules au lieu du format ISO/
       minuscules exigé par le serveur) — ni contournés ni masqués. Test e2e
       `apps/web/e2e/proof-calendar-disponibilites.spec.ts` rejoué avec succès contre la pile réelle
-      (création, redimensionnement, suppression, capture envoyée à l'utilisateur). **Point 1
-      terminé, en attente de validation utilisateur avant merge.**
+      (création, redimensionnement, suppression, capture envoyée à l'utilisateur). **Validé par
+      l'utilisateur (« ok, continue ») et mergé dans master — PR #123, squash `0dec9eb`, branche
+      supprimée. `calendar-service` et `frontend` redéployés depuis `master` (état durable), sains,
+      gateway rechargée. 3 branches distantes zombies nettoyées au passage (contenu déjà mergé via
+      PR #120, jamais supprimées de `origin` — seules les copies locales l'avaient été) :
+      `docs/investigation-confidentialite-consentements`, `fix/front-visibilite-defauts-role`,
+      `fix/profile-service-visibilite-defauts-role`.**
 - [ ] Point 2 — visibilité busy/free par relation
 - [ ] Point 3 — proposition/acceptation de créneau
 - [ ] Point 4 — intégration LiveKit

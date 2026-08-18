@@ -5,6 +5,51 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-18 — calendrier de disponibilités lié à la visio
+
+Demande explicite de l'utilisateur, 4 points, planifiée via `/plan` puis approuvée avec 3
+précisions. Plan complet : `/home/debian/.claude/plans/ok-il-faut-passer-structured-cherny.md`
+(contexte, état du code réel vérifié par exploration, approche point par point, décisions
+d'architecture tranchées avec l'utilisateur, fichiers critiques, vérification attendue).
+
+1. Élèves et formateurs éditent leurs créneaux de disponibilité/indisponibilité (créer,
+   redimensionner, supprimer), récurrence hebdomadaire jusqu'à une date de fin.
+2. Calendrier d'un tiers lié visible en busy/free uniquement (jamais le contenu, sauf si
+   directement concerné) : élève ← parents financeurs + professeurs actifs + RP (tous) ;
+   professeur ← élève/parent liés + AP liés + RP (tous).
+3. Un professeur propose un créneau de cours à son élève (accepte/refuse) ; RP/AP proposent des
+   créneaux aux professeurs (RP : tous : AP : ceux qu'il anime).
+4. Le créneau accepté doit ouvrir une visio — **LiveKit auto-hébergé retenu** (portable vers une
+   autre machine plus tard, connexion par config uniquement, jamais un nom de service Docker en
+   dur — précision de l'utilisateur, approuvée).
+
+Précisions de l'utilisateur à l'approbation (2026-08-18) :
+- Tests unitaires obligatoires sur tout nouveau développement (règle déjà en vigueur), mais
+  validation finale toujours par test personnel de l'utilisateur ou preuve/captures fournies —
+  les tests verts seuls ne suffisent jamais.
+- Bouton "Supprimer" une activité (actuellement mort, route jamais existée) : la route est
+  ajoutée, pas le bouton retiré.
+
+Ordre de livraison retenu, une branche par étape :
+1. `feat/calendrier-disponibilites` — CRUD créneaux + récurrence (point 1)
+2. `feat/calendrier-visibilite-relation` — busy/free par relation (point 2)
+3. `feat/calendrier-proposition-creneau` — proposer/accepter/refuser (point 3) + assainissement
+   `api/calendar.ts` + route DELETE activité
+4. Intégration LiveKit (point 4)
+
+### État
+
+- [x] Exploration (2 agents) + conception (1 agent Plan) — état du code réel établi, plan écrit
+- [x] Plan approuvé par l'utilisateur, avec 3 précisions (ci-dessus)
+- [ ] Point 1 — CRUD disponibilités + récurrence
+- [ ] Point 2 — visibilité busy/free par relation
+- [ ] Point 3 — proposition/acceptation de créneau
+- [ ] Point 4 — intégration LiveKit
+- [ ] Preuve livrée à l'utilisateur pour chaque point
+- [ ] Validé par l'utilisateur
+
+---
+
 ## Besoin — 2026-08-18 — le parent financeur doit être notifié de la demande de son élève
 
 Demande explicite de l'utilisateur, immédiatement après validation et merge du sujet précédent

@@ -5,6 +5,79 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-18 — le parent financeur doit être notifié de la demande de son élève
+
+Demande explicite de l'utilisateur, immédiatement après validation et merge du sujet précédent
+(visibilité champ par champ / consentements, ci-dessous, clos). Le parent financeur d'un élève qui
+crée une demande de professeur doit recevoir **deux notifications** :
+1. Que son élève **a fait une demande** de professeur.
+2. Qu'**un professeur a été trouvé** pour cette demande.
+
+Rappel de l'arbitrage déjà rendu le 2026-08-14 sur le système de notifications
+(`docs/architecture.md`, point 8 « Recipients par événement ») :
+- `TeacherRequestCreated` → **rôle RP uniquement** aujourd'hui. **Le parent financeur n'y figure
+  pas** — c'est le trou à combler pour le point 1 ci-dessus.
+- `TeacherAssigned` → déjà documenté comme notifiant **le formateur choisi, l'élève, et le ou les
+  parents financeurs** — donc le point 2 ci-dessus est censé être **déjà couvert**. À vérifier
+  contre la pile réelle avant de considérer ce point acquis (le point 8 était une décision
+  d'architecture, pas forcément revérifié en usage réel pour le destinataire parent
+  spécifiquement).
+
+Piste connue : `dashboard-notification-service` résout déjà les parents financeurs d'un élève via
+la route interne `GET /internal/relations/finance-owners/:studentId`
+(`profile-service`), utilisée pour `TeacherAssigned`. Le même mécanisme devrait suffire à ajouter
+les parents financeurs comme destinataires de `TeacherRequestCreated`, sans changement de contrat
+sur `teacher-request-service` si `studentId` est déjà présent dans le payload de cet événement (à
+vérifier — trois autres événements en manquaient, corrigés le 2026-08-14, `TeacherRequestCreated`
+n'était pas dans cette liste donc probablement déjà bon, mais à confirmer, pas supposer).
+
+### Comment on saura que c'est fait
+
+Réponse HTTP citée (ou capture de la cloche de notification) contre `https://claudevma.visioprof.fr`
+montrant qu'un parent financeur reçoit bien une notification à la création de la demande de son
+élève, et une seconde à l'affectation d'un professeur.
+
+### État
+
+- [x] Investigation — `studentId` était déjà présent dans le payload `TeacherRequestCreated`,
+      aucun changement requis côté `teacher-request-service`. Le helper
+      `ProfileServiceClient.getFinanceOwners` était déjà réutilisable (partagé par
+      `handleTeacherAssigned`/`handleMainTeacherAssigned`/`handleTeacherRequestStatusUpdated`),
+      aucune logique dupliquée.
+- [x] `TeacherAssigned` → parent financeur : re-vérifié par `dashboard-notification-service`
+      (événement réel publié sur le flux Redis), fonctionnait déjà correctement, rien changé.
+- [x] `TeacherRequestCreated` → parent financeur ajouté comme destinataire, **en plus** du rôle
+      RP existant (jamais à la place). Commit `7b31c1c`
+      (`feat/notif-parent-demande-professeur`, poussé). 96/96 tests unitaires verts.
+- [x] Libellé front vérifié — `teacher_request_created` : « Nouvelle demande de professeur pour
+      {élève} », déjà neutre, fonctionne tel quel pour un parent. **Point ouvert, non bloquant** :
+      à reformuler explicitement pour un parent (« votre enfant a demandé... ») seulement si
+      l'utilisateur le souhaite — décision produit, pas un défaut.
+- [x] Déployé sur la pile réelle — `dashboard-notification-service` reconstruit et redéployé
+      depuis `feat/notif-parent-demande-professeur`, sain, gateway rechargée.
+- [x] Preuve livrée à l'utilisateur — **preuve HTTP obtenue directement par l'orchestrateur**
+      (pas seulement par le sous-agent), élève + parent financeur créés et liés via
+      `POST /accounts/students` (`parentAccountMode: "new"`) : `unread-count` du parent passe de
+      `{"count":0}` à `{"count":1}` après `POST /teacher-requests` par l'élève ;
+      `GET /notifications` du parent montre `{"type":"teacher_request_created",
+      "metadata":{"studentName":"NotifP Eleve", ...}}`. Réponses citées ci-dessous.
+- [ ] Validé par l'utilisateur
+
+#### Preuve HTTP citée (2026-08-18, contre `https://claudevma.visioprof.fr`, orchestrateur)
+
+```
+GET /notifications/unread-count (parent, avant)  → 200 {"count":0}
+POST /teacher-requests (élève, description libre) → 201 {id, studentId, status:"pending", ...}
+GET /notifications/unread-count (parent, après)  → 200 {"count":1}
+GET /notifications (parent) → 200 {"data":[{
+  "type":"teacher_request_created",
+  "metadata":{"studentId":"...","studentName":"NotifP Eleve","requesterRole":"eleve", ...},
+  "isRead":false
+}], "meta":{"total":1, ...}}
+```
+
+---
+
 ## Besoin — 2026-08-17 — où sont les consentements légaux (RGPD/CGU/marketing) côté front ?
 
 Question de l'utilisateur, pas encore une tâche de correction : il pensait que « Profil /
@@ -145,7 +218,13 @@ menus ne s'applique donc pas ici) :
       grisés verrouillés sur « Tous les membres » (Pièce 3), onglet Confidentialité avec
       consentements en tête et tuile « Détails » en dessous, retrait réservé au marketing
       (Pièce 4).
-- [ ] Validé par l'utilisateur
+- [x] Validé par l'utilisateur — 2026-08-18 (« Très bien merge »)
+- [x] Mergé dans master — PR #120, squash `f7b30e2`, branche supprimée. Les trois branches
+      (`fix/profile-service-visibilite-defauts-role`, `fix/front-visibilite-defauts-role`,
+      `docs/investigation-confidentialite-consentements`) consolidées localement dans
+      `fix/visibilite-champ-par-champ` avant PR, sans conflit. `profile-service` et `frontend`
+      reconstruits et redéployés depuis `master` (état durable), bundle `index-sbHSCu-z.js`
+      confirmé, gateway rechargée, les deux services sains.
 
 #### Preuve HTTP citée (2026-08-18, contre `https://claudevma.visioprof.fr`)
 

@@ -1332,7 +1332,10 @@ notifications par rôle ».
 > restées non acquittées plus de 60s (crash, ou échec transitoire d'un appel à profile-service) et
 > les rejoue.
 >
-> Types traités, et destinataire(s) : `TeacherRequestCreated` → rôle RP · `TeacherProposalSent` →
+> Types traités, et destinataire(s) : `TeacherRequestCreated` → rôle RP **et** chaque parent
+> financeur actif de l'élève demandeur (résolus via `GET /internal/relations/finance-owners/:studentId`
+> sur profile-service, même helper que `TeacherAssigned` ci-dessous — correctif du 2026-08-18) ·
+> `TeacherProposalSent` →
 > le formateur sollicité · `TeacherProposalAccepted`/`TeacherProposalDeclined` → rôle RP ·
 > `TeacherProposalNotSelected`/`TeacherProposalExpired` → le formateur concerné ·
 > `TeacherAssigned`/`MainTeacherAssigned` (legacy) → le formateur choisi, l'élève, et chaque parent

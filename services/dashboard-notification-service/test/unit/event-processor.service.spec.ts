@@ -58,6 +58,10 @@ describe('EventProcessorService', () => {
     // Default: a single RP account, matching the shape of a real fan-out.
     // Individual tests override this when they need several RPs or none.
     identityAccessServiceClient.listUserIdsByRole.mockResolvedValue(['rp-1']);
+    // Default: no finance owner, so describes that don't care about finance
+    // owners (TeacherProposalSent, malformed entries, idempotency…) don't
+    // have to stub it themselves. Overridden locally where relevant.
+    profileServiceClient.getFinanceOwners.mockResolvedValue([]);
   });
 
   const displayNames = (entries: Record<string, { firstName: string | null; lastName: string | null }>) => {
@@ -155,7 +159,30 @@ describe('EventProcessorService', () => {
       );
     });
 
-    it('marks the event as processed without creating any notification when no account holds the RP role', async () => {
+    it('also notifies every finance owner of the student, in addition to the RP role (2026-08-18)', async () => {
+      displayNames({ 'student-1': { firstName: 'Camille', lastName: 'Durand' } });
+      identityAccessServiceClient.listUserIdsByRole.mockResolvedValue(['rp-1']);
+      profileServiceClient.getFinanceOwners.mockResolvedValue(['parent-1', 'parent-2']);
+
+      await processor.process({
+        eventId: 'evt-1',
+        eventName: 'TeacherRequestCreated',
+        payload: JSON.stringify({ requestId: 'req-1', studentId: 'student-1', requesterId: 'u-1', requesterRole: 'eleve', type: 'standard' }),
+      });
+
+      expect(profileServiceClient.getFinanceOwners).toHaveBeenCalledWith('student-1');
+      const recipients = txNotificationRepository.save.mock.calls.map(([n]: any) => n.userId);
+      expect(recipients).toEqual(['rp-1', 'parent-1', 'parent-2']);
+      expect(txNotificationRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'parent-1',
+          type: NotificationType.TEACHER_REQUEST_CREATED,
+          metadata: expect.objectContaining({ requestId: 'req-1', studentId: 'student-1', studentName: 'Camille Durand' }),
+        }),
+      );
+    });
+
+    it('marks the event as processed without creating any notification when there is no RP and no finance owner', async () => {
       displayNames({ 'student-1': { firstName: 'Camille', lastName: 'Durand' } });
       identityAccessServiceClient.listUserIdsByRole.mockResolvedValue([]);
 
@@ -196,6 +223,22 @@ describe('EventProcessorService', () => {
           payload: JSON.stringify({ requestId: 'req-1', studentId: 'student-1', requesterId: 'u-1', requesterRole: 'eleve', type: 'standard' }),
         }),
       ).rejects.toThrow('identity-access-service unreachable');
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('does not acknowledge (throws) when finance owners cannot be resolved', async () => {
+      displayNames({ 'student-1': { firstName: 'Camille', lastName: 'Durand' } });
+      identityAccessServiceClient.listUserIdsByRole.mockResolvedValue(['rp-1']);
+      profileServiceClient.getFinanceOwners.mockRejectedValue(new Error('profile-service unreachable'));
+
+      await expect(
+        processor.process({
+          eventId: 'evt-1',
+          eventName: 'TeacherRequestCreated',
+          payload: JSON.stringify({ requestId: 'req-1', studentId: 'student-1', requesterId: 'u-1', requesterRole: 'eleve', type: 'standard' }),
+        }),
+      ).rejects.toThrow('profile-service unreachable');
 
       expect(dataSource.transaction).not.toHaveBeenCalled();
     });

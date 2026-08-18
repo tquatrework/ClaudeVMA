@@ -142,9 +142,23 @@ export class EventProcessorService {
     return map;
   }
 
+  /**
+   * Recipients: role RP (arbitrage du 2026-08-14, point 8) **plus** every
+   * finance owner of the student (2026-08-18) — a parent must learn that
+   * their own child has requested a teacher, not only that one has been
+   * found (`TeacherAssigned`, which already notifies finance owners). Same
+   * `getFinanceOwners` helper as `handleTeacherAssigned` /
+   * `handleTeacherRequestStatusUpdated`: no duplicated resolution logic.
+   * A finance-owner lookup failure throws like every other unresolved
+   * dependency here — the entry is left unacknowledged and retried, never
+   * silently degraded to "RP only".
+   */
   private async handleTeacherRequestCreated(eventId: string, eventName: string, payload: Record<string, unknown>): Promise<void> {
     const studentId = payload.studentId as string;
-    const names = await this.resolveNames([studentId]);
+    const [names, financeOwnerUserIds] = await Promise.all([
+      this.resolveNames([studentId]),
+      this.profileServiceClient.getFinanceOwners(studentId),
+    ]);
     const metadata = {
       requestId: payload.requestId,
       studentId,
@@ -153,11 +167,15 @@ export class EventProcessorService {
       requesterRole: payload.requesterRole,
       type: payload.type,
     };
-    const recipients = await this.resolveRoleRecipients(
+    const rpRecipients = await this.resolveRoleRecipients(
       'responsable_pedagogique',
       NotificationType.TEACHER_REQUEST_CREATED,
       metadata,
     );
+    const recipients: NotificationRecipient[] = [
+      ...rpRecipients,
+      ...financeOwnerUserIds.map((userId) => ({ userId, type: NotificationType.TEACHER_REQUEST_CREATED, metadata })),
+    ];
     await this.persist(eventId, eventName, recipients);
   }
 

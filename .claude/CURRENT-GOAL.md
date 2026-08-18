@@ -80,9 +80,15 @@ Ordre de livraison retenu, une branche par étape :
       explicite de l'utilisateur (2026-08-18) : la preuve écran attendra son intégration réelle au
       point 3, pas de page de test jetable entre-temps. **Validé par l'utilisateur** sur cette
       base — mergé dans master.
-- [ ] Point 3 — proposition/acceptation de créneau. **En cours, démarré 2026-08-18.** Branche
-      `feat/calendrier-proposition-creneau`. Résumé de reprise (plan complet, section « Point 3 »,
-      si besoin de plus de détail) :
+- [ ] Point 3 — proposition/acceptation de créneau. **Backend terminé et testé (198+83 puis +33+88
+      tests), en attente du front.** `POST /activities/:id/accept`/`.../decline` livrés (modèle
+      `EventInvitationsController`), vrai trou de sécurité corrigé (vérification de lien avant
+      proposition via `ProfileRelationsClient`), `DELETE /activities/:id` ajoutée. Contrat
+      documenté avec exemples exacts dans `docs/routes.md`. **Bug pré-existant signalé, non
+      corrigé (hors mandat de cette tâche, à trancher séparément si besoin)** : le TI est absent du
+      décorateur `@Roles` sur `PUT`/`DELETE /activities/:id` alors que le service l'autorise déjà
+      — même famille que le bug AP/ELEVE corrigé au point 1, mais pré-existant, pas introduit ici.
+      Résumé de reprise (plan complet, section « Point 3 », si besoin de plus de détail) :
       - Verbe inchangé côté API : `POST /activities` reste tel quel (naît à `PROPOSED`) — le choix
         placer/partager/envoyer devient un libellé front uniquement (« Proposer un créneau »).
       - Manque réel : `POST /activities/:id/accept` et `.../decline`, sur le modèle

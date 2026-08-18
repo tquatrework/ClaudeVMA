@@ -80,12 +80,14 @@ prénom/nom jamais masquables même via l'API), `front-developper` (retirer pré
       ci-dessus + `docs/investigation-confidentialite-consentements`, sans conflit ; `profile-service`
       et `frontend` reconstruits et redéployés, gateway rechargée, bundle servi confirmé
       (`assets/index-DT-pCUIW.js`).
-- [~] Preuve livrée à l'utilisateur — **preuve HTTP obtenue contre la pile réelle**, comptes élève
-      et formateur créés via les vraies routes d'inscription : `GET /profiles/:userId/field-visibility`
-      ne renvoie plus `firstName`/`lastName`, élève → bloc `pedagogical-student` seul, formateur →
-      bloc `pedagogical-teacher` seul, tous les champs restants à `linked` ; `PUT` avec
-      `fieldName: "firstName"` ou `"lastName"` → `400` explicite (réponses citées ci-dessous).
-      **Preuve à l'écran (captures) déléguée à `front-tester`, en cours.**
+- [x] Preuve livrée à l'utilisateur — **preuve HTTP** contre la pile réelle, comptes élève et
+      formateur créés via les vraies routes d'inscription (réponses citées ci-dessous), **et
+      preuve à l'écran** : test e2e Playwright réel (aucun mock) contre
+      `https://claudevma.visioprof.fr`, 2/2 verts, committé
+      `apps/web/e2e/proof-field-visibility-defaults-role.spec.ts` sur
+      `fix/front-visibilite-defauts-role`. Captures envoyées à l'utilisateur : élève (aucun
+      réglage prénom/nom, seul le bloc « Profil pédagogique — élève ») et formateur (aucun
+      réglage prénom/nom, seul le bloc « Profil pédagogique — formateur »).
 - [ ] Validé par l'utilisateur
 
 #### Preuve HTTP citée (2026-08-18, contre `https://claudevma.visioprof.fr`)

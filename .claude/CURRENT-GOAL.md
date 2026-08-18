@@ -90,6 +90,47 @@ prénom/nom jamais masquables même via l'API), `front-developper` (retirer pré
       réglage prénom/nom, seul le bloc « Profil pédagogique — formateur »).
 - [ ] Validé par l'utilisateur
 
+### Retour utilisateur sur la preuve (2026-08-18) — deux points, pas une validation
+
+Après avoir vu la preuve (captures publiées en Artifact, `SendUserFile` ne s'affichant pas dans son
+client), l'utilisateur a demandé deux ajustements — donc **pas encore une validation**.
+
+**Point 1 — conserver prénom/nom à l'écran, grisés.** Revirement partiel sur le choix du
+2026-08-17 : au lieu de les retirer entièrement de `/visibilite`, les afficher mais **grisés,
+verrouillés sur « Tous les membres »**, aucun autre choix possible, jamais envoyés dans le `PUT`
+(le backend les refuse toujours en `400` — comportement backend inchangé, uniquement l'affichage
+front qui change).
+
+- [x] Implémenté — `fix/front-visibilite-defauts-role`, commit `37a94d3`, poussé. Lignes
+      `firstName`/`lastName` codées en dur côté front (`LOCKED_FIELD_ENTRIES`, backend ne les
+      renvoie plus du tout), grisées, verrouillées sur le libellé existant de `all` (« Tous les
+      membres », réutilisé, pas dupliqué), légende « Toujours visible, non modifiable », aucun
+      input actif, strictement exclues du payload `PUT`. Nouveau flag `isLocked?` sur
+      `FieldVisibilityEntry`. 25/25 tests du composant verts, 1581/1583 sur la suite complète (2
+      échecs préexistants sans rapport, `EleveDashboardPage.test.tsx`).
+- [ ] Preuve contre la pile réelle (capture) — pas encore faite pour cette révision spécifique.
+
+**Point 2 — où voir les acceptations RGPD/CGU/marketing : placement décidé par l'utilisateur.**
+Rappel du constat du 2026-08-17 : l'écran `/consents` existe et fonctionne (`GET /consents`,
+historique inclus) mais n'est visible nulle part — ni menu du haut, ni rail gauche, seule une
+bannière visible en compte `pending`. Précision apportée le 2026-08-18 : **aucun « droit à
+l'image » distinct n'existe côté backend ni dans le texte du formulaire d'inscription** — seuls
+`rgpd`, `cgu`, `marketing` existent. À vérifier par l'utilisateur si c'est un oubli d'implémentation
+ou si c'était voulu comme inclus dans `cgu`.
+
+**Décision de l'utilisateur (2026-08-18)**, dans l'onglet **« Confidentialité »** déjà existant sur
+la page de profil (pas un ajout de menu du haut ni de rail gauche — la règle permanente sur les
+menus ne s'applique donc pas ici) :
+- Les **3 consentements** (rgpd, cgu, marketing) apparaissent **en haut** de cet onglet.
+- La tuile actuelle « Confidentialité » de cet onglet (contenu actuel : les réglages de visibilité
+  champ par champ, ex-`/visibilite`) devient **« Détails »** et passe **en dessous** des
+  consentements.
+
+- [ ] Implémenté côté front — délégué à `front-developper`
+- [ ] Déployé sur la pile réelle
+- [ ] Preuve livrée à l'utilisateur (captures des deux points 1 et 2 ensemble, pile réelle)
+- [ ] Validé par l'utilisateur
+
 #### Preuve HTTP citée (2026-08-18, contre `https://claudevma.visioprof.fr`)
 
 `GET /profiles/:userId/field-visibility` (élève) → `200`, aucun `firstName`/`lastName`, tous les

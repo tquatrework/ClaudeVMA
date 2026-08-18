@@ -61,7 +61,9 @@ montrant qu'un parent financeur reçoit bien une notification à la création de
       `{"count":0}` à `{"count":1}` après `POST /teacher-requests` par l'élève ;
       `GET /notifications` du parent montre `{"type":"teacher_request_created",
       "metadata":{"studentName":"NotifP Eleve", ...}}`. Réponses citées ci-dessous.
-- [ ] Validé par l'utilisateur
+- [x] Validé par l'utilisateur — 2026-08-18 (« ok merge »)
+- [x] Mergé dans master — PR #121, squash `49b80d0`, branche supprimée. `dashboard-notification-service`
+      reconstruit et redéployé depuis `master` (état durable), sain, gateway rechargée.
 
 #### Preuve HTTP citée (2026-08-18, contre `https://claudevma.visioprof.fr`, orchestrateur)
 

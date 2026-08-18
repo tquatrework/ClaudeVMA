@@ -90,10 +90,36 @@ Ordre de livraison retenu, une branche par étape :
       Le front a contourné honnêtement ce qu'il pouvait (suivi des propositions envoyées côté
       proposeur via localStorage, statut toujours relu au serveur) mais le lien direct vers une
       proposition doit être transmis hors application pour l'instant — **point 3 pas réellement
-      utilisable en usage réel tant que ce gap n'est pas comblé**. Correctif backend à dispatcher :
-      ajouter une route de liste (`GET /activities?participantId=` ou faire porter les activités
-      par `GET /calendars/:ownerId` comme documenté). À envisager aussi : brancher calendar-service
-      sur le système de notifications existant (cloche, pattern déjà établi par
+      utilisable en usage réel tant que ce gap n'est pas comblé**.
+
+      **Solution tranchée par l'utilisateur (2026-08-18), pas une liste séparée** : le créneau
+      proposé doit apparaître **directement dans le propre calendrier du destinataire** (élève, ou
+      formateur quand l'envoi vient d'un RP/AP) — couleur distincte (pastel/plus claire que les
+      créneaux confirmés), avec les boutons Accepter/Refuser directement dessus. **En plus**, une
+      notification via la cloche existante (pattern déjà établi par
+      `teacher-request-service`/`dashboard-notification-service`, notamment la notif parent livrée
+      plus tôt cette session) : « Proposition de cours ajoutée par {nom du prof} ».
+
+      Conséquence concrète : `GET /calendars/:ownerId` (lecture de son **propre** calendrier) doit
+      désormais porter aussi les activités `PROPOSED`/`CONFIRMED` dont le titulaire est
+      destinataire ou créateur — c'est la correction naturelle du gap déjà repéré (la doc promettait
+      déjà « créneaux + activités », jamais tenu). `calendar-service` doit aussi publier un
+      événement à la création d'une proposition (`ActivityProposed` ou équivalent — vérifier si un
+      événement de création existe déjà avant d'en ajouter un) pour que
+      `dashboard-notification-service` puisse notifier.
+
+      Trois chantiers séquencés (backend d'abord, comme d'habitude) :
+      1. `calendar-service` : `GET /calendars/:ownerId` porte les activités du titulaire ; publie
+         un événement à la création d'une proposition.
+      2. `dashboard-notification-service` : nouveau type de notification sur cet événement,
+         résolution du nom du proposeur (jamais d'UUID), libellé « Proposition de cours ajoutée
+         par {nom} ».
+      3. Front : la grille du calendrier du destinataire affiche les créneaux `PROPOSED` en couleur
+         distincte avec Accepter/Refuser inline — remplace/complète `CourseProposalsPanel` (l'onglet
+         séparé livré dans ce tour n'était pas la bonne approche, à ajuster ou retirer selon ce qui
+         reste pertinent une fois l'affichage in-calendrier en place).
+
+      Ancien correctif de suivi ci-dessous, dépassé par cette décision, laissé pour mémoire :
       `teacher-request-service`/`dashboard-notification-service`) plutôt qu'un simple lien à
       partager — décision à trancher avant de dispatcher.**
       Reste par ailleurs : `POST /activities/:id/accept`/`.../decline` livrés (modèle

@@ -63,11 +63,40 @@ prénom/nom jamais masquables même via l'API), `front-developper` (retirer pré
 
 ### État
 
-- [ ] Implémenté côté `profile-service`
-- [ ] Implémenté côté front
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+- [x] Implémenté côté `profile-service` — branche `fix/profile-service-visibilite-defauts-role`
+      (poussée sur `origin`, non mergée), vérifiée par un agent dédié : firstName/lastName sortis
+      du catalogue et toujours visibles (`PUT` avec ces noms → `400`), tous les autres champs par
+      défaut `linked` calculé à la lecture (pas de migration), catalogue `GET .../field-visibility`
+      filtré par le rôle réel du titulaire. 659/659 tests unitaires verts, 363/364 e2e verts (1
+      échec préexistant sans rapport). Rapport : `.claude/reports/profile-service-2026-08-18.md`.
+- [x] Implémenté côté front — branche `fix/front-visibilite-defauts-role` (poussée sur `origin`,
+      non mergée) : prénom/nom retirés de l'écran `/visibilite` (aucune option, jamais envoyés en
+      `PUT`), bug des deux blocs pédagogiques corrigé (filtrage par le rôle réel du titulaire via
+      `resolvePedagogicalProfileKind`, déjà utilisé ailleurs dans le front pour le même problème).
+      1581 tests front verts (2 échecs préexistants sans rapport).
+- [x] Déployé sur la pile réelle — **déploiement de vérification, pas encore mergé dans `master`**
+      (règle du projet : jamais de merge sans validation explicite). Orchestrateur : branche locale
+      temporaire `verify/visibilite-defauts-role` (non poussée) fusionnant les deux branches
+      ci-dessus + `docs/investigation-confidentialite-consentements`, sans conflit ; `profile-service`
+      et `frontend` reconstruits et redéployés, gateway rechargée, bundle servi confirmé
+      (`assets/index-DT-pCUIW.js`).
+- [~] Preuve livrée à l'utilisateur — **preuve HTTP obtenue contre la pile réelle**, comptes élève
+      et formateur créés via les vraies routes d'inscription : `GET /profiles/:userId/field-visibility`
+      ne renvoie plus `firstName`/`lastName`, élève → bloc `pedagogical-student` seul, formateur →
+      bloc `pedagogical-teacher` seul, tous les champs restants à `linked` ; `PUT` avec
+      `fieldName: "firstName"` ou `"lastName"` → `400` explicite (réponses citées ci-dessous).
+      **Preuve à l'écran (captures) déléguée à `front-tester`, en cours.**
 - [ ] Validé par l'utilisateur
+
+#### Preuve HTTP citée (2026-08-18, contre `https://claudevma.visioprof.fr`)
+
+`GET /profiles/:userId/field-visibility` (élève) → `200`, aucun `firstName`/`lastName`, tous les
+champs `defaultAudience: "linked"`, uniquement `block: "pedagogical-student"` côté pédagogique.
+Même route (formateur) → `200`, uniquement `block: "pedagogical-teacher"`.
+
+`PUT /profiles/:userId/field-visibility` `{"fields":[{"fieldName":"firstName","audience":"self"}]}`
+→ `400 {"message":"Unknown profile field(s): firstName. Accepted field names: addressLine1, ...
+(sans firstName ni lastName)"}`. Même résultat pour `lastName`.
 
 ---
 

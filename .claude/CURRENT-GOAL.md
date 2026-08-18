@@ -63,45 +63,24 @@ Ordre de livraison retenu, une branche par étape :
       PR #120, jamais supprimées de `origin` — seules les copies locales l'avaient été) :
       `docs/investigation-confidentialite-consentements`, `fix/front-visibilite-defauts-role`,
       `fix/profile-service-visibilite-defauts-role`.**
-- [ ] Point 2 — visibilité busy/free par relation. **Backend + front livrés (239+26 tests),
-      déployé, bug réel trouvé par l'orchestrateur en HTTP contre la pile réelle : un titulaire
-      qui n'a jamais ouvert son propre `/calendar` bloque tout le monde d'autre sur `/busy` (403),
-      même avec une relation active réelle confirmée côté `profile-service` — `ownerRole` se
-      résout depuis la ligne `Calendar`, créée paresseusement seulement au premier `GET`. Correctif
-      en cours chez `calendar-service`.** Branche
-      `feat/calendrier-visibilite-relation` créée (locale, pas encore poussée au moment de cette
-      note). Approche déjà détaillée dans le plan (section « Point 2 »), résumé pour reprise sans
-      relire le plan en entier :
-      - `calendar-service` n'a **aucune** dépendance sortante vers `profile-service` aujourd'hui —
-        ajouter un client HTTP interne (`ProfileRelationsClient`), copié fidèlement sur
-        `services/archive-document-service/src/common/clients/profile-relations.client.ts` (échec
-        fermé, timeout 3s, header `X-Internal-Secret`, propagation `x-correlation-id`). Variables
-        d'env `PROFILE_SERVICE_URL`/`INTERNAL_SECRET` à ajouter côté `calendar-service`.
-      - `profile-service` **n'a besoin d'aucune route nouvelle** — réutiliser
-        `GET /internal/relations/:viewerId/:targetId?viewerRole=...`, déjà existante.
-      - Politique de visibilité pure (`calendar-visibility.policy.ts`) sur le modèle de
-        `profile-service/src/relations/pedagogical-access.policy.ts` : titulaire → complet ; RP →
-        accès sans condition de lien ; élève ← parent/formateur actif ; formateur ← élève/
-        parent-indirect/AP lié ; sinon refusé.
-      - Nouvelle route dédiée `GET /calendars/:ownerId/busy?from=&to=` (pas un champ masqué —
-        raison motivée dans le plan), réponse pauvre (fenêtres dispo/indispo + blocs occupés, sans
-        id/titre/type/participants).
-      - **Corrige au passage un bug déjà identifié** : `CalendarsService.assertCanReadCalendar`
-        donne aujourd'hui à `ANIMATEUR_PEDAGOGIQUE` un accès intégral à n'importe quel calendrier,
-        sans vérification de lien — à retirer des rôles à accès intégral.
-      - `CalendarVisibilityGrant` (octroi manuel RP existant) : **laissé en l'état**, non réutilisé
-        (décision déjà actée dans le plan, section « décisions qui te reviennent »).
-      - Front : `useLinkedCalendarBusyFree` + `LinkedCalendarView` (réutilise `AvailabilityGrid` en
-        lecture seule plutôt qu'un second composant).
-      - **Leçon du point 1 à appliquer ici** : deux bugs de contrat front/back (route inexistante,
-        format de données incompatible) ont été trouvés seulement à l'étape de preuve écran.
-        Séquencer cette fois : backend d'abord, `docs/routes.md` mis à jour et vérifié par un appel
-        HTTP réel avant de lancer le front dessus — ne pas paralléliser aveuglément comme au
-        point 1.
-      - Décisions déjà tranchées avec l'utilisateur à l'approbation du plan (pas à redemander) :
-        périmètre admin = RP seul (pas AF/TI) ; route séparée `/busy` plutôt que champ masqué ;
-        404 vs 403 sur `/busy` sans lien — recommandation de l'orchestrateur (403) non contestée
-        par l'utilisateur, donc retenue.
+- [x] Point 2 — visibilité busy/free par relation. Backend + front livrés (239+26 tests, puis
+      +182/+70 e2e après correctif). Bug réel trouvé par l'orchestrateur en HTTP contre la pile
+      réelle (titulaire n'ayant jamais ouvert son calendrier bloquait tout le monde, `ownerRole`
+      dépendait d'une ligne `Calendar` créée paresseusement) — corrigé via un nouveau
+      `IdentityAccessClient` qui résout le rôle indépendamment de toute lecture préalable.
+      **Preuve HTTP complète obtenue par l'orchestrateur** contre `https://claudevma.visioprof.fr`,
+      comptes neufs (élève+parent liés via inscription, formateur, tiers), relation
+      élève↔formateur posée via la route interne, **aucun appel préalable à `GET /calendars/:id`** :
+      parent lié → élève jamais ouvert : `200` ; formateur lié → élève : `200` ; élève → son
+      formateur jamais ouvert : `200` ; parent → formateur de son enfant (relation indirecte) :
+      `200` ; tiers non lié → élève : `403` ; tiers non lié → formateur : `403`. Contenu vérifié :
+      un créneau créé par l'élève apparaît dans `availableWindows` du parent **sans aucun autre
+      détail** (pas d'id, titre, participants). **Pas de preuve écran** — le composant
+      `LinkedCalendarView` n'a volontairement aucun point de montage dans la navigation, prévu avec
+      le point 3 (intégré au flux de proposition de créneau). En attente de validation utilisateur
+      avant merge (préciser si la preuve écran doit attendre le point 3 ou être montée
+      temporairement maintenant).
+      Branche `feat/calendrier-visibilite-relation`, prête à merger.
 - [ ] Point 3 — proposition/acceptation de créneau
 - [ ] Point 4 — intégration LiveKit
 - [ ] Preuve livrée à l'utilisateur pour chaque point

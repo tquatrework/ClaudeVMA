@@ -327,6 +327,15 @@ export interface FieldVisibilityEntry {
   isPrescription: boolean
   /** Champ conservé du modèle hérité, sans colonne le portant aujourd'hui. */
   isReserved: boolean
+  /**
+   * Champ verrouillé sur `all`, affiché mais non réglable (arbitrage du
+   * 2026-08-17, précisé le 2026-08-18) : `firstName`/`lastName` sont toujours
+   * visibles de tous, le serveur les refuse en `400` s'ils sont envoyés dans un
+   * `PUT`. N'existe jamais côté catalogue serveur — posé côté front uniquement,
+   * sur les deux entrées créées en dur par `ProfileVisibilitySettingsPage`.
+   * Absent (`undefined`) pour toute entrée réellement issue du catalogue.
+   */
+  isLocked?: boolean
 }
 
 /**

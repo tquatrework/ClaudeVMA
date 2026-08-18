@@ -14,6 +14,7 @@ import { AdministrativeProfilePanel } from '../components/profile/Administrative
 import { PedagogicalProfilePanel } from '../components/profile/PedagogicalProfilePanel'
 import { FilteredProfileNotice } from '../components/profile/FilteredProfileNotice'
 import { ProfileLinkCard } from '../components/profile/ProfileLinkCard'
+import { ProfileConsentsSection } from '../components/profile/ProfileConsentsSection'
 import { resolvePedagogicalProfileKind } from '../utils/profileFields'
 import {
   canEditAdministrativeProfile,
@@ -346,15 +347,28 @@ export default function ProfilePage() {
               </TabPanel>
             )}
 
-            {/* ── Onglet 5 : Confidentialité ── */}
+            {/* ── Onglet 5 : Confidentialité ──
+                Deux sections, dans cet ordre (décision du 2026-08-18) :
+                1. Les consentements RGPD/CGU/marketing — visibles seulement
+                   sur SON PROPRE profil : `GET /consents` ne renvoie que les
+                   consentements de l'appelant authentifié, jamais ceux d'un
+                   tiers. Un RP consultant la fiche d'un élève ne doit pas y
+                   voir ses propres consentements à lui.
+                2. « Détails » — l'ancienne (et seule) tuile de cet onglet,
+                   simplement renommée et déplacée sous les consentements ;
+                   comportement inchangé (réglages de visibilité champ par
+                   champ, ex-écran `/visibilite`). */}
             {showConfidentialiteTab && (
               <TabPanel tabId={TAB_CONFIDENTIALITE} activeTab={activeTab}>
-                <ProfileLinkCard
-                  title="Confidentialité"
-                  description="Gérez la visibilité de vos informations"
-                  to={`/profiles/${userId}/visibility`}
-                  actionLabel="Gérer"
-                />
+                <div className="space-y-6">
+                  {isViewingOwnProfile && <ProfileConsentsSection />}
+                  <ProfileLinkCard
+                    title="Détails"
+                    description="Gérez la visibilité de vos informations"
+                    to={`/profiles/${userId}/visibility`}
+                    actionLabel="Gérer"
+                  />
+                </div>
               </TabPanel>
             )}
 

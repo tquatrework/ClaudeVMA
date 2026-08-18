@@ -1,10 +1,17 @@
-import { Injectable, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  ForbiddenException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Calendar } from './entities/calendar.entity';
-import { AvailabilitySlot } from './entities/availability-slot.entity';
+import { AvailabilitySlot, SlotKind, SlotRecurrence } from './entities/availability-slot.entity';
 import { PaymentScheduleEntry } from './entities/payment-schedule-entry.entity';
 import { UpdateAvailabilityDto } from './dto/update-availability.dto';
+import { CreateAvailabilitySlotDto } from './dto/create-availability-slot.dto';
+import { UpdateAvailabilitySlotDto } from './dto/update-availability-slot.dto';
 import { EventsService } from '../events/events.service';
 import { UserRole } from '../common/enums/user-role.enum';
 import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
@@ -120,6 +127,165 @@ export class CalendarsService {
     );
 
     return calendar;
+  }
+
+  /**
+   * Create a single availability slot (CAL-BR-001/CAL-BR-002), without
+   * touching any other existing slot — unlike `updateAvailability`, which
+   * replaces the whole set.
+   * CAL-FB-001: only the owner or RP/TI can write.
+   */
+  async createSlot(
+    ownerId: string,
+    dto: CreateAvailabilitySlotDto,
+    actor: AuthenticatedUser,
+    correlationId?: string,
+  ): Promise<AvailabilitySlot> {
+    this.assertCanWriteCalendar(ownerId, actor);
+
+    const startTime = new Date(dto.startTime);
+    const endTime = new Date(dto.endTime);
+    const recurrenceEndDate = dto.recurrenceEndDate ? new Date(dto.recurrenceEndDate) : null;
+    this.assertValidSlotTimes(startTime, endTime, recurrenceEndDate);
+
+    const slot = await this.dataSource.transaction(async (manager) => {
+      const calendarRepo = manager.getRepository(Calendar);
+      const slotRepo = manager.getRepository(AvailabilitySlot);
+
+      let calendar = await calendarRepo.findOne({ where: { ownerId } });
+      if (!calendar) {
+        calendar = await calendarRepo.save(
+          calendarRepo.create({ ownerId, ownerRole: actor.role }),
+        );
+      }
+
+      return slotRepo.save(
+        slotRepo.create({
+          calendarId: calendar.id,
+          dayOfWeek: dto.dayOfWeek ?? null,
+          startTime,
+          endTime,
+          recurrence: dto.recurrence ?? SlotRecurrence.NONE,
+          recurrenceEndDate,
+          kind: dto.kind ?? SlotKind.AVAILABLE,
+        }),
+      );
+    });
+
+    this.eventsService.publish(
+      'AvailabilityUpdated',
+      { ownerId, slotId: slot.id, action: 'created' },
+      correlationId,
+    );
+
+    return slot;
+  }
+
+  /**
+   * Update a single availability slot: resize (startTime/endTime), change
+   * recurrence/end date/kind. Scoped to `ownerId` — a `slotId` that exists
+   * but belongs to a different owner's calendar is treated as not found,
+   * never modified and never revealed.
+   * CAL-FB-001: only the owner or RP/TI can write.
+   */
+  async updateSlot(
+    ownerId: string,
+    slotId: string,
+    dto: UpdateAvailabilitySlotDto,
+    actor: AuthenticatedUser,
+    correlationId?: string,
+  ): Promise<AvailabilitySlot> {
+    this.assertCanWriteCalendar(ownerId, actor);
+
+    const slot = await this.findSlotOrFail(ownerId, slotId);
+
+    const startTime = dto.startTime ? new Date(dto.startTime) : slot.startTime;
+    const endTime = dto.endTime ? new Date(dto.endTime) : slot.endTime;
+    const recurrenceEndDate =
+      dto.recurrenceEndDate === undefined
+        ? slot.recurrenceEndDate
+        : dto.recurrenceEndDate === null
+          ? null
+          : new Date(dto.recurrenceEndDate);
+    this.assertValidSlotTimes(startTime, endTime, recurrenceEndDate);
+
+    const updated = await this.slotRepo.save({
+      ...slot,
+      dayOfWeek: dto.dayOfWeek ?? slot.dayOfWeek,
+      startTime,
+      endTime,
+      recurrence: dto.recurrence ?? slot.recurrence,
+      recurrenceEndDate,
+      kind: dto.kind ?? slot.kind,
+    });
+
+    this.eventsService.publish(
+      'AvailabilityUpdated',
+      { ownerId, slotId: updated.id, action: 'updated' },
+      correlationId,
+    );
+
+    return updated;
+  }
+
+  /**
+   * Delete a single availability slot. Hard delete — consistent with the
+   * existing bulk-replace behaviour of `updateAvailability`, which already
+   * deletes and recreates slots wholesale; this is operational scheduling
+   * data, not a record with probative/audit value.
+   * CAL-FB-001: only the owner or RP/TI can write.
+   */
+  async deleteSlot(
+    ownerId: string,
+    slotId: string,
+    actor: AuthenticatedUser,
+    correlationId?: string,
+  ): Promise<void> {
+    this.assertCanWriteCalendar(ownerId, actor);
+
+    const slot = await this.findSlotOrFail(ownerId, slotId);
+    await this.slotRepo.delete({ id: slot.id });
+
+    this.eventsService.publish(
+      'AvailabilityUpdated',
+      { ownerId, slotId: slot.id, action: 'deleted' },
+      correlationId,
+    );
+  }
+
+  // ---- Slot helpers ----
+
+  /**
+   * Loads a slot scoped to its owner's calendar. A `slotId` that exists but
+   * belongs to another owner's calendar is treated exactly like an unknown
+   * slot — no existence leak (same posture as other masking rules in this
+   * project).
+   */
+  private async findSlotOrFail(ownerId: string, slotId: string): Promise<AvailabilitySlot> {
+    const slot = await this.slotRepo
+      .createQueryBuilder('slot')
+      .innerJoin('slot.calendar', 'calendar')
+      .where('slot.id = :slotId', { slotId })
+      .andWhere('calendar.owner_id = :ownerId', { ownerId })
+      .getOne();
+
+    if (!slot) {
+      throw new NotFoundException(`Availability slot ${slotId} not found`);
+    }
+    return slot;
+  }
+
+  private assertValidSlotTimes(
+    startTime: Date,
+    endTime: Date,
+    recurrenceEndDate: Date | null,
+  ): void {
+    if (endTime.getTime() <= startTime.getTime()) {
+      throw new BadRequestException('endTime must be after startTime');
+    }
+    if (recurrenceEndDate && recurrenceEndDate.getTime() < startTime.getTime()) {
+      throw new BadRequestException('recurrenceEndDate must not be before startTime');
+    }
   }
 
   // ---- Access control helpers ----

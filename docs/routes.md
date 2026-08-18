@@ -1058,9 +1058,18 @@ Délais de rappel valides : `1week`, `1day`, `1hour`, `15min`, `none`
 |---|---|---|---|---|
 | GET | /calendars/:ownerId/events | Lister les événements autorisés | 🔒 | Query: `type?`, `personId?`. Filtrage par rôle côté serveur. |
 | POST | /calendars/:ownerId/events | Créer un événement selon rôle | 🔒 | `eleve` → `rappel` · `formateur` → `cours/masterclass/pedagogique/rappel` · `animateur_pedagogique` → `pedagogique/rappel` · `responsable_pedagogique` → tous |
-| GET | /calendars/:ownerId/availability | Lire les disponibilités | 🔒 | — |
+| GET | /calendars/:ownerId | Lire le calendrier (créneaux de disponibilité + activités) | 🔒 | Titulaire ou rôle interne (RP, AP, TI, AF). `parent_financeur` reçoit en plus `paymentEntries`. Corrige un écart de doc : cette route existait déjà mais n'était pas documentée, tandis que la route `GET /calendars/:ownerId/availability` documentée jusqu'ici **n'a jamais existé** côté code (constat du 2026-08-18). |
+| PUT | /calendars/:ownerId/availability | Remplacer en bloc tous les créneaux de disponibilité | 🔒 | Titulaire (`eleve` ou `formateur`), RP ou TI. `animateur_pedagogique` a été retiré des rôles autorisés le 2026-08-18 : il apparaissait dans le décorateur de rôles mais était déjà refusé par le service — décorateur corrigé pour refléter la vraie politique. |
+| POST | /calendars/:ownerId/availability-slots | Créer un créneau de disponibilité/indisponibilité, sans toucher aux autres | 🔒 | Mêmes rôles que le `PUT` ci-dessus. `400` si `endTime <= startTime` ou `recurrenceEndDate < startTime`. |
+| PATCH | /calendars/:ownerId/availability-slots/:slotId | Modifier un créneau (redimensionner, changer récurrence/date de fin/type) | 🔒 | Mêmes rôles. `404` si le créneau n'existe pas ou appartient à un autre `ownerId` (pas de fuite d'existence). |
+| DELETE | /calendars/:ownerId/availability-slots/:slotId | Supprimer un créneau (suppression physique) | 🔒 | Mêmes rôles. Réponse `204`. `404` si le créneau n'existe pas ou appartient à un autre `ownerId`. |
 
 Body `POST /calendars/:ownerId/events` : `{title, startAt, endAt, eventType, description?, inviteeIds?}`
+
+Body `POST /calendars/:ownerId/availability-slots` : `{dayOfWeek?, startTime, endTime, recurrence?, recurrenceEndDate?, kind?}`
+— `recurrence` : `none` (défaut) · `weekly` · `biweekly`. `recurrenceEndDate` (ISO 8601, instant inclusif) : absent = récurrence illimitée dans le temps, comportement historique préservé. `kind` : `available` (défaut) · `unavailable`.
+
+Body `PATCH /calendars/:ownerId/availability-slots/:slotId` : mêmes champs, tous optionnels. `recurrenceEndDate` accepte explicitement `null` pour effacer une date de fin déjà posée (repasser une récurrence bornée en illimitée).
 
 Réponse `GET /calendars/:ownerId/events` : `[{id, title, startAt, endAt, eventType, status, ownerId, invitations?, reminderRules?}]`
 

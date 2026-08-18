@@ -17,7 +17,19 @@ import type {
   EventType,
   ReminderDelay,
 } from '../components/calendar/calendarTypes'
-import type { CalendarEvent, ActivitySession, AvailabilitySlot } from '../types/calendar'
+import type {
+  CalendarEvent,
+  ActivitySession,
+  AvailabilitySlot,
+  AvailabilitySlotApi,
+  CreateAvailabilitySlotPayload,
+  UpdateAvailabilitySlotPayload,
+} from '../types/calendar'
+import {
+  fromApiSlot,
+  toApiCreatePayload,
+  toApiUpdatePayload,
+} from '../utils/availabilitySlotApiMapping'
 
 // ─── Calendrier (CalendarPage) ─────────────────────────────────────────────────
 
@@ -114,15 +126,72 @@ export async function deleteActivity(activityId: string): Promise<void> {
   await apiClient.delete(`/calendar/${activityId}`)
 }
 
-// ─── Disponibilités (AvailabilityEditor) ───────────────────────────────────────
+// ─── Disponibilités (AvailabilityTab) ───────────────────────────────────────────
+//
+// Corrigé le 2026-08-18 : `GET /calendars/:ownerId/availability` n'a jamais existé côté
+// calendar-service (404 confirmé contre la pile réelle). `docs/routes.md` documente désormais
+// la vraie route — `GET /calendars/:ownerId`, qui renvoie le calendrier complet et porte les
+// créneaux de disponibilité dans son bloc `availabilitySlots`.
+//
+// Corrigé le même jour (second bug, distinct) : le contrat réel de calendar-service exige
+// `startTime`/`endTime` en ISO 8601 complet et `kind`/`recurrence` en minuscules — vérifié par
+// appel HTTP réel, voir `src/utils/availabilitySlotApiMapping.ts`. La traduction entre la
+// représentation front (`HH:mm`, majuscules) et ce contrat a lieu ici, exclusivement.
+
+interface OwnerCalendarResponse {
+  availabilitySlots?: AvailabilitySlotApi[]
+}
 
 /**
- * GET /calendars/:ownerId/availability — Lit les créneaux de disponibilité d'un calendrier.
- * Utilisé par AvailabilityEditor.
+ * GET /calendars/:ownerId — Lit le calendrier complet d'un titulaire et en extrait les
+ * créneaux de disponibilité (`availabilitySlots`), traduits vers la représentation front.
+ * Utilisé par AvailabilityTab.
  */
 export async function fetchAvailability(ownerId: string): Promise<AvailabilitySlot[]> {
-  const { data } = await apiClient.get<AvailabilitySlot[]>(`/calendars/${ownerId}/availability`)
-  return Array.isArray(data) ? data : []
+  const { data } = await apiClient.get<OwnerCalendarResponse>(`/calendars/${ownerId}`)
+  return Array.isArray(data?.availabilitySlots) ? data.availabilitySlots.map(fromApiSlot) : []
+}
+
+/**
+ * POST /calendars/:ownerId/availability-slots — Crée un créneau de disponibilité/indisponibilité.
+ */
+export async function createAvailabilitySlot(
+  ownerId: string,
+  payload: CreateAvailabilitySlotPayload,
+): Promise<AvailabilitySlot> {
+  const { data } = await apiClient.post<AvailabilitySlotApi>(
+    `/calendars/${ownerId}/availability-slots`,
+    toApiCreatePayload(payload),
+  )
+  return fromApiSlot(data)
+}
+
+/**
+ * PATCH /calendars/:ownerId/availability-slots/:slotId — Modifie un créneau existant.
+ *
+ * `currentDayOfWeek` sert uniquement à construire une date ISO cohérente pour `startTime`/
+ * `endTime` quand le payload ne porte pas lui-même `dayOfWeek` — voir
+ * `toApiUpdatePayload` pour le détail (sans conséquence côté serveur, qui ne recoupe jamais la
+ * date envoyée avec `dayOfWeek`).
+ */
+export async function updateAvailabilitySlot(
+  ownerId: string,
+  slotId: string,
+  payload: UpdateAvailabilitySlotPayload,
+  currentDayOfWeek?: number,
+): Promise<AvailabilitySlot> {
+  const { data } = await apiClient.patch<AvailabilitySlotApi>(
+    `/calendars/${ownerId}/availability-slots/${slotId}`,
+    toApiUpdatePayload(payload, currentDayOfWeek),
+  )
+  return fromApiSlot(data)
+}
+
+/**
+ * DELETE /calendars/:ownerId/availability-slots/:slotId — Supprime un créneau.
+ */
+export async function deleteAvailabilitySlot(ownerId: string, slotId: string): Promise<void> {
+  await apiClient.delete(`/calendars/${ownerId}/availability-slots/${slotId}`)
 }
 
 // ─── Création d'événement (EventCreateDialog) ──────────────────────────────────

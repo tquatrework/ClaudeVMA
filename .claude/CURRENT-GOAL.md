@@ -39,15 +39,42 @@ montrant qu'un parent financeur reçoit bien une notification à la création de
 
 ### État
 
-- [ ] Investigation : `TeacherRequestCreated` porte-t-il déjà `studentId` ? Le mécanisme de
-      résolution des parents financeurs est-il réutilisable tel quel ?
-- [ ] `TeacherAssigned` → parent financeur : vérifié comme fonctionnel contre la pile réelle
-      (pas juste documenté)
-- [ ] `TeacherRequestCreated` → parent financeur ajouté comme destinataire
-- [ ] Libellé front vérifié adapté à un destinataire parent (pas seulement RP)
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+- [x] Investigation — `studentId` était déjà présent dans le payload `TeacherRequestCreated`,
+      aucun changement requis côté `teacher-request-service`. Le helper
+      `ProfileServiceClient.getFinanceOwners` était déjà réutilisable (partagé par
+      `handleTeacherAssigned`/`handleMainTeacherAssigned`/`handleTeacherRequestStatusUpdated`),
+      aucune logique dupliquée.
+- [x] `TeacherAssigned` → parent financeur : re-vérifié par `dashboard-notification-service`
+      (événement réel publié sur le flux Redis), fonctionnait déjà correctement, rien changé.
+- [x] `TeacherRequestCreated` → parent financeur ajouté comme destinataire, **en plus** du rôle
+      RP existant (jamais à la place). Commit `7b31c1c`
+      (`feat/notif-parent-demande-professeur`, poussé). 96/96 tests unitaires verts.
+- [x] Libellé front vérifié — `teacher_request_created` : « Nouvelle demande de professeur pour
+      {élève} », déjà neutre, fonctionne tel quel pour un parent. **Point ouvert, non bloquant** :
+      à reformuler explicitement pour un parent (« votre enfant a demandé... ») seulement si
+      l'utilisateur le souhaite — décision produit, pas un défaut.
+- [x] Déployé sur la pile réelle — `dashboard-notification-service` reconstruit et redéployé
+      depuis `feat/notif-parent-demande-professeur`, sain, gateway rechargée.
+- [x] Preuve livrée à l'utilisateur — **preuve HTTP obtenue directement par l'orchestrateur**
+      (pas seulement par le sous-agent), élève + parent financeur créés et liés via
+      `POST /accounts/students` (`parentAccountMode: "new"`) : `unread-count` du parent passe de
+      `{"count":0}` à `{"count":1}` après `POST /teacher-requests` par l'élève ;
+      `GET /notifications` du parent montre `{"type":"teacher_request_created",
+      "metadata":{"studentName":"NotifP Eleve", ...}}`. Réponses citées ci-dessous.
 - [ ] Validé par l'utilisateur
+
+#### Preuve HTTP citée (2026-08-18, contre `https://claudevma.visioprof.fr`, orchestrateur)
+
+```
+GET /notifications/unread-count (parent, avant)  → 200 {"count":0}
+POST /teacher-requests (élève, description libre) → 201 {id, studentId, status:"pending", ...}
+GET /notifications/unread-count (parent, après)  → 200 {"count":1}
+GET /notifications (parent) → 200 {"data":[{
+  "type":"teacher_request_created",
+  "metadata":{"studentId":"...","studentName":"NotifP Eleve","requesterRole":"eleve", ...},
+  "isRead":false
+}], "meta":{"total":1, ...}}
+```
 
 ---
 

@@ -2,10 +2,12 @@
  * E2E — GET /calendars/:ownerId/busy
  *
  * Chantier calendrier de disponibilites, point 2 (visibilite busy/free
- * pilotee par relation metier). `profile-service` est hors de portee d'un
- * e2e de `calendar-service` isole : `ProfileRelationsClient` est remplace par
- * `FakeProfileRelationsClient` (voir `./helpers/app.helper.ts`), sur le
- * modele deja suivi par `teacher-request-service` pour `ProfileServiceClient`.
+ * pilotee par relation metier). `profile-service` et `identity-access-service`
+ * sont hors de portee d'un e2e de `calendar-service` isole :
+ * `ProfileRelationsClient` et `IdentityAccessClient` sont remplaces par
+ * `FakeProfileRelationsClient` / `FakeIdentityAccessClient` (voir
+ * `./helpers/app.helper.ts`), sur le modele deja suivi par
+ * `teacher-request-service` pour `ProfileServiceClient`.
  *
  * Format des dates : ISO 8601 avec fuseau, identique a `from`/`to` en query
  * et aux `start`/`end` renvoyes dans les blocs de la reponse — voir
@@ -17,6 +19,7 @@ import * as request from 'supertest';
 import {
   createTestAppWithFakeProfileRelations,
   FakeProfileRelationsClient,
+  FakeIdentityAccessClient,
   makeJwt,
   IDS,
 } from './helpers/app.helper';
@@ -32,6 +35,7 @@ function busyUrl(ownerId: string, from = FROM, to = TO): string {
 describe('[E2E] GET /calendars/:ownerId/busy', () => {
   let app: INestApplication;
   let profileRelations: FakeProfileRelationsClient;
+  let identityAccess: FakeIdentityAccessClient;
 
   let rpToken: string;
   let apToken: string;
@@ -46,6 +50,16 @@ describe('[E2E] GET /calendars/:ownerId/busy', () => {
     const built = await createTestAppWithFakeProfileRelations();
     app = built.app;
     profileRelations = built.profileRelations;
+    identityAccess = built.identityAccess;
+
+    // Rôle du TITULAIRE résolu auprès d'identity-access-service (correctif
+    // CAL-FB-004) — jamais depuis la ligne Calendar. student2 est
+    // délibérément laissé sans rôle déclaré ici : voir la section dédiée
+    // plus bas, qui vérifie l'accès même sans jamais avoir déclaré de rôle
+    // ni créé de ligne Calendar au moment de l'appel.
+    identityAccess.setRole(IDS.student1, 'eleve');
+    identityAccess.setRole(IDS.teacher1, 'formateur');
+    identityAccess.setRole(IDS.teacher2, 'formateur');
 
     rpToken = makeJwt(IDS.rp1, 'responsable_pedagogique');
     apToken = makeJwt(IDS.ap1, 'animateur_pedagogique');
@@ -346,6 +360,86 @@ describe('[E2E] GET /calendars/:ownerId/busy', () => {
         .set('Authorization', `Bearer ${teacher2Token}`);
       expect(res.status).toBe(503);
     });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // identity-access-service injoignable — echec ferme (meme posture que
+  // profile-service ci-dessus)
+  // ──────────────────────────────────────────────────────────────────────
+
+  describe('identity-access-service injoignable', () => {
+    afterEach(() => identityAccess.setUnavailable(false));
+
+    it('→ 503, jamais un acces accorde par defaut', async () => {
+      identityAccess.setUnavailable(true);
+      const res = await request(app.getHttpServer())
+        .get(busyUrl(IDS.student1))
+        .set('Authorization', `Bearer ${teacher2Token}`);
+      expect(res.status).toBe(503);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // CAL-FB-004 — le titulaire n'a JAMAIS eu de ligne Calendar créée
+  //
+  // Bug réel trouvé en HTTP contre la pile réelle (2026-08-18) : le rôle du
+  // titulaire était lu depuis `Calendar.ownerRole`, colonne qui n'existe que
+  // si la ligne a déjà été créée paresseusement par un appel antérieur
+  // (`GET /calendars/:ownerId`, `PUT .../availability`,
+  // `POST .../availability-slots`). Un titulaire qui n'avait jamais
+  // déclenché cette création voyait son rôle traité comme inconnu, et le
+  // repli défensif fermait alors l'accès à tout le monde d'autre — y compris
+  // à une relation active réelle. Ce test reproduit exactement ce scénario
+  // sans jamais appeler `GET /calendars/:ownerId` au préalable, et sans
+  // qu'aucun créneau ni activité n'ait jamais été créé pour `IDS.student2`.
+  // ──────────────────────────────────────────────────────────────────────
+
+  describe("CAL-FB-004 — titulaire sans ligne Calendar jamais créée", () => {
+    it(
+      "un parent financeur lie a un titulaire n'ayant jamais ouvert son " +
+        'calendrier -> 200, sans appel prealable a GET /calendars/:ownerId',
+      async () => {
+        identityAccess.setRole(IDS.student2, 'eleve');
+        profileRelations.setSnapshot(IDS.parent1, IDS.student2, {
+          viewerId: IDS.parent1,
+          targetId: IDS.student2,
+          isSelf: false,
+          isAdministrator: false,
+          relations: [{ kind: RelationKind.FINANCE_OWNER_OF_STUDENT }],
+        });
+
+        const res = await request(app.getHttpServer())
+          .get(busyUrl(IDS.student2))
+          .set('Authorization', `Bearer ${parent1Token}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.ownerId).toBe(IDS.student2);
+        expect(res.body.availableWindows).toEqual([]);
+        expect(res.body.unavailableBlocks).toEqual([]);
+        expect(res.body.busyBlocks).toEqual([]);
+      },
+    );
+
+    it(
+      'sans relation reelle sur ce meme titulaire jamais ouvert -> 403 ' +
+        '(le repli reste ferme, seule la source du role change)',
+      async () => {
+        identityAccess.setRole(IDS.student2, 'eleve');
+        profileRelations.setSnapshot(IDS.teacher2, IDS.student2, {
+          viewerId: IDS.teacher2,
+          targetId: IDS.student2,
+          isSelf: false,
+          isAdministrator: false,
+          relations: [],
+        });
+
+        const res = await request(app.getHttpServer())
+          .get(busyUrl(IDS.student2))
+          .set('Authorization', `Bearer ${teacher2Token}`);
+
+        expect(res.status).toBe(403);
+      },
+    );
   });
 
   // ──────────────────────────────────────────────────────────────────────

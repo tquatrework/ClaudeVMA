@@ -24,6 +24,10 @@ import {
   ProfileRelationsClient,
   ProfileRelationsUnavailableError,
 } from '../../../src/common/clients/profile-relations.client';
+import {
+  IdentityAccessClient,
+  IdentityAccessUnavailableError,
+} from '../../../src/common/clients/identity-access.client';
 import { RelationSnapshot } from '../../../src/common/relations/relation-kind';
 import * as jwt from 'jsonwebtoken';
 
@@ -40,6 +44,12 @@ function setStaticTestEnv(): void {
   // profile-service. Les autres specs ne l'appellent jamais.
   process.env.PROFILE_SERVICE_URL =
     process.env.PROFILE_SERVICE_URL ?? 'http://profile-service.test:3002';
+  // Même posture que PROFILE_SERVICE_URL ci-dessus : les specs e2e qui
+  // exercent GET /calendars/:ownerId/busy remplacent IdentityAccessClient par
+  // un faux (`overrideIdentityAccessClient`) plutôt que de joindre un vrai
+  // identity-access-service.
+  process.env.IDENTITY_ACCESS_SERVICE_URL =
+    process.env.IDENTITY_ACCESS_SERVICE_URL ?? 'http://identity-access-service.test:3001';
 }
 
 function buildLocalDatabaseUrl(): string {
@@ -118,6 +128,35 @@ export class FakeProfileRelationsClient {
   }
 }
 
+/**
+ * Fake `IdentityAccessClient`, injectable en e2e à côté de
+ * `FakeProfileRelationsClient` — même modèle. Le rôle réel du titulaire
+ * vit dans `identity-access-service`, hors de portée d'un e2e de
+ * `calendar-service` isolé. `resolveRole` renvoie ce que le test y a placé
+ * via `setRole` (défaut : `undefined`, compte inconnu — reproduit
+ * exactement CAL-FB-004 : un titulaire jamais résolu doit rester en repli
+ * fermé), ou lève `IdentityAccessUnavailableError` via `setUnavailable`.
+ */
+export class FakeIdentityAccessClient {
+  private rolesByUserId = new Map<string, string>();
+  private unavailable = false;
+
+  setRole(userId: string, role: string): void {
+    this.rolesByUserId.set(userId, role);
+  }
+
+  setUnavailable(value: boolean): void {
+    this.unavailable = value;
+  }
+
+  async resolveRole(userId: string, _correlationId?: string): Promise<string | undefined> {
+    if (this.unavailable) {
+      throw new IdentityAccessUnavailableError('identity-access-service unreachable (test double)');
+    }
+    return this.rolesByUserId.get(userId);
+  }
+}
+
 async function buildTestApp(
   moduleBuilder: (base: TestingModuleBuilder) => TestingModuleBuilder,
 ): Promise<INestApplication> {
@@ -164,12 +203,18 @@ export async function createTestApp(): Promise<INestApplication> {
 export async function createTestAppWithFakeProfileRelations(): Promise<{
   app: INestApplication;
   profileRelations: FakeProfileRelationsClient;
+  identityAccess: FakeIdentityAccessClient;
 }> {
   const profileRelations = new FakeProfileRelationsClient();
+  const identityAccess = new FakeIdentityAccessClient();
   const app = await buildTestApp((base) =>
-    base.overrideProvider(ProfileRelationsClient).useValue(profileRelations),
+    base
+      .overrideProvider(ProfileRelationsClient)
+      .useValue(profileRelations)
+      .overrideProvider(IdentityAccessClient)
+      .useValue(identityAccess),
   );
-  return { app, profileRelations };
+  return { app, profileRelations, identityAccess };
 }
 
 /**

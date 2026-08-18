@@ -55,13 +55,17 @@ export interface ResolveCalendarBusyFreeAccessInput {
   viewerRole: UserRole | string;
   ownerId: string;
   /**
-   * Rôle du titulaire du calendrier consulté (`Calendar.ownerRole`), tel
-   * qu'enregistré à la création paresseuse du calendrier. `undefined` quand
-   * le titulaire n'a encore jamais eu de calendrier créé (aucun créneau,
-   * aucune activité) — dans ce cas seuls le titulaire lui-même et le RP
-   * peuvent obtenir une réponse, par défaut fermé : sans rôle connu on ne
-   * peut pas vérifier qu'une relation retournée par `profile-service`
-   * s'applique bien à CE titulaire.
+   * Rôle du titulaire du calendrier consulté, résolu auprès de
+   * `identity-access-service` (`IdentityAccessClient.resolveRole`) — jamais
+   * lu depuis `Calendar.ownerRole`, qui n'existe que si la ligne `Calendar`
+   * a déjà été créée paresseusement par un appel antérieur du titulaire
+   * (bug CAL-FB-004 corrigé le 2026-08-18 : un titulaire n'ayant jamais
+   * ouvert son propre calendrier bloquait tout le monde d'autre sur `/busy`,
+   * y compris une relation active réelle). `undefined` quand
+   * `identity-access-service` ne connaît pas ce compte (`404`) — dans ce cas
+   * seuls le titulaire lui-même et le RP peuvent obtenir une réponse, par
+   * défaut fermé : sans rôle connu on ne peut pas vérifier qu'une relation
+   * retournée par `profile-service` s'applique bien à CE titulaire.
    */
   ownerRole: UserRole | string | undefined;
   relations: ResolvedRelation[];

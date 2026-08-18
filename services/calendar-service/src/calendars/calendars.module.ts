@@ -9,6 +9,7 @@ import { EventsModule } from '../events/events.module';
 import { SecurityModule } from '../security/security.module';
 import { ActivitiesModule } from '../activities/activities.module';
 import { ProfileRelationsClient } from '../common/clients/profile-relations.client';
+import { IdentityAccessClient } from '../common/clients/identity-access.client';
 
 @Module({
   imports: [
@@ -21,7 +22,7 @@ import { ProfileRelationsClient } from '../common/clients/profile-relations.clie
     ActivitiesModule,
   ],
   controllers: [CalendarsController],
-  providers: [CalendarsService, ProfileRelationsClient],
+  providers: [CalendarsService, ProfileRelationsClient, IdentityAccessClient],
   exports: [CalendarsService],
 })
 export class CalendarsModule {}

@@ -236,6 +236,12 @@ services:
       # explicitement, jamais laissee au defaut code en dur du client — meme
       # port que partout ailleurs dans ce fichier.
       PROFILE_SERVICE_URL: http://profile-service:3002
+      # Correctif CAL-FB-004 (2026-08-18) : GET /calendars/:ownerId/busy
+      # resout desormais le role du titulaire auprès d'identity-access-service
+      # (unique proprietaire du role), au lieu de la ligne Calendar dont
+      # l'existence n'est pas garantie. Meme port que partout ailleurs dans
+      # ce fichier.
+      IDENTITY_ACCESS_SERVICE_URL: http://identity-access-service:3001
       PORT: 3005
     depends_on:
       postgres:

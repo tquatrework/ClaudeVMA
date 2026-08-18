@@ -1135,11 +1135,24 @@ les ait fournis avec ou sans millisecondes :
 - `403` (pas `404`) en l'absence de lien : contrairement aux archives/statistiques pédagogiques
   d'un autre service (404 uniforme), il n'y a ici aucune ambiguïté d'existence à protéger — le
   calendrier d'un `ownerId` existe toujours.
-- `503` si `profile-service` est injoignable ou hors délai (3s) — échec fermé, jamais un accès
-  accordé par défaut.
+- `503` si `profile-service` **ou** `identity-access-service` est injoignable ou hors délai (3s
+  chacun) — échec fermé, jamais un accès accordé par défaut.
 - **Bug corrigé au passage** : `ANIMATEUR_PEDAGOGIQUE` donnait jusqu'ici un accès intégral à
   n'importe quel calendrier via `GET /calendars/:ownerId` (voir ci-dessus) ; il passe désormais
   exclusivement par cette route, avec une vraie vérification de lien (`ANIMATOR_OF_TEACHER`).
+- **Bug réel corrigé le 2026-08-18 (CAL-FB-004)**, trouvé en HTTP contre la pile réelle : le rôle
+  du titulaire (`ownerRole`, nécessaire pour choisir entre les deux lignes du tableau ci-dessus)
+  était lu depuis `Calendar.ownerRole`, colonne renseignée seulement à la création paresseuse de
+  la ligne `Calendar` (premier appel à `GET /calendars/:ownerId`,
+  `PUT /calendars/:ownerId/availability` ou `POST /calendars/:ownerId/availability-slots`). Un
+  titulaire n'ayant **jamais** déclenché cette création voyait donc son rôle traité comme
+  inconnu, et le repli défensif fermait l'accès à **tout le monde d'autre**, y compris à une
+  relation active réelle et confirmée par `profile-service` (parent financeur, formateur actif,
+  etc.) — seul le titulaire lui-même et le RP passaient encore. Corrigé en résolvant `ownerRole`
+  auprès d'`identity-access-service` (`GET /internal/accounts/by-user-id/:userId`, unique
+  propriétaire du rôle), rendant la décision indépendante de l'existence de la ligne `Calendar`.
+  Un compte inconnu d'`identity-access-service` (`404`) reste traité comme un rôle inconnu, même
+  repli fermé qu'avant.
 
 ### Invitations
 

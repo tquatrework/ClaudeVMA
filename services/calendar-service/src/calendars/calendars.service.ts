@@ -22,6 +22,10 @@ import {
   ProfileRelationsUnavailableError,
 } from '../common/clients/profile-relations.client';
 import {
+  IdentityAccessClient,
+  IdentityAccessUnavailableError,
+} from '../common/clients/identity-access.client';
+import {
   isCalendarBusyFreeAccessAllowed,
   resolveCalendarBusyFreeAccess,
 } from './calendar-visibility.policy';
@@ -54,6 +58,7 @@ export class CalendarsService {
     private readonly eventsService: EventsService,
     private readonly activitiesService: ActivitiesService,
     private readonly profileRelationsClient: ProfileRelationsClient,
+    private readonly identityAccessClient: IdentityAccessClient,
   ) {}
 
   /**
@@ -296,6 +301,16 @@ export class CalendarsService {
    *
    * `503` si `profile-service` est injoignable — échec fermé, jamais un
    * accès accordé par défaut (`ProfileRelationsUnavailableError`).
+   *
+   * `ownerRole` (nécessaire à `resolveCalendarBusyFreeAccess` pour un
+   * titulaire élève vs formateur) est résolu auprès d'`identity-access-service`
+   * (`IdentityAccessClient`), jamais lu depuis `Calendar.ownerRole` : cette
+   * colonne n'existe que si la ligne `Calendar` a déjà été créée
+   * paresseusement par un appel antérieur, ce qui n'est pas garanti pour un
+   * titulaire qui n'a encore jamais ouvert son propre calendrier — bug
+   * corrigé (CAL-FB-004), voir `IdentityAccessClient`. `503` si
+   * `identity-access-service` est injoignable, même posture d'échec fermé
+   * que pour `profile-service`.
    */
   async getBusyFree(
     ownerId: string,
@@ -308,12 +323,20 @@ export class CalendarsService {
       throw new BadRequestException('to must be after from');
     }
 
-    const calendar = await this.calendarRepo.findOne({
-      where: { ownerId },
-      relations: ['availabilitySlots'],
-    });
-
     if (actor.id !== ownerId) {
+      let ownerRole: string | undefined;
+      try {
+        ownerRole = await this.identityAccessClient.resolveRole(ownerId, correlationId);
+      } catch (error) {
+        if (error instanceof IdentityAccessUnavailableError) {
+          throw new ServiceUnavailableException(
+            "Impossible de vérifier les droits d'accès à ce calendrier pour le moment. " +
+              'Réessayez dans un instant.',
+          );
+        }
+        throw error;
+      }
+
       let snapshot;
       try {
         snapshot = await this.profileRelationsClient.resolveRelations(
@@ -336,7 +359,7 @@ export class CalendarsService {
         viewerId: actor.id,
         viewerRole: actor.role,
         ownerId,
-        ownerRole: calendar?.ownerRole,
+        ownerRole,
         relations: snapshot.relations,
       });
 
@@ -346,6 +369,11 @@ export class CalendarsService {
         );
       }
     }
+
+    const calendar = await this.calendarRepo.findOne({
+      where: { ownerId },
+      relations: ['availabilitySlots'],
+    });
 
     const slots = calendar?.availabilitySlots ?? [];
     const availableWindows: Occurrence[] = [];

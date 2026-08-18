@@ -20,6 +20,10 @@ import {
   ProfileRelationsClient,
   ProfileRelationsUnavailableError,
 } from '../../../src/common/clients/profile-relations.client';
+import {
+  IdentityAccessClient,
+  IdentityAccessUnavailableError,
+} from '../../../src/common/clients/identity-access.client';
 import { RelationKind } from '../../../src/common/relations/relation-kind';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
 import { AuthenticatedUser } from '../../../src/common/interfaces/authenticated-user.interface';
@@ -60,6 +64,10 @@ const mockProfileRelationsClient = {
   resolveRelations: jest.fn(),
 };
 
+const mockIdentityAccessClient = {
+  resolveRole: jest.fn(),
+};
+
 /**
  * The transaction manager exposes the same repositories used outside a
  * transaction, so the existing mocks can be reused inside `manager.getRepository(...)`.
@@ -90,6 +98,7 @@ describe('CalendarsService', () => {
         { provide: EventsService, useValue: mockEventsService },
         { provide: ActivitiesService, useValue: mockActivitiesService },
         { provide: ProfileRelationsClient, useValue: mockProfileRelationsClient },
+        { provide: IdentityAccessClient, useValue: mockIdentityAccessClient },
       ],
     }).compile();
 
@@ -467,6 +476,10 @@ describe('CalendarsService', () => {
 
     beforeEach(() => {
       mockActivitiesService.findActiveInRange.mockResolvedValue([]);
+      // Par défaut, rôle inconnu (comportement `IdentityAccessClient` réel
+      // sur un compte introuvable) — chaque test qui a besoin d'un
+      // `ownerRole` précis le déclare explicitement ci-dessous.
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(undefined);
     });
 
     it('rejects to <= from with BadRequestException, before any lookup', async () => {
@@ -488,6 +501,7 @@ describe('CalendarsService', () => {
       const result = await service.getBusyFree('student-1', actor, from, to);
 
       expect(mockProfileRelationsClient.resolveRelations).not.toHaveBeenCalled();
+      expect(mockIdentityAccessClient.resolveRole).not.toHaveBeenCalled();
       expect(result.ownerId).toBe('student-1');
       expect(result.availableWindows).toHaveLength(1);
     });
@@ -498,6 +512,7 @@ describe('CalendarsService', () => {
         ownerRole: UserRole.ELEVE,
         availabilitySlots: [slot()],
       });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.ELEVE);
       mockProfileRelationsClient.resolveRelations.mockResolvedValue({
         viewerId: 'rp-id',
         targetId: 'student-1',
@@ -516,6 +531,7 @@ describe('CalendarsService', () => {
         ownerRole: UserRole.FORMATEUR,
         availabilitySlots: [],
       });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.FORMATEUR);
       mockProfileRelationsClient.resolveRelations.mockResolvedValue({
         viewerId: 'rp-id',
         targetId: 'teacher-1',
@@ -534,6 +550,7 @@ describe('CalendarsService', () => {
         ownerRole: UserRole.ELEVE,
         availabilitySlots: [],
       });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.ELEVE);
       mockProfileRelationsClient.resolveRelations.mockResolvedValue({
         viewerId: 'af-id',
         targetId: 'student-1',
@@ -554,6 +571,7 @@ describe('CalendarsService', () => {
         ownerRole: UserRole.ELEVE,
         availabilitySlots: [],
       });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.ELEVE);
       mockProfileRelationsClient.resolveRelations.mockResolvedValue({
         viewerId: 'ti-id',
         targetId: 'student-1',
@@ -574,6 +592,7 @@ describe('CalendarsService', () => {
         ownerRole: UserRole.ELEVE,
         availabilitySlots: [],
       });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.ELEVE);
       mockProfileRelationsClient.resolveRelations.mockResolvedValue({
         viewerId: 'parent-1',
         targetId: 'student-1',
@@ -592,6 +611,7 @@ describe('CalendarsService', () => {
         ownerRole: UserRole.ELEVE,
         availabilitySlots: [],
       });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.ELEVE);
       mockProfileRelationsClient.resolveRelations.mockResolvedValue({
         viewerId: 'teacher-1',
         targetId: 'student-1',
@@ -610,6 +630,7 @@ describe('CalendarsService', () => {
         ownerRole: UserRole.ELEVE,
         availabilitySlots: [],
       });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.ELEVE);
       mockProfileRelationsClient.resolveRelations.mockResolvedValue({
         viewerId: 'teacher-2',
         targetId: 'student-1',
@@ -630,6 +651,7 @@ describe('CalendarsService', () => {
         ownerRole: UserRole.FORMATEUR,
         availabilitySlots: [],
       });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.FORMATEUR);
       mockProfileRelationsClient.resolveRelations.mockResolvedValue({
         viewerId: 'student-1',
         targetId: 'teacher-1',
@@ -648,6 +670,7 @@ describe('CalendarsService', () => {
         ownerRole: UserRole.FORMATEUR,
         availabilitySlots: [],
       });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.FORMATEUR);
       mockProfileRelationsClient.resolveRelations.mockResolvedValue({
         viewerId: 'parent-1',
         targetId: 'teacher-1',
@@ -666,6 +689,7 @@ describe('CalendarsService', () => {
         ownerRole: UserRole.FORMATEUR,
         availabilitySlots: [],
       });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.FORMATEUR);
       mockProfileRelationsClient.resolveRelations.mockResolvedValue({
         viewerId: 'ap-id',
         targetId: 'teacher-1',
@@ -684,6 +708,7 @@ describe('CalendarsService', () => {
         ownerRole: UserRole.FORMATEUR,
         availabilitySlots: [],
       });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.FORMATEUR);
       mockProfileRelationsClient.resolveRelations.mockResolvedValue({
         viewerId: 'ap-id',
         targetId: 'teacher-1',
@@ -698,8 +723,14 @@ describe('CalendarsService', () => {
       );
     });
 
-    it('denies access when the owner calendar row does not exist yet (unknown ownerRole, fail closed)', async () => {
+    it('denies access when identity-access-service does not know the owner account (unresolved role, fail closed)', async () => {
+      // La ligne Calendar peut très bien exister (créneaux déjà créés) : ce
+      // qui compte ici, c'est l'absence de rôle résolu côté
+      // identity-access-service (compte inconnu, 404 → `undefined`) —
+      // indépendant de l'existence de la ligne Calendar depuis le correctif
+      // CAL-FB-004.
       mockCalendarRepo.findOne.mockResolvedValue(null);
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(undefined);
       mockProfileRelationsClient.resolveRelations.mockResolvedValue({
         viewerId: 'teacher-1',
         targetId: 'student-1',
@@ -731,12 +762,45 @@ describe('CalendarsService', () => {
       expect(result.busyBlocks).toEqual([]);
     });
 
+    // --- CAL-FB-004 : bug réel trouvé en HTTP contre la pile réelle
+    // (2026-08-18). `ownerRole` dépendait de `Calendar.ownerRole`, renseigné
+    // seulement à la création paresseuse de la ligne — un titulaire qui
+    // n'avait jamais ouvert son propre calendrier voyait son rôle "inconnu"
+    // et bloquait tout le monde d'autre, y compris une relation active
+    // réelle. Corrigé en résolvant le rôle auprès d'identity-access-service,
+    // indépendamment de l'existence de la ligne Calendar.
+
+    it(
+      'grants a linked parent even when the owner never had a Calendar row ' +
+        'created (regression CAL-FB-004: ownerRole resolved via identity-access-service, not Calendar.ownerRole)',
+      async () => {
+        mockCalendarRepo.findOne.mockResolvedValue(null);
+        mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.ELEVE);
+        mockProfileRelationsClient.resolveRelations.mockResolvedValue({
+          viewerId: 'parent-1',
+          targetId: 'student-1',
+          isSelf: false,
+          isAdministrator: false,
+          relations: [{ kind: RelationKind.FINANCE_OWNER_OF_STUDENT }],
+        });
+        const actor: AuthenticatedUser = { id: 'parent-1', role: UserRole.PARENT_FINANCEUR };
+
+        const result = await service.getBusyFree('student-1', actor, from, to);
+        expect(result.ownerId).toBe('student-1');
+        expect(mockIdentityAccessClient.resolveRole).toHaveBeenCalledWith(
+          'student-1',
+          undefined,
+        );
+      },
+    );
+
     it('throws ServiceUnavailableException when profile-service is unreachable (fail closed)', async () => {
       mockCalendarRepo.findOne.mockResolvedValue({
         ownerId: 'student-1',
         ownerRole: UserRole.ELEVE,
         availabilitySlots: [],
       });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.ELEVE);
       mockProfileRelationsClient.resolveRelations.mockRejectedValue(
         new ProfileRelationsUnavailableError('profile-service unreachable or timed out'),
       );
@@ -745,6 +809,23 @@ describe('CalendarsService', () => {
       await expect(service.getBusyFree('student-1', actor, from, to)).rejects.toThrow(
         ServiceUnavailableException,
       );
+    });
+
+    it('throws ServiceUnavailableException when identity-access-service is unreachable (fail closed)', async () => {
+      mockCalendarRepo.findOne.mockResolvedValue({
+        ownerId: 'student-1',
+        ownerRole: UserRole.ELEVE,
+        availabilitySlots: [],
+      });
+      mockIdentityAccessClient.resolveRole.mockRejectedValue(
+        new IdentityAccessUnavailableError('identity-access-service unreachable or timed out'),
+      );
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      await expect(service.getBusyFree('student-1', actor, from, to)).rejects.toThrow(
+        ServiceUnavailableException,
+      );
+      expect(mockProfileRelationsClient.resolveRelations).not.toHaveBeenCalled();
     });
 
     it('separates available and unavailable slots, and never leaks id/title/participants', async () => {

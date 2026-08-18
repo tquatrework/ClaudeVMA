@@ -62,10 +62,13 @@ test('onglet Mes disponibilités : créer, redimensionner et supprimer un créne
 
   const editDialog = page.getByRole('dialog', { name: 'Modifier le créneau' })
   await expect(editDialog).toBeVisible()
+  // `getByLabel('Fin')` (substring, insensible à la casse par défaut) matche aussi le champ
+  // « Date de fin de récurrence (optionnel) », visible ici car le créneau créé est récurrent
+  // avec une date de fin — ambiguïté de locator, pas un défaut de l'écran. On ancre en tête.
   await expect(editDialog.getByLabel('Début')).toHaveValue('10:00')
-  await expect(editDialog.getByLabel('Fin')).toHaveValue('11:00')
+  await expect(editDialog.getByLabel(/^Fin/)).toHaveValue('11:00')
 
-  await editDialog.getByLabel('Fin').fill('12:00')
+  await editDialog.getByLabel(/^Fin/).fill('12:00')
   await editDialog.getByRole('button', { name: 'Enregistrer' }).click()
 
   await expect(editDialog).toBeHidden()

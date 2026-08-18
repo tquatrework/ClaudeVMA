@@ -80,7 +80,33 @@ Ordre de livraison retenu, une branche par étape :
       explicite de l'utilisateur (2026-08-18) : la preuve écran attendra son intégration réelle au
       point 3, pas de page de test jetable entre-temps. **Validé par l'utilisateur** sur cette
       base — mergé dans master.
-- [ ] Point 3 — proposition/acceptation de créneau
+- [ ] Point 3 — proposition/acceptation de créneau. **En cours, démarré 2026-08-18.** Branche
+      `feat/calendrier-proposition-creneau`. Résumé de reprise (plan complet, section « Point 3 »,
+      si besoin de plus de détail) :
+      - Verbe inchangé côté API : `POST /activities` reste tel quel (naît à `PROPOSED`) — le choix
+        placer/partager/envoyer devient un libellé front uniquement (« Proposer un créneau »).
+      - Manque réel : `POST /activities/:id/accept` et `.../decline`, sur le modèle
+        d'`EventInvitationsController` déjà en place (garde de statut, `409` si déjà traité).
+      - **Vrai trou de sécurité déjà identifié** : `ActivitiesService.validateActivityCreation` ne
+        vérifie aujourd'hui aucun lien réel avant de créer une proposition. Corriger en réutilisant
+        `ProfileRelationsClient` (déjà construit au point 2, même service) : formateur → élève
+        exige `TEACHER_OF_STUDENT` ; AP → formateur exige `ANIMATOR_OF_TEACHER` ; RP → aucune
+        condition.
+      - Portée volontairement limitée à 1 proposeur → 1 destinataire ; ne pas toucher aux usages
+        multi-participants existants de `ScheduledActivity`.
+      - Pas de changement `orchestration-service` nécessaire (vérification de lecture bilatérale
+        entre deux services déjà propriétaires, pas une saga).
+      - Côté front, deux correctifs à livrer avec ce point (décidés à l'approbation du plan) :
+        assainir `apps/web/src/api/calendar.ts` (`fetchActivitySessions`/`fetchActivity`/
+        `updateActivity` appellent `/calendar`/`/calendar/:id` qui **404** — vraies routes :
+        `/activities`) et **ajouter la route `DELETE /activities/:id`** (bouton "Supprimer"
+        actuellement mort — décidé : on ajoute la route, pas retirer le bouton).
+      - **Leçon des points 1 et 2, à réappliquer** : séquencer backend d'abord (avec preuve HTTP
+        par l'orchestrateur), documenter le contrat exact dans `docs/routes.md`, puis seulement
+        ensuite dispatcher le front — ne jamais paralléliser à l'aveugle.
+      - Composant `LinkedCalendarView` (point 2, déjà livré mais non monté) : c'est **ici** qu'il
+        doit être intégré, dans le flux de proposition (voir le composant `ProposeCourseSlotDialog`
+        déjà prévu dans le plan) — c'est ce qui débloquera enfin la preuve écran du point 2.
 - [ ] Point 4 — intégration LiveKit
 - [ ] Preuve livrée à l'utilisateur pour chaque point
 - [ ] Validé par l'utilisateur

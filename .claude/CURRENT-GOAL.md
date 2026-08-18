@@ -63,7 +63,12 @@ Ordre de livraison retenu, une branche par étape :
       PR #120, jamais supprimées de `origin` — seules les copies locales l'avaient été) :
       `docs/investigation-confidentialite-consentements`, `fix/front-visibilite-defauts-role`,
       `fix/profile-service-visibilite-defauts-role`.**
-- [ ] Point 2 — visibilité busy/free par relation. **En cours, démarré 2026-08-18.** Branche
+- [ ] Point 2 — visibilité busy/free par relation. **Backend + front livrés (239+26 tests),
+      déployé, bug réel trouvé par l'orchestrateur en HTTP contre la pile réelle : un titulaire
+      qui n'a jamais ouvert son propre `/calendar` bloque tout le monde d'autre sur `/busy` (403),
+      même avec une relation active réelle confirmée côté `profile-service` — `ownerRole` se
+      résout depuis la ligne `Calendar`, créée paresseusement seulement au premier `GET`. Correctif
+      en cours chez `calendar-service`.** Branche
       `feat/calendrier-visibilite-relation` créée (locale, pas encore poussée au moment de cette
       note). Approche déjà détaillée dans le plan (section « Point 2 »), résumé pour reprise sans
       relire le plan en entier :

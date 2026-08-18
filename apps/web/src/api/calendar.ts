@@ -21,9 +21,15 @@ import type {
   CalendarEvent,
   ActivitySession,
   AvailabilitySlot,
+  AvailabilitySlotApi,
   CreateAvailabilitySlotPayload,
   UpdateAvailabilitySlotPayload,
 } from '../types/calendar'
+import {
+  fromApiSlot,
+  toApiCreatePayload,
+  toApiUpdatePayload,
+} from '../utils/availabilitySlotApiMapping'
 
 // ─── Calendrier (CalendarPage) ─────────────────────────────────────────────────
 
@@ -126,18 +132,24 @@ export async function deleteActivity(activityId: string): Promise<void> {
 // calendar-service (404 confirmé contre la pile réelle). `docs/routes.md` documente désormais
 // la vraie route — `GET /calendars/:ownerId`, qui renvoie le calendrier complet et porte les
 // créneaux de disponibilité dans son bloc `availabilitySlots`.
+//
+// Corrigé le même jour (second bug, distinct) : le contrat réel de calendar-service exige
+// `startTime`/`endTime` en ISO 8601 complet et `kind`/`recurrence` en minuscules — vérifié par
+// appel HTTP réel, voir `src/utils/availabilitySlotApiMapping.ts`. La traduction entre la
+// représentation front (`HH:mm`, majuscules) et ce contrat a lieu ici, exclusivement.
 
 interface OwnerCalendarResponse {
-  availabilitySlots?: AvailabilitySlot[]
+  availabilitySlots?: AvailabilitySlotApi[]
 }
 
 /**
  * GET /calendars/:ownerId — Lit le calendrier complet d'un titulaire et en extrait les
- * créneaux de disponibilité (`availabilitySlots`). Utilisé par AvailabilityTab.
+ * créneaux de disponibilité (`availabilitySlots`), traduits vers la représentation front.
+ * Utilisé par AvailabilityTab.
  */
 export async function fetchAvailability(ownerId: string): Promise<AvailabilitySlot[]> {
   const { data } = await apiClient.get<OwnerCalendarResponse>(`/calendars/${ownerId}`)
-  return Array.isArray(data?.availabilitySlots) ? data.availabilitySlots : []
+  return Array.isArray(data?.availabilitySlots) ? data.availabilitySlots.map(fromApiSlot) : []
 }
 
 /**
@@ -147,26 +159,32 @@ export async function createAvailabilitySlot(
   ownerId: string,
   payload: CreateAvailabilitySlotPayload,
 ): Promise<AvailabilitySlot> {
-  const { data } = await apiClient.post<AvailabilitySlot>(
+  const { data } = await apiClient.post<AvailabilitySlotApi>(
     `/calendars/${ownerId}/availability-slots`,
-    payload,
+    toApiCreatePayload(payload),
   )
-  return data
+  return fromApiSlot(data)
 }
 
 /**
  * PATCH /calendars/:ownerId/availability-slots/:slotId — Modifie un créneau existant.
+ *
+ * `currentDayOfWeek` sert uniquement à construire une date ISO cohérente pour `startTime`/
+ * `endTime` quand le payload ne porte pas lui-même `dayOfWeek` — voir
+ * `toApiUpdatePayload` pour le détail (sans conséquence côté serveur, qui ne recoupe jamais la
+ * date envoyée avec `dayOfWeek`).
  */
 export async function updateAvailabilitySlot(
   ownerId: string,
   slotId: string,
   payload: UpdateAvailabilitySlotPayload,
+  currentDayOfWeek?: number,
 ): Promise<AvailabilitySlot> {
-  const { data } = await apiClient.patch<AvailabilitySlot>(
+  const { data } = await apiClient.patch<AvailabilitySlotApi>(
     `/calendars/${ownerId}/availability-slots/${slotId}`,
-    payload,
+    toApiUpdatePayload(payload, currentDayOfWeek),
   )
-  return data
+  return fromApiSlot(data)
 }
 
 /**

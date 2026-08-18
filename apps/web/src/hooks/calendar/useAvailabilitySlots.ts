@@ -72,7 +72,13 @@ export function useAvailabilitySlots(ownerId: string | undefined): UseAvailabili
       setIsSaving(true)
       setActionError(null)
       try {
-        const updatedSlot = await updateAvailabilitySlot(ownerId, slotId, payload)
+        const existingSlot = (slotsOverride ?? data ?? []).find((slot) => slot.id === slotId)
+        const updatedSlot = await updateAvailabilitySlot(
+          ownerId,
+          slotId,
+          payload,
+          existingSlot?.dayOfWeek,
+        )
         setSlotsOverride((previous) =>
           (previous ?? data ?? []).map((slot) => (slot.id === slotId ? updatedSlot : slot)),
         )

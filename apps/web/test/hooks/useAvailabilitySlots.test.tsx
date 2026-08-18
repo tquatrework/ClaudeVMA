@@ -121,9 +121,15 @@ describe('useAvailabilitySlots — modification', () => {
     })
 
     expect(result.current.slots).toEqual([updatedSlot])
-    expect(mockUpdateAvailabilitySlot).toHaveBeenCalledWith(OWNER_ID, EXISTING_SLOT.id, {
-      endTime: '11:00',
-    })
+    // `currentDayOfWeek` (4e argument) — le hook le transmet à partir du créneau existant, pour
+    // que `src/api/calendar.ts` puisse construire une date ISO cohérente en son absence du
+    // corps partiel (voir `toApiUpdatePayload`).
+    expect(mockUpdateAvailabilitySlot).toHaveBeenCalledWith(
+      OWNER_ID,
+      EXISTING_SLOT.id,
+      { endTime: '11:00' },
+      EXISTING_SLOT.dayOfWeek,
+    )
   })
 })
 

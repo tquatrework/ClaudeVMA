@@ -127,6 +127,26 @@ describe('getErrorMessage', () => {
       'Impossible de créer le compte.',
     )
   })
+
+  it('journalise (sans l\'afficher) un message de validation en tableau, plutôt que de l\'ignorer en silence', () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const message = getErrorMessage({
+      response: {
+        status: 400,
+        data: { message: ['startTime must be a valid ISO 8601 date string'] },
+      },
+    })
+
+    // L'écran reste sur le message générique sûr, jamais le jargon technique anglais.
+    expect(message).toMatch(/vérifiez les informations saisies/i)
+    expect(message).not.toMatch(/ISO 8601/)
+    // Mais le détail est désormais visible en console pour le diagnostic.
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('validation refusée'),
+      expect.stringContaining('startTime must be a valid ISO 8601 date string'),
+    )
+  })
 })
 
 describe("getErrorMessage — libellés techniques anglais des gardes de rôle", () => {

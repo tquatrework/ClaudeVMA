@@ -112,7 +112,10 @@ export function isUnknownFieldsRejection(error: unknown): boolean {
  * 1. Message métier renvoyé par le backend (`response.data.message`), s'il existe — c'est
  *    l'information la plus précise (ex. règle métier violée). **Sauf** s'il s'agit d'un
  *    libellé technique anglais de garde de rôle, qui n'apporte rien de plus que le code
- *    HTTP et violerait la règle de langue ; on retombe alors sur le point 2.
+ *    HTTP et violerait la règle de langue ; on retombe alors sur le point 2. Ce point ne
+ *    s'applique qu'aux messages en **chaîne** : un message en **tableau** (violations
+ *    `class-validator`) est journalisé pour le développeur puis ignoré ici, jamais affiché
+ *    tel quel (anglais technique) — voir le point 2.
  * 2. Message par défaut associé au code HTTP (401 / 403 / 404 / 409 / 400 / 422).
  * 3. Message générique « serveur indisponible » pour les codes 5xx.
  * 4. Message générique « réseau » si la requête n'a reçu aucune réponse.
@@ -143,6 +146,17 @@ export function getErrorMessage(error: unknown, fallback?: string): string {
     !isUntranslatedGuardMessage(backendMessage)
   ) {
     return backendMessage
+  }
+
+  // Erreurs de validation `class-validator` (`ValidationPipe`) : le serveur renvoie un
+  // **tableau** de violations (ex. `["startTime must be a valid ISO 8601 date string"]`),
+  // texte technique en anglais jamais affiché tel quel (règle de langue du 2026-08-09). Avant ce
+  // correctif, elles étaient silencieusement ignorées ici (le contrôle ci-dessus ne portait que
+  // sur les messages en chaîne) et l'utilisateur ne voyait que le message générique du code HTTP,
+  // sans aucune trace exploitable — y compris en console. Le détail est désormais journalisé pour
+  // le diagnostic, l'écran restant sur le message générique sûr (français, sans jargon).
+  if (Array.isArray(backendMessage) && backendMessage.length > 0) {
+    console.error('[apiError] validation refusée par le serveur :', backendMessage.join(' '))
   }
 
   if (typeof status === 'number') {

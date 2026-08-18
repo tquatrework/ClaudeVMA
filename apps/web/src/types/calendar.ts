@@ -35,17 +35,43 @@ export interface ActivitySession {
   videoRoomId?: string
 }
 
+/** Fréquence de récurrence d'un créneau de disponibilité. */
+export type AvailabilityRecurrence = 'NONE' | 'WEEKLY' | 'BIWEEKLY'
+
+/** Nature d'un créneau : disponibilité déclarée, ou indisponibilité (à exclure). */
+export type AvailabilityKind = 'AVAILABLE' | 'UNAVAILABLE'
+
 /**
- * Créneau de disponibilité d'un calendrier — soit récurrent (`dayOfWeek` + `startTime`/`endTime`),
- * soit ponctuel (`date`), soit un simple libellé (`label`).
+ * Créneau de disponibilité/indisponibilité d'un calendrier, récurrent sur un jour de la
+ * semaine (`dayOfWeek` = 0 dimanche … 6 samedi, alignée `Date.getDay()`).
  *
- * Source API : GET /calendars/:ownerId/availability. Utilisé par AvailabilityEditor.
+ * Source API : GET /calendars/:ownerId/availability (lecture),
+ * POST/PATCH/DELETE /calendars/:ownerId/availability-slots[/:slotId] (écriture) —
+ * contrat encore hors `docs/routes.md` au moment de l'écriture, backend en cours
+ * d'implémentation en parallèle sur la même branche.
  */
 export interface AvailabilitySlot {
   id: string
-  dayOfWeek?: string
-  startTime?: string
-  endTime?: string
-  date?: string
-  label?: string
+  ownerId: string
+  dayOfWeek: number
+  startTime: string
+  endTime: string
+  recurrence: AvailabilityRecurrence
+  recurrenceEndDate: string | null
+  kind: AvailabilityKind
+  createdAt?: string
+  updatedAt?: string
 }
+
+/** Corps de `POST /calendars/:ownerId/availability-slots`. */
+export interface CreateAvailabilitySlotPayload {
+  dayOfWeek: number
+  startTime: string
+  endTime: string
+  recurrence: AvailabilityRecurrence
+  recurrenceEndDate?: string | null
+  kind: AvailabilityKind
+}
+
+/** Corps de `PATCH /calendars/:ownerId/availability-slots/:slotId` — champs partiels. */
+export type UpdateAvailabilitySlotPayload = Partial<CreateAvailabilitySlotPayload>

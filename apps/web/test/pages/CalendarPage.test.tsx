@@ -33,6 +33,7 @@ import {
   createOwnerEvent,
   setEventReminder,
   requestEventCancellation,
+  fetchAvailability,
 } from '../../src/api/calendar'
 
 const mockUseAuth = vi.mocked(useAuth)
@@ -42,6 +43,7 @@ const mockDeclineEventInvitation = vi.mocked(declineEventInvitation)
 const mockCreateOwnerEvent = vi.mocked(createOwnerEvent)
 const mockSetEventReminder = vi.mocked(setEventReminder)
 const mockRequestEventCancellation = vi.mocked(requestEventCancellation)
+const mockFetchAvailability = vi.mocked(fetchAvailability)
 
 const TEACHER_USER = {
   id: 'teacher-1',
@@ -85,6 +87,7 @@ const PAST_ISO_2 = new Date(Date.now() - 3600000).toISOString()
 beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue(buildAuthMock())
+  mockFetchAvailability.mockResolvedValue([])
 })
 
 // ---------------------------------------------------------------------------
@@ -458,5 +461,69 @@ describe('CalendarPage — demande d\'annulation', () => {
         expect.any(Object),
       )
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Onglets — "Mes événements" / "Mes disponibilités" (règle du 2026-08-10 :
+// une navigation interne ne doit rien faire perdre)
+// ---------------------------------------------------------------------------
+describe('CalendarPage — onglets', () => {
+  it('affiche "Mes événements" comme onglet actif par défaut', async () => {
+    mockFetchOwnerEvents.mockResolvedValue([])
+
+    renderCalendar()
+
+    await waitFor(() => {
+      const eventsTab = screen.getByRole('tab', { name: 'Mes événements' })
+      expect(eventsTab.getAttribute('aria-selected')).toBe('true')
+    })
+  })
+
+  it('bascule vers "Mes disponibilités" et charge la grille', async () => {
+    mockFetchOwnerEvents.mockResolvedValue([])
+
+    renderCalendar()
+
+    await waitFor(() => {
+      screen.getByRole('tab', { name: 'Mes disponibilités' })
+    })
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Mes disponibilités' }))
+
+    await waitFor(() => {
+      expect(mockFetchAvailability).toHaveBeenCalledWith('teacher-1')
+    })
+  })
+
+  it('conserve les événements affichés en revenant sur "Mes événements" après avoir visité "Mes disponibilités"', async () => {
+    const fetchedEvents = [
+      {
+        id: 'evt-persist-1',
+        title: 'Cours persistant',
+        startAt: FUTURE_ISO_1,
+        endAt: FUTURE_ISO_2,
+        eventType: 'cours' as const,
+      },
+    ]
+    mockFetchOwnerEvents.mockResolvedValue(fetchedEvents)
+
+    renderCalendar()
+
+    await waitFor(() => {
+      expect(screen.getByText('Cours persistant')).toBeDefined()
+    })
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Mes disponibilités' }))
+    await waitFor(() => {
+      expect(mockFetchAvailability).toHaveBeenCalled()
+    })
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Mes événements' }))
+
+    // Un seul appel : revenir sur l'onglet ne recharge pas ses données (montage
+    // paresseux puis maintien, TabPanel).
+    expect(mockFetchOwnerEvents).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('Cours persistant')).toBeDefined()
   })
 })

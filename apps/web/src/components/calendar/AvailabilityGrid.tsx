@@ -1,0 +1,140 @@
+import React from 'react'
+import type { AvailabilitySlot, AvailabilityKind } from '../../types/calendar'
+import { AVAILABILITY_DAY_OPTIONS, getDayLabel } from '../../utils/availabilityDays'
+import {
+  GRID_START_HOUR,
+  GRID_END_HOUR,
+  computeVerticalPosition,
+  formatTimeRangeLabel,
+} from '../../utils/availabilityTime'
+
+const HOUR_ROW_HEIGHT_PX = 40
+const GRID_HOURS = Array.from(
+  { length: GRID_END_HOUR - GRID_START_HOUR },
+  (_, index) => GRID_START_HOUR + index,
+)
+const GRID_HEIGHT_PX = GRID_HOURS.length * HOUR_ROW_HEIGHT_PX
+
+const KIND_STYLES: Record<AvailabilityKind, string> = {
+  AVAILABLE: 'bg-green-100 text-green-800 border border-green-300 hover:bg-green-200',
+  UNAVAILABLE: 'bg-gray-200 text-gray-700 border border-gray-300 hover:bg-gray-300',
+}
+
+const KIND_LABELS: Record<AvailabilityKind, string> = {
+  AVAILABLE: 'Disponible',
+  UNAVAILABLE: 'Indisponible',
+}
+
+function formatHourLabel(hour: number): string {
+  return `${hour.toString().padStart(2, '0')}:00`
+}
+
+interface AvailabilityGridProps {
+  slots: AvailabilitySlot[]
+  /** Cellule horaire vide cliquée — ouvre le formulaire de création pré-rempli. */
+  onCreateAt: (dayOfWeek: number, startTime: string) => void
+  /** Bloc de créneau existant cliqué — ouvre le formulaire en édition/suppression. */
+  onEditSlot: (slot: AvailabilitySlot) => void
+  /** Lecture seule (vue d'un tiers, point 2 — non utilisée au point 1, prop anticipée). */
+  readOnly?: boolean
+}
+
+/**
+ * AvailabilityGrid — grille hebdomadaire Tailwind faite main, 7 colonnes (lundi → dimanche),
+ * plage 07:00–22:00. Interaction retenue (arbitrage) : clic sur une cellule horaire vide pour
+ * créer, clic sur un bloc existant pour éditer/supprimer — pas de clic-glisser.
+ */
+export default function AvailabilityGrid({
+  slots,
+  onCreateAt,
+  onEditSlot,
+  readOnly = false,
+}: AvailabilityGridProps) {
+  return (
+    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+      <div className="grid grid-cols-[3rem_repeat(7,1fr)] border-b border-gray-200 bg-gray-50">
+        <div className="p-2" />
+        {AVAILABILITY_DAY_OPTIONS.map((day) => (
+          <div
+            key={day.value}
+            className="p-2 text-xs font-medium text-gray-600 text-center border-l border-gray-200"
+          >
+            {day.label}
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-[3rem_repeat(7,1fr)]">
+        <div className="relative" style={{ height: `${GRID_HEIGHT_PX}px` }}>
+          {GRID_HOURS.map((hour) => (
+            <div
+              key={hour}
+              className="absolute left-0 right-0 text-[10px] text-gray-400 -translate-y-1/2 pr-1 text-right"
+              style={{ top: `${(hour - GRID_START_HOUR) * HOUR_ROW_HEIGHT_PX}px` }}
+            >
+              {formatHourLabel(hour)}
+            </div>
+          ))}
+        </div>
+
+        {AVAILABILITY_DAY_OPTIONS.map((day) => {
+          const daySlots = slots.filter((slot) => slot.dayOfWeek === day.value)
+          return (
+            <div
+              key={day.value}
+              className="relative border-l border-gray-100"
+              style={{ height: `${GRID_HEIGHT_PX}px` }}
+            >
+              {GRID_HOURS.map((hour) => {
+                const cellStartTime = formatHourLabel(hour)
+                return (
+                  <button
+                    key={hour}
+                    type="button"
+                    disabled={readOnly}
+                    onClick={() => onCreateAt(day.value, cellStartTime)}
+                    aria-label={`Ajouter un créneau ${day.label.toLowerCase()} à ${cellStartTime}`}
+                    className="absolute left-0 right-0 border-b border-gray-100 hover:bg-indigo-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 disabled:hover:bg-transparent disabled:cursor-default"
+                    style={{
+                      top: `${(hour - GRID_START_HOUR) * HOUR_ROW_HEIGHT_PX}px`,
+                      height: `${HOUR_ROW_HEIGHT_PX}px`,
+                    }}
+                  />
+                )
+              })}
+
+              {daySlots.map((slot) => {
+                const { topPercent, heightPercent } = computeVerticalPosition(
+                  slot.startTime,
+                  slot.endTime,
+                )
+                return (
+                  <button
+                    key={slot.id}
+                    type="button"
+                    onClick={() => onEditSlot(slot)}
+                    aria-label={`${readOnly ? 'Consulter' : 'Modifier'} le créneau ${getDayLabel(
+                      slot.dayOfWeek,
+                    ).toLowerCase()} ${formatTimeRangeLabel(slot.startTime, slot.endTime)} — ${
+                      KIND_LABELS[slot.kind]
+                    }`}
+                    className={`absolute left-0.5 right-0.5 rounded px-1 py-0.5 text-[10px] leading-tight text-left overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${KIND_STYLES[slot.kind]}`}
+                    style={{
+                      top: `${topPercent}%`,
+                      height: `${Math.max(heightPercent, 4)}%`,
+                    }}
+                  >
+                    <span className="block font-medium">{KIND_LABELS[slot.kind]}</span>
+                    <span className="block">
+                      {formatTimeRangeLabel(slot.startTime, slot.endTime)}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}

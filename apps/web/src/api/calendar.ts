@@ -17,7 +17,13 @@ import type {
   EventType,
   ReminderDelay,
 } from '../components/calendar/calendarTypes'
-import type { CalendarEvent, ActivitySession, AvailabilitySlot } from '../types/calendar'
+import type {
+  CalendarEvent,
+  ActivitySession,
+  AvailabilitySlot,
+  CreateAvailabilitySlotPayload,
+  UpdateAvailabilitySlotPayload,
+} from '../types/calendar'
 
 // ─── Calendrier (CalendarPage) ─────────────────────────────────────────────────
 
@@ -114,15 +120,56 @@ export async function deleteActivity(activityId: string): Promise<void> {
   await apiClient.delete(`/calendar/${activityId}`)
 }
 
-// ─── Disponibilités (AvailabilityEditor) ───────────────────────────────────────
+// ─── Disponibilités (AvailabilityTab) ───────────────────────────────────────────
+//
+// Écart supplémentaire à `docs/routes.md`, signalé à part : `createAvailabilitySlot`,
+// `updateAvailabilitySlot` et `deleteAvailabilitySlot` consomment un contrat CRUD encore en
+// cours d'implémentation en parallèle sur `calendar-service`, non documenté à l'heure où ce
+// module est écrit. `fetchAvailability` reste inchangée, elle est déjà documentée.
 
 /**
  * GET /calendars/:ownerId/availability — Lit les créneaux de disponibilité d'un calendrier.
- * Utilisé par AvailabilityEditor.
+ * Utilisé par AvailabilityTab.
  */
 export async function fetchAvailability(ownerId: string): Promise<AvailabilitySlot[]> {
   const { data } = await apiClient.get<AvailabilitySlot[]>(`/calendars/${ownerId}/availability`)
   return Array.isArray(data) ? data : []
+}
+
+/**
+ * POST /calendars/:ownerId/availability-slots — Crée un créneau de disponibilité/indisponibilité.
+ */
+export async function createAvailabilitySlot(
+  ownerId: string,
+  payload: CreateAvailabilitySlotPayload,
+): Promise<AvailabilitySlot> {
+  const { data } = await apiClient.post<AvailabilitySlot>(
+    `/calendars/${ownerId}/availability-slots`,
+    payload,
+  )
+  return data
+}
+
+/**
+ * PATCH /calendars/:ownerId/availability-slots/:slotId — Modifie un créneau existant.
+ */
+export async function updateAvailabilitySlot(
+  ownerId: string,
+  slotId: string,
+  payload: UpdateAvailabilitySlotPayload,
+): Promise<AvailabilitySlot> {
+  const { data } = await apiClient.patch<AvailabilitySlot>(
+    `/calendars/${ownerId}/availability-slots/${slotId}`,
+    payload,
+  )
+  return data
+}
+
+/**
+ * DELETE /calendars/:ownerId/availability-slots/:slotId — Supprime un créneau.
+ */
+export async function deleteAvailabilitySlot(ownerId: string, slotId: string): Promise<void> {
+  await apiClient.delete(`/calendars/${ownerId}/availability-slots/${slotId}`)
 }
 
 // ─── Création d'événement (EventCreateDialog) ──────────────────────────────────

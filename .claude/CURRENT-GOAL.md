@@ -137,9 +137,14 @@ menus ne s'applique donc pas ici) :
       pas encore mergé dans `master`) : branche locale `verify/visibilite-defauts-role` refaite à
       partir de `origin/master` + les trois branches, sans conflit ; `frontend` reconstruit et
       redéployé, bundle servi confirmé `assets/index-sbHSCu-z.js`, gateway rechargée.
-- [~] Preuve livrée à l'utilisateur — capture déléguée à `front-tester`, en cours (couvre les
-      points 1 et 2 ensemble : prénom/nom grisés sur `/visibilite`, consentements en haut de
-      l'onglet Confidentialité avec tuile « Détails » en dessous).
+- [x] Preuve livrée à l'utilisateur — test e2e Playwright réel contre la pile réelle, 2/2 verts,
+      committé `apps/web/e2e/proof-visibility-locked-names-and-consents-tab.spec.ts` sur
+      `fix/front-visibilite-defauts-role` (commit `ed70d1d`). Captures rejouées par l'orchestrateur
+      (le worktree de l'agent avait été nettoyé automatiquement avant récupération) et publiées
+      dans l'Artifact déjà partagé avec l'utilisateur (mis à jour en place, même URL) : prénom/nom
+      grisés verrouillés sur « Tous les membres » (Pièce 3), onglet Confidentialité avec
+      consentements en tête et tuile « Détails » en dessous, retrait réservé au marketing
+      (Pièce 4).
 - [ ] Validé par l'utilisateur
 
 #### Preuve HTTP citée (2026-08-18, contre `https://claudevma.visioprof.fr`)

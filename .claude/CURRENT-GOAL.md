@@ -80,8 +80,23 @@ Ordre de livraison retenu, une branche par étape :
       explicite de l'utilisateur (2026-08-18) : la preuve écran attendra son intégration réelle au
       point 3, pas de page de test jetable entre-temps. **Validé par l'utilisateur** sur cette
       base — mergé dans master.
-- [ ] Point 3 — proposition/acceptation de créneau. **Backend terminé et testé (198+83 puis +33+88
-      tests), en attente du front.** `POST /activities/:id/accept`/`.../decline` livrés (modèle
+- [ ] Point 3 — proposition/acceptation de créneau. **Backend + front livrés (198+83+33+88 puis
+      +40 tests). Gap réel bloquant trouvé par le front en testant en HTTP contre la pile réelle,
+      pas contourné : aucune route ne liste les activités d'un utilisateur — `GET /activities`
+      → 404, et `GET /calendars/:ownerId` ne porte jamais les activités malgré sa propre
+      documentation qui le promet (déjà signalé par le tout premier agent d'exploration de ce
+      chantier, jamais traité depuis). Conséquence : un destinataire d'une proposition n'a
+      aujourd'hui aucun moyen de la découvrir dans l'interface (pas de liste, pas de notification).
+      Le front a contourné honnêtement ce qu'il pouvait (suivi des propositions envoyées côté
+      proposeur via localStorage, statut toujours relu au serveur) mais le lien direct vers une
+      proposition doit être transmis hors application pour l'instant — **point 3 pas réellement
+      utilisable en usage réel tant que ce gap n'est pas comblé**. Correctif backend à dispatcher :
+      ajouter une route de liste (`GET /activities?participantId=` ou faire porter les activités
+      par `GET /calendars/:ownerId` comme documenté). À envisager aussi : brancher calendar-service
+      sur le système de notifications existant (cloche, pattern déjà établi par
+      `teacher-request-service`/`dashboard-notification-service`) plutôt qu'un simple lien à
+      partager — décision à trancher avant de dispatcher.**
+      Reste par ailleurs : `POST /activities/:id/accept`/`.../decline` livrés (modèle
       `EventInvitationsController`), vrai trou de sécurité corrigé (vérification de lien avant
       proposition via `ProfileRelationsClient`), `DELETE /activities/:id` ajoutée. Contrat
       documenté avec exemples exacts dans `docs/routes.md`. **Bug pré-existant signalé, non

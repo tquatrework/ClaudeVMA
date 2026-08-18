@@ -182,6 +182,125 @@
             unitaire (controleur + service, avec guards mockes) existe pour ce perimetre.</item>
         </openPoints>
       </session>
+
+      <session date="2026-08-18" label="Calendrier de disponibilites, point 1 — CRUD de creneaux + recurrence avec date de fin">
+        <context>
+          Premier des 4 points du chantier « calendrier de disponibilites lie a la visio ».
+          Perimetre strict de cette session : CRUD par creneau individuel + date de fin de
+          recurrence. Les points 2 (visibilite busy/free par relation metier), 3 (proposition/
+          acceptation de creneau) et 4 (integration visio) restent a traiter par des taches
+          ulterieures — non anticipes ici.
+        </context>
+
+        <changeset id="prerequis-migrations">
+          <item>Le service n'avait jusqu'ici aucun mecanisme de migration
+            (`synchronize: false` sans alternative) : tout changement de schema n'aurait pu
+            se faire que par ALTER manuel non trace. Mecanisme mis en place a l'identique de
+            celui de profile-service : `src/data-source.ts` (DataSource CLI-only,
+            `migrationsTableName: 'calendar_service_migrations'`), `src/migrations/`,
+            scripts npm `migration:run|revert|show|generate`, `entrypoint.sh` (migration:run
+            avec `set -e` puis demarrage de l'app), `Dockerfile` mis a jour pour l'utiliser.
+            Dependance `dotenv` ajoutee (absente jusqu'ici).</item>
+          <item>Verifie contre une base Postgres jetable ET contre une copie reelle du schema
+            de `visiomath_calendar` (base de l'environnement deploye) : `up`, re-execution
+            (no-op), et `down` tous valides. Le schema de production suppose deja existant
+            (hypothese de la migration incrementale, cf. ci-dessous) a ete confirme identique
+            au schema attendu par lecture directe de `visiomath_calendar.availability_slots`
+            — l'hypothese etait correcte, aucune divergence constatee. La migration n'a
+            volontairement PAS ete executee contre cette base reelle dans le cadre de cette
+            tache (deploiement hors perimetre) ; elle s'executera automatiquement via
+            `entrypoint.sh` au prochain deploiement du conteneur.</item>
+        </changeset>
+
+        <changeset id="entite-availability-slot">
+          <item>`AvailabilitySlot` : ajout de `recurrenceEndDate` (nullable — une recurrence
+            WEEKLY/BIWEEKLY sans date de fin reste valide, comportement illimite historique
+            preserve) et `kind: AVAILABLE|UNAVAILABLE` (defaut `AVAILABLE`, migration de
+            donnees exacte car tout creneau existant representait deja une disponibilite).
+            Migration `1787060000000-AddAvailabilitySlotKindAndRecurrenceEnd` : ALTER TABLE
+            incremental, idempotent (`IF NOT EXISTS`/`IF EXISTS`), pas de CREATE TABLE de
+            base (schema suppose deja present en production, cf. changeset precedent).</item>
+        </changeset>
+
+        <changeset id="crud-creneaux">
+          <item>Nouvelles routes `POST/PATCH/DELETE /calendars/:ownerId/availability-slots
+            [/:slotId]`, en plus du `PUT .../availability` existant (bulk-replace, inchange
+            sauf son decorateur de roles — voir ci-dessous). Nouveaux DTO
+            `CreateAvailabilitySlotDto`/`UpdateAvailabilitySlotDto` ;
+            `recurrenceEndDate` du PATCH accepte explicitement `null` pour effacer une date
+            de fin deja posee (seul champ nullable-effacable du service a ce jour).</item>
+          <item>`CalendarsService` : `createSlot`/`updateSlot`/`deleteSlot`, reutilisant tel
+            quel `assertCanWriteCalendar` (titulaire ou RP/TI — aucune nouvelle politique
+            d'ecriture inventee). Nouvelle validation (routes CRUD uniquement, PUT bulk
+            inchange) : `endTime > startTime`, `recurrenceEndDate >= startTime`. `updateSlot`/
+            `deleteSlot` chargent le creneau scope au proprietaire (jointure calendar.owner_id)
+            : un `slotId` existant mais appartenant a un autre `ownerId` repond 404, jamais de
+            fuite d'existence. Suppression physique (hard delete), coherent avec le
+            comportement deja en place du bulk-replace — pas de semantique journal/append-only
+            ici (donnee operationnelle, pas probante).</item>
+          <item>Evenement : reutilisation de `AvailabilityUpdated` (deja existant) avec un
+            champ `action: 'created'|'updated'|'deleted'` dans le payload, plutot que trois
+            nouveaux types d'evenements — `CalendarEventType` reste une union fermee sans
+            ajout, aucun consommateur reel n'existe encore pour ce flux cote
+            dashboard-notification-service.</item>
+        </changeset>
+
+        <changeset id="correctif-roles-guard">
+          <item>Bug trouve en explorant (signale par l'utilisateur) : le decorateur `@Roles`
+            du `PUT .../availability` incluait `ANIMATEUR_PEDAGOGIQUE`, deja refuse en
+            pratique par `assertCanWriteCalendar` — decorateur trompeur. Trouvaille
+            supplementaire faite pendant l'exploration : `ELEVE` etait absent du meme
+            decorateur, alors que le service l'autorise deja (il est titulaire) et que le
+            besoin metier du chantier exige explicitement que les eleves editent leurs
+            propres creneaux (CAL-BR-001) — un eleve etait donc bloque en 403 par le guard
+            avant meme d'atteindre le service. Corrige sur le `PUT` existant ET les 3
+            nouvelles routes : `[ELEVE, FORMATEUR, RESPONSABLE_PEDAGOGIQUE,
+            TECHNICIEN_INFORMATIQUE]`, constante `AVAILABILITY_WRITE_ROLES` partagee dans le
+            controleur. Changement de comportement reel confirme par l'utilisateur avant
+            implementation.</item>
+        </changeset>
+
+        <changeset id="expandSlotToOccurrences">
+          <item>`src/calendars/recurrence.util.ts` : fonction pure `expandSlotToOccurrences
+            (slot, rangeStart, rangeEnd)`, sans dependance NestJS/TypeORM, projette un
+            creneau (NONE/WEEKLY/BIWEEKLY) en occurrences concretes bornees par
+            `recurrenceEndDate` (si fixee) et par la fenetre demandee. Destinee a etre
+            reutilisee sans modification par le point 2 (visibilite busy/free).</item>
+        </changeset>
+
+        <changeset id="tests">
+          <item>`calendars.service.spec.ts` etendu : `createSlot`/`updateSlot`/`deleteSlot`
+            (nominal titulaire, RP/TI sur calendrier d'un tiers, refus role tiers, 400 sur
+            plage horaire invalide, 404 creneau inconnu ou d'un autre proprietaire, effacement
+            explicite de `recurrenceEndDate`, defaut `kind=available`).</item>
+          <item>Nouveau `recurrence.util.spec.ts` : NONE dans/hors fenetre, WEEKLY sans date
+            de fin bornee par la fenetre, WEEKLY avec date de fin, BIWEEKLY (espacement 14
+            jours), fenetre entierement posterieure a `recurrenceEndDate`, duree d'occurrence
+            preservee, entrees degenerees.</item>
+          <item>`test/e2e/calendar.e2e-spec.ts` etendu avec les 3 nouvelles routes (nominal,
+            403 role non autorise, 400 validation, 404 creneau inconnu/mauvais proprietaire).
+            121 tests unitaires (11 suites) et 49 tests e2e verts (les 2 fichiers e2e doivent
+            etre executes avec `--runInBand` : ils partagent la meme base `calendar_test` et
+            font chacun un `DROP SCHEMA public CASCADE` — en parallele ils se marchent dessus.
+            Defaut preexistant du script `test:e2e`, non introduit par cette session, non
+            corrige ici (hors perimetre du point 1).</item>
+        </changeset>
+
+        <blockers>Aucun. Prerequis migrations leve avant toute modification de schema, comme
+          demande.</blockers>
+        <openPoints>
+          <item>Points 2 (visibilite busy/free), 3 (proposition/acceptation de creneau) et 4
+            (integration visio) du chantier non traites — a livrer par des taches
+            ulterieures distinctes, chacune sur sa propre branche.</item>
+          <item>Aucune regle de chevauchement de creneaux n'existe (ni sur le bulk PUT
+            historique, ni sur les nouvelles routes CRUD) — confirme par lecture du code
+            avant cette session, volontairement non introduite ici (hors mandat).</item>
+          <item>Script `test:e2e` du service : lance les fichiers `*.e2e-spec.ts` en parallele
+            par defaut alors qu'ils partagent une base de test unique et la reinitialisent
+            chacun — a corriger un jour (`--runInBand` dans le script npm), signale ici sans
+            etre traite car prealable a cette session.</item>
+        </openPoints>
+      </session>
     </technicalSessions>
   </service>
 </serviceFunctionalSpecification>

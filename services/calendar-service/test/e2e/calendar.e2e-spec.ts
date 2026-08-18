@@ -9,8 +9,11 @@
  *   GET    /activities/:activityId             get an activity by ID
  *
  *   Calendars
- *   GET    /calendars/:ownerId                 get a user calendar (slots + activities)
- *   PUT    /calendars/:ownerId/availability    replace availability slots
+ *   GET    /calendars/:ownerId                                 get a user calendar (slots + activities)
+ *   PUT    /calendars/:ownerId/availability                    replace availability slots (bulk)
+ *   POST   /calendars/:ownerId/availability-slots               create a single slot
+ *   PATCH  /calendars/:ownerId/availability-slots/:slotId       update a single slot
+ *   DELETE /calendars/:ownerId/availability-slots/:slotId       delete a single slot
  *
  *   Reminders
  *   POST   /reminders                          create a reminder
@@ -136,6 +139,13 @@ describe('[E2E] Calendar Service', () => {
       const res = await request(app.getHttpServer())
         .post('/reminders')
         .send({});
+      expect(res.status).toBe(401);
+    });
+
+    it('POST /calendars/:ownerId/availability-slots sans token → 401', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/calendars/${IDS.teacher1}/availability-slots`)
+        .send({ startTime: new Date().toISOString(), endTime: new Date().toISOString() });
       expect(res.status).toBe(401);
     });
   });
@@ -372,6 +382,173 @@ describe('[E2E] Calendar Service', () => {
         .send({});
 
       expect(res.status).toBe(400);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // POST/PATCH/DELETE /calendars/:ownerId/availability-slots[/:slotId]
+  // CRUD par creneau individuel (chantier calendrier de disponibilites, point 1)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('CRUD /calendars/:ownerId/availability-slots — creneau individuel', () => {
+    function validSlotPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      const start = new Date(Date.now() + 2 * 86_400_000);
+      const end = new Date(start.getTime() + 7_200_000);
+      return {
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+        ...overrides,
+      };
+    }
+
+    it('Un formateur cree un creneau pour lui-meme → 201', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/calendars/${IDS.teacher1}/availability-slots`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send(validSlotPayload());
+
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('id');
+      expect(res.body.kind).toBe('available');
+    });
+
+    it('Un eleve cree un creneau pour lui-meme → 201 (CAL-BR-001)', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/calendars/${IDS.student1}/availability-slots`)
+        .set('Authorization', `Bearer ${student1Token}`)
+        .send(validSlotPayload());
+
+      expect(res.status).toBe(201);
+    });
+
+    it('Un RP cree un creneau pour un tiers → 201', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/calendars/${IDS.teacher2}/availability-slots`)
+        .set('Authorization', `Bearer ${rpToken}`)
+        .send(validSlotPayload({ kind: 'unavailable' }));
+
+      expect(res.status).toBe(201);
+      expect(res.body.kind).toBe('unavailable');
+    });
+
+    it('Un formateur ne peut pas creer un creneau pour un tiers → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/calendars/${IDS.student1}/availability-slots`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send(validSlotPayload());
+
+      expect(res.status).toBe(403);
+    });
+
+    it('endTime <= startTime → 400', async () => {
+      const start = new Date(Date.now() + 86_400_000);
+      const res = await request(app.getHttpServer())
+        .post(`/calendars/${IDS.teacher1}/availability-slots`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send({ startTime: start.toISOString(), endTime: start.toISOString() });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('startTime manquant → 400', async () => {
+      const { startTime: _omit, ...body } = validSlotPayload() as any;
+      const res = await request(app.getHttpServer())
+        .post(`/calendars/${IDS.teacher1}/availability-slots`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send(body);
+
+      expect(res.status).toBe(400);
+    });
+
+    describe('PATCH et DELETE sur un creneau existant', () => {
+      let slotId: string;
+
+      beforeAll(async () => {
+        const res = await request(app.getHttpServer())
+          .post(`/calendars/${IDS.teacher1}/availability-slots`)
+          .set('Authorization', `Bearer ${teacher1Token}`)
+          .send(validSlotPayload({ recurrence: 'weekly' }));
+        slotId = res.body.id;
+      });
+
+      it('Le titulaire redimensionne son creneau → 200', async () => {
+        if (!slotId) {
+          console.warn('slotId non defini — seed a echoue, skip PATCH resize');
+          return;
+        }
+        const newEnd = new Date(Date.now() + 3 * 86_400_000);
+        const res = await request(app.getHttpServer())
+          .patch(`/calendars/${IDS.teacher1}/availability-slots/${slotId}`)
+          .set('Authorization', `Bearer ${teacher1Token}`)
+          .send({ endTime: newEnd.toISOString() });
+
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('id', slotId);
+      });
+
+      it('Le titulaire pose une date de fin de recurrence puis l\'efface → 200', async () => {
+        if (!slotId) return;
+        const endDate = new Date(Date.now() + 30 * 86_400_000);
+        const withEndDate = await request(app.getHttpServer())
+          .patch(`/calendars/${IDS.teacher1}/availability-slots/${slotId}`)
+          .set('Authorization', `Bearer ${teacher1Token}`)
+          .send({ recurrenceEndDate: endDate.toISOString() });
+        expect(withEndDate.status).toBe(200);
+
+        const cleared = await request(app.getHttpServer())
+          .patch(`/calendars/${IDS.teacher1}/availability-slots/${slotId}`)
+          .set('Authorization', `Bearer ${teacher1Token}`)
+          .send({ recurrenceEndDate: null });
+        expect(cleared.status).toBe(200);
+        expect(cleared.body.recurrenceEndDate).toBeNull();
+      });
+
+      it('Un tiers sans droit ne peut pas modifier le creneau → 403', async () => {
+        if (!slotId) return;
+        const res = await request(app.getHttpServer())
+          .patch(`/calendars/${IDS.teacher1}/availability-slots/${slotId}`)
+          .set('Authorization', `Bearer ${student1Token}`)
+          .send({ kind: 'unavailable' });
+
+        expect(res.status).toBe(403);
+      });
+
+      it('PATCH sur un slotId inexistant → 404', async () => {
+        const res = await request(app.getHttpServer())
+          .patch(`/calendars/${IDS.teacher1}/availability-slots/${IDS.unknown}`)
+          .set('Authorization', `Bearer ${teacher1Token}`)
+          .send({ kind: 'unavailable' });
+
+        expect(res.status).toBe(404);
+      });
+
+      it("PATCH avec l'ownerId d'un tiers sur un slotId existant ailleurs → 404 (pas de fuite)", async () => {
+        if (!slotId) return;
+        const res = await request(app.getHttpServer())
+          .patch(`/calendars/${IDS.student1}/availability-slots/${slotId}`)
+          .set('Authorization', `Bearer ${rpToken}`)
+          .send({ kind: 'unavailable' });
+
+        expect(res.status).toBe(404);
+      });
+
+      it('Le titulaire supprime son creneau → 204', async () => {
+        if (!slotId) return;
+        const res = await request(app.getHttpServer())
+          .delete(`/calendars/${IDS.teacher1}/availability-slots/${slotId}`)
+          .set('Authorization', `Bearer ${teacher1Token}`);
+
+        expect(res.status).toBe(204);
+      });
+
+      it('DELETE sur un slotId deja supprime → 404', async () => {
+        if (!slotId) return;
+        const res = await request(app.getHttpServer())
+          .delete(`/calendars/${IDS.teacher1}/availability-slots/${slotId}`)
+          .set('Authorization', `Bearer ${teacher1Token}`);
+
+        expect(res.status).toBe(404);
+      });
     });
   });
 

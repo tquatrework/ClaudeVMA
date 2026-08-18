@@ -15,6 +15,18 @@ export enum SlotRecurrence {
 }
 
 /**
+ * Whether a slot represents a window the owner is available in, or
+ * explicitly unavailable in (e.g. a blocked-out period).
+ * Added 2026-08-18 (calendrier de disponibilités, point 1) — every slot
+ * created before this field existed represented an availability window,
+ * hence the AVAILABLE default applied by the migration.
+ */
+export enum SlotKind {
+  AVAILABLE = 'available',
+  UNAVAILABLE = 'unavailable',
+}
+
+/**
  * A time window during which the owner is available (CAL-BR-001, CAL-BR-002).
  */
 @Entity('availability_slots')
@@ -44,6 +56,20 @@ export class AvailabilitySlot {
     default: SlotRecurrence.NONE,
   })
   recurrence: SlotRecurrence;
+
+  /**
+   * End date of the recurrence (inclusive instant). Null means the
+   * recurrence has no end date — the pre-existing behaviour, preserved.
+   * Only meaningful when `recurrence` is WEEKLY or BIWEEKLY.
+   */
+  @Column({ name: 'recurrence_end_date', type: 'timestamptz', nullable: true })
+  recurrenceEndDate: Date | null;
+
+  @Column({
+    type: 'varchar',
+    default: SlotKind.AVAILABLE,
+  })
+  kind: SlotKind;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

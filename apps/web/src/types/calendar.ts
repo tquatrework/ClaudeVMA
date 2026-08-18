@@ -164,3 +164,48 @@ export interface LinkedCalendarBusyFree {
   unavailableBlocks: BusyFreeTimeBlock[]
   busyBlocks: BusyFreeTimeBlock[]
 }
+
+// ─── Activités planifiées — proposer/accepter/refuser un créneau de cours ──────
+//
+// Chantier calendrier de disponibilités, point 3 (2026-08-18). Contrat vérifié contre
+// docs/routes.md § calendar-service > "Activités planifiées" — forme exacte de
+// `ScheduledActivity`, distincte de `ActivitySession` ci-dessus (représentation historique,
+// jamais renvoyée telle quelle par le serveur, voir `src/utils/scheduledActivityApiMapping.ts`
+// pour la traduction utilisée par `fetchActivity`/`updateActivity`).
+
+/** `type` d'une activité planifiée — minuscules, exactement comme envoyé/renvoyé par le serveur. */
+export type ActivityType = 'cours' | 'reunion_pedagogique' | 'entretien_rp' | 'rappel' | 'autre'
+
+/** `status` d'une activité planifiée. `completed` n'est jamais atteignable par ces routes. */
+export type ActivityStatus = 'proposed' | 'confirmed' | 'cancelled' | 'completed'
+
+/**
+ * Forme réelle d'une activité planifiée, telle que renvoyée par `POST/GET/PUT /activities`,
+ * `.../accept` et `.../decline` (docs/routes.md § calendar-service > "Activités planifiées").
+ */
+export interface ScheduledActivity {
+  id: string
+  title?: string | null
+  type: ActivityType
+  creatorId: string
+  creatorRole: string
+  participantIds: string[]
+  startTime: string
+  endTime: string
+  status: ActivityStatus
+  description?: string | null
+  correlationId?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+/** Corps de `POST /activities`. */
+export interface CreateActivityPayload {
+  title?: string
+  type: ActivityType
+  participantIds: string[]
+  startTime: string
+  endTime: string
+  description?: string
+  correlationId?: string
+}

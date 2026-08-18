@@ -23,6 +23,7 @@ import TeacherRequestDetailPage from './pages/TeacherRequestDetailPage'
 import TeacherValidationQueuePage from './pages/TeacherValidationQueuePage'
 import CalendarPage from './pages/CalendarPage'
 import ActivityDetailPage from './pages/ActivityDetailPage'
+import CalendarProposalPage from './pages/CalendarProposalPage'
 import VideoPage from './pages/VideoPage'
 import VideoJoinPage from './pages/VideoJoinPage'
 import MessagesPage from './pages/MessagesPage'
@@ -196,6 +197,21 @@ export default function App() {
                 ]}
               >
                 <CalendarPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/calendar/proposals/:activityId"
+            element={
+              <ProtectedRoute
+                allowedRoles={[
+                  'eleve',
+                  'formateur',
+                  'responsable_pedagogique',
+                  'animateur_pedagogique',
+                ]}
+              >
+                <CalendarProposalPage />
               </ProtectedRoute>
             }
           />

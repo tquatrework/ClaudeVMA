@@ -2,13 +2,23 @@
  * Module API — calendar-service
  * Toutes les requêtes passent par apiClient (base /api/v1).
  *
- * Écarts signalés (non documentés dans docs/routes.md — comportement runtime préservé
- * tel quel, ne pas corriger ici) :
- * - `fetchActivitySessions` / `fetchActivity` / `updateActivity` / `deleteActivity` appellent
- *   `/calendar` et `/calendar/:id`, qui n'apparaissent dans aucune section de docs/routes.md
- *   (seule `/calendars/:ownerId/events` y est documentée pour calendar-service). Route
- *   utilisée par ActivitiesPage et ActivityDetailPage avant cette migration ; reproduite à
- *   l'identique.
+ * Assainissement du 2026-08-18 (chantier calendrier de disponibilités, point 3) :
+ * `fetchActivity`/`updateActivity`/`deleteActivity` appelaient `/calendar/:id`, qui **404**
+ * (aucune section de docs/routes.md ne l'a jamais documentée). Les vraies routes,
+ * documentées pour la première fois le même jour, sont `/activities/:activityId`
+ * (docs/routes.md § calendar-service > "Activités planifiées") — corrigées ci-dessous.
+ *
+ * **Écart restant, signalé et non corrigé** : `fetchActivitySessions` appelle `/calendar`
+ * (liste, sans id), qui **404** également. Contrairement aux trois fonctions ci-dessus,
+ * **aucune route de liste n'existe côté serveur** pour les activités planifiées — vérifié le
+ * 2026-08-18 par appel direct contre `https://claudevma.visioprof.fr` avec un compte réel :
+ * `GET /api/v1/activities` (sans id) répond `404 {"message":"Cannot GET /activities"}`, et
+ * `GET /calendars/:ownerId` (qui répond `200` et dont la description promet pourtant
+ * « créneaux de disponibilité + activités ») ne renvoie **aucune** activité même après qu'une
+ * activité a été créée pour ce même titulaire — seul `availabilitySlots` y figure. La règle du
+ * projet interdit d'inventer une URL : cet appel reste tel quel (toujours cassé), et
+ * `ActivitiesPage` reste donc non fonctionnelle tant qu'aucune route de liste n'existe côté
+ * serveur. Signalé dans le rapport de session, pas contourné ici.
  */
 
 import apiClient from './client'
@@ -22,7 +32,9 @@ import type {
   ActivitySession,
   AvailabilitySlot,
   AvailabilitySlotApi,
+  CreateActivityPayload,
   CreateAvailabilitySlotPayload,
+  ScheduledActivity,
   UpdateAvailabilitySlotPayload,
   LinkedCalendarBusyFree,
 } from '../types/calendar'
@@ -31,6 +43,7 @@ import {
   toApiCreatePayload,
   toApiUpdatePayload,
 } from '../utils/availabilitySlotApiMapping'
+import { fromApiActivity } from '../utils/scheduledActivityApiMapping'
 
 // ─── Calendrier (CalendarPage) ─────────────────────────────────────────────────
 
@@ -78,8 +91,9 @@ export interface FetchActivitySessionsParams {
 }
 
 /**
- * GET /calendar — Liste des séances d'activité, filtrée par rôle via query param.
- * Utilisé par ActivitiesPage.
+ * GET /calendar — **aucune route de liste équivalente n'existe côté serveur** (voir l'écart
+ * signalé en tête de fichier). Laissé tel quel, toujours 404 : ne pas corriger sans route
+ * documentée. Utilisé par ActivitiesPage.
  */
 export async function fetchActivitySessions(
   params: FetchActivitySessionsParams = {},
@@ -97,11 +111,12 @@ export async function fetchActivitySessions(
 }
 
 /**
- * GET /calendar/:id — Détail d'une séance d'activité. Utilisé par ActivityDetailPage.
+ * GET /activities/:activityId — Détail d'une activité planifiée, traduit vers la
+ * représentation front historique (voir `fromApiActivity`). Utilisé par ActivityDetailPage.
  */
 export async function fetchActivity(activityId: string): Promise<ActivitySession> {
-  const { data } = await apiClient.get<ActivitySession>(`/calendar/${activityId}`)
-  return data
+  const { data } = await apiClient.get<ScheduledActivity>(`/activities/${activityId}`)
+  return fromApiActivity(data)
 }
 
 export interface UpdateActivityPayload {
@@ -110,21 +125,71 @@ export interface UpdateActivityPayload {
 }
 
 /**
- * PATCH /calendar/:id — Modifie une séance d'activité (titre, statut).
+ * PUT /activities/:activityId — Modifie une activité planifiée (titre, statut — seuls champs
+ * édités par ActivityEditForm ; `docs/routes.md` en autorise davantage — participants,
+ * horaires, description — non exposés par ce formulaire).
  */
 export async function updateActivity(
   activityId: string,
   payload: UpdateActivityPayload,
 ): Promise<ActivitySession> {
-  const { data } = await apiClient.patch<ActivitySession>(`/calendar/${activityId}`, payload)
+  const { data } = await apiClient.put<ScheduledActivity>(`/activities/${activityId}`, payload)
+  return fromApiActivity(data)
+}
+
+/**
+ * DELETE /activities/:activityId — Supprime une activité planifiée (suppression physique,
+ * `204` sans corps).
+ */
+export async function deleteActivity(activityId: string): Promise<void> {
+  await apiClient.delete(`/activities/${activityId}`)
+}
+
+// ─── Proposer / accepter / refuser un créneau de cours ─────────────────────────
+//
+// Chantier calendrier de disponibilités, point 3 (2026-08-18). `docs/routes.md` §
+// calendar-service > "Activités planifiées". Le verbe API reste `POST /activities` — le choix
+// entre proposer/partager/envoyer est un libellé d'interface (« Proposer un créneau »), pas un
+// changement de contrat.
+
+/**
+ * POST /activities — Crée une activité planifiée, qui naît à `status: "proposed"`. Utilisé
+ * par `ProposeCourseSlotDialog` (formateur → élève : `type: "cours"` ; AP → formateur :
+ * `type: "reunion_pedagogique"` ; RP → formateur : `type: "reunion_pedagogique"`, sans
+ * restriction de lien).
+ */
+export async function createActivity(payload: CreateActivityPayload): Promise<ScheduledActivity> {
+  const { data } = await apiClient.post<ScheduledActivity>('/activities', payload)
   return data
 }
 
 /**
- * DELETE /calendar/:id — Supprime une séance d'activité.
+ * GET /activities/:activityId — Lit une activité planifiée dans sa forme réelle (sans
+ * traduction), pour le flux de proposition (`CalendarProposalPage`, suivi des propositions
+ * envoyées). Distinct de `fetchActivity` ci-dessus, qui traduit vers la représentation front
+ * historique pour ActivityDetailPage.
  */
-export async function deleteActivity(activityId: string): Promise<void> {
-  await apiClient.delete(`/calendar/${activityId}`)
+export async function fetchScheduledActivity(activityId: string): Promise<ScheduledActivity> {
+  const { data } = await apiClient.get<ScheduledActivity>(`/activities/${activityId}`)
+  return data
+}
+
+/**
+ * POST /activities/:activityId/accept — Le destinataire accepte : `proposed` → `confirmed`.
+ * Aucun corps. `409` si déjà traitée, `403` si l'appelant n'est pas le destinataire.
+ */
+export async function acceptActivity(activityId: string): Promise<ScheduledActivity> {
+  const { data } = await apiClient.post<ScheduledActivity>(`/activities/${activityId}/accept`)
+  return data
+}
+
+/**
+ * POST /activities/:activityId/decline — Le destinataire refuse : `proposed` → `cancelled`.
+ * Aucun corps. Mêmes règles que `acceptActivity`.
+ */
+export async function declineActivity(activityId: string): Promise<ScheduledActivity> {
+  const { data } = await apiClient.post<ScheduledActivity>(`/activities/${activityId}/decline`)
+  return data
 }
 
 // ─── Disponibilités (AvailabilityTab) ───────────────────────────────────────────

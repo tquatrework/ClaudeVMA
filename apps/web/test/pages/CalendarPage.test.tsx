@@ -527,3 +527,40 @@ describe('CalendarPage — onglets', () => {
     expect(screen.getByText('Cours persistant')).toBeDefined()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Onglet "Propositions de cours" (chantier calendrier, point 3) — point de montage de
+// CourseProposalsPanel, jusqu'ici jamais intégré à la page.
+// ---------------------------------------------------------------------------
+describe('CalendarPage — onglet "Propositions de cours"', () => {
+  it('bascule vers l’onglet et affiche le bouton "Proposer un créneau" pour un formateur', async () => {
+    mockFetchOwnerEvents.mockResolvedValue([])
+
+    renderCalendar()
+
+    await waitFor(() => {
+      screen.getByRole('tab', { name: 'Propositions de cours' })
+    })
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Propositions de cours' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Mes propositions envoyées')).toBeDefined()
+    })
+    expect(screen.getByRole('button', { name: /proposer un créneau/i })).toBeDefined()
+  })
+
+  it('conserve les onglets "Mes événements"/"Mes disponibilités" en revenant dessus après "Propositions de cours"', async () => {
+    mockFetchOwnerEvents.mockResolvedValue([])
+
+    renderCalendar()
+
+    await waitFor(() => screen.getByRole('tab', { name: 'Propositions de cours' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Propositions de cours' }))
+    await waitFor(() => screen.getByText('Mes propositions envoyées'))
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Mes événements' }))
+
+    expect(mockFetchOwnerEvents).toHaveBeenCalledTimes(1)
+  })
+})

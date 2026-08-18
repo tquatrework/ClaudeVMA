@@ -34,3 +34,26 @@ export function selectTeachersOfStudent(
     ),
   )
 }
+
+/**
+ * Les élèves d'un formateur (`kind: 'teacher_of_student'` — le lecteur est le professeur du
+ * contact). Utilisé par `ProposeCourseSlotDialog` pour désigner le destinataire d'un
+ * `type: "cours"`, sans jamais faire saisir un identifiant.
+ */
+export function selectMyStudents(contacts: ContactOption[]): ContactOption[] {
+  return contacts.filter((contact) =>
+    contact.relations.some((relation) => relation.kind === 'teacher_of_student'),
+  )
+}
+
+/**
+ * Les formateurs animés par un animateur pédagogique (`kind: 'animator_of_teacher'`). Utilisé
+ * par `ProposeCourseSlotDialog` pour désigner le destinataire d'un `type: "reunion_pedagogique"`
+ * proposé par un AP — le RP, lui, passe par l'annuaire des formateurs validés
+ * (`useSelectableTeachers`), sans restriction de lien.
+ */
+export function selectAnimatedTeachers(contacts: ContactOption[]): ContactOption[] {
+  return contacts.filter((contact) =>
+    contact.relations.some((relation) => relation.kind === 'animator_of_teacher'),
+  )
+}

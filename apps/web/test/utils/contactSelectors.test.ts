@@ -5,7 +5,9 @@
 
 import { describe, it, expect } from 'vitest'
 import {
+  selectAnimatedTeachers,
   selectFinancedStudents,
+  selectMyStudents,
   selectTeachersOfStudent,
 } from '../../src/utils/contactSelectors'
 import type { ContactOption } from '../../src/hooks/relations/useMyContacts'
@@ -76,5 +78,51 @@ describe('selectTeachersOfStudent', () => {
 
   it('renvoie une liste vide pour un élève sans professeur', () => {
     expect(selectTeachersOfStudent(ALL_CONTACTS, 'student-inconnu')).toEqual([])
+  })
+})
+
+// ─── Destinataires de ProposeCourseSlotDialog (chantier calendrier, point 3) ──────
+
+const ELEVE_DE_FORMATEUR: ContactOption = {
+  userId: 'student-clara',
+  firstName: 'Clara',
+  lastName: 'Petit',
+  displayName: 'Clara Petit',
+  relations: [{ kind: 'teacher_of_student' }],
+}
+
+const FORMATEUR_ANIME: ContactOption = {
+  userId: 'teacher-hugo',
+  firstName: 'Hugo',
+  lastName: 'Vidal',
+  displayName: 'Hugo Vidal',
+  relations: [{ kind: 'animator_of_teacher' }],
+}
+
+describe('selectMyStudents', () => {
+  it('ne retient que les élèves du formateur', () => {
+    expect(
+      selectMyStudents([ELEVE_DE_FORMATEUR, FORMATEUR_ANIME, LEA]).map(
+        (contact) => contact.userId,
+      ),
+    ).toEqual(['student-clara'])
+  })
+
+  it('renvoie une liste vide sans élève', () => {
+    expect(selectMyStudents([LEA, NADIA])).toEqual([])
+  })
+})
+
+describe('selectAnimatedTeachers', () => {
+  it("ne retient que les formateurs animés par l'AP", () => {
+    expect(
+      selectAnimatedTeachers([ELEVE_DE_FORMATEUR, FORMATEUR_ANIME, NADIA]).map(
+        (contact) => contact.userId,
+      ),
+    ).toEqual(['teacher-hugo'])
+  })
+
+  it('renvoie une liste vide sans formateur animé', () => {
+    expect(selectAnimatedTeachers([LEA, NADIA])).toEqual([])
   })
 })

@@ -51,8 +51,13 @@ Ordre de livraison retenu, une branche par étape :
       obtenue par l'orchestrateur** contre `https://claudevma.visioprof.fr` (compte élève réel) :
       `POST` créneau récurrent avec date de fin → `201` ; `PATCH` redimensionnement → `200` ;
       `PATCH recurrenceEndDate:null` (repasse en illimité) → `200` ; `GET` reflète les changements ;
-      `DELETE` → `204` ; `GET` confirme la disparition. Preuve à l'écran déléguée à `front-tester`,
-      en cours.
+      `DELETE` → `204` ; `GET` confirme la disparition. **Preuve à l'écran obtenue** : 2 bugs réels
+      trouvés et corrigés en route par `front-tester`/`front-developper` (route de lecture
+      inexistante ; formulaire envoyant heure seule + enums majuscules au lieu du format ISO/
+      minuscules exigé par le serveur) — ni contournés ni masqués. Test e2e
+      `apps/web/e2e/proof-calendar-disponibilites.spec.ts` rejoué avec succès contre la pile réelle
+      (création, redimensionnement, suppression, capture envoyée à l'utilisateur). **Point 1
+      terminé, en attente de validation utilisateur avant merge.**
 - [ ] Point 2 — visibilité busy/free par relation
 - [ ] Point 3 — proposition/acceptation de créneau
 - [ ] Point 4 — intégration LiveKit

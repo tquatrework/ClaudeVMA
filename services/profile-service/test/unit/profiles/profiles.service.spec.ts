@@ -578,8 +578,17 @@ describe('ProfilesService', () => {
         expect(result.visibility).toEqual({ isFiltered: false, hiddenFields: [] });
       });
 
-      it('masque la prescription au formateur lié, métadonnées comprises', async () => {
+      it('masque la prescription au formateur lié, métadonnées comprises, quand l’élève a explicitement réglé TOUTE la prescription `self`', async () => {
         relationsService.isTeacherLinkedToStudent.mockResolvedValue(true);
+        fieldVisibilityService.resolveAudiences.mockResolvedValue(
+          audiencesFromCatalog({
+            generalAssessment: 'self',
+            recommendedPace: 'self',
+            recommendedTeacherProfile: 'self',
+            recommendedPath: 'self',
+            recommendedActivities: 'self',
+          }),
+        );
         const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
 
         const result = await service.getProfile(STUDENT_ID, actor);

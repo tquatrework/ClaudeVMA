@@ -62,6 +62,22 @@ function AudienceChoice({
   )
 }
 
+/**
+ * Rangée verrouillée pour `firstName`/`lastName` : pas de bouton radio (rien à
+ * choisir), juste le public effectif — toujours « Tous les membres » —
+ * affiché grisé et non interactif.
+ */
+function LockedAudienceBadge() {
+  return (
+    <span
+      aria-disabled="true"
+      className="flex items-center gap-2 text-sm rounded-lg border px-3 py-1.5 border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed"
+    >
+      {getFieldVisibilityAudienceLabel('all')}
+    </span>
+  )
+}
+
 export function FieldVisibilityGroup({
   block,
   entries,
@@ -97,7 +113,12 @@ export function FieldVisibilityGroup({
                     Champ prévu, pas encore utilisé sur la plateforme
                   </p>
                 )}
-                {!entry.isExplicit && (
+                {entry.isLocked && (
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Toujours visible, non modifiable
+                  </p>
+                )}
+                {!entry.isLocked && !entry.isExplicit && (
                   <p className="text-xs text-gray-400 mt-0.5">
                     Réglage par défaut : {getFieldVisibilityAudienceLabel(entry.defaultAudience)}
                   </p>
@@ -105,16 +126,20 @@ export function FieldVisibilityGroup({
               </div>
 
               <div className="flex flex-wrap gap-2">
-                {AUDIENCE_CHOICES.map((audience) => (
-                  <AudienceChoice
-                    key={audience}
-                    fieldName={entry.fieldName}
-                    audience={audience}
-                    isSelected={selectedAudience === audience}
-                    isDisabled={isDisabled}
-                    onSelect={() => onAudienceChange(entry.fieldName, audience)}
-                  />
-                ))}
+                {entry.isLocked ? (
+                  <LockedAudienceBadge />
+                ) : (
+                  AUDIENCE_CHOICES.map((audience) => (
+                    <AudienceChoice
+                      key={audience}
+                      fieldName={entry.fieldName}
+                      audience={audience}
+                      isSelected={selectedAudience === audience}
+                      isDisabled={isDisabled}
+                      onSelect={() => onAudienceChange(entry.fieldName, audience)}
+                    />
+                  ))
+                )}
               </div>
             </li>
           )

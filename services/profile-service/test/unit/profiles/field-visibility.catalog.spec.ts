@@ -1,5 +1,4 @@
 import {
-  DEFAULT_LINKED_FIELDS,
   FIELD_VISIBILITY_CATALOG,
   defaultAudienceOf,
   isKnownVisibilityField,
@@ -33,11 +32,8 @@ describe('Catalogue de visibilité des champs de profil', () => {
       expect(namesOfBlock('pedagogical-student')).toContain(fieldName);
     });
 
-    it.each(newStudentFields)('%s est masqué par défaut (hors socle)', (fieldName) => {
-      // Situation familiale, situation scolaire et équipement du domicile sont
-      // sensibles ; le nom de l'établissement d'un mineur permet de le localiser.
-      expect(defaultAudienceOf(fieldName)).toBe('self');
-      expect(DEFAULT_LINKED_FIELDS as readonly string[]).not.toContain(fieldName);
+    it.each(newStudentFields)('%s partage le défaut commun `linked` depuis le 2026-08-17', (fieldName) => {
+      expect(defaultAudienceOf(fieldName)).toBe('linked');
     });
 
     it('les quatre champs existent sur l’entité élève', () => {
@@ -91,16 +87,31 @@ describe('Catalogue de visibilité des champs de profil', () => {
     });
   });
 
-  it('le socle reste limité aux cinq champs validés le 2026-08-09', () => {
-    // Garde-fou : ajouter un champ au socle élargit ce que TOUT contact lié voit
-    // par défaut, sur TOUS les profils existants. Ce n'est jamais un effet de bord.
-    expect([...DEFAULT_LINKED_FIELDS]).toEqual([
-      'firstName',
-      'lastName',
-      'avatarUrl',
-      'level',
-      'subjects',
-    ]);
+  describe('révision du 2026-08-17 — firstName/lastName retirés, défaut unique `linked`', () => {
+    it('`firstName` et `lastName` ont quitté le catalogue : plus jamais réglables', () => {
+      expect(isKnownVisibilityField('firstName')).toBe(false);
+      expect(isKnownVisibilityField('lastName')).toBe(false);
+      expect(namesOfBlock('administrative')).not.toContain('firstName');
+      expect(namesOfBlock('administrative')).not.toContain('lastName');
+    });
+
+    it('un champ inconnu (dont firstName/lastName) a pour défaut `self` — refus, jamais exposition', () => {
+      expect(defaultAudienceOf('firstName')).toBe('self');
+      expect(defaultAudienceOf('lastName')).toBe('self');
+    });
+
+    it('TOUS les champs restant au catalogue partagent le même défaut `linked`', () => {
+      const defaults = new Set(FIELD_VISIBILITY_CATALOG.map((definition) => definition.defaultAudience));
+      expect([...defaults]).toEqual(['linked']);
+    });
+
+    it('la section prescription suit elle aussi le défaut commun `linked`', () => {
+      const prescriptionFields = FIELD_VISIBILITY_CATALOG.filter(
+        (definition) => definition.isPrescription === true,
+      );
+      expect(prescriptionFields.length).toBeGreaterThan(0);
+      expect(prescriptionFields.every((definition) => definition.defaultAudience === 'linked')).toBe(true);
+    });
   });
 
   it('aucun nom de champ n’est déclaré deux fois', () => {

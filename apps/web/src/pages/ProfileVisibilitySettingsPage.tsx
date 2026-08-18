@@ -5,6 +5,24 @@
  * Le serveur renvoie le catalogue complet avec les valeurs par défaut : cette
  * page n'énumère aucun champ et n'invente aucun défaut. L'enregistrement est un
  * upsert partiel — seuls les champs réellement changés sont envoyés.
+ *
+ * Deux règles supplémentaires depuis l'arbitrage du 2026-08-17
+ * (`docs/architecture.md` § « Defauts de visibilite champ par champ… »),
+ * précisées le 2026-08-18 :
+ *
+ * 1. `firstName`/`lastName` ne sont **plus réglables** ici : ils sont toujours
+ *    visibles de tous, sans exception (le serveur les refuse en `400` dans un
+ *    `PUT`, quelle que soit la réponse du catalogue). Ils restent néanmoins
+ *    **affichés** dans la liste — deux entrées posées en dur côté front, le
+ *    catalogue serveur ne les portant plus — grisées, verrouillées sur
+ *    « Tous les membres », sans sélecteur actif, et **jamais envoyées** dans un
+ *    `PUT`.
+ * 2. Seul le bloc pédagogique du **rôle réel du titulaire consulté** est affiché
+ *    (élève → `pedagogical-student` seulement, formateur → `pedagogical-teacher`
+ *    seulement) — jamais les deux à la fois, et jamais celui de l'autre rôle.
+ *    Défensif : le filtrage a lieu côté front quel que soit le contenu reçu, que
+ *    le catalogue serveur soit déjà filtré par rôle ou porte encore les deux
+ *    blocs.
  */
 
 import React, { useEffect, useMemo, useState } from 'react'
@@ -13,14 +31,54 @@ import { useAuth } from '../hooks/useAuth'
 import { useFieldVisibility } from '../hooks/profile/useFieldVisibility'
 import Layout from '../components/Layout'
 import { FieldVisibilityGroup } from '../components/profile/FieldVisibilityGroup'
+import { resolvePedagogicalProfileKind } from '../utils/profileFields'
 import type {
   FieldVisibilityAudience,
   FieldVisibilityEntry,
   FieldVisibilityUpdate,
+  PedagogicalProfileKind,
 } from '../types/profile'
 
 /** Ordre d'apparition des blocs à l'écran. Tout bloc inattendu passe à la fin. */
 const BLOCK_ORDER = ['administrative', 'pedagogical-student', 'pedagogical-teacher']
+
+/**
+ * Champs retirés du RÉGLAGE de visibilité (arbitrage du 2026-08-17) : toujours
+ * visibles de tous, jamais une option modifiable, jamais envoyés en `PUT`.
+ * Filtre défensif sur ce que le serveur pourrait encore renvoyer — voir
+ * `LOCKED_FIELD_ENTRIES` ci-dessous pour leur affichage verrouillé.
+ */
+const NON_SETTABLE_FIELD_NAMES = new Set(['firstName', 'lastName'])
+
+/**
+ * `firstName`/`lastName` posés en dur côté front (précision du 2026-08-18) :
+ * le catalogue serveur ne les porte plus du tout, mais l'écran continue de les
+ * afficher — grisés, verrouillés sur `all` (« Tous les membres »), sans autre
+ * choix possible. Toujours en tête du bloc `administrative`, jamais inclus
+ * dans `changedFields` ni dans le corps envoyé au `PUT`.
+ */
+const LOCKED_FIELD_ENTRIES: FieldVisibilityEntry[] = [
+  {
+    fieldName: 'firstName',
+    block: 'administrative',
+    audience: 'all',
+    defaultAudience: 'all',
+    isExplicit: false,
+    isPrescription: false,
+    isReserved: false,
+    isLocked: true,
+  },
+  {
+    fieldName: 'lastName',
+    block: 'administrative',
+    audience: 'all',
+    defaultAudience: 'all',
+    isExplicit: false,
+    isPrescription: false,
+    isReserved: false,
+    isLocked: true,
+  },
+]
 
 function sortBlocks(blocks: string[]): string[] {
   return [...blocks].sort((left, right) => {
@@ -39,6 +97,22 @@ function groupByBlock(entries: FieldVisibilityEntry[]): Record<string, FieldVisi
   return grouped
 }
 
+/**
+ * Un bloc pédagogique n'est affiché que s'il correspond au rôle réel du
+ * titulaire consulté ; `administrative` (et tout bloc futur non pédagogique)
+ * n'est jamais filtré ici. `pedagogicalKind === 'unknown'` (aucun signal
+ * fiable) masque les deux blocs pédagogiques plutôt que de risquer d'en
+ * afficher un faux.
+ */
+function isPedagogicalBlockVisibleForKind(
+  block: string,
+  pedagogicalKind: PedagogicalProfileKind,
+): boolean {
+  if (block === 'pedagogical-student') return pedagogicalKind === 'student'
+  if (block === 'pedagogical-teacher') return pedagogicalKind === 'teacher'
+  return true
+}
+
 export default function ProfileVisibilitySettingsPage() {
   const { userId } = useParams<{ userId: string }>()
   const navigate = useNavigate()
@@ -49,9 +123,61 @@ export default function ProfileVisibilitySettingsPage() {
     isViewingOwnProfile ||
     hasRole('responsable_pedagogique', 'technicien_informatique', 'administrateur_financier')
 
-  const { fields, isLoading, loadError, save, isSaving, saveError } = useFieldVisibility(
-    userId,
-    canAccess,
+  const {
+    fields,
+    pedagogicalType,
+    pedagogicalBlock,
+    isLoading,
+    loadError,
+    save,
+    isSaving,
+    saveError,
+  } = useFieldVisibility(userId, canAccess)
+
+  /**
+   * Rôle pédagogique réel du titulaire consulté. `pedagogicalType` (serveur) fait
+   * foi ; le rôle de l'appelant n'est un repli que sur SON PROPRE profil — même
+   * règle et même fonction que `ProfilePage`/`ProfileEditPage`
+   * (`src/utils/profileFields.ts`), pour ne jamais diverger d'un écran à l'autre.
+   */
+  const pedagogicalKind = useMemo(
+    () =>
+      resolvePedagogicalProfileKind(
+        pedagogicalType,
+        pedagogicalBlock,
+        isViewingOwnProfile ? user?.role : undefined,
+      ),
+    [pedagogicalType, pedagogicalBlock, isViewingOwnProfile, user?.role],
+  )
+
+  /**
+   * Champs réellement réglables à l'écran : ni `firstName`/`lastName` (jamais
+   * réglables, voir `LOCKED_FIELD_ENTRIES` — filtre défensif si le serveur en
+   * renvoyait encore), ni le bloc pédagogique de l'autre rôle. Filtré ici quel
+   * que soit ce que le serveur a renvoyé — catalogue déjà filtré par rôle, ou
+   * encore les deux blocs. C'est cette liste, et elle seule, qui alimente
+   * `selectedAudiences` et `changedFields` : les entrées verrouillées n'y
+   * participent jamais.
+   */
+  const settableFields = useMemo(
+    () =>
+      (fields ?? []).filter(
+        (entry) =>
+          !NON_SETTABLE_FIELD_NAMES.has(entry.fieldName) &&
+          isPedagogicalBlockVisibleForKind(entry.block, pedagogicalKind),
+      ),
+    [fields, pedagogicalKind],
+  )
+
+  /**
+   * Champs affichés à l'écran : les deux entrées verrouillées
+   * (`firstName`/`lastName`) en tête, puis les champs réellement réglables.
+   * Toujours présentes, y compris quand le catalogue serveur est vide — elles
+   * ne dépendent pas de lui.
+   */
+  const visibleFields = useMemo(
+    () => [...LOCKED_FIELD_ENTRIES, ...settableFields],
+    [settableFields],
   )
 
   /** Réglages en cours d'édition, indexés par nom de champ. */
@@ -63,25 +189,33 @@ export default function ProfileVisibilitySettingsPage() {
   useEffect(() => {
     if (!fields) return
     const initialSelection: Record<string, FieldVisibilityAudience> = {}
-    for (const entry of fields) {
+    for (const entry of settableFields) {
       initialSelection[entry.fieldName] = entry.audience
     }
     setSelectedAudiences(initialSelection)
-  }, [fields])
+    // `fields` (présence du chargement) déclenche l'initialisation ;
+    // `settableFields` en dérive et porte les valeurs réellement lues.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fields, settableFields])
 
-  const groupedEntries = useMemo(() => groupByBlock(fields ?? []), [fields])
+  const groupedEntries = useMemo(() => groupByBlock(visibleFields), [visibleFields])
   const orderedBlocks = useMemo(() => sortBlocks(Object.keys(groupedEntries)), [groupedEntries])
 
-  /** Seuls les champs réellement modifiés partent au serveur (upsert partiel). */
+  /**
+   * Seuls les champs réellement modifiés partent au serveur (upsert partiel).
+   * Dérivé de `settableFields`, jamais de `visibleFields` : `firstName`/
+   * `lastName` ne peuvent figurer ici sous aucune circonstance, le serveur les
+   * refusant en `400`.
+   */
   const changedFields: FieldVisibilityUpdate[] = useMemo(() => {
     if (!fields) return []
-    return fields
+    return settableFields
       .filter((entry) => selectedAudiences[entry.fieldName] !== entry.audience)
       .map((entry) => ({
         fieldName: entry.fieldName,
         audience: selectedAudiences[entry.fieldName],
       }))
-  }, [fields, selectedAudiences])
+  }, [fields, settableFields, selectedAudiences])
 
   const errorMessage = saveError ?? loadError
   const [isErrorDismissed, setIsErrorDismissed] = useState(false)
@@ -133,9 +267,8 @@ export default function ProfileVisibilitySettingsPage() {
 
         <h1 className="text-2xl font-bold text-gray-900 mb-2">Confidentialité</h1>
         <p className="text-sm text-gray-500 mb-6">
-          Choisissez, champ par champ, qui peut voir vos informations. Par défaut, seuls votre
-          prénom, votre nom, votre photo, votre niveau et vos matières sont visibles de vos
-          contacts.
+          Choisissez, champ par champ, qui peut voir vos autres informations. Votre prénom et
+          votre nom restent toujours visibles de tous les membres : ils ne sont pas modifiables.
         </p>
 
         {errorMessage && !isErrorDismissed && (
@@ -162,7 +295,7 @@ export default function ProfileVisibilitySettingsPage() {
           </div>
         )}
 
-        {fields && fields.length === 0 && (
+        {fields && settableFields.length === 0 && (
           <p className="text-sm text-gray-400">Aucun champ à régler pour ce compte.</p>
         )}
 

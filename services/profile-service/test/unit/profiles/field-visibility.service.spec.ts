@@ -1,14 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { FieldVisibilityService } from '../../../src/profiles/field-visibility.service';
 import { ProfileFieldVisibility } from '../../../src/profiles/entities/profile-field-visibility.entity';
-import {
-  DEFAULT_LINKED_FIELDS,
-  FIELD_VISIBILITY_CATALOG,
-} from '../../../src/profiles/field-visibility.catalog';
+import { FIELD_VISIBILITY_CATALOG } from '../../../src/profiles/field-visibility.catalog';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
 import { Actor } from '../../../src/common/types/actor.type';
+import {
+  IdentityAccessClient,
+  IdentityAccessNotFoundError,
+  IdentityAccessUnavailableError,
+} from '../../../src/common/clients/identity-access.client';
 
 const makeActor = (role: UserRole, id = 'actor-uuid'): Actor => ({ id, role });
 
@@ -17,6 +19,7 @@ const OWNER_ID = 'student-uuid';
 describe('FieldVisibilityService', () => {
   let service: FieldVisibilityService;
   let repo: any;
+  let identityAccessClient: { findAccountByUserId: jest.Mock };
 
   beforeEach(async () => {
     repo = {
@@ -26,10 +29,20 @@ describe('FieldVisibilityService', () => {
       save: jest.fn().mockImplementation(async (rows) => rows),
     };
 
+    // Par défaut, OWNER_ID est un compte élève connu de identity-access-service —
+    // c'est le rôle réel qui pilote le sous-catalogue exposé (arbitrage du
+    // 2026-08-17), pas la présence d'un profil pédagogique.
+    identityAccessClient = {
+      findAccountByUserId: jest
+        .fn()
+        .mockResolvedValue({ userId: OWNER_ID, loginIdentifier: 'owner', role: 'eleve' }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         FieldVisibilityService,
         { provide: getRepositoryToken(ProfileFieldVisibility), useValue: repo },
+        { provide: IdentityAccessClient, useValue: identityAccessClient },
       ],
     }).compile();
 
@@ -40,63 +53,96 @@ describe('FieldVisibilityService', () => {
   // Lecture
   // ---------------------------------------------------------------------------
   describe('getFieldVisibility', () => {
-    it('renvoie tout le catalogue, y compris les champs jamais réglés', async () => {
+    it('renvoie le catalogue ADMINISTRATIF + PÉDAGOGIQUE ÉLÈVE pour un titulaire élève, jamais le bloc formateur', async () => {
       const view = await service.getFieldVisibility(OWNER_ID, makeActor(UserRole.ELEVE, OWNER_ID));
 
+      const expectedLength = FIELD_VISIBILITY_CATALOG.filter(
+        (definition) => definition.block !== 'pedagogical-teacher',
+      ).length;
+
       expect(view.userId).toBe(OWNER_ID);
-      expect(view.fields).toHaveLength(FIELD_VISIBILITY_CATALOG.length);
+      expect(view.fields).toHaveLength(expectedLength);
+      expect(view.fields.every((field) => field.block !== 'pedagogical-teacher')).toBe(true);
       expect(view.fields.every((field) => field.isExplicit === false)).toBe(true);
     });
 
-    /**
-     * Socle validé le 2026-08-09 : ces cinq champs — et eux seuls — sont
-     * visibles des personnes liées par défaut.
-     */
-    it('applique le socle par défaut : firstName, lastName, avatarUrl, level, subjects', async () => {
-      const view = await service.getFieldVisibility(OWNER_ID, makeActor(UserRole.ELEVE, OWNER_ID));
+    it('renvoie le catalogue ADMINISTRATIF + PÉDAGOGIQUE FORMATEUR pour un titulaire formateur, jamais le bloc élève', async () => {
+      identityAccessClient.findAccountByUserId.mockResolvedValue({
+        userId: OWNER_ID,
+        loginIdentifier: 'owner',
+        role: 'formateur',
+      });
 
-      const linkedByDefault = view.fields
-        .filter((field) => field.defaultAudience === 'linked')
-        .map((field) => field.fieldName)
-        .sort();
+      const view = await service.getFieldVisibility(OWNER_ID, makeActor(UserRole.FORMATEUR, OWNER_ID));
 
-      expect(linkedByDefault).toEqual([...DEFAULT_LINKED_FIELDS].sort());
+      const expectedLength = FIELD_VISIBILITY_CATALOG.filter(
+        (definition) => definition.block !== 'pedagogical-student',
+      ).length;
+
+      expect(view.fields).toHaveLength(expectedLength);
+      expect(view.fields.every((field) => field.block !== 'pedagogical-student')).toBe(true);
+      expect(view.fields.some((field) => field.block === 'pedagogical-teacher')).toBe(true);
     });
 
-    it('masque tout le reste par défaut, y compris la section prescription', async () => {
+    it('un titulaire sans profil pédagogique (RP, parent…) n’a que le bloc administratif', async () => {
+      identityAccessClient.findAccountByUserId.mockResolvedValue({
+        userId: OWNER_ID,
+        loginIdentifier: 'owner',
+        role: 'responsable_pedagogique',
+      });
+
+      const view = await service.getFieldVisibility(
+        OWNER_ID,
+        makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE, OWNER_ID),
+      );
+
+      expect(view.fields.every((field) => field.block === 'administrative')).toBe(true);
+    });
+
+    it('refuse en 404 quand identity-access-service ne connaît pas le titulaire', async () => {
+      identityAccessClient.findAccountByUserId.mockRejectedValue(
+        new IdentityAccessNotFoundError('unknown'),
+      );
+
+      await expect(
+        service.getFieldVisibility(OWNER_ID, makeActor(UserRole.ELEVE, OWNER_ID)),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('se dégrade au bloc administratif seul quand identity-access-service est indisponible', async () => {
+      identityAccessClient.findAccountByUserId.mockRejectedValue(
+        new IdentityAccessUnavailableError('timeout'),
+      );
+
       const view = await service.getFieldVisibility(OWNER_ID, makeActor(UserRole.ELEVE, OWNER_ID));
 
-      // Les quatre champs ajoutés le 2026-08-11 restent hors socle : une
-      // situation familiale ou scolaire, l'équipement du domicile et le nom de
-      // l'établissement d'un mineur ne se partagent pas sans décision explicite.
-      for (const fieldName of [
-        'difficulties',
-        'familyContext',
-        'schoolContext',
-        'schoolName',
-        'equipment',
-        'specificNeeds',
-        'phone',
-        'birthDate',
-      ]) {
-        expect(view.fields.find((field) => field.fieldName === fieldName)?.audience).toBe('self');
-      }
-      expect(
-        view.fields.filter((field) => field.isPrescription).every((field) => field.audience === 'self'),
-      ).toBe(true);
+      expect(view.fields.every((field) => field.block === 'administrative')).toBe(true);
+    });
+
+    it('tout champ administrable a pour défaut `linked` depuis le 2026-08-17', async () => {
+      const view = await service.getFieldVisibility(OWNER_ID, makeActor(UserRole.ELEVE, OWNER_ID));
+
+      expect(view.fields.every((field) => field.defaultAudience === 'linked')).toBe(true);
+    });
+
+    it('`firstName` et `lastName` ne figurent plus dans la réponse : ils ne sont plus réglables', async () => {
+      const view = await service.getFieldVisibility(OWNER_ID, makeActor(UserRole.ELEVE, OWNER_ID));
+
+      expect(view.fields.find((field) => field.fieldName === 'firstName')).toBeUndefined();
+      expect(view.fields.find((field) => field.fieldName === 'lastName')).toBeUndefined();
     });
 
     it('la dérogation enregistrée l’emporte sur le défaut et est signalée isExplicit', async () => {
       repo.find.mockResolvedValue([
-        { userId: OWNER_ID, fieldName: 'difficulties', audience: 'linked' },
+        { userId: OWNER_ID, fieldName: 'difficulties', audience: 'self' },
       ]);
 
       const view = await service.getFieldVisibility(OWNER_ID, makeActor(UserRole.ELEVE, OWNER_ID));
       const difficulties = view.fields.find((field) => field.fieldName === 'difficulties');
 
       expect(difficulties).toMatchObject({
-        audience: 'linked',
-        defaultAudience: 'self',
+        audience: 'self',
+        defaultAudience: 'linked',
         isExplicit: true,
       });
     });
@@ -132,7 +178,7 @@ describe('FieldVisibilityService', () => {
     it('crée une dérogation pour un champ jamais réglé', async () => {
       await service.updateFieldVisibility(
         OWNER_ID,
-        { fields: [{ fieldName: 'difficulties', audience: 'linked' }] },
+        { fields: [{ fieldName: 'difficulties', audience: 'self' }] },
         makeActor(UserRole.ELEVE, OWNER_ID),
       );
 
@@ -140,7 +186,7 @@ describe('FieldVisibilityService', () => {
         expect.objectContaining({
           userId: OWNER_ID,
           fieldName: 'difficulties',
-          audience: 'linked',
+          audience: 'self',
         }),
       ]);
     });
@@ -164,7 +210,7 @@ describe('FieldVisibilityService', () => {
     it('ne touche pas aux champs absents du corps (upsert partiel)', async () => {
       await service.updateFieldVisibility(
         OWNER_ID,
-        { fields: [{ fieldName: 'phone', audience: 'linked' }] },
+        { fields: [{ fieldName: 'phone', audience: 'self' }] },
         makeActor(UserRole.ELEVE, OWNER_ID),
       );
 
@@ -190,13 +236,44 @@ describe('FieldVisibilityService', () => {
       expect(repo.save).not.toHaveBeenCalled();
     });
 
+    it('refuse en 400 une tentative de régler firstName ou lastName — jamais réglables (arbitrage du 2026-08-17)', async () => {
+      const promise = service.updateFieldVisibility(
+        OWNER_ID,
+        { fields: [{ fieldName: 'firstName', audience: 'self' }] },
+        makeActor(UserRole.ELEVE, OWNER_ID),
+      );
+
+      await expect(promise).rejects.toThrow(BadRequestException);
+      await expect(promise).rejects.toThrow(/firstName/);
+      expect(repo.save).not.toHaveBeenCalled();
+
+      const promiseLastName = service.updateFieldVisibility(
+        OWNER_ID,
+        { fields: [{ fieldName: 'lastName', audience: 'all' }] },
+        makeActor(UserRole.ELEVE, OWNER_ID),
+      );
+      await expect(promiseLastName).rejects.toThrow(BadRequestException);
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
+    it('refuse en 400 un champ du bloc pédagogique FORMATEUR pour un titulaire élève', async () => {
+      const promise = service.updateFieldVisibility(
+        OWNER_ID,
+        { fields: [{ fieldName: 'levels', audience: 'self' }] },
+        makeActor(UserRole.ELEVE, OWNER_ID),
+      );
+
+      await expect(promise).rejects.toThrow(BadRequestException);
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
     it('refuse en 400 dès qu’un seul champ du lot est inconnu — rien n’est écrit', async () => {
       await expect(
         service.updateFieldVisibility(
           OWNER_ID,
           {
             fields: [
-              { fieldName: 'difficulties', audience: 'linked' },
+              { fieldName: 'difficulties', audience: 'self' },
               { fieldName: 'champInexistant', audience: 'all' },
             ],
           },
@@ -265,9 +342,13 @@ describe('FieldVisibilityService', () => {
       await expect(service.resolveAudience(OWNER_ID, 'difficulties')).resolves.toBe('all');
     });
 
-    it('renvoie le défaut du bloc en l’absence de dérogation', async () => {
-      await expect(service.resolveAudience(OWNER_ID, 'difficulties')).resolves.toBe('self');
-      await expect(service.resolveAudience(OWNER_ID, 'firstName')).resolves.toBe('linked');
+    it('renvoie le défaut commun `linked` en l’absence de dérogation', async () => {
+      await expect(service.resolveAudience(OWNER_ID, 'difficulties')).resolves.toBe('linked');
+    });
+
+    it('renvoie self pour firstName/lastName — retirés du catalogue, jamais exposés', async () => {
+      await expect(service.resolveAudience(OWNER_ID, 'firstName')).resolves.toBe('self');
+      await expect(service.resolveAudience(OWNER_ID, 'lastName')).resolves.toBe('self');
     });
 
     it('renvoie self pour un champ inconnu — refus par défaut, jamais exposition', async () => {

@@ -92,26 +92,34 @@ describe('profile-visibility-filter', () => {
       expect(result.hiddenFieldNames).toEqual([]);
     });
 
-    it('cache à un contact lié tout ce qui sort du socle par défaut', () => {
+    it('ne masque rien à un contact lié quand rien n’a été réglé explicitement — défaut commun `linked` depuis le 2026-08-17', () => {
       const result = filterProfileBlock(administrative, 'administrative', audiences(), 'linked');
 
-      // Socle : firstName, lastName, avatarUrl restent visibles.
       expect(result.block).toMatchObject({
         firstName: 'Alice',
         lastName: 'Martin',
         avatarUrl: 'https://example.test/a.png',
+        phone: '0600000000',
+        birthDate: '2008-05-02',
+        city: 'Lyon',
       });
-      expect(result.hiddenFieldNames).toEqual(['birthDate', 'city', 'phone']);
+      expect(result.hiddenFieldNames).toEqual([]);
     });
 
-    it("retire la CLÉ d'un champ masqué au lieu de la neutraliser à null", () => {
-      const result = filterProfileBlock(administrative, 'administrative', audiences(), 'linked');
+    it("retire la CLÉ d'un champ explicitement réglé `self` au lieu de la neutraliser à null", () => {
+      const result = filterProfileBlock(
+        administrative,
+        'administrative',
+        audiences({ phone: 'self' }),
+        'linked',
+      );
 
       // Le point qui coûte cher quand on le rate : « masqué » doit être
       // distinguable de « vide ». La clé est absente, pas mise à null.
       expect('phone' in result.block).toBe(false);
       expect(Object.keys(result.block)).not.toContain('phone');
       expect((result.block as Record<string, unknown>).phone).toBeUndefined();
+      expect(result.hiddenFieldNames).toEqual(['phone']);
     });
 
     it('conserve les champs de structure, qui ne sont pas des données personnelles', () => {
@@ -135,16 +143,39 @@ describe('profile-visibility-filter', () => {
       expect(result.hiddenFieldNames).not.toContain('phone');
     });
 
-    it('respecte une dérogation `self` posée sur un champ du socle', () => {
+    it('respecte une dérogation `self` posée sur un champ du catalogue (avatarUrl)', () => {
       const result = filterProfileBlock(
         administrative,
         'administrative',
-        audiences({ firstName: 'self' }),
+        audiences({ avatarUrl: 'self' }),
         'linked',
       );
 
-      expect('firstName' in result.block).toBe(false);
-      expect(result.hiddenFieldNames).toContain('firstName');
+      expect('avatarUrl' in result.block).toBe(false);
+      expect(result.hiddenFieldNames).toContain('avatarUrl');
+    });
+
+    it("ne masque JAMAIS firstName/lastName, même si l'audience map porte une entrée `self` pour eux (arbitrage du 2026-08-17)", () => {
+      // firstName/lastName ont quitté le catalogue : filterProfileBlock ne les
+      // consulte plus dans la map d'audiences — une éventuelle entrée orpheline
+      // (donnée périmée, appelant fautif) reste sans effet.
+      const staleAudiences = audiences();
+      staleAudiences.set('firstName', 'self');
+      staleAudiences.set('lastName', 'self');
+
+      const result = filterProfileBlock(administrative, 'administrative', staleAudiences, 'linked');
+
+      expect(result.block).toMatchObject({ firstName: 'Alice', lastName: 'Martin' });
+      expect(result.hiddenFieldNames).not.toContain('firstName');
+      expect(result.hiddenFieldNames).not.toContain('lastName');
+    });
+
+    it('ne masque jamais firstName/lastName pour un lecteur `authenticated` sans lien', () => {
+      const result = filterProfileBlock(administrative, 'administrative', audiences(), 'authenticated');
+
+      expect(result.block).toMatchObject({ firstName: 'Alice', lastName: 'Martin' });
+      expect(result.hiddenFieldNames).not.toContain('firstName');
+      expect(result.hiddenFieldNames).not.toContain('lastName');
     });
 
     it('ne masque aucun champ absent du bloc — pas de faux positif dans hiddenFields', () => {
@@ -206,7 +237,7 @@ describe('profile-visibility-filter', () => {
       expect((result.block as Record<string, unknown>).generalAssessment).toBe('Élève sérieux');
     });
 
-    it('ne laisse au formateur lié que le socle level/subjects', () => {
+    it('ne masque rien au formateur lié quand rien n’a été réglé explicitement — défaut commun `linked`', () => {
       const result = filterProfileBlock(
         pedagogical,
         'pedagogical-student',
@@ -214,27 +245,43 @@ describe('profile-visibility-filter', () => {
         'linked',
       );
 
-      expect(result.block).toMatchObject({ level: '3ème', subjects: ['maths'] });
-      expect(result.hiddenFieldNames).toEqual(
-        expect.arrayContaining([
-          'difficulties',
-          'equipment',
-          'familyContext',
-          'generalAssessment',
-          'goals',
-          'recommendedPace',
-          'schoolContext',
-          'schoolName',
-          'specificNeeds',
-        ]),
-      );
+      expect(result.block).toMatchObject({
+        level: '3ème',
+        subjects: ['maths'],
+        difficulties: 'Trigonométrie',
+        generalAssessment: 'Élève sérieux',
+      });
+      expect(result.hiddenFieldNames).toEqual([]);
     });
 
-    it('masque filledBy/filledAt quand aucun champ de prescription n\'est visible', () => {
+    it('masque un champ explicitement réglé `self` par l’élève, y compris en section prescription', () => {
       const result = filterProfileBlock(
         pedagogical,
         'pedagogical-student',
-        audiences(),
+        audiences({ difficulties: 'self', generalAssessment: 'self' }),
+        'linked',
+      );
+
+      expect('difficulties' in result.block).toBe(false);
+      expect('generalAssessment' in result.block).toBe(false);
+      expect(result.hiddenFieldNames).toEqual(
+        expect.arrayContaining(['difficulties', 'generalAssessment']),
+      );
+    });
+
+    it('masque filledBy/filledAt quand AUCUN champ de prescription n\'est visible', () => {
+      const allPrescriptionFieldsHidden = audiences({
+        generalAssessment: 'self',
+        recommendedPace: 'self',
+        recommendedTeacherProfile: 'self',
+        recommendedPath: 'self',
+        recommendedActivities: 'self',
+      });
+
+      const result = filterProfileBlock(
+        pedagogical,
+        'pedagogical-student',
+        allPrescriptionFieldsHidden,
         'linked',
       );
 
@@ -245,11 +292,11 @@ describe('profile-visibility-filter', () => {
       }
     });
 
-    it('rend filledBy/filledAt dès qu\'un champ de prescription est partagé', () => {
+    it('rend filledBy/filledAt dès qu\'un champ de prescription est partagé (défaut commun `linked`)', () => {
       const result = filterProfileBlock(
         pedagogical,
         'pedagogical-student',
-        audiences({ generalAssessment: 'linked' }),
+        audiences(),
         'linked',
       );
 
@@ -299,7 +346,7 @@ describe('profile-visibility-filter', () => {
       expect(STRUCTURAL_PROFILE_FIELDS).toContain('isAnimateurPedagogique');
     });
 
-    it('masque les résultats de tests et l\'expérience à un contact lié', () => {
+    it('ne masque rien par défaut à un contact lié — défaut commun `linked` depuis le 2026-08-17', () => {
       const result = filterProfileBlock(
         pedagogical,
         'pedagogical-teacher',
@@ -307,12 +354,28 @@ describe('profile-visibility-filter', () => {
         'linked',
       );
 
+      expect(result.block).toMatchObject({
+        levels: ['Terminale'],
+        subjects: ['maths'],
+        experience: '10 ans',
+        diplomas: 'Agrégation',
+        testResults: '18/20',
+      });
+      expect(result.hiddenFieldNames).toEqual([]);
+    });
+
+    it('masque les résultats de tests et l\'expérience explicitement réglés `self`', () => {
+      const result = filterProfileBlock(
+        pedagogical,
+        'pedagogical-teacher',
+        audiences({ diplomas: 'self', experience: 'self', testResults: 'self' }),
+        'linked',
+      );
+
       expect(result.hiddenFieldNames).toEqual(
         expect.arrayContaining(['diplomas', 'experience', 'testResults']),
       );
-      // `levels` est `self` par défaut (le socle ne porte que `level`/`subjects`).
-      expect(result.hiddenFieldNames).toContain('levels');
-      expect(result.block).toMatchObject({ subjects: ['maths'] });
+      expect(result.block).toMatchObject({ subjects: ['maths'], levels: ['Terminale'] });
     });
   });
 
@@ -336,24 +399,32 @@ describe('profile-visibility-filter', () => {
       }
     });
 
-    it('ne partage par défaut que le socle validé le 2026-08-09', () => {
+    it('partage TOUT le catalogue par défaut avec un contact lié, depuis la révision du 2026-08-17', () => {
       const sharedByDefault = FIELD_VISIBILITY_CATALOG.filter((definition) =>
         isFieldVisibleTo(definition.defaultAudience, 'linked'),
       ).map((definition) => definition.fieldName);
 
       expect(sharedByDefault.sort()).toEqual(
-        ['avatarUrl', 'firstName', 'lastName', 'level', 'subjects'].sort(),
+        FIELD_VISIBILITY_CATALOG.map((definition) => definition.fieldName).sort(),
       );
     });
 
-    it('ne partage aucun champ de prescription par défaut', () => {
+    it('partage aussi la section prescription par défaut — plus d’exception depuis le 2026-08-17', () => {
       const prescriptionShared = FIELD_VISIBILITY_CATALOG.filter(
         (definition) =>
           definition.isPrescription === true &&
           isFieldVisibleTo(definition.defaultAudience, 'linked'),
       );
+      const allPrescriptionFields = FIELD_VISIBILITY_CATALOG.filter(
+        (definition) => definition.isPrescription === true,
+      );
 
-      expect(prescriptionShared).toEqual([]);
+      expect(prescriptionShared).toHaveLength(allPrescriptionFields.length);
+    });
+
+    it('`firstName`/`lastName` n’appartiennent plus au catalogue — toujours visibles, jamais réglables', () => {
+      expect(FIELD_VISIBILITY_CATALOG.find((definition) => definition.fieldName === 'firstName')).toBeUndefined();
+      expect(FIELD_VISIBILITY_CATALOG.find((definition) => definition.fieldName === 'lastName')).toBeUndefined();
     });
   });
 });

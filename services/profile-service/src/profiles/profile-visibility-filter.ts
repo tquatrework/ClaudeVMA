@@ -26,6 +26,11 @@
  * réglages comme tout contact lié — le drapeau `isPrincipalTeacher` porté par
  * `TeacherStudentLink` n'est volontairement PAS consulté ici. À rouvrir.
  *
+ * `firstName`/`lastName` (depuis le 2026-08-17) : ils ne figurent plus au
+ * catalogue de visibilité, ils tombent donc dans la branche « champ absent du
+ * catalogue » ci-dessous et sont TOUJOURS renvoyés, quel que soit le lecteur —
+ * aucun réglage ne peut plus les masquer.
+ *
  * LISIBILITÉ DU MASQUAGE
  * ----------------------
  * Un champ masqué est ABSENT de la réponse, et son nom est listé dans

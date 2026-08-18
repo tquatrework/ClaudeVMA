@@ -27,6 +27,7 @@ vi.mock('../../src/hooks/useAuth')
 vi.mock('../../src/api/client')
 vi.mock('../../src/api/profile')
 vi.mock('../../src/api/relations')
+vi.mock('../../src/api/accounts')
 
 import { useAuth } from '../../src/hooks/useAuth'
 import apiClient from '../../src/api/client'
@@ -38,6 +39,7 @@ import {
   updateAdministrativeProfile,
 } from '../../src/api/profile'
 import { fetchTeacherStudentRelations, unlinkTeacherStudentRelation } from '../../src/api/relations'
+import { fetchConsents } from '../../src/api/accounts'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockApiClient = vi.mocked(apiClient)
@@ -48,6 +50,7 @@ const mockCreateInternalNote = vi.mocked(createInternalNote)
 const mockFetchProfileStatistics = vi.mocked(fetchProfileStatistics)
 const mockFetchTeacherStudentRelations = vi.mocked(fetchTeacherStudentRelations)
 const mockUnlinkTeacherStudentRelation = vi.mocked(unlinkTeacherStudentRelation)
+const mockFetchConsents = vi.mocked(fetchConsents)
 
 const STUDENT_USER = {
   id: 'student-1',
@@ -118,6 +121,7 @@ beforeEach(() => {
   mockFetchTeacherStudentRelations.mockResolvedValue([])
   mockFetchInternalNotes.mockResolvedValue([])
   mockFetchProfileStatistics.mockResolvedValue({})
+  mockFetchConsents.mockResolvedValue([])
 })
 
 describe('ProfilePage', () => {
@@ -835,6 +839,67 @@ describe('ProfilePage', () => {
 
       // La boîte reste ouverte, le formateur reste affiché : rien n'a été perdu.
       expect(screen.getByText('Paul Martin')).toBeDefined()
+    })
+  })
+
+  /**
+   * Onglet « Confidentialité » (décision du 2026-08-18) : les consentements
+   * RGPD/CGU/marketing apparaissent désormais en tête de l'onglet, au-dessus de
+   * la tuile de réglages de visibilité champ par champ — renommée « Détails ».
+   */
+  describe('onglet Confidentialité', () => {
+    it('affiche les consentements puis la tuile « Détails », sur son propre profil', async () => {
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+      mockFetchConsents.mockResolvedValue([
+        {
+          consentType: 'rgpd',
+          status: 'granted',
+          isGranted: true,
+          isMandatory: true,
+          isWithdrawable: false,
+          version: '1.0',
+          grantedAt: '2026-01-05T10:00:00.000Z',
+          withdrawnAt: null,
+          updatedAt: '2026-01-05T10:00:00.000Z',
+        },
+      ])
+
+      renderProfilePage()
+
+      const confidentialiteTab = await screen.findByRole('tab', { name: 'Confidentialité' })
+      fireEvent.click(confidentialiteTab)
+
+      await waitFor(() => {
+        expect(screen.getByText('Consentements RGPD / CGU')).toBeDefined()
+      })
+      expect(screen.getByText('Protection des données personnelles (RGPD)')).toBeDefined()
+
+      // L'ancienne tuile « Confidentialité » est renommée « Détails » et
+      // renvoie toujours vers l'écran de visibilité champ par champ.
+      expect(screen.getByText('Détails')).toBeDefined()
+      expect(screen.queryByRole('heading', { name: 'Confidentialité' })).toBeNull()
+      const detailsLink = screen.getByRole('link', { name: /gérer/i })
+      expect(detailsLink.getAttribute('href')).toBe('/profiles/student-1/visibility')
+    })
+
+    it("n'affiche pas les consentements d'un tiers : masqués quand un RP consulte un autre profil", async () => {
+      // `GET /consents` ne renvoie que les consentements de l'appelant authentifié
+      // (ici le RP lui-même) — jamais ceux de l'élève consulté. Les afficher serait
+      // montrer au RP ses propres consentements en les faisant passer pour ceux
+      // de l'élève.
+      mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+
+      renderProfilePage('student-1')
+
+      const confidentialiteTab = await screen.findByRole('tab', { name: 'Confidentialité' })
+      fireEvent.click(confidentialiteTab)
+
+      await waitFor(() => {
+        expect(screen.getByText('Détails')).toBeDefined()
+      })
+      expect(screen.queryByText('Consentements RGPD / CGU')).toBeNull()
+      expect(mockFetchConsents).not.toHaveBeenCalled()
     })
   })
 })

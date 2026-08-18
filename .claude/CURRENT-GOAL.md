@@ -5,6 +5,160 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-17 — où sont les consentements légaux (RGPD/CGU/marketing) côté front ?
+
+Question de l'utilisateur, pas encore une tâche de correction : il pensait que « Profil /
+Confidentialité » affichait les signatures légales de l'inscription (RGPD, droit à l'image,
+marketing), mais ce menu mène en réalité à `/visibilite`, qui gère la visibilité champ par champ
+du profil — un sujet différent. Il note aussi que la règle générale déjà posée sur la visibilité
+champ par champ (`docs/architecture.md`) ne serait pas respectée par cet écran.
+
+Investigation faite côté orchestrateur (`docs/routes.md`, identity-access-service) : les routes
+`GET /consents` (état courant), `GET /consents/history` (journal), `POST /consents`,
+`POST /consents/:type/withdraw` existent déjà côté backend. **Seuls 3 types existent : `rgpd`,
+`cgu`, `marketing` — aucun « droit à l'image » distinct côté backend.**
+
+Investigation front déléguée (lecture seule, pas de correctif) : où mène réellement « Profil /
+Confidentialité » aujourd'hui, existe-t-il un écran affichant `GET /consents` ailleurs, le
+formulaire d'inscription mentionne-t-il un « droit à l'image » nulle part présent en base, et que
+fait réellement l'écran `/visibilite`.
+
+### État
+
+- [x] Investigation front reçue : écran `/consents` existe déjà (fonctionnel) mais **invisible**
+      — dans aucun menu, seul point d'entrée une bannière visible uniquement compte `pending`.
+      « Profil/Confidentialité » ne mène qu'à `/visibilite` (visibilité champ par champ), aucun
+      rapport avec les consentements. « Droit à l'image » n'existe nulle part (ni backend, ni
+      texte du formulaire d'inscription) — attente de l'utilisateur sans base dans le code.
+- [x] Réponse donnée à l'utilisateur — 2026-08-17
+
+### Suite — arbitrage rendu par l'utilisateur sur la visibilité champ par champ (2026-08-17)
+
+En réponse à la question sur la règle non respectée, l'utilisateur a précisé un arbitrage complet
+sur les défauts de visibilité et le périmètre administrable, **consigné dans
+`docs/architecture.md`** (section « Defauts de visibilite champ par champ... ») :
+1. `loginIdentifier` (pseudo) jamais masquable, sert de repli.
+2. Prénom/nom partagés à tous par défaut ; si masqués, repli sur le pseudo **partout** où un nom
+   serait affiché — jamais un vide, jamais un UUID.
+3. Tous les autres champs partagés par défaut aux seuls contacts liés (remplace l'ancien socle
+   qui incluait aussi photo/niveau/matières).
+4. Seuls les champs du rôle réel de l'utilisateur sont administrables par lui — **bug confirmé** :
+   `/visibilite` montre aujourd'hui les deux blocs pédagogiques (élève ET formateur) sans filtrer
+   par rôle du titulaire.
+
+**Périmètre retenu par l'utilisateur (2026-08-17)**, après signalement que le repli nom→pseudo
+(point 2) était potentiellement large : **le point 2 est reporté**, pas implémenté maintenant.
+À la place :
+- **Prénom et nom ne doivent plus du tout être réglables** dans `/visibilite` — retirés de
+  l'écran, et le serveur doit les traiter comme toujours visibles à tous, quoi qu'il arrive
+  (aucun repli sur le pseudo à construire pour l'instant, puisqu'ils ne peuvent plus être masqués
+  du tout).
+- **Le reste est à mettre à jour** : points 3 (tous les autres champs par défaut aux seuls
+  contacts liés) et 4 (un utilisateur n'administre que les champs de son propre rôle — corriger
+  le bug `/visibilite` qui montre les deux blocs pédagogiques).
+
+Deux chantiers : `profile-service` (défauts des autres champs, catalogue filtré par rôle,
+prénom/nom jamais masquables même via l'API), `front-developper` (retirer prénom/nom de l'écran
+`/visibilite`, filtrer les champs affichés par rôle réel du titulaire).
+
+### État
+
+- [x] Implémenté côté `profile-service` — branche `fix/profile-service-visibilite-defauts-role`
+      (poussée sur `origin`, non mergée), vérifiée par un agent dédié : firstName/lastName sortis
+      du catalogue et toujours visibles (`PUT` avec ces noms → `400`), tous les autres champs par
+      défaut `linked` calculé à la lecture (pas de migration), catalogue `GET .../field-visibility`
+      filtré par le rôle réel du titulaire. 659/659 tests unitaires verts, 363/364 e2e verts (1
+      échec préexistant sans rapport). Rapport : `.claude/reports/profile-service-2026-08-18.md`.
+- [x] Implémenté côté front — branche `fix/front-visibilite-defauts-role` (poussée sur `origin`,
+      non mergée) : prénom/nom retirés de l'écran `/visibilite` (aucune option, jamais envoyés en
+      `PUT`), bug des deux blocs pédagogiques corrigé (filtrage par le rôle réel du titulaire via
+      `resolvePedagogicalProfileKind`, déjà utilisé ailleurs dans le front pour le même problème).
+      1581 tests front verts (2 échecs préexistants sans rapport).
+- [x] Déployé sur la pile réelle — **déploiement de vérification, pas encore mergé dans `master`**
+      (règle du projet : jamais de merge sans validation explicite). Orchestrateur : branche locale
+      temporaire `verify/visibilite-defauts-role` (non poussée) fusionnant les deux branches
+      ci-dessus + `docs/investigation-confidentialite-consentements`, sans conflit ; `profile-service`
+      et `frontend` reconstruits et redéployés, gateway rechargée, bundle servi confirmé
+      (`assets/index-DT-pCUIW.js`).
+- [x] Preuve livrée à l'utilisateur — **preuve HTTP** contre la pile réelle, comptes élève et
+      formateur créés via les vraies routes d'inscription (réponses citées ci-dessous), **et
+      preuve à l'écran** : test e2e Playwright réel (aucun mock) contre
+      `https://claudevma.visioprof.fr`, 2/2 verts, committé
+      `apps/web/e2e/proof-field-visibility-defaults-role.spec.ts` sur
+      `fix/front-visibilite-defauts-role`. Captures envoyées à l'utilisateur : élève (aucun
+      réglage prénom/nom, seul le bloc « Profil pédagogique — élève ») et formateur (aucun
+      réglage prénom/nom, seul le bloc « Profil pédagogique — formateur »).
+- [ ] Validé par l'utilisateur
+
+### Retour utilisateur sur la preuve (2026-08-18) — deux points, pas une validation
+
+Après avoir vu la preuve (captures publiées en Artifact, `SendUserFile` ne s'affichant pas dans son
+client), l'utilisateur a demandé deux ajustements — donc **pas encore une validation**.
+
+**Point 1 — conserver prénom/nom à l'écran, grisés.** Revirement partiel sur le choix du
+2026-08-17 : au lieu de les retirer entièrement de `/visibilite`, les afficher mais **grisés,
+verrouillés sur « Tous les membres »**, aucun autre choix possible, jamais envoyés dans le `PUT`
+(le backend les refuse toujours en `400` — comportement backend inchangé, uniquement l'affichage
+front qui change).
+
+- [x] Implémenté — `fix/front-visibilite-defauts-role`, commit `37a94d3`, poussé. Lignes
+      `firstName`/`lastName` codées en dur côté front (`LOCKED_FIELD_ENTRIES`, backend ne les
+      renvoie plus du tout), grisées, verrouillées sur le libellé existant de `all` (« Tous les
+      membres », réutilisé, pas dupliqué), légende « Toujours visible, non modifiable », aucun
+      input actif, strictement exclues du payload `PUT`. Nouveau flag `isLocked?` sur
+      `FieldVisibilityEntry`. 25/25 tests du composant verts, 1581/1583 sur la suite complète (2
+      échecs préexistants sans rapport, `EleveDashboardPage.test.tsx`).
+- [ ] Preuve contre la pile réelle (capture) — pas encore faite pour cette révision spécifique.
+
+**Point 2 — où voir les acceptations RGPD/CGU/marketing : placement décidé par l'utilisateur.**
+Rappel du constat du 2026-08-17 : l'écran `/consents` existe et fonctionne (`GET /consents`,
+historique inclus) mais n'est visible nulle part — ni menu du haut, ni rail gauche, seule une
+bannière visible en compte `pending`. Précision apportée le 2026-08-18 : **aucun « droit à
+l'image » distinct n'existe côté backend ni dans le texte du formulaire d'inscription** — seuls
+`rgpd`, `cgu`, `marketing` existent. À vérifier par l'utilisateur si c'est un oubli d'implémentation
+ou si c'était voulu comme inclus dans `cgu`.
+
+**Décision de l'utilisateur (2026-08-18)**, dans l'onglet **« Confidentialité »** déjà existant sur
+la page de profil (pas un ajout de menu du haut ni de rail gauche — la règle permanente sur les
+menus ne s'applique donc pas ici) :
+- Les **3 consentements** (rgpd, cgu, marketing) apparaissent **en haut** de cet onglet.
+- La tuile actuelle « Confidentialité » de cet onglet (contenu actuel : les réglages de visibilité
+  champ par champ, ex-`/visibilite`) devient **« Détails »** et passe **en dessous** des
+  consentements.
+
+- [x] Implémenté côté front — `fix/front-visibilite-defauts-role`, commit `101aaa1`, poussé.
+      `ProfileConsentsSection` (nouveau) réutilise le mécanisme `/consents` existant
+      (`useConsents`, `ConsentCard`, `ConsentWithdrawalDialog`) sans dupliquer d'appel API,
+      affiché uniquement sur son propre profil (`GET /consents` ne renvoie que les consentements
+      de l'appelant). Tuile visibilité renommée « Confidentialité » → « Détails », repositionnée
+      en dessous. Retrait proposé uniquement pour `marketing`. 1591/1593 tests verts (2 échecs
+      préexistants sans rapport, `EleveDashboardPage.test.tsx`).
+- [x] Déployé sur la pile réelle — déploiement de vérification (même principe que précédemment,
+      pas encore mergé dans `master`) : branche locale `verify/visibilite-defauts-role` refaite à
+      partir de `origin/master` + les trois branches, sans conflit ; `frontend` reconstruit et
+      redéployé, bundle servi confirmé `assets/index-sbHSCu-z.js`, gateway rechargée.
+- [x] Preuve livrée à l'utilisateur — test e2e Playwright réel contre la pile réelle, 2/2 verts,
+      committé `apps/web/e2e/proof-visibility-locked-names-and-consents-tab.spec.ts` sur
+      `fix/front-visibilite-defauts-role` (commit `ed70d1d`). Captures rejouées par l'orchestrateur
+      (le worktree de l'agent avait été nettoyé automatiquement avant récupération) et publiées
+      dans l'Artifact déjà partagé avec l'utilisateur (mis à jour en place, même URL) : prénom/nom
+      grisés verrouillés sur « Tous les membres » (Pièce 3), onglet Confidentialité avec
+      consentements en tête et tuile « Détails » en dessous, retrait réservé au marketing
+      (Pièce 4).
+- [ ] Validé par l'utilisateur
+
+#### Preuve HTTP citée (2026-08-18, contre `https://claudevma.visioprof.fr`)
+
+`GET /profiles/:userId/field-visibility` (élève) → `200`, aucun `firstName`/`lastName`, tous les
+champs `defaultAudience: "linked"`, uniquement `block: "pedagogical-student"` côté pédagogique.
+Même route (formateur) → `200`, uniquement `block: "pedagogical-teacher"`.
+
+`PUT /profiles/:userId/field-visibility` `{"fields":[{"fieldName":"firstName","audience":"self"}]}`
+→ `400 {"message":"Unknown profile field(s): firstName. Accepted field names: addressLine1, ...
+(sans firstName ni lastName)"}`. Même résultat pour `lastName`.
+
+---
+
 ## Besoin — 2026-08-17 — « Demande en cours » sur le dashboard élève pendant une demande active
 
 Demande explicite de l'utilisateur, troisième état du dashboard élève (après « pas de

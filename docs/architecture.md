@@ -676,4 +676,35 @@ Phase 3 enrichit l'offre :
       des evenements sans ce mecanisme. Mise en place minimale requise, sur le modele deja suivi
       par les autres services (`teacher-request-service` notamment).
 
+- Defauts de visibilite champ par champ, et perimetre administrable de l'ecran `/visibilite`.
+  Arbitrage rendu le 2026-08-17, sur constat direct de l'utilisateur : l'ecran actuel demandait a
+  un eleve de regler la visibilite de champs du profil pedagogique **formateur**, et l'ancien
+  "socle partage par defaut" (prenom, nom, photo, niveau, matieres) n'etait pas assez precis.
+  Revise et remplace ici.
+  1. **L'identifiant de connexion (`loginIdentifier`, le pseudo) ne peut jamais etre masque.** Il
+     n'entre pas dans les reglages de visibilite : il est toujours disponible, et devient le
+     **repli** du point 2 ci-dessous.
+  2. **Prenom et nom sont partages a tout le monde, et ne peuvent pas etre masques.**
+     **Precision du 2026-08-17** : ce point est **simplifie a l'implementation** — plutot que de
+     construire le repli sur `loginIdentifier` (potentiellement large, tout ecran affichant un nom
+     de personne dans l'app), le reglage de visibilite du prenom/nom est **retire de l'ecran**
+     `/visibilite` et le serveur les traite comme **toujours visibles**, sans possibilite de les
+     masquer, meme via l'API. Le mecanisme de repli sur le pseudo reste une idee a reprendre plus
+     tard si le besoin de masquer le nom redevient reel — non implemente pour l'instant.
+  3. **Tous les autres champs sont partages par defaut aux seuls contacts lies**, jamais a tout le
+     monde. Ceci remplace l'ancien "socle" qui incluait aussi la photo, le niveau et les matieres
+     dans un partage plus large par defaut — desormais seuls le nom et le prenom (points 1-2) ont
+     un statut different des autres champs.
+  4. **Seuls les champs du role reel de l'utilisateur sont administrables par lui.** Un eleve ne
+     regle que les champs de son propre profil (administratif + pedagogique **eleve**), jamais
+     ceux du bloc pedagogique **formateur** — et symetriquement pour un formateur, qui ne doit pas
+     voir les champs du profil pedagogique eleve. **Bug constate** : `/visibilite` affiche
+     aujourd'hui les deux blocs pedagogiques sans filtrer par le role reel du titulaire du
+     profil — a corriger, cote front si le filtrage doit se faire au rendu, cote `profile-service`
+     si le catalogue expose par `GET /profiles/:userId/field-visibility` doit deja etre filtre par
+     role a la source (a trancher pendant l'implementation, en suivant le principe deja pose que
+     le front affiche ce que le serveur autorise, il ne decide jamais seul une regle de droit).
+  5. **Ne s'applique pas au parent financeur ni aux roles administratifs**, deja exemptes du
+     filtrage champ par champ (arbitrage du 2026-08-09) — cet arbitrage ne les concerne pas.
+
 ## Points ouverts a arbitrer

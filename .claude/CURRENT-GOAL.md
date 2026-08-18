@@ -63,7 +63,23 @@ Ordre de livraison retenu, une branche par étape :
       PR #120, jamais supprimées de `origin` — seules les copies locales l'avaient été) :
       `docs/investigation-confidentialite-consentements`, `fix/front-visibilite-defauts-role`,
       `fix/profile-service-visibilite-defauts-role`.**
-- [ ] Point 2 — visibilité busy/free par relation
+- [x] Point 2 — visibilité busy/free par relation. Backend + front livrés (239+26 tests, puis
+      +182/+70 e2e après correctif). Bug réel trouvé par l'orchestrateur en HTTP contre la pile
+      réelle (titulaire n'ayant jamais ouvert son calendrier bloquait tout le monde, `ownerRole`
+      dépendait d'une ligne `Calendar` créée paresseusement) — corrigé via un nouveau
+      `IdentityAccessClient` qui résout le rôle indépendamment de toute lecture préalable.
+      **Preuve HTTP complète obtenue par l'orchestrateur** contre `https://claudevma.visioprof.fr`,
+      comptes neufs (élève+parent liés via inscription, formateur, tiers), relation
+      élève↔formateur posée via la route interne, **aucun appel préalable à `GET /calendars/:id`** :
+      parent lié → élève jamais ouvert : `200` ; formateur lié → élève : `200` ; élève → son
+      formateur jamais ouvert : `200` ; parent → formateur de son enfant (relation indirecte) :
+      `200` ; tiers non lié → élève : `403` ; tiers non lié → formateur : `403`. Contenu vérifié :
+      un créneau créé par l'élève apparaît dans `availableWindows` du parent **sans aucun autre
+      détail** (pas d'id, titre, participants). **Pas de preuve écran** — le composant
+      `LinkedCalendarView` n'a volontairement aucun point de montage dans la navigation ; décision
+      explicite de l'utilisateur (2026-08-18) : la preuve écran attendra son intégration réelle au
+      point 3, pas de page de test jetable entre-temps. **Validé par l'utilisateur** sur cette
+      base — mergé dans master.
 - [ ] Point 3 — proposition/acceptation de créneau
 - [ ] Point 4 — intégration LiveKit
 - [ ] Preuve livrée à l'utilisateur pour chaque point

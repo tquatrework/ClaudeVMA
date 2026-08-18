@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   NotFoundException,
   BadRequestException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -15,6 +16,33 @@ import { UpdateAvailabilitySlotDto } from './dto/update-availability-slot.dto';
 import { EventsService } from '../events/events.service';
 import { UserRole } from '../common/enums/user-role.enum';
 import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
+import { ActivitiesService } from '../activities/activities.service';
+import {
+  ProfileRelationsClient,
+  ProfileRelationsUnavailableError,
+} from '../common/clients/profile-relations.client';
+import {
+  IdentityAccessClient,
+  IdentityAccessUnavailableError,
+} from '../common/clients/identity-access.client';
+import {
+  isCalendarBusyFreeAccessAllowed,
+  resolveCalendarBusyFreeAccess,
+} from './calendar-visibility.policy';
+import { expandSlotToOccurrences, Occurrence } from './recurrence.util';
+
+/**
+ * Réponse pauvre de `GET /calendars/:ownerId/busy` — jamais d'id, de titre,
+ * de type ni de participants. Voir `docs/routes.md`.
+ */
+export interface CalendarBusyFreeResponse {
+  ownerId: string;
+  from: string;
+  to: string;
+  availableWindows: Array<{ start: string; end: string }>;
+  unavailableBlocks: Array<{ start: string; end: string }>;
+  busyBlocks: Array<{ start: string; end: string }>;
+}
 
 @Injectable()
 export class CalendarsService {
@@ -28,6 +56,9 @@ export class CalendarsService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly eventsService: EventsService,
+    private readonly activitiesService: ActivitiesService,
+    private readonly profileRelationsClient: ProfileRelationsClient,
+    private readonly identityAccessClient: IdentityAccessClient,
   ) {}
 
   /**
@@ -253,6 +284,126 @@ export class CalendarsService {
     );
   }
 
+  /**
+   * `GET /calendars/:ownerId/busy?from=&to=` — busy/free d'un tiers, piloté
+   * par la relation métier réelle (point 2 du chantier calendrier de
+   * disponibilités). Réponse volontairement pauvre : jamais d'id, de titre,
+   * de type ni de participants — voir `CalendarBusyFreeResponse`.
+   *
+   * Contrôle d'accès AVANT toute lecture en base, comme partout ailleurs
+   * dans ce projet : une requête refusée ne doit pas même toucher les
+   * données qu'elle n'a pas le droit de voir.
+   *
+   * `403` (pas `404`) en cas de refus — recommandation retenue à
+   * l'approbation du plan : contrairement aux archives/statistiques
+   * pédagogiques, il n'y a ici aucune ambiguïté d'existence à protéger, le
+   * calendrier existe toujours.
+   *
+   * `503` si `profile-service` est injoignable — échec fermé, jamais un
+   * accès accordé par défaut (`ProfileRelationsUnavailableError`).
+   *
+   * `ownerRole` (nécessaire à `resolveCalendarBusyFreeAccess` pour un
+   * titulaire élève vs formateur) est résolu auprès d'`identity-access-service`
+   * (`IdentityAccessClient`), jamais lu depuis `Calendar.ownerRole` : cette
+   * colonne n'existe que si la ligne `Calendar` a déjà été créée
+   * paresseusement par un appel antérieur, ce qui n'est pas garanti pour un
+   * titulaire qui n'a encore jamais ouvert son propre calendrier — bug
+   * corrigé (CAL-FB-004), voir `IdentityAccessClient`. `503` si
+   * `identity-access-service` est injoignable, même posture d'échec fermé
+   * que pour `profile-service`.
+   */
+  async getBusyFree(
+    ownerId: string,
+    actor: AuthenticatedUser,
+    from: Date,
+    to: Date,
+    correlationId?: string,
+  ): Promise<CalendarBusyFreeResponse> {
+    if (to.getTime() <= from.getTime()) {
+      throw new BadRequestException('to must be after from');
+    }
+
+    if (actor.id !== ownerId) {
+      let ownerRole: string | undefined;
+      try {
+        ownerRole = await this.identityAccessClient.resolveRole(ownerId, correlationId);
+      } catch (error) {
+        if (error instanceof IdentityAccessUnavailableError) {
+          throw new ServiceUnavailableException(
+            "Impossible de vérifier les droits d'accès à ce calendrier pour le moment. " +
+              'Réessayez dans un instant.',
+          );
+        }
+        throw error;
+      }
+
+      let snapshot;
+      try {
+        snapshot = await this.profileRelationsClient.resolveRelations(
+          actor.id,
+          ownerId,
+          actor.role,
+          correlationId,
+        );
+      } catch (error) {
+        if (error instanceof ProfileRelationsUnavailableError) {
+          throw new ServiceUnavailableException(
+            "Impossible de vérifier les droits d'accès à ce calendrier pour le moment. " +
+              'Réessayez dans un instant.',
+          );
+        }
+        throw error;
+      }
+
+      const position = resolveCalendarBusyFreeAccess({
+        viewerId: actor.id,
+        viewerRole: actor.role,
+        ownerId,
+        ownerRole,
+        relations: snapshot.relations,
+      });
+
+      if (!isCalendarBusyFreeAccessAllowed(position)) {
+        throw new ForbiddenException(
+          "CAL-FB-004: You may only read the busy/free calendar of a person you're linked to",
+        );
+      }
+    }
+
+    const calendar = await this.calendarRepo.findOne({
+      where: { ownerId },
+      relations: ['availabilitySlots'],
+    });
+
+    const slots = calendar?.availabilitySlots ?? [];
+    const availableWindows: Occurrence[] = [];
+    const unavailableBlocks: Occurrence[] = [];
+
+    for (const slot of slots) {
+      const occurrences = expandSlotToOccurrences(slot, from, to);
+      if (slot.kind === SlotKind.UNAVAILABLE) {
+        unavailableBlocks.push(...occurrences);
+      } else {
+        availableWindows.push(...occurrences);
+      }
+    }
+
+    const activities = await this.activitiesService.findActiveInRange(ownerId, from, to);
+    const busyBlocks = activities.map((activity) => ({
+      start: activity.startTime,
+      end: activity.endTime,
+    }));
+
+    return {
+      ownerId,
+      from: from.toISOString(),
+      to: to.toISOString(),
+      availableWindows: toIsoOccurrences(availableWindows),
+      unavailableBlocks: toIsoOccurrences(unavailableBlocks),
+      busyBlocks: toIsoOccurrences(busyBlocks),
+    };
+  }
+
   // ---- Slot helpers ----
 
   /**
@@ -291,12 +442,19 @@ export class CalendarsService {
   // ---- Access control helpers ----
 
   /**
-   * CAL-FB-001: Read access — owner or internal roles (RP, AP, TI, FINANCE_ADMIN).
+   * CAL-FB-001: Read access — owner or internal roles (RP, TI, FINANCE_ADMIN).
+   *
+   * `ANIMATEUR_PEDAGOGIQUE` retiré le 2026-08-18 (chantier calendrier de
+   * disponibilités, point 2) : il donnait jusqu'ici un accès INTÉGRAL à
+   * n'importe quel calendrier, sans aucune vérification de lien — contredisant
+   * directement le principe même de la visibilité busy/free pilotée par
+   * relation. L'AP passe désormais exclusivement par
+   * `GET /calendars/:ownerId/busy`, qui vérifie la relation réelle
+   * (`ANIMATOR_OF_TEACHER`) via `profile-service`.
    */
   private assertCanReadCalendar(ownerId: string, actor: AuthenticatedUser): void {
     const internalRoles: UserRole[] = [
       UserRole.RESPONSABLE_PEDAGOGIQUE,
-      UserRole.ANIMATEUR_PEDAGOGIQUE,
       UserRole.TECHNICIEN_INFORMATIQUE,
       UserRole.ADMINISTRATEUR_FINANCIER,
     ];
@@ -321,4 +479,14 @@ export class CalendarsService {
       'CAL-FB-001: You may only modify your own calendar',
     );
   }
+}
+
+/** Sérialise une liste d'occurrences (`Date`) en ISO 8601, pour la réponse HTTP. */
+function toIsoOccurrences(
+  occurrences: Array<{ start: Date; end: Date }>,
+): Array<{ start: string; end: string }> {
+  return occurrences.map((occurrence) => ({
+    start: occurrence.start.toISOString(),
+    end: occurrence.end.toISOString(),
+  }));
 }

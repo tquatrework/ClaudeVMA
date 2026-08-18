@@ -16,10 +16,19 @@
  */
 
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import { Test, TestingModule, TestingModuleBuilder } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../../../src/app.module';
+import {
+  ProfileRelationsClient,
+  ProfileRelationsUnavailableError,
+} from '../../../src/common/clients/profile-relations.client';
+import {
+  IdentityAccessClient,
+  IdentityAccessUnavailableError,
+} from '../../../src/common/clients/identity-access.client';
+import { RelationSnapshot } from '../../../src/common/relations/relation-kind';
 import * as jwt from 'jsonwebtoken';
 
 export const TEST_JWT_SECRET = 'test_jwt_secret_for_e2e';
@@ -29,6 +38,18 @@ function setStaticTestEnv(): void {
   process.env.NODE_ENV = 'test';
   process.env.JWT_SECRET = TEST_JWT_SECRET;
   process.env.INTERNAL_SECRET = INTERNAL_SECRET;
+  // Hôte volontairement non résolvable : les specs e2e qui exercent
+  // GET /calendars/:ownerId/busy remplacent ProfileRelationsClient par un
+  // faux (`overrideProfileRelationsClient`) plutôt que de joindre un vrai
+  // profile-service. Les autres specs ne l'appellent jamais.
+  process.env.PROFILE_SERVICE_URL =
+    process.env.PROFILE_SERVICE_URL ?? 'http://profile-service.test:3002';
+  // Même posture que PROFILE_SERVICE_URL ci-dessus : les specs e2e qui
+  // exercent GET /calendars/:ownerId/busy remplacent IdentityAccessClient par
+  // un faux (`overrideIdentityAccessClient`) plutôt que de joindre un vrai
+  // identity-access-service.
+  process.env.IDENTITY_ACCESS_SERVICE_URL =
+    process.env.IDENTITY_ACCESS_SERVICE_URL ?? 'http://identity-access-service.test:3001';
 }
 
 function buildLocalDatabaseUrl(): string {
@@ -67,18 +88,85 @@ function loadDotEnvTest(): void {
 }
 
 /**
- * Build and start a test application instance backed by a local PostgreSQL database.
- * The schema is reset via synchronize(true) before each suite so tests stay independent.
+ * Fake `ProfileRelationsClient`, injectable in e2e specs that exercise
+ * `GET /calendars/:ownerId/busy` — la vraie relation métier vit dans
+ * `profile-service`, hors de portée d'un e2e de `calendar-service` isolé.
+ * `resolveRelations` renvoie ce que le test y a placé via `setSnapshot`
+ * (ou lève `ProfileRelationsUnavailableError` via `setUnavailable`), pour
+ * couvrir aussi bien la matrice de politique que le cas 503.
  */
-export async function createTestApp(): Promise<INestApplication> {
+export class FakeProfileRelationsClient {
+  private snapshotsByKey = new Map<string, RelationSnapshot>();
+  private unavailable = false;
+
+  setSnapshot(viewerId: string, targetId: string, snapshot: RelationSnapshot): void {
+    this.snapshotsByKey.set(`${viewerId}:${targetId}`, snapshot);
+  }
+
+  setUnavailable(value: boolean): void {
+    this.unavailable = value;
+  }
+
+  async resolveRelations(
+    viewerId: string,
+    targetId: string,
+    _viewerRole: string,
+    _correlationId?: string,
+  ): Promise<RelationSnapshot> {
+    if (this.unavailable) {
+      throw new ProfileRelationsUnavailableError('profile-service unreachable (test double)');
+    }
+    const snapshot = this.snapshotsByKey.get(`${viewerId}:${targetId}`);
+    if (snapshot) return snapshot;
+    return {
+      viewerId,
+      targetId,
+      isSelf: viewerId === targetId,
+      isAdministrator: false,
+      relations: [],
+    };
+  }
+}
+
+/**
+ * Fake `IdentityAccessClient`, injectable en e2e à côté de
+ * `FakeProfileRelationsClient` — même modèle. Le rôle réel du titulaire
+ * vit dans `identity-access-service`, hors de portée d'un e2e de
+ * `calendar-service` isolé. `resolveRole` renvoie ce que le test y a placé
+ * via `setRole` (défaut : `undefined`, compte inconnu — reproduit
+ * exactement CAL-FB-004 : un titulaire jamais résolu doit rester en repli
+ * fermé), ou lève `IdentityAccessUnavailableError` via `setUnavailable`.
+ */
+export class FakeIdentityAccessClient {
+  private rolesByUserId = new Map<string, string>();
+  private unavailable = false;
+
+  setRole(userId: string, role: string): void {
+    this.rolesByUserId.set(userId, role);
+  }
+
+  setUnavailable(value: boolean): void {
+    this.unavailable = value;
+  }
+
+  async resolveRole(userId: string, _correlationId?: string): Promise<string | undefined> {
+    if (this.unavailable) {
+      throw new IdentityAccessUnavailableError('identity-access-service unreachable (test double)');
+    }
+    return this.rolesByUserId.get(userId);
+  }
+}
+
+async function buildTestApp(
+  moduleBuilder: (base: TestingModuleBuilder) => TestingModuleBuilder,
+): Promise<INestApplication> {
   loadDotEnvTest();
   setStaticTestEnv();
 
   process.env.DATABASE_URL = buildLocalDatabaseUrl();
 
-  const moduleFixture: TestingModule = await Test.createTestingModule({
-    imports: [AppModule],
-  }).compile();
+  const base = Test.createTestingModule({ imports: [AppModule] });
+  const moduleFixture: TestingModule = await moduleBuilder(base).compile();
 
   const app = moduleFixture.createNestApplication();
   app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
@@ -95,6 +183,38 @@ export async function createTestApp(): Promise<INestApplication> {
   await dataSource.synchronize();
 
   return app;
+}
+
+/**
+ * Build and start a test application instance backed by a local PostgreSQL database.
+ * The schema is reset via synchronize(true) before each suite so tests stay independent.
+ */
+export async function createTestApp(): Promise<INestApplication> {
+  return buildTestApp((base) => base);
+}
+
+/**
+ * Même bootstrap que `createTestApp`, avec `ProfileRelationsClient` remplacé
+ * par un faux contrôlable — réservé aux specs qui exercent
+ * `GET /calendars/:ownerId/busy` (sur le modèle de
+ * `teacher-request-service/test/e2e/helpers/app.helper.ts`, qui override
+ * `ProfileServiceClient` de la même façon).
+ */
+export async function createTestAppWithFakeProfileRelations(): Promise<{
+  app: INestApplication;
+  profileRelations: FakeProfileRelationsClient;
+  identityAccess: FakeIdentityAccessClient;
+}> {
+  const profileRelations = new FakeProfileRelationsClient();
+  const identityAccess = new FakeIdentityAccessClient();
+  const app = await buildTestApp((base) =>
+    base
+      .overrideProvider(ProfileRelationsClient)
+      .useValue(profileRelations)
+      .overrideProvider(IdentityAccessClient)
+      .useValue(identityAccess),
+  );
+  return { app, profileRelations, identityAccess };
 }
 
 /**

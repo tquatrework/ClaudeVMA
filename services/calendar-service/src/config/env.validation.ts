@@ -10,6 +10,28 @@
 export interface CalendarServiceEnvironmentVariables {
   DATABASE_URL: string;
   JWT_SECRET: string;
+  /**
+   * URL de `profile-service`, unique propriétaire des relations métier.
+   * Requise depuis le chantier calendrier de disponibilités, point 2
+   * (visibilité busy/free) : sans elle, `ProfileRelationsClient` retomberait
+   * sur un défaut codé en dur — le même défaut qui, sur
+   * `teacher-request-service`, avait pointé un port où personne n'écoute et
+   * laissé le RP ne lire que des UUID (docker-compose.yml, service
+   * `teacher-request-service`).
+   */
+  PROFILE_SERVICE_URL: string;
+  /**
+   * URL d'`identity-access-service`, unique propriétaire du rôle
+   * (`docs/architecture.md` > "Propriété du rôle"). Requise depuis le
+   * correctif CAL-FB-004 (2026-08-18) : `GET /calendars/:ownerId/busy`
+   * résout désormais le rôle du titulaire auprès de la source de vérité
+   * (`IdentityAccessClient`) plutôt que depuis la ligne `Calendar`, dont
+   * l'existence n'est pas garantie. Sans elle, `IdentityAccessClient`
+   * retomberait sur un défaut codé en dur.
+   */
+  IDENTITY_ACCESS_SERVICE_URL: string;
+  /** Header `X-Internal-Secret` attendu par les routes `/internal/*` de `profile-service` et `identity-access-service`. */
+  INTERNAL_SECRET: string;
   NODE_ENV?: string;
   PORT?: string;
 }
@@ -17,6 +39,9 @@ export interface CalendarServiceEnvironmentVariables {
 const REQUIRED_KEYS: ReadonlyArray<keyof CalendarServiceEnvironmentVariables> = [
   'DATABASE_URL',
   'JWT_SECRET',
+  'PROFILE_SERVICE_URL',
+  'IDENTITY_ACCESS_SERVICE_URL',
+  'INTERNAL_SECRET',
 ];
 
 export function validateEnv(

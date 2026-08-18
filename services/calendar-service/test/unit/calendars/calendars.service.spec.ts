@@ -1,6 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
-import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  NotFoundException,
+  BadRequestException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { CalendarsService } from '../../../src/calendars/calendars.service';
 import { Calendar } from '../../../src/calendars/entities/calendar.entity';
 import {
@@ -10,6 +15,16 @@ import {
 } from '../../../src/calendars/entities/availability-slot.entity';
 import { PaymentScheduleEntry } from '../../../src/calendars/entities/payment-schedule-entry.entity';
 import { EventsService } from '../../../src/events/events.service';
+import { ActivitiesService } from '../../../src/activities/activities.service';
+import {
+  ProfileRelationsClient,
+  ProfileRelationsUnavailableError,
+} from '../../../src/common/clients/profile-relations.client';
+import {
+  IdentityAccessClient,
+  IdentityAccessUnavailableError,
+} from '../../../src/common/clients/identity-access.client';
+import { RelationKind } from '../../../src/common/relations/relation-kind';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
 import { AuthenticatedUser } from '../../../src/common/interfaces/authenticated-user.interface';
 
@@ -41,6 +56,18 @@ const mockEventsService = {
   publish: jest.fn(),
 };
 
+const mockActivitiesService = {
+  findActiveInRange: jest.fn(),
+};
+
+const mockProfileRelationsClient = {
+  resolveRelations: jest.fn(),
+};
+
+const mockIdentityAccessClient = {
+  resolveRole: jest.fn(),
+};
+
 /**
  * The transaction manager exposes the same repositories used outside a
  * transaction, so the existing mocks can be reused inside `manager.getRepository(...)`.
@@ -69,6 +96,9 @@ describe('CalendarsService', () => {
         { provide: getRepositoryToken(PaymentScheduleEntry), useValue: mockPaymentRepo },
         { provide: getDataSourceToken(), useValue: mockDataSource },
         { provide: EventsService, useValue: mockEventsService },
+        { provide: ActivitiesService, useValue: mockActivitiesService },
+        { provide: ProfileRelationsClient, useValue: mockProfileRelationsClient },
+        { provide: IdentityAccessClient, useValue: mockIdentityAccessClient },
       ],
     }).compile();
 
@@ -414,6 +444,448 @@ describe('CalendarsService', () => {
         NotFoundException,
       );
       expect(mockSlotRepo.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  // --- getCalendar: bug AP corrigé (2026-08-18, point 2) ---
+
+  describe('getCalendar — AP no longer has full read access (bug fix)', () => {
+    it('throws ForbiddenException when AP reads another user calendar without a link', async () => {
+      const actor: AuthenticatedUser = { id: 'ap-id', role: UserRole.ANIMATEUR_PEDAGOGIQUE };
+      await expect(service.getCalendar('teacher-1', actor)).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // --- getBusyFree ---
+
+  describe('getBusyFree', () => {
+    const from = new Date('2026-09-10T00:00:00Z');
+    const to = new Date('2026-09-17T00:00:00Z');
+
+    function slot(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'slot-1',
+        startTime: new Date('2026-09-10T09:00:00Z'),
+        endTime: new Date('2026-09-10T11:00:00Z'),
+        recurrence: SlotRecurrence.NONE,
+        recurrenceEndDate: null,
+        kind: SlotKind.AVAILABLE,
+        ...overrides,
+      };
+    }
+
+    beforeEach(() => {
+      mockActivitiesService.findActiveInRange.mockResolvedValue([]);
+      // Par défaut, rôle inconnu (comportement `IdentityAccessClient` réel
+      // sur un compte introuvable) — chaque test qui a besoin d'un
+      // `ownerRole` précis le déclare explicitement ci-dessous.
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(undefined);
+    });
+
+    it('rejects to <= from with BadRequestException, before any lookup', async () => {
+      const actor: AuthenticatedUser = { id: 'someone', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
+      await expect(service.getBusyFree('student-1', actor, to, from)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(mockCalendarRepo.findOne).not.toHaveBeenCalled();
+    });
+
+    it('grants the owner full access without calling profile-service', async () => {
+      mockCalendarRepo.findOne.mockResolvedValue({
+        ownerId: 'student-1',
+        ownerRole: UserRole.ELEVE,
+        availabilitySlots: [slot()],
+      });
+      const actor: AuthenticatedUser = { id: 'student-1', role: UserRole.ELEVE };
+
+      const result = await service.getBusyFree('student-1', actor, from, to);
+
+      expect(mockProfileRelationsClient.resolveRelations).not.toHaveBeenCalled();
+      expect(mockIdentityAccessClient.resolveRole).not.toHaveBeenCalled();
+      expect(result.ownerId).toBe('student-1');
+      expect(result.availableWindows).toHaveLength(1);
+    });
+
+    it('grants RP access to a student calendar without any relation', async () => {
+      mockCalendarRepo.findOne.mockResolvedValue({
+        ownerId: 'student-1',
+        ownerRole: UserRole.ELEVE,
+        availabilitySlots: [slot()],
+      });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.ELEVE);
+      mockProfileRelationsClient.resolveRelations.mockResolvedValue({
+        viewerId: 'rp-id',
+        targetId: 'student-1',
+        isSelf: false,
+        isAdministrator: true,
+        relations: [],
+      });
+      const actor: AuthenticatedUser = { id: 'rp-id', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
+
+      await expect(service.getBusyFree('student-1', actor, from, to)).resolves.toBeDefined();
+    });
+
+    it('grants RP access to a teacher calendar without any relation', async () => {
+      mockCalendarRepo.findOne.mockResolvedValue({
+        ownerId: 'teacher-1',
+        ownerRole: UserRole.FORMATEUR,
+        availabilitySlots: [],
+      });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.FORMATEUR);
+      mockProfileRelationsClient.resolveRelations.mockResolvedValue({
+        viewerId: 'rp-id',
+        targetId: 'teacher-1',
+        isSelf: false,
+        isAdministrator: true,
+        relations: [],
+      });
+      const actor: AuthenticatedUser = { id: 'rp-id', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
+
+      await expect(service.getBusyFree('teacher-1', actor, from, to)).resolves.toBeDefined();
+    });
+
+    it('denies AF on a student calendar without a relation (RP-only admin scope)', async () => {
+      mockCalendarRepo.findOne.mockResolvedValue({
+        ownerId: 'student-1',
+        ownerRole: UserRole.ELEVE,
+        availabilitySlots: [],
+      });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.ELEVE);
+      mockProfileRelationsClient.resolveRelations.mockResolvedValue({
+        viewerId: 'af-id',
+        targetId: 'student-1',
+        isSelf: false,
+        isAdministrator: true,
+        relations: [],
+      });
+      const actor: AuthenticatedUser = { id: 'af-id', role: UserRole.ADMINISTRATEUR_FINANCIER };
+
+      await expect(service.getBusyFree('student-1', actor, from, to)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('denies TI on a student calendar without a relation (RP-only admin scope)', async () => {
+      mockCalendarRepo.findOne.mockResolvedValue({
+        ownerId: 'student-1',
+        ownerRole: UserRole.ELEVE,
+        availabilitySlots: [],
+      });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.ELEVE);
+      mockProfileRelationsClient.resolveRelations.mockResolvedValue({
+        viewerId: 'ti-id',
+        targetId: 'student-1',
+        isSelf: false,
+        isAdministrator: true,
+        relations: [],
+      });
+      const actor: AuthenticatedUser = { id: 'ti-id', role: UserRole.TECHNICIEN_INFORMATIQUE };
+
+      await expect(service.getBusyFree('student-1', actor, from, to)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('grants a parent financeur access to their student (FINANCE_OWNER_OF_STUDENT)', async () => {
+      mockCalendarRepo.findOne.mockResolvedValue({
+        ownerId: 'student-1',
+        ownerRole: UserRole.ELEVE,
+        availabilitySlots: [],
+      });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.ELEVE);
+      mockProfileRelationsClient.resolveRelations.mockResolvedValue({
+        viewerId: 'parent-1',
+        targetId: 'student-1',
+        isSelf: false,
+        isAdministrator: false,
+        relations: [{ kind: RelationKind.FINANCE_OWNER_OF_STUDENT }],
+      });
+      const actor: AuthenticatedUser = { id: 'parent-1', role: UserRole.PARENT_FINANCEUR };
+
+      await expect(service.getBusyFree('student-1', actor, from, to)).resolves.toBeDefined();
+    });
+
+    it('grants an active teacher access to their student (TEACHER_OF_STUDENT)', async () => {
+      mockCalendarRepo.findOne.mockResolvedValue({
+        ownerId: 'student-1',
+        ownerRole: UserRole.ELEVE,
+        availabilitySlots: [],
+      });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.ELEVE);
+      mockProfileRelationsClient.resolveRelations.mockResolvedValue({
+        viewerId: 'teacher-1',
+        targetId: 'student-1',
+        isSelf: false,
+        isAdministrator: false,
+        relations: [{ kind: RelationKind.TEACHER_OF_STUDENT }],
+      });
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      await expect(service.getBusyFree('student-1', actor, from, to)).resolves.toBeDefined();
+    });
+
+    it('denies an unlinked teacher access to a student calendar', async () => {
+      mockCalendarRepo.findOne.mockResolvedValue({
+        ownerId: 'student-1',
+        ownerRole: UserRole.ELEVE,
+        availabilitySlots: [],
+      });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.ELEVE);
+      mockProfileRelationsClient.resolveRelations.mockResolvedValue({
+        viewerId: 'teacher-2',
+        targetId: 'student-1',
+        isSelf: false,
+        isAdministrator: false,
+        relations: [],
+      });
+      const actor: AuthenticatedUser = { id: 'teacher-2', role: UserRole.FORMATEUR };
+
+      await expect(service.getBusyFree('student-1', actor, from, to)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('grants a linked student access to their teacher (STUDENT_OF_TEACHER)', async () => {
+      mockCalendarRepo.findOne.mockResolvedValue({
+        ownerId: 'teacher-1',
+        ownerRole: UserRole.FORMATEUR,
+        availabilitySlots: [],
+      });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.FORMATEUR);
+      mockProfileRelationsClient.resolveRelations.mockResolvedValue({
+        viewerId: 'student-1',
+        targetId: 'teacher-1',
+        isSelf: false,
+        isAdministrator: false,
+        relations: [{ kind: RelationKind.STUDENT_OF_TEACHER }],
+      });
+      const actor: AuthenticatedUser = { id: 'student-1', role: UserRole.ELEVE };
+
+      await expect(service.getBusyFree('teacher-1', actor, from, to)).resolves.toBeDefined();
+    });
+
+    it('grants an indirect parent access to their student’s teacher (FINANCE_OWNER_OF_STUDENT_OF_TEACHER)', async () => {
+      mockCalendarRepo.findOne.mockResolvedValue({
+        ownerId: 'teacher-1',
+        ownerRole: UserRole.FORMATEUR,
+        availabilitySlots: [],
+      });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.FORMATEUR);
+      mockProfileRelationsClient.resolveRelations.mockResolvedValue({
+        viewerId: 'parent-1',
+        targetId: 'teacher-1',
+        isSelf: false,
+        isAdministrator: false,
+        relations: [{ kind: RelationKind.FINANCE_OWNER_OF_STUDENT_OF_TEACHER, throughUserIds: ['student-1'] }],
+      });
+      const actor: AuthenticatedUser = { id: 'parent-1', role: UserRole.PARENT_FINANCEUR };
+
+      await expect(service.getBusyFree('teacher-1', actor, from, to)).resolves.toBeDefined();
+    });
+
+    it('grants a linked AP access to a teacher they animate (ANIMATOR_OF_TEACHER)', async () => {
+      mockCalendarRepo.findOne.mockResolvedValue({
+        ownerId: 'teacher-1',
+        ownerRole: UserRole.FORMATEUR,
+        availabilitySlots: [],
+      });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.FORMATEUR);
+      mockProfileRelationsClient.resolveRelations.mockResolvedValue({
+        viewerId: 'ap-id',
+        targetId: 'teacher-1',
+        isSelf: false,
+        isAdministrator: false,
+        relations: [{ kind: RelationKind.ANIMATOR_OF_TEACHER }],
+      });
+      const actor: AuthenticatedUser = { id: 'ap-id', role: UserRole.ANIMATEUR_PEDAGOGIQUE };
+
+      await expect(service.getBusyFree('teacher-1', actor, from, to)).resolves.toBeDefined();
+    });
+
+    it('denies an unlinked AP access to a teacher calendar (bug fix: no more free pass)', async () => {
+      mockCalendarRepo.findOne.mockResolvedValue({
+        ownerId: 'teacher-1',
+        ownerRole: UserRole.FORMATEUR,
+        availabilitySlots: [],
+      });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.FORMATEUR);
+      mockProfileRelationsClient.resolveRelations.mockResolvedValue({
+        viewerId: 'ap-id',
+        targetId: 'teacher-1',
+        isSelf: false,
+        isAdministrator: false,
+        relations: [],
+      });
+      const actor: AuthenticatedUser = { id: 'ap-id', role: UserRole.ANIMATEUR_PEDAGOGIQUE };
+
+      await expect(service.getBusyFree('teacher-1', actor, from, to)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('denies access when identity-access-service does not know the owner account (unresolved role, fail closed)', async () => {
+      // La ligne Calendar peut très bien exister (créneaux déjà créés) : ce
+      // qui compte ici, c'est l'absence de rôle résolu côté
+      // identity-access-service (compte inconnu, 404 → `undefined`) —
+      // indépendant de l'existence de la ligne Calendar depuis le correctif
+      // CAL-FB-004.
+      mockCalendarRepo.findOne.mockResolvedValue(null);
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(undefined);
+      mockProfileRelationsClient.resolveRelations.mockResolvedValue({
+        viewerId: 'teacher-1',
+        targetId: 'student-1',
+        isSelf: false,
+        isAdministrator: false,
+        relations: [{ kind: RelationKind.TEACHER_OF_STUDENT }],
+      });
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      await expect(service.getBusyFree('student-1', actor, from, to)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('still lets the owner and RP through when the calendar row does not exist yet', async () => {
+      mockCalendarRepo.findOne.mockResolvedValue(null);
+      mockProfileRelationsClient.resolveRelations.mockResolvedValue({
+        viewerId: 'rp-id',
+        targetId: 'student-1',
+        isSelf: false,
+        isAdministrator: true,
+        relations: [],
+      });
+      const actor: AuthenticatedUser = { id: 'rp-id', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
+
+      const result = await service.getBusyFree('student-1', actor, from, to);
+      expect(result.availableWindows).toEqual([]);
+      expect(result.unavailableBlocks).toEqual([]);
+      expect(result.busyBlocks).toEqual([]);
+    });
+
+    // --- CAL-FB-004 : bug réel trouvé en HTTP contre la pile réelle
+    // (2026-08-18). `ownerRole` dépendait de `Calendar.ownerRole`, renseigné
+    // seulement à la création paresseuse de la ligne — un titulaire qui
+    // n'avait jamais ouvert son propre calendrier voyait son rôle "inconnu"
+    // et bloquait tout le monde d'autre, y compris une relation active
+    // réelle. Corrigé en résolvant le rôle auprès d'identity-access-service,
+    // indépendamment de l'existence de la ligne Calendar.
+
+    it(
+      'grants a linked parent even when the owner never had a Calendar row ' +
+        'created (regression CAL-FB-004: ownerRole resolved via identity-access-service, not Calendar.ownerRole)',
+      async () => {
+        mockCalendarRepo.findOne.mockResolvedValue(null);
+        mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.ELEVE);
+        mockProfileRelationsClient.resolveRelations.mockResolvedValue({
+          viewerId: 'parent-1',
+          targetId: 'student-1',
+          isSelf: false,
+          isAdministrator: false,
+          relations: [{ kind: RelationKind.FINANCE_OWNER_OF_STUDENT }],
+        });
+        const actor: AuthenticatedUser = { id: 'parent-1', role: UserRole.PARENT_FINANCEUR };
+
+        const result = await service.getBusyFree('student-1', actor, from, to);
+        expect(result.ownerId).toBe('student-1');
+        expect(mockIdentityAccessClient.resolveRole).toHaveBeenCalledWith(
+          'student-1',
+          undefined,
+        );
+      },
+    );
+
+    it('throws ServiceUnavailableException when profile-service is unreachable (fail closed)', async () => {
+      mockCalendarRepo.findOne.mockResolvedValue({
+        ownerId: 'student-1',
+        ownerRole: UserRole.ELEVE,
+        availabilitySlots: [],
+      });
+      mockIdentityAccessClient.resolveRole.mockResolvedValue(UserRole.ELEVE);
+      mockProfileRelationsClient.resolveRelations.mockRejectedValue(
+        new ProfileRelationsUnavailableError('profile-service unreachable or timed out'),
+      );
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      await expect(service.getBusyFree('student-1', actor, from, to)).rejects.toThrow(
+        ServiceUnavailableException,
+      );
+    });
+
+    it('throws ServiceUnavailableException when identity-access-service is unreachable (fail closed)', async () => {
+      mockCalendarRepo.findOne.mockResolvedValue({
+        ownerId: 'student-1',
+        ownerRole: UserRole.ELEVE,
+        availabilitySlots: [],
+      });
+      mockIdentityAccessClient.resolveRole.mockRejectedValue(
+        new IdentityAccessUnavailableError('identity-access-service unreachable or timed out'),
+      );
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      await expect(service.getBusyFree('student-1', actor, from, to)).rejects.toThrow(
+        ServiceUnavailableException,
+      );
+      expect(mockProfileRelationsClient.resolveRelations).not.toHaveBeenCalled();
+    });
+
+    it('separates available and unavailable slots, and never leaks id/title/participants', async () => {
+      mockCalendarRepo.findOne.mockResolvedValue({
+        ownerId: 'student-1',
+        ownerRole: UserRole.ELEVE,
+        availabilitySlots: [
+          slot({ kind: SlotKind.AVAILABLE }),
+          slot({
+            id: 'slot-2',
+            startTime: new Date('2026-09-11T09:00:00Z'),
+            endTime: new Date('2026-09-11T10:00:00Z'),
+            kind: SlotKind.UNAVAILABLE,
+          }),
+        ],
+      });
+      mockActivitiesService.findActiveInRange.mockResolvedValue([
+        {
+          id: 'activity-1',
+          title: 'Cours de maths',
+          type: 'cours',
+          startTime: new Date('2026-09-12T09:00:00Z'),
+          endTime: new Date('2026-09-12T10:00:00Z'),
+          participantIds: ['student-1', 'teacher-1'],
+        },
+      ]);
+      const actor: AuthenticatedUser = { id: 'student-1', role: UserRole.ELEVE };
+
+      const result = await service.getBusyFree('student-1', actor, from, to);
+
+      expect(result.availableWindows).toEqual([
+        { start: '2026-09-10T09:00:00.000Z', end: '2026-09-10T11:00:00.000Z' },
+      ]);
+      expect(result.unavailableBlocks).toEqual([
+        { start: '2026-09-11T09:00:00.000Z', end: '2026-09-11T10:00:00.000Z' },
+      ]);
+      expect(result.busyBlocks).toEqual([
+        { start: '2026-09-12T09:00:00.000Z', end: '2026-09-12T10:00:00.000Z' },
+      ]);
+      const serialized = JSON.stringify(result);
+      expect(serialized).not.toContain('activity-1');
+      expect(serialized).not.toContain('Cours de maths');
+      expect(serialized).not.toContain('teacher-1');
+    });
+
+    it('calls findActiveInRange with the owner id and the requested window', async () => {
+      mockCalendarRepo.findOne.mockResolvedValue({
+        ownerId: 'student-1',
+        ownerRole: UserRole.ELEVE,
+        availabilitySlots: [],
+      });
+      const actor: AuthenticatedUser = { id: 'student-1', role: UserRole.ELEVE };
+
+      await service.getBusyFree('student-1', actor, from, to);
+
+      expect(mockActivitiesService.findActiveInRange).toHaveBeenCalledWith(
+        'student-1',
+        from,
+        to,
+      );
     });
   });
 });

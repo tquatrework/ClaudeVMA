@@ -92,4 +92,26 @@ describe('AvailabilityGrid — interaction', () => {
     const cell = screen.getByRole('button', { name: 'Ajouter un créneau lundi à 09:00' })
     expect(cell).toBeDisabled()
   })
+
+  it("désactive aussi les blocs existants en lecture seule — aucune interaction d'édition possible", async () => {
+    const onEditSlot = vi.fn()
+    render(
+      <AvailabilityGrid
+        slots={[AVAILABLE_SLOT]}
+        onCreateAt={vi.fn()}
+        onEditSlot={onEditSlot}
+        readOnly
+      />,
+    )
+
+    const block = screen.getByRole('button', {
+      name: /consulter le créneau lundi 09:00 – 10:00 — disponible/i,
+    })
+    expect(block).toBeDisabled()
+
+    await userEvent.click(block).catch(() => {
+      // userEvent refuse de cliquer un bouton désactivé — c'est précisément ce qui est vérifié.
+    })
+    expect(onEditSlot).not.toHaveBeenCalled()
+  })
 })

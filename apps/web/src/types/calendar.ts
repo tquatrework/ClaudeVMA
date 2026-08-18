@@ -136,3 +136,31 @@ export interface CreateAvailabilitySlotPayloadApi {
 
 /** Corps réel de `PATCH /calendars/:ownerId/availability-slots/:slotId` — champs partiels. */
 export type UpdateAvailabilitySlotPayloadApi = Partial<CreateAvailabilitySlotPayloadApi>
+
+// ─── Visibilité busy/free d'un tiers lié (chantier calendrier de disponibilités, point 2) ──
+//
+// Source API : GET /calendars/:ownerId/busy?from=&to= (docs/routes.md § calendar-service >
+// "Visibilité busy/free"). Réponse pauvre par construction : jamais d'id, de titre, de type ni
+// de liste de participants — uniquement des plages `start`/`end`. Toutes les dates de la
+// réponse sont en ISO 8601 UTC avec millisecondes (`Date.prototype.toISOString()`), quel que
+// soit le format fourni en requête.
+
+/** Une plage horaire de la réponse busy/free — bornes en ISO 8601 UTC. */
+export interface BusyFreeTimeBlock {
+  start: string
+  end: string
+}
+
+/**
+ * Réponse complète de `GET /calendars/:ownerId/busy` : les créneaux **disponibles** et
+ * **indisponibles** (projection des créneaux de disponibilité du titulaire sur `[from, to)`) et
+ * les blocs **occupés** (activités du titulaire sur la même fenêtre, sans aucun détail).
+ */
+export interface LinkedCalendarBusyFree {
+  ownerId: string
+  from: string
+  to: string
+  availableWindows: BusyFreeTimeBlock[]
+  unavailableBlocks: BusyFreeTimeBlock[]
+  busyBlocks: BusyFreeTimeBlock[]
+}

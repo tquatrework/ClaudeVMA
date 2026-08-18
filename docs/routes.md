@@ -1058,7 +1058,8 @@ Délais de rappel valides : `1week`, `1day`, `1hour`, `15min`, `none`
 |---|---|---|---|---|
 | GET | /calendars/:ownerId/events | Lister les événements autorisés | 🔒 | Query: `type?`, `personId?`. Filtrage par rôle côté serveur. |
 | POST | /calendars/:ownerId/events | Créer un événement selon rôle | 🔒 | `eleve` → `rappel` · `formateur` → `cours/masterclass/pedagogique/rappel` · `animateur_pedagogique` → `pedagogique/rappel` · `responsable_pedagogique` → tous |
-| GET | /calendars/:ownerId | Lire le calendrier (créneaux de disponibilité + activités) | 🔒 | Titulaire ou rôle interne (RP, AP, TI, AF). `parent_financeur` reçoit en plus `paymentEntries`. Corrige un écart de doc : cette route existait déjà mais n'était pas documentée, tandis que la route `GET /calendars/:ownerId/availability` documentée jusqu'ici **n'a jamais existé** côté code (constat du 2026-08-18). |
+| GET | /calendars/:ownerId | Lire le calendrier complet (créneaux de disponibilité + activités) | 🔒 | Titulaire ou rôle interne (RP, TI, AF). `parent_financeur` reçoit en plus `paymentEntries`. **`animateur_pedagogique` retiré le 2026-08-18** (chantier calendrier de disponibilités, point 2) : il donnait jusqu'ici un accès **intégral** à n'importe quel calendrier sans vérification de lien — bug corrigé, l'AP passe désormais exclusivement par `GET /calendars/:ownerId/busy` ci-dessous. Corrige un écart de doc : cette route existait déjà mais n'était pas documentée, tandis que la route `GET /calendars/:ownerId/availability` documentée jusqu'ici **n'a jamais existé** côté code (constat du 2026-08-18). |
+| GET | /calendars/:ownerId/busy | Lire le calendrier **busy/free** d'un tiers lié (jamais le contenu) | 🔒 | Voir section « Visibilité busy/free » ci-dessous. |
 | PUT | /calendars/:ownerId/availability | Remplacer en bloc tous les créneaux de disponibilité | 🔒 | Titulaire (`eleve` ou `formateur`), RP ou TI. `animateur_pedagogique` a été retiré des rôles autorisés le 2026-08-18 : il apparaissait dans le décorateur de rôles mais était déjà refusé par le service — décorateur corrigé pour refléter la vraie politique. |
 | POST | /calendars/:ownerId/availability-slots | Créer un créneau de disponibilité/indisponibilité, sans toucher aux autres | 🔒 | Mêmes rôles que le `PUT` ci-dessus. `400` si `endTime <= startTime` ou `recurrenceEndDate < startTime`. |
 | PATCH | /calendars/:ownerId/availability-slots/:slotId | Modifier un créneau (redimensionner, changer récurrence/date de fin/type) | 🔒 | Mêmes rôles. `404` si le créneau n'existe pas ou appartient à un autre `ownerId` (pas de fuite d'existence). |
@@ -1072,6 +1073,86 @@ Body `POST /calendars/:ownerId/availability-slots` : `{dayOfWeek?, startTime, en
 Body `PATCH /calendars/:ownerId/availability-slots/:slotId` : mêmes champs, tous optionnels. `recurrenceEndDate` accepte explicitement `null` pour effacer une date de fin déjà posée (repasser une récurrence bornée en illimitée).
 
 Réponse `GET /calendars/:ownerId/events` : `[{id, title, startAt, endAt, eventType, status, ownerId, invitations?, reminderRules?}]`
+
+### Visibilité busy/free — `GET /calendars/:ownerId/busy` (chantier calendrier de disponibilités, point 2)
+
+Lit les créneaux **occupés/libres** d'un tiers, **jamais le contenu** (aucun id, titre, type ni
+liste de participants) — pilotée par la relation métier réelle avec `profile-service`
+(`GET /internal/relations/:viewerId/:targetId`), jamais par une simple liste de rôles codée en
+dur.
+
+**Requête.** Query obligatoire : `from`, `to` — instants **ISO 8601 avec fuseau** (ex.
+`2026-09-10T00:00:00Z` ou `2026-09-10T00:00:00.000Z`), exactement le même format que
+`startTime`/`endTime` sur les créneaux de disponibilité (point 1 de ce chantier). `from` est
+inclusif, `to` est exclusif. `400` si l'un des deux n'est pas une date ISO valide, ou si
+`to <= from`.
+
+```
+GET /calendars/8d9a2c10-3b21-4b2b-9e9e-000000000001/busy?from=2026-09-10T00:00:00Z&to=2026-09-17T00:00:00Z
+Authorization: Bearer <jwt>
+```
+
+**Réponse `200`** — les instants `start`/`end` sont sérialisés en **ISO 8601 UTC avec
+millisecondes** (`Date.prototype.toISOString()`, ex. `2026-09-10T09:00:00.000Z`), que la requête
+les ait fournis avec ou sans millisecondes :
+
+```json
+{
+  "ownerId": "8d9a2c10-3b21-4b2b-9e9e-000000000001",
+  "from": "2026-09-10T00:00:00.000Z",
+  "to": "2026-09-17T00:00:00.000Z",
+  "availableWindows": [
+    { "start": "2026-09-10T09:00:00.000Z", "end": "2026-09-10T11:00:00.000Z" }
+  ],
+  "unavailableBlocks": [
+    { "start": "2026-09-11T09:00:00.000Z", "end": "2026-09-11T10:00:00.000Z" }
+  ],
+  "busyBlocks": [
+    { "start": "2026-09-13T09:00:00.000Z", "end": "2026-09-13T10:00:00.000Z" }
+  ]
+}
+```
+
+- `availableWindows` / `unavailableBlocks` : projection des créneaux de disponibilité
+  (`AvailabilitySlot`, `kind: available`/`unavailable`) sur la fenêtre `[from, to)`, récurrence
+  hebdomadaire/bimensuelle incluse.
+- `busyBlocks` : activités (`ScheduledActivity`) où le titulaire est créateur ou participant,
+  statut `proposed`/`confirmed`, chevauchant `[from, to)`. **Jamais** d'`id`, de `title`, de
+  `type` ni de `participantIds` — uniquement `start`/`end`.
+
+**Contrôle d'accès** (`resolveCalendarBusyFreeAccess`, fonction pure, sur le modèle de
+`profile-service/src/relations/pedagogical-access.policy.ts`) :
+
+| Lecteur | Condition | Résultat |
+|---|---|---|
+| Titulaire (`viewerId === ownerId`) | — | `200`, accès complet |
+| RP (`responsable_pedagogique`) | Aucune — sans condition de lien, que le titulaire soit élève ou formateur | `200` |
+| AF, TI | — | `403` **même sans relation testée** : périmètre admin volontairement restreint au RP seul pour cette route (diverge de `ADMINISTRATOR_ROLES` RP+AF+TI utilisé ailleurs dans le projet — divergence assumée) |
+| Titulaire **élève** | Lecteur = parent financeur (`FINANCE_OWNER_OF_STUDENT`) ou formateur actif de l'élève (`TEACHER_OF_STUDENT`) | `200` |
+| Titulaire **formateur** | Lecteur = élève lié (`STUDENT_OF_TEACHER`), parent d'un élève de ce formateur (`FINANCE_OWNER_OF_STUDENT_OF_TEACHER`, relation indirecte), ou AP animant ce formateur (`ANIMATOR_OF_TEACHER`) | `200` |
+| Tout le reste | — | `403` |
+
+- `403` (pas `404`) en l'absence de lien : contrairement aux archives/statistiques pédagogiques
+  d'un autre service (404 uniforme), il n'y a ici aucune ambiguïté d'existence à protéger — le
+  calendrier d'un `ownerId` existe toujours.
+- `503` si `profile-service` **ou** `identity-access-service` est injoignable ou hors délai (3s
+  chacun) — échec fermé, jamais un accès accordé par défaut.
+- **Bug corrigé au passage** : `ANIMATEUR_PEDAGOGIQUE` donnait jusqu'ici un accès intégral à
+  n'importe quel calendrier via `GET /calendars/:ownerId` (voir ci-dessus) ; il passe désormais
+  exclusivement par cette route, avec une vraie vérification de lien (`ANIMATOR_OF_TEACHER`).
+- **Bug réel corrigé le 2026-08-18 (CAL-FB-004)**, trouvé en HTTP contre la pile réelle : le rôle
+  du titulaire (`ownerRole`, nécessaire pour choisir entre les deux lignes du tableau ci-dessus)
+  était lu depuis `Calendar.ownerRole`, colonne renseignée seulement à la création paresseuse de
+  la ligne `Calendar` (premier appel à `GET /calendars/:ownerId`,
+  `PUT /calendars/:ownerId/availability` ou `POST /calendars/:ownerId/availability-slots`). Un
+  titulaire n'ayant **jamais** déclenché cette création voyait donc son rôle traité comme
+  inconnu, et le repli défensif fermait l'accès à **tout le monde d'autre**, y compris à une
+  relation active réelle et confirmée par `profile-service` (parent financeur, formateur actif,
+  etc.) — seul le titulaire lui-même et le RP passaient encore. Corrigé en résolvant `ownerRole`
+  auprès d'`identity-access-service` (`GET /internal/accounts/by-user-id/:userId`, unique
+  propriétaire du rôle), rendant la décision indépendante de l'existence de la ligne `Calendar`.
+  Un compte inconnu d'`identity-access-service` (`404`) reste traité comme un rôle inconnu, même
+  repli fermé qu'avant.
 
 ### Invitations
 

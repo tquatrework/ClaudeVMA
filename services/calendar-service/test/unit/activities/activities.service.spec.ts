@@ -169,4 +169,55 @@ describe('ActivitiesService', () => {
       await expect(service.findOne('bad-id', actor)).rejects.toThrow(NotFoundException);
     });
   });
+
+  // --- findActiveInRange (calendrier de disponibilites, point 2 - busy/free) ---
+
+  describe('findActiveInRange', () => {
+    const from = new Date('2026-09-10T00:00:00Z');
+    const to = new Date('2026-09-17T00:00:00Z');
+
+    function makeQueryBuilder(result: unknown[]) {
+      const queryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue(result),
+      };
+      mockActivityRepo.createQueryBuilder.mockReturnValue(queryBuilder);
+      return queryBuilder;
+    }
+
+    it('filters by creator-or-participant, PROPOSED/CONFIRMED status, and the requested window', async () => {
+      const activities = [{ id: 'act-1', startTime: from, endTime: to }];
+      const queryBuilder = makeQueryBuilder(activities);
+
+      const result = await service.findActiveInRange('student-1', from, to);
+
+      expect(result).toEqual(activities);
+      expect(queryBuilder.where).toHaveBeenCalledWith(
+        expect.stringContaining('creator_id'),
+        expect.objectContaining({ userId: 'student-1', uid: '%student-1%' }),
+      );
+      expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+        expect.stringContaining('status IN'),
+        expect.objectContaining({
+          statuses: [ActivityStatus.PROPOSED, ActivityStatus.CONFIRMED],
+        }),
+      );
+      expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+        expect.stringContaining('start_time'),
+        { to },
+      );
+      expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+        expect.stringContaining('end_time'),
+        { from },
+      );
+    });
+
+    it('returns an empty array when nothing matches', async () => {
+      makeQueryBuilder([]);
+      const result = await service.findActiveInRange('student-1', from, to);
+      expect(result).toEqual([]);
+    });
+  });
 });

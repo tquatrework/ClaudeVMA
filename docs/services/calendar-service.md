@@ -43,6 +43,7 @@
       <endpoint method="POST" path="/events/{id}/cancel-request">Demander ou appliquer une annulation.</endpoint>
       <endpoint method="POST" path="/events/{id}/reminders">Configurer les rappels.</endpoint>
       <endpoint method="GET" path="/calendars/{ownerId}/availability">Lire les disponibilites.</endpoint>
+      <endpoint method="GET" path="/calendars/{ownerId}/busy">Lire le busy/free d'un tiers lie (jamais le contenu), pilote par relation metier avec profile-service.</endpoint>
     </candidateApis>
     <dataEntities>
       <entity>Calendar</entity>
@@ -299,6 +300,224 @@
             par defaut alors qu'ils partagent une base de test unique et la reinitialisent
             chacun — a corriger un jour (`--runInBand` dans le script npm), signale ici sans
             etre traite car prealable a cette session.</item>
+        </openPoints>
+      </session>
+
+      <session date="2026-08-18" label="Calendrier de disponibilites, point 2 — visibilite busy/free pilotee par relation metier">
+        <context>
+          Deuxieme des 4 points du chantier « calendrier de disponibilites lie a la visio ».
+          Perimetre strict : ajout d'une dependance sortante vers profile-service (jusqu'ici
+          absente), politique de visibilite pure, nouvelle route busy/free, correctif du bug
+          d'acces integral de l'AP deja identifie au point 1. Point 3 (proposition/acceptation
+          de creneau) et point 4 (integration visio) restent a traiter par des taches
+          ulterieures.
+        </context>
+
+        <changeset id="client-profile-service">
+          <item>Nouveau `src/common/clients/profile-relations.client.ts`
+            (`ProfileRelationsClient`), copie fidelement depuis
+            `archive-document-service/src/common/clients/profile-relations.client.ts` (seul
+            autre consommateur de ce contrat dans le projet a ce jour) : echec ferme
+            (`ProfileRelationsUnavailableError` si injoignable, timeout ou statut HTTP
+            inattendu — jamais un acces accorde par defaut), timeout 3s
+            (`AbortSignal.timeout`), header `X-Internal-Secret`, propagation optionnelle de
+            `X-Correlation-Id`. Appelle `GET /internal/relations/:viewerId/:targetId
+            ?viewerRole=...`, contrat deja existant cote profile-service — aucune route
+            nouvelle requise de ce cote.</item>
+          <item>Nouveau `src/common/relations/relation-kind.ts` : copie fidele du contrat
+            (`RelationKind`, `ResolvedRelation`, `RelationSnapshot`), meme raisonnement que
+            pour le client — c'est une transcription du contrat HTTP, pas une donnee propre a
+            ce service (profile-service en reste l'unique proprietaire, arbitrage du
+            2026-08-11).</item>
+          <item>Nouvelles variables d'environnement obligatoires `PROFILE_SERVICE_URL` et
+            `INTERNAL_SECRET` (`env.validation.ts`, `docker-compose.yml` — meme port 3002 que
+            partout ailleurs dans ce fichier). `test/setup-env.ts` et
+            `test/e2e/helpers/app.helper.ts` mis a jour avec des valeurs par defaut de test
+            pour ne pas casser les suites existantes qui n'exercent jamais cette route.</item>
+        </changeset>
+
+        <changeset id="politique-visibilite">
+          <item>Nouveau `src/calendars/calendar-visibility.policy.ts`
+            (`resolveCalendarBusyFreeAccess`, fonction pure, sur le modele de
+            `profile-service/src/relations/pedagogical-access.policy.ts`) : decide de l'acces
+            busy/free a partir de la RELATION et du role REEL du titulaire
+            (`Calendar.ownerRole`), jamais d'une liste de roles pour le lecteur seul.
+            Quatre positions : `owner` (titulaire), `administrator` (RP seul — voir
+            perimetre ci-dessous), `linked` (relation adequate selon que le titulaire est
+            eleve ou formateur), `denied`.</item>
+          <item>Perimetre admin volontairement restreint au **RP seul**, pas
+            `ADMINISTRATOR_ROLES` (RP+AF+TI) utilise ailleurs dans le projet pour les
+            statistiques/archives — divergence signalee et tranchee explicitement par
+            l'utilisateur a l'approbation du plan, pas une omission.</item>
+          <item>Matrice de relations : titulaire eleve ← `FINANCE_OWNER_OF_STUDENT` (parent) ou
+            `TEACHER_OF_STUDENT` (formateur actif) ; titulaire formateur ← `STUDENT_OF_TEACHER`
+            (eleve lie), `FINANCE_OWNER_OF_STUDENT_OF_TEACHER` (parent-indirect, relation
+            indirecte via l'eleve), ou `ANIMATOR_OF_TEACHER` (AP lie).</item>
+          <item>Quand le calendrier du titulaire n'a jamais ete cree (aucun creneau, aucune
+            activite — `Calendar.ownerRole` inconnu), la politique echoue ferme : seuls le
+            titulaire et le RP passent, tout le reste est refuse plutot que de deviner a quel
+            type de titulaire une relation retournee par profile-service s'appliquerait.</item>
+        </changeset>
+
+        <changeset id="route-busy">
+          <item>Nouvelle route `GET /calendars/:ownerId/busy?from=&to=`
+            (`GetCalendarBusyQueryDto`, `from`/`to` ISO 8601 valides, `400` si `to <= from`).
+            `CalendarsService.getBusyFree` : controle d'acces AVANT toute lecture en base,
+            `403` (pas `404` — aucune ambiguite d'existence a proteger ici, decision retenue a
+            l'approbation du plan) si la politique refuse, `503` si profile-service est
+            injoignable. Reponse volontairement pauvre :
+            `{ownerId, from, to, availableWindows: [{start,end}], unavailableBlocks:
+            [{start,end}], busyBlocks: [{start,end}]}` — jamais d'id, de titre, de type ni de
+            participants.</item>
+          <item>`availableWindows`/`unavailableBlocks` : projection des `AvailabilitySlot` via
+            `expandSlotToOccurrences` (livree au point 1), reutilisee sans modification.
+            `busyBlocks` : nouvelle methode `ActivitiesService.findActiveInRange(userId, from,
+            to)` (createur ou participant, statut `PROPOSED`/`CONFIRMED`, chevauchant la
+            fenetre) — `ActivitiesModule` importe par `CalendarsModule` comme module Nest
+            (injection directe de `ActivitiesService`), jamais un appel HTTP : c'est le meme
+            service.</item>
+        </changeset>
+
+        <changeset id="correctif-bug-ap">
+          <item>Bug deja identifie au point 1 (exploration initiale) : `assertCanReadCalendar`
+            donnait a `ANIMATEUR_PEDAGOGIQUE` un acces INTEGRAL a n'importe quel calendrier via
+            `GET /calendars/:ownerId`, sans aucune verification de lien. Retire de la liste des
+            roles a acces integral (qui reste `[RP, TI, AF]`) : l'AP passe desormais
+            exclusivement par `GET /calendars/:ownerId/busy`, avec une vraie verification de
+            lien (`ANIMATOR_OF_TEACHER`).</item>
+        </changeset>
+
+        <changeset id="tests">
+          <item>Nouveau `calendar-visibility.policy.spec.ts` : toute la matrice (owner, RP sans
+            lien sur eleve/formateur, AF/TI refuses sans lien, chaque relation ouvrante pour
+            chaque type de titulaire, relations non pertinentes refusees, ownerRole inconnu).</item>
+          <item>Nouveau `test/unit/common/clients/profile-relations.client.spec.ts` : succes,
+            encodage des identifiants, absence de header de correlation si non fourni, echec
+            reseau/timeout/HTTP non-ok — tous convertis en `ProfileRelationsUnavailableError`.</item>
+          <item>`calendars.service.spec.ts` etendu : `getBusyFree` (owner, RP sur eleve/
+            formateur, AF/TI refuses, chaque relation ouvrante, relation absente refusee,
+            ownerRole inconnu — RP passe, formateur refuse, `to <= from` en 400 avant tout
+            lookup, `ProfileRelationsUnavailableError` -&gt; 503, separation
+            available/unavailable/busy, aucune fuite de titre/participants) + nouveau test
+            confirmant que l'AP n'a plus d'acces integral via `getCalendar`.</item>
+          <item>`activities.service.spec.ts` etendu : `findActiveInRange` (filtre
+            creepateur-ou-participant, statuts, fenetre demandee, resultat vide).</item>
+          <item>Nouveau `test/e2e/calendar-busy.e2e-spec.ts` (18 tests) : 401 sans token, acces
+            titulaire sans appel a profile-service, RP sans lien sur eleve et formateur, AF/TI
+            refuses sans lien, chaque relation ouvrante pour chaque type de titulaire (parent
+            direct, formateur actif, eleve lie, parent-indirect, AP lie), AP non lie refuse
+            (bug fixe), profile-service injoignable -&gt; 503, validation `from`/`to`. Utilise
+            un nouveau `FakeProfileRelationsClient` (`test/e2e/helpers/app.helper.ts`,
+            `createTestAppWithFakeProfileRelations`) qui override `ProfileRelationsClient` via
+            `overrideProvider`, sur le modele deja suivi par
+            `teacher-request-service/test/e2e/helpers/app.helper.ts` pour
+            `ProfileServiceClient` — `createTestApp()` existant reste inchange pour toutes les
+            autres suites.</item>
+          <item>239 tests verts au total (172 unitaires + 67 e2e, `--runInBand` requis pour les
+            e2e — defaut preexistant du script `test:e2e`, signale au point 1, toujours pas
+            corrige car hors mandat de cette session egalement).</item>
+        </changeset>
+
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <item>Point 3 (proposition/acceptation de creneau) et point 4 (integration visio) du
+            chantier non traites — a livrer par des taches ulterieures distinctes.</item>
+          <item>`CalendarVisibilityGrant` (octroi manuel RP existant) laisse en l'etat, non
+            reutilise par cette feature — decision actee dans le plan (deux mecanismes de
+            nature differente, ne pas creer deux sources de verite).</item>
+          <item>Script `test:e2e` : toujours pas corrige pour lancer les fichiers en serie par
+            defaut (`--runInBand`) — signale au point 1, confirme de nouveau ici avec un
+            troisieme fichier e2e qui partage la meme base `calendar_test`.</item>
+        </openPoints>
+      </session>
+
+      <session date="2026-08-18" label="Correctif CAL-FB-004 — ownerRole de /busy independant de la ligne Calendar">
+        <context>Bug reel trouve par l'orchestrateur en HTTP contre la pile reelle, juste apres
+          la livraison du point 2 (visibilite busy/free) : un parent financeur ou un formateur
+          reellement lie a un titulaire recevait `403` sur `GET /calendars/:ownerId/busy`, alors
+          qu'appeler `GET /calendars/:ownerId` au prealable (meme token, meme relation) faisait
+          immediatement passer la reponse a `200`.</context>
+
+        <changeset id="cause-confirmee">
+          <item>`resolveCalendarBusyFreeAccess` lisait `ownerRole` depuis `calendar?.ownerRole`
+            (`CalendarsService.getBusyFree`), colonne renseignee uniquement a la creation
+            paresseuse de la ligne `Calendar` (premier `GET /calendars/:ownerId`,
+            `PUT .../availability` ou `POST .../availability-slots`). Un titulaire n'ayant
+            jamais declenche cette creation avait donc `ownerRole: undefined`, ce qui fait
+            echouer `openingKinds` (`null`) et renvoie `denied` pour quiconque n'est pas le
+            titulaire lui-meme ou le RP — y compris une relation active reelle confirmee par
+            `profile-service`. Le repli defensif ecrit au point 2 (« fail closed si role
+            inconnu ») etait correct dans son intention, mais la source du role etait la mauvaise
+            colonne.</item>
+        </changeset>
+
+        <changeset id="client-identity-access-service">
+          <item>Nouveau `src/common/clients/identity-access.client.ts`
+            (`IdentityAccessClient.resolveRole`), copie fidele de `ProfileRelationsClient` :
+            appelle `GET /internal/accounts/by-user-id/:userId` sur `identity-access-service`
+            (route deja existante et inchangee, deja utilisee par `dashboard-notification-service`
+            pour le meme besoin de resolution de role), avec `X-Internal-Secret`, timeout 3s
+            (`AbortSignal.timeout`), et propagation optionnelle de `x-correlation-id`.</item>
+          <item>`404` (compte inconnu) -&gt; `undefined`, traite comme un role inconnu par la
+            politique (repli ferme), jamais comme une panne technique. Toute autre reponse
+            non-`ok`, erreur reseau ou timeout -&gt; `IdentityAccessUnavailableError`, convertie
+            en `503` par `CalendarsService.getBusyFree` — meme posture que
+            `ProfileRelationsUnavailableError`.</item>
+          <item>`CalendarsModule` : `IdentityAccessClient` ajoute aux `providers`.
+            `env.validation.ts` : `IDENTITY_ACCESS_SERVICE_URL` ajoutee aux cles requises.
+            `docker-compose.yml` : variable declaree explicitement pour `calendar-service`
+            (`http://identity-access-service:3001`, meme port que les autres services).</item>
+        </changeset>
+
+        <changeset id="correctif-getBusyFree">
+          <item>`getBusyFree` resout desormais `ownerRole` via
+            `identityAccessClient.resolveRole(ownerId, correlationId)` — jamais depuis
+            `Calendar.ownerRole` — avant d'appeler `profileRelationsClient.resolveRelations`.
+            La lecture de la ligne `Calendar` (pour les creneaux/activites) est deplacee APRES
+            le controle d'acces complet, qui n'en depend plus. Skip total (ni appel identity, ni
+            profile-service) quand `actor.id === ownerId`, comme avant.</item>
+          <item>La colonne `Calendar.ownerRole` elle-meme n'est pas retiree : toujours ecrite a
+            la creation paresseuse, a titre informatif/coherence historique, mais n'est plus lue
+            par la politique d'acces busy/free.</item>
+        </changeset>
+
+        <changeset id="tests">
+          <item>Nouveau `test/unit/common/clients/identity-access.client.spec.ts`, copie du
+            spec `profile-relations.client.spec.ts` (succes, absence de header de correlation
+            si non fourni, `404` -&gt; `undefined` sans lever, echec reseau/timeout/HTTP non-ok
+            -&gt; `IdentityAccessUnavailableError`, encodage de l'identifiant dans le chemin).</item>
+          <item>`calendars.service.spec.ts` : nouveau mock `mockIdentityAccessClient`, injecte
+            dans le module de test. Tous les tests `getBusyFree` non-titulaire declarent
+            desormais le role attendu via `mockIdentityAccessClient.resolveRole.mockResolvedValue`
+            (defaut `undefined` en `beforeEach`, sur le modele du role reellement inconnu).
+            Test renomme (`unknown ownerRole` -&gt; `identity-access-service ne connait pas le
+            compte`) pour refleter la vraie source du repli ferme, independamment de
+            l'existence de la ligne `Calendar` (verifiee explicitement avec
+            `mockCalendarRepo.findOne.mockResolvedValue(null)`). Nouveau test de regression
+            CAL-FB-004 (parent lie accede au busy/free d'un titulaire sans ligne `Calendar`) et
+            nouveau test `IdentityAccessUnavailableError` -&gt; `ServiceUnavailableException`.</item>
+          <item>`test/e2e/helpers/app.helper.ts` : nouveau `FakeIdentityAccessClient` (meme
+            modele que `FakeProfileRelationsClient`), `createTestAppWithFakeProfileRelations`
+            renvoie desormais aussi `identityAccess` et override `IdentityAccessClient` en plus
+            de `ProfileRelationsClient`. `setStaticTestEnv` et `test/setup-env.ts` (jest
+            `setupFiles`, charge avant l'evaluation d'`AppModule`) declarent
+            `IDENTITY_ACCESS_SERVICE_URL` par defaut.</item>
+          <item>`test/e2e/calendar-busy.e2e-spec.ts` : roles des titulaires (`student1`,
+            `teacher1`, `teacher2`) declares explicitement au `beforeAll` via
+            `identityAccess.setRole`. Nouvelle section « identity-access-service injoignable »
+            (503, meme modele que « profile-service injoignable »). Nouvelle section dediee
+            CAL-FB-004 : un parent lie accede en `200` au busy/free d'`IDS.student2`, titulaire
+            pour lequel AUCUNE ligne `Calendar` n'est jamais creee dans toute la suite (aucun
+            appel prealable a `GET /calendars/:ownerId` ni a aucune route de creneau) — c'est le
+            test qui aurait attrape ce bug avant l'orchestrateur.</item>
+          <item>182 tests unitaires + 70 tests e2e, tous verts (`--runInBand` toujours requis
+            pour les e2e, defaut preexistant non corrige dans cette session).</item>
+        </changeset>
+
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <item>Points 3 et 4 du chantier (proposition/acceptation de creneau, integration
+            visio) toujours non traites — inchange par cette session, hors mandat.</item>
         </openPoints>
       </session>
     </technicalSessions>

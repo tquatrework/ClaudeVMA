@@ -22,6 +22,7 @@ const mockActivityRepo = {
   findOne: jest.fn(),
   save: jest.fn(),
   create: jest.fn(),
+  delete: jest.fn(),
   createQueryBuilder: jest.fn(),
 };
 
@@ -265,6 +266,63 @@ describe('ActivitiesService', () => {
       const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
 
       await expect(service.update('unknown-id', { title: 'x' }, actor)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // --- remove ---
+
+  describe('remove', () => {
+    const existingActivity = {
+      id: 'act-1',
+      creatorId: 'teacher-1',
+      creatorRole: UserRole.FORMATEUR,
+      title: 'Cours algèbre',
+      type: ActivityType.COURS,
+      participantIds: ['student-1'],
+      startTime: new Date('2026-06-10T14:00:00Z'),
+      endTime: new Date('2026-06-10T15:00:00Z'),
+      status: ActivityStatus.PROPOSED,
+      correlationId: null,
+    };
+
+    it('creator can delete their own activity and publishes ActivityDeleted', async () => {
+      mockActivityRepo.findOne.mockResolvedValue(existingActivity);
+      mockActivityRepo.delete.mockResolvedValue({ affected: 1 });
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      await service.remove('act-1', actor, 'corr-3');
+
+      expect(mockActivityRepo.delete).toHaveBeenCalledWith({ id: 'act-1' });
+      expect(mockEventsService.publish).toHaveBeenCalledWith(
+        'ActivityDeleted',
+        { activityId: 'act-1', deletedBy: 'teacher-1' },
+        'corr-3',
+      );
+    });
+
+    it('RP can delete any activity (CAL-FB-001 internal role)', async () => {
+      mockActivityRepo.findOne.mockResolvedValue(existingActivity);
+      mockActivityRepo.delete.mockResolvedValue({ affected: 1 });
+      const actor: AuthenticatedUser = { id: 'rp-id', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
+
+      await expect(service.remove('act-1', actor)).resolves.toBeUndefined();
+      expect(mockActivityRepo.delete).toHaveBeenCalledWith({ id: 'act-1' });
+    });
+
+    it('throws ForbiddenException when non-creator, non-RP/TI tries to delete (CAL-FB-001)', async () => {
+      mockActivityRepo.findOne.mockResolvedValue(existingActivity);
+      const actor: AuthenticatedUser = { id: 'other-user', role: UserRole.ELEVE };
+
+      await expect(service.remove('act-1', actor)).rejects.toThrow(ForbiddenException);
+      expect(mockActivityRepo.delete).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException for unknown activity', async () => {
+      mockActivityRepo.findOne.mockResolvedValue(null);
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      await expect(service.remove('unknown-id', actor)).rejects.toThrow(NotFoundException);
+      expect(mockActivityRepo.delete).not.toHaveBeenCalled();
     });
   });
 

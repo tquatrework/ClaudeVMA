@@ -1166,6 +1166,7 @@ Section écrite ici pour la première fois, avec le contrat exact.
 | POST | /activities | Créer une activité planifiée (`cours`, `reunion_pedagogique`, `entretien_rp`, `rappel`, `autre`) — naît à `status: proposed` | 🔒 | `formateur`, `animateur_pedagogique`, `responsable_pedagogique`. Voir « Vérification de lien à la création » ci-dessous. |
 | GET | /activities/:activityId | Lire une activité par id | 🔒 | Créateur, participant déclaré, ou rôle interne (RP, TI, AF). `403` sinon (IDOR), `404` si inconnue. |
 | PUT | /activities/:activityId | Modifier une activité (titre, participants, horaires, statut, description…) | 🔒 | Créateur, RP ou TI uniquement (CAL-FB-001). `403` sinon, `404` si inconnue. |
+| DELETE | /activities/:activityId | Supprimer une activité (suppression physique) | 🔒 | Créateur, RP ou TI uniquement — même politique que `PUT` (CAL-FB-001). `403` sinon, `404` si inconnue. `204` sans corps. Publie `ActivityDeleted`. |
 | POST | /activities/:activityId/accept | Accepter une activité `proposed` → `confirmed` (chantier calendrier, point 3) | 🔒 | Seul le destinataire visé (présent dans `participantIds`) — le créateur ne peut pas accepter sa propre proposition. `409` si déjà traitée, `403` si l'appelant n'est pas le destinataire, `404` si inconnue. Publie `ActivityConfirmed`. |
 | POST | /activities/:activityId/decline | Refuser une activité `proposed` → `cancelled` (chantier calendrier, point 3) | 🔒 | Mêmes règles que `accept` ci-dessus. Publie `ActivityDeclined`. |
 
@@ -1220,6 +1221,12 @@ atteignable par ces routes).
 `POST /activities/:activityId/accept` et `.../decline` ne prennent **aucun corps** — seul le
 `activityId` dans l'URL et le token du destinataire suffisent, exactement comme
 `POST /events/:id/invitees/:userId/accept` ci-dessous.
+
+`DELETE /activities/:activityId` ne prend **aucun corps** et répond `204` sans corps en cas de
+succès — même forme que `DELETE /calendars/:ownerId/availability-slots/:slotId` ci-dessous.
+Suppression physique de la ligne (pas d'append-only ici : une activité planifiée est une donnée
+opérationnelle de type agenda, pas un enregistrement à valeur probante — même raisonnement que
+pour la suppression d'un créneau de disponibilité).
 
 #### Vérification de lien à la création — 1 proposeur → 1 destinataire (chantier calendrier, point 3)
 

@@ -6,6 +6,7 @@
  *   Activities
  *   POST   /activities                         create a scheduled activity
  *   PUT    /activities/:activityId             update a scheduled activity
+ *   DELETE /activities/:activityId             delete a scheduled activity
  *   GET    /activities/:activityId             get an activity by ID
  *   POST   /activities/:activityId/accept       accept a PROPOSED activity (chantier calendrier, point 3)
  *   POST   /activities/:activityId/decline      decline a PROPOSED activity (chantier calendrier, point 3)
@@ -35,6 +36,12 @@
  *   Modification d'activite
  *   CAL-BR-010  PUT /activities/:id modifie une activite → 200
  *   CAL-BR-011  PUT /activities/:id sur activite inexistante → 404
+ *
+ *   Suppression d'activite (meme politique que PUT, CAL-FB-001)
+ *   DELETE /activities/:id par le createur → 204
+ *   DELETE /activities/:id par un RP → 204
+ *   DELETE /activities/:id par un tiers sans droit → 403
+ *   DELETE /activities/:id sur activite inexistante → 404
  *
  *   Verification de lien a la creation (chantier calendrier, point 3 — corrige un
  *   trou de securite reel : jusqu'ici aucun lien n'etait verifie)
@@ -411,6 +418,70 @@ describe('[E2E] Calendar Service', () => {
         .send({ title: 'x' });
 
       expect(res.status).toBe(404);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // DELETE /activities/:id — suppression (meme politique que PUT, CAL-FB-001)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('DELETE /activities/:id — suppression', () => {
+    async function createActivityAsTeacher1(): Promise<string> {
+      const res = await request(app.getHttpServer())
+        .post('/activities')
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send(validActivityPayload());
+      expect(res.status).toBe(201);
+      return res.body.id;
+    }
+
+    it('Le createur supprime sa propre activite → 204', async () => {
+      const activityId = await createActivityAsTeacher1();
+
+      const res = await request(app.getHttpServer())
+        .delete(`/activities/${activityId}`)
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
+      expect(res.status).toBe(204);
+
+      const check = await request(app.getHttpServer())
+        .get(`/activities/${activityId}`)
+        .set('Authorization', `Bearer ${rpToken}`);
+      expect(check.status).toBe(404);
+    });
+
+    it('Un RP peut supprimer une activite dont il n\'est pas le createur → 204', async () => {
+      const activityId = await createActivityAsTeacher1();
+
+      const res = await request(app.getHttpServer())
+        .delete(`/activities/${activityId}`)
+        .set('Authorization', `Bearer ${rpToken}`);
+
+      expect(res.status).toBe(204);
+    });
+
+    it('Un tiers sans droit (ni createur, ni RP/TI) ne peut pas supprimer → 403', async () => {
+      const activityId = await createActivityAsTeacher1();
+
+      const res = await request(app.getHttpServer())
+        .delete(`/activities/${activityId}`)
+        .set('Authorization', `Bearer ${teacher2Token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('DELETE sur une activite inexistante → 404', async () => {
+      const res = await request(app.getHttpServer())
+        .delete(`/activities/${IDS.unknown}`)
+        .set('Authorization', `Bearer ${rpToken}`);
+
+      expect(res.status).toBe(404);
+    });
+
+    it('DELETE /activities/:id sans token → 401', async () => {
+      const activityId = await createActivityAsTeacher1();
+      const res = await request(app.getHttpServer()).delete(`/activities/${activityId}`);
+      expect(res.status).toBe(401);
     });
   });
 

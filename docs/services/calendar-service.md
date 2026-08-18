@@ -621,6 +621,70 @@
             toujours `201`.</item>
         </openPoints>
       </session>
+
+      <session date="2026-08-18" label="Calendrier de disponibilites, point 3 (complement) — DELETE /activities/:activityId">
+        <context>Branche `feat/calendrier-proposition-creneau`. Reprise du point laisse ouvert a
+          la fin de la session precedente : le front (`apps/web/src/api/calendar.ts::deleteActivity`)
+          appelle deja `DELETE /activities/:activityId`, route jusqu'ici inexistante cote backend
+          (bouton "Supprimer" mort). Decision deja tranchee avec l'utilisateur a l'approbation du
+          plan : on ajoute la route, on ne retire pas le bouton.</context>
+
+        <changeset id="delete-activity">
+          <item>`ActivitiesService.remove(activityId, actor, correlationId)` : reutilise
+            `assertCanModifyActivity` a l'identique (meme politique que `update` — CAL-FB-001,
+            createur/RP/TI), suppression physique (`activityRepo.delete({ id })`) — coherent avec
+            `CalendarsService.deleteSlot` (point 1 du chantier) : une activite planifiee est une
+            donnee operationnelle d'agenda, pas un enregistrement a valeur probante, contrairement
+            aux consentements/relations qui restent append-only. Publie `ActivityDeleted` (nouveau
+            type ajoute a `CalendarEventType`, `events/events.service.ts`).</item>
+          <item>`ActivitiesController` : `DELETE /activities/:activityId`, `@HttpCode(204)`, meme
+            liste `@Roles` que `PUT` (`FORMATEUR`, `ANIMATEUR_PEDAGOGIQUE`,
+            `RESPONSABLE_PEDAGOGIQUE` — `TECHNICIEN_INFORMATIQUE` absent du decorateur, exactement
+            comme sur `PUT`). Pas de corps en entree ni en sortie.</item>
+          <item>Incoherence preexistante constatee, non corrigee ici (hors mandat, deja presente a
+            l'identique sur `PUT`) : `assertCanModifyActivity` autorise `TECHNICIEN_INFORMATIQUE`
+            au niveau service, mais `RolesGuard` bloque ce role en amont faute d'etre liste dans
+            `@Roles` sur le controleur — le TI ne peut donc jamais atteindre le service pour
+            modifier/supprimer une activite malgre le commentaire CAL-FB-001. A signaler si une
+            passe de nettoyage est planifiee sur ce controleur.</item>
+        </changeset>
+
+        <changeset id="tests">
+          <item>`test/unit/activities/activities.service.spec.ts` : mock `activityRepo.delete`
+            ajoute, 4 nouveaux tests `remove` (createur autorise + evenement publie, RP autorise,
+            403 tiers sans droit, 404 activite inconnue). 33 tests dans ce fichier (etait 29).</item>
+          <item>`test/e2e/calendar.e2e-spec.ts` : nouvelle section "DELETE /activities/:id —
+            suppression" (5 tests : 204 createur avec verification `GET` -&gt; 404 apres
+            suppression, 204 RP non-createur, 403 tiers sans droit, 404 activite inconnue, 401 sans
+            token). Commentaire d'entete de fichier mis a jour. 65 tests dans ce fichier (etait
+            60).</item>
+          <item>Suite complete rejouee contre la pile reelle (`npm ci` necessaire, `node_modules`
+            absent au demarrage de cette session) : 33/33 unitaires `activities.service.spec.ts`
+            verts, 88/88 e2e verts sur les trois fichiers (`calendar.e2e-spec.ts`,
+            `calendar-busy.e2e-spec.ts`, `health.e2e-spec.ts`) avec `--runInBand` (defaut
+            preexistant du service, toujours requis — les suites e2e partagent la meme base
+            `calendar_test` et se marchent dessus en parallele).</item>
+        </changeset>
+
+        <changeset id="documentation">
+          <item>`docs/routes.md` : ligne `DELETE /activities/:activityId` ajoutee au tableau des
+            activites planifiees (memes remarques de droit que `PUT`, `204` sans corps, publie
+            `ActivityDeleted`), et note de forme de reponse completee pour couvrir ce cas
+            (suppression physique, meme raisonnement que la suppression d'un creneau de
+            disponibilite).</item>
+        </changeset>
+
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <item>Front toujours non touche par cette session (perimetre explicitement backend) :
+            `apps/web/src/api/calendar.ts::deleteActivity` devrait desormais fonctionner contre la
+            route reelle, mais n'a pas ete reverifie cote front — a confirmer par un test contre la
+            pile deployee avant de considerer le bouton "Supprimer" pleinement valide.</item>
+          <item>Incoherence `@Roles`/TI sur `PUT` et desormais `DELETE` signalee ci-dessus,
+            deliberement non corrigee (hors mandat de cette tache).</item>
+          <item>Point 4 du chantier (integration LiveKit) toujours non traite.</item>
+        </openPoints>
+      </session>
     </technicalSessions>
   </service>
 </serviceFunctionalSpecification>

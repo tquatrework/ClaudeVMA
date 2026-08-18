@@ -122,6 +122,31 @@ export class ActivitiesService {
   }
 
   /**
+   * Delete a scheduled activity.
+   * CAL-FB-001: only creator, RP, or TI can delete — same policy as `update`
+   * above, reusing `assertCanModifyActivity` unchanged. Hard delete: an
+   * activity is operational scheduling data, not a record with
+   * probative/audit value (same reasoning as
+   * `CalendarsService.deleteSlot`).
+   */
+  async remove(
+    activityId: string,
+    actor: AuthenticatedUser,
+    correlationId?: string,
+  ): Promise<void> {
+    const activity = await this.findOneOrFail(activityId);
+    this.assertCanModifyActivity(activity, actor);
+
+    await this.activityRepo.delete({ id: activity.id });
+
+    this.eventsService.publish(
+      'ActivityDeleted',
+      { activityId: activity.id, deletedBy: actor.id },
+      correlationId,
+    );
+  }
+
+  /**
    * Accept a PROPOSED activity — transition PROPOSED → CONFIRMED.
    *
    * Sur le modèle exact d'`EventInvitationsController`/

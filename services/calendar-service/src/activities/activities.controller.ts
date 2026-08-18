@@ -3,6 +3,9 @@ import {
   Post,
   Put,
   Get,
+  Delete,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Body,
@@ -79,6 +82,29 @@ export class ActivitiesController {
     @CorrelationId() correlationId?: string,
   ): Promise<ScheduledActivity> {
     return this.activitiesService.update(activityId, dto, actor, correlationId);
+  }
+
+  @Delete(':activityId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Roles(UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE) // même politique que PUT — accès filtré par ownership/relation dans le service
+  @ApiParam({ name: 'activityId', description: 'Activity UUID' })
+  @ApiHeader({ name: 'x-correlation-id', required: false })
+  @ApiOperation({
+    summary: 'Delete a scheduled activity',
+    description:
+      'Deletes an existing activity (hard delete). ' +
+      'CAL-FB-001: only creator, RP, or TI can delete — same policy as PUT. ' +
+      'Emits ActivityDeleted event.',
+  })
+  @ApiResponse({ status: 204, description: 'Activity deleted — emits ActivityDeleted event' })
+  @ApiResponse({ status: 403, description: 'Forbidden — CAL-FB-001' })
+  @ApiResponse({ status: 404, description: 'Activity not found' })
+  deleteActivity(
+    @Param('activityId', ParseUUIDPipe) activityId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+    @CorrelationId() correlationId?: string,
+  ): Promise<void> {
+    return this.activitiesService.remove(activityId, actor, correlationId);
   }
 
   @Get(':activityId')

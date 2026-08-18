@@ -24,6 +24,7 @@ import type {
   AvailabilitySlotApi,
   CreateAvailabilitySlotPayload,
   UpdateAvailabilitySlotPayload,
+  LinkedCalendarBusyFree,
 } from '../types/calendar'
 import {
   fromApiSlot,
@@ -192,6 +193,31 @@ export async function updateAvailabilitySlot(
  */
 export async function deleteAvailabilitySlot(ownerId: string, slotId: string): Promise<void> {
   await apiClient.delete(`/calendars/${ownerId}/availability-slots/${slotId}`)
+}
+
+// ─── Visibilité busy/free d'un tiers lié (LinkedCalendarView) ──────────────────
+//
+// GET /calendars/:ownerId/busy?from=&to= (docs/routes.md § calendar-service > "Visibilité
+// busy/free"). `from`/`to` sont transmis exactement tels que fournis par l'appelant (ISO 8601
+// avec fuseau) — la route accepte indifféremment avec ou sans millisecondes ; c'est la réponse
+// qui est toujours normalisée en ISO 8601 UTC avec millisecondes.
+
+/**
+ * GET /calendars/:ownerId/busy — Lit le calendrier busy/free d'un tiers lié (jamais le
+ * contenu). `403` si l'appelant n'a aucun lien ouvrant ce calendrier, `503` si profile-service
+ * (consulté par calendar-service pour vérifier le lien) est injoignable — traduits par
+ * `useLinkedCalendarBusyFree`, jamais affichés tels quels.
+ */
+export async function fetchLinkedCalendarBusyFree(
+  ownerId: string,
+  from: string,
+  to: string,
+): Promise<LinkedCalendarBusyFree> {
+  const queryParams = new URLSearchParams({ from, to })
+  const { data } = await apiClient.get<LinkedCalendarBusyFree>(
+    `/calendars/${ownerId}/busy?${queryParams.toString()}`,
+  )
+  return data
 }
 
 // ─── Création d'événement (EventCreateDialog) ──────────────────────────────────

@@ -32,6 +32,17 @@ export interface CalendarServiceEnvironmentVariables {
   IDENTITY_ACCESS_SERVICE_URL: string;
   /** Header `X-Internal-Secret` attendu par les routes `/internal/*` de `profile-service` et `identity-access-service`. */
   INTERNAL_SECRET: string;
+  /**
+   * URL du flux Redis `visiomath:events` (chantier calendrier de
+   * disponibilités, point 3, 2026-08-18) : `EventPublisher` y publie les
+   * évènements de la boîte d'envoi (`domain_events`) pour que
+   * `dashboard-notification-service` puisse s'y abonner — même flux que
+   * `teacher-request-service`. Optionnelle, comme sur les autres services :
+   * en son absence, `EventPublisher` journalise un avertissement et
+   * n'écrit rien (aucun évènement perdu — voir `EventPublisher`), le
+   * service démarre normalement.
+   */
+  REDIS_URL?: string;
   NODE_ENV?: string;
   PORT?: string;
 }

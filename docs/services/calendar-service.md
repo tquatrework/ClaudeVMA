@@ -685,6 +685,153 @@
           <item>Point 4 du chantier (integration LiveKit) toujours non traite.</item>
         </openPoints>
       </session>
+
+      <session date="2026-08-18" label="Calendrier de disponibilites, point 3 — gap reel comble : GET /calendars/:ownerId porte enfin les activites, evenement ActivityScheduled reellement publie">
+        <context>Branche `feat/calendrier-proposition-creneau`. Reprise du gap signale a la fin de
+          la session precedente : rien ne permettait a un destinataire de decouvrir une proposition
+          de creneau dans l'application. `GET /calendars/:ownerId` ne renvoyait jamais les
+          activites, malgre sa propre doc qui le promettait depuis le debut du chantier — jamais
+          tenu. Decision de l'utilisateur : le creneau propose apparait directement dans le
+          calendrier du destinataire, pas dans une liste separee.</context>
+
+        <changeset id="activities-dans-get-calendars">
+          <item>`CalendarsService.getCalendar` construit desormais `activities`
+            (`CalendarActivityView[]`) via une nouvelle methode privee
+            `buildActivitiesView` : reutilise `ActivitiesService.findActiveInRange` (deja livre au
+            point 2 pour `busyBlocks`, aucune nouvelle requete) sur une fenetre par defaut de 2
+            semaines passees + 4 semaines a venir (`ACTIVITIES_WINDOW_PAST_MS`/`_FUTURE_MS`) —
+            aucune convention de fenetre par defaut n'existait deja pour cette route, valeur
+            proposee et documentee dans `docs/routes.md`. Ajoute pour tous les lecteurs autorises,
+            y compris la branche `PARENT_FINANCEUR` (qui recoit `activities` en plus de
+            `paymentEntries`, pas a la place).</item>
+          <item>Chaque element porte `id, type, status, startTime, endTime, creatorId,
+            creatorName, participantIds` — assez pour un affichage direct sans appel
+            supplementaire. `creatorId`/`participantIds` restent presents (usage interne : savoir
+            si l'appelant est createur/participant pour afficher Accepter/Refuser) mais ne doivent
+            jamais etre affiches tels quels (regle du 2026-08-09).</item>
+        </changeset>
+
+        <changeset id="resolution-nom-createur">
+          <item>Nouveau `src/common/clients/profile-display-name.client.ts`
+            (`ProfileDisplayNameClient.resolveDisplayNames`) : appelle
+            `POST /internal/profiles/display-names` (route en lot deja existante cote
+            `profile-service`, deja utilisee par `dashboard-notification-service` — meme pattern
+            reutilise, aucun nouveau mecanisme invente), un seul appel HTTP pour tous les
+            createurs distincts de la fenetre. Deduplique les `userId` avant l'appel ; liste vide
+            court-circuite sans appel reseau.</item>
+          <item>Politique d'echec deliberement DIFFERENTE de `ProfileRelationsClient`/
+            `IdentityAccessClient` (qui echouent ferme, `503`, car ce sont des decisions d'acces) :
+            une resolution de nom qui echoue degrade gracieusement `creatorName: null` pour les
+            activites concernees, sans jamais faire echouer la lecture du calendrier — route de
+            lecture centrale, rechargee a chaque visite de page (regle du 2026-08-10). Ce qui reste
+            non negociable en toute circonstance : ne jamais afficher `creatorId` (UUID) a la
+            place (arbitrage du 2026-08-09, « Affichage des identifiants techniques »).
+            `ProfileDisplayNameUnavailableError` interceptee et journalisee, toute autre erreur
+            propagee.</item>
+        </changeset>
+
+        <changeset id="outbox-evenements-domain-events">
+          <item>**Constat avant correction** : `EventsService.publish()` de ce service ecrivait
+            UNE LIGNE DE LOG et rien d'autre — aucun bus, aucun abonne, exactement le defaut deja
+            corrige sur `teacher-request-service` le 2026-08-12 (« un evenement qui n'est qu'un
+            `logger.log` n'est pas un evenement »). Meme constat, meme remede applique ici :
+            `calendar-service` adopte desormais le patron outbox + flux Redis, copie fidelement du
+            code de `teacher-request-service` (verifie explicitement, pas invente) — nouveau
+            `src/events/entities/domain-event.entity.ts` (table `domain_events`, schema identique)
+            et nouveau `src/events/event-publisher.service.ts` (`EventPublisher`, `XADD` sur le
+            MEME flux Redis `visiomath:events`, meme comportement en l'absence de `REDIS_URL` :
+            rien n'est perdu, tout reste en attente dans `domain_events`).</item>
+          <item>`EventsService.publish(type, payload, correlationId): void` GARDE EXACTEMENT SA
+            SIGNATURE PUBLIQUE — les treize points d'appel existants
+            (`CalendarsService`, `ActivitiesService`, `RemindersService`, `CalendarEventsService`)
+            n'ont pas ete modifies. En interne, l'ecriture en base est asynchrone et non bloquante
+            (fire-and-forget) : chaque appelant publie deja strictement apres resolution de sa
+            propre transaction, donc l'ecriture de l'evenement n'a pas besoin de la partager pour
+            rester coherente. Un helper `extractAggregateId`/`AGGREGATE_TYPE_BY_EVENT` derive
+            `aggregate_type`/`aggregate_id` du payload deja construit par chaque appelant
+            (`activityId` > `eventId` > `reminderId` > `slotId` > `ownerId`, ordre du plus
+            specifique au plus generique).</item>
+          <item>Nouvelle migration `1787070000000-AddDomainEventsOutbox` (CREATE TABLE
+            `domain_events`, schema et index identiques a celui de `teacher-request-service` —
+            un seul mecanisme d'outbox dans toute la plateforme). Verifiee contre une base Postgres
+            jetable : `up`, re-execution (no-op via `IF NOT EXISTS`), et `down` tous valides.</item>
+          <item>Nouvelle dependance `ioredis` (deja utilisee par `teacher-request-service`,
+            `dashboard-notification-service`, etc.) ; `REDIS_URL` ajoutee comme variable
+            **optionnelle** dans `env.validation.ts` (comme sur les autres services) et declaree
+            explicitement dans `docker-compose.yml` pour `calendar-service`
+            (`redis://:${REDIS_PASSWORD}@redis:6379`, meme service `redis` partage par la
+            plateforme), avec `depends_on: redis: condition: service_healthy` ajoute.</item>
+        </changeset>
+
+        <changeset id="payload-activityscheduled-recipientid">
+          <item>Payload d'`ActivityScheduled` (publie par `ActivitiesService.create`) complete
+            d'un champ `recipientId` : le seul destinataire quand `participantIds` contient
+            exactement un element (cas 1 proposeur -&gt; 1 destinataire deja acte au point 3),
+            `null` pour les usages multi-participants existants (RP a plusieurs formateurs,
+            `entretien_rp`, `rappel`, `autre`). Aucun nouvel evenement cree — reutilisation de
+            l'existant, conformement a la consigne de la tache. Destine a
+            `dashboard-notification-service` (tache separee, non traitee ici) pour notifier
+            « Proposition de cours ajoutee par {nom} ».</item>
+        </changeset>
+
+        <changeset id="tests">
+          <item>Nouveaux `test/unit/events/events.service.spec.ts` (reecrit, l'ancien testait le
+            stub) et `test/unit/events/event-publisher.service.spec.ts` (copie du modele
+            `teacher-request-service`) : ecriture reelle en base, derivation
+            aggregate_type/aggregate_id pour les onze types d'evenements existants, echec
+            d'ecriture n'explose pas l'appelant, publication sur le flux Redis, absence de
+            `REDIS_URL` ne perd rien, echec de `XADD` incremente `publishAttempts`.</item>
+          <item>Nouveau `test/unit/common/clients/profile-display-name.client.spec.ts` : appel en
+            lot, deduplication, `userId` absent de la reponse simplement absent de la Map, liste
+            vide sans appel reseau, echec ferme (reseau/HTTP non-ok) leve
+            `ProfileDisplayNameUnavailableError`.</item>
+          <item>`test/unit/calendars/calendars.service.spec.ts` etendu (getCalendar) : activites
+            incluses avec nom resolu, resolution en un seul appel groupe pour plusieurs createurs
+            distincts, fenetre par defaut (2 semaines passees + 4 a venir) passee a
+            `findActiveInRange`, degradation gracieuse `creatorName: null` sur
+            `ProfileDisplayNameUnavailableError` (jamais de 503), tableau vide sans appel a
+            `resolveDisplayNames` quand rien n'est dans la fenetre, `PARENT_FINANCEUR` recoit
+            `activities` en plus de `paymentEntries`.</item>
+          <item>`test/unit/activities/activities.service.spec.ts` etendu : `recipientId` present
+            pour une proposition 1-vers-1, `null` pour une reunion RP multi-formateurs.</item>
+          <item>`test/e2e/calendar.e2e-spec.ts` etendu : l'activite seed (creee par le RP vers
+            `student1`) apparait dans `GET /calendars/:ownerId` avec `creatorName` resolu via
+            `FakeProfileDisplayNameClient` (nouveau, meme modele que les deux fakes existants,
+            cable dans `createTestAppWithFakeProfileRelations`), degradation gracieuse verifiee en
+            HTTP (`creatorName: null`, toujours `200`), tableau vide pour un titulaire sans
+            activite dans la fenetre.</item>
+          <item>236 tests unitaires (etait 198) et 91 tests e2e (etait 88) verts, `--runInBand`
+            toujours requis pour les e2e (defaut preexistant, non corrige dans cette session).
+            Migration verifiee contre une base Postgres jetable independamment de la suite e2e
+            (qui utilise `synchronize()`, pas les migrations).</item>
+        </changeset>
+
+        <changeset id="documentation">
+          <item>`docs/routes.md` : ligne `GET /calendars/:ownerId` mise a jour, nouvelle section
+            dediee avec la forme exacte de `activities` (exemple JSON complet, tableau des champs,
+            perimetre, fenetre, mecanisme de resolution du nom), nouvelle section sur l'evenement
+            `ActivityScheduled` completee de `recipientId` et sur le mecanisme reel de publication.
+            Correction d'une affirmation devenue fausse (« `EventsService.publish` reste un
+            stub... aucun bus, aucun abonne ») dans la section « Evenements publies » deja
+            existante, plutot que de la laisser trompeuse a cote d'une nouvelle section qui la
+            contredit.</item>
+        </changeset>
+
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <item>`dashboard-notification-service` : consommer `ActivityScheduled` (dont
+            `recipientId`) pour notifier « Proposition de cours ajoutee par {nom} » — tache
+            separee, explicitement hors mandat de cette session (« ne t'en occupe pas toi-meme »).</item>
+          <item>Front : afficher les creneaux `PROPOSED` en couleur distincte avec Accepter/Refuser
+            inline dans la grille du calendrier du destinataire (remplace/complete
+            `CourseProposalsPanel`) — tache separee, non traitee ici (perimetre explicitement
+            backend).</item>
+          <item>Fenetre par defaut de `activities` (2 semaines passees + 4 a venir) : pas un
+            parametre de requete pour l'instant, contrairement a `from`/`to` sur `/busy` — a
+            ouvrir si un besoin de fenetre differente ou de pagination se manifeste.</item>
+          <item>Point 4 du chantier (integration LiveKit) toujours non traite.</item>
+        </openPoints>
+      </session>
     </technicalSessions>
   </service>
 </serviceFunctionalSpecification>

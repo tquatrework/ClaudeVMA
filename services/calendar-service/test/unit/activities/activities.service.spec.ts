@@ -148,6 +148,46 @@ describe('ActivitiesService', () => {
       expect(mockProfileRelationsClient.resolveRelations).not.toHaveBeenCalled();
     });
 
+    // --- recipientId on ActivityScheduled (gap comblé le 2026-08-18) ---
+
+    it('ActivityScheduled carries recipientId when the proposal targets exactly one participant', async () => {
+      mockProfileRelationsClient.resolveRelations.mockResolvedValue(
+        snapshotWith([RelationKind.TEACHER_OF_STUDENT]),
+      );
+      const saved = { id: 'act-1', ...validCreateDto, creatorId: 'teacher-1', creatorRole: UserRole.FORMATEUR, status: ActivityStatus.PROPOSED };
+      mockActivityRepo.create.mockReturnValue(saved);
+      mockActivityRepo.save.mockResolvedValue(saved);
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      await service.create(validCreateDto, actor);
+
+      expect(mockEventsService.publish).toHaveBeenCalledWith(
+        'ActivityScheduled',
+        expect.objectContaining({ recipientId: 'student-uuid-1' }),
+        undefined,
+      );
+    });
+
+    it('ActivityScheduled carries recipientId: null for a multi-participant RP proposal (no single recipient)', async () => {
+      const dto = {
+        ...validCreateDto,
+        type: ActivityType.REUNION_PEDAGOGIQUE,
+        participantIds: ['teacher-1', 'teacher-2', 'teacher-3'],
+      };
+      const saved = { id: 'act-3', ...dto, creatorId: 'rp-1', creatorRole: UserRole.RESPONSABLE_PEDAGOGIQUE, status: ActivityStatus.PROPOSED };
+      mockActivityRepo.create.mockReturnValue(saved);
+      mockActivityRepo.save.mockResolvedValue(saved);
+      const actor: AuthenticatedUser = { id: 'rp-1', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
+
+      await service.create(dto, actor);
+
+      expect(mockEventsService.publish).toHaveBeenCalledWith(
+        'ActivityScheduled',
+        expect.objectContaining({ recipientId: null }),
+        undefined,
+      );
+    });
+
     // --- exactly-one-recipient validation (chantier calendrier, point 3) ---
 
     it('throws BadRequestException when a FORMATEUR proposes a COURS to more than one participant', async () => {

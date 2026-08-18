@@ -71,6 +71,16 @@ export class ActivitiesService {
         activityId: activity.id,
         type: activity.type,
         creatorId: actor.id,
+        // Chantier calendrier de disponibilités, point 3 (gap comblé le
+        // 2026-08-18) : `recipientId` porte le seul destinataire quand la
+        // proposition est 1 proposeur → 1 destinataire (cours/FORMATEUR,
+        // reunion_pedagogique/AP, ou une reunion_pedagogique RP ciblant un
+        // seul formateur) — c'est ce que `dashboard-notification-service`
+        // consommera pour notifier « Proposition de cours ajoutée par
+        // {nom} ». `null` pour les usages multi-participants existants
+        // (RP à plusieurs formateurs, entretien_rp, rappel, autre) : il n'y
+        // a alors pas UN destinataire mais plusieurs, voir `participantIds`.
+        recipientId: activity.participantIds.length === 1 ? activity.participantIds[0] : null,
         participantIds: activity.participantIds,
         startTime: activity.startTime,
       },

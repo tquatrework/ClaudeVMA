@@ -47,6 +47,19 @@ services:
   # LIVEKIT_PUBLIC_URL entierement pilotes par configuration cote
   # video-session-service, jamais par un nom de service docker-compose code en
   # dur dans le code applicatif.
+  #
+  # TLS (suite du 2026-08-19, meme session) : le port 7880 (signalisation
+  # HTTP/WebSocket) n'est PLUS publie directement sur l'hote. Un navigateur
+  # ouvert depuis https://claudevma.visioprof.fr refuse une connexion
+  # WebSocket non chiffree (ws://) — contenu mixte bloque en silence.
+  # livekit-server ne sait terminer du TLS que pour son relais TURN
+  # (--turn-cert/--turn-key), jamais pour ce port principal (verifie contre
+  # l'image reelle 1.13.5, `help-verbose` ne liste tls_cert_file/tls_key_file
+  # que sous turn.*) : la terminaison TLS est donc deleguee au service
+  # livekit-tls ci-dessous, qui est desormais le seul a publier le port 7880
+  # sur l'hote. 7881 (repli TCP) et la plage UDP media restent publies ici
+  # directement : ce sont des flux WebRTC/ICE, deja chiffres au niveau media
+  # (SRTP), pas des connexions WebSocket soumises au blocage "contenu mixte".
   livekit:
     image: livekit/livekit-server:latest
     container_name: visiomath_livekit
@@ -66,15 +79,46 @@ services:
       - --udp-port
       - "50000-50019"
     ports:
-      # Signalisation/API : WebSocket + HTTP. C'est ce port que le SDK client
-      # LiveKit (navigateur) joint directement, jamais via visiomath_gateway.
-      - "7880:7880"
+      # 7880 n'est plus publie ici (voir commentaire ci-dessus) : livekit-tls
+      # le fait en son nom, apres terminaison TLS. Le conteneur continue
+      # d'ecouter 7880 en clair sur le reseau Docker interne, atteint par
+      # livekit-tls via le nom de service "livekit".
+      #
       # Repli RTC en TCP quand l'UDP est bloque par le reseau du client.
       - "7881:7881"
       # Media RTC. Plage UDP dediee et etroite (20 ports) plutot que la plage
       # tres large par defaut de LiveKit (50000-60000) : a documenter et a
       # ouvrir explicitement sur le pare-feu de la machine.
       - "50000-50019:50000-50019/udp"
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
+  # Terminaison TLS dediee a LiveKit, et seulement a LiveKit — chantier
+  # calendrier-visio-livekit, point 4 suite (2026-08-19). Nouveau conteneur
+  # strictement dedie, ne touche ni nginx-global (hors depot) ni
+  # visiomath_gateway (le SDK client LiveKit se connecte en direct, jamais via
+  # l'API HTTP classique) : coherent avec le choix deja fait d'un port dedie
+  # et d'une exposition directe.
+  #
+  # Certificat AUTO-SIGNE DE TEST (infra/livekit-tls/certs/, voir le README de
+  # ce dossier pour la justification complete) — decision utilisateur du
+  # 2026-08-19, assumee pour une phase de test rapide. Consequence pour
+  # l'utilisateur : ouvrir une fois https://<IP>:7880/ dans le navigateur et
+  # accepter manuellement l'avertissement de securite AVANT de rejoindre une
+  # visio depuis l'application — sinon la connexion WebSocket echoue en
+  # silence cote client alors que tout fonctionne cote serveur. Documente en
+  # detail dans le rapport de session et docs/services/video-session-service.md.
+  livekit-tls:
+    image: caddy:2-alpine
+    container_name: visiomath_livekit_tls
+    volumes:
+      - ./infra/livekit-tls/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./infra/livekit-tls/certs:/certs:ro
+    ports:
+      - "7880:7880"
+    depends_on:
+      - livekit
     networks:
       - visiomath_network
     restart: unless-stopped
@@ -365,7 +409,19 @@ services:
       # Aucun defaut sur : c'est une adresse reseau reelle (IP publique ou nom
       # de domaine de cette machine, port 7880), un mauvais defaut casserait
       # silencieusement la visio cote client. Voir LIVEKIT_NODE_IP ci-dessus.
-      LIVEKIT_PUBLIC_URL: "${LIVEKIT_PUBLIC_URL:?LIVEKIT_PUBLIC_URL doit etre defini, URL ws:// ou wss:// que le navigateur du client joint directement pour LiveKit}"
+      #
+      # DOIT etre en wss:// depuis le 2026-08-19 (suite TLS) : le front est
+      # servi en HTTPS (https://claudevma.visioprof.fr), un navigateur refuse
+      # une connexion WebSocket non chiffree (ws://) depuis une page HTTPS
+      # (contenu mixte, bloque en silence). La terminaison TLS est assuree par
+      # le service livekit-tls ci-dessus, qui publie desormais seul le port
+      # 7880 sur l'hote. Valeur attendue pour cette machine :
+      # wss://193.108.54.226:7880 — certificat AUTO-SIGNE DE TEST, voir
+      # infra/livekit-tls/certs/README.md : l'utilisateur doit ouvrir une fois
+      # https://193.108.54.226:7880/ dans son navigateur et accepter
+      # l'avertissement de securite AVANT de rejoindre une visio, sinon la
+      # connexion WebSocket echoue en silence cote client.
+      LIVEKIT_PUBLIC_URL: "${LIVEKIT_PUBLIC_URL:?LIVEKIT_PUBLIC_URL doit etre defini, URL wss:// (obligatoire depuis un front HTTPS) que le navigateur du client joint directement pour LiveKit}"
       PORT: 3007
     depends_on:
       postgres:
@@ -373,6 +429,8 @@ services:
       redis:
         condition: service_healthy
       livekit:
+        condition: service_started
+      livekit-tls:
         condition: service_started
     networks:
       - visiomath_network

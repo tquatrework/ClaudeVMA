@@ -212,4 +212,141 @@
       </point>
     </openPoints>
   </implementation>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       SUITE — terminaison TLS pour LiveKit, meme chantier, meme jour
+  ═══════════════════════════════════════════════════════════════════════ -->
+  <implementation status="complete-pending-manual-browser-step" date="2026-08-19" continuationOf="point-4-livekit">
+    <objective>
+      Debloquer le point decouvert a la fin de la session precedente : le front
+      etant servi en HTTPS, un navigateur refuse une connexion WebSocket non
+      chiffree (ws://) depuis une page HTTPS (contenu mixte, bloque en
+      silence). LIVEKIT_PUBLIC_URL doit donc etre en wss://, ce qui exige un
+      certificat TLS sur le port LiveKit (7880) — hors nginx-global (hors
+      depot) et hors visiomath_gateway (le SDK client LiveKit se connecte en
+      direct). Decision utilisateur : certificat auto-signe, explicitement
+      pour une phase de test.
+    </objective>
+
+    <arborescence>
+      infra/livekit-tls/                          # NOUVEAU repertoire, meme
+                                                    # niveau que gateway/ —
+                                                    # infra dediee, hors services/
+      ├── Caddyfile                                # NOUVEAU — reverse proxy TLS→HTTP local vers livekit:7880
+      └── certs/
+          ├── openssl-san.cnf                      # NOUVEAU — config openssl portant le SAN IP
+          ├── livekit-selfsigned.crt                # NOUVEAU — certificat auto-signe, SAN IP 193.108.54.226, valide 825 jours
+          ├── livekit-selfsigned.key                 # NOUVEAU — cle privee du certificat de test (voir README.md pour la justification de le committer)
+          └── README.md                             # NOUVEAU — justification explicite : pourquoi acceptable ici, jamais pour un vrai secret
+
+      docker-compose.yml                           # service "livekit" : ne publie plus 7880 sur l'hote (seul 7881 + UDP restent publies) ;
+                                                     # + service "livekit-tls" (Caddy, publie 7880, monte Caddyfile + certs) ;
+                                                     # video-session-service depends_on livekit-tls ; commentaire LIVEKIT_PUBLIC_URL etendu (wss:// obligatoire)
+    </arborescence>
+
+    <technicalDecisions>
+      <decision>
+        livekit-server ne sait pas terminer de TLS sur son port de
+        signalisation/API principal (7880) — verifie reellement (pas suppose)
+        contre l'image livekit/livekit-server:1.13.5 via
+        `docker run --rm livekit/livekit-server:latest help-verbose` : les
+        seules options tls_cert_file/tls_key_file/--turn-cert/--turn-key
+        n'existent que sous le namespace turn.*, reserve au relais TURN. D'ou
+        le choix d'un conteneur de terminaison TLS dedie plutot qu'une simple
+        option de configuration LiveKit.
+      </decision>
+      <decision>
+        Caddy (image caddy:2-alpine) choisi plutot que stunnel : gere
+        nativement l'upgrade WebSocket dans reverse_proxy (necessaire pour la
+        signalisation LiveKit) sans configuration additionnelle, et accepte un
+        certificat manuel (tls &lt;cert&gt; &lt;key&gt;) sans declencher son
+        mecanisme d'HTTPS automatique (ACME) puisqu'aucun nom de domaine n'est
+        utilise, seulement un port (:7880).
+      </decision>
+      <decision>
+        Seul le port 7880 (signalisation HTTP/WebSocket) passe par la
+        terminaison TLS. Le port 7881 (repli RTC en TCP) et la plage UDP media
+        restent publies directement par le conteneur livekit, sans TLS : ce
+        sont des flux WebRTC/ICE deja chiffres au niveau media (SRTP), pas des
+        connexions WebSocket — le blocage "contenu mixte" d'un navigateur ne
+        vise que les requetes http(s)/ws(s), jamais les flux ICE/SRTP bruts.
+        Aucune complexite ajoutee inutilement.
+      </decision>
+      <decision>
+        Certificat avec SAN (subjectAltName) IP explicite (193.108.54.226),
+        pas seulement un CN — un certificat sans SAN IP est rejete par les
+        navigateurs modernes meme apres acceptation manuelle de
+        l'avertissement de securite. Verifie par relecture du certificat
+        genere (openssl x509 -text) : SAN IP present, handshake TLS reussi en
+        connexion directe.
+      </decision>
+      <decision>
+        Cle privee committee avec le certificat, decision assumee et
+        documentee explicitement dans infra/livekit-tls/certs/README.md,
+        justifiee UNIQUEMENT par l'absence de valeur de confiance d'un
+        certificat auto-signe (sa compromission n'ouvre aucun acces
+        supplementaire a un attaquant qui a deja acces au port ouvert) — le
+        README avertit explicitement de ne jamais reproduire ce pattern pour
+        un vrai secret de production.
+      </decision>
+    </technicalDecisions>
+
+    <verification>
+      <item>
+        `docker compose config` valide avec succes la syntaxe complete du
+        fichier apres modification (LIVEKIT_NODE_IP, LIVEKIT_PUBLIC_URL et
+        WEBHOOK_SECRET fournis en dummy pour lever les gardes `:?` sans
+        rapport avec ce chantier).
+      </item>
+      <item>
+        Smoke test bout-en-bout REEL (pas seulement demarrage de conteneur),
+        avec des conteneurs LiveKit + Caddy jetables, isoles (reseau et noms
+        distincts de la pile de production, detruits immediatement apres) :
+        RoomServiceClient.createRoom() en HTTP clair (comme LIVEKIT_API_URL en
+        production, jamais a travers le proxy TLS) ; AccessToken.toJwt() reel ;
+        connexion `wss://` reelle via le paquet `ws` npm a travers le proxy
+        Caddy, avec validation de certificat desactivee cote client
+        UNIQUEMENT pour simuler ce qu'un navigateur fait apres acceptation
+        manuelle de l'avertissement — handshake HTTP 101, WebSocket OPEN,
+        premier message protobuf (JoinResponse, 645 octets) recu du serveur
+        LiveKit a travers le tunnel TLS. Sortie complete dans le rapport de
+        session.
+      </item>
+      <item>
+        Pile de production non touchee pendant la verification : conteneurs
+        jetables sur reseau Docker separe, supprimes juste apres le test. Le
+        conteneur `livekit` de production n'existe pas encore (jamais
+        deploye — LIVEKIT_NODE_IP/LIVEKIT_PUBLIC_URL non renseignes dans le
+        .env reel, confirme par `docker inspect` sur visiomath_video_session
+        qui ne porte aucune variable LIVEKIT_*).
+      </item>
+    </verification>
+
+    <openPoints>
+      <point>
+        Etapes manuelles obligatoires, hors de portee de cet agent : ajouter
+        LIVEKIT_NODE_IP=193.108.54.226 et
+        LIVEKIT_PUBLIC_URL=wss://193.108.54.226:7880 dans le .env reel
+        (acces refuse par la politique de sandbox, meme constat que la session
+        precedente), ouvrir le port 7880/tcp sur le pare-feu de la machine (en
+        plus de 7881/tcp et 50000-50019/udp deja requis), puis
+        `docker compose up -d --build livekit livekit-tls video-session-service`.
+      </point>
+      <point>
+        Etape manuelle cote navigateur, obligatoire et signalee clairement a
+        l'utilisateur : ouvrir une fois https://193.108.54.226:7880/ et
+        accepter l'avertissement de securite du certificat auto-signe AVANT
+        de rejoindre une visio depuis l'application — sinon la connexion
+        WebSocket echoue en silence cote client bien que tout fonctionne cote
+        serveur.
+      </point>
+      <point>
+        Limite assumee et documentee : un certificat auto-signe n'est pas
+        utilisable tel quel pour un usage reel par les utilisateurs finaux de
+        la plateforme (avertissement de securite systematique). Passage a un
+        certificat de confiance reelle (Let's Encrypt ou equivalent) explicite
+        hors perimetre de ce chantier, sur demande de l'utilisateur.
+      </point>
+    </openPoints>
+  </implementation>
 </serviceFunctionalSpecification>

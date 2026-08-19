@@ -1435,6 +1435,18 @@ Préfixe gateway canonique : `/api/v1/video-sessions` → contrôleur `/video-se
 > LiveKit (ports dédiés, hors `nginx-global` et hors `visiomath_gateway`) et le
 > rapport de session `.claude/reports/video-session-service-2026-08-19.md` pour
 > le détail complet (variables d'environnement, étapes manuelles de déploiement).
+>
+> **Suite directe, même jour — terminaison TLS.** Le front étant servi en HTTPS,
+> un navigateur refuse une connexion WebSocket non chiffrée (`ws://`) depuis une
+> page HTTPS (contenu mixte, bloqué en silence) : `LIVEKIT_PUBLIC_URL` doit donc
+> être en `wss://`. `livekit-server` ne sait terminer du TLS que pour son relais
+> TURN (`--turn-cert`/`--turn-key`), jamais pour son port de signalisation
+> principal (7880) — vérifié contre l'image réelle `livekit/livekit-server:1.13.5`.
+> Un nouveau conteneur dédié (`livekit-tls`, Caddy en reverse proxy TLS→HTTP
+> local) termine donc le TLS avec un **certificat auto-signé de test**, décision
+> assumée de l'utilisateur pour cette phase — voir
+> `infra/livekit-tls/certs/README.md` et le rapport de session
+> `.claude/reports/video-session-service-tls-2026-08-19.md`.
 
 ### Salles vidéo
 
@@ -1594,11 +1606,54 @@ API interne (non exposée via nginx) : `GET /internal/video/*` — protégée pa
 |---|---|
 | `LIVEKIT_API_URL` | Appel serveur-à-serveur (`RoomServiceClient`, `AccessToken`) — interne au réseau Docker, ex. `http://livekit:7880` |
 | `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | Paire de clés API LiveKit. **Le secret doit faire au moins 32 caractères** (vérifié le 2026-08-19 contre une vraie instance LiveKit 1.13.5 : en dessous, `secret is too short` côté serveur et `401 invalid token, signature is invalid` côté client) |
-| `LIVEKIT_PUBLIC_URL` | URL que le **SDK client LiveKit (navigateur)** joint en direct — jamais via `api-gateway`. Renvoyée telle quelle par `GET /video/rooms/:id/join` |
+| `LIVEKIT_PUBLIC_URL` | URL que le **SDK client LiveKit (navigateur)** joint en direct — jamais via `api-gateway`. Renvoyée telle quelle par `GET /video/rooms/:id/join`. **Doit être `wss://` depuis le 2026-08-19** (voir ci-dessous) |
 | `REDIS_URL` | Flux `visiomath:events` — optionnelle côté code (repli explicite si absente), nécessaire pour la création automatique de salle |
 
 Détail complet (ports à ouvrir, IP publique à renseigner, secrets à changer en
 production) : `.claude/reports/video-session-service-2026-08-19.md`.
+
+### TLS pour le port LiveKit (2026-08-19)
+
+Un navigateur ouvert depuis `https://claudevma.visioprof.fr` refuse une
+connexion WebSocket non chiffrée (`ws://`) — contenu mixte, bloqué en silence
+côté client, sans erreur exploitable. `LIVEKIT_PUBLIC_URL` doit donc être en
+`wss://`, ce qui exige un certificat TLS sur le port LiveKit (7880), en dehors
+de `nginx-global` (hors dépôt, ne gère que le domaine principal) et de
+`visiomath_gateway` (le SDK client LiveKit se connecte en direct, jamais via
+l'API HTTP classique).
+
+**`livekit-server` ne termine pas nativement le TLS sur son port de
+signalisation/API principal** — vérifié le 2026-08-19 contre l'image réelle
+`livekit/livekit-server:1.13.5` (`help-verbose` ne liste `tls_cert_file`/
+`tls_key_file` que sous `turn.*`, réservé au relais TURN). Un nouveau conteneur
+dédié à LiveKit **uniquement** — `livekit-tls`, image `caddy:2-alpine`, simple
+reverse proxy TLS → HTTP local vers `livekit:7880` — termine donc le TLS.
+C'est désormais lui, et lui seul, qui publie le port `7880` sur l'hôte ; le
+conteneur `livekit` ne publie plus que `7881` (repli TCP) et la plage UDP media
+(déjà chiffrés au niveau média, non concernés par le blocage « contenu mixte »
+qui ne vise que les WebSocket).
+
+**Certificat auto-signé, explicitement pour une phase de test** (décision
+utilisateur du 2026-08-19) : `infra/livekit-tls/certs/` — SAN IP
+`193.108.54.226`, sans quoi les navigateurs modernes rejettent le certificat
+même après acceptation manuelle. Justification complète du choix de committer
+la clé privée avec le certificat (acceptable ici, jamais pour un vrai secret) :
+`infra/livekit-tls/certs/README.md`.
+
+⚠️ **Étape manuelle obligatoire côté navigateur, à faire par l'utilisateur** :
+ouvrir une fois `https://193.108.54.226:7880/` directement dans le navigateur
+et accepter l'avertissement de sécurité du certificat auto-signé, **avant** de
+tenter de rejoindre une visio depuis l'application. Sans cette étape, la
+connexion WebSocket échoue **en silence** côté client (le navigateur bloque la
+connexion `wss://` vers un certificat jamais accepté) alors que tout fonctionne
+côté serveur — piège d'expérience utilisateur réel pour cette phase de test,
+détaillé dans `.claude/reports/video-session-service-tls-2026-08-19.md`.
+
+Preuve de bout en bout (pas seulement que le conteneur démarre) : script Node
+utilisant `livekit-server-sdk` + `ws`, connexion `wss://` réelle à travers le
+proxy Caddy avec un token LiveKit valide, handshake HTTP `101`, `WebSocket`
+`OPEN`, premier message protobuf du serveur reçu — voir le rapport de session
+pour la sortie complète.
 
 ---
 

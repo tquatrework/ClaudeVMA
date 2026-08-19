@@ -82,10 +82,38 @@ un créneau proposé.
       bout. Les routes `availability-slots`/`activities` gardent légitimement `startTime`/
       `endTime` (entités distinctes, non touchées). 241 tests unitaires + 93 e2e verts, `tsc
       --noEmit` propre — vérifié indépendamment par l'orchestrateur après chaque fast-forward.
-- [ ] Front — grille unique fusionnant les trois sources, sélecteur de mode en marge, création
-      par clic, acceptation par clic sur le créneau (`front-developper`)
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+- [x] Front — livré, commits `a97a173`+`3bbd537`, poussés. `CalendarPage.tsx` refondu autour de
+      `CalendarUnifiedView.tsx` : grille unique fusionnant `availabilitySlots` + `activities`
+      (`GET /calendars/:ownerId`) + `CalendarEvent` (`GET /calendars/:ownerId/events`),
+      `CalendarModeSelector` (Consultation / Créer une disponibilité / Créer un événement) en
+      marge de la grille, création d'événement par clic direct (`QuickEventCreatePopover`, plus
+      de `datetime-local` saisi à la main). `CourseProposalsPanel` conservé en panneau repliable
+      sous la grille. Décision du développeur, signalée comme pragmatique et non confirmée par
+      l'utilisateur : la grille reste un **gabarit hebdomadaire récurrent** (pas de vraies dates
+      par jour) — un clic résout vers « la prochaine occurrence » de ce jour/heure, affichée en
+      clair avant validation. 1753/1755 tests verts (2 échecs préexistants déjà signalés
+      plusieurs fois ce jour, sans rapport), `tsc --noEmit` propre — vérifié indépendamment.
+- [x] Déployé sur la pile réelle — `calendar-service` (deux fois, écriture puis lecture) et
+      `frontend` reconstruits, bundle `index-ClbA4rel.js`, gateway rechargée.
+- [x] Preuve livrée — test Playwright réel `apps/web/e2e/proof-calendar-unified-view.spec.ts`
+      (commit `2f96f72`), rejoué indépendamment par l'orchestrateur : `POST
+      /calendars/:ownerId/events` → `201` avec `startAt`/`endAt` (bug ISO 8601 confirmé résolu,
+      réponse HTTP citée) ; grille unique confirmant les 3 sources simultanément (disponibilité +
+      événement créé par clic + proposition de cours, capture
+      `calendar-unified-02-three-sources-on-same-grid.png`) ; proposition acceptée avec succès
+      (`POST /activities/:id/accept` → `201 confirmed`).
+      **Deux défauts réels trouvés en testant, non maquillés** :
+      1. Les boutons Accepter/Refuser (et « Rejoindre le cours » sur un créneau confirmé) sont
+         révélés au clic comme demandé, mais **rendus hors de la zone visible du bloc** (mesuré :
+         bouton commençant ~3px sous le bord bas visible du bloc) — présents et cliquables dans
+         le DOM, **invisibles à l'écran pour un utilisateur réel**. Capture :
+         `calendar-unified-03bis-accept-decline-block-closeup.png`. Correctif en cours
+         (`front-developper`, dispatché).
+      2. **Point d'attention confirmé, décision produit à trancher par l'utilisateur** : cliquer
+         sur un jour/heure déjà passé aujourd'hui résout silencieusement vers cette heure passée
+         du jour même (ex. « Mercredi 15:00 » cliqué après 15h résout vers « Mercredi 19 août
+         2026, 15:00 » — dans le passé), **sans aucun avertissement**. À trancher : avertir
+         l'utilisateur, résoudre automatiquement vers la semaine suivante, ou accepter tel quel ?
 - [ ] Validé par l'utilisateur
 
 ---

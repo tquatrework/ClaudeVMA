@@ -80,7 +80,7 @@ Ordre de livraison retenu, une branche par étape :
       explicite de l'utilisateur (2026-08-18) : la preuve écran attendra son intégration réelle au
       point 3, pas de page de test jetable entre-temps. **Validé par l'utilisateur** sur cette
       base — mergé dans master.
-- [ ] Point 3 — proposition/acceptation de créneau. **Backend + front livrés (198+83+33+88 puis
+- [x] Point 3 — proposition/acceptation de créneau. **Backend + front livrés (198+83+33+88 puis
       +40 tests). Gap réel bloquant trouvé par le front en testant en HTTP contre la pile réelle,
       pas contourné : aucune route ne liste les activités d'un utilisateur — `GET /activities`
       → 404, et `GET /calendars/:ownerId` ne porte jamais les activités malgré sa propre
@@ -194,9 +194,11 @@ Ordre de livraison retenu, une branche par étape :
       rechargement de page confirme l'état serveur indépendamment, mais c'est une légère entorse
       à la règle du projet « toujours réafficher la réponse serveur » (2026-08-10) — à corriger si
       l'occasion se présente, pas urgent.
-      **Reste avant de considérer le point 3 (et ce sous-objectif calendrier) totalement clos** :
-      livrer cette preuve à l'utilisateur (captures ci-dessus) et obtenir sa validation avant de
-      merger `feat/calendrier-proposition-creneau` dans `master`.
+      **Validé par l'utilisateur — 2026-08-19 (« ok merge »).** Mergé dans `master` — PR #126,
+      squash `4377f73`, branche supprimée (locale + `origin`). `calendar-service`,
+      `dashboard-notification-service` et `frontend` reconstruits et redéployés depuis `master`
+      (état durable), gateway rechargée, bundle `index-C6cMY2Rx.js` reconfirmé identique. Les
+      trois services sains.
 
       Ancien correctif de suivi ci-dessous, dépassé par cette décision, laissé pour mémoire :
       `teacher-request-service`/`dashboard-notification-service`) plutôt qu'un simple lien à

@@ -141,10 +141,43 @@ Ordre de livraison retenu, une branche par étape :
          confirmés indépendamment. **Pas encore de preuve HTTP par l'orchestrateur contre la pile
          réelle pour ce chantier précis** — à faire avec le chantier 3 (front), une fois le
          créneau visible et actionnable à l'écran.
-      3. [ ] Front : la grille du calendrier du destinataire affiche les créneaux `PROPOSED` en
-         couleur distincte avec Accepter/Refuser inline — remplace/complète `CourseProposalsPanel`
-         (l'onglet séparé livré dans ce tour n'était pas la bonne approche, à ajuster ou retirer
-         selon ce qui reste pertinent une fois l'affichage in-calendrier en place).
+      3. [x] Front : fait le 2026-08-19, commits `deeae6a` (feat) + `8ee8965` (rapport), fast-
+         forward propre sur `feat/calendrier-proposition-creneau`, poussés. La grille "Mes
+         disponibilités" affiche désormais les activités `proposed`/`confirmed` du titulaire
+         (nouveaux `scheduledActivityGridBlocks.ts`, `ActivityGridBlockOverlay.tsx`,
+         `useOwnerCalendarActivities.ts`) — `proposed` en pastel avec Accepter/Refuser inline
+         (`POST /activities/:id/accept|decline`, réponse serveur réaffichée, jamais d'état
+         optimiste, `409` géré avec message + refetch), `confirmed` en couleur pleine sans action.
+         Notification `course_slot_proposed` : libellé « Proposition de cours ajoutée par
+         {proposerName} » + navigation vers `/calendar` ajoutés à `notificationLabels.ts`.
+         `LinkedCalendarView` (point 2, jusqu'ici jamais monté) intégré dans
+         `ProposeCourseSlotDialog` — récupéré via le fast-forward, vérifié intact : c'est ce qui
+         donnera enfin une preuve à l'écran du point 2. `CourseProposalsPanel` **conservé** (pas
+         supprimé) : son rôle de découverte côté destinataire est désormais redondant (son
+         état vide pointe vers le nouvel affichage in-calendrier), mais son rôle de suivi côté
+         proposeur (propositions envoyées, via `localStorage` faute de route de liste) reste utile
+         et n'a pas d'équivalent direct dans `CalendarActivityEntry` (pas de titre) — décision
+         documentée, pas un oubli. `npx tsc --noEmit` et suite ciblée (68 tests calendrier/
+         notifications) rejoués indépendamment par l'orchestrateur après fast-forward : verts.
+         Suite complète front annoncée par l'agent : 1740/1742 verts (2 échecs préexistants sans
+         rapport, `EleveDashboardPage.test.tsx`). **Risque résiduel documenté, non bloquant** : la
+         grille hebdomadaire n'a pas d'identité année/semaine — deux activités sur le même
+         jour/horaire à des semaines réelles différentes (fenêtre serveur -2/+4 semaines) peuvent
+         se chevaucher visuellement ; même limitation déjà acceptée pour les blocs `BUSY` de
+         `LinkedCalendarView`, mitigée par une date affichée sur chaque bloc, pas de recomposition
+         en cas de collision. `apps/web/src/api/calendar.ts` a grossi (389 lignes, dette
+         préexistante, pas traitée ici pour ne pas élargir le rayon d'impact).
+
+      **Reste avant de considérer le point 3 réellement fini** (aucun des trois chantiers n'a
+      encore de preuve contre la pile réelle prise isolément) :
+      - Déployer les trois services modifiés (`calendar-service`, `dashboard-notification-service`,
+        `frontend`) sur `https://claudevma.visioprof.fr`.
+      - Preuve HTTP et/ou capture d'écran du flux complet : proposition créée par un formateur/
+        RP/AP → apparaît dans le calendrier du destinataire en couleur distincte avec Accepter/
+        Refuser → notification cloche reçue avec le bon libellé et la bonne navigation → accepter
+        fait passer en confirmé (couleur pleine) → `LinkedCalendarView` visible dans le composeur
+        de proposition (preuve écran enfin obtenue pour le point 2 au passage).
+      - Livrer la preuve à l'utilisateur, obtenir sa validation, merger dans `master`.
 
       Ancien correctif de suivi ci-dessous, dépassé par cette décision, laissé pour mémoire :
       `teacher-request-service`/`dashboard-notification-service`) plutôt qu'un simple lien à

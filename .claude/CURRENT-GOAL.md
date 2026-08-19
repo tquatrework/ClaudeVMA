@@ -358,7 +358,13 @@ Ordre de livraison retenu, une branche par étape :
       bloquant signalé par le sous-agent, non investigué : 2 erreurs console (`403`/`502`)
       transitoires côté élève pendant la connexion, sans effet observé sur le déroulé.
 - [x] Preuve livrée à l'utilisateur pour chaque point
-- [ ] Validé par l'utilisateur
+- [x] Validé par l'utilisateur — 2026-08-19 (« commit merge push pr »). **Les 4 points du
+      chantier sont clos.** Point 4 mergé dans `master` — PR #127, squash `81dd951`, branche
+      supprimée. `video-session-service` et `frontend` reconstruits et redéployés depuis `master`
+      (état durable), bundle `index-DbzAZgzP.js` reconfirmé identique, gateway rechargée. Les
+      quatre services concernés par ce chantier (`calendar-service`,
+      `dashboard-notification-service`, `video-session-service`, `frontend`, plus les nouveaux
+      conteneurs `livekit`/`livekit-tls`) sont sains sur la pile réelle.
 
 ---
 

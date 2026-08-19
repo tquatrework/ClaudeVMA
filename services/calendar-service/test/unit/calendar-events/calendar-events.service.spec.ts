@@ -157,8 +157,8 @@ describe('CalendarEventsService', () => {
     const validDto = {
       title: 'Cours de maths',
       eventType: EventType.COURS,
-      startTime: '2026-07-01T10:00:00Z',
-      endTime: '2026-07-01T11:00:00Z',
+      startAt: '2026-07-01T10:00:00Z',
+      endAt: '2026-07-01T11:00:00Z',
     };
 
     it('FORMATEUR can create a COURS event', async () => {

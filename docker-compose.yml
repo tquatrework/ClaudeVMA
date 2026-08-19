@@ -422,6 +422,12 @@ services:
       # l'avertissement de securite AVANT de rejoindre une visio, sinon la
       # connexion WebSocket echoue en silence cote client.
       LIVEKIT_PUBLIC_URL: "${LIVEKIT_PUBLIC_URL:?LIVEKIT_PUBLIC_URL doit etre defini, URL wss:// (obligatoire depuis un front HTTPS) que le navigateur du client joint directement pour LiveKit}"
+      # Resolution du prenom/nom de l'appelant avant de generer le token LiveKit
+      # (correctif 2026-08-19 : l'identite LiveKit brute, un UUID, s'affichait sur
+      # les tuiles de participants faute de `name`). Best-effort : si
+      # profile-service est injoignable, le join n'est jamais bloque, seul `name`
+      # est omis du token (voir ProfileClientService et docs/routes.md).
+      PROFILE_SERVICE_URL: http://profile-service:3002
       PORT: 3007
     depends_on:
       postgres:
@@ -432,6 +438,8 @@ services:
         condition: service_started
       livekit-tls:
         condition: service_started
+      profile-service:
+        condition: service_healthy
     networks:
       - visiomath_network
     restart: unless-stopped

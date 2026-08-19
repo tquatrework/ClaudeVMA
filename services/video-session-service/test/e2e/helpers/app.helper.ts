@@ -21,6 +21,7 @@ import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../../../src/app.module';
 import { LiveKitService } from '../../../src/livekit/livekit.service';
+import { ProfileClientService } from '../../../src/profile/profile-client.service';
 import * as jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -91,6 +92,13 @@ export async function createTestApp(): Promise<INestApplication> {
     // replaced by a fake that returns a fresh room name / a fake JWT.
     .overrideProvider(LiveKitService)
     .useValue(buildFakeLiveKitService())
+    // No real profile-service is reachable from the test environment either.
+    // Overridden the same way as LiveKitService above, so /join never depends
+    // on network I/O: ProfileClientService's own best-effort/graceful-degradation
+    // behaviour (never throws, returns null on failure) is covered by its own
+    // unit tests, not duplicated here.
+    .overrideProvider(ProfileClientService)
+    .useValue(buildFakeProfileClientService())
     .compile();
 
   const app = moduleFixture.createNestApplication();
@@ -120,6 +128,19 @@ function buildFakeLiveKitService() {
     createRoom: jest.fn(async () => undefined),
     createAccessToken: jest.fn(async (_roomName: string, userId: string) => `fake-jwt-${userId}-${uuidv4()}`),
     getPublicUrl: jest.fn(() => 'https://livekit.e2e-test.invalid'),
+  };
+}
+
+/**
+ * Fake ProfileClientService used in place of a real HTTP call to profile-service.
+ * Resolves `null` (no display name), exercising the same graceful-degradation
+ * path the real service takes when profile-service is unreachable — the fix's
+ * "never block the join, never leak the raw userId as a name" contract is
+ * verified end-to-end even without a real profile-service running.
+ */
+function buildFakeProfileClientService() {
+  return {
+    resolveDisplayName: jest.fn(async () => null),
   };
 }
 

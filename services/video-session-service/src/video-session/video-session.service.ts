@@ -21,6 +21,7 @@ import { AddCommentDto } from './dto/add-comment.dto';
 import { PublishSummaryDto } from './dto/publish-summary.dto';
 import { UserRole } from '../common/enums/user-role.enum';
 import { LiveKitService } from '../livekit/livekit.service';
+import { ProfileClientService } from '../profile/profile-client.service';
 
 /** Roles that are authorised to join a video room (VID-RA-001, VID-RA-002, VID-FB-001). */
 const ALLOWED_PARTICIPANT_ROLES: string[] = [
@@ -70,6 +71,7 @@ export class VideoSessionService {
     @InjectRepository(CourseSummary)
     private readonly summaryRepo: Repository<CourseSummary>,
     private readonly liveKit: LiveKitService,
+    private readonly profileClient: ProfileClientService,
   ) {}
 
   // ─── Room lifecycle ──────────────────────────────────────────────────────────
@@ -180,6 +182,16 @@ export class VideoSessionService {
    * `{accessToken, roomToken, status}` shape built around a fictitious provider.
    * See docs/routes.md, video-session-service section, for the full note.
    *
+   * Bug fix (2026-08-19, `.claude/reports/video-session-service-fix-participant-name-2026-08-19.md`):
+   * the LiveKit `AccessToken` used to carry only `identity` (the raw `userId`),
+   * so `@livekit/components-react` displayed the UUID on participant tiles when
+   * no `name` was set — a violation of "no UUID shown to a user"
+   * (docs/architecture.md, arbitrage 2026-08-09). The caller's display name is
+   * now resolved from `profile-service` (best-effort, see `ProfileClientService`)
+   * and passed as `name` to the token. If resolution fails, `name` is simply
+   * omitted — the join is never blocked by this enrichment, and the raw userId
+   * is never used as a name.
+   *
    * Publishes: VideoSessionStarted when the room transitions from WAITING → ACTIVE.
    */
   async join(
@@ -213,7 +225,15 @@ export class VideoSessionService {
       });
     }
 
-    const token = await this.liveKit.createAccessToken(room.roomToken, userId, userRole);
+    // Best-effort: a profile-service outage never blocks joining the room, it
+    // only means the LiveKit tile shows the identity instead of a real name.
+    const displayName = await this.profileClient.resolveDisplayName(userId);
+    const token = await this.liveKit.createAccessToken(
+      room.roomToken,
+      userId,
+      userRole,
+      displayName,
+    );
 
     // Audit trail of who requested a join token and when (kept for VID-BR-005
     // traceability; the value stored is the real LiveKit JWT, short-lived).

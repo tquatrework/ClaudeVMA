@@ -1483,6 +1483,40 @@ répercuter côté front dans une tâche séparée.** Réponse **remplacée** :
   join est inchangée ; elle ne se lit plus dans la réponse de `join` (qui ne
   porte plus `status`) mais via `GET /video/rooms/:id`.
 
+> **Correctif 2026-08-19, même jour — UUID affiché sur les tuiles de
+> participants.** Bug réel trouvé par un test Playwright contre la pile
+> réelle (`.claude/reports/livekit-join-2026-08-19/livekit-06-teacher-sees-other-participant.png`),
+> violation de « aucun UUID ne doit être lu ni affiché par un utilisateur »
+> (docs/architecture.md, arbitrage 2026-08-09). `AccessToken` n'était construit
+> qu'avec `identity` (le `userId` brut) ; `@livekit/components-react` affiche
+> `name` s'il est renseigné, et retombe sur `identity` sinon — d'où l'UUID en
+> clair sur les tuiles. **`{token, url}` ne change pas de forme**, seul le
+> contenu du JWT change :
+>
+> - `identity` reste le `userId` brut (LiveKit en a besoin pour distinguer les
+>   participants) — donnée technique interne, jamais affichée directement par
+>   le SDK tant que `name` est renseigné.
+> - `name` porte désormais le prénom + nom de l'appelant, résolu auprès de
+>   `profile-service` via la route interne déjà existante
+>   `GET /internal/profiles/:userId/display-name` (arbitrage 2026-08-12,
+>   « Resolution des noms entre services » — contrat figé à `firstName`/
+>   `lastName`, réutilisé tel quel, aucune nouvelle route ajoutée côté
+>   `profile-service`).
+> - **Dégradation gracieuse, jamais bloquante** : si `profile-service` est
+>   injoignable, en timeout (3 s) ou renvoie une erreur, `resolveDisplayName`
+>   retourne `null` et **aucun `name` n'est envoyé** à `AccessToken` — jamais
+>   l'UUID en repli. Le SDK retombe alors sur `identity` côté affichage
+>   (limite documentée du cas de panne, pas une régression du correctif). Même
+>   politique que `creatorName` côté `calendar-service`.
+> - Nouveau composant `ProfileClientService` (`src/profile/`), appelé par
+>   `VideoSessionService.join()` juste avant `LiveKitService.createAccessToken`,
+>   qui accepte désormais un 4ᵉ paramètre optionnel `name`. Nouvelle variable
+>   d'environnement `PROFILE_SERVICE_URL` (`http://profile-service:3002`),
+>   même convention que `archive-document-service`/`dashboard-notification-service`
+>   (`X-Internal-Secret`, pas de `x-correlation-id` propagé pour l'instant —
+>   aucun mécanisme de corrélation n'existait encore dans ce contrôleur,
+>   hors périmètre de ce correctif ciblé).
+
 **`GET /video/rooms/by-activity/:activityId`** (nouvelle route, 2026-08-19) —
 permet au front de retrouver la salle liée à une activité de calendrier dont il
 ne connaît que l'`activityId` (il n'a jamais l'id de la salle, créée côté
@@ -1608,6 +1642,15 @@ API interne (non exposée via nginx) : `GET /internal/video/*` — protégée pa
 | `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | Paire de clés API LiveKit. **Le secret doit faire au moins 32 caractères** (vérifié le 2026-08-19 contre une vraie instance LiveKit 1.13.5 : en dessous, `secret is too short` côté serveur et `401 invalid token, signature is invalid` côté client) |
 | `LIVEKIT_PUBLIC_URL` | URL que le **SDK client LiveKit (navigateur)** joint en direct — jamais via `api-gateway`. Renvoyée telle quelle par `GET /video/rooms/:id/join`. **Doit être `wss://` depuis le 2026-08-19** (voir ci-dessous) |
 | `REDIS_URL` | Flux `visiomath:events` — optionnelle côté code (repli explicite si absente), nécessaire pour la création automatique de salle |
+| `PROFILE_SERVICE_URL` | **Nouvelle, correctif 2026-08-19.** Résolution du prénom/nom de l'appelant avant de générer le token LiveKit (`name`, voir encadré ci-dessus). Optionnelle côté code — repli explicite (`name` omis) si absente ou si `profile-service` est injoignable, jamais bloquante |
+
+**Dépendance sortante (correctif 2026-08-19) :** `GET /video/rooms/:id/join` appelle
+`GET /internal/profiles/:userId/display-name` de `profile-service` (variable
+`PROFILE_SERVICE_URL`, en-tête `X-Internal-Secret`, délai 3 s) à **chaque join**.
+Contrairement à `archive-document-service` (qui répond `503` si l'appel échoue),
+ce service **n'échoue jamais** sur cette dépendance : un timeout ou une erreur
+retombe sur `name` omis du token, jamais sur un blocage du join ni sur le
+`userId` brut envoyé comme nom.
 
 Détail complet (ports à ouvrir, IP publique à renseigner, secrets à changer en
 production) : `.claude/reports/video-session-service-2026-08-19.md`.

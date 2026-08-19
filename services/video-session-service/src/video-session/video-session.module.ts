@@ -11,6 +11,7 @@ import { VideoRecording } from './entities/video-recording.entity';
 import { RecordingComment } from './entities/recording-comment.entity';
 import { CourseSummary } from './entities/course-summary.entity';
 import { LiveKitModule } from '../livekit/livekit.module';
+import { ProfileModule } from '../profile/profile.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { LiveKitModule } from '../livekit/livekit.module';
       inject: [ConfigService],
     }),
     LiveKitModule,
+    ProfileModule,
   ],
   controllers: [VideoSessionController, RecordingCommentsController],
   providers: [VideoSessionService],

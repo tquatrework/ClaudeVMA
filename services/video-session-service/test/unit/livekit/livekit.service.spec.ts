@@ -1,5 +1,6 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AccessToken } from 'livekit-server-sdk';
 import { LiveKitService } from '../../../src/livekit/livekit.service';
 
 // ─── Mock the LiveKit SDK — no test in this service makes a real network call ──
@@ -19,6 +20,8 @@ jest.mock('livekit-server-sdk', () => {
     })),
   };
 });
+
+const mockedAccessToken = AccessToken as unknown as jest.Mock;
 
 function buildConfigService(values: Record<string, string> = {}): ConfigService {
   return {
@@ -66,6 +69,48 @@ describe('LiveKitService', () => {
 
       expect(token).toBe('signed-jwt');
       expect(mockAddGrant).toHaveBeenCalledWith({ roomJoin: true, room: 'room-name-1' });
+    });
+
+    // ── Bug fix 2026-08-19: identity stays the UUID, `name` carries the real
+    // display name so @livekit/components-react never falls back to the UUID
+    // on participant tiles (docs/architecture.md, arbitrage 2026-08-09). ──────
+
+    it('keeps identity as the raw userId but sets name when a display name is given', async () => {
+      mockToJwt.mockResolvedValue('signed-jwt');
+      const service = new LiveKitService(
+        buildConfigService({ LIVEKIT_API_KEY: 'key', LIVEKIT_API_SECRET: 'secret' }),
+      );
+
+      await service.createAccessToken('room-name-1', 'user-uuid-1', 'eleve', 'Camille Durand');
+
+      const [, , options] = mockedAccessToken.mock.calls[0];
+      expect(options.identity).toBe('user-uuid-1');
+      expect(options.name).toBe('Camille Durand');
+    });
+
+    it('never sets name when no display name is given (never falls back to the UUID)', async () => {
+      mockToJwt.mockResolvedValue('signed-jwt');
+      const service = new LiveKitService(
+        buildConfigService({ LIVEKIT_API_KEY: 'key', LIVEKIT_API_SECRET: 'secret' }),
+      );
+
+      await service.createAccessToken('room-name-1', 'user-uuid-1', 'eleve');
+
+      const [, , options] = mockedAccessToken.mock.calls[0];
+      expect(options.identity).toBe('user-uuid-1');
+      expect(options.name).toBeUndefined();
+    });
+
+    it('omits name when the resolved display name is null', async () => {
+      mockToJwt.mockResolvedValue('signed-jwt');
+      const service = new LiveKitService(
+        buildConfigService({ LIVEKIT_API_KEY: 'key', LIVEKIT_API_SECRET: 'secret' }),
+      );
+
+      await service.createAccessToken('room-name-1', 'user-uuid-1', 'eleve', null);
+
+      const [, , options] = mockedAccessToken.mock.calls[0];
+      expect(options.name).toBeUndefined();
     });
   });
 

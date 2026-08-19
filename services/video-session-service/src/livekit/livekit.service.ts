@@ -57,12 +57,31 @@ export class LiveKitService {
    * as the LiveKit client SDK expects it. Role is carried as metadata only (not
    * used for LiveKit-side authorisation) — VisioMath's own role-based access
    * control (VID-FB-001 etc.) is enforced before this method is ever called.
+   *
+   * `identity` (technical, internal to LiveKit) stays the raw `userId` — LiveKit
+   * needs it to tell participants apart. `name` (optional) is the human-readable
+   * display name; `@livekit/components-react` shows `name` on participant tiles
+   * and only falls back to `identity` when `name` is absent. Passing the raw
+   * `userId` as `name` would violate "no UUID shown to a user"
+   * (docs/architecture.md, arbitrage 2026-08-09) — this is the bug fixed on
+   * 2026-08-19 (`.claude/reports/video-session-service-fix-participant-name-2026-08-19.md`).
+   * Callers must resolve a real display name first (see `ProfileClientService`)
+   * and pass `undefined`/`null` rather than the userId when resolution fails.
    */
-  async createAccessToken(roomName: string, userId: string, userRole: string): Promise<string> {
-    const accessToken = new AccessToken(this.apiKey, this.apiSecret, {
+  async createAccessToken(
+    roomName: string,
+    userId: string,
+    userRole: string,
+    name?: string | null,
+  ): Promise<string> {
+    const options: ConstructorParameters<typeof AccessToken>[2] = {
       identity: userId,
       metadata: JSON.stringify({ role: userRole }),
-    });
+    };
+    if (name) {
+      options.name = name;
+    }
+    const accessToken = new AccessToken(this.apiKey, this.apiSecret, options);
     accessToken.addGrant({ roomJoin: true, room: roomName });
     return accessToken.toJwt();
   }

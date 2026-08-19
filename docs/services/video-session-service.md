@@ -349,4 +349,115 @@
       </point>
     </openPoints>
   </implementation>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       CORRECTIF — UUID affiche sur les tuiles de participants, meme chantier
+  ═══════════════════════════════════════════════════════════════════════ -->
+  <implementation status="complete" date="2026-08-19" continuationOf="point-4-livekit">
+    <objective>
+      Corriger un bug reel trouve par un test Playwright reel contre
+      https://claudevma.visioprof.fr (session precedente, meme jour) :
+      GET /video/rooms/:id/join construisait l'AccessToken LiveKit avec
+      uniquement identity (userId brut), donc @livekit/components-react
+      affichait l'UUID sur les tuiles de participants faute de name — violation
+      directe de l'arbitrage "aucun UUID ne doit etre lu ni affiche par un
+      utilisateur" (docs/architecture.md, 2026-08-09). Preuve du bug :
+      .claude/reports/livekit-join-2026-08-19/livekit-06-teacher-sees-other-participant.png.
+    </objective>
+
+    <arborescence>
+      services/video-session-service/
+      ├── src/
+      │   ├── profile/                             # NOUVEAU module
+      │   │   ├── profile.module.ts                 # NOUVEAU
+      │   │   └── profile-client.service.ts          # NOUVEAU — resout firstName/lastName via profile-service (GET /internal/profiles/:userId/display-name), best-effort, ne leve jamais
+      │   ├── livekit/livekit.service.ts             # createAccessToken() + 4e parametre optionnel `name` ; identity reste le userId brut, name n'est pose que s'il est fourni
+      │   └── video-session/video-session.service.ts # join() resout le nom via ProfileClientService avant d'appeler LiveKitService.createAccessToken
+      └── test/
+          ├── unit/
+          │   ├── profile/profile-client.service.spec.ts  # NOUVEAU — succes, 404, 500, timeout/reseau, JSON malforme, config absente, nom partiel
+          │   ├── livekit/livekit.service.spec.ts          # + tests name pose/omis/null
+          │   └── video-session/video-session.service.spec.ts  # + provider ProfileClientService mocke ; + tests resolution nom et degradation gracieuse
+          └── e2e/helpers/app.helper.ts                # + override ProfileClientService (meme pattern que LiveKitService, aucun reseau reel dans les tests)
+
+      docker-compose.yml                            # video-session-service + PROFILE_SERVICE_URL, + depends_on profile-service (service_healthy)
+      docs/routes.md                                # section video-session-service, encadre "Correctif 2026-08-19" sous GET /video/rooms/:id/join
+    </arborescence>
+
+    <technicalDecisions>
+      <decision>
+        `identity` (technique, UUID) et `name` (affichable) sont deux donnees
+        distinctes du meme AccessToken, jamais fusionnees : LiveKit a besoin de
+        `identity` pour distinguer les participants, le SDK client n'affiche
+        `name` que s'il est fourni. Reprend le principe deja pose dans ce
+        projet pour calendarSessionId/activityId (memes noms, jamais
+        confondus).
+      </decision>
+      <decision>
+        Reutilisation stricte de la route interne existante
+        GET /internal/profiles/:userId/display-name de profile-service
+        (arbitrage 2026-08-12) — aucune nouvelle route cote profile-service,
+        contrat deja fige a firstName/lastName. Coherent avec l'instruction de
+        ne pas reinventer un mecanisme deja standard dans le projet
+        (calendar-service, dashboard-notification-service).
+      </decision>
+      <decision>
+        Degradation gracieuse stricte : ProfileClientService ne leve jamais
+        d'exception (timeout 3s, erreur reseau, 4xx/5xx, JSON malforme,
+        configuration absente -&gt; tous retournent null). LiveKitService ne pose
+        `name` que si une valeur truthy est fournie ; jamais de repli sur le
+        userId brut. Le cas de panne retombe sur le comportement PRE-correctif
+        (identity affiche), documente comme limite acceptee du cas de panne,
+        distincte du cas nominal.
+      </decision>
+      <decision>
+        Pas de propagation de x-correlation-id sur cet appel sortant : aucun
+        mecanisme de correlation n'existe encore dans VideoSessionController
+        (verifie par grep avant d'ecrire le code) ; l'introduire aurait
+        depasse le perimetre de ce correctif cible. Point ouvert, pas un
+        oubli.
+      </decision>
+      <decision>
+        Contrat HTTP {token, url} de GET /video/rooms/:id/join inchange dans
+        sa forme — seul le contenu du JWT `token` change (le champ `name`
+        interne au JWT, jamais un nouveau champ de la reponse JSON). Aucune
+        adaptation front necessaire pour ce correctif au niveau de la forme de
+        reponse ; @livekit/components-react lit `name` directement depuis le
+        JWT decode cote client.
+      </decision>
+    </technicalDecisions>
+
+    <verification>
+      <item>
+        90 tests unitaires verts (`npm test -- --testPathPattern=unit`), dont
+        9 nouveaux (profile-client.service.spec.ts) et 5 modifies/ajoutes
+        (livekit.service.spec.ts, video-session.service.spec.ts).
+      </item>
+      <item>
+        `npm run build` (nest build / tsc) sans erreur.
+      </item>
+      <item>
+        Pas de nouvelle preuve e2e contre la pile reelle dans cette passe —
+        rester dans le perimetre du correctif demande (tests unitaires
+        obligatoires uniquement). Une verification Playwright reelle contre
+        https://claudevma.visioprof.fr, comme celle qui a trouve le bug, reste
+        recommandee avant de considerer la tuile de participant definitivement
+        corrigee a l'ecran.
+      </item>
+    </verification>
+
+    <openPoints>
+      <point>
+        Pas de verification e2e/Playwright reelle effectuee dans cette passe :
+        seuls les tests unitaires (mock du client profile-service) ont ete
+        lances, comme demande. A verifier a l'ecran par un test reel avant de
+        clore definitivement le bug.
+      </point>
+      <point>
+        x-correlation-id non propage sur l'appel sortant vers profile-service
+        (voir decision ci-dessus) — a introduire si/quand un mecanisme de
+        correlation est ajoute a ce controleur.
+      </point>
+    </openPoints>
+  </implementation>
 </serviceFunctionalSpecification>

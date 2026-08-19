@@ -10,6 +10,7 @@ import { RecordingComment } from '../../../src/video-session/entities/recording-
 import { CourseSummary } from '../../../src/video-session/entities/course-summary.entity';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
 import { LiveKitService } from '../../../src/livekit/livekit.service';
+import { ProfileClientService } from '../../../src/profile/profile-client.service';
 
 // ─── Repository mocks ─────────────────────────────────────────────────────────
 
@@ -51,6 +52,10 @@ const mockLiveKitService = {
   createRoom: jest.fn(),
   createAccessToken: jest.fn(),
   getPublicUrl: jest.fn(),
+};
+
+const mockProfileClientService = {
+  resolveDisplayName: jest.fn(),
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -101,6 +106,7 @@ describe('VideoSessionService', () => {
         { provide: getRepositoryToken(RecordingComment), useValue: mockCommentRepo },
         { provide: getRepositoryToken(CourseSummary), useValue: mockSummaryRepo },
         { provide: LiveKitService, useValue: mockLiveKitService },
+        { provide: ProfileClientService, useValue: mockProfileClientService },
       ],
     }).compile();
 
@@ -109,6 +115,7 @@ describe('VideoSessionService', () => {
     mockLiveKitService.createRoom.mockResolvedValue(undefined);
     mockLiveKitService.createAccessToken.mockResolvedValue('livekit-jwt-abc');
     mockLiveKitService.getPublicUrl.mockReturnValue('https://livekit.example.com');
+    mockProfileClientService.resolveDisplayName.mockResolvedValue(null);
   });
 
   // ── create ────────────────────────────────────────────────────────────────
@@ -251,6 +258,44 @@ describe('VideoSessionService', () => {
         'room-token-abc',
         'eleve-1',
         UserRole.ELEVE,
+        null,
+      );
+    });
+
+    // ── Bug fix 2026-08-19: resolve a real display name before building the
+    // LiveKit token, never let the raw userId leak as a name ─────────────────
+
+    it('resolves the caller display name and passes it to LiveKitService', async () => {
+      const token = { token: 'access-token-abc', used: false, createdAt: new Date() };
+      mockTokenRepo.create.mockReturnValue(token);
+      mockTokenRepo.save.mockResolvedValue(token);
+      mockProfileClientService.resolveDisplayName.mockResolvedValue('Camille Durand');
+
+      await service.join('room-uuid-1', 'eleve-1', UserRole.ELEVE);
+
+      expect(mockProfileClientService.resolveDisplayName).toHaveBeenCalledWith('eleve-1');
+      expect(mockLiveKitService.createAccessToken).toHaveBeenCalledWith(
+        'room-token-abc',
+        'eleve-1',
+        UserRole.ELEVE,
+        'Camille Durand',
+      );
+    });
+
+    it('still generates a working token when profile-service is unreachable (graceful degradation)', async () => {
+      const token = { token: 'livekit-jwt-abc', used: false, createdAt: new Date() };
+      mockTokenRepo.create.mockReturnValue(token);
+      mockTokenRepo.save.mockResolvedValue(token);
+      mockProfileClientService.resolveDisplayName.mockResolvedValue(null);
+
+      const result = await service.join('room-uuid-1', 'eleve-1', UserRole.ELEVE);
+
+      expect(result.token).toBe('livekit-jwt-abc');
+      expect(mockLiveKitService.createAccessToken).toHaveBeenCalledWith(
+        'room-token-abc',
+        'eleve-1',
+        UserRole.ELEVE,
+        null,
       );
     });
 

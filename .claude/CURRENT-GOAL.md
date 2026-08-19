@@ -235,7 +235,7 @@ Ordre de livraison retenu, une branche par étape :
       - Composant `LinkedCalendarView` (point 2, déjà livré mais non monté) : c'est **ici** qu'il
         doit être intégré, dans le flux de proposition (voir le composant `ProposeCourseSlotDialog`
         déjà prévu dans le plan) — c'est ce qui débloquera enfin la preuve écran du point 2.
-- [ ] Point 4 — intégration LiveKit. **Démarré le 2026-08-19**, branche
+- [x] Point 4 — intégration LiveKit. **Démarré le 2026-08-19**, branche
       `feat/calendrier-visio-livekit` (poussée). Décision d'exposition réseau tranchée avec
       l'utilisateur avant de déléguer : LiveKit sur un **port dédié exposé directement sur la
       machine** (hors `nginx-global`, hors `visiomath_gateway`) — le SDK client LiveKit se
@@ -330,16 +330,34 @@ Ordre de livraison retenu, une branche par étape :
       sous-jacent fonctionne réellement ; c'est l'expérience utilisateur du bouton « Rejoindre »
       qui est cassée.
 
-      **Deux correctifs à dispatcher avant de pouvoir prouver le parcours réel (sans
-      contournement)** :
-      1. Front (`front-developper`) : `VideoRoomStatus` doit inclure `'waiting'`, et
-         `VideoJoinPage.tsx` doit afficher le bouton « Rejoindre » dans ce cas (au même titre que
-         `active`) — c'est le rôle même de ce bouton de déclencher la transition serveur.
-      2. Backend (`video-session-service`) : `AccessToken` doit porter un `name` (prénom+nom
-         résolu via `profile-service`, même mécanisme interne que le reste du projet), pas
-         seulement l'`identity` (UUID) — pour que les composants LiveKit affichent un nom, jamais
-         un UUID brut.
-- [ ] Preuve livrée à l'utilisateur pour chaque point
+      **Les deux correctifs sont livrés, mergés et déployés (2026-08-19).**
+      1. Front — commits `35f3a8d` (cherry-pické avec conflit résolu manuellement par
+         l'orchestrateur, `VideoJoinPage.tsx`/`VideoPage.tsx` avaient divergé) + `b19d511` (test
+         obsolète aligné sur l'appel vidéo intégré au lieu de l'ancien stub `window.open`).
+         `VideoRoomStatus` inclut désormais `'waiting'`, nouvel helper partagé
+         `isJoinableRoomStatus` (`apps/web/src/utils/video.ts`), utilisé par les deux pages qui
+         dupliquaient la logique de statut. Vérifié indépendamment par l'orchestrateur après
+         résolution du conflit : `tsc --noEmit` propre, 27/27 tests ciblés verts.
+      2. Backend — commit `0453f24`. `AccessToken` LiveKit porte désormais `name` (prénom+nom
+         résolu via `GET /internal/profiles/:userId/display-name`), `identity` reste l'UUID
+         technique interne (LiveKit en a besoin). Dégradation gracieuse totale si
+         `profile-service` est injoignable — jamais bloquant, jamais l'UUID en repli forcé. 90/90
+         tests unitaires vérifiés indépendamment par l'orchestrateur, build propre.
+
+      **Déployé sur la pile réelle** (`video-session-service` + `frontend` reconstruits, bundle
+      `index-DbzAZgzP.js`, gateway rechargée).
+
+      **Preuve finale, sans aucun contournement, rejouée deux fois (sous-agent puis
+      indépendamment par l'orchestrateur)** — commit `090f604`, test
+      `apps/web/e2e/proof-livekit-join-no-workaround.spec.ts` : le bouton « Rejoindre » apparaît
+      dès l'arrivée sur l'écran alors que la salle est encore `waiting` côté serveur (vérifié par
+      lecture juste avant le clic) ; après connexion réelle en `wss://` (certificat auto-signé,
+      `ignoreHTTPSErrors`, périphériques média factices), chaque tuile affiche un **nom lisible**
+      (« Morgane Recheckprof... », « Camille Recheck... ») — **aucun motif UUID** détecté dans le
+      texte visible, vérifié visuellement par l'orchestrateur sur les captures. Point mineur non
+      bloquant signalé par le sous-agent, non investigué : 2 erreurs console (`403`/`502`)
+      transitoires côté élève pendant la connexion, sans effet observé sur le déroulé.
+- [x] Preuve livrée à l'utilisateur pour chaque point
 - [ ] Validé par l'utilisateur
 
 ---

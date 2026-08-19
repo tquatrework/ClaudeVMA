@@ -1425,17 +1425,167 @@ traité côté `teacher-request-service`.
 
 Préfixe gateway canonique : `/api/v1/video-sessions` → contrôleur `/video-sessions` (alias legacy : `/api/v1/video` → `/video`)
 
+> **Chantier calendrier-visio-livekit, point 4 (2026-08-19) — LiveKit auto-hébergé.**
+> `VideoRoom` était jusqu'ici un simple stub (UUID généré localement, rien de réel
+> derrière). Il porte désormais une vraie salle LiveKit (`livekit-server-sdk`,
+> `RoomServiceClient`/`AccessToken`), et une nouvelle voie de création
+> **automatique** existe : à la confirmation d'un créneau de cours
+> (`ActivityConfirmed`, type `cours`), une salle est créée sans aucune action
+> manuelle. Voir `docs/architecture.md` pour l'arbitrage d'exposition réseau de
+> LiveKit (ports dédiés, hors `nginx-global` et hors `visiomath_gateway`) et le
+> rapport de session `.claude/reports/video-session-service-2026-08-19.md` pour
+> le détail complet (variables d'environnement, étapes manuelles de déploiement).
+>
+> **Suite directe, même jour — terminaison TLS.** Le front étant servi en HTTPS,
+> un navigateur refuse une connexion WebSocket non chiffrée (`ws://`) depuis une
+> page HTTPS (contenu mixte, bloqué en silence) : `LIVEKIT_PUBLIC_URL` doit donc
+> être en `wss://`. `livekit-server` ne sait terminer du TLS que pour son relais
+> TURN (`--turn-cert`/`--turn-key`), jamais pour son port de signalisation
+> principal (7880) — vérifié contre l'image réelle `livekit/livekit-server:1.13.5`.
+> Un nouveau conteneur dédié (`livekit-tls`, Caddy en reverse proxy TLS→HTTP
+> local) termine donc le TLS avec un **certificat auto-signé de test**, décision
+> assumée de l'utilisateur pour cette phase — voir
+> `infra/livekit-tls/certs/README.md` et le rapport de session
+> `.claude/reports/video-session-service-tls-2026-08-19.md`.
+
 ### Salles vidéo
 
 | Méthode | Chemin | Description | Auth | Rôles autorisés |
 |---|---|---|---|---|
-| POST | /video/rooms | Créer une salle vidéo | 🔒 | formateur, RP, AP, TI |
+| POST | /video/rooms | Créer une salle vidéo **réelle** (LiveKit) | 🔒 | formateur, RP, AP, TI |
 | GET | /video/rooms/:id | Info d'une salle | 🔒 | Tout utilisateur authentifié |
-| GET | /video/rooms/:id/join | Rejoindre la salle (générer un token d'accès) | 🔒 | élève, formateur, RP, AP, TI — parent_financeur refusé (VID-FB-001) |
+| GET | /video/rooms/by-activity/:activityId | Résoudre la salle créée automatiquement pour une activité confirmée | 🔒 | Tout utilisateur authentifié (même politique que `GET /video/rooms/:id`) |
+| GET | /video/rooms/:id/join | Rejoindre la salle (générer un token d'accès **LiveKit réel**) | 🔒 | élève, formateur, RP, AP, TI — parent_financeur refusé (VID-FB-001) |
 | POST | /video/rooms/:id/attendance | Enregistrer la présence | 🔒 | élève, formateur, RP, AP, TI — parent_financeur refusé |
 | POST | /video/rooms/:id/close | Clôturer la session | 🔒 | formateur, RP, AP, TI |
 
+**`POST /video/rooms` — contenu inchangé côté contrat (`{calendarSessionId}` requis,
+mêmes rôles), comportement changé.** Crée désormais une vraie salle LiveKit via
+`RoomServiceClient.createRoom()` — `roomToken` porte le **nom réel** de la salle
+LiveKit (avant : UUID local sans rien derrière). `503` si LiveKit est
+injoignable (échec fermé, la ligne `VideoRoom` locale n'est jamais créée orpheline).
+
+**`GET /video/rooms/:id/join` — changement de contrat (2026-08-19), à
+répercuter côté front dans une tâche séparée.** Réponse **remplacée** :
+
+- **Avant** (stub) : `200 {accessToken, roomToken, status}` — `accessToken` un
+  UUID local sans signification, `joinUrl` sous-entendu par le front
+  (`window.open(joinUrl)` dans `VideoJoinPage.tsx`).
+- **Maintenant** : `200 {token, url}` — `token` est un vrai JWT LiveKit
+  (`AccessToken` du SDK, identité = `userId` de l'appelant, `metadata` porte le
+  rôle, grant `{roomJoin: true, room: <nom réel de la salle>}`) ; `url` est
+  `LIVEKIT_PUBLIC_URL`, l'adresse que le **SDK client LiveKit** (navigateur)
+  doit joindre **directement** — jamais via `api-gateway`, qui ne relaie pas le
+  trafic WebRTC. Le front doit intégrer un composant vidéo (`token` + `url`)
+  au lieu d'ouvrir un nouvel onglet — hors périmètre de cette session,
+  volontairement laissé à la tâche front suivante.
+- `400`/`401`/`403`/`404` inchangés. La transition `WAITING → ACTIVE` au premier
+  join est inchangée ; elle ne se lit plus dans la réponse de `join` (qui ne
+  porte plus `status`) mais via `GET /video/rooms/:id`.
+
+> **Correctif 2026-08-19, même jour — UUID affiché sur les tuiles de
+> participants.** Bug réel trouvé par un test Playwright contre la pile
+> réelle (`.claude/reports/livekit-join-2026-08-19/livekit-06-teacher-sees-other-participant.png`),
+> violation de « aucun UUID ne doit être lu ni affiché par un utilisateur »
+> (docs/architecture.md, arbitrage 2026-08-09). `AccessToken` n'était construit
+> qu'avec `identity` (le `userId` brut) ; `@livekit/components-react` affiche
+> `name` s'il est renseigné, et retombe sur `identity` sinon — d'où l'UUID en
+> clair sur les tuiles. **`{token, url}` ne change pas de forme**, seul le
+> contenu du JWT change :
+>
+> - `identity` reste le `userId` brut (LiveKit en a besoin pour distinguer les
+>   participants) — donnée technique interne, jamais affichée directement par
+>   le SDK tant que `name` est renseigné.
+> - `name` porte désormais le prénom + nom de l'appelant, résolu auprès de
+>   `profile-service` via la route interne déjà existante
+>   `GET /internal/profiles/:userId/display-name` (arbitrage 2026-08-12,
+>   « Resolution des noms entre services » — contrat figé à `firstName`/
+>   `lastName`, réutilisé tel quel, aucune nouvelle route ajoutée côté
+>   `profile-service`).
+> - **Dégradation gracieuse, jamais bloquante** : si `profile-service` est
+>   injoignable, en timeout (3 s) ou renvoie une erreur, `resolveDisplayName`
+>   retourne `null` et **aucun `name` n'est envoyé** à `AccessToken` — jamais
+>   l'UUID en repli. Le SDK retombe alors sur `identity` côté affichage
+>   (limite documentée du cas de panne, pas une régression du correctif). Même
+>   politique que `creatorName` côté `calendar-service`.
+> - Nouveau composant `ProfileClientService` (`src/profile/`), appelé par
+>   `VideoSessionService.join()` juste avant `LiveKitService.createAccessToken`,
+>   qui accepte désormais un 4ᵉ paramètre optionnel `name`. Nouvelle variable
+>   d'environnement `PROFILE_SERVICE_URL` (`http://profile-service:3002`),
+>   même convention que `archive-document-service`/`dashboard-notification-service`
+>   (`X-Internal-Secret`, pas de `x-correlation-id` propagé pour l'instant —
+>   aucun mécanisme de corrélation n'existait encore dans ce contrôleur,
+>   hors périmètre de ce correctif ciblé).
+
+**`GET /video/rooms/by-activity/:activityId`** (nouvelle route, 2026-08-19) —
+permet au front de retrouver la salle liée à une activité de calendrier dont il
+ne connaît que l'`activityId` (il n'a jamais l'id de la salle, créée côté
+serveur sans action de l'utilisateur). `200` avec les mêmes champs que
+`GET /video/rooms/:id` si une salle existe déjà pour cette activité · `404` si
+l'activité n'a pas encore de salle (pas encore confirmée, pas de type `cours`,
+ou événement pas encore consommé — voir « Événements consommés » ci-dessous).
+
+**`VideoRoom` porte désormais deux champs distincts pour référencer une
+activité externe, volontairement non fusionnés** (règle du projet : deux
+données distinctes gardent chacune leur nom) :
+
+| Champ | Nullable | Rempli par | Référence |
+|---|---|---|---|
+| `calendarSessionId` | Oui (depuis 2026-08-19) | `POST /video/rooms` (création manuelle) | **Aucune vérification d'entité** — UUID libre fourni par l'appelant, comme depuis toujours. N'a jamais été une vraie clé étrangère vers un `CalendarEvent`, malgré son nom |
+| `activityId` | Oui, **unique** | Création automatique (`ActivityConfirmed`, voir ci-dessous) | `ScheduledActivity.id` de `calendar-service` (ressource « activities », chantier calendrier de disponibilités point 3) |
+
+Un `VideoRoom` créé manuellement n'a jamais d'`activityId` ; un `VideoRoom` créé
+automatiquement n'a jamais de `calendarSessionId`.
+
+### Événements consommés — création automatique de salle (2026-08-19)
+
+`video-session-service` s'abonne au flux Redis `visiomath:events` déjà utilisé
+par `dashboard-notification-service` (même mécanisme générique outbox + `XADD`,
+arbitrage du 2026-08-14), sous son propre groupe de consommateurs
+`video-session-service`, avec déduplication par `eventId` (table
+`processed_events`, un `eventId` déjà traité est ignoré sans effet de bord).
+
+**Constat vérifié directement contre le flux Redis réel le 2026-08-19 (pas
+supposé depuis la documentation) : `ActivityConfirmed` ne porte que
+`{activityId, confirmedBy}`** — ni `type`, ni `participantIds`. Décider de créer
+une salle pour un `cours` exige donc de connaître le `type` de l'activité, que
+seul `ActivityScheduled` porte (`{type, creatorId, startTime, activityId,
+recipientId, participantIds}`, également vérifié en direct). `calendar-service`
+n'expose aujourd'hui **aucune route interne** pour relire une activité par id
+après coup — ce n'est donc pas un choix mais une contrainte réelle.
+
+**Solution retenue** : `video-session-service` projette `ActivityScheduled`
+dans une table locale `activity_projections` (clé `activityId`), et la relit
+quand `ActivityConfirmed` arrive pour ce même `activityId` :
+
+- Projection introuvable (l'`ActivityScheduled` correspondant n'a jamais été
+  observé) → aucune salle créée, avertissement journalisé. Limite documentée,
+  pas un oubli.
+- `type !== "cours"` → aucune salle créée (hors périmètre de ce chantier —
+  `reunion_pedagogique`, `entretien_rp`, `rappel`, `autre` ne déclenchent rien).
+- `type === "cours"` → `VideoRoom` créé automatiquement (vraie salle LiveKit,
+  `activityId` renseigné, `calendarSessionId` laissé `null`), **idempotent par
+  `activityId`** (colonne unique) : un `ActivityConfirmed` rejoué ne crée jamais
+  une seconde salle ni un second appel LiveKit.
+
+Le groupe de consommateurs démarre à l'ID `0` (relit tout l'historique du
+flux), même choix que celui observé sur le groupe réel de
+`dashboard-notification-service` (`entries-read` égal à la longueur totale du
+flux). Sans `REDIS_URL` configurée, la création automatique de salle est
+simplement **désactivée** (repli explicite, journalisé), la création manuelle
+(`POST /video/rooms`) continue de fonctionner normalement.
+
 ### Enregistrements
+
+> **Gap réel comblé le 2026-08-19, à l'occasion de ce chantier.** Les entités
+> (`VideoRecording`, `RecordingComment`, `CourseSummary`), leurs DTO et leurs
+> tests étaient déjà en place, mais **jamais enregistrés dans `AppModule`** ni
+> **jamais câblés dans le contrôleur/service** — `synchronize` ne créait donc
+> même pas les tables en développement, et `npm test` échouait à la compilation
+> avant tout changement de cette session. Contrat inchangé par rapport à cette
+> documentation (déjà correcte) ; c'est l'implémentation qui manquait, pas le
+> contrat. Nouvelle migration `1787140000000-...` créant ces trois tables (elles
+> n'existaient nulle part, pas même en base de dev).
 
 | Méthode | Chemin | Description | Auth | Rôles autorisés |
 |---|---|---|---|---|
@@ -1468,13 +1618,85 @@ Réponse : `201 {id, roomId, authorId, content, isPermanent: true, publishedAt, 
 
 `VideoRoomCreated` · `VideoSessionStarted` · `VideoSessionEnded` · `AttendanceRecorded` · `VideoRecordingAvailable` · `CourseSummaryPublished`
 
+Toujours journalisés en stdout uniquement (`EventsService.publishEvent`, stub
+inchangé par ce chantier) — **pas** encore le mécanisme outbox + flux Redis
+adopté par `calendar-service`/`teacher-request-service`. Ce service est
+aujourd'hui **consommateur** du flux `visiomath:events` (voir ci-dessus),
+jamais encore producteur dessus ; devenir producteur sur le même flux reste un
+point ouvert, hors périmètre de ce chantier.
+
 ### Critères d'acceptation
 
 - Un parent financeur ne peut pas ouvrir une visio ni accéder aux enregistrements (VID-FB-001)
 - La vidéo est téléchargeable pendant 30 jours puis expire (VID-AC-001)
 - Le résumé de cours reste dans les archives pédagogiques après expiration vidéo (`isPermanent: true`) (VID-AC-002)
+- Le créneau de cours accepté ouvre automatiquement une salle LiveKit réelle, sans action manuelle (chantier calendrier-visio-livekit, point 4, 2026-08-19)
 
-API interne (non exposée via nginx) : `GET /internal/video/*` — protégée par `X-Internal-Secret`.
+API interne (non exposée via nginx) : `GET /internal/video/*` — protégée par `X-Internal-Secret`. Inchangée par ce chantier (crée toujours une salle réelle via le même chemin que `POST /video/rooms`, avec les mêmes rôles/comportement LiveKit).
+
+### Configuration LiveKit (variables d'environnement)
+
+| Variable | Rôle |
+|---|---|
+| `LIVEKIT_API_URL` | Appel serveur-à-serveur (`RoomServiceClient`, `AccessToken`) — interne au réseau Docker, ex. `http://livekit:7880` |
+| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | Paire de clés API LiveKit. **Le secret doit faire au moins 32 caractères** (vérifié le 2026-08-19 contre une vraie instance LiveKit 1.13.5 : en dessous, `secret is too short` côté serveur et `401 invalid token, signature is invalid` côté client) |
+| `LIVEKIT_PUBLIC_URL` | URL que le **SDK client LiveKit (navigateur)** joint en direct — jamais via `api-gateway`. Renvoyée telle quelle par `GET /video/rooms/:id/join`. **Doit être `wss://` depuis le 2026-08-19** (voir ci-dessous) |
+| `REDIS_URL` | Flux `visiomath:events` — optionnelle côté code (repli explicite si absente), nécessaire pour la création automatique de salle |
+| `PROFILE_SERVICE_URL` | **Nouvelle, correctif 2026-08-19.** Résolution du prénom/nom de l'appelant avant de générer le token LiveKit (`name`, voir encadré ci-dessus). Optionnelle côté code — repli explicite (`name` omis) si absente ou si `profile-service` est injoignable, jamais bloquante |
+
+**Dépendance sortante (correctif 2026-08-19) :** `GET /video/rooms/:id/join` appelle
+`GET /internal/profiles/:userId/display-name` de `profile-service` (variable
+`PROFILE_SERVICE_URL`, en-tête `X-Internal-Secret`, délai 3 s) à **chaque join**.
+Contrairement à `archive-document-service` (qui répond `503` si l'appel échoue),
+ce service **n'échoue jamais** sur cette dépendance : un timeout ou une erreur
+retombe sur `name` omis du token, jamais sur un blocage du join ni sur le
+`userId` brut envoyé comme nom.
+
+Détail complet (ports à ouvrir, IP publique à renseigner, secrets à changer en
+production) : `.claude/reports/video-session-service-2026-08-19.md`.
+
+### TLS pour le port LiveKit (2026-08-19)
+
+Un navigateur ouvert depuis `https://claudevma.visioprof.fr` refuse une
+connexion WebSocket non chiffrée (`ws://`) — contenu mixte, bloqué en silence
+côté client, sans erreur exploitable. `LIVEKIT_PUBLIC_URL` doit donc être en
+`wss://`, ce qui exige un certificat TLS sur le port LiveKit (7880), en dehors
+de `nginx-global` (hors dépôt, ne gère que le domaine principal) et de
+`visiomath_gateway` (le SDK client LiveKit se connecte en direct, jamais via
+l'API HTTP classique).
+
+**`livekit-server` ne termine pas nativement le TLS sur son port de
+signalisation/API principal** — vérifié le 2026-08-19 contre l'image réelle
+`livekit/livekit-server:1.13.5` (`help-verbose` ne liste `tls_cert_file`/
+`tls_key_file` que sous `turn.*`, réservé au relais TURN). Un nouveau conteneur
+dédié à LiveKit **uniquement** — `livekit-tls`, image `caddy:2-alpine`, simple
+reverse proxy TLS → HTTP local vers `livekit:7880` — termine donc le TLS.
+C'est désormais lui, et lui seul, qui publie le port `7880` sur l'hôte ; le
+conteneur `livekit` ne publie plus que `7881` (repli TCP) et la plage UDP media
+(déjà chiffrés au niveau média, non concernés par le blocage « contenu mixte »
+qui ne vise que les WebSocket).
+
+**Certificat auto-signé, explicitement pour une phase de test** (décision
+utilisateur du 2026-08-19) : `infra/livekit-tls/certs/` — SAN IP
+`193.108.54.226`, sans quoi les navigateurs modernes rejettent le certificat
+même après acceptation manuelle. Justification complète du choix de committer
+la clé privée avec le certificat (acceptable ici, jamais pour un vrai secret) :
+`infra/livekit-tls/certs/README.md`.
+
+⚠️ **Étape manuelle obligatoire côté navigateur, à faire par l'utilisateur** :
+ouvrir une fois `https://193.108.54.226:7880/` directement dans le navigateur
+et accepter l'avertissement de sécurité du certificat auto-signé, **avant** de
+tenter de rejoindre une visio depuis l'application. Sans cette étape, la
+connexion WebSocket échoue **en silence** côté client (le navigateur bloque la
+connexion `wss://` vers un certificat jamais accepté) alors que tout fonctionne
+côté serveur — piège d'expérience utilisateur réel pour cette phase de test,
+détaillé dans `.claude/reports/video-session-service-tls-2026-08-19.md`.
+
+Preuve de bout en bout (pas seulement que le conteneur démarre) : script Node
+utilisant `livekit-server-sdk` + `ws`, connexion `wss://` réelle à travers le
+proxy Caddy avec un token LiveKit valide, handshake HTTP `101`, `WebSocket`
+`OPEN`, premier message protobuf du serveur reçu — voir le rapport de session
+pour la sortie complète.
 
 ---
 

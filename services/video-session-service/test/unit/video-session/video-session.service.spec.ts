@@ -9,6 +9,8 @@ import { VideoRecording } from '../../../src/video-session/entities/video-record
 import { RecordingComment } from '../../../src/video-session/entities/recording-comment.entity';
 import { CourseSummary } from '../../../src/video-session/entities/course-summary.entity';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
+import { LiveKitService } from '../../../src/livekit/livekit.service';
+import { ProfileClientService } from '../../../src/profile/profile-client.service';
 
 // ─── Repository mocks ─────────────────────────────────────────────────────────
 
@@ -46,12 +48,23 @@ const mockSummaryRepo = {
   save: jest.fn(),
 };
 
+const mockLiveKitService = {
+  createRoom: jest.fn(),
+  createAccessToken: jest.fn(),
+  getPublicUrl: jest.fn(),
+};
+
+const mockProfileClientService = {
+  resolveDisplayName: jest.fn(),
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function buildRoom(overrides: Partial<VideoRoom> = {}): VideoRoom {
   return {
     id: 'room-uuid-1',
     calendarSessionId: 'cal-uuid-1',
+    activityId: null,
     roomToken: 'room-token-abc',
     status: RoomStatus.WAITING,
     startedAt: null as unknown as Date,
@@ -92,10 +105,17 @@ describe('VideoSessionService', () => {
         { provide: getRepositoryToken(VideoRecording), useValue: mockRecordingRepo },
         { provide: getRepositoryToken(RecordingComment), useValue: mockCommentRepo },
         { provide: getRepositoryToken(CourseSummary), useValue: mockSummaryRepo },
+        { provide: LiveKitService, useValue: mockLiveKitService },
+        { provide: ProfileClientService, useValue: mockProfileClientService },
       ],
     }).compile();
 
     service = module.get<VideoSessionService>(VideoSessionService);
+
+    mockLiveKitService.createRoom.mockResolvedValue(undefined);
+    mockLiveKitService.createAccessToken.mockResolvedValue('livekit-jwt-abc');
+    mockLiveKitService.getPublicUrl.mockReturnValue('https://livekit.example.com');
+    mockProfileClientService.resolveDisplayName.mockResolvedValue(null);
   });
 
   // ── create ────────────────────────────────────────────────────────────────
@@ -137,6 +157,73 @@ describe('VideoSessionService', () => {
         service.create({ calendarSessionId: 'cal-uuid-1' }, 'parent-1', UserRole.PARENT_FINANCEUR),
       ).rejects.toThrow(ForbiddenException);
     });
+
+    it('creates a real LiveKit room via LiveKitService.createRoom', async () => {
+      const room = buildRoom();
+      mockRoomRepo.create.mockReturnValue(room);
+      mockRoomRepo.save.mockResolvedValue(room);
+
+      await service.create({ calendarSessionId: 'cal-uuid-1' }, 'user-1', UserRole.FORMATEUR);
+
+      expect(mockLiveKitService.createRoom).toHaveBeenCalledTimes(1);
+    });
+
+    it('propagates ServiceUnavailableException when LiveKit is unreachable', async () => {
+      mockLiveKitService.createRoom.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+
+      await expect(
+        service.create({ calendarSessionId: 'cal-uuid-1' }, 'user-1', UserRole.FORMATEUR),
+      ).rejects.toThrow();
+      expect(mockRoomRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── createForActivity — chantier calendrier-visio-livekit, point 4 ─────────
+
+  describe('createForActivity()', () => {
+    it('creates a room linked to activityId when none exists yet', async () => {
+      mockRoomRepo.findOne.mockResolvedValueOnce(null);
+      const room = buildRoom({ activityId: 'activity-uuid-1', calendarSessionId: null });
+      mockRoomRepo.create.mockReturnValue(room);
+      mockRoomRepo.save.mockResolvedValue(room);
+
+      const result = await service.createForActivity('activity-uuid-1');
+
+      expect(mockLiveKitService.createRoom).toHaveBeenCalledTimes(1);
+      expect(mockRoomRepo.save).toHaveBeenCalledTimes(1);
+      expect(result.activityId).toBe('activity-uuid-1');
+    });
+
+    it('is idempotent: returns the existing room without creating a new LiveKit room', async () => {
+      const existing = buildRoom({ activityId: 'activity-uuid-1', calendarSessionId: null });
+      mockRoomRepo.findOne.mockResolvedValueOnce(existing);
+
+      const result = await service.createForActivity('activity-uuid-1');
+
+      expect(mockLiveKitService.createRoom).not.toHaveBeenCalled();
+      expect(mockRoomRepo.save).not.toHaveBeenCalled();
+      expect(result).toBe(existing);
+    });
+  });
+
+  // ── findByActivityId ────────────────────────────────────────────────────────
+
+  describe('findByActivityId()', () => {
+    it('returns the room when it exists', async () => {
+      const room = buildRoom({ activityId: 'activity-uuid-1' });
+      mockRoomRepo.findOne.mockResolvedValue(room);
+
+      const result = await service.findByActivityId('activity-uuid-1');
+      expect(result.activityId).toBe('activity-uuid-1');
+    });
+
+    it('throws NotFoundException when no room exists for this activity', async () => {
+      mockRoomRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.findByActivityId('activity-uuid-unknown')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
   });
 
   // ── join — VID-BR-005 ────────────────────────────────────────────────────
@@ -148,7 +235,7 @@ describe('VideoSessionService', () => {
       mockRoomRepo.save.mockResolvedValue({ ...room, status: RoomStatus.ACTIVE, startedAt: new Date() });
     });
 
-    it('generates a token for an eleve', async () => {
+    it('generates a real LiveKit token + url for an eleve', async () => {
       const token = {
         id: 'token-uuid',
         roomId: 'room-uuid-1',
@@ -161,19 +248,65 @@ describe('VideoSessionService', () => {
       };
       mockTokenRepo.create.mockReturnValue(token);
       mockTokenRepo.save.mockResolvedValue(token);
+      mockLiveKitService.createAccessToken.mockResolvedValue('access-token-abc');
+      mockLiveKitService.getPublicUrl.mockReturnValue('https://livekit.example.com');
 
       const result = await service.join('room-uuid-1', 'eleve-1', UserRole.ELEVE);
-      expect(result.accessToken).toBe('access-token-abc');
-      expect(result.roomToken).toBe('room-token-abc');
+      expect(result.token).toBe('access-token-abc');
+      expect(result.url).toBe('https://livekit.example.com');
+      expect(mockLiveKitService.createAccessToken).toHaveBeenCalledWith(
+        'room-token-abc',
+        'eleve-1',
+        UserRole.ELEVE,
+        null,
+      );
     });
 
-    it('generates a token for a formateur', async () => {
+    // ── Bug fix 2026-08-19: resolve a real display name before building the
+    // LiveKit token, never let the raw userId leak as a name ─────────────────
+
+    it('resolves the caller display name and passes it to LiveKitService', async () => {
+      const token = { token: 'access-token-abc', used: false, createdAt: new Date() };
+      mockTokenRepo.create.mockReturnValue(token);
+      mockTokenRepo.save.mockResolvedValue(token);
+      mockProfileClientService.resolveDisplayName.mockResolvedValue('Camille Durand');
+
+      await service.join('room-uuid-1', 'eleve-1', UserRole.ELEVE);
+
+      expect(mockProfileClientService.resolveDisplayName).toHaveBeenCalledWith('eleve-1');
+      expect(mockLiveKitService.createAccessToken).toHaveBeenCalledWith(
+        'room-token-abc',
+        'eleve-1',
+        UserRole.ELEVE,
+        'Camille Durand',
+      );
+    });
+
+    it('still generates a working token when profile-service is unreachable (graceful degradation)', async () => {
+      const token = { token: 'livekit-jwt-abc', used: false, createdAt: new Date() };
+      mockTokenRepo.create.mockReturnValue(token);
+      mockTokenRepo.save.mockResolvedValue(token);
+      mockProfileClientService.resolveDisplayName.mockResolvedValue(null);
+
+      const result = await service.join('room-uuid-1', 'eleve-1', UserRole.ELEVE);
+
+      expect(result.token).toBe('livekit-jwt-abc');
+      expect(mockLiveKitService.createAccessToken).toHaveBeenCalledWith(
+        'room-token-abc',
+        'eleve-1',
+        UserRole.ELEVE,
+        null,
+      );
+    });
+
+    it('generates a real LiveKit token for a formateur', async () => {
       const token = { token: 'access-token-xyz', used: false, createdAt: new Date() };
       mockTokenRepo.create.mockReturnValue(token);
       mockTokenRepo.save.mockResolvedValue(token);
+      mockLiveKitService.createAccessToken.mockResolvedValue('access-token-xyz');
 
       const result = await service.join('room-uuid-1', 'formateur-1', UserRole.FORMATEUR);
-      expect(result.accessToken).toBe('access-token-xyz');
+      expect(result.token).toBe('access-token-xyz');
     });
 
     it('throws ForbiddenException for parent_financeur — VID-FB-001', async () => {

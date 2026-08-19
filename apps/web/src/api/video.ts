@@ -39,10 +39,22 @@ export async function fetchRoomInfo(roomId: string): Promise<VideoRoomInfo> {
 }
 
 /**
- * GET /video/rooms/:id/join — Rejoindre la salle (génère un token d'accès)
+ * GET /video/rooms/:id/join — Rejoindre la salle (génère un token LiveKit réel + l'URL du
+ * serveur à joindre en direct, voir docs/routes.md > video-session-service, contrat du
+ * 2026-08-19).
  */
 export async function joinRoom(roomId: string): Promise<JoinRoomResult> {
   const { data } = await apiClient.get<JoinRoomResult>(`/video/rooms/${roomId}/join`)
+  return data
+}
+
+/**
+ * GET /video/rooms/by-activity/:activityId — Résoudre la salle créée automatiquement pour une
+ * activité de calendrier confirmée (`type: "cours"`). `404` si aucune salle n'existe encore pour
+ * cette activité (cas normal, voir docs/routes.md).
+ */
+export async function fetchRoomByActivity(activityId: string): Promise<VideoRoomInfo> {
+  const { data } = await apiClient.get<VideoRoomInfo>(`/video/rooms/by-activity/${activityId}`)
   return data
 }
 

@@ -11,9 +11,17 @@ import { v4 as uuidv4 } from 'uuid';
 import { VideoRoom, RoomStatus } from './entities/video-room.entity';
 import { VideoAccessToken } from './entities/video-access-token.entity';
 import { AttendanceRecord } from './entities/attendance-record.entity';
+import { VideoRecording } from './entities/video-recording.entity';
+import { RecordingComment } from './entities/recording-comment.entity';
+import { CourseSummary } from './entities/course-summary.entity';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { RecordAttendanceDto } from './dto/record-attendance.dto';
+import { DeclareRecordingDto } from './dto/declare-recording.dto';
+import { AddCommentDto } from './dto/add-comment.dto';
+import { PublishSummaryDto } from './dto/publish-summary.dto';
 import { UserRole } from '../common/enums/user-role.enum';
+import { LiveKitService } from '../livekit/livekit.service';
+import { ProfileClientService } from '../profile/profile-client.service';
 
 /** Roles that are authorised to join a video room (VID-RA-001, VID-RA-002, VID-FB-001). */
 const ALLOWED_PARTICIPANT_ROLES: string[] = [
@@ -24,8 +32,26 @@ const ALLOWED_PARTICIPANT_ROLES: string[] = [
   UserRole.TECHNICIEN_INFORMATIQUE,
 ];
 
+/** Roles that are authorised to create/close a room, declare a recording (VID-RA-002/003, VID-AC-001). */
+const ROOM_MANAGEMENT_ROLES: string[] = [
+  UserRole.FORMATEUR,
+  UserRole.RESPONSABLE_PEDAGOGIQUE,
+  UserRole.ANIMATEUR_PEDAGOGIQUE,
+  UserRole.TECHNICIEN_INFORMATIQUE,
+];
+
+/** Roles that are authorised to publish a course summary (VID-AC-002 — TI excluded on purpose). */
+const SUMMARY_AUTHOR_ROLES: string[] = [
+  UserRole.FORMATEUR,
+  UserRole.RESPONSABLE_PEDAGOGIQUE,
+  UserRole.ANIMATEUR_PEDAGOGIQUE,
+];
+
 /** How long a generated access token remains valid (in minutes). */
 const TOKEN_TTL_MINUTES = 60;
+
+/** How long a declared recording stays downloadable (VID-AC-001). */
+const RECORDING_TTL_DAYS = 30;
 
 @Injectable()
 export class VideoSessionService {
@@ -38,6 +64,14 @@ export class VideoSessionService {
     private readonly tokenRepo: Repository<VideoAccessToken>,
     @InjectRepository(AttendanceRecord)
     private readonly attendanceRepo: Repository<AttendanceRecord>,
+    @InjectRepository(VideoRecording)
+    private readonly recordingRepo: Repository<VideoRecording>,
+    @InjectRepository(RecordingComment)
+    private readonly commentRepo: Repository<RecordingComment>,
+    @InjectRepository(CourseSummary)
+    private readonly summaryRepo: Repository<CourseSummary>,
+    private readonly liveKit: LiveKitService,
+    private readonly profileClient: ProfileClientService,
   ) {}
 
   // ─── Room lifecycle ──────────────────────────────────────────────────────────
@@ -47,22 +81,24 @@ export class VideoSessionService {
    * VID-FB-003: calendarSessionId is mandatory.
    * VID-BR-004: room is created in WAITING state until first participant joins.
    *
+   * Creates a real LiveKit room (chantier calendrier-visio-livekit, point 4,
+   * 2026-08-19) — this used to generate a local UUID with nothing behind it.
+   *
    * Publishes: VideoRoomCreated (logged to stdout for now; event bus integration is phase 2).
    */
   async create(dto: CreateRoomDto, creatorId: string, creatorRole: string): Promise<VideoRoom> {
     // Only formateur, RP, AP and TI may create rooms
-    if (
-      creatorRole !== UserRole.FORMATEUR &&
-      creatorRole !== UserRole.RESPONSABLE_PEDAGOGIQUE &&
-      creatorRole !== UserRole.ANIMATEUR_PEDAGOGIQUE &&
-      creatorRole !== UserRole.TECHNICIEN_INFORMATIQUE
-    ) {
+    if (!ROOM_MANAGEMENT_ROLES.includes(creatorRole)) {
       throw new ForbiddenException('Only a formateur or pedagogical staff can create a room');
     }
 
+    const roomToken = uuidv4();
+    await this.liveKit.createRoom(roomToken);
+
     const room = this.roomRepo.create({
       calendarSessionId: dto.calendarSessionId,
-      roomToken: uuidv4(),
+      activityId: null,
+      roomToken,
       status: RoomStatus.WAITING,
     });
     const saved = await this.roomRepo.save(room);
@@ -71,6 +107,43 @@ export class VideoSessionService {
       roomId: saved.id,
       calendarSessionId: saved.calendarSessionId,
       createdBy: creatorId,
+      createdAt: saved.createdAt,
+    });
+
+    return saved;
+  }
+
+  /**
+   * Create a real LiveKit room automatically for a confirmed `cours` activity
+   * (chantier calendrier-visio-livekit, point 4, 2026-08-19). Called by the
+   * Redis stream consumer when it receives `ActivityConfirmed` for an activity
+   * previously projected as `type: "cours"` from `ActivityScheduled`.
+   *
+   * Idempotent by `activityId` (unique column): a rejoined event for an
+   * activity that already has a room returns the existing room untouched
+   * rather than creating a second one or calling LiveKit again.
+   */
+  async createForActivity(activityId: string): Promise<VideoRoom> {
+    const existing = await this.roomRepo.findOne({ where: { activityId } });
+    if (existing) {
+      return existing;
+    }
+
+    const roomToken = uuidv4();
+    await this.liveKit.createRoom(roomToken);
+
+    const room = this.roomRepo.create({
+      calendarSessionId: null,
+      activityId,
+      roomToken,
+      status: RoomStatus.WAITING,
+    });
+    const saved = await this.roomRepo.save(room);
+
+    this.publishEvent('VideoRoomCreated', {
+      roomId: saved.id,
+      activityId: saved.activityId,
+      createdBy: 'calendar-service:ActivityConfirmed',
       createdAt: saved.createdAt,
     });
 
@@ -87,10 +160,37 @@ export class VideoSessionService {
   }
 
   /**
-   * Generate an access token allowing an authorised participant to join.
+   * Retrieve room details by the calendar activity it was created for
+   * (`GET /video/rooms/by-activity/:activityId`, chantier calendrier-visio-livekit,
+   * point 4). `404` when the activity has no room yet — not confirmed, not a
+   * "cours", or the calendar-service event has not been consumed yet.
+   */
+  async findByActivityId(activityId: string): Promise<VideoRoom> {
+    const room = await this.roomRepo.findOne({ where: { activityId } });
+    if (!room) throw new NotFoundException(`No video room for activity ${activityId}`);
+    return room;
+  }
+
+  /**
+   * Generate a real LiveKit access token allowing an authorised participant to join.
    * VID-BR-005: tokens are created only for allowed roles.
    * VID-FB-001: parent_financeur is explicitly blocked.
    * VID-FB-002: the token is scoped to the requesting user.
+   *
+   * Contract change (chantier calendrier-visio-livekit, point 4, 2026-08-19):
+   * returns `{token, url}` for the LiveKit client SDK, replacing the previous
+   * `{accessToken, roomToken, status}` shape built around a fictitious provider.
+   * See docs/routes.md, video-session-service section, for the full note.
+   *
+   * Bug fix (2026-08-19, `.claude/reports/video-session-service-fix-participant-name-2026-08-19.md`):
+   * the LiveKit `AccessToken` used to carry only `identity` (the raw `userId`),
+   * so `@livekit/components-react` displayed the UUID on participant tiles when
+   * no `name` was set — a violation of "no UUID shown to a user"
+   * (docs/architecture.md, arbitrage 2026-08-09). The caller's display name is
+   * now resolved from `profile-service` (best-effort, see `ProfileClientService`)
+   * and passed as `name` to the token. If resolution fails, `name` is simply
+   * omitted — the join is never blocked by this enrichment, and the raw userId
+   * is never used as a name.
    *
    * Publishes: VideoSessionStarted when the room transitions from WAITING → ACTIVE.
    */
@@ -98,7 +198,7 @@ export class VideoSessionService {
     id: string,
     userId: string,
     userRole: string,
-  ): Promise<{ accessToken: string; roomToken: string; status: RoomStatus }> {
+  ): Promise<{ token: string; url: string }> {
     // VID-FB-001 / VID-RA-003
     if (!ALLOWED_PARTICIPANT_ROLES.includes(userRole)) {
       throw new ForbiddenException('Your role does not grant access to this video room');
@@ -119,27 +219,38 @@ export class VideoSessionService {
       this.publishEvent('VideoSessionStarted', {
         roomId: room.id,
         calendarSessionId: room.calendarSessionId,
+        activityId: room.activityId,
         startedAt: room.startedAt,
         startedBy: userId,
       });
     }
 
-    // Generate a scoped access token valid for TOKEN_TTL_MINUTES
+    // Best-effort: a profile-service outage never blocks joining the room, it
+    // only means the LiveKit tile shows the identity instead of a real name.
+    const displayName = await this.profileClient.resolveDisplayName(userId);
+    const token = await this.liveKit.createAccessToken(
+      room.roomToken,
+      userId,
+      userRole,
+      displayName,
+    );
+
+    // Audit trail of who requested a join token and when (kept for VID-BR-005
+    // traceability; the value stored is the real LiveKit JWT, short-lived).
     const expiresAt = new Date(Date.now() + TOKEN_TTL_MINUTES * 60 * 1000);
-    const accessToken = this.tokenRepo.create({
+    const accessTokenRecord = this.tokenRepo.create({
       roomId: room.id,
       userId,
       userRole,
-      token: uuidv4(),
+      token,
       expiresAt,
       used: false,
     });
-    const savedToken = await this.tokenRepo.save(accessToken);
+    await this.tokenRepo.save(accessTokenRecord);
 
     return {
-      accessToken: savedToken.token,
-      roomToken: room.roomToken,
-      status: room.status,
+      token,
+      url: this.liveKit.getPublicUrl(),
     };
   }
 
@@ -193,12 +304,7 @@ export class VideoSessionService {
    */
   async end(id: string, callerId: string, callerRole: string): Promise<VideoRoom> {
     // Only formateur, RP, AP, TI may close a room
-    if (
-      callerRole !== UserRole.FORMATEUR &&
-      callerRole !== UserRole.RESPONSABLE_PEDAGOGIQUE &&
-      callerRole !== UserRole.ANIMATEUR_PEDAGOGIQUE &&
-      callerRole !== UserRole.TECHNICIEN_INFORMATIQUE
-    ) {
+    if (!ROOM_MANAGEMENT_ROLES.includes(callerRole)) {
       throw new ForbiddenException('Only a formateur or pedagogical staff can close a room');
     }
 
@@ -227,6 +333,135 @@ export class VideoSessionService {
         joinedAt: attendanceRecord.joinedAt,
         leftAt: attendanceRecord.leftAt,
       })),
+    });
+
+    return saved;
+  }
+
+  // ─── Recordings (VID-AC-001) ───────────────────────────────────────────────
+
+  /**
+   * Declare that a recording is available for an ended room. Expires after
+   * RECORDING_TTL_DAYS (VID-AC-001). formateur, RP, AP, TI only — parent_financeur
+   * and eleve refused.
+   *
+   * Publishes: VideoRecordingAvailable.
+   */
+  async declareRecording(
+    roomId: string,
+    dto: DeclareRecordingDto,
+    declaredBy: string,
+    declaredByRole: string,
+  ): Promise<VideoRecording> {
+    if (!ROOM_MANAGEMENT_ROLES.includes(declaredByRole)) {
+      throw new ForbiddenException('Only a formateur or pedagogical staff can declare a recording');
+    }
+
+    const room = await this.findOne(roomId);
+    if (room.status !== RoomStatus.ENDED) {
+      throw new BadRequestException('Cannot declare a recording before the session has ended');
+    }
+
+    const expiresAt = new Date(Date.now() + RECORDING_TTL_DAYS * 24 * 60 * 60 * 1000);
+    const recording = this.recordingRepo.create({
+      roomId: room.id,
+      declaredBy,
+      downloadUrl: dto.downloadUrl ?? null,
+      expiresAt,
+    });
+    const saved = await this.recordingRepo.save(recording);
+
+    this.publishEvent('VideoRecordingAvailable', {
+      recordingId: saved.id,
+      roomId: room.id,
+      declaredBy,
+      expiresAt: saved.expiresAt,
+    });
+
+    return saved;
+  }
+
+  /**
+   * List recordings visible for a room. eleve, formateur, RP, AP, TI —
+   * parent_financeur refused (VID-FB-001, VID-AC-001).
+   */
+  async listRecordings(
+    roomId: string,
+    userId: string,
+    userRole: string,
+  ): Promise<VideoRecording[]> {
+    if (!ALLOWED_PARTICIPANT_ROLES.includes(userRole)) {
+      throw new ForbiddenException('Your role cannot access recordings for this room');
+    }
+
+    await this.findOne(roomId);
+    return this.recordingRepo.find({ where: { roomId } });
+  }
+
+  /**
+   * Add a timestamped comment on a recording. eleve (only while the recording
+   * has not expired), formateur, RP, AP, TI — parent_financeur refused (VID-FB-001).
+   */
+  async addComment(
+    recordingId: string,
+    dto: AddCommentDto,
+    userId: string,
+    userRole: string,
+  ): Promise<RecordingComment> {
+    if (!ALLOWED_PARTICIPANT_ROLES.includes(userRole)) {
+      throw new ForbiddenException('Your role cannot comment on this recording');
+    }
+
+    const recording = await this.recordingRepo.findOne({ where: { id: recordingId } });
+    if (!recording) throw new NotFoundException(`Recording ${recordingId} not found`);
+
+    if (userRole === UserRole.ELEVE && recording.expiresAt.getTime() < Date.now()) {
+      throw new BadRequestException('This recording has expired');
+    }
+
+    const comment = this.commentRepo.create({
+      recordingId: recording.id,
+      userId,
+      timestampSeconds: dto.timestampSeconds,
+      content: dto.content,
+    });
+    return this.commentRepo.save(comment);
+  }
+
+  // ─── Course summary (VID-AC-002) ───────────────────────────────────────────
+
+  /**
+   * Publish a permanent course summary. formateur, RP, AP only — eleve, TI and
+   * parent_financeur refused (VID-AC-002).
+   *
+   * Publishes: CourseSummaryPublished.
+   */
+  async publishSummary(
+    roomId: string,
+    dto: PublishSummaryDto,
+    authorId: string,
+    authorRole: string,
+  ): Promise<CourseSummary> {
+    if (!SUMMARY_AUTHOR_ROLES.includes(authorRole)) {
+      throw new ForbiddenException('Your role cannot publish a course summary');
+    }
+
+    const room = await this.findOne(roomId);
+
+    const summary = this.summaryRepo.create({
+      roomId: room.id,
+      authorId,
+      content: dto.content,
+      isPermanent: true,
+      publishedAt: new Date(),
+    });
+    const saved = await this.summaryRepo.save(summary);
+
+    this.publishEvent('CourseSummaryPublished', {
+      summaryId: saved.id,
+      roomId: room.id,
+      authorId,
+      publishedAt: saved.publishedAt,
     });
 
     return saved;

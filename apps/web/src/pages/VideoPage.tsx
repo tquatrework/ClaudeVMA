@@ -6,6 +6,9 @@ import Layout from '../components/Layout'
 import RecordingListPanel from '../components/video/RecordingListPanel'
 import CourseSummaryView from '../components/video/CourseSummaryView'
 import InVideoMemoDrawer from '../components/pedagogical-log/InVideoMemoDrawer'
+import LiveVideoCall from '../components/video/LiveVideoCall'
+import type { JoinRoomResult } from '../types/video'
+import { isJoinableRoomStatus } from '../utils/video'
 
 export default function VideoPage() {
   const { roomId } = useParams<{ roomId: string }>()
@@ -29,6 +32,8 @@ export default function VideoPage() {
 
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [isMemoDrawerOpen, setIsMemoDrawerOpen] = useState(false)
+  // Appel en cours — appartient à la page, pas à un composant enfant seul (règle du 2026-08-10).
+  const [activeCall, setActiveCall] = useState<JoinRoomResult | null>(null)
 
   const canClose = hasRole('formateur', 'responsable_pedagogique', 'technicien_informatique', 'animateur_pedagogique')
   // Le bouton mémo est accessible à l'élève ET au formateur (drawer affiche readonly pour le formateur)
@@ -39,11 +44,11 @@ export default function VideoPage() {
   const actionError = closeError ?? joinError ?? attendanceError
 
   const handleJoin = async () => {
-    const joinUrl = await join()
-    if (joinUrl) {
-      window.location.href = joinUrl
-    }
+    const result = await join()
+    if (result) setActiveCall(result)
   }
+
+  const handleLeaveCall = () => setActiveCall(null)
 
   const handleRecordAttendance = async () => {
     const success = await recordAttendanceNow()
@@ -60,16 +65,40 @@ export default function VideoPage() {
     }
   }
 
+  // `waiting` (salle fraîchement créée, avant le premier join côté serveur) partage le libellé
+  // et le style de `active` : l'utilisateur n'a pas à percevoir cette distinction serveur.
   const statusLabel = {
     active: 'En cours',
+    waiting: 'En cours',
     ended: 'Terminée',
     scheduled: 'Planifiée',
   }
 
   const statusBadgeClass = {
     active: 'bg-green-100 text-green-700',
+    waiting: 'bg-green-100 text-green-700',
     ended: 'bg-gray-100 text-gray-500',
     scheduled: 'bg-yellow-100 text-yellow-700',
+  }
+
+  if (activeCall) {
+    return (
+      <Layout>
+        <div className="max-w-4xl">
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="text-2xl font-bold text-gray-900">Session visio</h1>
+            <button
+              type="button"
+              onClick={handleLeaveCall}
+              className="text-sm text-red-600 border border-red-200 px-4 py-2 rounded-lg hover:bg-red-50"
+            >
+              Quitter
+            </button>
+          </div>
+          <LiveVideoCall token={activeCall.token} url={activeCall.url} onLeave={handleLeaveCall} />
+        </div>
+      </Layout>
+    )
   }
 
   return (
@@ -147,8 +176,8 @@ export default function VideoPage() {
               </div>
             )}
 
-            {/* Actions for active room */}
-            {room.status === 'active' && (
+            {/* Actions for active room (`waiting` inclus, voir isJoinableRoomStatus) */}
+            {isJoinableRoomStatus(room.status) && (
               <div className="space-y-3 pt-2">
                 <div className="flex flex-wrap gap-3">
                   <button

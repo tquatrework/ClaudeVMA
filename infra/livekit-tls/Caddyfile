@@ -1,0 +1,23 @@
+# Terminaison TLS dediee a LiveKit uniquement — chantier calendrier-visio-livekit,
+# point 4 suite (2026-08-19). Voir docker-compose.yml (service livekit-tls) et
+# docs/services/video-session-service.md pour le contexte complet.
+#
+# Pourquoi ce conteneur existe : livekit-server ne sait terminer du TLS que pour
+# son relais TURN (--turn-cert/--turn-key), jamais pour son port de signalisation
+# HTTP/WebSocket principal (7880) — verifie le 2026-08-19 contre l'image reelle
+# livekit/livekit-server:1.13.5 (`help-verbose` ne liste `tls_cert_file`/
+# `tls_key_file` que sous `turn.*`). Un navigateur ouvert depuis une page HTTPS
+# refuse une connexion WebSocket non chiffree (ws://) — contenu mixte bloque en
+# silence. Il faut donc un reverse proxy TLS dedie devant livekit:7880, distinct
+# de nginx-global (hors depot, ne gere que le domaine principal) et de
+# visiomath_gateway (le SDK client LiveKit se connecte en direct, pas via l'API
+# HTTP classique).
+#
+# Certificat AUTO-SIGNE DE TEST — voir infra/livekit-tls/certs/README.md.
+
+:7880 {
+	tls /certs/livekit-selfsigned.crt /certs/livekit-selfsigned.key
+
+	# reverse_proxy gere nativement l'upgrade WebSocket (signalisation LiveKit).
+	reverse_proxy livekit:7880
+}

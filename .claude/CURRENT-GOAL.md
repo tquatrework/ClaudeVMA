@@ -235,8 +235,129 @@ Ordre de livraison retenu, une branche par étape :
       - Composant `LinkedCalendarView` (point 2, déjà livré mais non monté) : c'est **ici** qu'il
         doit être intégré, dans le flux de proposition (voir le composant `ProposeCourseSlotDialog`
         déjà prévu dans le plan) — c'est ce qui débloquera enfin la preuve écran du point 2.
-- [ ] Point 4 — intégration LiveKit
-- [ ] Preuve livrée à l'utilisateur pour chaque point
+- [x] Point 4 — intégration LiveKit. **Démarré le 2026-08-19**, branche
+      `feat/calendrier-visio-livekit` (poussée). Décision d'exposition réseau tranchée avec
+      l'utilisateur avant de déléguer : LiveKit sur un **port dédié exposé directement sur la
+      machine** (hors `nginx-global`, hors `visiomath_gateway`) — le SDK client LiveKit se
+      connecte en direct au serveur, un simple reverse proxy HTTP ne suffit pas pour le média RTC.
+      **Backend `video-session-service` livré**, commit `3719746`, poussé. `POST /video/rooms`
+      crée une vraie salle LiveKit (`livekit-server-sdk`) ; `GET /video/rooms/:id/join` renvoie
+      désormais `{token, url}` (JWT LiveKit réel — **changement de contrat**, l'ancien stub
+      renvoyait `{accessToken, roomToken, status}` ; le front `VideoJoinPage.tsx` fait aujourd'hui
+      `window.open(joinUrl)`, pas encore adapté, hors périmètre de ce chantier backend) ;
+      abonnement au flux Redis `visiomath:events` pour `ActivityConfirmed` (mécanisme générique
+      déjà utilisé par `dashboard-notification-service`) déclenchant la création automatique d'une
+      salle réelle pour les activités `type: "cours"` uniquement, avec une projection locale
+      d'`ActivityScheduled` (`ActivityConfirmed` ne porte que `{activityId, confirmedBy}`, vérifié
+      contre le flux réel) ; nouvelle route `GET /video/rooms/by-activity/:activityId`. Gap
+      pré-existant comblé au passage : les routes recordings/comments/summary (VID-AC-001/002)
+      avaient déjà entités/DTO/tests mais n'étaient enregistrées nulle part — `npm test` échouait à
+      la compilation avant cette session. Première migration TypeORM du service. 76 tests
+      unitaires + 72 e2e verts (76 unitaires + build rejoués indépendamment par l'orchestrateur).
+      Smoke test réel effectué par le sous-agent contre une instance LiveKit 1.13.5 jetable (hors
+      pile partagée) : salle réellement créée (confirmée par `listRooms()`), JWT réel émis avec le
+      bon grant. **Fait vérifié empiriquement, à retenir** : le secret API LiveKit doit faire au
+      moins 32 caractères, sinon le token est rejeté silencieusement en `401`.
+
+      **Blocage réseau découvert par l'orchestrateur après le backend, à trancher avant de
+      déployer** : `LIVEKIT_PUBLIC_URL` accepte `ws://` ou `wss://` côté configuration, mais le
+      front est servi en HTTPS (`https://claudevma.visioprof.fr`) — un navigateur **bloque une
+      connexion WebSocket non chiffrée (`ws://`) depuis une page HTTPS** (contenu mixte). Il faut
+      donc `wss://`, ce qui exige un certificat TLS sur le port LiveKit lui-même : ce port est en
+      dehors de `nginx-global` (qui termine déjà le TLS du domaine) par le choix d'exposition
+      retenu — LiveKit devra donc porter son propre certificat. IP publique de la machine
+      découverte sans toucher `.env` (accès en lecture refusé par la politique de sandbox, comme
+      pour le sous-agent) : `193.108.54.226` (via `curl ifconfig.me`/`api.ipify.org`, cohérent sur
+      les deux). **Décision à prendre avec l'utilisateur avant de configurer `.env` et de
+      déployer** : comment obtenir/monter un certificat TLS pour le port LiveKit (ex. certificat
+      existant du domaine réutilisé sur un sous-domaine dédié, certificat auto-signé accepté
+      manuellement par l'utilisateur pour une phase de test, ou Let's Encrypt indépendant sur ce
+      port).
+
+      **Décision utilisateur (2026-08-19) : certificat auto-signé, phase de test assumée.**
+      `video-session-service` complété (commit `9932169`, poussé) : nouveau conteneur dédié
+      `livekit-tls` (Caddy, termine le TLS avec un certificat auto-signé portant un SAN sur l'IP
+      publique — `livekit-server` ne sait pas terminer le TLS nativement sur son port de
+      signalisation), certificat généré dans `infra/livekit-tls/certs/` (committé volontairement,
+      documenté comme acceptable uniquement parce que c'est un certificat de test sans valeur de
+      confiance, jamais un vrai secret). Connexion `wss://` bout en bout vérifiée réellement par le
+      sous-agent (handshake + `JoinResponse` LiveKit réel reçu à travers le tunnel TLS, pile
+      jetable isolée).
+
+      **Déployé sur la pile réelle le 2026-08-19** par l'orchestrateur : `.env` renseigné par
+      l'utilisateur (`LIVEKIT_NODE_IP`, `LIVEKIT_PUBLIC_URL=wss://193.108.54.226:7880`) ;
+      `video-session-service` reconstruit, conteneurs `livekit`/`livekit_tls`/`video_session`
+      démarrés et sains ; migration `AddLiveKitRoomsRecordingsAndActivityEvents` rejouée avec
+      succès (`docker exec visiomath_video_session npm run migration:run`) ; gateway rechargée ;
+      `https://193.108.54.226:7880/` répond `200` (cert auto-signé actif). **Étape manuelle
+      restante pour l'utilisateur, à refaire à chaque nouvel appareil/navigateur** : ouvrir une
+      fois `https://193.108.54.226:7880/` et accepter l'avertissement de sécurité avant de
+      pouvoir rejoindre une visio — sinon la connexion `wss://` échoue en silence côté client.
+
+      **Front `@livekit/components-react` livré**, commits `c9a6403`+`13418c5`, poussés :
+      `LiveVideoCall.tsx` (composant partagé `LiveKitRoom`+`VideoConference`), contrat `{token,
+      url}` branché, bouton « Rejoindre le cours » depuis un bloc confirmé dans la grille
+      calendrier (`GET /video/rooms/by-activity/:activityId`). 48 tests verts (tsc + build + tests
+      rejoués indépendamment par l'orchestrateur). Connexion LiveKit réelle **non exercée** par
+      cette session (pas de caméra/réseau dans l'environnement du sous-agent) — signalé comme tel,
+      pas simulé comme preuve.
+
+      **Déployé sur la pile réelle** (bundle `index-B8vl6Fkn.js`, chaînes LiveKit confirmées dans
+      le bundle servi).
+
+      **Preuve à deux navigateurs tentée — deux bugs réels trouvés, pas contournés en silence**
+      (commits `4f36c3e`+`1941585`, cherry-pickés depuis le sous-agent car sa session ne pouvait
+      pas checkout la même branche, poussés) :
+      1. **Bug bloquant confirmé** : une salle fraîchement créée naît `status: "waiting"` côté
+         serveur (la transition `WAITING → ACTIVE` se fait au premier `join`, documentation
+         `docs/routes.md`) — mais `VideoRoomStatus` (front, `apps/web/src/types/video.ts`) ne
+         connaît que `'active' | 'ended' | 'scheduled'`. `waiting` ne correspond à aucune branche
+         de `VideoJoinPage.tsx` : aucun bouton « Rejoindre » n'apparaît jamais, écran silencieux.
+         Verrou circulaire : la seule action qui ferait passer `waiting`→`active` est justement
+         l'appel `join` que ce bouton absent devait déclencher. **Aucun utilisateur réel ne peut
+         aujourd'hui rejoindre une salle fraîchement créée par ce chemin.** Capture :
+         `.claude/reports/livekit-join-2026-08-19/livekit-03-BUG-no-join-button-waiting-status.png`.
+      2. **UUID brut affiché, violation de la règle du 2026-08-09** : une fois débloqué (appel
+         direct à `/join`, contournement documenté comme non représentatif), les tuiles de
+         participants LiveKit affichent l'identifiant technique brut (`39b62393-bb4a-...`) au lieu
+         d'un nom — `@livekit/components-react` affiche `identity` (= `userId`, passé tel quel à
+         `AccessToken` côté serveur) faute de `name` renseigné. Capture :
+         `.claude/reports/livekit-join-2026-08-19/livekit-06-teacher-sees-other-participant.png`.
+      **Preuve positive malgré les deux bugs** : une fois le verrou contourné, deux navigateurs
+      Playwright réels (formateur + élève, comptes réels, `ignoreHTTPSErrors` pour le certificat
+      auto-signé, périphériques média factices) se sont connectés en `wss://` et se voient
+      mutuellement — reproduit sur 2 exécutions consécutives, stable. Le mécanisme LiveKit
+      sous-jacent fonctionne réellement ; c'est l'expérience utilisateur du bouton « Rejoindre »
+      qui est cassée.
+
+      **Les deux correctifs sont livrés, mergés et déployés (2026-08-19).**
+      1. Front — commits `35f3a8d` (cherry-pické avec conflit résolu manuellement par
+         l'orchestrateur, `VideoJoinPage.tsx`/`VideoPage.tsx` avaient divergé) + `b19d511` (test
+         obsolète aligné sur l'appel vidéo intégré au lieu de l'ancien stub `window.open`).
+         `VideoRoomStatus` inclut désormais `'waiting'`, nouvel helper partagé
+         `isJoinableRoomStatus` (`apps/web/src/utils/video.ts`), utilisé par les deux pages qui
+         dupliquaient la logique de statut. Vérifié indépendamment par l'orchestrateur après
+         résolution du conflit : `tsc --noEmit` propre, 27/27 tests ciblés verts.
+      2. Backend — commit `0453f24`. `AccessToken` LiveKit porte désormais `name` (prénom+nom
+         résolu via `GET /internal/profiles/:userId/display-name`), `identity` reste l'UUID
+         technique interne (LiveKit en a besoin). Dégradation gracieuse totale si
+         `profile-service` est injoignable — jamais bloquant, jamais l'UUID en repli forcé. 90/90
+         tests unitaires vérifiés indépendamment par l'orchestrateur, build propre.
+
+      **Déployé sur la pile réelle** (`video-session-service` + `frontend` reconstruits, bundle
+      `index-DbzAZgzP.js`, gateway rechargée).
+
+      **Preuve finale, sans aucun contournement, rejouée deux fois (sous-agent puis
+      indépendamment par l'orchestrateur)** — commit `090f604`, test
+      `apps/web/e2e/proof-livekit-join-no-workaround.spec.ts` : le bouton « Rejoindre » apparaît
+      dès l'arrivée sur l'écran alors que la salle est encore `waiting` côté serveur (vérifié par
+      lecture juste avant le clic) ; après connexion réelle en `wss://` (certificat auto-signé,
+      `ignoreHTTPSErrors`, périphériques média factices), chaque tuile affiche un **nom lisible**
+      (« Morgane Recheckprof... », « Camille Recheck... ») — **aucun motif UUID** détecté dans le
+      texte visible, vérifié visuellement par l'orchestrateur sur les captures. Point mineur non
+      bloquant signalé par le sous-agent, non investigué : 2 erreurs console (`403`/`502`)
+      transitoires côté élève pendant la connexion, sans effet observé sur le déroulé.
+- [x] Preuve livrée à l'utilisateur pour chaque point
 - [ ] Validé par l'utilisateur
 
 ---

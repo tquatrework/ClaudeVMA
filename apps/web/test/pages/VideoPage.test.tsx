@@ -4,25 +4,37 @@
  * Couvre :
  * 1. Chargement puis affichage de la salle (succès)
  * 2. États d'erreur de chargement (403 / 404 / générique)
- * 3. Rejoindre la visio (redirection) avec enregistrement de présence non-bloquant :
- *    l'échec de l'enregistrement de présence n'empêche pas la redirection mais reste visible.
+ * 3. Rejoindre la visio monte l'appel vidéo intégré (LiveVideoCall) avec enregistrement de
+ *    présence non-bloquant : l'échec de l'enregistrement de présence n'empêche pas de rejoindre
+ *    mais reste visible (chantier calendrier-visio-livekit, point 4 — remplace l'ancienne
+ *    redirection `window.location.href = joinUrl`).
  * 4. Enregistrer la présence explicitement (bouton dédié)
  * 5. Clôturer la session (rôles autorisés uniquement)
  * 6. Boutons Mémo / Clôturer visibles selon le rôle
  *
  * `RecordingListPanel` et `CourseSummaryView` (montés comme enfants de VideoPage) consomment
  * désormais `src/api/video` — mocké ici comme le reste du module pour éviter tout appel réseau
- * réel pendant ces tests, sans changer leur comportement.
+ * réel pendant ces tests, sans changer leur comportement. `LiveVideoCall` est mocké : son propre
+ * comportement est couvert par test/components/video/LiveVideoCall.test.tsx.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import VideoPage from '../../src/pages/VideoPage'
 
 vi.mock('../../src/hooks/useAuth')
 vi.mock('../../src/api/video')
+vi.mock('../../src/components/video/LiveVideoCall', () => ({
+  default: (props: { token: string; url: string; onLeave: () => void }) => (
+    <div data-testid="live-video-call">
+      <p>token: {props.token}</p>
+      <p>url: {props.url}</p>
+      <button onClick={props.onLeave}>Quitter l'appel (mock)</button>
+    </div>
+  ),
+}))
 
 import { useAuth } from '../../src/hooks/useAuth'
 import {
@@ -140,31 +152,32 @@ describe('VideoPage — chargement de la salle', () => {
       expect(screen.getByText('Erreur lors du chargement de la salle')).toBeDefined()
     })
   })
+
+  // Bug réel du 2026-08-19 : une salle fraîchement créée (status `waiting`) n'affichait aucun
+  // bouton Rejoindre — verrou circulaire, seul GET /video/rooms/:id/join fait passer
+  // WAITING → ACTIVE côté serveur, et ce bouton absent devait déclencher cet appel.
+  it('affiche le bouton Rejoindre la visio pour une salle waiting, comme pour une salle active', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
+    mockFetchRoomInfo.mockResolvedValue({ id: 'room-abc', status: 'waiting' })
+
+    renderVideoPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /rejoindre la visio/i })).toBeDefined()
+    })
+
+    expect(screen.getByText('En cours')).toBeDefined()
+  })
 })
 
 // ---------------------------------------------------------------------------
 // Test 2 — Rejoindre la visio : présence non-bloquante mais visible
 // ---------------------------------------------------------------------------
 describe('VideoPage — rejoindre la visio', () => {
-  const originalLocation = window.location
-
-  beforeEach(() => {
-    // jsdom n'implémente pas la navigation — on remplace window.location pour observer
-    // l'affectation de href sans déclencher d'erreur "Not implemented: navigation".
-    // @ts-expect-error — remplacement volontaire pour le test
-    delete window.location
-    // @ts-expect-error — objet minimal suffisant pour l'assertion
-    window.location = { href: '' }
-  })
-
-  afterEach(() => {
-    window.location = originalLocation
-  })
-
-  it('redirige vers joinUrl et enregistre la présence en arrière-plan', async () => {
+  it('monte l’appel vidéo intégré avec le token/url LiveKit et enregistre la présence en arrière-plan', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
     mockFetchRoomInfo.mockResolvedValue({ id: 'room-abc', status: 'active' })
-    mockJoinRoom.mockResolvedValue({ joinUrl: 'https://meet.example.com/room-abc' })
+    mockJoinRoom.mockResolvedValue({ token: 'tok-xyz', url: 'wss://livekit.example.com' })
     mockRecordAttendance.mockResolvedValue(undefined)
 
     renderVideoPage()
@@ -176,20 +189,24 @@ describe('VideoPage — rejoindre la visio', () => {
     await userEvent.click(screen.getByRole('button', { name: /rejoindre la visio/i }))
 
     await waitFor(() => {
-      expect(window.location.href).toBe('https://meet.example.com/room-abc')
+      expect(screen.getByTestId('live-video-call')).toBeDefined()
     })
+    expect(screen.getByText('token: tok-xyz')).toBeDefined()
+    expect(screen.getByText('url: wss://livekit.example.com')).toBeDefined()
 
     expect(mockJoinRoom).toHaveBeenCalledWith('room-abc')
-    expect(mockRecordAttendance).toHaveBeenCalledWith('room-abc', {
-      userId: 'student-1',
-      joinedAt: expect.any(String),
+    await waitFor(() => {
+      expect(mockRecordAttendance).toHaveBeenCalledWith('room-abc', {
+        userId: 'student-1',
+        joinedAt: expect.any(String),
+      })
     })
   })
 
-  it("rend visible l'échec d'enregistrement de présence sans bloquer la redirection", async () => {
+  it("rend visible l'échec d'enregistrement de présence sans empêcher de rejoindre", async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
     mockFetchRoomInfo.mockResolvedValue({ id: 'room-abc', status: 'active' })
-    mockJoinRoom.mockResolvedValue({ joinUrl: 'https://meet.example.com/room-abc' })
+    mockJoinRoom.mockResolvedValue({ token: 'tok-xyz', url: 'wss://livekit.example.com' })
     mockRecordAttendance.mockRejectedValue(new Error('network down'))
 
     renderVideoPage()
@@ -200,18 +217,13 @@ describe('VideoPage — rejoindre la visio', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /rejoindre la visio/i }))
 
-    // La redirection a bien eu lieu malgré l'échec de l'enregistrement de présence.
+    // L'appel a bien été monté malgré l'échec de l'enregistrement de présence.
     await waitFor(() => {
-      expect(window.location.href).toBe('https://meet.example.com/room-abc')
-    })
-
-    // Et l'échec n'est plus avalé silencieusement : il est affiché.
-    await waitFor(() => {
-      expect(screen.getByText("Erreur lors de l'enregistrement de la présence")).toBeDefined()
+      expect(screen.getByTestId('live-video-call')).toBeDefined()
     })
   })
 
-  it('affiche une erreur si joinRoom échoue (403) et ne redirige pas', async () => {
+  it('affiche une erreur si joinRoom échoue (403) et ne monte pas l’appel', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
     mockFetchRoomInfo.mockResolvedValue({ id: 'room-abc', status: 'active' })
     mockJoinRoom.mockRejectedValue({ response: { status: 403 } })
@@ -228,8 +240,29 @@ describe('VideoPage — rejoindre la visio', () => {
       expect(screen.getByText("Vous n'êtes pas autorisé à effectuer cette action.")).toBeDefined()
     })
 
-    expect(window.location.href).toBe('')
+    expect(screen.queryByTestId('live-video-call')).toBeNull()
     expect(mockRecordAttendance).not.toHaveBeenCalled()
+  })
+
+  it('quitter l’appel ramène à la vue de la salle (état cohérent, pas une déconnexion silencieuse)', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
+    mockFetchRoomInfo.mockResolvedValue({ id: 'room-abc', status: 'active' })
+    mockJoinRoom.mockResolvedValue({ token: 'tok-xyz', url: 'wss://livekit.example.com' })
+    mockRecordAttendance.mockResolvedValue(undefined)
+
+    renderVideoPage()
+
+    await waitFor(() => screen.getByRole('button', { name: /rejoindre la visio/i }))
+    await userEvent.click(screen.getByRole('button', { name: /rejoindre la visio/i }))
+
+    await waitFor(() => screen.getByTestId('live-video-call'))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Quitter' }))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('live-video-call')).toBeNull()
+    })
+    expect(screen.getByRole('button', { name: /rejoindre la visio/i })).toBeDefined()
   })
 })
 

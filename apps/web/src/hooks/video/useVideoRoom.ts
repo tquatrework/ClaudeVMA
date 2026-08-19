@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { closeRoom, fetchRoomInfo, joinRoom, recordAttendance } from '../../api/video'
-import type { VideoRoomInfo, VideoRoomStatus } from '../../types/video'
+import type { JoinRoomResult, VideoRoomInfo, VideoRoomStatus } from '../../types/video'
 import { useAsyncData } from '../useAsyncData'
 import { getErrorMessage, getErrorStatus } from '../../utils/apiError'
 
@@ -32,9 +32,10 @@ export interface UseVideoRoomResult {
   isLoading: boolean
   loadError: string | null
 
-  /** GET /video/rooms/:id/join puis enregistrement de présence non-bloquant. Retourne l'URL à
-   * rejoindre en cas de succès, `null` sinon — la redirection reste à la charge de l'appelant. */
-  join: () => Promise<string | null>
+  /** GET /video/rooms/:id/join puis enregistrement de présence non-bloquant. Retourne le token
+   * LiveKit et l'URL de serveur en cas de succès, `null` sinon — monter l'appel intégré reste à
+   * la charge de l'appelant. */
+  join: () => Promise<JoinRoomResult | null>
   isJoining: boolean
   joinError: string | null
 
@@ -100,12 +101,12 @@ export function useVideoRoom(
     }
   }, [roomId, userId])
 
-  const join = useCallback(async (): Promise<string | null> => {
+  const join = useCallback(async (): Promise<JoinRoomResult | null> => {
     if (!roomId) return null
     setIsJoining(true)
     setJoinError(null)
     try {
-      const { joinUrl } = await joinRoom(roomId)
+      const result = await joinRoom(roomId)
 
       if (!attendanceRecorded) {
         try {
@@ -121,7 +122,7 @@ export function useVideoRoom(
         }
       }
 
-      return joinUrl
+      return result
     } catch (caughtError) {
       setJoinError(getErrorMessage(caughtError, 'Impossible de rejoindre la salle'))
       return null

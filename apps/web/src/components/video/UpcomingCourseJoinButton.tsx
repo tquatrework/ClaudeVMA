@@ -7,14 +7,18 @@ interface UpcomingCourseJoinButtonProps {
   calendarEventTitle?: string
 }
 
+// `waiting` (salle fraîchement créée, avant le premier join côté serveur) partage le libellé et
+// le style de `active` — voir src/utils/video.ts, isJoinableRoomStatus.
 const STATUS_BADGE_CLASS: Record<string, string> = {
   active: 'bg-green-100 text-green-700',
+  waiting: 'bg-green-100 text-green-700',
   ended: 'bg-gray-100 text-gray-500',
   scheduled: 'bg-yellow-100 text-yellow-700',
 }
 
 const STATUS_LABEL: Record<string, string> = {
   active: 'En cours',
+  waiting: 'En cours',
   ended: 'Terminée',
   scheduled: 'Planifiée',
 }

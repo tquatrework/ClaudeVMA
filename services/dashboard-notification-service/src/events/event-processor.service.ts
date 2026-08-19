@@ -119,6 +119,9 @@ export class EventProcessorService {
       case 'TeacherRequestStatusUpdated':
         await this.handleTeacherRequestStatusUpdated(eventId, eventName, payload);
         break;
+      case 'ActivityScheduled':
+        await this.handleActivityScheduled(eventId, eventName, payload);
+        break;
       case 'TeacherRequestClosed':
       case 'TeacherRequestDeleted':
         // No notification: TeacherRequestClosed is redundant with TeacherAssigned's
@@ -301,6 +304,39 @@ export class EventProcessorService {
       ...financeOwnerUserIds.map((userId) => ({ userId, type: NotificationType.TEACHER_REQUEST_STATUS_UPDATED, metadata })),
     ];
     await this.persist(eventId, eventName, recipients);
+  }
+
+  /**
+   * `ActivityScheduled` is published by calendar-service for *every*
+   * activity creation, not only single-recipient proposals — this service
+   * only cares about the 1 proposeur -> 1 destinataire case (`cours`
+   * typically, but also `reunion_pedagogique` targeting a single
+   * recipient). `payload.recipientId` is calendar-service's own signal for
+   * that case: `null` for every multi-participant usage (RP to several
+   * formateurs, `entretien_rp`, `rappel`, `autre`, multi-participant
+   * meetings), which this handler must ignore — acked, no notification, no
+   * "unrecognized type" warning since the type itself *is* recognized.
+   * Arbitrage du 2026-08-19, chantier "calendrier de disponibilités lié à
+   * la visio", point 3.
+   */
+  private async handleActivityScheduled(eventId: string, eventName: string, payload: Record<string, unknown>): Promise<void> {
+    const recipientId = payload.recipientId as string | null | undefined;
+    if (!recipientId) {
+      await this.markProcessedOnly(eventId, eventName);
+      return;
+    }
+
+    const creatorId = payload.creatorId as string;
+    const names = await this.resolveNames([creatorId]);
+    const metadata = {
+      proposerName: displayName(names.get(creatorId)),
+      activityId: payload.activityId,
+      activityType: payload.type,
+      startTime: payload.startTime,
+    };
+    await this.persist(eventId, eventName, [
+      { userId: recipientId, type: NotificationType.COURSE_SLOT_PROPOSED, metadata },
+    ]);
   }
 
   /** Atomically records the event as processed and creates its notifications, or neither. */

@@ -416,6 +416,85 @@ describe('EventProcessorService', () => {
     });
   });
 
+  describe('ActivityScheduled', () => {
+    it('notifies the single recipient with the resolved proposer name (2026-08-19)', async () => {
+      displayNames({ 'teacher-1': { firstName: 'Alex', lastName: 'Martin' } });
+
+      await processor.process({
+        eventId: 'evt-10',
+        eventName: 'ActivityScheduled',
+        payload: JSON.stringify({
+          activityId: 'activity-1',
+          type: 'cours',
+          creatorId: 'teacher-1',
+          recipientId: 'student-1',
+          participantIds: ['student-1'],
+          startTime: '2026-09-10T14:00:00.000Z',
+        }),
+      });
+
+      expect(txNotificationRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'student-1',
+          type: NotificationType.COURSE_SLOT_PROPOSED,
+          title: null,
+          message: null,
+          metadata: expect.objectContaining({
+            proposerName: 'Alex Martin',
+            activityId: 'activity-1',
+            activityType: 'cours',
+            startTime: '2026-09-10T14:00:00.000Z',
+          }),
+        }),
+      );
+      expect(txProcessedEventRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ eventId: 'evt-10', eventName: 'ActivityScheduled' }),
+      );
+    });
+
+    it('marks the event as processed without creating a notification when recipientId is null (multi-participant activity)', async () => {
+      await processor.process({
+        eventId: 'evt-11',
+        eventName: 'ActivityScheduled',
+        payload: JSON.stringify({
+          activityId: 'activity-2',
+          type: 'reunion_pedagogique',
+          creatorId: 'rp-1',
+          recipientId: null,
+          participantIds: ['teacher-1', 'teacher-2'],
+          startTime: '2026-09-10T14:00:00.000Z',
+        }),
+      });
+
+      expect(txNotificationRepository.save).not.toHaveBeenCalled();
+      expect(processedEventRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ eventId: 'evt-11', eventName: 'ActivityScheduled' }),
+      );
+      expect(profileServiceClient.resolveDisplayNames).not.toHaveBeenCalled();
+    });
+
+    it('does not acknowledge (throws) when the proposer name cannot be resolved', async () => {
+      profileServiceClient.resolveDisplayNames.mockResolvedValue(new Map());
+
+      await expect(
+        processor.process({
+          eventId: 'evt-12',
+          eventName: 'ActivityScheduled',
+          payload: JSON.stringify({
+            activityId: 'activity-3',
+            type: 'cours',
+            creatorId: 'teacher-1',
+            recipientId: 'student-1',
+            participantIds: ['student-1'],
+            startTime: '2026-09-10T14:00:00.000Z',
+          }),
+        }),
+      ).rejects.toThrow(/Unresolved display name/);
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+  });
+
   describe('events with no notification', () => {
     it.each(['TeacherRequestClosed', 'TeacherRequestDeleted'])('marks %s as processed without creating a notification', async (eventName) => {
       await processor.process({ eventId: 'evt-8', eventName, payload: '{}' });

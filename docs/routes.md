@@ -1661,7 +1661,14 @@ notifications par rôle ».
 > `TeacherProposalNotSelected`/`TeacherProposalExpired` → le formateur concerné ·
 > `TeacherAssigned`/`MainTeacherAssigned` (legacy) → le formateur choisi, l'élève, et chaque parent
 > financeur (résolus via `GET /internal/relations/finance-owners/:studentId` sur profile-service)
-> · `TeacherRequestStatusUpdated` → l'élève et ses parents financeurs · `TeacherRequestClosed` et
+> · `TeacherRequestStatusUpdated` → l'élève et ses parents financeurs · `ActivityScheduled` (publié
+> par calendar-service pour **toute** création d'activité) → **le seul `payload.recipientId`
+> quand il est non-`null`** (cas 1 proposeur -> 1 destinataire, `cours` typiquement, mais aussi
+> `reunion_pedagogique` ciblant un seul destinataire) ; quand `recipientId` est `null` (tout usage
+> multi-participants : RP à plusieurs formateurs, `entretien_rp`, `rappel`, `autre`, réunions à
+> plusieurs), **aucune notification** — l'entrée est acquittée sans effet, ce n'est pas un type
+> non reconnu (arbitrage du 2026-08-19, chantier « calendrier de disponibilités lié à la visio »,
+> point 3) · `TeacherRequestClosed` et
 > `TeacherRequestDeleted` → aucune notification. Tout `eventName` non reconnu est journalisé en
 > avertissement puis acquitté sans effet — un type inconnu ne doit jamais bloquer le flux.
 >
@@ -1670,6 +1677,14 @@ notifications par rôle ».
 > d'affichage) et stockés dans `metadata`. **Si la résolution de nom ou des parents financeurs
 > échoue, l'entrée du flux n'est pas acquittée** (retry via XAUTOCLAIM) plutôt que de publier une
 > notification dégradée — voir `EventProcessorService`.
+>
+> **`ActivityScheduled` → `type: course_slot_proposed`** (nouveau, 2026-08-19). `title`/`message`
+> restent `null` comme pour tous les types issus de ce consommateur ; le contenu affichable est
+> entièrement porté par `metadata: {proposerName, activityId, activityType, startTime}` —
+> `proposerName` est le nom résolu de `payload.creatorId` (jamais d'UUID), `activityType` reprend
+> `payload.type` (`cours`/`reunion_pedagogique`), `startTime` est l'horodatage ISO de l'activité.
+> Libellé français prévu côté front (`notificationLabels.ts`, non traité par cette session) :
+> « Proposition de cours ajoutée par {proposerName} ».
 
 ---
 

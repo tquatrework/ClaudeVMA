@@ -235,7 +235,24 @@ Ordre de livraison retenu, une branche par étape :
       - Composant `LinkedCalendarView` (point 2, déjà livré mais non monté) : c'est **ici** qu'il
         doit être intégré, dans le flux de proposition (voir le composant `ProposeCourseSlotDialog`
         déjà prévu dans le plan) — c'est ce qui débloquera enfin la preuve écran du point 2.
-- [ ] Point 4 — intégration LiveKit
+- [ ] Point 4 — intégration LiveKit. **Démarré le 2026-08-19**, branche
+      `feat/calendrier-visio-livekit` (poussée). Décision d'exposition réseau tranchée avec
+      l'utilisateur avant de déléguer : LiveKit sur un **port dédié exposé directement sur la
+      machine** (hors `nginx-global`, hors `visiomath_gateway`) — le SDK client LiveKit se
+      connecte en direct au serveur, un simple reverse proxy HTTP ne suffit pas pour le média RTC.
+      `video-session-service` en cours (sous-agent lancé) : vraie création de salle LiveKit
+      derrière `POST /video/rooms`, vrai token derrière `GET /video/rooms/:id/join` (**changement
+      de contrat** : `{token, url}` au lieu d'un `joinUrl` unique — le front `VideoJoinPage.tsx`
+      faisait jusqu'ici `window.open(joinUrl)`, à remplacer par un composant vidéo intégré),
+      abonnement à `ActivityConfirmed` (déjà publié par `calendar-service` au point 3, même
+      mécanisme générique outbox+Redis) pour créer automatiquement une salle réelle quand une
+      activité `type: "cours"` est confirmée, nouvelle route `GET /video/rooms/by-activity/:id`.
+      **Étapes manuelles attendues de l'utilisateur, à confirmer une fois le rapport reçu** : ouvrir
+      le(s) port(s) LiveKit sur le pare-feu de la machine, renseigner l'IP publique dans `.env`
+      (`LIVEKIT_NODE_IP` ou équivalent), changer les secrets `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`
+      par défaut. Reste à faire après le backend : front (composant vidéo LiveKit intégré,
+      `@livekit/components-react`, point d'entrée depuis une activité confirmée dans le
+      calendrier), déploiement, preuve à deux comptes/navigateurs (exigence du plan).
 - [ ] Preuve livrée à l'utilisateur pour chaque point
 - [ ] Validé par l'utilisateur
 

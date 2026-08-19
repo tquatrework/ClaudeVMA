@@ -209,3 +209,28 @@ export interface CreateActivityPayload {
   description?: string
   correlationId?: string
 }
+
+// ─── Activités dans GET /calendars/:ownerId — affichage inline (point 3, 2026-08-19) ──
+//
+// Chantier calendrier de disponibilités, point 3, gap comblé le 2026-08-18 côté serveur :
+// `GET /calendars/:ownerId` porte désormais un champ `activities` (docs/routes.md § calendar-service
+// > "GET /calendars/:ownerId — forme exacte de activities"). Forme **distincte** de
+// `ScheduledActivity` ci-dessus : plus pauvre (pas de `title`/`description`/`correlationId`/
+// `createdAt`/`updatedAt`), mais `creatorName` y est déjà résolu par le serveur — jamais un UUID à
+// afficher (arbitrage du 2026-08-09).
+
+/**
+ * Élément d'activité tel que renvoyé dans `activities` par `GET /calendars/:ownerId`. Utilisé pour
+ * afficher les propositions/confirmations de créneau de cours directement dans la grille du
+ * destinataire (`AvailabilityTab`, `useOwnerCalendarActivities`).
+ */
+export interface CalendarActivityEntry {
+  id: string
+  type: ActivityType
+  status: Extract<ActivityStatus, 'proposed' | 'confirmed'>
+  startTime: string
+  endTime: string
+  creatorId: string
+  creatorName: string | null
+  participantIds: string[]
+}

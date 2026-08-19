@@ -18,8 +18,11 @@ const GRID_HEIGHT_PX = GRID_HOURS.length * HOUR_ROW_HEIGHT_PX
  * Catégorie affichable par la grille — `AVAILABLE`/`UNAVAILABLE` sont les créneaux éditables du
  * titulaire (point 1) ; `BUSY` s'y ajoute pour la vue busy/free d'un tiers lié en lecture seule
  * (point 2, `LinkedCalendarView`) — un bloc « Occupé » n'est jamais un créneau créable/éditable.
+ * `PROPOSED`/`CONFIRMED` s'y ajoutent pour les propositions/confirmations de créneau de cours
+ * (point 3, `AvailabilityTab` + `useOwnerCalendarActivities`) — jamais éditables non plus, mais
+ * `PROPOSED` porte des actions inline (accepter/refuser), voir `renderBlockOverlay`.
  */
-export type AvailabilityGridBlockKind = 'AVAILABLE' | 'UNAVAILABLE' | 'BUSY'
+export type AvailabilityGridBlockKind = 'AVAILABLE' | 'UNAVAILABLE' | 'BUSY' | 'PROPOSED' | 'CONFIRMED'
 
 /**
  * Forme minimale attendue par la grille. `AvailabilitySlot` (point 1) et `BusyFreeGridBlock`
@@ -39,12 +42,17 @@ const KIND_STYLES: Record<AvailabilityGridBlockKind, string> = {
   AVAILABLE: 'bg-green-100 text-green-800 border border-green-300 hover:bg-green-200',
   UNAVAILABLE: 'bg-gray-200 text-gray-700 border border-gray-300 hover:bg-gray-300',
   BUSY: 'bg-amber-100 text-amber-800 border border-amber-300',
+  // Pastel/plus clair que `CONFIRMED` — un créneau proposé n'est pas encore acquis.
+  PROPOSED: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
+  CONFIRMED: 'bg-indigo-100 text-indigo-800 border border-indigo-300',
 }
 
 const KIND_LABELS: Record<AvailabilityGridBlockKind, string> = {
   AVAILABLE: 'Disponible',
   UNAVAILABLE: 'Indisponible',
   BUSY: 'Occupé',
+  PROPOSED: 'Proposition de cours',
+  CONFIRMED: 'Cours confirmé',
 }
 
 function formatHourLabel(hour: number): string {
@@ -63,6 +71,15 @@ interface AvailabilityGridProps<T extends AvailabilityGridSlot> {
    * activée sur ses propres disponibilités (point 1, `AvailabilityTab`).
    */
   readOnly?: boolean
+  /**
+   * Rendu additionnel superposé à un bloc — utilisé par `AvailabilityTab` (point 3) pour les
+   * actions inline Accepter/Refuser d'une proposition de créneau de cours, ou l'affichage
+   * (sans action) d'un cours déjà confirmé. Quand cette fonction renvoie un contenu non `null`
+   * pour un `slot` donné, le bloc n'est **plus** cliquable pour l'édition (rendu en `<div>`,
+   * jamais en `<button>` imbriqué) — seuls les contrôles renvoyés le sont, `onEditSlot` n'est
+   * alors jamais invoqué pour ce bloc.
+   */
+  renderBlockOverlay?: (slot: T) => React.ReactNode
 }
 
 /**
@@ -79,6 +96,7 @@ export default function AvailabilityGrid<T extends AvailabilityGridSlot>({
   onCreateAt,
   onEditSlot,
   readOnly = false,
+  renderBlockOverlay,
 }: AvailabilityGridProps<T>) {
   return (
     <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
@@ -138,6 +156,24 @@ export default function AvailabilityGrid<T extends AvailabilityGridSlot>({
                   slot.startTime,
                   slot.endTime,
                 )
+                const style = {
+                  top: `${topPercent}%`,
+                  height: `${Math.max(heightPercent, 4)}%`,
+                }
+                const overlay = renderBlockOverlay?.(slot)
+
+                if (overlay) {
+                  return (
+                    <div
+                      key={slot.id}
+                      className={`absolute left-0.5 right-0.5 rounded px-1 py-0.5 text-[10px] leading-tight overflow-hidden ${KIND_STYLES[slot.kind]}`}
+                      style={style}
+                    >
+                      {overlay}
+                    </div>
+                  )
+                }
+
                 return (
                   <button
                     key={slot.id}
@@ -150,10 +186,7 @@ export default function AvailabilityGrid<T extends AvailabilityGridSlot>({
                       KIND_LABELS[slot.kind]
                     }`}
                     className={`absolute left-0.5 right-0.5 rounded px-1 py-0.5 text-[10px] leading-tight text-left overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 disabled:cursor-default disabled:hover:bg-none ${KIND_STYLES[slot.kind]}`}
-                    style={{
-                      top: `${topPercent}%`,
-                      height: `${Math.max(heightPercent, 4)}%`,
-                    }}
+                    style={style}
                   >
                     <span className="block font-medium">{KIND_LABELS[slot.kind]}</span>
                     <span className="block">

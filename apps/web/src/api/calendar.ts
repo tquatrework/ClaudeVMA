@@ -28,6 +28,7 @@ import type {
   ReminderDelay,
 } from '../components/calendar/calendarTypes'
 import type {
+  CalendarActivityEntry,
   CalendarEvent,
   ActivitySession,
   AvailabilitySlot,
@@ -258,6 +259,28 @@ export async function updateAvailabilitySlot(
  */
 export async function deleteAvailabilitySlot(ownerId: string, slotId: string): Promise<void> {
   await apiClient.delete(`/calendars/${ownerId}/availability-slots/${slotId}`)
+}
+
+// ─── Activités du calendrier — affichage inline des propositions (AvailabilityTab) ─────
+//
+// Chantier calendrier de disponibilités, point 3, gap comblé le 2026-08-18 côté serveur
+// (docs/routes.md § calendar-service > "GET /calendars/:ownerId — forme exacte de activities").
+// Décision explicite de l'utilisateur (2026-08-18) : les propositions de créneau apparaissent
+// directement dans la grille du destinataire, pas dans une liste séparée.
+
+interface OwnerCalendarActivitiesResponse {
+  activities?: CalendarActivityEntry[]
+}
+
+/**
+ * GET /calendars/:ownerId — Lit le calendrier complet d'un titulaire et en extrait les activités
+ * planifiées (`activities`). Seuls `proposed`/`confirmed` peuvent y figurer (filtré côté serveur).
+ * Utilisé par `useOwnerCalendarActivities` pour l'affichage inline des propositions/confirmations
+ * de créneau de cours dans `AvailabilityGrid`.
+ */
+export async function fetchOwnerCalendarActivities(ownerId: string): Promise<CalendarActivityEntry[]> {
+  const { data } = await apiClient.get<OwnerCalendarActivitiesResponse>(`/calendars/${ownerId}`)
+  return Array.isArray(data?.activities) ? data.activities : []
 }
 
 // ─── Visibilité busy/free d'un tiers lié (LinkedCalendarView) ──────────────────

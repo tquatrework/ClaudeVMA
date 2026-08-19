@@ -115,3 +115,46 @@ describe('AvailabilityGrid — interaction', () => {
     expect(onEditSlot).not.toHaveBeenCalled()
   })
 })
+
+describe('AvailabilityGrid — renderBlockOverlay (chantier calendrier, point 3)', () => {
+  const PROPOSED_BLOCK = {
+    id: 'activity-1',
+    dayOfWeek: 4,
+    startTime: '14:00',
+    endTime: '15:00',
+    kind: 'PROPOSED' as const,
+  }
+
+  it('rend le contenu superposé au lieu du bouton par défaut, sans invoquer onEditSlot au clic', async () => {
+    const onEditSlot = vi.fn()
+    render(
+      <AvailabilityGrid
+        slots={[PROPOSED_BLOCK]}
+        onCreateAt={vi.fn()}
+        onEditSlot={onEditSlot}
+        renderBlockOverlay={() => <button type="button">Accepter</button>}
+      />,
+    )
+
+    const overlayButton = screen.getByRole('button', { name: 'Accepter' })
+    expect(overlayButton).toBeDefined()
+
+    await userEvent.click(overlayButton)
+    expect(onEditSlot).not.toHaveBeenCalled()
+  })
+
+  it('utilise le bouton par défaut pour un slot sans overlay fourni', () => {
+    render(
+      <AvailabilityGrid
+        slots={[AVAILABLE_SLOT]}
+        onCreateAt={vi.fn()}
+        onEditSlot={vi.fn()}
+        renderBlockOverlay={() => undefined}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: /modifier le créneau lundi 09:00 – 10:00 — disponible/i }),
+    ).toBeDefined()
+  })
+})

@@ -18,6 +18,7 @@ import type { UserRole } from '../types/user'
 
 const FALLBACK_STUDENT = 'un élève'
 const FALLBACK_TEACHER = 'un formateur'
+const FALLBACK_PROPOSER = 'un intervenant'
 const FALLBACK_TEXT = 'Nouvelle notification'
 
 function studentLabel(metadata: NotificationMetadata | null | undefined): string {
@@ -26,6 +27,10 @@ function studentLabel(metadata: NotificationMetadata | null | undefined): string
 
 function teacherLabel(metadata: NotificationMetadata | null | undefined): string {
   return metadata?.teacherName?.trim() || FALLBACK_TEACHER
+}
+
+function proposerLabel(metadata: NotificationMetadata | null | undefined): string {
+  return metadata?.proposerName?.trim() || FALLBACK_PROPOSER
 }
 
 /** Rôles pour lesquels une relation élève↔formateur place la personne côté formateur. */
@@ -71,6 +76,10 @@ const NOTIFICATION_LABEL_BUILDERS: Record<string, NotificationLabelBuilder> = {
 
   teacher_request_status_updated: (metadata) =>
     `Le statut de la demande de professeur de ${studentLabel(metadata)} a changé`,
+
+  // Chantier calendrier de disponibilités, point 3 (2026-08-19). Libellé exact retenu par
+  // l'utilisateur : « Proposition de cours ajoutée par {proposerName} ».
+  course_slot_proposed: (metadata) => `Proposition de cours ajoutée par ${proposerLabel(metadata)}`,
 }
 
 /**
@@ -104,6 +113,12 @@ export function getNotificationDisplayText(
  * (boîte de réception formateur, liste de demandes élève/parent/RP).
  * Un type absent de cette table (hérité ou futur) ne navigue nulle part —
  * mieux vaut ne rien faire que d'emmener l'utilisateur au mauvais endroit.
+ *
+ * `course_slot_proposed` (chantier calendrier de disponibilités, point 3, 2026-08-19) suit le
+ * même principe : la proposition de créneau est désormais visible et actionnable directement
+ * dans la grille de `/calendar` (onglet « Mes disponibilités », `AvailabilityTab`), jamais dans
+ * un écran séparé — même défaut de découvrabilité déjà corrigé pour le flow demande de
+ * professeur le 2026-08-17, appliqué ici.
  */
 const NOTIFICATION_TARGET_PATHS: Record<string, string> = {
   teacher_request_created: '/teacher-requests',
@@ -114,6 +129,7 @@ const NOTIFICATION_TARGET_PATHS: Record<string, string> = {
   teacher_proposal_expired: '/teacher-requests',
   teacher_assigned: '/teacher-requests',
   teacher_request_status_updated: '/teacher-requests',
+  course_slot_proposed: '/calendar',
 }
 
 /** Route vers laquelle naviguer au clic sur une notification, ou `null` si aucune n'est définie. */

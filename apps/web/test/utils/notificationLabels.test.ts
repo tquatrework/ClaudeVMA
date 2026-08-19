@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { getNotificationDisplayText } from '../../src/utils/notificationLabels'
+import { getNotificationDisplayText, getNotificationTargetPath } from '../../src/utils/notificationLabels'
 
 describe('getNotificationDisplayText', () => {
   it('résout teacher_request_created avec le nom de l\'élève', () => {
@@ -134,5 +134,40 @@ describe('getNotificationDisplayText', () => {
       message: '',
     })
     expect(text).toBe('Nouvelle notification')
+  })
+
+  it('résout course_slot_proposed avec le nom du proposeur (chantier calendrier, point 3)', () => {
+    const text = getNotificationDisplayText({
+      type: 'course_slot_proposed',
+      metadata: { proposerName: 'Camille Durand' },
+      title: '',
+      message: '',
+    })
+    expect(text).toBe('Proposition de cours ajoutée par Camille Durand')
+  })
+
+  it('course_slot_proposed sans proposerName → texte neutre en français, jamais un UUID', () => {
+    const text = getNotificationDisplayText({
+      type: 'course_slot_proposed',
+      metadata: {},
+      title: '',
+      message: '',
+    })
+    expect(text).toBe('Proposition de cours ajoutée par un intervenant')
+  })
+})
+
+describe('getNotificationTargetPath', () => {
+  it('renvoie /calendar pour course_slot_proposed', () => {
+    expect(getNotificationTargetPath('course_slot_proposed')).toBe('/calendar')
+  })
+
+  it('renvoie /teacher-requests pour les 8 types du flow demande de professeur', () => {
+    expect(getNotificationTargetPath('teacher_request_created')).toBe('/teacher-requests')
+    expect(getNotificationTargetPath('teacher_assigned')).toBe('/teacher-requests')
+  })
+
+  it('renvoie null pour un type inconnu', () => {
+    expect(getNotificationTargetPath('some_legacy_type')).toBeNull()
   })
 })

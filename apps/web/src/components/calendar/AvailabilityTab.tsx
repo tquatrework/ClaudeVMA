@@ -1,10 +1,25 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import type { AvailabilitySlot } from '../../types/calendar'
 import { useAvailabilitySlots } from '../../hooks/calendar/useAvailabilitySlots'
+import { useOwnerCalendarActivities } from '../../hooks/calendar/useOwnerCalendarActivities'
+import {
+  toScheduledActivityGridBlocks,
+  type ScheduledActivityGridBlock,
+} from '../../utils/scheduledActivityGridBlocks'
 import AvailabilityGrid from './AvailabilityGrid'
+import ActivityGridBlockOverlay from './ActivityGridBlockOverlay'
+import { ErrorMessage } from '../ui/ErrorMessage'
 import AvailabilitySlotFormModal, {
   type AvailabilitySlotFormInitialValues,
 } from './AvailabilitySlotFormModal'
+
+/** Slot affichable par la grille combinée — créneau de disponibilité éditable, ou activité
+ * planifiée (proposition/confirmation de cours) en lecture seule avec overlay dédié. */
+type CalendarGridSlot = AvailabilitySlot | ScheduledActivityGridBlock
+
+function isAvailabilitySlotBlock(slot: CalendarGridSlot): slot is AvailabilitySlot {
+  return slot.kind === 'AVAILABLE' || slot.kind === 'UNAVAILABLE'
+}
 
 interface AvailabilityTabProps {
   ownerId: string
@@ -45,6 +60,13 @@ function buildInitialValues(target: FormTarget): AvailabilitySlotFormInitialValu
  * AvailabilityTab — onglet "Mes disponibilités" de CalendarPage. Compose le hook
  * d'orchestration, la grille et le formulaire modal, gère les 4 états (chargement, erreur,
  * vide, succès).
+ *
+ * Depuis le chantier calendrier de disponibilités, point 3 (2026-08-19), cette grille affiche
+ * aussi les propositions/confirmations de créneau de cours dont l'utilisateur est participant ou
+ * créateur (`GET /calendars/:ownerId` → `activities`, `useOwnerCalendarActivities`) — décision
+ * explicite de l'utilisateur (2026-08-18) : directement dans la grille, pas dans une liste
+ * séparée. Une proposition (`PROPOSED`, couleur pastel) porte ses boutons Accepter/Refuser
+ * directement sur le bloc ; un cours déjà confirmé (`CONFIRMED`) s'affiche sans action.
  */
 export default function AvailabilityTab({ ownerId }: AvailabilityTabProps) {
   const {
@@ -59,6 +81,22 @@ export default function AvailabilityTab({ ownerId }: AvailabilityTabProps) {
     clearActionError,
   } = useAvailabilitySlots(ownerId)
 
+  const {
+    activities,
+    isLoading: isLoadingActivities,
+    loadError: activitiesLoadError,
+    respondingActivityId,
+    respondError,
+    clearRespondError,
+    respondToActivity,
+  } = useOwnerCalendarActivities(ownerId)
+
+  const activityBlocks = useMemo(() => toScheduledActivityGridBlocks(activities), [activities])
+  const gridSlots = useMemo<CalendarGridSlot[]>(
+    () => [...slots, ...activityBlocks],
+    [slots, activityBlocks],
+  )
+
   const [formTarget, setFormTarget] = useState<FormTarget | null>(null)
 
   const openCreateForm = (dayOfWeek: number, startTime: string) => {
@@ -66,9 +104,22 @@ export default function AvailabilityTab({ ownerId }: AvailabilityTabProps) {
     setFormTarget({ mode: 'create', dayOfWeek, startTime })
   }
 
-  const openEditForm = (slot: AvailabilitySlot) => {
+  const openEditForm = (slot: CalendarGridSlot) => {
+    if (!isAvailabilitySlotBlock(slot)) return
     clearActionError()
     setFormTarget({ mode: 'edit', slot })
+  }
+
+  const renderBlockOverlay = (slot: CalendarGridSlot): React.ReactNode => {
+    if (isAvailabilitySlotBlock(slot)) return undefined
+    return (
+      <ActivityGridBlockOverlay
+        block={slot}
+        onAccept={(activityId) => respondToActivity(activityId, 'accept')}
+        onDecline={(activityId) => respondToActivity(activityId, 'decline')}
+        isResponding={respondingActivityId === slot.activity.id}
+      />
+    )
   }
 
   const closeForm = () => {
@@ -108,16 +159,30 @@ export default function AvailabilityTab({ ownerId }: AvailabilityTabProps) {
     <div>
       <p className="text-sm text-gray-500 mb-4">
         Cliquez sur une case vide pour ajouter un créneau, ou sur un créneau existant pour le
-        modifier ou le supprimer.
+        modifier ou le supprimer. Les propositions de créneau de cours que vous avez reçues
+        apparaissent aussi ci-dessous, en couleur distincte, avec leurs boutons Accepter/Refuser.
       </p>
 
-      {slots.length === 0 && (
+      {activitiesLoadError && (
+        <ErrorMessage message={activitiesLoadError} className="mb-4" />
+      )}
+
+      {respondError && (
+        <ErrorMessage message={respondError} onClose={clearRespondError} className="mb-4" />
+      )}
+
+      {slots.length === 0 && activityBlocks.length === 0 && !isLoadingActivities && (
         <div className="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-xl text-center">
           <p className="text-sm text-gray-400">Aucun créneau de disponibilité renseigné</p>
         </div>
       )}
 
-      <AvailabilityGrid slots={slots} onCreateAt={openCreateForm} onEditSlot={openEditForm} />
+      <AvailabilityGrid
+        slots={gridSlots}
+        onCreateAt={openCreateForm}
+        onEditSlot={openEditForm}
+        renderBlockOverlay={renderBlockOverlay}
+      />
 
       {formTarget && (
         <AvailabilitySlotFormModal

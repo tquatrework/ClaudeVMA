@@ -2,13 +2,21 @@
  * CourseProposalsPanel — onglet « Propositions de cours » de `/calendar` (chantier calendrier
  * de disponibilités, point 3). Permet à un formateur, un animateur pédagogique ou un
  * responsable pédagogique d'ouvrir `ProposeCourseSlotDialog` et de suivre ses propositions
- * envoyées.
+ * envoyées depuis cet appareil.
  *
- * **Limite assumée** (voir `useSentCourseProposals`) : sans route de liste côté serveur pour
- * les activités planifiées, la liste ci-dessous ne retrace que les propositions envoyées
- * **depuis ce navigateur**. Un destinataire n'a aujourd'hui aucun moyen de découvrir une
- * proposition depuis cet onglet — il doit connaître son lien direct
- * (`/calendar/proposals/:activityId`), transmis hors application pour l'instant.
+ * **Rôle révisé le 2026-08-19.** Le gap qui justifiait cet onglet côté **destinataire** est
+ * comblé : `GET /calendars/:ownerId` porte désormais `activities`, et une proposition reçue
+ * s'affiche directement dans la grille de l'onglet « Mes disponibilités »
+ * (`AvailabilityTab`), avec ses boutons Accepter/Refuser inline — plus besoin de connaître un
+ * lien direct transmis hors application. Cet onglet reste néanmoins le point d'entrée du
+ * **proposeur** : ouvrir `ProposeCourseSlotDialog`, et un suivi de ce qu'il a envoyé.
+ *
+ * **Limite assumée, inchangée** (voir `useSentCourseProposals`) : ce suivi ne retrace que les
+ * propositions envoyées **depuis ce navigateur** (`localStorage`, aucune route de liste
+ * globale côté serveur). `GET /calendars/:ownerId` inclurait bien les activités où l'utilisateur
+ * est *créateur*, mais sa forme (`CalendarActivityEntry`) ne porte ni `title` ni le nom du
+ * destinataire — y migrer ferait perdre le titre affiché ici sans le remplacer par une
+ * information équivalente ; non fait pour cette raison, voir le rapport de session.
  */
 
 import React, { useState } from 'react'
@@ -99,7 +107,8 @@ export default function CourseProposalsPanel() {
           </p>
           {!proposerRole && (
             <p className="text-gray-400 text-xs mt-1">
-              Reçu un lien vers une proposition ? Ouvrez-le directement pour y répondre.
+              Les propositions de créneau que vous recevez s'affichent dans l'onglet « Mes
+              disponibilités », avec leurs boutons Accepter/Refuser.
             </p>
           )}
         </div>

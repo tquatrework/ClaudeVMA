@@ -34,6 +34,7 @@ import {
   setEventReminder,
   requestEventCancellation,
   fetchAvailability,
+  fetchOwnerCalendarActivities,
 } from '../../src/api/calendar'
 
 const mockUseAuth = vi.mocked(useAuth)
@@ -44,6 +45,7 @@ const mockCreateOwnerEvent = vi.mocked(createOwnerEvent)
 const mockSetEventReminder = vi.mocked(setEventReminder)
 const mockRequestEventCancellation = vi.mocked(requestEventCancellation)
 const mockFetchAvailability = vi.mocked(fetchAvailability)
+const mockFetchOwnerCalendarActivities = vi.mocked(fetchOwnerCalendarActivities)
 
 const TEACHER_USER = {
   id: 'teacher-1',
@@ -88,6 +90,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue(buildAuthMock())
   mockFetchAvailability.mockResolvedValue([])
+  mockFetchOwnerCalendarActivities.mockResolvedValue([])
 })
 
 // ---------------------------------------------------------------------------

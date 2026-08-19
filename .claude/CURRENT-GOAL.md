@@ -73,8 +73,15 @@ un créneau proposé.
 
 ### État
 
-- [ ] Backend — confirmer et corriger le contrat `POST /calendars/:ownerId/events`
-      (`calendar-service`)
+- [x] Backend — confirmé et corrigé, `calendar-service`, commits `7e96678`+`a553538`, poussés et
+      déployés. Cause réelle : `CreateCalendarEventDto` exigeait `startTime`/`endTime` en écriture
+      alors que la doc et le front utilisaient déjà `startAt`/`endAt` pour cette route précise —
+      pur écart code/doc. Corrigé dans les deux sens : le DTO d'écriture ET la réponse de lecture
+      (`GET`/`POST /calendars/:ownerId/events`, qui renvoyait aussi `startTime`/`endTime`, écart
+      trouvé et corrigé dans un second passage) exposent désormais `startAt`/`endAt` de bout en
+      bout. Les routes `availability-slots`/`activities` gardent légitimement `startTime`/
+      `endTime` (entités distinctes, non touchées). 241 tests unitaires + 93 e2e verts, `tsc
+      --noEmit` propre — vérifié indépendamment par l'orchestrateur après chaque fast-forward.
 - [ ] Front — grille unique fusionnant les trois sources, sélecteur de mode en marge, création
       par clic, acceptation par clic sur le créneau (`front-developper`)
 - [ ] Déployé sur la pile réelle

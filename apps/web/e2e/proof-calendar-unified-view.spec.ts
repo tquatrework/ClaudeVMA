@@ -466,21 +466,13 @@ test.describe('Chantier calendrier vue unifiée', () => {
             `résolue vers : "${pastDateLabelText}"`,
         )
 
-        // Constat, pas un correctif attendu ici : le popover ne montre AUCUN avertissement
-        // "cet horaire est déjà passé" — il affiche la date du jour comme n'importe quelle
-        // autre, ce qui peut surprendre un utilisateur qui recliquerait par erreur sur une
-        // case matinale en fin de journée. Documenté tel quel dans le rapport de session.
-        const warningVisible = await pastEventDialog
-          .getByText(/passé|déjà eu lieu/i)
-          .isVisible()
-          .catch(() => false)
-        expect
-          .soft(
-            warningVisible,
-            'AUCUN avertissement affiché pour un horaire déjà passé aujourd\'hui — comportement ' +
-              'silencieux à documenter, pas un échec de ce test',
-          )
-          .toBe(false)
+        // Corrigé le 2026-08-19 (décision utilisateur : avertir sans bloquer) : le popover
+        // affiche désormais un avertissement explicite quand la date résolue est déjà passée.
+        const warningLocator = pastEventDialog.getByText(/passé|déjà eu lieu/i)
+        await expect(warningLocator).toBeVisible()
+        await pastEventDialog.screenshot({
+          path: 'test-results/calendar-unified-05-past-date-warning.png',
+        })
 
         await pastEventDialog.getByRole('button', { name: 'Annuler' }).click()
         await expect(pastEventDialog).toBeHidden()

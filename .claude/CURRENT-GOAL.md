@@ -294,10 +294,51 @@ Ordre de livraison retenu, une branche par étape :
       fois `https://193.108.54.226:7880/` et accepter l'avertissement de sécurité avant de
       pouvoir rejoindre une visio — sinon la connexion `wss://` échoue en silence côté client.
 
-      **Reste à faire** : front (composant vidéo LiveKit intégré, `@livekit/components-react`,
-      remplace `window.open(joinUrl)` dans `VideoJoinPage.tsx` par un appel au nouveau contrat
-      `{token, url}`, point d'entrée depuis une activité confirmée dans le calendrier), preuve à
-      deux comptes/navigateurs (exigence du plan).
+      **Front `@livekit/components-react` livré**, commits `c9a6403`+`13418c5`, poussés :
+      `LiveVideoCall.tsx` (composant partagé `LiveKitRoom`+`VideoConference`), contrat `{token,
+      url}` branché, bouton « Rejoindre le cours » depuis un bloc confirmé dans la grille
+      calendrier (`GET /video/rooms/by-activity/:activityId`). 48 tests verts (tsc + build + tests
+      rejoués indépendamment par l'orchestrateur). Connexion LiveKit réelle **non exercée** par
+      cette session (pas de caméra/réseau dans l'environnement du sous-agent) — signalé comme tel,
+      pas simulé comme preuve.
+
+      **Déployé sur la pile réelle** (bundle `index-B8vl6Fkn.js`, chaînes LiveKit confirmées dans
+      le bundle servi).
+
+      **Preuve à deux navigateurs tentée — deux bugs réels trouvés, pas contournés en silence**
+      (commits `4f36c3e`+`1941585`, cherry-pickés depuis le sous-agent car sa session ne pouvait
+      pas checkout la même branche, poussés) :
+      1. **Bug bloquant confirmé** : une salle fraîchement créée naît `status: "waiting"` côté
+         serveur (la transition `WAITING → ACTIVE` se fait au premier `join`, documentation
+         `docs/routes.md`) — mais `VideoRoomStatus` (front, `apps/web/src/types/video.ts`) ne
+         connaît que `'active' | 'ended' | 'scheduled'`. `waiting` ne correspond à aucune branche
+         de `VideoJoinPage.tsx` : aucun bouton « Rejoindre » n'apparaît jamais, écran silencieux.
+         Verrou circulaire : la seule action qui ferait passer `waiting`→`active` est justement
+         l'appel `join` que ce bouton absent devait déclencher. **Aucun utilisateur réel ne peut
+         aujourd'hui rejoindre une salle fraîchement créée par ce chemin.** Capture :
+         `.claude/reports/livekit-join-2026-08-19/livekit-03-BUG-no-join-button-waiting-status.png`.
+      2. **UUID brut affiché, violation de la règle du 2026-08-09** : une fois débloqué (appel
+         direct à `/join`, contournement documenté comme non représentatif), les tuiles de
+         participants LiveKit affichent l'identifiant technique brut (`39b62393-bb4a-...`) au lieu
+         d'un nom — `@livekit/components-react` affiche `identity` (= `userId`, passé tel quel à
+         `AccessToken` côté serveur) faute de `name` renseigné. Capture :
+         `.claude/reports/livekit-join-2026-08-19/livekit-06-teacher-sees-other-participant.png`.
+      **Preuve positive malgré les deux bugs** : une fois le verrou contourné, deux navigateurs
+      Playwright réels (formateur + élève, comptes réels, `ignoreHTTPSErrors` pour le certificat
+      auto-signé, périphériques média factices) se sont connectés en `wss://` et se voient
+      mutuellement — reproduit sur 2 exécutions consécutives, stable. Le mécanisme LiveKit
+      sous-jacent fonctionne réellement ; c'est l'expérience utilisateur du bouton « Rejoindre »
+      qui est cassée.
+
+      **Deux correctifs à dispatcher avant de pouvoir prouver le parcours réel (sans
+      contournement)** :
+      1. Front (`front-developper`) : `VideoRoomStatus` doit inclure `'waiting'`, et
+         `VideoJoinPage.tsx` doit afficher le bouton « Rejoindre » dans ce cas (au même titre que
+         `active`) — c'est le rôle même de ce bouton de déclencher la transition serveur.
+      2. Backend (`video-session-service`) : `AccessToken` doit porter un `name` (prénom+nom
+         résolu via `profile-service`, même mécanisme interne que le reste du projet), pas
+         seulement l'`identity` (UUID) — pour que les composants LiveKit affichent un nom, jamais
+         un UUID brut.
 - [ ] Preuve livrée à l'utilisateur pour chaque point
 - [ ] Validé par l'utilisateur
 

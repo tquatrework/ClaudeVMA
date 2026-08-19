@@ -1084,17 +1084,23 @@ Body `POST /calendars/:ownerId/availability-slots` : `{dayOfWeek?, startTime, en
 
 Body `PATCH /calendars/:ownerId/availability-slots/:slotId` : mêmes champs, tous optionnels. `recurrenceEndDate` accepte explicitement `null` pour effacer une date de fin déjà posée (repasser une récurrence bornée en illimitée).
 
-Réponse `GET /calendars/:ownerId/events` : `[{id, title, startAt, endAt, eventType, status, ownerId, invitations?, reminderRules?}]`
+Réponse `GET /calendars/:ownerId/events` et réponse `201` de `POST /calendars/:ownerId/events` :
+`[{id, title, startAt, endAt, eventType, status, ownerId, invitations?, reminderRules?}]`
+(`GET`) / `{id, title, startAt, endAt, eventType, status, ownerId, invitations?}` (`POST`).
 
-**Écart de doc non corrigé, constaté le 2026-08-19** : cette forme de réponse (`startAt`/`endAt`)
-n'a jamais été portée par le code — le contrôleur renvoie l'entité `CalendarEvent` telle quelle
-(`startTime`/`endTime`, sans sérialisation dédiée), pour `GET` comme pour la réponse `201` de
-`POST`. Seul le **corps de la requête `POST`** (bug ci-dessus) a été corrigé dans cette passe, à
-la demande explicite du signalement traité ; corriger aussi la forme de sortie exigerait une
-transformation de réponse (le champ `startTime` de l'entité et la colonne `start_time` en base
-restent des détails internes légitimes, à ne pas renommer) — non fait ici pour rester strictement
-dans le périmètre du bug de création signalé, aucun appelant connu ne s'étant plaint de la lecture.
-Point ouvert, à traiter si un consommateur du `GET` en a besoin.
+**Écart de doc corrigé le 2026-08-19** : cette forme de réponse (`startAt`/`endAt`) était
+documentée depuis le début mais jamais portée par le code — le contrôleur renvoyait l'entité
+`CalendarEvent` telle quelle (`startTime`/`endTime`, sans sérialisation dédiée), pour `GET` comme
+pour la réponse `201` de `POST`. Corrigé en renommant les propriétés TypeScript de l'entité
+`CalendarEvent` (`startTime` → `startAt`, `endTime` → `endAt`) ; la colonne physique en base reste
+`start_time`/`end_time` (`@Column({ name: 'start_time' })`), seul le nom exposé en JSON change.
+Aucun autre appelant interne de cette entité ne dépendait de `startTime`/`endTime` (vérifié —
+seul `calendar-events.service.ts` référence l'entité `CalendarEvent`, corrigé en même temps ; les
+routes `availability-slots`/`activities` portent leurs propres entités et gardent légitimement
+`startTime`/`endTime`). Le payload interne de l'évènement `CalendarEventCreated` (outbox
+`domain_events`) garde volontairement la clé `startTime` — hors périmètre de ce correctif, qui ne
+porte que sur la réponse HTTP, pour ne pas modifier un contrat d'évènement interservices sans
+concertation.
 
 ### `GET /calendars/:ownerId` — forme exacte de `activities` (chantier calendrier de disponibilités, point 3, gap comblé le 2026-08-18)
 

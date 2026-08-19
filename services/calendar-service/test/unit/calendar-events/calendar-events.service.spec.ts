@@ -178,6 +178,45 @@ describe('CalendarEventsService', () => {
       );
     });
 
+    it('regression: persists and returns startAt/endAt, never startTime/endTime, on the CalendarEvent aggregate (docs/routes.md contract for GET/POST /calendars/:ownerId/events)', async () => {
+      const savedEvent = {
+        id: 'evt-1',
+        title: validDto.title,
+        eventType: validDto.eventType,
+        startAt: new Date(validDto.startAt),
+        endAt: new Date(validDto.endAt),
+        ownerId: 'teacher-1',
+        creatorId: 'teacher-1',
+        invitations: [],
+      } as unknown as CalendarEvent;
+      mockEventRepo.create.mockReturnValue(savedEvent);
+      mockEventRepo.save.mockResolvedValue(savedEvent);
+      mockEventRepo.findOne.mockResolvedValue(savedEvent);
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      const result = await service.createEvent('teacher-1', validDto, actor);
+
+      // The entity is built with startAt/endAt (not startTime/endTime) —
+      // this is what TypeORM serializes into the JSON response body.
+      expect(mockEventRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          startAt: new Date(validDto.startAt),
+          endAt: new Date(validDto.endAt),
+        }),
+      );
+      expect(mockEventRepo.create).toHaveBeenCalledWith(
+        expect.not.objectContaining({ startTime: expect.anything() }),
+      );
+      expect(mockEventRepo.create).toHaveBeenCalledWith(
+        expect.not.objectContaining({ endTime: expect.anything() }),
+      );
+
+      expect(result).toHaveProperty('startAt');
+      expect(result).toHaveProperty('endAt');
+      expect((result as unknown as Record<string, unknown>).startTime).toBeUndefined();
+      expect((result as unknown as Record<string, unknown>).endTime).toBeUndefined();
+    });
+
     it('ELEVE can create a RAPPEL event', async () => {
       const dto = { ...validDto, eventType: EventType.RAPPEL };
       const savedEvent = { id: 'evt-2', ...dto, ownerId: 'student-1', creatorId: 'student-1', invitations: [] } as unknown as CalendarEvent;
@@ -334,7 +373,7 @@ describe('CalendarEventsService', () => {
       const calendarEvent = {
         id: 'evt-1',
         creatorId: 'teacher-1',
-        startTime: futureDate,
+        startAt: futureDate,
         status: CalendarEventStatus.ACTIVE,
       } as CalendarEvent;
 
@@ -368,7 +407,7 @@ describe('CalendarEventsService', () => {
       const calendarEvent = {
         id: 'evt-2',
         creatorId: 'teacher-1',
-        startTime: nearFutureDate,
+        startAt: nearFutureDate,
         status: CalendarEventStatus.ACTIVE,
       } as CalendarEvent;
 
@@ -394,7 +433,7 @@ describe('CalendarEventsService', () => {
       const calendarEvent = {
         id: 'evt-3',
         creatorId: 'teacher-1',
-        startTime: futureDate,
+        startAt: futureDate,
         status: CalendarEventStatus.ACTIVE,
       } as CalendarEvent;
 
@@ -417,7 +456,7 @@ describe('CalendarEventsService', () => {
       const calendarEvent = {
         id: 'evt-4',
         creatorId: 'teacher-1',
-        startTime: new Date(Date.now() + 72 * 60 * 60 * 1000),
+        startAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
         status: CalendarEventStatus.ACTIVE,
       } as CalendarEvent;
       mockEventRepo.findOne.mockResolvedValue(calendarEvent);
@@ -437,7 +476,7 @@ describe('CalendarEventsService', () => {
       const calendarEvent = {
         id: 'evt-5',
         creatorId: 'teacher-1',
-        startTime: new Date(Date.now() + 72 * 60 * 60 * 1000),
+        startAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
         status: CalendarEventStatus.CANCELLED,
       } as CalendarEvent;
       mockEventRepo.findOne.mockResolvedValue(calendarEvent);

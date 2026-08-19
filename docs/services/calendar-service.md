@@ -918,6 +918,77 @@
             rester strictement dans le perimetre du bug de creation signale.</item>
         </openPoints>
       </session>
+
+      <session date="2026-08-19" label="Correctif ecart restant — reponse GET/POST /calendars/:ownerId/events en startTime/endTime au lieu de startAt/endAt">
+        <changeset id="cause-confirmee">
+          <item>Suite directe de la session precedente du meme jour, qui avait corrige le corps de
+            la requete `POST` mais signale explicitement, sans le corriger, que la reponse de
+            `GET`/`POST /calendars/:ownerId/events` renvoyait l'entite `CalendarEvent` telle
+            quelle (`startTime`/`endTime`), alors que `docs/routes.md` et le front
+            (`apps/web/src/components/calendar/calendarTypes.ts`, `EventCard.tsx`) attendent
+            `startAt`/`endAt` en lecture — verifie par lecture directe de ces deux fichiers front
+            avant correctif, pas suppose.</item>
+          <item>Confirme que le controleur (`CalendarEventsController`) ne fait aucune
+            transformation de sortie : il retourne directement l'entite TypeORM `CalendarEvent`
+            (ou un tableau de celle-ci), serialisee telle quelle par Nest — la reponse JSON suit
+            donc exactement les noms de propriete TypeScript de l'entite.</item>
+        </changeset>
+
+        <changeset id="correctif">
+          <item>Entite `CalendarEvent` (`src/calendar-events/entities/calendar-event.entity.ts`) :
+            proprietes TypeScript renommees `startTime` → `startAt`, `endTime` → `endAt`. Les
+            colonnes physiques en base restent `start_time`/`end_time`
+            (`@Column({ name: 'start_time' })` / `@Column({ name: 'end_time' })`) — aucune
+            migration necessaire, seul le nom expose en JSON change.</item>
+          <item>`CalendarEventsService` (seul autre fichier du service referencant cette entite,
+            verifie par grep cible sur `CalendarEvent` hors dossier `calendar-events/` — aucun
+            resultat) : `createEvent` construit desormais l'entite avec `startAt`/`endAt` ;
+            `requestCancellation` lit `calendarEvent.startAt.getTime()` au lieu de
+            `.startTime.getTime()` pour la regle des 48h.</item>
+          <item>Le payload de l'evenement de domaine `CalendarEventCreated` (outbox
+            `domain_events`, consomme potentiellement par d'autres services) garde
+            volontairement la cle `startTime` — seule sa source change
+            (`createdEvent.startAt` au lieu de `createdEvent.startTime`) ; renommer cette cle
+            aurait touche un contrat interservices hors perimetre de ce correctif, qui ne porte
+            que sur la reponse HTTP de la route.</item>
+          <item>Verifie que `availability-slots` et `activities` (routes et entites distinctes,
+            `AvailabilitySlot`/`ScheduledActivity`) ne sont pas concernes : ils gardent
+            legitimement `startTime`/`endTime`, ni leurs entites ni leurs services n'ont ete
+            touches.</item>
+        </changeset>
+
+        <changeset id="tests">
+          <item>`test/unit/calendar-events/calendar-events.service.spec.ts` : nouveau test de
+            regression explicite verifiant que `eventRepo.create` est appele avec
+            `startAt`/`endAt` (jamais `startTime`/`endTime`) et que l'objet retourne par
+            `createEvent` expose `startAt`/`endAt` sans `startTime`/`endTime`. Fixtures des tests
+            `requestCancellation` (`calendarEvent.startTime: ...`) renommees en `startAt` pour
+            rester coherentes avec l'entite renommee.</item>
+          <item>Nouveau `describe('POST/GET /calendars/:ownerId/events — startAt/endAt dans la
+            reponse')` ajoute a `test/e2e/calendar.e2e-spec.ts` (aucune couverture e2e n'existait
+            avant sur cette route) : exerce la vraie route HTTP via `supertest` contre l'app
+            NestJS complete et une vraie base Postgres (`calendar_test`), verifie que la reponse
+            `201` du `POST` et la reponse `200` du `GET` portent `startAt`/`endAt` et jamais
+            `startTime`/`endTime`.</item>
+          <item>Suite unitaire complete verte : 241 tests (etait 240, +1 test de regression).
+            Suite e2e complete verte : 93 tests (etait 91, +2 tests nouveaux), lancee avec
+            `TEST_DB_HOST=localhost` contre le conteneur Postgres reel deja en service
+            (`visiomath_postgres`, base `calendar_test` dediee aux tests).</item>
+        </changeset>
+
+        <changeset id="documentation">
+          <item>`docs/routes.md` : note « Ecart de doc non corrige, constate le 2026-08-19 »
+            remplacee par une note « Ecart de doc corrige le 2026-08-19 » decrivant le correctif
+            et le choix de laisser la colonne base et le payload d'evenement inchanges.</item>
+        </changeset>
+
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <item>Concatenation sans separateur des messages de validation multiples
+            (signalee dans la session precedente) : toujours hors perimetre de ce correctif,
+            non retraitee ici.</item>
+        </openPoints>
+      </session>
     </technicalSessions>
   </service>
 </serviceFunctionalSpecification>

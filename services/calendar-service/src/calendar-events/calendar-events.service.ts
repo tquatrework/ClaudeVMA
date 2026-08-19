@@ -153,8 +153,8 @@ export class CalendarEventsService {
           eventType: dto.eventType,
           creatorId: actor.id,
           creatorRole: actor.role,
-          startTime: new Date(dto.startAt),
-          endTime: new Date(dto.endAt),
+          startAt: new Date(dto.startAt),
+          endAt: new Date(dto.endAt),
           description: dto.description ?? null,
           targetRef: dto.targetRef ?? null,
         }),
@@ -185,7 +185,7 @@ export class CalendarEventsService {
         ownerId,
         eventType: createdEvent.eventType,
         creatorId: actor.id,
-        startTime: createdEvent.startTime,
+        startTime: createdEvent.startAt,
         inviteeIds: dto.inviteeIds ?? [],
       },
       correlationId,
@@ -281,7 +281,7 @@ export class CalendarEventsService {
       throw new ConflictException('Event is already cancelled');
     }
 
-    const timeUntilEvent = calendarEvent.startTime.getTime() - Date.now();
+    const timeUntilEvent = calendarEvent.startAt.getTime() - Date.now();
     const isWithin48Hours = timeUntilEvent < FORTY_EIGHT_HOURS_MS;
 
     const cancellationStatus = isWithin48Hours

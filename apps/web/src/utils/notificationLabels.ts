@@ -116,7 +116,7 @@ export function getNotificationDisplayText(
  *
  * `course_slot_proposed` (chantier calendrier de disponibilités, point 3, 2026-08-19) suit le
  * même principe : la proposition de créneau est désormais visible et actionnable directement
- * dans la grille de `/calendar` (onglet « Mes disponibilités », `AvailabilityTab`), jamais dans
+ * dans la grille unifiée de `/calendar` (`CalendarUnifiedView`), jamais dans
  * un écran séparé — même défaut de découvrabilité déjà corrigé pour le flow demande de
  * professeur le 2026-08-17, appliqué ici.
  */

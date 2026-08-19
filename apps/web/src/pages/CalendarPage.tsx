@@ -1,31 +1,26 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
-import { Tabs, TabPanel, type TabDefinition } from '../components/ui/Tabs'
-import CalendarEventsPanel from '../components/calendar/CalendarEventsPanel'
-import AvailabilityTab from '../components/calendar/AvailabilityTab'
+import CalendarUnifiedView from '../components/calendar/CalendarUnifiedView'
 import CourseProposalsPanel from '../components/calendar/CourseProposalsPanel'
 
-const TAB_EVENTS = 'events'
-const TAB_AVAILABILITY = 'availability'
-const TAB_PROPOSALS = 'proposals'
-
-const TABS: TabDefinition[] = [
-  { id: TAB_EVENTS, label: 'Mes événements' },
-  { id: TAB_AVAILABILITY, label: 'Mes disponibilités' },
-  { id: TAB_PROPOSALS, label: 'Propositions de cours' },
-]
-
 /**
- * CalendarPage — conteneur d'onglets. "Mes événements" (actif par défaut, comportement
- * inchangé), "Mes disponibilités" (édition des créneaux de disponibilité/indisponibilité,
- * point 1 du chantier calendrier) et "Propositions de cours" (proposer/suivre un créneau de
- * cours, point 3 — voir `CourseProposalsPanel`). Montage paresseux + maintien (règle du
- * 2026-08-10, voir `src/components/ui/Tabs.tsx`).
+ * CalendarPage — vue calendrier unifiée (chantier calendrier vue unifiée, 2026-08-19, demande
+ * explicite de l'utilisateur en testant l'écran précédent). Remplace l'ancien découpage en 3
+ * onglets (« Mes événements » / « Mes disponibilités » / « Propositions de cours ») : les trois
+ * sources — créneaux de disponibilité, propositions/confirmations de créneau de cours et
+ * événements de calendrier — sont désormais fusionnées sur une seule et même grille, affichée
+ * immédiatement (`CalendarUnifiedView`).
+ *
+ * `CourseProposalsPanel` (suivi des propositions envoyées **par le proposeur**, et point d'entrée
+ * pour « proposer un créneau à quelqu'un d'autre ») reste un panneau distinct, replié par défaut,
+ * en marge de la grille — décision explicite : proposer un cours à un tiers cible SON calendrier
+ * (choix de destinataire, consultation de SES disponibilités via `LinkedCalendarView`), ce qui ne
+ * correspond pas à « cliquer sur mon propre calendrier » et ne rentre donc pas dans le sélecteur
+ * de mode de `CalendarUnifiedView`.
  */
 export default function CalendarPage() {
   const { user } = useAuth()
-  const [activeTab, setActiveTab] = useState(TAB_EVENTS)
 
   return (
     <Layout>
@@ -33,25 +28,16 @@ export default function CalendarPage() {
         <h1 className="text-2xl font-bold text-gray-900">Mon calendrier</h1>
       </div>
 
-      <Tabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} ariaLabel="Onglets du calendrier" />
+      {user && <CalendarUnifiedView ownerId={user.id} userRole={user.role} />}
 
-      <TabPanel tabId={TAB_EVENTS} activeTab={activeTab}>
-        <CalendarEventsPanel />
-      </TabPanel>
-
-      <TabPanel tabId={TAB_AVAILABILITY} activeTab={activeTab}>
-        {user && (
-          <div className="max-w-3xl">
-            <AvailabilityTab ownerId={user.id} />
-          </div>
-        )}
-      </TabPanel>
-
-      <TabPanel tabId={TAB_PROPOSALS} activeTab={activeTab}>
-        <div className="max-w-3xl">
+      <details className="mt-6 border border-gray-200 rounded-xl bg-white">
+        <summary className="px-4 py-3 text-sm font-medium text-gray-700 cursor-pointer select-none">
+          Propositions de cours
+        </summary>
+        <div className="p-4 pt-0">
           <CourseProposalsPanel />
         </div>
-      </TabPanel>
+      </details>
     </Layout>
   )
 }

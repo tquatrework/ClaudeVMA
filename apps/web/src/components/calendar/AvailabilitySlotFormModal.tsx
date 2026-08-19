@@ -41,7 +41,7 @@ interface AvailabilitySlotFormModalProps {
 
 /**
  * AvailabilitySlotFormModal — sert la création, la modification et la suppression d'un même
- * créneau. Modelée sur EventCreateDialog.tsx (dialog accessible, focus, bouton fermer).
+ * créneau (dialog accessible, focus, bouton fermer).
  */
 export default function AvailabilitySlotFormModal({
   editingSlot,

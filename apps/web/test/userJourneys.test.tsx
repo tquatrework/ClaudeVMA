@@ -154,28 +154,28 @@ describe('Journey 2: Dashboard → Calendrier → Création séance', () => {
     // Click the first Calendrier link (could be in nav or quick-card)
     await userEvent.click(calendarLinks[0])
 
-    // Now on Calendar page — should see the create button for formateur
+    // Now on Calendar page — vue unifiée, une seule grille (chantier calendrier vue unifiée,
+    // 2026-08-19). La création d'événement passe par le mode « Créer un événement » puis un clic
+    // direct sur une case vide de la grille — plus de bouton "Nouvel événement" ni de champs
+    // datetime-local saisis à la main (c'était la source du bug corrigé par ce chantier).
     await waitFor(() => {
-      screen.getByRole('button', { name: /nouvel événement/i })
+      screen.getByRole('tab', { name: 'Créer un événement' })
     })
 
-    await userEvent.click(screen.getByRole('button', { name: /nouvel événement/i }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Créer un événement' }))
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Ajouter un créneau lundi à 09:00' }),
+    )
 
     await waitFor(() => {
       expect(screen.getByRole('dialog', { name: /créer un événement/i })).toBeDefined()
     })
+    // Aucun champ datetime-local : la date vient du jour/heure cliqués sur la grille, jamais
+    // d'une saisie libre.
+    expect(document.querySelectorAll('input[type="datetime-local"]').length).toBe(0)
 
-    // Set datetime inputs via native input event
-    const dateTimeInputs = document.querySelectorAll('input[type="datetime-local"]')
-    const startInput = dateTimeInputs[0] as HTMLInputElement
-    const endInput = dateTimeInputs[1] as HTMLInputElement
-
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(startInput, '2030-03-10T09:00')
-    startInput.dispatchEvent(new Event('change', { bubbles: true }))
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(endInput, '2030-03-10T10:00')
-    endInput.dispatchEvent(new Event('change', { bubbles: true }))
-
-    await userEvent.click(screen.getByRole('button', { name: /créer$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^créer$/i }))
 
     await waitFor(() => {
       expect(mockApiClient.post).toHaveBeenCalledWith(

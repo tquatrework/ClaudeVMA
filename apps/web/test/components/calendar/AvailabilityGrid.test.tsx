@@ -157,4 +157,46 @@ describe('AvailabilityGrid — renderBlockOverlay (chantier calendrier, point 3)
       screen.getByRole('button', { name: /modifier le créneau lundi 09:00 – 10:00 — disponible/i }),
     ).toBeDefined()
   })
+
+  it('appelle onOverlayBlockClick au clic sur le bloc porteur d\'un overlay (chantier calendrier vue unifiée, point 4)', async () => {
+    const onOverlayBlockClick = vi.fn()
+    render(
+      <AvailabilityGrid
+        slots={[PROPOSED_BLOCK]}
+        onCreateAt={vi.fn()}
+        onEditSlot={vi.fn()}
+        renderBlockOverlay={() => <span>Cliquer pour répondre</span>}
+        onOverlayBlockClick={onOverlayBlockClick}
+      />,
+    )
+
+    await userEvent.click(screen.getByText('Cliquer pour répondre'))
+
+    expect(onOverlayBlockClick).toHaveBeenCalledWith(PROPOSED_BLOCK)
+  })
+})
+
+describe('AvailabilityGrid — canCreate (chantier calendrier vue unifiée, point 2)', () => {
+  it('désactive uniquement la création sur cellule vide quand canCreate=false, sans toucher à l\'édition des blocs existants', async () => {
+    const onEditSlot = vi.fn()
+    render(
+      <AvailabilityGrid
+        slots={[AVAILABLE_SLOT]}
+        onCreateAt={vi.fn()}
+        onEditSlot={onEditSlot}
+        canCreate={false}
+      />,
+    )
+
+    const emptyCell = screen.getByRole('button', { name: 'Ajouter un créneau lundi à 09:00' })
+    expect(emptyCell).toBeDisabled()
+
+    const existingBlock = screen.getByRole('button', {
+      name: /modifier le créneau lundi 09:00 – 10:00 — disponible/i,
+    })
+    expect(existingBlock).not.toBeDisabled()
+
+    await userEvent.click(existingBlock)
+    expect(onEditSlot).toHaveBeenCalledWith(AVAILABLE_SLOT)
+  })
 })

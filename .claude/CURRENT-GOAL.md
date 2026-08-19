@@ -109,15 +109,25 @@ Ordre de livraison retenu, une branche par étape :
       `dashboard-notification-service` puisse notifier.
 
       Trois chantiers séquencés (backend d'abord, comme d'habitude) :
-      1. `calendar-service` : `GET /calendars/:ownerId` porte les activités du titulaire ; publie
-         un événement à la création d'une proposition.
-      2. `dashboard-notification-service` : nouveau type de notification sur cet événement,
+      1. [x] `calendar-service` : fait le 2026-08-18, commit `ab00c73`
+         (`feat/calendrier-proposition-creneau`, poussé). `GET /calendars/:ownerId` porte
+         désormais `activities` (créateur/participant, proposed/confirmed, fenêtre 2 semaines
+         passées + 4 à venir), `creatorName` résolu via `profile-service` (jamais un UUID,
+         dégradation gracieuse si injoignable). `ActivityScheduled` (déjà existant) complété d'un
+         `recipientId` — aucun nouvel événement créé. `EventsService.publish()` n'est plus un
+         stub : même mécanisme outbox (`domain_events`) + flux Redis `visiomath:events` que
+         `teacher-request-service`, vaut pour les 13 points d'émission du service. 236 tests
+         unitaires + 91 e2e verts, migration vérifiée (up/re-run/down) contre base jetable.
+         Contrat documenté `docs/routes.md` (section « Événement publié à la création d'une
+         proposition »). **Pas encore de preuve HTTP par l'orchestrateur contre la pile réelle
+         pour ce chantier précis** — à faire avant de considérer le point 3 clos.
+      2. [ ] `dashboard-notification-service` : nouveau type de notification sur cet événement,
          résolution du nom du proposeur (jamais d'UUID), libellé « Proposition de cours ajoutée
          par {nom} ».
-      3. Front : la grille du calendrier du destinataire affiche les créneaux `PROPOSED` en couleur
-         distincte avec Accepter/Refuser inline — remplace/complète `CourseProposalsPanel` (l'onglet
-         séparé livré dans ce tour n'était pas la bonne approche, à ajuster ou retirer selon ce qui
-         reste pertinent une fois l'affichage in-calendrier en place).
+      3. [ ] Front : la grille du calendrier du destinataire affiche les créneaux `PROPOSED` en
+         couleur distincte avec Accepter/Refuser inline — remplace/complète `CourseProposalsPanel`
+         (l'onglet séparé livré dans ce tour n'était pas la bonne approche, à ajuster ou retirer
+         selon ce qui reste pertinent une fois l'affichage in-calendrier en place).
 
       Ancien correctif de suivi ci-dessous, dépassé par cette décision, laissé pour mémoire :
       `teacher-request-service`/`dashboard-notification-service`) plutôt qu'un simple lien à

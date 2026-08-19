@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Page, type Locator } from '@playwright/test'
 import { createTestStudent, createTestTeacher } from './support/api'
 import { createTeacherStudentRelationViaInternalRoute } from './support/internalRelation'
 
@@ -37,6 +37,31 @@ const DAY_LABELS_FR = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendr
  * `api-gateway` limite le débit de `/auth/login` — retry borné plutôt qu'un test flaky, même
  * dispositif que les preuves précédentes de ce chantier (voir `apps/web/e2e/README.md`).
  */
+/**
+ * Vérifie qu'un élément n'est pas seulement présent dans le DOM et « visible » au sens
+ * `toBeVisible()` de Playwright — qui ne détecte PAS un rognage par un ancêtre
+ * `overflow: hidden` (bug réel constaté le 2026-08-19 : un bouton Accepter, présent dans le
+ * DOM et cliquable par Playwright, restait rogné hors de la zone peinte de son bloc parent,
+ * invisible pour un utilisateur réel). On vérifie ici que le point central du propre
+ * rectangle de l'élément est effectivement peint PAR CET ÉLÉMENT (ou un de ses descendants),
+ * via `document.elementFromPoint` — c'est ce test géométrique, et lui seul, qui aurait attrapé
+ * ce bug avant ce correctif.
+ */
+async function expectActuallyPaintedAtOwnLocation(locator: Locator, description: string): Promise<void> {
+  const isPaintedAtOwnLocation = await locator.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return false
+    const centerX = rect.left + rect.width / 2
+    const centerY = rect.top + rect.height / 2
+    const elementAtPoint = document.elementFromPoint(centerX, centerY)
+    return Boolean(
+      elementAtPoint &&
+        (elementAtPoint === element || element.contains(elementAtPoint) || elementAtPoint.contains(element)),
+    )
+  })
+  expect(isPaintedAtOwnLocation, description).toBe(true)
+}
+
 async function loginOnScreen(page: Page, loginIdentifier: string, password: string): Promise<void> {
   const maxAttempts = 4
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -265,8 +290,11 @@ test.describe('Chantier calendrier vue unifiée', () => {
     // « Cliquer pour répondre » : ce texte disparaît une fois les boutons révélés, et un
     // filtre live re-évalué sur un texte qui vient de disparaître fait attendre indéfiniment
     // (`locator.boundingBox()`/`.click()` suivants bloquent jusqu'au timeout du test).
+    // `z-10` (et non plus `overflow-hidden`, retiré par le correctif de visibilité des boutons
+    // Accepter/Refuser/Rejoindre — voir étape 4bis) identifie les blocs à contenu superposé
+    // (`renderBlockOverlay`) sur la grille : propositions/confirmations de cours, événements.
     const proposedBlock = studentPage
-      .locator('div.absolute.overflow-hidden')
+      .locator('div.absolute.z-10')
       .filter({ hasText: `${teacherFirstName} ${teacherLastName}` })
 
     await test.step('3bis. La proposition apparaît SUR LA MÊME grille — pas d\'onglet à changer', async () => {
@@ -324,6 +352,19 @@ test.describe('Chantier calendrier vue unifiée', () => {
       })
       await expect(declineButton, 'APRÈS le clic : le bouton Refuser apparaît').toBeVisible()
 
+      // 4bis. Preuve géométrique du correctif de clipping (bug réel du 2026-08-19) : les deux
+      // boutons révélés doivent être réellement peints à l'écran, pas seulement présents dans
+      // le DOM avec `toBeVisible() === true` (ce que Playwright ne suffit pas à garantir en
+      // présence d'un rognage par un ancêtre `overflow: hidden`).
+      await expectActuallyPaintedAtOwnLocation(
+        acceptButton,
+        'le bouton Accepter est réellement peint à l\'écran à son propre emplacement, pas rogné par le bloc parent',
+      )
+      await expectActuallyPaintedAtOwnLocation(
+        declineButton,
+        'le bouton Refuser est réellement peint à l\'écran à son propre emplacement, pas rogné par le bloc parent',
+      )
+
       // Constat complémentaire : le bloc d'un créneau d'1h occupe une hauteur de grille très
       // réduite (07:00–22:00 sur ~600px) — mesure de la taille réelle rendue du bloc et du
       // bouton Accepter pour documenter la lisibilité effective, au-delà du simple "visible"
@@ -359,12 +400,23 @@ test.describe('Chantier calendrier vue unifiée', () => {
       await expect(acceptButton).toHaveCount(0)
       await expect(declineButton).toHaveCount(0)
 
-      const confirmedBlock = studentPage.locator('div.absolute.overflow-hidden.bg-indigo-100')
+      const confirmedBlock = studentPage.locator('div.absolute.z-10.bg-indigo-100')
       await expect(confirmedBlock, 'bloc confirmé (couleur pleine) visible').toBeVisible({
         timeout: 15_000,
       })
       await expect(confirmedBlock, 'le bloc confirmé porte le nom du formateur').toContainText(
         `${teacherFirstName} ${teacherLastName}`,
+      )
+
+      // Le bouton "Rejoindre le cours" est TOUJOURS visible sur un créneau confirmé (pas révélé
+      // au clic) — même famille de bug que Accepter/Refuser, mêmes deux niveaux de preuve.
+      const joinButton = studentPage.getByRole('button', {
+        name: new RegExp(`^Rejoindre le cours.*avec ${teacherFirstName} ${teacherLastName}$`),
+      })
+      await expect(joinButton, 'le bouton "Rejoindre le cours" apparaît sur le créneau confirmé').toBeVisible()
+      await expectActuallyPaintedAtOwnLocation(
+        joinButton,
+        'le bouton "Rejoindre le cours" est réellement peint à l\'écran à son propre emplacement, pas rogné par le bloc parent',
       )
     })
 

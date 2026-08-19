@@ -200,11 +200,18 @@ export default function AvailabilityGrid<T extends AvailabilityGridSlot>({
                 const overlay = renderBlockOverlay?.(slot)
 
                 if (overlay) {
+                  // `overflow-hidden` a été retiré délibérément : un bloc PROPOSED/CONFIRMED peut
+                  // révéler un contenu (boutons Accepter/Refuser, "Rejoindre le cours") plus haut
+                  // que la hauteur du créneau lui-même (calculée sur sa seule durée réelle). Avec
+                  // `overflow-hidden`, ce contenu restait présent dans le DOM — cliquable par un
+                  // test, invisible pour un utilisateur réel, un bloc de 40px de haut coupant un
+                  // bouton commençant 3px sous son bord bas. `z-10` fait passer ce débordement
+                  // au-dessus des blocs voisins (chevauchement temporaire assumé) plutôt que sous.
                   return (
                     <div
                       key={slot.id}
                       onClick={onOverlayBlockClick ? () => onOverlayBlockClick(slot) : undefined}
-                      className={`absolute left-0.5 right-0.5 rounded px-1 py-0.5 text-[10px] leading-tight overflow-hidden ${KIND_STYLES[slot.kind]} ${
+                      className={`absolute left-0.5 right-0.5 z-10 rounded px-1 py-0.5 text-[10px] leading-tight ${KIND_STYLES[slot.kind]} ${
                         onOverlayBlockClick ? 'cursor-pointer' : ''
                       }`}
                       style={style}

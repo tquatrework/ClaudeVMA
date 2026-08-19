@@ -61,8 +61,8 @@ complet (« demande de professeur »). Plutôt que de dépendre d'un compte RP (
 `profile-service` **depuis l'intérieur du conteneur** (`docker exec visiomath_profile node -e
 ...`) : cette route interne n'est de toute façon jamais exposée par `api-gateway`, et le secret
 (`INTERNAL_SECRET`) n'est jamais lu ni transmis par ce process hôte — le conteneur l'utilise via sa
-propre variable d'environnement. Voir `proof-course-slot-proposal.spec.ts` pour un exemple d'usage,
-et le rapport de session correspondant pour la justification complète de ce choix.
+propre variable d'environnement. Voir `proof-calendar-unified-view.spec.ts` pour un exemple
+d'usage, et le rapport de session correspondant pour la justification complète de ce choix.
 
 ## Suite en cours d'extension
 

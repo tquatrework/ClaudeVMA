@@ -193,9 +193,7 @@ describe('VideoJoinPage — salle fraîchement créée (status waiting)', () => 
     mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
 
     mockFetchRoomInfo.mockResolvedValue({ id: 'room-abc', status: 'waiting' })
-    mockJoinRoom.mockResolvedValue({ joinUrl: 'https://meet.example.com/room-abc', token: 'tok-xyz' })
-
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    mockJoinRoom.mockResolvedValue({ token: 'tok-xyz', url: 'wss://livekit.example.com' })
 
     renderVideoJoinPage('room-abc')
 
@@ -209,9 +207,11 @@ describe('VideoJoinPage — salle fraîchement créée (status waiting)', () => 
       expect(mockJoinRoom).toHaveBeenCalledWith('room-abc')
     })
 
-    expect(openSpy).toHaveBeenCalledWith('https://meet.example.com/room-abc', '_blank')
-
-    openSpy.mockRestore()
+    await waitFor(() => {
+      expect(screen.getByTestId('live-video-call')).toBeDefined()
+    })
+    expect(screen.getByText('token: tok-xyz')).toBeDefined()
+    expect(screen.getByText('url: wss://livekit.example.com')).toBeDefined()
   })
 })
 

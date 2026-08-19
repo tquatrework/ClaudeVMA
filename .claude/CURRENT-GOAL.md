@@ -240,19 +240,47 @@ Ordre de livraison retenu, une branche par étape :
       l'utilisateur avant de déléguer : LiveKit sur un **port dédié exposé directement sur la
       machine** (hors `nginx-global`, hors `visiomath_gateway`) — le SDK client LiveKit se
       connecte en direct au serveur, un simple reverse proxy HTTP ne suffit pas pour le média RTC.
-      `video-session-service` en cours (sous-agent lancé) : vraie création de salle LiveKit
-      derrière `POST /video/rooms`, vrai token derrière `GET /video/rooms/:id/join` (**changement
-      de contrat** : `{token, url}` au lieu d'un `joinUrl` unique — le front `VideoJoinPage.tsx`
-      faisait jusqu'ici `window.open(joinUrl)`, à remplacer par un composant vidéo intégré),
-      abonnement à `ActivityConfirmed` (déjà publié par `calendar-service` au point 3, même
-      mécanisme générique outbox+Redis) pour créer automatiquement une salle réelle quand une
-      activité `type: "cours"` est confirmée, nouvelle route `GET /video/rooms/by-activity/:id`.
-      **Étapes manuelles attendues de l'utilisateur, à confirmer une fois le rapport reçu** : ouvrir
-      le(s) port(s) LiveKit sur le pare-feu de la machine, renseigner l'IP publique dans `.env`
-      (`LIVEKIT_NODE_IP` ou équivalent), changer les secrets `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`
-      par défaut. Reste à faire après le backend : front (composant vidéo LiveKit intégré,
+      **Backend `video-session-service` livré**, commit `3719746`, poussé. `POST /video/rooms`
+      crée une vraie salle LiveKit (`livekit-server-sdk`) ; `GET /video/rooms/:id/join` renvoie
+      désormais `{token, url}` (JWT LiveKit réel — **changement de contrat**, l'ancien stub
+      renvoyait `{accessToken, roomToken, status}` ; le front `VideoJoinPage.tsx` fait aujourd'hui
+      `window.open(joinUrl)`, pas encore adapté, hors périmètre de ce chantier backend) ;
+      abonnement au flux Redis `visiomath:events` pour `ActivityConfirmed` (mécanisme générique
+      déjà utilisé par `dashboard-notification-service`) déclenchant la création automatique d'une
+      salle réelle pour les activités `type: "cours"` uniquement, avec une projection locale
+      d'`ActivityScheduled` (`ActivityConfirmed` ne porte que `{activityId, confirmedBy}`, vérifié
+      contre le flux réel) ; nouvelle route `GET /video/rooms/by-activity/:activityId`. Gap
+      pré-existant comblé au passage : les routes recordings/comments/summary (VID-AC-001/002)
+      avaient déjà entités/DTO/tests mais n'étaient enregistrées nulle part — `npm test` échouait à
+      la compilation avant cette session. Première migration TypeORM du service. 76 tests
+      unitaires + 72 e2e verts (76 unitaires + build rejoués indépendamment par l'orchestrateur).
+      Smoke test réel effectué par le sous-agent contre une instance LiveKit 1.13.5 jetable (hors
+      pile partagée) : salle réellement créée (confirmée par `listRooms()`), JWT réel émis avec le
+      bon grant. **Fait vérifié empiriquement, à retenir** : le secret API LiveKit doit faire au
+      moins 32 caractères, sinon le token est rejeté silencieusement en `401`.
+
+      **Blocage réseau découvert par l'orchestrateur après le backend, à trancher avant de
+      déployer** : `LIVEKIT_PUBLIC_URL` accepte `ws://` ou `wss://` côté configuration, mais le
+      front est servi en HTTPS (`https://claudevma.visioprof.fr`) — un navigateur **bloque une
+      connexion WebSocket non chiffrée (`ws://`) depuis une page HTTPS** (contenu mixte). Il faut
+      donc `wss://`, ce qui exige un certificat TLS sur le port LiveKit lui-même : ce port est en
+      dehors de `nginx-global` (qui termine déjà le TLS du domaine) par le choix d'exposition
+      retenu — LiveKit devra donc porter son propre certificat. IP publique de la machine
+      découverte sans toucher `.env` (accès en lecture refusé par la politique de sandbox, comme
+      pour le sous-agent) : `193.108.54.226` (via `curl ifconfig.me`/`api.ipify.org`, cohérent sur
+      les deux). **Décision à prendre avec l'utilisateur avant de configurer `.env` et de
+      déployer** : comment obtenir/monter un certificat TLS pour le port LiveKit (ex. certificat
+      existant du domaine réutilisé sur un sous-domaine dédié, certificat auto-signé accepté
+      manuellement par l'utilisateur pour une phase de test, ou Let's Encrypt indépendant sur ce
+      port).
+
+      Reste à faire après cette décision : front (composant vidéo LiveKit intégré,
       `@livekit/components-react`, point d'entrée depuis une activité confirmée dans le
-      calendrier), déploiement, preuve à deux comptes/navigateurs (exigence du plan).
+      calendrier), configuration `.env` + déploiement (étapes manuelles utilisateur : ports
+      pare-feu `7880/tcp`, `7881/tcp`, `50000-50019/udp` ; `LIVEKIT_NODE_IP`/`LIVEKIT_PUBLIC_URL` ;
+      secrets par défaut à changer ; migration à rejouer manuellement,
+      `docker exec -it visiomath_video_session npm run migration:run`), preuve à deux
+      comptes/navigateurs (exigence du plan).
 - [ ] Preuve livrée à l'utilisateur pour chaque point
 - [ ] Validé par l'utilisateur
 

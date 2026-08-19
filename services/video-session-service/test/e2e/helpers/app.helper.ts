@@ -20,7 +20,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../../../src/app.module';
+import { LiveKitService } from '../../../src/livekit/livekit.service';
 import * as jwt from 'jsonwebtoken';
+import { v4 as uuidv4 } from 'uuid';
 
 export const TEST_JWT_SECRET = 'test_jwt_secret_for_e2e';
 export const INTERNAL_SECRET = 'test_internal_secret';
@@ -75,10 +77,21 @@ export async function createTestApp(): Promise<INestApplication> {
   setStaticTestEnv();
 
   process.env.DATABASE_URL = buildLocalDatabaseUrl();
+  // No REDIS_URL in e2e: the events consumer stays disabled (graceful skip,
+  // see EventsConsumerService.onModuleInit), consistent with "no real network
+  // call in tests" — the ActivityConfirmed flow is covered by unit tests
+  // against a hand-built mock Redis client instead.
 
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [AppModule],
-  }).compile();
+  })
+    // No real LiveKit server is reachable from the test environment. Every
+    // e2e assertion about room creation/join still exercises the real HTTP
+    // routes, guards and persistence — only the LiveKit SDK call itself is
+    // replaced by a fake that returns a fresh room name / a fake JWT.
+    .overrideProvider(LiveKitService)
+    .useValue(buildFakeLiveKitService())
+    .compile();
 
   const app = moduleFixture.createNestApplication();
   app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
@@ -94,6 +107,20 @@ export async function createTestApp(): Promise<INestApplication> {
   await dataSource.synchronize();
 
   return app;
+}
+
+/**
+ * Fake LiveKitService used in place of the real SDK for e2e runs — no LiveKit
+ * server is reachable from this test environment. `createRoom` never throws
+ * (so the 503 path stays covered by LiveKitService's own unit tests, not
+ * duplicated here) and `createAccessToken` returns a deterministic fake JWT.
+ */
+function buildFakeLiveKitService() {
+  return {
+    createRoom: jest.fn(async () => undefined),
+    createAccessToken: jest.fn(async (_roomName: string, userId: string) => `fake-jwt-${userId}-${uuidv4()}`),
+    getPublicUrl: jest.fn(() => 'https://livekit.e2e-test.invalid'),
+  };
 }
 
 /**

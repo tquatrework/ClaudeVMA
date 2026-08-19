@@ -4,9 +4,15 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { VideoSessionModule } from './video-session/video-session.module';
 import { HealthModule } from './health/health.module';
 import { InternalModule } from './internal/internal.module';
+import { EventsModule } from './events/events.module';
 import { VideoRoom } from './video-session/entities/video-room.entity';
 import { VideoAccessToken } from './video-session/entities/video-access-token.entity';
 import { AttendanceRecord } from './video-session/entities/attendance-record.entity';
+import { VideoRecording } from './video-session/entities/video-recording.entity';
+import { RecordingComment } from './video-session/entities/recording-comment.entity';
+import { CourseSummary } from './video-session/entities/course-summary.entity';
+import { ActivityProjection } from './events/entities/activity-projection.entity';
+import { ProcessedEvent } from './events/entities/processed-event.entity';
 
 @Module({
   imports: [
@@ -16,7 +22,16 @@ import { AttendanceRecord } from './video-session/entities/attendance-record.ent
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
         url: config.get<string>('DATABASE_URL'),
-        entities: [VideoRoom, VideoAccessToken, AttendanceRecord],
+        entities: [
+          VideoRoom,
+          VideoAccessToken,
+          AttendanceRecord,
+          VideoRecording,
+          RecordingComment,
+          CourseSummary,
+          ActivityProjection,
+          ProcessedEvent,
+        ],
         synchronize: config.get<string>('NODE_ENV') !== 'production',
       }),
       inject: [ConfigService],
@@ -24,6 +39,7 @@ import { AttendanceRecord } from './video-session/entities/attendance-record.ent
     VideoSessionModule,
     HealthModule,
     InternalModule,
+    EventsModule,
   ],
 })
 export class AppModule {}

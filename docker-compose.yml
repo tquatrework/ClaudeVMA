@@ -37,6 +37,48 @@ services:
       timeout: 3s
       retries: 5
 
+  # LiveKit (auto-hebergement, chantier calendrier-visio-livekit, point 4,
+  # 2026-08-19). Un seul conteneur, en dehors de nginx-global (hors depot, non
+  # modifiable) et en dehors meme du reverse proxy applicatif visiomath_gateway :
+  # le SDK client LiveKit se connecte en direct au serveur LiveKit (WebRTC), un
+  # simple reverse proxy HTTP ne suffit pas pour le media RTC. Expose donc des
+  # ports host dedies. Conteneur temporaire sur cette machine : en cas de
+  # montee en charge il sera deporte ailleurs, d'ou LIVEKIT_API_URL /
+  # LIVEKIT_PUBLIC_URL entierement pilotes par configuration cote
+  # video-session-service, jamais par un nom de service docker-compose code en
+  # dur dans le code applicatif.
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: visiomath_livekit
+    command:
+      # LIVEKIT_API_KEY / LIVEKIT_API_SECRET doivent etre IDENTIQUES ici et cote
+      # video-session-service plus bas (le serveur signe/verifie avec la meme
+      # paire) — verifie reellement le 2026-08-19 contre une vraie instance
+      # LiveKit 1.13.5 : le secret DOIT faire au moins 32 caracteres, sous
+      # peine d'un rejet (`secret is too short`, HTTP 401 "invalid token,
+      # signature is invalid" cote client). Le defaut ci-dessous en fait 34,
+      # mais reste un defaut de developpement a changer en production comme
+      # JWT_SECRET/INTERNAL_SECRET.
+      - --keys
+      - "${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-change_me_in_production_min32chars}"
+      - --node-ip
+      - "${LIVEKIT_NODE_IP:?LIVEKIT_NODE_IP doit être défini : IP publique de cette machine, utilisée par LiveKit pour ses candidats ICE}"
+      - --udp-port
+      - "50000-50019"
+    ports:
+      # Signalisation/API : WebSocket + HTTP. C'est ce port que le SDK client
+      # LiveKit (navigateur) joint directement, jamais via visiomath_gateway.
+      - "7880:7880"
+      # Repli RTC en TCP quand l'UDP est bloque par le reseau du client.
+      - "7881:7881"
+      # Media RTC. Plage UDP dediee et etroite (20 ports) plutot que la plage
+      # tres large par defaut de LiveKit (50000-60000) : a documenter et a
+      # ouvrir explicitement sur le pare-feu de la machine.
+      - "50000-50019:50000-50019/udp"
+    networks:
+      - visiomath_network
+    restart: unless-stopped
+
   # -- Frontend -----------------------------------------------------------------
 
   frontend:
@@ -299,10 +341,39 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_video_session
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
       INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
+      # Flux Redis "visiomath:events" (meme flux que calendar-service et
+      # teacher-request-service, arbitrage 2026-08-14 "generique pour les
+      # autres flux") : necessaire pour consommer ActivityScheduled /
+      # ActivityConfirmed et creer automatiquement une salle LiveKit a
+      # l'acceptation d'un creneau de cours (chantier calendrier-visio-livekit,
+      # point 4). Sans elle, la creation automatique de salle est desactivee
+      # (repli explicite, voir EventsConsumerService.onModuleInit) mais la
+      # creation manuelle de salle (POST /video/rooms) continue de fonctionner.
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
+      # Appel serveur-a-serveur (RoomServiceClient, AccessToken) vers LiveKit.
+      # Interne au reseau Docker : jamais la meme URL que celle donnee au
+      # navigateur (LIVEKIT_PUBLIC_URL ci-dessous) — voir docs/routes.md,
+      # section video-session-service.
+      LIVEKIT_API_URL: http://livekit:7880
+      # Cles API LiveKit. Valeurs par defaut UNIQUEMENT pour le developpement,
+      # au meme titre que JWT_SECRET/INTERNAL_SECRET plus haut : a changer en
+      # production (voir le rapport de session pour le detail).
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-change_me_in_production_min32chars}
+      # URL que le SDK LiveKit cote navigateur joint EN DIRECT, jamais via
+      # visiomath_gateway (le SDK client ne parle pas HTTP REST classique).
+      # Aucun defaut sur : c'est une adresse reseau reelle (IP publique ou nom
+      # de domaine de cette machine, port 7880), un mauvais defaut casserait
+      # silencieusement la visio cote client. Voir LIVEKIT_NODE_IP ci-dessus.
+      LIVEKIT_PUBLIC_URL: "${LIVEKIT_PUBLIC_URL:?LIVEKIT_PUBLIC_URL doit etre defini, URL ws:// ou wss:// que le navigateur du client joint directement pour LiveKit}"
       PORT: 3007
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      livekit:
+        condition: service_started
     networks:
       - visiomath_network
     restart: unless-stopped

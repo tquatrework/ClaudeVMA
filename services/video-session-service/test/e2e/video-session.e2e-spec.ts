@@ -295,7 +295,7 @@ describe('[E2E] Video Session Service', () => {
   // ────────────────────────────────────────────────────────────────────────────
 
   describe('GET /video/rooms/:roomId/join — accès participant', () => {
-    it('[VID-BR-005] Un formateur rejoint une salle WAITING → 200 avec accessToken et roomToken', async () => {
+    it('[VID-BR-005] Un formateur rejoint une salle WAITING → 200 avec {token, url}', async () => {
       // Create a fresh room so we test WAITING → ACTIVE transition cleanly
       const createRes = await request(app.getHttpServer())
         .post('/video/rooms')
@@ -309,9 +309,10 @@ describe('[E2E] Video Session Service', () => {
         .set('Authorization', `Bearer ${teacherToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body).toHaveProperty('accessToken');
-      expect(res.body).toHaveProperty('roomToken');
-      expect(res.body).toHaveProperty('status');
+      expect(res.body).toHaveProperty('token');
+      expect(res.body).toHaveProperty('url');
+      expect(res.body).not.toHaveProperty('accessToken');
+      expect(res.body).not.toHaveProperty('roomToken');
     });
 
     it('[VID-BR-004] Premier join : salle passe de WAITING à ACTIVE', async () => {
@@ -327,9 +328,14 @@ describe('[E2E] Video Session Service', () => {
       const joinRes = await request(app.getHttpServer())
         .get(`/video/rooms/${roomId}/join`)
         .set('Authorization', `Bearer ${teacherToken}`);
-
       expect(joinRes.status).toBe(200);
-      expect(joinRes.body.status).toBe('active');
+
+      // join() no longer returns `status` (contract change, 2026-08-19) —
+      // the transition is verified by re-reading the room.
+      const readRes = await request(app.getHttpServer())
+        .get(`/video/rooms/${roomId}`)
+        .set('Authorization', `Bearer ${teacherToken}`);
+      expect(readRes.body.status).toBe('active');
     });
 
     it('[VID-BR-005] Un élève peut rejoindre une salle → 200', async () => {
@@ -338,7 +344,7 @@ describe('[E2E] Video Session Service', () => {
         .get(`/video/rooms/${activeRoomId}/join`)
         .set('Authorization', `Bearer ${studentToken}`);
       expect(res.status).toBe(200);
-      expect(res.body).toHaveProperty('accessToken');
+      expect(res.body).toHaveProperty('token');
     });
 
     it('[VID-BR-005] Un RP peut rejoindre une salle → 200', async () => {
@@ -535,6 +541,169 @@ describe('[E2E] Video Session Service', () => {
         .post(`/video/rooms/${endedRoomId}/close`)
         .set('Authorization', `Bearer ${teacherToken}`);
       expect(res.status).toBe(400);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // GET /video/rooms/by-activity/:activityId — chantier calendrier-visio-livekit,
+  // point 4 (2026-08-19)
+  // ────────────────────────────────────────────────────────────────────────────
+
+  describe('GET /video/rooms/by-activity/:activityId', () => {
+    it('Aucune salle pour cette activité → 404', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/video/rooms/by-activity/${IDS.unknown}`)
+        .set('Authorization', `Bearer ${teacherToken}`);
+      expect(res.status).toBe(404);
+    });
+
+    it('sans token → 401', async () => {
+      const res = await request(app.getHttpServer()).get(
+        `/video/rooms/by-activity/${IDS.unknown}`,
+      );
+      expect(res.status).toBe(401);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // POST/GET /video/rooms/:roomId/recordings — VID-AC-001
+  // ────────────────────────────────────────────────────────────────────────────
+
+  describe('Recordings — VID-AC-001', () => {
+    it('Un formateur déclare un enregistrement sur une salle ENDED → 201', async () => {
+      if (!endedRoomId) return;
+      const res = await request(app.getHttpServer())
+        .post(`/video/rooms/${endedRoomId}/recordings`)
+        .set('Authorization', `Bearer ${teacherToken}`)
+        .send({ downloadUrl: 'https://storage.example.com/video.mp4' });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('id');
+      expect(res.body).toHaveProperty('expiresAt');
+    });
+
+    it('Un élève ne peut PAS déclarer un enregistrement → 403', async () => {
+      if (!endedRoomId) return;
+      const res = await request(app.getHttpServer())
+        .post(`/video/rooms/${endedRoomId}/recordings`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({});
+      expect(res.status).toBe(403);
+    });
+
+    it('Un parent_financeur ne peut PAS déclarer un enregistrement → 403', async () => {
+      if (!endedRoomId) return;
+      const res = await request(app.getHttpServer())
+        .post(`/video/rooms/${endedRoomId}/recordings`)
+        .set('Authorization', `Bearer ${parentToken}`)
+        .send({});
+      expect(res.status).toBe(403);
+    });
+
+    it('Déclarer un enregistrement sur une salle ACTIVE → 400', async () => {
+      if (!activeRoomId) return;
+      const res = await request(app.getHttpServer())
+        .post(`/video/rooms/${activeRoomId}/recordings`)
+        .set('Authorization', `Bearer ${teacherToken}`)
+        .send({});
+      expect(res.status).toBe(400);
+    });
+
+    it('Un formateur liste les enregistrements → 200', async () => {
+      if (!endedRoomId) return;
+      const res = await request(app.getHttpServer())
+        .get(`/video/rooms/${endedRoomId}/recordings`)
+        .set('Authorization', `Bearer ${teacherToken}`);
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+    });
+
+    it('Un parent_financeur ne peut PAS lister les enregistrements → 403', async () => {
+      if (!endedRoomId) return;
+      const res = await request(app.getHttpServer())
+        .get(`/video/rooms/${endedRoomId}/recordings`)
+        .set('Authorization', `Bearer ${parentToken}`);
+      expect(res.status).toBe(403);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // POST /recordings/:recordingId/comments — VID-FB-001
+  // ────────────────────────────────────────────────────────────────────────────
+
+  describe('POST /recordings/:recordingId/comments', () => {
+    let recordingId: string;
+
+    beforeAll(async () => {
+      if (!endedRoomId) return;
+      const res = await request(app.getHttpServer())
+        .post(`/video/rooms/${endedRoomId}/recordings`)
+        .set('Authorization', `Bearer ${teacherToken}`)
+        .send({});
+      recordingId = res.body.id;
+    });
+
+    it('Un formateur commente → 201', async () => {
+      if (!recordingId) return;
+      const res = await request(app.getHttpServer())
+        .post(`/recordings/${recordingId}/comments`)
+        .set('Authorization', `Bearer ${teacherToken}`)
+        .send({ timestampSeconds: 42, content: 'Belle explication ici' });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('id');
+    });
+
+    it('Un parent_financeur ne peut PAS commenter → 403', async () => {
+      if (!recordingId) return;
+      const res = await request(app.getHttpServer())
+        .post(`/recordings/${recordingId}/comments`)
+        .set('Authorization', `Bearer ${parentToken}`)
+        .send({ timestampSeconds: 0, content: 'test' });
+      expect(res.status).toBe(403);
+    });
+
+    it('Enregistrement inexistant → 404', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/recordings/${IDS.unknown}/comments`)
+        .set('Authorization', `Bearer ${teacherToken}`)
+        .send({ timestampSeconds: 0, content: 'test' });
+      expect(res.status).toBe(404);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // POST /video/rooms/:roomId/summary — VID-AC-002
+  // ────────────────────────────────────────────────────────────────────────────
+
+  describe('POST /video/rooms/:roomId/summary', () => {
+    it('Un formateur publie un résumé → 201, isPermanent true', async () => {
+      if (!endedRoomId) return;
+      const res = await request(app.getHttpServer())
+        .post(`/video/rooms/${endedRoomId}/summary`)
+        .set('Authorization', `Bearer ${teacherToken}`)
+        .send({ content: 'Aujourd’hui nous avons vu les équations du second degré.' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.isPermanent).toBe(true);
+    });
+
+    it('Un élève ne peut PAS publier de résumé → 403', async () => {
+      if (!endedRoomId) return;
+      const res = await request(app.getHttpServer())
+        .post(`/video/rooms/${endedRoomId}/summary`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ content: 'test' });
+      expect(res.status).toBe(403);
+    });
+
+    it('Un TI ne peut PAS publier de résumé → 403', async () => {
+      if (!endedRoomId) return;
+      const res = await request(app.getHttpServer())
+        .post(`/video/rooms/${endedRoomId}/summary`)
+        .set('Authorization', `Bearer ${tiToken}`)
+        .send({ content: 'test' });
+      expect(res.status).toBe(403);
     });
   });
 });

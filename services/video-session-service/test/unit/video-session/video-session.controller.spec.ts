@@ -17,6 +17,7 @@ const mockJwtAuthGuard = {
 const mockVideoSessionService = {
   create: jest.fn(),
   findOne: jest.fn(),
+  findByActivityId: jest.fn(),
   join: jest.fn(),
   recordAttendance: jest.fn(),
   end: jest.fn(),
@@ -29,7 +30,15 @@ const mockVideoSessionService = {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function buildJwtPayload(sub: string, role: string): JwtPayload {
-  return { sub, role, type: 'access', email: `${sub}@test.com`, validationStatus: 'active', jti: `jti-${sub}` };
+  return {
+    sub,
+    role,
+    type: 'access',
+    email: `${sub}@test.com`,
+    loginIdentifier: `${sub}-login`,
+    validationStatus: 'active',
+    jti: `jti-${sub}`,
+  };
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -84,11 +93,25 @@ describe('VideoSessionController', () => {
     });
   });
 
+  // ── getRoomByActivity ────────────────────────────────────────────────────
+
+  describe('getRoomByActivity()', () => {
+    it('delegates to service.findByActivityId with the activity id', async () => {
+      const roomResult = { id: 'room-1', activityId: 'activity-1', status: RoomStatus.WAITING };
+      mockVideoSessionService.findByActivityId.mockResolvedValue(roomResult);
+
+      const result = await controller.getRoomByActivity('activity-1');
+
+      expect(mockVideoSessionService.findByActivityId).toHaveBeenCalledWith('activity-1');
+      expect(result).toBe(roomResult);
+    });
+  });
+
   // ── joinRoom ──────────────────────────────────────────────────────────────
 
   describe('joinRoom()', () => {
-    it('delegates to service.join with room id, user sub and role', async () => {
-      const joinResult = { accessToken: 'tok', roomToken: 'room-tok', status: RoomStatus.ACTIVE };
+    it('delegates to service.join with room id, user sub and role, returns {token, url}', async () => {
+      const joinResult = { token: 'livekit-jwt', url: 'https://livekit.example.com' };
       mockVideoSessionService.join.mockResolvedValue(joinResult);
 
       const user = buildJwtPayload('eleve-1', UserRole.ELEVE);

@@ -1425,17 +1425,121 @@ traité côté `teacher-request-service`.
 
 Préfixe gateway canonique : `/api/v1/video-sessions` → contrôleur `/video-sessions` (alias legacy : `/api/v1/video` → `/video`)
 
+> **Chantier calendrier-visio-livekit, point 4 (2026-08-19) — LiveKit auto-hébergé.**
+> `VideoRoom` était jusqu'ici un simple stub (UUID généré localement, rien de réel
+> derrière). Il porte désormais une vraie salle LiveKit (`livekit-server-sdk`,
+> `RoomServiceClient`/`AccessToken`), et une nouvelle voie de création
+> **automatique** existe : à la confirmation d'un créneau de cours
+> (`ActivityConfirmed`, type `cours`), une salle est créée sans aucune action
+> manuelle. Voir `docs/architecture.md` pour l'arbitrage d'exposition réseau de
+> LiveKit (ports dédiés, hors `nginx-global` et hors `visiomath_gateway`) et le
+> rapport de session `.claude/reports/video-session-service-2026-08-19.md` pour
+> le détail complet (variables d'environnement, étapes manuelles de déploiement).
+
 ### Salles vidéo
 
 | Méthode | Chemin | Description | Auth | Rôles autorisés |
 |---|---|---|---|---|
-| POST | /video/rooms | Créer une salle vidéo | 🔒 | formateur, RP, AP, TI |
+| POST | /video/rooms | Créer une salle vidéo **réelle** (LiveKit) | 🔒 | formateur, RP, AP, TI |
 | GET | /video/rooms/:id | Info d'une salle | 🔒 | Tout utilisateur authentifié |
-| GET | /video/rooms/:id/join | Rejoindre la salle (générer un token d'accès) | 🔒 | élève, formateur, RP, AP, TI — parent_financeur refusé (VID-FB-001) |
+| GET | /video/rooms/by-activity/:activityId | Résoudre la salle créée automatiquement pour une activité confirmée | 🔒 | Tout utilisateur authentifié (même politique que `GET /video/rooms/:id`) |
+| GET | /video/rooms/:id/join | Rejoindre la salle (générer un token d'accès **LiveKit réel**) | 🔒 | élève, formateur, RP, AP, TI — parent_financeur refusé (VID-FB-001) |
 | POST | /video/rooms/:id/attendance | Enregistrer la présence | 🔒 | élève, formateur, RP, AP, TI — parent_financeur refusé |
 | POST | /video/rooms/:id/close | Clôturer la session | 🔒 | formateur, RP, AP, TI |
 
+**`POST /video/rooms` — contenu inchangé côté contrat (`{calendarSessionId}` requis,
+mêmes rôles), comportement changé.** Crée désormais une vraie salle LiveKit via
+`RoomServiceClient.createRoom()` — `roomToken` porte le **nom réel** de la salle
+LiveKit (avant : UUID local sans rien derrière). `503` si LiveKit est
+injoignable (échec fermé, la ligne `VideoRoom` locale n'est jamais créée orpheline).
+
+**`GET /video/rooms/:id/join` — changement de contrat (2026-08-19), à
+répercuter côté front dans une tâche séparée.** Réponse **remplacée** :
+
+- **Avant** (stub) : `200 {accessToken, roomToken, status}` — `accessToken` un
+  UUID local sans signification, `joinUrl` sous-entendu par le front
+  (`window.open(joinUrl)` dans `VideoJoinPage.tsx`).
+- **Maintenant** : `200 {token, url}` — `token` est un vrai JWT LiveKit
+  (`AccessToken` du SDK, identité = `userId` de l'appelant, `metadata` porte le
+  rôle, grant `{roomJoin: true, room: <nom réel de la salle>}`) ; `url` est
+  `LIVEKIT_PUBLIC_URL`, l'adresse que le **SDK client LiveKit** (navigateur)
+  doit joindre **directement** — jamais via `api-gateway`, qui ne relaie pas le
+  trafic WebRTC. Le front doit intégrer un composant vidéo (`token` + `url`)
+  au lieu d'ouvrir un nouvel onglet — hors périmètre de cette session,
+  volontairement laissé à la tâche front suivante.
+- `400`/`401`/`403`/`404` inchangés. La transition `WAITING → ACTIVE` au premier
+  join est inchangée ; elle ne se lit plus dans la réponse de `join` (qui ne
+  porte plus `status`) mais via `GET /video/rooms/:id`.
+
+**`GET /video/rooms/by-activity/:activityId`** (nouvelle route, 2026-08-19) —
+permet au front de retrouver la salle liée à une activité de calendrier dont il
+ne connaît que l'`activityId` (il n'a jamais l'id de la salle, créée côté
+serveur sans action de l'utilisateur). `200` avec les mêmes champs que
+`GET /video/rooms/:id` si une salle existe déjà pour cette activité · `404` si
+l'activité n'a pas encore de salle (pas encore confirmée, pas de type `cours`,
+ou événement pas encore consommé — voir « Événements consommés » ci-dessous).
+
+**`VideoRoom` porte désormais deux champs distincts pour référencer une
+activité externe, volontairement non fusionnés** (règle du projet : deux
+données distinctes gardent chacune leur nom) :
+
+| Champ | Nullable | Rempli par | Référence |
+|---|---|---|---|
+| `calendarSessionId` | Oui (depuis 2026-08-19) | `POST /video/rooms` (création manuelle) | **Aucune vérification d'entité** — UUID libre fourni par l'appelant, comme depuis toujours. N'a jamais été une vraie clé étrangère vers un `CalendarEvent`, malgré son nom |
+| `activityId` | Oui, **unique** | Création automatique (`ActivityConfirmed`, voir ci-dessous) | `ScheduledActivity.id` de `calendar-service` (ressource « activities », chantier calendrier de disponibilités point 3) |
+
+Un `VideoRoom` créé manuellement n'a jamais d'`activityId` ; un `VideoRoom` créé
+automatiquement n'a jamais de `calendarSessionId`.
+
+### Événements consommés — création automatique de salle (2026-08-19)
+
+`video-session-service` s'abonne au flux Redis `visiomath:events` déjà utilisé
+par `dashboard-notification-service` (même mécanisme générique outbox + `XADD`,
+arbitrage du 2026-08-14), sous son propre groupe de consommateurs
+`video-session-service`, avec déduplication par `eventId` (table
+`processed_events`, un `eventId` déjà traité est ignoré sans effet de bord).
+
+**Constat vérifié directement contre le flux Redis réel le 2026-08-19 (pas
+supposé depuis la documentation) : `ActivityConfirmed` ne porte que
+`{activityId, confirmedBy}`** — ni `type`, ni `participantIds`. Décider de créer
+une salle pour un `cours` exige donc de connaître le `type` de l'activité, que
+seul `ActivityScheduled` porte (`{type, creatorId, startTime, activityId,
+recipientId, participantIds}`, également vérifié en direct). `calendar-service`
+n'expose aujourd'hui **aucune route interne** pour relire une activité par id
+après coup — ce n'est donc pas un choix mais une contrainte réelle.
+
+**Solution retenue** : `video-session-service` projette `ActivityScheduled`
+dans une table locale `activity_projections` (clé `activityId`), et la relit
+quand `ActivityConfirmed` arrive pour ce même `activityId` :
+
+- Projection introuvable (l'`ActivityScheduled` correspondant n'a jamais été
+  observé) → aucune salle créée, avertissement journalisé. Limite documentée,
+  pas un oubli.
+- `type !== "cours"` → aucune salle créée (hors périmètre de ce chantier —
+  `reunion_pedagogique`, `entretien_rp`, `rappel`, `autre` ne déclenchent rien).
+- `type === "cours"` → `VideoRoom` créé automatiquement (vraie salle LiveKit,
+  `activityId` renseigné, `calendarSessionId` laissé `null`), **idempotent par
+  `activityId`** (colonne unique) : un `ActivityConfirmed` rejoué ne crée jamais
+  une seconde salle ni un second appel LiveKit.
+
+Le groupe de consommateurs démarre à l'ID `0` (relit tout l'historique du
+flux), même choix que celui observé sur le groupe réel de
+`dashboard-notification-service` (`entries-read` égal à la longueur totale du
+flux). Sans `REDIS_URL` configurée, la création automatique de salle est
+simplement **désactivée** (repli explicite, journalisé), la création manuelle
+(`POST /video/rooms`) continue de fonctionner normalement.
+
 ### Enregistrements
+
+> **Gap réel comblé le 2026-08-19, à l'occasion de ce chantier.** Les entités
+> (`VideoRecording`, `RecordingComment`, `CourseSummary`), leurs DTO et leurs
+> tests étaient déjà en place, mais **jamais enregistrés dans `AppModule`** ni
+> **jamais câblés dans le contrôleur/service** — `synchronize` ne créait donc
+> même pas les tables en développement, et `npm test` échouait à la compilation
+> avant tout changement de cette session. Contrat inchangé par rapport à cette
+> documentation (déjà correcte) ; c'est l'implémentation qui manquait, pas le
+> contrat. Nouvelle migration `1787140000000-...` créant ces trois tables (elles
+> n'existaient nulle part, pas même en base de dev).
 
 | Méthode | Chemin | Description | Auth | Rôles autorisés |
 |---|---|---|---|---|
@@ -1468,13 +1572,33 @@ Réponse : `201 {id, roomId, authorId, content, isPermanent: true, publishedAt, 
 
 `VideoRoomCreated` · `VideoSessionStarted` · `VideoSessionEnded` · `AttendanceRecorded` · `VideoRecordingAvailable` · `CourseSummaryPublished`
 
+Toujours journalisés en stdout uniquement (`EventsService.publishEvent`, stub
+inchangé par ce chantier) — **pas** encore le mécanisme outbox + flux Redis
+adopté par `calendar-service`/`teacher-request-service`. Ce service est
+aujourd'hui **consommateur** du flux `visiomath:events` (voir ci-dessus),
+jamais encore producteur dessus ; devenir producteur sur le même flux reste un
+point ouvert, hors périmètre de ce chantier.
+
 ### Critères d'acceptation
 
 - Un parent financeur ne peut pas ouvrir une visio ni accéder aux enregistrements (VID-FB-001)
 - La vidéo est téléchargeable pendant 30 jours puis expire (VID-AC-001)
 - Le résumé de cours reste dans les archives pédagogiques après expiration vidéo (`isPermanent: true`) (VID-AC-002)
+- Le créneau de cours accepté ouvre automatiquement une salle LiveKit réelle, sans action manuelle (chantier calendrier-visio-livekit, point 4, 2026-08-19)
 
-API interne (non exposée via nginx) : `GET /internal/video/*` — protégée par `X-Internal-Secret`.
+API interne (non exposée via nginx) : `GET /internal/video/*` — protégée par `X-Internal-Secret`. Inchangée par ce chantier (crée toujours une salle réelle via le même chemin que `POST /video/rooms`, avec les mêmes rôles/comportement LiveKit).
+
+### Configuration LiveKit (variables d'environnement)
+
+| Variable | Rôle |
+|---|---|
+| `LIVEKIT_API_URL` | Appel serveur-à-serveur (`RoomServiceClient`, `AccessToken`) — interne au réseau Docker, ex. `http://livekit:7880` |
+| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | Paire de clés API LiveKit. **Le secret doit faire au moins 32 caractères** (vérifié le 2026-08-19 contre une vraie instance LiveKit 1.13.5 : en dessous, `secret is too short` côté serveur et `401 invalid token, signature is invalid` côté client) |
+| `LIVEKIT_PUBLIC_URL` | URL que le **SDK client LiveKit (navigateur)** joint en direct — jamais via `api-gateway`. Renvoyée telle quelle par `GET /video/rooms/:id/join` |
+| `REDIS_URL` | Flux `visiomath:events` — optionnelle côté code (repli explicite si absente), nécessaire pour la création automatique de salle |
+
+Détail complet (ports à ouvrir, IP publique à renseigner, secrets à changer en
+production) : `.claude/reports/video-session-service-2026-08-19.md`.
 
 ---
 

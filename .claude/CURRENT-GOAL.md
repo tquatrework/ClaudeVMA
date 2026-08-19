@@ -121,9 +121,26 @@ Ordre de livraison retenu, une branche par étape :
          Contrat documenté `docs/routes.md` (section « Événement publié à la création d'une
          proposition »). **Pas encore de preuve HTTP par l'orchestrateur contre la pile réelle
          pour ce chantier précis** — à faire avant de considérer le point 3 clos.
-      2. [ ] `dashboard-notification-service` : nouveau type de notification sur cet événement,
-         résolution du nom du proposeur (jamais d'UUID), libellé « Proposition de cours ajoutée
-         par {nom} ».
+      2. [x] `dashboard-notification-service` : fait le 2026-08-19, commits `c4e86cd` (cherry-pick
+         depuis un worktree d'agent, code) + `ea9621a` (rapport) sur
+         `feat/calendrier-proposition-creneau`, poussés. Consommateur `EventProcessorService`
+         étendu : traite `ActivityScheduled` (déjà publié par `calendar-service`), crée une
+         notification `type: course_slot_proposed` quand `payload.recipientId` est non-`null`
+         (nom du proposeur résolu via `profile-service`, jamais d'UUID, `title`/`message` `null`,
+         contenu dans `metadata: {proposerName, activityId, activityType, startTime}`) ; ignore
+         silencieusement (ack sans notif, pas un type inconnu) les usages multi-participants où
+         `recipientId` est `null`. 99 tests unitaires verts (3 nouveaux). Contrat documenté
+         `docs/routes.md` et `docs/services/dashboard-notification-service.md`. Libellé français
+         exact prévu pour le front : « Proposition de cours ajoutée par {proposerName} ».
+         **Note de méthode** : l'agent avait travaillé dans un worktree basé sur un commit
+         antérieur à celui du chantier 1 (`bce43b7`, avant `ab00c73`) et n'avait pas poussé ; son
+         commit ne touchait que des fichiers de son périmètre (`services/dashboard-notification-
+         service/`, `docs/routes.md`, `docs/services/dashboard-notification-service.md`) donc
+         cherry-pické sans conflit sur le vrai tip par l'orchestrateur, tests rejoués après
+         `npm install` (dépendance `ioredis` pas encore installée dans ce checkout) — 99/99 verts
+         confirmés indépendamment. **Pas encore de preuve HTTP par l'orchestrateur contre la pile
+         réelle pour ce chantier précis** — à faire avec le chantier 3 (front), une fois le
+         créneau visible et actionnable à l'écran.
       3. [ ] Front : la grille du calendrier du destinataire affiche les créneaux `PROPOSED` en
          couleur distincte avec Accepter/Refuser inline — remplace/complète `CourseProposalsPanel`
          (l'onglet séparé livré dans ce tour n'était pas la bonne approche, à ajuster ou retirer

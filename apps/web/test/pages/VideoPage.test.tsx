@@ -152,6 +152,22 @@ describe('VideoPage — chargement de la salle', () => {
       expect(screen.getByText('Erreur lors du chargement de la salle')).toBeDefined()
     })
   })
+
+  // Bug réel du 2026-08-19 : une salle fraîchement créée (status `waiting`) n'affichait aucun
+  // bouton Rejoindre — verrou circulaire, seul GET /video/rooms/:id/join fait passer
+  // WAITING → ACTIVE côté serveur, et ce bouton absent devait déclencher cet appel.
+  it('affiche le bouton Rejoindre la visio pour une salle waiting, comme pour une salle active', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
+    mockFetchRoomInfo.mockResolvedValue({ id: 'room-abc', status: 'waiting' })
+
+    renderVideoPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /rejoindre la visio/i })).toBeDefined()
+    })
+
+    expect(screen.getByText('En cours')).toBeDefined()
+  })
 })
 
 // ---------------------------------------------------------------------------

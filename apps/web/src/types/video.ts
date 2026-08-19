@@ -7,7 +7,14 @@
  * chacune n'affichant que les champs pertinents à son contexte.
  */
 
-export type VideoRoomStatus = 'active' | 'ended' | 'scheduled'
+/**
+ * `waiting` est l'état initial d'une salle fraîchement créée (manuelle ou automatique, à la
+ * confirmation d'un créneau de cours) — voir docs/routes.md, section video-session-service.
+ * La transition WAITING → ACTIVE se fait côté serveur au premier appel à
+ * `GET /video/rooms/:id/join`. Côté front, `waiting` se traite comme `active` pour l'affichage
+ * du bouton « Rejoindre » : c'est précisément ce clic qui déclenche la transition serveur.
+ */
+export type VideoRoomStatus = 'active' | 'waiting' | 'ended' | 'scheduled'
 
 export interface VideoRoomInfo {
   id: string

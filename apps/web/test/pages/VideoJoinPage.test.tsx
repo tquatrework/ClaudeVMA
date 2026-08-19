@@ -183,6 +183,39 @@ describe('VideoJoinPage — élève rejoint depuis un événement calendrier', (
 })
 
 // ---------------------------------------------------------------------------
+// Test 1bis — Salle fraîchement créée, statut `waiting` (bug réel du 2026-08-19 :
+// aucun bouton Rejoindre ne s'affichait, verrouillant définitivement la salle — le seul appel
+// qui fait passer WAITING → ACTIVE côté serveur est précisément GET /video/rooms/:id/join, que
+// ce bouton absent devait déclencher).
+// ---------------------------------------------------------------------------
+describe('VideoJoinPage — salle fraîchement créée (status waiting)', () => {
+  it('affiche le bouton Rejoindre pour une salle waiting, comme pour une salle active', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
+
+    mockFetchRoomInfo.mockResolvedValue({ id: 'room-abc', status: 'waiting' })
+    mockJoinRoom.mockResolvedValue({ joinUrl: 'https://meet.example.com/room-abc', token: 'tok-xyz' })
+
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+
+    renderVideoJoinPage('room-abc')
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /rejoindre/i })).toBeDefined()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /rejoindre/i }))
+
+    await waitFor(() => {
+      expect(mockJoinRoom).toHaveBeenCalledWith('room-abc')
+    })
+
+    expect(openSpy).toHaveBeenCalledWith('https://meet.example.com/room-abc', '_blank')
+
+    openSpy.mockRestore()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Test 2 — Formateur ouvre la page de join pour sa propre session
 // ---------------------------------------------------------------------------
 describe('VideoJoinPage — formateur gère sa session', () => {

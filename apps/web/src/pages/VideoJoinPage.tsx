@@ -5,6 +5,7 @@ import { useVideoJoin } from '../hooks/video/useVideoJoin'
 import Layout from '../components/Layout'
 import LiveVideoCall from '../components/video/LiveVideoCall'
 import type { JoinRoomResult } from '../types/video'
+import { isJoinableRoomStatus } from '../utils/video'
 
 export default function VideoJoinPage() {
   const { roomId } = useParams<{ roomId: string }>()
@@ -82,7 +83,7 @@ export default function VideoJoinPage() {
 
         {room && (
           <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-5">
-            {room.status === 'active' && (
+            {isJoinableRoomStatus(room.status) && (
               <div className="space-y-3">
                 <button
                   disabled={isJoining}

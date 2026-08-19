@@ -28,6 +28,11 @@ import {
   IdentityAccessClient,
   IdentityAccessUnavailableError,
 } from '../../../src/common/clients/identity-access.client';
+import {
+  ProfileDisplayNameClient,
+  ProfileDisplayNameUnavailableError,
+  DisplayName,
+} from '../../../src/common/clients/profile-display-name.client';
 import { RelationSnapshot } from '../../../src/common/relations/relation-kind';
 import * as jwt from 'jsonwebtoken';
 
@@ -50,6 +55,12 @@ function setStaticTestEnv(): void {
   // identity-access-service.
   process.env.IDENTITY_ACCESS_SERVICE_URL =
     process.env.IDENTITY_ACCESS_SERVICE_URL ?? 'http://identity-access-service.test:3001';
+  // REDIS_URL est optionnelle (voir env.validation.ts) : en son absence,
+  // EventPublisher ne tente aucune connexion et journalise un avertissement
+  // (voir sa doc). On la supprime explicitement plutôt que de la laisser à
+  // une valeur injectée par erreur par l'environnement CI, sur le modèle
+  // suivi par teacher-request-service/test/e2e/helpers/app.helper.ts.
+  delete process.env.REDIS_URL;
 }
 
 function buildLocalDatabaseUrl(): string {
@@ -157,6 +168,43 @@ export class FakeIdentityAccessClient {
   }
 }
 
+/**
+ * Fake `ProfileDisplayNameClient`, injectable en e2e à côté des deux fakes
+ * ci-dessus — même modèle. Le nom réel du créateur d'une activité vit dans
+ * `profile-service`, hors de portée d'un e2e de `calendar-service` isolé.
+ * `resolveDisplayNames` renvoie ce que le test y a placé via `setName`
+ * (défaut : entrée absente, comme un `userId` sans profil administratif côté
+ * `profile-service` réel), ou lève `ProfileDisplayNameUnavailableError` via
+ * `setUnavailable` pour couvrir la dégradation gracieuse.
+ */
+export class FakeProfileDisplayNameClient {
+  private namesByUserId = new Map<string, DisplayName>();
+  private unavailable = false;
+
+  setName(userId: string, name: DisplayName): void {
+    this.namesByUserId.set(userId, name);
+  }
+
+  setUnavailable(value: boolean): void {
+    this.unavailable = value;
+  }
+
+  async resolveDisplayNames(
+    userIds: string[],
+    _correlationId?: string,
+  ): Promise<Map<string, DisplayName>> {
+    if (this.unavailable) {
+      throw new ProfileDisplayNameUnavailableError('profile-service unreachable (test double)');
+    }
+    const result = new Map<string, DisplayName>();
+    for (const userId of userIds) {
+      const name = this.namesByUserId.get(userId);
+      if (name) result.set(userId, name);
+    }
+    return result;
+  }
+}
+
 async function buildTestApp(
   moduleBuilder: (base: TestingModuleBuilder) => TestingModuleBuilder,
 ): Promise<INestApplication> {
@@ -204,17 +252,21 @@ export async function createTestAppWithFakeProfileRelations(): Promise<{
   app: INestApplication;
   profileRelations: FakeProfileRelationsClient;
   identityAccess: FakeIdentityAccessClient;
+  profileDisplayNames: FakeProfileDisplayNameClient;
 }> {
   const profileRelations = new FakeProfileRelationsClient();
   const identityAccess = new FakeIdentityAccessClient();
+  const profileDisplayNames = new FakeProfileDisplayNameClient();
   const app = await buildTestApp((base) =>
     base
       .overrideProvider(ProfileRelationsClient)
       .useValue(profileRelations)
       .overrideProvider(IdentityAccessClient)
-      .useValue(identityAccess),
+      .useValue(identityAccess)
+      .overrideProvider(ProfileDisplayNameClient)
+      .useValue(profileDisplayNames),
   );
-  return { app, profileRelations, identityAccess };
+  return { app, profileRelations, identityAccess, profileDisplayNames };
 }
 
 /**

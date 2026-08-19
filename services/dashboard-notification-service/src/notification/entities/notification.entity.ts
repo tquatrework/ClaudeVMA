@@ -34,6 +34,16 @@ export enum NotificationType {
   TEACHER_PROPOSAL_EXPIRED = 'teacher_proposal_expired',
   TEACHER_ASSIGNED = 'teacher_assigned',
   TEACHER_REQUEST_STATUS_UPDATED = 'teacher_request_status_updated',
+  // Ajouté le 2026-08-19 pour le point 3 du chantier "calendrier de
+  // disponibilités lié à la visio" (proposer/accepter/refuser un créneau
+  // de cours) — consommé depuis l'événement `ActivityScheduled` déjà
+  // publié par calendar-service, uniquement quand celui-ci porte un
+  // `recipientId` unique (1 proposeur -> 1 destinataire). Distinct de
+  // `ACTIVITY_SCHEDULED` ci-dessus (déjà présent dans cet enum mais resté
+  // inutilisé depuis sa création) : ce nouveau type porte une sémantique
+  // métier précise (« proposition de créneau »), pas une simple
+  // planification d'activité générique. Voir EventProcessorService.
+  COURSE_SLOT_PROPOSED = 'course_slot_proposed',
 }
 
 @Entity('notifications')

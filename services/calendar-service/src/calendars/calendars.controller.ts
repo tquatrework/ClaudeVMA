@@ -28,7 +28,7 @@ import { CorrelationId } from '../common/decorators/correlation-id.decorator';
 import { CurrentUser } from '../common/current-user.decorator';
 import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 import { UserRole } from '../common/enums/user-role.enum';
-import { CalendarsService, CalendarBusyFreeResponse } from './calendars.service';
+import { CalendarsService, CalendarBusyFreeResponse, CalendarActivityView } from './calendars.service';
 import { UpdateAvailabilityDto } from './dto/update-availability.dto';
 import { CreateAvailabilitySlotDto } from './dto/create-availability-slot.dto';
 import { UpdateAvailabilitySlotDto } from './dto/update-availability-slot.dto';
@@ -71,9 +71,18 @@ export class CalendarsController {
     description:
       'Returns the calendar (availability slots + activities). ' +
       'CAL-FB-001: requester must be the owner or hold an internal role (RP, AP, TI, FINANCE_ADMIN). ' +
-      'CAL-BR-003: PARENT_FINANCEUR also receives payment schedule entries.',
+      'CAL-BR-003: PARENT_FINANCEUR also receives payment schedule entries. ' +
+      "Chantier calendrier de disponibilités, point 3 (2026-08-18) : `activities` porte désormais " +
+      'les activités (proposed/confirmed) où le titulaire est créateur ou participant, sur une ' +
+      'fenêtre par défaut de 2 semaines passées + 4 semaines à venir, avec `creatorName` résolu ' +
+      '(jamais un UUID) — voir docs/routes.md pour la forme exacte.',
   })
-  @ApiResponse({ status: 200, description: 'Calendar returned' })
+  @ApiResponse({
+    status: 200,
+    description:
+      '{...calendar, activities: [{id, type, status, startTime, endTime, creatorId, ' +
+      'creatorName, participantIds}], paymentEntries?}',
+  })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden — CAL-FB-001' })
   @ApiResponse({ status: 404, description: 'Not found' })
@@ -81,7 +90,7 @@ export class CalendarsController {
     @Param('ownerId', ParseUUIDPipe) ownerId: string,
     @CurrentUser() actor: AuthenticatedUser,
     @CorrelationId() correlationId?: string,
-  ): Promise<Calendar & { paymentEntries?: PaymentScheduleEntry[] }> {
+  ): Promise<Calendar & { paymentEntries?: PaymentScheduleEntry[]; activities: CalendarActivityView[] }> {
     return this.calendarsService.getCalendar(ownerId, actor, correlationId);
   }
 

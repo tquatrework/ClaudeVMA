@@ -24,6 +24,10 @@ import {
   IdentityAccessClient,
   IdentityAccessUnavailableError,
 } from '../../../src/common/clients/identity-access.client';
+import {
+  ProfileDisplayNameClient,
+  ProfileDisplayNameUnavailableError,
+} from '../../../src/common/clients/profile-display-name.client';
 import { RelationKind } from '../../../src/common/relations/relation-kind';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
 import { AuthenticatedUser } from '../../../src/common/interfaces/authenticated-user.interface';
@@ -68,6 +72,10 @@ const mockIdentityAccessClient = {
   resolveRole: jest.fn(),
 };
 
+const mockProfileDisplayNameClient = {
+  resolveDisplayNames: jest.fn(),
+};
+
 /**
  * The transaction manager exposes the same repositories used outside a
  * transaction, so the existing mocks can be reused inside `manager.getRepository(...)`.
@@ -99,11 +107,17 @@ describe('CalendarsService', () => {
         { provide: ActivitiesService, useValue: mockActivitiesService },
         { provide: ProfileRelationsClient, useValue: mockProfileRelationsClient },
         { provide: IdentityAccessClient, useValue: mockIdentityAccessClient },
+        { provide: ProfileDisplayNameClient, useValue: mockProfileDisplayNameClient },
       ],
     }).compile();
 
     service = module.get<CalendarsService>(CalendarsService);
     jest.clearAllMocks();
+    // Defaut neutre : aucune activite dans la fenetre, donc
+    // resolveDisplayNames n'est meme pas appele — les tests qui ne portent
+    // pas explicitement sur `activities` n'ont pas a le savoir.
+    mockActivitiesService.findActiveInRange.mockResolvedValue([]);
+    mockProfileDisplayNameClient.resolveDisplayNames.mockResolvedValue(new Map());
   });
 
   // --- getCalendar ---
@@ -115,7 +129,7 @@ describe('CalendarsService', () => {
       const actor: AuthenticatedUser = { id: 'user-1', role: UserRole.ELEVE };
 
       const result = await service.getCalendar('user-1', actor);
-      expect(result).toEqual(calendar);
+      expect(result).toEqual({ ...calendar, activities: [] });
     });
 
     it('creates calendar lazily when not found', async () => {
@@ -152,6 +166,124 @@ describe('CalendarsService', () => {
 
       const result = await service.getCalendar('parent-1', actor);
       expect(result['paymentEntries']).toEqual(entries);
+    });
+
+    // --- activities (chantier calendrier de disponibilites, point 3) ---
+
+    it('includes activities in range, with the creator name resolved (never a raw UUID)', async () => {
+      const calendar = { id: 'cal-1', ownerId: 'student-1', availabilitySlots: [] };
+      mockCalendarRepo.findOne.mockResolvedValue(calendar);
+      const startTime = new Date('2026-09-10T14:00:00.000Z');
+      const endTime = new Date('2026-09-10T15:00:00.000Z');
+      mockActivitiesService.findActiveInRange.mockResolvedValue([
+        {
+          id: 'act-1',
+          type: 'cours',
+          status: 'proposed',
+          creatorId: 'teacher-1',
+          participantIds: ['student-1'],
+          startTime,
+          endTime,
+        },
+      ]);
+      mockProfileDisplayNameClient.resolveDisplayNames.mockResolvedValue(
+        new Map([['teacher-1', { firstName: 'Camille', lastName: 'Durand' }]]),
+      );
+      const actor: AuthenticatedUser = { id: 'student-1', role: UserRole.ELEVE };
+
+      const result = await service.getCalendar('student-1', actor);
+
+      expect(result.activities).toEqual([
+        {
+          id: 'act-1',
+          type: 'cours',
+          status: 'proposed',
+          startTime: startTime.toISOString(),
+          endTime: endTime.toISOString(),
+          creatorId: 'teacher-1',
+          creatorName: 'Camille Durand',
+          participantIds: ['student-1'],
+        },
+      ]);
+    });
+
+    it('resolves display names in a single batched call for several distinct creators', async () => {
+      const calendar = { id: 'cal-1', ownerId: 'student-1', availabilitySlots: [] };
+      mockCalendarRepo.findOne.mockResolvedValue(calendar);
+      const startTime = new Date('2026-09-10T14:00:00.000Z');
+      const endTime = new Date('2026-09-10T15:00:00.000Z');
+      mockActivitiesService.findActiveInRange.mockResolvedValue([
+        { id: 'act-1', type: 'cours', status: 'proposed', creatorId: 'teacher-1', participantIds: ['student-1'], startTime, endTime },
+        { id: 'act-2', type: 'cours', status: 'confirmed', creatorId: 'teacher-2', participantIds: ['student-1'], startTime, endTime },
+      ]);
+      mockProfileDisplayNameClient.resolveDisplayNames.mockResolvedValue(new Map());
+      const actor: AuthenticatedUser = { id: 'student-1', role: UserRole.ELEVE };
+
+      await service.getCalendar('student-1', actor);
+
+      expect(mockProfileDisplayNameClient.resolveDisplayNames).toHaveBeenCalledTimes(1);
+      expect(mockProfileDisplayNameClient.resolveDisplayNames).toHaveBeenCalledWith(
+        ['teacher-1', 'teacher-2'],
+        undefined,
+      );
+    });
+
+    it('passes the default window (2 weeks past, 4 weeks forward) to findActiveInRange', async () => {
+      const calendar = { id: 'cal-1', ownerId: 'student-1', availabilitySlots: [] };
+      mockCalendarRepo.findOne.mockResolvedValue(calendar);
+      const actor: AuthenticatedUser = { id: 'student-1', role: UserRole.ELEVE };
+      const before = Date.now();
+
+      await service.getCalendar('student-1', actor);
+
+      const [ownerIdArg, fromArg, toArg] = mockActivitiesService.findActiveInRange.mock.calls[0];
+      expect(ownerIdArg).toBe('student-1');
+      const weekMs = 7 * 24 * 60 * 60 * 1000;
+      expect(before - fromArg.getTime()).toBeGreaterThanOrEqual(2 * weekMs - 1000);
+      expect(toArg.getTime() - before).toBeGreaterThanOrEqual(4 * weekMs - 1000);
+    });
+
+    it('degrades gracefully to creatorName: null when profile-service is unreachable — never a raw UUID', async () => {
+      const calendar = { id: 'cal-1', ownerId: 'student-1', availabilitySlots: [] };
+      mockCalendarRepo.findOne.mockResolvedValue(calendar);
+      const startTime = new Date('2026-09-10T14:00:00.000Z');
+      const endTime = new Date('2026-09-10T15:00:00.000Z');
+      mockActivitiesService.findActiveInRange.mockResolvedValue([
+        { id: 'act-1', type: 'cours', status: 'proposed', creatorId: 'teacher-1', participantIds: ['student-1'], startTime, endTime },
+      ]);
+      mockProfileDisplayNameClient.resolveDisplayNames.mockRejectedValue(
+        new ProfileDisplayNameUnavailableError('profile-service unreachable'),
+      );
+      const actor: AuthenticatedUser = { id: 'student-1', role: UserRole.ELEVE };
+
+      const result = await service.getCalendar('student-1', actor);
+
+      expect(result.activities).toEqual([
+        expect.objectContaining({ id: 'act-1', creatorId: 'teacher-1', creatorName: null }),
+      ]);
+    });
+
+    it('returns an empty activities array without calling resolveDisplayNames when there is nothing in range', async () => {
+      const calendar = { id: 'cal-1', ownerId: 'student-1', availabilitySlots: [] };
+      mockCalendarRepo.findOne.mockResolvedValue(calendar);
+      const actor: AuthenticatedUser = { id: 'student-1', role: UserRole.ELEVE };
+
+      const result = await service.getCalendar('student-1', actor);
+
+      expect(result.activities).toEqual([]);
+      expect(mockProfileDisplayNameClient.resolveDisplayNames).not.toHaveBeenCalled();
+    });
+
+    it('also includes activities for PARENT_FINANCEUR, alongside paymentEntries', async () => {
+      const calendar = { id: 'cal-p', ownerId: 'parent-1', availabilitySlots: [] };
+      mockCalendarRepo.findOne.mockResolvedValue(calendar);
+      mockPaymentRepo.find.mockResolvedValue([]);
+      mockActivitiesService.findActiveInRange.mockResolvedValue([]);
+      const actor: AuthenticatedUser = { id: 'parent-1', role: UserRole.PARENT_FINANCEUR };
+
+      const result = await service.getCalendar('parent-1', actor);
+      expect(result.activities).toEqual([]);
+      expect(result['paymentEntries']).toEqual([]);
     });
   });
 

@@ -520,6 +520,318 @@
             visio) toujours non traites — inchange par cette session, hors mandat.</item>
         </openPoints>
       </session>
+
+      <session date="2026-08-18" label="Calendrier de disponibilites, point 3 — proposer/accepter/refuser un creneau de cours">
+        <context>Branche `feat/calendrier-proposition-creneau`. Le verbe API reste inchange :
+          `POST /activities` (deja existant) continue de creer l'entite a `status: proposed`. Ce
+          qui manquait reellement : les routes `accept`/`decline`, et une correction de securite
+          reelle deja identifiee au plan — `ActivitiesService.validateActivityCreation` ne
+          verifiait aucun lien metier avant de creer une proposition (un formateur pouvait
+          proposer un cours a n'importe quel eleve). Portee volontairement limitee aux
+          propositions 1 proposeur -&gt; 1 destinataire (`cours` par un FORMATEUR, ou
+          `reunion_pedagogique` par un ANIMATEUR_PEDAGOGIQUE) ; les usages multi-participants
+          existants (`entretien_rp`, `rappel`, `autre`, `reunion_pedagogique` RP a plusieurs
+          formateurs) ne sont pas touches. Aucun changement `orchestration-service` (verification
+          de lecture bilaterale entre deux services deja proprietaires, pas une saga).</context>
+
+        <changeset id="accept-decline">
+          <item>Nouvelles routes `POST /activities/:activityId/accept` et
+            `.../decline`, sur le modele exact d'`EventInvitationsController` deja en place :
+            garde de statut (`409` si l'activite n'est plus `proposed`), verification que
+            l'appelant est bien le destinataire vise (present dans `participantIds` — le createur
+            lui-meme ne peut pas accepter sa propre proposition), transition
+            `proposed -&gt; confirmed` (accept, publie `ActivityConfirmed`) ou
+            `proposed -&gt; cancelled` (decline, publie `ActivityDeclined`). Nouveaux types
+            d'evenement ajoutes a `CalendarEventType` (`events/events.service.ts`).</item>
+        </changeset>
+
+        <changeset id="verification-lien-creation">
+          <item>`ActivitiesService.validateActivityCreation` devient async et reutilise
+            `ProfileRelationsClient` (deja construit au point 2, meme service — pas duplique) :
+            `type=cours` cree par un `FORMATEUR` exige une relation `TEACHER_OF_STUDENT` avec
+            l'eleve cible ; `type=reunion_pedagogique` cree par un `ANIMATEUR_PEDAGOGIQUE` exige
+            `ANIMATOR_OF_TEACHER` avec le formateur cible ; `RESPONSABLE_PEDAGOGIQUE` : aucune
+            verification de lien (acces non conditionnel partout ailleurs dans ce service).
+            `403` si le lien est absent, `503` si `profile-service` est injoignable ou hors delai
+            (echec ferme, meme posture que `CalendarsService.getBusyFree`).</item>
+          <item>Contrainte de nombre associee, distincte de la verification de lien : ces deux
+            memes cas (`cours`/FORMATEUR, `reunion_pedagogique`/AP) exigent desormais
+            `participantIds` de taille exactement 1 (`400` sinon) — ce sont les seuls cas
+            couverts par le flow accepter/refuser 1-vers-1. Une `reunion_pedagogique` creee par
+            un RP a plusieurs formateurs (usage existant) n'est PAS soumise a cette contrainte,
+            lecture retenue de l'enonce de la tache et confirmee par un test e2e dedie.</item>
+          <item>`ActivitiesModule` : `ProfileRelationsClient` ajoute a ses propres `providers`
+            (instance propre a ce module, pas de dependance vers `CalendarsModule` qui importe au
+            contraire `ActivitiesModule` — `ConfigService`, sa seule dependance, est global).</item>
+        </changeset>
+
+        <changeset id="tests">
+          <item>`test/unit/activities/activities.service.spec.ts` : 29 tests (etait ~15) —
+            creation avec lien present/absent pour FORMATEUR et AP, relation de nature non
+            pertinente refusee (ex. `STUDENT_OF_TEACHER` au lieu de `TEACHER_OF_STUDENT`), RP
+            multi-formateurs non affecte, `ProfileRelationsUnavailableError` -&gt; `503`, erreur
+            inattendue propagee telle quelle, contrainte de nombre (400) pour les deux cas
+            concernes, `accept`/`decline` (nominal, `409` deja traite, `403` non-destinataire,
+            `403` createur qui tente d'accepter sa propre proposition, `404` inconnue).</item>
+          <item>`test/e2e/calendar.e2e-spec.ts` : bascule de `createTestApp()` vers
+            `createTestAppWithFakeProfileRelations()` (necessaire des qu'un FORMATEUR cree un
+            `cours` — sinon appel reseau reel vers un `profile-service.test` volontairement non
+            resolvable, `503`). Releve un vrai risque de regression : sans ce changement, le test
+            existant « Un formateur peut creer une activite → 201 » aurait echoue une fois la
+            verification de lien en place — corrige en posant une relation `TEACHER_OF_STUDENT`
+            (`teacher1`/`student1`) et `ANIMATOR_OF_TEACHER` (`ap1`/`teacher1`) au `beforeAll`,
+            `teacher2` restant volontairement sans relation pour les cas de refus. Nouvelles
+            sections : verification de lien a la creation (5 tests : 403 sans lien, 400 sur
+            nombre, 403 AP sans lien, 201 AP avec lien, 201 RP multi-formateurs inchange) et
+            accept/decline (8 tests : nominal x2, tiers non destinataire 403, createur 403, deja
+            traite 409 x2, sans token 401, activite inconnue 404). 60 tests dans ce fichier
+            (etait 47), 83 e2e au total pour le service, 198 unitaires — tous verts,
+            `--runInBand` toujours requis (defaut preexistant, non corrige dans cette
+            session).</item>
+        </changeset>
+
+        <changeset id="documentation">
+          <item>`docs/routes.md` : nouvelle section « Activités planifiées » — les routes
+            `/activities` n'avaient **jamais** ete documentees avant cette session (constat fait
+            en explorant, cause du `404` front deja signale au plan sur `api/calendar.ts`).
+            Body/reponse exacts de `POST /activities`, forme identique renvoyee par
+            `GET`/`PUT`/`accept`/`decline`, tableau de la verification de lien avec les 3 lignes
+            (FORMATEUR, AP, RP). Evenements `ActivityConfirmed`/`ActivityDeclined` ajoutes a la
+            liste des evenements publies.</item>
+        </changeset>
+
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <item>Point 4 du chantier (integration LiveKit) non traite — a livrer par une tache
+            ulterieure distincte.</item>
+          <item>`DELETE /activities/:activityId` (bouton « Supprimer » cote front, actuellement
+            mort — deja tranche dans le plan : la route est ajoutee, pas le bouton retire) n'etait
+            **pas** dans le perimetre explicite de cette tache et n'a donc pas ete implementee ici
+            — a confirmer aupres de l'orchestrateur si elle doit etre livree avec ce point 3 ou
+            separement, avant de dispatcher le front.</item>
+          <item>Front non touche par cette session (perimetre explicitement backend) :
+            `apps/web/src/api/calendar.ts` appelle toujours `/calendar`/`/calendar/:id` (404) au
+            lieu de `/activities` — assainissement signale au plan, toujours non fait.</item>
+          <item>Ambiguite d'enonce resolue par lecture, a confirmer : la contrainte "exactement un
+            destinataire" a ete appliquee UNIQUEMENT a `cours`/FORMATEUR et
+            `reunion_pedagogique`/ANIMATEUR_PEDAGOGIQUE, PAS a `reunion_pedagogique`/RP — pour
+            preserver l'usage existant RP-a-plusieurs-formateurs explicitement signale comme "a
+            ne pas toucher" dans l'enonce de la tache. Une lecture alternative existait (appliquer
+            aussi au RP) ; verifie par test e2e dedie que l'usage multi-formateurs RP repond
+            toujours `201`.</item>
+        </openPoints>
+      </session>
+
+      <session date="2026-08-18" label="Calendrier de disponibilites, point 3 (complement) — DELETE /activities/:activityId">
+        <context>Branche `feat/calendrier-proposition-creneau`. Reprise du point laisse ouvert a
+          la fin de la session precedente : le front (`apps/web/src/api/calendar.ts::deleteActivity`)
+          appelle deja `DELETE /activities/:activityId`, route jusqu'ici inexistante cote backend
+          (bouton "Supprimer" mort). Decision deja tranchee avec l'utilisateur a l'approbation du
+          plan : on ajoute la route, on ne retire pas le bouton.</context>
+
+        <changeset id="delete-activity">
+          <item>`ActivitiesService.remove(activityId, actor, correlationId)` : reutilise
+            `assertCanModifyActivity` a l'identique (meme politique que `update` — CAL-FB-001,
+            createur/RP/TI), suppression physique (`activityRepo.delete({ id })`) — coherent avec
+            `CalendarsService.deleteSlot` (point 1 du chantier) : une activite planifiee est une
+            donnee operationnelle d'agenda, pas un enregistrement a valeur probante, contrairement
+            aux consentements/relations qui restent append-only. Publie `ActivityDeleted` (nouveau
+            type ajoute a `CalendarEventType`, `events/events.service.ts`).</item>
+          <item>`ActivitiesController` : `DELETE /activities/:activityId`, `@HttpCode(204)`, meme
+            liste `@Roles` que `PUT` (`FORMATEUR`, `ANIMATEUR_PEDAGOGIQUE`,
+            `RESPONSABLE_PEDAGOGIQUE` — `TECHNICIEN_INFORMATIQUE` absent du decorateur, exactement
+            comme sur `PUT`). Pas de corps en entree ni en sortie.</item>
+          <item>Incoherence preexistante constatee, non corrigee ici (hors mandat, deja presente a
+            l'identique sur `PUT`) : `assertCanModifyActivity` autorise `TECHNICIEN_INFORMATIQUE`
+            au niveau service, mais `RolesGuard` bloque ce role en amont faute d'etre liste dans
+            `@Roles` sur le controleur — le TI ne peut donc jamais atteindre le service pour
+            modifier/supprimer une activite malgre le commentaire CAL-FB-001. A signaler si une
+            passe de nettoyage est planifiee sur ce controleur.</item>
+        </changeset>
+
+        <changeset id="tests">
+          <item>`test/unit/activities/activities.service.spec.ts` : mock `activityRepo.delete`
+            ajoute, 4 nouveaux tests `remove` (createur autorise + evenement publie, RP autorise,
+            403 tiers sans droit, 404 activite inconnue). 33 tests dans ce fichier (etait 29).</item>
+          <item>`test/e2e/calendar.e2e-spec.ts` : nouvelle section "DELETE /activities/:id —
+            suppression" (5 tests : 204 createur avec verification `GET` -&gt; 404 apres
+            suppression, 204 RP non-createur, 403 tiers sans droit, 404 activite inconnue, 401 sans
+            token). Commentaire d'entete de fichier mis a jour. 65 tests dans ce fichier (etait
+            60).</item>
+          <item>Suite complete rejouee contre la pile reelle (`npm ci` necessaire, `node_modules`
+            absent au demarrage de cette session) : 33/33 unitaires `activities.service.spec.ts`
+            verts, 88/88 e2e verts sur les trois fichiers (`calendar.e2e-spec.ts`,
+            `calendar-busy.e2e-spec.ts`, `health.e2e-spec.ts`) avec `--runInBand` (defaut
+            preexistant du service, toujours requis — les suites e2e partagent la meme base
+            `calendar_test` et se marchent dessus en parallele).</item>
+        </changeset>
+
+        <changeset id="documentation">
+          <item>`docs/routes.md` : ligne `DELETE /activities/:activityId` ajoutee au tableau des
+            activites planifiees (memes remarques de droit que `PUT`, `204` sans corps, publie
+            `ActivityDeleted`), et note de forme de reponse completee pour couvrir ce cas
+            (suppression physique, meme raisonnement que la suppression d'un creneau de
+            disponibilite).</item>
+        </changeset>
+
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <item>Front toujours non touche par cette session (perimetre explicitement backend) :
+            `apps/web/src/api/calendar.ts::deleteActivity` devrait desormais fonctionner contre la
+            route reelle, mais n'a pas ete reverifie cote front — a confirmer par un test contre la
+            pile deployee avant de considerer le bouton "Supprimer" pleinement valide.</item>
+          <item>Incoherence `@Roles`/TI sur `PUT` et desormais `DELETE` signalee ci-dessus,
+            deliberement non corrigee (hors mandat de cette tache).</item>
+          <item>Point 4 du chantier (integration LiveKit) toujours non traite.</item>
+        </openPoints>
+      </session>
+
+      <session date="2026-08-18" label="Calendrier de disponibilites, point 3 — gap reel comble : GET /calendars/:ownerId porte enfin les activites, evenement ActivityScheduled reellement publie">
+        <context>Branche `feat/calendrier-proposition-creneau`. Reprise du gap signale a la fin de
+          la session precedente : rien ne permettait a un destinataire de decouvrir une proposition
+          de creneau dans l'application. `GET /calendars/:ownerId` ne renvoyait jamais les
+          activites, malgre sa propre doc qui le promettait depuis le debut du chantier — jamais
+          tenu. Decision de l'utilisateur : le creneau propose apparait directement dans le
+          calendrier du destinataire, pas dans une liste separee.</context>
+
+        <changeset id="activities-dans-get-calendars">
+          <item>`CalendarsService.getCalendar` construit desormais `activities`
+            (`CalendarActivityView[]`) via une nouvelle methode privee
+            `buildActivitiesView` : reutilise `ActivitiesService.findActiveInRange` (deja livre au
+            point 2 pour `busyBlocks`, aucune nouvelle requete) sur une fenetre par defaut de 2
+            semaines passees + 4 semaines a venir (`ACTIVITIES_WINDOW_PAST_MS`/`_FUTURE_MS`) —
+            aucune convention de fenetre par defaut n'existait deja pour cette route, valeur
+            proposee et documentee dans `docs/routes.md`. Ajoute pour tous les lecteurs autorises,
+            y compris la branche `PARENT_FINANCEUR` (qui recoit `activities` en plus de
+            `paymentEntries`, pas a la place).</item>
+          <item>Chaque element porte `id, type, status, startTime, endTime, creatorId,
+            creatorName, participantIds` — assez pour un affichage direct sans appel
+            supplementaire. `creatorId`/`participantIds` restent presents (usage interne : savoir
+            si l'appelant est createur/participant pour afficher Accepter/Refuser) mais ne doivent
+            jamais etre affiches tels quels (regle du 2026-08-09).</item>
+        </changeset>
+
+        <changeset id="resolution-nom-createur">
+          <item>Nouveau `src/common/clients/profile-display-name.client.ts`
+            (`ProfileDisplayNameClient.resolveDisplayNames`) : appelle
+            `POST /internal/profiles/display-names` (route en lot deja existante cote
+            `profile-service`, deja utilisee par `dashboard-notification-service` — meme pattern
+            reutilise, aucun nouveau mecanisme invente), un seul appel HTTP pour tous les
+            createurs distincts de la fenetre. Deduplique les `userId` avant l'appel ; liste vide
+            court-circuite sans appel reseau.</item>
+          <item>Politique d'echec deliberement DIFFERENTE de `ProfileRelationsClient`/
+            `IdentityAccessClient` (qui echouent ferme, `503`, car ce sont des decisions d'acces) :
+            une resolution de nom qui echoue degrade gracieusement `creatorName: null` pour les
+            activites concernees, sans jamais faire echouer la lecture du calendrier — route de
+            lecture centrale, rechargee a chaque visite de page (regle du 2026-08-10). Ce qui reste
+            non negociable en toute circonstance : ne jamais afficher `creatorId` (UUID) a la
+            place (arbitrage du 2026-08-09, « Affichage des identifiants techniques »).
+            `ProfileDisplayNameUnavailableError` interceptee et journalisee, toute autre erreur
+            propagee.</item>
+        </changeset>
+
+        <changeset id="outbox-evenements-domain-events">
+          <item>**Constat avant correction** : `EventsService.publish()` de ce service ecrivait
+            UNE LIGNE DE LOG et rien d'autre — aucun bus, aucun abonne, exactement le defaut deja
+            corrige sur `teacher-request-service` le 2026-08-12 (« un evenement qui n'est qu'un
+            `logger.log` n'est pas un evenement »). Meme constat, meme remede applique ici :
+            `calendar-service` adopte desormais le patron outbox + flux Redis, copie fidelement du
+            code de `teacher-request-service` (verifie explicitement, pas invente) — nouveau
+            `src/events/entities/domain-event.entity.ts` (table `domain_events`, schema identique)
+            et nouveau `src/events/event-publisher.service.ts` (`EventPublisher`, `XADD` sur le
+            MEME flux Redis `visiomath:events`, meme comportement en l'absence de `REDIS_URL` :
+            rien n'est perdu, tout reste en attente dans `domain_events`).</item>
+          <item>`EventsService.publish(type, payload, correlationId): void` GARDE EXACTEMENT SA
+            SIGNATURE PUBLIQUE — les treize points d'appel existants
+            (`CalendarsService`, `ActivitiesService`, `RemindersService`, `CalendarEventsService`)
+            n'ont pas ete modifies. En interne, l'ecriture en base est asynchrone et non bloquante
+            (fire-and-forget) : chaque appelant publie deja strictement apres resolution de sa
+            propre transaction, donc l'ecriture de l'evenement n'a pas besoin de la partager pour
+            rester coherente. Un helper `extractAggregateId`/`AGGREGATE_TYPE_BY_EVENT` derive
+            `aggregate_type`/`aggregate_id` du payload deja construit par chaque appelant
+            (`activityId` > `eventId` > `reminderId` > `slotId` > `ownerId`, ordre du plus
+            specifique au plus generique).</item>
+          <item>Nouvelle migration `1787070000000-AddDomainEventsOutbox` (CREATE TABLE
+            `domain_events`, schema et index identiques a celui de `teacher-request-service` —
+            un seul mecanisme d'outbox dans toute la plateforme). Verifiee contre une base Postgres
+            jetable : `up`, re-execution (no-op via `IF NOT EXISTS`), et `down` tous valides.</item>
+          <item>Nouvelle dependance `ioredis` (deja utilisee par `teacher-request-service`,
+            `dashboard-notification-service`, etc.) ; `REDIS_URL` ajoutee comme variable
+            **optionnelle** dans `env.validation.ts` (comme sur les autres services) et declaree
+            explicitement dans `docker-compose.yml` pour `calendar-service`
+            (`redis://:${REDIS_PASSWORD}@redis:6379`, meme service `redis` partage par la
+            plateforme), avec `depends_on: redis: condition: service_healthy` ajoute.</item>
+        </changeset>
+
+        <changeset id="payload-activityscheduled-recipientid">
+          <item>Payload d'`ActivityScheduled` (publie par `ActivitiesService.create`) complete
+            d'un champ `recipientId` : le seul destinataire quand `participantIds` contient
+            exactement un element (cas 1 proposeur -&gt; 1 destinataire deja acte au point 3),
+            `null` pour les usages multi-participants existants (RP a plusieurs formateurs,
+            `entretien_rp`, `rappel`, `autre`). Aucun nouvel evenement cree — reutilisation de
+            l'existant, conformement a la consigne de la tache. Destine a
+            `dashboard-notification-service` (tache separee, non traitee ici) pour notifier
+            « Proposition de cours ajoutee par {nom} ».</item>
+        </changeset>
+
+        <changeset id="tests">
+          <item>Nouveaux `test/unit/events/events.service.spec.ts` (reecrit, l'ancien testait le
+            stub) et `test/unit/events/event-publisher.service.spec.ts` (copie du modele
+            `teacher-request-service`) : ecriture reelle en base, derivation
+            aggregate_type/aggregate_id pour les onze types d'evenements existants, echec
+            d'ecriture n'explose pas l'appelant, publication sur le flux Redis, absence de
+            `REDIS_URL` ne perd rien, echec de `XADD` incremente `publishAttempts`.</item>
+          <item>Nouveau `test/unit/common/clients/profile-display-name.client.spec.ts` : appel en
+            lot, deduplication, `userId` absent de la reponse simplement absent de la Map, liste
+            vide sans appel reseau, echec ferme (reseau/HTTP non-ok) leve
+            `ProfileDisplayNameUnavailableError`.</item>
+          <item>`test/unit/calendars/calendars.service.spec.ts` etendu (getCalendar) : activites
+            incluses avec nom resolu, resolution en un seul appel groupe pour plusieurs createurs
+            distincts, fenetre par defaut (2 semaines passees + 4 a venir) passee a
+            `findActiveInRange`, degradation gracieuse `creatorName: null` sur
+            `ProfileDisplayNameUnavailableError` (jamais de 503), tableau vide sans appel a
+            `resolveDisplayNames` quand rien n'est dans la fenetre, `PARENT_FINANCEUR` recoit
+            `activities` en plus de `paymentEntries`.</item>
+          <item>`test/unit/activities/activities.service.spec.ts` etendu : `recipientId` present
+            pour une proposition 1-vers-1, `null` pour une reunion RP multi-formateurs.</item>
+          <item>`test/e2e/calendar.e2e-spec.ts` etendu : l'activite seed (creee par le RP vers
+            `student1`) apparait dans `GET /calendars/:ownerId` avec `creatorName` resolu via
+            `FakeProfileDisplayNameClient` (nouveau, meme modele que les deux fakes existants,
+            cable dans `createTestAppWithFakeProfileRelations`), degradation gracieuse verifiee en
+            HTTP (`creatorName: null`, toujours `200`), tableau vide pour un titulaire sans
+            activite dans la fenetre.</item>
+          <item>236 tests unitaires (etait 198) et 91 tests e2e (etait 88) verts, `--runInBand`
+            toujours requis pour les e2e (defaut preexistant, non corrige dans cette session).
+            Migration verifiee contre une base Postgres jetable independamment de la suite e2e
+            (qui utilise `synchronize()`, pas les migrations).</item>
+        </changeset>
+
+        <changeset id="documentation">
+          <item>`docs/routes.md` : ligne `GET /calendars/:ownerId` mise a jour, nouvelle section
+            dediee avec la forme exacte de `activities` (exemple JSON complet, tableau des champs,
+            perimetre, fenetre, mecanisme de resolution du nom), nouvelle section sur l'evenement
+            `ActivityScheduled` completee de `recipientId` et sur le mecanisme reel de publication.
+            Correction d'une affirmation devenue fausse (« `EventsService.publish` reste un
+            stub... aucun bus, aucun abonne ») dans la section « Evenements publies » deja
+            existante, plutot que de la laisser trompeuse a cote d'une nouvelle section qui la
+            contredit.</item>
+        </changeset>
+
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <item>`dashboard-notification-service` : consommer `ActivityScheduled` (dont
+            `recipientId`) pour notifier « Proposition de cours ajoutee par {nom} » — tache
+            separee, explicitement hors mandat de cette session (« ne t'en occupe pas toi-meme »).</item>
+          <item>Front : afficher les creneaux `PROPOSED` en couleur distincte avec Accepter/Refuser
+            inline dans la grille du calendrier du destinataire (remplace/complete
+            `CourseProposalsPanel`) — tache separee, non traitee ici (perimetre explicitement
+            backend).</item>
+          <item>Fenetre par defaut de `activities` (2 semaines passees + 4 a venir) : pas un
+            parametre de requete pour l'instant, contrairement a `from`/`to` sur `/busy` — a
+            ouvrir si un besoin de fenetre differente ou de pagination se manifeste.</item>
+          <item>Point 4 du chantier (integration LiveKit) toujours non traite.</item>
+        </openPoints>
+      </session>
     </technicalSessions>
   </service>
 </serviceFunctionalSpecification>

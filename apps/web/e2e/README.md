@@ -53,9 +53,20 @@ rapide de plusieurs exécutions de cette suite (chacune fait au moins deux conne
 préparation API et la connexion à l'écran) peut déclencher un `502` temporaire. Ce n'est pas un
 échec du test ni de l'application — attendre quelques secondes et relancer suffit.
 
-## Un seul test pour l'instant
+## Contourner le besoin d'un compte RP via `docker exec` (route interne)
 
-`rp-terminate-teacher-relation.spec.ts` est la première preuve du dispositif : le RP se connecte,
-ouvre la fiche d'un élève ayant un formateur lié, clique sur « Mettre fin », confirme, et vérifie
-que le formateur disparaît de l'écran. Il ne couvre volontairement qu'un seul flow — étendre la
-suite à d'autres parcours est un choix à faire consciemment, pas un ajout mécanique.
+Certains scénarios ont seulement besoin d'une relation TEACHER_OF_STUDENT posée, pas du flow RP
+complet (« demande de professeur »). Plutôt que de dépendre d'un compte RP (`.env.e2e`),
+`support/internalRelation.ts` appelle `POST /internal/create-teacher-student-relation` sur
+`profile-service` **depuis l'intérieur du conteneur** (`docker exec visiomath_profile node -e
+...`) : cette route interne n'est de toute façon jamais exposée par `api-gateway`, et le secret
+(`INTERNAL_SECRET`) n'est jamais lu ni transmis par ce process hôte — le conteneur l'utilise via sa
+propre variable d'environnement. Voir `proof-course-slot-proposal.spec.ts` pour un exemple d'usage,
+et le rapport de session correspondant pour la justification complète de ce choix.
+
+## Suite en cours d'extension
+
+`rp-terminate-teacher-relation.spec.ts` reste la première preuve du dispositif (RP, fin de
+relation). D'autres scénarios s'y sont ajoutés depuis (demandes de professeur, notifications,
+visibilité des champs, calendrier de disponibilités…) — chacun couvre volontairement un seul flow
+bout en bout plutôt que de mutualiser des scénarios disparates.

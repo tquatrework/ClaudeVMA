@@ -9,11 +9,17 @@ import {
   createAvailabilitySlot,
   deleteAvailabilitySlot,
   fetchAvailability,
+  fetchOwnerCalendarActivities,
+  acceptActivity,
+  declineActivity,
 } from '../../../src/api/calendar'
 
 const mockFetchAvailability = vi.mocked(fetchAvailability)
 const mockCreateAvailabilitySlot = vi.mocked(createAvailabilitySlot)
 const mockDeleteAvailabilitySlot = vi.mocked(deleteAvailabilitySlot)
+const mockFetchOwnerCalendarActivities = vi.mocked(fetchOwnerCalendarActivities)
+const mockAcceptActivity = vi.mocked(acceptActivity)
+const mockDeclineActivity = vi.mocked(declineActivity)
 
 const OWNER_ID = 'owner-1'
 
@@ -28,8 +34,20 @@ const EXISTING_SLOT = {
   kind: 'AVAILABLE' as const,
 }
 
+const PROPOSED_ACTIVITY = {
+  id: 'activity-1',
+  type: 'cours' as const,
+  status: 'proposed' as const,
+  startTime: '2026-09-10T14:00:00.000Z', // jeudi
+  endTime: '2026-09-10T15:00:00.000Z',
+  creatorId: 'teacher-9',
+  creatorName: 'Camille Durand',
+  participantIds: [OWNER_ID],
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  mockFetchOwnerCalendarActivities.mockResolvedValue([])
 })
 
 describe('AvailabilityTab — états', () => {
@@ -125,6 +143,117 @@ describe('AvailabilityTab — suppression', () => {
 
     await waitFor(() => {
       expect(mockDeleteAvailabilitySlot).toHaveBeenCalledWith(OWNER_ID, EXISTING_SLOT.id)
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Propositions de créneau de cours — affichage inline (chantier calendrier, point 3)
+// ---------------------------------------------------------------------------
+describe('AvailabilityTab — propositions de créneau inline', () => {
+  it('affiche une proposition reçue avec le nom du proposeur et les boutons Accepter/Refuser', async () => {
+    mockFetchAvailability.mockResolvedValue([])
+    mockFetchOwnerCalendarActivities.mockResolvedValue([PROPOSED_ACTIVITY])
+
+    render(<AvailabilityTab ownerId={OWNER_ID} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Camille Durand')).toBeDefined()
+    })
+    expect(screen.getByRole('button', { name: /accepter la proposition de cours/i })).toBeDefined()
+    expect(screen.getByRole('button', { name: /refuser la proposition de cours/i })).toBeDefined()
+    // Jamais l'UUID du proposeur ou du destinataire à l'écran.
+    expect(screen.queryByText(PROPOSED_ACTIVITY.creatorId)).toBeNull()
+  })
+
+  it('affiche un texte neutre en français si le serveur ne résout pas le nom du proposeur', async () => {
+    mockFetchAvailability.mockResolvedValue([])
+    mockFetchOwnerCalendarActivities.mockResolvedValue([
+      { ...PROPOSED_ACTIVITY, creatorName: null },
+    ])
+
+    render(<AvailabilityTab ownerId={OWNER_ID} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Formateur')).toBeDefined()
+    })
+  })
+
+  it('accepte une proposition : le bloc passe en cours confirmé, sans bouton', async () => {
+    mockFetchAvailability.mockResolvedValue([])
+    mockFetchOwnerCalendarActivities.mockResolvedValue([PROPOSED_ACTIVITY])
+    mockAcceptActivity.mockResolvedValue({
+      id: 'activity-1',
+      type: 'cours',
+      creatorId: 'teacher-9',
+      creatorRole: 'formateur',
+      participantIds: [OWNER_ID],
+      startTime: PROPOSED_ACTIVITY.startTime,
+      endTime: PROPOSED_ACTIVITY.endTime,
+      status: 'confirmed',
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: '2026-09-01T00:00:00.000Z',
+    })
+
+    render(<AvailabilityTab ownerId={OWNER_ID} />)
+
+    await waitFor(() => screen.getByRole('button', { name: /accepter la proposition de cours/i }))
+    await userEvent.click(screen.getByRole('button', { name: /accepter la proposition de cours/i }))
+
+    await waitFor(() => {
+      expect(mockAcceptActivity).toHaveBeenCalledWith('activity-1')
+    })
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /accepter la proposition de cours/i })).toBeNull()
+    })
+    expect(screen.getByText('Camille Durand')).toBeDefined()
+  })
+
+  it('refuse une proposition : le bloc disparaît de la grille', async () => {
+    mockFetchAvailability.mockResolvedValue([])
+    mockFetchOwnerCalendarActivities.mockResolvedValue([PROPOSED_ACTIVITY])
+    mockDeclineActivity.mockResolvedValue({
+      id: 'activity-1',
+      type: 'cours',
+      creatorId: 'teacher-9',
+      creatorRole: 'formateur',
+      participantIds: [OWNER_ID],
+      startTime: PROPOSED_ACTIVITY.startTime,
+      endTime: PROPOSED_ACTIVITY.endTime,
+      status: 'cancelled',
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: '2026-09-01T00:00:00.000Z',
+    })
+
+    render(<AvailabilityTab ownerId={OWNER_ID} />)
+
+    await waitFor(() => screen.getByRole('button', { name: /refuser la proposition de cours/i }))
+    await userEvent.click(screen.getByRole('button', { name: /refuser la proposition de cours/i }))
+
+    await waitFor(() => {
+      expect(mockDeclineActivity).toHaveBeenCalledWith('activity-1')
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Camille Durand')).toBeNull()
+    })
+  })
+
+  it('affiche un message explicite et rafraîchit la liste sur un conflit 409 (déjà traitée)', async () => {
+    mockFetchAvailability.mockResolvedValue([])
+    mockFetchOwnerCalendarActivities.mockResolvedValue([PROPOSED_ACTIVITY])
+    mockAcceptActivity.mockRejectedValue({ response: { status: 409 } })
+
+    render(<AvailabilityTab ownerId={OWNER_ID} />)
+
+    await waitFor(() => screen.getByRole('button', { name: /accepter la proposition de cours/i }))
+    await userEvent.click(screen.getByRole('button', { name: /accepter la proposition de cours/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/déjà été traitée/i)).toBeDefined()
+    })
+    // Rafraîchissement : un second appel de lecture après le conflit.
+    await waitFor(() => {
+      expect(mockFetchOwnerCalendarActivities.mock.calls.length).toBeGreaterThan(1)
     })
   })
 })

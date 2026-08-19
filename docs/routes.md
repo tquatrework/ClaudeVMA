@@ -1058,7 +1058,7 @@ Délais de rappel valides : `1week`, `1day`, `1hour`, `15min`, `none`
 |---|---|---|---|---|
 | GET | /calendars/:ownerId/events | Lister les événements autorisés | 🔒 | Query: `type?`, `personId?`. Filtrage par rôle côté serveur. |
 | POST | /calendars/:ownerId/events | Créer un événement selon rôle | 🔒 | `eleve` → `rappel` · `formateur` → `cours/masterclass/pedagogique/rappel` · `animateur_pedagogique` → `pedagogique/rappel` · `responsable_pedagogique` → tous |
-| GET | /calendars/:ownerId | Lire le calendrier complet (créneaux de disponibilité + activités) | 🔒 | Titulaire ou rôle interne (RP, TI, AF). `parent_financeur` reçoit en plus `paymentEntries`. **`animateur_pedagogique` retiré le 2026-08-18** (chantier calendrier de disponibilités, point 2) : il donnait jusqu'ici un accès **intégral** à n'importe quel calendrier sans vérification de lien — bug corrigé, l'AP passe désormais exclusivement par `GET /calendars/:ownerId/busy` ci-dessous. Corrige un écart de doc : cette route existait déjà mais n'était pas documentée, tandis que la route `GET /calendars/:ownerId/availability` documentée jusqu'ici **n'a jamais existé** côté code (constat du 2026-08-18). |
+| GET | /calendars/:ownerId | Lire le calendrier complet (créneaux de disponibilité + activités) | 🔒 | Titulaire ou rôle interne (RP, TI, AF). `parent_financeur` reçoit en plus `paymentEntries`. **`animateur_pedagogique` retiré le 2026-08-18** (chantier calendrier de disponibilités, point 2) : il donnait jusqu'ici un accès **intégral** à n'importe quel calendrier sans vérification de lien — bug corrigé, l'AP passe désormais exclusivement par `GET /calendars/:ownerId/busy` ci-dessous. Corrige un écart de doc : cette route existait déjà mais n'était pas documentée, tandis que la route `GET /calendars/:ownerId/availability` documentée jusqu'ici **n'a jamais existé** côté code (constat du 2026-08-18). **`activities` réellement porté depuis le 2026-08-18** (chantier calendrier de disponibilités, point 3, gap comblé) — voir section dédiée ci-dessous pour la forme exacte : jusque-là la réponse ne contenait jamais les activités malgré cette même documentation qui le promettait déjà. |
 | GET | /calendars/:ownerId/busy | Lire le calendrier **busy/free** d'un tiers lié (jamais le contenu) | 🔒 | Voir section « Visibilité busy/free » ci-dessous. |
 | PUT | /calendars/:ownerId/availability | Remplacer en bloc tous les créneaux de disponibilité | 🔒 | Titulaire (`eleve` ou `formateur`), RP ou TI. `animateur_pedagogique` a été retiré des rôles autorisés le 2026-08-18 : il apparaissait dans le décorateur de rôles mais était déjà refusé par le service — décorateur corrigé pour refléter la vraie politique. |
 | POST | /calendars/:ownerId/availability-slots | Créer un créneau de disponibilité/indisponibilité, sans toucher aux autres | 🔒 | Mêmes rôles que le `PUT` ci-dessus. `400` si `endTime <= startTime` ou `recurrenceEndDate < startTime`. |
@@ -1073,6 +1073,131 @@ Body `POST /calendars/:ownerId/availability-slots` : `{dayOfWeek?, startTime, en
 Body `PATCH /calendars/:ownerId/availability-slots/:slotId` : mêmes champs, tous optionnels. `recurrenceEndDate` accepte explicitement `null` pour effacer une date de fin déjà posée (repasser une récurrence bornée en illimitée).
 
 Réponse `GET /calendars/:ownerId/events` : `[{id, title, startAt, endAt, eventType, status, ownerId, invitations?, reminderRules?}]`
+
+### `GET /calendars/:ownerId` — forme exacte de `activities` (chantier calendrier de disponibilités, point 3, gap comblé le 2026-08-18)
+
+**Gap réel constaté et comblé** : cette route promettait déjà « créneaux de disponibilité +
+activités » dans sa propre documentation depuis le tout début du chantier, mais ne les a **jamais**
+portées jusqu'ici — un destinataire d'une proposition de créneau n'avait donc aucun moyen de la
+découvrir dans l'application. **Décision explicite de l'utilisateur** : le créneau proposé apparaît
+**directement dans le calendrier du destinataire**, pas dans une liste séparée.
+
+**Requête**, inchangée :
+
+```
+GET /calendars/8d9a2c10-3b21-4b2b-9e9e-000000000001
+Authorization: Bearer <jwt>
+```
+
+**Réponse `200`** — forme complète, `activities` en plus des champs déjà existants
+(`id`, `ownerId`, `ownerRole`, `availabilitySlots`, `createdAt`, `updatedAt`, `paymentEntries?`) :
+
+```json
+{
+  "id": "b6e0920a-32dd-4a89-b46e-e7a981000001",
+  "ownerId": "8d9a2c10-3b21-4b2b-9e9e-000000000001",
+  "ownerRole": "eleve",
+  "availabilitySlots": [],
+  "createdAt": "2026-08-01T09:00:00.000Z",
+  "updatedAt": "2026-08-01T09:00:00.000Z",
+  "activities": [
+    {
+      "id": "3fa1b6e0-1234-4b2b-9e9e-000000000099",
+      "type": "cours",
+      "status": "proposed",
+      "startTime": "2026-09-10T14:00:00.000Z",
+      "endTime": "2026-09-10T15:00:00.000Z",
+      "creatorId": "47a5808b-66c7-41c9-92cd-7367d1cda003",
+      "creatorName": "Camille Durand",
+      "participantIds": ["8d9a2c10-3b21-4b2b-9e9e-000000000001"]
+    }
+  ]
+}
+```
+
+| Champ (dans chaque élément d'`activities`) | Type | Remarque |
+|---|---|---|
+| `id` | `uuid` | Identifiant de l'activité (`ScheduledActivity`) |
+| `type` | `string` | `cours` \| `reunion_pedagogique` \| `entretien_rp` \| `rappel` \| `autre` |
+| `status` | `string` | `proposed` \| `confirmed` \| `cancelled` \| `completed` — seuls `proposed`/`confirmed` peuvent apparaître ici, voir périmètre ci-dessous |
+| `startTime` / `endTime` | `string` (ISO 8601 UTC, millisecondes) | Mêmes conventions de sérialisation que `GET /calendars/:ownerId/busy` |
+| `creatorId` | `uuid` | Identifiant technique du créateur — **usage interne uniquement, ne jamais l'afficher** (voir `creatorName`) |
+| `creatorName` | `string \| null` | **Prénom Nom** du créateur, résolu par `calendar-service` auprès de `profile-service` (voir mécanisme ci-dessous). `null` uniquement si `profile-service` était injoignable au moment de la lecture (dégradation gracieuse) — **jamais** un repli sur `creatorId` |
+| `participantIds` | `uuid[]` | Identifiants des participants — mêmes réserves d'affichage que `creatorId` |
+
+**Périmètre.** Activités où `ownerId` est **créateur OU participant** (`participantIds` contient
+son id), statut `proposed`/`confirmed` uniquement (`cancelled`/`completed` n'occupent plus le
+calendrier, même filtre que `busyBlocks` de `GET /calendars/:ownerId/busy` — réutilise directement
+`ActivitiesService.findActiveInRange`, aucune nouvelle requête n'a été inventée).
+
+**Fenêtre de temps.** Aucune convention de fenêtre par défaut n'existait déjà dans ce service pour
+cette route (vérifié le 2026-08-18) — **2 semaines passées + 4 semaines à venir**, calculées à
+l'instant de la requête. Valeur proposée et assumée par `calendar-service`, pas un paramètre de
+requête (contrairement à `from`/`to` sur `/busy`) : si une fenêtre différente s'avère nécessaire
+plus tard (pagination, requête explicite), c'est une évolution distincte de ce contrat.
+
+**Résolution de `creatorName` — jamais un UUID affiché (arbitrage du 2026-08-09).**
+`calendar-service` résout les créateurs distincts de la fenêtre en **un seul appel groupé**
+(`POST /internal/profiles/display-names` sur `profile-service` — même route interne que celle déjà
+utilisée par `dashboard-notification-service` pour les notifications, réutilisée ici à l'identique
+plutôt que d'inventer un nouveau mécanisme). Si `profile-service` est injoignable, `calendar-service`
+**dégrade gracieusement** : `creatorName: null` pour les activités concernées, la lecture du
+calendrier ne renvoie **jamais** `503` pour cette seule raison — poser une règle d'échec fermé sur
+une route de lecture centrale, rechargée à chaque visite de page (règle du 2026-08-10, « Chargement
+des données »), aurait rendu tout le calendrier indisponible à chaque panne transitoire de
+`profile-service`. Ce choix diverge délibérément de la politique d'échec fermé appliquée aux
+décisions d'**accès** (`GET /calendars/:ownerId/busy`, vérification de lien à la création d'une
+activité) : ici il ne s'agit pas d'une décision de droit mais d'un enrichissement d'affichage.
+
+### Événement publié à la création d'une proposition — `ActivityScheduled` (chantier calendrier de disponibilités, point 3, gap comblé le 2026-08-18)
+
+**Aucun nouvel événement créé.** `ActivityScheduled` existait déjà (publié par `POST /activities`,
+voir « Événements publiés » en fin de section) — son payload est **complété** d'un champ
+`recipientId`, jamais dupliqué en un second événement.
+
+```json
+{
+  "type": "ActivityScheduled",
+  "occurredAt": "2026-09-01T10:00:00.000Z",
+  "correlationId": null,
+  "payload": {
+    "activityId": "3fa1b6e0-1234-4b2b-9e9e-000000000099",
+    "type": "cours",
+    "creatorId": "47a5808b-66c7-41c9-92cd-7367d1cda003",
+    "recipientId": "8d9a2c10-3b21-4b2b-9e9e-000000000001",
+    "participantIds": ["8d9a2c10-3b21-4b2b-9e9e-000000000001"],
+    "startTime": "2026-09-10T14:00:00.000Z"
+  }
+}
+```
+
+- `recipientId` : le **seul** destinataire quand la proposition est 1 proposeur → 1 destinataire
+  (`cours`/FORMATEUR, `reunion_pedagogique`/AP, ou une `reunion_pedagogique` RP ciblant un seul
+  formateur) — c'est-à-dire quand `participantIds` ne contient qu'un seul élément. `null` pour les
+  usages multi-participants existants (RP à plusieurs formateurs, `entretien_rp`, `rappel`,
+  `autre`) : il n'y a alors pas UN destinataire mais plusieurs, voir `participantIds`.
+- Destiné à `dashboard-notification-service` (tâche séparée, non traitée ici) pour notifier
+  « Proposition de cours ajoutée par {nom} » — la résolution du nom se fera côté consommateur, sur
+  le même mécanisme que ci-dessus (`POST /internal/profiles/display-names`), jamais en stockant
+  `recipientId`/`creatorId` seuls comme donnée d'affichage.
+
+**Mécanisme de publication — réel depuis le 2026-08-18, ce n'était pas le cas avant.**
+Corrige une affirmation antérieure de cette même documentation, plus bas dans cette section
+(« `EventsService.publish` reste un stub... aucun bus, aucun abonné ») : c'était vrai jusqu'au
+2026-08-18, ce ne l'est plus. `calendar-service` adopte désormais **le même mécanisme outbox +
+flux Redis que `teacher-request-service`** (arbitrage du 2026-08-14, « Systeme de notifications
+transversal », point 1 — « générique pour les autres flux ») : chaque appel à
+`EventsService.publish()` écrit une ligne dans la table `domain_events` (nouvelle, migration
+`1787070000000-AddDomainEventsOutbox`, schéma identique à celui de `teacher-request-service`), puis
+`EventPublisher` la remet sur le **même** flux Redis `visiomath:events` (`XADD`, groupe de
+consommateurs `dashboard-notification-service` déjà en place côté consommateur). Sans `REDIS_URL`
+configurée, rien n'est perdu : les événements restent en attente dans `domain_events` et seront
+publiés dès qu'un bus sera disponible — même garantie que `teacher-request-service`. Ce mécanisme
+vaut pour les **treize** points d'émission déjà existants de ce service (`AvailabilityUpdated`,
+`ActivityScheduled/Updated/Deleted/Confirmed/Declined`, `ReminderCreated`,
+`CalendarEventCreated`, `InvitationAccepted/Declined`, `CancellationRequested`), pas seulement pour
+`ActivityScheduled` — la signature de `EventsService.publish()` n'a pas changé, aucun appelant n'a
+eu besoin d'être modifié.
 
 ### Visibilité busy/free — `GET /calendars/:ownerId/busy` (chantier calendrier de disponibilités, point 2)
 
@@ -1154,6 +1279,99 @@ les ait fournis avec ou sans millisecondes :
   Un compte inconnu d'`identity-access-service` (`404`) reste traité comme un rôle inconnu, même
   repli fermé qu'avant.
 
+### Activités planifiées — cours, réunions pédagogiques, entretiens, rappels
+
+Ces routes existaient déjà côté code mais n'avaient **jamais été documentées** (constat du
+2026-08-18, chantier calendrier de disponibilités, point 3) — décalage qui avait causé un `404`
+front sur `apps/web/src/api/calendar.ts`, qui appelait à tort `/calendar` au lieu de `/activities`.
+Section écrite ici pour la première fois, avec le contrat exact.
+
+| Méthode | Chemin | Description | Auth | Rôles / Remarques |
+|---|---|---|---|---|
+| POST | /activities | Créer une activité planifiée (`cours`, `reunion_pedagogique`, `entretien_rp`, `rappel`, `autre`) — naît à `status: proposed` | 🔒 | `formateur`, `animateur_pedagogique`, `responsable_pedagogique`. Voir « Vérification de lien à la création » ci-dessous. |
+| GET | /activities/:activityId | Lire une activité par id | 🔒 | Créateur, participant déclaré, ou rôle interne (RP, TI, AF). `403` sinon (IDOR), `404` si inconnue. |
+| PUT | /activities/:activityId | Modifier une activité (titre, participants, horaires, statut, description…) | 🔒 | Créateur, RP ou TI uniquement (CAL-FB-001). `403` sinon, `404` si inconnue. |
+| DELETE | /activities/:activityId | Supprimer une activité (suppression physique) | 🔒 | Créateur, RP ou TI uniquement — même politique que `PUT` (CAL-FB-001). `403` sinon, `404` si inconnue. `204` sans corps. Publie `ActivityDeleted`. |
+| POST | /activities/:activityId/accept | Accepter une activité `proposed` → `confirmed` (chantier calendrier, point 3) | 🔒 | Seul le destinataire visé (présent dans `participantIds`) — le créateur ne peut pas accepter sa propre proposition. `409` si déjà traitée, `403` si l'appelant n'est pas le destinataire, `404` si inconnue. Publie `ActivityConfirmed`. |
+| POST | /activities/:activityId/decline | Refuser une activité `proposed` → `cancelled` (chantier calendrier, point 3) | 🔒 | Mêmes règles que `accept` ci-dessus. Publie `ActivityDeclined`. |
+
+Body `POST /activities` :
+
+```json
+{
+  "title": "Cours de géométrie",
+  "type": "cours",
+  "participantIds": ["8d9a2c10-3b21-4b2b-9e9e-000000000001"],
+  "startTime": "2026-09-10T14:00:00Z",
+  "endTime": "2026-09-10T15:00:00Z",
+  "description": "Révision du chapitre 3"
+}
+```
+
+- `type` : `cours` · `reunion_pedagogique` · `entretien_rp` · `rappel` · `autre` (minuscules,
+  exactement comme `AvailabilitySlot.kind`/`recurrence` — un enum envoyé en majuscules est
+  rejeté en `400`, piège déjà rencontré au point 1 de ce chantier).
+- `participantIds` : tableau d'UUID v4, **au moins un** élément (`400` si vide — CAL-FB-002).
+  Voir « Vérification de lien » ci-dessous pour le cas où la taille exacte est imposée à 1.
+- `startTime`/`endTime` : ISO 8601 avec fuseau (ex. `2026-09-10T14:00:00Z`), même format que les
+  créneaux de disponibilité.
+- `description` et `correlationId` sont optionnels.
+
+Réponse `201` (`POST /activities`), `200` (`GET`/`PUT`), `201` (`accept`/`decline` — défaut
+`@Post` de NestJS, comme `POST /events/:id/invitees/:userId/accept` ci-dessous) — forme identique
+dans les quatre cas, c'est l'entité `ScheduledActivity` telle qu'enregistrée :
+
+```json
+{
+  "id": "3fa1b6e0-...",
+  "title": "Cours de géométrie",
+  "type": "cours",
+  "creatorId": "...",
+  "creatorRole": "formateur",
+  "participantIds": ["8d9a2c10-3b21-4b2b-9e9e-000000000001"],
+  "startTime": "2026-09-10T14:00:00.000Z",
+  "endTime": "2026-09-10T15:00:00.000Z",
+  "status": "proposed",
+  "description": "Révision du chapitre 3",
+  "correlationId": null,
+  "createdAt": "2026-09-01T10:00:00.000Z",
+  "updatedAt": "2026-09-01T10:00:00.000Z"
+}
+```
+
+`status` : `proposed` (valeur à la création) · `confirmed` (après `accept`) · `cancelled` (après
+`decline`, ou toute autre annulation) · `completed` (hors du périmètre de ce chantier, non
+atteignable par ces routes).
+
+`POST /activities/:activityId/accept` et `.../decline` ne prennent **aucun corps** — seul le
+`activityId` dans l'URL et le token du destinataire suffisent, exactement comme
+`POST /events/:id/invitees/:userId/accept` ci-dessous.
+
+`DELETE /activities/:activityId` ne prend **aucun corps** et répond `204` sans corps en cas de
+succès — même forme que `DELETE /calendars/:ownerId/availability-slots/:slotId` ci-dessous.
+Suppression physique de la ligne (pas d'append-only ici : une activité planifiée est une donnée
+opérationnelle de type agenda, pas un enregistrement à valeur probante — même raisonnement que
+pour la suppression d'un créneau de disponibilité).
+
+#### Vérification de lien à la création — 1 proposeur → 1 destinataire (chantier calendrier, point 3)
+
+Corrige un vrai trou de sécurité : jusqu'ici **aucun lien réel n'était vérifié** — un formateur
+pouvait proposer un cours à n'importe quel élève. Portée volontairement limitée aux deux cas
+suivants (les autres types/usages multi-participants existants — `entretien_rp`, `rappel`,
+`autre`, ou une `reunion_pedagogique` créée par un RP à plusieurs formateurs — ne sont **pas**
+concernés, ni par la contrainte de nombre ni par la vérification de lien) :
+
+| Créateur | `type` | Contrainte sur `participantIds` | Lien exigé avec le destinataire | Sinon |
+|---|---|---|---|---|
+| `formateur` | `cours` | Exactement 1 élément | `TEACHER_OF_STUDENT` (le formateur enseigne à cet élève) | `400` (nombre) ou `403` (lien absent) |
+| `animateur_pedagogique` | `reunion_pedagogique` | Exactement 1 élément | `ANIMATOR_OF_TEACHER` (l'AP anime ce formateur) | `400` (nombre) ou `403` (lien absent) |
+| `responsable_pedagogique` | tout type | Aucune (peut cibler plusieurs formateurs, usage existant préservé) | Aucune — accès non conditionnel, comme partout ailleurs dans ce service | — |
+
+Le lien est vérifié auprès de `profile-service`
+(`GET /internal/relations/:viewerId/:targetId?viewerRole=...`), même client et même politique
+d'échec fermé que `GET /calendars/:ownerId/busy` (point 2 de ce chantier) : `503` si
+`profile-service` est injoignable ou hors délai (3s), jamais une création acceptée par défaut.
+
 ### Invitations
 
 | Méthode | Chemin | Description | Auth |
@@ -1186,7 +1404,20 @@ Body : `{delay: "1week"|"1day"|"1hour"|"15min"|"none"}`
 
 ### Événements publiés
 
-`CalendarEventCreated` · `InvitationAccepted` · `InvitationDeclined` · `CancellationRequested` · `ReminderDue`
+`CalendarEventCreated` · `InvitationAccepted` · `InvitationDeclined` · `CancellationRequested` · `ReminderDue` · `AvailabilityUpdated` · `ActivityScheduled` · `ActivityUpdated` · `ActivityConfirmed` · `ActivityDeclined`
+
+`ActivityConfirmed` (`accept`) et `ActivityDeclined` (`decline`) sont nouveaux (chantier
+calendrier de disponibilités, point 3). Payload minimal : `{activityId, confirmedBy}` /
+`{activityId, declinedBy}`.
+
+**Mise à jour du 2026-08-18 (gap comblé) : `EventsService.publish` n'est plus un stub.**
+Jusqu'au 2026-08-18, `EventsService.publish` de ce service journalisait une ligne structurée et
+rien d'autre (aucun bus, aucun abonné) — c'était vrai à la date où la phrase précédente a été
+écrite, ce n'est plus le cas. Voir la section dédiée « Événement publié à la création d'une
+proposition — `ActivityScheduled` » plus haut pour le mécanisme réel (outbox `domain_events` +
+flux Redis `visiomath:events`, même mécanisme que `teacher-request-service`) et
+`docs/architecture.md`, arbitrage du 2026-08-14 sur les notifications, pour le précédent déjà
+traité côté `teacher-request-service`.
 
 ---
 
@@ -1430,7 +1661,14 @@ notifications par rôle ».
 > `TeacherProposalNotSelected`/`TeacherProposalExpired` → le formateur concerné ·
 > `TeacherAssigned`/`MainTeacherAssigned` (legacy) → le formateur choisi, l'élève, et chaque parent
 > financeur (résolus via `GET /internal/relations/finance-owners/:studentId` sur profile-service)
-> · `TeacherRequestStatusUpdated` → l'élève et ses parents financeurs · `TeacherRequestClosed` et
+> · `TeacherRequestStatusUpdated` → l'élève et ses parents financeurs · `ActivityScheduled` (publié
+> par calendar-service pour **toute** création d'activité) → **le seul `payload.recipientId`
+> quand il est non-`null`** (cas 1 proposeur -> 1 destinataire, `cours` typiquement, mais aussi
+> `reunion_pedagogique` ciblant un seul destinataire) ; quand `recipientId` est `null` (tout usage
+> multi-participants : RP à plusieurs formateurs, `entretien_rp`, `rappel`, `autre`, réunions à
+> plusieurs), **aucune notification** — l'entrée est acquittée sans effet, ce n'est pas un type
+> non reconnu (arbitrage du 2026-08-19, chantier « calendrier de disponibilités lié à la visio »,
+> point 3) · `TeacherRequestClosed` et
 > `TeacherRequestDeleted` → aucune notification. Tout `eventName` non reconnu est journalisé en
 > avertissement puis acquitté sans effet — un type inconnu ne doit jamais bloquer le flux.
 >
@@ -1439,6 +1677,14 @@ notifications par rôle ».
 > d'affichage) et stockés dans `metadata`. **Si la résolution de nom ou des parents financeurs
 > échoue, l'entrée du flux n'est pas acquittée** (retry via XAUTOCLAIM) plutôt que de publier une
 > notification dégradée — voir `EventProcessorService`.
+>
+> **`ActivityScheduled` → `type: course_slot_proposed`** (nouveau, 2026-08-19). `title`/`message`
+> restent `null` comme pour tous les types issus de ce consommateur ; le contenu affichable est
+> entièrement porté par `metadata: {proposerName, activityId, activityType, startTime}` —
+> `proposerName` est le nom résolu de `payload.creatorId` (jamais d'UUID), `activityType` reprend
+> `payload.type` (`cours`/`reunion_pedagogique`), `startTime` est l'horodatage ISO de l'activité.
+> Libellé français prévu côté front (`notificationLabels.ts`, non traité par cette session) :
+> « Proposition de cours ajoutée par {proposerName} ».
 
 ---
 

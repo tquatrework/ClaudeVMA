@@ -21,19 +21,27 @@ export type NotificationType =
   | 'teacher_proposal_expired'
   | 'teacher_assigned'
   | 'teacher_request_status_updated'
+  // Chantier calendrier de disponibilités, point 3 (2026-08-19) : notification créée par
+  // dashboard-notification-service quand une proposition de créneau de cours est envoyée
+  // (docs/routes.md § dashboard-notification-service > "Consommateur d'événements").
+  | 'course_slot_proposed'
   | (string & {})
 
 /**
- * `metadata` porte des noms déjà résolus (`studentName`, `teacherName`), jamais
- * d'UUID à afficher — règle du 2026-08-09. `requestId`/`proposalId` sont des
- * identifiants techniques réservés à un usage futur (lien profond), jamais
- * affichés à l'écran.
+ * `metadata` porte des noms déjà résolus (`studentName`, `teacherName`, `proposerName`), jamais
+ * d'UUID à afficher — règle du 2026-08-09. `requestId`/`proposalId`/`activityId` sont des
+ * identifiants techniques réservés à un usage futur (lien profond), jamais affichés à l'écran.
  */
 export interface NotificationMetadata {
   studentName?: string | null
   teacherName?: string | null
   requestId?: string
   proposalId?: string
+  /** `course_slot_proposed` — nom du formateur/AP/RP à l'origine de la proposition de créneau. */
+  proposerName?: string | null
+  activityId?: string
+  activityType?: string
+  startTime?: string
 }
 
 export interface DashboardNotification {

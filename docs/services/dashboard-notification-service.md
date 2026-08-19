@@ -462,3 +462,96 @@ finance owner of the student, in addition to the RP role », et cas d'echec
 « does not acknowledge (throws) when finance owners cannot be resolved » sur
 `TeacherRequestCreated`, sur le meme modele que la suite existante de
 `TeacherAssigned`. Suite complete du service : 96 tests, tous verts.
+
+## Consommation de `ActivityScheduled` — proposer/accepter/refuser un creneau de cours (2026-08-19)
+
+Deuxieme chantier du sujet "calendrier de disponibilites lie a la visio"
+(point 3), apres `calendar-service` (premier chantier, branche
+`feat/calendrier-proposition-creneau`). Le front (grille de calendrier,
+boutons Accepter/Refuser) est le troisieme chantier, non traite ici.
+
+### Contexte
+
+`calendar-service` publie deja `ActivityScheduled` sur `visiomath:events`
+pour **toute** creation d'activite, via le meme mecanisme outbox que
+`teacher-request-service` (table `domain_events`, `XADD`, groupe de
+consommateurs Redis `dashboard-notification-service` — celui deja
+consomme). Le payload porte desormais `recipientId` : le destinataire
+unique quand `participantIds` n'a qu'un element (cas 1 proposeur -> 1
+destinataire, `cours` typiquement mais aussi `reunion_pedagogique` cible),
+sinon `null` pour tous les usages multi-participants deja existants de ce
+meme evenement.
+
+### Modification appliquee
+
+Arborescence modifiee (src/) :
+
+```
+services/dashboard-notification-service/src/
+├── notification/
+│   └── entities/notification.entity.ts    # + NotificationType.COURSE_SLOT_PROPOSED = 'course_slot_proposed'
+└── events/
+    └── event-processor.service.ts         # + case 'ActivityScheduled' -> handleActivityScheduled()
+```
+
+`EventProcessorService.handleActivityScheduled` :
+- Si `payload.recipientId` est `null`/absent (usage multi-participants,
+  hors perimetre de cette tache) : `markProcessedOnly` — acquitte sans
+  notification, **sans** passer par la branche "type non reconnu" (le type
+  est bien reconnu, c'est le cas d'usage qui ne concerne pas ce service).
+- Sinon : resout le nom de `payload.creatorId` via le meme
+  `resolveNames`/`ProfileServiceClient.resolveDisplayNames` que le reste du
+  consommateur (jamais d'UUID stocke comme donnee d'affichage), puis cree
+  une notification unique pour `recipientId`, `type:
+  course_slot_proposed`, `title`/`message: null`, `metadata:
+  {proposerName, activityId, activityType, startTime}`.
+- Meme discipline d'erreur que tous les autres handlers : un echec de
+  resolution de nom fait **echouer** `process()` (l'entree reste non
+  acquittee, rejouee par XAUTOCLAIM) plutot que de degrader vers une
+  notification sans nom.
+
+### Decisions techniques
+
+- **`type` choisi : `course_slot_proposed`, distinct de
+  `NotificationType.ACTIVITY_SCHEDULED`.** Cette derniere valeur existait
+  deja dans l'enum (heritee de la premiere version de
+  `docs/microservices.md` listant `ActivityScheduled` parmi les evenements
+  consommes) mais n'a jamais ete utilisee nulle part dans le code avant
+  cette session — recherche `grep` prealable confirmant zero reference
+  hors sa propre declaration. Elle reste dans l'enum, toujours inutilisee :
+  un nom generique `activity_scheduled` conviendrait mal a la semantique
+  metier precise voulue ici (« une proposition de creneau de cours »,
+  libelle front « Proposition de cours ajoutee par {nom} »), et pourrait
+  redevenir utile plus tard pour un usage veritablement generique
+  (annonce d'une activite multi-participants, hors perimetre actuel).
+- **Aucune nouvelle route ni nouveau client HTTP.** La resolution du nom du
+  proposeur reutilise `ProfileServiceClient.resolveDisplayNames`, deja en
+  place pour tous les autres types d'evenement — aucune duplication de
+  logique.
+- **Aucune migration necessaire.** `notifications.type` est deja un
+  `varchar(64)` (migration `NotificationEventsConsumer1755100000000` du
+  2026-08-14) : une nouvelle valeur d'enum applicatif ne requiert pas
+  d'alteration de schema.
+
+### Tests
+
+`event-processor.service.spec.ts`, nouveau describe `ActivityScheduled`,
+trois cas : `recipientId` present -> notification creee pour ce
+destinataire avec `proposerName`/`activityId`/`activityType`/`startTime`
+dans `metadata` ; `recipientId` null (activite multi-participants) ->
+aucune notification, entree acquittee, `resolveDisplayNames` jamais
+appelee ; echec de resolution du nom du proposeur -> `process()` leve,
+transaction jamais tentee (retry implicite via XAUTOCLAIM). Suite complete
+du service : **99 tests, tous verts** (`npx jest`), et `npm run build`
+(nest build) sans erreur.
+
+### Points en suspens
+
+- Comme pour la session du 2026-08-14, ce correctif n'a pas ete verifie en
+  integration reelle contre `calendar-service` (pas d'appel HTTP/Redis reel
+  pendant cette session, uniquement des tests unitaires avec
+  `ProfileServiceClient` mocke) — a verifier une fois les deux chantiers
+  fusionnes et deployes ensemble.
+- Le libelle front (`notificationLabels.ts`) et l'affichage inline
+  Accepter/Refuser dans la grille de calendrier restent le troisieme
+  chantier, non traite ici.

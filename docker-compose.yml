@@ -242,9 +242,18 @@ services:
       # l'existence n'est pas garantie. Meme port que partout ailleurs dans
       # ce fichier.
       IDENTITY_ACCESS_SERVICE_URL: http://identity-access-service:3001
+      # Chantier calendrier de disponibilites, point 3 (2026-08-18) : flux
+      # Redis "visiomath:events" (meme flux que teacher-request-service),
+      # necessaire a EventPublisher pour remettre les evenements de
+      # domain_events (ex. ActivityScheduled) a dashboard-notification-service.
+      # Optionnelle cote code (voir env.validation.ts) mais declaree ici comme
+      # partout ailleurs dans ce fichier.
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       PORT: 3005
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - visiomath_network

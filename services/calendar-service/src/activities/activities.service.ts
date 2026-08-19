@@ -3,6 +3,8 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  ConflictException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -12,6 +14,11 @@ import { UpdateActivityDto } from './dto/update-activity.dto';
 import { EventsService } from '../events/events.service';
 import { UserRole } from '../common/enums/user-role.enum';
 import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
+import {
+  ProfileRelationsClient,
+  ProfileRelationsUnavailableError,
+} from '../common/clients/profile-relations.client';
+import { RelationKind } from '../common/relations/relation-kind';
 
 @Injectable()
 export class ActivitiesService {
@@ -19,6 +26,7 @@ export class ActivitiesService {
     @InjectRepository(ScheduledActivity)
     private readonly activityRepo: Repository<ScheduledActivity>,
     private readonly eventsService: EventsService,
+    private readonly profileRelationsClient: ProfileRelationsClient,
   ) {}
 
   /**
@@ -27,13 +35,21 @@ export class ActivitiesService {
    * CAL-BR-008: AP or RP can propose activities to teachers.
    * CAL-FB-002: at least one participant and a valid time range required.
    * CAL-FB-003: AP can only propose pedagogical meetings.
+   *
+   * Chantier calendrier de disponibilités, point 3 : une proposition
+   * `cours` par un FORMATEUR ou `reunion_pedagogique` par un AP exige
+   * exactement un destinataire ET une relation métier réelle avec lui
+   * (`TEACHER_OF_STUDENT` / `ANIMATOR_OF_TEACHER`, vérifiées auprès de
+   * `profile-service` — voir `validateActivityCreation`). Corrige un trou
+   * de sécurité réel : jusqu'ici aucun lien n'était vérifié, un formateur
+   * pouvait proposer un cours à n'importe quel élève.
    */
   async create(
     dto: CreateActivityDto,
     actor: AuthenticatedUser,
     correlationId?: string,
   ): Promise<ScheduledActivity> {
-    this.validateActivityCreation(dto, actor.role);
+    await this.validateActivityCreation(dto, actor, correlationId);
 
     const activity = await this.activityRepo.save(
       this.activityRepo.create({
@@ -55,6 +71,16 @@ export class ActivitiesService {
         activityId: activity.id,
         type: activity.type,
         creatorId: actor.id,
+        // Chantier calendrier de disponibilités, point 3 (gap comblé le
+        // 2026-08-18) : `recipientId` porte le seul destinataire quand la
+        // proposition est 1 proposeur → 1 destinataire (cours/FORMATEUR,
+        // reunion_pedagogique/AP, ou une reunion_pedagogique RP ciblant un
+        // seul formateur) — c'est ce que `dashboard-notification-service`
+        // consommera pour notifier « Proposition de cours ajoutée par
+        // {nom} ». `null` pour les usages multi-participants existants
+        // (RP à plusieurs formateurs, entretien_rp, rappel, autre) : il n'y
+        // a alors pas UN destinataire mais plusieurs, voir `participantIds`.
+        recipientId: activity.participantIds.length === 1 ? activity.participantIds[0] : null,
         participantIds: activity.participantIds,
         startTime: activity.startTime,
       },
@@ -103,6 +129,104 @@ export class ActivitiesService {
     const activity = await this.findOneOrFail(activityId);
     this.assertCanReadActivity(activity, actor);
     return activity;
+  }
+
+  /**
+   * Delete a scheduled activity.
+   * CAL-FB-001: only creator, RP, or TI can delete — same policy as `update`
+   * above, reusing `assertCanModifyActivity` unchanged. Hard delete: an
+   * activity is operational scheduling data, not a record with
+   * probative/audit value (same reasoning as
+   * `CalendarsService.deleteSlot`).
+   */
+  async remove(
+    activityId: string,
+    actor: AuthenticatedUser,
+    correlationId?: string,
+  ): Promise<void> {
+    const activity = await this.findOneOrFail(activityId);
+    this.assertCanModifyActivity(activity, actor);
+
+    await this.activityRepo.delete({ id: activity.id });
+
+    this.eventsService.publish(
+      'ActivityDeleted',
+      { activityId: activity.id, deletedBy: actor.id },
+      correlationId,
+    );
+  }
+
+  /**
+   * Accept a PROPOSED activity — transition PROPOSED → CONFIRMED.
+   *
+   * Sur le modèle exact d'`EventInvitationsController`/
+   * `CalendarEventsService.acceptInvitation` : garde de statut (`409` si
+   * déjà traité), seul le destinataire visé (`participantIds`) peut
+   * répondre, événement de domaine publié à la transition.
+   *
+   * Portée volontairement limitée aux propositions 1 proposeur → 1
+   * destinataire (voir `validateActivityCreation`) : la vérification
+   * ci-dessous reste générique (n'importe quel participant peut accepter),
+   * mais en pratique seuls `cours`/FORMATEUR et `reunion_pedagogique`/AP
+   * ou RP créent des activités à un seul destinataire — les usages
+   * multi-participants existants (`entretien_rp`, `rappel`, `autre`,
+   * `reunion_pedagogique` RP à plusieurs formateurs) ne passent pas par ce
+   * flow et ne sont pas touchés par ce changement.
+   */
+  async accept(
+    activityId: string,
+    actor: AuthenticatedUser,
+    correlationId?: string,
+  ): Promise<ScheduledActivity> {
+    const activity = await this.findOneOrFail(activityId);
+    this.assertActorIsTargetedRecipient(activity, actor);
+
+    if (activity.status !== ActivityStatus.PROPOSED) {
+      throw new ConflictException(
+        `Activity is already ${activity.status} — cannot accept`,
+      );
+    }
+
+    activity.status = ActivityStatus.CONFIRMED;
+    const updated = await this.activityRepo.save(activity);
+
+    this.eventsService.publish(
+      'ActivityConfirmed',
+      { activityId: updated.id, confirmedBy: actor.id },
+      correlationId,
+    );
+
+    return updated;
+  }
+
+  /**
+   * Decline a PROPOSED activity — transition PROPOSED → CANCELLED.
+   * Same model as `accept` above (and `EventInvitationsController.decline`).
+   */
+  async decline(
+    activityId: string,
+    actor: AuthenticatedUser,
+    correlationId?: string,
+  ): Promise<ScheduledActivity> {
+    const activity = await this.findOneOrFail(activityId);
+    this.assertActorIsTargetedRecipient(activity, actor);
+
+    if (activity.status !== ActivityStatus.PROPOSED) {
+      throw new ConflictException(
+        `Activity is already ${activity.status} — cannot decline`,
+      );
+    }
+
+    activity.status = ActivityStatus.CANCELLED;
+    const updated = await this.activityRepo.save(activity);
+
+    this.eventsService.publish(
+      'ActivityDeclined',
+      { activityId: updated.id, declinedBy: actor.id },
+      correlationId,
+    );
+
+    return updated;
   }
 
   async findByParticipant(userId: string): Promise<ScheduledActivity[]> {
@@ -159,20 +283,110 @@ export class ActivitiesService {
    * CAL-FB-002: Validate that business constraints on creation are met.
    * CAL-FB-003: AP can only propose pedagogical meetings to teachers in their scope
    *   (scope enforcement is caller-side for Phase 1; the type constraint is enforced here).
+   *
+   * Chantier calendrier de disponibilités, point 3 :
+   *  - `cours` créé par un FORMATEUR, ou `reunion_pedagogique` créé par un
+   *    ANIMATEUR_PEDAGOGIQUE, doivent cibler EXACTEMENT un destinataire
+   *    (`400` sinon) — ce sont les seuls cas couverts par le flow
+   *    accepter/refuser 1 proposeur → 1 destinataire. Un RP créant une
+   *    `reunion_pedagogique` à plusieurs formateurs (usage existant,
+   *    inchangé) n'est PAS soumis à cette contrainte.
+   *  - un vrai lien métier avec le destinataire est exigé pour ces deux
+   *    mêmes cas (`TEACHER_OF_STUDENT` pour FORMATEUR→élève,
+   *    `ANIMATOR_OF_TEACHER` pour AP→formateur), vérifié auprès de
+   *    `profile-service` — `403` si absent. Un RP n'a aucune vérification
+   *    de lien (accès non conditionnel partout ailleurs dans ce service).
    */
-  private validateActivityCreation(dto: CreateActivityDto, creatorRole: UserRole): void {
+  private async validateActivityCreation(
+    dto: CreateActivityDto,
+    actor: AuthenticatedUser,
+    correlationId?: string,
+  ): Promise<void> {
     if (dto.participantIds.length === 0) {
       throw new BadRequestException('CAL-FB-002: At least one participant is required');
     }
 
     // CAL-FB-003: AP can only create REUNION_PEDAGOGIQUE
     if (
-      creatorRole === UserRole.ANIMATEUR_PEDAGOGIQUE &&
+      actor.role === UserRole.ANIMATEUR_PEDAGOGIQUE &&
       dto.type !== ActivityType.REUNION_PEDAGOGIQUE
     ) {
       throw new ForbiddenException(
         'CAL-FB-003: AP can only create pedagogical meetings (reunion_pedagogique)',
       );
+    }
+
+    const isCoursByTeacher =
+      dto.type === ActivityType.COURS && actor.role === UserRole.FORMATEUR;
+    const isReunionByAnimator =
+      dto.type === ActivityType.REUNION_PEDAGOGIQUE &&
+      actor.role === UserRole.ANIMATEUR_PEDAGOGIQUE;
+
+    if ((isCoursByTeacher || isReunionByAnimator) && dto.participantIds.length !== 1) {
+      throw new BadRequestException(
+        'Une proposition de cours ou de réunion pédagogique ne peut cibler ' +
+          "qu'un seul destinataire (participantIds doit contenir exactement un identifiant)",
+      );
+    }
+
+    if (isCoursByTeacher) {
+      await this.assertLinkedRecipient(
+        actor,
+        dto.participantIds[0],
+        RelationKind.TEACHER_OF_STUDENT,
+        correlationId,
+        "Vous ne pouvez proposer un cours qu'à un élève auquel vous êtes lié",
+      );
+    }
+
+    if (isReunionByAnimator) {
+      await this.assertLinkedRecipient(
+        actor,
+        dto.participantIds[0],
+        RelationKind.ANIMATOR_OF_TEACHER,
+        correlationId,
+        'Vous ne pouvez proposer une réunion pédagogique qu\'à un formateur que vous animez',
+      );
+    }
+  }
+
+  /**
+   * `403` si `actor` (le proposeur) n'a pas la relation métier requise
+   * avec `recipientId`, `503` si `profile-service` est injoignable ou hors
+   * délai — échec fermé, jamais une création acceptée par défaut. Copié
+   * du modèle déjà suivi par `CalendarsService.getBusyFree` (point 2 de ce
+   * chantier).
+   */
+  private async assertLinkedRecipient(
+    actor: AuthenticatedUser,
+    recipientId: string,
+    requiredRelationKind: RelationKind,
+    correlationId: string | undefined,
+    forbiddenMessage: string,
+  ): Promise<void> {
+    let snapshot;
+    try {
+      snapshot = await this.profileRelationsClient.resolveRelations(
+        actor.id,
+        recipientId,
+        actor.role,
+        correlationId,
+      );
+    } catch (error) {
+      if (error instanceof ProfileRelationsUnavailableError) {
+        throw new ServiceUnavailableException(
+          "Impossible de vérifier le lien avec le destinataire pour le moment. " +
+            'Réessayez dans un instant.',
+        );
+      }
+      throw error;
+    }
+
+    const hasRequiredRelation = snapshot.relations.some(
+      (relation) => relation.kind === requiredRelationKind,
+    );
+    if (!hasRequiredRelation) {
+      throw new ForbiddenException(forbiddenMessage);
     }
   }
 
@@ -190,6 +404,23 @@ export class ActivitiesService {
     if (activity.participantIds.includes(actor.id)) return;
     if (readRoles.includes(actor.role)) return;
     throw new ForbiddenException('Access to this activity is not allowed');
+  }
+
+  /**
+   * Only a declared participant (the targeted recipient of the proposal)
+   * may accept or decline an activity — same posture as
+   * `CalendarEventsService.assertActorIsInvitee`. The creator themselves
+   * is NOT allowed to accept/decline their own proposal.
+   */
+  private assertActorIsTargetedRecipient(
+    activity: ScheduledActivity,
+    actor: AuthenticatedUser,
+  ): void {
+    if (!activity.participantIds.includes(actor.id)) {
+      throw new ForbiddenException(
+        'Only the targeted recipient may accept or decline this activity',
+      );
+    }
   }
 
   /**

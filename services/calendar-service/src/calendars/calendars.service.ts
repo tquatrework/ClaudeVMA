@@ -26,6 +26,10 @@ import {
   IdentityAccessUnavailableError,
 } from '../common/clients/identity-access.client';
 import {
+  ProfileDisplayNameClient,
+  ProfileDisplayNameUnavailableError,
+} from '../common/clients/profile-display-name.client';
+import {
   isCalendarBusyFreeAccessAllowed,
   resolveCalendarBusyFreeAccess,
 } from './calendar-visibility.policy';
@@ -44,6 +48,43 @@ export interface CalendarBusyFreeResponse {
   busyBlocks: Array<{ start: string; end: string }>;
 }
 
+/**
+ * Une activité telle que portée par `GET /calendars/:ownerId` (chantier
+ * calendrier de disponibilités, point 3 — gap comblé le 2026-08-18) : assez
+ * d'information pour l'afficher directement dans la grille du calendrier du
+ * titulaire, sans appel supplémentaire. `creatorName` est résolu ici, jamais
+ * un `creatorId` brut affiché (arbitrage du 2026-08-09, « Affichage des
+ * identifiants techniques ») — `null` uniquement si `profile-service` était
+ * injoignable au moment de la lecture (dégradation gracieuse, voir
+ * `ProfileDisplayNameClient`), jamais un UUID de repli.
+ */
+export interface CalendarActivityView {
+  id: string;
+  type: string;
+  status: string;
+  startTime: string;
+  endTime: string;
+  creatorId: string;
+  creatorName: string | null;
+  participantIds: string[];
+}
+
+/** Une semaine, en millisecondes — pas de dépendance date-fns côté backend. */
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Fenêtre par défaut des activités portées par `GET /calendars/:ownerId`.
+ * Aucune convention de fenêtre par défaut n'existait déjà dans ce service
+ * (vérifié le 2026-08-18) — valeur proposée et documentée ici : 2 semaines
+ * passées (pour retrouver un cours récent sans creuser l'historique complet)
+ * + 4 semaines à venir (de quoi couvrir un mois de planification), sur le
+ * modèle des bornes déjà utilisées par `GET /calendars/:ownerId/busy`
+ * (fenêtre explicite `from`/`to`, ici implicite car cette route ne prend pas
+ * de paramètres de fenêtre).
+ */
+const ACTIVITIES_WINDOW_PAST_MS = 2 * WEEK_MS;
+const ACTIVITIES_WINDOW_FUTURE_MS = 4 * WEEK_MS;
+
 @Injectable()
 export class CalendarsService {
   constructor(
@@ -59,17 +100,28 @@ export class CalendarsService {
     private readonly activitiesService: ActivitiesService,
     private readonly profileRelationsClient: ProfileRelationsClient,
     private readonly identityAccessClient: IdentityAccessClient,
+    private readonly profileDisplayNameClient: ProfileDisplayNameClient,
   ) {}
 
   /**
    * Get a calendar by ownerId, creating it lazily if it doesn't exist.
    * CAL-FB-001: requester must own the calendar or have RP/AP/TI privileges.
+   *
+   * Chantier calendrier de disponibilités, point 3 (gap comblé le
+   * 2026-08-18) : porte désormais aussi les activités du titulaire
+   * (`activities`) — créateur OU participant, `proposed`/`confirmed`,
+   * fenêtre par défaut `[maintenant - 2 semaines, maintenant + 4 semaines)`
+   * (voir `ACTIVITIES_WINDOW_PAST_MS`/`ACTIVITIES_WINDOW_FUTURE_MS`). C'est
+   * la correction du gap déjà signalé : cette route promettait déjà
+   * « créneaux de disponibilité + activités » dans sa propre documentation,
+   * jamais tenu jusqu'ici — `activities` était toujours absent de la
+   * réponse.
    */
   async getCalendar(
     ownerId: string,
     actor: AuthenticatedUser,
     correlationId?: string,
-  ): Promise<Calendar & { paymentEntries?: PaymentScheduleEntry[] }> {
+  ): Promise<Calendar & { paymentEntries?: PaymentScheduleEntry[]; activities: CalendarActivityView[] }> {
     this.assertCanReadCalendar(ownerId, actor);
 
     let calendar = await this.calendarRepo.findOne({
@@ -85,16 +137,69 @@ export class CalendarsService {
       calendar.availabilitySlots = [];
     }
 
+    const activities = await this.buildActivitiesView(ownerId, correlationId);
+
     // For financeurs, also return payment schedule
     if (actor.role === UserRole.PARENT_FINANCEUR) {
       const paymentEntries = await this.paymentRepo.find({
         where: { ownerId },
         order: { dueDate: 'ASC' },
       });
-      return { ...calendar, paymentEntries };
+      return { ...calendar, paymentEntries, activities };
     }
 
-    return calendar;
+    return { ...calendar, activities };
+  }
+
+  /**
+   * Construit la vue « activités » de `GET /calendars/:ownerId` : les
+   * activités où `ownerId` est créateur ou participant, dans la fenêtre par
+   * défaut, avec le nom du créateur résolu (jamais un `creatorId` brut
+   * affiché — voir `CalendarActivityView`).
+   *
+   * Résolution du nom en lot (`ProfileDisplayNameClient.resolveDisplayNames`,
+   * un seul appel HTTP pour tous les créateurs distincts de la fenêtre),
+   * jamais un appel par activité. Dégradation gracieuse si `profile-service`
+   * est injoignable : `creatorName: null` pour toutes les activités
+   * concernées plutôt qu'un `503` sur une route de lecture centrale — voir
+   * `ProfileDisplayNameUnavailableError`.
+   */
+  private async buildActivitiesView(
+    ownerId: string,
+    correlationId?: string,
+  ): Promise<CalendarActivityView[]> {
+    const now = Date.now();
+    const from = new Date(now - ACTIVITIES_WINDOW_PAST_MS);
+    const to = new Date(now + ACTIVITIES_WINDOW_FUTURE_MS);
+
+    const activities = await this.activitiesService.findActiveInRange(ownerId, from, to);
+    if (activities.length === 0) return [];
+
+    const creatorIds = activities.map((activity) => activity.creatorId);
+    let namesByCreatorId = new Map<string, { firstName: string | null; lastName: string | null }>();
+    try {
+      namesByCreatorId = await this.profileDisplayNameClient.resolveDisplayNames(
+        creatorIds,
+        correlationId,
+      );
+    } catch (error) {
+      if (error instanceof ProfileDisplayNameUnavailableError) {
+        // Dégradation gracieuse assumée : voir la doc de `buildActivitiesView`.
+      } else {
+        throw error;
+      }
+    }
+
+    return activities.map((activity) => ({
+      id: activity.id,
+      type: activity.type,
+      status: activity.status,
+      startTime: activity.startTime.toISOString(),
+      endTime: activity.endTime.toISOString(),
+      creatorId: activity.creatorId,
+      creatorName: formatDisplayName(namesByCreatorId.get(activity.creatorId)),
+      participantIds: activity.participantIds,
+    }));
   }
 
   /**
@@ -479,6 +584,21 @@ export class CalendarsService {
       'CAL-FB-001: You may only modify your own calendar',
     );
   }
+}
+
+/**
+ * Compose « Prénom Nom » à partir du résultat de `ProfileDisplayNameClient`.
+ * `undefined` (créateur absent de la réponse en lot) ou deux champs `null`
+ * renvoient `null` — jamais une chaîne vide ni l'identifiant technique.
+ */
+function formatDisplayName(
+  name: { firstName: string | null; lastName: string | null } | undefined,
+): string | null {
+  if (!name) return null;
+  const parts = [name.firstName, name.lastName].filter(
+    (part): part is string => typeof part === 'string' && part.length > 0,
+  );
+  return parts.length > 0 ? parts.join(' ') : null;
 }
 
 /** Sérialise une liste d'occurrences (`Date`) en ISO 8601, pour la réponse HTTP. */

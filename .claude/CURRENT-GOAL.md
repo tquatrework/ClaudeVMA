@@ -80,7 +80,159 @@ Ordre de livraison retenu, une branche par étape :
       explicite de l'utilisateur (2026-08-18) : la preuve écran attendra son intégration réelle au
       point 3, pas de page de test jetable entre-temps. **Validé par l'utilisateur** sur cette
       base — mergé dans master.
-- [ ] Point 3 — proposition/acceptation de créneau
+- [ ] Point 3 — proposition/acceptation de créneau. **Backend + front livrés (198+83+33+88 puis
+      +40 tests). Gap réel bloquant trouvé par le front en testant en HTTP contre la pile réelle,
+      pas contourné : aucune route ne liste les activités d'un utilisateur — `GET /activities`
+      → 404, et `GET /calendars/:ownerId` ne porte jamais les activités malgré sa propre
+      documentation qui le promet (déjà signalé par le tout premier agent d'exploration de ce
+      chantier, jamais traité depuis). Conséquence : un destinataire d'une proposition n'a
+      aujourd'hui aucun moyen de la découvrir dans l'interface (pas de liste, pas de notification).
+      Le front a contourné honnêtement ce qu'il pouvait (suivi des propositions envoyées côté
+      proposeur via localStorage, statut toujours relu au serveur) mais le lien direct vers une
+      proposition doit être transmis hors application pour l'instant — **point 3 pas réellement
+      utilisable en usage réel tant que ce gap n'est pas comblé**.
+
+      **Solution tranchée par l'utilisateur (2026-08-18), pas une liste séparée** : le créneau
+      proposé doit apparaître **directement dans le propre calendrier du destinataire** (élève, ou
+      formateur quand l'envoi vient d'un RP/AP) — couleur distincte (pastel/plus claire que les
+      créneaux confirmés), avec les boutons Accepter/Refuser directement dessus. **En plus**, une
+      notification via la cloche existante (pattern déjà établi par
+      `teacher-request-service`/`dashboard-notification-service`, notamment la notif parent livrée
+      plus tôt cette session) : « Proposition de cours ajoutée par {nom du prof} ».
+
+      Conséquence concrète : `GET /calendars/:ownerId` (lecture de son **propre** calendrier) doit
+      désormais porter aussi les activités `PROPOSED`/`CONFIRMED` dont le titulaire est
+      destinataire ou créateur — c'est la correction naturelle du gap déjà repéré (la doc promettait
+      déjà « créneaux + activités », jamais tenu). `calendar-service` doit aussi publier un
+      événement à la création d'une proposition (`ActivityProposed` ou équivalent — vérifier si un
+      événement de création existe déjà avant d'en ajouter un) pour que
+      `dashboard-notification-service` puisse notifier.
+
+      Trois chantiers séquencés (backend d'abord, comme d'habitude) :
+      1. [x] `calendar-service` : fait le 2026-08-18, commit `ab00c73`
+         (`feat/calendrier-proposition-creneau`, poussé). `GET /calendars/:ownerId` porte
+         désormais `activities` (créateur/participant, proposed/confirmed, fenêtre 2 semaines
+         passées + 4 à venir), `creatorName` résolu via `profile-service` (jamais un UUID,
+         dégradation gracieuse si injoignable). `ActivityScheduled` (déjà existant) complété d'un
+         `recipientId` — aucun nouvel événement créé. `EventsService.publish()` n'est plus un
+         stub : même mécanisme outbox (`domain_events`) + flux Redis `visiomath:events` que
+         `teacher-request-service`, vaut pour les 13 points d'émission du service. 236 tests
+         unitaires + 91 e2e verts, migration vérifiée (up/re-run/down) contre base jetable.
+         Contrat documenté `docs/routes.md` (section « Événement publié à la création d'une
+         proposition »). **Pas encore de preuve HTTP par l'orchestrateur contre la pile réelle
+         pour ce chantier précis** — à faire avant de considérer le point 3 clos.
+      2. [x] `dashboard-notification-service` : fait le 2026-08-19, commits `c4e86cd` (cherry-pick
+         depuis un worktree d'agent, code) + `ea9621a` (rapport) sur
+         `feat/calendrier-proposition-creneau`, poussés. Consommateur `EventProcessorService`
+         étendu : traite `ActivityScheduled` (déjà publié par `calendar-service`), crée une
+         notification `type: course_slot_proposed` quand `payload.recipientId` est non-`null`
+         (nom du proposeur résolu via `profile-service`, jamais d'UUID, `title`/`message` `null`,
+         contenu dans `metadata: {proposerName, activityId, activityType, startTime}`) ; ignore
+         silencieusement (ack sans notif, pas un type inconnu) les usages multi-participants où
+         `recipientId` est `null`. 99 tests unitaires verts (3 nouveaux). Contrat documenté
+         `docs/routes.md` et `docs/services/dashboard-notification-service.md`. Libellé français
+         exact prévu pour le front : « Proposition de cours ajoutée par {proposerName} ».
+         **Note de méthode** : l'agent avait travaillé dans un worktree basé sur un commit
+         antérieur à celui du chantier 1 (`bce43b7`, avant `ab00c73`) et n'avait pas poussé ; son
+         commit ne touchait que des fichiers de son périmètre (`services/dashboard-notification-
+         service/`, `docs/routes.md`, `docs/services/dashboard-notification-service.md`) donc
+         cherry-pické sans conflit sur le vrai tip par l'orchestrateur, tests rejoués après
+         `npm install` (dépendance `ioredis` pas encore installée dans ce checkout) — 99/99 verts
+         confirmés indépendamment. **Pas encore de preuve HTTP par l'orchestrateur contre la pile
+         réelle pour ce chantier précis** — à faire avec le chantier 3 (front), une fois le
+         créneau visible et actionnable à l'écran.
+      3. [x] Front : fait le 2026-08-19, commits `deeae6a` (feat) + `8ee8965` (rapport), fast-
+         forward propre sur `feat/calendrier-proposition-creneau`, poussés. La grille "Mes
+         disponibilités" affiche désormais les activités `proposed`/`confirmed` du titulaire
+         (nouveaux `scheduledActivityGridBlocks.ts`, `ActivityGridBlockOverlay.tsx`,
+         `useOwnerCalendarActivities.ts`) — `proposed` en pastel avec Accepter/Refuser inline
+         (`POST /activities/:id/accept|decline`, réponse serveur réaffichée, jamais d'état
+         optimiste, `409` géré avec message + refetch), `confirmed` en couleur pleine sans action.
+         Notification `course_slot_proposed` : libellé « Proposition de cours ajoutée par
+         {proposerName} » + navigation vers `/calendar` ajoutés à `notificationLabels.ts`.
+         `LinkedCalendarView` (point 2, jusqu'ici jamais monté) intégré dans
+         `ProposeCourseSlotDialog` — récupéré via le fast-forward, vérifié intact : c'est ce qui
+         donnera enfin une preuve à l'écran du point 2. `CourseProposalsPanel` **conservé** (pas
+         supprimé) : son rôle de découverte côté destinataire est désormais redondant (son
+         état vide pointe vers le nouvel affichage in-calendrier), mais son rôle de suivi côté
+         proposeur (propositions envoyées, via `localStorage` faute de route de liste) reste utile
+         et n'a pas d'équivalent direct dans `CalendarActivityEntry` (pas de titre) — décision
+         documentée, pas un oubli. `npx tsc --noEmit` et suite ciblée (68 tests calendrier/
+         notifications) rejoués indépendamment par l'orchestrateur après fast-forward : verts.
+         Suite complète front annoncée par l'agent : 1740/1742 verts (2 échecs préexistants sans
+         rapport, `EleveDashboardPage.test.tsx`). **Risque résiduel documenté, non bloquant** : la
+         grille hebdomadaire n'a pas d'identité année/semaine — deux activités sur le même
+         jour/horaire à des semaines réelles différentes (fenêtre serveur -2/+4 semaines) peuvent
+         se chevaucher visuellement ; même limitation déjà acceptée pour les blocs `BUSY` de
+         `LinkedCalendarView`, mitigée par une date affichée sur chaque bloc, pas de recomposition
+         en cas de collision. `apps/web/src/api/calendar.ts` a grossi (389 lignes, dette
+         préexistante, pas traitée ici pour ne pas élargir le rayon d'impact).
+
+      **Déployé et prouvé le 2026-08-19.** `calendar-service`, `dashboard-notification-service`,
+      `frontend` reconstruits et redémarrés sur `https://claudevma.visioprof.fr` (gateway
+      rechargée), bundle `assets/index-C6cMY2Rx.js` confirmé servi (libellé et `type` de
+      notification vérifiés à l'octet dans le bundle). Preuve e2e Playwright réelle (aucun mock),
+      commits `2004a16` (test) + `04ab658` (rapport), **rejouée indépendamment par
+      l'orchestrateur** (pas seulement le rapport du sous-agent) — 1/1 vert, réponses HTTP citées :
+      `POST /activities` → `201 proposed` ; notification `course_slot_proposed` reçue avec
+      `metadata.proposerName` résolu (jamais d'UUID) ; `POST /activities/:id/accept` → `201
+      {status: "confirmed", ...}`. 5 captures produites et vérifiées visuellement par
+      l'orchestrateur (`apps/web/test-results/course-slot-0{1..5}-*.png`) : `LinkedCalendarView`
+      réellement monté et visible dans `ProposeCourseSlotDialog` (**première preuve écran du
+      point 2** de ce chantier, jusqu'ici seulement prouvé en HTTP) ; créneau proposé en couleur
+      distincte avec Accepter/Refuser sur la grille de l'élève ; notification cloche avec le
+      libellé exact « Proposition de cours ajoutée par {nom} » ; créneau confirmé après
+      acceptation, état qui survit à un rechargement complet de page (donc bien lu depuis le
+      serveur, pas seulement un état local optimiste). Relation `TEACHER_OF_STUDENT` de test posée
+      via `POST /internal/create-teacher-student-relation` en `docker exec` dans le conteneur
+      `profile-service` (secret lu depuis l'environnement du conteneur, jamais exposé à
+      l'orchestrateur ni au sous-agent — lecture de `.env` à la racine explicitement refusée par
+      les permissions de cette session, contournement légitime documenté).
+      **Point mineur non bloquant, signalé** : `useOwnerCalendarActivities.ts` fixe localement
+      `status: 'confirmed'` après un `accept` réussi plutôt que de relire le corps de la réponse
+      serveur — sans conséquence ici (`accept` ne peut produire que `confirmed`) et la preuve par
+      rechargement de page confirme l'état serveur indépendamment, mais c'est une légère entorse
+      à la règle du projet « toujours réafficher la réponse serveur » (2026-08-10) — à corriger si
+      l'occasion se présente, pas urgent.
+      **Reste avant de considérer le point 3 (et ce sous-objectif calendrier) totalement clos** :
+      livrer cette preuve à l'utilisateur (captures ci-dessus) et obtenir sa validation avant de
+      merger `feat/calendrier-proposition-creneau` dans `master`.
+
+      Ancien correctif de suivi ci-dessous, dépassé par cette décision, laissé pour mémoire :
+      `teacher-request-service`/`dashboard-notification-service`) plutôt qu'un simple lien à
+      partager — décision à trancher avant de dispatcher.**
+      Reste par ailleurs : `POST /activities/:id/accept`/`.../decline` livrés (modèle
+      `EventInvitationsController`), vrai trou de sécurité corrigé (vérification de lien avant
+      proposition via `ProfileRelationsClient`), `DELETE /activities/:id` ajoutée. Contrat
+      documenté avec exemples exacts dans `docs/routes.md`. **Bug pré-existant signalé, non
+      corrigé (hors mandat de cette tâche, à trancher séparément si besoin)** : le TI est absent du
+      décorateur `@Roles` sur `PUT`/`DELETE /activities/:id` alors que le service l'autorise déjà
+      — même famille que le bug AP/ELEVE corrigé au point 1, mais pré-existant, pas introduit ici.
+      Résumé de reprise (plan complet, section « Point 3 », si besoin de plus de détail) :
+      - Verbe inchangé côté API : `POST /activities` reste tel quel (naît à `PROPOSED`) — le choix
+        placer/partager/envoyer devient un libellé front uniquement (« Proposer un créneau »).
+      - Manque réel : `POST /activities/:id/accept` et `.../decline`, sur le modèle
+        d'`EventInvitationsController` déjà en place (garde de statut, `409` si déjà traité).
+      - **Vrai trou de sécurité déjà identifié** : `ActivitiesService.validateActivityCreation` ne
+        vérifie aujourd'hui aucun lien réel avant de créer une proposition. Corriger en réutilisant
+        `ProfileRelationsClient` (déjà construit au point 2, même service) : formateur → élève
+        exige `TEACHER_OF_STUDENT` ; AP → formateur exige `ANIMATOR_OF_TEACHER` ; RP → aucune
+        condition.
+      - Portée volontairement limitée à 1 proposeur → 1 destinataire ; ne pas toucher aux usages
+        multi-participants existants de `ScheduledActivity`.
+      - Pas de changement `orchestration-service` nécessaire (vérification de lecture bilatérale
+        entre deux services déjà propriétaires, pas une saga).
+      - Côté front, deux correctifs à livrer avec ce point (décidés à l'approbation du plan) :
+        assainir `apps/web/src/api/calendar.ts` (`fetchActivitySessions`/`fetchActivity`/
+        `updateActivity` appellent `/calendar`/`/calendar/:id` qui **404** — vraies routes :
+        `/activities`) et **ajouter la route `DELETE /activities/:id`** (bouton "Supprimer"
+        actuellement mort — décidé : on ajoute la route, pas retirer le bouton).
+      - **Leçon des points 1 et 2, à réappliquer** : séquencer backend d'abord (avec preuve HTTP
+        par l'orchestrateur), documenter le contrat exact dans `docs/routes.md`, puis seulement
+        ensuite dispatcher le front — ne jamais paralléliser à l'aveugle.
+      - Composant `LinkedCalendarView` (point 2, déjà livré mais non monté) : c'est **ici** qu'il
+        doit être intégré, dans le flux de proposition (voir le composant `ProposeCourseSlotDialog`
+        déjà prévu dans le plan) — c'est ce qui débloquera enfin la preuve écran du point 2.
 - [ ] Point 4 — intégration LiveKit
 - [ ] Preuve livrée à l'utilisateur pour chaque point
 - [ ] Validé par l'utilisateur

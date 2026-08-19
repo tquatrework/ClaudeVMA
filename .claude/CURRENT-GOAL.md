@@ -102,19 +102,22 @@ un créneau proposé.
       événement créé par clic + proposition de cours, capture
       `calendar-unified-02-three-sources-on-same-grid.png`) ; proposition acceptée avec succès
       (`POST /activities/:id/accept` → `201 confirmed`).
-      **Deux défauts réels trouvés en testant, non maquillés** :
-      1. Les boutons Accepter/Refuser (et « Rejoindre le cours » sur un créneau confirmé) sont
-         révélés au clic comme demandé, mais **rendus hors de la zone visible du bloc** (mesuré :
-         bouton commençant ~3px sous le bord bas visible du bloc) — présents et cliquables dans
-         le DOM, **invisibles à l'écran pour un utilisateur réel**. Capture :
-         `calendar-unified-03bis-accept-decline-block-closeup.png`. Correctif en cours
-         (`front-developper`, dispatché).
-      2. **Point d'attention confirmé, décision produit à trancher par l'utilisateur** : cliquer
-         sur un jour/heure déjà passé aujourd'hui résout silencieusement vers cette heure passée
-         du jour même (ex. « Mercredi 15:00 » cliqué après 15h résout vers « Mercredi 19 août
-         2026, 15:00 » — dans le passé), **sans aucun avertissement**. À trancher : avertir
-         l'utilisateur, résoudre automatiquement vers la semaine suivante, ou accepter tel quel ?
-- [ ] Validé par l'utilisateur
+      **Deux défauts réels trouvés en testant, tous deux corrigés et redéployés :**
+      1. Boutons Accepter/Refuser/« Rejoindre le cours » invisibles (rognés par `overflow-hidden`
+         sur le bloc de la grille, présents dans le DOM mais jamais vus par un utilisateur réel).
+         Corrigé — commit `90f02e5` (retrait de `overflow-hidden` + `z-10`). Rejoué en direct par
+         l'orchestrateur après déploiement : boutons Accepter (vert) et Refuser (rouge) réellement
+         visibles, débordant proprement sur la ligne suivante de la grille.
+      2. Clic sur un jour/heure déjà passé aujourd'hui résolvait silencieusement vers cette heure
+         passée, sans avertissement. **Décision utilisateur : avertir sans bloquer.** Corrigé —
+         commit `56a0f41`. Rejoué en direct par l'orchestrateur : popover affiche « Cette date est
+         déjà passée. Vous pouvez tout de même créer l'événement si vous le souhaitez. » (fond
+         ambre, non bloquant, bouton Créer toujours actif). Capture :
+         `calendar-unified-05-past-date-warning.png`.
+      Test e2e `apps/web/e2e/proof-calendar-unified-view.spec.ts` (commit `49fa2eb`) rejoué
+      intégralement par l'orchestrateur après chaque correctif — vert à chaque fois.
+- [ ] Validé par l'utilisateur — preuve complète livrée, en attente de sa validation explicite
+      avant fusion dans `master`.
 
 ---
 

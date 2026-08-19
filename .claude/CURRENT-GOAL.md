@@ -274,13 +274,30 @@ Ordre de livraison retenu, une branche par étape :
       manuellement par l'utilisateur pour une phase de test, ou Let's Encrypt indépendant sur ce
       port).
 
-      Reste à faire après cette décision : front (composant vidéo LiveKit intégré,
-      `@livekit/components-react`, point d'entrée depuis une activité confirmée dans le
-      calendrier), configuration `.env` + déploiement (étapes manuelles utilisateur : ports
-      pare-feu `7880/tcp`, `7881/tcp`, `50000-50019/udp` ; `LIVEKIT_NODE_IP`/`LIVEKIT_PUBLIC_URL` ;
-      secrets par défaut à changer ; migration à rejouer manuellement,
-      `docker exec -it visiomath_video_session npm run migration:run`), preuve à deux
-      comptes/navigateurs (exigence du plan).
+      **Décision utilisateur (2026-08-19) : certificat auto-signé, phase de test assumée.**
+      `video-session-service` complété (commit `9932169`, poussé) : nouveau conteneur dédié
+      `livekit-tls` (Caddy, termine le TLS avec un certificat auto-signé portant un SAN sur l'IP
+      publique — `livekit-server` ne sait pas terminer le TLS nativement sur son port de
+      signalisation), certificat généré dans `infra/livekit-tls/certs/` (committé volontairement,
+      documenté comme acceptable uniquement parce que c'est un certificat de test sans valeur de
+      confiance, jamais un vrai secret). Connexion `wss://` bout en bout vérifiée réellement par le
+      sous-agent (handshake + `JoinResponse` LiveKit réel reçu à travers le tunnel TLS, pile
+      jetable isolée).
+
+      **Déployé sur la pile réelle le 2026-08-19** par l'orchestrateur : `.env` renseigné par
+      l'utilisateur (`LIVEKIT_NODE_IP`, `LIVEKIT_PUBLIC_URL=wss://193.108.54.226:7880`) ;
+      `video-session-service` reconstruit, conteneurs `livekit`/`livekit_tls`/`video_session`
+      démarrés et sains ; migration `AddLiveKitRoomsRecordingsAndActivityEvents` rejouée avec
+      succès (`docker exec visiomath_video_session npm run migration:run`) ; gateway rechargée ;
+      `https://193.108.54.226:7880/` répond `200` (cert auto-signé actif). **Étape manuelle
+      restante pour l'utilisateur, à refaire à chaque nouvel appareil/navigateur** : ouvrir une
+      fois `https://193.108.54.226:7880/` et accepter l'avertissement de sécurité avant de
+      pouvoir rejoindre une visio — sinon la connexion `wss://` échoue en silence côté client.
+
+      **Reste à faire** : front (composant vidéo LiveKit intégré, `@livekit/components-react`,
+      remplace `window.open(joinUrl)` dans `VideoJoinPage.tsx` par un appel au nouveau contrat
+      `{token, url}`, point d'entrée depuis une activité confirmée dans le calendrier), preuve à
+      deux comptes/navigateurs (exigence du plan).
 - [ ] Preuve livrée à l'utilisateur pour chaque point
 - [ ] Validé par l'utilisateur
 

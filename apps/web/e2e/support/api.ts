@@ -269,3 +269,80 @@ export async function waitForUnreadNotification(
   }
   return -1
 }
+
+// ── Ajouts pour la preuve du point 4 (« le créneau accepté doit ouvrir une visio ») du
+// chantier calendrier-visio-livekit — mêmes principes que ci-dessus : routes réelles, aucun mock.
+
+/** Étape 1/2 du point 3, réutilisées sans re-test détaillé : le formateur propose un cours. */
+export async function createCourseActivity(
+  teacherToken: string,
+  studentId: string,
+  startTime: string,
+  endTime: string,
+  title = 'Cours e2e LiveKit',
+): Promise<RawResponse<{ id: string; status: string }>> {
+  return request(
+    'POST',
+    '/activities',
+    { title, type: 'cours', participantIds: [studentId], startTime, endTime, description: 'Preuve e2e LiveKit' },
+    teacherToken,
+  )
+}
+
+/** L'élève accepte — POST /activities/:id/accept, voir docs/routes.md > calendar-service. */
+export async function acceptActivity(
+  studentToken: string,
+  activityId: string,
+): Promise<RawResponse<{ id: string; status: string }>> {
+  return request('POST', `/activities/${activityId}/accept`, {}, studentToken)
+}
+
+export interface VideoRoomRecord {
+  id: string
+  activityId: string | null
+  calendarSessionId: string | null
+  status: string
+  startedAt: string | null
+  endedAt: string | null
+}
+
+/**
+ * `GET /video/rooms/by-activity/:activityId` — résout la salle créée automatiquement pour un
+ * cours confirmé. `404` tant que le consommateur Redis de video-session-service n'a pas encore
+ * traité `ActivityConfirmed` (asynchrone, voir docs/routes.md > video-session-service).
+ */
+export async function fetchRoomByActivity(
+  token: string,
+  activityId: string,
+): Promise<RawResponse<VideoRoomRecord>> {
+  return request('GET', `/video/rooms/by-activity/${activityId}`, undefined, token)
+}
+
+/** `GET /video/rooms/:id/join` — vrai token LiveKit + URL du serveur (contrat du 2026-08-19). */
+export async function joinVideoRoom(
+  token: string,
+  roomId: string,
+): Promise<RawResponse<{ token: string; url: string }>> {
+  return request('GET', `/video/rooms/${roomId}/join`, undefined, token)
+}
+
+/**
+ * Attend que la salle vidéo liée à une activité confirmée existe (poll de
+ * `GET /video/rooms/by-activity/:activityId`), le déclenchement passant par un flux Redis
+ * asynchrone côté serveur (`video-session-service`, événement `ActivityConfirmed`). Renvoie la
+ * salle dès son apparition, ou `null` si le délai est dépassé.
+ */
+export async function waitForVideoRoom(
+  token: string,
+  activityId: string,
+  timeoutMs = 30000,
+  intervalMs = 2000,
+): Promise<VideoRoomRecord | null> {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const { status, body } = await fetchRoomByActivity(token, activityId)
+    if (status === 200) return body
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+  }
+  return null
+}

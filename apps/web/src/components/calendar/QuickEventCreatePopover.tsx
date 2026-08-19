@@ -6,7 +6,7 @@ import {
   ALLOWED_EVENT_TYPES_BY_ROLE,
 } from './calendarTypes'
 import { useEventCreate } from '../../hooks/calendar/useEventCreate'
-import { buildIsoDateTimeForDay } from '../../utils/availabilitySlotApiMapping'
+import { buildIsoDateTimeForDay, isResolvedDateTimeInPast } from '../../utils/availabilitySlotApiMapping'
 import { addOneHourToTime } from '../../utils/availabilityTime'
 import { getDayLabel } from '../../utils/availabilityDays'
 
@@ -33,6 +33,13 @@ interface QuickEventCreatePopoverProps {
  * inclus), calculée par `buildIsoDateTimeForDay` — déjà utilisée pour les créneaux de
  * disponibilité. Elle est affichée en toutes lettres avant validation, pour que l'utilisateur
  * confirme la date réelle retenue plutôt que de la deviner.
+ *
+ * Décision utilisateur du 2026-08-19 : un clic sur un jour/heure déjà passé **aujourd'hui** (ex.
+ * cliquer sur « Mercredi 15:00 » alors qu'il est déjà 16h ce même mercredi) résout vers une date
+ * déjà passée sans que rien ne le signale — la grille étant un gabarit récurrent sans année ni
+ * semaine affichée, ce clic reste possible. Un avertissement explicite est affiché à côté de la
+ * date résolue (`isResolvedDateTimeInPast`), mais la validation **reste possible** : avertir sans
+ * jamais bloquer.
  */
 export default function QuickEventCreatePopover({
   ownerId,
@@ -62,6 +69,8 @@ export default function QuickEventCreatePopover({
     if (Number.isNaN(parsed.getTime())) return ''
     return parsed.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
   }, [startAt])
+
+  const isResolvedDatePast = useMemo(() => isResolvedDateTimeInPast(startAt), [startAt])
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -124,6 +133,13 @@ export default function QuickEventCreatePopover({
         <p className="text-sm text-gray-600 mb-4">
           {getDayLabel(dayOfWeek)} {resolvedDateLabel}, {startTime} – {endTime}
         </p>
+
+        {isResolvedDatePast && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+            Cette date est déjà passée. Vous pouvez tout de même créer l'événement si vous le
+            souhaitez.
+          </div>
+        )}
 
         {errorMessage && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">

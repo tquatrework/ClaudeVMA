@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import AvailabilitySlotFormModal from '../../../src/components/calendar/AvailabilitySlotFormModal'
 import type { AvailabilitySlot } from '../../../src/types/calendar'
 
@@ -107,6 +107,71 @@ describe('AvailabilitySlotFormModal — édition', () => {
     await userEvent.click(screen.getByRole('button', { name: /supprimer/i }))
 
     expect(onDelete).toHaveBeenCalled()
+  })
+})
+
+describe('AvailabilitySlotFormModal — avertissement de date déjà passée (2026-08-19)', () => {
+  // `dayOfWeek: 1` (lundi), référence 2026-08-24 16h00 UTC — même convention et même date de
+  // référence que `QuickEventCreatePopover.test.tsx`, pour la même cohérence de flow.
+  const REFERENCE_NOW = '2026-08-24T16:00:00.000Z'
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(REFERENCE_NOW))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("avertit en récurrence « Une seule fois » quand l'heure du jour cliqué est déjà passée aujourd'hui", () => {
+    render(
+      <AvailabilitySlotFormModal
+        initialValues={{ ...CREATE_INITIAL_VALUES, startTime: '09:00', endTime: '10:00' }}
+        isSaving={false}
+        errorMessage={null}
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText(/est déjà passée/i)).toBeDefined()
+  })
+
+  it("n'avertit pas quand l'heure résolue est encore à venir aujourd'hui", () => {
+    render(
+      <AvailabilitySlotFormModal
+        initialValues={{ ...CREATE_INITIAL_VALUES, startTime: '18:00', endTime: '19:00' }}
+        isSaving={false}
+        errorMessage={null}
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByText(/est déjà passée/i)).toBeNull()
+  })
+
+  it("n'avertit jamais pour une récurrence hebdomadaire, même si l'heure du jour est déjà passée aujourd'hui", () => {
+    // Pas d'interaction `userEvent` ici : ses délais internes (`setTimeout`) sont incompatibles
+    // avec `vi.useFakeTimers()` sans avancer les timers — la récurrence WEEKLY est donc passée
+    // directement en valeur initiale plutôt que sélectionnée via le menu déroulant.
+    render(
+      <AvailabilitySlotFormModal
+        initialValues={{
+          ...CREATE_INITIAL_VALUES,
+          startTime: '09:00',
+          endTime: '10:00',
+          recurrence: 'WEEKLY',
+        }}
+        isSaving={false}
+        errorMessage={null}
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByText(/est déjà passée/i)).toBeNull()
   })
 })
 

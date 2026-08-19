@@ -1,8 +1,10 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useVideoJoin } from '../hooks/video/useVideoJoin'
 import Layout from '../components/Layout'
+import LiveVideoCall from '../components/video/LiveVideoCall'
+import type { JoinRoomResult } from '../types/video'
 
 export default function VideoJoinPage() {
   const { roomId } = useParams<{ roomId: string }>()
@@ -19,12 +21,16 @@ export default function VideoJoinPage() {
 
   const { room, isLoading, loadError, join, isJoining, joinError } = useVideoJoin(roomId, isParent)
 
+  // Appel en cours — appartient à la page, pas à un composant enfant seul (règle du 2026-08-10) :
+  // le token/l'URL courants restent affichés tant que l'utilisateur n'a pas explicitement quitté.
+  const [activeCall, setActiveCall] = useState<JoinRoomResult | null>(null)
+
   const handleJoin = async () => {
-    const joinUrl = await join()
-    if (joinUrl) {
-      window.open(joinUrl, '_blank')
-    }
+    const result = await join()
+    if (result) setActiveCall(result)
   }
+
+  const handleLeaveCall = () => setActiveCall(null)
 
   if (isParent) {
     return (
@@ -41,6 +47,26 @@ export default function VideoJoinPage() {
 
   const error = loadError ?? joinError
 
+  if (activeCall) {
+    return (
+      <Layout>
+        <div className="max-w-4xl">
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="text-2xl font-bold text-gray-900">Session visio</h1>
+            <button
+              type="button"
+              onClick={handleLeaveCall}
+              className="text-sm text-red-600 border border-red-200 px-4 py-2 rounded-lg hover:bg-red-50"
+            >
+              Quitter
+            </button>
+          </div>
+          <LiveVideoCall token={activeCall.token} url={activeCall.url} onLeave={handleLeaveCall} />
+        </div>
+      </Layout>
+    )
+  }
+
   return (
     <Layout>
       <div className="max-w-xl">
@@ -56,15 +82,6 @@ export default function VideoJoinPage() {
 
         {room && (
           <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-5">
-            <div>
-              <p className="text-sm text-gray-500 font-mono">{room.id}</p>
-              {room.calendarSessionId && (
-                <p className="text-xs text-gray-400 mt-1">
-                  Session calendrier : {room.calendarSessionId}
-                </p>
-              )}
-            </div>
-
             {room.status === 'active' && (
               <div className="space-y-3">
                 <button

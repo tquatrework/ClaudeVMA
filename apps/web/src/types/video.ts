@@ -18,10 +18,17 @@ export interface VideoRoomInfo {
   calendarSessionId?: string
 }
 
-/** Réponse de GET /video/rooms/:id/join */
+/**
+ * Réponse de GET /video/rooms/:id/join — changement de contrat du 2026-08-19
+ * (chantier calendrier-visio-livekit, point 4) : remplace l'ancien stub
+ * `{joinUrl, token?}` par un vrai token LiveKit + l'URL du serveur à joindre
+ * directement avec le SDK client (jamais via api-gateway).
+ */
 export interface JoinRoomResult {
-  joinUrl: string
-  token?: string
+  /** JWT LiveKit signé côté serveur, identité = userId de l'appelant. */
+  token: string
+  /** URL `wss://` du serveur LiveKit (LIVEKIT_PUBLIC_URL), à joindre en direct. */
+  url: string
 }
 
 /** Corps de POST /video/rooms/:id/attendance */

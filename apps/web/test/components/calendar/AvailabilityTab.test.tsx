@@ -1,9 +1,11 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import AvailabilityTab from '../../../src/components/calendar/AvailabilityTab'
 
 vi.mock('../../../src/api/calendar')
+vi.mock('../../../src/api/video')
 
 import {
   createAvailabilitySlot,
@@ -13,6 +15,7 @@ import {
   acceptActivity,
   declineActivity,
 } from '../../../src/api/calendar'
+import { fetchRoomByActivity } from '../../../src/api/video'
 
 const mockFetchAvailability = vi.mocked(fetchAvailability)
 const mockCreateAvailabilitySlot = vi.mocked(createAvailabilitySlot)
@@ -20,8 +23,20 @@ const mockDeleteAvailabilitySlot = vi.mocked(deleteAvailabilitySlot)
 const mockFetchOwnerCalendarActivities = vi.mocked(fetchOwnerCalendarActivities)
 const mockAcceptActivity = vi.mocked(acceptActivity)
 const mockDeclineActivity = vi.mocked(declineActivity)
+const mockFetchRoomByActivity = vi.mocked(fetchRoomByActivity)
 
 const OWNER_ID = 'owner-1'
+
+function renderTab(ownerId = OWNER_ID) {
+  return render(
+    <MemoryRouter initialEntries={['/calendar']}>
+      <Routes>
+        <Route path="/calendar" element={<AvailabilityTab ownerId={ownerId} />} />
+        <Route path="/video-join/:roomId" element={<div>VideoJoinPage</div>} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
 
 const EXISTING_SLOT = {
   id: 'slot-1',
@@ -54,7 +69,7 @@ describe('AvailabilityTab — états', () => {
   it('affiche le chargement puis la grille', async () => {
     mockFetchAvailability.mockResolvedValue([EXISTING_SLOT])
 
-    render(<AvailabilityTab ownerId={OWNER_ID} />)
+    renderTab()
 
     expect(screen.getByText('Chargement des disponibilités…')).toBeDefined()
 
@@ -70,7 +85,7 @@ describe('AvailabilityTab — états', () => {
   it('affiche un état vide explicite sans créneau', async () => {
     mockFetchAvailability.mockResolvedValue([])
 
-    render(<AvailabilityTab ownerId={OWNER_ID} />)
+    renderTab()
 
     await waitFor(() => {
       expect(screen.getByText('Aucun créneau de disponibilité renseigné')).toBeDefined()
@@ -80,7 +95,7 @@ describe('AvailabilityTab — états', () => {
   it("affiche une erreur de chargement", async () => {
     mockFetchAvailability.mockRejectedValue({ response: { status: 500 } })
 
-    render(<AvailabilityTab ownerId={OWNER_ID} />)
+    renderTab()
 
     await waitFor(() => {
       expect(screen.getByText('Le serveur rencontre un problème. Veuillez réessayer plus tard.')).toBeDefined()
@@ -93,7 +108,7 @@ describe('AvailabilityTab — création', () => {
     mockFetchAvailability.mockResolvedValue([])
     mockCreateAvailabilitySlot.mockResolvedValue(EXISTING_SLOT)
 
-    render(<AvailabilityTab ownerId={OWNER_ID} />)
+    renderTab()
 
     await waitFor(() => {
       expect(screen.getByText('Aucun créneau de disponibilité renseigné')).toBeDefined()
@@ -125,7 +140,7 @@ describe('AvailabilityTab — suppression', () => {
     mockFetchAvailability.mockResolvedValue([EXISTING_SLOT])
     mockDeleteAvailabilitySlot.mockResolvedValue(undefined)
 
-    render(<AvailabilityTab ownerId={OWNER_ID} />)
+    renderTab()
 
     await waitFor(() => {
       expect(
@@ -155,7 +170,7 @@ describe('AvailabilityTab — propositions de créneau inline', () => {
     mockFetchAvailability.mockResolvedValue([])
     mockFetchOwnerCalendarActivities.mockResolvedValue([PROPOSED_ACTIVITY])
 
-    render(<AvailabilityTab ownerId={OWNER_ID} />)
+    renderTab()
 
     await waitFor(() => {
       expect(screen.getByText('Camille Durand')).toBeDefined()
@@ -172,7 +187,7 @@ describe('AvailabilityTab — propositions de créneau inline', () => {
       { ...PROPOSED_ACTIVITY, creatorName: null },
     ])
 
-    render(<AvailabilityTab ownerId={OWNER_ID} />)
+    renderTab()
 
     await waitFor(() => {
       expect(screen.getByText('Formateur')).toBeDefined()
@@ -195,7 +210,7 @@ describe('AvailabilityTab — propositions de créneau inline', () => {
       updatedAt: '2026-09-01T00:00:00.000Z',
     })
 
-    render(<AvailabilityTab ownerId={OWNER_ID} />)
+    renderTab()
 
     await waitFor(() => screen.getByRole('button', { name: /accepter la proposition de cours/i }))
     await userEvent.click(screen.getByRole('button', { name: /accepter la proposition de cours/i }))
@@ -225,7 +240,7 @@ describe('AvailabilityTab — propositions de créneau inline', () => {
       updatedAt: '2026-09-01T00:00:00.000Z',
     })
 
-    render(<AvailabilityTab ownerId={OWNER_ID} />)
+    renderTab()
 
     await waitFor(() => screen.getByRole('button', { name: /refuser la proposition de cours/i }))
     await userEvent.click(screen.getByRole('button', { name: /refuser la proposition de cours/i }))
@@ -243,7 +258,7 @@ describe('AvailabilityTab — propositions de créneau inline', () => {
     mockFetchOwnerCalendarActivities.mockResolvedValue([PROPOSED_ACTIVITY])
     mockAcceptActivity.mockRejectedValue({ response: { status: 409 } })
 
-    render(<AvailabilityTab ownerId={OWNER_ID} />)
+    renderTab()
 
     await waitFor(() => screen.getByRole('button', { name: /accepter la proposition de cours/i }))
     await userEvent.click(screen.getByRole('button', { name: /accepter la proposition de cours/i }))
@@ -254,6 +269,74 @@ describe('AvailabilityTab — propositions de créneau inline', () => {
     // Rafraîchissement : un second appel de lecture après le conflit.
     await waitFor(() => {
       expect(mockFetchOwnerCalendarActivities.mock.calls.length).toBeGreaterThan(1)
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Rejoindre le cours depuis un bloc confirmé (chantier calendrier-visio-livekit, point 2)
+// ---------------------------------------------------------------------------
+const CONFIRMED_COURSE_ACTIVITY = {
+  id: 'activity-2',
+  type: 'cours' as const,
+  status: 'confirmed' as const,
+  startTime: '2026-09-10T14:00:00.000Z',
+  endTime: '2026-09-10T15:00:00.000Z',
+  creatorId: 'teacher-9',
+  creatorName: 'Camille Durand',
+  participantIds: [OWNER_ID],
+}
+
+describe('AvailabilityTab — rejoindre un cours confirmé', () => {
+  it('affiche "Rejoindre le cours" sur un bloc cours confirmé, jamais sur une réunion pédagogique', async () => {
+    mockFetchAvailability.mockResolvedValue([])
+    mockFetchOwnerCalendarActivities.mockResolvedValue([
+      CONFIRMED_COURSE_ACTIVITY,
+      { ...CONFIRMED_COURSE_ACTIVITY, id: 'activity-3', type: 'reunion_pedagogique' },
+    ])
+
+    renderTab()
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /rejoindre le cours/i }).length).toBe(1)
+    })
+  })
+
+  it('résout la salle puis navigue vers /video-join/:roomId au clic', async () => {
+    mockFetchAvailability.mockResolvedValue([])
+    mockFetchOwnerCalendarActivities.mockResolvedValue([CONFIRMED_COURSE_ACTIVITY])
+    mockFetchRoomByActivity.mockResolvedValue({ id: 'room-xyz', status: 'active' })
+
+    renderTab()
+
+    await waitFor(() => screen.getByRole('button', { name: /rejoindre le cours/i }))
+    await userEvent.click(screen.getByRole('button', { name: /rejoindre le cours/i }))
+
+    await waitFor(() => {
+      expect(mockFetchRoomByActivity).toHaveBeenCalledWith('activity-2')
+    })
+    await waitFor(() => {
+      expect(screen.getByText('VideoJoinPage')).toBeDefined()
+    })
+    // Jamais l'activityId ni l'id de salle affichés comme libellé.
+    expect(screen.queryByText('activity-2')).toBeNull()
+    expect(screen.queryByText('room-xyz')).toBeNull()
+  })
+
+  it("affiche un message explicite si la salle n'est pas encore disponible (404)", async () => {
+    mockFetchAvailability.mockResolvedValue([])
+    mockFetchOwnerCalendarActivities.mockResolvedValue([CONFIRMED_COURSE_ACTIVITY])
+    mockFetchRoomByActivity.mockRejectedValue({ response: { status: 404 } })
+
+    renderTab()
+
+    await waitFor(() => screen.getByRole('button', { name: /rejoindre le cours/i }))
+    await userEvent.click(screen.getByRole('button', { name: /rejoindre le cours/i }))
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("La salle de ce cours n'est pas encore disponible. Réessayez un peu plus tard."),
+      ).toBeDefined()
     })
   })
 })

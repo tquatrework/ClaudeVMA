@@ -6,6 +6,12 @@
  * 2. Formateur ouvre la page de join pour sa propre session
  * 3. Parent ne peut pas accéder à la vue
  * 4. Chargement puis erreur (403/404/générique)
+ * 5. Rejoindre monte l'appel vidéo intégré (LiveVideoCall) avec le token/l'URL LiveKit réels,
+ *    au lieu de l'ancien `window.open(joinUrl)` (chantier calendrier-visio-livekit, point 4).
+ *
+ * `LiveVideoCall` est mocké : son propre comportement (connexion LiveKit réelle, gestion des
+ * erreurs de certificat) est couvert par test/components/video/LiveVideoCall.test.tsx. Ici on
+ * vérifie seulement que VideoJoinPage lui transmet le bon token/url et gère `onLeave`.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -16,6 +22,15 @@ import VideoJoinPage from '../../src/pages/VideoJoinPage'
 
 vi.mock('../../src/hooks/useAuth')
 vi.mock('../../src/api/video')
+vi.mock('../../src/components/video/LiveVideoCall', () => ({
+  default: (props: { token: string; url: string; onLeave: () => void }) => (
+    <div data-testid="live-video-call">
+      <p>token: {props.token}</p>
+      <p>url: {props.url}</p>
+      <button onClick={props.onLeave}>Quitter l'appel (mock)</button>
+    </div>
+  ),
+}))
 
 import { useAuth } from '../../src/hooks/useAuth'
 import { fetchRoomInfo, joinRoom } from '../../src/api/video'
@@ -76,7 +91,7 @@ beforeEach(() => {
 // Test 1 — Élève ouvre la page de join depuis un événement calendrier
 // ---------------------------------------------------------------------------
 describe('VideoJoinPage — élève rejoint depuis un événement calendrier', () => {
-  it('affiche le bouton Rejoindre et appelle joinRoom(roomId) → GET /video/rooms/:id/join', async () => {
+  it('affiche le bouton Rejoindre et monte l’appel vidéo intégré avec le token/url LiveKit', async () => {
     mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
 
     mockFetchRoomInfo.mockResolvedValue({
@@ -84,9 +99,7 @@ describe('VideoJoinPage — élève rejoint depuis un événement calendrier', (
       status: 'active',
       calendarSessionId: 'cal-session-1',
     })
-    mockJoinRoom.mockResolvedValue({ joinUrl: 'https://meet.example.com/room-abc', token: 'tok-xyz' })
-
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    mockJoinRoom.mockResolvedValue({ token: 'tok-xyz', url: 'wss://livekit.example.com' })
 
     renderVideoJoinPage('room-abc')
 
@@ -102,9 +115,11 @@ describe('VideoJoinPage — élève rejoint depuis un événement calendrier', (
       expect(mockJoinRoom).toHaveBeenCalledWith('room-abc')
     })
 
-    expect(openSpy).toHaveBeenCalledWith('https://meet.example.com/room-abc', '_blank')
-
-    openSpy.mockRestore()
+    await waitFor(() => {
+      expect(screen.getByTestId('live-video-call')).toBeDefined()
+    })
+    expect(screen.getByText('token: tok-xyz')).toBeDefined()
+    expect(screen.getByText('url: wss://livekit.example.com')).toBeDefined()
   })
 
   it('affiche le chargement puis la vue de la salle', async () => {
@@ -162,6 +177,8 @@ describe('VideoJoinPage — élève rejoint depuis un événement calendrier', (
     await waitFor(() => {
       expect(screen.getByText("Vous n'êtes pas autorisé à effectuer cette action.")).toBeDefined()
     })
+
+    expect(screen.queryByTestId('live-video-call')).toBeNull()
   })
 })
 
@@ -226,5 +243,32 @@ describe('VideoJoinPage — accès parent refusé', () => {
     ).toBeDefined()
 
     expect(mockFetchRoomInfo).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Test 5 — Quitter l'appel ramène à un état cohérent (pas une déconnexion silencieuse)
+// ---------------------------------------------------------------------------
+describe('VideoJoinPage — quitter l’appel', () => {
+  it('revient à la vue de la salle (bouton Rejoindre à nouveau visible) après avoir quitté', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
+    mockFetchRoomInfo.mockResolvedValue({ id: 'room-abc', status: 'active' })
+    mockJoinRoom.mockResolvedValue({ token: 'tok-xyz', url: 'wss://livekit.example.com' })
+
+    renderVideoJoinPage('room-abc')
+
+    await waitFor(() => screen.getByRole('button', { name: /rejoindre/i }))
+    await userEvent.click(screen.getByRole('button', { name: /rejoindre/i }))
+
+    await waitFor(() => screen.getByTestId('live-video-call'))
+
+    // Le bouton "Quitter" de l'entête de page, exact — distinct du bouton du mock LiveVideoCall
+    // ("Quitter l'appel (mock)") qui exerce le chemin `onLeave` de la librairie elle-même.
+    await userEvent.click(screen.getByRole('button', { name: 'Quitter' }))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('live-video-call')).toBeNull()
+    })
+    expect(screen.getByRole('button', { name: /rejoindre/i })).toBeDefined()
   })
 })

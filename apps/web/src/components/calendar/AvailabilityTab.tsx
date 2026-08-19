@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type { AvailabilitySlot } from '../../types/calendar'
 import { useAvailabilitySlots } from '../../hooks/calendar/useAvailabilitySlots'
 import { useOwnerCalendarActivities } from '../../hooks/calendar/useOwnerCalendarActivities'
+import { useJoinConfirmedCourse } from '../../hooks/video/useJoinConfirmedCourse'
 import {
   toScheduledActivityGridBlocks,
   type ScheduledActivityGridBlock,
@@ -69,6 +71,8 @@ function buildInitialValues(target: FormTarget): AvailabilitySlotFormInitialValu
  * directement sur le bloc ; un cours déjà confirmé (`CONFIRMED`) s'affiche sans action.
  */
 export default function AvailabilityTab({ ownerId }: AvailabilityTabProps) {
+  const navigate = useNavigate()
+
   const {
     slots,
     isLoading,
@@ -90,6 +94,21 @@ export default function AvailabilityTab({ ownerId }: AvailabilityTabProps) {
     clearRespondError,
     respondToActivity,
   } = useOwnerCalendarActivities(ownerId)
+
+  const {
+    resolveRoomId,
+    isResolving: isJoiningVideo,
+    resolveError: joinVideoError,
+    clearResolveError: clearJoinVideoError,
+  } = useJoinConfirmedCourse()
+  const [joiningActivityId, setJoiningActivityId] = useState<string | null>(null)
+
+  const handleJoinVideo = async (activityId: string) => {
+    setJoiningActivityId(activityId)
+    const roomId = await resolveRoomId(activityId)
+    setJoiningActivityId(null)
+    if (roomId) navigate(`/video-join/${roomId}`)
+  }
 
   const activityBlocks = useMemo(() => toScheduledActivityGridBlocks(activities), [activities])
   const gridSlots = useMemo<CalendarGridSlot[]>(
@@ -118,6 +137,8 @@ export default function AvailabilityTab({ ownerId }: AvailabilityTabProps) {
         onAccept={(activityId) => respondToActivity(activityId, 'accept')}
         onDecline={(activityId) => respondToActivity(activityId, 'decline')}
         isResponding={respondingActivityId === slot.activity.id}
+        onJoinVideo={handleJoinVideo}
+        isJoiningVideo={isJoiningVideo && joiningActivityId === slot.activity.id}
       />
     )
   }
@@ -169,6 +190,10 @@ export default function AvailabilityTab({ ownerId }: AvailabilityTabProps) {
 
       {respondError && (
         <ErrorMessage message={respondError} onClose={clearRespondError} className="mb-4" />
+      )}
+
+      {joinVideoError && (
+        <ErrorMessage message={joinVideoError} onClose={clearJoinVideoError} className="mb-4" />
       )}
 
       {slots.length === 0 && activityBlocks.length === 0 && !isLoadingActivities && (

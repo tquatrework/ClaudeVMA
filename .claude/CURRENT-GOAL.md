@@ -247,10 +247,19 @@ d'une disponibilité depuis leur écran de détail respectif.
       `metadata.title` de la notification est toujours `null`, même quand l'événement a un vrai
       titre — `CalendarEventCreated` ne porte jamais la clé `title` dans son payload. Correctif
       ciblé dispatché immédiatement (`calendar-service`), en cours.
-- [~] Correctif mineur `calendar-service` — ajouter `title` au payload `CalendarEventCreated`
-      pour que la notification affiche le vrai titre au lieu du libellé générique — **en cours**.
-- [ ] Déployé sur la pile réelle (correctif titre notification)
-- [ ] Preuve livrée à l'utilisateur
+- [x] Correctif mineur `calendar-service` — commits `c76e098`+`b3dc421`, poussés.
+      `CalendarEventCreated` porte désormais `title: createdEvent.title` (vraie valeur persistée,
+      `null` uniquement si l'événement n'a réellement pas de titre). 263/263 tests vérifiés
+      indépendamment par l'orchestrateur après fast-forward. `docs/routes.md` mis à jour.
+- [x] Déployé sur la pile réelle — `calendar-service` reconstruit et redémarré, gateway
+      redémarrée.
+- [x] Correctif confirmé fonctionnel par l'orchestrateur en rejouant directement
+      `proof-invitation-fix-2026-08-20.spec.ts` : le test échoue désormais sur l'ancienne
+      assertion `toBeNull()` avec `Received: "Invitation e2e ..."` — preuve directe que le titre
+      réel remonte maintenant jusqu'à la notification. Assertion du test (qui encodait l'ancien
+      bug) en cours de correction par `front-tester` pour refléter le nouveau comportement correct
+      + vérification du libellé « ... vous a invité à « {titre} » » à l'écran.
+- [ ] Preuve finale livrée à l'utilisateur
 - [ ] Validé par l'utilisateur — **utilisateur a pré-autorisé merge + PR une fois la preuve
       obtenue** (« à la fin merge et PR », 2026-08-20) : à faire dès que ce dernier correctif est
       vérifié, sans repasser par une question de validation supplémentaire.

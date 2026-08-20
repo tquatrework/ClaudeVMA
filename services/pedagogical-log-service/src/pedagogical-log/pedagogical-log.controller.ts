@@ -268,7 +268,19 @@ export class PedagogicalLogController {
     return this.service.update(id, dto, req.user.id, req.user.role);
   }
 
-  @Delete(':id')
+  /**
+   * DELETE /logs/:id
+   *
+   * Correctif du 2026-08-20 (bug réel signalé par l'orchestrateur, testé contre
+   * la gateway réelle) : `api-gateway` ne proxy vers ce service que des chemins
+   * sous les préfixes connus `/pedagogical-logs`, `/students`, `/logs` — un
+   * chemin nu comme l'ancien `DELETE /:id` (voir ci-dessous, conservé pour
+   * compatibilité) n'est structurellement jamais atteignable depuis l'extérieur,
+   * quel que soit son code HTTP en direct dans le conteneur. Mirror exact de
+   * `PATCH /logs/:id` ci-dessus (même garde, même logique métier déléguée à
+   * `service.remove()`) — c'est cette route que le front doit appeler.
+   */
+  @Delete('logs/:id')
   @Roles(
     UserRole.FORMATEUR,
     UserRole.RESPONSABLE_PEDAGOGIQUE,
@@ -281,6 +293,35 @@ export class PedagogicalLogController {
       'Entrée normale : seul le formateur auteur, toujours titulaire de la relation avec ' +
       'l\'élève, peut supprimer (PLOG-RA-003, correctif du 2026-08-20 — le RP a perdu ce ' +
       'droit, il reste lecteur). Page spéciale RP : l\'auteur ou un RP (mécanisme inchangé).',
+  })
+  @ApiResponse({ status: 204, description: 'Entrée supprimée' })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  @ApiResponse({ status: 403, description: 'Interdit (pas le formateur auteur titulaire de la relation)' })
+  @ApiResponse({ status: 404, description: 'Entrée introuvable' })
+  @ApiResponse({ status: 503, description: 'profile-service injoignable — vérification de la relation impossible (entrée normale)' })
+  removeViaLogsPrefix(@Param('id') id: string, @Req() req: any) {
+    return this.service.remove(id, req.user.id, req.user.role);
+  }
+
+  /**
+   * DELETE /:id — alias historique, conservé pour compatibilité. Jamais
+   * atteignable depuis l'extérieur via api-gateway (voir DELETE /logs/:id
+   * ci-dessus) : ne pas s'y fier pour un appel réel, seulement pour un appel
+   * direct au service (tests, autre service interne).
+   */
+  @Delete(':id')
+  @Roles(
+    UserRole.FORMATEUR,
+    UserRole.RESPONSABLE_PEDAGOGIQUE,
+  ) // le service applique la restriction fine (formateur auteur titulaire pour une entrée normale)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiParam({ name: 'id', description: 'UUID de l\'entrée' })
+  @ApiOperation({
+    summary: 'Supprimer une entrée de cahier de texte (alias historique, non exposé par api-gateway)',
+    description:
+      'Mêmes règles que DELETE /logs/:id ci-dessus. Conservé pour compatibilité, mais ' +
+      'inatteignable depuis l\'extérieur (api-gateway ne proxy pas les chemins nus vers ' +
+      'ce service) — DELETE /logs/:id est la route à utiliser.',
   })
   @ApiResponse({ status: 204, description: 'Entrée supprimée' })
   @ApiResponse({ status: 401, description: 'Non authentifié' })

@@ -333,6 +333,54 @@
           </point>
         </openPoints>
       </session>
+
+      <session date="2026-08-20" label="Correctif — DELETE /logs/:id manquante, route DELETE injoignable depuis l'exterieur en reel">
+        <objective>
+          Bug reel signale par l'orchestrateur apres deploiement et test contre
+          https://claudevma.visioprof.fr avec de vrais comptes (pas seulement en direct dans le
+          conteneur) : DELETE d'une entree de cahier de texte injoignable depuis l'exterieur.
+        </objective>
+
+        <causeConfirmee>
+          `api-gateway` ne proxy vers ce service que les chemins sous les prefixes connus
+          (`/pedagogical-logs`, `/students`, `/logs`). Le controleur n'exposait `DELETE` que sur
+          le chemin nu `/:id` — jamais sur `/logs/:id`, contrairement a `PATCH` qui avait deja les
+          deux. Un chemin nu n'est structurellement jamais routable depuis l'exterieur, quel que
+          soit son code HTTP en appel direct au service (verifie par l'orchestrateur :
+          `DELETE .../api/v1/{id}` → `405` via la gateway, `DELETE .../api/v1/logs/{id}` → `404`
+          — la route n'existait pas encore ; en direct dans le conteneur sur `/logs/{id}` → `404`
+          aussi ; sur `/:id` → `204`, logique metier correcte, uniquement un probleme
+          d'exposition).
+        </causeConfirmee>
+
+        <changeset>
+          <item>`pedagogical-log.controller.ts` : nouvelle route `DELETE logs/:id`
+            (`removeViaLogsPrefix`), mirror exact de l'ancienne `DELETE :id` (meme garde
+            `@Roles(FORMATEUR, RESPONSABLE_PEDAGOGIQUE)`, meme appel `service.remove()`).
+            `DELETE :id` est conservee comme alias historique, redocumentee comme non exposee par
+            api-gateway (a ne jamais utiliser pour valider un comportement en conditions
+            reelles).</item>
+          <item>`test/e2e/pedagogical-log.e2e-spec.ts` : le describe DELETE existant est scinde en
+            deux — `DELETE /logs/:id` (route qui compte, testee explicitement sur ce chemin) et
+            `DELETE /:id` (alias historique, conserve avec une couverture reduite).</item>
+          <item>`docs/routes.md` : le tableau distingue desormais explicitement les routes
+            reellement atteignables (`/logs/:id`) des alias historiques non proxies par la
+            gateway (`/:id`), avec le constat de bug documente en tete de section.</item>
+        </changeset>
+
+        <verification>
+          <item>`npm run build` : 0 erreur.</item>
+          <item>`npm test` : 120/120 tests unitaires verts, inchange (aucune logique metier
+            modifiee, seul le routage HTTP a change).</item>
+          <item>`npm run test:e2e` : 33 echecs preexistants inchanges, 69 tests verts (67 + 2
+            nouveaux issus de la scission du describe DELETE).</item>
+          <item>Non re-verifie contre le deploiement distant depuis ce worktree — a confirmer par
+            l'orchestrateur au prochain redeploiement (meme procedure que pour la premiere
+            passe : image reconstruite, service redemarre, appel HTTP reel).</item>
+        </verification>
+
+        <blockers>Aucun.</blockers>
+      </session>
     </technicalImplementation>
     <pendingPoints>
       <point id="guards-N1" status="resolu" resolvedOn="2026-06-28">

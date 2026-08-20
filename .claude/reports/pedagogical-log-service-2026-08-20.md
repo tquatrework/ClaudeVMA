@@ -160,7 +160,39 @@ Voir l'arborescence détaillée dans `docs/services/pedagogical-log-service.md` 
 - Tests unitaires et e2e correspondants
 - `docs/routes.md`, `docs/services/pedagogical-log-service.md`
 
+## Addendum — bug réel trouvé par l'orchestrateur en test contre la gateway réelle
+
+Après déploiement (image reconstruite, migration appliquée en prod, service redémarré sain),
+l'orchestrateur a testé les 5 points en HTTP contre `https://claudevma.visioprof.fr` avec de
+vrais comptes. **Les 5 points et le tri/filtrage sont confirmés fonctionnels en réel** :
+catégorie `parent_formateur` (rejet `400` de l'ancienne valeur), 3 champs optionnels, `403` pour
+l'élève qui tente d'écrire, plus de `studentId` requis dans le corps, création automatique à la
+confirmation d'un cours (`autoCreated:true`, `activityId` renseigné), tri et filtre `from`/`to`.
+
+**Un bug réel a en revanche été trouvé** : `DELETE` était injoignable depuis l'extérieur.
+
+**Cause confirmée** : `api-gateway` ne proxy vers ce service que les chemins sous les préfixes
+connus (`/pedagogical-logs`, `/students`, `/logs`). Le contrôleur n'exposait `DELETE` que sur le
+chemin nu `/:id` — jamais sur `/logs/:id`, contrairement à `PATCH` qui avait déjà les deux. Un
+chemin nu n'est structurellement jamais routable depuis l'extérieur, quel que soit son code HTTP
+en appel direct au service. Vérifié par l'orchestrateur : `DELETE .../api/v1/{id}` → `405` via la
+gateway, `DELETE .../api/v1/logs/{id}` → `404` (la route n'existait pas encore) ; en direct dans
+le conteneur sur `/logs/{id}` → `404` aussi ; sur `/:id` → `204`, logique métier correcte,
+uniquement un problème d'exposition.
+
+**Corrigé** : nouvelle route `DELETE /logs/:id`, mirror exact de l'ancienne `DELETE /:id` (même
+garde formateur-titulaire, même logique déléguée à `PedagogicalLogService.remove()` — aucune
+logique métier modifiée). `/:id` (PATCH et DELETE) est conservée comme alias historique,
+redocumentée comme non exposée par `api-gateway`. Tests e2e ajoutés sur le chemin `/logs/:id`
+explicitement (celui qui compte réellement), en plus de l'alias `/:id`. `docs/routes.md` mis à
+jour pour lever l'ambiguïté sur le chemin réellement exposé.
+
+Vérifications : build 0 erreur, 120/120 tests unitaires verts (inchangé, aucune logique métier
+touchée), 69/102 tests e2e verts (33 échecs préexistants inchangés, 2 tests supplémentaires issus
+de la scission du describe DELETE). **Non re-vérifié contre le déploiement distant depuis cette
+session** — à confirmer par l'orchestrateur au prochain redéploiement.
+
 ## Commit et push
 
-À faire immédiatement après ce rapport : commit unique conventionnel sur
-`feat/cahier-de-texte-refonte`, push sur `origin`.
+Fait : deux commits sur `feat/cahier-de-texte-refonte`, rebasés proprement sur les commits de
+l'orchestrateur (statut, infra), poussés sur `origin`.

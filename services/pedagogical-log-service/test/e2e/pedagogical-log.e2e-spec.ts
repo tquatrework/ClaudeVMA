@@ -1286,7 +1286,80 @@ describe('[E2E] Pedagogical Log Service', () => {
   // supprimer une entrée normale, garde celui de supprimer une page spéciale.
   // ──────────────────────────────────────────────────────────────────────────
 
-  describe('DELETE /:id — entrée normale (correctif 2026-08-20 : RP ne peut plus supprimer)', () => {
+  // ──────────────────────────────────────────────────────────────────────────
+  // DELETE /logs/:id — route réellement atteignable depuis l'extérieur.
+  //
+  // Correctif du 2026-08-20 (bug réel signalé par l'orchestrateur, testé contre
+  // https://claudevma.visioprof.fr) : api-gateway ne proxy vers ce service que
+  // les chemins sous /pedagogical-logs, /students, /logs — un chemin nu comme
+  // /:id (ci-dessous, alias historique) n'est jamais routable depuis
+  // l'extérieur, quel que soit son code HTTP en direct dans le conteneur.
+  // C'est ce describe qui prouve le chemin qui compte réellement.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('DELETE /logs/:id — entrée normale (correctif 2026-08-20 : RP ne peut plus supprimer)', () => {
+    let repository: Repository<PedagogicalLog>;
+    let normalEntryId: string;
+
+    beforeEach(async () => {
+      repository = app.get<Repository<PedagogicalLog>>(getRepositoryToken(PedagogicalLog));
+      const entry = await repository.save(
+        repository.create({
+          studentId: IDS.student1,
+          authorId: IDS.teacher1,
+          authorRole: 'formateur',
+          date: '2026-08-20',
+          sessionSummary: 'Entrée à supprimer',
+          visibility: 'eleve_parent_formateur',
+          isSpecialPage: false,
+          hiddenFromStudent: false,
+        }),
+      );
+      normalEntryId = entry.id;
+    });
+
+    it('[CRITIQUE] un RP ne peut plus supprimer une entrée normale → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .delete(`/logs/${normalEntryId}`)
+        .set('Authorization', `Bearer ${rp1Token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('[CRITIQUE] un élève ne peut pas supprimer → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .delete(`/logs/${normalEntryId}`)
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('[CRITIQUE] un parent ne peut pas supprimer → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .delete(`/logs/${normalEntryId}`)
+        .set('Authorization', `Bearer ${parent1Token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('un formateur non-auteur ne peut pas supprimer → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .delete(`/logs/${normalEntryId}`)
+        .set('Authorization', `Bearer ${teacher2Token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('l\'auteur formateur : la relation est revérifiée à chaque action → 503 (profile-service non configuré ici)', async () => {
+      const res = await request(app.getHttpServer())
+        .delete(`/logs/${normalEntryId}`)
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
+      expect(res.status).toBe(503);
+    });
+  });
+
+  describe('DELETE /:id — alias historique (non exposé par api-gateway, conservé pour compatibilité)', () => {
     let repository: Repository<PedagogicalLog>;
     let normalEntryId: string;
 
@@ -1311,30 +1384,6 @@ describe('[E2E] Pedagogical Log Service', () => {
       const res = await request(app.getHttpServer())
         .delete(`/${normalEntryId}`)
         .set('Authorization', `Bearer ${rp1Token}`);
-
-      expect(res.status).toBe(403);
-    });
-
-    it('[CRITIQUE] un élève ne peut pas supprimer → 403', async () => {
-      const res = await request(app.getHttpServer())
-        .delete(`/${normalEntryId}`)
-        .set('Authorization', `Bearer ${student1Token}`);
-
-      expect(res.status).toBe(403);
-    });
-
-    it('[CRITIQUE] un parent ne peut pas supprimer → 403', async () => {
-      const res = await request(app.getHttpServer())
-        .delete(`/${normalEntryId}`)
-        .set('Authorization', `Bearer ${parent1Token}`);
-
-      expect(res.status).toBe(403);
-    });
-
-    it('un formateur non-auteur ne peut pas supprimer → 403', async () => {
-      const res = await request(app.getHttpServer())
-        .delete(`/${normalEntryId}`)
-        .set('Authorization', `Bearer ${teacher2Token}`);
 
       expect(res.status).toBe(403);
     });

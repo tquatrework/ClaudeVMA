@@ -1941,6 +1941,19 @@ routes). **Hors périmètre de la refonte du 2026-08-20** (ni demandé, ni touch
 que la prochaine session qui y touche ne le redécouvre pas de zéro. Les routes réellement montées
 sont celles marquées ci-dessous sans cet avertissement.
 
+**Bug réel corrigé le 2026-08-20 (testé contre `https://claudevma.visioprof.fr` par
+l'orchestrateur, pas seulement en direct dans le conteneur)** : `api-gateway` ne proxy vers ce
+service que les chemins sous les préfixes connus `/pedagogical-logs`, `/students`, `/logs` — un
+chemin **nu** comme l'ancien `DELETE /:id` (ou `PATCH /:id`) n'est **structurellement jamais
+routable depuis l'extérieur**, quel que soit son code HTTP en appel direct au service. Constat
+initial : `DELETE https://claudevma.visioprof.fr/api/v1/{id}` → `405` (aucune route de ce service
+sur ce chemin côté gateway) ; `DELETE https://claudevma.visioprof.fr/api/v1/logs/{id}` → `404`
+(la route n'existait pas encore côté contrôleur). **`DELETE /logs/:id` est ajoutée**, mirror exact
+de `DELETE /:id` (même garde, même logique déléguée à `PedagogicalLogService.remove()`) — c'est
+elle qu'un appelant réel doit utiliser. `/:id` (PATCH et DELETE) est conservée comme **alias
+historique non exposé par la gateway** : à ne jamais utiliser pour valider un comportement en
+conditions réelles, seulement pour un appel direct au service.
+
 | Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
 | GET | /pedagogical-logs *(⚠️ non montée, 404 réel — voir ci-dessus)* | — | 🔒 | — | — |
@@ -1952,9 +1965,10 @@ sont celles marquées ci-dessous sans cet avertissement.
 | POST | /students/:studentId/pedagogical-log/special-pages | Créer une page spéciale avec visibilité ciblée (RP uniquement) | 🔒 | responsable_pedagogique | `201 {id, ..., isSpecialPage: true, hiddenFromStudent, visibility: "special"}` · `403` réservé RP |
 | GET | /logs/session/:sessionId | Logs d'une séance (filtrés par rôle) | 🔒 | Tout rôle authentifié | `200 [PedagogicalLogPage]` |
 | GET | /logs/:id | Détail d'une page | 🔒 | Selon visibilité et rôle | `200 PedagogicalLogPage` · `403` visibilité bloquée · `404` introuvable |
-| PATCH | /logs/:id | Modifier une page | 🔒 | Entrée normale : **formateur auteur, toujours titulaire de la relation, uniquement**. Page spéciale RP : auteur ou RP/TI (mécanisme inchangé) | `200 PedagogicalLogPage` · `403` non autorisé · `404` introuvable · `503` profile-service injoignable (entrée normale) |
-| PATCH | /:id | Modifier une page (alias de compatibilité) | 🔒 | Mêmes règles que `PATCH /logs/:id` | idem |
-| DELETE | /:id | Supprimer une page | 🔒 | Entrée normale : **formateur auteur, toujours titulaire de la relation, uniquement** (correctif du 2026-08-20 — le RP a perdu ce droit qu'il avait jusqu'ici). Page spéciale RP : auteur ou RP (mécanisme inchangé) | `204` · `403` non autorisé · `404` introuvable · `503` profile-service injoignable (entrée normale) |
+| PATCH | /logs/:id | Modifier une page — **route réellement atteignable depuis l'extérieur** | 🔒 | Entrée normale : **formateur auteur, toujours titulaire de la relation, uniquement**. Page spéciale RP : auteur ou RP/TI (mécanisme inchangé) | `200 PedagogicalLogPage` · `403` non autorisé · `404` introuvable · `503` profile-service injoignable (entrée normale) |
+| DELETE | /logs/:id | Supprimer une page — **route réellement atteignable depuis l'extérieur, ajoutée le 2026-08-20** (voir bug ci-dessus) | 🔒 | Entrée normale : **formateur auteur, toujours titulaire de la relation, uniquement** (correctif du 2026-08-20 — le RP a perdu ce droit qu'il avait jusqu'ici). Page spéciale RP : auteur ou RP (mécanisme inchangé) | `204` · `403` non autorisé · `404` introuvable · `503` profile-service injoignable (entrée normale) |
+| PATCH | /:id *(⚠️ alias historique, jamais proxié par api-gateway — utiliser `PATCH /logs/:id`)* | Modifier une page | 🔒 | Mêmes règles que `PATCH /logs/:id` | idem |
+| DELETE | /:id *(⚠️ alias historique, jamais proxié par api-gateway — utiliser `DELETE /logs/:id`)* | Supprimer une page | 🔒 | Mêmes règles que `DELETE /logs/:id` | idem |
 
 Body `POST /students/:studentId/pedagogical-log` (refonte du 2026-08-20, point 2 et point 4) :
 `{date?, sessionSummary?, homework?, visibility?, hiddenFromStudent?, linkedResources?, activityId?, sessionId?, skillsWorked?, difficulty?, rating?}`.

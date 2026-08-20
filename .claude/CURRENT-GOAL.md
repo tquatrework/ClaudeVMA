@@ -107,11 +107,17 @@ disponibilités ; réponse HTTP citée montrant la création d'un événement **
       élève réel) : `POST /calendars/:ownerId/events` sans `title` → `201 {title: null, ...}` ;
       avec `title: ""` → `201 {title: "", ...}` ; avec titre → `201` inchangé. Le rejet `400`
       d'avant cette session ne se reproduit plus.
-- [ ] Preuve à l'écran — test Playwright réel en cours par `front-tester` contre la pile réelle
-      (sélecteur de mode à 2 boutons, dates réelles + navigation semaine, sélection au quart
-      d'heure, modale de création avec destinataire et affichage busy/free, événement sans titre
-      affiché "Sans titre").
-- [ ] Preuve livrée à l'utilisateur
+- [x] Preuve à l'écran — test Playwright réel `apps/web/e2e/proof-calendar-fixes-2026-08-20.spec.ts`
+      (commits `faeece5`+`058620b`), rejoué indépendamment par l'orchestrateur après fast-forward :
+      1/1 vert, réponses HTTP citées (`POST /internal/create-teacher-student-relation` → `201`,
+      `GET /calendars/:ownerId/busy` → `200`, `POST /calendars/:ownerId/events` → `201
+      {title:null,...}`). 5 captures vérifiées visuellement par l'orchestrateur
+      (`apps/web/test-results/calendar-fixes-0{1..5}-*.png`) : sélecteur à 2 boutons sans
+      "Consultation" ; grille avec dates réelles (JJ/MM) + libellé de semaine + navigation ;
+      modale de création avec type/titre optionnel/description/début-fin ajustables/destinataire
+      recherché par nom + son calendrier busy/free affiché ; événement créé affiché "Sans titre"
+      sur la grille, aucun UUID visible nulle part.
+- [x] Preuve livrée à l'utilisateur
 - [ ] Validé par l'utilisateur
 
 ---

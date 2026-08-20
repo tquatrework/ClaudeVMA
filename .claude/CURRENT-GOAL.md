@@ -89,17 +89,33 @@ automatiquement à la confirmation d'une activité `cours`. Capture d'écran de 
 
 ### État
 
-- [ ] Backend `pedagogical-log-service` : renommage catégorie de visibilité, restructuration du
-      contenu en 3 champs, écriture réservée au formateur, correctif `studentId` en double,
-      création automatique à la confirmation d'activité `cours` (projection `ActivityScheduled`/
-      `ActivityConfirmed`), rappel programmé quotidien — preuve HTTP.
-      **En cours** — délégué au sous-agent `pedagogical-log-service` le 2026-08-20, brief complet
-      donné (5 points + investigation + décision d'architecture ci-dessus), travaille sur
-      `feat/cahier-de-texte-refonte` directement. Point de vigilance signalé par l'utilisateur
-      avant délégation : une session distante `claudevma-af` avait un worktree verrouillé sur une
-      branche `work/cahier-de-texte-refonte` (même point de départ, diff vide) — qualifiée
-      d'obsolète par l'utilisateur, ignorée sur cette base, à garder en tête si un conflit
-      apparaît au moment du push.
+- [x] Backend `pedagogical-log-service` : les 5 points livrés par le sous-agent (commits `19c853d`,
+      `b65531c`+`b58b0a2` pour le correctif DELETE→formateur), 120/120 tests unitaires rejoués
+      indépendamment par l'orchestrateur après fast-forward, `tsc --noEmit` propre.
+      Point de vigilance résolu : la session distante `claudevma-af` (worktree `work/cahier-de-
+      texte-refonte`) qualifiée d'obsolète par l'utilisateur n'a pas interféré.
+      Infra corrigée par l'orchestrateur — `docker-compose.yml` (commit `e1ee8af`) : `REDIS_URL`,
+      `INTERNAL_SECRET`, `PROFILE_SERVICE_URL`, `DASHBOARD_NOTIFICATION_SERVICE_URL` ajoutés (le
+      sous-agent ne pouvait pas y toucher, hors de son périmètre `services/pedagogical-log-service/`).
+      Déployé sur la pile réelle par l'orchestrateur : image reconstruite, migration
+      `CahierDeTexteRefonte1787280000000` appliquée en prod (`migration:run` via
+      `node node_modules/typeorm/cli.js -d dist/src/data-source.js`, conteneur relancé, `healthy`).
+      **Preuve HTTP obtenue par l'orchestrateur** contre `https://claudevma.visioprof.fr` (comptes
+      formateur+élève réels créés, relation posée via `POST /internal/create-teacher-student-
+      relation`) : `visibility:"parent_formateur"` accepté (`201`), ancienne valeur
+      `eleve_formateur` rejetée (`400`) ; entrée créée avec seule `date` renseignée, `sessionSummary`/
+      `homework` `null` acceptés ; écriture élève → `403 Insufficient role` ; plus de `studentId`
+      exigé dans le corps ; activité `cours` créée puis confirmée (`POST /activities` →
+      `POST /activities/:id/accept`) → entrée auto-créée (`autoCreated:true`, `activityId` renseigné,
+      `date` = `startTime`) visible dans `GET .../pedagogical-log`, triée la plus récente en tête ;
+      filtre `from`/`to` vérifié ; `DELETE` par le formateur auteur → `204` confirmé **en direct dans
+      le conteneur**.
+      **Bug réel trouvé par l'orchestrateur en testant contre la gateway réelle (pas seulement le
+      service en direct), renvoyé au sous-agent pour correctif** : `DELETE` n'est exposé qu'au chemin
+      nu `/:id`, jamais proxié par la gateway (seuls `/pedagogical-logs`, `/students`, `/logs` le
+      sont) — `DELETE` est donc **injoignable par un utilisateur réel** malgré une logique correcte en
+      interne. `PATCH` a déjà les deux chemins (`/logs/:id` fonctionnel + `/:id` en alias) ; `DELETE`
+      doit recevoir le même alias `/logs/:id`. Correctif en cours par le sous-agent.
 - [ ] Front : sélecteur de catégorie corrigé, formulaire à 3 champs, écran de liste des messages
       (diagnostic + correctif du bug de chargement), tri récent→ancien, recherche par date.
 - [ ] Déployé sur la pile réelle

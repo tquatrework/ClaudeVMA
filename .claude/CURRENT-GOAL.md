@@ -176,14 +176,34 @@ d'une disponibilité depuis leur écran de détail respectif.
 
 ### État (ce point précis)
 
-- [ ] Investigation + correctif `calendar-service` : visibilité des événements invités sur le
-      calendrier du destinataire, contenu exact de `CalendarEventCreated` (doit porter de quoi
-      notifier), route `DELETE` pour `CalendarEvent` si absente — preuve HTTP.
-- [ ] Correctif `dashboard-notification-service` : notification à l'invitation à un événement.
-- [ ] Front : identifier et retirer la liste incriminée, afficher l'événement invité en couleur
-      distincte sur la grille du destinataire, modale Accepter/Refuser à l'ouverture, bouton de
-      suppression sur événement et disponibilité (ajouté si absent, vérifié si déjà là).
-- [ ] Déployé sur la pile réelle
+- [x] Investigation + correctif `calendar-service` — commits `f1f744d`+`c9c3baa`, poussés. Bug
+      racine confirmé : `listEvents` filtrait uniquement `event.owner_id`, jamais
+      `EventInvitation.invitee_id` — un invité ne voyait donc **jamais** un événement créé par un
+      tiers, quel que soit le nombre d'invitations. Corrigé sur le même principe que
+      `ActivitiesService.findActiveInRange` (« créateur OU invité »), nouveau champ
+      `viewerInvitationStatus: "pending"|"accepted"|"declined"|null` sur chaque événement de
+      `GET /calendars/:ownerId/events`. `CalendarEventCreated` portait déjà `inviteeIds` — aucun
+      changement de payload nécessaire (hypothèse initiale infirmée). Route `DELETE
+      /calendars/:ownerId/events/:eventId` confirmée absente puis ajoutée (créateur/RP/TI, `204`,
+      publie `CalendarEventDeleted`). 261/261 tests unitaires vérifiés indépendamment par
+      l'orchestrateur après fast-forward, 109 e2e (+12) annoncés verts par le sous-agent.
+      `docs/routes.md` et `docs/services/calendar-service.md` mis à jour.
+- [x] Déployé sur la pile réelle — `calendar-service` reconstruit et redémarré (pas de migration,
+      changement de requête + route seulement), gateway redémarrée.
+- [x] Preuve HTTP obtenue par l'orchestrateur contre `https://claudevma.visioprof.fr` (comptes
+      formateur+élève réels, relation `TEACHER_OF_STUDENT` posée via la route interne) :
+      `POST /calendars/:teacherId/events` avec `inviteeIds:[studentId]` → `201`, invitation
+      `pending` créée ; `GET /calendars/:studentId/events` (élève) → `200`, l'événement apparaît
+      avec `"viewerInvitationStatus":"pending"` — **le bug signalé par l'utilisateur ne se
+      reproduit plus** à ce niveau (visibilité calendrier).
+- [~] Correctif `dashboard-notification-service` : notification à l'invitation à un événement —
+      **en cours**, dispatché après confirmation du contrat backend (`inviteeIds` déjà présent
+      dans `CalendarEventCreated`, nouveau type `event_invitation_received` prévu).
+- [~] Front : identifier et retirer la liste incriminée, afficher l'événement invité en couleur
+      distincte sur la grille du destinataire (via `viewerInvitationStatus`), modale
+      Accepter/Refuser à l'ouverture, bouton de suppression sur événement et disponibilité (ajouté
+      si absent, vérifié si déjà là) — **en cours**, dispatché en parallèle du précédent.
+- [ ] Déployé sur la pile réelle (notification + front)
 - [ ] Preuve livrée à l'utilisateur
 - [ ] Validé par l'utilisateur
 

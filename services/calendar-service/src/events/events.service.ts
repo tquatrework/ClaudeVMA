@@ -13,6 +13,7 @@ export type CalendarEventType =
   | 'ActivityDeclined'
   | 'ReminderCreated'
   | 'CalendarEventCreated'
+  | 'CalendarEventDeleted'
   | 'InvitationAccepted'
   | 'InvitationDeclined'
   | 'CancellationRequested';
@@ -42,6 +43,7 @@ const AGGREGATE_TYPE_BY_EVENT: Record<CalendarEventType, string> = {
   ActivityDeclined: 'ScheduledActivity',
   ReminderCreated: 'Reminder',
   CalendarEventCreated: 'CalendarEvent',
+  CalendarEventDeleted: 'CalendarEvent',
   InvitationAccepted: 'CalendarEvent',
   InvitationDeclined: 'CalendarEvent',
   CancellationRequested: 'CalendarEvent',

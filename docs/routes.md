@@ -1056,8 +1056,9 @@ Délais de rappel valides : `1week`, `1day`, `1hour`, `15min`, `none`
 
 | Méthode | Chemin | Description | Auth | Rôles / Remarques |
 |---|---|---|---|---|
-| GET | /calendars/:ownerId/events | Lister les événements autorisés | 🔒 | Query: `type?`, `personId?`. Filtrage par rôle côté serveur. |
+| GET | /calendars/:ownerId/events | Lister les événements autorisés | 🔒 | Query: `type?`, `personId?`. Filtrage par rôle côté serveur. **Bug réel corrigé le 2026-08-20** : renvoie désormais aussi les événements où `ownerId` est **invité** (pas seulement créateur), avec `viewerInvitationStatus` — voir section dédiée ci-dessous. |
 | POST | /calendars/:ownerId/events | Créer un événement selon rôle | 🔒 | `eleve` → `rappel` · `formateur` → `cours/masterclass/pedagogique/rappel` · `animateur_pedagogique` → `pedagogique/rappel` · `responsable_pedagogique` → tous |
+| DELETE | /calendars/:ownerId/events/:eventId | Supprimer un événement (suppression physique) | 🔒 | **Route ajoutée le 2026-08-20** (absente jusqu'ici, ni codée ni documentée). Créateur, RP ou TI uniquement — même politique que `POST /events/:id/cancel-request`. Réponse `204`. `404` si l'événement n'existe pas ou appartient à un autre `ownerId` (pas de fuite d'existence). Émet `CalendarEventDeleted`. |
 | GET | /calendars/:ownerId | Lire le calendrier complet (créneaux de disponibilité + activités) | 🔒 | Titulaire ou rôle interne (RP, TI, AF). `parent_financeur` reçoit en plus `paymentEntries`. **`animateur_pedagogique` retiré le 2026-08-18** (chantier calendrier de disponibilités, point 2) : il donnait jusqu'ici un accès **intégral** à n'importe quel calendrier sans vérification de lien — bug corrigé, l'AP passe désormais exclusivement par `GET /calendars/:ownerId/busy` ci-dessous. Corrige un écart de doc : cette route existait déjà mais n'était pas documentée, tandis que la route `GET /calendars/:ownerId/availability` documentée jusqu'ici **n'a jamais existé** côté code (constat du 2026-08-18). **`activities` réellement porté depuis le 2026-08-18** (chantier calendrier de disponibilités, point 3, gap comblé) — voir section dédiée ci-dessous pour la forme exacte : jusque-là la réponse ne contenait jamais les activités malgré cette même documentation qui le promettait déjà. |
 | GET | /calendars/:ownerId/busy | Lire le calendrier **busy/free** d'un tiers lié (jamais le contenu) | 🔒 | Voir section « Visibilité busy/free » ci-dessous. |
 | PUT | /calendars/:ownerId/availability | Remplacer en bloc tous les créneaux de disponibilité | 🔒 | Titulaire (`eleve` ou `formateur`), RP ou TI. `animateur_pedagogique` a été retiré des rôles autorisés le 2026-08-18 : il apparaissait dans le décorateur de rôles mais était déjà refusé par le service — décorateur corrigé pour refléter la vraie politique. |
@@ -1093,9 +1094,19 @@ Body `POST /calendars/:ownerId/availability-slots` : `{dayOfWeek?, startTime, en
 
 Body `PATCH /calendars/:ownerId/availability-slots/:slotId` : mêmes champs, tous optionnels. `recurrenceEndDate` accepte explicitement `null` pour effacer une date de fin déjà posée (repasser une récurrence bornée en illimitée).
 
-Réponse `GET /calendars/:ownerId/events` et réponse `201` de `POST /calendars/:ownerId/events` :
-`[{id, title, startAt, endAt, eventType, status, ownerId, invitations?, reminderRules?}]`
-(`GET`) / `{id, title, startAt, endAt, eventType, status, ownerId, invitations?}` (`POST`).
+Réponse `GET /calendars/:ownerId/events` :
+`[{id, title, startAt, endAt, eventType, status, ownerId, invitations?, reminderRules?, viewerInvitationStatus}]`
+— `viewerInvitationStatus` est **nouveau depuis le 2026-08-20**, voir section dédiée ci-dessous.
+Réponse `201` de `POST /calendars/:ownerId/events` (jamais de `viewerInvitationStatus`, l'appelant
+étant par construction le créateur) :
+`{id, title, startAt, endAt, eventType, status, ownerId, invitations?}`.
+
+`DELETE /calendars/:ownerId/events/:eventId` ne prend **aucun corps** et répond `204` sans corps
+en cas de succès — même forme que `DELETE /calendars/:ownerId/availability-slots/:slotId` ci-dessus
+et `DELETE /activities/:activityId`. Suppression physique de la ligne (les
+`EventInvitation`/`CancellationRequest`/`ReminderRule` liés disparaissent avec elle, `onDelete:
+CASCADE`) — même raisonnement que les autres suppressions de ce service : un événement de
+calendrier est une donnée opérationnelle d'agenda, pas un enregistrement à valeur probante.
 
 **Écart de doc corrigé le 2026-08-19** : cette forme de réponse (`startAt`/`endAt`) était
 documentée depuis le début mais jamais portée par le code — le contrôleur renvoyait l'entité
@@ -1110,6 +1121,77 @@ routes `availability-slots`/`activities` portent leurs propres entités et garde
 `domain_events`) garde volontairement la clé `startTime` — hors périmètre de ce correctif, qui ne
 porte que sur la réponse HTTP, pour ne pas modifier un contrat d'évènement interservices sans
 concertation.
+
+### `GET /calendars/:ownerId/events` — événements où l'invité est spectateur, jamais créateur (bug réel corrigé le 2026-08-20)
+
+**Bug réel, signalé par un utilisateur réel.** `professeur.lycee` crée un événement partagé avec
+`eleve.sixieme` via `inviteeIds` (`POST /calendars/professeur.lycee/events`). L'élève n'a **rien
+vu** : ni sur son calendrier, ni de notification — donc aucun moyen d'accepter ou de refuser
+l'invitation. Diagnostic confirmé en lisant le code réel : `listEvents` ne filtrait que sur
+`event.owner_id = :ownerId` — jamais sur `EventInvitation.invitee_id`. Un événement est toujours
+stocké sous le calendrier de son **créateur** (`ownerId` du chemin `POST` = l'appelant), jamais
+sous celui de ses invités ; `GET /calendars/eleve.sixieme/events` ne pouvait donc **jamais**
+renvoyer un événement créé par `professeur.lycee`, quel que soit le nombre d'invitations posées.
+
+**`GET /calendars/:ownerId` (l'autre route mentionnée dans l'hypothèse initiale) n'est PAS
+concernée par ce bug — et ne l'a jamais été.** Elle ne porte que `availabilitySlots` et
+`activities` (`ScheduledActivity`, voir section dédiée ci-dessous) ; elle n'a **jamais** inclus
+`CalendarEvent` sous quelque forme que ce soit, avant ou après ce correctif — ce n'est pas une
+régression de ce correctif, c'est un choix de périmètre déjà en place depuis le chantier du
+2026-08-18 (« activités » = `ScheduledActivity`, « événements » = `CalendarEvent`, deux agrégats
+distincts avec leurs propres routes). La route dédiée aux `CalendarEvent` est, et reste,
+`GET /calendars/:ownerId/events`.
+
+**Correction appliquée**, sur le même principe que `ActivitiesService.findActiveInRange`
+(chantier calendrier de disponibilités, point 3, 2026-08-18 — « créateur OU participant ») :
+`CalendarEventsService.listEvents` filtre désormais sur
+`(event.owner_id = :ownerId OR invitation.invitee_id = :ownerId)` — « créateur OU invité ».
+
+**Requête**, inchangée :
+
+```
+GET /calendars/f841ccff-a112-4df8-9dc3-f875c995507d/events
+Authorization: Bearer <jwt éleve.sixieme>
+```
+
+**Réponse `200`** — l'élève, simple invité (pas créateur), obtient désormais l'événement créé par
+le formateur, avec `viewerInvitationStatus` :
+
+```json
+[
+  {
+    "id": "3fa1b6e0-1234-4b2b-9e9e-000000000099",
+    "title": "Cours particulier",
+    "startAt": "2026-09-10T14:00:00.000Z",
+    "endAt": "2026-09-10T15:00:00.000Z",
+    "eventType": "cours",
+    "status": "active",
+    "ownerId": "47a5808b-66c7-41c9-92cd-7367d1cda003",
+    "invitations": [
+      {
+        "id": "8b1a0c40-...",
+        "eventId": "3fa1b6e0-1234-4b2b-9e9e-000000000099",
+        "inviteeId": "f841ccff-a112-4df8-9dc3-f875c995507d",
+        "status": "pending",
+        "createdAt": "2026-09-01T10:00:00.000Z",
+        "updatedAt": "2026-09-01T10:00:00.000Z"
+      }
+    ],
+    "viewerInvitationStatus": "pending"
+  }
+]
+```
+
+| Champ | Remarque |
+|---|---|
+| `ownerId` | Le **créateur** de l'événement (`professeur.lycee`), **pas** l'`ownerId` du chemin de la requête (`eleve.sixieme`) — un événement garde toujours le calendrier de son créateur. |
+| `invitations` | Pour un événement où le titulaire du `GET` (`ownerId` du chemin) est **créateur** : toutes les invitations de l'événement, comme avant ce correctif. Pour un événement où il est **seulement invité** : **uniquement sa propre invitation** — effet de bord du filtre `LEFT JOIN` + `WHERE`, assumé comme une protection de vie privée (un invité n'a pas à voir la réponse des autres invités). |
+| `viewerInvitationStatus` | **Nouveau.** `pending` \| `accepted` \| `declined` — le statut de l'invitation du titulaire du `GET` sur cet événement. `null` si le titulaire n'est pas invité (c'est son propre événement, ou il y accède par un rôle privilégié / un `CalendarVisibilityGrant` sans y être lui-même invité). Ajouté pour que le front distingue visuellement un événement en attente de réponse, sans avoir à parcourir `invitations` lui-même et à retrouver sa propre ligne par `inviteeId`. |
+
+**Non concerné par ce correctif** : le filtre par `personId` (`event.creator_id = :personId OR
+invitation.invitee_id = :personId`) existait déjà avant, sur le même principe — il filtre les
+événements impliquant un tiers désigné, indépendamment du bug ci-dessus qui portait sur le
+créateur/invité **implicite** (`ownerId` du chemin lui-même).
 
 ### `GET /calendars/:ownerId` — forme exacte de `activities` (chantier calendrier de disponibilités, point 3, gap comblé le 2026-08-18)
 
@@ -1441,11 +1523,62 @@ Body : `{delay: "1week"|"1day"|"1hour"|"15min"|"none"}`
 
 ### Événements publiés
 
-`CalendarEventCreated` · `InvitationAccepted` · `InvitationDeclined` · `CancellationRequested` · `ReminderDue` · `AvailabilityUpdated` · `ActivityScheduled` · `ActivityUpdated` · `ActivityConfirmed` · `ActivityDeclined`
+`CalendarEventCreated` · `CalendarEventDeleted` · `InvitationAccepted` · `InvitationDeclined` · `CancellationRequested` · `ReminderDue` · `AvailabilityUpdated` · `ActivityScheduled` · `ActivityUpdated` · `ActivityConfirmed` · `ActivityDeclined`
 
 `ActivityConfirmed` (`accept`) et `ActivityDeclined` (`decline`) sont nouveaux (chantier
 calendrier de disponibilités, point 3). Payload minimal : `{activityId, confirmedBy}` /
 `{activityId, declinedBy}`.
+
+**`CalendarEventDeleted` est nouveau (2026-08-20)** — publié par la route `DELETE
+/calendars/:ownerId/events/:eventId` ajoutée le même jour (voir ci-dessus). Payload, sur le modèle
+exact d'`ActivityDeleted` :
+
+```json
+{
+  "type": "CalendarEventDeleted",
+  "occurredAt": "2026-09-01T10:00:00.000Z",
+  "correlationId": null,
+  "payload": {
+    "eventId": "3fa1b6e0-1234-4b2b-9e9e-000000000099",
+    "ownerId": "47a5808b-66c7-41c9-92cd-7367d1cda003",
+    "deletedBy": "47a5808b-66c7-41c9-92cd-7367d1cda003"
+  }
+}
+```
+
+**`CalendarEventCreated` — payload vérifié le 2026-08-20, hypothèse infirmée.** La demande initiale
+supposait que ce payload ne portait peut-être pas de quoi notifier chaque invité. Vérification
+faite sur le code réel (`CalendarEventsService.createEvent`) : ce n'est **pas** le cas, `inviteeIds`
+y figure déjà, sans changement à apporter :
+
+```json
+{
+  "type": "CalendarEventCreated",
+  "occurredAt": "2026-09-01T10:00:00.000Z",
+  "correlationId": null,
+  "payload": {
+    "eventId": "3fa1b6e0-1234-4b2b-9e9e-000000000099",
+    "ownerId": "47a5808b-66c7-41c9-92cd-7367d1cda003",
+    "eventType": "cours",
+    "creatorId": "47a5808b-66c7-41c9-92cd-7367d1cda003",
+    "startTime": "2026-09-10T14:00:00.000Z",
+    "inviteeIds": ["f841ccff-a112-4df8-9dc3-f875c995507d"]
+  }
+}
+```
+
+- `inviteeIds` : `[]` (jamais `undefined`) quand l'événement est créé sans `inviteeIds` dans le
+  corps de la requête — voir `docs/routes.md`, tests de non-régression associés
+  (`calendar-events.service.spec.ts`, describe `createEvent`).
+- Suit exactement le même modèle que `ActivityScheduled`/`participantIds` : une liste d'`userId`,
+  jamais de nom résolu ici — la résolution de nom pour l'affichage (« Cours ajouté par {nom} »)
+  reste à la charge du consommateur (`dashboard-notification-service`, tâche séparée, non traitée
+  ici), via `POST /internal/profiles/display-names` sur `profile-service`, comme documenté pour
+  `ActivityScheduled` plus haut dans cette section.
+- `startTime` (et non `startAt`) est une divergence **assumée et déjà documentée** (voir
+  « Écart de doc corrigé le 2026-08-19 » plus haut) : la réponse HTTP porte `startAt`/`endAt`,
+  le payload d'événement interne garde `startTime` — deux contrats distincts, pas un défaut à
+  aligner ici.
 
 **Mise à jour du 2026-08-18 (gap comblé) : `EventsService.publish` n'est plus un stub.**
 Jusqu'au 2026-08-18, `EventsService.publish` de ce service journalisait une ligne structurée et

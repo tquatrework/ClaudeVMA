@@ -1116,4 +1116,212 @@ describe('[E2E] Calendar Service', () => {
       expect(res.status).toBe(400);
     });
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // GET /calendars/:ownerId/events — invitation visible sur le calendrier de
+  // l'invite (bug reel signale par l'utilisateur le 2026-08-20 : un
+  // formateur invite un eleve, l'eleve ne voyait rien).
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('GET /calendars/:ownerId/events — evenement visible cote invite (regression 2026-08-20)', () => {
+    function validEventPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      const start = new Date(Date.now() + 86_400_000);
+      const end   = new Date(start.getTime() + 3_600_000);
+      return {
+        title: 'Cours particulier',
+        eventType: 'cours',
+        startAt: start.toISOString(),
+        endAt: end.toISOString(),
+        ...overrides,
+      };
+    }
+
+    it("un formateur invite un eleve -> l'eleve voit l'evenement sur SON PROPRE calendrier, avec viewerInvitationStatus: pending", async () => {
+      const created = await request(app.getHttpServer())
+        .post(`/calendars/${IDS.teacher1}/events`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send(validEventPayload({ inviteeIds: [IDS.student1] }));
+      expect(created.status).toBe(201);
+
+      // Avant le correctif : `GET /calendars/${IDS.student1}/events` ne
+      // filtrait que sur `event.owner_id = student1`, jamais atteint ici
+      // puisque l'evenement est stocke sous le calendrier du createur
+      // (teacher1) — l'eleve ne voyait donc jamais cette ligne.
+      const res = await request(app.getHttpServer())
+        .get(`/calendars/${IDS.student1}/events`)
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      expect(res.status).toBe(200);
+      const foundAsInvitee = res.body.find((event: { id: string }) => event.id === created.body.id);
+      expect(foundAsInvitee).toBeDefined();
+      expect(foundAsInvitee.ownerId).toBe(IDS.teacher1);
+      expect(foundAsInvitee.viewerInvitationStatus).toBe('pending');
+    });
+
+    it("l'eleve invite ne voit QUE sa propre invitation dans `invitations`, pas celles des autres invites du meme evenement", async () => {
+      const created = await request(app.getHttpServer())
+        .post(`/calendars/${IDS.teacher1}/events`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send(validEventPayload({ inviteeIds: [IDS.student1, IDS.student2] }));
+      expect(created.status).toBe(201);
+
+      const res = await request(app.getHttpServer())
+        .get(`/calendars/${IDS.student1}/events`)
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      expect(res.status).toBe(200);
+      const foundAsInvitee = res.body.find((event: { id: string }) => event.id === created.body.id);
+      expect(foundAsInvitee).toBeDefined();
+      expect(foundAsInvitee.invitations).toHaveLength(1);
+      expect(foundAsInvitee.invitations[0].inviteeId).toBe(IDS.student1);
+    });
+
+    it("le createur (teacher1) voit TOUTES les invitations sur son propre GET, viewerInvitationStatus: null (il n'est pas invite de son propre evenement)", async () => {
+      const created = await request(app.getHttpServer())
+        .post(`/calendars/${IDS.teacher1}/events`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send(validEventPayload({ inviteeIds: [IDS.student1, IDS.student2] }));
+      expect(created.status).toBe(201);
+
+      const res = await request(app.getHttpServer())
+        .get(`/calendars/${IDS.teacher1}/events`)
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
+      expect(res.status).toBe(200);
+      const foundAsCreator = res.body.find((event: { id: string }) => event.id === created.body.id);
+      expect(foundAsCreator).toBeDefined();
+      expect(foundAsCreator.invitations).toHaveLength(2);
+      expect(foundAsCreator.viewerInvitationStatus).toBeNull();
+    });
+
+    it("apres acceptation, viewerInvitationStatus vaut 'accepted' sur le calendrier de l'invite", async () => {
+      const created = await request(app.getHttpServer())
+        .post(`/calendars/${IDS.teacher1}/events`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send(validEventPayload({ inviteeIds: [IDS.student1] }));
+      expect(created.status).toBe(201);
+
+      const accept = await request(app.getHttpServer())
+        .post(`/events/${created.body.id}/invitees/${IDS.student1}/accept`)
+        .set('Authorization', `Bearer ${student1Token}`);
+      expect(accept.status).toBe(201);
+
+      const res = await request(app.getHttpServer())
+        .get(`/calendars/${IDS.student1}/events`)
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      const foundAsInvitee = res.body.find((event: { id: string }) => event.id === created.body.id);
+      expect(foundAsInvitee.viewerInvitationStatus).toBe('accepted');
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // DELETE /calendars/:ownerId/events/:eventId — route ajoutee le 2026-08-20
+  // (absente jusqu'ici, ni codee ni documentee)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('DELETE /calendars/:ownerId/events/:eventId — suppression', () => {
+    function validEventPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      const start = new Date(Date.now() + 86_400_000);
+      const end   = new Date(start.getTime() + 3_600_000);
+      return {
+        title: 'Cours a supprimer',
+        eventType: 'cours',
+        startAt: start.toISOString(),
+        endAt: end.toISOString(),
+        ...overrides,
+      };
+    }
+
+    async function createEvent(overrides: Record<string, unknown> = {}) {
+      const res = await request(app.getHttpServer())
+        .post(`/calendars/${IDS.teacher1}/events`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send(validEventPayload(overrides));
+      expect(res.status).toBe(201);
+      return res.body.id as string;
+    }
+
+    it('le createur supprime son propre evenement → 204, puis absent du GET', async () => {
+      const eventId = await createEvent();
+
+      const del = await request(app.getHttpServer())
+        .delete(`/calendars/${IDS.teacher1}/events/${eventId}`)
+        .set('Authorization', `Bearer ${teacher1Token}`);
+      expect(del.status).toBe(204);
+      expect(del.body).toEqual({});
+
+      const res = await request(app.getHttpServer())
+        .get(`/calendars/${IDS.teacher1}/events`)
+        .set('Authorization', `Bearer ${teacher1Token}`);
+      expect(res.body.find((event: { id: string }) => event.id === eventId)).toBeUndefined();
+    });
+
+    it("un RP peut supprimer un evenement dont il n'est pas le createur → 204", async () => {
+      const eventId = await createEvent();
+
+      const del = await request(app.getHttpServer())
+        .delete(`/calendars/${IDS.teacher1}/events/${eventId}`)
+        .set('Authorization', `Bearer ${rpToken}`);
+      expect(del.status).toBe(204);
+    });
+
+    it('un TI peut supprimer un evenement dont il n\'est pas le createur → 204', async () => {
+      const tiToken = makeJwt(IDS.ti, 'technicien_informatique');
+      const eventId = await createEvent();
+
+      const del = await request(app.getHttpServer())
+        .delete(`/calendars/${IDS.teacher1}/events/${eventId}`)
+        .set('Authorization', `Bearer ${tiToken}`);
+      expect(del.status).toBe(204);
+    });
+
+    it('un tiers sans droit (ni createur, ni RP/TI) ne peut pas supprimer → 403', async () => {
+      const eventId = await createEvent();
+
+      const del = await request(app.getHttpServer())
+        .delete(`/calendars/${IDS.teacher1}/events/${eventId}`)
+        .set('Authorization', `Bearer ${teacher2Token}`);
+      expect(del.status).toBe(403);
+
+      // toujours present apres le refus
+      const res = await request(app.getHttpServer())
+        .get(`/calendars/${IDS.teacher1}/events`)
+        .set('Authorization', `Bearer ${teacher1Token}`);
+      expect(res.body.find((event: { id: string }) => event.id === eventId)).toBeDefined();
+    });
+
+    it("un invite (pas createur, pas RP/TI) ne peut pas supprimer l'evenement auquel il est invite → 403", async () => {
+      const eventId = await createEvent({ inviteeIds: [IDS.student1] });
+
+      const del = await request(app.getHttpServer())
+        .delete(`/calendars/${IDS.teacher1}/events/${eventId}`)
+        .set('Authorization', `Bearer ${student1Token}`);
+      expect(del.status).toBe(403);
+    });
+
+    it('DELETE sur un eventId inexistant → 404', async () => {
+      const del = await request(app.getHttpServer())
+        .delete(`/calendars/${IDS.teacher1}/events/${IDS.unknown}`)
+        .set('Authorization', `Bearer ${teacher1Token}`);
+      expect(del.status).toBe(404);
+    });
+
+    it("DELETE avec l'ownerId d'un tiers sur un eventId existant ailleurs → 404 (pas de fuite d'existence)", async () => {
+      const eventId = await createEvent();
+
+      const del = await request(app.getHttpServer())
+        .delete(`/calendars/${IDS.teacher2}/events/${eventId}`)
+        .set('Authorization', `Bearer ${teacher2Token}`);
+      expect(del.status).toBe(404);
+    });
+
+    it('DELETE /calendars/:ownerId/events/:eventId sans token → 401', async () => {
+      const eventId = await createEvent();
+
+      const del = await request(app.getHttpServer())
+        .delete(`/calendars/${IDS.teacher1}/events/${eventId}`);
+      expect(del.status).toBe(401);
+    });
+  });
 });

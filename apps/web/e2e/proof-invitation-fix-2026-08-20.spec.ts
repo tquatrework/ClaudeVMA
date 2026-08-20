@@ -13,7 +13,7 @@ import { createTeacherStudentRelationViaInternalRoute } from './support/internal
  * partagé avec un élève (sélecteur de destinataire de la modale de création), et l'élève ne
  * voyait jusqu'ici RIEN — ni sur son calendrier, ni notification, ni moyen d'accepter/refuser.
  *
- * Trois correctifs livrés sur `fix/calendrier-creation-et-affichage` sont exercés bout en bout,
+ * Quatre correctifs livrés sur `fix/calendrier-creation-et-affichage` sont exercés bout en bout,
  * contre la pile réelle, aucune requête n'est simulée :
  *   1. `calendar-service` — `GET /calendars/:ownerId/events` renvoie aussi les événements où
  *      l'appelant est invité, avec `viewerInvitationStatus`. `DELETE .../events/:eventId` ajoutée.
@@ -22,6 +22,10 @@ import { createTeacherStudentRelationViaInternalRoute } from './support/internal
  *   3. Front — bloc `EVENT_PENDING` (orange) sur la grille, `EventDetailDialog` avec
  *      Accepter/Refuser, bouton Supprimer pour le créateur d'un événement, `InvitationBanner`
  *      (composant mort) retiré.
+ *   4. `calendar-service` (commit c76e098, trouvé PAR ce test le 2026-08-20 puis corrigé) —
+ *      `CalendarEventCreated` porte désormais le vrai titre de l'événement dans son payload ;
+ *      `metadata.title` n'est donc plus toujours `null`, et la cloche affiche le libellé
+ *      « {creatorName} vous a invité à « {title} » » au lieu du libellé générique sans titre.
  *
  * Inspiré de `proof-calendar-fixes-2026-08-20.spec.ts` (même dossier, mêmes conventions).
  */
@@ -262,26 +266,23 @@ test.describe('Invitation à un événement de calendrier — visible, notifiée
       })
 
       // ══════════════════════════════════════════════════════════════
-      // Étape 6 (capture écran) — la cloche affiche le libellé français, nom résolu
+      // Étape 6 (capture écran) — la cloche affiche le libellé français, nom résolu, AVEC titre
       //
-      // DÉFAUT RÉEL CONSTATÉ (documenté, pas contourné en silence) : la notification vérifiée
-      // ci-dessus renvoie `metadata.title: null` alors que l'événement a bien un titre
-      // (`createResponseBody.title` le confirme) — `CalendarEventCreated`, publié sur le flux
-      // Redis par calendar-service, ne porte jamais la clé `title` dans son payload (confirmé par
-      // `.claude/reports/dashboard-notification-service-invitation-calendrier-2026-08-20.md`, qui
-      // documente cet écart comme déjà connu et assumé côté serveur, jamais vérifié en intégration
-      // réelle avant ce test). Conséquence : la cloche affiche TOUJOURS le message générique « vous
-      // a invité à un événement », jamais « … à « {titre} » », même quand un titre existe. Le
-      // libellé français attendu est donc celui SANS titre, et non celui avec guillemets.
+      // DÉFAUT CORRIGÉ (constaté par ce test le 2026-08-20, corrigé côté calendar-service commit
+      // c76e098 : `CalendarEventCreated` porte désormais le vrai titre de l'événement dans son
+      // payload). `metadata.title` doit donc désormais valoir le titre réel de l'événement créé,
+      // et non plus `null` — la cloche affiche le libellé AVEC titre documenté dans
+      // `notificationLabels.ts` : « {creatorName} vous a invité à « {title} » », et non plus le
+      // libellé générique « … à un événement » qui ne doit s'afficher qu'en l'absence de titre.
       // ══════════════════════════════════════════════════════════════
       expect(
         invitationNotification?.metadata?.title,
-        'DÉFAUT RÉEL : metadata.title est toujours null côté serveur, même quand l\'événement a un titre',
-      ).toBeNull()
+        'metadata.title doit désormais être égal au titre réel de l\'événement créé (corrigé)',
+      ).toBe(eventTitle)
 
       const bellButton = studentPage.getByRole('button', { name: /Notifications/ })
       await bellButton.click()
-      const expectedBellText = `${teacherFirstName} ${teacherLastName} vous a invité à un événement`
+      const expectedBellText = `${teacherFirstName} ${teacherLastName} vous a invité à « ${eventTitle} »`
       await expect(studentPage.getByText(expectedBellText)).toBeVisible()
       await studentPage.screenshot({ path: 'test-results/invitation-fix-05-notification.png' })
       await bellButton.click() // referme le menu, pour ne pas gêner la suite

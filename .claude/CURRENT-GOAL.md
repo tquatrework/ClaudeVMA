@@ -116,8 +116,10 @@ un créneau proposé.
          `calendar-unified-05-past-date-warning.png`.
       Test e2e `apps/web/e2e/proof-calendar-unified-view.spec.ts` (commit `49fa2eb`) rejoué
       intégralement par l'orchestrateur après chaque correctif — vert à chaque fois.
-- [ ] Validé par l'utilisateur — preuve complète livrée, en attente de sa validation explicite
-      avant fusion dans `master`.
+- [x] Validé par l'utilisateur — 2026-08-20. Mergé dans `master` — PR #129, squash `ddc2650`,
+      branche supprimée (locale + `origin`). `calendar-service` et `frontend` reconstruits et
+      redéployés depuis `master` (état durable), bundle `index-DuOTY7GV.js` confirmé servi,
+      gateway (`api-gateway`) redémarrée. Les deux services sains.
 
 ---
 

@@ -5,6 +5,88 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-20 — corrections utilisabilité du calendrier unifié
+
+Demande explicite de l'utilisateur (verbatim, 5 points + sous-points), en continuant de tester
+l'écran `/calendar` livré par le chantier précédent (« vue calendrier unifiée », validé et mergé
+le 2026-08-20, PR #129). Branche : `fix/calendrier-creation-et-affichage` (créée depuis `master`,
+poussée).
+
+### Les 5 points
+
+1. **Sélecteur de mode** : retirer le bouton « Consultation » — la consultation est l'état par
+   défaut, pas un choix explicite. « Indiquer ses disponibilités » et « Créer un événement »
+   deviennent deux choix **mutuellement exclusifs** : 0 sélectionné (consultation), ou l'un des
+   deux — jamais les deux à la fois.
+2. **Dates absentes de la grille** : la grille n'affiche aujourd'hui que des noms de jour (lundi,
+   mardi...), sans date ni mois. Il faut le mois (voire l'année) visible quelque part, et la date
+   du jour à proximité du nom (ex. « jeu. 20/08 » ou « jeudi 20 août », mois affiché au-dessus).
+   **Rattaché à un risque déjà documenté** (rapport front du 2026-08-19, jamais confirmé par
+   l'utilisateur) : la grille est un gabarit hebdomadaire **récurrent**, sans vraies dates par
+   jour — un clic résout vers « la prochaine occurrence ». Ce point 2 tranche implicitement ce
+   risque : il faut de vraies dates affichées, pas un gabarit abstrait.
+3. **Granularité des créneaux** : la sélection doit pouvoir se faire de quart d'heure en quart
+   d'heure, même si aucun repère visuel (ligne, graduation) ne marque ces subdivisions dans la
+   grille.
+4. **Création d'événement cassée** : on ne peut sélectionner qu'un seul créneau, et rien ne permet
+   ensuite d'indiquer le vrai début/fin de l'événement — la modale actuelle ne fait que demander
+   le type d'événement, jamais l'événement lui-même.
+   - **4.1** — sélection multi-créneaux par surlignage (glisser ou équivalent) pour créer un
+     événement ou une disponibilité, qui détermine le début/fin par défaut.
+   - **4.B** — après le choix du type, une **2ᵉ modale** doit permettre de préciser le caractère
+     de l'événement (titre, description...).
+   - **4.C** — pouvoir indiquer les personnes destinataires de l'événement (par nom, jamais par
+     UUID — règle du 2026-08-09), plutôt que créer l'événement séparément sur leur calendrier
+     (choix de l'utilisateur, jugé plus simple). Leurs disponibilités sur la semaine doivent être
+     affichées pendant la sélection, sinon l'information est inutilisable pour choisir un horaire.
+5. **Bug titre** : le champ titre est annoncé optionnel dans l'interface, mais l'événement est
+   refusé si le titre est vide. Le titre doit rester réellement optionnel.
+
+### Investigation faite par l'orchestrateur avant délégation (lecture doc uniquement, pas de code service)
+
+`docs/routes.md` fait autorité :
+- `POST /calendars/:ownerId/events` utilise déjà `startAt`/`endAt` en ISO 8601 **sans contrainte
+  de granularité documentée** — le point 3 est donc a priori un sujet **front uniquement**
+  (interaction/rendu), le backend accepte déjà n'importe quelle minute.
+- Le corps documenté est `{title, startAt, endAt, eventType, description?, inviteeIds?}` —
+  `title` **n'a pas de `?`**, il est donc documenté comme **requis** côté contrat. Le point 5
+  n'est donc probablement pas qu'un bug d'affichage front (« optionnel » mal étiqueté) : c'est le
+  DTO backend (`CreateCalendarEventDto`) qui doit changer pour rendre `title` réellement
+  optionnel — à confirmer par `calendar-service`.
+- `inviteeIds?` **existe déjà** dans le contrat de création — le point 4.C n'est donc a priori pas
+  un gap backend, juste une UI absente côté front. `GET /calendars/:ownerId/busy` (livré au point
+  2 du chantier disponibilités, 2026-08-18) donne déjà les disponibilités busy/free d'un tiers
+  lié, et `LinkedCalendarView` (déjà construit, déjà intégré dans `ProposeCourseSlotDialog`) est
+  directement réutilisable pour l'affichage demandé au point 4.C.
+- Les créneaux de disponibilité (`availability-slots`) utilisent aussi des `startTime`/`endTime`
+  ISO 8601 arbitraires, sans contrainte de granularité — même constat que pour les événements.
+
+**Conséquence sur le séquencement** : contrairement aux chantiers précédents, la majorité de ce
+travail est **front uniquement**. Seul le point 5 nécessite un changement `calendar-service`
+confirmé (DTO + doc), à livrer et prouver en HTTP avant que le front ne s'appuie dessus — leçon
+déjà appliquée aux chantiers précédents (« séquencer backend d'abord »).
+
+### Comment on saura que c'est fait
+
+Capture d'écran de `/calendar` montrant : le sélecteur de mode sans bouton Consultation ;
+la grille avec dates réelles (jour + jour/mois, mois affiché) ; une création d'événement
+multi-créneaux avec la 2ᵉ modale de détails et un sélecteur de destinataires affichant leurs
+disponibilités ; réponse HTTP citée montrant la création d'un événement **sans titre** réussie
+(`201`, plus de rejet).
+
+### État
+
+- [ ] Backend `calendar-service` — rendre `title` réellement optionnel sur
+      `CreateCalendarEventDto` (et `Update...` si concerné), doc mise à jour, preuve HTTP.
+- [ ] Front — les 4 autres points (mode selector, dates réelles + mois, granularité 15 min,
+      sélection multi-créneaux, 2ᵉ modale de détails, sélecteur de destinataires avec affichage
+      de disponibilités).
+- [ ] Déployé sur la pile réelle
+- [ ] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur
+
+---
+
 ## Besoin — 2026-08-19 — vue calendrier unifiée + bug création d'événement
 
 Demande explicite de l'utilisateur, en testant l'écran `/calendar` (3 onglets livrés par le

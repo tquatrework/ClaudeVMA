@@ -555,3 +555,92 @@ du service : **99 tests, tous verts** (`npx jest`), et `npm run build`
 - Le libelle front (`notificationLabels.ts`) et l'affichage inline
   Accepter/Refuser dans la grille de calendrier restent le troisieme
   chantier, non traite ici.
+
+## Consommation de `CalendarEventCreated` — notifier un invite a un evenement de calendrier (2026-08-20)
+
+Branche `fix/calendrier-creation-et-affichage`. Corrige un bug reel signale par un utilisateur en
+conditions reelles : un invite a un `CalendarEvent` (`POST /calendars/:ownerId/events`,
+`inviteeIds`) ne recevait aucune notification. Le meme jour, `calendar-service` a corrige la
+visibilite du cote calendrier (`GET /calendars/:ownerId/events` renvoie desormais aussi les
+evenements ou l'appelant est invite) — cette session traite le volet notification, laisse ouvert
+jusque-la.
+
+### Verifie avant modification
+
+- Le payload de `CalendarEventCreated` porte deja `inviteeIds: string[]` (jamais `undefined`,
+  `[]` si aucun invite) — confirme par `docs/routes.md` et par inspection directe du flux Redis
+  reel (`docker exec visiomath_redis redis-cli -a ... XREVRANGE visiomath:events + - COUNT 500`) :
+  aucune modification necessaire cote `calendar-service`.
+- **Ecart constate entre l'enonce de la tache et le payload reel** : la tache supposait que
+  `title` figurait dans le payload (potentiellement `null`). L'inspection du flux Redis reel
+  montre que la cle `title` **est absente**, pas seulement `null` — le payload d'evenement
+  interne de `calendar-service` n'a jamais ete etendu quand `title` est devenu optionnel sur
+  l'entite `CalendarEvent` (voir `docs/routes.md`, bug corrige le 2026-08-20 sur la route HTTP).
+  Traite de la meme facon dans les deux cas : `(payload.title as string | null | undefined) ??
+  null`, sans jamais fabriquer de titre par defaut.
+
+### Modification appliquee
+
+Arborescence modifiee (src/) :
+
+```
+services/dashboard-notification-service/src/
+├── notification/
+│   └── entities/notification.entity.ts    # + NotificationType.EVENT_INVITATION_RECEIVED = 'event_invitation_received'
+└── events/
+    └── event-processor.service.ts         # + case 'CalendarEventCreated' -> handleCalendarEventCreated()
+```
+
+`EventProcessorService.handleCalendarEventCreated` :
+- Si `payload.inviteeIds` est vide : `markProcessedOnly` — acquitte sans notification (evenement
+  de calendrier sans invite, cas le plus frequent aujourd'hui).
+- Sinon : resout le nom de `payload.creatorId` via `resolveNames`/
+  `ProfileServiceClient.resolveDisplayNames` (meme discipline que tous les autres handlers —
+  jamais d'UUID stocke comme donnee d'affichage), deduplique `inviteeIds`, puis cree **une
+  notification par invite** (a la difference d'`ActivityScheduled`/`recipientId`, qui ne porte
+  qu'un seul destinataire) — `type: event_invitation_received`, `title`/`message: null`,
+  `metadata: {creatorName, eventId, eventType, title, startAt}`. `eventId` et `startAt`
+  (`payload.startTime`) sont conserves pour un futur lien profond ; `startAt` est le nom choisi
+  ici plutot que `startTime` pour s'aligner sur le nom deja expose par la reponse HTTP de
+  `calendar-service` (`GET`/`POST /calendars/:ownerId/events`), la metadata d'une notification
+  n'ayant pas a reproduire la divergence de nommage assumee entre reponse HTTP et payload
+  d'evenement interne documentee dans `docs/routes.md`.
+- Meme discipline d'erreur que tous les autres handlers : un echec de resolution du nom du
+  createur fait **echouer** `process()` (l'entree reste non acquittee, rejouee par XAUTOCLAIM)
+  plutot que de degrader vers une notification sans nom.
+
+### Libelle francais prevu cote front (non traite ici, pour `notificationLabels.ts`)
+
+- « {creatorName} vous a invite a un evenement » si `metadata.title` est `null`.
+- « {creatorName} vous a invite a « {title} » » si `metadata.title` est renseigne.
+
+### Decisions techniques
+
+- **`type` choisi : `event_invitation_received`**, distinct de tous les types existants —
+  aucune reutilisation possible, c'est la premiere notification issue d'un evenement de
+  calendrier hors `ActivityScheduled`.
+- **Aucune nouvelle route ni nouveau client HTTP.** Reutilise `ProfileServiceClient.resolveNames`
+  deja en place.
+- **Aucune migration necessaire.** `notifications.type` est deja un `varchar(64)`.
+- **Deduplication defensive des `inviteeIds`** (`[...new Set(...)]`) avant de construire la liste
+  de destinataires — aucune garantie contractuelle que `calendar-service` ne puisse jamais
+  publier un doublon, protection cote consommateur peu couteuse.
+
+### Tests
+
+`event-processor.service.spec.ts`, nouveau describe `CalendarEventCreated`, quatre cas :
+plusieurs invites -> une notification par invite avec `creatorName`/`eventId`/`eventType`/
+`title`/`startAt` dans `metadata` ; `title` absent du payload -> `metadata.title: null` sans
+titre fabrique ; `inviteeIds` vide -> aucune notification, entree acquittee,
+`resolveDisplayNames` jamais appelee ; echec de resolution du nom du createur -> `process()`
+leve, transaction jamais tentee. Suite complete du service : **103 tests, tous verts**
+(`npx jest`), et `npm run build` (nest build) sans erreur.
+
+### Points en suspens
+
+- Non verifie en integration reelle contre `calendar-service` au-dela de l'inspection du flux
+  Redis (aucun appel HTTP/Redis de bout en bout declenche pendant cette session, uniquement des
+  tests unitaires avec `ProfileServiceClient` mocke) — a verifier une fois les deux chantiers
+  fusionnes et deployes ensemble.
+- Le libelle front (`notificationLabels.ts`) reste a implementer cote front-developper, non
+  traite ici.

@@ -2060,7 +2060,12 @@ notifications par rôle ».
 > multi-participants : RP à plusieurs formateurs, `entretien_rp`, `rappel`, `autre`, réunions à
 > plusieurs), **aucune notification** — l'entrée est acquittée sans effet, ce n'est pas un type
 > non reconnu (arbitrage du 2026-08-19, chantier « calendrier de disponibilités lié à la visio »,
-> point 3) · `TeacherRequestClosed` et
+> point 3) · `CalendarEventCreated` (publié par calendar-service pour **toute** création
+> d'événement de calendrier) → **un destinataire par élément de `payload.inviteeIds`** (tableau,
+> jamais `undefined`, `[]` si aucun invité — à la différence d'`ActivityScheduled`/`recipientId`
+> ci-dessus qui ne porte qu'un seul destinataire) ; `inviteeIds` vide → aucune notification,
+> entrée acquittée sans effet (2026-08-20, correctif d'un bug réel signalé par un utilisateur en
+> conditions réelles) · `TeacherRequestClosed` et
 > `TeacherRequestDeleted` → aucune notification. Tout `eventName` non reconnu est journalisé en
 > avertissement puis acquitté sans effet — un type inconnu ne doit jamais bloquer le flux.
 >
@@ -2077,6 +2082,22 @@ notifications par rôle ».
 > `payload.type` (`cours`/`reunion_pedagogique`), `startTime` est l'horodatage ISO de l'activité.
 > Libellé français prévu côté front (`notificationLabels.ts`, non traité par cette session) :
 > « Proposition de cours ajoutée par {proposerName} ».
+>
+> **`CalendarEventCreated` → `type: event_invitation_received`** (nouveau, 2026-08-20). `title`/
+> `message` restent `null` comme pour tous les types issus de ce consommateur ; le contenu
+> affichable est entièrement porté par `metadata: {creatorName, eventId, eventType, title,
+> startAt}` — `creatorName` est le nom résolu de `payload.creatorId` (jamais d'UUID, via
+> `POST /internal/profiles/display-names`), `eventId`/`startAt` sont l'identifiant et
+> l'horodatage ISO de l'événement de calendrier (pour un futur lien profond, `startAt` reprend
+> `payload.startTime` — nom aligné sur la réponse HTTP de calendar-service, pas sur son payload
+> d'événement interne), `eventType` reprend `payload.eventType` (`cours`/`rappel`/…), `title`
+> peut être `null` (le titre est réellement optionnel sur `CalendarEvent` depuis le correctif du
+> même chantier, voir plus haut) — **vérifié le 2026-08-20 directement sur le flux Redis réel
+> (`XREVRANGE`)** : le payload actuellement publié ne porte même pas la clé `title`, traité comme
+> `null` sans qu'aucun titre par défaut ne soit fabriqué côté serveur. Libellé français prévu
+> côté front (`notificationLabels.ts`, non traité par cette session) : « {creatorName} vous a
+> invité à un événement » si `title` est `null`, ou « {creatorName} vous a invité à « {title} » »
+> si un titre existe.
 
 ---
 

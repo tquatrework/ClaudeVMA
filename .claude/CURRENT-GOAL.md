@@ -122,6 +122,8 @@ automatiquement à la confirmation d'une activité `cours`. Capture d'écran de 
       Backend clos.
 - [ ] Front : sélecteur de catégorie corrigé, formulaire à 3 champs, écran de liste des messages
       (diagnostic + correctif du bug de chargement), tri récent→ancien, recherche par date.
+      **En cours** — délégué au sous-agent `front-developper` le 2026-08-20, brief complet donné
+      (contrat backend final + 4 points), travaille sur `feat/cahier-de-texte-refonte` directement.
 - [ ] Déployé sur la pile réelle
 - [ ] Preuve livrée à l'utilisateur
 - [ ] Validé par l'utilisateur

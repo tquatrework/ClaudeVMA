@@ -111,11 +111,15 @@ automatiquement à la confirmation d'une activité `cours`. Capture d'écran de 
       filtre `from`/`to` vérifié ; `DELETE` par le formateur auteur → `204` confirmé **en direct dans
       le conteneur**.
       **Bug réel trouvé par l'orchestrateur en testant contre la gateway réelle (pas seulement le
-      service en direct), renvoyé au sous-agent pour correctif** : `DELETE` n'est exposé qu'au chemin
-      nu `/:id`, jamais proxié par la gateway (seuls `/pedagogical-logs`, `/students`, `/logs` le
-      sont) — `DELETE` est donc **injoignable par un utilisateur réel** malgré une logique correcte en
-      interne. `PATCH` a déjà les deux chemins (`/logs/:id` fonctionnel + `/:id` en alias) ; `DELETE`
-      doit recevoir le même alias `/logs/:id`. Correctif en cours par le sous-agent.
+      service en direct)** : `DELETE` n'était exposé qu'au chemin nu `/:id`, jamais proxié par la
+      gateway (seuls `/pedagogical-logs`, `/students`, `/logs` le sont) — injoignable par un
+      utilisateur réel malgré une logique correcte en interne. **Corrigé par le sous-agent**
+      (`DELETE /logs/:id` ajouté, mirror exact, commit `4921f85`), 120/120 tests rejoués
+      indépendamment après fast-forward, image reconstruite et redéployée par l'orchestrateur
+      (conteneur `healthy`). **Reconfirmé en HTTP réel** : `DELETE /api/v1/logs/:id` → `204` via
+      `https://claudevma.visioprof.fr`, entrée effectivement disparue de `GET .../pedagogical-log`
+      juste après. **Les 5 points + le correctif DELETE sont désormais tous prouvés en réel.**
+      Backend clos.
 - [ ] Front : sélecteur de catégorie corrigé, formulaire à 3 champs, écran de liste des messages
       (diagnostic + correctif du bug de chargement), tri récent→ancien, recherche par date.
 - [ ] Déployé sur la pile réelle

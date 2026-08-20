@@ -47,10 +47,15 @@ jusqu'ici) — il reste lecteur, comme l'élève et le parent. Le mécanisme des
 (`isSpecialPage`) est **explicitement laissé intact** : même comportement qu'avant (auteur ou
 RP/TI peut modifier, sans vérification de relation).
 
-`DELETE` n'a **pas** été retouché (ni le décorateur de rôles, ni le service) : l'énoncé de la
-tâche ne mentionne que POST/PATCH pour les guards d'écriture, et cette route sert aussi les pages
-spéciales. **Point ouvert signalé** : à confirmer si le RP doit aussi perdre le droit de
-suppression d'une entrée normale.
+**Correction apportée en cours de session, sur retour de l'orchestrateur.** `DELETE` avait
+d'abord été laissé hors périmètre par lecture stricte de l'énoncé (« vérifie/corrige les guards
+d'écriture (POST/PATCH) »), signalé comme point ouvert. L'orchestrateur a tranché que ce n'était
+pas une ambiguïté à faire trancher par l'utilisateur : l'énoncé d'origine du point 3 (« seul le
+Formateur les rédige, les autres rôles lisent uniquement ») couvre déjà toute écriture, DELETE
+inclus. `DELETE /:id` applique désormais exactement le même régime que PATCH — entrée normale :
+formateur auteur titulaire de la relation, uniquement ; page spéciale RP : auteur ou RP
+(mécanisme inchangé, le RP garde la capacité de retirer une page spéciale qu'il a lui-même créée,
+symétrique de son droit de création). 10 tests unitaires et 5 tests e2e ajoutés pour ce cas.
 
 ### Point 4 — Correctif du bug studentId
 
@@ -96,40 +101,42 @@ permettre au front de se repositionner dans la liste.
   jetable dédiée (créée puis détruite), avec vérification SQL directe des données à chaque étape
   (renommage de visibilité correct, contenu migré vers `session_summary`, page spéciale
   intacte, restauration exacte à l'état initial après `down()`).
-- **Tests unitaires** (`npm test`) : **110/110 verts**, 11 suites, incluant toute la nouvelle
-  logique (guards d'écriture, vérification de relation, consommateur d'événements, processeur
-  d'événements, rappel quotidien, clients HTTP internes) avec cas nominaux ET cas d'erreur
-  (403, 503, idempotence, échecs réseau).
-- **Tests e2e** (`npm run test:e2e`) : les 33 échecs préexistants (routes legacy
-  `/pedagogical-logs` et `/memos`, jamais montées par le contrôleur — confirmé pré-existant,
-  identique avant/après cette session) restent inchangés, **zéro régression**. 12 nouveaux tests
-  e2e ajoutés sur les routes réellement montées (POST/GET `/students/:studentId/pedagogical-log`,
-  `PATCH /logs/:id`), tous verts.
+- **Tests unitaires** (`npm test`) : **120/120 verts**, 11 suites, incluant toute la nouvelle
+  logique (guards d'écriture POST/PATCH/DELETE, vérification de relation, consommateur
+  d'événements, processeur d'événements, rappel quotidien, clients HTTP internes) avec cas
+  nominaux ET cas d'erreur (403, 503, idempotence, échecs réseau).
+- **Tests e2e** (`npm run test:e2e`, désormais avec `--runInBand` — voir plus bas) : les 33
+  échecs préexistants (routes legacy `/pedagogical-logs` et `/memos`, jamais montées par le
+  contrôleur — confirmé pré-existant, identique avant/après cette session) restent inchangés,
+  **zéro régression**. 17 nouveaux tests e2e ajoutés sur les routes réellement montées (POST/GET
+  `/students/:studentId/pedagogical-log`, `PATCH /logs/:id`, `DELETE /:id`), tous verts (67
+  tests verts au total).
+- **Correctif de fiabilité découvert en cours de session** : `test:e2e` exécutait ses deux
+  suites en parallèle (comportement par défaut de Jest), chacune faisant `DROP SCHEMA public
+  CASCADE` + recréation dans son propre `beforeAll` contre la **même** base de test — collision
+  intermittente (`schema "public" does not exist`), latente avant cette session, rendue visible
+  par l'ajout de nouveaux tests. Corrigé en ajoutant `--runInBand` au script `test:e2e` :
+  exécution séquentielle, plus lente mais déterministe.
 
 Aucune vérification n'a été faite contre le déploiement distant (`https://claudevma.visioprof.fr`)
-dans cette session : le travail est backend, non déployé, et les variables d'environnement
-nécessaires (voir ci-dessous) ne sont pas encore configurées en production.
+dans cette session : le travail est backend, non déployé.
 
 ## Blocages / points nécessitant une action hors de mon périmètre
 
 1. **`.env.example` non modifiable** — une règle de permission bloque toute lecture/écriture de
-   fichier `.env*`, y compris un fichier d'exemple sans secret réel. Variables à ajouter
-   manuellement : `PROFILE_SERVICE_URL`, `INTERNAL_SECRET`, `DASHBOARD_NOTIFICATION_SERVICE_URL`,
-   `REDIS_URL` (optionnelle).
-2. **`docker-compose.yml` non modifié** — explicitement hors de mon périmètre pour cette tâche
-   (« ne touche à rien hors de services/pedagogical-log-service/ »). Le service doit recevoir,
-   pour fonctionner réellement en déploiement : `REDIS_URL`, `INTERNAL_SECRET`,
-   `PROFILE_SERVICE_URL: http://profile-service:3002`,
-   `DASHBOARD_NOTIFICATION_SERVICE_URL: http://dashboard-notification-service:3003`, et
-   `depends_on: redis (condition: service_healthy)`. **Sans cela, le service démarre
-   normalement mais le point 3 échoue systématiquement en 503, et le point 5 reste inactif** —
-   c'est un blocage réel pour la mise en production de cette refonte, à traiter avant tout test
-   utilisateur sur le déploiement distant.
-3. **Ambiguïté à trancher par l'utilisateur** : le point 3 ne mentionne explicitement que
-   POST/PATCH pour les guards d'écriture. `DELETE /:id` n'a pas été touché — le RP garde le
-   droit de supprimer n'importe quelle entrée normale, alors qu'il ne peut plus ni la créer ni
-   la modifier. À confirmer si c'est voulu (filet de sécurité RP indépendant du droit d'auteur)
-   ou si DELETE doit suivre la même restriction que POST/PATCH.
+   fichier `.env*`, y compris un fichier d'exemple sans secret réel. Variables nécessaires en
+   production : `PROFILE_SERVICE_URL`, `INTERNAL_SECRET`, `DASHBOARD_NOTIFICATION_SERVICE_URL`,
+   `REDIS_URL` (optionnelle) — **déjà portées côté `docker-compose.yml` par l'orchestrateur**
+   (commit `e1ee8af`), seul `.env.example` (fichier d'exemple, sans effet en production) reste
+   non à jour.
+2. **`docker-compose.yml`** — pris en charge par l'orchestrateur en cours de session (commit
+   `e1ee8af`, poussé, hors de ce worktree) : `REDIS_URL`, `INTERNAL_SECRET`,
+   `PROFILE_SERVICE_URL`, `DASHBOARD_NOTIFICATION_SERVICE_URL` sont désormais portées pour
+   `pedagogical-log-service`. Non re-vérifié depuis ce worktree (fichier hors périmètre) — à
+   confirmer au premier déploiement réel.
+3. **Ambiguïté DELETE — résolue en cours de session.** Signalée initialement (le point 3 ne
+   mentionnait explicitement que POST/PATCH), l'orchestrateur a tranché : l'énoncé d'origine
+   couvrait déjà toute écriture, DELETE inclus. Corrigé — voir « Point 3 » ci-dessus.
 4. **Écart de documentation préexistant, non introduit ici** : les routes `/pedagogical-logs`
    (pluriel) et `POST /memos` sont documentées mais ne répondent jamais (404) — le contrôleur ne
    les monte pas. Confirmé identique avant/après cette session (33 échecs e2e inchangés). Hors

@@ -210,11 +210,34 @@ d'une disponibilité depuis leur écran de détail respectif.
       `{"count":1}` ; `GET /notifications` montre
       `{"type":"event_invitation_received","metadata":{"creatorName":"ProofProf Test",
       "title":null,...}}` — bout en bout confirmé, aucun UUID affiché.
-- [~] Front : identifier et retirer la liste incriminée, afficher l'événement invité en couleur
-      distincte sur la grille du destinataire (via `viewerInvitationStatus`), modale
-      Accepter/Refuser à l'ouverture, bouton de suppression sur événement et disponibilité (ajouté
-      si absent, vérifié si déjà là) — **en cours**, dispatché en parallèle du précédent.
-- [ ] Déployé sur la pile réelle (notification + front)
+- [x] Front — commits `bb163f5`+`20155d4`, poussés. **Le vrai coupable identifié** : ce n'était
+      pas `CourseProposalsPanel` (domaine distinct, `ScheduledActivity`, intact) mais
+      `InvitationBanner` — code mort depuis sa création, il filtrait sur
+      `event.eventType === 'invitation' || event.inviteeStatus !== undefined`, deux conditions
+      qu'un vrai événement invité ne remplit jamais (le serveur envoie le vrai `eventType`, ex.
+      `cours`, et `inviteeStatus` n'a jamais existé côté serveur) — il ne pouvait **structurellement
+      jamais** afficher une vraie invitation. Retiré avec son hook `useInvitationActions`.
+      Nouveau bloc de grille `EVENT_PENDING` (orange, distinct des blocs `EVENT`/`BUSY`/
+      `PROPOSED`/`CONFIRMED` déjà en couleurs différentes) affiché quand
+      `viewerInvitationStatus === "pending"` ; clic → `EventDetailDialog` avec Accepter/Refuser,
+      câblés sur les routes déjà documentées `POST /events/:id/invitees/:userId/accept|decline` ;
+      après réponse, re-fetch réel de `GET /calendars/:ownerId/events` (jamais un état optimiste —
+      ces routes ne documentent aucun corps de réponse exploitable). Bouton de suppression
+      événement ajouté (`deleteOwnerEvent`, visible seulement pour le créateur — pas de notion
+      RP/TI fiable côté front sans sur-élargir, limité au créateur par repli assumé) ; bouton de
+      suppression disponibilité **déjà présent et fonctionnel**, vérifié sans régression.
+      **Bug introduit puis corrigé en cours de session, signalé honnêtement** : une extraction
+      (`CalendarGridBlockOverlay`) cassait temporairement le clic d'édition sur les blocs de
+      disponibilité (3 tests rouges) — capté par la suite complète, corrigé avant de livrer.
+      1807/1809 tests verts (mêmes 2 échecs préexistants sans rapport, reconfirmés sur la base
+      non modifiée), `tsc --noEmit` et `npm run build` propres — tous rejoués indépendamment par
+      l'orchestrateur après fast-forward.
+- [x] Déployé sur la pile réelle — `frontend` reconstruit et redémarré, gateway redémarrée, bundle
+      `index-BMc9cm5s.js` confirmé servi.
+- [ ] Preuve à l'écran — test Playwright réel en cours par `front-tester` contre la pile réelle,
+      reproduisant exactement le scénario signalé par l'utilisateur (formateur invite élève,
+      élève voit le bloc orange, accepte via la modale, notification reçue, boutons de suppression
+      événement + disponibilité vérifiés).
 - [ ] Preuve livrée à l'utilisateur
 - [ ] Validé par l'utilisateur
 

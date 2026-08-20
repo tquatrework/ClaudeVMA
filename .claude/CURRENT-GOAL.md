@@ -259,10 +259,16 @@ d'une disponibilité depuis leur écran de détail respectif.
       réel remonte maintenant jusqu'à la notification. Assertion du test (qui encodait l'ancien
       bug) en cours de correction par `front-tester` pour refléter le nouveau comportement correct
       + vérification du libellé « ... vous a invité à « {titre} » » à l'écran.
-- [ ] Preuve finale livrée à l'utilisateur
-- [ ] Validé par l'utilisateur — **utilisateur a pré-autorisé merge + PR une fois la preuve
-      obtenue** (« à la fin merge et PR », 2026-08-20) : à faire dès que ce dernier correctif est
-      vérifié, sans repasser par une question de validation supplémentaire.
+- [x] Preuve finale — commit `9372d8e`, poussé. Test rejoué une seconde fois indépendamment par
+      l'orchestrateur : 1/1 vert, `metadata.title` reflète exactement le titre réel. Capture
+      `invitation-fix-05-notification.png` vérifiée visuellement : cloche affiche « Sacha
+      Inviteprof... vous a invité à « Invitation e2e ... » » — libellé complet avec titre, exact.
+      Bloc de grille redevenu rose normal après acceptation (état rechargé depuis le serveur).
+      **Les 5 points du besoin du 2026-08-20 et le bug d'invitation invisible signalé en cours de
+      test utilisateur sont tous corrigés, déployés et prouvés.**
+- [x] Validé par l'utilisateur — **pré-autorisation du 2026-08-20 (« à la fin merge et PR ») levée
+      dès la preuve finale obtenue**, sans repasser par une question de validation supplémentaire.
+      Merge + PR à effectuer maintenant.
 
 ---
 

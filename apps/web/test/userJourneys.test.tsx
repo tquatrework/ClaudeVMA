@@ -155,9 +155,12 @@ describe('Journey 2: Dashboard → Calendrier → Création séance', () => {
     await userEvent.click(calendarLinks[0])
 
     // Now on Calendar page — vue unifiée, une seule grille (chantier calendrier vue unifiée,
-    // 2026-08-19). La création d'événement passe par le mode « Créer un événement » puis un clic
-    // direct sur une case vide de la grille — plus de bouton "Nouvel événement" ni de champs
-    // datetime-local saisis à la main (c'était la source du bug corrigé par ce chantier).
+    // 2026-08-19 ; formulaire de création revu le 2026-08-20, point D). La création d'événement
+    // passe par le mode « Créer un événement » puis un clic direct sur une case vide de la
+    // grille, qui détermine un créneau par défaut — plus jamais une date saisie librement sans
+    // repère (c'était la source du bug corrigé par ce chantier). Le formulaire de détails permet
+    // ensuite d'ajuster ce créneau au quart d'heure (`datetime-local`, `step=900`), pré-rempli
+    // depuis la sélection sur la grille.
     await waitFor(() => {
       screen.getByRole('tab', { name: 'Créer un événement' })
     })
@@ -171,9 +174,11 @@ describe('Journey 2: Dashboard → Calendrier → Création séance', () => {
     await waitFor(() => {
       expect(screen.getByRole('dialog', { name: /créer un événement/i })).toBeDefined()
     })
-    // Aucun champ datetime-local : la date vient du jour/heure cliqués sur la grille, jamais
-    // d'une saisie libre.
-    expect(document.querySelectorAll('input[type="datetime-local"]').length).toBe(0)
+    // Deux champs datetime-local, pré-remplis depuis la sélection sur la grille — ajustables,
+    // jamais saisis à partir d'un champ vide.
+    const dateTimeInputs = document.querySelectorAll<HTMLInputElement>('input[type="datetime-local"]')
+    expect(dateTimeInputs.length).toBe(2)
+    expect(dateTimeInputs[0].value).not.toBe('')
 
     await userEvent.click(screen.getByRole('button', { name: /^créer$/i }))
 

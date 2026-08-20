@@ -8,6 +8,7 @@ import {
   selectAnimatedTeachers,
   selectFinancedStudents,
   selectMyStudents,
+  selectMyTeachers,
   selectTeachersOfStudent,
 } from '../../src/utils/contactSelectors'
 import type { ContactOption } from '../../src/hooks/relations/useMyContacts'
@@ -124,5 +125,29 @@ describe('selectAnimatedTeachers', () => {
 
   it('renvoie une liste vide sans formateur animé', () => {
     expect(selectAnimatedTeachers([LEA, NADIA])).toEqual([])
+  })
+})
+
+// ─── Destinataires de EventCreateFormModal côté élève (correction du 2026-08-20, point D) ──
+
+const MON_FORMATEUR: ContactOption = {
+  userId: 'teacher-sonia',
+  firstName: 'Sonia',
+  lastName: 'Lefevre',
+  displayName: 'Sonia Lefevre',
+  relations: [{ kind: 'student_of_teacher' }],
+}
+
+describe('selectMyTeachers', () => {
+  it("ne retient que les formateurs de l'élève", () => {
+    expect(
+      selectMyTeachers([MON_FORMATEUR, ELEVE_DE_FORMATEUR, FORMATEUR_ANIME]).map(
+        (contact) => contact.userId,
+      ),
+    ).toEqual(['teacher-sonia'])
+  })
+
+  it('renvoie une liste vide sans formateur', () => {
+    expect(selectMyTeachers([LEA, NADIA])).toEqual([])
   })
 })

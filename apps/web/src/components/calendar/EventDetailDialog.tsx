@@ -68,7 +68,7 @@ export default function EventDetailDialog({
       {isCancelling && (
         <CancellationRequestDialog
           eventId={event.id}
-          eventTitle={event.title}
+          eventTitle={event.title || 'Sans titre'}
           onCancelled={handleCancelled}
           onClose={() => setIsCancelling(false)}
         />

@@ -19,10 +19,8 @@
 
 import React, { useMemo, useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
-import { useMyContacts } from '../../hooks/relations/useMyContacts'
-import { useSelectableTeachers } from '../../hooks/teacher-requests/useSelectableTeachers'
+import { useEventRecipients } from '../../hooks/calendar/useEventRecipients'
 import { useProposeCourseSlot } from '../../hooks/calendar/useProposeCourseSlot'
-import { selectAnimatedTeachers, selectMyStudents } from '../../utils/contactSelectors'
 import { getCurrentWeekWindow } from '../../utils/calendarWeekWindow'
 import { getActivityTypeLabel } from '../../utils/activityLabels'
 import type { ActivityType, ScheduledActivity } from '../../types/calendar'
@@ -30,11 +28,6 @@ import { ErrorMessage } from '../ui/ErrorMessage'
 import LinkedCalendarView from './LinkedCalendarView'
 
 export type CourseProposerRole = 'formateur' | 'animateur_pedagogique' | 'responsable_pedagogique'
-
-interface RecipientOption {
-  userId: string
-  displayName: string
-}
 
 interface ProposeCourseSlotDialogProps {
   proposerRole: CourseProposerRole
@@ -57,31 +50,11 @@ export default function ProposeCourseSlotDialog({
 }: ProposeCourseSlotDialogProps) {
   const { user } = useAuth()
 
-  const isRp = proposerRole === 'responsable_pedagogique'
-  const { contacts, isLoading: isLoadingContacts, error: contactsError } = useMyContacts()
   const {
-    teachers: validatedTeachers,
-    isLoading: isLoadingValidatedTeachers,
-    loadError: validatedTeachersError,
-  } = useSelectableTeachers(isRp)
-
-  const recipients: RecipientOption[] = useMemo(() => {
-    if (isRp) {
-      return validatedTeachers.map((teacher) => ({
-        userId: teacher.userId,
-        displayName: teacher.displayName,
-      }))
-    }
-    const relatedContacts =
-      proposerRole === 'formateur' ? selectMyStudents(contacts) : selectAnimatedTeachers(contacts)
-    return relatedContacts.map((contact) => ({
-      userId: contact.userId,
-      displayName: contact.displayName,
-    }))
-  }, [isRp, validatedTeachers, proposerRole, contacts])
-
-  const isLoadingRecipients = isRp ? isLoadingValidatedTeachers : isLoadingContacts
-  const recipientsLoadError = isRp ? validatedTeachersError : contactsError
+    recipients,
+    isLoading: isLoadingRecipients,
+    loadError: recipientsLoadError,
+  } = useEventRecipients(proposerRole)
 
   const activityType = activityTypeForRole(proposerRole)
 

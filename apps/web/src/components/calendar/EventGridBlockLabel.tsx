@@ -1,5 +1,4 @@
 import React from 'react'
-import { EVENT_TYPE_LABELS } from './calendarTypes'
 import { formatTimeRangeLabel } from '../../utils/availabilityTime'
 import type { CalendarEventGridBlock } from '../../utils/calendarEventGridBlocks'
 
@@ -21,9 +20,7 @@ export default function EventGridBlockLabel({ block }: EventGridBlockLabelProps)
 
   return (
     <div className="min-w-0">
-      <span className="block font-medium truncate">
-        {event.title ?? EVENT_TYPE_LABELS[event.eventType] ?? 'Événement'}
-      </span>
+      <span className="block font-medium truncate">{event.title || 'Sans titre'}</span>
       <span className="block text-[9px] opacity-80 truncate">
         {dateLabel} · {timeRangeLabel}
         {isCancelled ? ' · Annulé' : ''}

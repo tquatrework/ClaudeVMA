@@ -234,3 +234,14 @@ export interface CalendarActivityEntry {
   creatorName: string | null
   participantIds: string[]
 }
+
+// ─── Destinataire choisi par nom — proposition de créneau ET création d'événement ──
+//
+// Partagé par `ProposeCourseSlotDialog` (`POST /activities`) et `EventCreateFormModal`
+// (`POST /calendars/:ownerId/events`, champ `inviteeIds`) — correction du 2026-08-20, point D.
+// `userId` ne sert qu'à construire l'appel suivant, jamais affiché (arbitrage du 2026-08-09).
+
+export interface EventRecipientOption {
+  userId: string
+  displayName: string
+}

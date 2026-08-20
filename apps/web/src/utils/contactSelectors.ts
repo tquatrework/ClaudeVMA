@@ -57,3 +57,15 @@ export function selectAnimatedTeachers(contacts: ContactOption[]): ContactOption
     contact.relations.some((relation) => relation.kind === 'animator_of_teacher'),
   )
 }
+
+/**
+ * Les formateurs de l'élève authentifié (`kind: 'student_of_teacher'` — le lecteur est l'élève du
+ * contact). Utilisé par `EventCreateFormModal` (correction du 2026-08-20, point D) pour proposer
+ * à un élève de désigner un destinataire parmi ses propres formateurs, sans jamais faire saisir
+ * un identifiant.
+ */
+export function selectMyTeachers(contacts: ContactOption[]): ContactOption[] {
+  return contacts.filter((contact) =>
+    contact.relations.some((relation) => relation.kind === 'student_of_teacher'),
+  )
+}

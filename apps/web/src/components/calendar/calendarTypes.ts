@@ -6,7 +6,13 @@ export type ReminderDelay = '1week' | '1day' | '1hour' | '15min' | 'none'
 
 export interface CalendarEvent {
   id: string
-  title?: string
+  /**
+   * Réellement optionnel côté serveur (`docs/routes.md` § calendar-service, corrigé le
+   * 2026-08-20) — un événement sans titre est stocké et relu avec `title: null`, jamais un texte
+   * fabriqué côté serveur. L'affichage d'un repli (« Sans titre ») est un sujet front, jamais
+   * serveur : voir `EventCard`/`EventGridBlockLabel`.
+   */
+  title?: string | null
   startAt: string
   endAt: string
   eventType: EventType

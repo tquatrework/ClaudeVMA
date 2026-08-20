@@ -4,7 +4,11 @@ import {
   toScheduledActivityGridBlock,
   toScheduledActivityGridBlocks,
 } from '../../src/utils/scheduledActivityGridBlocks'
+import { getMondayOfWeek } from '../../src/utils/calendarDisplayWeek'
 import type { CalendarActivityEntry } from '../../src/types/calendar'
+
+// Semaine affichée : lundi 2026-09-07 → dimanche 2026-09-13 (correction du 2026-08-20, point B).
+const WEEK_START = getMondayOfWeek(new Date('2026-09-10T00:00:00.000Z'))
 
 const PROPOSED: CalendarActivityEntry = {
   id: 'activity-1',
@@ -58,14 +62,25 @@ describe('toScheduledActivityGridBlock', () => {
   })
 })
 
-describe('toScheduledActivityGridBlocks', () => {
+describe('toScheduledActivityGridBlocks — filtrage par semaine calendaire réelle (point B)', () => {
   it('traduit une liste et écarte les entrées illisibles', () => {
-    const result = toScheduledActivityGridBlocks([PROPOSED, { ...PROPOSED, startTime: 'invalid' }])
+    const result = toScheduledActivityGridBlocks(
+      [PROPOSED, { ...PROPOSED, startTime: 'invalid' }],
+      WEEK_START,
+    )
     expect(result).toHaveLength(1)
   })
 
   it('renvoie une liste vide pour une entrée vide', () => {
-    expect(toScheduledActivityGridBlocks([])).toEqual([])
+    expect(toScheduledActivityGridBlocks([], WEEK_START)).toEqual([])
+  })
+
+  it('exclut une activité hors de la semaine affichée', () => {
+    const result = toScheduledActivityGridBlocks(
+      [{ ...PROPOSED, id: 'activity-next-week', startTime: '2026-09-17T14:00:00.000Z', endTime: '2026-09-17T15:00:00.000Z' }],
+      WEEK_START,
+    )
+    expect(result).toEqual([])
   })
 })
 

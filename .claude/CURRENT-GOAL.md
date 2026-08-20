@@ -45,7 +45,10 @@ affiché à l'écran cités.
       réellement affiché : « LabelProof Prof vous a invité à un événement « Cours » le samedi
       29 août à 14:00 » — aucune trace du titre, type et heure bien présents.
 - [x] Preuve livrée à l'utilisateur
-- [ ] Validé par l'utilisateur
+- [x] Validé par l'utilisateur — 2026-08-20 (« merge »). Mergé dans `master` — PR #131, squash
+      `ad028e9`, branche supprimée (locale + `origin`). `frontend` reconstruit et redéployé depuis
+      `master` (état durable), bundle `index-7Di3YNbP.js` reconfirmé identique, gateway
+      redémarrée, sain.
 
 ---
 

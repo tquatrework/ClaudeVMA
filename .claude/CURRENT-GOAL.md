@@ -118,6 +118,73 @@ disponibilités ; réponse HTTP citée montrant la création d'un événement **
       recherché par nom + son calendrier busy/free affiché ; événement créé affiché "Sans titre"
       sur la grille, aucun UUID visible nulle part.
 - [x] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur — **pas validé, test réel de l'utilisateur non concluant** (voir
+      ci-dessous, 2026-08-20)
+
+### Retour utilisateur sur son propre test (2026-08-20) — bug réel, pas une validation
+
+L'utilisateur a testé lui-même le point D (création d'événement avec destinataire) en conditions
+réelles, deux comptes réels (`professeur.lycee` crée un événement partagé avec `eleve.sixieme`).
+**Résultat : l'élève n'a rien vu.** Ni sur son calendrier, ni notification, ni même une ligne dans
+« la liste des événements » placée sous le calendrier (à identifier précisément — probablement
+`CourseProposalsPanel`, seul panneau repliable sous la grille connu à ce jour, mais à confirmer :
+il porte les propositions de créneaux de cours — `ScheduledActivity` — pas les invitations
+d'événements — `CalendarEvent` — donc ce n'est peut-être pas le bon composant ou il sert aux deux
+sans le dire). Conséquence : l'élève n'a **aucun moyen** d'accepter ou refuser l'événement.
+
+**Diagnostic préliminaire de l'orchestrateur, lecture doc uniquement** : `POST
+/calendars/:ownerId/events` crée toujours l'événement sous le calendrier du **créateur**
+(`:ownerId` = celui qui appelle), `inviteeIds` ne fait qu'ajouter des lignes `EventInvitation`.
+Rien dans `docs/routes.md` n'indique que `GET /calendars/:ownerId/events` (calendrier du
+**destinataire**) renvoie les événements où il est **invité** plutôt que propriétaire — c'est très
+probablement le même gap déjà rencontré et corrigé pour `ScheduledActivity` au point 3 du chantier
+du 2026-08-18 (« créateur OU participant »), jamais appliqué à `CalendarEvent`/`EventInvitation`.
+Côté notifications : `CalendarEventCreated` est bien publié sur le flux Redis
+(`docs/routes.md`, section calendar-service) mais **absent** de la liste des types traités par
+`dashboard-notification-service` (voir sa section dédiée) — aucune notification n'est donc jamais
+créée à l'invitation. Les deux causes probables du bug sont donc distinctes et à corriger toutes
+les deux. À vérifier et confirmer par les sous-agents avant de conclure.
+
+### Demande explicite de l'utilisateur pour corriger ce point (verbatim, reformulé en tâches)
+
+1. **Retirer la « liste des événements »** placée sous le calendrier (composant à identifier
+   précisément par `front-developper` avant de le retirer — ne pas supprimer à l'aveugle si un
+   autre flux en dépend encore).
+2. **Créer une notification** à l'invitation (même mécanisme que `course_slot_proposed` déjà en
+   place pour les propositions de créneau — consommateur du flux Redis, jamais d'UUID affiché).
+3. **Afficher l'événement directement dans le calendrier du destinataire**, dans une **couleur
+   spécifique** signalant qu'une réponse (valider/refuser) est attendue — même pattern déjà
+   appliqué aux `ScheduledActivity` `proposed` sur la grille de disponibilités.
+4. **À l'ouverture de l'événement, une modale avec les 2 boutons** Accepter/Refuser (routes déjà
+   existantes : `POST /events/:id/invitees/:userId/accept` / `.../decline`, jamais utilisées côté
+   front jusqu'ici pour ce flux).
+5. **Bouton de suppression d'un créneau** (événement OU disponibilité) à l'ouverture de son détail
+   — vérifier si ce bouton existe déjà avant d'en ajouter un. Point ouvert connu : **aucune route
+   `DELETE` n'est aujourd'hui documentée pour `CalendarEvent`** (contrairement à
+   `DELETE /activities/:activityId` et `DELETE /calendars/:ownerId/availability-slots/:slotId`,
+   qui existent déjà) — probablement un gap backend réel à combler, à confirmer par
+   `calendar-service` avant de câbler le bouton front.
+
+### Comment on saura que c'est fait (ce point précis)
+
+Réponse HTTP citée montrant `professeur.lycee` créant un événement avec `eleve.sixieme` en
+destinataire, puis `eleve.sixieme` voyant l'événement apparaître (`GET` de son propre calendrier),
+recevant une notification (`GET /notifications`), ouvrant une modale Accepter/Refuser depuis la
+grille, et acceptant avec succès. Capture d'écran de la grille de l'élève montrant le bloc en
+couleur distincte avant réponse. Capture ou réponse HTTP montrant la suppression d'un événement et
+d'une disponibilité depuis leur écran de détail respectif.
+
+### État (ce point précis)
+
+- [ ] Investigation + correctif `calendar-service` : visibilité des événements invités sur le
+      calendrier du destinataire, contenu exact de `CalendarEventCreated` (doit porter de quoi
+      notifier), route `DELETE` pour `CalendarEvent` si absente — preuve HTTP.
+- [ ] Correctif `dashboard-notification-service` : notification à l'invitation à un événement.
+- [ ] Front : identifier et retirer la liste incriminée, afficher l'événement invité en couleur
+      distincte sur la grille du destinataire, modale Accepter/Refuser à l'ouverture, bouton de
+      suppression sur événement et disponibilité (ajouté si absent, vérifié si déjà là).
+- [ ] Déployé sur la pile réelle
+- [ ] Preuve livrée à l'utilisateur
 - [ ] Validé par l'utilisateur
 
 ---

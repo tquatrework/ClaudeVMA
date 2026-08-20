@@ -29,10 +29,22 @@ affiché à l'écran cités.
 
 ### État
 
-- [ ] Front : nouveau libellé dans `notificationLabels.ts` pour `event_invitation_received`
-      (type d'événement + heure, sans le titre).
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+- [x] Front — commits `3942f13`+`5173f58`, poussés. Nouveau libellé dans `notificationLabels.ts` :
+      « {creatorName} vous a invité à un événement « {type traduit} » le {date+heure} », chaque
+      partie omise si absente, jamais le titre. Réutilise `EVENT_TYPE_LABELS` et `formatEventDate`
+      déjà existants (aucune nouvelle table de traduction). 21/21 tests ciblés + 1808/1810 suite
+      complète (2 échecs préexistants sans rapport, reconfirmés sur la base non modifiée),
+      `tsc --noEmit` et `build` propres — vérifiés indépendamment par l'orchestrateur après
+      fast-forward. `docs/routes.md` mis à jour par l'orchestrateur (hors périmètre front).
+- [x] Déployé sur la pile réelle — `frontend` reconstruit et redémarré, gateway redémarrée,
+      bundle `index-7Di3YNbP.js` confirmé servi.
+- [x] Preuve obtenue par l'orchestrateur contre `https://claudevma.visioprof.fr` (comptes réels) :
+      événement créé avec titre "Cours particulier de maths" + destinataire → notification reçue
+      avec `metadata.title` toujours renseigné côté serveur (inchangé, c'est voulu — seul
+      l'affichage front ignore ce champ) ; **capture d'écran de la cloche** confirmant le texte
+      réellement affiché : « LabelProof Prof vous a invité à un événement « Cours » le samedi
+      29 août à 14:00 » — aucune trace du titre, type et heure bien présents.
+- [x] Preuve livrée à l'utilisateur
 - [ ] Validé par l'utilisateur
 
 ---

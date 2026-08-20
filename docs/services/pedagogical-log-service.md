@@ -201,13 +201,19 @@
             injoignable, jamais un succes silencieux). Verifiee a CHAQUE action (create ET
             update), pas seulement a la creation — coherent avec l'arbitrage du 2026-08-12 sur
             la rupture de relation eleve-formateur ("un lien peut etre rompu entre deux appels").
-            Le RP est retire des roles autorises a POST (decorateur @Roles) ; pour PATCH, le
-            decorateur reste large (le meme endpoint sert aussi les pages speciales) mais le
-            service applique la restriction fine par branchement sur `isSpecialPage` : entree
+            Le RP est retire des roles autorises a POST (decorateur @Roles) ; pour PATCH et DELETE,
+            le decorateur reste large (les memes endpoints servent aussi les pages speciales) mais
+            le service applique la restriction fine par branchement sur `isSpecialPage` : entree
             normale -> formateur auteur + relation active obligatoire ; page speciale -> auteur
-            ou RP/TI, comportement strictement inchange. DELETE n'est PAS touche (ni decorateur
-            ni service) : l'enonce de la tache ne mentionne que POST/PATCH, et DELETE sert aussi
-            au mecanisme des pages speciales.
+            ou RP/TI (RP seul pour DELETE), comportement strictement inchange. **Correction du
+            2026-08-20, plus tard le meme jour** : DELETE avait d'abord ete laisse hors perimetre
+            par lecture stricte de l'enonce ("verifie/corrige les guards d'ecriture (POST/PATCH)"),
+            ce qui laissait le RP supprimer n'importe quelle entree normale alors qu'il ne pouvait
+            plus ni la creer ni la modifier. Signale comme ambiguite a l'orchestrateur, qui a
+            tranche : l'enonce d'origine ("seul le Formateur les redige, les autres roles lisent
+            uniquement") couvrait deja toute ecriture, DELETE inclus — ce n'etait pas une
+            ambiguite a faire trancher par l'utilisateur. DELETE suit desormais exactement le
+            meme regime que update().
           </decision>
           <decision>
             Point 4 — `studentId` retire de `CreateLogDto`. Le controleur ne fusionne plus
@@ -267,14 +273,22 @@
             de visibilite, contenu migre vers session_summary, page speciale intacte), down()
             verifie (retour exact a l'etat initial, y compris restauration du contenu et de
             l'ancienne valeur de visibilite), migration:run rejoue avec succes apres le revert.</item>
-          <item>`npm test` (suite unitaire complete) : 110/110 tests verts, 11 suites — inclut
-            tous les nouveaux fichiers de test lies a cette session.</item>
-          <item>`npm run test:e2e` : 33 echecs preexistants, strictement identiques avant et
-            apres cette session (confirmes ligne par ligne) — tous et uniquement sur les routes
-            `/pedagogical-logs` (pluriel) et `/memos`, jamais montees par le controleur, gap
-            documente mais explicitement hors perimetre de cette tache. Les 12 nouveaux tests e2e
-            ajoutes pour cette refonte (routes reellement montees) passent tous : 62 tests verts
-            au total (50 avant + 12 nouveaux), 0 regression.</item>
+          <item>`npm test` (suite unitaire complete) : 120/120 tests verts, 11 suites — inclut
+            tous les nouveaux fichiers de test lies a cette session, dont 10 cas dedies a
+            remove() (correction DELETE du 2026-08-20).</item>
+          <item>`npm run test:e2e -- --runInBand` : 33 echecs preexistants, strictement identiques
+            avant et apres cette session (confirmes ligne par ligne) — tous et uniquement sur les
+            routes `/pedagogical-logs` (pluriel) et `/memos`, jamais montees par le controleur,
+            gap documente mais explicitement hors perimetre de cette tache. 17 nouveaux tests e2e
+            ajoutes pour cette refonte (routes reellement montees, dont 5 sur DELETE) passent tous :
+            67 tests verts au total (50 avant + 17 nouveaux), 0 regression. **`--runInBand` ajoute
+            au script `test:e2e`** : les deux suites e2e partagent la meme base de test et
+            executent chacune un `DROP SCHEMA public CASCADE` + recreation dans leur `beforeAll` ;
+            executees en parallele (comportement par defaut de Jest, plusieurs fichiers de suite),
+            elles se marchent dessus de facon intermittente ("schema public does not exist").
+            Latent avant cette session (une seule suite e2e fournissait peu d'occasions de
+            collision), rendu visible par l'ajout de nouveaux tests. Corrige en executant les
+            suites e2e sequentiellement — plus lent, mais deterministe.</item>
         </verification>
 
         <blockers>Aucun sur le code livre.</blockers>
@@ -288,17 +302,12 @@
             sans elle le consommateur d'evenements reste desactive, aucune entree automatique
             n'est creee, aucun crash au demarrage).
           </point>
-          <point>
-            `docker-compose.yml` n'a pas ete modifie (hors perimetre explicite de cette tache,
-            confie a l'orchestrateur/mainteneur infra). Le service `pedagogical-log-service` doit
-            recevoir, sur le meme modele que les autres services du fichier : `REDIS_URL:
-            redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379`, `INTERNAL_SECRET:
-            ${INTERNAL_SECRET:-change_me_in_production}`, `PROFILE_SERVICE_URL:
-            http://profile-service:3002`, `DASHBOARD_NOTIFICATION_SERVICE_URL:
-            http://dashboard-notification-service:3003`, et `depends_on: redis (condition:
-            service_healthy)`. Sans ces variables, le service demarre normalement (aucune n'est
-            requise au boot) mais le point 3 (ecriture) echoue systematiquement en 503, et le
-            point 5 (creation automatique) reste inactif.
+          <point status="resolu" resolvedOn="2026-08-20">
+            `docker-compose.yml` — resolu par l'orchestrateur (commit `e1ee8af`, hors de ce
+            worktree) : `REDIS_URL`, `INTERNAL_SECRET`, `PROFILE_SERVICE_URL`,
+            `DASHBOARD_NOTIFICATION_SERVICE_URL` sont desormais portees pour
+            `pedagogical-log-service`. Non re-verifie depuis ce worktree (fichier hors perimetre),
+            a confirmer au premier deploiement reel.
           </point>
           <point>
             Ecart de documentation preexistant, non introduit par cette session mais confirme a
@@ -309,13 +318,12 @@
             tous sur ce perimetre. Hors mandat explicite de cette tache (5 points + tri/filtrage),
             signale pour une session ulterieure dediee.
           </point>
-          <point>
-            DELETE (`/:id`) n'a pas ete revu par le point 3 : un RP peut toujours supprimer
-            n'importe quelle entree normale (role inchange), alors qu'il ne peut plus ni la
-            creer ni la modifier. Lecture stricte de l'enonce ("verifie/corrige les guards
-            d'ecriture (POST/PATCH)") — a confirmer aupres de l'utilisateur si DELETE doit suivre
-            la meme restriction, ou si le pouvoir de suppression du RP est delibere (filet de
-            securite independant du droit d'auteur).
+          <point status="resolu" resolvedOn="2026-08-20">
+            DELETE (`/:id`) — resolu le meme jour, en correction. L'orchestrateur a tranche que
+            l'ambiguite signalee n'en etait pas une : l'enonce d'origine du point 3 couvrait deja
+            toute ecriture. DELETE applique desormais le meme regime que POST/PATCH (formateur
+            auteur titulaire de la relation pour une entree normale ; RP conserve la suppression
+            d'une page speciale qu'il a lui-meme creee, symetrique de son droit de creation).
           </point>
           <point>
             Aucun evenement propre n'est publie par ce service a la creation automatique d'une

@@ -1954,7 +1954,7 @@ sont celles marquées ci-dessous sans cet avertissement.
 | GET | /logs/:id | Détail d'une page | 🔒 | Selon visibilité et rôle | `200 PedagogicalLogPage` · `403` visibilité bloquée · `404` introuvable |
 | PATCH | /logs/:id | Modifier une page | 🔒 | Entrée normale : **formateur auteur, toujours titulaire de la relation, uniquement**. Page spéciale RP : auteur ou RP/TI (mécanisme inchangé) | `200 PedagogicalLogPage` · `403` non autorisé · `404` introuvable · `503` profile-service injoignable (entrée normale) |
 | PATCH | /:id | Modifier une page (alias de compatibilité) | 🔒 | Mêmes règles que `PATCH /logs/:id` | idem |
-| DELETE | /:id | Supprimer une page | 🔒 | Auteur, responsable_pedagogique — **inchangé, hors périmètre explicite de cette refonte** (seuls POST/PATCH étaient visés par le point 3) | `204` · `403` · `404` introuvable |
+| DELETE | /:id | Supprimer une page | 🔒 | Entrée normale : **formateur auteur, toujours titulaire de la relation, uniquement** (correctif du 2026-08-20 — le RP a perdu ce droit qu'il avait jusqu'ici). Page spéciale RP : auteur ou RP (mécanisme inchangé) | `204` · `403` non autorisé · `404` introuvable · `503` profile-service injoignable (entrée normale) |
 
 Body `POST /students/:studentId/pedagogical-log` (refonte du 2026-08-20, point 2 et point 4) :
 `{date?, sessionSummary?, homework?, visibility?, hiddenFromStudent?, linkedResources?, activityId?, sessionId?, skillsWorked?, difficulty?, rating?}`.
@@ -1980,16 +1980,21 @@ Règles de visibilité (refonte du 2026-08-20, point 1) :
 
 `hiddenFromStudent=true` : masque la page à l'élève — applicable aux pages spéciales parent/financeur (XML spec func 003).
 
-**Écriture réservée au formateur (point 3, 2026-08-20).** Seul le formateur titulaire de la
-relation `teacher_of_student` avec l'élève ciblé peut créer ou modifier une entrée normale du
-cahier de texte — vérifié à chaque action auprès de `profile-service`
-(`GET /internal/relations/:viewerId/:targetId?viewerRole=formateur`), jamais en cache : un
-formateur délié cesse d'agir immédiatement, y compris sur ses propres entrées passées. Élève,
-parent et RP sont désormais strictement lecteurs sur ces entrées (le RP a perdu son droit
-d'écriture qu'il avait jusqu'ici). Le mécanisme des pages spéciales RP (`isSpecialPage`,
-`POST .../special-pages`) est **hors périmètre** et continue de fonctionner à l'identique (l'auteur
-ou un RP/TI peut le modifier, sans vérification de relation). `profile-service` injoignable →
-`503` (échec fermé), jamais un `201`/`200` silencieux.
+**Écriture réservée au formateur (point 3, 2026-08-20 — POST/PATCH/DELETE).** Seul le formateur
+titulaire de la relation `teacher_of_student` avec l'élève ciblé peut créer, modifier **ou
+supprimer** une entrée normale du cahier de texte — vérifié à chaque action auprès de
+`profile-service` (`GET /internal/relations/:viewerId/:targetId?viewerRole=formateur`), jamais en
+cache : un formateur délié cesse d'agir immédiatement, y compris sur ses propres entrées passées.
+Élève, parent et RP sont désormais strictement lecteurs sur ces entrées (le RP a perdu son droit
+d'écriture — création, modification et **suppression** — qu'il avait jusqu'ici). **Précision du
+2026-08-20** : la restriction couvre `DELETE` au même titre que `POST`/`PATCH` — l'énoncé d'origine
+(« seul le formateur les rédige, les autres rôles lisent uniquement ») couvrait déjà toute
+écriture, `DELETE` n'était initialement pas corrigé par erreur de lecture, pas par choix assumé.
+Le mécanisme des pages spéciales RP (`isSpecialPage`, `POST .../special-pages`) est **hors
+périmètre** et continue de fonctionner à l'identique pour les trois verbes (l'auteur ou un RP/TI —
+RP seul pour `DELETE` — peut agir, sans vérification de relation) : le RP conserve la capacité de
+retirer une page spéciale qu'il a lui-même créée, symétrique de son droit de création et
+d'édition. `profile-service` injoignable → `503` (échec fermé), jamais un succès silencieux.
 
 **Tri et filtrage — `GET /students/:studentId/pedagogical-log` (point 6).** La liste est triée de
 la plus récente à la plus ancienne par `date` (date de séance) décroissante, les entrées sans

@@ -272,19 +272,21 @@ export class PedagogicalLogController {
   @Roles(
     UserRole.FORMATEUR,
     UserRole.RESPONSABLE_PEDAGOGIQUE,
-  )
+  ) // le service applique la restriction fine (formateur auteur titulaire pour une entrée normale)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiParam({ name: 'id', description: 'UUID de l\'entrée' })
   @ApiOperation({
     summary: 'Supprimer une entrée de cahier de texte',
     description:
-      'L\'auteur peut supprimer sa propre entrée. ' +
-      'Le RP peut supprimer n\'importe quelle entrée.',
+      'Entrée normale : seul le formateur auteur, toujours titulaire de la relation avec ' +
+      'l\'élève, peut supprimer (PLOG-RA-003, correctif du 2026-08-20 — le RP a perdu ce ' +
+      'droit, il reste lecteur). Page spéciale RP : l\'auteur ou un RP (mécanisme inchangé).',
   })
   @ApiResponse({ status: 204, description: 'Entrée supprimée' })
   @ApiResponse({ status: 401, description: 'Non authentifié' })
-  @ApiResponse({ status: 403, description: 'Interdit' })
+  @ApiResponse({ status: 403, description: 'Interdit (pas le formateur auteur titulaire de la relation)' })
   @ApiResponse({ status: 404, description: 'Entrée introuvable' })
+  @ApiResponse({ status: 503, description: 'profile-service injoignable — vérification de la relation impossible (entrée normale)' })
   remove(@Param('id') id: string, @Req() req: any) {
     return this.service.remove(id, req.user.id, req.user.role);
   }

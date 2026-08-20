@@ -1278,4 +1278,73 @@ describe('[E2E] Pedagogical Log Service', () => {
       expect(res.status).toBe(503);
     });
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // DELETE /:id — correctif du 2026-08-20 (relecture du point 3) : DELETE suit
+  // désormais le même régime que POST/PATCH — « les autres rôles lisent
+  // uniquement » couvre toute écriture, DELETE inclus. Le RP perd le droit de
+  // supprimer une entrée normale, garde celui de supprimer une page spéciale.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('DELETE /:id — entrée normale (correctif 2026-08-20 : RP ne peut plus supprimer)', () => {
+    let repository: Repository<PedagogicalLog>;
+    let normalEntryId: string;
+
+    beforeEach(async () => {
+      repository = app.get<Repository<PedagogicalLog>>(getRepositoryToken(PedagogicalLog));
+      const entry = await repository.save(
+        repository.create({
+          studentId: IDS.student1,
+          authorId: IDS.teacher1,
+          authorRole: 'formateur',
+          date: '2026-08-20',
+          sessionSummary: 'Entrée à supprimer',
+          visibility: 'eleve_parent_formateur',
+          isSpecialPage: false,
+          hiddenFromStudent: false,
+        }),
+      );
+      normalEntryId = entry.id;
+    });
+
+    it('[CRITIQUE] un RP ne peut plus supprimer une entrée normale → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .delete(`/${normalEntryId}`)
+        .set('Authorization', `Bearer ${rp1Token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('[CRITIQUE] un élève ne peut pas supprimer → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .delete(`/${normalEntryId}`)
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('[CRITIQUE] un parent ne peut pas supprimer → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .delete(`/${normalEntryId}`)
+        .set('Authorization', `Bearer ${parent1Token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('un formateur non-auteur ne peut pas supprimer → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .delete(`/${normalEntryId}`)
+        .set('Authorization', `Bearer ${teacher2Token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('l\'auteur formateur : la relation est revérifiée à chaque action → 503 (profile-service non configuré ici)', async () => {
+      const res = await request(app.getHttpServer())
+        .delete(`/${normalEntryId}`)
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
+      expect(res.status).toBe(503);
+    });
+  });
 });

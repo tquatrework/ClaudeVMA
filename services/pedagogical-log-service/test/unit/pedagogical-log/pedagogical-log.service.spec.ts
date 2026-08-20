@@ -50,6 +50,7 @@ function buildMockRepository() {
     save: jest.fn(),
     find: jest.fn(),
     findOne: jest.fn(),
+    remove: jest.fn(),
     createQueryBuilder: jest.fn(),
   };
 }
@@ -470,6 +471,132 @@ describe('PedagogicalLogService', () => {
       await expect(
         pedagogicalLogService.update(LOG_ID, { content: 'x' }, OTHER_FORMATEUR, 'formateur'),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // remove()
+  //
+  // Correctif du 2026-08-20 (relecture du point 3) : DELETE suit désormais
+  // exactement le même régime que update() — « les autres rôles lisent
+  // uniquement » couvre toute écriture, DELETE inclus. Le RP a perdu le droit
+  // de supprimer une entrée normale ; il conserve celui de supprimer une page
+  // spéciale (mécanisme hors périmètre, inchangé).
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('remove() — entrée normale (isSpecialPage=false)', () => {
+    it('[OK] le formateur auteur, toujours titulaire de la relation, peut supprimer', async () => {
+      const log = buildSampleLog();
+      mockRepository.findOne.mockResolvedValue(log);
+      mockRepository.remove.mockResolvedValue(log);
+
+      await pedagogicalLogService.remove(LOG_ID, FORMATEUR_ID, 'formateur');
+
+      expect(mockRelationsClient.assertTeacherOfStudent).toHaveBeenCalledWith(FORMATEUR_ID, STUDENT_ID);
+      expect(mockRepository.remove).toHaveBeenCalledWith(log);
+    });
+
+    it('[CRITIQUE] un autre formateur (non auteur) ne peut pas supprimer → ForbiddenException', async () => {
+      const log = buildSampleLog();
+      mockRepository.findOne.mockResolvedValue(log);
+
+      await expect(
+        pedagogicalLogService.remove(LOG_ID, OTHER_FORMATEUR, 'formateur'),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockRelationsClient.assertTeacherOfStudent).not.toHaveBeenCalled();
+      expect(mockRepository.remove).not.toHaveBeenCalled();
+    });
+
+    it('[CRITIQUE] le RP ne peut plus supprimer une entrée normale → ForbiddenException (correctif 2026-08-20)', async () => {
+      const log = buildSampleLog();
+      mockRepository.findOne.mockResolvedValue(log);
+
+      await expect(
+        pedagogicalLogService.remove(LOG_ID, RP_ID, 'responsable_pedagogique'),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockRepository.remove).not.toHaveBeenCalled();
+    });
+
+    it('[CRITIQUE] un élève ne peut pas supprimer une entrée → ForbiddenException', async () => {
+      const log = buildSampleLog();
+      mockRepository.findOne.mockResolvedValue(log);
+
+      await expect(
+        pedagogicalLogService.remove(LOG_ID, STUDENT_ID, 'eleve'),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockRepository.remove).not.toHaveBeenCalled();
+    });
+
+    it('[CRITIQUE] un parent ne peut pas supprimer une entrée → ForbiddenException', async () => {
+      const log = buildSampleLog();
+      mockRepository.findOne.mockResolvedValue(log);
+
+      await expect(
+        pedagogicalLogService.remove(LOG_ID, 'parent-id', 'parent_financeur'),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockRepository.remove).not.toHaveBeenCalled();
+    });
+
+    it('formateur auteur mais relation rompue entre-temps → ForbiddenException (vérifié à chaque action)', async () => {
+      const log = buildSampleLog();
+      mockRepository.findOne.mockResolvedValue(log);
+      mockRelationsClient.assertTeacherOfStudent.mockRejectedValue(
+        new ForbiddenException('relation rompue'),
+      );
+
+      await expect(
+        pedagogicalLogService.remove(LOG_ID, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockRepository.remove).not.toHaveBeenCalled();
+    });
+
+    it('profile-service injoignable → ServiceUnavailableException (échec fermé)', async () => {
+      const log = buildSampleLog();
+      mockRepository.findOne.mockResolvedValue(log);
+      mockRelationsClient.assertTeacherOfStudent.mockRejectedValue(
+        new ServiceUnavailableException('profile-service is unreachable'),
+      );
+
+      await expect(
+        pedagogicalLogService.remove(LOG_ID, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(ServiceUnavailableException);
+      expect(mockRepository.remove).not.toHaveBeenCalled();
+    });
+
+    it('entrée introuvable → NotFoundException', async () => {
+      mockRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        pedagogicalLogService.remove(LOG_ID, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('remove() — page spéciale RP (isSpecialPage=true, mécanisme hors périmètre inchangé)', () => {
+    it('[OK] l\'auteur RP peut supprimer sa page spéciale, sans vérification de relation', async () => {
+      const specialLog = buildSampleLog({
+        isSpecialPage: true,
+        authorId: RP_ID,
+        authorRole: 'responsable_pedagogique',
+        visibility: 'special',
+      });
+      mockRepository.findOne.mockResolvedValue(specialLog);
+      mockRepository.remove.mockResolvedValue(specialLog);
+
+      await pedagogicalLogService.remove(LOG_ID, RP_ID, 'responsable_pedagogique');
+
+      expect(mockRelationsClient.assertTeacherOfStudent).not.toHaveBeenCalled();
+      expect(mockRepository.remove).toHaveBeenCalledWith(specialLog);
+    });
+
+    it('un formateur non-auteur ne peut pas supprimer une page spéciale', async () => {
+      const specialLog = buildSampleLog({ isSpecialPage: true, authorId: RP_ID, visibility: 'special' });
+      mockRepository.findOne.mockResolvedValue(specialLog);
+
+      await expect(
+        pedagogicalLogService.remove(LOG_ID, OTHER_FORMATEUR, 'formateur'),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockRepository.remove).not.toHaveBeenCalled();
     });
   });
 });

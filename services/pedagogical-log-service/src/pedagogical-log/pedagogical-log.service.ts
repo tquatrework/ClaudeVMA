@@ -250,20 +250,44 @@ export class PedagogicalLogService {
 
   /**
    * Supprimer une entrée de cahier de texte.
-   * Seul l'auteur ou un RP peut supprimer.
-   * Inchangé par la refonte du 2026-08-20 (hors périmètre explicite : seuls
-   * POST/PATCH sont mentionnés par la demande).
+   *
+   * Correctif du 2026-08-20 (relecture du point 3, signalé par l'orchestrateur) :
+   * l'énoncé d'origine — « seul le Formateur les rédige, les autres rôles lisent
+   * uniquement » — couvre toute écriture, DELETE inclus. Ce n'était pas une
+   * ambiguïté à faire trancher par l'utilisateur : DELETE suit désormais
+   * exactement le même régime que update(), discriminé par `isSpecialPage` —
+   * - entrée normale (isSpecialPage=false) : seul le formateur auteur, toujours
+   *   titulaire de la relation avec l'élève (vérifiée à chaque action, jamais en
+   *   cache), peut supprimer. Le RP a perdu ce droit qu'il avait jusqu'ici — il
+   *   reste strictement lecteur sur les entrées normales, comme l'élève et le
+   *   parent.
+   * - page spéciale RP (isSpecialPage=true) : mécanisme explicitement hors
+   *   périmètre de cette refonte, comportement INCHANGÉ — l'auteur ou un RP peut
+   *   supprimer, sans vérification de relation. Documenté ici plutôt que laissé
+   *   comme un accès non intentionnel : le RP a besoin de pouvoir retirer une
+   *   page spéciale qu'il a lui-même créée (communication confidentielle
+   *   obsolète ou erronée), capacité administrative symétrique de son droit de
+   *   création (createSpecialPage) et d'édition (update, branche isSpecialPage).
    */
   async remove(id: string, callerId: string, callerRole: string): Promise<void> {
     const entry = await this.pedagogicalLogRepository.findOne({ where: { id } });
     if (!entry) throw new NotFoundException(`Log ${id} not found`);
 
-    const canDelete =
-      entry.authorId === callerId ||
-      callerRole === 'responsable_pedagogique';
+    if (entry.isSpecialPage) {
+      const canDelete =
+        entry.authorId === callerId ||
+        callerRole === UserRole.RESPONSABLE_PEDAGOGIQUE;
 
-    if (!canDelete) {
-      throw new ForbiddenException('Only the author or a RP can delete this entry');
+      if (!canDelete) {
+        throw new ForbiddenException('Only the author or a RP can delete this page');
+      }
+    } else {
+      if (callerRole !== UserRole.FORMATEUR || entry.authorId !== callerId) {
+        throw new ForbiddenException(
+          'Seul le formateur auteur peut supprimer cette entrée du cahier de texte',
+        );
+      }
+      await this.profileRelationsClient.assertTeacherOfStudent(entry.authorId, entry.studentId);
     }
 
     await this.pedagogicalLogRepository.remove(entry);

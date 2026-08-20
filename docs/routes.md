@@ -1559,6 +1559,7 @@ y figure déjà, sans changement à apporter :
   "payload": {
     "eventId": "3fa1b6e0-1234-4b2b-9e9e-000000000099",
     "ownerId": "47a5808b-66c7-41c9-92cd-7367d1cda003",
+    "title": "Cours de maths",
     "eventType": "cours",
     "creatorId": "47a5808b-66c7-41c9-92cd-7367d1cda003",
     "startTime": "2026-09-10T14:00:00.000Z",
@@ -1579,6 +1580,14 @@ y figure déjà, sans changement à apporter :
   « Écart de doc corrigé le 2026-08-19 » plus haut) : la réponse HTTP porte `startAt`/`endAt`,
   le payload d'événement interne garde `startTime` — deux contrats distincts, pas un défaut à
   aligner ici.
+- **`title` — défaut corrigé le 2026-08-20.** Ce champ était absent du payload alors que
+  `dashboard-notification-service` le lisait déjà (`payload.title ?? null`, voir section
+  dashboard-notification-service ci-dessous, notification `event_invitation_received`) :
+  la notification reçue par un invité affichait donc toujours `metadata.title: null`, même
+  pour un événement avec un vrai titre. `title` porte désormais la valeur réelle et persistée
+  de l'événement (`createdEvent.title`, jamais `dto.title` brut) ; `null` reste la valeur
+  correcte quand l'événement n'a pas de titre — le titre est réellement optionnel sur
+  `CalendarEvent`, aucun titre par défaut n'est fabriqué côté serveur.
 
 **Mise à jour du 2026-08-18 (gap comblé) : `EventsService.publish` n'est plus un stub.**
 Jusqu'au 2026-08-18, `EventsService.publish` de ce service journalisait une ligne structurée et
@@ -2092,12 +2101,17 @@ notifications par rôle ».
 > `payload.startTime` — nom aligné sur la réponse HTTP de calendar-service, pas sur son payload
 > d'événement interne), `eventType` reprend `payload.eventType` (`cours`/`rappel`/…), `title`
 > peut être `null` (le titre est réellement optionnel sur `CalendarEvent` depuis le correctif du
-> même chantier, voir plus haut) — **vérifié le 2026-08-20 directement sur le flux Redis réel
-> (`XREVRANGE`)** : le payload actuellement publié ne porte même pas la clé `title`, traité comme
-> `null` sans qu'aucun titre par défaut ne soit fabriqué côté serveur. Libellé français prévu
-> côté front (`notificationLabels.ts`, non traité par cette session) : « {creatorName} vous a
-> invité à un événement » si `title` est `null`, ou « {creatorName} vous a invité à « {title} » »
-> si un titre existe.
+> même chantier, voir plus haut). Libellé français prévu côté front (`notificationLabels.ts`,
+> non traité par cette session) : « {creatorName} vous a invité à un événement » si `title` est
+> `null`, ou « {creatorName} vous a invité à « {title} » » si un titre existe.
+>
+> **Défaut corrigé le 2026-08-20 (calendar-service).** Vérifié le 2026-08-20 directement sur le
+> flux Redis réel (`XREVRANGE`) : le payload publié par `CalendarEventsService.createEvent` ne
+> portait jamais la clé `title` — `dashboard-notification-service` lisait déjà
+> `payload.title ?? null` côté consommateur (rien à corriger ici), mais recevait donc toujours
+> `null`, même pour un événement avec un vrai titre. `CalendarEventCreated` porte désormais la
+> valeur réelle et persistée de l'événement (voir section calendar-service ci-dessus, paragraphe
+> « `title` — défaut corrigé le 2026-08-20 »).
 
 ---
 

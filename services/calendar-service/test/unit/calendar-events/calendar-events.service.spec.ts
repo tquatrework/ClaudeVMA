@@ -432,6 +432,44 @@ describe('CalendarEventsService', () => {
         undefined,
       );
     });
+
+    // Défaut réel trouvé par un test e2e le 2026-08-20 : la notification
+    // reçue par un invité (dashboard-notification-service, type
+    // event_invitation_received) affichait toujours metadata.title: null,
+    // même pour un événement avec un vrai titre — le payload de
+    // CalendarEventCreated ne portait jamais la clé `title`. Corrigé ici.
+    it('CalendarEventCreated payload carries the real event title', async () => {
+      const savedEvent = { id: 'evt-7', ...validDto, ownerId: 'teacher-1', creatorId: 'teacher-1', invitations: [] } as unknown as CalendarEvent;
+      mockEventRepo.create.mockReturnValue(savedEvent);
+      mockEventRepo.save.mockResolvedValue(savedEvent);
+      mockEventRepo.findOne.mockResolvedValue(savedEvent);
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      await service.createEvent('teacher-1', validDto, actor);
+
+      expect(mockEventsService.publish).toHaveBeenCalledWith(
+        'CalendarEventCreated',
+        expect.objectContaining({ title: 'Cours de maths' }),
+        undefined,
+      );
+    });
+
+    it('CalendarEventCreated payload carries title: null when the event has no title (title stays genuinely optional)', async () => {
+      const dtoWithoutTitle = { ...validDto, title: undefined };
+      const savedEvent = { id: 'evt-8', ...dtoWithoutTitle, title: null, ownerId: 'teacher-1', creatorId: 'teacher-1', invitations: [] } as unknown as CalendarEvent;
+      mockEventRepo.create.mockReturnValue(savedEvent);
+      mockEventRepo.save.mockResolvedValue(savedEvent);
+      mockEventRepo.findOne.mockResolvedValue(savedEvent);
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      await service.createEvent('teacher-1', dtoWithoutTitle, actor);
+
+      expect(mockEventsService.publish).toHaveBeenCalledWith(
+        'CalendarEventCreated',
+        expect.objectContaining({ title: null }),
+        undefined,
+      );
+    });
   });
 
   // ──────────────────────────────────────────────────────────────────────────

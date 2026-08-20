@@ -238,6 +238,7 @@ export class CalendarEventsService {
       {
         eventId: createdEvent.id,
         ownerId,
+        title: createdEvent.title,
         eventType: createdEvent.eventType,
         creatorId: actor.id,
         startTime: createdEvent.startAt,

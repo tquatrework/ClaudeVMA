@@ -15,6 +15,8 @@
 
 import type { DashboardNotification, NotificationMetadata } from '../types/dashboard'
 import type { UserRole } from '../types/user'
+import { EVENT_TYPE_LABELS, type EventType } from '../components/calendar/calendarTypes'
+import { formatEventDate } from './dateFormat'
 
 const FALLBACK_STUDENT = 'un élève'
 const FALLBACK_TEACHER = 'un formateur'
@@ -86,16 +88,23 @@ const NOTIFICATION_LABEL_BUILDERS: Record<string, NotificationLabelBuilder> = {
   // l'utilisateur : « Proposition de cours ajoutée par {proposerName} ».
   course_slot_proposed: (metadata) => `Proposition de cours ajoutée par ${proposerLabel(metadata)}`,
 
-  // Bug réel corrigé le 2026-08-20 (invitation d'événement invisible pour l'invité). Libellé
-  // exact documenté dans docs/routes.md § dashboard-notification-service : « {creatorName} vous
-  // a invité à un événement » si le titre est absent, ou « … à « {title} » » sinon — le titre
-  // d'un événement de calendrier est réellement optionnel côté serveur.
+  // Ajustement du 2026-08-20 : le libellé reprenait jusqu'ici le titre saisi par le créateur de
+  // l'événement (« … vous a invité à « {titre} » »). Sur demande explicite de l'utilisateur, le
+  // titre — facultatif et parfois trompeur — n'est plus repris ; le libellé indique désormais le
+  // **type d'événement** (traduit via `EVENT_TYPE_LABELS`, seul point de traduction
+  // technique→français de ce type — `components/calendar/calendarTypes.ts`) et l'**heure**
+  // (`formatEventDate`, même formatage que les cartes d'événement du calendrier — `EventCard`,
+  // `dateFormat.ts`). Le nom du créateur reste en tête, structure inchangée par ailleurs.
   event_invitation_received: (metadata) => {
     const inviter = inviterLabel(metadata)
-    const eventTitle = metadata?.title?.trim()
-    return eventTitle
-      ? `${inviter} vous a invité à « ${eventTitle} »`
-      : `${inviter} vous a invité à un événement`
+    const eventType = metadata?.eventType as EventType | undefined
+    const eventTypeLabel = eventType ? EVENT_TYPE_LABELS[eventType] ?? eventType : null
+    const startAt = metadata?.startAt
+    const whenLabel = startAt ? formatEventDate(startAt) : null
+
+    const typePart = eventTypeLabel ? ` « ${eventTypeLabel} »` : ''
+    const whenPart = whenLabel ? ` le ${whenLabel}` : ''
+    return `${inviter} vous a invité à un événement${typePart}${whenPart}`
   },
 }
 

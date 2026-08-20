@@ -5,6 +5,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { getNotificationDisplayText, getNotificationTargetPath } from '../../src/utils/notificationLabels'
+import { formatEventDate } from '../../src/utils/dateFormat'
 
 describe('getNotificationDisplayText', () => {
   it('résout teacher_request_created avec le nom de l\'élève', () => {
@@ -156,27 +157,48 @@ describe('getNotificationDisplayText', () => {
     expect(text).toBe('Proposition de cours ajoutée par un intervenant')
   })
 
-  it('résout event_invitation_received avec titre (bug réel corrigé le 2026-08-20)', () => {
+  it('résout event_invitation_received avec le type d\'événement et l\'heure, jamais le titre (ajustement du 2026-08-20)', () => {
     const text = getNotificationDisplayText({
       type: 'event_invitation_received',
-      metadata: { creatorName: 'Camille Durand', title: 'Cours particulier' },
+      metadata: {
+        creatorName: 'Camille Durand',
+        title: 'Cours particulier',
+        eventType: 'cours',
+        startAt: '2026-08-19T14:00:00.000Z',
+      },
       title: '',
       message: '',
     })
-    expect(text).toBe('Camille Durand vous a invité à « Cours particulier »')
+    // Le titre saisi par le créateur ne doit plus apparaître, même s'il existe.
+    expect(text).not.toContain('Cours particulier')
+    expect(text).toBe(
+      `Camille Durand vous a invité à un événement « Cours » le ${formatEventDate('2026-08-19T14:00:00.000Z')}`,
+    )
   })
 
-  it('résout event_invitation_received sans titre (titre réellement optionnel côté serveur)', () => {
+  it('résout event_invitation_received sans startAt connu → pas d\'heure affichée', () => {
     const text = getNotificationDisplayText({
       type: 'event_invitation_received',
-      metadata: { creatorName: 'Camille Durand', title: null },
+      metadata: { creatorName: 'Camille Durand', eventType: 'rappel' },
       title: '',
       message: '',
     })
-    expect(text).toBe('Camille Durand vous a invité à un événement')
+    expect(text).toBe('Camille Durand vous a invité à un événement « Rappel »')
   })
 
-  it('event_invitation_received sans creatorName → texte neutre en français, jamais un UUID', () => {
+  it('event_invitation_received sans eventType connu → aucun libellé de type, heure conservée', () => {
+    const text = getNotificationDisplayText({
+      type: 'event_invitation_received',
+      metadata: { creatorName: 'Camille Durand', startAt: '2026-08-19T14:00:00.000Z' },
+      title: '',
+      message: '',
+    })
+    expect(text).toBe(
+      `Camille Durand vous a invité à un événement le ${formatEventDate('2026-08-19T14:00:00.000Z')}`,
+    )
+  })
+
+  it('event_invitation_received sans creatorName ni type ni heure → texte neutre en français, jamais un UUID', () => {
     const text = getNotificationDisplayText({
       type: 'event_invitation_received',
       metadata: {},

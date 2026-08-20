@@ -2101,9 +2101,15 @@ notifications par rôle ».
 > `payload.startTime` — nom aligné sur la réponse HTTP de calendar-service, pas sur son payload
 > d'événement interne), `eventType` reprend `payload.eventType` (`cours`/`rappel`/…), `title`
 > peut être `null` (le titre est réellement optionnel sur `CalendarEvent` depuis le correctif du
-> même chantier, voir plus haut). Libellé français prévu côté front (`notificationLabels.ts`,
-> non traité par cette session) : « {creatorName} vous a invité à un événement » si `title` est
-> `null`, ou « {creatorName} vous a invité à « {title} » » si un titre existe.
+> même chantier, voir plus haut).
+>
+> **Libellé révisé le 2026-08-20 (même jour, demande utilisateur) : le titre n'est plus repris.**
+> Une première version affichait le titre saisi par le créateur quand il existait ; l'utilisateur a
+> demandé à la place le **type d'événement** et **l'heure**, jamais le titre. Libellé réel
+> (`notificationLabels.ts`) : « {creatorName} vous a invité à un événement « {type traduit} » le
+> {date+heure formatées} » — chaque partie (type, date/heure) est omise si l'information est
+> absente côté `metadata`, sans jamais réintroduire le titre. Repli neutre si ni `creatorName`, ni
+> `eventType`, ni `startAt` ne sont connus : « Quelqu'un vous a invité à un événement ».
 >
 > **Défaut corrigé le 2026-08-20 (calendar-service).** Vérifié le 2026-08-20 directement sur le
 > flux Redis réel (`XREVRANGE`) : le payload publié par `CalendarEventsService.createEvent` ne

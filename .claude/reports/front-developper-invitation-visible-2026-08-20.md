@@ -159,12 +159,29 @@ l'avertissement habituel de taille de bundle, préexistant, hors périmètre).
   session — signalé, à reconsidérer si le fichier continue de croître (ex. séparer les fonctions
   par sous-domaine : événements / disponibilités / activités / invitations).
 
+## Notification `event_invitation_received` (ajoutée après rebase)
+
+Au moment d'ouvrir cette session, `dashboard-notification-service` n'avait pas encore ce type —
+le point était donc explicitement laissé de côté. Entre-temps, un autre agent a livré ce type sur
+la même branche (`33fb10c`/`f579346`, remote `fix/calendrier-creation-et-affichage`), avec
+`docs/routes.md` documentant le type, la forme de `metadata`
+(`{creatorName, eventId, eventType, title, startAt}`) et même le libellé français exact attendu.
+`git rebase origin/fix/calendrier-creation-et-affichage` a intégré ce travail sans conflit.
+
+Le type et la forme étant désormais documentés, l'entrée a été ajoutée conformément à la consigne
+d'origine :
+- `src/types/dashboard.ts` : `NotificationType` porte `event_invitation_received` ;
+  `NotificationMetadata` porte `creatorName`, `eventId`, `eventType`, `title`, `startAt`.
+- `src/utils/notificationLabels.ts` : libellé exact repris de `docs/routes.md` — « {creatorName}
+  vous a invité à un événement » (titre absent) ou « … à « {title} » » (titre présent), fallback
+  « Quelqu'un » si `creatorName` manque (jamais un UUID). Route de destination `/calendar`, même
+  principe que `course_slot_proposed` : l'invitation s'accepte/se refuse directement dans la
+  grille, pas dans un écran séparé.
+- Tests ajoutés dans `test/utils/notificationLabels.test.ts` (titre présent, titre absent,
+  `creatorName` manquant, route de destination).
+
 ## Points ouverts, non traités dans cette session
 
-- Le libellé français de la notification `event_invitation_received` n'a pas été ajouté à
-  `notificationLabels.ts` : au moment de cette session, ni le type exact ni la forme de
-  `metadata` ne sont documentés dans `docs/routes.md` côté `dashboard-notification-service` —
-  conformément à la consigne, ce point est laissé de côté plutôt que deviné.
 - `declined` disparaît de la grille par effet de bord du rechargement serveur (voir point 2),
   jamais vérifié isolément contre la pile réelle dans cette session (seulement simulé en test :
   le mock renvoie une liste vide après refus). À confirmer contre la pile réelle avant de

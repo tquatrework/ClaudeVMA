@@ -76,12 +76,41 @@ disponibilités ; réponse HTTP citée montrant la création d'un événement **
 
 ### État
 
-- [ ] Backend `calendar-service` — rendre `title` réellement optionnel sur
-      `CreateCalendarEventDto` (et `Update...` si concerné), doc mise à jour, preuve HTTP.
-- [ ] Front — les 4 autres points (mode selector, dates réelles + mois, granularité 15 min,
-      sélection multi-créneaux, 2ᵉ modale de détails, sélecteur de destinataires avec affichage
-      de disponibilités).
-- [ ] Déployé sur la pile réelle
+- [x] Backend `calendar-service` — `title` réellement optionnel sur `CreateCalendarEventDto`,
+      commits `133e8b4`+`45eaaf4`. Migration `MakeCalendarEventTitleOptional1787080000000`
+      (colonne `title` nullable), vérifiée up/down/re-run par le sous-agent contre un clone
+      jetable. 245/245 tests unitaires + 97/97 e2e verts — 245 unitaires rejoués indépendamment
+      par l'orchestrateur après fast-forward. `docs/routes.md` et
+      `docs/services/calendar-service.md` mis à jour (`title?`).
+- [x] Front — les 4 autres points, commits `3905b00`+`293cf35` :
+      **A** (mode selector, "Consultation" retiré, 2 boutons mutuellement exclusifs) ;
+      **B** (décision d'architecture : gabarit hebdomadaire récurrent → vraie semaine calendaire
+      navigable, `calendarDisplayWeek.ts`/`useCalendarWeekNavigation`/`CalendarWeekNavigator` —
+      tranche le risque non confirmé du rapport du 2026-08-19 ; limite connue signalée : les
+      activités restent bornées côté serveur à -2/+4 semaines, plus visible maintenant qu'on
+      navigue réellement) ;
+      **C** (sélection au quart d'heure par glisser, cellules d'heure subdivisées en 4 cibles
+      sans alourdir visuellement la grille) ;
+      **D** (`QuickEventCreatePopover` remplacé par `EventCreateFormModal` + `EventRecipientPicker`
+      + `useEventRecipients` — recherche de destinataire par nom, jamais un UUID, réutilise
+      `LinkedCalendarView` tel quel pour afficher les disponibilités busy/free pendant la
+      sélection). **Défaut réel trouvé et corrigé au passage** : `EventCard.tsx` affichait un
+      fragment d'UUID (`Événement #xxxxxxxx`) en l'absence de titre — corrigé en "Sans titre"
+      partout, conforme à la règle du 2026-08-09. 1800/1802 tests verts (2 échecs préexistants
+      sans rapport, `EleveDashboardPage.test.tsx`, reproduits par l'agent sur le commit de départ
+      pour confirmer qu'ils ne viennent pas de cette session), `tsc --noEmit` et `npm run build`
+      propres — tous rejoués indépendamment par l'orchestrateur après fast-forward.
+- [x] Déployé sur la pile réelle — `calendar-service` et `frontend` reconstruits et redémarrés,
+      migration confirmée appliquée (`migration:show` → 3/3 `[X]`), gateway redémarrée, bundle
+      `index-B3dGF5Na.js` confirmé servi.
+- [x] Preuve HTTP obtenue par l'orchestrateur contre `https://claudevma.visioprof.fr` (compte
+      élève réel) : `POST /calendars/:ownerId/events` sans `title` → `201 {title: null, ...}` ;
+      avec `title: ""` → `201 {title: "", ...}` ; avec titre → `201` inchangé. Le rejet `400`
+      d'avant cette session ne se reproduit plus.
+- [ ] Preuve à l'écran — test Playwright réel en cours par `front-tester` contre la pile réelle
+      (sélecteur de mode à 2 boutons, dates réelles + navigation semaine, sélection au quart
+      d'heure, modale de création avec destinataire et affichage busy/free, événement sans titre
+      affiché "Sans titre").
 - [ ] Preuve livrée à l'utilisateur
 - [ ] Validé par l'utilisateur
 

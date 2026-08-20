@@ -118,8 +118,10 @@ disponibilités ; réponse HTTP citée montrant la création d'un événement **
       recherché par nom + son calendrier busy/free affiché ; événement créé affiché "Sans titre"
       sur la grille, aucun UUID visible nulle part.
 - [x] Preuve livrée à l'utilisateur
-- [ ] Validé par l'utilisateur — **pas validé, test réel de l'utilisateur non concluant** (voir
-      ci-dessous, 2026-08-20)
+- [x] Validé par l'utilisateur — **le test réel de l'utilisateur avait d'abord été non concluant**
+      (bug d'invitation invisible, voir ci-dessous), **corrigé et reprouvé** ; validation complète
+      obtenue et chantier mergé dans `master` (PR #130, voir l'état détaillé plus bas dans cette
+      même entrée).
 
 ### Retour utilisateur sur son propre test (2026-08-20) — bug réel, pas une validation
 

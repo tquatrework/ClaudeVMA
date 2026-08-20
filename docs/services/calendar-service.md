@@ -832,6 +832,163 @@
           <item>Point 4 du chantier (integration LiveKit) toujours non traite.</item>
         </openPoints>
       </session>
+
+      <session date="2026-08-19" label="Correctif bug reel — POST /calendars/:ownerId/events rejetait systematiquement le body du front">
+        <changeset id="cause-confirmee">
+          <item>Bug signale par l'utilisateur en test reel (pas un rapport simule) :
+            `POST /calendars/:ownerId/events` echouait toujours en `400` avec
+            `"startTime must be a valid ISO 8601 date stringendTime must be a valid ISO 8601 date
+            string"` (messages de validation concatenes sans separateur).</item>
+          <item>Cause confirmee par lecture directe du code (pas supposee) :
+            `CreateCalendarEventDto` (`src/calendar-events/dto/create-calendar-event.dto.ts`)
+            exigeait `startTime`/`endTime`, alors que `docs/routes.md` documentait deja
+            `startAt`/`endAt` pour cette route precise et que le front envoyait deja
+            `startAt`/`endAt` en conformite avec cette doc. Pur ecart code/doc jamais
+            synchronise, pas un probleme de mapping ailleurs dans la chaine.</item>
+          <item>Verifie qu'il ne s'agit pas d'un manque de coherence de nommage a l'echelle du
+            service : `startTime`/`endTime` restent legitimes et inchanges sur les creneaux de
+            disponibilite (`POST/PATCH /calendars/:ownerId/availability-slots`) et sur les
+            activites (`POST/PUT /activities`), routes distinctes documentees ainsi depuis le
+            debut. Seule la route `/calendars/:ownerId/events` divergeait.</item>
+          <item>Concatenation sans separateur du message d'erreur : confirmee **hors perimetre**
+            de `calendar-service` — `ValidationPipe({ whitelist: true, transform: true })`
+            (`src/main.ts`) ne porte aucun `exceptionFactory` local, et aucun `.join('')` n'existe
+            dans le code du service. Le `BadRequestException` par defaut de Nest renvoie un
+            tableau `message: string[]`, pas une chaine concatenee. La source reelle de la
+            concatenation est donc ailleurs dans la chaine (api-gateway ou front) — signale comme
+            point ouvert, non traite ici.</item>
+        </changeset>
+
+        <changeset id="correctif">
+          <item>`CreateCalendarEventDto` : `startTime`/`endTime` renommes en `startAt`/`endAt`
+            (memes decorateurs `@IsDateString()`), alignement sur le nom deja documente et deja
+            envoye par le front plutot que l'inverse.</item>
+          <item>`CalendarEventsService.createEvent` : lit desormais `dto.startAt`/`dto.endAt`
+            pour construire `new Date(...)`. Les proprietes internes de l'entite `CalendarEvent`
+            (`startTime`/`endTime`, colonnes `start_time`/`end_time` en base) restent inchangees —
+            detail d'implementation legitime, pas expose tel quel au contrat documente du corps de
+            requete.</item>
+        </changeset>
+
+        <changeset id="ecart-restant-non-corrige">
+          <item>**Non corrige dans cette session, signale explicitement** : la reponse de
+            `GET`/`POST /calendars/:ownerId/events` renvoie toujours l'entite `CalendarEvent`
+            telle quelle (`startTime`/`endTime`), alors que `docs/routes.md` documente une reponse
+            en `startAt`/`endAt`. Aucune serialisation dediee n'existe (pas de
+            `ClassSerializerInterceptor`, pas de mapping de sortie). Ecart de doc reel et
+            anterieur a cette session, laisse tel quel volontairement : le signalement traite ici
+            ne portait que sur la creation (corps de requete), et aucun appelant connu ne s'est
+            plaint de la lecture. Documente comme point ouvert dans `docs/routes.md` a la ligne
+            concernee plutot que laisse silencieux.</item>
+        </changeset>
+
+        <changeset id="tests">
+          <item>Nouveau `test/unit/calendar-events/create-calendar-event.dto.spec.ts` : exerce
+            directement `class-validator`/`class-transformer` (meme mecanisme que le
+            `ValidationPipe` global) — accepte le body exact envoye par le front
+            (`startAt`/`endAt` ISO 8601), rejette explicitement l'ancienne forme
+            `startTime`/`endTime` avec des erreurs distinctes par champ, rejette des dates non-ISO,
+            accepte `description`/`inviteeIds` optionnels a cote de `startAt`/`endAt`.</item>
+          <item>`test/unit/calendar-events/calendar-events.controller.spec.ts` et
+            `calendar-events.service.spec.ts` : fixtures `startTime`/`endTime` renommees en
+            `startAt`/`endAt` pour rester coherentes avec le DTO corrige.</item>
+          <item>Suite unitaire complete du service verte : 240 tests (etait 236), aucune
+            regression. Aucun test e2e existant ne couvrait deja cette route (verifie par lecture
+            de `test/e2e/calendar.e2e-spec.ts` — seules les routes `/activities`,
+            `/availability-slots`, `/busy` et `/reminders` y sont testees) ; aucune infrastructure
+            e2e (DB, JWT) montee dans cette session pour rester dans le perimetre strict du
+            correctif signale.</item>
+        </changeset>
+
+        <changeset id="documentation">
+          <item>`docs/routes.md` : note ajoutee sous le body documente de
+            `POST /calendars/:ownerId/events` expliquant le bug, sa cause reelle et le correctif ;
+            note distincte ajoutee sous la reponse documentee de `GET` signalant l'ecart restant
+            (reponse toujours en `startTime`/`endTime`) comme point ouvert non corrige.</item>
+        </changeset>
+
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <item>Concatenation sans separateur des messages de validation multiples
+            (`"...stringendTime must be..."`) : source reelle hors `calendar-service`, probablement
+            `api-gateway` ou le front, a investiguer par le service/agent concerne.</item>
+          <item>Reponse de `GET`/`POST /calendars/:ownerId/events` toujours en
+            `startTime`/`endTime` alors que documentee en `startAt`/`endAt` — necessiterait une
+            transformation de sortie dediee si un consommateur en a besoin ; non traite ici pour
+            rester strictement dans le perimetre du bug de creation signale.</item>
+        </openPoints>
+      </session>
+
+      <session date="2026-08-19" label="Correctif ecart restant — reponse GET/POST /calendars/:ownerId/events en startTime/endTime au lieu de startAt/endAt">
+        <changeset id="cause-confirmee">
+          <item>Suite directe de la session precedente du meme jour, qui avait corrige le corps de
+            la requete `POST` mais signale explicitement, sans le corriger, que la reponse de
+            `GET`/`POST /calendars/:ownerId/events` renvoyait l'entite `CalendarEvent` telle
+            quelle (`startTime`/`endTime`), alors que `docs/routes.md` et le front
+            (`apps/web/src/components/calendar/calendarTypes.ts`, `EventCard.tsx`) attendent
+            `startAt`/`endAt` en lecture — verifie par lecture directe de ces deux fichiers front
+            avant correctif, pas suppose.</item>
+          <item>Confirme que le controleur (`CalendarEventsController`) ne fait aucune
+            transformation de sortie : il retourne directement l'entite TypeORM `CalendarEvent`
+            (ou un tableau de celle-ci), serialisee telle quelle par Nest — la reponse JSON suit
+            donc exactement les noms de propriete TypeScript de l'entite.</item>
+        </changeset>
+
+        <changeset id="correctif">
+          <item>Entite `CalendarEvent` (`src/calendar-events/entities/calendar-event.entity.ts`) :
+            proprietes TypeScript renommees `startTime` → `startAt`, `endTime` → `endAt`. Les
+            colonnes physiques en base restent `start_time`/`end_time`
+            (`@Column({ name: 'start_time' })` / `@Column({ name: 'end_time' })`) — aucune
+            migration necessaire, seul le nom expose en JSON change.</item>
+          <item>`CalendarEventsService` (seul autre fichier du service referencant cette entite,
+            verifie par grep cible sur `CalendarEvent` hors dossier `calendar-events/` — aucun
+            resultat) : `createEvent` construit desormais l'entite avec `startAt`/`endAt` ;
+            `requestCancellation` lit `calendarEvent.startAt.getTime()` au lieu de
+            `.startTime.getTime()` pour la regle des 48h.</item>
+          <item>Le payload de l'evenement de domaine `CalendarEventCreated` (outbox
+            `domain_events`, consomme potentiellement par d'autres services) garde
+            volontairement la cle `startTime` — seule sa source change
+            (`createdEvent.startAt` au lieu de `createdEvent.startTime`) ; renommer cette cle
+            aurait touche un contrat interservices hors perimetre de ce correctif, qui ne porte
+            que sur la reponse HTTP de la route.</item>
+          <item>Verifie que `availability-slots` et `activities` (routes et entites distinctes,
+            `AvailabilitySlot`/`ScheduledActivity`) ne sont pas concernes : ils gardent
+            legitimement `startTime`/`endTime`, ni leurs entites ni leurs services n'ont ete
+            touches.</item>
+        </changeset>
+
+        <changeset id="tests">
+          <item>`test/unit/calendar-events/calendar-events.service.spec.ts` : nouveau test de
+            regression explicite verifiant que `eventRepo.create` est appele avec
+            `startAt`/`endAt` (jamais `startTime`/`endTime`) et que l'objet retourne par
+            `createEvent` expose `startAt`/`endAt` sans `startTime`/`endTime`. Fixtures des tests
+            `requestCancellation` (`calendarEvent.startTime: ...`) renommees en `startAt` pour
+            rester coherentes avec l'entite renommee.</item>
+          <item>Nouveau `describe('POST/GET /calendars/:ownerId/events — startAt/endAt dans la
+            reponse')` ajoute a `test/e2e/calendar.e2e-spec.ts` (aucune couverture e2e n'existait
+            avant sur cette route) : exerce la vraie route HTTP via `supertest` contre l'app
+            NestJS complete et une vraie base Postgres (`calendar_test`), verifie que la reponse
+            `201` du `POST` et la reponse `200` du `GET` portent `startAt`/`endAt` et jamais
+            `startTime`/`endTime`.</item>
+          <item>Suite unitaire complete verte : 241 tests (etait 240, +1 test de regression).
+            Suite e2e complete verte : 93 tests (etait 91, +2 tests nouveaux), lancee avec
+            `TEST_DB_HOST=localhost` contre le conteneur Postgres reel deja en service
+            (`visiomath_postgres`, base `calendar_test` dediee aux tests).</item>
+        </changeset>
+
+        <changeset id="documentation">
+          <item>`docs/routes.md` : note « Ecart de doc non corrige, constate le 2026-08-19 »
+            remplacee par une note « Ecart de doc corrige le 2026-08-19 » decrivant le correctif
+            et le choix de laisser la colonne base et le payload d'evenement inchanges.</item>
+        </changeset>
+
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <item>Concatenation sans separateur des messages de validation multiples
+            (signalee dans la session precedente) : toujours hors perimetre de ce correctif,
+            non retraitee ici.</item>
+        </openPoints>
+      </session>
     </technicalSessions>
   </service>
 </serviceFunctionalSpecification>

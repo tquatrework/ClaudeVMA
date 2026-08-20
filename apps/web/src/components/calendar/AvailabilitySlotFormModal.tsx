@@ -1,12 +1,13 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import type {
   AvailabilityKind,
   AvailabilityRecurrence,
   AvailabilitySlot,
   CreateAvailabilitySlotPayload,
 } from '../../types/calendar'
-import { AVAILABILITY_DAY_OPTIONS } from '../../utils/availabilityDays'
+import { AVAILABILITY_DAY_OPTIONS, getDayLabel } from '../../utils/availabilityDays'
 import { isStartBeforeEnd, isValidTimeString } from '../../utils/availabilityTime'
+import { buildIsoDateTimeForDay, isResolvedDateTimeInPast } from '../../utils/availabilitySlotApiMapping'
 
 const KIND_OPTIONS: { value: AvailabilityKind; label: string }[] = [
   { value: 'AVAILABLE', label: 'Disponible' },
@@ -41,7 +42,7 @@ interface AvailabilitySlotFormModalProps {
 
 /**
  * AvailabilitySlotFormModal — sert la création, la modification et la suppression d'un même
- * créneau. Modelée sur EventCreateDialog.tsx (dialog accessible, focus, bouton fermer).
+ * créneau (dialog accessible, focus, bouton fermer).
  */
 export default function AvailabilitySlotFormModal({
   editingSlot,
@@ -70,6 +71,24 @@ export default function AvailabilitySlotFormModal({
 
   const areTimesValid =
     isValidTimeString(startTime) && isValidTimeString(endTime) && isStartBeforeEnd(startTime, endTime)
+
+  /**
+   * Avertissement de date déjà passée (décision utilisateur du 2026-08-19, même mécanisme que
+   * `QuickEventCreatePopover`) — appliqué **uniquement en `recurrence: 'NONE'`** (« Une seule
+   * fois ») : c'est le seul cas où la date résolue représente une occurrence concrète et unique,
+   * exactement comme un événement créé par `QuickEventCreatePopover`. Un créneau `WEEKLY`/
+   * `BIWEEKLY` reste valide pour les semaines suivantes même si l'occurrence d'aujourd'hui est
+   * déjà dépassée : avertir dans ce cas induirait en erreur sur l'utilité réelle du créneau.
+   */
+  const isResolvedDatePast = useMemo(() => {
+    if (recurrence !== 'NONE') return false
+    if (!isValidTimeString(startTime)) return false
+    try {
+      return isResolvedDateTimeInPast(buildIsoDateTimeForDay(dayOfWeek, startTime))
+    } catch {
+      return false
+    }
+  }, [recurrence, dayOfWeek, startTime])
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault()
@@ -119,6 +138,13 @@ export default function AvailabilitySlotFormModal({
         {displayedError && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
             {displayedError}
+          </div>
+        )}
+
+        {isResolvedDatePast && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+            La date la plus proche pour « {getDayLabel(dayOfWeek).toLowerCase()} » est déjà
+            passée. Vous pouvez tout de même créer ce créneau si vous le souhaitez.
           </div>
         )}
 

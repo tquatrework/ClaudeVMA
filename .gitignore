@@ -52,3 +52,6 @@ blob-report/
 
 # Worktrees des subagents Claude
 .claude/worktrees/
+
+# Sortie generee par /graphify (cache local, pas un livrable versionne)
+graphify-out/

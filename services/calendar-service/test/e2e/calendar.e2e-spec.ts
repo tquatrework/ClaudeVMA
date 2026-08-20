@@ -984,4 +984,63 @@ describe('[E2E] Calendar Service', () => {
       expect(res.status).toBe(403);
     });
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // POST/GET /calendars/:ownerId/events — reponse startAt/endAt
+  //
+  // Regression e2e du 2026-08-19 : POST /calendars/:ownerId/events accepte
+  // deja {startAt, endAt} en entree (corrige precedemment), mais la reponse
+  // (POST 201 et GET 200) renvoyait encore startTime/endTime — champs
+  // absents de docs/routes.md et non lus par le front (calendarTypes.ts,
+  // EventCard.tsx attendent startAt/endAt). Ce test exerce la vraie route
+  // HTTP, pas seulement le service en mock.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('POST/GET /calendars/:ownerId/events — startAt/endAt dans la reponse', () => {
+    function validEventPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      const start = new Date(Date.now() + 86_400_000);
+      const end   = new Date(start.getTime() + 3_600_000);
+      return {
+        title: 'Cours de trigonometrie',
+        eventType: 'cours',
+        startAt: start.toISOString(),
+        endAt: end.toISOString(),
+        ...overrides,
+      };
+    }
+
+    it('POST renvoie startAt/endAt (jamais startTime/endTime) → 201', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/calendars/${IDS.teacher1}/events`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send(validEventPayload());
+
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('startAt');
+      expect(res.body).toHaveProperty('endAt');
+      expect(res.body).not.toHaveProperty('startTime');
+      expect(res.body).not.toHaveProperty('endTime');
+    });
+
+    it('GET renvoie startAt/endAt (jamais startTime/endTime) → 200', async () => {
+      const created = await request(app.getHttpServer())
+        .post(`/calendars/${IDS.teacher1}/events`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send(validEventPayload());
+      expect(created.status).toBe(201);
+
+      const res = await request(app.getHttpServer())
+        .get(`/calendars/${IDS.teacher1}/events`)
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      const createdInList = res.body.find((event: { id: string }) => event.id === created.body.id);
+      expect(createdInList).toBeDefined();
+      expect(createdInList).toHaveProperty('startAt');
+      expect(createdInList).toHaveProperty('endAt');
+      expect(createdInList).not.toHaveProperty('startTime');
+      expect(createdInList).not.toHaveProperty('endTime');
+    });
+  });
 });

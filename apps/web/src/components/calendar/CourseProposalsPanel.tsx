@@ -1,15 +1,17 @@
 /**
- * CourseProposalsPanel — onglet « Propositions de cours » de `/calendar` (chantier calendrier
+ * CourseProposalsPanel — panneau « Propositions de cours » de `/calendar` (chantier calendrier
  * de disponibilités, point 3). Permet à un formateur, un animateur pédagogique ou un
  * responsable pédagogique d'ouvrir `ProposeCourseSlotDialog` et de suivre ses propositions
  * envoyées depuis cet appareil.
  *
- * **Rôle révisé le 2026-08-19.** Le gap qui justifiait cet onglet côté **destinataire** est
- * comblé : `GET /calendars/:ownerId` porte désormais `activities`, et une proposition reçue
- * s'affiche directement dans la grille de l'onglet « Mes disponibilités »
- * (`AvailabilityTab`), avec ses boutons Accepter/Refuser inline — plus besoin de connaître un
- * lien direct transmis hors application. Cet onglet reste néanmoins le point d'entrée du
- * **proposeur** : ouvrir `ProposeCourseSlotDialog`, et un suivi de ce qu'il a envoyé.
+ * **Rôle révisé le 2026-08-19, deux fois.** D'abord parce que le gap qui justifiait un onglet
+ * dédié côté **destinataire** a été comblé : `GET /calendars/:ownerId` porte désormais
+ * `activities`, et une proposition reçue s'affiche directement dans la grille unifiée
+ * (`CalendarUnifiedView`), avec ses boutons Accepter/Refuser révélés au clic. Ensuite parce que
+ * l'onglet lui-même a disparu (chantier calendrier vue unifiée) : ce panneau est désormais monté
+ * en marge de la grille, dans un `<details>` replié par défaut sur `CalendarPage`, plutôt que
+ * dans un onglet séparé. Il reste le point d'entrée du **proposeur** : ouvrir
+ * `ProposeCourseSlotDialog`, et un suivi de ce qu'il a envoyé.
  *
  * **Limite assumée, inchangée** (voir `useSentCourseProposals`) : ce suivi ne retrace que les
  * propositions envoyées **depuis ce navigateur** (`localStorage`, aucune route de liste

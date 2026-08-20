@@ -193,7 +193,7 @@ export async function declineActivity(activityId: string): Promise<ScheduledActi
   return data
 }
 
-// ─── Disponibilités (AvailabilityTab) ───────────────────────────────────────────
+// ─── Disponibilités (CalendarUnifiedView) ───────────────────────────────────────
 //
 // Corrigé le 2026-08-18 : `GET /calendars/:ownerId/availability` n'a jamais existé côté
 // calendar-service (404 confirmé contre la pile réelle). `docs/routes.md` documente désormais
@@ -212,7 +212,7 @@ interface OwnerCalendarResponse {
 /**
  * GET /calendars/:ownerId — Lit le calendrier complet d'un titulaire et en extrait les
  * créneaux de disponibilité (`availabilitySlots`), traduits vers la représentation front.
- * Utilisé par AvailabilityTab.
+ * Utilisé par CalendarUnifiedView.
  */
 export async function fetchAvailability(ownerId: string): Promise<AvailabilitySlot[]> {
   const { data } = await apiClient.get<OwnerCalendarResponse>(`/calendars/${ownerId}`)
@@ -261,7 +261,7 @@ export async function deleteAvailabilitySlot(ownerId: string, slotId: string): P
   await apiClient.delete(`/calendars/${ownerId}/availability-slots/${slotId}`)
 }
 
-// ─── Activités du calendrier — affichage inline des propositions (AvailabilityTab) ─────
+// ─── Activités du calendrier — affichage inline des propositions (CalendarUnifiedView) ──
 //
 // Chantier calendrier de disponibilités, point 3, gap comblé le 2026-08-18 côté serveur
 // (docs/routes.md § calendar-service > "GET /calendars/:ownerId — forme exacte de activities").

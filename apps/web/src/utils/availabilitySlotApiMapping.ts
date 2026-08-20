@@ -97,6 +97,31 @@ export function buildIsoDateTimeForDay(
 }
 
 /**
+ * La date/heure ISO 8601 résolue par `buildIsoDateTimeForDay` tombe-t-elle déjà dans le passé par
+ * rapport à `referenceDate` (défaut : l'instant présent) ?
+ *
+ * `buildIsoDateTimeForDay` retient toujours le jour calendaire d'aujourd'hui ou d'un jour futur
+ * (`nextOrTodayDateForWeekday`) : la seule façon d'obtenir un instant déjà passé est de cliquer
+ * sur le jour de semaine correspondant à aujourd'hui, à une heure déjà dépassée (ex. cliquer sur
+ * « Mercredi 15:00 » alors qu'il est déjà 16h ce même mercredi) — la grille étant un gabarit
+ * hebdomadaire récurrent (point 1), rien n'empêche ce clic. Décision utilisateur du 2026-08-19 :
+ * avertir avant de valider, sans jamais bloquer la création — cette fonction sert uniquement à
+ * détecter le cas pour afficher l'avertissement, la création reste possible ensuite.
+ *
+ * `referenceDate` est un paramètre explicite (et non un appel direct à `Date.now()` à l'intérieur)
+ * pour que la fonction reste testable de façon déterministe, même convention que
+ * `nextOrTodayDateForWeekday`/`buildIsoDateTimeForDay` ci-dessus.
+ */
+export function isResolvedDateTimeInPast(
+  isoDateTime: string,
+  referenceDate: Date = new Date(),
+): boolean {
+  const parsed = new Date(isoDateTime)
+  if (Number.isNaN(parsed.getTime())) return false
+  return parsed.getTime() < referenceDate.getTime()
+}
+
+/**
  * Extrait l'heure `HH:mm` (UTC) d'une date ISO 8601 complète renvoyée par calendar-service.
  * Renvoie `null` si la chaîne n'est pas une date valide — jamais une heure inventée.
  */

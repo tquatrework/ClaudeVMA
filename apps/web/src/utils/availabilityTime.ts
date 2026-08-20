@@ -94,3 +94,16 @@ export function computeVerticalPosition(
 export function formatTimeRangeLabel(startTime: string, endTime: string): string {
   return `${startTime} – ${endTime}`
 }
+
+/**
+ * Ajoute une heure à une heure `HH:mm` (repasse à `00:xx` après `23:xx`). Sert de durée par
+ * défaut pour une création rapide (créneau de disponibilité, ou événement créé par clic direct
+ * sur la grille — chantier calendrier vue unifiée). Renvoie `time` inchangé si invalide.
+ */
+export function addOneHourToTime(time: string): string {
+  const parsed = parseTimeOfDay(time)
+  if (!parsed) return time
+  const hours = (parsed.getHours() + 1) % 24
+  const minutes = parsed.getMinutes()
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
+}

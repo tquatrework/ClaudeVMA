@@ -49,11 +49,20 @@ export class CalendarEvent {
   @Column({ name: 'creator_role' })
   creatorRole: string;
 
+  /**
+   * Exposed as `startAt` (property name), stored in the `start_time` column.
+   * `docs/routes.md` has always documented `startAt`/`endAt` for this
+   * resource's JSON responses (`POST`/`GET /calendars/:ownerId/events`) —
+   * only the property name changes here, not the database column, to align
+   * the serialized response with what the front-end and the docs expect.
+   * Unrelated to `availability-slots`/`activities`, which legitimately keep
+   * `startTime`/`endTime` on their own routes.
+   */
   @Column({ name: 'start_time', type: 'timestamptz' })
-  startTime: Date;
+  startAt: Date;
 
   @Column({ name: 'end_time', type: 'timestamptz' })
-  endTime: Date;
+  endAt: Date;
 
   @Column({ type: 'varchar', default: CalendarEventStatus.ACTIVE })
   status: CalendarEventStatus;

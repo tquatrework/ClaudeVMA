@@ -222,7 +222,7 @@ export interface CreateActivityPayload {
 /**
  * Élément d'activité tel que renvoyé dans `activities` par `GET /calendars/:ownerId`. Utilisé pour
  * afficher les propositions/confirmations de créneau de cours directement dans la grille du
- * destinataire (`AvailabilityTab`, `useOwnerCalendarActivities`).
+ * destinataire (`CalendarUnifiedView`, `useOwnerCalendarActivities`).
  */
 export interface CalendarActivityEntry {
   id: string

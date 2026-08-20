@@ -20,11 +20,11 @@ export class CreateCalendarEventDto {
 
   @ApiProperty({ description: 'Event start time (ISO 8601)', example: '2026-06-10T14:00:00Z' })
   @IsDateString()
-  startTime: string;
+  startAt: string;
 
   @ApiProperty({ description: 'Event end time (ISO 8601)', example: '2026-06-10T15:00:00Z' })
   @IsDateString()
-  endTime: string;
+  endAt: string;
 
   @ApiPropertyOptional({ description: 'Optional description' })
   @IsOptional()

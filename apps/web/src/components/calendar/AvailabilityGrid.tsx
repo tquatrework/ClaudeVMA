@@ -19,10 +19,21 @@ const GRID_HEIGHT_PX = GRID_HOURS.length * HOUR_ROW_HEIGHT_PX
  * titulaire (point 1) ; `BUSY` s'y ajoute pour la vue busy/free d'un tiers lié en lecture seule
  * (point 2, `LinkedCalendarView`) — un bloc « Occupé » n'est jamais un créneau créable/éditable.
  * `PROPOSED`/`CONFIRMED` s'y ajoutent pour les propositions/confirmations de créneau de cours
- * (point 3, `AvailabilityTab` + `useOwnerCalendarActivities`) — jamais éditables non plus, mais
+ * (point 3, `CalendarUnifiedView` + `useOwnerCalendarActivities`) — jamais éditables non plus, mais
  * `PROPOSED` porte des actions inline (accepter/refuser), voir `renderBlockOverlay`.
+ * `EVENT` s'y ajoute pour les événements de calendrier (`CalendarEvent`,
+ * `GET /calendars/:ownerId/events`) fusionnés visuellement sur la même grille (chantier calendrier
+ * vue unifiée, point 1) — jamais éditable par clic direct sur le bloc (l'édition d'un événement
+ * n'existe pas côté front) : le clic ouvre un détail en lecture, voir `renderBlockOverlay` et
+ * `onOverlayBlockClick`.
  */
-export type AvailabilityGridBlockKind = 'AVAILABLE' | 'UNAVAILABLE' | 'BUSY' | 'PROPOSED' | 'CONFIRMED'
+export type AvailabilityGridBlockKind =
+  | 'AVAILABLE'
+  | 'UNAVAILABLE'
+  | 'BUSY'
+  | 'PROPOSED'
+  | 'CONFIRMED'
+  | 'EVENT'
 
 /**
  * Forme minimale attendue par la grille. `AvailabilitySlot` (point 1) et `BusyFreeGridBlock`
@@ -45,6 +56,9 @@ const KIND_STYLES: Record<AvailabilityGridBlockKind, string> = {
   // Pastel/plus clair que `CONFIRMED` — un créneau proposé n'est pas encore acquis.
   PROPOSED: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
   CONFIRMED: 'bg-indigo-100 text-indigo-800 border border-indigo-300',
+  // Couleur distincte (rose), inutilisée par les autres kinds, pour distinguer un événement de
+  // calendrier d'une proposition/confirmation de cours au premier coup d'œil.
+  EVENT: 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100',
 }
 
 const KIND_LABELS: Record<AvailabilityGridBlockKind, string> = {
@@ -53,6 +67,7 @@ const KIND_LABELS: Record<AvailabilityGridBlockKind, string> = {
   BUSY: 'Occupé',
   PROPOSED: 'Proposition de cours',
   CONFIRMED: 'Cours confirmé',
+  EVENT: 'Événement',
 }
 
 function formatHourLabel(hour: number): string {
@@ -68,18 +83,36 @@ interface AvailabilityGridProps<T extends AvailabilityGridSlot> {
   /**
    * Lecture seule — désactive toute interaction d'édition (cellules vides ET blocs existants).
    * Utilisée par `LinkedCalendarView` (point 2) pour la vue busy/free d'un tiers lié ; jamais
-   * activée sur ses propres disponibilités (point 1, `AvailabilityTab`).
+   * activée sur ses propres disponibilités (point 1, `CalendarUnifiedView`).
    */
   readOnly?: boolean
   /**
-   * Rendu additionnel superposé à un bloc — utilisé par `AvailabilityTab` (point 3) pour les
-   * actions inline Accepter/Refuser d'une proposition de créneau de cours, ou l'affichage
-   * (sans action) d'un cours déjà confirmé. Quand cette fonction renvoie un contenu non `null`
-   * pour un `slot` donné, le bloc n'est **plus** cliquable pour l'édition (rendu en `<div>`,
-   * jamais en `<button>` imbriqué) — seuls les contrôles renvoyés le sont, `onEditSlot` n'est
-   * alors jamais invoqué pour ce bloc.
+   * Cellule horaire vide cliquable pour créer un nouvel objet — distinct de `readOnly`, qui
+   * désactive aussi l'édition des blocs existants. `canCreate: false` désactive uniquement la
+   * création sur cellule vide (mode « consultation » du sélecteur de mode de
+   * `CalendarUnifiedView`, chantier calendrier vue unifiée point 2) sans toucher à l'édition des
+   * disponibilités existantes ni à la consultation des autres blocs. Par défaut `true`.
+   */
+  canCreate?: boolean
+  /**
+   * Rendu additionnel superposé à un bloc — utilisé par `CalendarUnifiedView` (point 3) pour les
+   * actions inline Accepter/Refuser d'une proposition de créneau de cours, l'affichage (sans
+   * action) d'un cours déjà confirmé, ou le libellé d'un événement de calendrier (point 1). Quand
+   * cette fonction renvoie un contenu non `null` pour un `slot` donné, le bloc n'est **plus**
+   * cliquable pour l'édition (rendu en `<div>`, jamais en `<button>` imbriqué) — seuls les
+   * contrôles renvoyés le sont, `onEditSlot` n'est alors jamais invoqué pour ce bloc ; voir
+   * `onOverlayBlockClick` pour le déclenchement d'une action au clic sur le bloc lui-même.
    */
   renderBlockOverlay?: (slot: T) => React.ReactNode
+  /**
+   * Clic sur un bloc dont `renderBlockOverlay` a renvoyé un contenu — le `<div>` porteur de
+   * l'overlay n'a par défaut aucune interaction propre en dehors des contrôles qu'il superpose ;
+   * ce callback comble ce vide (chantier calendrier vue unifiée, point 4 : « cliquer sur le
+   * créneau pour y voir apparaître Accepter/Refuser »). Le clic sur un contrôle interne (bouton
+   * Accepter/Refuser/Rejoindre) remonte aussi ici par bouillonnement DOM — sans effet indésirable,
+   * voir `CalendarUnifiedView` pour la logique de bascule.
+   */
+  onOverlayBlockClick?: (slot: T) => void
 }
 
 /**
@@ -96,7 +129,9 @@ export default function AvailabilityGrid<T extends AvailabilityGridSlot>({
   onCreateAt,
   onEditSlot,
   readOnly = false,
+  canCreate = true,
   renderBlockOverlay,
+  onOverlayBlockClick,
 }: AvailabilityGridProps<T>) {
   return (
     <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
@@ -139,10 +174,12 @@ export default function AvailabilityGrid<T extends AvailabilityGridSlot>({
                   <button
                     key={hour}
                     type="button"
-                    disabled={readOnly}
+                    disabled={readOnly || !canCreate}
                     onClick={() => onCreateAt(day.value, cellStartTime)}
                     aria-label={`Ajouter un créneau ${day.label.toLowerCase()} à ${cellStartTime}`}
-                    className="absolute left-0 right-0 border-b border-gray-100 hover:bg-indigo-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 disabled:hover:bg-transparent disabled:cursor-default"
+                    className={`absolute left-0 right-0 border-b border-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 disabled:cursor-default ${
+                      canCreate ? 'hover:bg-indigo-50 disabled:hover:bg-transparent' : ''
+                    }`}
                     style={{
                       top: `${(hour - GRID_START_HOUR) * HOUR_ROW_HEIGHT_PX}px`,
                       height: `${HOUR_ROW_HEIGHT_PX}px`,
@@ -163,10 +200,20 @@ export default function AvailabilityGrid<T extends AvailabilityGridSlot>({
                 const overlay = renderBlockOverlay?.(slot)
 
                 if (overlay) {
+                  // `overflow-hidden` a été retiré délibérément : un bloc PROPOSED/CONFIRMED peut
+                  // révéler un contenu (boutons Accepter/Refuser, "Rejoindre le cours") plus haut
+                  // que la hauteur du créneau lui-même (calculée sur sa seule durée réelle). Avec
+                  // `overflow-hidden`, ce contenu restait présent dans le DOM — cliquable par un
+                  // test, invisible pour un utilisateur réel, un bloc de 40px de haut coupant un
+                  // bouton commençant 3px sous son bord bas. `z-10` fait passer ce débordement
+                  // au-dessus des blocs voisins (chevauchement temporaire assumé) plutôt que sous.
                   return (
                     <div
                       key={slot.id}
-                      className={`absolute left-0.5 right-0.5 rounded px-1 py-0.5 text-[10px] leading-tight overflow-hidden ${KIND_STYLES[slot.kind]}`}
+                      onClick={onOverlayBlockClick ? () => onOverlayBlockClick(slot) : undefined}
+                      className={`absolute left-0.5 right-0.5 z-10 rounded px-1 py-0.5 text-[10px] leading-tight ${KIND_STYLES[slot.kind]} ${
+                        onOverlayBlockClick ? 'cursor-pointer' : ''
+                      }`}
                       style={style}
                     >
                       {overlay}

@@ -1067,12 +1067,40 @@ Délais de rappel valides : `1week`, `1day`, `1hour`, `15min`, `none`
 
 Body `POST /calendars/:ownerId/events` : `{title, startAt, endAt, eventType, description?, inviteeIds?}`
 
+**Bug corrigé le 2026-08-19** : le `CreateCalendarEventDto` exigeait en réalité `startTime`/`endTime`
+depuis toujours — un écart pur entre le code et cette même documentation, jamais synchronisé. Le
+front (conforme à cette doc) envoyait `startAt`/`endAt` et recevait systématiquement `400
+"startTime must be a valid ISO 8601 date stringendTime must be a valid ISO 8601 date string"` (les
+deux messages de validation concaténés sans séparateur — la concaténation n'a pas sa source dans
+`calendar-service`, qui ne construit ni ne joint ce message : `ValidationPipe` par défaut renvoie un
+tableau `message: string[]`, sans exception filter local qui le transformerait en chaîne ; à
+chercher côté `api-gateway` ou côté front, point ouvert non traité ici). Le DTO a été aligné sur le
+nom déjà documenté et déjà envoyé par le front (`startAt`/`endAt`), plutôt que l'inverse — cette
+route a toujours documenté `startAt`/`endAt`, sans lien avec les créneaux de disponibilité et les
+activités qui utilisent légitimement `startTime`/`endTime` sur leurs propres routes.
+
 Body `POST /calendars/:ownerId/availability-slots` : `{dayOfWeek?, startTime, endTime, recurrence?, recurrenceEndDate?, kind?}`
 — `recurrence` : `none` (défaut) · `weekly` · `biweekly`. `recurrenceEndDate` (ISO 8601, instant inclusif) : absent = récurrence illimitée dans le temps, comportement historique préservé. `kind` : `available` (défaut) · `unavailable`.
 
 Body `PATCH /calendars/:ownerId/availability-slots/:slotId` : mêmes champs, tous optionnels. `recurrenceEndDate` accepte explicitement `null` pour effacer une date de fin déjà posée (repasser une récurrence bornée en illimitée).
 
-Réponse `GET /calendars/:ownerId/events` : `[{id, title, startAt, endAt, eventType, status, ownerId, invitations?, reminderRules?}]`
+Réponse `GET /calendars/:ownerId/events` et réponse `201` de `POST /calendars/:ownerId/events` :
+`[{id, title, startAt, endAt, eventType, status, ownerId, invitations?, reminderRules?}]`
+(`GET`) / `{id, title, startAt, endAt, eventType, status, ownerId, invitations?}` (`POST`).
+
+**Écart de doc corrigé le 2026-08-19** : cette forme de réponse (`startAt`/`endAt`) était
+documentée depuis le début mais jamais portée par le code — le contrôleur renvoyait l'entité
+`CalendarEvent` telle quelle (`startTime`/`endTime`, sans sérialisation dédiée), pour `GET` comme
+pour la réponse `201` de `POST`. Corrigé en renommant les propriétés TypeScript de l'entité
+`CalendarEvent` (`startTime` → `startAt`, `endTime` → `endAt`) ; la colonne physique en base reste
+`start_time`/`end_time` (`@Column({ name: 'start_time' })`), seul le nom exposé en JSON change.
+Aucun autre appelant interne de cette entité ne dépendait de `startTime`/`endTime` (vérifié —
+seul `calendar-events.service.ts` référence l'entité `CalendarEvent`, corrigé en même temps ; les
+routes `availability-slots`/`activities` portent leurs propres entités et gardent légitimement
+`startTime`/`endTime`). Le payload interne de l'évènement `CalendarEventCreated` (outbox
+`domain_events`) garde volontairement la clé `startTime` — hors périmètre de ce correctif, qui ne
+porte que sur la réponse HTTP, pour ne pas modifier un contrat d'évènement interservices sans
+concertation.
 
 ### `GET /calendars/:ownerId` — forme exacte de `activities` (chantier calendrier de disponibilités, point 3, gap comblé le 2026-08-18)
 

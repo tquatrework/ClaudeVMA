@@ -16,15 +16,25 @@ interface ActivityGridBlockOverlayProps {
    * droit — voir la condition d'affichage ci-dessous. */
   onJoinVideo?: (activityId: string) => void
   isJoiningVideo?: boolean
+  /**
+   * Chantier calendrier vue unifiée, point 4 : les boutons Accepter/Refuser d'une proposition
+   * (`PROPOSED`) ne sont plus affichés en permanence — ils n'apparaissent qu'au clic sur le
+   * créneau (`AvailabilityGrid.onOverlayBlockClick`, géré par le parent). Sans effet sur
+   * `CONFIRMED`, dont le bouton "Rejoindre le cours" reste toujours visible.
+   */
+  isRevealed: boolean
 }
 
 /**
  * ActivityGridBlockOverlay — contenu superposé à un bloc `PROPOSED`/`CONFIRMED` dans
  * `AvailabilityGrid` (`renderBlockOverlay`, chantier calendrier de disponibilités, point 3).
- * `PROPOSED` porte les actions Accepter/Refuser inline. `CONFIRMED` reste informatif, sauf pour
- * un `cours` : il porte alors un bouton "Rejoindre le cours" (point 2 du chantier
- * calendrier-visio-livekit) qui résout la salle vidéo créée automatiquement à l'acceptation du
- * créneau, sans jamais afficher l'`activityId` ni un id de salle.
+ * `PROPOSED` porte les actions Accepter/Refuser inline, révélées au clic (`isRevealed`, chantier
+ * calendrier vue unifiée, point 4) — un premier clic affiche les boutons, un second sur le même
+ * bloc (ou un clic sur un autre bloc révélable) les masque à nouveau. `CONFIRMED` reste
+ * informatif, sauf pour un `cours` : il porte alors un bouton "Rejoindre le cours" (point 2 du
+ * chantier calendrier-visio-livekit), **toujours visible**, qui résout la salle vidéo créée
+ * automatiquement à l'acceptation du créneau, sans jamais afficher l'`activityId` ni un id de
+ * salle.
  *
  * N'affiche jamais `creatorId`/`participantIds` bruts — seulement `activity.creatorName`, ou un
  * texte neutre en français si le serveur ne l'a pas résolu (arbitrage du 2026-08-09).
@@ -36,6 +46,7 @@ export default function ActivityGridBlockOverlay({
   isResponding,
   onJoinVideo,
   isJoiningVideo,
+  isRevealed,
 }: ActivityGridBlockOverlayProps) {
   const { activity, dateLabel } = block
   const creatorLabel = activity.creatorName?.trim() || getActivityCreatorFallbackLabel(activity.type)
@@ -51,28 +62,33 @@ export default function ActivityGridBlockOverlay({
         </span>
       </div>
 
-      {block.kind === 'PROPOSED' && (
-        <div className="flex gap-1 mt-0.5">
-          <button
-            type="button"
-            onClick={() => onAccept(activity.id)}
-            disabled={isResponding}
-            aria-label={`Accepter la proposition de cours du ${dateLabel} ${timeRangeLabel} avec ${creatorLabel}`}
-            className="flex-1 rounded bg-green-600 text-white text-[9px] font-medium py-0.5 hover:bg-green-700 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-400"
-          >
-            Accepter
-          </button>
-          <button
-            type="button"
-            onClick={() => onDecline(activity.id)}
-            disabled={isResponding}
-            aria-label={`Refuser la proposition de cours du ${dateLabel} ${timeRangeLabel} avec ${creatorLabel}`}
-            className="flex-1 rounded bg-red-600 text-white text-[9px] font-medium py-0.5 hover:bg-red-700 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
-          >
-            Refuser
-          </button>
-        </div>
-      )}
+      {block.kind === 'PROPOSED' &&
+        (isRevealed ? (
+          <div className="flex gap-1 mt-0.5">
+            <button
+              type="button"
+              onClick={() => onAccept(activity.id)}
+              disabled={isResponding}
+              aria-label={`Accepter la proposition de cours du ${dateLabel} ${timeRangeLabel} avec ${creatorLabel}`}
+              className="flex-1 rounded bg-green-600 text-white text-[9px] font-medium py-0.5 hover:bg-green-700 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-400"
+            >
+              Accepter
+            </button>
+            <button
+              type="button"
+              onClick={() => onDecline(activity.id)}
+              disabled={isResponding}
+              aria-label={`Refuser la proposition de cours du ${dateLabel} ${timeRangeLabel} avec ${creatorLabel}`}
+              className="flex-1 rounded bg-red-600 text-white text-[9px] font-medium py-0.5 hover:bg-red-700 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+            >
+              Refuser
+            </button>
+          </div>
+        ) : (
+          <span className="block text-[9px] italic opacity-70 mt-0.5">
+            Cliquer pour répondre
+          </span>
+        ))}
 
       {block.kind === 'CONFIRMED' && activity.type === 'cours' && onJoinVideo && (
         <div className="mt-0.5">

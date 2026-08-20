@@ -92,8 +92,8 @@ describe('CalendarEventsController', () => {
     const createEventDto: CreateCalendarEventDto = {
       title: 'Cours de maths',
       eventType: EventType.COURS,
-      startTime: '2026-07-01T10:00:00Z',
-      endTime: '2026-07-01T11:00:00Z',
+      startAt: '2026-07-01T10:00:00Z',
+      endAt: '2026-07-01T11:00:00Z',
     };
     const createdEvent = { id: 'evt-new', ownerId: 'teacher-1', ...createEventDto };
 

@@ -5,6 +5,122 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-19 — vue calendrier unifiée + bug création d'événement
+
+Demande explicite de l'utilisateur, en testant l'écran `/calendar` (3 onglets livrés par le
+chantier précédent : « Mes événements », « Mes disponibilités », « Propositions de cours »).
+Branche : `feat/calendrier-vue-unifiee` (créée le 2026-08-19, poussée).
+
+### 1. Bug réel signalé
+
+Créer un événement (onglet « Mes événements », en tant qu'élève) échoue avec l'erreur serveur
+brute concaténée sans séparateur : « startTime must be a valid ISO 8601 date stringendTime must
+be a valid ISO 8601 date string » — alors que l'utilisateur choisit bien la date via le
+sélecteur natif (`<input type="datetime-local">`, le « petit calendrier »).
+
+**Diagnostic fait par l'orchestrateur avant délégation** (lecture de `EventCreateDialog.tsx`,
+`useEventCreate.ts`, `api/calendar.ts::createOwnerEvent`) : le front envoie bien
+`{startAt, endAt, ...}` en ISO 8601 valide (`new Date(startAt).toISOString()`) vers
+`POST /calendars/:ownerId/events`, conforme au contrat documenté dans `docs/routes.md`
+(`{title, startAt, endAt, eventType, description?, inviteeIds?}`). Le message d'erreur porte
+pourtant `startTime`/`endTime` — **noms de champs différents**. Même famille de bug déjà
+rencontrée plusieurs fois dans ce projet (contrat documenté ≠ DTO réel côté serveur, ex.
+`description`/`subject` sur `teacher-request-service`, `/calendar` vs `/activities` au point 3
+de ce même chantier calendrier). **Pas encore vérifié côté serveur réel** — à confirmer par
+`calendar-service` avant de corriger, ne pas supposer lequel des deux (doc ou DTO) est le bon.
+
+### 2. Refonte demandée — vue calendrier unique
+
+Verbatim de l'utilisateur : les trois onglets actuels doivent disparaître au profit d'**un seul
+calendrier affiché immédiatement**, portant à la fois les créneaux de disponibilité, les
+événements et les propositions de cours — plus de bascule d'onglet pour voir l'ensemble.
+
+- Un sélecteur de **mode** (saisie disponibilité / saisie événement / réponse à une proposition,
+  etc.) peut exister, mais **en marge** du calendrier — au-dessus ou à côté, jamais à la place.
+  Le calendrier avec toutes les données reste toujours visible.
+- **Création par clic direct** : avec un mode de création actif, cliquer sur une case du
+  calendrier au moment voulu crée l'élément correspondant — remplace le flux actuel
+  d'`EventCreateDialog` (champs `datetime-local` saisis à la main, source du bug ci-dessus).
+  C'est déjà le pattern existant pour les créneaux de disponibilité (grille Tailwind faite main,
+  clic-cellule/clic-bloc, livrée au point 1 du chantier précédent) — à étendre à la création
+  d'événement, pas à réinventer.
+- **Acceptation d'une proposition par clic sur le créneau** : au-delà de la liste déjà existante
+  (`CourseProposalsPanel`), cliquer sur le créneau proposé dans le calendrier doit faire
+  apparaître les boutons Accepter/Refuser — proche de ce qui existe déjà pour les créneaux
+  `proposed` dans la grille « Mes disponibilités » (point 3, boutons déjà affichés en couleur
+  distincte), à vérifier/ajuster selon l'interaction exacte demandée (clic pour révéler, plutôt
+  que toujours visible).
+
+### Portée technique, décision prise par l'orchestrateur avant délégation
+
+Trois concepts backend distincts alimentent aujourd'hui les trois onglets : `CalendarEvent`
+(ancien, onglet « Mes événements »), `AvailabilitySlot` (point 1), `ScheduledActivity` (point 3,
+propositions/cours). **Décision : ne pas fusionner ces entités côté backend** dans ce chantier
+— trois structures de données distinctes, chacune avec ses propres règles métier déjà posées,
+fusionner serait un chantier de migration de données à part entière, non demandé. **La fusion
+demandée est uniquement visuelle/front** : une seule grille qui superpose l'affichage des trois
+sources (trois appels de lecture existants déjà utilisables : `GET /calendars/:ownerId/events`,
+`GET /calendars/:ownerId` qui porte déjà `availabilitySlots` + `activities`). À rouvrir si
+l'utilisateur voulait en fait une fusion de données, pas seulement d'affichage — mais la demande
+telle que formulée ne porte que sur l'écran.
+
+### Comment on saura que c'est fait
+
+Capture d'écran de `/calendar` montrant les trois types de données sur une seule grille, sans
+onglet à changer ; réponse HTTP citée montrant la création d'un événement réussie par clic sur
+la grille (plus d'erreur ISO 8601) ; capture montrant l'apparition d'Accepter/Refuser au clic sur
+un créneau proposé.
+
+### État
+
+- [x] Backend — confirmé et corrigé, `calendar-service`, commits `7e96678`+`a553538`, poussés et
+      déployés. Cause réelle : `CreateCalendarEventDto` exigeait `startTime`/`endTime` en écriture
+      alors que la doc et le front utilisaient déjà `startAt`/`endAt` pour cette route précise —
+      pur écart code/doc. Corrigé dans les deux sens : le DTO d'écriture ET la réponse de lecture
+      (`GET`/`POST /calendars/:ownerId/events`, qui renvoyait aussi `startTime`/`endTime`, écart
+      trouvé et corrigé dans un second passage) exposent désormais `startAt`/`endAt` de bout en
+      bout. Les routes `availability-slots`/`activities` gardent légitimement `startTime`/
+      `endTime` (entités distinctes, non touchées). 241 tests unitaires + 93 e2e verts, `tsc
+      --noEmit` propre — vérifié indépendamment par l'orchestrateur après chaque fast-forward.
+- [x] Front — livré, commits `a97a173`+`3bbd537`, poussés. `CalendarPage.tsx` refondu autour de
+      `CalendarUnifiedView.tsx` : grille unique fusionnant `availabilitySlots` + `activities`
+      (`GET /calendars/:ownerId`) + `CalendarEvent` (`GET /calendars/:ownerId/events`),
+      `CalendarModeSelector` (Consultation / Créer une disponibilité / Créer un événement) en
+      marge de la grille, création d'événement par clic direct (`QuickEventCreatePopover`, plus
+      de `datetime-local` saisi à la main). `CourseProposalsPanel` conservé en panneau repliable
+      sous la grille. Décision du développeur, signalée comme pragmatique et non confirmée par
+      l'utilisateur : la grille reste un **gabarit hebdomadaire récurrent** (pas de vraies dates
+      par jour) — un clic résout vers « la prochaine occurrence » de ce jour/heure, affichée en
+      clair avant validation. 1753/1755 tests verts (2 échecs préexistants déjà signalés
+      plusieurs fois ce jour, sans rapport), `tsc --noEmit` propre — vérifié indépendamment.
+- [x] Déployé sur la pile réelle — `calendar-service` (deux fois, écriture puis lecture) et
+      `frontend` reconstruits, bundle `index-ClbA4rel.js`, gateway rechargée.
+- [x] Preuve livrée — test Playwright réel `apps/web/e2e/proof-calendar-unified-view.spec.ts`
+      (commit `2f96f72`), rejoué indépendamment par l'orchestrateur : `POST
+      /calendars/:ownerId/events` → `201` avec `startAt`/`endAt` (bug ISO 8601 confirmé résolu,
+      réponse HTTP citée) ; grille unique confirmant les 3 sources simultanément (disponibilité +
+      événement créé par clic + proposition de cours, capture
+      `calendar-unified-02-three-sources-on-same-grid.png`) ; proposition acceptée avec succès
+      (`POST /activities/:id/accept` → `201 confirmed`).
+      **Deux défauts réels trouvés en testant, tous deux corrigés et redéployés :**
+      1. Boutons Accepter/Refuser/« Rejoindre le cours » invisibles (rognés par `overflow-hidden`
+         sur le bloc de la grille, présents dans le DOM mais jamais vus par un utilisateur réel).
+         Corrigé — commit `90f02e5` (retrait de `overflow-hidden` + `z-10`). Rejoué en direct par
+         l'orchestrateur après déploiement : boutons Accepter (vert) et Refuser (rouge) réellement
+         visibles, débordant proprement sur la ligne suivante de la grille.
+      2. Clic sur un jour/heure déjà passé aujourd'hui résolvait silencieusement vers cette heure
+         passée, sans avertissement. **Décision utilisateur : avertir sans bloquer.** Corrigé —
+         commit `56a0f41`. Rejoué en direct par l'orchestrateur : popover affiche « Cette date est
+         déjà passée. Vous pouvez tout de même créer l'événement si vous le souhaitez. » (fond
+         ambre, non bloquant, bouton Créer toujours actif). Capture :
+         `calendar-unified-05-past-date-warning.png`.
+      Test e2e `apps/web/e2e/proof-calendar-unified-view.spec.ts` (commit `49fa2eb`) rejoué
+      intégralement par l'orchestrateur après chaque correctif — vert à chaque fois.
+- [ ] Validé par l'utilisateur — preuve complète livrée, en attente de sa validation explicite
+      avant fusion dans `master`.
+
+---
+
 ## Besoin — 2026-08-18 — calendrier de disponibilités lié à la visio
 
 Demande explicite de l'utilisateur, 4 points, planifiée via `/plan` puis approuvée avec 3

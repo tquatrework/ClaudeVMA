@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  addOneHourToTime,
   computeVerticalPosition,
   doRangesOverlap,
   formatTimeRangeLabel,
@@ -103,5 +104,20 @@ describe('computeVerticalPosition', () => {
 describe('formatTimeRangeLabel', () => {
   it('formate une plage horaire lisible', () => {
     expect(formatTimeRangeLabel('09:00', '12:00')).toBe('09:00 – 12:00')
+  })
+})
+
+describe('addOneHourToTime', () => {
+  it('ajoute une heure à une heure valide', () => {
+    expect(addOneHourToTime('09:00')).toBe('10:00')
+    expect(addOneHourToTime('09:30')).toBe('10:30')
+  })
+
+  it('repasse à 00:xx après 23:xx (modulo 24h)', () => {
+    expect(addOneHourToTime('23:15')).toBe('00:15')
+  })
+
+  it('renvoie la valeur inchangée si invalide', () => {
+    expect(addOneHourToTime('bad')).toBe('bad')
   })
 })

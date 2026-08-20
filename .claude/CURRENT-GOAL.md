@@ -196,9 +196,20 @@ d'une disponibilité depuis leur écran de détail respectif.
       `pending` créée ; `GET /calendars/:studentId/events` (élève) → `200`, l'événement apparaît
       avec `"viewerInvitationStatus":"pending"` — **le bug signalé par l'utilisateur ne se
       reproduit plus** à ce niveau (visibilité calendrier).
-- [~] Correctif `dashboard-notification-service` : notification à l'invitation à un événement —
-      **en cours**, dispatché après confirmation du contrat backend (`inviteeIds` déjà présent
-      dans `CalendarEventCreated`, nouveau type `event_invitation_received` prévu).
+- [x] Correctif `dashboard-notification-service` — commits `33fb10c`+`16af450`, poussés. Nouveau
+      traitement `handleCalendarEventCreated` dans `EventProcessorService` : un destinataire par
+      élément d'`inviteeIds`, type `event_invitation_received`, `metadata:
+      {creatorName, eventId, eventType, title, startAt}` (`creatorName` résolu, jamais d'UUID ;
+      `title` peut être `null`, aucun titre inventé). Libellé front prévu : « {creatorName} vous a
+      invité à un événement » (sans titre) / « ... à « {title} » » (avec titre). 103/103 tests
+      vérifiés indépendamment par l'orchestrateur après fast-forward. `docs/routes.md` et
+      `docs/services/dashboard-notification-service.md` mis à jour.
+- [x] Déployé sur la pile réelle — `dashboard-notification-service` reconstruit et redémarré, sain.
+- [x] Preuve HTTP obtenue par l'orchestrateur : nouvel événement créé par le formateur (sans
+      titre) avec l'élève en destinataire → `unread-count` de l'élève passe de `{"count":0}` à
+      `{"count":1}` ; `GET /notifications` montre
+      `{"type":"event_invitation_received","metadata":{"creatorName":"ProofProf Test",
+      "title":null,...}}` — bout en bout confirmé, aucun UUID affiché.
 - [~] Front : identifier et retirer la liste incriminée, afficher l'événement invité en couleur
       distincte sur la grille du destinataire (via `viewerInvitationStatus`), modale
       Accepter/Refuser à l'ouverture, bouton de suppression sur événement et disponibilité (ajouté

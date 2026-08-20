@@ -234,12 +234,26 @@ d'une disponibilité depuis leur écran de détail respectif.
       l'orchestrateur après fast-forward.
 - [x] Déployé sur la pile réelle — `frontend` reconstruit et redémarré, gateway redémarrée, bundle
       `index-BMc9cm5s.js` confirmé servi.
-- [ ] Preuve à l'écran — test Playwright réel en cours par `front-tester` contre la pile réelle,
-      reproduisant exactement le scénario signalé par l'utilisateur (formateur invite élève,
-      élève voit le bloc orange, accepte via la modale, notification reçue, boutons de suppression
-      événement + disponibilité vérifiés).
+- [x] Preuve à l'écran — test Playwright réel `apps/web/e2e/proof-invitation-fix-2026-08-20.spec.ts`
+      (commit `d339669`), rejoué indépendamment par l'orchestrateur après fast-forward : 1/1 vert,
+      réponses HTTP citées (`POST .../events` → `201` avec destinataire ; notification reçue en
+      0s ; `POST .../accept` → `201` ; `DELETE` événement → `204` ; `DELETE` disponibilité → `204`,
+      sans régression). Captures vérifiées visuellement par l'orchestrateur : bloc orange
+      « Invitation — cliquer pour répondre » bien visible sur la grille de l'élève (**le bug
+      signalé — « rien n'apparaît » — est résolu**), cloche à `1`, modale de détail avec les 2
+      boutons Accepter/Refuser exactement comme demandé, aucune trace de l'ancienne bannière
+      morte.
+      **Défaut réel supplémentaire trouvé par le test, signalé et non contourné** :
+      `metadata.title` de la notification est toujours `null`, même quand l'événement a un vrai
+      titre — `CalendarEventCreated` ne porte jamais la clé `title` dans son payload. Correctif
+      ciblé dispatché immédiatement (`calendar-service`), en cours.
+- [~] Correctif mineur `calendar-service` — ajouter `title` au payload `CalendarEventCreated`
+      pour que la notification affiche le vrai titre au lieu du libellé générique — **en cours**.
+- [ ] Déployé sur la pile réelle (correctif titre notification)
 - [ ] Preuve livrée à l'utilisateur
-- [ ] Validé par l'utilisateur
+- [ ] Validé par l'utilisateur — **utilisateur a pré-autorisé merge + PR une fois la preuve
+      obtenue** (« à la fin merge et PR », 2026-08-20) : à faire dès que ce dernier correctif est
+      vérifié, sans repasser par une question de validation supplémentaire.
 
 ---
 

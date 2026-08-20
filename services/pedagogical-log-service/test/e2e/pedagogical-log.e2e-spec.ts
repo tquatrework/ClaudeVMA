@@ -42,8 +42,11 @@
  */
 
 import { INestApplication } from '@nestjs/common';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import * as request from 'supertest';
 import { createTestApp, makeJwt, IDS } from './helpers/app.helper';
+import { PedagogicalLog } from '../../src/pedagogical-log/entities/pedagogical-log.entity';
 
 describe('[E2E] Pedagogical Log Service', () => {
   let app: INestApplication;
@@ -1061,6 +1064,218 @@ describe('[E2E] Pedagogical Log Service', () => {
         .set('Authorization', `Bearer ${rp1Token}`);
 
       expect(res.status).toBe(403);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Refonte du cahier de texte — 2026-08-20 (routes réellement montées :
+  // POST/GET /students/:studentId/pedagogical-log, PATCH /logs/:id)
+  //
+  // Cet environnement e2e n'a pas de profile-service réel : PROFILE_SERVICE_URL
+  // n'est pas configurée. La vérification de relation (point 3) échoue donc
+  // fermée en 503, jamais en 201/403 silencieux — c'est le comportement attendu
+  // documenté (« échec fermé »), pas une anomalie de ce test. Ces cas confirment
+  // que la garde de rôle (403) s'applique AVANT tout appel réseau, et que
+  // studentId n'est plus exigé dans le corps (400 aurait signalé l'ancien bug).
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('POST /students/:studentId/pedagogical-log — refonte 2026-08-20 (point 3, point 4)', () => {
+    it('[PLOG-FB-003] role RP → 403 explicite avant tout appel réseau (le RP n\'écrit plus les entrées normales)', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/students/${IDS.student1}/pedagogical-log`)
+        .set('Authorization', `Bearer ${rp1Token}`)
+        .send({ sessionSummary: 'Tentative RP' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('[PLOG-FB-003] role élève → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/students/${IDS.student1}/pedagogical-log`)
+        .set('Authorization', `Bearer ${student1Token}`)
+        .send({ sessionSummary: 'Tentative élève' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('[PLOG-FB-003] role parent → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/students/${IDS.student1}/pedagogical-log`)
+        .set('Authorization', `Bearer ${parent1Token}`)
+        .send({ sessionSummary: 'Tentative parent' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('[point 4] corps sans studentId, avec studentId identique au chemin dans le corps, ou sans aucun corps ' +
+      '→ jamais 400 « studentId manquant » (correctif du bug réel) : le chemin fait autorité, ' +
+      'l\'échec observé est 503 (profile-service non configuré dans cet environnement e2e), pas 400', async () => {
+      const withoutBody = await request(app.getHttpServer())
+        .post(`/students/${IDS.student1}/pedagogical-log`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send({});
+      expect(withoutBody.status).not.toBe(400);
+      expect(withoutBody.status).toBe(503);
+
+      const withRedundantStudentId = await request(app.getHttpServer())
+        .post(`/students/${IDS.student1}/pedagogical-log`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send({ studentId: IDS.student1, sessionSummary: 'x' });
+      expect(withRedundantStudentId.status).not.toBe(400);
+      expect(withRedundantStudentId.status).toBe(503);
+    });
+  });
+
+  describe('GET /students/:studentId/pedagogical-log — refonte 2026-08-20 (point 1, point 2, point 6)', () => {
+    let repository: Repository<PedagogicalLog>;
+    const seededStudentId = IDS.student2;
+
+    beforeAll(async () => {
+      repository = app.get<Repository<PedagogicalLog>>(getRepositoryToken(PedagogicalLog));
+
+      // Seed direct via repository (contourne le guard d'écriture désormais
+      // soumis à profile-service, non disponible dans cet environnement e2e) :
+      // trois entrées de dates différentes + une catégorie parent_formateur.
+      await repository.save([
+        repository.create({
+          studentId: seededStudentId,
+          authorId: IDS.teacher1,
+          authorRole: 'formateur',
+          date: '2026-08-01',
+          sessionSummary: 'Séance du 1er août',
+          visibility: 'eleve_parent_formateur',
+          isSpecialPage: false,
+          hiddenFromStudent: false,
+        }),
+        repository.create({
+          studentId: seededStudentId,
+          authorId: IDS.teacher1,
+          authorRole: 'formateur',
+          date: '2026-08-15',
+          sessionSummary: 'Séance du 15 août',
+          homework: 'Exercices 1 à 3',
+          visibility: 'eleve_parent_formateur',
+          isSpecialPage: false,
+          hiddenFromStudent: false,
+        }),
+        repository.create({
+          studentId: seededStudentId,
+          authorId: IDS.teacher1,
+          authorRole: 'formateur',
+          date: '2026-08-10',
+          sessionSummary: 'Message réservé au parent',
+          visibility: 'parent_formateur',
+          isSpecialPage: false,
+          hiddenFromStudent: false,
+        }),
+      ]);
+    });
+
+    it('[point 6] trie du plus récent au plus ancien par date de séance', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/students/${seededStudentId}/pedagogical-log`)
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
+      expect(res.status).toBe(200);
+      const dates = res.body.map((entry: any) => entry.date).filter(Boolean);
+      const sorted = [...dates].sort().reverse();
+      expect(dates).toEqual(sorted);
+    });
+
+    it('[point 6] from/to filtrent sur la date de séance', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/students/${seededStudentId}/pedagogical-log`)
+        .query({ from: '2026-08-05', to: '2026-08-12' })
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].date).toBe('2026-08-10');
+    });
+
+    it('[point 1, CRITIQUE] l\'élève ne voit plus la catégorie parent_formateur (correctif de sens)', async () => {
+      const studentToken = makeJwt(seededStudentId, 'eleve');
+      const res = await request(app.getHttpServer())
+        .get(`/students/${seededStudentId}/pedagogical-log`)
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(200);
+      const hasParentFormateur = res.body.some((entry: any) => entry.visibility === 'parent_formateur');
+      expect(hasParentFormateur).toBe(false);
+      expect(res.body).toHaveLength(2);
+    });
+
+    it('[point 1, CRITIQUE] le parent voit désormais la catégorie parent_formateur', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/students/${seededStudentId}/pedagogical-log`)
+        .set('Authorization', `Bearer ${parent1Token}`);
+
+      expect(res.status).toBe(200);
+      const hasParentFormateur = res.body.some((entry: any) => entry.visibility === 'parent_formateur');
+      expect(hasParentFormateur).toBe(true);
+    });
+
+    it('[point 2] les entrées portent date/sessionSummary/homework, jamais de content sur une entrée normale', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/students/${seededStudentId}/pedagogical-log`)
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
+      expect(res.status).toBe(200);
+      for (const entry of res.body) {
+        expect(entry).toHaveProperty('date');
+        expect(entry).toHaveProperty('sessionSummary');
+        expect(entry).toHaveProperty('homework');
+        expect(entry.content).toBeFalsy();
+      }
+    });
+  });
+
+  describe('PATCH /logs/:id — refonte 2026-08-20 (point 3 : RP ne peut plus modifier une entrée normale)', () => {
+    let repository: Repository<PedagogicalLog>;
+    let normalEntryId: string;
+
+    beforeAll(async () => {
+      repository = app.get<Repository<PedagogicalLog>>(getRepositoryToken(PedagogicalLog));
+      const entry = await repository.save(
+        repository.create({
+          studentId: IDS.student1,
+          authorId: IDS.teacher1,
+          authorRole: 'formateur',
+          date: '2026-08-20',
+          sessionSummary: 'Entrée à modifier',
+          visibility: 'eleve_parent_formateur',
+          isSpecialPage: false,
+          hiddenFromStudent: false,
+        }),
+      );
+      normalEntryId = entry.id;
+    });
+
+    it('[CRITIQUE] un RP ne peut plus modifier une entrée normale → 403 (mécanisme page spéciale non concerné)', async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/logs/${normalEntryId}`)
+        .set('Authorization', `Bearer ${rp1Token}`)
+        .send({ sessionSummary: 'Modifié par RP' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('un formateur non-auteur ne peut pas modifier → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/logs/${normalEntryId}`)
+        .set('Authorization', `Bearer ${teacher2Token}`)
+        .send({ sessionSummary: 'Modifié par un autre formateur' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('l\'auteur formateur : la relation est revérifiée à chaque action → 503 (profile-service non configuré ici)', async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/logs/${normalEntryId}`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send({ sessionSummary: 'Modifié par l\'auteur' });
+
+      expect(res.status).toBe(503);
     });
   });
 });

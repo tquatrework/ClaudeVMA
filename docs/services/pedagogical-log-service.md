@@ -27,11 +27,11 @@
       <functionality id="007">Acces cahier par tableau de bord de l'etudiant pour formateur/RP.</functionality>
     </functionalities>
     <roleAccessRules>
-      <rule role="Eleve">Lit son cahier autorise, ecrit seul dans son memo et son carnet personnel.</rule>
-      <rule role="ParentFinanceur">Lit le cahier de texte des eleves lies sauf carnet personnel et pages interdites.</rule>
-      <rule role="Formateur">Ecrit cahier de texte pour eleves lies; aide l'eleve sur le memo sans droit d'ecriture direct.</rule>
-      <rule role="ResponsablePedagogique">Lit/ecrit cahier, cree pages speciales, acces carnet personnel a arbitrer selon CdC.</rule>
-      <rule role="TechnicienInformatique">Acces incident selon autorisation et logs.</rule>
+      <rule role="Eleve">Lit son cahier autorise (categorie eleve_parent_formateur uniquement depuis le 2026-08-20), ecrit seul dans son memo et son carnet personnel.</rule>
+      <rule role="ParentFinanceur">Lit le cahier de texte des eleves lies (categories eleve_parent_formateur et parent_formateur depuis le 2026-08-20) sauf carnet personnel et pages interdites.</rule>
+      <rule role="Formateur">Seul role habilite a ecrire (creer/modifier) une entree normale de cahier de texte, et seulement s'il est titulaire de la relation avec l'eleve cible (verifie a chaque action aupres de profile-service, depuis le 2026-08-20) ; aide l'eleve sur le memo sans droit d'ecriture direct.</rule>
+      <rule role="ResponsablePedagogique">Lit le cahier de texte (lecture seule sur les entrees normales depuis le 2026-08-20, le formateur seul ecrit) ; cree/modifie les pages speciales (mecanisme distinct, inchange) ; acces carnet personnel a arbitrer selon CdC.</rule>
+      <rule role="TechnicienInformatique">Acces incident selon autorisation et logs ; peut modifier une page speciale RP (mecanisme inchange), pas une entree normale.</rule>
       <rule role="AdministrateurFinancier">Pas d'acces fonctionnel naturel hors controle legal explicite.</rule>
     </roleAccessRules>
     <candidateApis>
@@ -114,6 +114,216 @@
           </fix>
         </guardsFixes>
         <status>RESOLU — Le service respecte desormais entierement la convention @UseGuards + @Roles sur tous les controleurs.</status>
+      </session>
+
+      <session date="2026-08-20" label="Refonte du cahier de texte — 5 points demandes par l'utilisateur (branche feat/cahier-de-texte-refonte)">
+        <objective>
+          Corriger 5 constats reels remontes par un formateur/administrateur testant l'ecran
+          cahier de texte : (1) categorie de visibilite intermediaire erronee, (2) contenu du
+          message a restructurer en 3 zones optionnelles, (3) ecriture reservee au formateur
+          titulaire, (4) bug reel studentId exige en double (corps + chemin), (5) creation
+          automatique et obligatoire d'une entree par activite cours confirmee, + rappel
+          quotidien pour les entrees restees vides. Complement : confirmer/ameliorer le tri et
+          le filtrage de GET /students/:studentId/pedagogical-log.
+        </objective>
+
+        <arborescence>
+          services/pedagogical-log-service/
+          ├── package.json                              # + ioredis, dotenv, @nestjs/schedule ; + scripts migration:*
+          ├── src/
+          │   ├── app.module.ts                          # + ScheduleModule.forRoot(), + EventsModule, + 2 entites (ActivityProjection, ProcessedEvent), + migrations/migrationsRun
+          │   ├── data-source.ts                          # NOUVEAU — DataSource standalone pour le CLI TypeORM (1ere fois pour ce service)
+          │   ├── migrations/
+          │   │   └── 1787280000000-CahierDeTexteRefonte.ts  # NOUVEAU — colonnes date/session_summary/homework/auto_created/reminded_at, content nullable, migration de donnees (visibilite + contenu), tables activity_projections/processed_events
+          │   ├── common/
+          │   │   └── clients/                            # NOUVEAU dossier
+          │   │       ├── profile-relations.client.ts      # NOUVEAU — GET /internal/relations/:viewerId/:targetId (verification teacher_of_student)
+          │   │       ├── dashboard-notification.client.ts # NOUVEAU — POST /internal/notify
+          │   │       └── clients.module.ts                # NOUVEAU
+          │   ├── events/                                  # NOUVEAU module — consommation visiomath:events
+          │   │   ├── entities/
+          │   │   │   ├── activity-projection.entity.ts     # NOUVEAU — projection ActivityScheduled (activityId, type, creatorId, recipientId, participantIds, startTime)
+          │   │   │   └── processed-event.entity.ts         # NOUVEAU — ledger d'idempotence par eventId
+          │   │   ├── redis-stream.constants.ts             # NOUVEAU — nom flux/groupe, fieldsToRecord()
+          │   │   ├── event-processor.service.ts            # NOUVEAU — ActivityScheduled -> projection, ActivityConfirmed(cours) -> creation auto d'entree
+          │   │   ├── event-stream-consumer.service.ts      # NOUVEAU — XGROUP/XREADGROUP BLOCK/XACK
+          │   │   ├── event-stream-reclaim.service.ts       # NOUVEAU — @Interval(30s) + XAUTOCLAIM
+          │   │   └── events.module.ts                      # NOUVEAU
+          │   └── pedagogical-log/
+          │       ├── entities/pedagogical-log.entity.ts    # + date/sessionSummary/homework/autoCreated/remindedAt ; content nullable ; visibility 'eleve_formateur' -> 'parent_formateur'
+          │       ├── dto/create-log.dto.ts                 # studentId retire ; content retire ; + date/sessionSummary/homework (tous optionnels)
+          │       ├── dto/update-log.dto.ts                 # + date/sessionSummary/homework ; content conserve (pages speciales uniquement) ; visibility mise a jour
+          │       ├── dto/find-logs-query.dto.ts             # NOUVEAU — {from?, to?} pour GET .../pedagogical-log
+          │       ├── pedagogical-log.service.ts             # create()/update() : garde formateur + verification relation ; findByStudent() : query builder, tri date DESC + createdAt, filtre from/to
+          │       ├── pedagogical-log.controller.ts          # POST : @Roles(FORMATEUR) uniquement ; studentId derive du chemin ; GET : @Query(FindLogsQueryDto)
+          │       ├── pedagogical-log.module.ts              # + ClientsModule, + EmptyEntryReminderService
+          │       └── empty-entry-reminder.service.ts        # NOUVEAU — @Cron quotidien, rappel unique (remindedAt)
+          └── test/
+              ├── unit/
+              │   ├── pedagogical-log/pedagogical-log.service.spec.ts      # reecrit — nouvelles regles create()/update(), tri/filtre findByStudent()
+              │   ├── pedagogical-log/empty-entry-reminder.service.spec.ts # NOUVEAU
+              │   ├── common/clients/profile-relations.client.spec.ts     # NOUVEAU
+              │   ├── common/clients/dashboard-notification.client.spec.ts # NOUVEAU
+              │   └── events/
+              │       ├── event-processor.service.spec.ts        # NOUVEAU
+              │       ├── event-stream-consumer.service.spec.ts  # NOUVEAU
+              │       └── event-stream-reclaim.service.spec.ts   # NOUVEAU
+              └── e2e/pedagogical-log.e2e-spec.ts                # + 3 describe blocks sur les routes reellement montees (POST/GET .../pedagogical-log, PATCH /logs/:id)
+        </arborescence>
+
+        <technicalDecisions>
+          <decision>
+            Point 1 — renommage semantique, pas seulement lexical. `eleve_formateur` devient
+            `parent_formateur` : la 2e categorie exclut desormais l'eleve (retire de
+            `VISIBILITY_BY_ROLE.eleve`) et inclut le parent (ajoute a
+            `VISIBILITY_BY_ROLE.parent_financeur`) — c'etait l'inverse jusqu'ici. Migration de
+            donnees incluse (UPDATE ... WHERE visibility = 'eleve_formateur'), verifiee up/down/
+            re-run sur une base Postgres jetable (creation dediee, migration:run, verification
+            SQL directe, migration:revert, verification du retour a l'etat initial,
+            migration:run de nouveau, base supprimee).
+          </decision>
+          <decision>
+            Point 2 — `content` n'est PAS retire de l'entite : il reste le champ utilise par le
+            mecanisme des pages speciales RP (createSpecialPage), explicitement hors perimetre
+            de cette refonte ("ne le touche pas"). Seuls les DTO/service des entrees NORMALES
+            cessent de l'utiliser, remplace par date/sessionSummary/homework (tous optionnels).
+            La colonne `content` est rendue nullable (etait NOT NULL) puisque les entrees
+            normales ne l'alimentent plus. Migration de donnees : pour les lignes existantes non
+            speciales, `content` est copie vers `session_summary` puis vide — aucune perte de
+            donnee historique, choix documente comme le mapping le plus proche du sens original
+            ("Deroulement de la seance").
+          </decision>
+          <decision>
+            Point 3 — la verification "formateur titulaire de la relation" reutilise le meme
+            contrat que calendar-service/teacher-request-service
+            (GET /internal/relations/:viewerId/:targetId?viewerRole=formateur, kind
+            "teacher_of_student"), avec la meme politique d'echec ferme (503 si profile-service
+            injoignable, jamais un succes silencieux). Verifiee a CHAQUE action (create ET
+            update), pas seulement a la creation — coherent avec l'arbitrage du 2026-08-12 sur
+            la rupture de relation eleve-formateur ("un lien peut etre rompu entre deux appels").
+            Le RP est retire des roles autorises a POST (decorateur @Roles) ; pour PATCH, le
+            decorateur reste large (le meme endpoint sert aussi les pages speciales) mais le
+            service applique la restriction fine par branchement sur `isSpecialPage` : entree
+            normale -> formateur auteur + relation active obligatoire ; page speciale -> auteur
+            ou RP/TI, comportement strictement inchange. DELETE n'est PAS touche (ni decorateur
+            ni service) : l'enonce de la tache ne mentionne que POST/PATCH, et DELETE sert aussi
+            au mecanisme des pages speciales.
+          </decision>
+          <decision>
+            Point 4 — `studentId` retire de `CreateLogDto`. Le controleur ne fusionne plus
+            `{...dto, studentId}` : `PedagogicalLogService.create()` prend desormais `studentId`
+            en premier parametre explicite, derive du seul parametre de chemin. Un `studentId`
+            envoye quand meme dans le corps est absorbe sans effet par
+            `ValidationPipe({whitelist:true})` (deja en place), pas une nouvelle regle de rejet
+            explicite — juste retire du contrat, coherent avec la convention deja etablie
+            ailleurs dans le projet ("le chemin fait autorite, jamais redemande dans le corps").
+          </decision>
+          <decision>
+            Point 5 — meme mecanisme outbox + flux Redis `visiomath:events` que
+            teacher-request-service/calendar-service/dashboard-notification-service/
+            video-session-service (arbitrage du 2026-08-14, "generique pour les autres flux").
+            Reprend a l'identique le schema de video-session-service pour le meme probleme deja
+            resolu la (ActivityConfirmed ne porte pas le type de l'activite) : projection locale
+            de ActivityScheduled (activity_projections), relue a la confirmation. `studentId` =
+            `recipientId`, `authorId` = `creatorId` — les deux garantis presents pour un `cours`
+            cree par un FORMATEUR (seul role autorise a creer ce type d'activite, verifie par
+            calendar-service a la creation ; l'activite n'a donc pas besoin d'etre revalidee ici,
+            la creation automatique ne rappelle pas profile-service). Idempotence a deux niveaux :
+            eventId (processed_events, meme pattern que partout ailleurs) et, en defense
+            supplementaire, (activityId, autoCreated=true) — utile si le ledger d'idempotence
+            etait un jour purge/reinitialise.
+          </decision>
+          <decision>
+            Point 5 (complement, rappel quotidien) — `@nestjs/schedule` avec `@Cron` (une fois
+            par jour, 06h00), sur le meme modele que dashboard-notification-service pour un
+            usage similaire (suggere par l'orchestrateur, mise en oeuvre laissee au choix de
+            l'agent, "la plus simple retenue"). Appel HTTP direct a
+            `POST /internal/notify` (pas de nouveau mecanisme de flux Redis dans ce sens, un
+            simple appel suffit pour un rappel sortant). Garantie de rappel unique : `remindedAt`
+            n'est pose qu'apres un envoi reussi, jamais reinitialise — un echec (service de
+            notification indisponible) laisse l'entree eligible au prochain passage plutot que
+            de la perdre silencieusement. Limite assumee et documentee : faute de date de fin
+            d'activite disponible dans `ActivityScheduled` (seulement `startTime`), le delai de
+            24h est calcule depuis la date de seance (`date` sur l'entree), pas depuis l'heure de
+            fin reelle du cours.
+          </decision>
+          <decision>
+            Premiere introduction de migrations TypeORM reelles pour ce service (jusqu'ici
+            entierement porte par `synchronize`), sur le meme modele que teacher-request-service/
+            calendar-service/video-session-service : `data-source.ts` + `src/migrations/`,
+            `migrationsRun: NODE_ENV !== 'test'` dans `TypeOrmModule.forRootAsync` (les tests e2e
+            gardent leur propre `dataSource.synchronize()` sur un schema jete a chaque suite).
+            `synchronize` reste actif hors production pour les entites non touchees par une
+            migration (memo, notebook) — aucun conflit observe : la migration amene deja le
+            schema en ligne avec les entites concernees, `synchronize` n'y trouve alors aucun
+            ecart a appliquer.
+          </decision>
+        </technicalDecisions>
+
+        <verification>
+          <item>`npm run build` (tsc via nest build) : 0 erreur.</item>
+          <item>Migration verifiee contre une base Postgres jetable dediee (creee puis
+            supprimee) : up() applique et donnees verifiees par requete SQL directe (renommage
+            de visibilite, contenu migre vers session_summary, page speciale intacte), down()
+            verifie (retour exact a l'etat initial, y compris restauration du contenu et de
+            l'ancienne valeur de visibilite), migration:run rejoue avec succes apres le revert.</item>
+          <item>`npm test` (suite unitaire complete) : 110/110 tests verts, 11 suites — inclut
+            tous les nouveaux fichiers de test lies a cette session.</item>
+          <item>`npm run test:e2e` : 33 echecs preexistants, strictement identiques avant et
+            apres cette session (confirmes ligne par ligne) — tous et uniquement sur les routes
+            `/pedagogical-logs` (pluriel) et `/memos`, jamais montees par le controleur, gap
+            documente mais explicitement hors perimetre de cette tache. Les 12 nouveaux tests e2e
+            ajoutes pour cette refonte (routes reellement montees) passent tous : 62 tests verts
+            au total (50 avant + 12 nouveaux), 0 regression.</item>
+        </verification>
+
+        <blockers>Aucun sur le code livre.</blockers>
+
+        <openPoints>
+          <point>
+            `.env.example` n'a pas pu etre mis a jour (regle de permission bloquant la lecture/
+            ecriture de tout fichier `.env*`, y compris un fichier d'exemple sans secret reel).
+            Variables necessaires en production, a ajouter manuellement : `PROFILE_SERVICE_URL`,
+            `INTERNAL_SECRET`, `DASHBOARD_NOTIFICATION_SERVICE_URL`, `REDIS_URL` (optionnelle —
+            sans elle le consommateur d'evenements reste desactive, aucune entree automatique
+            n'est creee, aucun crash au demarrage).
+          </point>
+          <point>
+            `docker-compose.yml` n'a pas ete modifie (hors perimetre explicite de cette tache,
+            confie a l'orchestrateur/mainteneur infra). Le service `pedagogical-log-service` doit
+            recevoir, sur le meme modele que les autres services du fichier : `REDIS_URL:
+            redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379`, `INTERNAL_SECRET:
+            ${INTERNAL_SECRET:-change_me_in_production}`, `PROFILE_SERVICE_URL:
+            http://profile-service:3002`, `DASHBOARD_NOTIFICATION_SERVICE_URL:
+            http://dashboard-notification-service:3003`, et `depends_on: redis (condition:
+            service_healthy)`. Sans ces variables, le service demarre normalement (aucune n'est
+            requise au boot) mais le point 3 (ecriture) echoue systematiquement en 503, et le
+            point 5 (creation automatique) reste inactif.
+          </point>
+          <point>
+            Ecart de documentation preexistant, non introduit par cette session mais confirme a
+            nouveau par la suite e2e : les routes `/pedagogical-logs` (GET/POST/PUT/DELETE),
+            `GET /pedagogical-logs/student/:studentId`, `GET /pedagogical-logs/session/:sessionId`
+            et `POST /memos` sont documentees depuis longtemps mais ne repondent jamais (404) —
+            le controleur ne les monte pas. 33 tests e2e en echec, avant et apres cette session,
+            tous sur ce perimetre. Hors mandat explicite de cette tache (5 points + tri/filtrage),
+            signale pour une session ulterieure dediee.
+          </point>
+          <point>
+            DELETE (`/:id`) n'a pas ete revu par le point 3 : un RP peut toujours supprimer
+            n'importe quelle entree normale (role inchange), alors qu'il ne peut plus ni la
+            creer ni la modifier. Lecture stricte de l'enonce ("verifie/corrige les guards
+            d'ecriture (POST/PATCH)") — a confirmer aupres de l'utilisateur si DELETE doit suivre
+            la meme restriction, ou si le pouvoir de suppression du RP est delibere (filet de
+            securite independant du droit d'auteur).
+          </point>
+          <point>
+            Aucun evenement propre n'est publie par ce service a la creation automatique d'une
+            entree (pas de `PedagogicalLogPageAutoCreated` par exemple) — non demande, mais
+            pourrait interesser `dashboard-notification-service` plus tard si un signal cote
+            eleve/parent ("nouvelle entree ajoutee") est souhaite en plus du rappel formateur.
+          </point>
+        </openPoints>
       </session>
     </technicalImplementation>
     <pendingPoints>

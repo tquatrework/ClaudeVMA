@@ -5,6 +5,38 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-20 (suite) — libellé de la notification d'invitation à un événement
+
+Demande explicite de l'utilisateur, en continuant de tester le chantier précédent (invitations
+d'événement visibles, mergé dans `master` via PR #130). Branche :
+`fix/notification-invitation-libelle-type-heure` (créée depuis `master`, poussée).
+
+La notification reçue par un invité (`type: "event_invitation_received"`) affiche aujourd'hui le
+**titre** de l'événement quand il en a un (« {créateur} vous a invité à « {titre} » »), ou un
+libellé générique sinon. L'utilisateur demande que la notification indique plutôt le **type
+d'événement** et **l'heure** — pas la peine de reprendre le titre saisi par l'utilisateur.
+
+Investigation faite par l'orchestrateur avant délégation : `metadata` de cette notification porte
+déjà `eventType` et `startAt` (ajoutés lors du chantier précédent), donc **aucun changement
+backend n'est nécessaire** — c'est un pur changement d'affichage côté front,
+`apps/web/src/utils/notificationLabels.ts`.
+
+### Comment on saura que c'est fait
+
+Nouvel événement créé avec destinataire → notification reçue affichant le type d'événement (en
+français, ex. « cours ») et l'heure, plus le titre saisi — capture ou réponse HTTP + libellé
+affiché à l'écran cités.
+
+### État
+
+- [ ] Front : nouveau libellé dans `notificationLabels.ts` pour `event_invitation_received`
+      (type d'événement + heure, sans le titre).
+- [ ] Déployé sur la pile réelle
+- [ ] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur
+
+---
+
 ## Besoin — 2026-08-20 — corrections utilisabilité du calendrier unifié
 
 Demande explicite de l'utilisateur (verbatim, 5 points + sous-points), en continuant de tester

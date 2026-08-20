@@ -453,9 +453,32 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_pedagogical_log
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
+      # Flux Redis "visiomath:events" (meme flux que calendar-service,
+      # teacher-request-service et video-session-service, arbitrage 2026-08-14
+      # "generique pour les autres flux") : necessaire pour consommer
+      # ActivityScheduled / ActivityConfirmed et creer automatiquement une
+      # entree de cahier de texte a la confirmation d'une activite "cours"
+      # (chantier refonte-cahier-de-texte, point 5). Sans elle, la creation
+      # automatique reste desactivee (repli explicite, meme pattern que
+      # video-session-service).
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
+      # Necessaire pour verifier, a chaque ecriture, que l'appelant est bien
+      # le formateur titulaire de la relation avec l'eleve (ecriture reservee
+      # au formateur, point 3 du chantier) ; profile-service reste l'unique
+      # proprietaire des relations, ce service ne fait que les lui demander.
+      PROFILE_SERVICE_URL: http://profile-service:3002
+      # Necessaire au rappel quotidien (point 5) : notifie le formateur via
+      # POST /internal/notify quand une entree auto-creee reste vide plus de
+      # 24h apres la fin de l'activite liee.
+      DASHBOARD_NOTIFICATION_SERVICE_URL: http://dashboard-notification-service:3003
       PORT: 3008
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      profile-service:
         condition: service_healthy
     networks:
       - visiomath_network

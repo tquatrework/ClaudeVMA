@@ -5,17 +5,21 @@
  * blocs `BUSY` du point 2 du chantier, réutilisée ici pour les propositions/confirmations de
  * créneau de cours (point 3, 2026-08-19). Fonctions pures, aucun appel réseau ni état React.
  *
- * **Limite assumée** : la grille est un gabarit hebdomadaire récurrent, sans année ni semaine
- * affichée. Deux activités tombant sur le même jour de semaine à des semaines réelles différentes
- * (fenêtre serveur : 2 semaines passées + 4 à venir) peuvent se chevaucher visuellement dans la
- * même cellule — même limite déjà acceptée pour les blocs `BUSY` de `LinkedCalendarView`. La date
- * réelle (`dateLabel`) est affichée sur chaque bloc pour limiter la confusion en cas de
- * chevauchement ; aucune résolution de collision n'est mise en place au-delà.
+ * **Filtrage par semaine calendaire réelle** (correction du 2026-08-20, point B) — même principe
+ * que `calendarEventGridBlocks.ts` : `toScheduledActivityGridBlocks` ne garde que les activités
+ * dont `startTime` tombe dans `[weekStart, weekStart + 7 jours)`, ce qui remplace l'ancienne
+ * limite « la grille est un gabarit récurrent sans semaine affichée, deux activités du même jour
+ * de semaine à des semaines différentes peuvent se chevaucher ». Une seule semaine réelle étant
+ * affichée à la fois, ce chevauchement ne peut plus se produire. `dateLabel` reste affiché par
+ * confirmation visuelle. **Limite héritée, non résolue ici** : les activités restent bornées côté
+ * serveur à 2 semaines passées + 4 à venir (voir docs/routes.md § calendar-service) — naviguer
+ * au-delà ne fera apparaître aucune activité, la page ne les ayant jamais reçues.
  */
 
 import type { ActivityType, CalendarActivityEntry } from '../types/calendar'
 import { extractTimeOfDayFromIso } from './availabilitySlotApiMapping'
 import { extractDayOfWeekFromIso } from './linkedCalendarBusyFree'
+import { addWeeksUtc, isWithinRange } from './calendarDisplayWeek'
 
 export type ScheduledActivityGridBlockKind = 'PROPOSED' | 'CONFIRMED'
 
@@ -78,11 +82,17 @@ export function toScheduledActivityGridBlock(
   }
 }
 
-/** Traduit une liste d'activités. Activités illisibles ou hors statut écartées. */
+/**
+ * Traduit les activités dont `startTime` tombe dans la semaine calendaire affichée
+ * `[weekStart, weekStart + 7 jours)`. Activités illisibles, hors statut ou hors semaine écartées.
+ */
 export function toScheduledActivityGridBlocks(
   activities: CalendarActivityEntry[],
+  weekStart: Date,
 ): ScheduledActivityGridBlock[] {
+  const weekEnd = addWeeksUtc(weekStart, 1)
   return activities
+    .filter((activity) => isWithinRange(activity.startTime, weekStart, weekEnd))
     .map(toScheduledActivityGridBlock)
     .filter((block): block is ScheduledActivityGridBlock => block !== null)
 }

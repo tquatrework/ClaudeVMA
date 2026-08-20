@@ -10,9 +10,18 @@ import {
 import { EventType } from '../entities/calendar-event.entity';
 
 export class CreateCalendarEventDto {
-  @ApiProperty({ example: 'Cours de géométrie' })
+  /**
+   * `title` est optionnel — le front l'annonçait déjà comme tel, mais le
+   * serveur le refusait faute de `@IsOptional()` (bug signalé par
+   * l'utilisateur, corrigé le 2026-08-20 ; voir docs/routes.md). Aucune
+   * valeur par défaut n'est fabriquée ici : un événement sans titre est
+   * stocké tel quel (`title: null`), l'affichage d'un texte de repli reste
+   * un sujet front.
+   */
+  @ApiPropertyOptional({ example: 'Cours de géométrie' })
+  @IsOptional()
   @IsString()
-  title: string;
+  title?: string;
 
   @ApiProperty({ enum: EventType, example: EventType.COURS })
   @IsEnum(EventType)

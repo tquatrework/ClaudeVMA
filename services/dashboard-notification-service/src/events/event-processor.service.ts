@@ -122,6 +122,9 @@ export class EventProcessorService {
       case 'ActivityScheduled':
         await this.handleActivityScheduled(eventId, eventName, payload);
         break;
+      case 'CalendarEventCreated':
+        await this.handleCalendarEventCreated(eventId, eventName, payload);
+        break;
       case 'TeacherRequestClosed':
       case 'TeacherRequestDeleted':
         // No notification: TeacherRequestClosed is redundant with TeacherAssigned's
@@ -337,6 +340,48 @@ export class EventProcessorService {
     await this.persist(eventId, eventName, [
       { userId: recipientId, type: NotificationType.COURSE_SLOT_PROPOSED, metadata },
     ]);
+  }
+
+  /**
+   * `CalendarEventCreated` is published by calendar-service for *every*
+   * calendar event creation (`POST /calendars/:ownerId/events`), whether or
+   * not the event carries invitees. `payload.inviteeIds` is a plain array
+   * (never `undefined`, `[]` when no one was invited) — one recipient per
+   * element, unlike `ActivityScheduled`/`recipientId` above which only ever
+   * targets a single destinataire. Bug réel signalé par un utilisateur en
+   * conditions réelles le 2026-08-20 : un invité ne recevait jusque-là
+   * aucune notification, corrigé ici après que calendar-service a corrigé
+   * la visibilité côté calendrier le même jour.
+   *
+   * `payload.title` is genuinely absent from the real payload observed on
+   * the Redis stream (verified 2026-08-20 via `XREVRANGE` against the live
+   * stream, not only against the documented example) — `title` having
+   * become optional on `CalendarEvent` itself in this same chantier. Treated
+   * as `null` whether the key is absent or explicitly `null`; no default
+   * title is fabricated server-side, per the language/metadata rule already
+   * applied to every other type produced by this consumer.
+   */
+  private async handleCalendarEventCreated(eventId: string, eventName: string, payload: Record<string, unknown>): Promise<void> {
+    const inviteeIds = [...new Set((payload.inviteeIds as string[] | undefined) ?? [])];
+    if (inviteeIds.length === 0) {
+      await this.markProcessedOnly(eventId, eventName);
+      return;
+    }
+
+    const creatorId = payload.creatorId as string;
+    const names = await this.resolveNames([creatorId]);
+    const metadata = {
+      creatorName: displayName(names.get(creatorId)),
+      eventId: payload.eventId,
+      eventType: payload.eventType,
+      title: (payload.title as string | null | undefined) ?? null,
+      startAt: payload.startTime,
+    };
+    await this.persist(
+      eventId,
+      eventName,
+      inviteeIds.map((userId) => ({ userId, type: NotificationType.EVENT_INVITATION_RECEIVED, metadata })),
+    );
   }
 
   /** Atomically records the event as processed and creates its notifications, or neither. */

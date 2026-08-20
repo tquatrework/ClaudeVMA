@@ -74,9 +74,9 @@ export default function AvailabilitySlotFormModal({
 
   /**
    * Avertissement de date déjà passée (décision utilisateur du 2026-08-19, même mécanisme que
-   * `QuickEventCreatePopover`) — appliqué **uniquement en `recurrence: 'NONE'`** (« Une seule
+   * `EventCreateFormModal`) — appliqué **uniquement en `recurrence: 'NONE'`** (« Une seule
    * fois ») : c'est le seul cas où la date résolue représente une occurrence concrète et unique,
-   * exactement comme un événement créé par `QuickEventCreatePopover`. Un créneau `WEEKLY`/
+   * exactement comme un événement créé sur la grille. Un créneau `WEEKLY`/
    * `BIWEEKLY` reste valide pour les semaines suivantes même si l'occurrence d'aujourd'hui est
    * déjà dépassée : avertir dans ce cas induirait en erreur sur l'utilité réelle du créneau.
    */

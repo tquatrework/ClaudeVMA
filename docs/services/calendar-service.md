@@ -989,6 +989,220 @@
             non retraitee ici.</item>
         </openPoints>
       </session>
+
+      <session date="2026-08-20" label="Correctif bug reel — title refuse a la creation d'evenement alors qu'annonce optionnel cote front">
+        <changeset id="cause-confirmee">
+          <item>Bug signale par l'utilisateur en testant `/calendar` en conditions reelles.
+            `CreateCalendarEventDto.title` portait `@IsString()` sans `@IsOptional()` : tout body
+            omettant `title` etait rejete en `400`, alors que le formulaire de creation cote front
+            annonce deja ce champ comme optionnel et que `docs/routes.md` documentait `title`
+            (sans `?`) comme requis — code et doc alignes l'un sur l'autre, mais tous deux en
+            contradiction avec le besoin reel.</item>
+          <item>La colonne `title` de `calendar_events` etait en outre `NOT NULL` en base
+            (`@Column()` sans `nullable: true` sur l'entite) : rendre le DTO optionnel seul aurait
+            fait echouer l'`INSERT` avec un `title` absent — verifie par execution reelle de la
+            migration ci-dessous, pas seulement par lecture du schema.</item>
+        </changeset>
+
+        <changeset id="correctif">
+          <item>`CreateCalendarEventDto.title` : `@IsOptional()` ajoute, `@ApiProperty` remplace
+            par `@ApiPropertyOptional`, type `title?: string`. Aucune autre contrainte modifiee
+            (`@IsString()` conserve — la validation de type reste appliquee sur un titre fourni).</item>
+          <item>Entite `CalendarEvent.title` : `string` -&gt; `string | null`, colonne passee en
+            `nullable: true`. Aucune valeur par defaut fabriquee cote serveur — un evenement sans
+            titre est stocke et relu avec `title: null` tel quel ; un texte de repli a l'affichage
+            (ex. « Sans titre ») resterait un sujet front, non traite ici.</item>
+          <item>`CalendarEventsService.createEvent` : `title: dto.title` -&gt; `title: dto.title ?? null`,
+            explicite plutot qu'implicite, sur le meme modele que `description`/`targetRef` deja
+            geres ainsi dans la meme methode.</item>
+          <item>Migration `MakeCalendarEventTitleOptional1787080000000`
+            (`src/migrations/1787080000000-MakeCalendarEventTitleOptional.ts`) :
+            `ALTER TABLE calendar_events ALTER COLUMN title DROP NOT NULL`. `down` restaure
+            `NOT NULL` apres avoir coerce les lignes `NULL` existantes vers `''` (jamais
+            d'`ALTER` qui echouerait sur des lignes deja passees a `NULL` entre-temps).</item>
+        </changeset>
+
+        <changeset id="migration-verifiee">
+          <item>Executee reellement (pas seulement relue) contre un clone jetable de la base
+            reelle du service (`calendar_migration_check`, `pg_dump --schema-only` +
+            export/import de `calendar_service_migrations` depuis `visiomath_calendar`, base
+            supprimee apres verification — jamais touche a `visiomath_calendar` ni a `calendar_test`
+            directement pour cette verification).</item>
+          <item>Cycle complet verifie : `migration:run` (colonne passee nullable, confirmee par
+            `\d calendar_events`) -&gt; `INSERT` reel avec `title = NULL` reussi -&gt;
+            `migration:revert` (contrainte `NOT NULL` restauree, la ligne `NULL` existante coercee
+            a `''` sans echec) -&gt; `migration:run` rejoue avec succes (idempotence confirmee).</item>
+        </changeset>
+
+        <changeset id="tests">
+          <item>`test/unit/calendar-events/create-calendar-event.dto.spec.ts` : nouveau
+            `describe('title (optionnel, corrige 2026-08-20)')` — accepte un body sans `title`,
+            accepte un `title` explicite inchange, rejette toujours un `title` non-string
+            (validation de type preservee).</item>
+          <item>`test/unit/calendar-events/calendar-events.service.spec.ts` : nouveau test
+            verifiant que `createEvent` appele sans `title` persiste `title: null` (jamais une
+            valeur par defaut fabriquee) et que la valeur retournee expose `title: null`.</item>
+          <item>`test/e2e/calendar.e2e-spec.ts` : nouveau
+            `describe('POST /calendars/:ownerId/events — title optionnel (2026-08-20)')` — quatre
+            tests contre la vraie route HTTP et une vraie base Postgres (`calendar_test`) :
+            creation sans `title` -&gt; `201` avec `title: null` ; creation avec `title` -&gt; `201`
+            inchange ; relecture via `GET` d'un evenement sans titre -&gt; `title: null`, jamais de
+            `500` ; `title` non-string -&gt; `400` (contrainte de type toujours active).</item>
+          <item>Suite unitaire complete verte : 245 tests (etait 241, +4 tests nouveaux — les 3
+            listes ci-dessus plus une fixture ajustee). Suite e2e complete verte : 97 tests
+            (etait 93, +4 tests nouveaux), lancee avec `--runInBand` explicite (constat : sans
+            cela, deux fichiers e2e du service font chacun `DROP SCHEMA public CASCADE` /
+            `CREATE SCHEMA public` sur la meme base `calendar_test` en parallele, provoquant une
+            course et des echecs intermittents `schema "public" does not exist` — preexistant,
+            non introduit par ce correctif, mais a retenir pour toute execution future de la
+            suite e2e de ce service).</item>
+          <item>Le test e2e preexistant `[CAL-BR-003] title manquant → 400` (`POST /activities`,
+            resource distincte `ScheduledActivity`) n'a pas ete touche : hors perimetre, `title`
+            y reste requis, verifie toujours vert apres ce correctif.</item>
+        </changeset>
+
+        <changeset id="documentation">
+          <item>`docs/routes.md` : body documente de `POST /calendars/:ownerId/events` passe
+            `{title, ...}` -&gt; `{title?, ...}`, avec une note expliquant le bug (DTO requis alors
+            que le front l'annonce optionnel, colonne base `NOT NULL`) et le correctif (DTO +
+            migration), et rappelant qu'aucun titre par defaut n'est fabrique cote serveur.</item>
+        </changeset>
+
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <item>Affichage d'un texte de repli pour un evenement sans titre (ex. « Sans titre ») :
+            explicitement laisse au front par cette session, non traite ici.</item>
+          <item>Course entre suites e2e sur la meme base `calendar_test` en execution parallele
+            (voir changeset "tests" ci-dessus) : `test/jest-e2e.json` porte deja `maxWorkers: 1`,
+            mais `npm run test:e2e` (script effectivement documente et utilise) ne passe pas par
+            ce fichier de config et reste donc parallele par defaut — a corriger si la suite e2e
+            doit rester fiable en CI sans `--runInBand` explicite ; non traite ici pour rester
+            dans le perimetre strict du bug `title` signale.</item>
+        </openPoints>
+      </session>
+
+      <session date="2026-08-20" label="Correctif bug reel — invitation d'evenement invisible pour le destinataire, DELETE manquant, verification du payload CalendarEventCreated">
+        <changeset id="cause-confirmee-point-1">
+          <item>Bug reel signale par l'utilisateur : `professeur.lycee` cree un evenement partage
+            avec `eleve.sixieme` via `inviteeIds` (`POST /calendars/professeur.lycee/events`).
+            L'eleve n'a rien vu, ni sur son calendrier ni de notification, donc aucun moyen
+            d'accepter ou de refuser l'invitation.</item>
+          <item>Hypothese confirmee par lecture du code reel :
+            `CalendarEventsService.listEvents` filtrait uniquement sur `event.owner_id =
+            :ownerId` — jamais sur `EventInvitation.invitee_id`. Un evenement est toujours stocke
+            sous le calendrier de son createur (`ownerId` du chemin `POST` = l'appelant), jamais
+            sous celui de ses invites : `GET /calendars/eleve.sixieme/events` ne pouvait donc
+            jamais renvoyer un evenement cree par `professeur.lycee`.</item>
+          <item>`GET /calendars/:ownerId` verifie en parallele : n'est PAS concernee par ce bug et
+            ne l'a jamais ete — elle ne porte que `availabilitySlots` et `activities`
+            (`ScheduledActivity`), jamais `CalendarEvent`, depuis le chantier du 2026-08-18. Ce
+            n'est pas une regression de ce correctif, c'est un choix de perimetre deja en place
+            (deux agregats distincts, deux routes distinctes).</item>
+        </changeset>
+
+        <changeset id="correctif-point-1">
+          <item>`CalendarEventsService.listEvents` : base filter passe de
+            `event.owner_id = :ownerId` a `(event.owner_id = :ownerId OR invitation.invitee_id =
+            :ownerId)` — meme principe que `ActivitiesService.findActiveInRange` (chantier
+            calendrier de disponibilites, point 3, 2026-08-18, « createur OU participant »),
+            applique ici comme « createur OU invite ».</item>
+          <item>Nouveau type `CalendarEventView` (`CalendarEvent &amp; { viewerInvitationStatus:
+            InvitationStatus | null }`) et methode privee `toEventView` : calcule
+            `viewerInvitationStatus` en cherchant, dans `event.invitations`, celle dont
+            `inviteeId === ownerId` — `null` si le titulaire n'est pas invite (son propre
+            evenement, ou acces par role privilegie/`CalendarVisibilityGrant`).</item>
+          <item>Effet de bord assume du filtre `LEFT JOIN` + `WHERE` : pour un evenement ou
+            `ownerId` n'est qu'invite, seule SA propre ligne `EventInvitation` traverse le filtre
+            (les autres invitations du meme evenement restent invisibles) — pour un evenement dont
+            il est createur, la clause `OR` est vraie independamment de `invitation.invitee_id`,
+            toutes les invitations restent visibles comme avant. Documente comme protection de vie
+            privee, pas comme bug.</item>
+          <item>`CalendarEventsController.listEvents` : type de retour `Promise&lt;CalendarEvent[]&gt;`
+            -&gt; `Promise&lt;CalendarEventView[]&gt;`.</item>
+        </changeset>
+
+        <changeset id="verification-point-2">
+          <item>Hypothese de depart (le payload `CalendarEventCreated` pourrait ne pas porter de
+            quoi notifier chaque invite) verifiee sur le code reel de
+            `CalendarEventsService.createEvent` : **infirmee**. Le payload porte deja `inviteeIds:
+            dto.inviteeIds ?? []` depuis l'implementation existante — aucun changement de code
+            necessaire sur ce point, seule la doc manquait une confirmation explicite.</item>
+        </changeset>
+
+        <changeset id="ajout-point-3">
+          <item>Route `DELETE /calendars/:ownerId/events/:eventId` : n'existait pas (aucune route
+            `DELETE` sur `CalendarEvent`, contrairement a `DELETE /activities/:activityId` et
+            `DELETE /calendars/:ownerId/availability-slots/:slotId`, deja documentees).</item>
+          <item>`CalendarEventsService.deleteEvent(ownerId, eventId, actor, correlationId)` :
+            charge l'evenement scope a `ownerId` via nouvelle methode privee
+            `findEventForOwnerOrFail` (meme posture que `CalendarsService.findSlotOrFail` — pas
+            de fuite d'existence pour un `eventId` appartenant a un autre `ownerId`), reutilise
+            `assertCanCancelEvent` (createur, RP ou TI — meme politique que
+            `requestCancellation`), suppression physique (`eventRepo.delete`), publie
+            `CalendarEventDeleted`.</item>
+          <item>`CalendarEventsController` : `@Delete(':eventId')`, `204` sans corps, roles
+            `ELEVE, FORMATEUR, ANIMATEUR_PEDAGOGIQUE, RESPONSABLE_PEDAGOGIQUE,
+            TECHNICIEN_INFORMATIQUE` au niveau du guard (le filtrage fin createur/RP/TI reste dans
+            le service).</item>
+          <item>`EventsService` (events/events.service.ts) : `CalendarEventDeleted` ajoute a
+            `CalendarEventType` et a `AGGREGATE_TYPE_BY_EVENT` (`'CalendarEvent'`) — le mecanisme
+            outbox + flux Redis deja en place depuis le 2026-08-18 couvre ce nouvel evenement sans
+            modification supplementaire.</item>
+        </changeset>
+
+        <changeset id="tests">
+          <item>`test/unit/calendar-events/calendar-events.service.spec.ts` : `mockEventRepo`
+            complete avec `delete: jest.fn()`. Nouveaux tests `listEvents` (filtre createur OU
+            invite, `viewerInvitationStatus` pending/accepted/null, invitations non chargees
+            geree sans exception). Nouveaux tests `createEvent` confirmant `inviteeIds` dans le
+            payload `CalendarEventCreated` (present et `[]` par defaut). Nouveau describe
+            `deleteEvent` (createur, RP, TI, tiers sans droit -&gt; 403, evenement inconnu -&gt; 404,
+            evenement d'un autre owner -&gt; 404).</item>
+          <item>`test/unit/calendar-events/calendar-events.controller.spec.ts` :
+            `mockCalendarEventsService.deleteEvent` ajoute, nouveau describe `deleteEvent`
+            (arguments corrects, propagation de `correlationId`).</item>
+          <item>`test/unit/events/events.service.spec.ts` : `CalendarEventDeleted` ajoute a la
+            liste parametree verifiant `aggregateType`/`aggregateId`.</item>
+          <item>`test/e2e/calendar.e2e-spec.ts` : nouveau describe
+            `'GET /calendars/:ownerId/events — evenement visible cote invite (regression
+            2026-08-20)'` (invite voit l'evenement avec `viewerInvitationStatus: pending`, ne voit
+            que sa propre invitation dans le tableau, le createur voit toutes les invitations avec
+            `viewerInvitationStatus: null`, `viewerInvitationStatus` passe a `accepted` apres
+            acceptation). Nouveau describe `'DELETE /calendars/:ownerId/events/:eventId —
+            suppression'` (createur -&gt; 204, RP -&gt; 204, TI -&gt; 204, tiers sans droit -&gt; 403,
+            invite sans droit de suppression -&gt; 403, eventId inconnu -&gt; 404, ownerId d'un tiers
+            sur un eventId existant ailleurs -&gt; 404, sans token -&gt; 401).</item>
+          <item>Suite unitaire complete verte : 261 tests (etait 245, +16 tests nouveaux). Suite
+            e2e complete verte : 109 tests (etait 97, +12 tests nouveaux), lancee avec
+            `--runInBand` (course preexistante entre suites e2e sur `DROP SCHEMA public CASCADE`
+            concurrent, deja documentee dans la session precedente, non introduite ici).
+            `npx tsc --noEmit` et `npm run build` (nest build) verts.</item>
+        </changeset>
+
+        <changeset id="documentation">
+          <item>`docs/routes.md` : ligne `GET /calendars/:ownerId/events` mise a jour (bug corrige,
+            renvoi vers la section dediee). Nouvelle ligne `DELETE
+            /calendars/:ownerId/events/:eventId`. Forme de reponse de `GET .../events` mise a jour
+            avec `viewerInvitationStatus`, forme de reponse `201` de `POST` clarifiee (jamais ce
+            champ). Nouvelle section « GET /calendars/:ownerId/events — evenements ou l'invite est
+            spectateur, jamais createur » avec exemple JSON complet, sur le modele de la section
+            « GET /calendars/:ownerId — forme exacte de activities ». Section « Evenements
+            publies » completee : `CalendarEventDeleted` ajoute a la liste et documente avec
+            exemple JSON ; `CalendarEventCreated` documente avec exemple JSON et confirmation
+            explicite que `inviteeIds` y figurait deja (hypothese infirmee).</item>
+        </changeset>
+
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <item>Notification effective des invites (`dashboard-notification-service` consommant
+            `CalendarEventCreated`) : hors perimetre de cette session, tache separee deja
+            identifiee par l'orchestrateur — seul le payload cote `calendar-service` a ete
+            verifie/documente ici.</item>
+          <item>Course entre suites e2e sur `calendar_test` en execution parallele : toujours non
+            corrigee (voir session precedente), `--runInBand` reste necessaire pour une execution
+            fiable de `npm run test:e2e`.</item>
+        </openPoints>
+      </session>
     </technicalSessions>
   </service>
 </serviceFunctionalSpecification>

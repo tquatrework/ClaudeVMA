@@ -25,7 +25,7 @@ export function EventCard({
 }: EventCardProps) {
   const typeColorClass = EVENT_TYPE_COLORS[event.eventType] ?? 'bg-gray-100 text-gray-600'
   const isCancelled = event.status === 'cancelled'
-  const isAccepted = event.inviteeStatus === 'accepted'
+  const isAccepted = event.viewerInvitationStatus === 'accepted'
 
   return (
     <li
@@ -42,7 +42,7 @@ export function EventCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <span className={`font-medium text-sm ${isPast ? 'text-gray-500' : 'text-gray-800'}`}>
-            {event.title ?? `Événement #${event.id.slice(0, 8)}`}
+            {event.title || 'Sans titre'}
           </span>
           <p className={`text-xs mt-1 ${isPast ? 'text-gray-400' : 'text-gray-500'}`}>
             {new Date(event.startAt).toLocaleString('fr-FR', {

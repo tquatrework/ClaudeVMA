@@ -2,11 +2,14 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Param,
   ParseUUIDPipe,
   Body,
   Query,
   UseGuards,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -23,7 +26,7 @@ import { CorrelationId } from '../common/decorators/correlation-id.decorator';
 import { CurrentUser } from '../common/current-user.decorator';
 import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 import { UserRole } from '../common/enums/user-role.enum';
-import { CalendarEventsService } from './calendar-events.service';
+import { CalendarEventsService, CalendarEventView } from './calendar-events.service';
 import { CreateCalendarEventDto } from './dto/create-calendar-event.dto';
 import { ListEventsQueryDto } from './dto/list-events-query.dto';
 import { CalendarEvent } from './entities/calendar-event.entity';
@@ -51,9 +54,11 @@ export class CalendarEventsController {
     description:
       'Returns events for the given owner calendar filtered by the requester\'s role. ' +
       'PARENT_FINANCEUR and ADMINISTRATEUR_FINANCIER see only FINANCIER events. ' +
-      'Supports optional filters: type and personId.',
+      'Supports optional filters: type and personId. ' +
+      'Bug corrigé le 2026-08-20 : renvoie désormais aussi les événements où ownerId ' +
+      'est invité (pas seulement créateur), avec viewerInvitationStatus — voir docs/routes.md.',
   })
-  @ApiResponse({ status: 200, description: 'List of events returned' })
+  @ApiResponse({ status: 200, description: 'List of events returned — see docs/routes.md for the exact CalendarEventView shape' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden — insufficient access to this calendar' })
   listEvents(
@@ -61,7 +66,7 @@ export class CalendarEventsController {
     @Query() query: ListEventsQueryDto,
     @CurrentUser() actor: AuthenticatedUser,
     @CorrelationId() correlationId?: string,
-  ): Promise<CalendarEvent[]> {
+  ): Promise<CalendarEventView[]> {
     return this.calendarEventsService.listEvents(ownerId, actor, query, correlationId);
   }
 
@@ -91,5 +96,33 @@ export class CalendarEventsController {
     @CorrelationId() correlationId?: string,
   ): Promise<CalendarEvent> {
     return this.calendarEventsService.createEvent(ownerId, dto, actor, correlationId);
+  }
+
+  @Delete(':eventId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Roles(UserRole.ELEVE, UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE) // accès filtré par ownership dans le service (créateur, RP ou TI)
+  @ApiParam({ name: 'ownerId', description: 'Calendar owner user ID' })
+  @ApiParam({ name: 'eventId', description: 'Event UUID' })
+  @ApiHeader({ name: 'x-correlation-id', required: false })
+  @ApiOperation({
+    summary: 'Delete a calendar event',
+    description:
+      'Ajoutée le 2026-08-20 (route absente jusqu\'ici, contrairement à ' +
+      'DELETE /activities/:activityId). Hard delete — même politique que ' +
+      'POST /events/:id/cancel-request : réservée au créateur, RP ou TI. ' +
+      '404 si l\'événement n\'existe pas ou n\'appartient pas à cet ownerId ' +
+      '(pas de fuite d\'existence). Émet CalendarEventDeleted.',
+  })
+  @ApiResponse({ status: 204, description: 'Event deleted — emits CalendarEventDeleted event' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — only the creator, RP or TI can delete' })
+  @ApiResponse({ status: 404, description: 'Event not found for this owner' })
+  deleteEvent(
+    @Param('ownerId', ParseUUIDPipe) ownerId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+    @CorrelationId() correlationId?: string,
+  ): Promise<void> {
+    return this.calendarEventsService.deleteEvent(ownerId, eventId, actor, correlationId);
   }
 }

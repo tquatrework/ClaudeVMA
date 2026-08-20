@@ -21,6 +21,7 @@ const mockEventRepo = {
   save: jest.fn(),
   create: jest.fn(),
   createQueryBuilder: jest.fn(),
+  delete: jest.fn(),
 };
 
 const mockInvitationRepo = {
@@ -147,6 +148,97 @@ describe('CalendarEventsService', () => {
       const results = await service.listEvents('some-owner', actor, {});
       expect(results).toHaveLength(1);
     });
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Bug réel corrigé le 2026-08-20 : un formateur invite un élève à un
+    // événement (inviteeIds) — l'élève ne voyait rien sur son propre
+    // calendrier. Cette route ne filtrait que sur `event.owner_id`, jamais
+    // sur les invitations. Voir docs/routes.md.
+    // ────────────────────────────────────────────────────────────────────────
+
+    it('filters on "creator OR invitee" (event.owner_id OR invitation.invitee_id), not creator only', async () => {
+      const queryBuilder = buildQueryBuilder([]);
+      mockEventRepo.createQueryBuilder.mockReturnValue(queryBuilder);
+      const actor: AuthenticatedUser = { id: 'student-1', role: UserRole.ELEVE };
+
+      await service.listEvents('student-1', actor, {});
+
+      expect(queryBuilder.where).toHaveBeenCalledWith(
+        '(event.owner_id = :ownerId OR invitation.invitee_id = :ownerId)',
+        { ownerId: 'student-1' },
+      );
+    });
+
+    it('returns an event where ownerId is only an invitee (not the creator), under their own calendar read', async () => {
+      const eventWithInvitation = {
+        id: 'evt-invited',
+        ownerId: 'teacher-1',
+        creatorId: 'teacher-1',
+        eventType: EventType.COURS,
+        invitations: [
+          { id: 'inv-1', eventId: 'evt-invited', inviteeId: 'student-1', status: InvitationStatus.PENDING },
+        ],
+      } as CalendarEvent;
+      mockEventRepo.createQueryBuilder.mockReturnValue(buildQueryBuilder([eventWithInvitation]));
+      const actor: AuthenticatedUser = { id: 'student-1', role: UserRole.ELEVE };
+
+      const results = await service.listEvents('student-1', actor, {});
+
+      expect(results).toHaveLength(1);
+      expect(results[0].id).toBe('evt-invited');
+      expect(results[0].viewerInvitationStatus).toBe(InvitationStatus.PENDING);
+    });
+
+    it('viewerInvitationStatus is null for the calendar owner\'s own event (they are not an invitee of it)', async () => {
+      const ownEvent = {
+        id: 'evt-own',
+        ownerId: 'teacher-1',
+        creatorId: 'teacher-1',
+        eventType: EventType.COURS,
+        invitations: [
+          { id: 'inv-2', eventId: 'evt-own', inviteeId: 'student-1', status: InvitationStatus.ACCEPTED },
+        ],
+      } as CalendarEvent;
+      mockEventRepo.createQueryBuilder.mockReturnValue(buildQueryBuilder([ownEvent]));
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      const results = await service.listEvents('teacher-1', actor, {});
+
+      expect(results[0].viewerInvitationStatus).toBeNull();
+    });
+
+    it('viewerInvitationStatus reflects an accepted invitation', async () => {
+      const eventWithAcceptedInvitation = {
+        id: 'evt-accepted',
+        ownerId: 'teacher-1',
+        creatorId: 'teacher-1',
+        eventType: EventType.COURS,
+        invitations: [
+          { id: 'inv-3', eventId: 'evt-accepted', inviteeId: 'student-1', status: InvitationStatus.ACCEPTED },
+        ],
+      } as CalendarEvent;
+      mockEventRepo.createQueryBuilder.mockReturnValue(buildQueryBuilder([eventWithAcceptedInvitation]));
+      const actor: AuthenticatedUser = { id: 'student-1', role: UserRole.ELEVE };
+
+      const results = await service.listEvents('student-1', actor, {});
+
+      expect(results[0].viewerInvitationStatus).toBe(InvitationStatus.ACCEPTED);
+    });
+
+    it('viewerInvitationStatus is null when event.invitations is undefined (no unhandled exception)', async () => {
+      const eventWithoutInvitationsLoaded = {
+        id: 'evt-no-invitations',
+        ownerId: 'student-1',
+        creatorId: 'student-1',
+        eventType: EventType.RAPPEL,
+      } as CalendarEvent;
+      mockEventRepo.createQueryBuilder.mockReturnValue(buildQueryBuilder([eventWithoutInvitationsLoaded]));
+      const actor: AuthenticatedUser = { id: 'student-1', role: UserRole.ELEVE };
+
+      const results = await service.listEvents('student-1', actor, {});
+
+      expect(results[0].viewerInvitationStatus).toBeNull();
+    });
   });
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -217,6 +309,31 @@ describe('CalendarEventsService', () => {
       expect((result as unknown as Record<string, unknown>).endTime).toBeUndefined();
     });
 
+    it('regression 2026-08-20: creates an event without title (persisted as null, not a fabricated default)', async () => {
+      const { title: _omit, ...dtoWithoutTitle } = validDto;
+      const savedEvent = {
+        id: 'evt-no-title',
+        title: null,
+        eventType: dtoWithoutTitle.eventType,
+        startAt: new Date(dtoWithoutTitle.startAt),
+        endAt: new Date(dtoWithoutTitle.endAt),
+        ownerId: 'teacher-1',
+        creatorId: 'teacher-1',
+        invitations: [],
+      } as unknown as CalendarEvent;
+      mockEventRepo.create.mockReturnValue(savedEvent);
+      mockEventRepo.save.mockResolvedValue(savedEvent);
+      mockEventRepo.findOne.mockResolvedValue(savedEvent);
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      const result = await service.createEvent('teacher-1', dtoWithoutTitle as never, actor);
+
+      expect(mockEventRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ title: null }),
+      );
+      expect(result.title).toBeNull();
+    });
+
     it('ELEVE can create a RAPPEL event', async () => {
       const dto = { ...validDto, eventType: EventType.RAPPEL };
       const savedEvent = { id: 'evt-2', ...dto, ownerId: 'student-1', creatorId: 'student-1', invitations: [] } as unknown as CalendarEvent;
@@ -269,6 +386,89 @@ describe('CalendarEventsService', () => {
 
       await service.createEvent('teacher-1', dtoWithInvitees, actor);
       expect(mockInvitationRepo.create).toHaveBeenCalledTimes(2);
+    });
+
+    // Point 2 du chantier du 2026-08-20 : le payload de CalendarEventCreated
+    // doit porter de quoi permettre à dashboard-notification-service de
+    // notifier chaque invité. Vérifié ici : c'était déjà le cas
+    // (`inviteeIds` était déjà présent), infirmant l'hypothèse d'un payload
+    // incomplet — voir docs/routes.md.
+    it('CalendarEventCreated payload carries inviteeIds, so each invitee can later be notified', async () => {
+      const dtoWithInvitees = { ...validDto, inviteeIds: ['invitee-1', 'invitee-2'] };
+      const savedEvent = { id: 'evt-5', ...dtoWithInvitees, ownerId: 'teacher-1', creatorId: 'teacher-1', invitations: [] } as unknown as CalendarEvent;
+      mockEventRepo.create.mockReturnValue(savedEvent);
+      mockEventRepo.save.mockResolvedValue(savedEvent);
+      mockEventRepo.findOne.mockResolvedValue(savedEvent);
+      mockInvitationRepo.create.mockImplementation((dto) => dto);
+      mockInvitationRepo.save.mockResolvedValue([]);
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      await service.createEvent('teacher-1', dtoWithInvitees, actor);
+
+      expect(mockEventsService.publish).toHaveBeenCalledWith(
+        'CalendarEventCreated',
+        expect.objectContaining({
+          eventId: 'evt-5',
+          ownerId: 'teacher-1',
+          creatorId: 'teacher-1',
+          inviteeIds: ['invitee-1', 'invitee-2'],
+        }),
+        undefined,
+      );
+    });
+
+    it('CalendarEventCreated payload carries inviteeIds: [] when no invitee was provided (never undefined)', async () => {
+      const savedEvent = { id: 'evt-6', ...validDto, ownerId: 'teacher-1', creatorId: 'teacher-1', invitations: [] } as unknown as CalendarEvent;
+      mockEventRepo.create.mockReturnValue(savedEvent);
+      mockEventRepo.save.mockResolvedValue(savedEvent);
+      mockEventRepo.findOne.mockResolvedValue(savedEvent);
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      await service.createEvent('teacher-1', validDto, actor);
+
+      expect(mockEventsService.publish).toHaveBeenCalledWith(
+        'CalendarEventCreated',
+        expect.objectContaining({ inviteeIds: [] }),
+        undefined,
+      );
+    });
+
+    // Défaut réel trouvé par un test e2e le 2026-08-20 : la notification
+    // reçue par un invité (dashboard-notification-service, type
+    // event_invitation_received) affichait toujours metadata.title: null,
+    // même pour un événement avec un vrai titre — le payload de
+    // CalendarEventCreated ne portait jamais la clé `title`. Corrigé ici.
+    it('CalendarEventCreated payload carries the real event title', async () => {
+      const savedEvent = { id: 'evt-7', ...validDto, ownerId: 'teacher-1', creatorId: 'teacher-1', invitations: [] } as unknown as CalendarEvent;
+      mockEventRepo.create.mockReturnValue(savedEvent);
+      mockEventRepo.save.mockResolvedValue(savedEvent);
+      mockEventRepo.findOne.mockResolvedValue(savedEvent);
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      await service.createEvent('teacher-1', validDto, actor);
+
+      expect(mockEventsService.publish).toHaveBeenCalledWith(
+        'CalendarEventCreated',
+        expect.objectContaining({ title: 'Cours de maths' }),
+        undefined,
+      );
+    });
+
+    it('CalendarEventCreated payload carries title: null when the event has no title (title stays genuinely optional)', async () => {
+      const dtoWithoutTitle = { ...validDto, title: undefined };
+      const savedEvent = { id: 'evt-8', ...dtoWithoutTitle, title: null, ownerId: 'teacher-1', creatorId: 'teacher-1', invitations: [] } as unknown as CalendarEvent;
+      mockEventRepo.create.mockReturnValue(savedEvent);
+      mockEventRepo.save.mockResolvedValue(savedEvent);
+      mockEventRepo.findOne.mockResolvedValue(savedEvent);
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      await service.createEvent('teacher-1', dtoWithoutTitle, actor);
+
+      expect(mockEventsService.publish).toHaveBeenCalledWith(
+        'CalendarEventCreated',
+        expect.objectContaining({ title: null }),
+        undefined,
+      );
     });
   });
 
@@ -632,6 +832,80 @@ describe('CalendarEventsService', () => {
       await expect(
         service.revokeVisibilityGrant('user-1', 'user-2', UserRole.RESPONSABLE_PEDAGOGIQUE),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // deleteEvent
+  //
+  // Route ajoutée le 2026-08-20 : DELETE /calendars/:ownerId/events/:eventId
+  // n'existait pas jusqu'ici.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('deleteEvent', () => {
+    it('the creator deletes their own event → deleted, publishes CalendarEventDeleted', async () => {
+      const calendarEvent = { id: 'evt-1', ownerId: 'teacher-1', creatorId: 'teacher-1' } as CalendarEvent;
+      mockEventRepo.findOne.mockResolvedValue(calendarEvent);
+      mockEventRepo.delete.mockResolvedValue({});
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      await service.deleteEvent('teacher-1', 'evt-1', actor);
+
+      expect(mockEventRepo.findOne).toHaveBeenCalledWith({ where: { id: 'evt-1', ownerId: 'teacher-1' } });
+      expect(mockEventRepo.delete).toHaveBeenCalledWith({ id: 'evt-1' });
+      expect(mockEventsService.publish).toHaveBeenCalledWith(
+        'CalendarEventDeleted',
+        { eventId: 'evt-1', ownerId: 'teacher-1', deletedBy: 'teacher-1' },
+        undefined,
+      );
+    });
+
+    it('RP can delete any event (privileged role)', async () => {
+      const calendarEvent = { id: 'evt-2', ownerId: 'teacher-1', creatorId: 'teacher-1' } as CalendarEvent;
+      mockEventRepo.findOne.mockResolvedValue(calendarEvent);
+      mockEventRepo.delete.mockResolvedValue({});
+      const actor: AuthenticatedUser = { id: 'rp-1', role: UserRole.RESPONSABLE_PEDAGOGIQUE };
+
+      await expect(service.deleteEvent('teacher-1', 'evt-2', actor)).resolves.toBeUndefined();
+      expect(mockEventRepo.delete).toHaveBeenCalledWith({ id: 'evt-2' });
+    });
+
+    it('TI can delete any event (privileged role)', async () => {
+      const calendarEvent = { id: 'evt-3', ownerId: 'teacher-1', creatorId: 'teacher-1' } as CalendarEvent;
+      mockEventRepo.findOne.mockResolvedValue(calendarEvent);
+      mockEventRepo.delete.mockResolvedValue({});
+      const actor: AuthenticatedUser = { id: 'ti-1', role: UserRole.TECHNICIEN_INFORMATIQUE };
+
+      await expect(service.deleteEvent('teacher-1', 'evt-3', actor)).resolves.toBeUndefined();
+    });
+
+    it('throws ForbiddenException when a non-creator, non-RP/TI tries to delete (e.g. an invitee)', async () => {
+      const calendarEvent = { id: 'evt-4', ownerId: 'teacher-1', creatorId: 'teacher-1' } as CalendarEvent;
+      mockEventRepo.findOne.mockResolvedValue(calendarEvent);
+      const actor: AuthenticatedUser = { id: 'student-1', role: UserRole.ELEVE };
+
+      await expect(service.deleteEvent('teacher-1', 'evt-4', actor)).rejects.toThrow(ForbiddenException);
+      expect(mockEventRepo.delete).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the event does not exist', async () => {
+      mockEventRepo.findOne.mockResolvedValue(null);
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      await expect(service.deleteEvent('teacher-1', 'unknown-evt', actor)).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws NotFoundException when the event exists but belongs to a different owner (no existence leak)', async () => {
+      // findOne is scoped to {id, ownerId} — a mismatched owner yields no row.
+      mockEventRepo.findOne.mockResolvedValue(null);
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      await expect(service.deleteEvent('teacher-1', 'evt-of-another-owner', actor)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(mockEventRepo.findOne).toHaveBeenCalledWith({
+        where: { id: 'evt-of-another-owner', ownerId: 'teacher-1' },
+      });
     });
   });
 });

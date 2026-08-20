@@ -19,6 +19,7 @@ import type { UserRole } from '../types/user'
 const FALLBACK_STUDENT = 'un élève'
 const FALLBACK_TEACHER = 'un formateur'
 const FALLBACK_PROPOSER = 'un intervenant'
+const FALLBACK_INVITER = "Quelqu'un"
 const FALLBACK_TEXT = 'Nouvelle notification'
 
 function studentLabel(metadata: NotificationMetadata | null | undefined): string {
@@ -31,6 +32,10 @@ function teacherLabel(metadata: NotificationMetadata | null | undefined): string
 
 function proposerLabel(metadata: NotificationMetadata | null | undefined): string {
   return metadata?.proposerName?.trim() || FALLBACK_PROPOSER
+}
+
+function inviterLabel(metadata: NotificationMetadata | null | undefined): string {
+  return metadata?.creatorName?.trim() || FALLBACK_INVITER
 }
 
 /** Rôles pour lesquels une relation élève↔formateur place la personne côté formateur. */
@@ -80,6 +85,18 @@ const NOTIFICATION_LABEL_BUILDERS: Record<string, NotificationLabelBuilder> = {
   // Chantier calendrier de disponibilités, point 3 (2026-08-19). Libellé exact retenu par
   // l'utilisateur : « Proposition de cours ajoutée par {proposerName} ».
   course_slot_proposed: (metadata) => `Proposition de cours ajoutée par ${proposerLabel(metadata)}`,
+
+  // Bug réel corrigé le 2026-08-20 (invitation d'événement invisible pour l'invité). Libellé
+  // exact documenté dans docs/routes.md § dashboard-notification-service : « {creatorName} vous
+  // a invité à un événement » si le titre est absent, ou « … à « {title} » » sinon — le titre
+  // d'un événement de calendrier est réellement optionnel côté serveur.
+  event_invitation_received: (metadata) => {
+    const inviter = inviterLabel(metadata)
+    const eventTitle = metadata?.title?.trim()
+    return eventTitle
+      ? `${inviter} vous a invité à « ${eventTitle} »`
+      : `${inviter} vous a invité à un événement`
+  },
 }
 
 /**
@@ -119,6 +136,11 @@ export function getNotificationDisplayText(
  * dans la grille unifiée de `/calendar` (`CalendarUnifiedView`), jamais dans
  * un écran séparé — même défaut de découvrabilité déjà corrigé pour le flow demande de
  * professeur le 2026-08-17, appliqué ici.
+ *
+ * `event_invitation_received` (bug réel corrigé le 2026-08-20) suit le même principe : une
+ * invitation à un événement de calendrier s'accepte/refuse directement dans la grille unifiée
+ * (bloc `EVENT_PENDING`, voir `CalendarUnifiedView`/`EventDetailDialog`), jamais dans un écran
+ * séparé.
  */
 const NOTIFICATION_TARGET_PATHS: Record<string, string> = {
   teacher_request_created: '/teacher-requests',
@@ -130,6 +152,7 @@ const NOTIFICATION_TARGET_PATHS: Record<string, string> = {
   teacher_assigned: '/teacher-requests',
   teacher_request_status_updated: '/teacher-requests',
   course_slot_proposed: '/calendar',
+  event_invitation_received: '/calendar',
 }
 
 /** Route vers laquelle naviguer au clic sur une notification, ou `null` si aucune n'est définie. */

@@ -334,22 +334,45 @@ export async function createOwnerEvent(
   return data
 }
 
-// ─── Invitations (InvitationBanner) ─────────────────────────────────────────────
+// ─── Invitations (EventDetailDialog) ────────────────────────────────────────────
+//
+// InvitationBanner (bandeau distinct au-dessus de la grille) a été retiré le 2026-08-20 : bug réel
+// signalé par un utilisateur (formateur → élève, invitation jamais vue). Deux causes cumulées —
+// GET /calendars/:ownerId/events ne renvoyait pas les événements où l'appelant est seulement
+// invité (corrigé côté calendar-service le même jour), et InvitationBanner lui-même ne pouvait
+// jamais s'afficher pour une invitation réelle (il testait `eventType === 'invitation'` et un
+// champ `inviteeStatus` que le serveur n'a jamais renvoyé). Remplacé par un affichage direct sur
+// la grille (couleur dédiée, `EVENT_PENDING`) + une modale Accepter/Refuser au clic
+// (`EventDetailDialog`), sur le même modèle que les propositions de créneau de cours (`PROPOSED`).
 
 /**
  * POST /events/:id/invitees/:userId/accept — Accepte une invitation. Utilisé par
- * InvitationBanner.
+ * `EventDetailDialog` (via `useCalendarEvents.respondToEventInvitation`).
  */
 export async function acceptEventInvitation(eventId: string, userId: string): Promise<void> {
   await apiClient.post(`/events/${eventId}/invitees/${userId}/accept`)
 }
 
 /**
- * POST /events/:id/invitees/:userId/decline — Refuse une invitation (retire l'invité).
- * Utilisé par InvitationBanner.
+ * POST /events/:id/invitees/:userId/decline — Refuse une invitation (retire l'invité). Utilisé
+ * par `EventDetailDialog` (via `useCalendarEvents.respondToEventInvitation`).
  */
 export async function declineEventInvitation(eventId: string, userId: string): Promise<void> {
   await apiClient.post(`/events/${eventId}/invitees/${userId}/decline`)
+}
+
+// ─── Suppression d'un événement (EventDetailDialog, point 4, 2026-08-20) ───────
+
+/**
+ * DELETE /calendars/:ownerId/events/:eventId — Supprime un événement (suppression physique,
+ * `204` sans corps). Route ajoutée côté calendar-service le 2026-08-20 : créateur, RP ou TI
+ * uniquement (`docs/routes.md`). Le front ne réserve le bouton "Supprimer l'événement" qu'au
+ * créateur (`event.ownerId === viewerId`) — aucune notion de rôle privilégié RP/TI exacte n'est
+ * réutilisable ici (`isAdministratorRole` inclut l'administrateur financier, qui n'a pas ce droit
+ * côté serveur) ; un `403` reste géré si un cas limite se présentait malgré tout.
+ */
+export async function deleteOwnerEvent(ownerId: string, eventId: string): Promise<void> {
+  await apiClient.delete(`/calendars/${ownerId}/events/${eventId}`)
 }
 
 // ─── Annulation (CancellationRequestDialog) ─────────────────────────────────────

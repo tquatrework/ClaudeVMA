@@ -44,6 +44,13 @@ export enum NotificationType {
   // métier précise (« proposition de créneau »), pas une simple
   // planification d'activité générique. Voir EventProcessorService.
   COURSE_SLOT_PROPOSED = 'course_slot_proposed',
+  // Ajouté le 2026-08-20 : un utilisateur invité à un CalendarEvent
+  // (`POST /calendars/:ownerId/events`, `inviteeIds`) ne recevait jusqu'ici
+  // aucune notification — bug réel signalé en conditions réelles, corrigé
+  // côté visibilité calendrier le même jour côté calendar-service. Consommé
+  // depuis `CalendarEventCreated`, un destinataire par élément
+  // `payload.inviteeIds`. Voir EventProcessorService.
+  EVENT_INVITATION_RECEIVED = 'event_invitation_received',
 }
 
 @Entity('notifications')

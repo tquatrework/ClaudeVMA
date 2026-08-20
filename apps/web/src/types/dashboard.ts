@@ -25,6 +25,10 @@ export type NotificationType =
   // dashboard-notification-service quand une proposition de créneau de cours est envoyée
   // (docs/routes.md § dashboard-notification-service > "Consommateur d'événements").
   | 'course_slot_proposed'
+  // Bug réel corrigé le 2026-08-20 (invitation d'événement invisible pour l'invité) :
+  // notification créée quand `CalendarEventCreated` porte au moins un invité
+  // (docs/routes.md § dashboard-notification-service > "Consommateur d'événements").
+  | 'event_invitation_received'
   | (string & {})
 
 /**
@@ -42,6 +46,19 @@ export interface NotificationMetadata {
   activityId?: string
   activityType?: string
   startTime?: string
+  /** `event_invitation_received` — nom du créateur de l'événement de calendrier auquel le
+   * destinataire est invité (jamais un UUID). */
+  creatorName?: string | null
+  /** `event_invitation_received` — identifiant de l'événement (`CalendarEvent`), réservé à un
+   * usage futur de lien profond, jamais affiché à l'écran. */
+  eventId?: string
+  /** `event_invitation_received` — type de l'événement (`cours`, `rappel`, …). */
+  eventType?: string
+  /** `event_invitation_received` — titre de l'événement, `null` si l'événement n'en a pas
+   * (le titre est réellement optionnel côté serveur, voir `docs/routes.md`). */
+  title?: string | null
+  /** `event_invitation_received` — horodatage ISO de l'événement (`payload.startTime`). */
+  startAt?: string
 }
 
 export interface DashboardNotification {

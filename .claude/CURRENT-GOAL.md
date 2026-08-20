@@ -5,6 +5,273 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-20 — corrections utilisabilité du calendrier unifié
+
+Demande explicite de l'utilisateur (verbatim, 5 points + sous-points), en continuant de tester
+l'écran `/calendar` livré par le chantier précédent (« vue calendrier unifiée », validé et mergé
+le 2026-08-20, PR #129). Branche : `fix/calendrier-creation-et-affichage` (créée depuis `master`,
+poussée).
+
+### Les 5 points
+
+1. **Sélecteur de mode** : retirer le bouton « Consultation » — la consultation est l'état par
+   défaut, pas un choix explicite. « Indiquer ses disponibilités » et « Créer un événement »
+   deviennent deux choix **mutuellement exclusifs** : 0 sélectionné (consultation), ou l'un des
+   deux — jamais les deux à la fois.
+2. **Dates absentes de la grille** : la grille n'affiche aujourd'hui que des noms de jour (lundi,
+   mardi...), sans date ni mois. Il faut le mois (voire l'année) visible quelque part, et la date
+   du jour à proximité du nom (ex. « jeu. 20/08 » ou « jeudi 20 août », mois affiché au-dessus).
+   **Rattaché à un risque déjà documenté** (rapport front du 2026-08-19, jamais confirmé par
+   l'utilisateur) : la grille est un gabarit hebdomadaire **récurrent**, sans vraies dates par
+   jour — un clic résout vers « la prochaine occurrence ». Ce point 2 tranche implicitement ce
+   risque : il faut de vraies dates affichées, pas un gabarit abstrait.
+3. **Granularité des créneaux** : la sélection doit pouvoir se faire de quart d'heure en quart
+   d'heure, même si aucun repère visuel (ligne, graduation) ne marque ces subdivisions dans la
+   grille.
+4. **Création d'événement cassée** : on ne peut sélectionner qu'un seul créneau, et rien ne permet
+   ensuite d'indiquer le vrai début/fin de l'événement — la modale actuelle ne fait que demander
+   le type d'événement, jamais l'événement lui-même.
+   - **4.1** — sélection multi-créneaux par surlignage (glisser ou équivalent) pour créer un
+     événement ou une disponibilité, qui détermine le début/fin par défaut.
+   - **4.B** — après le choix du type, une **2ᵉ modale** doit permettre de préciser le caractère
+     de l'événement (titre, description...).
+   - **4.C** — pouvoir indiquer les personnes destinataires de l'événement (par nom, jamais par
+     UUID — règle du 2026-08-09), plutôt que créer l'événement séparément sur leur calendrier
+     (choix de l'utilisateur, jugé plus simple). Leurs disponibilités sur la semaine doivent être
+     affichées pendant la sélection, sinon l'information est inutilisable pour choisir un horaire.
+5. **Bug titre** : le champ titre est annoncé optionnel dans l'interface, mais l'événement est
+   refusé si le titre est vide. Le titre doit rester réellement optionnel.
+
+### Investigation faite par l'orchestrateur avant délégation (lecture doc uniquement, pas de code service)
+
+`docs/routes.md` fait autorité :
+- `POST /calendars/:ownerId/events` utilise déjà `startAt`/`endAt` en ISO 8601 **sans contrainte
+  de granularité documentée** — le point 3 est donc a priori un sujet **front uniquement**
+  (interaction/rendu), le backend accepte déjà n'importe quelle minute.
+- Le corps documenté est `{title, startAt, endAt, eventType, description?, inviteeIds?}` —
+  `title` **n'a pas de `?`**, il est donc documenté comme **requis** côté contrat. Le point 5
+  n'est donc probablement pas qu'un bug d'affichage front (« optionnel » mal étiqueté) : c'est le
+  DTO backend (`CreateCalendarEventDto`) qui doit changer pour rendre `title` réellement
+  optionnel — à confirmer par `calendar-service`.
+- `inviteeIds?` **existe déjà** dans le contrat de création — le point 4.C n'est donc a priori pas
+  un gap backend, juste une UI absente côté front. `GET /calendars/:ownerId/busy` (livré au point
+  2 du chantier disponibilités, 2026-08-18) donne déjà les disponibilités busy/free d'un tiers
+  lié, et `LinkedCalendarView` (déjà construit, déjà intégré dans `ProposeCourseSlotDialog`) est
+  directement réutilisable pour l'affichage demandé au point 4.C.
+- Les créneaux de disponibilité (`availability-slots`) utilisent aussi des `startTime`/`endTime`
+  ISO 8601 arbitraires, sans contrainte de granularité — même constat que pour les événements.
+
+**Conséquence sur le séquencement** : contrairement aux chantiers précédents, la majorité de ce
+travail est **front uniquement**. Seul le point 5 nécessite un changement `calendar-service`
+confirmé (DTO + doc), à livrer et prouver en HTTP avant que le front ne s'appuie dessus — leçon
+déjà appliquée aux chantiers précédents (« séquencer backend d'abord »).
+
+### Comment on saura que c'est fait
+
+Capture d'écran de `/calendar` montrant : le sélecteur de mode sans bouton Consultation ;
+la grille avec dates réelles (jour + jour/mois, mois affiché) ; une création d'événement
+multi-créneaux avec la 2ᵉ modale de détails et un sélecteur de destinataires affichant leurs
+disponibilités ; réponse HTTP citée montrant la création d'un événement **sans titre** réussie
+(`201`, plus de rejet).
+
+### État
+
+- [x] Backend `calendar-service` — `title` réellement optionnel sur `CreateCalendarEventDto`,
+      commits `133e8b4`+`45eaaf4`. Migration `MakeCalendarEventTitleOptional1787080000000`
+      (colonne `title` nullable), vérifiée up/down/re-run par le sous-agent contre un clone
+      jetable. 245/245 tests unitaires + 97/97 e2e verts — 245 unitaires rejoués indépendamment
+      par l'orchestrateur après fast-forward. `docs/routes.md` et
+      `docs/services/calendar-service.md` mis à jour (`title?`).
+- [x] Front — les 4 autres points, commits `3905b00`+`293cf35` :
+      **A** (mode selector, "Consultation" retiré, 2 boutons mutuellement exclusifs) ;
+      **B** (décision d'architecture : gabarit hebdomadaire récurrent → vraie semaine calendaire
+      navigable, `calendarDisplayWeek.ts`/`useCalendarWeekNavigation`/`CalendarWeekNavigator` —
+      tranche le risque non confirmé du rapport du 2026-08-19 ; limite connue signalée : les
+      activités restent bornées côté serveur à -2/+4 semaines, plus visible maintenant qu'on
+      navigue réellement) ;
+      **C** (sélection au quart d'heure par glisser, cellules d'heure subdivisées en 4 cibles
+      sans alourdir visuellement la grille) ;
+      **D** (`QuickEventCreatePopover` remplacé par `EventCreateFormModal` + `EventRecipientPicker`
+      + `useEventRecipients` — recherche de destinataire par nom, jamais un UUID, réutilise
+      `LinkedCalendarView` tel quel pour afficher les disponibilités busy/free pendant la
+      sélection). **Défaut réel trouvé et corrigé au passage** : `EventCard.tsx` affichait un
+      fragment d'UUID (`Événement #xxxxxxxx`) en l'absence de titre — corrigé en "Sans titre"
+      partout, conforme à la règle du 2026-08-09. 1800/1802 tests verts (2 échecs préexistants
+      sans rapport, `EleveDashboardPage.test.tsx`, reproduits par l'agent sur le commit de départ
+      pour confirmer qu'ils ne viennent pas de cette session), `tsc --noEmit` et `npm run build`
+      propres — tous rejoués indépendamment par l'orchestrateur après fast-forward.
+- [x] Déployé sur la pile réelle — `calendar-service` et `frontend` reconstruits et redémarrés,
+      migration confirmée appliquée (`migration:show` → 3/3 `[X]`), gateway redémarrée, bundle
+      `index-B3dGF5Na.js` confirmé servi.
+- [x] Preuve HTTP obtenue par l'orchestrateur contre `https://claudevma.visioprof.fr` (compte
+      élève réel) : `POST /calendars/:ownerId/events` sans `title` → `201 {title: null, ...}` ;
+      avec `title: ""` → `201 {title: "", ...}` ; avec titre → `201` inchangé. Le rejet `400`
+      d'avant cette session ne se reproduit plus.
+- [x] Preuve à l'écran — test Playwright réel `apps/web/e2e/proof-calendar-fixes-2026-08-20.spec.ts`
+      (commits `faeece5`+`058620b`), rejoué indépendamment par l'orchestrateur après fast-forward :
+      1/1 vert, réponses HTTP citées (`POST /internal/create-teacher-student-relation` → `201`,
+      `GET /calendars/:ownerId/busy` → `200`, `POST /calendars/:ownerId/events` → `201
+      {title:null,...}`). 5 captures vérifiées visuellement par l'orchestrateur
+      (`apps/web/test-results/calendar-fixes-0{1..5}-*.png`) : sélecteur à 2 boutons sans
+      "Consultation" ; grille avec dates réelles (JJ/MM) + libellé de semaine + navigation ;
+      modale de création avec type/titre optionnel/description/début-fin ajustables/destinataire
+      recherché par nom + son calendrier busy/free affiché ; événement créé affiché "Sans titre"
+      sur la grille, aucun UUID visible nulle part.
+- [x] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur — **pas validé, test réel de l'utilisateur non concluant** (voir
+      ci-dessous, 2026-08-20)
+
+### Retour utilisateur sur son propre test (2026-08-20) — bug réel, pas une validation
+
+L'utilisateur a testé lui-même le point D (création d'événement avec destinataire) en conditions
+réelles, deux comptes réels (`professeur.lycee` crée un événement partagé avec `eleve.sixieme`).
+**Résultat : l'élève n'a rien vu.** Ni sur son calendrier, ni notification, ni même une ligne dans
+« la liste des événements » placée sous le calendrier (à identifier précisément — probablement
+`CourseProposalsPanel`, seul panneau repliable sous la grille connu à ce jour, mais à confirmer :
+il porte les propositions de créneaux de cours — `ScheduledActivity` — pas les invitations
+d'événements — `CalendarEvent` — donc ce n'est peut-être pas le bon composant ou il sert aux deux
+sans le dire). Conséquence : l'élève n'a **aucun moyen** d'accepter ou refuser l'événement.
+
+**Diagnostic préliminaire de l'orchestrateur, lecture doc uniquement** : `POST
+/calendars/:ownerId/events` crée toujours l'événement sous le calendrier du **créateur**
+(`:ownerId` = celui qui appelle), `inviteeIds` ne fait qu'ajouter des lignes `EventInvitation`.
+Rien dans `docs/routes.md` n'indique que `GET /calendars/:ownerId/events` (calendrier du
+**destinataire**) renvoie les événements où il est **invité** plutôt que propriétaire — c'est très
+probablement le même gap déjà rencontré et corrigé pour `ScheduledActivity` au point 3 du chantier
+du 2026-08-18 (« créateur OU participant »), jamais appliqué à `CalendarEvent`/`EventInvitation`.
+Côté notifications : `CalendarEventCreated` est bien publié sur le flux Redis
+(`docs/routes.md`, section calendar-service) mais **absent** de la liste des types traités par
+`dashboard-notification-service` (voir sa section dédiée) — aucune notification n'est donc jamais
+créée à l'invitation. Les deux causes probables du bug sont donc distinctes et à corriger toutes
+les deux. À vérifier et confirmer par les sous-agents avant de conclure.
+
+### Demande explicite de l'utilisateur pour corriger ce point (verbatim, reformulé en tâches)
+
+1. **Retirer la « liste des événements »** placée sous le calendrier (composant à identifier
+   précisément par `front-developper` avant de le retirer — ne pas supprimer à l'aveugle si un
+   autre flux en dépend encore).
+2. **Créer une notification** à l'invitation (même mécanisme que `course_slot_proposed` déjà en
+   place pour les propositions de créneau — consommateur du flux Redis, jamais d'UUID affiché).
+3. **Afficher l'événement directement dans le calendrier du destinataire**, dans une **couleur
+   spécifique** signalant qu'une réponse (valider/refuser) est attendue — même pattern déjà
+   appliqué aux `ScheduledActivity` `proposed` sur la grille de disponibilités.
+4. **À l'ouverture de l'événement, une modale avec les 2 boutons** Accepter/Refuser (routes déjà
+   existantes : `POST /events/:id/invitees/:userId/accept` / `.../decline`, jamais utilisées côté
+   front jusqu'ici pour ce flux).
+5. **Bouton de suppression d'un créneau** (événement OU disponibilité) à l'ouverture de son détail
+   — vérifier si ce bouton existe déjà avant d'en ajouter un. Point ouvert connu : **aucune route
+   `DELETE` n'est aujourd'hui documentée pour `CalendarEvent`** (contrairement à
+   `DELETE /activities/:activityId` et `DELETE /calendars/:ownerId/availability-slots/:slotId`,
+   qui existent déjà) — probablement un gap backend réel à combler, à confirmer par
+   `calendar-service` avant de câbler le bouton front.
+
+### Comment on saura que c'est fait (ce point précis)
+
+Réponse HTTP citée montrant `professeur.lycee` créant un événement avec `eleve.sixieme` en
+destinataire, puis `eleve.sixieme` voyant l'événement apparaître (`GET` de son propre calendrier),
+recevant une notification (`GET /notifications`), ouvrant une modale Accepter/Refuser depuis la
+grille, et acceptant avec succès. Capture d'écran de la grille de l'élève montrant le bloc en
+couleur distincte avant réponse. Capture ou réponse HTTP montrant la suppression d'un événement et
+d'une disponibilité depuis leur écran de détail respectif.
+
+### État (ce point précis)
+
+- [x] Investigation + correctif `calendar-service` — commits `f1f744d`+`c9c3baa`, poussés. Bug
+      racine confirmé : `listEvents` filtrait uniquement `event.owner_id`, jamais
+      `EventInvitation.invitee_id` — un invité ne voyait donc **jamais** un événement créé par un
+      tiers, quel que soit le nombre d'invitations. Corrigé sur le même principe que
+      `ActivitiesService.findActiveInRange` (« créateur OU invité »), nouveau champ
+      `viewerInvitationStatus: "pending"|"accepted"|"declined"|null` sur chaque événement de
+      `GET /calendars/:ownerId/events`. `CalendarEventCreated` portait déjà `inviteeIds` — aucun
+      changement de payload nécessaire (hypothèse initiale infirmée). Route `DELETE
+      /calendars/:ownerId/events/:eventId` confirmée absente puis ajoutée (créateur/RP/TI, `204`,
+      publie `CalendarEventDeleted`). 261/261 tests unitaires vérifiés indépendamment par
+      l'orchestrateur après fast-forward, 109 e2e (+12) annoncés verts par le sous-agent.
+      `docs/routes.md` et `docs/services/calendar-service.md` mis à jour.
+- [x] Déployé sur la pile réelle — `calendar-service` reconstruit et redémarré (pas de migration,
+      changement de requête + route seulement), gateway redémarrée.
+- [x] Preuve HTTP obtenue par l'orchestrateur contre `https://claudevma.visioprof.fr` (comptes
+      formateur+élève réels, relation `TEACHER_OF_STUDENT` posée via la route interne) :
+      `POST /calendars/:teacherId/events` avec `inviteeIds:[studentId]` → `201`, invitation
+      `pending` créée ; `GET /calendars/:studentId/events` (élève) → `200`, l'événement apparaît
+      avec `"viewerInvitationStatus":"pending"` — **le bug signalé par l'utilisateur ne se
+      reproduit plus** à ce niveau (visibilité calendrier).
+- [x] Correctif `dashboard-notification-service` — commits `33fb10c`+`16af450`, poussés. Nouveau
+      traitement `handleCalendarEventCreated` dans `EventProcessorService` : un destinataire par
+      élément d'`inviteeIds`, type `event_invitation_received`, `metadata:
+      {creatorName, eventId, eventType, title, startAt}` (`creatorName` résolu, jamais d'UUID ;
+      `title` peut être `null`, aucun titre inventé). Libellé front prévu : « {creatorName} vous a
+      invité à un événement » (sans titre) / « ... à « {title} » » (avec titre). 103/103 tests
+      vérifiés indépendamment par l'orchestrateur après fast-forward. `docs/routes.md` et
+      `docs/services/dashboard-notification-service.md` mis à jour.
+- [x] Déployé sur la pile réelle — `dashboard-notification-service` reconstruit et redémarré, sain.
+- [x] Preuve HTTP obtenue par l'orchestrateur : nouvel événement créé par le formateur (sans
+      titre) avec l'élève en destinataire → `unread-count` de l'élève passe de `{"count":0}` à
+      `{"count":1}` ; `GET /notifications` montre
+      `{"type":"event_invitation_received","metadata":{"creatorName":"ProofProf Test",
+      "title":null,...}}` — bout en bout confirmé, aucun UUID affiché.
+- [x] Front — commits `bb163f5`+`20155d4`, poussés. **Le vrai coupable identifié** : ce n'était
+      pas `CourseProposalsPanel` (domaine distinct, `ScheduledActivity`, intact) mais
+      `InvitationBanner` — code mort depuis sa création, il filtrait sur
+      `event.eventType === 'invitation' || event.inviteeStatus !== undefined`, deux conditions
+      qu'un vrai événement invité ne remplit jamais (le serveur envoie le vrai `eventType`, ex.
+      `cours`, et `inviteeStatus` n'a jamais existé côté serveur) — il ne pouvait **structurellement
+      jamais** afficher une vraie invitation. Retiré avec son hook `useInvitationActions`.
+      Nouveau bloc de grille `EVENT_PENDING` (orange, distinct des blocs `EVENT`/`BUSY`/
+      `PROPOSED`/`CONFIRMED` déjà en couleurs différentes) affiché quand
+      `viewerInvitationStatus === "pending"` ; clic → `EventDetailDialog` avec Accepter/Refuser,
+      câblés sur les routes déjà documentées `POST /events/:id/invitees/:userId/accept|decline` ;
+      après réponse, re-fetch réel de `GET /calendars/:ownerId/events` (jamais un état optimiste —
+      ces routes ne documentent aucun corps de réponse exploitable). Bouton de suppression
+      événement ajouté (`deleteOwnerEvent`, visible seulement pour le créateur — pas de notion
+      RP/TI fiable côté front sans sur-élargir, limité au créateur par repli assumé) ; bouton de
+      suppression disponibilité **déjà présent et fonctionnel**, vérifié sans régression.
+      **Bug introduit puis corrigé en cours de session, signalé honnêtement** : une extraction
+      (`CalendarGridBlockOverlay`) cassait temporairement le clic d'édition sur les blocs de
+      disponibilité (3 tests rouges) — capté par la suite complète, corrigé avant de livrer.
+      1807/1809 tests verts (mêmes 2 échecs préexistants sans rapport, reconfirmés sur la base
+      non modifiée), `tsc --noEmit` et `npm run build` propres — tous rejoués indépendamment par
+      l'orchestrateur après fast-forward.
+- [x] Déployé sur la pile réelle — `frontend` reconstruit et redémarré, gateway redémarrée, bundle
+      `index-BMc9cm5s.js` confirmé servi.
+- [x] Preuve à l'écran — test Playwright réel `apps/web/e2e/proof-invitation-fix-2026-08-20.spec.ts`
+      (commit `d339669`), rejoué indépendamment par l'orchestrateur après fast-forward : 1/1 vert,
+      réponses HTTP citées (`POST .../events` → `201` avec destinataire ; notification reçue en
+      0s ; `POST .../accept` → `201` ; `DELETE` événement → `204` ; `DELETE` disponibilité → `204`,
+      sans régression). Captures vérifiées visuellement par l'orchestrateur : bloc orange
+      « Invitation — cliquer pour répondre » bien visible sur la grille de l'élève (**le bug
+      signalé — « rien n'apparaît » — est résolu**), cloche à `1`, modale de détail avec les 2
+      boutons Accepter/Refuser exactement comme demandé, aucune trace de l'ancienne bannière
+      morte.
+      **Défaut réel supplémentaire trouvé par le test, signalé et non contourné** :
+      `metadata.title` de la notification est toujours `null`, même quand l'événement a un vrai
+      titre — `CalendarEventCreated` ne porte jamais la clé `title` dans son payload. Correctif
+      ciblé dispatché immédiatement (`calendar-service`), en cours.
+- [x] Correctif mineur `calendar-service` — commits `c76e098`+`b3dc421`, poussés.
+      `CalendarEventCreated` porte désormais `title: createdEvent.title` (vraie valeur persistée,
+      `null` uniquement si l'événement n'a réellement pas de titre). 263/263 tests vérifiés
+      indépendamment par l'orchestrateur après fast-forward. `docs/routes.md` mis à jour.
+- [x] Déployé sur la pile réelle — `calendar-service` reconstruit et redémarré, gateway
+      redémarrée.
+- [x] Correctif confirmé fonctionnel par l'orchestrateur en rejouant directement
+      `proof-invitation-fix-2026-08-20.spec.ts` : le test échoue désormais sur l'ancienne
+      assertion `toBeNull()` avec `Received: "Invitation e2e ..."` — preuve directe que le titre
+      réel remonte maintenant jusqu'à la notification. Assertion du test (qui encodait l'ancien
+      bug) en cours de correction par `front-tester` pour refléter le nouveau comportement correct
+      + vérification du libellé « ... vous a invité à « {titre} » » à l'écran.
+- [x] Preuve finale — commit `9372d8e`, poussé. Test rejoué une seconde fois indépendamment par
+      l'orchestrateur : 1/1 vert, `metadata.title` reflète exactement le titre réel. Capture
+      `invitation-fix-05-notification.png` vérifiée visuellement : cloche affiche « Sacha
+      Inviteprof... vous a invité à « Invitation e2e ... » » — libellé complet avec titre, exact.
+      Bloc de grille redevenu rose normal après acceptation (état rechargé depuis le serveur).
+      **Les 5 points du besoin du 2026-08-20 et le bug d'invitation invisible signalé en cours de
+      test utilisateur sont tous corrigés, déployés et prouvés.**
+- [x] Validé par l'utilisateur — **pré-autorisation du 2026-08-20 (« à la fin merge et PR ») levée
+      dès la preuve finale obtenue**, sans repasser par une question de validation supplémentaire.
+      Merge + PR à effectuer maintenant.
+
+---
+
 ## Besoin — 2026-08-19 — vue calendrier unifiée + bug création d'événement
 
 Demande explicite de l'utilisateur, en testant l'écran `/calendar` (3 onglets livrés par le

@@ -11,6 +11,7 @@ import { CreateCalendarEventDto } from '../../../src/calendar-events/dto/create-
 const mockCalendarEventsService = {
   listEvents: jest.fn(),
   createEvent: jest.fn(),
+  deleteEvent: jest.fn(),
 };
 
 describe('CalendarEventsController', () => {
@@ -136,6 +137,42 @@ describe('CalendarEventsController', () => {
         createEventDto,
         rpActor,
         undefined,
+      );
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // deleteEvent
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('deleteEvent', () => {
+    const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+    it('calls service.deleteEvent with correct arguments', async () => {
+      mockCalendarEventsService.deleteEvent.mockResolvedValue(undefined);
+
+      const result = await controller.deleteEvent('teacher-1', 'evt-1', actor, undefined);
+
+      expect(mockCalendarEventsService.deleteEvent).toHaveBeenCalledWith(
+        'teacher-1',
+        'evt-1',
+        actor,
+        undefined,
+      );
+      expect(result).toBeUndefined();
+    });
+
+    it('propagates correlationId to the service', async () => {
+      const correlationId = 'corr-delete-001';
+      mockCalendarEventsService.deleteEvent.mockResolvedValue(undefined);
+
+      await controller.deleteEvent('teacher-1', 'evt-1', actor, correlationId);
+
+      expect(mockCalendarEventsService.deleteEvent).toHaveBeenCalledWith(
+        'teacher-1',
+        'evt-1',
+        actor,
+        correlationId,
       );
     });
   });

@@ -17,10 +17,10 @@ function extractMessage(caughtError: unknown, fallback: string): string {
 
 /**
  * useEventCreate — soumission de la création d'un événement de calendrier
- * (`POST /calendars/:ownerId/events`). Utilisé par `QuickEventCreatePopover` (chantier calendrier
- * vue unifiée, point 3 — création par clic direct sur la grille, plus jamais par un couple de
- * champs `datetime-local` saisis à la main). Message d'erreur backend brut si disponible, sinon
- * message générique — sans passer par `getErrorMessage`.
+ * (`POST /calendars/:ownerId/events`). Utilisé par `EventCreateFormModal` (chantier calendrier vue
+ * unifiée, point 3 ; remplace `QuickEventCreatePopover` depuis la correction du 2026-08-20, point
+ * D — sélection sur la grille + formulaire complet, titre/description/destinataires). Message
+ * d'erreur backend brut si disponible, sinon message générique — sans passer par `getErrorMessage`.
  */
 export function useEventCreate(ownerId: string): UseEventCreateResult {
   const [isSaving, setIsSaving] = useState(false)

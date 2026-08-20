@@ -6,6 +6,8 @@ import CalendarUnifiedView from '../../../src/components/calendar/CalendarUnifie
 
 vi.mock('../../../src/api/calendar')
 vi.mock('../../../src/api/video')
+vi.mock('../../../src/api/relations')
+vi.mock('../../../src/api/profile')
 
 import {
   createAvailabilitySlot,
@@ -18,9 +20,12 @@ import {
   createOwnerEvent,
   acceptEventInvitation,
   declineEventInvitation,
+  deleteOwnerEvent,
   requestEventCancellation,
 } from '../../../src/api/calendar'
 import { fetchRoomByActivity } from '../../../src/api/video'
+import { fetchMyContacts } from '../../../src/api/relations'
+import { fetchValidatedTeachers } from '../../../src/api/profile'
 
 const mockFetchAvailability = vi.mocked(fetchAvailability)
 const mockCreateAvailabilitySlot = vi.mocked(createAvailabilitySlot)
@@ -32,10 +37,22 @@ const mockFetchOwnerEvents = vi.mocked(fetchOwnerEvents)
 const mockCreateOwnerEvent = vi.mocked(createOwnerEvent)
 const mockAcceptEventInvitation = vi.mocked(acceptEventInvitation)
 const mockDeclineEventInvitation = vi.mocked(declineEventInvitation)
+const mockDeleteOwnerEvent = vi.mocked(deleteOwnerEvent)
 const mockRequestEventCancellation = vi.mocked(requestEventCancellation)
 const mockFetchRoomByActivity = vi.mocked(fetchRoomByActivity)
+// `EventCreateFormModal` monte `EventRecipientPicker` (correction du 2026-08-20, point D), qui
+// résout les destinataires possibles via ces deux routes — jamais appelées avant ce chantier.
+const mockFetchMyContacts = vi.mocked(fetchMyContacts)
+const mockFetchValidatedTeachers = vi.mocked(fetchValidatedTeachers)
 
 const OWNER_ID = 'owner-1'
+
+// Semaine affichée fixée pour tous les tests (correction du 2026-08-20, point B) : la grille
+// affiche désormais une semaine calendaire réelle et navigable, plus un gabarit récurrent — les
+// fixtures d'activités/événements doivent donc tomber dans la MÊME semaine que celle affichée au
+// montage, indépendamment de la date d'exécution réelle des tests. Lundi 2026-09-07 → dimanche
+// 2026-09-13.
+const REFERENCE_DATE = new Date('2026-09-10T00:00:00.000Z') // jeudi de cette semaine
 
 function renderView(ownerId = OWNER_ID, userRole = 'formateur') {
   return render(
@@ -43,7 +60,13 @@ function renderView(ownerId = OWNER_ID, userRole = 'formateur') {
       <Routes>
         <Route
           path="/calendar"
-          element={<CalendarUnifiedView ownerId={ownerId} userRole={userRole} />}
+          element={
+            <CalendarUnifiedView
+              ownerId={ownerId}
+              userRole={userRole}
+              initialReferenceDate={REFERENCE_DATE}
+            />
+          }
         />
         <Route path="/video-join/:roomId" element={<div>VideoJoinPage</div>} />
       </Routes>
@@ -73,13 +96,18 @@ const PROPOSED_ACTIVITY = {
   participantIds: [OWNER_ID],
 }
 
-const FUTURE_ISO_1 = new Date(Date.now() + 86400000).toISOString()
-const FUTURE_ISO_2 = new Date(Date.now() + 172800000).toISOString()
+// Vendredi de la semaine affichée (voir REFERENCE_DATE ci-dessus) — remplace les anciennes dates
+// relatives à `Date.now()`, qui pouvaient tomber en dehors de la semaine affichée selon le jour
+// d'exécution réel des tests.
+const FUTURE_ISO_1 = '2026-09-11T10:00:00.000Z'
+const FUTURE_ISO_2 = '2026-09-11T11:00:00.000Z'
 
 beforeEach(() => {
   vi.clearAllMocks()
   mockFetchOwnerCalendarActivities.mockResolvedValue([])
   mockFetchOwnerEvents.mockResolvedValue([])
+  mockFetchMyContacts.mockResolvedValue([])
+  mockFetchValidatedTeachers.mockResolvedValue({ data: [], page: 1, limit: 100, total: 0, totalPages: 0 })
 })
 
 describe('CalendarUnifiedView — états', () => {
@@ -148,30 +176,67 @@ describe('CalendarUnifiedView — états', () => {
   })
 })
 
-describe('CalendarUnifiedView — sélecteur de mode', () => {
-  it("mode consultation (défaut) : les cases vides n'ouvrent rien", async () => {
+describe('CalendarUnifiedView — sélecteur de mode (révisé le 2026-08-20, point A)', () => {
+  it("consultation (état par défaut implicite, plus un choix affiché) : les cases vides n'ouvrent rien", async () => {
     mockFetchAvailability.mockResolvedValue([])
 
     renderView()
 
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: 'Consultation' }).getAttribute('aria-selected')).toBe(
-        'true',
-      )
+      expect(screen.getByRole('tab', { name: 'Indiquer une disponibilité' })).toBeDefined()
     })
+    // « Consultation » n'existe plus comme option — seuls les deux boutons mutuellement exclusifs
+    // restent, tous deux non sélectionnés au montage.
+    expect(screen.queryByRole('tab', { name: 'Consultation' })).toBeNull()
+    expect(
+      screen.getByRole('tab', { name: 'Indiquer une disponibilité' }).getAttribute('aria-selected'),
+    ).toBe('false')
+    expect(
+      screen.getByRole('tab', { name: 'Créer un événement' }).getAttribute('aria-selected'),
+    ).toBe('false')
 
     const cell = screen.getByRole('button', { name: 'Ajouter un créneau lundi à 09:00' })
     expect(cell).toBeDisabled()
   })
 
-  it('mode « Créer une disponibilité » : ouvre le formulaire pré-rempli au clic sur une cellule vide, puis crée le créneau', async () => {
+  it('cliquer sur un bouton déjà actif le désélectionne (retour à la consultation)', async () => {
+    mockFetchAvailability.mockResolvedValue([])
+
+    renderView()
+
+    const availabilityTab = await screen.findByRole('tab', { name: 'Indiquer une disponibilité' })
+    await userEvent.click(availabilityTab)
+    expect(availabilityTab.getAttribute('aria-selected')).toBe('true')
+
+    await userEvent.click(availabilityTab)
+    expect(availabilityTab.getAttribute('aria-selected')).toBe('false')
+    expect(screen.getByRole('button', { name: 'Ajouter un créneau lundi à 09:00' })).toBeDisabled()
+  })
+
+  it('les deux modes sont mutuellement exclusifs — activer « Créer un événement » désactive « Indiquer une disponibilité »', async () => {
+    mockFetchAvailability.mockResolvedValue([])
+
+    renderView()
+
+    const availabilityTab = await screen.findByRole('tab', { name: 'Indiquer une disponibilité' })
+    const eventTab = screen.getByRole('tab', { name: 'Créer un événement' })
+
+    await userEvent.click(availabilityTab)
+    expect(availabilityTab.getAttribute('aria-selected')).toBe('true')
+
+    await userEvent.click(eventTab)
+    expect(eventTab.getAttribute('aria-selected')).toBe('true')
+    expect(availabilityTab.getAttribute('aria-selected')).toBe('false')
+  })
+
+  it('mode « Indiquer une disponibilité » : ouvre le formulaire pré-rempli au clic sur une cellule vide, puis crée le créneau', async () => {
     mockFetchAvailability.mockResolvedValue([])
     mockCreateAvailabilitySlot.mockResolvedValue(EXISTING_SLOT)
 
     renderView()
 
-    await waitFor(() => screen.getByRole('tab', { name: 'Créer une disponibilité' }))
-    await userEvent.click(screen.getByRole('tab', { name: 'Créer une disponibilité' }))
+    await waitFor(() => screen.getByRole('tab', { name: 'Indiquer une disponibilité' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Indiquer une disponibilité' }))
 
     await userEvent.click(
       screen.getByRole('button', { name: 'Ajouter un créneau lundi à 09:00' }),
@@ -189,7 +254,7 @@ describe('CalendarUnifiedView — sélecteur de mode', () => {
     })
   })
 
-  it('mode « Créer un événement » : ouvre la mini-popover au clic sur une cellule vide, sans jamais afficher de champ datetime-local', async () => {
+  it('mode « Créer un événement » : ouvre le formulaire de détails au clic sur une cellule vide, avec début/fin pré-remplis et ajustables', async () => {
     mockFetchAvailability.mockResolvedValue([])
     mockCreateOwnerEvent.mockResolvedValue({
       id: 'evt-quick-1',
@@ -209,7 +274,12 @@ describe('CalendarUnifiedView — sélecteur de mode', () => {
 
     const dialog = screen.getByRole('dialog', { name: /créer un événement/i })
     expect(dialog).toBeDefined()
-    expect(document.querySelectorAll('input[type="datetime-local"]').length).toBe(0)
+    // Début/fin pré-remplis depuis la sélection sur la grille, ajustables au quart d'heure
+    // (point C/D, correction du 2026-08-20) — plus jamais saisis à partir d'un champ vide.
+    const dateTimeInputs = document.querySelectorAll<HTMLInputElement>('input[type="datetime-local"]')
+    expect(dateTimeInputs.length).toBe(2)
+    expect(dateTimeInputs[0].value).toBe('2026-09-07T09:00')
+    expect(dateTimeInputs[1].value).toBe('2026-09-07T10:00')
 
     await userEvent.click(screen.getByRole('button', { name: /^créer$/i }))
 
@@ -435,8 +505,8 @@ describe('CalendarUnifiedView — événements de calendrier fusionnés (point 1
   })
 })
 
-describe('CalendarUnifiedView — invitations', () => {
-  it('affiche le statut accepté après avoir cliqué sur "Accepter" dans le bandeau d\'invitation', async () => {
+describe('CalendarUnifiedView — invitation à un événement (bug réel corrigé le 2026-08-20)', () => {
+  it('ouvre la modale Accepter/Refuser au clic sur un événement où l\'invitation est en attente', async () => {
     mockFetchAvailability.mockResolvedValue([])
     mockFetchOwnerEvents.mockResolvedValue([
       {
@@ -444,49 +514,173 @@ describe('CalendarUnifiedView — invitations', () => {
         title: 'Réunion pédagogique',
         startAt: FUTURE_ISO_1,
         endAt: FUTURE_ISO_2,
-        eventType: 'invitation' as const,
-        inviteeStatus: 'pending' as const,
+        eventType: 'pedagogique' as const,
+        ownerId: 'teacher-9',
+        viewerInvitationStatus: 'pending' as const,
       },
     ])
+
+    renderView()
+
+    await waitFor(() => screen.getByText('Réunion pédagogique'))
+    await userEvent.click(screen.getByText('Réunion pédagogique'))
+
+    expect(screen.getByRole('dialog', { name: /détail de l'événement/i })).toBeDefined()
+    expect(screen.getByRole('button', { name: /^accepter$/i })).toBeDefined()
+    expect(screen.getByRole('button', { name: /^refuser$/i })).toBeDefined()
+  })
+
+  it('accepte une invitation depuis la modale : recharge la liste réelle et ferme la modale', async () => {
+    mockFetchAvailability.mockResolvedValue([])
+    mockFetchOwnerEvents
+      .mockResolvedValueOnce([
+        {
+          id: 'inv-evt-2',
+          title: 'Cours proposé',
+          startAt: FUTURE_ISO_1,
+          endAt: FUTURE_ISO_2,
+          eventType: 'cours' as const,
+          ownerId: 'teacher-9',
+          viewerInvitationStatus: 'pending' as const,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 'inv-evt-2',
+          title: 'Cours proposé',
+          startAt: FUTURE_ISO_1,
+          endAt: FUTURE_ISO_2,
+          eventType: 'cours' as const,
+          ownerId: 'teacher-9',
+          viewerInvitationStatus: 'accepted' as const,
+        },
+      ])
     mockAcceptEventInvitation.mockResolvedValue(undefined)
 
     renderView()
 
-    await waitFor(() => {
-      expect(screen.getByText('Invitations en attente (1)')).toBeDefined()
-    })
-
+    await waitFor(() => screen.getByText('Cours proposé'))
+    await userEvent.click(screen.getByText('Cours proposé'))
     await userEvent.click(screen.getByRole('button', { name: /^accepter$/i }))
 
     await waitFor(() => {
-      expect(mockAcceptEventInvitation).toHaveBeenCalledWith('inv-evt-1', OWNER_ID)
+      expect(mockAcceptEventInvitation).toHaveBeenCalledWith('inv-evt-2', OWNER_ID)
+    })
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /détail de l'événement/i })).toBeNull()
+    })
+    await waitFor(() => {
+      // Un seul appel au montage n'aurait jamais reflété "accepted" — la modale se ferme sur
+      // l'état réel renvoyé par le serveur, jamais un état local optimiste.
+      expect(mockFetchOwnerEvents).toHaveBeenCalledTimes(2)
     })
   })
 
-  it('retire l\'invitation refusée du bandeau', async () => {
+  it("refuse une invitation depuis la modale : l'événement disparaît une fois la liste rechargée", async () => {
     mockFetchAvailability.mockResolvedValue([])
-    mockFetchOwnerEvents.mockResolvedValue([
-      {
-        id: 'inv-evt-2',
-        title: 'Cours optionnel',
-        startAt: FUTURE_ISO_1,
-        endAt: FUTURE_ISO_2,
-        eventType: 'invitation' as const,
-        inviteeStatus: 'pending' as const,
-      },
-    ])
+    mockFetchOwnerEvents
+      .mockResolvedValueOnce([
+        {
+          id: 'inv-evt-3',
+          title: 'Cours optionnel',
+          startAt: FUTURE_ISO_1,
+          endAt: FUTURE_ISO_2,
+          eventType: 'cours' as const,
+          ownerId: 'teacher-9',
+          viewerInvitationStatus: 'pending' as const,
+        },
+      ])
+      .mockResolvedValueOnce([])
     mockDeclineEventInvitation.mockResolvedValue(undefined)
 
     renderView()
 
-    await waitFor(() => screen.getByText('Invitations en attente (1)'))
+    await waitFor(() => screen.getByText('Cours optionnel'))
+    await userEvent.click(screen.getByText('Cours optionnel'))
     await userEvent.click(screen.getByRole('button', { name: /^refuser$/i }))
 
     await waitFor(() => {
-      expect(mockDeclineEventInvitation).toHaveBeenCalledWith('inv-evt-2', OWNER_ID)
+      expect(mockDeclineEventInvitation).toHaveBeenCalledWith('inv-evt-3', OWNER_ID)
     })
     await waitFor(() => {
-      expect(screen.queryByText('Invitations en attente')).toBeNull()
+      expect(screen.queryByText('Cours optionnel')).toBeNull()
     })
+  })
+
+  it("n'affiche pas Accepter/Refuser pour son propre événement (créateur, aucune invitation en attente)", async () => {
+    mockFetchAvailability.mockResolvedValue([])
+    mockFetchOwnerEvents.mockResolvedValue([
+      {
+        id: 'own-evt-1',
+        title: 'Mon événement',
+        startAt: FUTURE_ISO_1,
+        endAt: FUTURE_ISO_2,
+        eventType: 'cours' as const,
+        ownerId: OWNER_ID,
+      },
+    ])
+
+    renderView()
+
+    await waitFor(() => screen.getByText('Mon événement'))
+    await userEvent.click(screen.getByText('Mon événement'))
+
+    expect(screen.queryByRole('button', { name: /^accepter$/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^refuser$/i })).toBeNull()
+  })
+})
+
+describe('CalendarUnifiedView — suppression d\'un événement (point 4, 2026-08-20)', () => {
+  it('affiche "Supprimer l\'événement" pour le créateur et le supprime', async () => {
+    mockFetchAvailability.mockResolvedValue([])
+    mockFetchOwnerEvents.mockResolvedValue([
+      {
+        id: 'own-evt-2',
+        title: 'Mon événement à supprimer',
+        startAt: FUTURE_ISO_1,
+        endAt: FUTURE_ISO_2,
+        eventType: 'cours' as const,
+        ownerId: OWNER_ID,
+      },
+    ])
+    mockDeleteOwnerEvent.mockResolvedValue(undefined)
+
+    renderView()
+
+    await waitFor(() => screen.getByText('Mon événement à supprimer'))
+    await userEvent.click(screen.getByText('Mon événement à supprimer'))
+    await userEvent.click(screen.getByRole('button', { name: /supprimer l'événement/i }))
+
+    await waitFor(() => {
+      expect(mockDeleteOwnerEvent).toHaveBeenCalledWith(OWNER_ID, 'own-evt-2')
+    })
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /détail de l'événement/i })).toBeNull()
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Mon événement à supprimer')).toBeNull()
+    })
+  })
+
+  it("ne montre pas le bouton Supprimer pour un événement dont l'appelant n'est pas le créateur", async () => {
+    mockFetchAvailability.mockResolvedValue([])
+    mockFetchOwnerEvents.mockResolvedValue([
+      {
+        id: 'other-evt-1',
+        title: "Événement d'un autre créateur",
+        startAt: FUTURE_ISO_1,
+        endAt: FUTURE_ISO_2,
+        eventType: 'cours' as const,
+        ownerId: 'teacher-9',
+        viewerInvitationStatus: 'accepted' as const,
+      },
+    ])
+
+    renderView()
+
+    await waitFor(() => screen.getByText("Événement d'un autre créateur"))
+    await userEvent.click(screen.getByText("Événement d'un autre créateur"))
+
+    expect(screen.queryByRole('button', { name: /supprimer l'événement/i })).toBeNull()
   })
 })

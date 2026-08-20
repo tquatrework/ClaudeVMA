@@ -80,6 +80,7 @@ describe('EventsService', () => {
     ['ActivityDeclined', { activityId: 'act-1' }, 'ScheduledActivity', 'act-1'],
     ['ReminderCreated', { reminderId: 'rem-1', ownerId: 'owner-1' }, 'Reminder', 'rem-1'],
     ['CalendarEventCreated', { eventId: 'evt-1', ownerId: 'owner-1' }, 'CalendarEvent', 'evt-1'],
+    ['CalendarEventDeleted', { eventId: 'evt-1', ownerId: 'owner-1' }, 'CalendarEvent', 'evt-1'],
     ['InvitationAccepted', { eventId: 'evt-1', userId: 'user-1' }, 'CalendarEvent', 'evt-1'],
     ['InvitationDeclined', { eventId: 'evt-1', userId: 'user-1' }, 'CalendarEvent', 'evt-1'],
     ['CancellationRequested', { eventId: 'evt-1', requesterId: 'user-1' }, 'CalendarEvent', 'evt-1'],

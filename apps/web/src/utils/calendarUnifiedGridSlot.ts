@@ -8,7 +8,6 @@
 import type { AvailabilitySlot } from '../types/calendar'
 import type { ScheduledActivityGridBlock } from './scheduledActivityGridBlocks'
 import type { CalendarEventGridBlock } from './calendarEventGridBlocks'
-import { addOneHourToTime } from './availabilityTime'
 import type { AvailabilitySlotFormInitialValues } from '../components/calendar/AvailabilitySlotFormModal'
 
 /** Slot affichable par la grille unifiée — créneau de disponibilité éditable, activité planifiée
@@ -21,11 +20,16 @@ export function isAvailabilitySlotBlock(slot: CalendarGridSlot): slot is Availab
 }
 
 export function isCalendarEventBlock(slot: CalendarGridSlot): slot is CalendarEventGridBlock {
-  return slot.kind === 'EVENT'
+  return slot.kind === 'EVENT' || slot.kind === 'EVENT_PENDING'
 }
 
+/**
+ * `startTime`/`endTime` en création proviennent désormais toujours de la sélection réelle faite
+ * sur la grille (correction du 2026-08-20, point C — clic ou glisser, au quart d'heure près),
+ * jamais recalculées ici : `AvailabilityGrid` fournit toujours les deux bornes.
+ */
 export type AvailabilityFormTarget =
-  | { mode: 'create'; dayOfWeek: number; startTime: string }
+  | { mode: 'create'; dayOfWeek: number; startTime: string; endTime: string }
   | { mode: 'edit'; slot: AvailabilitySlot }
 
 export function buildAvailabilityFormInitialValues(
@@ -44,7 +48,7 @@ export function buildAvailabilityFormInitialValues(
   return {
     dayOfWeek: target.dayOfWeek,
     startTime: target.startTime,
-    endTime: addOneHourToTime(target.startTime),
+    endTime: target.endTime,
     kind: 'AVAILABLE',
     recurrence: 'NONE',
     recurrenceEndDate: null,

@@ -23,6 +23,18 @@ import { AuthenticatedUser } from '../common/interfaces/authenticated-user.inter
 /** Milliseconds in 48 hours */
 const FORTY_EIGHT_HOURS_MS = 48 * 60 * 60 * 1000;
 
+/**
+ * Vue d'un événement telle que renvoyée par `GET /calendars/:ownerId/events`
+ * — l'entité `CalendarEvent` (avec ses `invitations`), augmentée d'un champ
+ * calculé `viewerInvitationStatus` (voir `CalendarEventsService.listEvents`
+ * et `docs/routes.md`). N'est jamais utilisée pour la réponse de `POST
+ * .../events` : à la création, l'appelant est par construction le créateur,
+ * jamais un invité — ce champ n'aurait aucun sens sur cette réponse.
+ */
+export type CalendarEventView = CalendarEvent & {
+  viewerInvitationStatus: InvitationStatus | null;
+};
+
 /** Which EventType values each role is allowed to create */
 const CREATION_ALLOWED_TYPES: Record<string, EventType[]> = {
   [UserRole.ELEVE]: [EventType.RAPPEL],
@@ -87,19 +99,45 @@ export class CalendarEventsService {
    * - RP, AP, TI: may view any user's events
    * - Others: see only their own events (ownerId === requesterId) or events where they are invitees
    * - A CalendarVisibilityGrant also enables access
+   *
+   * Bug réel corrigé le 2026-08-20 (signalé par un utilisateur réel : un
+   * formateur avait invité un élève à un événement via `inviteeIds`,
+   * l'élève ne voyait rien sur son calendrier et n'avait donc aucun moyen
+   * d'accepter ou de refuser). Jusqu'ici cette route ne renvoyait que les
+   * événements dont `ownerId` était **créateur** (`event.owner_id =
+   * :ownerId`) — la ligne `EventInvitation` existait bien en base, mais
+   * n'était jamais lue depuis le calendrier de l'invité. Corrigé sur le
+   * même principe que `ActivitiesService.findActiveInRange` (chantier
+   * calendrier de disponibilités, point 3, 2026-08-18) : « créateur OU
+   * participant » devient ici « créateur OU invité »
+   * (`event.owner_id = :ownerId OR invitation.invitee_id = :ownerId`).
+   *
+   * Effet de bord assumé de ce filtre en `LEFT JOIN` + `WHERE` : pour un
+   * événement où `ownerId` n'est qu'invité (pas créateur), seule SA propre
+   * ligne `EventInvitation` traverse le filtre — les autres invitations du
+   * même événement (celles des autres invités) restent invisibles pour lui.
+   * Pour un événement dont `ownerId` est créateur, la clause OR est vraie
+   * indépendamment de `invitation.invitee_id` : toutes les invitations
+   * restent visibles, comme avant. C'est une conséquence voulue, pas un
+   * bug : le créateur a besoin de voir qui a répondu quoi pour gérer son
+   * événement, un invité n'a besoin de voir que sa propre réponse.
+   *
+   * `viewerInvitationStatus` (voir `CalendarEventView`) rend ce statut
+   * directement lisible sans que le front ait à chercher `ownerId` dans le
+   * tableau `invitations`.
    */
   async listEvents(
     ownerId: string,
     actor: AuthenticatedUser,
     query: ListEventsQueryDto,
     correlationId?: string,
-  ): Promise<CalendarEvent[]> {
+  ): Promise<CalendarEventView[]> {
     await this.assertCanReadEvents(ownerId, actor);
 
     const queryBuilder = this.eventRepo
       .createQueryBuilder('event')
       .leftJoinAndSelect('event.invitations', 'invitation')
-      .where('event.owner_id = :ownerId', { ownerId });
+      .where('(event.owner_id = :ownerId OR invitation.invitee_id = :ownerId)', { ownerId });
 
     // Role-based type filtering
     if (
@@ -120,7 +158,24 @@ export class CalendarEventsService {
 
     queryBuilder.orderBy('event.start_time', 'ASC');
 
-    return queryBuilder.getMany();
+    const events = await queryBuilder.getMany();
+    return events.map((event) => this.toEventView(ownerId, event));
+  }
+
+  /**
+   * Attache `viewerInvitationStatus` à un `CalendarEvent` déjà chargé avec
+   * ses `invitations` : le statut (`pending`/`accepted`/`declined`) de
+   * l'invitation de `ownerId` sur cet événement, ou `null` s'il n'est pas
+   * invité (son propre événement, ou un accès obtenu par rôle privilégié /
+   * visibility grant sans y être lui-même invité).
+   */
+  private toEventView(ownerId: string, event: CalendarEvent): CalendarEventView {
+    const ownInvitation = (event.invitations ?? []).find(
+      (invitation) => invitation.inviteeId === ownerId,
+    );
+    return Object.assign(event, {
+      viewerInvitationStatus: ownInvitation ? ownInvitation.status : null,
+    });
   }
 
   /**
@@ -149,7 +204,7 @@ export class CalendarEventsService {
       const savedEvent = await eventRepo.save(
         eventRepo.create({
           ownerId,
-          title: dto.title,
+          title: dto.title ?? null,
           eventType: dto.eventType,
           creatorId: actor.id,
           creatorRole: actor.role,
@@ -183,6 +238,7 @@ export class CalendarEventsService {
       {
         eventId: createdEvent.id,
         ownerId,
+        title: createdEvent.title,
         eventType: createdEvent.eventType,
         creatorId: actor.id,
         startTime: createdEvent.startAt,
@@ -420,12 +476,67 @@ export class CalendarEventsService {
     return { revoked: true };
   }
 
+  /**
+   * Delete a CalendarEvent (hard delete). Ajoutée le 2026-08-20 : cette
+   * route n'existait pas — aucune route `DELETE` n'était documentée ni
+   * codée pour `CalendarEvent`, contrairement à `DELETE /activities/:id`
+   * et `DELETE /calendars/:ownerId/availability-slots/:slotId`.
+   *
+   * Scoped à `ownerId` (comme `findSlotOrFail` dans `CalendarsService`) :
+   * un `eventId` qui existe mais appartient au calendrier d'un autre
+   * `ownerId` est traité exactement comme un événement inconnu — pas de
+   * fuite d'existence.
+   *
+   * Même politique d'accès que `requestCancellation`
+   * (`assertCanCancelEvent` : créateur, RP ou TI) — pas une nouvelle règle,
+   * la suppression est le geste le plus fort sur un événement, elle ne
+   * peut pas être plus permissive que son annulation.
+   *
+   * Suppression physique — même raisonnement que `ActivitiesService.remove`
+   * et `CalendarsService.deleteSlot` : un événement de calendrier est une
+   * donnée opérationnelle d'agenda, pas un enregistrement à valeur
+   * probante. `EventInvitation`/`CancellationRequest`/`ReminderRule` liés
+   * disparaissent avec lui (`onDelete: CASCADE`, voir l'entité).
+   *
+   * Publie `CalendarEventDeleted` — sur le modèle exact d'`ActivityDeleted`.
+   */
+  async deleteEvent(
+    ownerId: string,
+    eventId: string,
+    actor: AuthenticatedUser,
+    correlationId?: string,
+  ): Promise<void> {
+    const calendarEvent = await this.findEventForOwnerOrFail(ownerId, eventId);
+    this.assertCanCancelEvent(calendarEvent, actor);
+
+    await this.eventRepo.delete({ id: calendarEvent.id });
+
+    this.eventsService.publish(
+      'CalendarEventDeleted',
+      { eventId: calendarEvent.id, ownerId, deletedBy: actor.id },
+      correlationId,
+    );
+  }
+
   // ---- Private helpers ----
 
   private async findEventOrFail(eventId: string): Promise<CalendarEvent> {
     const calendarEvent = await this.eventRepo.findOne({ where: { id: eventId } });
     if (!calendarEvent) {
       throw new NotFoundException(`Event ${eventId} not found`);
+    }
+    return calendarEvent;
+  }
+
+  /**
+   * Loads a CalendarEvent scoped to its owner's calendar — same posture as
+   * `CalendarsService.findSlotOrFail`. An `eventId` that exists but belongs
+   * to another owner's calendar is treated exactly like an unknown event.
+   */
+  private async findEventForOwnerOrFail(ownerId: string, eventId: string): Promise<CalendarEvent> {
+    const calendarEvent = await this.eventRepo.findOne({ where: { id: eventId, ownerId } });
+    if (!calendarEvent) {
+      throw new NotFoundException(`Event ${eventId} not found for owner ${ownerId}`);
     }
     return calendarEvent;
   }

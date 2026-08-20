@@ -3,15 +3,17 @@ import {
   toCalendarEventGridBlock,
   toCalendarEventGridBlocks,
 } from '../../src/utils/calendarEventGridBlocks'
+import { getMondayOfWeek } from '../../src/utils/calendarDisplayWeek'
 import type { CalendarEvent } from '../../src/components/calendar/calendarTypes'
 
-const REFERENCE_DATE = new Date('2026-09-10T00:00:00.000Z') // jeudi
+// Semaine affichée : lundi 2026-09-07 → dimanche 2026-09-13 (correction du 2026-08-20, point B).
+const WEEK_START = getMondayOfWeek(new Date('2026-09-10T00:00:00.000Z'))
 
 function buildEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
   return {
     id: 'evt-1',
     title: 'Cours de maths',
-    startAt: '2026-09-10T14:00:00.000Z',
+    startAt: '2026-09-10T14:00:00.000Z', // jeudi de la semaine affichée
     endAt: '2026-09-10T15:00:00.000Z',
     eventType: 'cours',
     ...overrides,
@@ -19,8 +21,8 @@ function buildEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
 }
 
 describe('toCalendarEventGridBlock', () => {
-  it('traduit un événement dans la fenêtre en bloc EVENT exploitable par la grille', () => {
-    const block = toCalendarEventGridBlock(buildEvent(), REFERENCE_DATE)
+  it('traduit un événement en bloc EVENT exploitable par la grille', () => {
+    const block = toCalendarEventGridBlock(buildEvent())
 
     expect(block).not.toBeNull()
     expect(block?.kind).toBe('EVENT')
@@ -31,58 +33,75 @@ describe('toCalendarEventGridBlock', () => {
   })
 
   it('renvoie null si startAt est illisible', () => {
-    const block = toCalendarEventGridBlock(buildEvent({ startAt: 'not-a-date' }), REFERENCE_DATE)
+    const block = toCalendarEventGridBlock(buildEvent({ startAt: 'not-a-date' }))
     expect(block).toBeNull()
   })
 
   it('écrête la fin à 23:59 quand elle chevauche le jour suivant', () => {
     const block = toCalendarEventGridBlock(
       buildEvent({ startAt: '2026-09-10T23:00:00.000Z', endAt: '2026-09-11T01:00:00.000Z' }),
-      REFERENCE_DATE,
     )
     expect(block?.endTime).toBe('23:59')
   })
 
-  it('exclut un événement trop loin dans le passé (hors fenêtre -14 jours)', () => {
-    const block = toCalendarEventGridBlock(
-      buildEvent({ startAt: '2026-08-01T14:00:00.000Z', endAt: '2026-08-01T15:00:00.000Z' }),
-      REFERENCE_DATE,
-    )
-    expect(block).toBeNull()
+  it('traduit un événement en bloc EVENT_PENDING quand une invitation est en attente pour le titulaire (bug réel corrigé le 2026-08-20)', () => {
+    const block = toCalendarEventGridBlock(buildEvent({ viewerInvitationStatus: 'pending' }))
+    expect(block?.kind).toBe('EVENT_PENDING')
   })
 
-  it('exclut un événement trop loin dans le futur (hors fenêtre +28 jours)', () => {
-    const block = toCalendarEventGridBlock(
-      buildEvent({ startAt: '2026-11-01T14:00:00.000Z', endAt: '2026-11-01T15:00:00.000Z' }),
-      REFERENCE_DATE,
-    )
-    expect(block).toBeNull()
+  it('reste EVENT quand l\'invitation est acceptée', () => {
+    const block = toCalendarEventGridBlock(buildEvent({ viewerInvitationStatus: 'accepted' }))
+    expect(block?.kind).toBe('EVENT')
   })
 
-  it('inclut un événement dans la fenêtre passée (-14 jours)', () => {
-    const block = toCalendarEventGridBlock(
-      buildEvent({ startAt: '2026-08-28T14:00:00.000Z', endAt: '2026-08-28T15:00:00.000Z' }),
-      REFERENCE_DATE,
-    )
-    expect(block).not.toBeNull()
+  it("reste EVENT pour le propre événement du titulaire (pas d'invitation, viewerInvitationStatus absent)", () => {
+    const block = toCalendarEventGridBlock(buildEvent())
+    expect(block?.kind).toBe('EVENT')
   })
 })
 
-describe('toCalendarEventGridBlocks', () => {
-  it('écarte les événements illisibles ou hors fenêtre, garde les autres', () => {
+describe('toCalendarEventGridBlocks — filtrage par semaine calendaire réelle (point B)', () => {
+  it('garde un événement de la semaine affichée', () => {
+    const blocks = toCalendarEventGridBlocks([buildEvent()], WEEK_START)
+    expect(blocks.map((block) => block.id)).toEqual(['evt-1'])
+  })
+
+  it('exclut un événement de la semaine précédente', () => {
+    const blocks = toCalendarEventGridBlocks(
+      [buildEvent({ id: 'evt-prev-week', startAt: '2026-09-03T14:00:00.000Z', endAt: '2026-09-03T15:00:00.000Z' })],
+      WEEK_START,
+    )
+    expect(blocks).toEqual([])
+  })
+
+  it('exclut un événement de la semaine suivante', () => {
+    const blocks = toCalendarEventGridBlocks(
+      [buildEvent({ id: 'evt-next-week', startAt: '2026-09-17T14:00:00.000Z', endAt: '2026-09-17T15:00:00.000Z' })],
+      WEEK_START,
+    )
+    expect(blocks).toEqual([])
+  })
+
+  it('inclut le premier instant de la semaine (borne inclusive) et exclut le premier instant de la suivante (borne exclusive)', () => {
+    const blocks = toCalendarEventGridBlocks(
+      [
+        buildEvent({ id: 'evt-week-start', startAt: '2026-09-07T00:00:00.000Z', endAt: '2026-09-07T01:00:00.000Z' }),
+        buildEvent({ id: 'evt-next-week-start', startAt: '2026-09-14T00:00:00.000Z', endAt: '2026-09-14T01:00:00.000Z' }),
+      ],
+      WEEK_START,
+    )
+    expect(blocks.map((block) => block.id)).toEqual(['evt-week-start'])
+  })
+
+  it('écarte les événements illisibles ou hors semaine, garde les autres', () => {
     const blocks = toCalendarEventGridBlocks(
       [
         buildEvent({ id: 'evt-ok' }),
         buildEvent({ id: 'evt-bad-date', startAt: 'nope' }),
-        buildEvent({
-          id: 'evt-far-future',
-          startAt: '2027-01-01T00:00:00.000Z',
-          endAt: '2027-01-01T01:00:00.000Z',
-        }),
+        buildEvent({ id: 'evt-far-future', startAt: '2027-01-01T00:00:00.000Z', endAt: '2027-01-01T01:00:00.000Z' }),
       ],
-      REFERENCE_DATE,
+      WEEK_START,
     )
-
     expect(blocks.map((block) => block.id)).toEqual(['evt-ok'])
   })
 })

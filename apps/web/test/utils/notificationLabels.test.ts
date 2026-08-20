@@ -155,11 +155,46 @@ describe('getNotificationDisplayText', () => {
     })
     expect(text).toBe('Proposition de cours ajoutée par un intervenant')
   })
+
+  it('résout event_invitation_received avec titre (bug réel corrigé le 2026-08-20)', () => {
+    const text = getNotificationDisplayText({
+      type: 'event_invitation_received',
+      metadata: { creatorName: 'Camille Durand', title: 'Cours particulier' },
+      title: '',
+      message: '',
+    })
+    expect(text).toBe('Camille Durand vous a invité à « Cours particulier »')
+  })
+
+  it('résout event_invitation_received sans titre (titre réellement optionnel côté serveur)', () => {
+    const text = getNotificationDisplayText({
+      type: 'event_invitation_received',
+      metadata: { creatorName: 'Camille Durand', title: null },
+      title: '',
+      message: '',
+    })
+    expect(text).toBe('Camille Durand vous a invité à un événement')
+  })
+
+  it('event_invitation_received sans creatorName → texte neutre en français, jamais un UUID', () => {
+    const text = getNotificationDisplayText({
+      type: 'event_invitation_received',
+      metadata: {},
+      title: '',
+      message: '',
+    })
+    expect(text).toBe("Quelqu'un vous a invité à un événement")
+    expect(text).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/i)
+  })
 })
 
 describe('getNotificationTargetPath', () => {
   it('renvoie /calendar pour course_slot_proposed', () => {
     expect(getNotificationTargetPath('course_slot_proposed')).toBe('/calendar')
+  })
+
+  it('renvoie /calendar pour event_invitation_received', () => {
+    expect(getNotificationTargetPath('event_invitation_received')).toBe('/calendar')
   })
 
   it('renvoie /teacher-requests pour les 8 types du flow demande de professeur', () => {

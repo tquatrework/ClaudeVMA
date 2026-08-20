@@ -72,8 +72,12 @@ describe('CalendarPage — vue unifiée', () => {
 
     expect(screen.queryByRole('tab', { name: /mes événements/i })).toBeNull()
     expect(screen.queryByRole('tab', { name: /mes disponibilités/i })).toBeNull()
-    // Le sélecteur de mode est bien présent, lui, "en marge" de la grille.
-    expect(screen.getByRole('tab', { name: 'Consultation' })).toBeDefined()
+    // Le sélecteur de mode est bien présent, lui, "en marge" de la grille — « Consultation »
+    // n'est plus un choix affiché depuis la correction du 2026-08-20 (point A), seulement l'état
+    // par défaut implicite. Les deux boutons restants restent visibles.
+    expect(screen.getByRole('tab', { name: 'Indiquer une disponibilité' })).toBeDefined()
+    expect(screen.getByRole('tab', { name: 'Créer un événement' })).toBeDefined()
+    expect(screen.queryByRole('tab', { name: 'Consultation' })).toBeNull()
   })
 
   it('monte les trois sources (disponibilités, activités, événements) au chargement', async () => {

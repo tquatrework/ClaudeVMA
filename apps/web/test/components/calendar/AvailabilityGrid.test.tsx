@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi } from 'vitest'
 import AvailabilityGrid from '../../../src/components/calendar/AvailabilityGrid'
@@ -66,7 +66,9 @@ describe('AvailabilityGrid — interaction', () => {
       screen.getByRole('button', { name: 'Ajouter un créneau lundi à 09:00' }),
     )
 
-    expect(onCreateAt).toHaveBeenCalledWith(1, '09:00')
+    // Un simple clic (sans glisser) produit une plage par défaut d'une heure (point C, correction
+    // du 2026-08-20) — ajustable ensuite dans la modale de détails de l'appelant.
+    expect(onCreateAt).toHaveBeenCalledWith(1, '09:00', '10:00')
   })
 
   it('ouvre l\'édition au clic sur un bloc existant', async () => {
@@ -173,6 +175,74 @@ describe('AvailabilityGrid — renderBlockOverlay (chantier calendrier, point 3)
     await userEvent.click(screen.getByText('Cliquer pour répondre'))
 
     expect(onOverlayBlockClick).toHaveBeenCalledWith(PROPOSED_BLOCK)
+  })
+})
+
+describe('AvailabilityGrid — dates réelles en en-tête (correction du 2026-08-20, point B)', () => {
+  it("affiche la date réelle sous le nom du jour quand `days` est fourni", () => {
+    render(
+      <AvailabilityGrid
+        slots={[]}
+        onCreateAt={vi.fn()}
+        onEditSlot={vi.fn()}
+        days={[{ dayOfWeek: 1, date: new Date(Date.UTC(2026, 7, 17)) }]}
+      />,
+    )
+
+    expect(screen.getByText('17/08')).toBeDefined()
+    // Le nom du jour reste un nœud de texte indépendant : ne casse pas le sélecteur existant.
+    const headers = screen.getAllByText(/^(Lundi|Mardi|Mercredi|Jeudi|Vendredi|Samedi|Dimanche)$/)
+    expect(headers[0]).toHaveTextContent('Lundi')
+  })
+
+  it("n'affiche aucune date quand `days` est omis (ex. `LinkedCalendarView`)", () => {
+    render(<AvailabilityGrid slots={[]} onCreateAt={vi.fn()} onEditSlot={vi.fn()} />)
+    expect(screen.queryByText(/^\d{2}\/\d{2}$/)).toBeNull()
+  })
+})
+
+describe('AvailabilityGrid — sélection multi-créneaux par glisser (correction du 2026-08-20, point C)', () => {
+  it('un glissement sur plusieurs quarts d\'heure produit la plage exacte survolée', () => {
+    const onCreateAt = vi.fn()
+    render(<AvailabilityGrid slots={[]} onCreateAt={onCreateAt} onEditSlot={vi.fn()} />)
+
+    const startCell = screen.getByRole('button', { name: 'Ajouter un créneau lundi à 09:00' })
+    const endCell = screen.getByRole('button', { name: 'Ajouter un créneau lundi à 09:30' })
+
+    fireEvent.mouseDown(startCell)
+    fireEvent.mouseEnter(endCell)
+    fireEvent.mouseUp(endCell)
+
+    // 09:00 → 09:30 survolés inclusivement, la plage se termine donc à 09:45 (fin exclusive du
+    // dernier quart survolé).
+    expect(onCreateAt).toHaveBeenCalledWith(1, '09:00', '09:45')
+  })
+
+  it('un glissement entre deux jours différents ne finalise rien (ancrage conservé sur le premier jour)', () => {
+    const onCreateAt = vi.fn()
+    render(<AvailabilityGrid slots={[]} onCreateAt={onCreateAt} onEditSlot={vi.fn()} />)
+
+    const mondayCell = screen.getByRole('button', { name: 'Ajouter un créneau lundi à 09:00' })
+    const tuesdayCell = screen.getByRole('button', { name: 'Ajouter un créneau mardi à 09:00' })
+
+    fireEvent.mouseDown(mondayCell)
+    fireEvent.mouseEnter(tuesdayCell)
+    fireEvent.mouseUp(tuesdayCell)
+
+    // La sélection reste ancrée au lundi (premier jour du glissement) : mardi est ignoré, la
+    // plage finalisée est donc celle, par défaut, du lundi seul.
+    expect(onCreateAt).toHaveBeenCalledWith(1, '09:00', '10:00')
+  })
+
+  it('aucune sélection ne se déclenche quand la création est désactivée', () => {
+    const onCreateAt = vi.fn()
+    render(<AvailabilityGrid slots={[]} onCreateAt={onCreateAt} onEditSlot={vi.fn()} canCreate={false} />)
+
+    const cell = screen.getByRole('button', { name: 'Ajouter un créneau lundi à 09:00' })
+    fireEvent.mouseDown(cell)
+    fireEvent.mouseUp(cell)
+
+    expect(onCreateAt).not.toHaveBeenCalled()
   })
 })
 

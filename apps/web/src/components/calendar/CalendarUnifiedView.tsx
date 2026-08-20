@@ -1,12 +1,13 @@
-import React, { useMemo, useState } from 'react'
+import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { CalendarEvent } from './calendarTypes'
 import { useAvailabilitySlots } from '../../hooks/calendar/useAvailabilitySlots'
 import { useOwnerCalendarActivities } from '../../hooks/calendar/useOwnerCalendarActivities'
 import { useCalendarEvents } from '../../hooks/calendar/useCalendarEvents'
+import { useEventDetailDialog } from '../../hooks/calendar/useEventDetailDialog'
+import { useCalendarWeekNavigation } from '../../hooks/calendar/useCalendarWeekNavigation'
+import { useCalendarUnifiedGridSlots } from '../../hooks/calendar/useCalendarUnifiedGridSlots'
 import { useJoinConfirmedCourse } from '../../hooks/video/useJoinConfirmedCourse'
-import { toScheduledActivityGridBlocks } from '../../utils/scheduledActivityGridBlocks'
-import { toCalendarEventGridBlocks } from '../../utils/calendarEventGridBlocks'
+import { combineDateAndTime } from '../../utils/calendarDisplayWeek'
 import {
   isAvailabilitySlotBlock,
   isCalendarEventBlock,
@@ -15,39 +16,53 @@ import {
   type AvailabilityFormTarget,
 } from '../../utils/calendarUnifiedGridSlot'
 import AvailabilityGrid from './AvailabilityGrid'
-import ActivityGridBlockOverlay from './ActivityGridBlockOverlay'
-import EventGridBlockLabel from './EventGridBlockLabel'
+import CalendarWeekNavigator from './CalendarWeekNavigator'
+import CalendarGridBlockOverlay from './CalendarGridBlockOverlay'
 import CalendarModeSelector, { type CalendarInteractionMode } from './CalendarModeSelector'
-import QuickEventCreatePopover from './QuickEventCreatePopover'
+import EventCreateFormModal from './EventCreateFormModal'
 import EventDetailDialog from './EventDetailDialog'
-import InvitationBanner from './InvitationBanner'
 import { ErrorMessage } from '../ui/ErrorMessage'
 import AvailabilitySlotFormModal from './AvailabilitySlotFormModal'
 
 interface CalendarUnifiedViewProps {
   ownerId: string
   userRole: string
+  /**
+   * Date de référence pour la semaine affichée au montage — optionnelle, `new Date()` par défaut.
+   * Sert principalement les tests, qui ont besoin d'une semaine déterministe plutôt que celle du
+   * jour d'exécution réel.
+   */
+  initialReferenceDate?: Date
 }
 
 /**
- * CalendarUnifiedView — grille unique fusionnant les trois sources du calendrier (chantier
- * calendrier vue unifiée, demande explicite de l'utilisateur du 2026-08-19) : créneaux de
- * disponibilité (éditables), activités planifiées `proposed`/`confirmed` (propositions de cours,
- * avec Accepter/Refuser révélés au clic — point 4) et événements de calendrier (`CalendarEvent`,
- * point 1, nouveaux sur cette grille). Un sélecteur de mode « en marge » (`CalendarModeSelector`,
- * point 2) commande ce qui se passe au clic sur une case vide : consultation (défaut, aucune
- * création), création de disponibilité, ou création d'événement — cette dernière ouvre
- * `QuickEventCreatePopover`, qui déduit la date réelle du jour/heure cliqués plutôt que de la
- * faire saisir à la main (point 3, corrige à la racine le bug "startTime must be a valid ISO
- * 8601…" signalé par l'utilisateur).
+ * CalendarUnifiedView — grille unique fusionnant disponibilités (éditables), activités
+ * `proposed`/`confirmed` (Accepter/Refuser révélés au clic) et événements de calendrier. Le
+ * sélecteur de mode « en marge » (`CalendarModeSelector`, révisé le 2026-08-20, point A) commande
+ * le clic sur une case vide : consultation (défaut implicite), disponibilité, ou événement — ce
+ * dernier ouvre `EventCreateFormModal` avec un créneau par défaut déduit de la sélection.
  *
- * Remplace `AvailabilityTab` (renommé) : ce composant portait déjà les disponibilités et les
- * activités ; les événements de calendrier (ancien onglet « Mes événements » /
- * `CalendarEventsPanel`, supprimé) y sont désormais fusionnés plutôt que scindés en onglets.
+ * **Semaine calendaire réelle, navigable** (correction du 2026-08-20, point B) : la grille affiche
+ * une semaine précise (dates réelles en en-tête), plus un gabarit hebdomadaire récurrent.
+ * `useCalendarWeekNavigation` porte cet état ; les disponibilités (récurrentes par `dayOfWeek`)
+ * sont projetées sur chaque semaine affichée, activités et événements (dates réelles) filtrés à
+ * la semaine affichée — voir `calendarDisplayWeek.ts`/`useCalendarUnifiedGridSlots`.
+ *
+ * **Invitations à un événement** (bug réel corrigé le 2026-08-20, `InvitationBanner` retiré — voir
+ * `useEventDetailDialog`/`useCalendarEvents` pour le détail) : un événement `viewerInvitationStatus:
+ * "pending"` apparaît en couleur dédiée (`EVENT_PENDING`) ; le clic ouvre `EventDetailDialog`
+ * (Accepter/Refuser, et Supprimer pour le créateur).
  */
-export default function CalendarUnifiedView({ ownerId, userRole }: CalendarUnifiedViewProps) {
+export default function CalendarUnifiedView({
+  ownerId,
+  userRole,
+  initialReferenceDate,
+}: CalendarUnifiedViewProps) {
   const navigate = useNavigate()
   const [mode, setMode] = useState<CalendarInteractionMode>('view')
+
+  const { displayWeek, isCurrentWeek, goToPreviousWeek, goToNextWeek, goToToday } =
+    useCalendarWeekNavigation(initialReferenceDate)
 
   const {
     slots,
@@ -73,14 +88,33 @@ export default function CalendarUnifiedView({ ownerId, userRole }: CalendarUnifi
 
   const {
     events,
-    invitations,
     isLoading: isLoadingEvents,
     errorMessage: eventsErrorMessage,
     dismissError: dismissEventsError,
     addEvent,
-    updateInvitationStatus,
     markEventCancelled,
+    respondingEventId,
+    respondError: invitationRespondError,
+    clearRespondError: clearInvitationRespondError,
+    respondToEventInvitation,
+    deletingEventId,
+    deleteError,
+    clearDeleteError,
+    deleteEvent,
   } = useCalendarEvents(ownerId, '', '')
+
+  const {
+    selectedEvent: selectedEventForDetail,
+    openEventDetail,
+    closeEventDetail,
+    handleRespondToInvitation,
+    handleDeleteEvent,
+  } = useEventDetailDialog({
+    respondToEventInvitation,
+    deleteEvent,
+    clearInvitationRespondError,
+    clearDeleteError,
+  })
 
   const {
     resolveRoomId,
@@ -97,28 +131,32 @@ export default function CalendarUnifiedView({ ownerId, userRole }: CalendarUnifi
     if (roomId) navigate(`/video-join/${roomId}`)
   }
 
-  const activityBlocks = useMemo(() => toScheduledActivityGridBlocks(activities), [activities])
-  const eventBlocks = useMemo(() => toCalendarEventGridBlocks(events), [events])
-  const gridSlots = useMemo<CalendarGridSlot[]>(
-    () => [...slots, ...activityBlocks, ...eventBlocks],
-    [slots, activityBlocks, eventBlocks],
+  const { gridSlots, activityBlocks, eventBlocks } = useCalendarUnifiedGridSlots(
+    slots,
+    activities,
+    events,
+    displayWeek,
   )
 
   const [formTarget, setFormTarget] = useState<AvailabilityFormTarget | null>(null)
-  const [quickCreateTarget, setQuickCreateTarget] = useState<{
-    dayOfWeek: number
-    startTime: string
+  const [eventCreateTarget, setEventCreateTarget] = useState<{
+    startAt: string
+    endAt: string
   } | null>(null)
-  const [selectedEventForDetail, setSelectedEventForDetail] = useState<CalendarEvent | null>(null)
   const [revealedActivityId, setRevealedActivityId] = useState<string | null>(null)
 
-  const handleCreateAt = (dayOfWeek: number, startTime: string) => {
+  const handleCreateAt = (dayOfWeek: number, startTime: string, endTime: string) => {
     setRevealedActivityId(null)
     if (mode === 'availability') {
       clearActionError()
-      setFormTarget({ mode: 'create', dayOfWeek, startTime })
+      setFormTarget({ mode: 'create', dayOfWeek, startTime, endTime })
     } else if (mode === 'event') {
-      setQuickCreateTarget({ dayOfWeek, startTime })
+      const dayDate =
+        displayWeek.days.find((day) => day.dayOfWeek === dayOfWeek)?.date ?? displayWeek.weekStart
+      setEventCreateTarget({
+        startAt: combineDateAndTime(dayDate, startTime),
+        endAt: combineDateAndTime(dayDate, endTime),
+      })
     }
   }
 
@@ -132,7 +170,7 @@ export default function CalendarUnifiedView({ ownerId, userRole }: CalendarUnifi
   const handleOverlayBlockClick = (slot: CalendarGridSlot) => {
     if (isAvailabilitySlotBlock(slot)) return
     if (isCalendarEventBlock(slot)) {
-      setSelectedEventForDetail(slot.event)
+      openEventDetail(slot.event)
       return
     }
     if (slot.kind === 'PROPOSED') {
@@ -141,17 +179,20 @@ export default function CalendarUnifiedView({ ownerId, userRole }: CalendarUnifi
   }
 
   const renderBlockOverlay = (slot: CalendarGridSlot): React.ReactNode => {
+    // Une disponibilité éditable ne porte jamais d'overlay — `undefined` direct, sans quoi
+    // `AvailabilityGrid` recevrait un élément React toujours "truthy" (même vide) et rendrait un
+    // `<div>` non cliquable pour l'édition à la place du `<button>` attendu.
     if (isAvailabilitySlotBlock(slot)) return undefined
-    if (isCalendarEventBlock(slot)) return <EventGridBlockLabel block={slot} />
     return (
-      <ActivityGridBlockOverlay
-        block={slot}
-        onAccept={(activityId) => respondToActivity(activityId, 'accept')}
-        onDecline={(activityId) => respondToActivity(activityId, 'decline')}
-        isResponding={respondingActivityId === slot.activity.id}
+      <CalendarGridBlockOverlay
+        slot={slot}
+        onAcceptActivity={(activityId) => respondToActivity(activityId, 'accept')}
+        onDeclineActivity={(activityId) => respondToActivity(activityId, 'decline')}
+        respondingActivityId={respondingActivityId}
         onJoinVideo={handleJoinVideo}
-        isJoiningVideo={isJoiningVideo && joiningActivityId === slot.activity.id}
-        isRevealed={revealedActivityId === slot.activity.id}
+        isJoiningVideo={isJoiningVideo}
+        joiningActivityId={joiningActivityId}
+        revealedActivityId={revealedActivityId}
       />
     )
   }
@@ -174,10 +215,6 @@ export default function CalendarUnifiedView({ ownerId, userRole }: CalendarUnifi
     if (formTarget?.mode !== 'edit') return
     const isSuccess = await deleteSlot(formTarget.slot.id)
     if (isSuccess) setFormTarget(null)
-  }
-
-  const handleInvitationStatusChange = (eventId: string, newStatus: 'pending' | 'accepted' | 'declined') => {
-    updateInvitationStatus(eventId, newStatus)
   }
 
   if (isLoading) {
@@ -203,14 +240,6 @@ export default function CalendarUnifiedView({ ownerId, userRole }: CalendarUnifi
     <div>
       <CalendarModeSelector mode={mode} onModeChange={setMode} />
 
-      {invitations.length > 0 && (
-        <InvitationBanner
-          invitations={invitations}
-          userId={ownerId}
-          onStatusChange={handleInvitationStatusChange}
-        />
-      )}
-
       {activitiesLoadError && <ErrorMessage message={activitiesLoadError} className="mb-4" />}
       {eventsErrorMessage && (
         <ErrorMessage message={eventsErrorMessage} onClose={dismissEventsError} className="mb-4" />
@@ -228,8 +257,17 @@ export default function CalendarUnifiedView({ ownerId, userRole }: CalendarUnifi
         </div>
       )}
 
+      <CalendarWeekNavigator
+        weekStart={displayWeek.weekStart}
+        isCurrentWeek={isCurrentWeek}
+        onPreviousWeek={goToPreviousWeek}
+        onNextWeek={goToNextWeek}
+        onToday={goToToday}
+      />
+
       <AvailabilityGrid
         slots={gridSlots}
+        days={displayWeek.days}
         onCreateAt={handleCreateAt}
         onEditSlot={openAvailabilityEditForm}
         canCreate={mode !== 'view'}
@@ -249,25 +287,34 @@ export default function CalendarUnifiedView({ ownerId, userRole }: CalendarUnifi
         />
       )}
 
-      {quickCreateTarget && (
-        <QuickEventCreatePopover
+      {eventCreateTarget && (
+        <EventCreateFormModal
           ownerId={ownerId}
           userRole={userRole}
-          dayOfWeek={quickCreateTarget.dayOfWeek}
-          startTime={quickCreateTarget.startTime}
+          defaultStartAt={eventCreateTarget.startAt}
+          defaultEndAt={eventCreateTarget.endAt}
+          weekFrom={displayWeek.weekStart.toISOString()}
+          weekTo={displayWeek.weekEnd.toISOString()}
           onCreated={(event) => {
             addEvent(event)
-            setQuickCreateTarget(null)
+            setEventCreateTarget(null)
           }}
-          onClose={() => setQuickCreateTarget(null)}
+          onClose={() => setEventCreateTarget(null)}
         />
       )}
 
       {selectedEventForDetail && (
         <EventDetailDialog
           event={selectedEventForDetail}
-          onClose={() => setSelectedEventForDetail(null)}
+          viewerId={ownerId}
+          onClose={closeEventDetail}
           onEventCancelled={markEventCancelled}
+          isRespondingToInvitation={respondingEventId === selectedEventForDetail.id}
+          invitationResponseError={invitationRespondError}
+          onRespondToInvitation={handleRespondToInvitation}
+          isDeleting={deletingEventId === selectedEventForDetail.id}
+          deleteError={deleteError}
+          onDeleteEvent={handleDeleteEvent}
         />
       )}
     </div>

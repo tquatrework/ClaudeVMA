@@ -495,6 +495,110 @@ describe('EventProcessorService', () => {
     });
   });
 
+  describe('CalendarEventCreated', () => {
+    it('notifies every invitee with the resolved creator name and the event title (2026-08-20)', async () => {
+      displayNames({ 'creator-1': { firstName: 'Camille', lastName: 'Durand' } });
+
+      await processor.process({
+        eventId: 'evt-13',
+        eventName: 'CalendarEventCreated',
+        payload: JSON.stringify({
+          eventId: 'calendar-event-1',
+          ownerId: 'creator-1',
+          creatorId: 'creator-1',
+          eventType: 'cours',
+          title: 'Cours de géométrie',
+          startTime: '2026-09-10T14:00:00.000Z',
+          inviteeIds: ['invitee-1', 'invitee-2'],
+        }),
+      });
+
+      const recipients = txNotificationRepository.save.mock.calls.map(([n]: any) => n.userId);
+      expect(recipients).toEqual(['invitee-1', 'invitee-2']);
+      expect(txNotificationRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'invitee-1',
+          type: NotificationType.EVENT_INVITATION_RECEIVED,
+          title: null,
+          message: null,
+          metadata: expect.objectContaining({
+            creatorName: 'Camille Durand',
+            eventId: 'calendar-event-1',
+            eventType: 'cours',
+            title: 'Cours de géométrie',
+            startAt: '2026-09-10T14:00:00.000Z',
+          }),
+        }),
+      );
+      expect(txProcessedEventRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ eventId: 'evt-13', eventName: 'CalendarEventCreated' }),
+      );
+    });
+
+    it('stores a null title, without inventing a default, when the event has no title', async () => {
+      displayNames({ 'creator-1': { firstName: 'Camille', lastName: 'Durand' } });
+
+      await processor.process({
+        eventId: 'evt-14',
+        eventName: 'CalendarEventCreated',
+        payload: JSON.stringify({
+          eventId: 'calendar-event-2',
+          ownerId: 'creator-1',
+          creatorId: 'creator-1',
+          eventType: 'rappel',
+          startTime: '2026-09-10T14:00:00.000Z',
+          inviteeIds: ['invitee-1'],
+        }),
+      });
+
+      expect(txNotificationRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ metadata: expect.objectContaining({ title: null }) }),
+      );
+    });
+
+    it('marks the event as processed without creating a notification when inviteeIds is empty', async () => {
+      await processor.process({
+        eventId: 'evt-15',
+        eventName: 'CalendarEventCreated',
+        payload: JSON.stringify({
+          eventId: 'calendar-event-3',
+          ownerId: 'creator-1',
+          creatorId: 'creator-1',
+          eventType: 'cours',
+          startTime: '2026-09-10T14:00:00.000Z',
+          inviteeIds: [],
+        }),
+      });
+
+      expect(txNotificationRepository.save).not.toHaveBeenCalled();
+      expect(processedEventRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ eventId: 'evt-15', eventName: 'CalendarEventCreated' }),
+      );
+      expect(profileServiceClient.resolveDisplayNames).not.toHaveBeenCalled();
+    });
+
+    it('does not acknowledge (throws) when the creator name cannot be resolved', async () => {
+      profileServiceClient.resolveDisplayNames.mockResolvedValue(new Map());
+
+      await expect(
+        processor.process({
+          eventId: 'evt-16',
+          eventName: 'CalendarEventCreated',
+          payload: JSON.stringify({
+            eventId: 'calendar-event-4',
+            ownerId: 'creator-1',
+            creatorId: 'creator-1',
+            eventType: 'cours',
+            startTime: '2026-09-10T14:00:00.000Z',
+            inviteeIds: ['invitee-1'],
+          }),
+        }),
+      ).rejects.toThrow(/Unresolved display name/);
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+  });
+
   describe('events with no notification', () => {
     it.each(['TeacherRequestClosed', 'TeacherRequestDeleted'])('marks %s as processed without creating a notification', async (eventName) => {
       await processor.process({ eventId: 'evt-8', eventName, payload: '{}' });

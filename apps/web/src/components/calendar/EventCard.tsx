@@ -25,7 +25,7 @@ export function EventCard({
 }: EventCardProps) {
   const typeColorClass = EVENT_TYPE_COLORS[event.eventType] ?? 'bg-gray-100 text-gray-600'
   const isCancelled = event.status === 'cancelled'
-  const isAccepted = event.inviteeStatus === 'accepted'
+  const isAccepted = event.viewerInvitationStatus === 'accepted'
 
   return (
     <li

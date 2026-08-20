@@ -43,6 +43,21 @@ describe('toCalendarEventGridBlock', () => {
     )
     expect(block?.endTime).toBe('23:59')
   })
+
+  it('traduit un événement en bloc EVENT_PENDING quand une invitation est en attente pour le titulaire (bug réel corrigé le 2026-08-20)', () => {
+    const block = toCalendarEventGridBlock(buildEvent({ viewerInvitationStatus: 'pending' }))
+    expect(block?.kind).toBe('EVENT_PENDING')
+  })
+
+  it('reste EVENT quand l\'invitation est acceptée', () => {
+    const block = toCalendarEventGridBlock(buildEvent({ viewerInvitationStatus: 'accepted' }))
+    expect(block?.kind).toBe('EVENT')
+  })
+
+  it("reste EVENT pour le propre événement du titulaire (pas d'invitation, viewerInvitationStatus absent)", () => {
+    const block = toCalendarEventGridBlock(buildEvent())
+    expect(block?.kind).toBe('EVENT')
+  })
 })
 
 describe('toCalendarEventGridBlocks — filtrage par semaine calendaire réelle (point B)', () => {

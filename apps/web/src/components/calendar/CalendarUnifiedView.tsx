@@ -1,9 +1,9 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { CalendarEvent } from './calendarTypes'
 import { useAvailabilitySlots } from '../../hooks/calendar/useAvailabilitySlots'
 import { useOwnerCalendarActivities } from '../../hooks/calendar/useOwnerCalendarActivities'
 import { useCalendarEvents } from '../../hooks/calendar/useCalendarEvents'
+import { useEventDetailDialog } from '../../hooks/calendar/useEventDetailDialog'
 import { useCalendarWeekNavigation } from '../../hooks/calendar/useCalendarWeekNavigation'
 import { useCalendarUnifiedGridSlots } from '../../hooks/calendar/useCalendarUnifiedGridSlots'
 import { useJoinConfirmedCourse } from '../../hooks/video/useJoinConfirmedCourse'
@@ -17,12 +17,10 @@ import {
 } from '../../utils/calendarUnifiedGridSlot'
 import AvailabilityGrid from './AvailabilityGrid'
 import CalendarWeekNavigator from './CalendarWeekNavigator'
-import ActivityGridBlockOverlay from './ActivityGridBlockOverlay'
-import EventGridBlockLabel from './EventGridBlockLabel'
+import CalendarGridBlockOverlay from './CalendarGridBlockOverlay'
 import CalendarModeSelector, { type CalendarInteractionMode } from './CalendarModeSelector'
 import EventCreateFormModal from './EventCreateFormModal'
 import EventDetailDialog from './EventDetailDialog'
-import InvitationBanner from './InvitationBanner'
 import { ErrorMessage } from '../ui/ErrorMessage'
 import AvailabilitySlotFormModal from './AvailabilitySlotFormModal'
 
@@ -49,6 +47,11 @@ interface CalendarUnifiedViewProps {
  * `useCalendarWeekNavigation` porte cet état ; les disponibilités (récurrentes par `dayOfWeek`)
  * sont projetées sur chaque semaine affichée, activités et événements (dates réelles) filtrés à
  * la semaine affichée — voir `calendarDisplayWeek.ts`/`useCalendarUnifiedGridSlots`.
+ *
+ * **Invitations à un événement** (bug réel corrigé le 2026-08-20, `InvitationBanner` retiré — voir
+ * `useEventDetailDialog`/`useCalendarEvents` pour le détail) : un événement `viewerInvitationStatus:
+ * "pending"` apparaît en couleur dédiée (`EVENT_PENDING`) ; le clic ouvre `EventDetailDialog`
+ * (Accepter/Refuser, et Supprimer pour le créateur).
  */
 export default function CalendarUnifiedView({
   ownerId,
@@ -85,14 +88,33 @@ export default function CalendarUnifiedView({
 
   const {
     events,
-    invitations,
     isLoading: isLoadingEvents,
     errorMessage: eventsErrorMessage,
     dismissError: dismissEventsError,
     addEvent,
-    updateInvitationStatus,
     markEventCancelled,
+    respondingEventId,
+    respondError: invitationRespondError,
+    clearRespondError: clearInvitationRespondError,
+    respondToEventInvitation,
+    deletingEventId,
+    deleteError,
+    clearDeleteError,
+    deleteEvent,
   } = useCalendarEvents(ownerId, '', '')
+
+  const {
+    selectedEvent: selectedEventForDetail,
+    openEventDetail,
+    closeEventDetail,
+    handleRespondToInvitation,
+    handleDeleteEvent,
+  } = useEventDetailDialog({
+    respondToEventInvitation,
+    deleteEvent,
+    clearInvitationRespondError,
+    clearDeleteError,
+  })
 
   const {
     resolveRoomId,
@@ -121,7 +143,6 @@ export default function CalendarUnifiedView({
     startAt: string
     endAt: string
   } | null>(null)
-  const [selectedEventForDetail, setSelectedEventForDetail] = useState<CalendarEvent | null>(null)
   const [revealedActivityId, setRevealedActivityId] = useState<string | null>(null)
 
   const handleCreateAt = (dayOfWeek: number, startTime: string, endTime: string) => {
@@ -149,7 +170,7 @@ export default function CalendarUnifiedView({
   const handleOverlayBlockClick = (slot: CalendarGridSlot) => {
     if (isAvailabilitySlotBlock(slot)) return
     if (isCalendarEventBlock(slot)) {
-      setSelectedEventForDetail(slot.event)
+      openEventDetail(slot.event)
       return
     }
     if (slot.kind === 'PROPOSED') {
@@ -158,17 +179,20 @@ export default function CalendarUnifiedView({
   }
 
   const renderBlockOverlay = (slot: CalendarGridSlot): React.ReactNode => {
+    // Une disponibilité éditable ne porte jamais d'overlay — `undefined` direct, sans quoi
+    // `AvailabilityGrid` recevrait un élément React toujours "truthy" (même vide) et rendrait un
+    // `<div>` non cliquable pour l'édition à la place du `<button>` attendu.
     if (isAvailabilitySlotBlock(slot)) return undefined
-    if (isCalendarEventBlock(slot)) return <EventGridBlockLabel block={slot} />
     return (
-      <ActivityGridBlockOverlay
-        block={slot}
-        onAccept={(activityId) => respondToActivity(activityId, 'accept')}
-        onDecline={(activityId) => respondToActivity(activityId, 'decline')}
-        isResponding={respondingActivityId === slot.activity.id}
+      <CalendarGridBlockOverlay
+        slot={slot}
+        onAcceptActivity={(activityId) => respondToActivity(activityId, 'accept')}
+        onDeclineActivity={(activityId) => respondToActivity(activityId, 'decline')}
+        respondingActivityId={respondingActivityId}
         onJoinVideo={handleJoinVideo}
-        isJoiningVideo={isJoiningVideo && joiningActivityId === slot.activity.id}
-        isRevealed={revealedActivityId === slot.activity.id}
+        isJoiningVideo={isJoiningVideo}
+        joiningActivityId={joiningActivityId}
+        revealedActivityId={revealedActivityId}
       />
     )
   }
@@ -193,10 +217,6 @@ export default function CalendarUnifiedView({
     if (isSuccess) setFormTarget(null)
   }
 
-  const handleInvitationStatusChange = (eventId: string, newStatus: 'pending' | 'accepted' | 'declined') => {
-    updateInvitationStatus(eventId, newStatus)
-  }
-
   if (isLoading) {
     return <p className="text-gray-400 text-sm">Chargement du calendrier…</p>
   }
@@ -219,14 +239,6 @@ export default function CalendarUnifiedView({
   return (
     <div>
       <CalendarModeSelector mode={mode} onModeChange={setMode} />
-
-      {invitations.length > 0 && (
-        <InvitationBanner
-          invitations={invitations}
-          userId={ownerId}
-          onStatusChange={handleInvitationStatusChange}
-        />
-      )}
 
       {activitiesLoadError && <ErrorMessage message={activitiesLoadError} className="mb-4" />}
       {eventsErrorMessage && (
@@ -294,8 +306,15 @@ export default function CalendarUnifiedView({
       {selectedEventForDetail && (
         <EventDetailDialog
           event={selectedEventForDetail}
-          onClose={() => setSelectedEventForDetail(null)}
+          viewerId={ownerId}
+          onClose={closeEventDetail}
           onEventCancelled={markEventCancelled}
+          isRespondingToInvitation={respondingEventId === selectedEventForDetail.id}
+          invitationResponseError={invitationRespondError}
+          onRespondToInvitation={handleRespondToInvitation}
+          isDeleting={deletingEventId === selectedEventForDetail.id}
+          deleteError={deleteError}
+          onDeleteEvent={handleDeleteEvent}
         />
       )}
     </div>

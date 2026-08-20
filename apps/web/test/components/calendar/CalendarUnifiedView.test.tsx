@@ -20,6 +20,7 @@ import {
   createOwnerEvent,
   acceptEventInvitation,
   declineEventInvitation,
+  deleteOwnerEvent,
   requestEventCancellation,
 } from '../../../src/api/calendar'
 import { fetchRoomByActivity } from '../../../src/api/video'
@@ -36,6 +37,7 @@ const mockFetchOwnerEvents = vi.mocked(fetchOwnerEvents)
 const mockCreateOwnerEvent = vi.mocked(createOwnerEvent)
 const mockAcceptEventInvitation = vi.mocked(acceptEventInvitation)
 const mockDeclineEventInvitation = vi.mocked(declineEventInvitation)
+const mockDeleteOwnerEvent = vi.mocked(deleteOwnerEvent)
 const mockRequestEventCancellation = vi.mocked(requestEventCancellation)
 const mockFetchRoomByActivity = vi.mocked(fetchRoomByActivity)
 // `EventCreateFormModal` monte `EventRecipientPicker` (correction du 2026-08-20, point D), qui
@@ -503,8 +505,8 @@ describe('CalendarUnifiedView — événements de calendrier fusionnés (point 1
   })
 })
 
-describe('CalendarUnifiedView — invitations', () => {
-  it('affiche le statut accepté après avoir cliqué sur "Accepter" dans le bandeau d\'invitation', async () => {
+describe('CalendarUnifiedView — invitation à un événement (bug réel corrigé le 2026-08-20)', () => {
+  it('ouvre la modale Accepter/Refuser au clic sur un événement où l\'invitation est en attente', async () => {
     mockFetchAvailability.mockResolvedValue([])
     mockFetchOwnerEvents.mockResolvedValue([
       {
@@ -512,49 +514,173 @@ describe('CalendarUnifiedView — invitations', () => {
         title: 'Réunion pédagogique',
         startAt: FUTURE_ISO_1,
         endAt: FUTURE_ISO_2,
-        eventType: 'invitation' as const,
-        inviteeStatus: 'pending' as const,
+        eventType: 'pedagogique' as const,
+        ownerId: 'teacher-9',
+        viewerInvitationStatus: 'pending' as const,
       },
     ])
+
+    renderView()
+
+    await waitFor(() => screen.getByText('Réunion pédagogique'))
+    await userEvent.click(screen.getByText('Réunion pédagogique'))
+
+    expect(screen.getByRole('dialog', { name: /détail de l'événement/i })).toBeDefined()
+    expect(screen.getByRole('button', { name: /^accepter$/i })).toBeDefined()
+    expect(screen.getByRole('button', { name: /^refuser$/i })).toBeDefined()
+  })
+
+  it('accepte une invitation depuis la modale : recharge la liste réelle et ferme la modale', async () => {
+    mockFetchAvailability.mockResolvedValue([])
+    mockFetchOwnerEvents
+      .mockResolvedValueOnce([
+        {
+          id: 'inv-evt-2',
+          title: 'Cours proposé',
+          startAt: FUTURE_ISO_1,
+          endAt: FUTURE_ISO_2,
+          eventType: 'cours' as const,
+          ownerId: 'teacher-9',
+          viewerInvitationStatus: 'pending' as const,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 'inv-evt-2',
+          title: 'Cours proposé',
+          startAt: FUTURE_ISO_1,
+          endAt: FUTURE_ISO_2,
+          eventType: 'cours' as const,
+          ownerId: 'teacher-9',
+          viewerInvitationStatus: 'accepted' as const,
+        },
+      ])
     mockAcceptEventInvitation.mockResolvedValue(undefined)
 
     renderView()
 
-    await waitFor(() => {
-      expect(screen.getByText('Invitations en attente (1)')).toBeDefined()
-    })
-
+    await waitFor(() => screen.getByText('Cours proposé'))
+    await userEvent.click(screen.getByText('Cours proposé'))
     await userEvent.click(screen.getByRole('button', { name: /^accepter$/i }))
 
     await waitFor(() => {
-      expect(mockAcceptEventInvitation).toHaveBeenCalledWith('inv-evt-1', OWNER_ID)
+      expect(mockAcceptEventInvitation).toHaveBeenCalledWith('inv-evt-2', OWNER_ID)
+    })
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /détail de l'événement/i })).toBeNull()
+    })
+    await waitFor(() => {
+      // Un seul appel au montage n'aurait jamais reflété "accepted" — la modale se ferme sur
+      // l'état réel renvoyé par le serveur, jamais un état local optimiste.
+      expect(mockFetchOwnerEvents).toHaveBeenCalledTimes(2)
     })
   })
 
-  it('retire l\'invitation refusée du bandeau', async () => {
+  it("refuse une invitation depuis la modale : l'événement disparaît une fois la liste rechargée", async () => {
     mockFetchAvailability.mockResolvedValue([])
-    mockFetchOwnerEvents.mockResolvedValue([
-      {
-        id: 'inv-evt-2',
-        title: 'Cours optionnel',
-        startAt: FUTURE_ISO_1,
-        endAt: FUTURE_ISO_2,
-        eventType: 'invitation' as const,
-        inviteeStatus: 'pending' as const,
-      },
-    ])
+    mockFetchOwnerEvents
+      .mockResolvedValueOnce([
+        {
+          id: 'inv-evt-3',
+          title: 'Cours optionnel',
+          startAt: FUTURE_ISO_1,
+          endAt: FUTURE_ISO_2,
+          eventType: 'cours' as const,
+          ownerId: 'teacher-9',
+          viewerInvitationStatus: 'pending' as const,
+        },
+      ])
+      .mockResolvedValueOnce([])
     mockDeclineEventInvitation.mockResolvedValue(undefined)
 
     renderView()
 
-    await waitFor(() => screen.getByText('Invitations en attente (1)'))
+    await waitFor(() => screen.getByText('Cours optionnel'))
+    await userEvent.click(screen.getByText('Cours optionnel'))
     await userEvent.click(screen.getByRole('button', { name: /^refuser$/i }))
 
     await waitFor(() => {
-      expect(mockDeclineEventInvitation).toHaveBeenCalledWith('inv-evt-2', OWNER_ID)
+      expect(mockDeclineEventInvitation).toHaveBeenCalledWith('inv-evt-3', OWNER_ID)
     })
     await waitFor(() => {
-      expect(screen.queryByText('Invitations en attente')).toBeNull()
+      expect(screen.queryByText('Cours optionnel')).toBeNull()
     })
+  })
+
+  it("n'affiche pas Accepter/Refuser pour son propre événement (créateur, aucune invitation en attente)", async () => {
+    mockFetchAvailability.mockResolvedValue([])
+    mockFetchOwnerEvents.mockResolvedValue([
+      {
+        id: 'own-evt-1',
+        title: 'Mon événement',
+        startAt: FUTURE_ISO_1,
+        endAt: FUTURE_ISO_2,
+        eventType: 'cours' as const,
+        ownerId: OWNER_ID,
+      },
+    ])
+
+    renderView()
+
+    await waitFor(() => screen.getByText('Mon événement'))
+    await userEvent.click(screen.getByText('Mon événement'))
+
+    expect(screen.queryByRole('button', { name: /^accepter$/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^refuser$/i })).toBeNull()
+  })
+})
+
+describe('CalendarUnifiedView — suppression d\'un événement (point 4, 2026-08-20)', () => {
+  it('affiche "Supprimer l\'événement" pour le créateur et le supprime', async () => {
+    mockFetchAvailability.mockResolvedValue([])
+    mockFetchOwnerEvents.mockResolvedValue([
+      {
+        id: 'own-evt-2',
+        title: 'Mon événement à supprimer',
+        startAt: FUTURE_ISO_1,
+        endAt: FUTURE_ISO_2,
+        eventType: 'cours' as const,
+        ownerId: OWNER_ID,
+      },
+    ])
+    mockDeleteOwnerEvent.mockResolvedValue(undefined)
+
+    renderView()
+
+    await waitFor(() => screen.getByText('Mon événement à supprimer'))
+    await userEvent.click(screen.getByText('Mon événement à supprimer'))
+    await userEvent.click(screen.getByRole('button', { name: /supprimer l'événement/i }))
+
+    await waitFor(() => {
+      expect(mockDeleteOwnerEvent).toHaveBeenCalledWith(OWNER_ID, 'own-evt-2')
+    })
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /détail de l'événement/i })).toBeNull()
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Mon événement à supprimer')).toBeNull()
+    })
+  })
+
+  it("ne montre pas le bouton Supprimer pour un événement dont l'appelant n'est pas le créateur", async () => {
+    mockFetchAvailability.mockResolvedValue([])
+    mockFetchOwnerEvents.mockResolvedValue([
+      {
+        id: 'other-evt-1',
+        title: "Événement d'un autre créateur",
+        startAt: FUTURE_ISO_1,
+        endAt: FUTURE_ISO_2,
+        eventType: 'cours' as const,
+        ownerId: 'teacher-9',
+        viewerInvitationStatus: 'accepted' as const,
+      },
+    ])
+
+    renderView()
+
+    await waitFor(() => screen.getByText("Événement d'un autre créateur"))
+    await userEvent.click(screen.getByText("Événement d'un autre créateur"))
+
+    expect(screen.queryByRole('button', { name: /supprimer l'événement/i })).toBeNull()
   })
 })

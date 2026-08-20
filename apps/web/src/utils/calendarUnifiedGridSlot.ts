@@ -20,7 +20,7 @@ export function isAvailabilitySlotBlock(slot: CalendarGridSlot): slot is Availab
 }
 
 export function isCalendarEventBlock(slot: CalendarGridSlot): slot is CalendarEventGridBlock {
-  return slot.kind === 'EVENT'
+  return slot.kind === 'EVENT' || slot.kind === 'EVENT_PENDING'
 }
 
 /**

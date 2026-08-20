@@ -27,7 +27,14 @@ import { extractTimeOfDayFromIso } from './availabilitySlotApiMapping'
 import { extractDayOfWeekFromIso } from './linkedCalendarBusyFree'
 import { addWeeksUtc, isWithinRange } from './calendarDisplayWeek'
 
-export type CalendarEventGridBlockKind = 'EVENT'
+/**
+ * `EVENT_PENDING` distingue une invitation encore en attente de réponse
+ * (`event.viewerInvitationStatus === 'pending'`) — couleur dédiée dans `AvailabilityGrid`, bug
+ * réel corrigé le 2026-08-20 (voir `docs/routes.md` § calendar-service, et `CalendarUnifiedView`
+ * pour le retrait d'`InvitationBanner`, qui ne pouvait jamais afficher une invitation réelle).
+ * `accepted`/`declined`/propre événement restent `EVENT`, apparence normale.
+ */
+export type CalendarEventGridBlockKind = 'EVENT' | 'EVENT_PENDING'
 
 /** Bloc affichable par `AvailabilityGrid`, porteur de l'événement d'origine complet. */
 export interface CalendarEventGridBlock {
@@ -61,12 +68,15 @@ export function toCalendarEventGridBlock(event: CalendarEvent): CalendarEventGri
   const rawEndTime = extractTimeOfDayFromIso(event.endAt)
   const endTime = endDayOfWeek === dayOfWeek && rawEndTime !== null ? rawEndTime : '23:59'
 
+  const kind: CalendarEventGridBlockKind =
+    event.viewerInvitationStatus === 'pending' ? 'EVENT_PENDING' : 'EVENT'
+
   return {
     id: event.id,
     dayOfWeek,
     startTime,
     endTime,
-    kind: 'EVENT',
+    kind,
     event,
     dateLabel: formatDateLabel(event.startAt),
   }

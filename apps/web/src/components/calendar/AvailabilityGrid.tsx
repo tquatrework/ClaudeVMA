@@ -38,7 +38,10 @@ const QUARTER_CELLS = GRID_HOURS.flatMap((hour) =>
  * `GET /calendars/:ownerId/events`) fusionnés visuellement sur la même grille (chantier calendrier
  * vue unifiée, point 1) — jamais éditable par clic direct sur le bloc (l'édition d'un événement
  * n'existe pas côté front) : le clic ouvre un détail en lecture, voir `renderBlockOverlay` et
- * `onOverlayBlockClick`.
+ * `onOverlayBlockClick`. `EVENT_PENDING` en est une variante : un événement où le titulaire de la
+ * grille est **invité** et n'a pas encore répondu (`viewerInvitationStatus: "pending"`) — couleur
+ * dédiée pour le distinguer au premier coup d'œil ; le clic ouvre le même détail, qui porte alors
+ * Accepter/Refuser (bug réel corrigé le 2026-08-20, voir `CalendarUnifiedView`).
  */
 export type AvailabilityGridBlockKind =
   | 'AVAILABLE'
@@ -47,6 +50,7 @@ export type AvailabilityGridBlockKind =
   | 'PROPOSED'
   | 'CONFIRMED'
   | 'EVENT'
+  | 'EVENT_PENDING'
 
 /**
  * Forme minimale attendue par la grille. `AvailabilitySlot` (point 1) et `BusyFreeGridBlock`
@@ -72,6 +76,10 @@ const KIND_STYLES: Record<AvailabilityGridBlockKind, string> = {
   // Couleur distincte (rose), inutilisée par les autres kinds, pour distinguer un événement de
   // calendrier d'une proposition/confirmation de cours au premier coup d'œil.
   EVENT: 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100',
+  // Couleur distincte (orange), volontairement différente de EVENT (rose), BUSY (amber) et
+  // PROPOSED/CONFIRMED (indigo) — une invitation en attente ne doit pas se confondre avec un
+  // événement déjà accepté (bug réel corrigé le 2026-08-20, voir CalendarUnifiedView).
+  EVENT_PENDING: 'bg-orange-50 text-orange-700 border border-orange-300 hover:bg-orange-100',
 }
 
 const KIND_LABELS: Record<AvailabilityGridBlockKind, string> = {
@@ -81,6 +89,7 @@ const KIND_LABELS: Record<AvailabilityGridBlockKind, string> = {
   PROPOSED: 'Proposition de cours',
   CONFIRMED: 'Cours confirmé',
   EVENT: 'Événement',
+  EVENT_PENDING: 'Invitation en attente',
 }
 
 function formatHourLabel(hour: number): string {

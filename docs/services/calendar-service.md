@@ -989,6 +989,97 @@
             non retraitee ici.</item>
         </openPoints>
       </session>
+
+      <session date="2026-08-20" label="Correctif bug reel — title refuse a la creation d'evenement alors qu'annonce optionnel cote front">
+        <changeset id="cause-confirmee">
+          <item>Bug signale par l'utilisateur en testant `/calendar` en conditions reelles.
+            `CreateCalendarEventDto.title` portait `@IsString()` sans `@IsOptional()` : tout body
+            omettant `title` etait rejete en `400`, alors que le formulaire de creation cote front
+            annonce deja ce champ comme optionnel et que `docs/routes.md` documentait `title`
+            (sans `?`) comme requis — code et doc alignes l'un sur l'autre, mais tous deux en
+            contradiction avec le besoin reel.</item>
+          <item>La colonne `title` de `calendar_events` etait en outre `NOT NULL` en base
+            (`@Column()` sans `nullable: true` sur l'entite) : rendre le DTO optionnel seul aurait
+            fait echouer l'`INSERT` avec un `title` absent — verifie par execution reelle de la
+            migration ci-dessous, pas seulement par lecture du schema.</item>
+        </changeset>
+
+        <changeset id="correctif">
+          <item>`CreateCalendarEventDto.title` : `@IsOptional()` ajoute, `@ApiProperty` remplace
+            par `@ApiPropertyOptional`, type `title?: string`. Aucune autre contrainte modifiee
+            (`@IsString()` conserve — la validation de type reste appliquee sur un titre fourni).</item>
+          <item>Entite `CalendarEvent.title` : `string` -&gt; `string | null`, colonne passee en
+            `nullable: true`. Aucune valeur par defaut fabriquee cote serveur — un evenement sans
+            titre est stocke et relu avec `title: null` tel quel ; un texte de repli a l'affichage
+            (ex. « Sans titre ») resterait un sujet front, non traite ici.</item>
+          <item>`CalendarEventsService.createEvent` : `title: dto.title` -&gt; `title: dto.title ?? null`,
+            explicite plutot qu'implicite, sur le meme modele que `description`/`targetRef` deja
+            geres ainsi dans la meme methode.</item>
+          <item>Migration `MakeCalendarEventTitleOptional1787080000000`
+            (`src/migrations/1787080000000-MakeCalendarEventTitleOptional.ts`) :
+            `ALTER TABLE calendar_events ALTER COLUMN title DROP NOT NULL`. `down` restaure
+            `NOT NULL` apres avoir coerce les lignes `NULL` existantes vers `''` (jamais
+            d'`ALTER` qui echouerait sur des lignes deja passees a `NULL` entre-temps).</item>
+        </changeset>
+
+        <changeset id="migration-verifiee">
+          <item>Executee reellement (pas seulement relue) contre un clone jetable de la base
+            reelle du service (`calendar_migration_check`, `pg_dump --schema-only` +
+            export/import de `calendar_service_migrations` depuis `visiomath_calendar`, base
+            supprimee apres verification — jamais touche a `visiomath_calendar` ni a `calendar_test`
+            directement pour cette verification).</item>
+          <item>Cycle complet verifie : `migration:run` (colonne passee nullable, confirmee par
+            `\d calendar_events`) -&gt; `INSERT` reel avec `title = NULL` reussi -&gt;
+            `migration:revert` (contrainte `NOT NULL` restauree, la ligne `NULL` existante coercee
+            a `''` sans echec) -&gt; `migration:run` rejoue avec succes (idempotence confirmee).</item>
+        </changeset>
+
+        <changeset id="tests">
+          <item>`test/unit/calendar-events/create-calendar-event.dto.spec.ts` : nouveau
+            `describe('title (optionnel, corrige 2026-08-20)')` — accepte un body sans `title`,
+            accepte un `title` explicite inchange, rejette toujours un `title` non-string
+            (validation de type preservee).</item>
+          <item>`test/unit/calendar-events/calendar-events.service.spec.ts` : nouveau test
+            verifiant que `createEvent` appele sans `title` persiste `title: null` (jamais une
+            valeur par defaut fabriquee) et que la valeur retournee expose `title: null`.</item>
+          <item>`test/e2e/calendar.e2e-spec.ts` : nouveau
+            `describe('POST /calendars/:ownerId/events — title optionnel (2026-08-20)')` — quatre
+            tests contre la vraie route HTTP et une vraie base Postgres (`calendar_test`) :
+            creation sans `title` -&gt; `201` avec `title: null` ; creation avec `title` -&gt; `201`
+            inchange ; relecture via `GET` d'un evenement sans titre -&gt; `title: null`, jamais de
+            `500` ; `title` non-string -&gt; `400` (contrainte de type toujours active).</item>
+          <item>Suite unitaire complete verte : 245 tests (etait 241, +4 tests nouveaux — les 3
+            listes ci-dessus plus une fixture ajustee). Suite e2e complete verte : 97 tests
+            (etait 93, +4 tests nouveaux), lancee avec `--runInBand` explicite (constat : sans
+            cela, deux fichiers e2e du service font chacun `DROP SCHEMA public CASCADE` /
+            `CREATE SCHEMA public` sur la meme base `calendar_test` en parallele, provoquant une
+            course et des echecs intermittents `schema "public" does not exist` — preexistant,
+            non introduit par ce correctif, mais a retenir pour toute execution future de la
+            suite e2e de ce service).</item>
+          <item>Le test e2e preexistant `[CAL-BR-003] title manquant → 400` (`POST /activities`,
+            resource distincte `ScheduledActivity`) n'a pas ete touche : hors perimetre, `title`
+            y reste requis, verifie toujours vert apres ce correctif.</item>
+        </changeset>
+
+        <changeset id="documentation">
+          <item>`docs/routes.md` : body documente de `POST /calendars/:ownerId/events` passe
+            `{title, ...}` -&gt; `{title?, ...}`, avec une note expliquant le bug (DTO requis alors
+            que le front l'annonce optionnel, colonne base `NOT NULL`) et le correctif (DTO +
+            migration), et rappelant qu'aucun titre par defaut n'est fabrique cote serveur.</item>
+        </changeset>
+
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <item>Affichage d'un texte de repli pour un evenement sans titre (ex. « Sans titre ») :
+            explicitement laisse au front par cette session, non traite ici.</item>
+          <item>Course entre suites e2e sur la meme base `calendar_test` en execution parallele
+            (voir changeset "tests" ci-dessus) : `test/jest-e2e.json` porte deja `maxWorkers: 1`,
+            mais `npm run test:e2e` (script effectivement documente et utilise) ne passe pas par
+            ce fichier de config et reste donc parallele par defaut — a corriger si la suite e2e
+            doit rester fiable en CI sans `--runInBand` explicite ; non traite ici pour rester
+            dans le perimetre strict du bug `title` signale.</item>
+        </openPoints>
+      </session>
     </technicalSessions>
   </service>
 </serviceFunctionalSpecification>

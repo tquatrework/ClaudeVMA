@@ -66,4 +66,36 @@ describe('CreateCalendarEventDto', () => {
     const errors = await validate(dto);
     expect(errors).toHaveLength(0);
   });
+
+  /**
+   * Regression test for the real bug reported by the user: the front-end
+   * form advertises `title` as optional on `/calendar`, but the server
+   * rejected creation without it (`@IsString()` without `@IsOptional()`).
+   * Fixed 2026-08-20 — see docs/routes.md.
+   */
+  describe('title (optional, corrected 2026-08-20)', () => {
+    it('accepts a body without title at all', async () => {
+      const { title: _omit, ...bodyWithoutTitle } = validBody as Record<string, unknown>;
+      const dto = plainToInstance(CreateCalendarEventDto, bodyWithoutTitle);
+      const errors = await validate(dto);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('accepts an explicit title unchanged', async () => {
+      const dto = plainToInstance(CreateCalendarEventDto, validBody);
+      const errors = await validate(dto);
+      expect(errors).toHaveLength(0);
+      expect(dto.title).toBe('Cours de géométrie');
+    });
+
+    it('still rejects a non-string title (type validation preserved)', async () => {
+      const dto = plainToInstance(CreateCalendarEventDto, {
+        ...validBody,
+        title: 12345,
+      });
+      const errors = await validate(dto);
+      const errorProperties = errors.map((error) => error.property);
+      expect(errorProperties).toContain('title');
+    });
+  });
 });

@@ -1043,4 +1043,77 @@ describe('[E2E] Calendar Service', () => {
       expect(createdInList).not.toHaveProperty('endTime');
     });
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // POST /calendars/:ownerId/events — title optionnel
+  //
+  // Regression e2e du 2026-08-20 : le front annonce `title` comme optionnel
+  // sur le formulaire de creation, mais le serveur le refusait faute
+  // d'@IsOptional() sur CreateCalendarEventDto (bug signale par
+  // l'utilisateur en conditions reelles). Exerce la vraie route HTTP,
+  // colonne `title` comprise (rendue nullable par migration).
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('POST /calendars/:ownerId/events — title optionnel (2026-08-20)', () => {
+    function validEventPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      const start = new Date(Date.now() + 86_400_000);
+      const end   = new Date(start.getTime() + 3_600_000);
+      return {
+        title: 'Cours de trigonometrie',
+        eventType: 'cours',
+        startAt: start.toISOString(),
+        endAt: end.toISOString(),
+        ...overrides,
+      };
+    }
+
+    it('POST sans title → 201, title est null (pas de valeur par defaut fabriquee)', async () => {
+      const { title: _omit, ...bodyWithoutTitle } = validEventPayload();
+
+      const res = await request(app.getHttpServer())
+        .post(`/calendars/${IDS.teacher1}/events`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send(bodyWithoutTitle);
+
+      expect(res.status).toBe(201);
+      expect(res.body.title).toBeNull();
+    });
+
+    it('POST avec title → 201, comportement inchange', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/calendars/${IDS.teacher1}/events`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send(validEventPayload({ title: 'Cours de trigonometrie avance' }));
+
+      expect(res.status).toBe(201);
+      expect(res.body.title).toBe('Cours de trigonometrie avance');
+    });
+
+    it('un evenement sans title est bien relu tel quel via GET (title: null, pas de 500)', async () => {
+      const { title: _omit, ...bodyWithoutTitle } = validEventPayload();
+      const created = await request(app.getHttpServer())
+        .post(`/calendars/${IDS.teacher1}/events`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send(bodyWithoutTitle);
+      expect(created.status).toBe(201);
+
+      const res = await request(app.getHttpServer())
+        .get(`/calendars/${IDS.teacher1}/events`)
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
+      expect(res.status).toBe(200);
+      const createdInList = res.body.find((event: { id: string }) => event.id === created.body.id);
+      expect(createdInList).toBeDefined();
+      expect(createdInList.title).toBeNull();
+    });
+
+    it('POST avec title non-string → 400 (validation de type toujours appliquee)', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/calendars/${IDS.teacher1}/events`)
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send(validEventPayload({ title: 12345 }));
+
+      expect(res.status).toBe(400);
+    });
+  });
 });

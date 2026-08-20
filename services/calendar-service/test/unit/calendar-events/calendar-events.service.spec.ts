@@ -217,6 +217,31 @@ describe('CalendarEventsService', () => {
       expect((result as unknown as Record<string, unknown>).endTime).toBeUndefined();
     });
 
+    it('regression 2026-08-20: creates an event without title (persisted as null, not a fabricated default)', async () => {
+      const { title: _omit, ...dtoWithoutTitle } = validDto;
+      const savedEvent = {
+        id: 'evt-no-title',
+        title: null,
+        eventType: dtoWithoutTitle.eventType,
+        startAt: new Date(dtoWithoutTitle.startAt),
+        endAt: new Date(dtoWithoutTitle.endAt),
+        ownerId: 'teacher-1',
+        creatorId: 'teacher-1',
+        invitations: [],
+      } as unknown as CalendarEvent;
+      mockEventRepo.create.mockReturnValue(savedEvent);
+      mockEventRepo.save.mockResolvedValue(savedEvent);
+      mockEventRepo.findOne.mockResolvedValue(savedEvent);
+      const actor: AuthenticatedUser = { id: 'teacher-1', role: UserRole.FORMATEUR };
+
+      const result = await service.createEvent('teacher-1', dtoWithoutTitle as never, actor);
+
+      expect(mockEventRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ title: null }),
+      );
+      expect(result.title).toBeNull();
+    });
+
     it('ELEVE can create a RAPPEL event', async () => {
       const dto = { ...validDto, eventType: EventType.RAPPEL };
       const savedEvent = { id: 'evt-2', ...dto, ownerId: 'student-1', creatorId: 'student-1', invitations: [] } as unknown as CalendarEvent;

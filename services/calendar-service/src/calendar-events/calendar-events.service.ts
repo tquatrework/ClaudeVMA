@@ -149,7 +149,7 @@ export class CalendarEventsService {
       const savedEvent = await eventRepo.save(
         eventRepo.create({
           ownerId,
-          title: dto.title,
+          title: dto.title ?? null,
           eventType: dto.eventType,
           creatorId: actor.id,
           creatorRole: actor.role,

@@ -1065,7 +1065,16 @@ Délais de rappel valides : `1week`, `1day`, `1hour`, `15min`, `none`
 | PATCH | /calendars/:ownerId/availability-slots/:slotId | Modifier un créneau (redimensionner, changer récurrence/date de fin/type) | 🔒 | Mêmes rôles. `404` si le créneau n'existe pas ou appartient à un autre `ownerId` (pas de fuite d'existence). |
 | DELETE | /calendars/:ownerId/availability-slots/:slotId | Supprimer un créneau (suppression physique) | 🔒 | Mêmes rôles. Réponse `204`. `404` si le créneau n'existe pas ou appartient à un autre `ownerId`. |
 
-Body `POST /calendars/:ownerId/events` : `{title, startAt, endAt, eventType, description?, inviteeIds?}`
+Body `POST /calendars/:ownerId/events` : `{title?, startAt, endAt, eventType, description?, inviteeIds?}`
+
+**Bug corrigé le 2026-08-20** : `title` était documenté et implémenté comme requis
+(`@IsString()` sans `@IsOptional()` sur `CreateCalendarEventDto`), alors que le formulaire de
+création côté front l'annonçait déjà comme optionnel — signalé par l'utilisateur en testant
+`/calendar` en conditions réelles. `@IsOptional()` ajouté au DTO ; la colonne `title` de
+`calendar_events`, `NOT NULL` en base, a été rendue nullable par migration
+(`MakeCalendarEventTitleOptional1787080000000`). Aucun titre par défaut n'est fabriqué côté
+serveur : un événement créé sans `title` est stocké avec `title: null` et relu tel quel —
+l'affichage d'un texte de repli (ex. « Sans titre ») reste un sujet front, pas serveur.
 
 **Bug corrigé le 2026-08-19** : le `CreateCalendarEventDto` exigeait en réalité `startTime`/`endTime`
 depuis toujours — un écart pur entre le code et cette même documentation, jamais synchronisé. Le

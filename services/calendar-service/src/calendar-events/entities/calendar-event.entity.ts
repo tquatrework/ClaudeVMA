@@ -37,8 +37,14 @@ export class CalendarEvent {
   @Column({ name: 'owner_id' })
   ownerId: string;
 
-  @Column()
-  title: string;
+  /**
+   * Optionnel — le formulaire de création n'exige pas de titre (bug corrigé
+   * le 2026-08-20 : le serveur le refusait alors que le front l'annonçait
+   * déjà comme optionnel). Aucun titre par défaut n'est fabriqué ici ;
+   * l'affichage d'un texte de repli (ex. "Sans titre") est un sujet front.
+   */
+  @Column({ nullable: true })
+  title: string | null;
 
   @Column({ name: 'event_type', type: 'varchar' })
   eventType: EventType;

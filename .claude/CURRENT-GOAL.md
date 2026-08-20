@@ -93,6 +93,13 @@ automatiquement à la confirmation d'une activité `cours`. Capture d'écran de 
       contenu en 3 champs, écriture réservée au formateur, correctif `studentId` en double,
       création automatique à la confirmation d'activité `cours` (projection `ActivityScheduled`/
       `ActivityConfirmed`), rappel programmé quotidien — preuve HTTP.
+      **En cours** — délégué au sous-agent `pedagogical-log-service` le 2026-08-20, brief complet
+      donné (5 points + investigation + décision d'architecture ci-dessus), travaille sur
+      `feat/cahier-de-texte-refonte` directement. Point de vigilance signalé par l'utilisateur
+      avant délégation : une session distante `claudevma-af` avait un worktree verrouillé sur une
+      branche `work/cahier-de-texte-refonte` (même point de départ, diff vide) — qualifiée
+      d'obsolète par l'utilisateur, ignorée sur cette base, à garder en tête si un conflit
+      apparaît au moment du push.
 - [ ] Front : sélecteur de catégorie corrigé, formulaire à 3 champs, écran de liste des messages
       (diagnostic + correctif du bug de chargement), tri récent→ancien, recherche par date.
 - [ ] Déployé sur la pile réelle

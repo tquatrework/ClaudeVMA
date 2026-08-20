@@ -20,21 +20,8 @@ import React from 'react'
 import { Link } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
-import { useMyContacts, type ContactOption } from '../hooks/relations/useMyContacts'
-import { describeRelations } from '../utils/relationAccess'
-import type { RelationKind } from '../types/relations'
-
-/** Natures de lien où l'utilisateur est l'accompagnant, et non l'accompagné. */
-const SUPERVISED_RELATION_KINDS: readonly RelationKind[] = [
-  'teacher_of_student',
-  'finance_owner_of_student',
-  'coordinator_of_student',
-  'animator_of_teacher',
-]
-
-function isSupervisedContact(contact: ContactOption): boolean {
-  return contact.relations.some((relation) => SUPERVISED_RELATION_KINDS.includes(relation.kind))
-}
+import { useMyContacts } from '../hooks/relations/useMyContacts'
+import { describeRelations, isSupervisedContact } from '../utils/relationAccess'
 
 export default function MyStudentsPage() {
   const { hasRole } = useAuth()

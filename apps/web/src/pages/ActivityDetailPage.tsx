@@ -224,7 +224,7 @@ export default function ActivityDetailPage() {
                     Cahier de texte de la séance
                   </h2>
                   <Link
-                    to="/pedagogical-log"
+                    to={activity?.studentId ? `/pedagogical-log?studentId=${activity.studentId}` : '/pedagogical-log'}
                     className="text-sm text-indigo-600 hover:underline"
                   >
                     Voir tout
@@ -233,7 +233,27 @@ export default function ActivityDetailPage() {
                 <ul className="space-y-3">
                   {sessionLogs.map((logEntry) => (
                     <li key={logEntry.id} className="p-3 bg-gray-50 rounded-lg">
-                      <p className="text-sm text-gray-800 whitespace-pre-wrap">{logEntry.content}</p>
+                      {/* Refonte du 2026-08-20 : une entrée normale porte sessionSummary/
+                          homework, plus content (réservé aux pages spéciales RP). */}
+                      {logEntry.isSpecialPage ? (
+                        <p className="text-sm text-gray-800 whitespace-pre-wrap">{logEntry.content}</p>
+                      ) : (
+                        <>
+                          {logEntry.sessionSummary && (
+                            <p className="text-sm text-gray-800 whitespace-pre-wrap">
+                              {logEntry.sessionSummary}
+                            </p>
+                          )}
+                          {logEntry.homework && (
+                            <p className="text-sm text-gray-600 whitespace-pre-wrap mt-1">
+                              <span className="font-medium">À faire :</span> {logEntry.homework}
+                            </p>
+                          )}
+                          {!logEntry.sessionSummary && !logEntry.homework && (
+                            <p className="text-sm text-gray-400 italic">Entrée vide, non encore complétée.</p>
+                          )}
+                        </>
+                      )}
                       <p className="text-xs text-gray-400 mt-2">
                         {new Date(logEntry.createdAt).toLocaleString('fr-FR')}
                       </p>

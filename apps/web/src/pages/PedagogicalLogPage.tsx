@@ -1,243 +1,276 @@
 /**
- * PedagogicalLogPage — cahier de texte d'un élève.
- * Accessible aux formateurs (écriture), RP (écriture + pages spéciales), élèves et parents (lecture).
- * Le filtrage de visibilité est géré côté serveur.
+ * PedagogicalLogPage — cahier de texte d'un élève (`/pedagogical-log`).
  *
- * Routes API :
- *   GET    /students/:studentId/pedagogical-log
- *   POST   /students/:studentId/pedagogical-log         (formateur, RP, AP, TI)
- *   POST   /students/:studentId/pedagogical-log/special-pages  (RP uniquement)
- *   PATCH  /logs/:id
- *   DELETE /logs/:id     (auteur ou RP)
+ * Refonte du 2026-08-20 (`docs/routes.md` § pedagogical-log-service) :
+ *   1. Catégorie de visibilité corrigée (`parent_formateur` remplace
+ *      `eleve_formateur`), libellés centralisés dans `utils/pedagogicalLogLabels.ts`.
+ *   2. Formulaire de création à 3 champs optionnels (date, déroulement, à
+ *      faire) au lieu d'un texte libre.
+ *   3. Écriture réservée au formateur titulaire de la relation — élève,
+ *      parent et RP sont désormais strictement lecteurs sur les entrées
+ *      normales (le mécanisme des pages spéciales RP reste inchangé).
+ *   4. **Bug corrigé** : la page appelait `GET /pedagogical-logs`, route
+ *      jamais montée côté contrôleur (`404` réel) — et lisait `studentId`
+ *      via `useParams` alors que tous les appelants (`MyStudentsPage`,
+ *      `ParentDashboardPage`) le passent en **query param** (`?studentId=`),
+ *      jamais en segment de route (`/pedagogical-log` n'a pas de `:studentId`).
+ *      Corrigé : lecture via `useSearchParams`, appel de
+ *      `GET /students/:studentId/pedagogical-log`, triée du plus récent au
+ *      plus ancien par le serveur (jamais re-triée en sens inverse ici).
+ *      Recherche par date via `from`/`to`.
+ *
+ * Sélection de l'élève consulté : un élève consulte toujours son propre
+ * cahier ; formateur/parent/RP/AP choisissent parmi leurs élèves liés
+ * (`GET /relations/my-contacts`, premier élève sélectionné par défaut — pas
+ * d'option « Tous », le cahier de texte se lit un élève à la fois).
  */
 
-import React, { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import React, { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
-import {
-  fetchPedagogicalLogs,
-  createLogPage,
-  updateLogPage,
-  deleteLogPage,
-  type PedagogicalLogPage as LogPage,
-  type LogVisibility,
-  type CreateLogPagePayload,
-} from '../api/pedagogicalLog'
+import { useMyContacts } from '../hooks/relations/useMyContacts'
+import { usePedagogicalLog } from '../hooks/pedagogical-log/usePedagogicalLog'
+import { isStudentLikeContact } from '../utils/relationAccess'
+import { todayIsoCalendarDate } from '../utils/dateFormat'
+import type { LogVisibility, PedagogicalLogPage as LogPage } from '../api/pedagogicalLog'
 import SpecialLogPageVisibilityDialog from '../components/pedagogical-log/SpecialLogPageVisibilityDialog'
 import { NewLogPageForm } from '../components/pedagogical-log/NewLogPageForm'
-import { PedagogicalLogEntryItem } from '../components/pedagogical-log/PedagogicalLogEntryItem'
+import type { LogEntryEditValues } from '../components/pedagogical-log/PedagogicalLogEntryItem'
+import LogStudentSelector from '../components/pedagogical-log/LogStudentSelector'
+import LogDateRangeFilter from '../components/pedagogical-log/LogDateRangeFilter'
+import LogEntryList from '../components/pedagogical-log/LogEntryList'
+import { ErrorMessage } from '../components/ui/ErrorMessage'
+
+const EMPTY_EDIT_VALUES: LogEntryEditValues = { date: '', sessionSummary: '', homework: '' }
 
 export default function PedagogicalLogPage() {
-  const { studentId } = useParams<{ studentId: string }>()
   const { user, hasRole } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  const [logPages, setLogPages] = useState<LogPage[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-
-  // New page form
-  const [newContent, setNewContent] = useState('')
-  const [selectedVisibility, setSelectedVisibility] = useState<LogVisibility>('eleve_parent_formateur')
-  const [isSaving, setIsSaving] = useState(false)
-
-  // Edit state
-  const [editingLogId, setEditingLogId] = useState<string | null>(null)
-  const [editContent, setEditContent] = useState('')
-  const [isSavingEdit, setIsSavingEdit] = useState(false)
-
-  // Delete state
-  const [deletingLogId, setDeletingLogId] = useState<string | null>(null)
-
-  // Special page dialog (RP only)
-  const [isSpecialPageDialogOpen, setIsSpecialPageDialogOpen] = useState(false)
-
-  const canWrite = hasRole('formateur', 'responsable_pedagogique', 'animateur_pedagogique', 'technicien_informatique')
+  const isEleve = hasRole('eleve')
+  const isFormateur = hasRole('formateur')
   const isResponsablePedagogique = hasRole('responsable_pedagogique')
-  const isReadOnly = !canWrite
 
-  useEffect(() => {
-    setIsLoading(true)
-    fetchPedagogicalLogs()
-      .then((pages) => setLogPages(pages))
-      .catch((err) => {
-        const status = err?.response?.status
-        if (status === 403) setErrorMessage('Accès refusé')
-        else setErrorMessage('Impossible de charger le cahier de texte')
-      })
-      .finally(() => setIsLoading(false))
-  }, [])
+  const needsStudentSelection = !isEleve
+  const { contacts, isLoading: isLoadingContacts, error: contactsError } = useMyContacts()
+  const studentContacts = needsStudentSelection ? contacts.filter(isStudentLikeContact) : []
 
-  const handleAddPage = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newContent.trim()) return
-    setIsSaving(true)
-    setErrorMessage(null)
-    try {
-      const payload: CreateLogPagePayload = {
-        content: newContent.trim(),
-        visibility: selectedVisibility,
-      }
-      const newPage = await createLogPage(payload)
-      setLogPages((prev) => [newPage, ...prev])
-      setNewContent('')
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la création de la page'
-      setErrorMessage(message)
-    } finally {
-      setIsSaving(false)
+  const studentIdFromUrl = searchParams.get('studentId') ?? ''
+  const studentId = isEleve
+    ? user?.id ?? ''
+    : studentIdFromUrl || studentContacts[0]?.userId || ''
+
+  const handleSelectStudent = (nextStudentId: string) => {
+    setSearchParams(nextStudentId ? { studentId: nextStudentId } : {})
+  }
+
+  // ─── Recherche par date (point 4) ────────────────────────────────────────
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+
+  const {
+    entries,
+    isLoading,
+    errorMessage,
+    dismissError,
+    createEntry,
+    isCreating,
+    createError,
+    dismissCreateError,
+    updateEntry,
+    updatingLogId,
+    updateError,
+    deleteEntry,
+    deletingLogId,
+    deleteError,
+    addLocalEntry,
+  } = usePedagogicalLog(studentId, { from: fromDate || undefined, to: toDate || undefined })
+
+  // ─── Formulaire de création (points 1 et 2) ──────────────────────────────
+  const [newDate, setNewDate] = useState(todayIsoCalendarDate())
+  const [newSessionSummary, setNewSessionSummary] = useState('')
+  const [newHomework, setNewHomework] = useState('')
+  const [newVisibility, setNewVisibility] = useState<LogVisibility>('eleve_parent_formateur')
+
+  const handleAddPage = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const success = await createEntry({
+      date: newDate || undefined,
+      sessionSummary: newSessionSummary.trim() || undefined,
+      homework: newHomework.trim() || undefined,
+      visibility: newVisibility,
+    })
+    if (success) {
+      setNewSessionSummary('')
+      setNewHomework('')
+      setNewDate(todayIsoCalendarDate())
     }
   }
 
+  // ─── Page spéciale RP — mécanisme inchangé ───────────────────────────────
+  const [isSpecialPageDialogOpen, setIsSpecialPageDialogOpen] = useState(false)
   const handleSpecialPageCreated = (newPage: LogPage) => {
-    setLogPages((prev) => [newPage, ...prev])
+    addLocalEntry(newPage)
     setIsSpecialPageDialogOpen(false)
   }
 
-  const startEdit = (logPage: LogPage) => {
-    setEditingLogId(logPage.id)
-    setEditContent(logPage.content)
+  // ─── Édition inline (point 3 : réservée au formateur pour une entrée normale) ──
+  const [editingLogId, setEditingLogId] = useState<string | null>(null)
+  const [editValues, setEditValues] = useState<LogEntryEditValues>(EMPTY_EDIT_VALUES)
+  const [editContent, setEditContent] = useState('')
+
+  const startEdit = (entry: LogPage) => {
+    setEditingLogId(entry.id)
+    if (entry.isSpecialPage) {
+      setEditContent(entry.content ?? '')
+    } else {
+      setEditValues({
+        date: entry.date ?? '',
+        sessionSummary: entry.sessionSummary ?? '',
+        homework: entry.homework ?? '',
+      })
+    }
   }
 
   const cancelEdit = () => {
     setEditingLogId(null)
+    setEditValues(EMPTY_EDIT_VALUES)
     setEditContent('')
   }
 
-  const handleSaveEdit = async (logId: string) => {
-    if (!editContent.trim()) return
-    setIsSavingEdit(true)
-    setErrorMessage(null)
-    try {
-      const updatedPage = await updateLogPage(logId, editContent.trim())
-      setLogPages((prev) => prev.map((p) => (p.id === logId ? updatedPage : p)))
-      setEditingLogId(null)
-      setEditContent('')
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la modification'
-      setErrorMessage(message)
-    } finally {
-      setIsSavingEdit(false)
-    }
+  const handleSaveEdit = async (entry: LogPage) => {
+    const payload = entry.isSpecialPage
+      ? { content: editContent.trim() }
+      : {
+          date: editValues.date || undefined,
+          sessionSummary: editValues.sessionSummary.trim() || undefined,
+          homework: editValues.homework.trim() || undefined,
+        }
+    const success = await updateEntry(entry.id, payload)
+    if (success) cancelEdit()
   }
 
-  const handleDeletePage = async (logId: string) => {
+  const handleDeletePage = async (entry: LogPage) => {
     if (!window.confirm('Supprimer cette entrée du cahier de texte ?')) return
-    setDeletingLogId(logId)
-    setErrorMessage(null)
-    try {
-      await deleteLogPage(logId)
-      setLogPages((prev) => prev.filter((p) => p.id !== logId))
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Erreur lors de la suppression'
-      setErrorMessage(message)
-    } finally {
-      setDeletingLogId(null)
-    }
+    await deleteEntry(entry.id)
   }
 
-  const canDeletePage = (logPage: LogPage): boolean => {
-    return logPage.authorId === user?.id || isResponsablePedagogique
+  const viewerContext = {
+    userId: user?.id,
+    isFormateur,
+    isResponsablePedagogique,
+    isTechnicienInformatique: hasRole('technicien_informatique'),
   }
 
-  const canEditPage = (logPage: LogPage): boolean => {
-    return logPage.authorId === user?.id
-  }
-
-  const visibilityLabel: Record<LogVisibility, string> = {
-    eleve_parent_formateur: 'Élève + Parent + Formateur',
-    eleve_formateur: 'Élève + Formateur',
-    formateur_rp: 'Formateur + RP uniquement',
-    special: 'Page spéciale',
-  }
+  const canWriteNormalEntry = isFormateur && Boolean(studentId)
+  const isReadOnly = !isFormateur && !isResponsablePedagogique
 
   return (
     <Layout>
-      <div className="max-w-2xl">
-        <div className="mb-6">
+      <div className="max-w-2xl space-y-4">
+        <div>
           <h1 className="text-2xl font-bold text-gray-900">Cahier de texte</h1>
           <p className="text-sm text-gray-500 mt-1">
             {isReadOnly
               ? 'Suivi séance par séance — consultation uniquement'
-              : 'Suivi séance par séance — vous pouvez ajouter des entrées'}
+              : 'Suivi séance par séance'}
           </p>
         </div>
 
-        {errorMessage && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-center justify-between">
-            <span>{errorMessage}</span>
-            <button onClick={() => setErrorMessage(null)} className="text-red-400 hover:text-red-600 ml-3">
-              ✕
-            </button>
-          </div>
-        )}
-
-        {/* Read-only banner for eleve and parent */}
-        {isReadOnly && (
-          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-700 text-sm">
-            Vous consultez le cahier de texte en lecture seule.
-          </div>
-        )}
-
-        {/* New entry form — visible to formateurs, RP, AP, TI */}
-        {canWrite && (
-          <NewLogPageForm
-            newContent={newContent}
-            onNewContentChange={setNewContent}
-            selectedVisibility={selectedVisibility}
-            onVisibilityChange={setSelectedVisibility}
-            isSaving={isSaving}
-            onSubmit={handleAddPage}
-            isResponsablePedagogique={isResponsablePedagogique}
-            onOpenSpecialPageDialog={() => setIsSpecialPageDialogOpen(true)}
+        {needsStudentSelection && (
+          <LogStudentSelector
+            studentContacts={studentContacts}
+            selectedStudentId={studentId}
+            onSelectStudent={handleSelectStudent}
+            isLoadingContacts={isLoadingContacts}
+            contactsError={contactsError}
           />
         )}
 
-        {isLoading && <p className="text-gray-400 text-sm">Chargement…</p>}
-
-        {!isLoading && logPages.length === 0 && (
+        {!studentId ? (
           <div className="text-center py-12 bg-white border border-gray-200 rounded-xl">
-            <p className="text-gray-400 text-sm">Aucune entrée dans le cahier de texte</p>
-            {canWrite && (
-              <p className="text-xs text-gray-300 mt-1">
-                Utilisez le formulaire ci-dessus pour ajouter la première page.
-              </p>
-            )}
+            <p className="text-gray-400 text-sm">
+              Sélectionnez un élève pour consulter son cahier de texte.
+            </p>
           </div>
-        )}
+        ) : (
+          <>
+            {errorMessage && <ErrorMessage message={errorMessage} onClose={dismissError} />}
 
-        <ul className="space-y-3">
-          {logPages.map((logPage) => (
-            <PedagogicalLogEntryItem
-              key={logPage.id}
-              logPage={logPage}
-              visibilityLabel={visibilityLabel}
-              isEditing={editingLogId === logPage.id}
+            {isReadOnly && (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-700 text-sm">
+                Vous consultez le cahier de texte en lecture seule.
+              </div>
+            )}
+
+            <LogDateRangeFilter
+              fromDate={fromDate}
+              toDate={toDate}
+              onFromDateChange={setFromDate}
+              onToDateChange={setToDate}
+              onClear={() => {
+                setFromDate('')
+                setToDate('')
+              }}
+            />
+
+            {canWriteNormalEntry && (
+              <NewLogPageForm
+                date={newDate}
+                onDateChange={setNewDate}
+                sessionSummary={newSessionSummary}
+                onSessionSummaryChange={setNewSessionSummary}
+                homework={newHomework}
+                onHomeworkChange={setNewHomework}
+                selectedVisibility={newVisibility}
+                onVisibilityChange={setNewVisibility}
+                isSaving={isCreating}
+                errorMessage={createError}
+                onSubmit={handleAddPage}
+              />
+            )}
+            {!canWriteNormalEntry && createError && (
+              <ErrorMessage message={createError} onClose={dismissCreateError} />
+            )}
+
+            {isResponsablePedagogique && (
+              <button
+                onClick={() => setIsSpecialPageDialogOpen(true)}
+                className="text-sm text-purple-600 border border-purple-200 px-4 py-2 rounded-lg hover:bg-purple-50 transition-colors"
+              >
+                Créer une page spéciale (RP)
+              </button>
+            )}
+
+            {/* Erreur de modification : affichée en ligne, sur l'entrée en cours d'édition (LogEntryList/PedagogicalLogEntryItem). */}
+            {deleteError && <ErrorMessage message={deleteError} variant="warning" />}
+
+            <LogEntryList
+              entries={entries}
+              isLoading={isLoading}
+              canWriteNormalEntry={canWriteNormalEntry}
+              viewer={viewerContext}
+              editingLogId={editingLogId}
+              editValues={editValues}
+              onEditValuesChange={setEditValues}
               editContent={editContent}
               onEditContentChange={setEditContent}
-              onStartEdit={() => startEdit(logPage)}
+              onStartEdit={startEdit}
               onCancelEdit={cancelEdit}
-              onSaveEdit={() => handleSaveEdit(logPage.id)}
-              isSavingEdit={isSavingEdit}
-              canEdit={canEditPage(logPage)}
-              canDelete={canDeletePage(logPage)}
-              onDelete={() => handleDeletePage(logPage.id)}
-              isDeleting={deletingLogId === logPage.id}
+              onSaveEdit={handleSaveEdit}
+              updatingLogId={updatingLogId}
+              updateError={updateError}
+              onDelete={handleDeletePage}
+              deletingLogId={deletingLogId}
             />
-          ))}
-        </ul>
+          </>
+        )}
       </div>
 
-      {/* Special page dialog — RP only */}
-      {isSpecialPageDialogOpen && (
+      {isSpecialPageDialogOpen && studentId && (
         <SpecialLogPageVisibilityDialog
-          studentId={studentId ?? user?.id ?? ''}
+          studentId={studentId}
           onCreated={handleSpecialPageCreated}
           onClose={() => setIsSpecialPageDialogOpen(false)}
         />

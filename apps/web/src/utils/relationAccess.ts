@@ -14,6 +14,7 @@
  * parent voient les **statistiques** du formateur, jamais ses **archives**.
  */
 
+import type { ContactOption } from '../hooks/relations/useMyContacts'
 import type { ContactRelation, RelationKind } from '../types/relations'
 import type { UserRole } from '../types/user'
 
@@ -79,4 +80,38 @@ export function canRelationsOpenArchives(
 ): boolean {
   if (isAdministratorRole(viewerRole)) return true
   return relations.some((relation) => ARCHIVE_OPENING_RELATION_KINDS.includes(relation.kind))
+}
+
+/**
+ * Natures de lien où l'utilisateur est l'accompagnant d'un élève ou d'un
+ * formateur (« Mes élèves », `MyStudentsPage`) — le lien va dans le sens
+ * accompagnant → accompagné, l'inverse (mon professeur, mon parent) relève de
+ * Contacts.
+ */
+const SUPERVISED_RELATION_KINDS: readonly RelationKind[] = [
+  'teacher_of_student',
+  'finance_owner_of_student',
+  'coordinator_of_student',
+  'animator_of_teacher',
+]
+
+export function isSupervisedContact(contact: ContactOption): boolean {
+  return contact.relations.some((relation) => SUPERVISED_RELATION_KINDS.includes(relation.kind))
+}
+
+/**
+ * Sous-ensemble de `SUPERVISED_RELATION_KINDS` où le contact est un **élève**
+ * (jamais un formateur, cas d'`animator_of_teacher`) — seules ces natures de
+ * lien produisent un `studentId` exploitable par
+ * `GET /students/:studentId/pedagogical-log`. Utilisé par le sélecteur
+ * d'élève du cahier de texte (`PedagogicalLogPage`).
+ */
+const STUDENT_LIKE_RELATION_KINDS: readonly RelationKind[] = [
+  'teacher_of_student',
+  'finance_owner_of_student',
+  'coordinator_of_student',
+]
+
+export function isStudentLikeContact(contact: ContactOption): boolean {
+  return contact.relations.some((relation) => STUDENT_LIKE_RELATION_KINDS.includes(relation.kind))
 }

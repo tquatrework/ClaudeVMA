@@ -5,6 +5,153 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-20 — refonte du cahier de texte
+
+Nouveau chantier, demande explicite de l'utilisateur (`/clear` tapé au milieu du message mais non
+traité comme commande séparée — le contexte complet a continué d'arriver, donc pas de coupure
+réelle). Branche : `feat/cahier-de-texte-refonte` (créée depuis `master`, poussée).
+
+L'utilisateur juge la base existante bonne mais identifie 5 points à corriger/ajouter sur
+`pedagogical-log-service` (cahier de texte).
+
+### Les 5 points (verbatim reformulé)
+
+1. **Catégorie de visibilité erronée.** Le formateur choisit aujourd'hui entre 3 catégories de
+   destinataires pour un message : Élève+Parent+Formateur(+RP), Élève+Formateur(+RP), Formateur+RP
+   seul. La 2ᵉ est fausse : il faut **Parent+Formateur(+RP)**, pas Élève+Formateur(+RP) — c'est-à-
+   dire que l'**élève est exclu** de cette catégorie intermédiaire, remplacé par le parent.
+2. **Contenu du message restructuré.** Remplacer le champ actuel (texte libre) par **3 zones
+   optionnelles** : `date` (pré-remplie à la date du jour), « Déroulement de la séance », « À
+   faire ». Aucune n'est obligatoire.
+3. **Écriture réservée au formateur.** Ces messages ne sont rédigés **que par le formateur** — les
+   autres rôles (élève, parent, RP selon la catégorie) les **lisent uniquement**. Ne concerne pas
+   le mécanisme des pages spéciales du RP (`isSpecialPage`), déjà distinct et déjà réservé au RP —
+   non touché par ce point.
+4. **Accès à la liste des messages cassé.** Cliquer sur « Cahier de texte » affiche aujourd'hui
+   « impossible de charger le cahier de texte ». Il doit y avoir un accès direct à la suite des
+   messages dès ce clic, affichée **du plus récent au plus ancien**, avec idéalement une recherche
+   par date pour se repositionner dans la liste.
+5. **Création automatique et obligatoire d'une entrée par événement.** Chaque événement (séance)
+   doit obligatoirement produire une entrée de cahier de texte, même vide (date seule enregistrée,
+   les deux autres champs vides) — il revient au formateur de la remplir, mais cette obligation est
+   hors logiciel. **Suggestion de l'utilisateur, choix de mise en œuvre laissé à l'orchestrateur** :
+   une notification pourrait être envoyée au formateur si, après l'événement (immédiatement ou le
+   lendemain — choix du plus simple laissé à l'orchestrateur), aucun contenu n'a été saisi.
+
+### Investigation faite par l'orchestrateur avant délégation (lecture doc + HTTP direct, pas de code service)
+
+Comptes réels créés contre `https://claudevma.visioprof.fr` pour vérifier l'état réel avant de
+déléguer :
+- `GET /students/:studentId/pedagogical-log` **fonctionne** (`200 []` puis `200 [entrée]` après
+  création) — **le point 4 n'est donc probablement pas un bug de lecture backend**, plutôt un
+  bug/gap **front** (mauvais appel, ou écran jamais réellement câblé) — à confirmer par
+  `front-developper`.
+- **Bug réel trouvé en testant**, non demandé par l'utilisateur mais à corriger au passage :
+  `POST /students/:studentId/pedagogical-log` exige `studentId` **dans le corps** en plus du
+  chemin (`400 "studentId must be a UUID"` si absent, alors que l'URL le porte déjà) — incohérent
+  avec la convention du reste du projet (l'identifiant du chemin fait autorité, jamais redemandé
+  dans le corps). À corriger par `pedagogical-log-service` en même temps que le reste.
+- `visibility: "eleve_formateur"` est bien accepté aujourd'hui (confirme le point 1 — c'est la
+  bonne valeur à retirer/renommer, pas une hypothèse).
+- Champs déjà présents mais non documentés sur l'entité, hors périmètre de cette demande :
+  `activityId`, `sessionId`, `linkedResources`, `skillsWorked`, `difficulty`, `rating` (tous
+  `null` sur une création simple) — `activityId` est probablement le point d'ancrage naturel pour
+  le point 5 (lier l'entrée auto-créée à l'activité de calendrier), à vérifier par le sous-agent.
+
+### Décision d'architecture prise par l'orchestrateur avant délégation (point 5)
+
+Précédent direct dans ce même projet à réutiliser plutôt qu'inventer un nouveau mécanisme :
+`video-session-service` crée déjà automatiquement une salle LiveKit à la confirmation d'une
+activité de type `cours` (`ActivityConfirmed`), en projetant localement `ActivityScheduled` au
+préalable car `ActivityConfirmed` ne porte que `{activityId, confirmedBy}` — pas assez pour agir
+seul (vérifié en direct sur le flux Redis réel lors de ce chantier, voir `docs/routes.md` section
+video-session-service). `pedagogical-log-service` doit répliquer **exactement** ce même mécanisme
+(nouveau consommateur du flux `visiomath:events`, table de projection locale) plutôt qu'en
+inventer un autre : à la confirmation d'une activité `cours`, créer l'entrée vide (date =
+`startTime`, `studentId` = destinataire, `authorId` = créateur/formateur, `activityId` renseigné).
+
+Pour le rappel (dernier point, suggestion, mise en œuvre laissée libre) : **choix retenu, le plus
+simple** — une tâche planifiée (`@nestjs/schedule`, déjà utilisé dans le projet par
+`dashboard-notification-service` pour `XAUTOCLAIM`) tournant une fois par jour, qui repère les
+entrées auto-créées dont l'activité liée est terminée depuis plus de 24h et dont les deux champs
+(« Déroulement de la séance », « À faire ») sont encore vides, puis notifie le formateur une seule
+fois via `POST /internal/notify` (déjà existant sur `dashboard-notification-service`, pas besoin du
+mécanisme flux Redis pour ce sens-là puisque `pedagogical-log-service` peut appeler cette route
+directement).
+
+### Comment on saura que c'est fait
+
+Réponse HTTP citée montrant : la nouvelle catégorie de visibilité (parent+formateur, sans élève) ;
+un message créé avec seulement `date` renseignée (les deux autres champs vides, acceptés) ; un
+appel en écriture refusé pour un rôle autre que formateur (RP/élève/parent) ; une entrée créée
+automatiquement à la confirmation d'une activité `cours`. Capture d'écran de `/cahier-de-texte`
+(ou équivalent) montrant la liste des messages accessible et triée du plus récent au plus ancien.
+
+### État
+
+- [x] Backend `pedagogical-log-service` : les 5 points livrés par le sous-agent (commits `19c853d`,
+      `b65531c`+`b58b0a2` pour le correctif DELETE→formateur), 120/120 tests unitaires rejoués
+      indépendamment par l'orchestrateur après fast-forward, `tsc --noEmit` propre.
+      Point de vigilance résolu : la session distante `claudevma-af` (worktree `work/cahier-de-
+      texte-refonte`) qualifiée d'obsolète par l'utilisateur n'a pas interféré.
+      Infra corrigée par l'orchestrateur — `docker-compose.yml` (commit `e1ee8af`) : `REDIS_URL`,
+      `INTERNAL_SECRET`, `PROFILE_SERVICE_URL`, `DASHBOARD_NOTIFICATION_SERVICE_URL` ajoutés (le
+      sous-agent ne pouvait pas y toucher, hors de son périmètre `services/pedagogical-log-service/`).
+      Déployé sur la pile réelle par l'orchestrateur : image reconstruite, migration
+      `CahierDeTexteRefonte1787280000000` appliquée en prod (`migration:run` via
+      `node node_modules/typeorm/cli.js -d dist/src/data-source.js`, conteneur relancé, `healthy`).
+      **Preuve HTTP obtenue par l'orchestrateur** contre `https://claudevma.visioprof.fr` (comptes
+      formateur+élève réels créés, relation posée via `POST /internal/create-teacher-student-
+      relation`) : `visibility:"parent_formateur"` accepté (`201`), ancienne valeur
+      `eleve_formateur` rejetée (`400`) ; entrée créée avec seule `date` renseignée, `sessionSummary`/
+      `homework` `null` acceptés ; écriture élève → `403 Insufficient role` ; plus de `studentId`
+      exigé dans le corps ; activité `cours` créée puis confirmée (`POST /activities` →
+      `POST /activities/:id/accept`) → entrée auto-créée (`autoCreated:true`, `activityId` renseigné,
+      `date` = `startTime`) visible dans `GET .../pedagogical-log`, triée la plus récente en tête ;
+      filtre `from`/`to` vérifié ; `DELETE` par le formateur auteur → `204` confirmé **en direct dans
+      le conteneur**.
+      **Bug réel trouvé par l'orchestrateur en testant contre la gateway réelle (pas seulement le
+      service en direct)** : `DELETE` n'était exposé qu'au chemin nu `/:id`, jamais proxié par la
+      gateway (seuls `/pedagogical-logs`, `/students`, `/logs` le sont) — injoignable par un
+      utilisateur réel malgré une logique correcte en interne. **Corrigé par le sous-agent**
+      (`DELETE /logs/:id` ajouté, mirror exact, commit `4921f85`), 120/120 tests rejoués
+      indépendamment après fast-forward, image reconstruite et redéployée par l'orchestrateur
+      (conteneur `healthy`). **Reconfirmé en HTTP réel** : `DELETE /api/v1/logs/:id` → `204` via
+      `https://claudevma.visioprof.fr`, entrée effectivement disparue de `GET .../pedagogical-log`
+      juste après. **Les 5 points + le correctif DELETE sont désormais tous prouvés en réel.**
+      Backend clos.
+- [x] Front : sélecteur de catégorie corrigé, formulaire à 3 champs, écran de liste des messages
+      (diagnostic + correctif du bug de chargement), tri récent→ancien, recherche par date.
+      Livré par `front-developper` — commit `2590932`, poussé le 2026-08-20. Cause du bug de
+      chargement confirmée : mauvais endpoint monté (`GET /pedagogical-logs` au lieu de la bonne
+      route) et `studentId` jamais lu depuis `?studentId=`. Sélecteur `parent_formateur` remplace
+      `eleve_formateur`. Lien de rail voué à `/forbidden` pour l'AP corrigé au passage.
+- [x] Déployé sur la pile réelle — `frontend` reconstruit et redémarré par l'orchestrateur, bundle
+      `index-CsDCUOzt.js` confirmé servi sur `https://claudevma.visioprof.fr`.
+- [x] Preuve obtenue — `front-tester` a écrit et exécuté `apps/web/e2e/proof-cahier-de-texte-
+      refonte-2026-08-21.spec.ts` (commit `9aa5fc0`, poussé) contre la pile réelle, comptes réels
+      créés pour l'occasion, **rejoué une seconde fois indépendamment par l'orchestrateur : 1/1
+      vert**. Les 5 points confirmés avec réponses HTTP citées :
+      1. Sélecteur : options réelles `["Élève + Parent + Formateur (+RP)", "Parent + Formateur
+         (+RP) — sans l'élève", "Formateur + RP uniquement"]` — `parent_formateur` présent,
+         `eleve_formateur` absent.
+      2. `POST .../pedagogical-log` avec seule la date → `201`, `sessionSummary`/`homework: null`
+         acceptés. Date pré-remplie au jour réel côté formulaire.
+      3. Écriture élève → `403 Insufficient role` ; écriture parent → `403 Insufficient role` ;
+         aucun formulaire affiché à l'écran pour ces deux rôles (bandeau lecture seule).
+      4. Clic sur « Cahier de texte » → liste affichée directement, aucune trace de l'ancienne
+         erreur. 3 entrées à dates distinctes → ordre affiché décroissant confirmé. Filtre
+         `from`/`to` → `200`, seule l'entrée de la période demandée reste visible.
+      5. `POST /activities` (cours) → `POST /activities/:id/accept` → entrée `autoCreated:true`,
+         `activityId` renseigné, retrouvée dans la liste du formateur peu après.
+      **Aucun bug trouvé.** 8 captures d'écran produites (non committées, `test-results/`
+      gitignoré comme d'habitude) : sélecteur, entrée à seule date, lecture seule élève/parent,
+      liste triée, filtre par date, entrée auto-créée.
+- [x] Preuve livrée à l'utilisateur — 8 captures envoyées 2026-08-21.
+- [ ] Validé par l'utilisateur
+
+---
+
 ## Besoin — 2026-08-20 (suite) — libellé de la notification d'invitation à un événement
 
 Demande explicite de l'utilisateur, en continuant de tester le chantier précédent (invitations

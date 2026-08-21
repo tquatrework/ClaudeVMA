@@ -8,12 +8,12 @@
  * 4. Affichage groupé : mémos sans chapitre dans "Général", autres dans leur chapitre
  * 5. Formateur voit le mémo en readonly (pas de bouton d'ajout, message informatif)
  * 6. Parent reçoit un message d'accès refusé sur le carnet personnel
- * 7. Formateur peut créer une page de cahier de texte (POST /pedagogical-logs)
- * 8. Le drawer mémo s'ouvre depuis la page vidéo
- * 9. PedagogicalLogPage — liste des pages du cahier de texte (GET /pedagogical-logs)
- * 10. SpecialLogPageVisibilityDialog — RP uniquement
- * 11. NotebookPage — CRUD complet pour l'élève
- * 12. Alignement mémo/cahier de texte post-correction backend
+ * 7. Le drawer mémo s'ouvre depuis la page vidéo
+ * 8. NotebookPage — CRUD complet pour l'élève
+ * 9. Alignement mémo/cahier de texte post-correction backend
+ *
+ * PedagogicalLogPage (cahier de texte lui-même) a sa propre suite dédiée depuis
+ * la refonte du 2026-08-20 : test/pages/PedagogicalLogPage.test.tsx.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -29,7 +29,6 @@ import apiClient from '../../src/api/client'
 
 import MemosPage from '../../src/pages/MemosPage'
 import NotebookPage from '../../src/pages/NotebookPage'
-import PedagogicalLogPage from '../../src/pages/PedagogicalLogPage'
 import VideoPage from '../../src/pages/VideoPage'
 
 const mockUseAuth = vi.mocked(useAuth)
@@ -55,13 +54,6 @@ const PARENT_USER = {
   id: 'parent-5',
   email: 'parent@test.com',
   role: 'parent_financeur' as const,
-  validationStatus: 'active' as const,
-}
-
-const RP_USER = {
-  id: 'rp-1',
-  email: 'rp@test.com',
-  role: 'responsable_pedagogique' as const,
   validationStatus: 'active' as const,
 }
 
@@ -100,16 +92,6 @@ function renderNotebookPage(studentId = 'student-42') {
       <Routes>
         <Route path="/notebook/:studentId" element={<NotebookPage />} />
         <Route path="/forbidden" element={<div>Accès interdit</div>} />
-      </Routes>
-    </MemoryRouter>,
-  )
-}
-
-function renderPedagogicalLogPage() {
-  return render(
-    <MemoryRouter initialEntries={['/pedagogical-log']}>
-      <Routes>
-        <Route path="/pedagogical-log" element={<PedagogicalLogPage />} />
       </Routes>
     </MemoryRouter>,
   )
@@ -507,135 +489,6 @@ describe('NotebookPage — parent accès refusé', () => {
   })
 })
 
-// ─── 6. Formateur peut créer une page de cahier de texte ─────────────────────
-
-describe('PedagogicalLogPage — formateur crée une page', () => {
-  beforeEach(() => {
-    mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
-  })
-
-  it('affiche le formulaire de création pour un formateur', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-
-    renderPedagogicalLogPage()
-
-    await waitFor(() => {
-      expect(screen.getByText('Nouvelle entrée')).toBeDefined()
-    })
-  })
-
-  it('formateur peut créer une nouvelle entrée de cahier de texte', async () => {
-    const newLogPage = {
-      id: 'log-1',
-      studentId: 'student-42',
-      authorId: 'teacher-10',
-      authorRole: 'formateur',
-      content: 'Cours sur les dérivées partielles',
-      visibility: 'eleve_parent_formateur',
-      isSpecialPage: false,
-      hiddenFromStudent: false,
-      createdAt: new Date().toISOString(),
-    }
-
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: newLogPage })
-
-    renderPedagogicalLogPage()
-
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText(/décrivez la séance/i)).toBeDefined()
-    })
-
-    const textarea = screen.getByPlaceholderText(/décrivez la séance/i)
-    await userEvent.type(textarea, 'Cours sur les dérivées partielles')
-
-    await userEvent.click(screen.getByRole('button', { name: /ajouter une entrée/i }))
-
-    await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith(
-        '/pedagogical-logs',
-        expect.objectContaining({ content: 'Cours sur les dérivées partielles' }),
-      )
-    })
-
-    await waitFor(() => {
-      expect(screen.getByText('Cours sur les dérivées partielles')).toBeDefined()
-    })
-  })
-
-  it('affiche les pages du cahier de texte en appelant GET /pedagogical-logs', async () => {
-    const logPages = [
-      {
-        id: 'log-1',
-        studentId: 'student-42',
-        authorId: 'teacher-10',
-        authorRole: 'formateur',
-        content: 'Révision des limites',
-        visibility: 'eleve_parent_formateur',
-        isSpecialPage: false,
-        hiddenFromStudent: false,
-        createdAt: new Date().toISOString(),
-      },
-    ]
-
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: logPages })
-
-    renderPedagogicalLogPage()
-
-    await waitFor(() => {
-      expect(screen.getByText('Révision des limites')).toBeDefined()
-    })
-
-    expect(mockApiClient.get).toHaveBeenCalledWith('/pedagogical-logs')
-  })
-
-  it('n\'affiche pas le bouton "Page spéciale" pour un formateur', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-
-    renderPedagogicalLogPage()
-
-    await waitFor(() => {
-      expect(screen.getByText('Nouvelle entrée')).toBeDefined()
-    })
-
-    expect(screen.queryByText(/page spéciale/i)).toBeNull()
-  })
-})
-
-// ─── RP peut créer une page spéciale ─────────────────────────────────────────
-
-describe('PedagogicalLogPage — RP peut créer une page spéciale', () => {
-  beforeEach(() => {
-    mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
-  })
-
-  it('affiche le bouton de création de page spéciale pour le RP', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-
-    renderPedagogicalLogPage()
-
-    await waitFor(() => {
-      expect(screen.getByText(/créer une page spéciale/i)).toBeDefined()
-    })
-  })
-
-  it('ouvre le dialog de création de page spéciale', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-
-    renderPedagogicalLogPage()
-
-    await waitFor(() => {
-      expect(screen.getByText(/créer une page spéciale \(RP\)/i)).toBeDefined()
-    })
-
-    await userEvent.click(screen.getByText(/créer une page spéciale \(RP\)/i))
-
-    await waitFor(() => {
-      expect(screen.getByRole('dialog', { name: /créer une page spéciale/i })).toBeDefined()
-    })
-  })
-})
-
 // ─── 7. Drawer mémo s'ouvre depuis la page vidéo ─────────────────────────────
 
 describe('VideoPage — le drawer mémo s\'ouvre', () => {
@@ -984,120 +837,6 @@ describe('Formateur — écran mémo en lecture seule (pas de boutons d\'éditio
   })
 })
 
-describe('Élève — cahier de texte charge en lecture seule (GET /pedagogical-logs)', () => {
-  it('élève — voit le cahier de texte sans formulaire d\'ajout', async () => {
-    mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-
-    renderPedagogicalLogPage()
-
-    await waitFor(() => {
-      const matches = screen.getAllByText('Cahier de texte')
-      expect(matches.length).toBeGreaterThan(0)
-    })
-
-    expect(screen.queryByText('Nouvelle entrée')).toBeNull()
-    expect(screen.getByText(/consultation uniquement/i)).toBeDefined()
-  })
-
-  it('élève — GET /pedagogical-logs est appelé', async () => {
-    mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-
-    renderPedagogicalLogPage()
-
-    await waitFor(() => {
-      expect(mockApiClient.get).toHaveBeenCalledWith('/pedagogical-logs')
-    })
-  })
-})
-
-describe('Formateur — cahier de texte affiche le bouton "Nouvelle entrée"', () => {
-  beforeEach(() => {
-    mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
-  })
-
-  it('formateur — voit le formulaire "Nouvelle entrée"', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-
-    renderPedagogicalLogPage()
-
-    await waitFor(() => {
-      expect(screen.getByText('Nouvelle entrée')).toBeDefined()
-    })
-  })
-
-  it('formateur — peut soumettre une nouvelle entrée via POST /pedagogical-logs', async () => {
-    const createdPage = {
-      id: 'log-new',
-      studentId: 'student-42',
-      authorId: 'teacher-10',
-      authorRole: 'formateur',
-      content: 'Séance du jour : algèbre',
-      visibility: 'eleve_parent_formateur',
-      isSpecialPage: false,
-      hiddenFromStudent: false,
-      createdAt: new Date().toISOString(),
-    }
-
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-    mockApiClient.post = vi.fn().mockResolvedValue({ data: createdPage })
-
-    renderPedagogicalLogPage()
-
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText(/décrivez la séance/i)).toBeDefined()
-    })
-
-    await userEvent.type(screen.getByPlaceholderText(/décrivez la séance/i), 'Séance du jour : algèbre')
-    await userEvent.click(screen.getByRole('button', { name: /ajouter une entrée/i }))
-
-    await waitFor(() => {
-      expect(mockApiClient.post).toHaveBeenCalledWith(
-        '/pedagogical-logs',
-        expect.objectContaining({ content: 'Séance du jour : algèbre' }),
-      )
-    })
-  })
-
-  it('formateur — ne voit pas le bouton "Page spéciale (RP)"', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-
-    renderPedagogicalLogPage()
-
-    await waitFor(() => {
-      expect(screen.getByText('Nouvelle entrée')).toBeDefined()
-    })
-
-    expect(screen.queryByText(/page spéciale \(RP\)/i)).toBeNull()
-  })
-})
-
-describe('Parent — cahier de texte en lecture seule', () => {
-  beforeEach(() => {
-    mockUseAuth.mockReturnValue(buildAuthMock(PARENT_USER))
-  })
-
-  it('parent — voit le cahier de texte sans formulaire d\'ajout', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-
-    renderPedagogicalLogPage()
-
-    await waitFor(() => {
-      const matches = screen.getAllByText('Cahier de texte')
-      expect(matches.length).toBeGreaterThan(0)
-    })
-
-    expect(screen.queryByText('Nouvelle entrée')).toBeNull()
-  })
-
-  it('parent — voit le bandeau lecture seule', async () => {
-    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
-
-    renderPedagogicalLogPage()
-
-    await waitFor(() => {
-      expect(screen.getByText(/consultez le cahier de texte en lecture seule/i)).toBeDefined()
-    })
-  })
-})
+// PedagogicalLogPage a sa propre suite dédiée : test/pages/PedagogicalLogPage.test.tsx
+// (refonte du 2026-08-20 — sélecteur d'élève, formulaire à 3 champs, écriture
+// réservée au formateur, GET /students/:studentId/pedagogical-log).

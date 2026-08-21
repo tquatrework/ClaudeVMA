@@ -7,9 +7,15 @@ import apiClient from './client'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+/**
+ * Refonte du 2026-08-20 : `eleve_formateur` est remplacé par `parent_formateur`
+ * (le sens exact s'inverse — c'est désormais l'élève qui est exclu, pas le
+ * parent). L'ancienne valeur est rejetée `400` par le serveur, elle ne doit plus
+ * jamais être émise par le front.
+ */
 export type LogVisibility =
   | 'eleve_parent_formateur'
-  | 'eleve_formateur'
+  | 'parent_formateur'
   | 'formateur_rp'
   | 'special'
 
@@ -18,19 +24,41 @@ export interface PedagogicalLogPage {
   studentId: string
   authorId: string
   authorRole: string
-  content: string
+  /**
+   * Réservé aux pages spéciales du RP (`isSpecialPage: true`) depuis la refonte
+   * du 2026-08-20. `null`/absent sur une entrée normale — voir `sessionSummary`
+   * et `homework`.
+   */
+  content?: string | null
+  /** Date de la séance, `YYYY-MM-DD`. Optionnelle — `null` si non renseignée. */
+  date?: string | null
+  /** « Déroulement de la séance ». Optionnel. */
+  sessionSummary?: string | null
+  /** « À faire ». Optionnel. */
+  homework?: string | null
   visibility: LogVisibility
   isSpecialPage: boolean
   hiddenFromStudent: boolean
+  /** Créée automatiquement à la confirmation d'un cours (`ActivityConfirmed`). */
+  autoCreated?: boolean
   linkedResources?: string[]
   createdAt: string
   updatedAt?: string
 }
 
-export interface CreateLogPagePayload {
-  content: string
+/**
+ * Corps de `POST`/`PATCH` pour une entrée normale — `date`/`sessionSummary`/
+ * `homework` sont les trois champs de la refonte du 2026-08-20, tous
+ * optionnels. `content` n'est pertinent que pour `PATCH` d'une **page
+ * spéciale** RP (mécanisme inchangé, hors périmètre de cette refonte) — ne
+ * jamais l'envoyer pour une entrée normale.
+ */
+export interface LogEntryPayload {
+  date?: string
+  sessionSummary?: string
+  homework?: string
   visibility?: LogVisibility
-  sessionId?: string
+  content?: string
 }
 
 export interface CreateSpecialPagePayload {
@@ -88,25 +116,46 @@ export interface UpdateNotebookEntryPayload {
 
 // ─── Cahier de texte ──────────────────────────────────────────────────────────
 
+export interface FetchStudentLogParams {
+  /** Date calendaire ISO `YYYY-MM-DD`, filtre inclusif sur `date`. */
+  from?: string
+  to?: string
+}
+
 /**
- * Liste les entrées du cahier de texte.
- * Le filtrage par rôle et visibilité est effectué côté serveur.
- * Route : GET /pedagogical-logs
+ * Lit le cahier de texte d'un élève (filtré par rôle et visibilité côté serveur).
+ * Triée du plus récent au plus ancien (par `date`, entrées sans date en dernier).
+ *
+ * Route : GET /students/:studentId/pedagogical-log
+ *
+ * Remplace l'ancien appel `GET /pedagogical-logs` (jamais monté côté contrôleur,
+ * `404` réel — bug corrigé le 2026-08-20, voir `docs/routes.md`).
  */
-export async function fetchPedagogicalLogs(): Promise<PedagogicalLogPage[]> {
-  const { data } = await apiClient.get<PedagogicalLogPage[]>('/pedagogical-logs')
+export async function fetchStudentPedagogicalLog(
+  studentId: string,
+  params: FetchStudentLogParams = {},
+): Promise<PedagogicalLogPage[]> {
+  const { data } = await apiClient.get<PedagogicalLogPage[]>(
+    `/students/${studentId}/pedagogical-log`,
+    { params },
+  )
   return data
 }
 
 /**
- * Crée une entrée de cahier de texte.
- * Autorisé uniquement pour formateur et responsable_pedagogique.
- * Route : POST /pedagogical-logs
+ * Crée une entrée de cahier de texte liée à un élève précis.
+ * Réservé au formateur titulaire de la relation avec cet élève (RP retiré le 2026-08-20).
+ * `studentId` est porté par le chemin, jamais par le corps.
+ * Route : POST /students/:studentId/pedagogical-log
  */
-export async function createLogPage(
-  payload: CreateLogPagePayload,
+export async function createStudentLogEntry(
+  studentId: string,
+  payload: LogEntryPayload,
 ): Promise<PedagogicalLogPage> {
-  const { data } = await apiClient.post<PedagogicalLogPage>('/pedagogical-logs', payload)
+  const { data } = await apiClient.post<PedagogicalLogPage>(
+    `/students/${studentId}/pedagogical-log`,
+    payload,
+  )
   return data
 }
 
@@ -126,23 +175,32 @@ export async function createSpecialLogPage(
 }
 
 /**
- * Modifie une entrée de cahier de texte (auteur uniquement).
- * Route : PUT /pedagogical-logs/:id
+ * Modifie une entrée de cahier de texte.
+ * Entrée normale : formateur auteur, toujours titulaire de la relation, uniquement.
+ * Page spéciale : auteur ou RP/TI (mécanisme inchangé).
+ *
+ * Route : PATCH /logs/:id — **la seule route atteignable depuis l'extérieur**
+ * (`PUT /pedagogical-logs/:id` n'est jamais monté côté contrôleur, `404` réel).
  */
-export async function updateLogPage(
+export async function updateLogEntry(
   logId: string,
-  content: string,
+  payload: LogEntryPayload,
 ): Promise<PedagogicalLogPage> {
-  const { data } = await apiClient.put<PedagogicalLogPage>(`/pedagogical-logs/${logId}`, { content })
+  const { data } = await apiClient.patch<PedagogicalLogPage>(`/logs/${logId}`, payload)
   return data
 }
 
 /**
- * Supprime une entrée de cahier de texte (auteur ou RP).
- * Route : DELETE /pedagogical-logs/:id
+ * Supprime une entrée de cahier de texte.
+ * Entrée normale : formateur auteur, toujours titulaire de la relation, uniquement.
+ * Page spéciale : auteur ou RP.
+ *
+ * Route : DELETE /logs/:id — **la seule route atteignable depuis l'extérieur**
+ * (`DELETE /pedagogical-logs/:id` n'est jamais monté côté contrôleur, `404` réel ;
+ * `DELETE /:id` existe côté service mais n'est jamais proxié par la gateway).
  */
-export async function deleteLogPage(logId: string): Promise<void> {
-  await apiClient.delete(`/pedagogical-logs/${logId}`)
+export async function deleteLogEntry(logId: string): Promise<void> {
+  await apiClient.delete(`/logs/${logId}`)
 }
 
 /**

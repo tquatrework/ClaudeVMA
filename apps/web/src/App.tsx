@@ -284,7 +284,18 @@ export default function App() {
             path="/pedagogical-log"
             element={
               <ProtectedRoute
-                allowedRoles={['eleve', 'formateur', 'responsable_pedagogique', 'parent_financeur']}
+                allowedRoles={[
+                  'eleve',
+                  'formateur',
+                  'responsable_pedagogique',
+                  'parent_financeur',
+                  // Ajouté le 2026-08-20 : l'item de rail « Cahier de texte » est déjà
+                  // proposé à l'AP (`navigationConfig.ts`), mais la route le renvoyait
+                  // vers /forbidden — violation de la règle « pas de lien voué au
+                  // refus » (docs/routes.md § pedagogical-log-service, GET ouvert à
+                  // « Tout rôle authentifié »).
+                  'animateur_pedagogique',
+                ]}
               >
                 <PedagogicalLogPage />
               </ProtectedRoute>

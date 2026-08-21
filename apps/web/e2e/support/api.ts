@@ -346,3 +346,74 @@ export async function waitForVideoRoom(
   }
   return null
 }
+
+// ── Ajouts pour la preuve du chantier « refonte du cahier de texte » (2026-08-20/21) —
+// mêmes principes : routes réelles documentées dans docs/routes.md § pedagogical-log-service,
+// aucun mock, et `RawResponse` pour pouvoir citer un code non-2xx (écriture refusée) sans que
+// l'appel ne lève.
+
+export interface PedagogicalLogEntryRecord {
+  id: string
+  studentId: string
+  authorId: string
+  authorRole: string
+  date?: string | null
+  sessionSummary?: string | null
+  homework?: string | null
+  visibility: string
+  isSpecialPage: boolean
+  autoCreated?: boolean
+  activityId?: string | null
+  createdAt: string
+}
+
+/**
+ * `POST /students/:studentId/pedagogical-log` — utilisé ici pour deux besoins :
+ * (a) préparer des entrées à dates distinctes via l'API (tri/filtre, point 4), avec le jeton
+ *     du formateur (écriture légitime) ;
+ * (b) prouver qu'un rôle non-formateur est bloqué (point 3), avec le jeton d'un élève/parent —
+ *     dans ce cas la réponse `403` est le résultat attendu, jamais une exception.
+ */
+export async function attemptCreateLogEntry(
+  token: string,
+  studentId: string,
+  payload: { date?: string; sessionSummary?: string; homework?: string; visibility?: string },
+): Promise<RawResponse<PedagogicalLogEntryRecord & { message?: string }>> {
+  return request('POST', `/students/${studentId}/pedagogical-log`, payload, token)
+}
+
+/** `GET /students/:studentId/pedagogical-log` — lecture directe (hors écran), pour poller
+ * l'entrée auto-créée à la confirmation d'un cours (point 5). */
+export async function fetchPedagogicalLog(
+  token: string,
+  studentId: string,
+): Promise<RawResponse<PedagogicalLogEntryRecord[]>> {
+  return request('GET', `/students/${studentId}/pedagogical-log`, undefined, token)
+}
+
+/**
+ * Poll `GET /students/:studentId/pedagogical-log` jusqu'à apparition d'une entrée
+ * `autoCreated:true` portant `activityId` — le consommateur Redis de
+ * `pedagogical-log-service` (`ActivityConfirmed`) est asynchrone, même principe que
+ * `waitForVideoRoom` ci-dessus. Renvoie `null` si rien n'apparaît dans le délai imparti : le
+ * test appelant doit alors traiter ce cas explicitement (point non vérifiable), jamais
+ * l'ignorer.
+ */
+export async function waitForAutoCreatedLogEntry(
+  token: string,
+  studentId: string,
+  activityId: string,
+  timeoutMs = 30000,
+  intervalMs = 2000,
+): Promise<PedagogicalLogEntryRecord | null> {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const { status, body } = await fetchPedagogicalLog(token, studentId)
+    if (status === 200 && Array.isArray(body)) {
+      const found = body.find((entry) => entry.autoCreated && entry.activityId === activityId)
+      if (found) return found
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+  }
+  return null
+}

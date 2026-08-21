@@ -65,10 +65,11 @@ export const ROUTE_ACCESS_MAP: RouteAccessRule[] = [
     ],
   },
 
-  // Cahier de texte
+  // Cahier de texte — animateur_pedagogique ajouté le 2026-08-20 (voir App.tsx,
+  // même commentaire : l'item de rail existait déjà pour l'AP, la route non).
   {
     prefix: '/pedagogical-log',
-    roles: ['eleve', 'formateur', 'responsable_pedagogique', 'parent_financeur'],
+    roles: ['eleve', 'formateur', 'responsable_pedagogique', 'parent_financeur', 'animateur_pedagogique'],
   },
 
   // Carnet personnel

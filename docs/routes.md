@@ -1925,32 +1925,130 @@ API interne (non exposée via nginx) : `POST /internal/sync-contacts` — proté
 
 ## pedagogical-log-service
 
-### Cahier de texte — tenu par le formateur ou le RP, suivi séance après séance
+### Cahier de texte — refondu le 2026-08-20 (5 points demandés par l'utilisateur)
 
 Préfixe gateway canonique : `/api/v1/pedagogical-logs` → contrôleur `/pedagogical-logs`
 Préfixes complémentaires : `/api/v1/students` → `/students` · `/api/v1/logs` → `/logs` (legacy)
 
+**Écart de doc préexistant, non corrigé par cette refonte** : `GET`/`POST /pedagogical-logs`,
+`GET /pedagogical-logs/student/:studentId`, `GET /pedagogical-logs/session/:sessionId`,
+`PUT`/`PATCH`/`DELETE /pedagogical-logs/:id` et `POST /memos` sont documentés ci-dessous depuis
+longtemps mais **ne sont jamais montés côté contrôleur** (`PedagogicalLogController` n'expose que
+`students/:studentId/pedagogical-log`, `logs/session/:sessionId`, `logs/:id`, `:id` — jamais
+`pedagogical-logs` au pluriel) : tout appel réel y répond `404`. Confirmé par la suite e2e du
+service elle-même (33 tests en échec avant et après cette session, tous et uniquement sur ces
+routes). **Hors périmètre de la refonte du 2026-08-20** (ni demandé, ni touché) — signalé ici pour
+que la prochaine session qui y touche ne le redécouvre pas de zéro. Les routes réellement montées
+sont celles marquées ci-dessous sans cet avertissement.
+
+**Bug réel corrigé le 2026-08-20 (testé contre `https://claudevma.visioprof.fr` par
+l'orchestrateur, pas seulement en direct dans le conteneur)** : `api-gateway` ne proxy vers ce
+service que les chemins sous les préfixes connus `/pedagogical-logs`, `/students`, `/logs` — un
+chemin **nu** comme l'ancien `DELETE /:id` (ou `PATCH /:id`) n'est **structurellement jamais
+routable depuis l'extérieur**, quel que soit son code HTTP en appel direct au service. Constat
+initial : `DELETE https://claudevma.visioprof.fr/api/v1/{id}` → `405` (aucune route de ce service
+sur ce chemin côté gateway) ; `DELETE https://claudevma.visioprof.fr/api/v1/logs/{id}` → `404`
+(la route n'existait pas encore côté contrôleur). **`DELETE /logs/:id` est ajoutée**, mirror exact
+de `DELETE /:id` (même garde, même logique déléguée à `PedagogicalLogService.remove()`) — c'est
+elle qu'un appelant réel doit utiliser. `/:id` (PATCH et DELETE) est conservée comme **alias
+historique non exposé par la gateway** : à ne jamais utiliser pour valider un comportement en
+conditions réelles, seulement pour un appel direct au service.
+
 | Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /pedagogical-logs | Lister les pages de cahier de texte (filtré par rôle) | 🔒 | Tout rôle authentifié | `200 [PedagogicalLogPage]` |
-| POST | /pedagogical-logs | Ajouter une page de cahier de texte | 🔒 | formateur, RP, AP, TI | `201 {id, studentId, authorId, authorRole, content, visibility, isSpecialPage, hiddenFromStudent, linkedResources?, ...}` · `400` validation · `403` rôle non autorisé |
-| PUT | /pedagogical-logs/:id | Modifier une page (auteur, RP, TI) | 🔒 | Auteur, RP, TI | `200 PedagogicalLogPage` · `403` non auteur · `404` introuvable |
-| DELETE | /pedagogical-logs/:id | Supprimer une page | 🔒 | Auteur, responsable_pedagogique | `204` · `403` · `404` introuvable |
-| GET | /students/:studentId/pedagogical-log | Lire le cahier de texte d'un élève (filtré par rôle) | 🔒 | Tout rôle authentifié | `200 [PedagogicalLogPage]` — élève: hors pages hiddenFromStudent · parent: eleve_parent_formateur + special · RP/Formateur: tout |
-| POST | /students/:studentId/pedagogical-log | Ajouter une page liée à un élève précis | 🔒 | formateur, RP, AP, TI | `201 {id, studentId, ...}` · `400` validation · `403` rôle non autorisé |
+| GET | /pedagogical-logs *(⚠️ non montée, 404 réel — voir ci-dessus)* | — | 🔒 | — | — |
+| POST | /pedagogical-logs *(⚠️ non montée, 404 réel — voir ci-dessus)* | — | 🔒 | — | — |
+| PUT | /pedagogical-logs/:id *(⚠️ non montée, 404 réel)* | — | 🔒 | — | — |
+| DELETE | /pedagogical-logs/:id *(⚠️ non montée, 404 réel)* | — | 🔒 | — | — |
+| GET | /students/:studentId/pedagogical-log | Lire le cahier de texte d'un élève (filtré par rôle), trié de la plus récente à la plus ancienne | 🔒 | Tout rôle authentifié (accès filtré par visibilité) | `200 [PedagogicalLogPage]` — voir « Tri et filtrage » ci-dessous |
+| POST | /students/:studentId/pedagogical-log | Ajouter une page liée à un élève précis | 🔒 | **formateur titulaire de la relation avec cet élève, uniquement** (RP retiré le 2026-08-20) | `201 {id, studentId, ...}` · `400` validation · `403` rôle non formateur, ou formateur non titulaire de la relation · `503` profile-service injoignable |
 | POST | /students/:studentId/pedagogical-log/special-pages | Créer une page spéciale avec visibilité ciblée (RP uniquement) | 🔒 | responsable_pedagogique | `201 {id, ..., isSpecialPage: true, hiddenFromStudent, visibility: "special"}` · `403` réservé RP |
 | GET | /logs/session/:sessionId | Logs d'une séance (filtrés par rôle) | 🔒 | Tout rôle authentifié | `200 [PedagogicalLogPage]` |
 | GET | /logs/:id | Détail d'une page | 🔒 | Selon visibilité et rôle | `200 PedagogicalLogPage` · `403` visibilité bloquée · `404` introuvable |
-| PATCH | /logs/:id | Modifier une page (legacy) | 🔒 | Auteur, RP, TI | `200 PedagogicalLogPage` · `403` non auteur · `404` introuvable |
-| DELETE | /logs/:id | Supprimer une page (legacy) | 🔒 | Auteur, responsable_pedagogique | `204` · `403` · `404` introuvable |
+| PATCH | /logs/:id | Modifier une page — **route réellement atteignable depuis l'extérieur** | 🔒 | Entrée normale : **formateur auteur, toujours titulaire de la relation, uniquement**. Page spéciale RP : auteur ou RP/TI (mécanisme inchangé) | `200 PedagogicalLogPage` · `403` non autorisé · `404` introuvable · `503` profile-service injoignable (entrée normale) |
+| DELETE | /logs/:id | Supprimer une page — **route réellement atteignable depuis l'extérieur, ajoutée le 2026-08-20** (voir bug ci-dessus) | 🔒 | Entrée normale : **formateur auteur, toujours titulaire de la relation, uniquement** (correctif du 2026-08-20 — le RP a perdu ce droit qu'il avait jusqu'ici). Page spéciale RP : auteur ou RP (mécanisme inchangé) | `204` · `403` non autorisé · `404` introuvable · `503` profile-service injoignable (entrée normale) |
+| PATCH | /:id *(⚠️ alias historique, jamais proxié par api-gateway — utiliser `PATCH /logs/:id`)* | Modifier une page | 🔒 | Mêmes règles que `PATCH /logs/:id` | idem |
+| DELETE | /:id *(⚠️ alias historique, jamais proxié par api-gateway — utiliser `DELETE /logs/:id`)* | Supprimer une page | 🔒 | Mêmes règles que `DELETE /logs/:id` | idem |
 
-Règles de visibilité :
+Body `POST /students/:studentId/pedagogical-log` (refonte du 2026-08-20, point 2 et point 4) :
+`{date?, sessionSummary?, homework?, visibility?, hiddenFromStudent?, linkedResources?, activityId?, sessionId?, skillsWorked?, difficulty?, rating?}`.
+**`studentId` n'est plus un champ du corps** : le paramètre de chemin fait seul autorité (correctif
+du bug réel où son absence renvoyait `400` — l'identifiant du chemin ne doit jamais être redemandé
+dans le corps, convention déjà en place ailleurs dans le projet). Un `studentId` envoyé quand même
+dans le corps est silencieusement ignoré par `ValidationPipe({whitelist:true})`, pas une régression :
+il n'a jamais eu d'effet, il est juste retiré du contrat OpenAPI.
+
+**`date` / `sessionSummary` / `homework` remplacent `content`** pour les entrées normales — les
+trois sont **optionnels** côté serveur (le front pré-remplit `date` à la date du jour, mais le
+serveur n'exige rien). `content` reste dans l'entité et son DTO de mise à jour (`UpdateLogDto`)
+**uniquement pour les pages spéciales du RP** (`POST .../special-pages`), mécanisme explicitement
+hors périmètre de cette refonte et non modifié.
+
+Règles de visibilité (refonte du 2026-08-20, point 1) :
 - `eleve_parent_formateur` : élève, parent, formateur, RP, AP, TI
-- `eleve_formateur` : élève et formateur (pas le parent)
+- `parent_formateur` : **parent et formateur (pas l'élève)** — remplace `eleve_formateur`, dont la
+  définition était erronée (elle excluait à tort le parent au lieu de l'élève). Une migration
+  (`CahierDeTexteRefonte1787280000000`) renomme les lignes existantes en base.
 - `formateur_rp` : formateur et RP uniquement
 - `special` : pages spéciales — RP, formateur, parent (sauf si `hiddenFromStudent=true`, l'élève ne voit pas)
 
 `hiddenFromStudent=true` : masque la page à l'élève — applicable aux pages spéciales parent/financeur (XML spec func 003).
+
+**Écriture réservée au formateur (point 3, 2026-08-20 — POST/PATCH/DELETE).** Seul le formateur
+titulaire de la relation `teacher_of_student` avec l'élève ciblé peut créer, modifier **ou
+supprimer** une entrée normale du cahier de texte — vérifié à chaque action auprès de
+`profile-service` (`GET /internal/relations/:viewerId/:targetId?viewerRole=formateur`), jamais en
+cache : un formateur délié cesse d'agir immédiatement, y compris sur ses propres entrées passées.
+Élève, parent et RP sont désormais strictement lecteurs sur ces entrées (le RP a perdu son droit
+d'écriture — création, modification et **suppression** — qu'il avait jusqu'ici). **Précision du
+2026-08-20** : la restriction couvre `DELETE` au même titre que `POST`/`PATCH` — l'énoncé d'origine
+(« seul le formateur les rédige, les autres rôles lisent uniquement ») couvrait déjà toute
+écriture, `DELETE` n'était initialement pas corrigé par erreur de lecture, pas par choix assumé.
+Le mécanisme des pages spéciales RP (`isSpecialPage`, `POST .../special-pages`) est **hors
+périmètre** et continue de fonctionner à l'identique pour les trois verbes (l'auteur ou un RP/TI —
+RP seul pour `DELETE` — peut agir, sans vérification de relation) : le RP conserve la capacité de
+retirer une page spéciale qu'il a lui-même créée, symétrique de son droit de création et
+d'édition. `profile-service` injoignable → `503` (échec fermé), jamais un succès silencieux.
+
+**Tri et filtrage — `GET /students/:studentId/pedagogical-log` (point 6).** La liste est triée de
+la plus récente à la plus ancienne par `date` (date de séance) décroissante, les entrées sans
+`date` en dernier, puis par `createdAt` décroissant à égalité. Deux paramètres de requête optionnels
+permettent au front de se repositionner : `from` et `to` (ISO 8601, ex. `2026-08-01`), filtrant sur
+`date`. `createdAt` reste exploitable pour un tri de repli côté front si besoin.
+
+### Création automatique d'une entrée à la confirmation d'un cours (point 5, 2026-08-20)
+
+`pedagogical-log-service` consomme désormais le flux Redis `visiomath:events` (même mécanisme
+outbox + `XADD` que `teacher-request-service`/`calendar-service`, groupe de consommateurs
+`pedagogical-log-service`, démarré à `0`, déduplication par `eventId` — table `processed_events`).
+Précédent direct : `video-session-service` (création automatique de salle), même schéma de
+projection locale.
+
+- **`ActivityScheduled`** (`calendar-service`, `{activityId, type, creatorId, recipientId,
+  participantIds, startTime}`) est projeté localement dans `activity_projections` (clé `activityId`).
+- **`ActivityConfirmed`** (`{activityId, confirmedBy}`, ne porte pas le type) déclenche la relecture
+  de la projection : si `type === "cours"` et `recipientId` non nul, une entrée de cahier de texte
+  est créée automatiquement — **vide** (`date` = date de l'activité, `sessionSummary`/`homework`
+  restent `null`), `studentId = recipientId`, `authorId = creatorId`, `authorRole = "formateur"`,
+  `activityId` renseigné, `autoCreated = true`. Idempotent par `eventId` et, en défense
+  supplémentaire, par `(activityId, autoCreated=true)`. Projection introuvable ou `type !== "cours"`
+  → aucune entrée créée, avertissement journalisé (même limite documentée que
+  `video-session-service` : aucune route de secours n'existe côté `calendar-service` pour relire
+  une activité après coup).
+- **Rappel quotidien (complément du point 5, `@Cron`, 06h00).** `EmptyEntryReminderService` repère
+  les entrées `autoCreated=true` dont `sessionSummary` et `homework` sont encore `null` plus de 24h
+  après `date`, et notifie le formateur **une seule fois** via `POST /internal/notify` sur
+  `dashboard-notification-service` (`targetUserId`, `type: "pedagogical_log_entry_empty"`).
+  `remindedAt` n'est posé qu'après un envoi réussi — un échec laisse l'entrée éligible au passage
+  suivant (auto-guérison, pas de perte silencieuse). **Approximation assumée** : `ActivityScheduled`
+  ne porte pas la date de fin de l'activité (seulement `startTime`), reprise ici comme `date` sur
+  l'entrée — le rappel se déclenche donc 24h après la date de séance, pas 24h après l'heure de fin
+  réelle du cours (non disponible dans le payload consommé).
+
+Variables d'environnement introduites : `REDIS_URL` (optionnelle — sans elle, le consommateur reste
+désactivé et journalise un avertissement au boot, aucune entrée automatique n'est créée),
+`PROFILE_SERVICE_URL` et `INTERNAL_SECRET` (vérification de relation, point 3),
+`DASHBOARD_NOTIFICATION_SERVICE_URL` (rappel quotidien).
 
 ### Mémo élève — formulaire structuré appartenant à l'élève
 

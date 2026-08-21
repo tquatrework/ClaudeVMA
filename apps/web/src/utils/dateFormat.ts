@@ -138,3 +138,18 @@ export function formatIsoCalendarDate(value: string): string {
   const [year, month, day] = value.split('-')
   return `${day}/${month}/${year}`
 }
+
+/**
+ * Date calendaire ISO (`YYYY-MM-DD`) du jour, en heure **locale** — jamais
+ * `toISOString()`, qui bascule en UTC et peut renvoyer la veille ou le
+ * lendemain selon le fuseau de l'utilisateur. Sert à pré-remplir un
+ * `<input type="date">` sur la date du jour (ex. nouvelle entrée de cahier de
+ * texte).
+ */
+export function todayIsoCalendarDate(): string {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}

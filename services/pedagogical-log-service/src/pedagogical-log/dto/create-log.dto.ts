@@ -7,9 +7,9 @@ import {
   Min,
   Max,
   IsIn,
-  IsNotEmpty,
-  MinLength,
+  IsDateString,
   IsBoolean,
+  IsNotEmpty,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -18,7 +18,7 @@ import { LogVisibility } from '../entities/pedagogical-log.entity';
 
 const VISIBILITY_VALUES: LogVisibility[] = [
   'eleve_parent_formateur',
-  'eleve_formateur',
+  'parent_formateur',
   'formateur_rp',
   'special',
 ];
@@ -39,21 +39,43 @@ export class LinkedResourceDto {
   label?: string;
 }
 
+/**
+ * DTO de création d'une entrée de cahier de texte.
+ *
+ * Refonte du 2026-08-20 :
+ * - `studentId` retiré : l'identifiant du chemin (`POST /students/:studentId/pedagogical-log`)
+ *   fait seul autorité, il n'est plus jamais redemandé dans le corps (correctif du bug réel
+ *   où son absence renvoyait 400).
+ * - `content` (texte libre) retiré, remplacé par trois zones toutes optionnelles :
+ *   `date`, `sessionSummary` (« Déroulement de la séance ») et `homework` (« À faire »).
+ */
 export class CreateLogDto {
-  @ApiProperty({ description: "UUID de l'élève concerné" })
-  @IsUUID()
-  studentId: string;
+  @ApiPropertyOptional({
+    description:
+      'Date de la séance (ISO 8601, ex. 2026-08-20). Pré-remplie à la date du jour côté front, ' +
+      'reste facultative côté serveur.',
+    example: '2026-08-20',
+  })
+  @IsOptional()
+  @IsDateString()
+  date?: string;
 
-  @ApiProperty({ description: "Contenu de l'entrée pédagogique (texte riche ou LaTeX)" })
+  @ApiPropertyOptional({ description: 'Déroulement de la séance' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  @MinLength(1)
-  content: string;
+  sessionSummary?: string;
+
+  @ApiPropertyOptional({ description: 'À faire' })
+  @IsOptional()
+  @IsString()
+  homework?: string;
 
   @ApiPropertyOptional({
-    enum: ['eleve_parent_formateur', 'eleve_formateur', 'formateur_rp', 'special'],
+    enum: ['eleve_parent_formateur', 'parent_formateur', 'formateur_rp', 'special'],
     default: 'eleve_parent_formateur',
-    description: "Règle de visibilité de l'entrée (PLOG-BR-006)",
+    description:
+      "Règle de visibilité de l'entrée (PLOG-BR-006). parent_formateur : visible par le parent " +
+      "et le formateur, pas l'élève (corrigé le 2026-08-20, remplace eleve_formateur).",
   })
   @IsOptional()
   @IsIn(VISIBILITY_VALUES)

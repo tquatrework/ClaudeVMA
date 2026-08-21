@@ -5,6 +5,33 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-21 — formulaire de nouvelle entrée replié par défaut
+
+Demande explicite de l'utilisateur, en continuant de tester le chantier "refonte du cahier de
+texte" (mergé le 2026-08-21, PR #132). Branche : `fix/cahier-de-texte-formulaire-replie` (créée
+depuis `master`, poussée).
+
+Sur `/pedagogical-log` (vue formateur, cahier de texte d'un élève), le formulaire de saisie
+s'affiche aujourd'hui immédiatement au chargement de la page, poussant la liste des entrées sous
+le formulaire — la liste se voit mal. Demande : remplacer l'affichage immédiat du formulaire par
+un bouton (« Nouvelle entrée » ou libellé équivalent) ; la liste doit être visible par défaut dès
+l'arrivée sur la page.
+
+### Comment on saura que c'est fait
+
+Capture d'écran de `/pedagogical-log` côté formateur montrant, dès le chargement : la liste des
+entrées visible sans défilement caché par le formulaire, et un bouton pour ouvrir le formulaire
+de nouvelle entrée. Capture montrant le formulaire qui s'affiche après clic sur ce bouton.
+
+### État
+
+- [ ] Front — délégué à `front-developper`.
+- [ ] Déployé sur la pile réelle
+- [ ] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur
+
+---
+
 ## Besoin — 2026-08-20 — refonte du cahier de texte
 
 Nouveau chantier, demande explicite de l'utilisateur (`/clear` tapé au milieu du message mais non

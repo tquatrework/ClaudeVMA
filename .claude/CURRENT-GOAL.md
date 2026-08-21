@@ -147,7 +147,7 @@ automatiquement à la confirmation d'une activité `cours`. Capture d'écran de 
       **Aucun bug trouvé.** 8 captures d'écran produites (non committées, `test-results/`
       gitignoré comme d'habitude) : sélecteur, entrée à seule date, lecture seule élève/parent,
       liste triée, filtre par date, entrée auto-créée.
-- [ ] Preuve livrée à l'utilisateur
+- [x] Preuve livrée à l'utilisateur — 8 captures envoyées 2026-08-21.
 - [ ] Validé par l'utilisateur
 
 ---

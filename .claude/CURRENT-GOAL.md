@@ -120,11 +120,33 @@ automatiquement à la confirmation d'une activité `cours`. Capture d'écran de 
       `https://claudevma.visioprof.fr`, entrée effectivement disparue de `GET .../pedagogical-log`
       juste après. **Les 5 points + le correctif DELETE sont désormais tous prouvés en réel.**
       Backend clos.
-- [ ] Front : sélecteur de catégorie corrigé, formulaire à 3 champs, écran de liste des messages
+- [x] Front : sélecteur de catégorie corrigé, formulaire à 3 champs, écran de liste des messages
       (diagnostic + correctif du bug de chargement), tri récent→ancien, recherche par date.
-      **En cours** — délégué au sous-agent `front-developper` le 2026-08-20, brief complet donné
-      (contrat backend final + 4 points), travaille sur `feat/cahier-de-texte-refonte` directement.
-- [ ] Déployé sur la pile réelle
+      Livré par `front-developper` — commit `2590932`, poussé le 2026-08-20. Cause du bug de
+      chargement confirmée : mauvais endpoint monté (`GET /pedagogical-logs` au lieu de la bonne
+      route) et `studentId` jamais lu depuis `?studentId=`. Sélecteur `parent_formateur` remplace
+      `eleve_formateur`. Lien de rail voué à `/forbidden` pour l'AP corrigé au passage.
+- [x] Déployé sur la pile réelle — `frontend` reconstruit et redémarré par l'orchestrateur, bundle
+      `index-CsDCUOzt.js` confirmé servi sur `https://claudevma.visioprof.fr`.
+- [x] Preuve obtenue — `front-tester` a écrit et exécuté `apps/web/e2e/proof-cahier-de-texte-
+      refonte-2026-08-21.spec.ts` (commit `9aa5fc0`, poussé) contre la pile réelle, comptes réels
+      créés pour l'occasion, **rejoué une seconde fois indépendamment par l'orchestrateur : 1/1
+      vert**. Les 5 points confirmés avec réponses HTTP citées :
+      1. Sélecteur : options réelles `["Élève + Parent + Formateur (+RP)", "Parent + Formateur
+         (+RP) — sans l'élève", "Formateur + RP uniquement"]` — `parent_formateur` présent,
+         `eleve_formateur` absent.
+      2. `POST .../pedagogical-log` avec seule la date → `201`, `sessionSummary`/`homework: null`
+         acceptés. Date pré-remplie au jour réel côté formulaire.
+      3. Écriture élève → `403 Insufficient role` ; écriture parent → `403 Insufficient role` ;
+         aucun formulaire affiché à l'écran pour ces deux rôles (bandeau lecture seule).
+      4. Clic sur « Cahier de texte » → liste affichée directement, aucune trace de l'ancienne
+         erreur. 3 entrées à dates distinctes → ordre affiché décroissant confirmé. Filtre
+         `from`/`to` → `200`, seule l'entrée de la période demandée reste visible.
+      5. `POST /activities` (cours) → `POST /activities/:id/accept` → entrée `autoCreated:true`,
+         `activityId` renseigné, retrouvée dans la liste du formateur peu après.
+      **Aucun bug trouvé.** 8 captures d'écran produites (non committées, `test-results/`
+      gitignoré comme d'habitude) : sélecteur, entrée à seule date, lecture seule élève/parent,
+      liste triée, filtre par date, entrée auto-créée.
 - [ ] Preuve livrée à l'utilisateur
 - [ ] Validé par l'utilisateur
 

@@ -148,7 +148,10 @@ automatiquement à la confirmation d'une activité `cours`. Capture d'écran de 
       gitignoré comme d'habitude) : sélecteur, entrée à seule date, lecture seule élève/parent,
       liste triée, filtre par date, entrée auto-créée.
 - [x] Preuve livrée à l'utilisateur — 8 captures envoyées 2026-08-21.
-- [ ] Validé par l'utilisateur
+- [x] Validé par l'utilisateur — 2026-08-21 (« ok merge »). Mergé dans `master` — PR #132, squash
+      `e0cf0bc`, branche supprimée (locale + `origin`). `pedagogical-log-service` et `frontend`
+      reconstruits et redéployés depuis `master` (état durable), bundle `index-CsDCUOzt.js`
+      reconfirmé identique, les deux services sains.
 
 ---
 

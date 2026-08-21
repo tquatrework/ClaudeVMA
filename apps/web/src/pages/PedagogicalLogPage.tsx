@@ -18,6 +18,11 @@
  *      `GET /students/:studentId/pedagogical-log`, triée du plus récent au
  *      plus ancien par le serveur (jamais re-triée en sens inverse ici).
  *      Recherche par date via `from`/`to`.
+ *   5. **Formulaire replié par défaut (2026-08-21)** : le formulaire de
+ *      nouvelle entrée ne s'affiche plus automatiquement au chargement — il
+ *      poussait la liste des entrées existantes hors écran. Un bouton
+ *      « Nouvelle entrée » l'ouvre à la demande, au même endroit qu'avant ; la
+ *      liste reste immédiatement visible par défaut.
  *
  * Sélection de l'élève consulté : un élève consulte toujours son propre
  * cahier ; formateur/parent/RP/AP choisissent parmi leurs élèves liés
@@ -92,6 +97,14 @@ export default function PedagogicalLogPage() {
   const [newSessionSummary, setNewSessionSummary] = useState('')
   const [newHomework, setNewHomework] = useState('')
   const [newVisibility, setNewVisibility] = useState<LogVisibility>('eleve_parent_formateur')
+  // Replié par défaut (point 5) : la liste reste visible sans être poussée par le formulaire.
+  const [isNewEntryFormOpen, setIsNewEntryFormOpen] = useState(false)
+
+  const resetNewEntryFields = () => {
+    setNewSessionSummary('')
+    setNewHomework('')
+    setNewDate(todayIsoCalendarDate())
+  }
 
   const handleAddPage = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -102,10 +115,14 @@ export default function PedagogicalLogPage() {
       visibility: newVisibility,
     })
     if (success) {
-      setNewSessionSummary('')
-      setNewHomework('')
-      setNewDate(todayIsoCalendarDate())
+      resetNewEntryFields()
+      setIsNewEntryFormOpen(false)
     }
+  }
+
+  const handleCancelNewEntry = () => {
+    setIsNewEntryFormOpen(false)
+    resetNewEntryFields()
   }
 
   // ─── Page spéciale RP — mécanisme inchangé ───────────────────────────────
@@ -215,7 +232,17 @@ export default function PedagogicalLogPage() {
               }}
             />
 
-            {canWriteNormalEntry && (
+            {canWriteNormalEntry && !isNewEntryFormOpen && (
+              <button
+                type="button"
+                onClick={() => setIsNewEntryFormOpen(true)}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+              >
+                Nouvelle entrée
+              </button>
+            )}
+
+            {canWriteNormalEntry && isNewEntryFormOpen && (
               <NewLogPageForm
                 date={newDate}
                 onDateChange={setNewDate}
@@ -228,6 +255,7 @@ export default function PedagogicalLogPage() {
                 isSaving={isCreating}
                 errorMessage={createError}
                 onSubmit={handleAddPage}
+                onCancel={handleCancelNewEntry}
               />
             )}
             {!canWriteNormalEntry && createError && (

@@ -20,6 +20,10 @@
  * 7. Liste affichée dans l'ordre renvoyé par le serveur (jamais re-triée en
  *    sens inverse).
  * 8. Cas d'erreur : 403 → « Accès refusé », 503 → message serveur générique.
+ * 9. Formulaire replié par défaut (2026-08-21) : au chargement, seul le
+ *    bouton « Nouvelle entrée » est visible pour le formateur — la liste des
+ *    entrées existantes n'est jamais poussée hors écran par le formulaire.
+ *    Cliquer sur le bouton ouvre le formulaire ; « Annuler » le referme.
  */
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -124,6 +128,17 @@ function renderPage(initialEntry = '/pedagogical-log') {
   )
 }
 
+/**
+ * Le formulaire de nouvelle entrée est replié par défaut (point 5, 2026-08-21) :
+ * ouvre-le via le bouton « Nouvelle entrée » avant d'interagir avec ses champs.
+ */
+async function openNewEntryForm() {
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Nouvelle entrée' })).toBeDefined()
+  })
+  await userEvent.click(screen.getByRole('button', { name: 'Nouvelle entrée' }))
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   asStudent()
@@ -189,10 +204,7 @@ describe('PedagogicalLogPage — formulaire de création (points 1 et 2)', () =>
 
   it('propose les 3 catégories corrigées, jamais l\'ancienne "eleve_formateur"', async () => {
     renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
-
-    await waitFor(() => {
-      expect(screen.getByText('Nouvelle entrée')).toBeDefined()
-    })
+    await openNewEntryForm()
 
     expect(screen.getByRole('option', { name: /Élève \+ Parent \+ Formateur/ })).toBeDefined()
     expect(screen.getByRole('option', { name: /Parent \+ Formateur.*sans l'élève/ })).toBeDefined()
@@ -203,6 +215,7 @@ describe('PedagogicalLogPage — formulaire de création (points 1 et 2)', () =>
 
   it('pré-remplit la date du jour', async () => {
     renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
+    await openNewEntryForm()
 
     await waitFor(() => {
       expect(screen.getByLabelText('Date de la séance')).toBeDefined()
@@ -224,6 +237,7 @@ describe('PedagogicalLogPage — formulaire de création (points 1 et 2)', () =>
     )
 
     renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
+    await openNewEntryForm()
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /ajouter une entrée/i })).toBeDefined()
@@ -254,6 +268,7 @@ describe('PedagogicalLogPage — formulaire de création (points 1 et 2)', () =>
     )
 
     renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
+    await openNewEntryForm()
 
     await waitFor(() => {
       expect(screen.getByLabelText('Déroulement de la séance')).toBeDefined()
@@ -531,6 +546,7 @@ describe('PedagogicalLogPage — cas d\'erreur', () => {
     mockCreateStudentLogEntry.mockRejectedValue(makeApiError(403, "Vous n'êtes pas le formateur de cet élève"))
 
     renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
+    await openNewEntryForm()
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /ajouter une entrée/i })).toBeDefined()
@@ -552,5 +568,70 @@ describe('PedagogicalLogPage — cas d\'erreur', () => {
     await waitFor(() => {
       expect(screen.getByText('Aucune entrée dans le cahier de texte')).toBeDefined()
     })
+  })
+})
+
+// ─── 9. Formulaire replié par défaut ───────────────────────────────────────
+
+describe('PedagogicalLogPage — formulaire replié par défaut (point 5, 2026-08-21)', () => {
+  beforeEach(() => {
+    asTeacher()
+    mockFetchMyContacts.mockResolvedValue(TEACHER_CONTACTS)
+  })
+
+  it("au chargement, le formulaire n'est pas affiché et la liste des entrées existantes est immédiatement visible", async () => {
+    mockFetchStudentPedagogicalLog.mockResolvedValue([
+      makeEntry({ id: 'log-existing', sessionSummary: 'Entrée déjà présente' }),
+    ])
+
+    renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
+
+    await waitFor(() => {
+      expect(screen.getByText('Entrée déjà présente')).toBeDefined()
+    })
+
+    // Le bouton est là, mais aucun champ du formulaire n'est monté.
+    expect(screen.getByRole('button', { name: 'Nouvelle entrée' })).toBeDefined()
+    expect(screen.queryByLabelText('Date de la séance')).toBeNull()
+    expect(screen.queryByLabelText('Déroulement de la séance')).toBeNull()
+    expect(screen.queryByLabelText('Destinataires')).toBeNull()
+  })
+
+  it('cliquer sur « Nouvelle entrée » ouvre le formulaire et masque le bouton', async () => {
+    renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
+    await openNewEntryForm()
+
+    expect(screen.getByLabelText('Date de la séance')).toBeDefined()
+    expect(screen.getByLabelText('Déroulement de la séance')).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Nouvelle entrée' })).toBeNull()
+  })
+
+  it('« Annuler » referme le formulaire sans soumettre, et réaffiche le bouton', async () => {
+    renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
+    await openNewEntryForm()
+
+    await userEvent.type(screen.getByLabelText('Déroulement de la séance'), 'Texte non soumis')
+    await userEvent.click(screen.getByRole('button', { name: /^annuler$/i }))
+
+    expect(mockCreateStudentLogEntry).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Nouvelle entrée' })).toBeDefined()
+    expect(screen.queryByLabelText('Déroulement de la séance')).toBeNull()
+  })
+
+  it('après une création réussie, le formulaire se referme et le bouton réapparaît', async () => {
+    mockCreateStudentLogEntry.mockResolvedValue(
+      makeEntry({ id: 'log-created', sessionSummary: 'Nouvelle entrée créée' }),
+    )
+
+    renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
+    await openNewEntryForm()
+
+    await userEvent.click(screen.getByRole('button', { name: /ajouter une entrée/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Nouvelle entrée créée')).toBeDefined()
+    })
+    expect(screen.getByRole('button', { name: 'Nouvelle entrée' })).toBeDefined()
+    expect(screen.queryByLabelText('Déroulement de la séance')).toBeNull()
   })
 })

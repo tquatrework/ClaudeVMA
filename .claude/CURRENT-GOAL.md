@@ -12,6 +12,12 @@ Demande explicite de l'utilisateur, en continuant de tester le cahier de texte. 
 1. **Lien vers une ressource** (externe ou interne) dans le formulaire de nouvelle entrée : un
    petit bouton pour saisir un lien avec un texte affiché et une URL. Le lien doit être cliquable
    par l'élève et le parent (lecteurs autorisés de l'entrée).
+   **Révisé le 2026-08-26 après test réel de l'utilisateur** : le premier jet (champ `resourceLinks`
+   séparé) était déconnecté du texte. Remplacé par une syntaxe légère `[texte](url)` insérée
+   directement dans `sessionSummary`/`homework` via un bouton « Insérer un lien », rendue comme
+   vrai lien cliquable à l'affichage. `resourceLinks` retiré (voir `docs/architecture.md`,
+   « Syntaxe legere unifiee »). Le même mécanisme est pensé pour accueillir plus tard une notation
+   mathématique (KaTeX) côté `content-catalog-service`, phase 3 — non implémenté maintenant.
 2. **Pièce jointe** : bouton pour joindre un fichier, avec une limite de taille par défaut très
    basse (100 Ko).
 3. **Paramètres système (TI)** : sur l'écran existant `/admin/site-metadata`
@@ -69,6 +75,14 @@ nouveaux réglages et leur sauvegarde effective (relue après rechargement).
   Bug de déploiement trouvé et corrigé au passage : l'image `profile-service` servie ne portait
   pas la route `PATCH /profiles/avatar/settings` (glitch de cache Docker, pas un bug de code) —
   résolu par `docker compose build --no-cache profile-service`.
+- [x] **Révision post-test utilisateur (2026-08-26)** : `resourceLinks` retiré, remplacé par la
+  syntaxe légère `[texte](url)` insérée dans le texte (backend + front), bouton pièce jointe rendu
+  visible par défaut pour le formateur (au lieu d'être caché derrière un repli). Backend et front
+  redéployés, revérifiés en HTTP direct : `resourceLinks` envoyé n'a plus d'effet, un lien
+  `[label](url)` dans `sessionSummary` est bien enregistré et renvoyé tel quel. Point préexistant
+  repéré au passage, hors périmètre : `POST .../pedagogical-log` accepte et ignore silencieusement
+  tout champ inconnu (violation de la convention « aucun champ non prévu n'est absorbé en
+  silence ») — non corrigé, signalé à l'utilisateur pour arbitrage séparé.
 - [ ] Validé par l'utilisateur — **PR #135 en attente de merge**, prête dès accord.
 
 ---

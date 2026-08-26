@@ -7,6 +7,11 @@
  *
  * Réservé au formateur (point 3) : seul appelant autorisé côté page.
  * Présentationnel : le state reste porté par la page.
+ *
+ * Repliable par défaut depuis le 2026-08-21 : la page ne monte ce composant
+ * qu'après un clic sur le bouton « Nouvelle entrée », pour que la liste des
+ * entrées existantes reste immédiatement visible au chargement. `onCancel`
+ * referme le formulaire sans soumettre.
  */
 
 import React from 'react'
@@ -25,6 +30,7 @@ interface NewLogPageFormProps {
   isSaving: boolean
   errorMessage: string | null
   onSubmit: (event: React.FormEvent) => void
+  onCancel: () => void
 }
 
 export function NewLogPageForm({
@@ -39,6 +45,7 @@ export function NewLogPageForm({
   isSaving,
   errorMessage,
   onSubmit,
+  onCancel,
 }: NewLogPageFormProps) {
   return (
     <div className="mb-6">
@@ -113,13 +120,23 @@ export function NewLogPageForm({
           />
         </div>
 
-        <button
-          type="submit"
-          disabled={isSaving}
-          className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50"
-        >
-          {isSaving ? 'Ajout…' : 'Ajouter une entrée'}
-        </button>
+        <div className="flex gap-3">
+          <button
+            type="submit"
+            disabled={isSaving}
+            className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {isSaving ? 'Ajout…' : 'Ajouter une entrée'}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={isSaving}
+            className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm hover:bg-gray-200 disabled:opacity-50"
+          >
+            Annuler
+          </button>
+        </div>
       </form>
     </div>
   )

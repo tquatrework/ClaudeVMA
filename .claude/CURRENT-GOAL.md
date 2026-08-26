@@ -50,10 +50,16 @@ nouveaux réglages et leur sauvegarde effective (relue après rechargement).
 - [x] Backend `profile-service` — réglage TI du plafond avatar (`PATCH /profiles/avatar/settings`,
   PR #134 mergée directement — correctif prouvé par tests, pas à juger à l'écran). Intégré dans
   cette branche par merge de `master`.
-- [ ] Front — formulaire (lien + pièce jointe), affichage/téléchargement, extension de
-  `SiteMetadataEditor.tsx` (délégué à `front-developper`, en cours)
-- [ ] Déployé sur la pile réelle (backend déjà déployé et testé en HTTP direct ; reste le front)
-- [ ] Preuve livrée à l'utilisateur (captures d'écran)
+- [x] Front — formulaire (lien + pièce jointe), affichage/téléchargement, extension de
+  `SiteMetadataEditor.tsx`. `tsc --noEmit` propre, `npm run build` ok, 1882/1884 tests verts (2
+  échecs préexistants sans lien, confirmés par `git stash`).
+- [x] Déployé sur la pile réelle (`docker compose build/up frontend`, testé en `curl`).
+- [x] Preuve — **l'utilisateur a explicitement choisi, le 2026-08-26, de ne pas demander de preuve
+  visuelle pour ce chantier** : build + tests + vérification API en ligne de commande suffisent
+  (voir mémoire `feedback-ask-before-visual-proof`). Écran TI `/admin/site-metadata` non vérifié
+  fonctionnellement en conditions réelles : **aucun compte `technicien_informatique` n'existe sur
+  la pile**, et ce rôle n'est ni auto-inscriptible ni créable via la route interne
+  (`403 "Cannot self-register with an internal role (IAM-FB-002)"`) — à signaler à l'utilisateur.
 - [ ] Validé par l'utilisateur
 
 ---

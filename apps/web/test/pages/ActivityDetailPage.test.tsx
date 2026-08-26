@@ -137,6 +137,36 @@ describe('ActivityDetailPage — chargement', () => {
     })
   })
 
+  it('rend un lien [label](url) de sessionSummary comme un vrai lien cliquable', async () => {
+    mockFetchActivity.mockResolvedValue(SAMPLE_ACTIVITY)
+    mockFetchSessionLogs.mockResolvedValue([
+      {
+        id: 'log-1',
+        studentId: 'student-1',
+        authorId: 'teacher-1',
+        authorRole: 'formateur',
+        content: null,
+        date: '2026-08-20',
+        sessionSummary: 'Voir la fiche [ici](https://exemple.fr/fiche.pdf) pour réviser.',
+        homework: null,
+        visibility: 'eleve_parent_formateur',
+        isSpecialPage: false,
+        hiddenFromStudent: false,
+        createdAt: new Date().toISOString(),
+      },
+    ])
+
+    renderDetail()
+
+    await waitFor(() => {
+      expect(screen.getByText('Cours de mathématiques')).toBeDefined()
+    })
+
+    const link = await screen.findByRole('link', { name: 'ici' })
+    expect(link.getAttribute('href')).toBe('https://exemple.fr/fiche.pdf')
+    expect(screen.queryByText((text) => text.includes('[ici]'))).toBeNull()
+  })
+
   it('charge les logs de séance de façon non bloquante en cas d\'échec', async () => {
     mockFetchActivity.mockResolvedValue(SAMPLE_ACTIVITY)
     mockFetchSessionLogs.mockRejectedValue(new Error('log service down'))

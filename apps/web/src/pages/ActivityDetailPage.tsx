@@ -4,6 +4,7 @@ import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
 import { useActivityDetail } from '../hooks/calendar/useActivityDetail'
 import { ActivityEditForm } from '../components/calendar/ActivityEditForm'
+import { LightMarkupText } from '../components/ui/LightMarkupText'
 
 export default function ActivityDetailPage() {
   const { activityId } = useParams<{ activityId: string }>()
@@ -241,12 +242,13 @@ export default function ActivityDetailPage() {
                         <>
                           {logEntry.sessionSummary && (
                             <p className="text-sm text-gray-800 whitespace-pre-wrap">
-                              {logEntry.sessionSummary}
+                              <LightMarkupText text={logEntry.sessionSummary} />
                             </p>
                           )}
                           {logEntry.homework && (
                             <p className="text-sm text-gray-600 whitespace-pre-wrap mt-1">
-                              <span className="font-medium">À faire :</span> {logEntry.homework}
+                              <span className="font-medium">À faire :</span>{' '}
+                              <LightMarkupText text={logEntry.homework} />
                             </p>
                           )}
                           {!logEntry.sessionSummary && !logEntry.homework && (

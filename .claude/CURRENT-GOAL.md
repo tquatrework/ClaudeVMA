@@ -25,9 +25,9 @@ de nouvelle entrée. Capture montrant le formulaire qui s'affiche après clic su
 
 ### État
 
-- [ ] Front — délégué à `front-developper`.
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+- [x] Front — délégué à `front-developper`, terminé le 2026-08-21 (`.claude/reports/front-cahier-de-texte-formulaire-replie-2026-08-21.md`).
+- [x] Déployé sur la pile réelle (rebuild + recreate du conteneur `visiomath_frontend` depuis la branche, 2026-08-26).
+- [x] Preuve livrée à l'utilisateur — 2 captures Playwright jouées contre `https://claudevma.visioprof.fr` (`apps/web/e2e/proof-cahier-de-texte-formulaire-replie-2026-08-26.spec.ts`), envoyées le 2026-08-26. PR #133 ouverte.
 - [ ] Validé par l'utilisateur
 
 ---

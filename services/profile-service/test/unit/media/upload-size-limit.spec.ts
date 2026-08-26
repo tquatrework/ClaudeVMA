@@ -1,5 +1,5 @@
 import { ArgumentsHost, PayloadTooLargeException } from '@nestjs/common';
-import { DEFAULT_MAX_UPLOAD_BYTES } from '../../../src/media/media.config';
+import { MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES } from '../../../src/media/entities/media-settings.entity';
 import {
   buildUploadFileTooLargeBody,
   isUploadFileTooLargeBody,
@@ -100,21 +100,21 @@ describe('Contrat d’erreur du dépassement de taille', () => {
   });
 
   describe('UploadSizeLimitFilter', () => {
-    const initialEnvironmentValue = process.env.MEDIA_MAX_UPLOAD_BYTES;
     const filter = new UploadSizeLimitFilter();
-
-    afterEach(() => {
-      if (initialEnvironmentValue === undefined) delete process.env.MEDIA_MAX_UPLOAD_BYTES;
-      else process.env.MEDIA_MAX_UPLOAD_BYTES = initialEnvironmentValue;
-    });
 
     /**
      * Sans ce filtre, le corps se réduit à `{"message":"File too large"}` : le
      * front ne peut ni dire de combien le fichier dépasse, ni afficher la
      * limite sans la recopier en dur.
+     *
+     * Depuis le 2026-08-26, ce chemin ne se déclenche QUE si multer a
+     * lui-même coupé le flux — c'est-à-dire un fichier dépassant
+     * `MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES`, le filet de sécurité STATIQUE
+     * (voir `ProfileAvatarController`). Ce n'est plus une variable
+     * d'environnement : la limite annoncée ici est donc la CONSTANTE, pas une
+     * valeur lue dans `process.env`.
      */
     it('remplace le 413 nu de multer par le corps structuré', () => {
-      process.env.MEDIA_MAX_UPLOAD_BYTES = '1000000';
       const { host, response } = makeHost({ 'content-length': '2400512' });
 
       filter.catch(new PayloadTooLargeException(MULTER_LIMIT_MESSAGE), host);
@@ -125,21 +125,20 @@ describe('Contrat d’erreur du dépassement de taille', () => {
         error: 'Payload Too Large',
         code: 'UPLOAD_FILE_TOO_LARGE',
         message: 'Uploaded file exceeds the maximum allowed size',
-        maxUploadBytes: 1_000_000,
+        maxUploadBytes: MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES,
         // Le flux a été coupé : la taille du fichier n'a jamais été connue.
         receivedBytes: null,
         requestBodyBytes: 2_400_512,
       });
     });
 
-    it('annonce le plafond du défaut quand la variable n’est pas définie', () => {
-      delete process.env.MEDIA_MAX_UPLOAD_BYTES;
+    it('annonce toujours le même filet de sécurité, quel que soit l’environnement', () => {
       const { host, response } = makeHost();
 
       filter.catch(new PayloadTooLargeException(MULTER_LIMIT_MESSAGE), host);
 
       expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({ maxUploadBytes: DEFAULT_MAX_UPLOAD_BYTES }),
+        expect.objectContaining({ maxUploadBytes: MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES }),
       );
     });
 

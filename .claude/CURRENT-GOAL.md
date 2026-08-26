@@ -54,13 +54,22 @@ nouveaux réglages et leur sauvegarde effective (relue après rechargement).
   `SiteMetadataEditor.tsx`. `tsc --noEmit` propre, `npm run build` ok, 1882/1884 tests verts (2
   échecs préexistants sans lien, confirmés par `git stash`).
 - [x] Déployé sur la pile réelle (`docker compose build/up frontend`, testé en `curl`).
+- [x] Comptes de test à rôle interne créés (demande explicite de l'utilisateur, 2026-08-26) :
+  `technicien.informatique`, `admin.financier`, `animateurpeda.lycee`, `animateurpeda.sup`
+  (mot de passe commun `VisioTest2026!`) — via script de provisioning ponctuel
+  (`services/identity-access-service/scripts/maintenance/provision-internal-test-accounts.ts`,
+  PR #136 mergée), IAM-FB-002 interdisant la création de rôles internes par toute route HTTP.
 - [x] Preuve — **l'utilisateur a explicitement choisi, le 2026-08-26, de ne pas demander de preuve
   visuelle pour ce chantier** : build + tests + vérification API en ligne de commande suffisent
-  (voir mémoire `feedback-ask-before-visual-proof`). Écran TI `/admin/site-metadata` non vérifié
-  fonctionnellement en conditions réelles : **aucun compte `technicien_informatique` n'existe sur
-  la pile**, et ce rôle n'est ni auto-inscriptible ni créable via la route interne
-  (`403 "Cannot self-register with an internal role (IAM-FB-002)"`) — à signaler à l'utilisateur.
-- [ ] Validé par l'utilisateur
+  (voir mémoire `feedback-ask-before-visual-proof`). Les trois volets vérifiés en HTTP direct
+  contre la pile réelle avec le compte TI : `GET`/`PATCH /profiles/avatar/settings` (plafond
+  avatar, round-trip confirmé), `GET`/`PATCH /pedagogical-logs/settings/attachments` (activation +
+  plafonds, round-trip confirmé), `resourceLinks` + upload/refus 413 (formateur), lien affiché
+  côté élève/parent (à confirmer côté rendu front, non testé visuellement par choix utilisateur).
+  Bug de déploiement trouvé et corrigé au passage : l'image `profile-service` servie ne portait
+  pas la route `PATCH /profiles/avatar/settings` (glitch de cache Docker, pas un bug de code) —
+  résolu par `docker compose build --no-cache profile-service`.
+- [ ] Validé par l'utilisateur — **PR #135 en attente de merge**, prête dès accord.
 
 ---
 

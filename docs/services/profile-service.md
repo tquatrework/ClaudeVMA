@@ -70,9 +70,12 @@
       <!-- Validation des nouveaux formateurs — decision C21 (2026-08-12) -->
       <endpoint method="GET" path="/profiles/teachers/pending-validation">FILE DE TRAVAIL DU RP : formateurs dont la validation est 'pending', tries par ANCIENNETE (le premier inscrit est le premier examine). RP SEUL — le TI peut trancher un dossier ouvert, il n'a pas a disposer de la file. BORNEE ET PAGINEE depuis le 2026-08-12, meme forme et memes plafonds que /profiles/teachers/validated : enveloppe {data, page, limit, total, totalPages}, entree {userId, firstName, lastName, levels, subjects, pendingSince}. CHANGEMENT DE CONTRAT : renvoyait auparavant un tableau nu NON BORNE d'entrees {id, teacherId, firstName, lastName, createdAt}.</endpoint>
       <endpoint method="POST" path="/internal/teachers/ensure-validations">REPRISE DE STOCK des formateurs sans enregistrement de validation. Body {teacherIds} (200 maximum). IDEMPOTENTE ET NON DESTRUCTRICE : un formateur deja validated/rejected est laisse intact — statut ET commentaire — et compte dans alreadyPresent. 200 et non 201 : dans le cas nominal du rejeu, rien n'est cree. X-Internal-Secret ; jamais exposee par api-gateway.</endpoint>
-      <!-- Photo de profil — decisions C13 (routes) et C14 (plafond de taille), 2026-08-10 -->
-      <endpoint method="GET" path="/profiles/avatar/constraints">Lire les contraintes d'envoi (maxUploadBytes, formats acceptes) AVANT de choisir un fichier. Sans :userId : elles ne dependent ni du profil vise ni du lecteur. Le front ne doit pas les coder en dur.</endpoint>
-      <endpoint method="POST" path="/profiles/{userId}/avatar">Envoyer ou remplacer la photo (multipart, champ file ; titulaire SEUL). 413 structure au-dela de MEDIA_MAX_UPLOAD_BYTES, coupe en streaming par multer.</endpoint>
+      <!-- Photo de profil — decisions C13 (routes) et C14 (plafond de taille), 2026-08-10.
+           C26 (2026-08-26) : plafond desormais reglable par le TI a l'execution, table
+           media_settings, PATCH /profiles/avatar/settings (PAS /admin/... — voir C26). -->
+      <endpoint method="GET" path="/profiles/avatar/constraints">Lire les contraintes d'envoi (maxUploadBytes, formats acceptes) AVANT de choisir un fichier. Sans :userId : elles ne dependent ni du profil vise ni du lecteur. Le front ne doit pas les coder en dur. Depuis C26, maxUploadBytes est lu en base (media_settings), plus une variable d'environnement statique.</endpoint>
+      <endpoint method="PATCH" path="/profiles/avatar/settings">Regler maxAvatarUploadBytes a l'execution, sans redeploiement (role technicien_informatique SEUL). Borne [10000, 10000000] octets — la borne haute est PARTAGEE avec le filet de securite statique de multer (voir C26).</endpoint>
+      <endpoint method="POST" path="/profiles/{userId}/avatar">Envoyer ou remplacer la photo (multipart, champ file ; titulaire SEUL). 413 structure au-dela du plafond en vigueur : filet de securite STATIQUE de multer (MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES, coupe en streaming) ou, le plus souvent, plafond DYNAMIQUE verifie par le service apres reception complete (depuis C26, ces deux valeurs peuvent differer).</endpoint>
       <endpoint method="GET" path="/profiles/{userId}/avatar">Lire les OCTETS de la photo. Memes droits que le champ avatarUrl ; masquee =&gt; 404, jamais 403.</endpoint>
       <endpoint method="DELETE" path="/profiles/{userId}/avatar">Supprimer la photo, base et fichier (titulaire SEUL). Idempotent : 204 meme si absente.</endpoint>
     </candidateApis>
@@ -2695,7 +2698,146 @@
           etait de produire une preuve HTTP horodatee pour cette session.
         </verification>
       </decision>
+      <decision id="C26" status="implemented" session="2026-08-26">
+        <title>Plafond d'envoi de la photo de profil réglable par le TI à l'exécution (table media_settings, PATCH /profiles/avatar/settings)</title>
+        <filesTouched>
+          <file path="services/profile-service/src/media/entities/media-settings.entity.ts">
+            Nouvelle entite `MediaSettings` (table `media_settings`), SINGLETON — une seule ligne,
+            identifiant fixe `MEDIA_SETTINGS_SINGLETON_ID = 'avatar-upload'`. Porte
+            `maxAvatarUploadBytes`, `updatedBy`. Porte aussi les DEUX constantes de bornes,
+            `MEDIA_SETTINGS_MIN_AVATAR_UPLOAD_BYTES` (10 000 o) et
+            `MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES` (10 000 000 o, alignee sur le plafond DECLARE
+            de `api-gateway`) — cette derniere sert AUSSI de filet de securite STATIQUE pour multer
+            (voir plus bas).
+          </file>
+          <file path="services/profile-service/src/migrations/1755200000000-CreateMediaSettings.ts">
+            CREATE TABLE seule, sans seed : la ligne singleton est amorcee PARESSEUSEMENT a la
+            premiere lecture par `MediaSettingsService`, jamais par la migration (la valeur
+            d'amorcage depend de `MEDIA_MAX_UPLOAD_BYTES`, lue a l'execution).
+          </file>
+          <file path="services/profile-service/src/media/media-settings.service.ts">
+            `getMaxAvatarUploadBytes()` (lecture, amorce si absente) et
+            `updateMaxAvatarUploadBytes(value, actor)` (ecriture, ne revalide pas — le DTO l'a deja
+            fait). Amorcage protege contre la concurrence (deux premieres lectures simultanees) :
+            `save()` echoue sur la contrainte de cle primaire, la seconde requete relit la ligne
+            creee par la premiere au lieu de faire echouer l'appelant.
+          </file>
+          <file path="services/profile-service/src/media/dto/update-media-settings.dto.ts">
+            `UpdateMediaSettingsDto` — `maxAvatarUploadBytes` entier, borne par les DEUX constantes
+            de l'entite. Messages en francais.
+          </file>
+          <file path="services/profile-service/src/media/dto/media-settings.view.ts">
+            Forme de reponse PLATE `{maxAvatarUploadBytes, updatedAt}` (regle du 2026-08-10, point
+            3bis : on reaffiche la reponse RELUE en base, jamais le corps envoye).
+          </file>
+          <file path="services/profile-service/src/media/media-settings.controller.ts">
+            `PATCH /profiles/avatar/settings`, `@Roles(TECHNICIEN_INFORMATIQUE)`. PAS sous `/admin`
+            — voir arbitrage de route ci-dessous.
+          </file>
+          <file path="services/profile-service/src/media/media.module.ts">
+            Enregistre `MediaSettings` (TypeOrmModule.forFeature), `MediaSettingsService` et
+            `MediaSettingsController`. Exporte desormais aussi `MediaSettingsService`, consomme par
+            `AvatarService` via `ProfilesModule` (qui importe deja `MediaModule`).
+          </file>
+          <file path="services/profile-service/src/profiles/avatar.service.ts">
+            `MediaConfig` remplace par `MediaSettingsService` dans les dependances. Le controle de
+            taille de `uploadAvatar` (second verrou) et `getUploadConstraints()` lisent desormais
+            `await this.mediaSettingsService.getMaxAvatarUploadBytes()` — DYNAMIQUE — au lieu d'une
+            constante figee a l'injection. `getUploadConstraints()` devient donc ASYNCHRONE
+            (changement de signature, controleur ajuste en consequence).
+          </file>
+          <file path="services/profile-service/src/profiles/profile-avatar.controller.ts">
+            `limits.fileSize` de multer passe de `maxUploadBytesFromEnvironment()` a la constante
+            `MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES` — voir "deux verrous" ci-dessous. Swagger mis a
+            jour (plafond desormais reglable, deux plafonds distincts).
+          </file>
+          <file path="services/profile-service/src/media/upload-size-limit.filter.ts">
+            Le corps `413` de repli (quand multer coupe SANS que le service ait deja produit un
+            corps structure) annonce desormais `MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES` — la valeur
+            REELLEMENT appliquee par multer dans ce cas precis — au lieu de
+            `maxUploadBytesFromEnvironment()`.
+          </file>
+          <file path="services/profile-service/test/unit/media/media-settings.service.spec.ts">Nouveau. Amorcage, concurrence, lecture, ecriture.</file>
+          <file path="services/profile-service/test/unit/media/media-settings.controller.spec.ts">Nouveau. Pile HTTP reelle (ValidationPipe + RolesGuard reels) : 200 nominal, 403 tous les autres roles, 400 sur chaque borne et sur champ inconnu.</file>
+          <file path="services/profile-service/test/unit/profiles/avatar.service.spec.ts">Adapte : `MediaConfig` remplace par un stub `MediaSettingsService`, `getUploadConstraints()` awaited.</file>
+          <file path="services/profile-service/test/unit/profiles/profile-avatar.controller.spec.ts">Reecrit : distingue explicitement le filet de securite STATIQUE de multer (desormais teste) du plafond DYNAMIQUE simule (distinct, comme en production).</file>
+          <file path="services/profile-service/test/unit/media/upload-size-limit.spec.ts">Assertions alignees sur la nouvelle source du plafond de repli.</file>
+          <file path="docs/routes.md">Section "Photo de profil" : nouvelle route documentee, encadre expliquant les DEUX plafonds distincts et pourquoi (contrainte technique de `FileInterceptor`, evalue a l'import, avant tout appel base possible), table des couches mise a jour.</file>
+        </filesTouched>
+        <description>
+          Contexte : arbitrage d'architecture du 2026-08-26 (docs/architecture.md, section "Liens
+          et pieces jointes sur une entree de cahier de texte, et parametres systeme associes",
+          point 8) — `MEDIA_MAX_UPLOAD_BYTES` devient une valeur d'AMORCAGE, pas la valeur figee.
+
+          (1) DEUX VERROUS, DEUX NATURES DESORMAIS DIFFERENTES. Avant cette session, multer et le
+          service partageaient la MEME valeur (`maxUploadBytesFromEnvironment()`), le second verrou
+          n'etant qu'une redondance defensive. Ce n'est plus possible : les options de
+          `FileInterceptor` sont evaluees UNE FOIS, a l'import du controleur — avant toute requete,
+          donc avant qu'un appel asynchrone en base (necessaire pour lire un reglage TI) ne soit
+          possible. Multer applique donc desormais un FILET DE SECURITE STATIQUE
+          (`MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES`, 10 000 000 o, valeur de CODE), tandis que le
+          service applique la valeur REELLEMENT reglee, lue en base a chaque appel. Cette meme
+          constante borne aussi la valeur haute acceptee par `PATCH /profiles/avatar/settings` :
+          le TI ne peut donc jamais regler une valeur que multer refuserait avant meme que le
+          service ne la voie — l'egalite entre les deux usages de cette constante n'est pas un
+          hasard, c'est ce qui garantit que le second verrou reste TOUJOURS decisif en pratique.
+          Consequence mesuree et assumee : un fichier depassant la valeur reglee par le TI mais
+          restant sous le filet de securite fixe est desormais recu EN ENTIER avant d'etre refuse
+          (perte partielle de la protection "coupure en streaming" pour cette tranche de tailles) —
+          documente dans docs/routes.md plutot que dissimule.
+          (2) AMORCAGE, PAS SEED DE MIGRATION. La migration cree la table VIDE ; la ligne singleton
+          est posee au premier appel de `MediaSettingsService.getMaxAvatarUploadBytes()`, a partir
+          de `MediaConfig.maxUploadBytes` (donc de `MEDIA_MAX_UPLOAD_BYTES`). Choix delibere : le
+          coder dans la migration aurait fige une valeur au moment du deploiement, potentiellement
+          differente de celle qui serait lue plus tard si la variable d'environnement change entre
+          la migration et le premier demarrage reel du service.
+          (3) ROUTE PAS SOUS `/admin` — ECART AU BRIEF, JUSTIFIE. Le brief proposait
+          `PATCH /admin/media-settings`. Verification de `gateway/api-gateway/nginx.conf` (lecture
+          seule, aucune modification) : `location ^~ /api/v1/admin` route DEJA tout ce prefixe vers
+          `admin-observability-service` (port 3009) — y ajouter une route `profile-service` sous ce
+          meme chemin l'aurait rendue INJOIGNABLE depuis le front sans modifier la gateway, hors
+          perimetre explicite de ce chantier ("ne touche a aucun des deux"). Route deplacee sous
+          `PATCH /profiles/avatar/settings`, deja routee vers profile-service
+          (`location ^~ /api/v1/profiles`), symetrique de `GET /profiles/avatar/constraints` —
+          meme controleur (`MediaSettingsController`, dans `MediaModule`, PAS `ProfilesModule` :
+          seule regle de droit de ce module technique, gardee la plutot que d'exporter le service
+          pour un controleur externe).
+          (4) CONTRAT DE `GET /profiles/avatar/constraints` INCHANGE, comme demande — seule sa
+          SOURCE change (base au lieu de la variable d'environnement). Aucune nouvelle route de
+          lecture ajoutee pour l'ecran "Parametres systeme" du TI : cette meme route, deja publique-
+          authentifiee, sert a prerempler le formulaire (arbitrage point 9 : "lecture ouverte a
+          tout compte authentifie, ecriture reservee au TI").
+          (5) BORNES DE VALIDATION : `[10 000, 10 000 000]` octets. Le bas (10 Ko) empeche une
+          valeur qui desactiverait la fonctionnalite sans le dire ; le haut est PARTAGE avec le
+          filet de securite de multer (raison au point 1), et non calque sur le plafond de
+          `nginx-global` (1 Mio) — le TI PEUT regler une valeur qui produirait un `413` HTML via
+          `nginx-global`, la route ne l'empeche pas, elle documente seulement la consequence
+          (coherent avec l'instruction explicite de la tache).
+        </description>
+        <testCoverage>
+          npm run build : OK. npm test (unit) : 681/681 verts (24 suites), y compris les 2
+          nouveaux fichiers de test (MediaSettingsService, MediaSettingsController) et les 3
+          fichiers existants adaptes (avatar.service, profile-avatar.controller,
+          upload-size-limit). Pas de suite e2e ajoutee pour l'avatar (aucune n'existait avant cette
+          session, cf. instruction de la tache : test unitaire si pas d'e2e prealable) ; e2e non
+          rejoue faute d'acces a une base Postgres de test depuis cet environnement (pas de
+          .env.test present, TEST_DB_* non configures dans ce worktree).
+        </testCoverage>
+      </decision>
       <openPoints>
+        <item priority="medium" status="to-do" raisedIn="C26" raisedOn="2026-08-26" owner="orchestrateur">
+          `pedagogical-log-service` a besoin d'un ecran "Parametres systeme" commun (point 8 de
+          l'arbitrage du 2026-08-26) qui agrege ses propres reglages de pieces jointes ET
+          `GET /profiles/avatar/constraints` / `PATCH /profiles/avatar/settings` de ce service. Le
+          decoupage cote profile-service est livre et pret a etre consomme ; l'ecran front reste
+          hors perimetre de cette session (deleguee separement).
+        </item>
+        <item priority="low" status="to-do" raisedIn="C26" raisedOn="2026-08-26" owner="back">
+          Aucune trace de la modification du plafond dans `admin-observability-service` (meme
+          lacune deja notee pour la rupture de relation, voir openPoint raisedIn="C17") : une
+          modification de reglage systeme par le TI est une action sensible qui devrait remonter a
+          l'audit central quand ce cablage existera pour ce service.
+        </item>
         <item priority="medium" status="to-do" raisedIn="C25" raisedOn="2026-08-17" owner="orchestrateur">
           `docs/architecture.md` ne portait AUCUNE section "Defauts de visibilite champ par
           champ..." au moment de cette session, alors que la tache la presentait comme deja

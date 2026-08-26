@@ -18,7 +18,7 @@ import {
   AVATAR_OUTPUT_CONTENT_TYPE,
   ImageTranscoder,
 } from '../media/image-transcoder';
-import { MediaConfig } from '../media/media.config';
+import { MediaSettingsService } from '../media/media-settings.service';
 import { MEDIA_STORAGE_PORT, MediaObjectKey, MediaStoragePort } from '../media/media-storage.port';
 import { uploadFileTooLargeException } from '../media/upload-size-limit';
 import { AvatarConstraintsDto } from './dto/avatar-constraints.dto';
@@ -91,7 +91,7 @@ export class AvatarService {
     @Inject(MEDIA_STORAGE_PORT)
     private readonly mediaStorage: MediaStoragePort,
     private readonly imageTranscoder: ImageTranscoder,
-    private readonly mediaConfig: MediaConfig,
+    private readonly mediaSettingsService: MediaSettingsService,
     private readonly profilesService: ProfilesService,
     private readonly fieldVisibilityService: FieldVisibilityService,
     private readonly events: EventsService,
@@ -129,15 +129,17 @@ export class AvatarService {
       );
     }
 
-    // DEUXIÈME verrou, pas le premier : multer a normalement déjà coupé le flux
-    // au même seuil, sans charger l'excédent en mémoire (voir le contrôleur).
-    // Celui-ci rattrape les appels qui n'empruntent pas l'intercepteur — appels
-    // internes, tests — et le cas où les deux lectures du plafond divergeraient.
-    // Le corps de la réponse est le MÊME dans les deux cas, à ceci près qu'ici
-    // la taille exacte du fichier est connue, puisqu'il a été lu en entier.
-    if (file.buffer.length > this.mediaConfig.maxUploadBytes) {
+    // DEUXIÈME verrou, et désormais le SEUL qui applique la valeur RÉGLABLE
+    // par le TI (arbitrage du 2026-08-26) : celui de multer, statique, ne
+    // protège plus qu'un plafond de sécurité fixe (voir le contrôleur et
+    // MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES) — jamais plus bas que la valeur
+    // ici, par construction des bornes de validation de
+    // UpdateMediaSettingsDto. C'est donc CE contrôle, et lui seul, qui décide
+    // pour toute valeur que le TI a effectivement réglée.
+    const maxUploadBytes = await this.mediaSettingsService.getMaxAvatarUploadBytes();
+    if (file.buffer.length > maxUploadBytes) {
       throw uploadFileTooLargeException({
-        maxUploadBytes: this.mediaConfig.maxUploadBytes,
+        maxUploadBytes,
         receivedBytes: file.buffer.length,
       });
     }
@@ -286,15 +288,20 @@ export class AvatarService {
   /**
    * Contraintes d'envoi, telles que le serveur les applique.
    *
-   * Aucune constante n'est recopiée : la limite vient de `MediaConfig` — donc
-   * de la même valeur que celle opposée à l'envoi — et les formats viennent du
+   * Aucune constante n'est recopiée : la limite vient de
+   * `MediaSettingsService` — donc de la même valeur que celle opposée à
+   * l'envoi (le second verrou de `uploadAvatar`) — et les formats viennent du
    * transcodeur. Une route qui republierait des valeurs écrites à la main
    * finirait par annoncer autre chose que ce qui est appliqué, ce qui est plus
    * nuisible que de ne rien annoncer.
+   *
+   * DEVENUE ASYNCHRONE le 2026-08-26 : le plafond n'est plus une constante
+   * figée au démarrage, il est lu en base à chaque appel — c'est précisément
+   * ce qui permet au TI de le régler sans redéploiement.
    */
-  getUploadConstraints(): AvatarConstraintsDto {
+  async getUploadConstraints(): Promise<AvatarConstraintsDto> {
     return {
-      maxUploadBytes: this.mediaConfig.maxUploadBytes,
+      maxUploadBytes: await this.mediaSettingsService.getMaxAvatarUploadBytes(),
       acceptedContentTypes: [...ACCEPTED_INPUT_CONTENT_TYPES],
       outputContentType: AVATAR_OUTPUT_CONTENT_TYPE,
       maxDimensionPixels: AVATAR_MAX_DIMENSION,

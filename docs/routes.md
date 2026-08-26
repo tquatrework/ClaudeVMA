@@ -364,10 +364,29 @@ Rôles disponibles : `eleve`, `parent_financeur`, `formateur`, `animateur_pedago
 > **envoyer `avatarUrl` à `PUT /profiles/:userId/administrative` renvoie `400`** — le champ reste
 > **lisible** dans le bloc `administrative`, où il porte l'URL de lecture ci-dessous.
 
+> **Plafond réglable par le TI depuis le 2026-08-26** (arbitrage « Liens et pièces jointes sur une
+> entrée de cahier de texte, et paramètres système associés », point 8 de `docs/architecture.md`) :
+> `MEDIA_MAX_UPLOAD_BYTES` n'est plus la valeur appliquée, seulement la valeur **d'amorçage**, posée
+> en base au tout premier appel si aucun réglage n'existe encore (table `media_settings`, ligne
+> singleton). `PATCH /profiles/avatar/settings` (TI seul) la remplace ensuite **à l'exécution, sans
+> redéploiement** ; `GET /profiles/avatar/constraints` (déjà documentée ci-dessous, contrat
+> **inchangé**) lit désormais cette même valeur en base au lieu de la variable d'environnement.
+>
+> **Deux plafonds distincts coexistent sur `POST /profiles/:userId/avatar`, et c'est volontaire** :
+> multer applique un filet de sécurité **statique** (`MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES`,
+> 10 000 000 octets, code) — il ne peut pas être dynamique, les options de `FileInterceptor` étant
+> évaluées à l'import du contrôleur, avant qu'un appel en base ne soit possible. C'est le **service**
+> (`AvatarService.uploadAvatar`, second verrou) qui applique ensuite la valeur **réellement réglée**
+> par le TI et produit, dans l'immense majorité des cas, le `413` structuré ci-dessous. Cette même
+> constante (10 000 000 octets) est aussi la borne haute de validation de
+> `PATCH /profiles/avatar/settings` : le TI ne peut donc jamais régler une valeur que multer
+> refuserait avant même que le service ne la voie.
+
 | Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /profiles/avatar/constraints | 🔒 | tout compte authentifié | **À lire AVANT d'ouvrir le sélecteur de fichier.** Publie les contraintes d'envoi en vigueur, pour que le front les affiche et rejette localement un fichier trop lourd, plutôt que de laisser l'utilisateur le découvrir après plusieurs secondes d'envoi. Pas de `:userId` : les contraintes ne dépendent ni du profil visé ni du lecteur. **Ces valeurs ne doivent pas être codées en dur côté front** — elles viennent de la même configuration que celle opposée à l'envoi, une copie divergerait au premier ajustement et annoncerait alors une limite fausse | `200 {maxUploadBytes, acceptedContentTypes, outputContentType, maxDimensionPixels}` — ex. `{"maxUploadBytes":1000000,"acceptedContentTypes":["image/jpeg","image/png","image/webp","image/gif","image/avif"],"outputContentType":"image/webp","maxDimensionPixels":512}` · `401` |
-| POST | /profiles/:userId/avatar | 🔒 | **le titulaire seul** | Envoyer ou remplacer la photo. **Multipart**, champ `file`, un seul fichier. Le type est détecté sur les **octets réels** (nombres magiques) — ni l'extension ni le `Content-Type` du client ne sont consultés, tous deux étant sous son contrôle. L'image est **intégralement ré-encodée** en WebP borné à 512 px, ce qui neutralise toute charge dissimulée et **supprime les métadonnées EXIF**, géolocalisation comprise. **SVG refusé** (document XML exécutable). Le nom du fichier stocké est un UUID généré par le serveur. Le fichier précédent est supprimé du volume. Formats acceptés : JPEG, PNG, WebP, GIF, AVIF | `200 {avatarUrl}` — URL de lecture versionnée, identique à celle du bloc `administrative` · `400` aucun fichier, format non reconnu, SVG, HEIC/HEIF, image illisible · `401` · `403` appelant autre que le titulaire · `413` au-delà de `MEDIA_MAX_UPLOAD_BYTES` (**1 000 000 octets** par défaut) — **corps structuré, voir ci-dessous** · `500` profil administratif absent, ou stockage indisponible |
+| GET | /profiles/avatar/constraints | 🔒 | tout compte authentifié | **À lire AVANT d'ouvrir le sélecteur de fichier.** Publie les contraintes d'envoi en vigueur, pour que le front les affiche et rejette localement un fichier trop lourd, plutôt que de laisser l'utilisateur le découvrir après plusieurs secondes d'envoi. Pas de `:userId` : les contraintes ne dépendent ni du profil visé ni du lecteur. **Ces valeurs ne doivent pas être codées en dur côté front** — elles viennent de la même configuration que celle opposée à l'envoi (désormais lue en base, voir encadré ci-dessus), une copie divergerait au premier ajustement et annoncerait alors une limite fausse | `200 {maxUploadBytes, acceptedContentTypes, outputContentType, maxDimensionPixels}` — ex. `{"maxUploadBytes":1000000,"acceptedContentTypes":["image/jpeg","image/png","image/webp","image/gif","image/avif"],"outputContentType":"image/webp","maxDimensionPixels":512}` · `401` |
+| PATCH | /profiles/avatar/settings | 🔒 | **technicien_informatique SEUL** | Régler le plafond d'envoi de la photo de profil **à l'exécution, sans redéploiement** (voir encadré ci-dessus). Body `{maxAvatarUploadBytes}`, entier en octets. **PAS sous `/admin`** : `location ^~ /api/v1/admin` de `gateway/api-gateway/nginx.conf` route déjà tout ce préfixe vers `admin-observability-service` — une route `profile-service` sous ce chemin serait injoignable sans modifier la gateway (hors périmètre de ce chantier). Volontairement regroupée avec `GET /profiles/avatar/constraints` : même ressource, même contrôleur | `200 {maxAvatarUploadBytes, updatedAt}` — reflète la valeur RELUE en base après écriture, jamais le corps envoyé tel quel (règle du 2026-08-10, point 3bis) · `400` `maxAvatarUploadBytes` absent, non entier, ou hors bornes `[10000, 10000000]` octets, ou champ inconnu (`forbidNonWhitelisted`) · `401` · `403` rôle autre que TI |
+| POST | /profiles/:userId/avatar | 🔒 | **le titulaire seul** | Envoyer ou remplacer la photo. **Multipart**, champ `file`, un seul fichier. Le type est détecté sur les **octets réels** (nombres magiques) — ni l'extension ni le `Content-Type` du client ne sont consultés, tous deux étant sous son contrôle. L'image est **intégralement ré-encodée** en WebP borné à 512 px, ce qui neutralise toute charge dissimulée et **supprime les métadonnées EXIF**, géolocalisation comprise. **SVG refusé** (document XML exécutable). Le nom du fichier stocké est un UUID généré par le serveur. Le fichier précédent est supprimé du volume. Formats acceptés : JPEG, PNG, WebP, GIF, AVIF | `200 {avatarUrl}` — URL de lecture versionnée, identique à celle du bloc `administrative` · `400` aucun fichier, format non reconnu, SVG, HEIC/HEIF, image illisible · `401` · `403` appelant autre que le titulaire · `413` au-delà du plafond en vigueur (**réglable par le TI depuis le 2026-08-26**, 1 000 000 octets par défaut à l'amorçage) — **corps structuré, voir ci-dessous** · `500` profil administratif absent, ou stockage indisponible |
 | GET | /profiles/:userId/avatar | 🔒 | mêmes règles de lecture que le champ `avatarUrl` | Renvoie les **octets** de l'image (`image/webp`), pas une redirection. Passe par le **même** port de filtrage de visibilité que `GET /profiles/:userId` : ne refiltre rien de son côté, sinon elle en serait le contournement exact. **Photo masquée pour ce lecteur ⇒ `404`, pas `403`** — cohérent avec « un champ masqué est absent », un `403` révélerait son existence. Le message est **le même** que pour une absence de photo, et c'est voulu | `200` octets + en-têtes `Content-Type: image/webp`, `Content-Length`, `ETag`, `Cache-Control: private, max-age=60, must-revalidate` · `401` · `403` aucun droit de lecture sur le **profil** (formateur ou parent non rattaché, élève consultant autrui) · `404` pas de photo **ou** photo masquée pour ce lecteur |
 | DELETE | /profiles/:userId/avatar | 🔒 | **le titulaire seul** | Supprime la photo : la référence en base **et** le fichier sur le volume. **Idempotent** : supprimer une photo déjà absente répond `204`, pas `404` — l'état visé est atteint, et un double clic sur « Supprimer » ne doit pas produire d'erreur. Ce n'est pas un champ accepté puis ignoré, mais la sémantique normale de DELETE. Après suppression, `avatarUrl` vaut `null` | `204` · `401` · `403` appelant autre que le titulaire |
 
@@ -388,7 +407,8 @@ un stockage objet possible sans toucher un seul appelant.
 > porté dans l'en-tête `Authorization`, que le navigateur n'envoie pas sur une balise `<img>`. Le
 > front doit récupérer les octets (`fetch` avec le jeton) puis construire un object URL.
 
-**Taille maximale — 1 000 000 octets (1 Mo), et pourquoi cette valeur précise.**
+**Taille maximale — 1 000 000 octets (1 Mo) par défaut à l'amorçage, réglable ensuite par le TI, et
+pourquoi cette valeur précise.**
 
 Le reverse-proxy `nginx-global` placé devant l'application ne déclare aucun `client_max_body_size` :
 son défaut de **1 Mio (1 048 576 octets)** s'applique donc, et il porte sur le **corps entier** de la
@@ -414,21 +434,32 @@ jamais le maillon qui coupe ; un `413` qu'elle émettrait malgré tout répond m
 |---|---|---|---|
 | `nginx-global` | 1 Mio (défaut **non déclaré**) | hors dépôt | `413` HTML |
 | `api-gateway` | 10 Mio (déclaré) | `gateway/api-gateway/nginx.conf` | `413` JSON |
-| `profile-service` | 1 000 000 o | `MEDIA_MAX_UPLOAD_BYTES` | `413` JSON structuré ci-dessous |
+| `profile-service` (multer, filet de sécurité **statique**) | 10 000 000 o | `MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES` (code) | `413` JSON structuré ci-dessous, plafond FIXE |
+| `profile-service` (service, valeur **dynamique**, réglable par le TI) | 1 000 000 o à l'amorçage | table `media_settings`, `PATCH /profiles/avatar/settings` | `413` JSON structuré ci-dessous, plafond RÉELLEMENT en vigueur |
 
-> ⚠️ Ce n'est **pas** la limite souhaitable à terme — une photo de téléphone pèse couramment 2 à
-> 5 Mo. Elle est basse parce que le `client_max_body_size` qui contraint réellement vit **hors de ce
-> dépôt** (`/home/debian/NginxGlobal/nginx.conf`, bloc `location /api/v1/` de
-> `claudevma.visioprof.fr`) et n'a pas encore été corrigé. Le jour où il le sera, remonter
-> `MEDIA_MAX_UPLOAD_BYTES` dans `docker-compose.yml` **et** `DEFAULT_MAX_UPLOAD_BYTES` dans
-> `src/media/media.config.ts`, en conservant la même marge sous le plafond du proxy — et **vérifier
-> au passage** que le plafond de `api-gateway` reste au-dessus des deux.
+> ⚠️ **Régler `maxAvatarUploadBytes` au-delà du plafond de `nginx-global` produit le même `413` HTML
+> illisible déjà documenté** — cette route ne l'empêche pas, elle documente seulement la conséquence.
+> Le `client_max_body_size` qui contraint réellement vit **hors de ce dépôt**
+> (`/home/debian/NginxGlobal/nginx.conf`, bloc `location /api/v1/` de `claudevma.visioprof.fr`) et
+> n'a pas encore été corrigé. Le jour où il le sera, l'ordre reste le même que documenté depuis le
+> 2026-08-10 : relever `nginx-global` d'abord, puis `api-gateway` si besoin — le réglage TI
+> (`PATCH /profiles/avatar/settings`), lui, ne demande **aucun redéploiement**.
+>
+> Le filet de sécurité **statique** de multer (`MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES`, ligne du
+> dessus) reste, lui, un plafond de CODE — le relever exige toujours un redéploiement, exactement
+> comme avant ce chantier. C'est un choix assumé : les options de `FileInterceptor` sont évaluées à
+> l'import du contrôleur, avant qu'un appel asynchrone en base ne soit possible, donc avant de
+> connaître la valeur réglée par le TI. Cette même constante borne aussi la valeur haute acceptée par
+> `PATCH /profiles/avatar/settings` (`400` au-delà) : le TI ne peut donc jamais régler une valeur que
+> ce filet refuserait avant même que le service ne la voie.
 
-Le refus est prononcé **en streaming**, par multer, dès le dépassement : le contrôleur n'est pas
-atteint et les octets excédentaires ne sont jamais chargés en mémoire. Un contrôle placé seulement
-après lecture complète aurait offert à tout appelant authentifié un moyen de faire enfler la mémoire
-du service. Le service refait le contrôle derrière, pour les appels qui n'empruntent pas
-l'intercepteur.
+Le refus est prononcé **en streaming**, par multer, dès le dépassement du filet de sécurité fixe : le
+contrôleur n'est pas atteint et les octets excédentaires ne sont jamais chargés en mémoire — c'est le
+seul cas où ceci reste vrai depuis le 2026-08-26. **Dans l'immense majorité des cas** (un fichier
+dépassant la valeur réglée par le TI mais restant sous le filet de sécurité fixe), le fichier est reçu
+en ENTIER puis refusé par `AvatarService.uploadAvatar`, qui connaît la valeur réellement en vigueur —
+c'est ce second contrôle qui produit alors le `413`, avec `receivedBytes` renseigné plutôt qu'à `null`.
+Le service refait de toute façon le contrôle pour les appels qui n'empruntent pas l'intercepteur.
 
 **Corps de la réponse `413` — clés stables.** Le front teste `code`, **jamais** `message` : celui-ci
 est en anglais technique, le libellé français est construit côté client à partir de `maxUploadBytes`

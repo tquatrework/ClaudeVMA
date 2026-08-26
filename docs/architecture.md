@@ -707,4 +707,92 @@ Phase 3 enrichit l'offre :
   5. **Ne s'applique pas au parent financeur ni aux roles administratifs**, deja exemptes du
      filtrage champ par champ (arbitrage du 2026-08-09) — cet arbitrage ne les concerne pas.
 
+- Liens et pieces jointes sur une entree de cahier de texte, et parametres systeme associes.
+  Arbitrage rendu le 2026-08-26, sur demande explicite de l'utilisateur. Investigation prealable
+  faite en HTTP direct contre la pile reelle (pas de lecture du code service, conforme au
+  perimetre de l'orchestrateur) : le champ `linkedResources`, deja present sur l'entite
+  `PedagogicalLogPage` mais non documente (releve du chantier du 2026-08-20), a ete teste
+  directement. Resultat : il exige `id` (UUID) + `type` (string), et **jette silencieusement tout
+  champ `url`/`label` non prevu par son propre DTO** — en realite `label` est accepte et persiste,
+  mais `url` est purement et simplement absent de la reponse. C'est un champ de **reference vers
+  une ressource interne** (futur `content-catalog-service`, phase 3 — exercice, evaluation,
+  tuto-video identifie par UUID), pas un vecteur pour un lien externe arbitraire. Il **reste
+  reserve a cet usage phase 3** et n'est pas touche par cet arbitrage : le report qui l'avait
+  releve disait deja qu'il etait hors perimetre, cette lecture directe confirme pourquoi.
+  1. **Nouveau champ `resourceLinks`, distinct de `linkedResources`.** Un seul nom par donnee
+     (regle du projet) ne s'applique pas ici : ce sont deux donnees differentes (l'une reference
+     un contenu interne par id, l'autre porte un lien libre avec son propre texte), chacune garde
+     le sien. Forme : `resourceLinks: [{label: string, url: string}]`, porte directement sur
+     `PedagogicalLogPage` (comme `sessionSummary`/`homework`), pas une entite separee — un lien est
+     une donnee legere, pas un fichier a stocker. `url` doit etre une URL absolue (`http(s)://`),
+     `label` obligatoire (texte affiche, jamais l'URL brute affichee seule). Plafond de nombre a
+     poser cote implementation (proposition : 10 par entree) pour eviter un tableau non borne,
+     meme raisonnement que partout ailleurs dans ce projet.
+  2. **Ecriture reservee au formateur, comme le reste de l'entree.** `resourceLinks` suit
+     exactement la meme regle que `sessionSummary`/`homework` (arbitrage du 2026-08-20, point 3) :
+     seul le formateur titulaire de la relation ecrit (creation et modification), les autres
+     roles autorises a voir l'entree (eleve, parent, RP selon la categorie de visibilite) le
+     **lisent** et peuvent **cliquer** le lien — aucune restriction de lecture supplementaire par
+     rapport aux autres champs de l'entree, le filtrage se fait au niveau de l'entree entiere
+     (`visibility`), pas champ par champ a l'interieur d'une entree.
+  3. **Pieces jointes : nouvelle entite, propriete de `pedagogical-log-service`.** Une entree peut
+     recevoir plusieurs fichiers (contrainte de budget total, voir point 5) : ce n'est pas un champ
+     scalaire mais une table enfant `PedagogicalLogAttachment` (`logEntryId`, `originalFilename`,
+     `storedFilename` genere serveur, `mimeType` detecte sur les octets reels, `sizeBytes`,
+     `uploadedBy`, `createdAt`). Rattachee a `pedagogical-log-service` et non a
+     `archive-document-service` : une piece jointe de cahier de texte est operationnelle, liee au
+     cycle de vie de l'entree (supprimee avec elle), pas un document a valeur probante durable —
+     meme distinction deja posee le 2026-08-10 entre la photo de profil et le CV formateur.
+  4. **Stockage sur un volume Docker nomme dedie a ce service** (`pedagogical_log_media` ou
+     equivalent), **jamais** le volume `media_data` de `profile-service` — chaque service reste
+     proprietaire de ses propres binaires, meme raisonnement que partout ailleurs dans ce projet.
+     Meme discipline que l'avatar (arbitrage du 2026-08-10) : le front ne connait jamais un chemin
+     de fichier, seulement une route ; lecture authentifiee qui reapplique le filtrage de
+     visibilite de l'entree parente (403/404 selon le cas, coherent avec les autres masquages —
+     ici l'existence d'une entree n'est pas un secret pour qui y a deja acces en lecture, donc pas
+     besoin du 404-plutot-que-403 systematique de l'avatar) ; nom de fichier stocke genere cote
+     serveur ; type detecte sur les octets reels, jamais sur l'extension ni le `Content-Type`
+     client. **Nouveau volume a ajouter a la routine de sauvegarde**, meme rappel que pour
+     `media_data`.
+  5. **Type de fichiers accepte : liste blanche, pas de liste noire.** PDF, images
+     (JPEG/PNG/WebP/GIF), documents bureautiques courants (DOCX/XLSX/PPTX/DOC/XLS/PPT), texte/CSV.
+     Pas de re-encodage systematique (impossible pour un PDF ou un DOCX, contrairement a une
+     image) : la protection vient de la detection par octets reels et de la liste blanche, pas
+     d'une transformation. SVG et tout format executable/script restent refuses, meme motif que
+     pour la photo de profil.
+  6. **Deux plafonds, tous deux parametrables par le TI, jamais codes en dur cote front.** Par
+     defaut : **100 000 octets (100 Ko SI) par fichier**, **5 000 000 octets (5 Mo SI) au total par
+     entree**. Meme convention decimale que l'avatar (2026-08-10, "1 Mo au sens SI, 1 000 000
+     octets"). A ces valeurs par defaut, aucun envoi n'approche le plafond non declare de
+     `nginx-global` (1 Mio) ni celui, declare, de `api-gateway` (10 Mio) — un fichier par requete,
+     comme l'avatar. **Si le TI relevait un jour le plafond par fichier au-dela de celui de
+     `nginx-global`, le meme ordre que pour l'avatar s'impose** : proxy d'abord, application
+     ensuite — rappel a poser dans le code, pas seulement ici.
+  7. **Interrupteur "pieces jointes activees" (oui/non), par defaut active.** L'utilisateur n'a pas
+     precise de valeur par defaut ; ce chantier existant precisement pour livrer cette
+     fonctionnalite, l'activer par defaut est le choix qui sert la demande. Le TI peut le
+     desactiver depuis l'ecran "Parametres systeme". Quand desactive, le bouton "Joindre un
+     fichier" disparait du formulaire cote front (le front lit l'etat avant d'afficher le bouton,
+     meme discipline que `GET /profiles/avatar/constraints` lu avant l'ouverture du selecteur de
+     fichier) et la route d'envoi refuse explicitement (403), jamais un `200` qui ignorerait le
+     fichier envoye.
+  8. **Deux domaines de reglages, chacun chez son proprietaire, agreges par un seul ecran front.**
+     Pas de nouveau service de configuration transverse : `profile-service` reste proprietaire du
+     plafond de la photo de profil (devient reglable par le TI en base, alors qu'il n'etait
+     jusqu'ici qu'une variable d'environnement statique — `MEDIA_MAX_UPLOAD_BYTES` devient la
+     valeur d'amorçage si aucun reglage n'existe encore en base, pas la valeur figee) ;
+     `pedagogical-log-service` devient proprietaire de ses propres reglages de pieces jointes
+     (active/desactive, plafond par fichier, plafond total). Chaque service expose sa propre route
+     TI (`GET`/`PATCH`), protegee par le role `technicien_informatique` comme
+     `PATCH /admin/site-metadata/:id` deja existant. L'ecran "Parametres systeme" cote front
+     (extension de `SiteMetadataEditor.tsx`, deja le seul ecran TI de ce type) agrege les appels
+     aux differents services proprietaires, exactement comme un tableau de bord agrege deja
+     plusieurs domaines — precedent deja etabli dans ce projet, aucun service transverse de
+     configuration a inventer.
+  9. **Lecture des reglages ouverte a tout compte authentifie, ecriture reservee au TI.** Meme
+     dissociation que pour `GET /profiles/avatar/constraints` (public-authentifie en lecture,
+     aucune route d'ecriture avant ce chantier) : le formateur qui ouvre le formulaire de nouvelle
+     entree doit pouvoir lire le plafond courant et l'etat active/desactive avant de proposer le
+     bouton, sans etre TI lui-meme.
+
 ## Points ouverts a arbitrer

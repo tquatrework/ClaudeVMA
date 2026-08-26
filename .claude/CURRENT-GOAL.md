@@ -5,6 +5,53 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-26 — liens et pièces jointes sur le cahier de texte
+
+Demande explicite de l'utilisateur, en continuant de tester le cahier de texte. Deux ajouts :
+
+1. **Lien vers une ressource** (externe ou interne) dans le formulaire de nouvelle entrée : un
+   petit bouton pour saisir un lien avec un texte affiché et une URL. Le lien doit être cliquable
+   par l'élève et le parent (lecteurs autorisés de l'entrée).
+2. **Pièce jointe** : bouton pour joindre un fichier, avec une limite de taille par défaut très
+   basse (100 Ko).
+3. **Paramètres système (TI)** : sur l'écran existant `/admin/site-metadata`
+   (`SiteMetadataEditor.tsx`), ajouter — taille max de la photo de profil (défaut 1 Mo, déjà
+   existante côté `profile-service` mais figée en variable d'environnement, à rendre réglable) ;
+   activation/désactivation des pièces jointes du cahier de texte (défaut activé) ; si activé,
+   taille max par fichier (défaut 100 Ko) et taille max totale par entrée (défaut 5 Mo).
+
+Arbitrage d'architecture complet posé par l'orchestrateur dans `docs/architecture.md` (point
+« Liens et pieces jointes sur une entree de cahier de texte », 2026-08-26), après investigation
+HTTP directe contre la pile réelle : le champ `linkedResources` déjà présent sur l'entité (repéré
+mais non documenté le 2026-08-20) **n'est pas réutilisable** pour un lien externe — il exige
+`id`+`type` (référence vers un contenu interne futur, phase 3) et jette silencieusement `url`.
+Nouveau champ `resourceLinks: [{label, url}]` créé à la place, distinct et porté directement par
+l'entrée. Pièces jointes : nouvelle entité `PedagogicalLogAttachment`, stockage sur un volume
+Docker nommé dédié à `pedagogical-log-service` (jamais le volume `media_data` de
+`profile-service`), liste blanche de types (PDF, images, bureautique courante, texte/CSV), pas de
+service de configuration transverse — chaque service reste propriétaire de ses réglages, l'écran
+front les agrège.
+
+### Comment on saura que c'est fait
+
+Capture d'écran de `/pedagogical-log` (formateur) : bouton lien fonctionnel, lien affiché
+cliquable côté élève/parent, bouton pièce jointe fonctionnel, refus explicite d'un fichier trop
+gros citant la taille et la limite. Capture de l'écran `/admin/site-metadata` montrant les
+nouveaux réglages et leur sauvegarde effective (relue après rechargement).
+
+### État
+
+- [ ] Backend `pedagogical-log-service` — `resourceLinks`, entité `PedagogicalLogAttachment`,
+  stockage, réglages TI (délégué)
+- [ ] Backend `profile-service` — réglage TI du plafond avatar (délégué)
+- [ ] Front — formulaire (lien + pièce jointe), affichage/téléchargement, extension de
+  `SiteMetadataEditor.tsx` (délégué à `front-developper`)
+- [ ] Déployé sur la pile réelle
+- [ ] Preuve livrée à l'utilisateur
+- [ ] Validé par l'utilisateur
+
+---
+
 ## Besoin — 2026-08-21 — formulaire de nouvelle entrée replié par défaut
 
 Demande explicite de l'utilisateur, en continuant de tester le chantier "refonte du cahier de

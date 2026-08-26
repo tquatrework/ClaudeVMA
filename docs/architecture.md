@@ -795,4 +795,42 @@ Phase 3 enrichit l'offre :
      entree doit pouvoir lire le plafond courant et l'etat active/desactive avant de proposer le
      bouton, sans etre TI lui-meme.
 
+- Syntaxe legere unifiee pour le texte enrichi (liens, puis notation mathematique). Arbitrage
+  rendu le 2026-08-26, apres test utilisateur reel de la PR #135 : le champ structure
+  `resourceLinks` (liste separee de `{label, url}`) livre le meme jour s'est revele deconnecte de
+  l'usage reel — l'utilisateur veut le lien **dans** le texte de `sessionSummary`/`homework`, pas a
+  cote. La meme conversation a souleve un besoin plus large et plus lourd, encore a venir :
+  `content-catalog-service` (exercices/evaluations, phase 3) devra porter de la **notation
+  mathematique**.
+  1. **Un editeur riche (WYSIWYG, contenteditable, stockage HTML) est ecarte, pour les deux
+     besoins.** Meme la notation mathematique ne se saisit pas a la souris dans l'edition
+     professionnelle ou pedagogique — elle se tape en LaTeX puis se rend a l'affichage (convention
+     etablie : StackExchange Math, Jupyter, la plupart des plateformes edtech). Un editeur riche
+     n'apporterait donc rien au besoin mathematique, et couterait cher aux deux : nouvelle
+     dependance front, changement de `sessionSummary`/`homework` de texte brut vers un format
+     enrichi stocke (HTML ou equivalent), assainissement anti-injection a mettre en place.
+  2. **Principe retenu, valable pour les deux besoins : texte brut stocke tel quel, transforme au
+     rendu.** Une syntaxe legere textuelle (liens `[label](url)` aujourd'hui, notation
+     mathematique `$...$`/`$$...$$` demain via KaTeX) est parsee et rendue **cote client
+     uniquement** au moment de l'affichage. Aucun champ ne change de nature cote serveur : un champ
+     texte reste un champ texte, la transformation est un probleme d'affichage, pas de stockage.
+  3. **`resourceLinks` (champ structure separe, livre le meme jour) est retire**, remplace par
+     l'insertion du lien directement dans le texte via cette syntaxe. Deux mecanismes concurrents
+     pour la meme donnee (un champ structure ET une syntaxe inline) auraient viole la regle du
+     projet "un seul nom, un seul mecanisme par donnee" et confondu l'utilisateur sur lequel
+     utiliser. La PR #135 n'etant pas encore mergee au moment de ce constat, le retrait se fait
+     proprement, sans migration de donnees existantes a gerer.
+  4. **Perimetre livre maintenant : liens uniquement.** Un bouton "Inserer un lien" a cote de
+     `sessionSummary` et `homework` ouvre une petite saisie (texte affiche + URL), insere
+     `[texte](url)` a la position du curseur dans le champ actif ; l'affichage transforme ces
+     motifs en vrais liens cliquables (`<a target="_blank" rel="noopener noreferrer">`). Portee
+     volontairement etroite : pas de gras/italique/listes tant que rien ne les demande — la regle
+     du projet est de ne pas construire par anticipation.
+  5. **Notation mathematique : point ouvert, non implemente ici.** Le rendu KaTeX pour
+     `content-catalog-service` est un chantier distinct, phase 3, qui reutilisera le meme
+     pipeline de rendu (texte brut + parseur de syntaxe legere) plutot que d'en inventer un
+     second. Ne pas coder ce rendu par anticipation avant que `content-catalog-service` en ait
+     reellement besoin, mais le nommer ici pour que la convention de syntaxe choisie pour les
+     liens ne ferme pas la porte a son extension future.
+
 ## Points ouverts a arbitrer

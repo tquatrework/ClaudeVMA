@@ -1,4 +1,31 @@
-import { fromBuffer } from 'file-type';
+import * as fileType from 'file-type';
+
+/**
+ * `file-type` existe en deux API incompatibles selon la version resolue :
+ * `fromBuffer` (CommonJS, <= v16, celle demandee par `package.json`) et
+ * `fileTypeFromBuffer` (ESM, >= v17). npm ne peut pas dedupliquer cette
+ * dependance avec celle, plus recente, requise en interne par
+ * `@nestjs/common` (`node_modules/@nestjs/common/node_modules/file-type`) :
+ * une resolution TypeScript/Node qui remonterait par erreur vers cette copie
+ * imbriquee casserait un import nomme figé sur une seule des deux API. On
+ * accepte donc explicitement les deux formes ici, pour rester correct quelle
+ * que soit la copie effectivement resolue par l'arbre de dependances.
+ */
+const detectFileType: (buffer: Buffer) => Promise<{ mime: string } | undefined> = (() => {
+  const module = fileType as unknown as {
+    fromBuffer?: (buffer: Buffer) => Promise<{ mime: string } | undefined>;
+    fileTypeFromBuffer?: (buffer: Buffer) => Promise<{ mime: string } | undefined>;
+  };
+  if (typeof module.fromBuffer === 'function') {
+    return module.fromBuffer;
+  }
+  if (typeof module.fileTypeFromBuffer === 'function') {
+    return module.fileTypeFromBuffer;
+  }
+  throw new Error(
+    "file-type: aucune fonction de detection compatible trouvee (ni fromBuffer, ni fileTypeFromBuffer)",
+  );
+})();
 
 /**
  * Liste blanche des types acceptés (arbitrage du 2026-08-26, point 5) —
@@ -56,7 +83,7 @@ export async function detectAttachmentMimeType(buffer: Buffer): Promise<string |
     return SVG_MIME_TYPE;
   }
 
-  const detected = await fromBuffer(buffer);
+  const detected = await detectFileType(buffer);
   if (detected) {
     return detected.mime;
   }

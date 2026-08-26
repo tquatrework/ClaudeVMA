@@ -30,7 +30,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
-import { maxUploadBytesFromEnvironment } from '../media/media.config';
+import { MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES } from '../media/entities/media-settings.entity';
 import { UploadSizeLimitFilter } from '../media/upload-size-limit.filter';
 import { AvatarService, AvatarUploadResult } from './avatar.service';
 import { AvatarConstraintsDto } from './dto/avatar-constraints.dto';
@@ -99,7 +99,7 @@ export class ProfileAvatarController {
       '`outputContentType`, `maxDimensionPixels`.',
   })
   @ApiResponse({ status: 401, description: 'Jeton absent ou invalide' })
-  getUploadConstraints(): AvatarConstraintsDto {
+  getUploadConstraints(): Promise<AvatarConstraintsDto> {
     return this.avatarService.getUploadConstraints();
   }
 
@@ -139,11 +139,22 @@ export class ProfileAvatarController {
        * un moyen offert à n'importe quel appelant authentifié de faire enfler la
        * mémoire du service à volonté, en envoyant des corps arbitrairement gros.
        *
-       * `AvatarService` refait le contrôle derrière : voir le commentaire du
-       * second verrou dans `uploadAvatar`.
+       * DEPUIS le 2026-08-26, CE PLAFOND EST STATIQUE À DESSEIN, et distinct de
+       * celui réellement appliqué. `FileInterceptor` est construit UNE FOIS, à
+       * l'import du contrôleur — avant toute requête, donc avant qu'un appel
+       * asynchrone en base (le réglage réglable par le TI) ne soit possible.
+       * `MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES` n'est donc PAS le plafond
+       * annoncé au front ni celui qui produit le `413` normal : c'est un
+       * FILET DE SÉCURITÉ fixe, égal à la borne haute autorisée pour le
+       * réglage du TI (`UpdateMediaSettingsDto`) — il ne peut donc jamais
+       * couper avant que la valeur RÉELLEMENT réglée ne le fasse.
+       *
+       * `AvatarService` refait le contrôle derrière, avec la valeur DYNAMIQUE :
+       * voir le commentaire du second verrou dans `uploadAvatar`. C'est LUI qui
+       * décide dans l'immense majorité des cas.
        */
       limits: {
-        fileSize: maxUploadBytesFromEnvironment(),
+        fileSize: MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES,
         files: 1,
       },
     }),
@@ -182,10 +193,12 @@ export class ProfileAvatarController {
       's’accumuleraient à chaque changement de photo.\n\n' +
       'Formats acceptés : JPEG, PNG, WebP, GIF, AVIF. HEIC/HEIF est refusé avec un message ' +
       'indiquant de réenregistrer la photo en JPEG.\n\n' +
-      'TAILLE MAXIMALE : 1 000 000 octets par défaut (MEDIA_MAX_UPLOAD_BYTES). Volontairement ' +
-      'basse — le reverse-proxy en amont plafonne les corps de requête à 1 Mio, et le plafond ' +
-      'applicatif se tient juste en dessous pour que le refus vienne de l’application, avec un ' +
-      'corps JSON exploitable, et non du proxy en HTML. La valeur en vigueur se lit sur ' +
+      'TAILLE MAXIMALE : réglable À L’EXÉCUTION par le technicien informatique ' +
+      '(PATCH /profiles/avatar/settings), 1 000 000 octets par défaut à l’amorçage ' +
+      '(MEDIA_MAX_UPLOAD_BYTES). Volontairement basse par défaut — le reverse-proxy en amont ' +
+      'plafonne les corps de requête à 1 Mio, et le plafond applicatif se tient juste en ' +
+      'dessous pour que le refus vienne de l’application, avec un corps JSON exploitable, et ' +
+      'non du proxy en HTML. La valeur en vigueur se lit sur ' +
       'GET /profiles/avatar/constraints : le front ne doit pas la coder en dur.',
   })
   @ApiParam({ name: 'userId', description: 'UUID du titulaire du profil' })
@@ -212,9 +225,11 @@ export class ProfileAvatarController {
   @ApiResponse({
     status: 413,
     description:
-      'Image plus lourde que MEDIA_MAX_UPLOAD_BYTES (1 000 000 octets par défaut). Le plafond ' +
-      'porte sur les octets REÇUS, avant ré-encodage, et le flux est coupé par multer dès le ' +
-      'dépassement — le fichier n’est pas chargé en entier.\n\n' +
+      'Image plus lourde que le plafond en vigueur, réglable par le TI ' +
+      '(1 000 000 octets par défaut à l’amorçage). Le plafond porte sur les octets REÇUS, ' +
+      'avant ré-encodage. Dans l’immense majorité des cas, le flux est intégralement reçu puis ' +
+      'refusé par le service (qui connaît la valeur réglée) ; seul un fichier dépassant le ' +
+      'filet de sécurité fixe de multer est coupé en streaming avant la fin.\n\n' +
       'CORPS DE LA RÉPONSE, clés stables :\n' +
       '```json\n' +
       '{\n' +

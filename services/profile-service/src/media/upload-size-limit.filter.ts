@@ -1,6 +1,6 @@
 import { ArgumentsHost, Catch, ExceptionFilter, PayloadTooLargeException } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { maxUploadBytesFromEnvironment } from './media.config';
+import { MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES } from './entities/media-settings.entity';
 import {
   buildUploadFileTooLargeBody,
   isUploadFileTooLargeBody,
@@ -22,12 +22,15 @@ import {
  * IL NE FAIT QUE REFORMATER. Le refus lui-même reste celui de multer, en
  * streaming : les octets excédentaires ne sont jamais chargés en mémoire.
  *
- * LA LIMITE EST RELUE À LA MÊME SOURCE QUE MULTER — `process.env`, via
- * `maxUploadBytesFromEnvironment()`, et non `MediaConfig`. Ce n'est pas un
- * raccourci pour éviter l'injection : le filtre doit annoncer le plafond
- * RÉELLEMENT APPLIQUÉ par le composant qui a refusé la requête. Les deux
- * sources coïncident en exploitation, et `MediaConfig` journalise un
- * avertissement au démarrage si jamais elles divergent.
+ * CE CHEMIN NE SE DÉCLENCHE QUE SI MULTER LUI-MÊME A COUPÉ LE FLUX — c'est-à-
+ * dire un fichier dépassant `MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES`, le
+ * filet de sécurité STATIQUE de `ProfileAvatarController` (voir ce fichier).
+ * Depuis le 2026-08-26, ce n'est PLUS le plafond réglé par le TI : celui-ci
+ * est dynamique et vérifié APRÈS multer, dans `AvatarService.uploadAvatar`,
+ * qui produit alors un corps déjà structuré — reconnu et laissé intact par
+ * `isUploadFileTooLargeBody` ci-dessous, jamais réécrit ici. La limite
+ * annoncée par CE filtre est donc bien celle RÉELLEMENT appliquée par multer
+ * dans ce cas précis, pas celle du réglage TI.
  */
 @Catch(PayloadTooLargeException)
 export class UploadSizeLimitFilter implements ExceptionFilter {
@@ -51,7 +54,7 @@ export class UploadSizeLimitFilter implements ExceptionFilter {
     if (isUploadFileTooLargeBody(existingBody)) return existingBody;
 
     return buildUploadFileTooLargeBody({
-      maxUploadBytes: maxUploadBytesFromEnvironment(),
+      maxUploadBytes: MEDIA_SETTINGS_MAX_AVATAR_UPLOAD_BYTES,
       // Le flux a été coupé en cours de route : la taille du fichier n'a jamais
       // été connue. `null` le dit, plutôt que d'avancer un chiffre inventé.
       receivedBytes: null,

@@ -16,7 +16,7 @@ import { ProfilesService } from '../../../src/profiles/profiles.service';
 import { toAdministrativeProfileView } from '../../../src/profiles/administrative-profile.view';
 import { EventsService } from '../../../src/events/events.service';
 import { ImageTranscoder } from '../../../src/media/image-transcoder';
-import { MediaConfig } from '../../../src/media/media.config';
+import { MediaSettingsService } from '../../../src/media/media-settings.service';
 import { MEDIA_STORAGE_PORT } from '../../../src/media/media-storage.port';
 import { UserRole } from '../../../src/common/enums/user-role.enum';
 import { Actor } from '../../../src/common/types/actor.type';
@@ -44,7 +44,9 @@ describe('AvatarService', () => {
   let profilesService: any;
   let fieldVisibilityService: any;
   let eventsService: any;
-  const mediaConfig = { storagePath: '/tmp/media', maxUploadBytes: 1024 * 1024 } as MediaConfig;
+  let mediaSettingsService: any;
+  /** Plafond DYNAMIQUE simulé — ce que `MediaSettingsService` lirait en base. */
+  const maxUploadBytes = 1024 * 1024;
 
   /** Image PNG réelle, assez petite pour rester rapide à encoder. */
   let realPngBytes: Buffer;
@@ -90,6 +92,9 @@ describe('AvatarService', () => {
     // Le vrai transcodeur : ce sont ses garanties (format, EXIF, taille) qui
     // font l'intérêt de la route ; le remplacer par un stub testerait le stub.
     imageTranscoder = new ImageTranscoder();
+    mediaSettingsService = {
+      getMaxAvatarUploadBytes: jest.fn().mockResolvedValue(maxUploadBytes),
+    };
     fieldVisibilityService = { resolveAudience: jest.fn().mockResolvedValue('linked') };
     eventsService = { publish: jest.fn() };
     profilesService = {
@@ -106,7 +111,7 @@ describe('AvatarService', () => {
         { provide: getRepositoryToken(AdministrativeProfile), useValue: adminRepo },
         { provide: MEDIA_STORAGE_PORT, useValue: mediaStorage },
         { provide: ImageTranscoder, useValue: imageTranscoder },
-        { provide: MediaConfig, useValue: mediaConfig },
+        { provide: MediaSettingsService, useValue: mediaSettingsService },
         { provide: ProfilesService, useValue: profilesService },
         { provide: FieldVisibilityService, useValue: fieldVisibilityService },
         { provide: EventsService, useValue: eventsService },
@@ -158,7 +163,7 @@ describe('AvatarService', () => {
         expect(result.avatarUrl).toMatch(
           new RegExp(`^/api/v1/profiles/${STUDENT_ID}/avatar\\?v=\\d+$`),
         );
-        expect(result.avatarUrl).not.toContain(mediaConfig.storagePath);
+        expect(result.avatarUrl).not.toContain('/tmp/media');
         expect(result.avatarUrl).not.toContain('avatars/');
         expect(Object.keys(result)).toEqual(['avatarUrl']);
       });
@@ -315,7 +320,7 @@ describe('AvatarService', () => {
       });
 
       it('refuse en 413 une image au-delà de MEDIA_MAX_UPLOAD_BYTES', async () => {
-        const tooBig = Buffer.alloc(mediaConfig.maxUploadBytes + 1, 0x41);
+        const tooBig = Buffer.alloc(maxUploadBytes + 1, 0x41);
 
         await expect(service.uploadAvatar(STUDENT_ID, uploadedFile(tooBig), owner())).rejects.toThrow(
           PayloadTooLargeException,
@@ -329,7 +334,7 @@ describe('AvatarService', () => {
        * message anglais. D'où des clés stables plutôt qu'une phrase.
        */
       it('renvoie un corps 413 exploitable : code, plafond et taille reçue', async () => {
-        const tooBig = Buffer.alloc(mediaConfig.maxUploadBytes + 4_096, 0x41);
+        const tooBig = Buffer.alloc(maxUploadBytes + 4_096, 0x41);
 
         const error = await service
           .uploadAvatar(STUDENT_ID, uploadedFile(tooBig), owner())
@@ -342,7 +347,7 @@ describe('AvatarService', () => {
           error: 'Payload Too Large',
           code: 'UPLOAD_FILE_TOO_LARGE',
           message: 'Uploaded file exceeds the maximum allowed size',
-          maxUploadBytes: mediaConfig.maxUploadBytes,
+          maxUploadBytes: maxUploadBytes,
           receivedBytes: tooBig.length,
           requestBodyBytes: null,
         });
@@ -354,13 +359,13 @@ describe('AvatarService', () => {
        * `>` refuserait silencieusement les fichiers de taille légale.
        */
       it('accepte une image exactement à la limite, refuse l’octet suivant', async () => {
-        const paddingLength = mediaConfig.maxUploadBytes - realPngBytes.length;
+        const paddingLength = maxUploadBytes - realPngBytes.length;
         expect(paddingLength).toBeGreaterThan(0);
 
         // Les octets ajoutés après un PNG valide n'empêchent ni la détection ni
         // le décodage : ce qui est testé ici est la BORNE, pas le format.
         const atLimit = Buffer.concat([realPngBytes, Buffer.alloc(paddingLength, 0x00)]);
-        expect(atLimit.length).toBe(mediaConfig.maxUploadBytes);
+        expect(atLimit.length).toBe(maxUploadBytes);
 
         await expect(
           service.uploadAvatar(STUDENT_ID, uploadedFile(atLimit), owner()),
@@ -409,13 +414,13 @@ describe('AvatarService', () => {
   // CONTRAINTES PUBLIÉES
   // ===========================================================================
   describe('getUploadConstraints', () => {
-    it('publie la MÊME limite que celle opposée à l’envoi', () => {
-      expect(service.getUploadConstraints().maxUploadBytes).toBe(mediaConfig.maxUploadBytes);
+    it('publie la MÊME limite que celle opposée à l’envoi', async () => {
+      expect((await service.getUploadConstraints()).maxUploadBytes).toBe(maxUploadBytes);
     });
 
-    it('publie les formats acceptés et le format produit', () => {
-      expect(service.getUploadConstraints()).toEqual({
-        maxUploadBytes: mediaConfig.maxUploadBytes,
+    it('publie les formats acceptés et le format produit', async () => {
+      expect(await service.getUploadConstraints()).toEqual({
+        maxUploadBytes: maxUploadBytes,
         acceptedContentTypes: [
           'image/jpeg',
           'image/png',
@@ -434,7 +439,7 @@ describe('AvatarService', () => {
      * relie les deux comportements au lieu de les vérifier séparément.
      */
     it('annonce une limite que l’envoi fait effectivement respecter', async () => {
-      const { maxUploadBytes } = service.getUploadConstraints();
+      const { maxUploadBytes } = await service.getUploadConstraints();
       const tooBig = Buffer.alloc(maxUploadBytes + 1, 0x41);
 
       await expect(

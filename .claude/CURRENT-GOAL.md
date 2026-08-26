@@ -41,13 +41,19 @@ nouveaux réglages et leur sauvegarde effective (relue après rechargement).
 
 ### État
 
-- [ ] Backend `pedagogical-log-service` — `resourceLinks`, entité `PedagogicalLogAttachment`,
-  stockage, réglages TI (délégué)
-- [ ] Backend `profile-service` — réglage TI du plafond avatar (délégué)
+- [x] Backend `pedagogical-log-service` — `resourceLinks`, entité `PedagogicalLogAttachment`,
+  stockage, réglages TI. Vérifié en HTTP direct contre la pile réelle (201 création avec
+  `resourceLinks`, 200 lecture des réglages par défaut, 201 upload, 413 fichier trop gros). Deux
+  bugs réels trouvés et corrigés en cours de route : conflit de résolution npm `file-type`
+  (bloquait le build Docker propre) et permissions du volume `pedagogical_log_media` (root vs
+  utilisateur `node`, `EACCES` à l'upload — Dockerfile corrigé sur le modèle de `profile-service`).
+- [x] Backend `profile-service` — réglage TI du plafond avatar (`PATCH /profiles/avatar/settings`,
+  PR #134 mergée directement — correctif prouvé par tests, pas à juger à l'écran). Intégré dans
+  cette branche par merge de `master`.
 - [ ] Front — formulaire (lien + pièce jointe), affichage/téléchargement, extension de
-  `SiteMetadataEditor.tsx` (délégué à `front-developper`)
-- [ ] Déployé sur la pile réelle
-- [ ] Preuve livrée à l'utilisateur
+  `SiteMetadataEditor.tsx` (délégué à `front-developper`, en cours)
+- [ ] Déployé sur la pile réelle (backend déjà déployé et testé en HTTP direct ; reste le front)
+- [ ] Preuve livrée à l'utilisateur (captures d'écran)
 - [ ] Validé par l'utilisateur
 
 ---

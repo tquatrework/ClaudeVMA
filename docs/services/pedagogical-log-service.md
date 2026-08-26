@@ -584,6 +584,51 @@
           </point>
         </openPoints>
       </session>
+
+      <session date="2026-08-26" label="Correctif — robustesse detection MIME face a l'ambiguite npm sur file-type (branche feat/cahier-de-texte-liens-pieces-jointes)">
+        <context>
+          Bug signale : `docker compose build pedagogical-log-service` echouait avec
+          `TS2305: Module '"file-type"' has no exported member 'fromBuffer'` sur
+          `src/attachments/attachment-mime-detector.ts:1`, attribue a une resolution npm ambigue
+          entre la dependance directe `file-type@16.5.4` (API CJS `fromBuffer`) et une copie
+          imbriquee `node_modules/@nestjs/common/node_modules/file-type@20.4.1` (API ESM
+          `fileTypeFromBuffer`).
+        </context>
+        <investigation>
+          Reproduction stricte tentee (npm ci propre, `node_modules` absent au depart + docker
+          `--no-cache`) : le bug ne s'est **pas** reproduit sur le commit `e809d11`. Verifie par
+          `npx tsc --traceResolution` que TypeScript resout `'file-type'` de maniere deterministe
+          vers `node_modules/file-type/index.d.ts@16.5.4` (resolution Node10/classique, remonte
+          l'arbre a partir du fichier source, ne descend jamais dans la copie imbriquee sous
+          `@nestjs/common`). `package-lock.json` (lockfileVersion 3) pin les deux versions de
+          maniere deterministe ; `npm ci` installe l'arbre exact du lockfile sans le recalculer.
+        </investigation>
+        <decision>
+          Correctif applique quand meme, par prudence et sur demande explicite de robustesse
+          face a une resolution qui pourrait differer ailleurs :
+          `attachment-mime-detector.ts` detecte desormais dynamiquement laquelle des deux API de
+          `file-type` est disponible (`fromBuffer` CJS ou `fileTypeFromBuffer` ESM) au lieu d'un
+          import nomme fige sur une seule des deux, avec erreur explicite si aucune n'est
+          presente. Alternative ecartee : forcer une resolution npm globale (`overrides` dans
+          `package.json`) — aurait pu casser silencieusement le `FileTypeValidator` interne de
+          `@nestjs/common`, qui utilise un import ESM dynamique attendant `fileTypeFromBuffer`.
+        </decision>
+        <verification>
+          <item>npm ci propre : OK.</item>
+          <item>`npx tsc --noEmit` et `npm run build` : OK (exit 0).</item>
+          <item>`npm test` : 169/169 tests verts, 15 suites, 0 regression.</item>
+          <item>`docker compose build --no-cache pedagogical-log-service` : succes, verifie deux
+            fois (avant et apres correctif).</item>
+        </verification>
+        <openPoints>
+          <point>
+            Le TS2305 rapporte n'a pas ete reproduit dans cet environnement. Si le meme message
+            reapparaissait ailleurs (CI, autre version de npm capable de regenerer le lockfile),
+            comparer le `package-lock.json` exact utilise a ce moment-la avec celui du commit
+            `e809d11`.
+          </point>
+        </openPoints>
+      </session>
     </technicalImplementation>
     <pendingPoints>
       <point id="guards-N1" status="resolu" resolvedOn="2026-06-28">

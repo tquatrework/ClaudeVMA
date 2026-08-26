@@ -93,7 +93,7 @@ migration avec les valeurs par défaut exactes de l'arbitrage :
 `profile-service` reste seul propriétaire du plafond de l'avatar (domaine séparé, délégué à un
 autre sous-agent) — pas de service de configuration transverse inventé ici.
 
-## Vérifications faites
+## Vérifications faites (session initiale)
 
 - `npm run build` (tsc via `nest build`) : 0 erreur.
 - **Migration** vérifiée contre une base Postgres jetable reconstituant l'état réel de production
@@ -123,7 +123,7 @@ autre sous-agent) — pas de service de configuration transverse inventé ici.
   n'est pas couvert par le dump Postgres et doit être ajouté à la routine de sauvegarde** (signalé
   dans le YAML lui-même, comme pour `media_data`).
 
-## Point bloqué
+## Point bloqué (session initiale)
 
 `.env.example` de ce service n'a pas pu être mis à jour — même règle de permission que la session
 du 2026-08-20 (blocage de lecture/écriture sur tout fichier `.env*`). Variable à ajouter
@@ -134,7 +134,7 @@ correcte dans `docker-compose.yml`). Les autres variables nécessaires (`REDIS_U
 absentes de `.env.example` avant cette session (point ouvert déjà signalé le 2026-08-20, non
 aggravé ici).
 
-## État git
+## État git (session initiale)
 
 - Commit unique `0168b90` sur `feat/cahier-de-texte-liens-pieces-jointes`, poussé sur `origin` en
   fast-forward (`3599b77..0168b90`).
@@ -149,7 +149,7 @@ aggravé ici).
   rapport apparent avec cette tâche : `feat/front-reprise-candidature-formateur`,
   `feat/reprise-candidature-formateur`.
 
-## Ce qui reste à faire (hors périmètre de ce sous-agent)
+## Ce qui reste à faire (hors périmètre de la session initiale)
 
 - Déploiement réel (build + migration + redémarrage + preuve HTTP contre
   `https://claudevma.visioprof.fr`) — revient à l'orchestrateur.
@@ -157,3 +157,114 @@ aggravé ici).
   — à déléguer à `front-developper`, en agrégeant ce domaine avec celui de `profile-service`
   (photo de profil) sur un même écran, comme prévu par l'arbitrage.
 - Fichiers orphelins sur suppression d'entrée (signalé plus haut, non corrigé).
+
+---
+
+## Addendum — 2026-08-26, session ultérieure : correctif build Docker (`file-type`)
+
+### Bug signalé
+
+`docker compose build pedagogical-log-service` échouait avec
+`error TS2305: Module '"file-type"' has no exported member 'fromBuffer'` sur
+`src/attachments/attachment-mime-detector.ts:1`, attribué à une résolution
+npm ambiguë entre la dépendance directe `file-type@16.5.4` (API CJS
+`fromBuffer`) et une copie imbriquée `@nestjs/common/node_modules/file-type@20.4.1`
+(API ESM `fileTypeFromBuffer`).
+
+### Point de départ — worktree isolé
+
+Cette session tourne dans un worktree git isolé différent de celui de la
+session initiale ci-dessus. La branche `feat/cahier-de-texte-liens-pieces-jointes`
+était déjà extraite dans le worktree principal partagé, donc impossible à
+checkout ici sous le même nom. Une branche locale
+`fix/pedagogical-log-file-type-resolution` a été créée à partir de
+`origin/feat/cahier-de-texte-liens-pieces-jointes` (commit `e809d11`), puis
+poussée en fast-forward vers ce même nom distant après le correctif — aucune
+nouvelle branche distante créée.
+
+### Investigation — le bug ne s'est pas reproduit tel que décrit
+
+Vérifications faites, dans cet ordre, contre un état strictement propre
+(`node_modules` absent au départ de ce worktree, jamais réutilisé) :
+
+1. `npm ci` propre : `745` paquets installés sans erreur.
+2. `npm run build` (`nest build` / `tsc`) : succès, code de sortie `0`.
+3. `npx tsc --noEmit` : succès.
+4. `npx tsc --traceResolution` : confirme que TypeScript résout `'file-type'`
+   depuis `attachment-mime-detector.ts` en `Node10`/classique, remonte
+   l'arbre `node_modules` à partir du fichier source, et trouve directement
+   `node_modules/file-type/index.d.ts` à la racine du service — `Package ID
+   'file-type/index.d.ts@16.5.4'`. Il ne descend jamais dans
+   `node_modules/@nestjs/common/node_modules/file-type` (v20), qui n'est
+   visible que depuis l'intérieur de `@nestjs/common` lui-même.
+5. `docker compose build --no-cache pedagogical-log-service` (variables
+   d'environnement non liées au service fournies en dummy pour permettre
+   l'interpolation du compose : `LIVEKIT_NODE_IP`, `LIVEKIT_PUBLIC_URL`,
+   `WEBHOOK_SECRET`) : succès, sans cache, deux fois de suite.
+
+Cause technique vérifiée : `package-lock.json` (lockfileVersion 3) pin de
+manière déterministe `node_modules/file-type` à `16.5.4` à la racine et
+`node_modules/@nestjs/common/node_modules/file-type` à `20.4.1` séparément.
+`npm ci` installe exactement l'arbre décrit par le lockfile, sans jamais le
+recalculer — ce résultat est donc reproductible à l'identique quel que soit
+l'environnement, tant que le lockfile n'est pas régénéré par un `npm install`.
+Le bug rapporté, tel que décrit, ne s'est donc pas reproduit sur le commit
+`e809d11` dans cet environnement.
+
+Côté runtime (non type-check), vérifié que `@nestjs/common` utilise
+`file-type` uniquement via `pipes/file/file-type.validator.js` avec un
+import ESM dynamique (`eval('import("file-type")')`), qui résoudra sa propre
+copie imbriquée v20 indépendamment — aucune interférence possible avec notre
+code, et ce validateur n'est utilisé nulle part dans `src/` du service.
+
+### Correctif appliqué quand même (robustesse demandée explicitement)
+
+Sans reproduction du bug, mais conformément à la demande explicite de rendre
+le code robuste "quelle que soit la résolution effective", plutôt que de
+forcer une résolution npm globale (`overrides`) — écartée car elle aurait pu
+casser silencieusement le `FileTypeValidator` interne de `@nestjs/common`
+(son import ESM dynamique attend `fileTypeFromBuffer`, absent de la v16) —
+`attachment-mime-detector.ts` a été modifié pour accepter les deux API
+possibles de `file-type` (`fromBuffer` CJS ou `fileTypeFromBuffer` ESM),
+détectées dynamiquement au chargement du module, avec erreur explicite si
+aucune des deux n'est disponible.
+
+Fichier modifié :
+`services/pedagogical-log-service/src/attachments/attachment-mime-detector.ts`
+
+### Vérifications post-correctif
+
+- `npm ci` propre : OK.
+- `npx tsc --noEmit` : OK (exit 0).
+- `npm run build` : OK (exit 0).
+- `npm test` : 15 suites, **169 tests, tous verts**, y compris
+  `test/unit/attachments/attachment-mime-detector.spec.ts`.
+- `docker compose build --no-cache pedagogical-log-service` : **succès**,
+  vérifié deux fois (avant et après le correctif, les deux fois vertes dans
+  cet environnement — le correctif ne change donc pas le résultat local mais
+  ferme la fragilité structurelle signalée).
+
+### Commit et push
+
+- Commit `30c995c` sur la branche existante `feat/cahier-de-texte-liens-pieces-jointes`
+  (poussée en fast-forward depuis une branche locale de travail
+  `fix/pedagogical-log-file-type-resolution`, aucune nouvelle branche distante
+  créée).
+- `git push origin fix/pedagogical-log-file-type-resolution:feat/cahier-de-texte-liens-pieces-jointes`
+  → `e809d11..30c995c`.
+
+### Branches non fusionnées dans master constatées (rappel, hors périmètre de cette tâche)
+
+- `feat/cahier-de-texte-liens-pieces-jointes` (cette branche, mise à jour ici)
+- `feat/front-reprise-candidature-formateur`
+- `feat/reprise-candidature-formateur`
+
+### Points en suspens
+
+- Le TS2305 rapporté n'a pas été reproduit dans cet environnement malgré
+  plusieurs tentatives de reproduction stricte (npm ci propre + docker
+  --no-cache). Si le même message d'erreur réapparaissait ailleurs (autre
+  machine CI, autre version de npm capable de régénérer le lockfile), il
+  vaudrait la peine de comparer le `package-lock.json` exact utilisé à ce
+  moment-là avec celui du commit `e809d11` pour vérifier qu'il n'a pas été
+  régénéré entre-temps avec une résolution différente.

@@ -472,7 +472,14 @@ services:
       # POST /internal/notify quand une entree auto-creee reste vide plus de
       # 24h apres la fin de l'activite liee.
       DASHBOARD_NOTIFICATION_SERVICE_URL: http://dashboard-notification-service:3003
+      # Pieces jointes de cahier de texte (arbitrage du 2026-08-26, "Liens et
+      # pieces jointes sur une entree de cahier de texte"). Volume nomme dedie
+      # a ce service, jamais le volume media_data de profile-service (chaque
+      # service reste proprietaire de ses propres binaires, point 4).
+      PEDAGOGICAL_LOG_MEDIA_PATH: /app/storage/media
       PORT: 3008
+    volumes:
+      - pedagogical_log_media:/app/storage/media
     depends_on:
       postgres:
         condition: service_healthy
@@ -632,6 +639,10 @@ volumes:
   # passent par sa route HTTP, jamais par le systeme de fichiers.
   # ATTENTION : non couvert par le dump Postgres, a ajouter a la sauvegarde.
   media_data:
+  # Pieces jointes du cahier de texte (pedagogical-log-service uniquement),
+  # arbitrage du 2026-08-26 — volume dedie, distinct de media_data ci-dessus.
+  # ATTENTION : non couvert par le dump Postgres, a ajouter a la sauvegarde.
+  pedagogical_log_media:
 
 networks:
   visiomath_network:

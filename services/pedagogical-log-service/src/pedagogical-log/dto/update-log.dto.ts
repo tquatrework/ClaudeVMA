@@ -8,9 +8,14 @@ import {
   IsIn,
   IsUUID,
   IsDateString,
+  ValidateNested,
+  ArrayMaxSize,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { LogVisibility } from '../entities/pedagogical-log.entity';
+import { ResourceLinkDto } from './resource-link.dto';
+import { MAX_RESOURCE_LINKS_PER_ENTRY } from './create-log.dto';
 
 const VISIBILITY_VALUES: LogVisibility[] = [
   'eleve_parent_formateur',
@@ -56,6 +61,17 @@ export class UpdateLogDto {
   @IsOptional()
   @IsIn(VISIBILITY_VALUES)
   visibility?: LogVisibility;
+
+  @ApiPropertyOptional({
+    type: [ResourceLinkDto],
+    description: 'Liens externes libres (label + URL absolue). Voir CreateLogDto.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_RESOURCE_LINKS_PER_ENTRY)
+  @ValidateNested({ each: true })
+  @Type(() => ResourceLinkDto)
+  resourceLinks?: Array<{ label: string; url: string }>;
 
   @ApiPropertyOptional()
   @IsOptional()

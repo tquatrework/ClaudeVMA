@@ -79,6 +79,12 @@
       <entity>MemoImage</entity>
       <entity>PersonalNotebookEntry</entity>
       <entity>MathContent</entity>
+      <entity name="PedagogicalLogAttachment">
+        <note>Ajoutee le 2026-08-26 — piece jointe d'une entree, FK CASCADE vers PedagogicalLogPage. Voir technicalImplementation.</note>
+      </entity>
+      <entity name="PedagogicalLogSettings">
+        <note>Ajoutee le 2026-08-26 — reglages TI singleton (attachmentsEnabled, maxFileBytes, maxTotalBytesPerEntry).</note>
+      </entity>
     </dataEntities>
     <events>
       <event>PedagogicalLogPageCreated</event>
@@ -380,6 +386,203 @@
         </verification>
 
         <blockers>Aucun.</blockers>
+      </session>
+
+      <session date="2026-08-26" label="Liens et pieces jointes sur une entree de cahier de texte, et parametres systeme associes (branche feat/cahier-de-texte-liens-pieces-jointes)">
+        <objective>
+          Implementer l'arbitrage d'architecture rendu le 2026-08-26
+          (docs/architecture.md, section du meme nom) : (1) nouveau champ
+          resourceLinks sur PedagogicalLogPage, distinct de linkedResources
+          deja present ; (2) nouvelle entite PedagogicalLogAttachment (pieces
+          jointes) avec stockage sur volume Docker dedie ; (3) reglages
+          systeme TI (interrupteur + deux plafonds) proprietaire de ce
+          service, distincts de ceux de profile-service.
+        </objective>
+
+        <arborescence>
+          services/pedagogical-log-service/
+          ├── package.json                                # + file-type (16.5.4, CJS), multer, @types/multer
+          ├── src/
+          │   ├── app.module.ts                            # + AttachmentsModule, SettingsModule, 2 entites
+          │   ├── migrations/
+          │   │   └── 1788700000000-LiensEtPiecesJointesCahierDeTexte.ts  # NOUVEAU
+          │   ├── pedagogical-log/
+          │   │   ├── entities/pedagogical-log.entity.ts    # + resourceLinks (simple-json, distinct de linkedResources)
+          │   │   ├── dto/resource-link.dto.ts               # NOUVEAU — {label, url} avec validation IsUrl
+          │   │   ├── dto/create-log.dto.ts                  # + resourceLinks (ArrayMaxSize 10) ; export MAX_RESOURCE_LINKS_PER_ENTRY
+          │   │   ├── dto/update-log.dto.ts                  # + resourceLinks (meme validation)
+          │   │   └── pedagogical-log.service.ts             # create() transmet resourceLinks ; + getEntryForWrite() (nouvelle methode publique, meme regime que update())
+          │   ├── settings/                                  # NOUVEAU module — reglages TI des pieces jointes
+          │   │   ├── entities/pedagogical-log-settings.entity.ts  # singleton (id fixe), attachmentsEnabled/maxFileBytes/maxTotalBytesPerEntry
+          │   │   ├── dto/update-settings.dto.ts
+          │   │   ├── settings.service.ts                    # bootstrap-on-read, validation maxFileBytes <= maxTotalBytesPerEntry
+          │   │   ├── settings.controller.ts                  # GET/PATCH /pedagogical-logs/settings/attachments
+          │   │   └── settings.module.ts
+          │   └── attachments/                                # NOUVEAU module — pieces jointes
+          │       ├── entities/pedagogical-log-attachment.entity.ts  # FK CASCADE vers pedagogical_logs
+          │       ├── attachment-mime-detector.ts             # detection par octets reels (file-type) + heuristique texte/SVG
+          │       ├── attachment-storage.service.ts           # port de stockage, volume PEDAGOGICAL_LOG_MEDIA_PATH
+          │       ├── attachments.service.ts                  # create/findAllForEntry/getFileForDownload/remove
+          │       ├── attachments.controller.ts                # POST/GET/GET:id/DELETE sous /logs/:id/attachments
+          │       └── attachments.module.ts                    # importe PedagogicalLogModule + SettingsModule
+          └── test/
+              ├── unit/
+              │   ├── pedagogical-log/
+              │   │   ├── pedagogical-log.service.spec.ts    # + resourceLinks passthrough, + describe getEntryForWrite() (2 blocs, miroir de update())
+              │   │   └── resource-link.dto.spec.ts           # NOUVEAU — validation URL/label/plafond 10
+              │   ├── settings/settings.service.spec.ts       # NOUVEAU
+              │   └── attachments/
+              │       ├── attachment-mime-detector.spec.ts    # NOUVEAU
+              │       └── attachments.service.spec.ts         # NOUVEAU
+              └── e2e/pedagogical-log.e2e-spec.ts             # + 2 describe (reglages TI, pieces jointes) — 23 nouveaux tests
+
+          docker-compose.yml                                  # + volume pedagogical_log_media, + PEDAGOGICAL_LOG_MEDIA_PATH
+        </arborescence>
+
+        <technicalDecisions>
+          <decision>
+            resourceLinks vs linkedResources — verifie en HTTP direct par l'orchestrateur avant
+            delegation (docs/architecture.md) : linkedResources exige {id: UUID, type} et jette
+            silencieusement tout url/label non prevu par son propre DTO historique (reserve a une
+            reference interne future, content-catalog-service phase 3). resourceLinks est un champ
+            NOUVEAU et distinct : {label, url}, url validee IsUrl({require_protocol:true,
+            protocols:['http','https']}), label IsNotEmpty/MaxLength(200), tableau
+            ArrayMaxSize(10). Ecriture via le meme chemin que sessionSummary/homework (create()/
+            update() de PedagogicalLogService) — aucune regle d'autorisation nouvelle, juste un
+            champ supplementaire sur la meme entite/DTO.
+          </decision>
+          <decision>
+            getEntryForWrite() — nouvelle methode publique sur PedagogicalLogService, EXTRACTION
+            (pas une modification) du regime de write dejà applique par update() : entree normale
+            -> formateur auteur + assertTeacherOfStudent (jamais en cache) ; page speciale RP ->
+            auteur ou RP/TI. update() et remove() restent inchanges (aucune regression sur les 120
+            tests herites) ; getEntryForWrite() est la methode reutilisee par AttachmentsService
+            pour POST/DELETE d'une piece jointe, evitant de dupliquer la logique de verification
+            de relation. Couverte par 8 tests unitaires miroir de ceux de update().
+          </decision>
+          <decision>
+            Detection de type par octets reels — file-type@16.5.4 (CommonJS, derniere version
+            avant le passage a l'ESM pur en v17+ ; le projet est en module: commonjs). Verifie
+            explicitement que docx/xlsx/pptx sont detectes individuellement (signature ZIP +
+            inspection du premier fichier central word/xl/ppt), et que doc/xls/ppt (OLE Compound
+            File Binary) sont detectes generiquement comme application/x-cfb — la signature seule
+            ne permet pas de distinguer lequel des trois formats herites il s'agit ; accepte tel
+            quel, la protection recherchee (refuser l'executable/le script) ne depend pas de cette
+            distinction. SVG et XML generique (<?xml ...?>) : file-type les detecte lui-meme comme
+            application/xml des la declaration XML rencontree, AVANT toute chance de sniffer nous-
+            memes le SVG specifiquement — bug constate en test (un SVG precede de sa declaration
+            XML remontait application/xml au lieu d'etre repere comme SVG). Corrige en placant la
+            verification explicite du tag &lt;svg&gt;/&lt;?xml sur les 512 premiers octets AVANT
+            l'appel a fromBuffer(), jamais apres. Texte/CSV : aucune signature binaire n'existe
+            pour ces formats, detectes par heuristique (absence d'octet nul/de caractere de
+            controle hors tabulation/CR/LF + UTF-8 valide).
+          </decision>
+          <decision>
+            Reglages TI — table singleton a id fixe (UUID constant
+            00000000-0000-0000-0000-000000000001) plutot qu'un PrimaryGeneratedColumn, pour
+            eliminer toute course a la creation d'une seconde ligne. Seedee directement par la
+            migration (INSERT ... ON CONFLICT DO NOTHING) pour que la premiere lecture en
+            production trouve deja les valeurs par defaut documentees, avec un filet de secours
+            cote service (getSettings() cree la ligne si absente, meme apres une restauration de
+            base anterieure a la migration). Validation ajoutee non demandee explicitement mais
+            jugee necessaire : maxFileBytes ne peut pas depasser maxTotalBytesPerEntry (400 sinon),
+            evite un reglage TI incoherent qui rendrait le plafond par fichier inutile.
+          </decision>
+          <decision>
+            Deux domaines de reglages distincts (arbitrage point 8) — pas de service de
+            configuration transverse invente pour cette session. profile-service reste
+            proprietaire du plafond de la photo de profil ; pedagogical-log-service devient
+            proprietaire de ses propres reglages de pieces jointes, chacun expose par sa propre
+            route GET/PATCH protegee par le role technicien_informatique en ecriture. L'agregation
+            en un seul ecran "Parametres systeme" est un sujet front, hors perimetre de cette
+            session backend.
+          </decision>
+          <decision>
+            Routes montees sous des prefixes DEJA proxies par api-gateway, aucun nouveau prefixe
+            gateway necessaire (verifie contre docs/routes.md avant implementation, comme demande) :
+            pieces jointes sous /logs/:id/attachments (prefixe /logs deja proxie, coherent avec
+            /logs/:id et /logs/session/:sessionId existants) ; reglages sous
+            /pedagogical-logs/settings/attachments (prefixe /pedagogical-logs deja proxie cote
+            gateway, meme si les routes plurielles historiques documentees sous ce prefixe ne sont
+            elles-memes jamais montees cote controleur — gap preexistant, non touche ici, voir plus
+            haut dans ce document).
+          </decision>
+          <decision>
+            Ordre des verifications dans AttachmentsService.create() : reglages (interrupteur
+            global) -> autorisation d'ecriture sur l'entree (formateur auteur titulaire) -> presence
+            du fichier -> plafond par fichier -> plafond total par entree -> type de fichier.
+            L'autorisation prime volontairement sur la validation du contenu envoye, coherent avec
+            le reste du service (jamais de validation de payload avant verification du droit
+            d'agir).
+          </decision>
+          <decision>
+            Plafonds verifies APRES lecture complete du fichier en memoire par multer, PAS en
+            streaming (a la difference de l'avatar de profile-service, dont le plafond est une
+            valeur d'environnement statique connue au demarrage). Ici le plafond est reglable par
+            le TI en base de donnees, donc pas connu au moment ou l'intercepteur FileInterceptor
+            est configure (evaluation synchrone, une seule fois, au chargement du module) —
+            compromis documente dans le code et dans docs/routes.md, explicitement accepte car aux
+            valeurs par defaut (100 Ko/5 Mo) aucun envoi n'approche les plafonds reseau qui
+            protegent deja le service en amont (nginx-global 1 Mio non declare, api-gateway 10 Mio
+            declare).
+          </decision>
+          <decision>
+            Limite connue, signalee et non traitee dans cette session (hors perimetre demande) :
+            la suppression d'une entree (PedagogicalLogService.remove()) s'appuie sur ON DELETE
+            CASCADE pour les lignes pedagogical_log_attachments, mais ne declenche aucun nettoyage
+            des fichiers correspondants sur le volume — fichiers orphelins possibles apres
+            suppression d'une entree avec pieces jointes. Corriger proprement supposerait de faire
+            dependre PedagogicalLogModule d'AttachmentsModule (ou l'inverse via forwardRef), non
+            engage ici pour ne pas alourdir le couplage entre modules sans demande explicite.
+          </decision>
+        </technicalDecisions>
+
+        <verification>
+          <item>`npm run build` (tsc via nest build) : 0 erreur.</item>
+          <item>Migration verifiee contre une base Postgres jetable (schema reconstitue a
+            l'identique de l'etat reel post-CahierDeTexteRefonte, ligne de migrations inseree pour
+            que seule la nouvelle migration soit rejouee) : up() applique et verifie par requete
+            SQL directe (colonne resource_links, table pedagogical_log_attachments avec sa FK
+            CASCADE, table pedagogical_log_settings avec sa ligne singleton seedee aux valeurs par
+            defaut exactes), down() verifie (retour exact a l'etat initial — colonne et deux tables
+            disparues), migration:run rejoue avec succes apres le revert.</item>
+          <item>`npm test` (suite unitaire complete) : 169/169 tests verts, 15 suites — 49 nouveaux
+            tests (resourceLinks + getEntryForWrite() sur PedagogicalLogService, DTO de validation,
+            detection de type par octets reels, PedagogicalLogSettingsService,
+            AttachmentsService), 0 regression sur les 120 herites.</item>
+          <item>`npm run test:e2e` : memes 33 echecs preexistants (routes plurielles jamais
+            montees, gap documente et confirme identique avant/apres cette session) + 23 nouveaux
+            tests verts (6 reglages TI, 17 pieces jointes) = 92 tests verts au total (69 herites +
+            23 nouveaux), 0 regression.</item>
+        </verification>
+
+        <blockers>Aucun sur le code livre.</blockers>
+
+        <openPoints>
+          <point>
+            `.env.example` n'a pas pu etre mis a jour (meme regle de permission que la session du
+            2026-08-20, bloquant la lecture/ecriture de tout fichier .env*). Variables necessaires
+            en production, a ajouter manuellement : `PEDAGOGICAL_LOG_MEDIA_PATH`
+            (`/app/storage/media` en conteneur). `docker-compose.yml` est corrige dans cette
+            session (variable declaree + volume monte + volume nomme cree en bas de fichier).
+          </point>
+          <point>
+            Fichiers orphelins sur suppression d'une entree avec pieces jointes — voir la decision
+            technique dediee ci-dessus. Non corrige, signale pour une session ulterieure si le
+            volume de donnees le justifie.
+          </point>
+          <point>
+            `application/x-cfb` (DOC/XLS/PPT herites) n'est jamais raffine en un type plus precis :
+            la structure interne du Compound File Binary n'est pas inspectee. Si une distinction
+            fine devenait necessaire (ex. filtrer les .ppt mais pas les .doc), il faudrait une
+            bibliotheque d'inspection dediee (non ajoutee ici, hors besoin exprime).
+          </point>
+          <point>
+            Agregation front des deux domaines de reglages (photo de profil + pieces jointes de
+            cahier de texte) en un seul ecran "Parametres systeme" — explicitement hors perimetre
+            de cette session backend (arbitrage point 8), a confier a front-developper.
+          </point>
+        </openPoints>
       </session>
     </technicalImplementation>
     <pendingPoints>

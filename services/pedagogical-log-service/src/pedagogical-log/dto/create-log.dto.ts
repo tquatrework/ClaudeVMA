@@ -11,10 +11,15 @@ import {
   IsBoolean,
   IsNotEmpty,
   ValidateNested,
+  ArrayMaxSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { LogVisibility } from '../entities/pedagogical-log.entity';
+import { ResourceLinkDto } from './resource-link.dto';
+
+/** Nombre maximal de liens externes par entrée — jamais un tableau non borné. */
+export const MAX_RESOURCE_LINKS_PER_ENTRY = 10;
 
 const VISIBILITY_VALUES: LogVisibility[] = [
   'eleve_parent_formateur',
@@ -99,6 +104,20 @@ export class CreateLogDto {
   @ValidateNested({ each: true })
   @Type(() => LinkedResourceDto)
   linkedResources?: Array<{ type: string; id: string; label?: string }>;
+
+  @ApiPropertyOptional({
+    type: [ResourceLinkDto],
+    description:
+      'Liens externes libres (label + URL absolue), distincts de linkedResources. ' +
+      `Plafonné à ${MAX_RESOURCE_LINKS_PER_ENTRY} par entrée. Écriture réservée au formateur, ` +
+      'même régime que sessionSummary/homework (arbitrage du 2026-08-26).',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_RESOURCE_LINKS_PER_ENTRY)
+  @ValidateNested({ each: true })
+  @Type(() => ResourceLinkDto)
+  resourceLinks?: Array<{ label: string; url: string }>;
 
   @ApiPropertyOptional({ description: "UUID de l'activité ou séance associée" })
   @IsOptional()

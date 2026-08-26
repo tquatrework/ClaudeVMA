@@ -115,10 +115,21 @@ export class PedagogicalLog {
 
   /**
    * Références vers ressources liées (exercices, évaluations, tutos, visios…).
-   * XML spec functionality 002.
+   * XML spec functionality 002. Réservé à une référence interne par UUID+type
+   * (futur content-catalog-service, phase 3) — n'accepte pas d'URL externe.
    */
   @Column({ name: 'linked_resources', type: 'simple-json', nullable: true })
   linkedResources: Array<{ type: string; id: string; label?: string }>;
+
+  /**
+   * Liens externes libres, distincts de `linkedResources` ci-dessus (donnée
+   * différente, pas une variante de nommage — arbitrage du 2026-08-26,
+   * docs/architecture.md "Liens et pièces jointes sur une entrée de cahier de
+   * texte", point 1). Écriture réservée au formateur, même régime que
+   * `sessionSummary`/`homework`. Plafonné à 10 liens côté DTO.
+   */
+  @Column({ name: 'resource_links', type: 'simple-json', nullable: true })
+  resourceLinks: Array<{ label: string; url: string }>;
 
   /** Compétences travaillées lors de la séance */
   @Column({ name: 'skills_worked', type: 'simple-array', nullable: true })

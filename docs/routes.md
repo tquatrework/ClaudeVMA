@@ -2001,10 +2001,16 @@ conditions réelles, seulement pour un appel direct au service.
 | PATCH | /:id *(⚠️ alias historique, jamais proxié par api-gateway — utiliser `PATCH /logs/:id`)* | Modifier une page | 🔒 | Mêmes règles que `PATCH /logs/:id` | idem |
 | DELETE | /:id *(⚠️ alias historique, jamais proxié par api-gateway — utiliser `DELETE /logs/:id`)* | Supprimer une page | 🔒 | Mêmes règles que `DELETE /logs/:id` | idem |
 
-Body `POST /students/:studentId/pedagogical-log` (refonte du 2026-08-20, point 2 et point 4 ;
-`resourceLinks` ajouté le 2026-08-26 — voir « Liens et pièces jointes » plus bas) :
-`{date?, sessionSummary?, homework?, visibility?, hiddenFromStudent?, linkedResources?, resourceLinks?, activityId?, sessionId?, skillsWorked?, difficulty?, rating?}`.
+Body `POST /students/:studentId/pedagogical-log` (refonte du 2026-08-20, point 2 et point 4) :
+`{date?, sessionSummary?, homework?, visibility?, hiddenFromStudent?, linkedResources?, activityId?, sessionId?, skillsWorked?, difficulty?, rating?}`.
 Même corps accepté par `PATCH /logs/:id`.
+
+**Liens dans le texte.** Aucun champ structuré dédié : un lien s'insère directement dans
+`sessionSummary`/`homework` via la syntaxe légère `[label](url)`, rendue en lien cliquable côté
+front à l'affichage uniquement (arbitrage du 2026-08-26, docs/architecture.md "Syntaxe legere
+unifiee pour le texte enrichi"). Le champ structuré `resourceLinks` livré le même jour a été
+retiré aussitôt après, remplacé par cette approche — voir la note dans la section "Pièces
+jointes" plus bas.
 **`studentId` n'est plus un champ du corps** : le paramètre de chemin fait seul autorité (correctif
 du bug réel où son absence renvoyait `400` — l'identifiant du chemin ne doit jamais être redemandé
 dans le corps, convention déjà en place ailleurs dans le projet). Un `studentId` envoyé quand même
@@ -2124,31 +2130,20 @@ Les mémos sont affichés groupés par chapitre. Les mémos sans chapitre (`chap
 Arbitrage Phase 1 : RP n'a PAS accès au carnet personnel (décision conservatrice — à arbitrer en Phase 2).
 Le parent financeur ne voit JAMAIS le carnet personnel (PLOG-FB-001).
 
-### Liens et pièces jointes — arbitrage du 2026-08-26
+### Pièces jointes — arbitrage du 2026-08-26
 
 Réf. `docs/architecture.md` > "Liens et pièces jointes sur une entrée de cahier de texte, et
-paramètres système associés". Deux ajouts distincts : un champ `resourceLinks` sur l'entrée
-elle-même, et une nouvelle entité `PedagogicalLogAttachment` (pièces jointes).
+paramètres système associés" (nouvelle entité `PedagogicalLogAttachment`).
 
-**`resourceLinks` — distinct de `linkedResources`.** `linkedResources` (déjà présent, non
-documenté avant ce chantier) exige `{id: UUID, type: string}` et **jette silencieusement tout
-`url`** — c'est une référence interne vers une ressource future de `content-catalog-service`
-(phase 3), non touchée ici. `resourceLinks` est un **nouveau** champ, porté directement par
-`PedagogicalLogPage` (comme `sessionSummary`/`homework`), pour un lien externe libre avec son
-propre libellé :
-
-```json
-"resourceLinks": [{ "label": "Fiche de cours", "url": "https://example.com/fiche.pdf" }]
-```
-
-- `label` : requis, non vide, 200 caractères max.
-- `url` : requise, URL absolue `http://` ou `https://` uniquement (`400` sinon — une URL relative
-  ou un protocole `javascript:` est refusée).
-- Tableau plafonné à **10 liens** par entrée (`400` au-delà) — jamais un tableau non borné.
-- Disponible sur `POST`/`PATCH` `.../pedagogical-log` et `PATCH /logs/:id` (mêmes routes que
-  `sessionSummary`/`homework`), avec **exactement les mêmes règles d'écriture** : seul le
-  formateur auteur, toujours titulaire de la relation, peut l'écrire — aucune restriction de
-  lecture supplémentaire par rapport au reste de l'entrée (filtrage par `visibility` uniquement).
+**Le lien externe libre n'est pas un champ structuré.** Un premier champ `resourceLinks`
+(`[{label, url}]`, porté directement par `PedagogicalLogPage`) avait été livré le même jour, puis
+retiré aussitôt après un test utilisateur réel de la PR : le lien doit s'insérer **dans** le
+texte de `sessionSummary`/`homework` via la syntaxe légère `[label](url)`, rendue côté front à
+l'affichage — pas dans une liste séparée. Voir « Liens dans le texte » ci-dessus et l'arbitrage
+"Syntaxe legere unifiee pour le texte enrichi" dans `docs/architecture.md`. `linkedResources`
+(déjà présent, non documenté avant ce chantier) reste inchangé : il exige `{id: UUID, type:
+string}` et **jette silencieusement tout `url`** — c'est une référence interne vers une ressource
+future de `content-catalog-service` (phase 3), non concernée par ce qui précède.
 
 **Pièces jointes — nouvelles routes, sous le préfixe `/logs` déjà proxié par api-gateway.**
 

@@ -86,7 +86,6 @@ export class PedagogicalLogService {
       isSpecialPage: false,
       hiddenFromStudent: dto.hiddenFromStudent ?? false,
       linkedResources: dto.linkedResources,
-      resourceLinks: dto.resourceLinks,
       activityId: dto.activityId,
       sessionId: dto.sessionId,
       skillsWorked: dto.skillsWorked,

@@ -17,6 +17,14 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *    max_total_bytes_per_entry=5000000).
  *
  * down() : supprime les deux nouvelles tables et la colonne ajoutée.
+ *
+ * NOTE (2026-08-26, même jour) : la colonne `resource_links` ajoutée ici a
+ * été retirée par la migration suivante,
+ * RetraitResourceLinksCahierDeTexte1788800000000 — voir son commentaire.
+ * Ce champ structuré s'est révélé déconnecté de l'usage réel (le lien doit
+ * être inséré dans le texte via une syntaxe légère, pas dans une liste
+ * séparée). Les tables `pedagogical_log_attachments` et
+ * `pedagogical_log_settings` créées ici restent inchangées.
  */
 export class LiensEtPiecesJointesCahierDeTexte1788700000000 implements MigrationInterface {
   name = 'LiensEtPiecesJointesCahierDeTexte1788700000000';

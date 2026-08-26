@@ -71,7 +71,6 @@ function buildSampleLog(overrides: Partial<PedagogicalLog> = {}): PedagogicalLog
     isSpecialPage: false,
     hiddenFromStudent: false,
     linkedResources: null,
-    resourceLinks: null,
     skillsWorked: null,
     difficulty: null,
     rating: null,
@@ -188,22 +187,6 @@ describe('PedagogicalLogService', () => {
         pedagogicalLogService.create(STUDENT_ID, {}, FORMATEUR_ID, 'formateur'),
       ).rejects.toThrow(ServiceUnavailableException);
       expect(mockRepository.save).not.toHaveBeenCalled();
-    });
-
-    it('[arbitrage 2026-08-26] resourceLinks est transmis au repository, distinct de linkedResources', async () => {
-      const resourceLinks = [{ label: 'Fiche de cours', url: 'https://example.com/fiche.pdf' }];
-      const dto = { resourceLinks };
-      const savedLog = buildSampleLog({ resourceLinks });
-
-      mockRepository.create.mockReturnValue(savedLog);
-      mockRepository.save.mockResolvedValue(savedLog);
-
-      const result = await pedagogicalLogService.create(STUDENT_ID, dto, FORMATEUR_ID, 'formateur');
-
-      expect(mockRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({ resourceLinks }),
-      );
-      expect(result.resourceLinks).toEqual(resourceLinks);
     });
   });
 

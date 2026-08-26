@@ -29,12 +29,15 @@
  * (`GET /relations/my-contacts`, premier élève sélectionné par défaut — pas
  * d'option « Tous », le cahier de texte se lit un élève à la fois).
  *
- * Liens et pièces jointes (2026-08-26, `docs/routes.md` § « Liens et pièces
- * jointes ») : le formulaire de création et l'édition inline gèrent
- * `resourceLinks` via les hooks `useNewLogEntryForm`/`useLogEntryEditing`
- * (extraits pour rester sous 300 lignes) ; les pièces jointes vivent sur
- * chaque entrée déjà créée (`LogEntryAttachments`, dans `LogEntryList`), le
- * `logId` étant requis par `POST /logs/:id/attachments`.
+ * Liens et pièces jointes (2026-08-26) : un lien s'insère directement dans
+ * le texte de `sessionSummary`/`homework` via `InsertLinkButton` (syntaxe
+ * légère `[texte](url)`, `src/utils/lightMarkup.ts`) — plus de champ
+ * `resourceLinks` structuré séparé (retiré après retour utilisateur réel).
+ * Le formulaire de création et l'édition inline sont gérés par les hooks
+ * `useNewLogEntryForm`/`useLogEntryEditing` (extraits pour rester sous
+ * 300 lignes) ; les pièces jointes vivent sur chaque entrée déjà créée
+ * (`LogEntryAttachments`, dans `LogEntryList`), le `logId` étant requis par
+ * `POST /logs/:id/attachments`.
  */
 
 import React, { useState } from 'react'
@@ -197,12 +200,10 @@ export default function PedagogicalLogPage() {
                 onSessionSummaryChange={newEntryForm.onSessionSummaryChange}
                 homework={newEntryForm.homework}
                 onHomeworkChange={newEntryForm.onHomeworkChange}
-                resourceLinks={newEntryForm.resourceLinks}
-                onResourceLinksChange={newEntryForm.onResourceLinksChange}
                 selectedVisibility={newEntryForm.visibility}
                 onVisibilityChange={newEntryForm.onVisibilityChange}
                 isSaving={isCreating}
-                errorMessage={newEntryForm.validationError ?? createError}
+                errorMessage={createError}
                 onSubmit={newEntryForm.handleSubmit}
                 onCancel={newEntryForm.handleCancel}
               />
@@ -238,7 +239,7 @@ export default function PedagogicalLogPage() {
               onCancelEdit={entryEditing.cancelEdit}
               onSaveEdit={entryEditing.saveEdit}
               updatingLogId={updatingLogId}
-              updateError={entryEditing.editValidationError ?? updateError}
+              updateError={updateError}
               onDelete={handleDeletePage}
               deletingLogId={deletingLogId}
             />

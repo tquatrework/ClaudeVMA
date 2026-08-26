@@ -12,12 +12,18 @@
  * qu'après un clic sur le bouton « Nouvelle entrée », pour que la liste des
  * entrées existantes reste immédiatement visible au chargement. `onCancel`
  * referme le formulaire sans soumettre.
+ *
+ * Liens insérés dans le texte (2026-08-26) : un bouton « Insérer un lien »
+ * (`InsertLinkButton`) à côté de chaque champ texte insère `[texte](url)` à
+ * la position du curseur — remplace l'ancien `ResourceLinkEditor` (champ
+ * structuré séparé, retiré). Nécessite une référence DOM vers chaque
+ * `<textarea>` pour connaître la position du curseur au moment du clic.
  */
 
-import React from 'react'
-import type { LogVisibility, ResourceLink } from '../../api/pedagogicalLog'
+import React, { useRef } from 'react'
+import type { LogVisibility } from '../../api/pedagogicalLog'
 import { LOG_VISIBILITY_LABELS, SELECTABLE_LOG_VISIBILITIES } from '../../utils/pedagogicalLogLabels'
-import { ResourceLinkEditor } from './ResourceLinkEditor'
+import { InsertLinkButton } from './InsertLinkButton'
 
 interface NewLogPageFormProps {
   date: string
@@ -26,8 +32,6 @@ interface NewLogPageFormProps {
   onSessionSummaryChange: (value: string) => void
   homework: string
   onHomeworkChange: (value: string) => void
-  resourceLinks: ResourceLink[]
-  onResourceLinksChange: (links: ResourceLink[]) => void
   selectedVisibility: LogVisibility
   onVisibilityChange: (value: LogVisibility) => void
   isSaving: boolean
@@ -43,8 +47,6 @@ export function NewLogPageForm({
   onSessionSummaryChange,
   homework,
   onHomeworkChange,
-  resourceLinks,
-  onResourceLinksChange,
   selectedVisibility,
   onVisibilityChange,
   isSaving,
@@ -52,6 +54,9 @@ export function NewLogPageForm({
   onSubmit,
   onCancel,
 }: NewLogPageFormProps) {
+  const sessionSummaryRef = useRef<HTMLTextAreaElement>(null)
+  const homeworkRef = useRef<HTMLTextAreaElement>(null)
+
   return (
     <div className="mb-6">
       <form
@@ -103,11 +108,18 @@ export function NewLogPageForm({
           </label>
           <textarea
             id="log-session-summary"
+            ref={sessionSummaryRef}
             value={sessionSummary}
             onChange={(event) => onSessionSummaryChange(event.target.value)}
             placeholder="Notions abordées, difficultés observées… (optionnel)"
             rows={3}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
+          />
+          <InsertLinkButton
+            fieldLabel="Déroulement de la séance"
+            textareaRef={sessionSummaryRef}
+            value={sessionSummary}
+            onChange={onSessionSummaryChange}
           />
         </div>
 
@@ -117,19 +129,20 @@ export function NewLogPageForm({
           </label>
           <textarea
             id="log-homework"
+            ref={homeworkRef}
             value={homework}
             onChange={(event) => onHomeworkChange(event.target.value)}
             placeholder="Exercices, révisions… (optionnel)"
             rows={3}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
           />
+          <InsertLinkButton
+            fieldLabel="À faire"
+            textareaRef={homeworkRef}
+            value={homework}
+            onChange={onHomeworkChange}
+          />
         </div>
-
-        <ResourceLinkEditor
-          links={resourceLinks}
-          onChange={onResourceLinksChange}
-          idPrefix="new-log-page"
-        />
 
         <div className="flex gap-3">
           <button

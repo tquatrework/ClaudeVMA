@@ -8,24 +8,29 @@
  * `canDelete` sont calculés par la page, cette entrée ne fait qu'afficher les
  * boutons qu'on lui autorise).
  *
+ * Liens dans le texte (2026-08-26) : `sessionSummary`/`homework` sont rendus
+ * via `LightMarkupText` (transforme `[texte](url)` en vrai lien cliquable) au
+ * lieu de texte brut ; en édition, un bouton « Insérer un lien »
+ * (`InsertLinkButton`) accompagne chaque `<textarea>`. Remplace l'ancien
+ * `ResourceLinkEditor`/`resourceLinks` (champ structuré séparé, retiré).
+ *
  * Extrait de PedagogicalLogPage (lot 10 — normalisation, découpage > 300 lignes).
  * Présentationnel : le state d'édition reste porté par la page.
  */
 
-import React from 'react'
+import React, { useRef } from 'react'
 import type { PedagogicalLogPage as LogPage, LogVisibility } from '../../api/pedagogicalLog'
 import type { PedagogicalLogAttachmentSettings } from '../../api/pedagogicalLogAttachments'
 import { formatIsoCalendarDate } from '../../utils/dateFormat'
 import { getLogVisibilityLabel } from '../../utils/pedagogicalLogLabels'
+import { LightMarkupText } from '../ui/LightMarkupText'
 import { LogEntryAttachments } from './LogEntryAttachments'
-import { ResourceLinkEditor } from './ResourceLinkEditor'
-import type { ResourceLink } from '../../api/pedagogicalLog'
+import { InsertLinkButton } from './InsertLinkButton'
 
 export interface LogEntryEditValues {
   date: string
   sessionSummary: string
   homework: string
-  resourceLinks: ResourceLink[]
 }
 
 interface PedagogicalLogEntryItemProps {
@@ -78,6 +83,9 @@ export function PedagogicalLogEntryItem({
   isDeleting,
   attachmentSettings,
 }: PedagogicalLogEntryItemProps) {
+  const editSummaryRef = useRef<HTMLTextAreaElement>(null)
+  const editHomeworkRef = useRef<HTMLTextAreaElement>(null)
+
   return (
     <li
       className={`bg-white border rounded-xl p-4 ${
@@ -124,12 +132,19 @@ export function PedagogicalLogEntryItem({
                 </label>
                 <textarea
                   id={`edit-summary-${logPage.id}`}
+                  ref={editSummaryRef}
                   value={editValues.sessionSummary}
                   onChange={(event) =>
                     onEditValuesChange({ ...editValues, sessionSummary: event.target.value })
                   }
                   rows={3}
                   className="w-full border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
+                />
+                <InsertLinkButton
+                  fieldLabel="Déroulement de la séance"
+                  textareaRef={editSummaryRef}
+                  value={editValues.sessionSummary}
+                  onChange={(value) => onEditValuesChange({ ...editValues, sessionSummary: value })}
                 />
               </div>
               <div>
@@ -138,17 +153,19 @@ export function PedagogicalLogEntryItem({
                 </label>
                 <textarea
                   id={`edit-homework-${logPage.id}`}
+                  ref={editHomeworkRef}
                   value={editValues.homework}
                   onChange={(event) => onEditValuesChange({ ...editValues, homework: event.target.value })}
                   rows={3}
                   className="w-full border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
                 />
+                <InsertLinkButton
+                  fieldLabel="À faire"
+                  textareaRef={editHomeworkRef}
+                  value={editValues.homework}
+                  onChange={(value) => onEditValuesChange({ ...editValues, homework: value })}
+                />
               </div>
-              <ResourceLinkEditor
-                links={editValues.resourceLinks}
-                onChange={(links) => onEditValuesChange({ ...editValues, resourceLinks: links })}
-                idPrefix={`edit-log-${logPage.id}`}
-              />
             </>
           )}
           <div className="flex gap-3">
@@ -194,36 +211,21 @@ export function PedagogicalLogEntryItem({
               {logPage.sessionSummary && (
                 <div>
                   <p className="text-xs font-semibold text-gray-500">Déroulement de la séance</p>
-                  <p className="text-sm text-gray-800 whitespace-pre-wrap">{logPage.sessionSummary}</p>
+                  <p className="text-sm text-gray-800 whitespace-pre-wrap">
+                    <LightMarkupText text={logPage.sessionSummary} />
+                  </p>
                 </div>
               )}
               {logPage.homework && (
                 <div>
                   <p className="text-xs font-semibold text-gray-500">À faire</p>
-                  <p className="text-sm text-gray-800 whitespace-pre-wrap">{logPage.homework}</p>
+                  <p className="text-sm text-gray-800 whitespace-pre-wrap">
+                    <LightMarkupText text={logPage.homework} />
+                  </p>
                 </div>
               )}
               {!logPage.sessionSummary && !logPage.homework && (
                 <p className="text-sm text-gray-400 italic">Entrée vide, non encore complétée.</p>
-              )}
-              {logPage.resourceLinks && logPage.resourceLinks.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-500">Liens vers une ressource</p>
-                  <ul className="space-y-0.5">
-                    {logPage.resourceLinks.map((link, index) => (
-                      <li key={index}>
-                        <a
-                          href={link.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm text-indigo-600 hover:underline"
-                        >
-                          {link.label}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
               )}
             </div>
           )}

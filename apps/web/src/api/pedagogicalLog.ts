@@ -19,23 +19,6 @@ export type LogVisibility =
   | 'formateur_rp'
   | 'special'
 
-/**
- * Lien externe libre, ajouté le 2026-08-26 (`docs/routes.md` § « Liens et
- * pièces jointes »). **Distinct** de `linkedResources` (référence interne par
- * `{id, type}`, réservée à `content-catalog-service`, phase 3 — non touchée
- * ici) : `resourceLinks` porte un lien HTTP(S) libre avec son propre texte
- * affiché, jamais l'URL brute seule.
- */
-export interface ResourceLink {
-  /** Texte affiché — jamais l'URL brute. Requis, 200 caractères max côté serveur. */
-  label: string
-  /** URL absolue `http://` ou `https://` uniquement — validée aussi côté front. */
-  url: string
-}
-
-/** Plafond serveur — un tableau non borné n'est jamais accepté. */
-export const MAX_RESOURCE_LINKS = 10
-
 export interface PedagogicalLogPage {
   id: string
   studentId: string
@@ -59,8 +42,6 @@ export interface PedagogicalLogPage {
   /** Créée automatiquement à la confirmation d'un cours (`ActivityConfirmed`). */
   autoCreated?: boolean
   linkedResources?: string[]
-  /** Liens externes libres, ajoutés le 2026-08-26 — plafond 10, voir `MAX_RESOURCE_LINKS`. */
-  resourceLinks?: ResourceLink[]
   createdAt: string
   updatedAt?: string
 }
@@ -70,9 +51,13 @@ export interface PedagogicalLogPage {
  * `homework` sont les trois champs de la refonte du 2026-08-20, tous
  * optionnels. `content` n'est pertinent que pour `PATCH` d'une **page
  * spéciale** RP (mécanisme inchangé, hors périmètre de cette refonte) — ne
- * jamais l'envoyer pour une entrée normale. `resourceLinks` suit exactement
- * les mêmes règles d'écriture (formateur auteur uniquement), ajouté le
- * 2026-08-26.
+ * jamais l'envoyer pour une entrée normale.
+ *
+ * Aucun champ dédié aux liens : un lien s'insère directement dans le texte
+ * de `sessionSummary`/`homework` via la syntaxe légère `[texte](url)`
+ * (`src/utils/lightMarkup.ts`) — l'ancien `resourceLinks` structuré a été
+ * retiré le 2026-08-26 après retour utilisateur réel (le lien doit vivre
+ * dans le texte, pas à côté).
  */
 export interface LogEntryPayload {
   date?: string
@@ -80,7 +65,6 @@ export interface LogEntryPayload {
   homework?: string
   visibility?: LogVisibility
   content?: string
-  resourceLinks?: ResourceLink[]
 }
 
 export interface CreateSpecialPagePayload {

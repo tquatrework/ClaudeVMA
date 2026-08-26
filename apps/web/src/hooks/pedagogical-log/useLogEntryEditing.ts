@@ -4,19 +4,20 @@
  * 2026-08-26) pour rester sous le seuil de 300 lignes par fichier.
  *
  * Réservée au formateur auteur pour une entrée normale (le mécanisme des
- * pages spéciales RP, avec son champ `content` libre, reste inchangé).
+ * pages spéciales RP, avec son champ `content` libre, reste inchangé). Les
+ * liens s'insèrent directement dans `sessionSummary`/`homework` via
+ * `InsertLinkButton` — il n'y a plus de validation dédiée à un
+ * `resourceLinks` structuré (retiré le 2026-08-26).
  */
 
 import { useState } from 'react'
-import type { LogEntryPayload, PedagogicalLogPage as LogPage, ResourceLink } from '../../api/pedagogicalLog'
-import { toSubmittableResourceLinks, validateResourceLinks } from '../../utils/resourceLinks'
+import type { LogEntryPayload, PedagogicalLogPage as LogPage } from '../../api/pedagogicalLog'
 import type { LogEntryEditValues } from '../../components/pedagogical-log/PedagogicalLogEntryItem'
 
 const EMPTY_EDIT_VALUES: LogEntryEditValues = {
   date: '',
   sessionSummary: '',
   homework: '',
-  resourceLinks: [],
 }
 
 export interface UseLogEntryEditingResult {
@@ -25,7 +26,6 @@ export interface UseLogEntryEditingResult {
   onEditValuesChange: (values: LogEntryEditValues) => void
   editContent: string
   onEditContentChange: (value: string) => void
-  editValidationError: string | null
   startEdit: (entry: LogPage) => void
   cancelEdit: () => void
   saveEdit: (entry: LogPage) => void
@@ -37,11 +37,9 @@ export function useLogEntryEditing(
   const [editingLogId, setEditingLogId] = useState<string | null>(null)
   const [editValues, setEditValues] = useState<LogEntryEditValues>(EMPTY_EDIT_VALUES)
   const [editContent, setEditContent] = useState('')
-  const [editValidationError, setEditValidationError] = useState<string | null>(null)
 
   const startEdit = (entry: LogPage) => {
     setEditingLogId(entry.id)
-    setEditValidationError(null)
     if (entry.isSpecialPage) {
       setEditContent(entry.content ?? '')
     } else {
@@ -49,7 +47,6 @@ export function useLogEntryEditing(
         date: entry.date ?? '',
         sessionSummary: entry.sessionSummary ?? '',
         homework: entry.homework ?? '',
-        resourceLinks: entry.resourceLinks ?? [],
       })
     }
   }
@@ -58,7 +55,6 @@ export function useLogEntryEditing(
     setEditingLogId(null)
     setEditValues(EMPTY_EDIT_VALUES)
     setEditContent('')
-    setEditValidationError(null)
   }
 
   const saveEdit = (entry: LogPage) => {
@@ -69,19 +65,10 @@ export function useLogEntryEditing(
       return
     }
 
-    const validationError = validateResourceLinks(editValues.resourceLinks)
-    if (validationError) {
-      setEditValidationError(validationError)
-      return
-    }
-    setEditValidationError(null)
-
-    const submittableResourceLinks: ResourceLink[] = toSubmittableResourceLinks(editValues.resourceLinks)
     void updateEntry(entry.id, {
       date: editValues.date || undefined,
       sessionSummary: editValues.sessionSummary.trim() || undefined,
       homework: editValues.homework.trim() || undefined,
-      resourceLinks: submittableResourceLinks,
     }).then((success) => {
       if (success) cancelEdit()
     })
@@ -93,7 +80,6 @@ export function useLogEntryEditing(
     onEditValuesChange: setEditValues,
     editContent,
     onEditContentChange: setEditContent,
-    editValidationError,
     startEdit,
     cancelEdit,
     saveEdit,

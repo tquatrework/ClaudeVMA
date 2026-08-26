@@ -38,6 +38,7 @@ import type { PedagogicalLogPage as LogPage } from '../../src/api/pedagogicalLog
 vi.mock('../../src/hooks/useAuth')
 vi.mock('../../src/api/relations')
 vi.mock('../../src/api/pedagogicalLog')
+vi.mock('../../src/api/pedagogicalLogAttachments')
 
 import { useAuth } from '../../src/hooks/useAuth'
 import { fetchMyContacts } from '../../src/api/relations'
@@ -47,6 +48,7 @@ import {
   updateLogEntry,
   deleteLogEntry,
 } from '../../src/api/pedagogicalLog'
+import { fetchAttachmentSettings, fetchLogAttachments } from '../../src/api/pedagogicalLogAttachments'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockFetchMyContacts = vi.mocked(fetchMyContacts)
@@ -54,6 +56,12 @@ const mockFetchStudentPedagogicalLog = vi.mocked(fetchStudentPedagogicalLog)
 const mockCreateStudentLogEntry = vi.mocked(createStudentLogEntry)
 const mockUpdateLogEntry = vi.mocked(updateLogEntry)
 const mockDeleteLogEntry = vi.mocked(deleteLogEntry)
+// La liste des pièces jointes est chargée automatiquement pour le formateur
+// (auteur d'une entrée normale, `canManage`, `LogEntryAttachments` dépliée
+// par défaut depuis le 2026-08-26) — ces deux appels doivent être mockés
+// même si ce fichier de tests ne porte pas sur les pièces jointes.
+const mockFetchAttachmentSettings = vi.mocked(fetchAttachmentSettings)
+const mockFetchLogAttachments = vi.mocked(fetchLogAttachments)
 
 const STUDENT_ID = 'fd0fe655-cd28-4f75-b225-846e8aad7e62'
 const TEACHER_ID = '89968837-c4bb-455e-b4e4-5a8c86c23a79'
@@ -144,6 +152,14 @@ beforeEach(() => {
   asStudent()
   mockFetchMyContacts.mockResolvedValue([])
   mockFetchStudentPedagogicalLog.mockResolvedValue([])
+  mockFetchAttachmentSettings.mockResolvedValue({
+    id: 'settings-1',
+    attachmentsEnabled: true,
+    maxFileBytes: 100_000,
+    maxTotalBytesPerEntry: 5_000_000,
+    updatedAt: '2026-08-26T00:00:00.000Z',
+  })
+  mockFetchLogAttachments.mockResolvedValue([])
 })
 
 // ─── 1. Bug de chargement corrigé ─────────────────────────────────────────

@@ -1,15 +1,21 @@
 /**
  * LogEntryAttachments — pièces jointes d'une entrée de cahier de texte.
  *
- * Repliée par défaut (cohérent avec le formulaire de nouvelle entrée,
- * 2026-08-21) : les pièces jointes ne se chargent qu'au premier dépliage, pour
- * ne pas multiplier les requêtes sur une longue liste d'entrées.
- *
  * Deux publics dans un seul composant :
  * - **tout lecteur** de l'entrée (élève, parent, formateur, RP selon la
  *   catégorie de visibilité déjà appliquée au niveau de l'entrée) peut déplier
  *   et télécharger ;
  * - **le formateur auteur** (`canManage`) peut en plus joindre et supprimer.
+ *
+ * Bug d'ergonomie corrigé le 2026-08-26 : le point d'entrée pour ajouter un
+ * fichier n'était visible qu'après avoir déplié une section repliée par
+ * défaut, derrière un petit lien texte gris — un utilisateur réel ne l'a pas
+ * vu en testant. Pour le formateur qui peut gérer les pièces jointes
+ * (`canManage`), la section est désormais **dépliée par défaut**, chargée
+ * une seule fois au montage, avec un vrai bouton visible « Joindre un
+ * fichier » (pas un lien texte discret). Pour un lecteur qui ne peut pas
+ * gérer (élève/parent/RP), le comportement replié par défaut est inchangé —
+ * pas de raison de le changer, ces rôles ne joignent jamais de fichier.
  *
  * Le bouton « Joindre un fichier » n'apparaît que si `attachmentSettings.
  * attachmentsEnabled` est vrai — lu par la page avant le rendu (même
@@ -17,7 +23,7 @@
  * refusé en 403.
  */
 
-import React, { useId, useRef, useState } from 'react'
+import React, { useEffect, useId, useRef, useState } from 'react'
 import type { PedagogicalLogAttachment, PedagogicalLogAttachmentSettings } from '../../api/pedagogicalLogAttachments'
 import { useLogEntryAttachments } from '../../hooks/pedagogical-log/useLogEntryAttachments'
 import { formatFileSize } from '../../utils/fileSize'
@@ -76,7 +82,10 @@ function AttachmentRow({
 }
 
 export function LogEntryAttachments({ logId, canManage, attachmentSettings }: LogEntryAttachmentsProps) {
-  const [isExpanded, setIsExpanded] = useState(false)
+  // Dépliée par défaut pour le formateur qui peut gérer les pièces jointes —
+  // c'est lui qui a besoin de voir le bouton d'ajout sans clic préalable.
+  // Repliée par défaut pour un simple lecteur, comportement inchangé.
+  const [isExpanded, setIsExpanded] = useState(canManage)
   const hasRequestedLoad = useRef(false)
   const fileInputId = useId()
 
@@ -96,6 +105,13 @@ export function LogEntryAttachments({ logId, canManage, attachmentSettings }: Lo
     downloadingAttachmentId,
     downloadError,
   } = useLogEntryAttachments(logId)
+
+  useEffect(() => {
+    if (canManage && !hasRequestedLoad.current) {
+      hasRequestedLoad.current = true
+      void loadAttachments()
+    }
+  }, [canManage, loadAttachments])
 
   const handleToggle = () => {
     const nextExpanded = !isExpanded
@@ -119,13 +135,17 @@ export function LogEntryAttachments({ logId, canManage, attachmentSettings }: Lo
 
   return (
     <div className="mt-2 border-t border-gray-100 pt-2">
-      <button
-        type="button"
-        onClick={handleToggle}
-        className="text-xs text-gray-500 hover:underline"
-      >
-        {isExpanded ? ATTACHMENT_LABELS.toggleHide : ATTACHMENT_LABELS.toggleShow}
-      </button>
+      {canManage ? (
+        <p className="text-xs font-semibold text-gray-500">{ATTACHMENT_LABELS.sectionTitle}</p>
+      ) : (
+        <button
+          type="button"
+          onClick={handleToggle}
+          className="text-xs text-gray-500 hover:underline"
+        >
+          {isExpanded ? ATTACHMENT_LABELS.toggleHide : ATTACHMENT_LABELS.toggleShow}
+        </button>
+      )}
 
       {isExpanded && (
         <div className="mt-2">
@@ -164,7 +184,7 @@ export function LogEntryAttachments({ logId, canManage, attachmentSettings }: Lo
             <div className="mt-2">
               <label
                 htmlFor={fileInputId}
-                className={`inline-flex cursor-pointer items-center text-xs text-indigo-600 hover:underline ${
+                className={`inline-flex cursor-pointer items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 ${
                   isUploadingAttachment ? 'pointer-events-none opacity-50' : ''
                 }`}
               >

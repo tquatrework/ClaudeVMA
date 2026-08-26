@@ -1,15 +1,20 @@
 /**
- * Tests — Liens et pièces jointes du cahier de texte (chantier 2026-08-26).
+ * Tests — Liens dans le texte et pièces jointes du cahier de texte
+ * (chantier 2026-08-26, révisé le même jour après retour utilisateur réel).
  *
  * Séparé de `PedagogicalLogPage.test.tsx` (déjà volumineux) : même harnais de
- * mocks, mais dédié aux deux ajouts de ce chantier.
+ * mocks, mais dédié à ces deux ajouts.
  *
  * Couvre :
- * 1. `resourceLinks` dans le formulaire de création : ajout/retrait de liens,
- *    validation front (label requis, URL absolue), soumission.
- * 2. Affichage des liens comme de vrais liens cliquables sur une entrée.
- * 3. Pièces jointes : bouton masqué si désactivées côté serveur, affichage
- *    du plafond, envoi, téléchargement, suppression, cas d'erreur (413).
+ * 1. Insertion d'un lien `[texte](url)` dans le texte (`sessionSummary`/
+ *    `homework`) via `InsertLinkButton`, dans le formulaire de création —
+ *    remplace l'ancien champ structuré `resourceLinks`, retiré.
+ * 2. Affichage d'un lien inséré dans le texte comme un vrai lien cliquable
+ *    sur une entrée existante (`LightMarkupText`).
+ * 3. Pièces jointes : visibilité du bouton « Joindre un fichier » — dépliée
+ *    par défaut et bouton immédiatement visible pour le formateur qui peut
+ *    gérer, repliée par défaut pour un simple lecteur — plus les scénarios
+ *    d'envoi, téléchargement, suppression et cas d'erreur (413).
  */
 
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -134,47 +139,96 @@ beforeEach(() => {
   mockFetchLogAttachments.mockResolvedValue([])
 })
 
-// ─── 1. resourceLinks dans le formulaire de création ──────────────────────
+// ─── 1. Insertion d'un lien dans le texte (formulaire de création) ────────
 
-describe('PedagogicalLogPage — liens vers une ressource (formulaire de création)', () => {
-  it('permet d\'ajouter un lien et le soumet avec label + url', async () => {
+describe('PedagogicalLogPage — insertion d\'un lien dans le texte (formulaire de création)', () => {
+  it('insère [texte](url) dans « Déroulement de la séance » et le soumet dans sessionSummary', async () => {
     mockCreateStudentLogEntry.mockResolvedValue(
       makeEntry({
         id: 'log-with-link',
-        resourceLinks: [{ label: 'Fiche de cours', url: 'https://example.com/fiche.pdf' }],
+        sessionSummary: '[Fiche de cours](https://example.com/fiche.pdf)',
       }),
     )
 
     renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
     await openNewEntryForm()
 
-    await userEvent.click(screen.getByRole('button', { name: /ajouter un lien/i }))
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Insérer un lien dans « Déroulement de la séance »' }),
+    )
     await userEvent.type(screen.getByLabelText('Texte affiché du lien'), 'Fiche de cours')
     await userEvent.type(screen.getByLabelText('Adresse (URL) du lien'), 'https://example.com/fiche.pdf')
+    await userEvent.click(screen.getByRole('button', { name: 'Insérer' }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Déroulement de la séance')).toHaveValue(
+        '[Fiche de cours](https://example.com/fiche.pdf)',
+      )
+    })
+
     await userEvent.click(screen.getByRole('button', { name: /ajouter une entrée/i }))
 
     await waitFor(() => {
       expect(mockCreateStudentLogEntry).toHaveBeenCalledWith(
         STUDENT_ID,
         expect.objectContaining({
-          resourceLinks: [{ label: 'Fiche de cours', url: 'https://example.com/fiche.pdf' }],
+          sessionSummary: '[Fiche de cours](https://example.com/fiche.pdf)',
         }),
       )
     })
+    // Plus de champ structuré : la donnée n'est portée que par le texte.
+    const submittedPayload = mockCreateStudentLogEntry.mock.calls[0][1]
+    expect(submittedPayload).not.toHaveProperty('resourceLinks')
   })
 
-  it('refuse localement une URL non http(s), sans appeler le serveur', async () => {
+  it('insère aussi un lien dans « À faire »', async () => {
     renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
     await openNewEntryForm()
 
-    await userEvent.click(screen.getByRole('button', { name: /ajouter un lien/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Insérer un lien dans « À faire »' }))
+    await userEvent.type(screen.getByLabelText('Texte affiché du lien'), 'Exercices en ligne')
+    await userEvent.type(screen.getByLabelText('Adresse (URL) du lien'), 'https://example.com/exos')
+    await userEvent.click(screen.getByRole('button', { name: 'Insérer' }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('À faire')).toHaveValue('[Exercices en ligne](https://example.com/exos)')
+    })
+  })
+
+  it('insère le lien à la position du curseur, pas systématiquement en fin de texte', async () => {
+    renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
+    await openNewEntryForm()
+
+    const summaryField = screen.getByLabelText('Déroulement de la séance')
+    await userEvent.type(summaryField, 'Suite{Home}')
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Insérer un lien dans « Déroulement de la séance »' }),
+    )
+    await userEvent.type(screen.getByLabelText('Texte affiché du lien'), 'Fiche')
+    await userEvent.type(screen.getByLabelText('Adresse (URL) du lien'), 'https://example.com/fiche')
+    await userEvent.click(screen.getByRole('button', { name: 'Insérer' }))
+
+    await waitFor(() => {
+      expect(summaryField).toHaveValue('[Fiche](https://example.com/fiche)Suite')
+    })
+  })
+
+  it('refuse localement une URL non http(s), sans appeler le serveur ni insérer le lien', async () => {
+    renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
+    await openNewEntryForm()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Insérer un lien dans « Déroulement de la séance »' }),
+    )
     await userEvent.type(screen.getByLabelText('Texte affiché du lien'), 'Lien suspect')
     await userEvent.type(screen.getByLabelText('Adresse (URL) du lien'), 'javascript:alert(1)')
-    await userEvent.click(screen.getByRole('button', { name: /ajouter une entrée/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Insérer' }))
 
     await waitFor(() => {
       expect(screen.getByText(/doit commencer par http:\/\/ ou https:\/\//i)).toBeDefined()
     })
+    expect(screen.getByLabelText('Déroulement de la séance')).toHaveValue('')
     expect(mockCreateStudentLogEntry).not.toHaveBeenCalled()
   })
 
@@ -182,36 +236,45 @@ describe('PedagogicalLogPage — liens vers une ressource (formulaire de créati
     renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
     await openNewEntryForm()
 
-    await userEvent.click(screen.getByRole('button', { name: /ajouter un lien/i }))
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Insérer un lien dans « Déroulement de la séance »' }),
+    )
     await userEvent.type(screen.getByLabelText('Adresse (URL) du lien'), 'https://example.com')
-    await userEvent.click(screen.getByRole('button', { name: /ajouter une entrée/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Insérer' }))
 
     await waitFor(() => {
-      expect(screen.getByText(/texte affiché/i)).toBeDefined()
+      expect(screen.getByText(/texte affiché est requis/i)).toBeDefined()
     })
     expect(mockCreateStudentLogEntry).not.toHaveBeenCalled()
   })
 
-  it('permet de retirer un lien ajouté', async () => {
+  it('permet d\'annuler la saisie du lien sans rien insérer', async () => {
     renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
     await openNewEntryForm()
 
-    await userEvent.click(screen.getByRole('button', { name: /ajouter un lien/i }))
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Insérer un lien dans « Déroulement de la séance »' }),
+    )
     expect(screen.getByLabelText('Texte affiché du lien')).toBeDefined()
 
-    await userEvent.click(screen.getByRole('button', { name: /retirer/i }))
+    // Deux boutons « Annuler » coexistent ici : celui de la popover de lien
+    // (ouverte) et celui du formulaire entier — la popover est ajoutée en
+    // premier dans le DOM.
+    const [cancelLinkPopover] = screen.getAllByRole('button', { name: 'Annuler' })
+    await userEvent.click(cancelLinkPopover)
     expect(screen.queryByLabelText('Texte affiché du lien')).toBeNull()
+    expect(screen.getByLabelText('Déroulement de la séance')).toHaveValue('')
   })
 })
 
-// ─── 2. Affichage des liens sur une entrée existante ──────────────────────
+// ─── 2. Affichage d'un lien inséré dans le texte sur une entrée existante ──
 
-describe('PedagogicalLogPage — affichage des liens sur une entrée', () => {
-  it('affiche chaque lien comme une ancre cliquable, ouverte dans un nouvel onglet', async () => {
+describe('PedagogicalLogPage — affichage d\'un lien inséré dans le texte', () => {
+  it('affiche le lien comme une ancre cliquable, ouverte dans un nouvel onglet, texte alentour préservé', async () => {
     asStudent()
     mockFetchStudentPedagogicalLog.mockResolvedValue([
       makeEntry({
-        resourceLinks: [{ label: 'Fiche de cours', url: 'https://example.com/fiche.pdf' }],
+        sessionSummary: 'Voir [Fiche de cours](https://example.com/fiche.pdf) pour réviser.',
       }),
     ])
 
@@ -225,13 +288,45 @@ describe('PedagogicalLogPage — affichage des liens sur une entrée', () => {
     expect(link.getAttribute('href')).toBe('https://example.com/fiche.pdf')
     expect(link.getAttribute('target')).toBe('_blank')
     expect(link.getAttribute('rel')).toContain('noopener')
+    expect(screen.getByText(/voir/i)).toBeDefined()
+    expect(screen.getByText(/pour réviser/i)).toBeDefined()
+  })
+
+  it("un texte sans lien reste affiché tel quel", async () => {
+    asStudent()
+    mockFetchStudentPedagogicalLog.mockResolvedValue([makeEntry({ sessionSummary: 'Pas de lien ici.' })])
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Pas de lien ici.')).toBeDefined()
+    })
+    // Scopé à l'entrée : la page porte par ailleurs de vrais liens de
+    // navigation (rail gauche, topbar) qui ne sont pas concernés ici.
+    const entryItem = screen.getByText('Pas de lien ici.').closest('li') as HTMLElement
+    expect(within(entryItem).queryByRole('link')).toBeNull()
   })
 })
 
 // ─── 3. Pièces jointes ─────────────────────────────────────────────────────
 
-describe('PedagogicalLogPage — pièces jointes', () => {
-  it("n'affiche pas le bouton « Joindre un fichier » quand les pièces jointes sont désactivées", async () => {
+describe('PedagogicalLogPage — pièces jointes, visibilité du bouton', () => {
+  it('le formateur voit « Joindre un fichier » immédiatement, sans avoir à déplier quoi que ce soit', async () => {
+    mockFetchStudentPedagogicalLog.mockResolvedValue([makeEntry()])
+
+    renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
+
+    await waitFor(() => {
+      expect(screen.getByText('Révision des limites')).toBeDefined()
+    })
+
+    // Aucun clic sur un quelconque bouton « afficher » avant cette assertion.
+    await waitFor(() => {
+      expect(screen.getByText(/joindre un fichier/i)).toBeDefined()
+    })
+  })
+
+  it("n'affiche pas le bouton « Joindre un fichier » quand les pièces jointes sont désactivées, même sans clic préalable", async () => {
     mockFetchAttachmentSettings.mockResolvedValue({
       ...DEFAULT_ATTACHMENT_SETTINGS,
       attachmentsEnabled: false,
@@ -243,12 +338,29 @@ describe('PedagogicalLogPage — pièces jointes', () => {
     await waitFor(() => {
       expect(screen.getByText('Révision des limites')).toBeDefined()
     })
-    await userEvent.click(screen.getByText(/afficher les pièces jointes/i))
+    await waitFor(() => {
+      expect(screen.getByText('Pièces jointes')).toBeDefined()
+    })
 
     expect(screen.queryByText(/joindre un fichier/i)).toBeNull()
   })
 
-  it('affiche le plafond par fichier et permet d\'envoyer une pièce jointe', async () => {
+  it("l'élève, simple lecteur, ne voit jamais le bouton « Joindre un fichier », et la liste reste repliée par défaut", async () => {
+    asStudent()
+    mockFetchStudentPedagogicalLog.mockResolvedValue([makeEntry()])
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Révision des limites')).toBeDefined()
+    })
+
+    expect(screen.getByText(/afficher les pièces jointes/i)).toBeDefined()
+    expect(screen.queryByText(/joindre un fichier/i)).toBeNull()
+    expect(mockFetchLogAttachments).not.toHaveBeenCalled()
+  })
+
+  it('affiche le plafond par fichier et permet d\'envoyer une pièce jointe, sans clic préalable pour déplier', async () => {
     mockFetchStudentPedagogicalLog.mockResolvedValue([makeEntry()])
     mockUploadLogAttachment.mockResolvedValue(makeAttachment())
 
@@ -257,8 +369,6 @@ describe('PedagogicalLogPage — pièces jointes', () => {
     await waitFor(() => {
       expect(screen.getByText('Révision des limites')).toBeDefined()
     })
-    await userEvent.click(screen.getByText(/afficher les pièces jointes/i))
-
     await waitFor(() => {
       expect(screen.getByText(/taille maximale par fichier/i)).toBeDefined()
     })
@@ -284,8 +394,6 @@ describe('PedagogicalLogPage — pièces jointes', () => {
     await waitFor(() => {
       expect(screen.getByText('Révision des limites')).toBeDefined()
     })
-    await userEvent.click(screen.getByText(/afficher les pièces jointes/i))
-
     await waitFor(() => {
       expect(screen.getByText(/taille maximale par fichier/i)).toBeDefined()
     })
@@ -322,8 +430,6 @@ describe('PedagogicalLogPage — pièces jointes', () => {
     await waitFor(() => {
       expect(screen.getByText('Révision des limites')).toBeDefined()
     })
-    await userEvent.click(screen.getByText(/afficher les pièces jointes/i))
-
     await waitFor(() => {
       expect(screen.getByText(/taille maximale par fichier/i)).toBeDefined()
     })
@@ -349,13 +455,14 @@ describe('PedagogicalLogPage — pièces jointes', () => {
     await waitFor(() => {
       expect(screen.getByText('Révision des limites')).toBeDefined()
     })
-    await userEvent.click(screen.getByText(/afficher les pièces jointes/i))
 
     await waitFor(() => {
       expect(screen.getByText('fiche.pdf')).toBeDefined()
     })
     expect(screen.getByText('50 Ko')).toBeDefined()
     expect(screen.queryByText('a1b2c3.pdf')).toBeNull()
+    // Chargé une seule fois, automatiquement (pas de clic requis pour le formateur).
+    expect(mockFetchLogAttachments).toHaveBeenCalledTimes(1)
   })
 
   it('télécharge une pièce jointe via fetch + blob (pas un <a href> direct)', async () => {
@@ -364,11 +471,6 @@ describe('PedagogicalLogPage — pièces jointes', () => {
     mockFetchLogAttachmentBlob.mockResolvedValue(new Blob(['octets']))
 
     renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
-
-    await waitFor(() => {
-      expect(screen.getByText('Révision des limites')).toBeDefined()
-    })
-    await userEvent.click(screen.getByText(/afficher les pièces jointes/i))
 
     await waitFor(() => {
       expect(screen.getByText('fiche.pdf')).toBeDefined()
@@ -386,11 +488,6 @@ describe('PedagogicalLogPage — pièces jointes', () => {
     mockDeleteLogAttachment.mockResolvedValue(undefined)
 
     renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
-
-    await waitFor(() => {
-      expect(screen.getByText('Révision des limites')).toBeDefined()
-    })
-    await userEvent.click(screen.getByText(/afficher les pièces jointes/i))
 
     await waitFor(() => {
       expect(screen.getByText('fiche.pdf')).toBeDefined()
@@ -429,11 +526,6 @@ describe('PedagogicalLogPage — pièces jointes', () => {
     renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
 
     await waitFor(() => {
-      expect(screen.getByText('Révision des limites')).toBeDefined()
-    })
-    await userEvent.click(screen.getByText(/afficher les pièces jointes/i))
-
-    await waitFor(() => {
       expect(screen.getByText(/n'avez pas accès aux pièces jointes/i)).toBeDefined()
     })
   })
@@ -443,11 +535,6 @@ describe('PedagogicalLogPage — pièces jointes', () => {
     mockFetchLogAttachments.mockResolvedValue([])
 
     renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
-
-    await waitFor(() => {
-      expect(screen.getByText('Révision des limites')).toBeDefined()
-    })
-    await userEvent.click(screen.getByText(/afficher les pièces jointes/i))
 
     await waitFor(() => {
       expect(screen.getByText('Aucune pièce jointe.')).toBeDefined()

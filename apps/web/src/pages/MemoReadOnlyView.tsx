@@ -11,7 +11,7 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
-import { fetchMemoById, type Memo } from '../api/pedagogicalLog'
+import { fetchMemoById, type Memo } from '../api/pedagogicalLogMemos'
 
 export default function MemoReadOnlyView() {
   const { id: memoId } = useParams<{ id: string }>()

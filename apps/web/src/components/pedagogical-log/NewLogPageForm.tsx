@@ -15,8 +15,9 @@
  */
 
 import React from 'react'
-import type { LogVisibility } from '../../api/pedagogicalLog'
+import type { LogVisibility, ResourceLink } from '../../api/pedagogicalLog'
 import { LOG_VISIBILITY_LABELS, SELECTABLE_LOG_VISIBILITIES } from '../../utils/pedagogicalLogLabels'
+import { ResourceLinkEditor } from './ResourceLinkEditor'
 
 interface NewLogPageFormProps {
   date: string
@@ -25,6 +26,8 @@ interface NewLogPageFormProps {
   onSessionSummaryChange: (value: string) => void
   homework: string
   onHomeworkChange: (value: string) => void
+  resourceLinks: ResourceLink[]
+  onResourceLinksChange: (links: ResourceLink[]) => void
   selectedVisibility: LogVisibility
   onVisibilityChange: (value: LogVisibility) => void
   isSaving: boolean
@@ -40,6 +43,8 @@ export function NewLogPageForm({
   onSessionSummaryChange,
   homework,
   onHomeworkChange,
+  resourceLinks,
+  onResourceLinksChange,
   selectedVisibility,
   onVisibilityChange,
   isSaving,
@@ -119,6 +124,12 @@ export function NewLogPageForm({
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
           />
         </div>
+
+        <ResourceLinkEditor
+          links={resourceLinks}
+          onChange={onResourceLinksChange}
+          idPrefix="new-log-page"
+        />
 
         <div className="flex gap-3">
           <button

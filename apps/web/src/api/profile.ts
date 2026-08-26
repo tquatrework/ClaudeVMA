@@ -125,6 +125,36 @@ export async function fetchProfileAvatarConstraints(): Promise<ProfileAvatarCons
 }
 
 /**
+ * Réponse de `PATCH /profiles/avatar/settings` — reflète la valeur **relue en
+ * base** après écriture, jamais le corps envoyé tel quel (règle du 2026-08-10,
+ * point 3bis).
+ */
+export interface ProfileAvatarSettings {
+  maxAvatarUploadBytes: number
+  updatedAt: string
+}
+
+/**
+ * PATCH /profiles/avatar/settings — technicien_informatique SEUL.
+ *
+ * Règle le plafond d'envoi de la photo de profil à l'exécution, sans
+ * redéploiement (arbitrage du 2026-08-26, « Liens et pièces jointes… »,
+ * point 8). Borne serveur `[10000, 10000000]` octets — validée aussi côté
+ * front pour l'UX avant l'appel, voir `src/hooks/admin/useAdminAvatarSettings.ts`.
+ *
+ * **Pas sous `/admin`** : cette route appartient à `profile-service`, pas à
+ * `admin-observability-service` — `location ^~ /api/v1/admin` de la gateway
+ * route déjà tout ce préfixe ailleurs. Volontairement regroupée avec
+ * `GET /profiles/avatar/constraints` : même ressource, même contrôleur.
+ */
+export async function updateProfileAvatarSettings(payload: {
+  maxAvatarUploadBytes: number
+}): Promise<ProfileAvatarSettings> {
+  const { data } = await apiClient.patch<ProfileAvatarSettings>('/profiles/avatar/settings', payload)
+  return data
+}
+
+/**
  * Réponse de `POST /profiles/:userId/avatar`.
  *
  * `avatarUrl` est l'URL de lecture **versionnée** construite par le serveur,

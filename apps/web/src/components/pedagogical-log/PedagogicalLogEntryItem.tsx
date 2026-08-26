@@ -14,13 +14,18 @@
 
 import React from 'react'
 import type { PedagogicalLogPage as LogPage, LogVisibility } from '../../api/pedagogicalLog'
+import type { PedagogicalLogAttachmentSettings } from '../../api/pedagogicalLogAttachments'
 import { formatIsoCalendarDate } from '../../utils/dateFormat'
 import { getLogVisibilityLabel } from '../../utils/pedagogicalLogLabels'
+import { LogEntryAttachments } from './LogEntryAttachments'
+import { ResourceLinkEditor } from './ResourceLinkEditor'
+import type { ResourceLink } from '../../api/pedagogicalLog'
 
 export interface LogEntryEditValues {
   date: string
   sessionSummary: string
   homework: string
+  resourceLinks: ResourceLink[]
 }
 
 interface PedagogicalLogEntryItemProps {
@@ -40,6 +45,8 @@ interface PedagogicalLogEntryItemProps {
   canDelete: boolean
   onDelete: () => void
   isDeleting: boolean
+  /** Réglages système des pièces jointes — lus une fois par la page, jamais codés en dur. */
+  attachmentSettings: PedagogicalLogAttachmentSettings
 }
 
 const VISIBILITY_LABELS: Record<LogVisibility, string> = {
@@ -69,6 +76,7 @@ export function PedagogicalLogEntryItem({
   canDelete,
   onDelete,
   isDeleting,
+  attachmentSettings,
 }: PedagogicalLogEntryItemProps) {
   return (
     <li
@@ -136,6 +144,11 @@ export function PedagogicalLogEntryItem({
                   className="w-full border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
                 />
               </div>
+              <ResourceLinkEditor
+                links={editValues.resourceLinks}
+                onChange={(links) => onEditValuesChange({ ...editValues, resourceLinks: links })}
+                idPrefix={`edit-log-${logPage.id}`}
+              />
             </>
           )}
           <div className="flex gap-3">
@@ -193,7 +206,34 @@ export function PedagogicalLogEntryItem({
               {!logPage.sessionSummary && !logPage.homework && (
                 <p className="text-sm text-gray-400 italic">Entrée vide, non encore complétée.</p>
               )}
+              {logPage.resourceLinks && logPage.resourceLinks.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500">Liens vers une ressource</p>
+                  <ul className="space-y-0.5">
+                    {logPage.resourceLinks.map((link, index) => (
+                      <li key={index}>
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-indigo-600 hover:underline"
+                        >
+                          {link.label}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
+          )}
+
+          {!logPage.isSpecialPage && (
+            <LogEntryAttachments
+              logId={logPage.id}
+              canManage={canEdit}
+              attachmentSettings={attachmentSettings}
+            />
           )}
 
           <div className="flex items-center justify-between mt-3">

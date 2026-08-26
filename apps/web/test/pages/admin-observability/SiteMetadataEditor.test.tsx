@@ -8,21 +8,42 @@
  * - Le mode maintenance affiche le champ message supplémentaire
  */
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../../../src/hooks/useAuth')
 vi.mock('../../../src/api/adminObservability')
+// Sections « Photo de profil » et « Pièces jointes » ajoutées le 2026-08-26 :
+// appellent leurs propres services (profile-service, pedagogical-log-service).
+// Mockées ici pour que ce fichier, qui ne teste que le formulaire de
+// métadonnées préexistant, ne dépende jamais d'un appel réseau réel.
+vi.mock('../../../src/api/profile')
+vi.mock('../../../src/api/pedagogicalLogAttachments')
 
 import { useAuth } from '../../../src/hooks/useAuth'
 import { updateSiteMetadata } from '../../../src/api/adminObservability'
+import { fetchProfileAvatarConstraints } from '../../../src/api/profile'
+import { fetchAttachmentSettings } from '../../../src/api/pedagogicalLogAttachments'
 import SiteMetadataEditor from '../../../src/pages/SiteMetadataEditor'
 import type { SiteMetadata } from '../../../src/api/adminObservability'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockUpdateSiteMetadata = vi.mocked(updateSiteMetadata)
+const mockFetchProfileAvatarConstraints = vi.mocked(fetchProfileAvatarConstraints)
+const mockFetchAttachmentSettings = vi.mocked(fetchAttachmentSettings)
+
+/**
+ * Le bouton « Sauvegarder » du formulaire de métadonnées n'est plus le seul
+ * de l'écran depuis le 2026-08-26 (sections « Photo de profil » et « Pièces
+ * jointes », chacune son propre formulaire). On le retrouve en le scopant au
+ * `<form>` qui porte le champ « Nom du site », propre à ce formulaire-ci.
+ */
+function getSiteMetadataSaveButton(): HTMLElement {
+  const form = screen.getByLabelText(/Nom du site/i).closest('form') as HTMLElement
+  return within(form).getByRole('button', { name: /Sauvegarder/i })
+}
 
 // ─── Fixtures utilisateurs ────────────────────────────────────────────────────
 
@@ -86,6 +107,19 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue(buildAuthMock())
   mockUpdateSiteMetadata.mockResolvedValue(UPDATED_METADATA)
+  mockFetchProfileAvatarConstraints.mockResolvedValue({
+    maxUploadBytes: 1_000_000,
+    acceptedContentTypes: ['image/jpeg'],
+    outputContentType: 'image/webp',
+    maxDimensionPixels: 512,
+  })
+  mockFetchAttachmentSettings.mockResolvedValue({
+    id: 'settings-1',
+    attachmentsEnabled: true,
+    maxFileBytes: 100_000,
+    maxTotalBytesPerEntry: 5_000_000,
+    updatedAt: '2026-08-26T00:00:00.000Z',
+  })
 })
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -106,7 +140,7 @@ describe('SiteMetadataEditor', () => {
     await userEvent.type(screen.getByLabelText(/Nom du site/i), 'VisioMath Pro')
     await userEvent.type(screen.getByLabelText(/Email de contact/i), 'support@visiomaths.fr')
 
-    await userEvent.click(screen.getByRole('button', { name: /Sauvegarder/i }))
+    await userEvent.click(getSiteMetadataSaveButton())
 
     await waitFor(() => {
       expect(mockUpdateSiteMetadata).toHaveBeenCalledWith(
@@ -122,7 +156,7 @@ describe('SiteMetadataEditor', () => {
   it('affiche une confirmation de succès après sauvegarde', async () => {
     renderPage()
 
-    await userEvent.click(screen.getByRole('button', { name: /Sauvegarder/i }))
+    await userEvent.click(getSiteMetadataSaveButton())
 
     await waitFor(() => {
       expect(screen.getByText(/Métadonnées sauvegardées avec succès/i)).toBeDefined()
@@ -144,7 +178,7 @@ describe('SiteMetadataEditor', () => {
     mockUpdateSiteMetadata.mockRejectedValue({ response: { status: 403 } })
     renderPage()
 
-    await userEvent.click(screen.getByRole('button', { name: /Sauvegarder/i }))
+    await userEvent.click(getSiteMetadataSaveButton())
 
     await waitFor(() => {
       expect(screen.getByText(/Vous n'êtes pas autorisé à modifier les métadonnées/i)).toBeDefined()

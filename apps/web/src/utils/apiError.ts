@@ -184,3 +184,37 @@ export function getErrorMessage(error: unknown, fallback?: string): string {
 export function getErrorStatus(error: unknown): number | undefined {
   return (error as ApiErrorShape)?.response?.status
 }
+
+/**
+ * Corps d'erreur structuré exploitable, quelle que soit la forme reçue.
+ *
+ * Un `413` applicatif est du JSON structuré (`code`, `maxUploadBytes`…), mais si
+ * un plafond réseau en amont (nginx) s'applique en premier, la réponse est une
+ * **page HTML** sans aucune de ces clés. Un `JSON.parse` qui échoue ne doit
+ * jamais devenir une erreur incompréhensible : on retombe sur `null`, et
+ * l'appelant garde son message français générique.
+ *
+ * Centralisé ici (au lieu d'être dupliqué dans chaque module d'upload — avatar,
+ * pièces jointes du cahier de texte…) : la même tolérance doit s'appliquer à
+ * tout envoi de fichier du projet.
+ */
+export function readErrorPayload(error: unknown): Record<string, unknown> | null {
+  const payload = (error as { response?: { data?: unknown } })?.response?.data
+
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    return payload as Record<string, unknown>
+  }
+
+  if (typeof payload === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(payload)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>
+      }
+    } catch {
+      return null
+    }
+  }
+
+  return null
+}

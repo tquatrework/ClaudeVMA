@@ -5,7 +5,7 @@
  */
 
 import React, { useState } from 'react'
-import { type MemoChapter } from '../../api/pedagogicalLog'
+import { type MemoChapter } from '../../api/pedagogicalLogMemos'
 
 interface MemoItemEditorProps {
   chapters: MemoChapter[]

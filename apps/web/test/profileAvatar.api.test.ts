@@ -21,6 +21,7 @@ vi.mock('../src/api/client', () => ({
   default: {
     get: vi.fn(),
     post: vi.fn(),
+    patch: vi.fn(),
     delete: vi.fn(),
   },
 }))
@@ -30,11 +31,13 @@ import {
   deleteProfileAvatar,
   fetchProfileAvatarBlob,
   fetchProfileAvatarConstraints,
+  updateProfileAvatarSettings,
   uploadProfileAvatar,
 } from '../src/api/profile'
 
 const mockGet = vi.mocked(apiClient.get)
 const mockPost = vi.mocked(apiClient.post)
+const mockPatch = vi.mocked(apiClient.patch)
 const mockDelete = vi.mocked(apiClient.delete)
 
 const USER_ID = '464da8a2-8b4f-4cc7-b7b1-f1d0ab511355'
@@ -148,6 +151,31 @@ describe('deleteProfileAvatar', () => {
     mockDelete.mockRejectedValue({ response: { status: 403 } })
 
     await expect(deleteProfileAvatar(USER_ID)).rejects.toMatchObject({
+      response: { status: 403 },
+    })
+  })
+})
+
+describe('updateProfileAvatarSettings', () => {
+  it('appelle PATCH /profiles/avatar/settings, pas /admin', async () => {
+    mockPatch.mockResolvedValue({
+      data: { maxAvatarUploadBytes: 2_000_000, updatedAt: '2026-08-26T00:00:00.000Z' },
+    })
+
+    const result = await updateProfileAvatarSettings({ maxAvatarUploadBytes: 2_000_000 })
+
+    expect(mockPatch).toHaveBeenCalledWith('/profiles/avatar/settings', {
+      maxAvatarUploadBytes: 2_000_000,
+    })
+    // La réponse est la valeur RELUE en base, jamais le corps envoyé tel quel.
+    expect(result.maxAvatarUploadBytes).toBe(2_000_000)
+    expect(result.updatedAt).toBe('2026-08-26T00:00:00.000Z')
+  })
+
+  it('propage un 403 (réservé au TI)', async () => {
+    mockPatch.mockRejectedValue({ response: { status: 403 } })
+
+    await expect(updateProfileAvatarSettings({ maxAvatarUploadBytes: 2_000_000 })).rejects.toMatchObject({
       response: { status: 403 },
     })
   })

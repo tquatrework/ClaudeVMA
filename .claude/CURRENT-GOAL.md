@@ -110,8 +110,12 @@ formule saisie via MathLive et rendue en LaTeX, une image jointe et affichée.
      (création/modification/lecture du titre, plafond `400` à 200 caractères). Redéployé par
      l'orchestrateur depuis le checkout principal (l'agent avait déployé depuis son worktree via
      `docker compose -p claudevma`, reconstruit ensuite depuis le checkout principal pour rester
-     cohérent), migration confirmée appliquée (`migration:show` → `[X]`). Reste : restaurer le
-     champ titre côté front (`front-developper`, en cours avec le défaut 2 ci-dessous).
+     cohérent), migration confirmée appliquée (`migration:show` → `[X]`). **Front livré** (commits
+     `31daf51`+`90c0ef0`) : champ titre restauré dans `MemoItemEditor.tsx` (texte/formule/image),
+     affiché en lecture via `MemoItemDisplay.tsx` (composant déjà partagé par les trois vues —
+     panneau élève, modale de lecture, recherche — donc aucune duplication). Une première tentative
+     de correction avait échoué à mi-parcours (limite de session), sans rien committer ; relancée
+     avec succès après reset de la limite.
   2. **Une formule incomplète produit un texte d'erreur brut affiché à l'écran.** L'utilisateur a
      rapporté : « Formule illisible : x^2=a,S=\left\lbrace\sqrt[\placeholder{}]{a};-\sqrt
      [\placeholder{}]{a}\right\rbrace ». Cause identifiée par l'orchestrateur (lecture directe de
@@ -123,8 +127,17 @@ formule saisie via MathLive et rendue en LaTeX, une image jointe et affichée.
      Le vrai problème n'est pas le message de repli en lui-même mais qu'une formule incomplète ait
      pu être **enregistrée** telle quelle : la validation doit avoir lieu **avant** la sauvegarde
      (détecter `\placeholder{}`/case non remplie, refuser l'enregistrement avec un message clair en
-     français invitant à compléter la formule), pas seulement au rendu. Délégué à
-     `front-developper`.
+     français invitant à compléter la formule), pas seulement au rendu. **Corrigé** (commit
+     `31daf51`) : nouveau `hasUnfilledMathPlaceholder()` (`utils/memo.ts`), appelé dans
+     `MemoItemEditor.tsx` avant tout appel réseau — refus avec « Formule incomplète — un champ n'a
+     pas été rempli. », formulaire laissé ouvert, jamais de LaTeX brut affiché. `MathRenderer.tsx`
+     inchangé, son repli devient un filet de sécurité résiduel (vieil item, vraie erreur de
+     syntaxe) plutôt que le chemin normal.
+  Vérifié indépendamment par l'orchestrateur après fast-forward : `tsc --noEmit` propre, 25/25
+  tests ciblés verts. Déployé sur la pile réelle (`docker compose build/up frontend`), bundle
+  `index-DKF_XKGd.js` confirmé servi par `https://claudevma.visioprof.fr`.
+- [ ] **Preuve à obtenir** — défauts de nature visuelle : à valider par relecture de l'utilisateur
+  en conditions réelles (choix déjà fait pour ce chantier).
 - [ ] Validé par l'utilisateur.
 
 ---

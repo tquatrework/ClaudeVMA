@@ -5,6 +5,59 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-27 — Mémo (pense-bête de formules de l'élève)
+
+Demande explicite de l'utilisateur. Branche : `feat/memo-formules` (créée depuis `master`, poussée).
+
+Le Mémo est le pense-bête de formules mathématiques de l'élève, organisé par chapitres. L'élève
+crée/modifie/supprime des items (texte, formule, image) groupés par chapitre — c'est tout ce qu'il
+a besoin de faire. Formateurs et parents liés peuvent **lire** (jamais écrire), via un bouton ajouté
+à la suite des autres sur la tuile élève déjà existante (`/my-students`) — **aucune nouvelle entrée
+de menu à gauche** pour eux. La lecture (élève compris) doit se faire via une **fenêtre modale
+déplaçable**, pour garder les formules sous les yeux pendant une autre activité.
+
+Deux investigations en lecture seule (front + backend) ont montré que ce n'est pas un ajout sur une
+base saine : le Mémo documenté est **cassé en profondeur**. Backend
+(`pedagogical-log-service`) : deux implémentations concurrentes incompatibles sous `src/memo/`, une
+collision de route réelle qui fait gagner systématiquement le contrôleur cassé
+(`ChapterController`/`Chapter`/`Memo`, entités jamais enregistrées TypeORM → `500`) sur le
+contrôleur correct (`MemoController`/`MemoChapter`/`MemoItem`) — et surtout **aucune migration ne
+crée les tables mémo**, elles n'existent pas en production. Front : un flux élève fonctionne déjà
+(`/memos`) mais reste à plat (pas de distinction texte/formule/image), sans bibliothèque LaTeX,
+sans fenêtre modale nulle part dans le projet. Plan complet, décisions d'architecture et
+séquencement : `/home/debian/.claude/plans/non-on-passe-au-wise-sedgewick.md`.
+
+Décisions arbitrées avec l'utilisateur (2026-08-27) :
+- **Saisie de formule : éditeur visuel MathLive** (`mathlive`, auto-hébergé, aucun appel externe),
+  produisant du LaTeX en texte brut, rendu via KaTeX — première mise en œuvre réelle de la
+  « Syntaxe légère unifiée » anticipée dans `docs/architecture.md` (2026-08-26) pour la notation
+  mathématique.
+- **Images : fichier séparé, type vérifié sur les octets réels** — même discipline que les pièces
+  jointes du cahier de texte, pas de base64 en colonne texte.
+
+### Comment on saura que c'est fait
+
+Réponse HTTP citée montrant : création d'une formule par l'élève, refus en écriture pour
+formateur/parent, lecture `200` pour un formateur/parent lié, refus pour un tiers non lié,
+migration confirmée créant les tables avec `synchronize: false`. Capture d'écran ou test réel
+montrant : la modale déplaçable ouverte depuis `/my-students` (bouton « Voir le mémo »), une
+formule saisie via MathLive et rendue en LaTeX, une image jointe et affichée.
+
+### État
+
+- [ ] Backend `pedagogical-log-service` — B1 à B7 du plan (retrait de l'implémentation morte,
+  migration réelle, CRUD complet, plafonds, lecture par relation, route consolidée,
+  `docs/routes.md` à jour). Pas encore délégué.
+- [ ] Vérification backend contre la pile réelle.
+- [ ] Front `apps/web` — F1 à F8 du plan (client API, saisie MathLive/KaTeX, éditeur d'item,
+  modale déplaçable générique, vue de lecture, bouton sur la tuile élève, retrait de la page
+  orpheline). Pas encore délégué.
+- [ ] Déployé sur la pile réelle.
+- [ ] Preuve livrée à l'utilisateur.
+- [ ] Validé par l'utilisateur.
+
+---
+
 ## Besoin — 2026-08-26 — liens et pièces jointes sur le cahier de texte
 
 Demande explicite de l'utilisateur, en continuant de tester le cahier de texte. Deux ajouts :

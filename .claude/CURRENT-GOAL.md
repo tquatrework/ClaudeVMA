@@ -125,10 +125,38 @@ nouveaux réglages et leur sauvegarde effective (relue après rechargement).
   juste après la création de l'entrée dans le même geste de soumission. Déployé sur la pile réelle
   par l'orchestrateur (`docker compose build/up frontend`), bundle `index-_Cj9pNnA.js` confirmé
   servi par `https://claudevma.visioprof.fr`.
-- [ ] **Preuve à obtenir avant merge** — les deux défauts corrigés sont de nature visuelle/tactile
-  (rendu de couleur pendant la frappe, ordre des étapes du formulaire) : à valider par relecture de
-  l'utilisateur en conditions réelles sur `https://claudevma.visioprof.fr`, niveau de preuve à
-  confirmer avec lui (capture, test Playwright, ou test direct par l'utilisateur lui-même).
+- [ ] **Trois nouveaux défauts remontés par le test utilisateur en direct (2026-08-27), à corriger
+  avant merge** — le premier correctif n'était pas suffisant :
+  1. **Le bouton « Joindre un fichier » apparaît sur toutes les entrées déjà validées**, pas
+     seulement sur le formulaire de nouvelle entrée. Décision explicite de l'utilisateur, qui
+     restreint le périmètre posé le 2026-08-26 : l'ajout d'une pièce jointe **ne doit plus être
+     possible qu'au moment de la création** d'une entrée — la capacité d'ajouter après coup sur
+     une entrée déjà existante (`LogEntryAttachments`, bouton d'ajout visible pour le formateur
+     `canManage`) doit disparaître. La liste/téléchargement des pièces jointes déjà présentes sur
+     une entrée existante n'est pas remise en cause, seul le point d'ajout après coup l'est.
+  2. **Design du bouton d'ajout (dans le formulaire de nouvelle entrée uniquement)** : le bouton
+     actuel (`bg-indigo-600`, plein, « Joindre un fichier ») se confond visuellement avec les
+     boutons de validation du formulaire (« Ajouter une entrée », « Annuler »). Demande explicite :
+     le transformer en lien discret, **exactement le style du bouton « Insérer un lien »**
+     (`InsertLinkButton.tsx` : `text-xs text-indigo-500 hover:underline`, préfixe `+`).
+  3. **L'URL doit rester cachée dès l'insertion d'un lien**, pas seulement recolorée. Le correctif
+     du 2026-08-27 (`LightMarkupTextarea`) recolore `[label](url)` en bleu mais garde les crochets
+     et l'URL visibles dans le texte pendant toute la saisie — tradeoff documenté dans le code pour
+     préserver l'alignement du curseur natif du `<textarea>`. L'utilisateur demande maintenant
+     explicitement que seul le **label** reste visible dès l'insertion, sans crochets ni URL — un
+     vrai rendu final, pas une simple coloration syntaxique. Le stockage doit rester du texte brut
+     `[label](url)` (arbitrage du 2026-08-26, inchangé) : seule la présentation à l'écran change.
+     Délégué à `front-developper` avec la piste d'un `<textarea>` remplacé par un éditeur limité
+     à des « jetons » de lien non éditables (technique dite « mention/chip » — un `contenteditable`
+     scopé aux seuls liens insérés, jamais un éditeur riche généraliste, jamais de HTML stocké :
+     l'extraction du texte brut `[label](url)` reste la seule donnée envoyée au serveur), à charge
+     pour le sous-agent de choisir l'implémentation exacte et d'adapter `InsertLinkButton`
+     (aujourd'hui dépendant de `selectionStart`/`selectionEnd` d'un vrai `<textarea>`) en
+     conséquence.
+  Délégué à `front-developper`, même branche `feat/cahier-de-texte-liens-pieces-jointes`.
+- [ ] **Preuve à obtenir avant merge** — défauts de nature visuelle/tactile : à valider par
+  relecture de l'utilisateur en conditions réelles sur `https://claudevma.visioprof.fr` (déjà son
+  choix pour le tour précédent).
 - [ ] Validé par l'utilisateur — **PR #135 en attente de merge**, prête dès accord.
 
 ---

@@ -192,6 +192,17 @@ nouveaux réglages et leur sauvegarde effective (relue après rechargement).
      **sans étape intermédiaire** — même comportement que celui déjà en place pour le formateur,
      étendu à tout lecteur (élève, parent, RP).
   Délégué à `front-developper`, même branche `feat/cahier-de-texte-liens-pieces-jointes`.
+  **Corrigé par `front-developper` (2026-08-27)**, commits `75af477`+`392cf85`, fast-forwardés
+  localement et vérifiés indépendamment par l'orchestrateur (`tsc --noEmit` propre, 54/54 tests
+  ciblés verts). `LogEntryAttachments` est désormais monté dans les deux branches de
+  `PedagogicalLogEntryItem` : `canManage={canEdit}` en édition (ajout immédiat + suppression),
+  `canManage={false}` toujours en affichage simple (lecture seule pour tous, formateur compris —
+  confirmé par lecture directe du code par l'orchestrateur). Interprétation explicitement tranchée
+  par le sous-agent conformément à la délégation : la suppression migre elle aussi vers le mode
+  édition uniquement. Le toggle « Afficher les pièces jointes » est supprimé : tout lecteur voit
+  désormais directement noms + téléchargement, sans clic préalable, comme le formateur avant.
+  Déployé sur la pile réelle par l'orchestrateur (`docker compose build/up frontend`), bundle
+  `index-D7B1Ri19.js` confirmé servi par `https://claudevma.visioprof.fr`.
 - [ ] **Preuve à obtenir avant merge** — défauts de nature visuelle/tactile : à valider par
   relecture de l'utilisateur en conditions réelles sur `https://claudevma.visioprof.fr` (déjà son
   choix pour les tours précédents).

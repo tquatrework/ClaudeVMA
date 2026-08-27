@@ -45,10 +45,25 @@ formule saisie via MathLive et rendue en LaTeX, une image jointe et affichée.
 
 ### État
 
-- [ ] Backend `pedagogical-log-service` — B1 à B7 du plan (retrait de l'implémentation morte,
-  migration réelle, CRUD complet, plafonds, lecture par relation, route consolidée,
-  `docs/routes.md` à jour). Pas encore délégué.
-- [ ] Vérification backend contre la pile réelle.
+- [x] Backend `pedagogical-log-service` — B1 à B7 du plan livrés (commit `d4e4e3d`) : implémentation
+  morte (`ChapterController`/`Chapter`/`Memo`) retirée, vraie migration `CreateMemoTables`
+  (`memo_chapters`/`memo_items`), CRUD complet, plafonds (longueur, nombre, taille image), image
+  sur fichier séparé (type vérifié sur les octets, volume dédié `pedagogical_log_memo_images`),
+  lecture par relation réelle (formateur/RP/parent liés, `503` si `profile-service` injoignable,
+  `403` sans lien), route consolidée `GET /memos/students/:studentId`, `docs/routes.md` à jour.
+  173 tests unitaires + 38 e2e, vérifiés indépendamment par l'orchestrateur après fast-forward
+  (173/173 rejoués, `tsc --noEmit` propre).
+- [x] Vérification backend contre la pile réelle — image reconstruite et déployée par
+  l'orchestrateur, migration `CreateMemoTables1789500000000` confirmée appliquée
+  (`migration:show` → `[X]`, tables `memo_chapters`/`memo_items` présentes en base réelle), aucune
+  collision avec un éventuel `synchronize` (voir point ouvert ci-dessous). Fumée HTTP contre la
+  gateway réelle : `401` propre sur les routes mémo (ancien bug de collision répondait `500`),
+  aucune erreur au démarrage du conteneur.
+  **Point ouvert repéré au passage, hors périmètre, documenté dans `docs/architecture.md`** :
+  `NODE_ENV=development` sur toute la pile réelle déployée (`.env` racine, tous les services
+  échantillonnés) — aucune crise constatée sur ce déploiement précis, mais le risque général de
+  dérive de schéma n'est pas écarté ; bascule vers `production` non tentée, à traiter comme
+  chantier dédié.
 - [ ] Front `apps/web` — F1 à F8 du plan (client API, saisie MathLive/KaTeX, éditeur d'item,
   modale déplaçable générique, vue de lecture, bouton sur la tuile élève, retrait de la page
   orpheline). Pas encore délégué.

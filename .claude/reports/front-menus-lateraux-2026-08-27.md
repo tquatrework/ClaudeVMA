@@ -3,7 +3,42 @@
 Branche : `feat/menus-lateraux-par-role` (poussée sur `origin`, PR #142 ouverte, non mergée).
 Commits : `358889e` (menus + généralisation carnet personnel), `6a80f29` (ce rapport),
 `657f6af` (script de preuve e2e), `02b6154` (correction fonctionnelle du carnet personnel — voir
-section 8).
+section 8), `f3dd5ea` (rapport section 8), `7c0f560` (contrat de recherche final `from`/`to`/`q` —
+voir section 9).
+
+## 9. Contrat de recherche confirmé par le backend (PR #144) — `from`/`to` remplacent `date`
+
+Message reçu du coordinateur juste après la section 8 : le backend (`pedagogical-log-service`) a
+terminé une PR distincte (**#144, ouverte, non mergée**) livrant le contrat HTTP réel du carnet
+personnel :
+
+- `PATCH /pedagogical-logs/notebook/:id` n'existe plus (`404`) — confirme qu'aucune UI d'édition ne
+  devait être construite (section 8).
+- `GET /pedagogical-logs/notebook?from=&to=&q=` — tous optionnels et combinables. `from`/`to`
+  filtrent sur `createdAt` en **plage** ; pour une date précise, envoyer `from=to` (même valeur sur
+  les deux). `q` reste une recherche texte libre. Sans paramètre, comportement inchangé.
+
+C'est un contrat **différent** de celui anticipé en section 8 (`date`/`q`, repris de l'arbitrage
+`docs/architecture.md` faute de rapport backend disponible à l'époque). Corrigé :
+
+- `src/api/pedagogicalLogNotebook.ts` : `NotebookSearchParams` passe de `{date?, q?}` à
+  `{from?, to?, q?}`.
+- `src/pages/NotebookPage.tsx` : ergonomie inchangée (deux champs — mot et date, choix laissé
+  explicitement à l'agent par le coordinateur : « à toi de choisir l'ergonomie la plus simple »).
+  Le champ date unique de l'écran traduit désormais en interne `{from: valeur, to: valeur}` avant
+  l'appel réseau — un seul contrôle visible côté utilisateur, deux paramètres transmis côté API.
+- `test/pages/pedagogicalLog.test.tsx` : mêmes six cas, assertions mises à jour sur `from`/`to` au
+  lieu de `date`.
+
+**Vérifications rejouées :** `npx tsc --noEmit` → 0 erreur ; `npm run build` → succès ;
+`npx vitest run test/pages/pedagogicalLog.test.tsx` → 6/6 verts ; suite complète (179 fichiers) →
+1974/1977 verts, mêmes 3 échecs préexistants qu'en sections 4/8, sans lien avec ce changement.
+
+**Toujours pas vérifié en HTTP direct contre `https://claudevma.visioprof.fr`** : la PR #144 reste
+**ouverte** au moment où cette session se termine. PR #140 (généralisation de base) est mergée sur
+master, mais PR #144 (retrait `PATCH` + recherche `from`/`to`/`q`) et cette PR front (#142) doivent
+être mergées et déployées **ensemble** — sinon le carnet personnel de l'élève, déjà en production
+sur l'ancien contrat `students/:studentId/notebook`, casse.
 
 ## 8. Correction en cours de session — carnet personnel « pensées instantanées immuables »
 

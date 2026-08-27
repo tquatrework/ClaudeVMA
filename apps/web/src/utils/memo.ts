@@ -74,6 +74,10 @@ export const MEMO_LABELS = {
   search: 'Rechercher',
   loading: 'Chargement du mémo…',
   readOnlyHint: 'Lecture seule — réservé à l\'élève',
+  allChapters: 'Tous les chapitres',
+  chapterFilterLabel: 'Filtrer par chapitre',
+  detach: 'Détacher',
+  detachChapter: 'Détacher ce chapitre',
 } as const
 
 /** « Taille maximale par image : 500 Ko. » */

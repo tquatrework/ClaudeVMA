@@ -21,7 +21,7 @@ describe('MemoReadOnlyModal', () => {
 
     render(<MemoReadOnlyModal studentId="student-1" onClose={vi.fn()} />)
 
-    expect(screen.getByRole('dialog', { name: 'Mémo' })).toBeDefined()
+    expect(screen.getByRole('dialog', { name: 'Mémos' })).toBeDefined()
     expect(mockUseStudentMemo).toHaveBeenCalledWith('student-1')
   })
 
@@ -48,5 +48,42 @@ describe('MemoReadOnlyModal', () => {
     await userEvent.click(screen.getByLabelText('Fermer'))
 
     expect(handleClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('transmet initialChapterId à MemoReadOnlyContent (lien « Détacher » sur un chapitre)', () => {
+    mockUseStudentMemo.mockReturnValue({
+      chapters: [
+        {
+          id: 'chapter-1',
+          studentId: 'student-1',
+          title: 'Trigonométrie',
+          order: 0,
+          createdAt: '2026-08-27T00:00:00.000Z',
+          updatedAt: '2026-08-27T00:00:00.000Z',
+          items: [],
+        },
+        {
+          id: 'chapter-2',
+          studentId: 'student-1',
+          title: 'Probabilités',
+          order: 1,
+          createdAt: '2026-08-27T00:00:00.000Z',
+          updatedAt: '2026-08-27T00:00:00.000Z',
+          items: [],
+        },
+      ],
+      isLoading: false,
+      error: null,
+    })
+
+    render(
+      <MemoReadOnlyModal studentId="student-1" onClose={vi.fn()} initialChapterId="chapter-2" />,
+    )
+
+    expect(screen.getByRole('combobox', { name: /filtrer par chapitre/i })).toHaveValue(
+      'chapter-2',
+    )
+    expect(screen.queryByRole('heading', { name: 'Trigonométrie' })).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Probabilités' })).toBeDefined()
   })
 })

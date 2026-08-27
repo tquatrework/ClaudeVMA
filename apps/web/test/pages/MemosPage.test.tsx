@@ -372,6 +372,98 @@ describe('MemosPage — recherche dans le mémo', () => {
   })
 })
 
+// ─── 7. Détacher (F5) — vue de lecture déplaçable sur son propre mémo ──────
+
+describe('MemosPage — détacher la vue de lecture (F5)', () => {
+  function makeTwoChaptersWithItems() {
+    return [
+      makeChapter({
+        id: 'ch-1',
+        title: 'Trigonométrie',
+        items: [{ id: 'it-1', chapterId: 'ch-1', type: 'text', content: 'cos²θ + sin²θ = 1', order: 0, createdAt: NOW, updatedAt: NOW }],
+      }),
+      makeChapter({
+        id: 'ch-2',
+        title: 'Probabilités',
+        items: [{ id: 'it-2', chapterId: 'ch-2', type: 'text', content: 'P(A) + P(non A) = 1', order: 0, createdAt: NOW, updatedAt: NOW }],
+      }),
+    ]
+  }
+
+  it('ouvre la modale sur tout le mémo depuis le bouton « Détacher » global', async () => {
+    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
+      if (url === '/memos/students/student-42') {
+        return Promise.resolve({ data: makeTwoChaptersWithItems() })
+      }
+      return Promise.resolve({ data: makeTwoChaptersWithItems() })
+    })
+
+    renderMemosPage()
+
+    await waitFor(() => expect(screen.getByText('Trigonométrie')).toBeDefined())
+
+    // Bouton global (en-tête) puis un lien par chapitre — le premier élément
+    // trouvé est le bouton global, placé avant la liste des chapitres dans le DOM.
+    const detachButtons = screen.getAllByRole('button', { name: 'Détacher' })
+    await userEvent.click(detachButtons[0])
+
+    await waitFor(() => {
+      expect(mockApiClient.get).toHaveBeenCalledWith('/memos/students/student-42')
+    })
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: 'Mémos' })).toBeDefined()
+    })
+    // Les deux chapitres apparaissent dans la modale (aucun filtre présélectionné).
+    expect(
+      within(screen.getByRole('dialog')).getByRole('combobox', { name: /filtrer par chapitre/i }),
+    ).toHaveValue('all')
+  })
+
+  it('ouvre la modale préfiltrée sur un seul chapitre depuis son lien dédié', async () => {
+    mockApiClient.get = vi.fn().mockImplementation((url: string) => {
+      if (url === '/memos/students/student-42') {
+        return Promise.resolve({ data: makeTwoChaptersWithItems() })
+      }
+      return Promise.resolve({ data: makeTwoChaptersWithItems() })
+    })
+
+    renderMemosPage()
+
+    await waitFor(() => expect(screen.getByText('Probabilités')).toBeDefined())
+
+    const probabilitesSection = screen.getByRole('heading', { name: 'Probabilités' }).closest('section')!
+    await userEvent.click(within(probabilitesSection).getByRole('button', { name: 'Détacher' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: 'Mémos' })).toBeDefined()
+    })
+    const dialog = screen.getByRole('dialog')
+    expect(
+      within(dialog).getByRole('combobox', { name: /filtrer par chapitre/i }),
+    ).toHaveValue('ch-2')
+    expect(within(dialog).queryByRole('heading', { name: 'Trigonométrie' })).toBeNull()
+    expect(within(dialog).getByRole('heading', { name: 'Probabilités' })).toBeDefined()
+  })
+
+  it('ferme la modale détachée', async () => {
+    mockApiClient.get = vi.fn().mockResolvedValue({ data: [makeChapter()] })
+
+    renderMemosPage()
+
+    await waitFor(() => expect(screen.getByText('Trigonométrie')).toBeDefined())
+    const detachButtons = screen.getAllByRole('button', { name: 'Détacher' })
+    await userEvent.click(detachButtons[0])
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: 'Mémos' })).toBeDefined()
+    })
+
+    await userEvent.click(screen.getByLabelText('Fermer'))
+
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+})
+
 // ─── 6. Formateur — lecture seule ───────────────────────────────────────────
 
 describe('MemosPage — formateur voit un message de lecture seule', () => {

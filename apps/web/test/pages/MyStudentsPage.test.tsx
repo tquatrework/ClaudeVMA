@@ -145,18 +145,18 @@ describe('MyStudentsPage', () => {
     })
   })
 
-  it('propose « Voir le mémo » et ouvre la modale sans naviguer', async () => {
+  it('propose « Mémos » et ouvre la modale sans naviguer', async () => {
     mockFetchMyContacts.mockResolvedValue([STUDENT_CONTACT])
 
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Voir le mémo' })).toBeDefined()
+      expect(screen.getByRole('button', { name: 'Mémos' })).toBeDefined()
     })
 
     expect(screen.queryByTestId('memo-modal-stub')).toBeNull()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Voir le mémo' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Mémos' }))
 
     // Toujours sur la même page (pas de navigation) — la liste des élèves
     // reste affichée derrière la modale.
@@ -165,7 +165,7 @@ describe('MyStudentsPage', () => {
     expect(screen.getByText('studentId: fd0fe655-cd28-4f75-b225-846e8aad7e62')).toBeDefined()
   })
 
-  it('ne propose pas « Voir le mémo » pour un formateur animé (pas un élève)', async () => {
+  it('ne propose pas « Mémos » pour un formateur animé (pas un élève)', async () => {
     mockUseAuth.mockReturnValue(makeUseAuthReturn({ id: 'ap-1', role: 'animateur_pedagogique' }))
     mockFetchMyContacts.mockResolvedValue([ANIMATED_TEACHER_CONTACT])
 
@@ -174,7 +174,7 @@ describe('MyStudentsPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Karim Formateur')).toBeDefined()
     })
-    expect(screen.queryByRole('button', { name: 'Voir le mémo' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Mémos' })).toBeNull()
   })
 
   it('ferme la modale du mémo', async () => {
@@ -183,9 +183,9 @@ describe('MyStudentsPage', () => {
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Voir le mémo' })).toBeDefined()
+      expect(screen.getByRole('button', { name: 'Mémos' })).toBeDefined()
     })
-    await userEvent.click(screen.getByRole('button', { name: 'Voir le mémo' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Mémos' }))
     expect(screen.getByTestId('memo-modal-stub')).toBeDefined()
 
     await userEvent.click(screen.getByRole('button', { name: 'Fermer (mock)' }))

@@ -21,15 +21,20 @@ import { getMemoLoadErrorMessage, getMemoWriteErrorMessage, MEMO_LABELS } from '
 import { MemoChapterSection } from './MemoChapterSection'
 import MemoChapterEditor from './MemoChapterEditor'
 import MemoSearch from './MemoSearch'
+import { MemoReadOnlyModal } from './MemoReadOnlyModal'
 
 export default function StudentMemoPanel() {
-  const { hasRole } = useAuth()
+  const { hasRole, user } = useAuth()
 
   const [chapters, setChapters] = useState<MemoChapter[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isAddingChapter, setIsAddingChapter] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
+  // Modale de lecture déplaçable sur le mémo de l'élève lui-même (F5) —
+  // `undefined` = fermée, `null` = ouverte sur tous les chapitres, sinon
+  // ouverte sur le chapitre désigné uniquement.
+  const [detachedChapterId, setDetachedChapterId] = useState<string | null | undefined>(undefined)
 
   const isEleve = hasRole('eleve')
   const canWrite = isEleve
@@ -93,6 +98,14 @@ export default function StudentMemoPanel() {
           {!isEleve && <p className="text-xs text-amber-600 mt-0.5">{MEMO_LABELS.readOnlyHint}</p>}
         </div>
         <div className="flex gap-2">
+          {isEleve && chapters.length > 0 && (
+            <button
+              onClick={() => setDetachedChapterId(null)}
+              className="text-sm text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:border-indigo-300 hover:text-indigo-600 transition-colors"
+            >
+              {MEMO_LABELS.detach}
+            </button>
+          )}
           <button
             onClick={() => setIsSearchOpen((prev) => !prev)}
             className="text-sm text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:border-indigo-300 hover:text-indigo-600 transition-colors"
@@ -152,9 +165,18 @@ export default function StudentMemoPanel() {
               onChapterDeleted={handleChapterDeleted}
               onItemCreated={handleItemCreated}
               onItemDeleted={handleItemDeleted}
+              onDetach={setDetachedChapterId}
             />
           ))}
         </div>
+      )}
+
+      {detachedChapterId !== undefined && user?.id && (
+        <MemoReadOnlyModal
+          studentId={user.id}
+          initialChapterId={detachedChapterId}
+          onClose={() => setDetachedChapterId(undefined)}
+        />
       )}
     </div>
   )

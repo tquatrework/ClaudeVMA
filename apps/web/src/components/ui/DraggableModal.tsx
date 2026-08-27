@@ -90,6 +90,20 @@ export function DraggableModal({
   const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     // Bouton principal uniquement (souris) — un doigt/stylet n'a pas de bouton distinct.
     if (event.button !== undefined && event.button !== 0) return
+    // Le bouton de fermeture est imbriqué dans ce bandeau : si le glisser
+    // démarrait aussi depuis lui, le pointeur serait capturé par le bandeau
+    // (`setPointerCapture` ci-dessous) et l'événement `click` de
+    // compatibilité issu du relâchement serait redirigé vers le bandeau au
+    // lieu du bouton — `onClose` ne se déclencherait alors jamais. Bug réel
+    // observé en navigateur (non reproductible en jsdom, qui n'implémente
+    // pas `setPointerCapture`) : le bouton ✕ ne refermait pas la modale.
+    if (
+      closeButtonRef.current &&
+      event.target instanceof Node &&
+      closeButtonRef.current.contains(event.target)
+    ) {
+      return
+    }
     dragStateRef.current = {
       isDragging: true,
       pointerStartX: event.clientX,

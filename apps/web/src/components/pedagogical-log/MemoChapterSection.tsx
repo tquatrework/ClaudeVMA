@@ -15,7 +15,7 @@
 import React, { useState } from 'react'
 import { deleteMemoChapter, deleteMemoItem, updateMemoChapter } from '../../api/pedagogicalLogMemos'
 import type { MemoChapter, MemoItem } from '../../types/memo'
-import { getMemoWriteErrorMessage } from '../../utils/memo'
+import { getMemoWriteErrorMessage, MEMO_LABELS } from '../../utils/memo'
 import { MemoItemDisplay } from './MemoItemDisplay'
 import MemoChapterEditor from './MemoChapterEditor'
 import MemoItemEditor from './MemoItemEditor'
@@ -27,6 +27,8 @@ interface MemoChapterSectionProps {
   onChapterDeleted: (chapterId: string) => void
   onItemCreated: (chapterId: string, item: MemoItem) => void
   onItemDeleted: (chapterId: string, itemId: string) => void
+  /** Ouvre ce chapitre seul dans la modale de lecture déplaçable (F5). */
+  onDetach: (chapterId: string) => void
 }
 
 export function MemoChapterSection({
@@ -36,6 +38,7 @@ export function MemoChapterSection({
   onChapterDeleted,
   onItemCreated,
   onItemDeleted,
+  onDetach,
 }: MemoChapterSectionProps) {
   const [isRenaming, setIsRenaming] = useState(false)
   const [isAddingItem, setIsAddingItem] = useState(false)
@@ -93,25 +96,34 @@ export function MemoChapterSection({
     <section>
       <div className="flex items-center justify-between border-b border-gray-100 pb-1 mb-2">
         <h3 className="text-sm font-medium text-gray-700">{chapter.title}</h3>
-        {canWrite && (
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setIsRenaming(true)}
-              className="text-xs text-indigo-500 hover:underline"
-            >
-              Renommer
-            </button>
-            <button
-              type="button"
-              onClick={handleDeleteChapter}
-              disabled={isDeletingChapter}
-              className="text-xs text-red-500 hover:underline disabled:opacity-50"
-            >
-              {isDeletingChapter ? 'Suppression…' : 'Supprimer'}
-            </button>
-          </div>
-        )}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => onDetach(chapter.id)}
+            className="text-xs text-indigo-500 hover:underline"
+          >
+            {MEMO_LABELS.detach}
+          </button>
+          {canWrite && (
+            <>
+              <button
+                type="button"
+                onClick={() => setIsRenaming(true)}
+                className="text-xs text-indigo-500 hover:underline"
+              >
+                Renommer
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteChapter}
+                disabled={isDeletingChapter}
+                className="text-xs text-red-500 hover:underline disabled:opacity-50"
+              >
+                {isDeletingChapter ? 'Suppression…' : 'Supprimer'}
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {actionError && <p className="text-xs text-red-600 mb-2">{actionError}</p>}

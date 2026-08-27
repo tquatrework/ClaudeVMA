@@ -157,7 +157,7 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
         // professeurs » ici, juste sous « Visio ». Route inchangée.
         { label: 'Demandes professeurs', path: '/teacher-requests', icon: '🎓' },
         { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
-        { label: 'Mémo', path: '/memos', icon: '💡' },
+        { label: 'Mémos', path: '/memos', icon: '💡' },
         { label: 'Carnet personnel', path: '/notebook/', icon: '📓' },
         { label: 'Stats / Archives', path: '/archives', icon: '🗂️' },
       ],

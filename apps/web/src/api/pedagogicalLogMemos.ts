@@ -139,7 +139,7 @@ export async function deleteMemoItem(chapterId: string, itemId: string): Promise
 
 /**
  * POST /memos/chapters/:chapterId/items/image — ajoute un item image
- * (multipart, champ `file`, `caption?`, `order?`). **`Content-Type`
+ * (multipart, champ `file`, `caption?`, `title?`, `order?`). **`Content-Type`
  * neutralisé** (`undefined`) pour que le navigateur pose lui-même l'en-tête
  * avec son `boundary` — même exigence que `uploadLogAttachment`.
  */
@@ -147,11 +147,13 @@ export async function uploadMemoImageItem(
   chapterId: string,
   file: File,
   caption?: string,
+  title?: string,
   order?: number,
 ): Promise<MemoImageItem> {
   const formData = new FormData()
   formData.append('file', file)
   if (caption) formData.append('caption', caption)
+  if (title) formData.append('title', title)
   if (order !== undefined) formData.append('order', String(order))
 
   const { data } = await apiClient.post<MemoImageItem>(

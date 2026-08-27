@@ -16,6 +16,14 @@ export type MemoItemType = 'text' | 'formula' | 'image'
 interface MemoItemBase {
   id: string
   chapterId: string
+  /**
+   * Titre optionnel de l'item — `null` si absent (jamais de chaîne vide côté
+   * serveur). Restauré le 2026-08-27 (`AddTitleToMemoItems1789600000000`,
+   * `docs/routes.md` § « Correctif du 2026-08-27 ») après une régression de
+   * la refonte chapitres+items : l'ancien modèle plat `Memo` portait déjà un
+   * `title`.
+   */
+  title: string | null
   order: number
   createdAt: string
   updatedAt: string
@@ -84,10 +92,13 @@ export interface UpdateMemoChapterPayload {
 export interface CreateMemoTextOrFormulaItemPayload {
   type: 'text' | 'formula'
   content: string
+  /** Optionnel, 200 caractères max (`MEMO_ITEM_TITLE_MAX_LENGTH`). */
+  title?: string
   order?: number
 }
 
 export interface UpdateMemoItemPayload {
   content?: string
+  title?: string
   order?: number
 }

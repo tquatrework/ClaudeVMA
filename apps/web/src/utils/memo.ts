@@ -22,6 +22,13 @@ import { getErrorMessage, getErrorStatus, readErrorPayload } from './apiError'
 export const MEMO_ITEM_CONTENT_MAX_LENGTH = 5000
 /** `title` de chapitre. */
 export const MEMO_CHAPTER_TITLE_MAX_LENGTH = 200
+/**
+ * `title` d'item (texte/formule/image, optionnel pour les trois) —
+ * `MEMO_ITEM_TITLE_MAX_LENGTH` côté serveur, ajouté le 2026-08-27 par
+ * `AddTitleToMemoItems1789600000000` (`docs/routes.md` § « Correctif du
+ * 2026-08-27 »).
+ */
+export const MEMO_ITEM_TITLE_MAX_LENGTH = 200
 /** `MEMO_MAX_CHAPTERS_PER_STUDENT`. */
 export const MEMO_MAX_CHAPTERS_PER_STUDENT = 50
 /** `MEMO_MAX_ITEMS_PER_CHAPTER`. */
@@ -90,6 +97,26 @@ export function getMemoImageTooLargeMessage(fileSizeBytes: number | null): strin
     : 'Cette image est trop lourde pour être envoyée.'
   return `${firstSentence} La taille maximale est de ${readableLimit}. Choisissez une image plus légère.`
 }
+
+/**
+ * MathLive (`MemoFormulaInput`) sérialise en LaTeX une case de gabarit non
+ * remplie (ex. racine n-ième `\sqrt[n]{...}` insérée sans que `n` soit
+ * renseigné) sous la forme `\placeholder{}` — syntaxe interne à MathLive,
+ * jamais valide pour KaTeX en dehors de son propre éditeur. Détectée ici pour
+ * bloquer l'enregistrement **avant** l'appel réseau, plutôt que de laisser le
+ * repli « Formule illisible » de `MathRenderer` être le chemin normal d'une
+ * simple case oubliée (défaut remonté par test utilisateur le 2026-08-27).
+ */
+const MATHLIVE_UNFILLED_PLACEHOLDER_PATTERN = /\\placeholder\{\}/
+
+/** Une formule MathLive comporte-t-elle encore une case non remplie ? */
+export function hasUnfilledMathPlaceholder(latex: string): boolean {
+  return MATHLIVE_UNFILLED_PLACEHOLDER_PATTERN.test(latex)
+}
+
+/** Message affiché quand la soumission d'une formule incomplète est bloquée — jamais de LaTeX brut. */
+export const MEMO_INCOMPLETE_FORMULA_MESSAGE =
+  "Formule incomplète — un champ n'a pas été rempli."
 
 // ─── Traduction des erreurs ────────────────────────────────────────────────────
 

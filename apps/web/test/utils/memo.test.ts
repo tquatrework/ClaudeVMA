@@ -4,6 +4,7 @@ import {
   getMemoImageTooLargeMessage,
   getMemoLoadErrorMessage,
   getMemoWriteErrorMessage,
+  hasUnfilledMathPlaceholder,
   isMemoImageTooLarge,
   MEMO_IMAGE_MAX_BYTES,
 } from '../../src/utils/memo'
@@ -56,6 +57,19 @@ describe('getMemoWriteErrorMessage', () => {
 
   it('applique un repli générique sur une erreur inconnue', () => {
     expect(getMemoWriteErrorMessage({})).toBeTruthy()
+  })
+})
+
+describe('hasUnfilledMathPlaceholder', () => {
+  it('détecte une case de gabarit MathLive non remplie (racine n-ième incomplète)', () => {
+    const latex =
+      'x^2=a,S=\\left\\lbrace\\sqrt[\\placeholder{}]{a};-\\sqrt[\\placeholder{}]{a}\\right\\rbrace'
+    expect(hasUnfilledMathPlaceholder(latex)).toBe(true)
+  })
+
+  it('n\'est pas déclenché par une formule complète', () => {
+    expect(hasUnfilledMathPlaceholder('x^2 + y^2 = z^2')).toBe(false)
+    expect(hasUnfilledMathPlaceholder('\\sqrt[3]{a}')).toBe(false)
   })
 })
 

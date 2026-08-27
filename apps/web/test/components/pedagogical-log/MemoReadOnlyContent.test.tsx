@@ -54,6 +54,7 @@ describe('MemoReadOnlyContent — rendu par type d\'item', () => {
             chapterId: 'chapter-1',
             type: 'text',
             content: 'cos²θ + sin²θ = 1',
+            title: null,
             order: 0,
             createdAt: '2026-08-27T00:00:00.000Z',
             updatedAt: '2026-08-27T00:00:00.000Z',
@@ -77,6 +78,7 @@ describe('MemoReadOnlyContent — rendu par type d\'item', () => {
             chapterId: 'chapter-1',
             type: 'formula',
             content: 'x^2',
+            title: 'Carré',
             order: 0,
             createdAt: '2026-08-27T00:00:00.000Z',
             updatedAt: '2026-08-27T00:00:00.000Z',
@@ -88,6 +90,7 @@ describe('MemoReadOnlyContent — rendu par type d\'item', () => {
     const { container } = render(<MemoReadOnlyContent chapters={chapters} isLoading={false} error={null} />)
 
     expect(container.querySelector('.katex')).not.toBeNull()
+    expect(screen.getByText('Carré')).toBeDefined()
   })
 
   it('rend un item image avec sa légende', async () => {
@@ -99,6 +102,7 @@ describe('MemoReadOnlyContent — rendu par type d\'item', () => {
             chapterId: 'chapter-1',
             type: 'image',
             content: 'Schéma du triangle',
+            title: null,
             imageOriginalFilename: 'triangle.png',
             imageStoredFilename: 'uuid.png',
             imageMimeType: 'image/png',

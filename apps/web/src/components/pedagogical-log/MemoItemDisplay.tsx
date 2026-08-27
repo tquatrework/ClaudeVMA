@@ -16,6 +16,17 @@ interface MemoItemDisplayProps {
 }
 
 export function MemoItemDisplay({ item }: MemoItemDisplayProps) {
+  return (
+    <div>
+      {item.title && (
+        <p className="text-xs font-semibold text-gray-600 mb-1">{item.title}</p>
+      )}
+      <MemoItemContent item={item} />
+    </div>
+  )
+}
+
+function MemoItemContent({ item }: MemoItemDisplayProps) {
   if (item.type === 'formula') {
     return (
       <div className="px-3 py-2 bg-gray-50 rounded-lg">

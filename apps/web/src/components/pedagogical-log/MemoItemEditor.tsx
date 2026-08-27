@@ -12,12 +12,15 @@ import React, { useId, useState } from 'react'
 import { createMemoTextOrFormulaItem, uploadMemoImageItem } from '../../api/pedagogicalLogMemos'
 import type { MemoItem, MemoItemType } from '../../types/memo'
 import {
+  MEMO_INCOMPLETE_FORMULA_MESSAGE,
   MEMO_ITEM_CONTENT_MAX_LENGTH,
+  MEMO_ITEM_TITLE_MAX_LENGTH,
   MEMO_ITEM_TYPE_LABELS,
   MEMO_IMAGE_FILE_INPUT_ACCEPT,
   getMemoImageMaxSizeHint,
   getMemoImageTooLargeMessage,
   getMemoWriteErrorMessage,
+  hasUnfilledMathPlaceholder,
   isMemoImageTooLarge,
 } from '../../utils/memo'
 import { MemoFormulaInput } from './MemoFormulaInput'
@@ -32,7 +35,9 @@ const ITEM_TYPES: MemoItemType[] = ['text', 'formula', 'image']
 
 export default function MemoItemEditor({ chapterId, onSave, onCancel }: MemoItemEditorProps) {
   const formulaFieldId = useId()
+  const titleFieldId = useId()
   const [itemType, setItemType] = useState<MemoItemType>('text')
+  const [title, setTitle] = useState('')
   const [textContent, setTextContent] = useState('')
   const [formulaContent, setFormulaContent] = useState('')
   const [imageFile, setImageFile] = useState<File | null>(null)
@@ -41,6 +46,7 @@ export default function MemoItemEditor({ chapterId, onSave, onCancel }: MemoItem
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const resetFields = () => {
+    setTitle('')
     setTextContent('')
     setFormulaContent('')
     setImageFile(null)
@@ -62,17 +68,33 @@ export default function MemoItemEditor({ chapterId, onSave, onCancel }: MemoItem
       setErrorMessage(getMemoImageTooLargeMessage(imageFile.size))
       return
     }
+    // Une formule MathLive avec une case de gabarit non remplie
+    // (`\placeholder{}`) ne doit jamais être enregistrée : elle produirait un
+    // repli « Formule illisible » à la lecture, jamais un vrai contenu.
+    // Bloqué avant tout appel réseau — voir `hasUnfilledMathPlaceholder`.
+    if (itemType === 'formula' && hasUnfilledMathPlaceholder(formulaContent)) {
+      setErrorMessage(MEMO_INCOMPLETE_FORMULA_MESSAGE)
+      return
+    }
     if (isSubmitDisabled) return
+
+    const trimmedTitle = title.trim() || undefined
 
     setIsSaving(true)
     try {
       let createdItem: MemoItem
       if (itemType === 'image' && imageFile) {
-        createdItem = await uploadMemoImageItem(chapterId, imageFile, imageCaption.trim() || undefined)
+        createdItem = await uploadMemoImageItem(
+          chapterId,
+          imageFile,
+          imageCaption.trim() || undefined,
+          trimmedTitle,
+        )
       } else {
         createdItem = await createMemoTextOrFormulaItem(chapterId, {
           type: itemType === 'formula' ? 'formula' : 'text',
           content: itemType === 'formula' ? formulaContent.trim() : textContent.trim(),
+          title: trimmedTitle,
         })
       }
       onSave(createdItem)
@@ -111,6 +133,21 @@ export default function MemoItemEditor({ chapterId, onSave, onCancel }: MemoItem
             </button>
           ))}
         </div>
+      </div>
+
+      <div>
+        <label htmlFor={titleFieldId} className="block text-xs text-gray-500 mb-1">
+          Titre (optionnel)
+        </label>
+        <input
+          id={titleFieldId}
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          maxLength={MEMO_ITEM_TITLE_MAX_LENGTH}
+          placeholder="ex : Théorème de Pythagore"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+        />
       </div>
 
       {itemType === 'text' && (

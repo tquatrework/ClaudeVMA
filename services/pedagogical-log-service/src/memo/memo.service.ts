@@ -245,6 +245,7 @@ export class MemoService {
       chapterId: chapter.id,
       type: dto.type,
       content: dto.content,
+      title: dto.title ?? null,
       order: dto.order ?? 0,
     });
     return this.memoItemRepository.save(item);
@@ -303,6 +304,7 @@ export class MemoService {
       chapterId: chapter.id,
       type: 'image',
       content: dto.caption ?? null,
+      title: dto.title ?? null,
       imageOriginalFilename: file.originalname,
       imageStoredFilename: storedFilename,
       imageMimeType: mimeType,
@@ -313,7 +315,7 @@ export class MemoService {
   }
 
   /**
-   * Modifier un item (contenu/légende, ordre) — ÉLÈVE PROPRIÉTAIRE
+   * Modifier un item (contenu/légende, titre, ordre) — ÉLÈVE PROPRIÉTAIRE
    * UNIQUEMENT. Le type n'est jamais modifiable ; pour un item `image`, les
    * octets ne se remplacent pas ici (supprimer puis recréer).
    */
@@ -327,6 +329,7 @@ export class MemoService {
     const { item } = await this.getItemForWrite(chapterId, itemId, callerId, callerRole);
 
     if (dto.content !== undefined) item.content = dto.content;
+    if (dto.title !== undefined) item.title = dto.title;
     if (dto.order !== undefined) item.order = dto.order;
     return this.memoItemRepository.save(item);
   }

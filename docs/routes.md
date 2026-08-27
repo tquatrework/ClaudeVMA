@@ -2131,10 +2131,10 @@ contre `visiomath_postgres` avec `synchronize: false`). Le contrat ci-dessous es
 | GET | /memos/chapters/:chapterId | Détail d'un chapitre et de ses items | 🔒 | eleve titulaire, ou tiers relié/administrateur en lecture | `200 MemoChapter avec items` · `403` aucune relation · `404` introuvable · `503` profile-service injoignable |
 | PUT | /memos/chapters/:chapterId | Renommer un chapitre (mise à jour partielle : `title?`, `order?`) | 🔒 | eleve titulaire uniquement | `200 MemoChapter` · `400` validation · `403` tout autre rôle · `404` introuvable |
 | DELETE | /memos/chapters/:chapterId | Supprimer un chapitre — les items sont supprimés en cascade (FK `ON DELETE CASCADE`), les fichiers image associés sont supprimés explicitement (la cascade ne nettoie que les lignes) | 🔒 | eleve titulaire uniquement | `204` · `403` tout autre rôle · `404` introuvable |
-| POST | /memos/chapters/:chapterId/items | Ajouter un item **texte ou formule** (JSON, `{type: "text"\|"formula", content, order?}`) — `type: "image"` refusé ici (`400`), voir la route multipart ci-dessous | 🔒 | eleve titulaire uniquement | `201 MemoItem` · `400` validation, `type` invalide, ou plafond de 200 items/chapitre atteint · `403` tout autre rôle · `404` chapitre introuvable |
-| POST | /memos/chapters/:chapterId/items/image | **Nouvelle route** — ajouter un item **image** (multipart, champ `file`, `caption?` optionnel, `order?` optionnel) | 🔒 | eleve titulaire uniquement | `201 MemoItem {type: "image", ...}` · `400` fichier absent, format non reconnu, SVG, ou plafond de 200 items/chapitre atteint · `403` tout autre rôle · `404` chapitre introuvable · `413` image trop volumineuse |
+| POST | /memos/chapters/:chapterId/items | Ajouter un item **texte ou formule** (JSON, `{type: "text"\|"formula", content, title?, order?}`) — `type: "image"` refusé ici (`400`), voir la route multipart ci-dessous | 🔒 | eleve titulaire uniquement | `201 MemoItem` · `400` validation, `type` invalide, ou plafond de 200 items/chapitre atteint · `403` tout autre rôle · `404` chapitre introuvable |
+| POST | /memos/chapters/:chapterId/items/image | **Nouvelle route** — ajouter un item **image** (multipart, champ `file`, `caption?` optionnel, `title?` optionnel, `order?` optionnel) | 🔒 | eleve titulaire uniquement | `201 MemoItem {type: "image", ...}` · `400` fichier absent, format non reconnu, SVG, ou plafond de 200 items/chapitre atteint · `403` tout autre rôle · `404` chapitre introuvable · `413` image trop volumineuse |
 | GET | /memos/chapters/:chapterId/items/:itemId/image | **Nouvelle route** — télécharger les octets d'un item image | 🔒 | eleve titulaire, ou tiers relié/administrateur en lecture (revérifiée à chaque téléchargement) | `200` octets bruts, `Content-Type` = type détecté · `403` aucune relation · `404` chapitre/item introuvable, ou item non-image · `503` profile-service injoignable |
-| PUT | /memos/chapters/:chapterId/items/:itemId | Modifier un item (`content?`, `order?`) — le type n'est jamais modifiable ; pour un item image, `content` porte la légende, les octets ne se remplacent pas ici (supprimer puis recréer) | 🔒 | eleve titulaire uniquement | `200 MemoItem` · `400` validation · `403` tout autre rôle · `404` chapitre/item introuvable |
+| PUT | /memos/chapters/:chapterId/items/:itemId | Modifier un item (`content?`, `title?`, `order?`) — le type n'est jamais modifiable ; pour un item image, `content` porte la légende, les octets ne se remplacent pas ici (supprimer puis recréer) | 🔒 | eleve titulaire uniquement | `200 MemoItem` · `400` validation · `403` tout autre rôle · `404` chapitre/item introuvable |
 | DELETE | /memos/chapters/:chapterId/items/:itemId | Supprimer un item — supprime aussi le fichier image associé le cas échéant | 🔒 | eleve titulaire uniquement | `204` · `403` tout autre rôle · `404` chapitre/item introuvable |
 
 **Les routes `POST/GET/PUT/DELETE /memos/:id` et `GET/POST /memos/chapters` (sans `:chapterId`)
@@ -2146,6 +2146,9 @@ office de liste des chapitres avec leurs items).
 - `content` (texte/formule) : 5000 caractères max (`MEMO_ITEM_CONTENT_MAX_LENGTH`, aligné sur les
   autres champs de texte long du projet — `description`/`message` de `teacher-request-service`).
 - `title` de chapitre : 200 caractères max.
+- `title` d'item (texte/formule/image, optionnel pour les trois) : 200 caractères max
+  (`MEMO_ITEM_TITLE_MAX_LENGTH`, même plafond que le titre de chapitre — ajouté le 2026-08-27,
+  voir « Correctif du 2026-08-27 » ci-dessous).
 - 50 chapitres par élève max (`MEMO_MAX_CHAPTERS_PER_STUDENT`), 200 items par chapitre max
   (`MEMO_MAX_ITEMS_PER_CHAPTER`) — `400` explicite au-delà, jamais un tronquage silencieux.
 - Image : **500 000 octets (500 Ko SI)** max (`MEMO_IMAGE_MAX_BYTES`), refus `413` structuré au
@@ -2166,11 +2169,27 @@ cycle de vie d'une entrée de cahier de texte). Nom de fichier stocké généré
 jamais dérivé du nom client. **Non couvert par le dump Postgres, à ajouter à la routine de
 sauvegarde** (même rappel que `pedagogical_log_media`).
 
-**Forme d'un `MemoItem`** : `{id, chapterId, type: "text"|"formula"|"image", content, order,
-createdAt, updatedAt}` pour `text`/`formula` (`content` toujours requis) ; pour `image` :
-`{..., type: "image", content: <légende ou null>, imageOriginalFilename, imageStoredFilename,
-imageMimeType, imageSizeBytes}` (`content` optionnel — légende, jamais les octets de l'image
-elle-même, servis par la route de téléchargement dédiée ci-dessus).
+**Forme d'un `MemoItem`** : `{id, chapterId, type: "text"|"formula"|"image", content, title,
+order, createdAt, updatedAt}` pour `text`/`formula` (`content` toujours requis, `title` toujours
+optionnel — `null` si absent) ; pour `image` :
+`{..., type: "image", content: <légende ou null>, title: <titre ou null>,
+imageOriginalFilename, imageStoredFilename, imageMimeType, imageSizeBytes}` (`content` optionnel —
+légende, jamais les octets de l'image elle-même, servis par la route de téléchargement dédiée
+ci-dessus).
+
+**Correctif du 2026-08-27 : `title` d'item, régression signalée par l'utilisateur.** L'ancien
+modèle plat `Memo` (avant l'assainissement du même jour) portait un `title` optionnel, mais la
+migration `CreateMemoTables1789500000000` ne l'a jamais repris sur `memo_items` — oubli dans la
+spécification du plan de chantier, pas une erreur d'exécution. Un `title` envoyé à la création
+était donc silencieusement absorbé sans effet (`ValidationPipe({whitelist:true})` sans
+`forbidNonWhitelisted`, et le DTO ne portait aucune propriété `title`). Corrigé par
+`AddTitleToMemoItems1789600000000` (colonne `title` varchar nullable sur `memo_items`) et par
+l'ajout de `title?` sur `CreateMemoItemDto`/`CreateMemoImageItemDto`/`UpdateMemoItemDto`
+(`@IsOptional`, `@MaxLength(MEMO_ITEM_TITLE_MAX_LENGTH)`). **Le réglage global `whitelist: true`
+sans `forbidNonWhitelisted` reste inchangé** (`main.ts`, appliqué à tout le service, pas seulement
+au mémo) : un champ non prévu par un DTO continue d'être silencieusement ignoré ailleurs dans ce
+service — point relevé mais non corrigé ici (portée limitée à `src/memo/` pour ce chantier),
+aucun autre champ manquant identifié sur les routes chapitres/items du mémo au passage.
 
 ### Carnet personnel (élève uniquement)
 

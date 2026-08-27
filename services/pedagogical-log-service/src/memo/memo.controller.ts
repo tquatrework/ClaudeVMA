@@ -224,6 +224,7 @@ export class MemoController {
       properties: {
         file: { type: 'string', format: 'binary' },
         caption: { type: 'string' },
+        title: { type: 'string' },
         order: { type: 'string' },
       },
     },
@@ -232,8 +233,8 @@ export class MemoController {
   @ApiOperation({
     summary: 'Ajouter un item image',
     description:
-      'Élève propriétaire uniquement. Multipart, champ `file`. Type détecté sur les octets ' +
-      'réels — liste blanche JPEG/PNG/WebP/GIF, SVG explicitement refusé.',
+      'Élève propriétaire uniquement. Multipart, champ `file`, `caption?`/`title?` optionnels. ' +
+      'Type détecté sur les octets réels — liste blanche JPEG/PNG/WebP/GIF, SVG explicitement refusé.',
   })
   @ApiResponse({ status: 201, description: 'Item image ajouté' })
   @ApiResponse({ status: 400, description: 'Fichier absent, format non reconnu, SVG, ou plafond d\'items atteint' })
@@ -295,7 +296,7 @@ export class MemoController {
     summary: 'Modifier un item',
     description:
       'Élève propriétaire uniquement. Le type n\'est pas modifiable ; pour une image, `content` ' +
-      "porte la légende — les octets ne se remplacent pas ici.",
+      "porte la légende — les octets ne se remplacent pas ici. `title?` modifiable pour tous les types.",
   })
   @ApiResponse({ status: 200, description: 'Item modifié' })
   @ApiResponse({ status: 400, description: 'Validation' })

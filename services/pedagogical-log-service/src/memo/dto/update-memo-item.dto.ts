@@ -1,6 +1,6 @@
 import { IsString, IsOptional, IsNumber, Min, MaxLength } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { MEMO_ITEM_CONTENT_MAX_LENGTH } from '../memo.constants';
+import { MEMO_ITEM_CONTENT_MAX_LENGTH, MEMO_ITEM_TITLE_MAX_LENGTH } from '../memo.constants';
 
 /**
  * DTO de mise à jour d'un item de mémo (élève propriétaire uniquement).
@@ -22,6 +22,15 @@ export class UpdateMemoItemDto {
   @IsString()
   @MaxLength(MEMO_ITEM_CONTENT_MAX_LENGTH)
   content?: string;
+
+  @ApiPropertyOptional({
+    description: "Nouveau titre court, affiché au-dessus de l'item",
+    maxLength: MEMO_ITEM_TITLE_MAX_LENGTH,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(MEMO_ITEM_TITLE_MAX_LENGTH)
+  title?: string;
 
   @ApiPropertyOptional({ description: 'Ordre d\'affichage dans le chapitre' })
   @IsOptional()

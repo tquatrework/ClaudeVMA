@@ -67,6 +67,7 @@ function buildSampleItem(overrides: Partial<MemoItem> = {}): MemoItem {
     chapter: undefined as any,
     type: 'formula',
     content: '$\\frac{a}{b}$',
+    title: null,
     imageOriginalFilename: null,
     imageStoredFilename: null,
     imageMimeType: null,
@@ -382,6 +383,31 @@ describe('MemoService', () => {
       expect(result.type).toBe('formula');
     });
 
+    it('[OK][régression 2026-08-27] un titre fourni est persisté sur l\'item', async () => {
+      mockChapterRepo.findOne.mockResolvedValue(buildSampleChapter());
+
+      const dto = { type: 'formula' as const, content: '$x^2$', title: 'Théorème de Pythagore', order: 0 };
+      const result = await memoService.createItem(CHAPTER_ID, dto, STUDENT_ID, 'eleve');
+
+      expect(mockItemRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Théorème de Pythagore' }),
+      );
+      expect(result.title).toBe('Théorème de Pythagore');
+    });
+
+    it('[OK] aucun titre fourni → title vaut null (jamais undefined ni chaîne vide)', async () => {
+      mockChapterRepo.findOne.mockResolvedValue(buildSampleChapter());
+
+      await memoService.createItem(
+        CHAPTER_ID,
+        { type: 'text' as const, content: 'sans titre' },
+        STUDENT_ID,
+        'eleve',
+      );
+
+      expect(mockItemRepo.create).toHaveBeenCalledWith(expect.objectContaining({ title: null }));
+    });
+
     it('[CRITIQUE] un formateur tente d\'ajouter un item → 403 ForbiddenException', async () => {
       mockChapterRepo.findOne.mockResolvedValue(buildSampleChapter());
 
@@ -437,6 +463,22 @@ describe('MemoService', () => {
         }),
       );
       expect(result.type).toBe('image');
+    });
+
+    it('[OK][régression 2026-08-27] un titre fourni sur un item image est persisté', async () => {
+      mockChapterRepo.findOne.mockResolvedValue(buildSampleChapter());
+
+      await memoService.createImageItem(
+        CHAPTER_ID,
+        buildImageFile(),
+        { caption: 'Formule au tableau', title: 'Trigonométrie' },
+        STUDENT_ID,
+        'eleve',
+      );
+
+      expect(mockItemRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Trigonométrie' }),
+      );
     });
 
     it('[CRITIQUE] un formateur tente d\'ajouter une image → 403 ForbiddenException', async () => {
@@ -528,6 +570,36 @@ describe('MemoService', () => {
 
       expect(result.content).toBe('nouveau contenu');
       expect(result.order).toBe(2);
+    });
+
+    it('[OK][régression 2026-08-27] le propriétaire modifie le titre d\'un item', async () => {
+      mockChapterRepo.findOne.mockResolvedValue(buildSampleChapter());
+      mockItemRepo.findOne.mockResolvedValue(buildSampleItem({ title: 'Ancien titre' }));
+
+      const result = await memoService.updateItem(
+        CHAPTER_ID,
+        ITEM_ID,
+        { title: 'Nouveau titre' },
+        STUDENT_ID,
+        'eleve',
+      );
+
+      expect(result.title).toBe('Nouveau titre');
+    });
+
+    it('[OK] titre non fourni dans le DTO → le titre existant n\'est pas modifié', async () => {
+      mockChapterRepo.findOne.mockResolvedValue(buildSampleChapter());
+      mockItemRepo.findOne.mockResolvedValue(buildSampleItem({ title: 'Titre conservé' }));
+
+      const result = await memoService.updateItem(
+        CHAPTER_ID,
+        ITEM_ID,
+        { content: 'nouveau contenu seulement' },
+        STUDENT_ID,
+        'eleve',
+      );
+
+      expect(result.title).toBe('Titre conservé');
     });
 
     it('[CRITIQUE] un tiers ne peut pas modifier → 403', async () => {

@@ -291,6 +291,35 @@ describe('[E2E] Mémo élève', () => {
       expect(res.body.type).toBe('formula');
     });
 
+    it("[OK][régression 2026-08-27] un item créé avec un titre le renvoie dans la réponse → 201", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/memos/chapters/${chapterId}/items`)
+        .set('Authorization', `Bearer ${student1Token}`)
+        .send({ type: 'formula', content: '$a^2$', title: 'Carré parfait' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.title).toBe('Carré parfait');
+    });
+
+    it('[OK] un item créé sans titre renvoie title: null (jamais absent silencieusement)', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/memos/chapters/${chapterId}/items`)
+        .set('Authorization', `Bearer ${student1Token}`)
+        .send({ type: 'text', content: 'sans titre' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.title).toBeNull();
+    });
+
+    it('[CRITIQUE] titre dépassant 200 caractères → 400 explicite', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/memos/chapters/${chapterId}/items`)
+        .set('Authorization', `Bearer ${student1Token}`)
+        .send({ type: 'text', content: 'x', title: 'a'.repeat(201) });
+
+      expect(res.status).toBe(400);
+    });
+
     it('[CRITIQUE] un formateur ne peut pas ajouter un item → 403', async () => {
       const res = await request(app.getHttpServer())
         .post(`/memos/chapters/${chapterId}/items`)
@@ -362,6 +391,16 @@ describe('[E2E] Mémo élève', () => {
         expect(res.body.content).toBe('modifié');
       });
 
+      it('[OK][régression 2026-08-27] le propriétaire modifie le titre de son item → 200', async () => {
+        const res = await request(app.getHttpServer())
+          .put(`/memos/chapters/${chapterId}/items/${itemId}`)
+          .set('Authorization', `Bearer ${student1Token}`)
+          .send({ title: 'Titre ajouté après coup' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.title).toBe('Titre ajouté après coup');
+      });
+
       it('[CRITIQUE] un tiers ne peut pas modifier → 403', async () => {
         const res = await request(app.getHttpServer())
           .put(`/memos/chapters/${chapterId}/items/${itemId}`)
@@ -417,6 +456,17 @@ describe('[E2E] Mémo élève', () => {
 
       expect(downloadRes.status).toBe(200);
       expect(downloadRes.headers['content-type']).toContain('image/png');
+    });
+
+    it("[OK][régression 2026-08-27] une image créée avec un titre le renvoie dans la réponse → 201", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/memos/chapters/${chapterId}/items/image`)
+        .set('Authorization', `Bearer ${student1Token}`)
+        .field('title', 'Schéma annoté')
+        .attach('file', buildPngBuffer(300), 'schema.png');
+
+      expect(res.status).toBe(201);
+      expect(res.body.title).toBe('Schéma annoté');
     });
 
     it('[CRITIQUE] un formateur ne peut pas ajouter une image → 403', async () => {

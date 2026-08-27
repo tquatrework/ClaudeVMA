@@ -25,6 +25,14 @@ import { MemoChapter } from './memo-chapter.entity';
  * `image`, toujours requis pour `text`/`formula`. `sizeKb` (taille déclarée
  * par le client, jamais vérifiée) est retiré, remplacé par `imageSizeBytes`
  * (taille réelle, mesurée côté serveur après lecture du fichier envoyé).
+ *
+ * `title` ajoute le 2026-08-27 (correctif d'une regression) : l'ancien
+ * modele plat `Memo` (avant l'assainissement du meme jour) portait un
+ * `title` optionnel, jamais repris par la migration `CreateMemoTables`
+ * d'origine — voir `AddTitleToMemoItems`. Nullable, optionnel pour les
+ * trois types d'item (text/formula/image), distinct de `content` (le
+ * texte/la formule/la legende) : un court intitule au-dessus de l'item,
+ * jamais requis.
  */
 export type MemoItemType = 'text' | 'formula' | 'image';
 
@@ -56,6 +64,10 @@ export class MemoItem {
    */
   @Column({ type: 'text', nullable: true })
   content: string | null;
+
+  /** Titre court, optionnel, pour les trois types d'item — distinct de `content`. */
+  @Column({ type: 'varchar', nullable: true })
+  title: string | null;
 
   /** Nom de fichier original fourni par le client (type=image) — affichage uniquement, jamais utilisé comme chemin. */
   @Column({ name: 'image_original_filename', nullable: true })

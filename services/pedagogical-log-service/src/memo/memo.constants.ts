@@ -7,6 +7,15 @@
  * - Longueur de `content` (texte/formule) : alignée sur les autres champs de
  *   texte long du projet (`description`/`message` de teacher-request-service,
  *   `comment` de profile-service) : 5000 caractères.
+ * - Longueur de `title` d'item (texte/formule/image, tous optionnels) :
+ *   alignée sur `MEMO_CHAPTER_TITLE_MAX_LENGTH` (200 caractères) — même
+ *   nature de donnée (un titre court), même plafond. Ajoutée le 2026-08-27
+ *   suite à une régression signalée par l'utilisateur : l'ancien modèle plat
+ *   `Memo` (avant l'assainissement du 2026-08-27) portait un `title`
+ *   optionnel, jamais repris par la migration `CreateMemoTables` — un titre
+ *   envoyé à la création était donc silencieusement absorbé sans effet
+ *   (`ValidationPipe({whitelist:true})` sans `forbidNonWhitelisted`, aucune
+ *   propriété `title` sur le DTO). Corrigé ici.
  * - Nombre de chapitres par élève / items par chapitre : reprend les valeurs
  *   proposées par le plan de chantier (50 / 200) — assez large pour un usage
  *   réel, borné pour éviter une liste non bornée.
@@ -18,6 +27,7 @@
  *   à revoir si le besoin apparaît.
  */
 export const MEMO_ITEM_CONTENT_MAX_LENGTH = 5000;
+export const MEMO_ITEM_TITLE_MAX_LENGTH = 200;
 export const MEMO_CHAPTER_TITLE_MAX_LENGTH = 200;
 export const MEMO_MAX_CHAPTERS_PER_STUDENT = 50;
 export const MEMO_MAX_ITEMS_PER_CHAPTER = 200;

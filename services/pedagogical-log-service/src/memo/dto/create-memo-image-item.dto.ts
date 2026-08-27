@@ -1,6 +1,6 @@
 import { IsString, IsOptional, IsNumberString, MaxLength } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { MEMO_ITEM_CONTENT_MAX_LENGTH } from '../memo.constants';
+import { MEMO_ITEM_CONTENT_MAX_LENGTH, MEMO_ITEM_TITLE_MAX_LENGTH } from '../memo.constants';
 
 /**
  * Champs texte accompagnant l'envoi multipart d'une image de mémo
@@ -20,6 +20,15 @@ export class CreateMemoImageItemDto {
   @IsString()
   @MaxLength(MEMO_ITEM_CONTENT_MAX_LENGTH)
   caption?: string;
+
+  @ApiPropertyOptional({
+    description: "Titre court, optionnel, affiché au-dessus de l'item",
+    maxLength: MEMO_ITEM_TITLE_MAX_LENGTH,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(MEMO_ITEM_TITLE_MAX_LENGTH)
+  title?: string;
 
   @ApiPropertyOptional({ description: 'Ordre d\'affichage dans le chapitre (chaîne numérique)' })
   @IsOptional()

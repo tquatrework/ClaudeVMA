@@ -1,7 +1,7 @@
 import { IsString, IsNotEmpty, IsOptional, IsNumber, Min, IsIn, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { MemoItemType } from '../entities/memo-item.entity';
-import { MEMO_ITEM_CONTENT_MAX_LENGTH } from '../memo.constants';
+import { MEMO_ITEM_CONTENT_MAX_LENGTH, MEMO_ITEM_TITLE_MAX_LENGTH } from '../memo.constants';
 
 /**
  * Types créables via cette route JSON — `image` est exclu : une image se
@@ -35,6 +35,15 @@ export class CreateMemoItemDto {
   @IsNotEmpty()
   @MaxLength(MEMO_ITEM_CONTENT_MAX_LENGTH)
   content: string;
+
+  @ApiPropertyOptional({
+    description: "Titre court, optionnel, affiché au-dessus de l'item",
+    maxLength: MEMO_ITEM_TITLE_MAX_LENGTH,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(MEMO_ITEM_TITLE_MAX_LENGTH)
+  title?: string;
 
   @ApiPropertyOptional({ description: 'Ordre d\'affichage dans le chapitre', default: 0 })
   @IsOptional()

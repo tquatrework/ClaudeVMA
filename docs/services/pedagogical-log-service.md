@@ -629,6 +629,70 @@
           </point>
         </openPoints>
       </session>
+
+      <session date="2026-08-27" label="Correctif — titre des items de memo, regression signalee en test reel (branche feat/memo-formules)">
+        <context>
+          Suite de l'assainissement du Memo livre le meme jour (commit d4e4e3d). L'utilisateur a
+          teste l'ecran en direct et remonte : « la possibilite de donner un titre a chaque memo
+          semble avoir disparu ». Constat : l'ancien modele plat `Memo` (avant l'assainissement)
+          portait un `title` optionnel, mais la migration `CreateMemoTables1789500000000` ne l'a
+          jamais repris sur `memo_items` — oubli de specification du plan de chantier, pas une
+          erreur d'execution. Un `title` envoye a la creation etait donc silencieusement absorbe
+          sans effet (`ValidationPipe({whitelist:true})` sans `forbidNonWhitelisted`, et aucun DTO
+          ne portait la propriete `title`).
+        </context>
+        <decision>
+          <item>Nouvelle migration `AddTitleToMemoItems1789600000000` : colonne `title` (varchar,
+            nullable, sans defaut) sur `memo_items` — nullable car un item existant n'a jamais eu
+            de titre, `NULL` est son etat correct, pas une chaine vide.</item>
+          <item>`MemoItem` (entite) : nouveau champ `title: string | null`, optionnel pour les
+            trois types d'item (text/formula/image), distinct de `content`.</item>
+          <item>`CreateMemoItemDto`, `CreateMemoImageItemDto`, `UpdateMemoItemDto` : `title?`
+            ajoute (`@IsOptional`, `@MaxLength(MEMO_ITEM_TITLE_MAX_LENGTH=200)` — meme plafond que
+            le titre de chapitre), refus `400` explicite au-dela, jamais un tronquage silencieux.</item>
+          <item>`MemoService.createItem`/`createImageItem` persistent `title` (`null` si absent) ;
+            `updateItem` ne modifie `title` que si fourni dans le DTO (mise a jour partielle,
+            meme discipline que `content`/`order`).</item>
+          <item>Perimetre volontairement limite a `src/memo/` (demande explicite) : verification
+            faite qu'aucun autre champ n'est silencieusement absorbe sur les routes
+            chapitres/items du Memo — aucun autre trouve. Le reglage global
+            `ValidationPipe({whitelist:true})` sans `forbidNonWhitelisted` (`main.ts`, portee a
+            tout le service) reste inchange : signale comme point ouvert, non corrige ici car son
+            changement depasserait le perimetre de cette session et pourrait casser d'autres DTO
+            du service qui n'ont pas ete audites.</item>
+        </decision>
+        <verification>
+          <item>Unitaire (`memo.service.spec.ts`) : 7 nouveaux tests (titre fourni/absent a la
+            creation texte/formule et image, titre modifie, titre non fourni ne touche pas le
+            titre existant) — 54/54 tests du fichier verts, 178/178 sur l'ensemble du service.</item>
+          <item>E2E (`memo.e2e-spec.ts`) : 6 nouveaux tests (creation avec/sans titre, plafond de
+            longueur -> 400, modification du titre, item image avec titre) — 43/43 tests du
+            fichier verts.</item>
+          <item>`npx tsc --noEmit` et `nest build` : 0 erreur.</item>
+          <item>Migration verifiee contre `visiomath_postgres` reel : `docker compose build/up
+            pedagogical-log-service` (image reconstruite depuis le worktree de la branche, projet
+            compose `claudevma` explicitement cible pour recreer le meme conteneur
+            `visiomath_pedagogical_log`), redemarrage propre, `\d memo_items` confirme la colonne
+            `title`, table `migrations` confirme `AddTitleToMemoItems1789600000000` appliquee
+            apres `CreateMemoTables1789500000000`.</item>
+          <item>Verification HTTP reelle de bout en bout (compte de test cree via
+            `POST /api/v1/accounts/students`, JWT obtenu via `POST /api/v1/auth/login`) :
+            `POST /api/v1/memos/chapters/:id/items` avec `title` -> `201` avec `title` dans la
+            reponse ; `PUT .../items/:id` modifie le titre -> `200` ; `GET
+            /api/v1/memos/chapters/:id` relit le titre modifie ; titre de 201 caracteres ->
+            `400 "title must be shorter than or equal to 200 characters"`. Donnees de test
+            nettoyees (`DELETE /api/v1/memos/chapters/:id`, cascade sur l'item).</item>
+        </verification>
+        <blockers>Aucun sur le code livre.</blockers>
+        <openPoints>
+          <point>
+            `ValidationPipe({whitelist:true})` sans `forbidNonWhitelisted` reste en place dans
+            `main.ts` (portee a tout le service, pas seulement au Memo) : un champ non prevu par
+            un DTO continue d'etre silencieusement ignore ailleurs dans ce service. Signale, non
+            corrige — changement transverse hors perimetre de cette session.
+          </point>
+        </openPoints>
+      </session>
     </technicalImplementation>
     <pendingPoints>
       <point id="guards-N1" status="resolu" resolvedOn="2026-06-28">

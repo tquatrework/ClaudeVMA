@@ -103,8 +103,15 @@ formule saisie via MathLive et rendue en LaTeX, une image jointe et affichée.
      envoyé à la création avait été silencieusement absorbé sans effet (violation de la convention
      du projet « aucun champ non prévu n'est absorbé en silence », déjà signalée ailleurs sur ce
      service). À corriger : nouvelle migration ajoutant `title` à `memo_items`, DTOs mis à jour,
-     `docs/routes.md` corrigé, formulaire front restauré. Délégué à `pedagogical-log-service` puis
-     `front-developper`, séquencé backend d'abord.
+     `docs/routes.md` corrigé, formulaire front restauré. **Backend livré et vérifié** par
+     `pedagogical-log-service` (commits `526cc75`+`6ba678e`+`2f83425`) : migration
+     `AddTitleToMemoItems1789600000000`, DTOs et service mis à jour, 178 tests unitaires (rejoués
+     indépendamment par l'orchestrateur après fast-forward) + tests e2e, vérifié en HTTP réel
+     (création/modification/lecture du titre, plafond `400` à 200 caractères). Redéployé par
+     l'orchestrateur depuis le checkout principal (l'agent avait déployé depuis son worktree via
+     `docker compose -p claudevma`, reconstruit ensuite depuis le checkout principal pour rester
+     cohérent), migration confirmée appliquée (`migration:show` → `[X]`). Reste : restaurer le
+     champ titre côté front (`front-developper`, en cours avec le défaut 2 ci-dessous).
   2. **Une formule incomplète produit un texte d'erreur brut affiché à l'écran.** L'utilisateur a
      rapporté : « Formule illisible : x^2=a,S=\left\lbrace\sqrt[\placeholder{}]{a};-\sqrt
      [\placeholder{}]{a}\right\rbrace ». Cause identifiée par l'orchestrateur (lecture directe de

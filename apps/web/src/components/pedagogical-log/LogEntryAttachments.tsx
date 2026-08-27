@@ -1,39 +1,32 @@
 /**
- * LogEntryAttachments — pièces jointes d'une entrée de cahier de texte.
+ * LogEntryAttachments — pièces jointes d'une entrée de cahier de texte déjà
+ * créée : liste, téléchargement et suppression uniquement.
  *
  * Deux publics dans un seul composant :
  * - **tout lecteur** de l'entrée (élève, parent, formateur, RP selon la
  *   catégorie de visibilité déjà appliquée au niveau de l'entrée) peut déplier
  *   et télécharger ;
- * - **le formateur auteur** (`canManage`) peut en plus joindre et supprimer.
+ * - **le formateur auteur** (`canManage`) peut en plus supprimer.
  *
- * Bug d'ergonomie corrigé le 2026-08-26 : le point d'entrée pour ajouter un
- * fichier n'était visible qu'après avoir déplié une section repliée par
- * défaut, derrière un petit lien texte gris — un utilisateur réel ne l'a pas
- * vu en testant. Pour le formateur qui peut gérer les pièces jointes
- * (`canManage`), la section est désormais **dépliée par défaut**, chargée
- * une seule fois au montage, avec un vrai bouton visible « Joindre un
- * fichier » (pas un lien texte discret). Pour un lecteur qui ne peut pas
- * gérer (élève/parent/RP), le comportement replié par défaut est inchangé —
- * pas de raison de le changer, ces rôles ne joignent jamais de fichier.
- *
- * Le bouton « Joindre un fichier » n'apparaît que si `attachmentSettings.
- * attachmentsEnabled` est vrai — lu par la page avant le rendu (même
- * discipline que `GET /profiles/avatar/constraints`), jamais affiché puis
- * refusé en 403.
+ * Ajout retiré le 2026-08-27 (décision explicite de l'utilisateur, qui
+ * restreint le périmètre posé le 2026-08-26) : une pièce jointe ne se joint
+ * plus qu'**au moment de la création** d'une entrée (`NewLogPageForm` /
+ * `useNewLogEntryForm`) — il n'y a donc plus de point d'ajout ici, sur une
+ * entrée déjà créée. La liste des pièces jointes déjà présentes, leur
+ * téléchargement et leur suppression restent inchangés.
  */
 
-import React, { useEffect, useId, useRef, useState } from 'react'
-import type { PedagogicalLogAttachment, PedagogicalLogAttachmentSettings } from '../../api/pedagogicalLogAttachments'
+import React, { useEffect, useRef, useState } from 'react'
+import type { PedagogicalLogAttachment } from '../../api/pedagogicalLogAttachments'
 import { useLogEntryAttachments } from '../../hooks/pedagogical-log/useLogEntryAttachments'
 import { formatFileSize } from '../../utils/fileSize'
-import { ATTACHMENT_LABELS, getAttachmentMaxSizeHint } from '../../utils/logAttachment'
+import { ATTACHMENT_LABELS } from '../../utils/logAttachment'
 import { ErrorMessage } from '../ui/ErrorMessage'
 
 interface LogEntryAttachmentsProps {
   logId: string
+  /** Autorise la suppression d'une pièce jointe existante (le formateur auteur). */
   canManage: boolean
-  attachmentSettings: PedagogicalLogAttachmentSettings
 }
 
 function AttachmentRow({
@@ -81,23 +74,17 @@ function AttachmentRow({
   )
 }
 
-export function LogEntryAttachments({ logId, canManage, attachmentSettings }: LogEntryAttachmentsProps) {
-  // Dépliée par défaut pour le formateur qui peut gérer les pièces jointes —
-  // c'est lui qui a besoin de voir le bouton d'ajout sans clic préalable.
-  // Repliée par défaut pour un simple lecteur, comportement inchangé.
+export function LogEntryAttachments({ logId, canManage }: LogEntryAttachmentsProps) {
+  // Dépliée par défaut pour le formateur qui peut gérer les pièces jointes
+  // (suppression) — repliée par défaut pour un simple lecteur, inchangé.
   const [isExpanded, setIsExpanded] = useState(canManage)
   const hasRequestedLoad = useRef(false)
-  const fileInputId = useId()
 
   const {
     attachments,
     isLoadingAttachments,
     loadError,
     loadAttachments,
-    uploadAttachment,
-    isUploadingAttachment,
-    uploadError,
-    dismissUploadError,
     deleteAttachment,
     deletingAttachmentId,
     deleteError,
@@ -120,17 +107,6 @@ export function LogEntryAttachments({ logId, canManage, attachmentSettings }: Lo
       hasRequestedLoad.current = true
       void loadAttachments()
     }
-  }
-
-  const handleFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = event.target.files?.[0]
-    event.target.value = ''
-    if (!selectedFile) return
-    await uploadAttachment(
-      selectedFile,
-      attachmentSettings.maxFileBytes,
-      attachmentSettings.maxTotalBytesPerEntry,
-    )
   }
 
   return (
@@ -179,36 +155,6 @@ export function LogEntryAttachments({ logId, canManage, attachmentSettings }: Lo
             <ErrorMessage message={downloadError} variant="warning" className="mt-1 text-xs" />
           )}
           {deleteError && <ErrorMessage message={deleteError} variant="warning" className="mt-1 text-xs" />}
-
-          {canManage && attachmentSettings.attachmentsEnabled && (
-            <div className="mt-2">
-              <label
-                htmlFor={fileInputId}
-                className={`inline-flex cursor-pointer items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 ${
-                  isUploadingAttachment ? 'pointer-events-none opacity-50' : ''
-                }`}
-              >
-                {isUploadingAttachment ? ATTACHMENT_LABELS.uploading : ATTACHMENT_LABELS.addAction}
-              </label>
-              <input
-                id={fileInputId}
-                type="file"
-                className="sr-only"
-                disabled={isUploadingAttachment}
-                onChange={handleFileSelected}
-              />
-              <p className="mt-0.5 text-xs text-gray-400">
-                {getAttachmentMaxSizeHint(attachmentSettings.maxFileBytes)}
-              </p>
-              {uploadError && (
-                <ErrorMessage
-                  message={uploadError}
-                  onClose={dismissUploadError}
-                  className="mt-1 text-xs"
-                />
-              )}
-            </div>
-          )}
         </div>
       )}
     </div>

@@ -1,9 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildInlineLinkMarkup,
+  domPositionForRawOffset,
   insertTextAtSelection,
   isAbsoluteHttpUrl,
+  LIGHT_MARKUP_CHIP_ATTR,
+  LIGHT_MARKUP_LABEL_ATTR,
+  LIGHT_MARKUP_URL_ATTR,
   parseLightMarkup,
+  rawOffsetFromDomPosition,
+  serializeLightMarkupEditor,
 } from '../../src/utils/lightMarkup'
 
 describe('parseLightMarkup', () => {
@@ -81,5 +87,134 @@ describe('insertTextAtSelection', () => {
   it('remplace une sélection non vide', () => {
     const result = insertTextAtSelection('Bonjour le monde', 8, 10, 'un')
     expect(result.text).toBe('Bonjour un monde')
+  })
+})
+
+// ─── Éditeur « jetons » (LightMarkupEditor, 2026-08-27) ────────────────────
+//
+// Fonctions DOM pures qui font le pont entre le texte brut `[label](url)`
+// (source de vérité, transmise au serveur) et la représentation « jeton »
+// affichée à l'écran (label seul visible). Construites ici sur un DOM jsdom
+// minimal, indépendamment du composant React.
+
+function makeChip(label: string, url: string): HTMLSpanElement {
+  const chip = document.createElement('span')
+  chip.setAttribute(LIGHT_MARKUP_CHIP_ATTR, 'true')
+  chip.setAttribute(LIGHT_MARKUP_LABEL_ATTR, label)
+  chip.setAttribute(LIGHT_MARKUP_URL_ATTR, url)
+  chip.contentEditable = 'false'
+  chip.textContent = label
+  return chip
+}
+
+describe('serializeLightMarkupEditor', () => {
+  it('reconstruit le texte brut à partir de nœuds texte et de jetons mélangés', () => {
+    const root = document.createElement('div')
+    root.appendChild(document.createTextNode('Voir '))
+    root.appendChild(makeChip('Fiche', 'https://example.com/fiche.pdf'))
+    root.appendChild(document.createTextNode(' pour réviser.'))
+
+    expect(serializeLightMarkupEditor(root)).toBe(
+      'Voir [Fiche](https://example.com/fiche.pdf) pour réviser.',
+    )
+  })
+
+  it('un <br> se sérialise en retour à la ligne', () => {
+    const root = document.createElement('div')
+    root.appendChild(document.createTextNode('Ligne 1'))
+    root.appendChild(document.createElement('br'))
+    root.appendChild(document.createTextNode('Ligne 2'))
+
+    expect(serializeLightMarkupEditor(root)).toBe('Ligne 1\nLigne 2')
+  })
+
+  it('un éditeur vide sérialise en chaîne vide', () => {
+    const root = document.createElement('div')
+    expect(serializeLightMarkupEditor(root)).toBe('')
+  })
+
+  it('un jeton seul sérialise en [label](url) complet, jamais le seul libellé affiché', () => {
+    const root = document.createElement('div')
+    root.appendChild(makeChip('Fiche de cours', 'https://example.com/fiche.pdf'))
+
+    expect(serializeLightMarkupEditor(root)).toBe('[Fiche de cours](https://example.com/fiche.pdf)')
+  })
+})
+
+describe('rawOffsetFromDomPosition — jeton (2026-08-27)', () => {
+  it("un offset dans un nœud texte se convertit tel quel", () => {
+    const root = document.createElement('div')
+    const text = document.createTextNode('Bonjour')
+    root.appendChild(text)
+
+    expect(rawOffsetFromDomPosition(root, text, 3)).toBe(3)
+  })
+
+  it('un offset après un jeton précédent tient compte de sa longueur en texte brut, pas de son libellé affiché', () => {
+    const root = document.createElement('div')
+    root.appendChild(makeChip('Fiche', 'https://example.com/fiche')) // 29 caractères en texte brut
+    const text = document.createTextNode('Suite')
+    root.appendChild(text)
+
+    // Position au tout début du second nœud texte : doit valoir la longueur
+    // complète du jeton sérialisé (29), pas la longueur de son libellé (5).
+    expect(rawOffsetFromDomPosition(root, text, 0)).toBe('[Fiche](https://example.com/fiche)'.length)
+  })
+
+  it('une position (root, index) se convertit en offset cumulé des enfants précédents', () => {
+    const root = document.createElement('div')
+    root.appendChild(document.createTextNode('AB'))
+    root.appendChild(makeChip('Fiche', 'https://example.com/fiche'))
+
+    // offset = 1 dans root.childNodes → juste après le premier enfant
+    // (« AB »), donc juste avant le second (le jeton) : offset brut = 2.
+    expect(rawOffsetFromDomPosition(root, root, 1)).toBe(2)
+  })
+})
+
+describe('domPositionForRawOffset — jeton (2026-08-27)', () => {
+  it('un offset au milieu d\'un nœud texte pointe ce nœud texte', () => {
+    const root = document.createElement('div')
+    const text = document.createTextNode('Bonjour')
+    root.appendChild(text)
+
+    expect(domPositionForRawOffset(root, 3)).toEqual({ node: text, offset: 3 })
+  })
+
+  it('un offset exactement après un jeton se place juste après lui (root, index+1)', () => {
+    const root = document.createElement('div')
+    const chip = makeChip('Fiche', 'https://example.com/fiche')
+    root.appendChild(chip)
+    const markupLength = '[Fiche](https://example.com/fiche)'.length
+
+    expect(domPositionForRawOffset(root, markupLength)).toEqual({ node: root, offset: 1 })
+  })
+
+  it('un offset exactement avant le tout premier jeton se place avant lui (root, 0), jamais après', () => {
+    const root = document.createElement('div')
+    root.appendChild(makeChip('Fiche', 'https://example.com/fiche'))
+    root.appendChild(document.createTextNode('Suite'))
+
+    expect(domPositionForRawOffset(root, 0)).toEqual({ node: root, offset: 0 })
+  })
+
+  it('un offset au-delà de tout contenu se place en fin d\'éditeur', () => {
+    const root = document.createElement('div')
+    root.appendChild(document.createTextNode('AB'))
+
+    expect(domPositionForRawOffset(root, 99)).toEqual({ node: root, offset: 1 })
+  })
+
+  it('aller-retour : sérialiser puis reconvertir un offset donne une position cohérente', () => {
+    const root = document.createElement('div')
+    root.appendChild(document.createTextNode('Suite'))
+    root.appendChild(makeChip('Fiche', 'https://example.com/fiche'))
+
+    const raw = serializeLightMarkupEditor(root)
+    expect(raw).toBe('Suite[Fiche](https://example.com/fiche)')
+
+    // Position juste après « Suite », avant le jeton.
+    const position = domPositionForRawOffset(root, 'Suite'.length)
+    expect(position).toEqual({ node: root.childNodes[0], offset: 'Suite'.length })
   })
 })

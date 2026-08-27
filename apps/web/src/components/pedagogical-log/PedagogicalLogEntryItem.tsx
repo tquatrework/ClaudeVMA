@@ -11,10 +11,16 @@
  * Liens dans le texte (2026-08-26) : `sessionSummary`/`homework` sont rendus
  * via `LightMarkupText` (transforme `[texte](url)` en vrai lien cliquable) au
  * lieu de texte brut ; en édition, un bouton « Insérer un lien »
- * (`InsertLinkButton`) accompagne chaque `LightMarkupTextarea` (calque de
- * coloration syntaxique pendant la saisie, corrigé le 2026-08-27 — voir ce
- * composant). Remplace l'ancien `ResourceLinkEditor`/`resourceLinks` (champ
- * structuré séparé, retiré).
+ * (`InsertLinkButton`) accompagne chaque `LightMarkupEditor` (remplace
+ * `LightMarkupTextarea` le 2026-08-27 — un lien inséré devient un jeton
+ * n'affichant que son libellé, jamais l'URL ni les crochets, dès l'insertion
+ * — voir ce composant). Remplace l'ancien `ResourceLinkEditor`/`resourceLinks`
+ * (champ structuré séparé, retiré).
+ *
+ * Pièces jointes d'une entrée déjà créée (2026-08-27) : `LogEntryAttachments`
+ * n'affiche plus de point d'ajout — un fichier ne se joint désormais qu'au
+ * moment de la création (`NewLogPageForm`) — cette entrée ne lui transmet
+ * donc plus les réglages système, devenus sans objet ici.
  *
  * Extrait de PedagogicalLogPage (lot 10 — normalisation, découpage > 300 lignes).
  * Présentationnel : le state d'édition reste porté par la page.
@@ -22,13 +28,12 @@
 
 import React, { useRef } from 'react'
 import type { PedagogicalLogPage as LogPage, LogVisibility } from '../../api/pedagogicalLog'
-import type { PedagogicalLogAttachmentSettings } from '../../api/pedagogicalLogAttachments'
 import { formatIsoCalendarDate } from '../../utils/dateFormat'
 import { getLogVisibilityLabel } from '../../utils/pedagogicalLogLabels'
 import { LightMarkupText } from '../ui/LightMarkupText'
 import { LogEntryAttachments } from './LogEntryAttachments'
 import { InsertLinkButton } from './InsertLinkButton'
-import { LightMarkupTextarea } from './LightMarkupTextarea'
+import { LightMarkupEditor, type LightMarkupEditorHandle } from './LightMarkupEditor'
 
 export interface LogEntryEditValues {
   date: string
@@ -53,8 +58,6 @@ interface PedagogicalLogEntryItemProps {
   canDelete: boolean
   onDelete: () => void
   isDeleting: boolean
-  /** Réglages système des pièces jointes — lus une fois par la page, jamais codés en dur. */
-  attachmentSettings: PedagogicalLogAttachmentSettings
 }
 
 const VISIBILITY_LABELS: Record<LogVisibility, string> = {
@@ -84,10 +87,9 @@ export function PedagogicalLogEntryItem({
   canDelete,
   onDelete,
   isDeleting,
-  attachmentSettings,
 }: PedagogicalLogEntryItemProps) {
-  const editSummaryRef = useRef<HTMLTextAreaElement>(null)
-  const editHomeworkRef = useRef<HTMLTextAreaElement>(null)
+  const editSummaryRef = useRef<LightMarkupEditorHandle>(null)
+  const editHomeworkRef = useRef<LightMarkupEditorHandle>(null)
 
   return (
     <li
@@ -130,11 +132,12 @@ export function PedagogicalLogEntryItem({
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1" htmlFor={`edit-summary-${logPage.id}`}>
+                <label className="block text-xs text-gray-500 mb-1" id={`edit-summary-${logPage.id}-label`}>
                   Déroulement de la séance
                 </label>
-                <LightMarkupTextarea
+                <LightMarkupEditor
                   id={`edit-summary-${logPage.id}`}
+                  ariaLabelledBy={`edit-summary-${logPage.id}-label`}
                   ref={editSummaryRef}
                   value={editValues.sessionSummary}
                   onChange={(value) => onEditValuesChange({ ...editValues, sessionSummary: value })}
@@ -143,17 +146,18 @@ export function PedagogicalLogEntryItem({
                 />
                 <InsertLinkButton
                   fieldLabel="Déroulement de la séance"
-                  textareaRef={editSummaryRef}
+                  editorRef={editSummaryRef}
                   value={editValues.sessionSummary}
                   onChange={(value) => onEditValuesChange({ ...editValues, sessionSummary: value })}
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1" htmlFor={`edit-homework-${logPage.id}`}>
+                <label className="block text-xs text-gray-500 mb-1" id={`edit-homework-${logPage.id}-label`}>
                   À faire
                 </label>
-                <LightMarkupTextarea
+                <LightMarkupEditor
                   id={`edit-homework-${logPage.id}`}
+                  ariaLabelledBy={`edit-homework-${logPage.id}-label`}
                   ref={editHomeworkRef}
                   value={editValues.homework}
                   onChange={(value) => onEditValuesChange({ ...editValues, homework: value })}
@@ -162,7 +166,7 @@ export function PedagogicalLogEntryItem({
                 />
                 <InsertLinkButton
                   fieldLabel="À faire"
-                  textareaRef={editHomeworkRef}
+                  editorRef={editHomeworkRef}
                   value={editValues.homework}
                   onChange={(value) => onEditValuesChange({ ...editValues, homework: value })}
                 />
@@ -232,11 +236,7 @@ export function PedagogicalLogEntryItem({
           )}
 
           {!logPage.isSpecialPage && (
-            <LogEntryAttachments
-              logId={logPage.id}
-              canManage={canEdit}
-              attachmentSettings={attachmentSettings}
-            />
+            <LogEntryAttachments logId={logPage.id} canManage={canEdit} />
           )}
 
           <div className="flex items-center justify-between mt-3">

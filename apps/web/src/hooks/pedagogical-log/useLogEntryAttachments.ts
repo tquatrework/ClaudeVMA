@@ -1,5 +1,11 @@
 /**
- * useLogEntryAttachments — pièces jointes d'une entrée de cahier de texte.
+ * useLogEntryAttachments — pièces jointes d'une entrée de cahier de texte
+ * déjà créée : chargement, téléchargement et suppression.
+ *
+ * L'ajout n'en fait plus partie depuis le 2026-08-27 (décision explicite de
+ * l'utilisateur) : une pièce jointe ne se joint plus qu'au moment de la
+ * création d'une entrée (`useNewLogEntryForm`, qui appelle `uploadLogAttachment`
+ * directement, indépendamment de ce hook).
  *
  * Chargement **à la demande** (pas au montage) : une entrée de cahier de texte
  * peut être ancienne et jamais consultée pour ses pièces jointes — appeler
@@ -19,16 +25,12 @@ import {
   deleteLogAttachment,
   fetchLogAttachmentBlob,
   fetchLogAttachments,
-  uploadLogAttachment,
   type PedagogicalLogAttachment,
 } from '../../api/pedagogicalLogAttachments'
-import { isAvatarFileTooLarge } from '../../utils/profileAvatarConstraints'
 import {
   getAttachmentDeleteErrorMessage,
   getAttachmentDownloadErrorMessage,
   getAttachmentLoadErrorMessage,
-  getAttachmentTooLargeMessage,
-  getAttachmentUploadErrorMessage,
 } from '../../utils/logAttachment'
 
 export interface UseLogEntryAttachmentsResult {
@@ -36,11 +38,6 @@ export interface UseLogEntryAttachmentsResult {
   isLoadingAttachments: boolean
   loadError: string | null
   loadAttachments: () => Promise<void>
-
-  uploadAttachment: (file: File, maxFileBytes: number, maxTotalBytesPerEntry: number) => Promise<boolean>
-  isUploadingAttachment: boolean
-  uploadError: string | null
-  dismissUploadError: () => void
 
   deleteAttachment: (attachmentId: string) => Promise<void>
   deletingAttachmentId: string | null
@@ -68,41 +65,6 @@ export function useLogEntryAttachments(logId: string): UseLogEntryAttachmentsRes
       setIsLoadingAttachments(false)
     }
   }, [logId])
-
-  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false)
-  const [uploadError, setUploadError] = useState<string | null>(null)
-
-  const uploadAttachment = useCallback(
-    async (file: File, maxFileBytes: number, maxTotalBytesPerEntry: number): Promise<boolean> => {
-      setUploadError(null)
-
-      // Refus local : le fichier ne part pas si le plafond par fichier est
-      // déjà dépassable localement — même raisonnement que l'avatar.
-      if (isAvatarFileTooLarge(file, maxFileBytes)) {
-        setUploadError(getAttachmentTooLargeMessage(file.size, maxFileBytes))
-        return false
-      }
-
-      setIsUploadingAttachment(true)
-      try {
-        const created = await uploadLogAttachment(logId, file)
-        setAttachments((current) => [...(current ?? []), created])
-        return true
-      } catch (caughtError) {
-        setUploadError(
-          getAttachmentUploadErrorMessage(caughtError, {
-            maxFileBytes,
-            maxTotalBytesPerEntry,
-            attemptedFileSizeBytes: file.size,
-          }),
-        )
-        return false
-      } finally {
-        setIsUploadingAttachment(false)
-      }
-    },
-    [logId],
-  )
 
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -152,11 +114,6 @@ export function useLogEntryAttachments(logId: string): UseLogEntryAttachmentsRes
     isLoadingAttachments,
     loadError,
     loadAttachments,
-
-    uploadAttachment,
-    isUploadingAttachment,
-    uploadError,
-    dismissUploadError: () => setUploadError(null),
 
     deleteAttachment,
     deletingAttachmentId,

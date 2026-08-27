@@ -114,9 +114,17 @@ beforeEach(() => {
 })
 
 // ─── 1. Rendu du lien pendant la saisie ────────────────────────────────────
+//
+// Révisé le 2026-08-27 (défaut réel remonté par un utilisateur en test réel) :
+// `LightMarkupTextarea` (calque de coloration recolorant `[label](url)` en
+// bleu, crochets et URL toujours visibles) est remplacé par
+// `LightMarkupEditor` — un lien inséré devient un JETON n'affichant que son
+// libellé, jamais les crochets ni l'URL, dès l'insertion. Le texte brut reste
+// néanmoins ce qui est effectivement soumis au serveur (voir section 2 et
+// `pedagogicalLogResourceLinksAttachments.test.tsx`).
 
 describe('PedagogicalLogPage — rendu du lien dès sa validation, avant la soumission', () => {
-  it('met en valeur le lien inséré (calque coloré), sans changer la valeur brute du champ', async () => {
+  it("affiche un jeton portant seulement le libellé — jamais les crochets ni l'URL — dès l'insertion", async () => {
     renderPage()
     await openNewEntryForm()
 
@@ -127,34 +135,44 @@ describe('PedagogicalLogPage — rendu du lien dès sa validation, avant la soum
     await userEvent.type(screen.getByLabelText('Adresse (URL) du lien'), 'https://example.com/fiche.pdf')
     await userEvent.click(screen.getByRole('button', { name: 'Insérer' }))
 
-    // La source de vérité (le <textarea> réel) porte toujours le texte brut.
+    // Le jeton affiche uniquement le libellé.
     await waitFor(() => {
-      expect(screen.getByLabelText('Déroulement de la séance')).toHaveValue(
-        '[Fiche de cours](https://example.com/fiche.pdf)',
-      )
+      expect(document.querySelector('[data-light-markup-chip]')?.textContent).toBe('Fiche de cours')
     })
-
-    // Le calque de coloration (un <span>, distinct du <textarea> source de
-    // vérité) affiche déjà ce segment mis en valeur — pas un texte neutre
-    // indiscernable du reste, avant même de soumettre l'entrée.
-    const renderedSegment = document.querySelector('span.text-indigo-600')
-    expect(renderedSegment).not.toBeNull()
-    expect(renderedSegment?.textContent).toBe('[Fiche de cours](https://example.com/fiche.pdf)')
+    // Ni les crochets, ni l'URL ne sont visibles où que ce soit dans le champ.
+    const field = screen.getByLabelText('Déroulement de la séance')
+    expect(field.textContent).not.toContain('[')
+    expect(field.textContent).not.toContain('https://')
 
     // Aucune écriture serveur déclenchée par la seule insertion du lien.
     expect(mockCreateStudentLogEntry).not.toHaveBeenCalled()
+
+    // Mais le texte brut soumis reste bien `[label](url)` — c'est ce que le
+    // serveur reçoit et stocke, jamais du HTML ni le seul libellé.
+    mockCreateStudentLogEntry.mockResolvedValue(
+      makeEntry({ sessionSummary: '[Fiche de cours](https://example.com/fiche.pdf)' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: /ajouter une entrée/i }))
+    await waitFor(() => {
+      expect(mockCreateStudentLogEntry).toHaveBeenCalledWith(
+        STUDENT_ID,
+        expect.objectContaining({
+          sessionSummary: '[Fiche de cours](https://example.com/fiche.pdf)',
+        }),
+      )
+    })
   })
 
-  it("un texte sans lien ne produit aucun segment mis en valeur", async () => {
+  it("un texte sans lien ne produit aucun jeton", async () => {
     renderPage()
     await openNewEntryForm()
 
     await userEvent.type(screen.getByLabelText('Déroulement de la séance'), 'Texte simple sans lien')
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Déroulement de la séance')).toHaveValue('Texte simple sans lien')
+      expect(screen.getByLabelText('Déroulement de la séance')).toHaveTextContent('Texte simple sans lien')
     })
-    expect(document.querySelector('span.text-indigo-600')).toBeNull()
+    expect(document.querySelector('[data-light-markup-chip]')).toBeNull()
   })
 })
 
@@ -168,6 +186,19 @@ describe('PedagogicalLogPage — pièce jointe choisie pendant la saisie de la n
     expect(screen.getByText(/joindre un fichier/i)).toBeDefined()
     expect(mockCreateStudentLogEntry).not.toHaveBeenCalled()
     expect(mockUploadLogAttachment).not.toHaveBeenCalled()
+  })
+
+  it('affiche « Joindre un fichier » en lien discret, même style que « Insérer un lien » (défaut de design du 2026-08-27)', async () => {
+    renderPage()
+    await openNewEntryForm()
+
+    const attachmentTrigger = screen.getByText('+ Joindre un fichier')
+    // Même classe que le bouton « + Insérer un lien » — plus de bouton plein
+    // indigo qui se confondait avec les boutons de validation du formulaire.
+    expect(attachmentTrigger.className).toContain('text-indigo-500')
+    expect(attachmentTrigger.className).toContain('hover:underline')
+    expect(attachmentTrigger.className).not.toContain('bg-indigo-600')
+    expect(attachmentTrigger.className).not.toContain('text-white')
   })
 
   it("n'affiche pas le bouton quand les pièces jointes sont désactivées", async () => {

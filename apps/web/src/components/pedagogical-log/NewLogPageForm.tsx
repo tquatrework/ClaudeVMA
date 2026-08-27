@@ -16,11 +16,10 @@
  * Liens insérés dans le texte (2026-08-26) : un bouton « Insérer un lien »
  * (`InsertLinkButton`) à côté de chaque champ texte insère `[texte](url)` à
  * la position du curseur — remplace l'ancien `ResourceLinkEditor` (champ
- * structuré séparé, retiré). Nécessite une référence DOM vers chaque
- * `<textarea>` pour connaître la position du curseur au moment du clic.
- * Le rendu du lien pendant la saisie passe par `LightMarkupTextarea`
- * (défaut mineur corrigé le 2026-08-27, voir ce fichier) — expose toujours
- * un vrai `HTMLTextAreaElement`, `InsertLinkButton` n'a pas changé.
+ * structuré séparé, retiré). Le rendu du lien pendant la saisie passe par
+ * `LightMarkupEditor` (remplace `LightMarkupTextarea` le 2026-08-27, défaut
+ * réel : l'URL doit rester cachée dès l'insertion, pas seulement recolorée —
+ * un lien inséré devient un jeton n'affichant que son libellé).
  *
  * Pièce jointe choisie pendant la saisie (2026-08-27, défaut majeur) : un
  * fichier peut être sélectionné avant même que l'entrée existe — il est gardé
@@ -30,13 +29,20 @@
  * créée (`LogEntryAttachments`), parce que l'upload exige un `logEntryId`
  * existant — cette contrainte serveur n'a pas changé, seule la séquence côté
  * front est désormais transparente pour l'utilisateur.
+ *
+ * Bouton « Joindre un fichier » en lien discret (2026-08-27, défaut de
+ * design) : il se confondait visuellement, en bouton plein, avec les boutons
+ * de validation du formulaire juste en dessous. Même style que le bouton
+ * « Insérer un lien » ci-dessus — seul lien de ce type restant après le
+ * retrait du bouton d'ajout sur une entrée déjà créée (voir
+ * `LogEntryAttachments`, l'ajout n'est désormais possible qu'à la création).
  */
 
 import React, { useId, useRef } from 'react'
 import type { LogVisibility } from '../../api/pedagogicalLog'
 import { LOG_VISIBILITY_LABELS, SELECTABLE_LOG_VISIBILITIES } from '../../utils/pedagogicalLogLabels'
 import { InsertLinkButton } from './InsertLinkButton'
-import { LightMarkupTextarea } from './LightMarkupTextarea'
+import { LightMarkupEditor, type LightMarkupEditorHandle } from './LightMarkupEditor'
 
 interface NewLogPageFormProps {
   date: string
@@ -83,8 +89,8 @@ export function NewLogPageForm({
   onSelectAttachment,
   onRemoveAttachment,
 }: NewLogPageFormProps) {
-  const sessionSummaryRef = useRef<HTMLTextAreaElement>(null)
-  const homeworkRef = useRef<HTMLTextAreaElement>(null)
+  const sessionSummaryRef = useRef<LightMarkupEditorHandle>(null)
+  const homeworkRef = useRef<LightMarkupEditorHandle>(null)
   const attachmentInputId = useId()
 
   return (
@@ -133,11 +139,12 @@ export function NewLogPageForm({
         </div>
 
         <div>
-          <label htmlFor="log-session-summary" className="block text-xs text-gray-500 mb-1">
+          <label id="log-session-summary-label" className="block text-xs text-gray-500 mb-1">
             Déroulement de la séance
           </label>
-          <LightMarkupTextarea
+          <LightMarkupEditor
             id="log-session-summary"
+            ariaLabelledBy="log-session-summary-label"
             ref={sessionSummaryRef}
             value={sessionSummary}
             onChange={onSessionSummaryChange}
@@ -146,18 +153,19 @@ export function NewLogPageForm({
           />
           <InsertLinkButton
             fieldLabel="Déroulement de la séance"
-            textareaRef={sessionSummaryRef}
+            editorRef={sessionSummaryRef}
             value={sessionSummary}
             onChange={onSessionSummaryChange}
           />
         </div>
 
         <div>
-          <label htmlFor="log-homework" className="block text-xs text-gray-500 mb-1">
+          <label id="log-homework-label" className="block text-xs text-gray-500 mb-1">
             À faire
           </label>
-          <LightMarkupTextarea
+          <LightMarkupEditor
             id="log-homework"
+            ariaLabelledBy="log-homework-label"
             ref={homeworkRef}
             value={homework}
             onChange={onHomeworkChange}
@@ -166,7 +174,7 @@ export function NewLogPageForm({
           />
           <InsertLinkButton
             fieldLabel="À faire"
-            textareaRef={homeworkRef}
+            editorRef={homeworkRef}
             value={homework}
             onChange={onHomeworkChange}
           />
@@ -193,9 +201,9 @@ export function NewLogPageForm({
               <>
                 <label
                   htmlFor={attachmentInputId}
-                  className="inline-flex cursor-pointer items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+                  className="cursor-pointer text-xs text-indigo-500 hover:underline"
                 >
-                  Joindre un fichier
+                  + Joindre un fichier
                 </label>
                 <input
                   id={attachmentInputId}

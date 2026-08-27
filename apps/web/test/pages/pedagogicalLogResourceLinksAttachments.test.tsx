@@ -160,11 +160,15 @@ describe('PedagogicalLogPage — insertion d\'un lien dans le texte (formulaire 
     await userEvent.type(screen.getByLabelText('Adresse (URL) du lien'), 'https://example.com/fiche.pdf')
     await userEvent.click(screen.getByRole('button', { name: 'Insérer' }))
 
+    // Le lien s'affiche comme un jeton portant seulement son libellé — ni
+    // crochets, ni URL visibles dès l'insertion (défaut du 2026-08-27).
     await waitFor(() => {
-      expect(screen.getByLabelText('Déroulement de la séance')).toHaveValue(
-        '[Fiche de cours](https://example.com/fiche.pdf)',
-      )
+      expect(screen.getByLabelText('Déroulement de la séance')).toHaveTextContent('Fiche de cours')
     })
+    expect(screen.getByLabelText('Déroulement de la séance')).not.toHaveTextContent(
+      '[Fiche de cours](https://example.com/fiche.pdf)',
+    )
+    expect(screen.getByLabelText('Déroulement de la séance').textContent).not.toContain('https://')
 
     await userEvent.click(screen.getByRole('button', { name: /ajouter une entrée/i }))
 
@@ -191,8 +195,9 @@ describe('PedagogicalLogPage — insertion d\'un lien dans le texte (formulaire 
     await userEvent.click(screen.getByRole('button', { name: 'Insérer' }))
 
     await waitFor(() => {
-      expect(screen.getByLabelText('À faire')).toHaveValue('[Exercices en ligne](https://example.com/exos)')
+      expect(screen.getByLabelText('À faire')).toHaveTextContent('Exercices en ligne')
     })
+    expect(screen.getByLabelText('À faire').textContent).not.toContain('https://')
   })
 
   it('insère le lien à la position du curseur, pas systématiquement en fin de texte', async () => {
@@ -209,8 +214,10 @@ describe('PedagogicalLogPage — insertion d\'un lien dans le texte (formulaire 
     await userEvent.type(screen.getByLabelText('Adresse (URL) du lien'), 'https://example.com/fiche')
     await userEvent.click(screen.getByRole('button', { name: 'Insérer' }))
 
+    // Le jeton « Fiche » doit apparaître AVANT « Suite » dans le texte, pas
+    // systématiquement à la fin — même si seul le libellé est visible.
     await waitFor(() => {
-      expect(summaryField).toHaveValue('[Fiche](https://example.com/fiche)Suite')
+      expect(summaryField.textContent).toBe('FicheSuite')
     })
   })
 
@@ -228,7 +235,7 @@ describe('PedagogicalLogPage — insertion d\'un lien dans le texte (formulaire 
     await waitFor(() => {
       expect(screen.getByText(/doit commencer par http:\/\/ ou https:\/\//i)).toBeDefined()
     })
-    expect(screen.getByLabelText('Déroulement de la séance')).toHaveValue('')
+    expect(screen.getByLabelText('Déroulement de la séance')).toHaveTextContent('')
     expect(mockCreateStudentLogEntry).not.toHaveBeenCalled()
   })
 
@@ -263,7 +270,7 @@ describe('PedagogicalLogPage — insertion d\'un lien dans le texte (formulaire 
     const [cancelLinkPopover] = screen.getAllByRole('button', { name: 'Annuler' })
     await userEvent.click(cancelLinkPopover)
     expect(screen.queryByLabelText('Texte affiché du lien')).toBeNull()
-    expect(screen.getByLabelText('Déroulement de la séance')).toHaveValue('')
+    expect(screen.getByLabelText('Déroulement de la séance')).toHaveTextContent('')
   })
 })
 
@@ -309,28 +316,35 @@ describe('PedagogicalLogPage — affichage d\'un lien inséré dans le texte', (
 })
 
 // ─── 3. Pièces jointes ─────────────────────────────────────────────────────
+//
+// Défaut corrigé le 2026-08-27 (décision explicite de l'utilisateur, qui
+// restreint le périmètre posé le 2026-08-26) : une pièce jointe ne se joint
+// plus qu'au moment de la CRÉATION d'une entrée (voir
+// `pedagogicalLogNewEntryFixes.test.tsx`, section 2) — jamais après coup sur
+// une entrée déjà créée. Cette section ne couvre donc plus que la liste, le
+// téléchargement et la suppression des pièces jointes déjà présentes.
 
-describe('PedagogicalLogPage — pièces jointes, visibilité du bouton', () => {
-  it('le formateur voit « Joindre un fichier » immédiatement, sans avoir à déplier quoi que ce soit', async () => {
+describe('PedagogicalLogPage — pièces jointes sur une entrée déjà créée', () => {
+  it("le formateur (canManage) ne voit plus de bouton « Joindre un fichier » — l'ajout n'est possible qu'à la création", async () => {
     mockFetchStudentPedagogicalLog.mockResolvedValue([makeEntry()])
+    mockFetchLogAttachments.mockResolvedValue([makeAttachment()])
 
     renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
 
     await waitFor(() => {
       expect(screen.getByText('Révision des limites')).toBeDefined()
     })
-
-    // Aucun clic sur un quelconque bouton « afficher » avant cette assertion.
     await waitFor(() => {
-      expect(screen.getByText(/joindre un fichier/i)).toBeDefined()
+      expect(screen.getByText('fiche.pdf')).toBeDefined()
     })
+
+    expect(screen.queryByText(/joindre un fichier/i)).toBeNull()
+    expect(document.querySelector('input[type="file"]')).toBeNull()
+    expect(mockUploadLogAttachment).not.toHaveBeenCalled()
   })
 
-  it("n'affiche pas le bouton « Joindre un fichier » quand les pièces jointes sont désactivées, même sans clic préalable", async () => {
-    mockFetchAttachmentSettings.mockResolvedValue({
-      ...DEFAULT_ATTACHMENT_SETTINGS,
-      attachmentsEnabled: false,
-    })
+  it("n'affiche toujours pas de bouton d'ajout même quand les pièces jointes sont activées au niveau système", async () => {
+    mockFetchAttachmentSettings.mockResolvedValue({ ...DEFAULT_ATTACHMENT_SETTINGS, attachmentsEnabled: true })
     mockFetchStudentPedagogicalLog.mockResolvedValue([makeEntry()])
 
     renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
@@ -358,92 +372,6 @@ describe('PedagogicalLogPage — pièces jointes, visibilité du bouton', () => 
     expect(screen.getByText(/afficher les pièces jointes/i)).toBeDefined()
     expect(screen.queryByText(/joindre un fichier/i)).toBeNull()
     expect(mockFetchLogAttachments).not.toHaveBeenCalled()
-  })
-
-  it('affiche le plafond par fichier et permet d\'envoyer une pièce jointe, sans clic préalable pour déplier', async () => {
-    mockFetchStudentPedagogicalLog.mockResolvedValue([makeEntry()])
-    mockUploadLogAttachment.mockResolvedValue(makeAttachment())
-
-    renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
-
-    await waitFor(() => {
-      expect(screen.getByText('Révision des limites')).toBeDefined()
-    })
-    await waitFor(() => {
-      expect(screen.getByText(/taille maximale par fichier/i)).toBeDefined()
-    })
-
-    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
-    const file = new File(['contenu'], 'fiche.pdf', { type: 'application/pdf' })
-    await userEvent.upload(fileInput, file)
-
-    await waitFor(() => {
-      expect(mockUploadLogAttachment).toHaveBeenCalledWith('log-1', file)
-    })
-    await waitFor(() => {
-      expect(screen.getByText('fiche.pdf')).toBeDefined()
-    })
-  })
-
-  it('refuse localement un fichier trop lourd, sans appeler le serveur', async () => {
-    mockFetchAttachmentSettings.mockResolvedValue({ ...DEFAULT_ATTACHMENT_SETTINGS, maxFileBytes: 10 })
-    mockFetchStudentPedagogicalLog.mockResolvedValue([makeEntry()])
-
-    renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
-
-    await waitFor(() => {
-      expect(screen.getByText('Révision des limites')).toBeDefined()
-    })
-    await waitFor(() => {
-      expect(screen.getByText(/taille maximale par fichier/i)).toBeDefined()
-    })
-
-    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
-    const file = new File(['un contenu bien trop long pour la limite'], 'gros.pdf', {
-      type: 'application/pdf',
-    })
-    await userEvent.upload(fileInput, file)
-
-    await waitFor(() => {
-      expect(screen.getByText(/pèse/i)).toBeDefined()
-    })
-    expect(mockUploadLogAttachment).not.toHaveBeenCalled()
-  })
-
-  it('gère le 413 structuré du serveur avec un message citant la taille reçue et la limite', async () => {
-    mockFetchStudentPedagogicalLog.mockResolvedValue([makeEntry()])
-    mockUploadLogAttachment.mockRejectedValue({
-      response: {
-        status: 413,
-        data: {
-          statusCode: 413,
-          code: 'UPLOAD_FILE_TOO_LARGE',
-          maxUploadBytes: 100_000,
-          receivedBytes: 145_000,
-          requestBodyBytes: null,
-        },
-      },
-    })
-
-    renderPage(`/pedagogical-log?studentId=${STUDENT_ID}`)
-
-    await waitFor(() => {
-      expect(screen.getByText('Révision des limites')).toBeDefined()
-    })
-    await waitFor(() => {
-      expect(screen.getByText(/taille maximale par fichier/i)).toBeDefined()
-    })
-
-    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
-    const file = new File(['x'], 'moyen.pdf', { type: 'application/pdf' })
-    await userEvent.upload(fileInput, file)
-
-    await waitFor(() => {
-      expect(mockUploadLogAttachment).toHaveBeenCalled()
-    })
-    await waitFor(() => {
-      expect(screen.getByText(/145 Ko/)).toBeDefined()
-    })
   })
 
   it('liste les pièces jointes existantes avec nom et taille lisible, jamais storedFilename', async () => {

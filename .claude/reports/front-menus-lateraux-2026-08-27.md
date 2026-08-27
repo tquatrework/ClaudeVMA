@@ -1,7 +1,59 @@
 # Rapport front — Révision des menus latéraux par rôle (2026-08-27)
 
 Branche : `feat/menus-lateraux-par-role` (poussée sur `origin`, PR #142 ouverte, non mergée).
-Commit unique : `358889e`.
+Commits : `358889e` (menus + généralisation carnet personnel), `6a80f29` (ce rapport),
+`657f6af` (script de preuve e2e), `02b6154` (correction fonctionnelle du carnet personnel — voir
+section 8).
+
+## 8. Correction en cours de session — carnet personnel « pensées instantanées immuables »
+
+Message reçu du coordinateur **après** la fin de la section 1-7 ci-dessous, sur la même branche :
+après avoir vu les captures d'écran des menus, l'utilisateur précise que le carnet personnel n'est
+pas un espace de notes éditables. Ce sont des **pensées instantanées** : notes rapides, horodatées
+automatiquement à la création, **immuables** (suppression possible, **aucune édition**), retrouvées
+par **recherche** (une date, ou un mot), jamais par simple défilement de liste. Arbitrage persisté
+par le coordinateur dans `docs/architecture.md` § « Specification fonctionnelle reelle du carnet
+personnel — notes rapides immuables » (2026-08-27, branche `docs/carnet-personnel-notes-rapides`,
+PR #143 — **non mergée** au moment où cette correction est codée).
+
+En parallèle, un autre agent (pedagogical-log-service) retire la route
+`PATCH /pedagogical-logs/notebook/:id` et ajoute une recherche par date/mot sur
+`GET /pedagogical-logs/notebook`, sur une **nouvelle branche distincte de PR #140** (PR #140,
+elle, est déjà mergée sur master — seule cette révision fonctionnelle est en cours, séparément).
+Demande explicite du coordinateur : commencer côté front sans attendre le rapport exact de ce
+sous-agent, en s'appuyant sur les noms de paramètres déjà actés dans l'arbitrage docs/architecture.md
+(`date?`, `q?`).
+
+**Mise en œuvre :**
+
+- `src/api/pedagogicalLogNotebook.ts` : `updateNotebookEntry`/`UpdateNotebookEntryPayload` et le
+  champ `updatedAt` sont **retirés** (plus aucun appel `PATCH`). `fetchNotebookEntries` accepte
+  désormais `{date?, q?}`, transmis en query string (`apiClient.get(url, {params})`).
+- `src/pages/NotebookPage.tsx` : toute l'UI d'édition disparaît (état `editingEntryId`/
+  `editContent`/`isSavingEdit`, fonctions `startEdit`/`cancelEdit`/`handleSaveEdit`, bouton
+  « Modifier »). Une barre de recherche est ajoutée (champ texte « Rechercher un mot », champ
+  `type="date"` « Rechercher une date », bouton « Rechercher », lien « Réinitialiser » qui revient
+  à la liste complète). Le libellé du bouton de saisie rapide devient « Noter » (l'un des deux mots
+  suggérés par le coordinateur, plus proche de la notion de « pensée instantanée »).
+- `test/pages/pedagogicalLog.test.tsx` : réécrit intégralement — ajout, suppression, recherche par
+  mot, recherche par date, et un test qui vérifie explicitement l'**absence** de tout mécanisme
+  d'édition (aucun bouton « Modifier »/« Enregistrer », aucun appel `apiClient.patch`).
+
+**Vérifications rejouées après cette correction :**
+- `npx tsc --noEmit` → 0 erreur.
+- `npm run build` → succès.
+- `npx vitest run test/pages/pedagogicalLog.test.tsx` → 6/6 verts.
+- `npx vitest run` (suite complète, 179 fichiers) → 1974/1977 verts, mêmes 3 échecs préexistants
+  qu'en section 4 (sans lien avec cette correction).
+
+**Risque supplémentaire signalé** : le contrat exact des paramètres de recherche (`date`/`q` —
+forme acceptée pour `date`, comportement si les deux sont combinés, réponse en cas d'absence de
+résultat) n'est pas confirmé par un rapport du sous-agent backend au moment où cette correction est
+codée ; repris tel quel de l'arbitrage `docs/architecture.md`, la source la plus autoritative
+disponible. À vérifier/ajuster dès réception du rapport. Cette correction n'a pas non plus été
+rejouée en HTTP direct contre `https://claudevma.visioprof.fr` : ni PR #140 (mergée mais
+`docs/routes.md` non mis à jour) ni la nouvelle branche backend (retrait `PATCH` + recherche) ne
+sont vérifiables ensemble contre la pile déployée tant que cette dernière n'est pas mergée.
 
 ## 1. Demande initiale
 

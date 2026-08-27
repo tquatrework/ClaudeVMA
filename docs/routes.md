@@ -2191,18 +2191,35 @@ au mémo) : un champ non prévu par un DTO continue d'être silencieusement igno
 service — point relevé mais non corrigé ici (portée limitée à `src/memo/` pour ce chantier),
 aucun autre champ manquant identifié sur les routes chapitres/items du mémo au passage.
 
-### Carnet personnel (élève uniquement)
+### Carnet personnel — généralisé à tout rôle le 2026-08-27
+
+Réf. `docs/architecture.md` > "Generalisation du carnet personnel a d'autres roles que l'eleve".
+Ce n'est PAS une extension du carnet élève à d'autres rôles : c'est le MÊME mécanisme répliqué
+par titulaire. **Changement observable côté contrat HTTP** par rapport à l'ancienne route :
+
+- Chemin : `/students/:studentId/notebook` → `/pedagogical-logs/notebook` (préfixe déjà proxié
+  par api-gateway, aucun changement côté gateway nécessaire — le nouveau préfixe top-level
+  `notebook/` a été délibérément écarté pour ne pas reproduire le bug documenté plus haut dans ce
+  fichier : un préfixe non déclaré côté gateway est structurellement injoignable).
+- Plus de paramètre de chemin désignant un titulaire : l'appelant lit/écrit toujours SON PROPRE
+  carnet, dérivé du seul JWT (`req.user.id`). Il n'existe donc plus d'URL pouvant désigner le
+  carnet d'un tiers.
+- Champ renvoyé `studentId` → `ownerId`.
+- Tout rôle authentifié est accepté (plus de `@Roles(ELEVE)` sur le contrôleur) ; l'ancien accès
+  spécial TI "incident" est **retiré**, sans aucune exception résiduelle.
 
 | Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
-| POST | /students/:studentId/notebook | Ajouter une entrée carnet | 🔒 | eleve (propriétaire) | `201 NotebookEntry` · `403` non propriétaire ou parent/RP |
-| GET | /students/:studentId/notebook | Lister les entrées carnet | 🔒 | eleve (propriétaire), TI (incident) | `200 [NotebookEntry]` · `403` parent → refusé, RP → refusé (Phase 1) |
-| GET | /students/:studentId/notebook/:id | Détail d'une entrée | 🔒 | eleve (propriétaire), TI | `200 NotebookEntry` · `403` parent/RP · `404` introuvable |
-| PATCH | /students/:studentId/notebook/:id | Modifier une entrée | 🔒 | eleve (propriétaire) uniquement | `200 NotebookEntry` · `403` · `404` |
-| DELETE | /students/:studentId/notebook/:id | Supprimer une entrée | 🔒 | eleve (propriétaire) uniquement | `204` · `403` · `404` |
+| POST | /pedagogical-logs/notebook | Ajouter une entrée dans MON carnet | 🔒 | tout rôle authentifié | `201 {id, ownerId, ...}` · `400` validation |
+| GET | /pedagogical-logs/notebook | Lister MES entrées | 🔒 | tout rôle authentifié | `200 [NotebookEntry]` |
+| GET | /pedagogical-logs/notebook/:id | Détail d'une de mes entrées | 🔒 | tout rôle authentifié (titulaire de l'entrée) | `200 NotebookEntry` · `403` non titulaire · `404` introuvable |
+| PATCH | /pedagogical-logs/notebook/:id | Modifier une de mes entrées | 🔒 | titulaire de l'entrée uniquement | `200 NotebookEntry` · `403` · `404` |
+| DELETE | /pedagogical-logs/notebook/:id | Supprimer une de mes entrées | 🔒 | titulaire de l'entrée uniquement | `204` · `403` · `404` |
 
-Arbitrage Phase 1 : RP n'a PAS accès au carnet personnel (décision conservatrice — à arbitrer en Phase 2).
-Le parent financeur ne voit JAMAIS le carnet personnel (PLOG-FB-001).
+Aucune exception, y compris administrative : ni une relation métier (parent, formateur, AP, RP)
+ni un rôle administratif (RP, AF, TI) n'ouvre de droit sur le carnet d'un tiers — seule exception
+totale à « les administrateurs voient tout » du projet. Testé explicitement en e2e pour chaque
+rôle, y compris RP/TI/AF (`test/e2e/notebook.e2e-spec.ts`).
 
 ### Pièces jointes — arbitrage du 2026-08-26
 

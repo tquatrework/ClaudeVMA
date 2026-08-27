@@ -72,12 +72,6 @@ export const ROUTE_ACCESS_MAP: RouteAccessRule[] = [
     roles: ['eleve', 'formateur', 'responsable_pedagogique', 'parent_financeur', 'animateur_pedagogique'],
   },
 
-  // Carnet personnel
-  {
-    prefix: '/notebook',
-    roles: ['eleve', 'responsable_pedagogique', 'technicien_informatique'],
-  },
-
   // Mémos — liste
   {
     prefix: '/memos',
@@ -102,6 +96,17 @@ export const ROUTE_ACCESS_MAP: RouteAccessRule[] = [
   {
     prefix: '/my-students',
     roles: ['formateur', 'responsable_pedagogique', 'animateur_pedagogique', 'parent_financeur'],
+  },
+
+  // Carnet personnel — route générique unique depuis le 2026-08-27
+  // (chantier de généralisation pedagogical-log-service, PR #140) : plus de
+  // /notebook/:studentId, le titulaire est déduit du JWT. Rôles limités à
+  // ceux explicitement demandés pour cette session (élève, formateur, AP) —
+  // le backend autoriserait davantage de rôles, mais aucune entrée de menu
+  // n'a été demandée pour eux.
+  {
+    prefix: '/notebook/mine',
+    roles: ['eleve', 'formateur', 'animateur_pedagogique'],
   },
 
   // Demandes de rattachement parent↔élève
@@ -183,6 +188,12 @@ export const ROUTE_ACCESS_MAP: RouteAccessRule[] = [
   },
 
   // Contenu pédagogique
+  {
+    prefix: '/content/quizz',
+    // 'Quizz' ajouté le 2026-08-27 : présent uniquement au rail élève et
+    // formateur (navigationConfig.ts) — état « à venir », voir QuizzPage.
+    roles: ['eleve', 'formateur'],
+  },
   {
     prefix: '/content/exercises',
     roles: ['eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique'],

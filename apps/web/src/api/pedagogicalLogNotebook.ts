@@ -1,11 +1,15 @@
 /**
- * Module API — carnet personnel de l'élève (pedagogical-log-service).
+ * Module API — carnet personnel (pedagogical-log-service).
  *
- * Extrait de `pedagogicalLog.ts` (chantier « Liens et pièces jointes »,
- * 2026-08-26) pour rester sous le seuil de 300 lignes par fichier : le
- * carnet personnel est un espace strictement réservé à l'élève, distinct du
- * cahier de texte partagé (RP retiré en Phase 1, parent financeur jamais
- * autorisé — PLOG-FB-001).
+ * Carnet strictement privé, désormais générique par titulaire (chantier de
+ * généralisation, PR #140 côté pedagogical-log-service, 2026-08-27) : ouvert à
+ * tout rôle authentifié, chacun ne voyant et n'écrivant strictement que le sien
+ * — aucune exception, y compris pour les rôles administratifs.
+ *
+ * Contrat déplacé le 2026-08-27 : l'ancienne route `students/:studentId/notebook`
+ * devient `pedagogical-logs/notebook`, sans `:studentId` dans l'URL — le
+ * titulaire est déduit du JWT côté serveur. Le champ de réponse `studentId` est
+ * renommé `ownerId`.
  *
  * Toutes les requêtes passent par apiClient (base /api/v1).
  */
@@ -14,7 +18,7 @@ import apiClient from './client'
 
 export interface NotebookEntry {
   id: string
-  studentId: string
+  ownerId: string
   content: string
   createdAt: string
   updatedAt?: string
@@ -28,34 +32,29 @@ export interface UpdateNotebookEntryPayload {
   content: string
 }
 
-export async function fetchNotebookEntries(studentId: string): Promise<NotebookEntry[]> {
-  const { data } = await apiClient.get<NotebookEntry[]>(`/students/${studentId}/notebook`)
+export async function fetchNotebookEntries(): Promise<NotebookEntry[]> {
+  const { data } = await apiClient.get<NotebookEntry[]>('/pedagogical-logs/notebook')
   return data
 }
 
 export async function createNotebookEntry(
-  studentId: string,
   payload: CreateNotebookEntryPayload,
 ): Promise<NotebookEntry> {
-  const { data } = await apiClient.post<NotebookEntry>(
-    `/students/${studentId}/notebook`,
-    payload,
-  )
+  const { data } = await apiClient.post<NotebookEntry>('/pedagogical-logs/notebook', payload)
   return data
 }
 
 export async function updateNotebookEntry(
-  studentId: string,
   entryId: string,
   payload: UpdateNotebookEntryPayload,
 ): Promise<NotebookEntry> {
   const { data } = await apiClient.patch<NotebookEntry>(
-    `/students/${studentId}/notebook/${entryId}`,
+    `/pedagogical-logs/notebook/${entryId}`,
     payload,
   )
   return data
 }
 
-export async function deleteNotebookEntry(studentId: string, entryId: string): Promise<void> {
-  await apiClient.delete(`/students/${studentId}/notebook/${entryId}`)
+export async function deleteNotebookEntry(entryId: string): Promise<void> {
+  await apiClient.delete(`/pedagogical-logs/notebook/${entryId}`)
 }

@@ -31,6 +31,18 @@ export default function MyStudentsPage() {
   const supervisedContacts = contacts.filter(isSupervisedContact)
   const isParentFinanceur = hasRole('parent_financeur')
 
+  // Un AP consultant cette page y voit les formateurs qu'il anime, jamais des
+  // élèves (relation `animator_of_teacher` uniquement) — libellé adapté pour
+  // ne pas afficher « Mes élèves » à un rôle qui n'en a pas. Route et donnée
+  // partagées avec les autres rôles (aucune nouvelle page, aucun nouvel
+  // appel) : seul l'habillage change. Ajouté le 2026-08-27, en réponse à la
+  // demande d'entrée « Mes professeurs » pour l'AP.
+  const isAnimateurPedagogique = hasRole('animateur_pedagogique')
+  const pageTitle = isAnimateurPedagogique ? 'Mes professeurs' : 'Mes élèves'
+  const pageSubtitle = isAnimateurPedagogique
+    ? 'Formateurs que vous animez et dont vous suivez le parcours.'
+    : 'Personnes que vous accompagnez et dont vous suivez le parcours.'
+
   // Pas de navigation : la page reste affichée derrière la modale — état
   // local de l'élève actuellement consulté (`null` = aucune modale ouverte).
   const [memoModalContact, setMemoModalContact] = useState<{
@@ -41,10 +53,8 @@ export default function MyStudentsPage() {
   return (
     <Layout>
       <div className="max-w-2xl">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Mes élèves</h1>
-        <p className="text-sm text-gray-500 mb-6">
-          Personnes que vous accompagnez et dont vous suivez le parcours.
-        </p>
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">{pageTitle}</h1>
+        <p className="text-sm text-gray-500 mb-6">{pageSubtitle}</p>
 
         {isLoading && <p className="text-sm text-gray-400">Chargement…</p>}
 

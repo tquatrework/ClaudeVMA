@@ -411,7 +411,7 @@ describe('MemosPage — détacher la vue de lecture (F5)', () => {
       expect(mockApiClient.get).toHaveBeenCalledWith('/memos/students/student-42')
     })
     await waitFor(() => {
-      expect(screen.getByRole('dialog', { name: 'Mémo' })).toBeDefined()
+      expect(screen.getByRole('dialog', { name: 'Mémos' })).toBeDefined()
     })
     // Les deux chapitres apparaissent dans la modale (aucun filtre présélectionné).
     expect(
@@ -435,7 +435,7 @@ describe('MemosPage — détacher la vue de lecture (F5)', () => {
     await userEvent.click(within(probabilitesSection).getByRole('button', { name: 'Détacher' }))
 
     await waitFor(() => {
-      expect(screen.getByRole('dialog', { name: 'Mémo' })).toBeDefined()
+      expect(screen.getByRole('dialog', { name: 'Mémos' })).toBeDefined()
     })
     const dialog = screen.getByRole('dialog')
     expect(
@@ -455,7 +455,7 @@ describe('MemosPage — détacher la vue de lecture (F5)', () => {
     await userEvent.click(detachButtons[0])
 
     await waitFor(() => {
-      expect(screen.getByRole('dialog', { name: 'Mémo' })).toBeDefined()
+      expect(screen.getByRole('dialog', { name: 'Mémos' })).toBeDefined()
     })
 
     await userEvent.click(screen.getByLabelText('Fermer'))

@@ -23,7 +23,7 @@ interface MemoReadOnlyModalProps {
 export function MemoReadOnlyModal({
   studentId,
   onClose,
-  title = 'Mémo',
+  title = 'Mémos',
   initialChapterId = null,
 }: MemoReadOnlyModalProps) {
   const { chapters, isLoading, error } = useStudentMemo(studentId)

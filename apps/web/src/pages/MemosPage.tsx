@@ -19,7 +19,7 @@ export default function MemosPage() {
     <Layout>
       <div className="max-w-2xl">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Mémo</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Mémos</h1>
           <p className="text-sm text-gray-500 mt-1">
             Vos notes personnelles structurées par chapitres
           </p>

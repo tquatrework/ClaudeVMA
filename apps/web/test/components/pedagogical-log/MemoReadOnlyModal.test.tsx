@@ -21,7 +21,7 @@ describe('MemoReadOnlyModal', () => {
 
     render(<MemoReadOnlyModal studentId="student-1" onClose={vi.fn()} />)
 
-    expect(screen.getByRole('dialog', { name: 'Mémo' })).toBeDefined()
+    expect(screen.getByRole('dialog', { name: 'Mémos' })).toBeDefined()
     expect(mockUseStudentMemo).toHaveBeenCalledWith('student-1')
   })
 

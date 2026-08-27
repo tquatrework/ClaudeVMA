@@ -40,7 +40,7 @@ vi.mock('../../src/components/video/LiveVideoCall', () => ({
 }))
 vi.mock('../../src/components/pedagogical-log/MemoReadOnlyModal', () => ({
   MemoReadOnlyModal: (props: { studentId: string; onClose: () => void }) => (
-    <div role="dialog" aria-label="Mémo" data-testid="memo-modal-stub">
+    <div role="dialog" aria-label="Mémos" data-testid="memo-modal-stub">
       <p>studentId: {props.studentId}</p>
       <button onClick={props.onClose}>Fermer (mock)</button>
     </div>

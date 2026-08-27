@@ -2003,6 +2003,14 @@ conditions réelles, seulement pour un appel direct au service.
 
 Body `POST /students/:studentId/pedagogical-log` (refonte du 2026-08-20, point 2 et point 4) :
 `{date?, sessionSummary?, homework?, visibility?, hiddenFromStudent?, linkedResources?, activityId?, sessionId?, skillsWorked?, difficulty?, rating?}`.
+Même corps accepté par `PATCH /logs/:id`.
+
+**Liens dans le texte.** Aucun champ structuré dédié : un lien s'insère directement dans
+`sessionSummary`/`homework` via la syntaxe légère `[label](url)`, rendue en lien cliquable côté
+front à l'affichage uniquement (arbitrage du 2026-08-26, docs/architecture.md "Syntaxe legere
+unifiee pour le texte enrichi"). Le champ structuré `resourceLinks` livré le même jour a été
+retiré aussitôt après, remplacé par cette approche — voir la note dans la section "Pièces
+jointes" plus bas.
 **`studentId` n'est plus un champ du corps** : le paramètre de chemin fait seul autorité (correctif
 du bug réel où son absence renvoyait `400` — l'identifiant du chemin ne doit jamais être redemandé
 dans le corps, convention déjà en place ailleurs dans le projet). Un `studentId` envoyé quand même
@@ -2121,6 +2129,93 @@ Les mémos sont affichés groupés par chapitre. Les mémos sans chapitre (`chap
 
 Arbitrage Phase 1 : RP n'a PAS accès au carnet personnel (décision conservatrice — à arbitrer en Phase 2).
 Le parent financeur ne voit JAMAIS le carnet personnel (PLOG-FB-001).
+
+### Pièces jointes — arbitrage du 2026-08-26
+
+Réf. `docs/architecture.md` > "Liens et pièces jointes sur une entrée de cahier de texte, et
+paramètres système associés" (nouvelle entité `PedagogicalLogAttachment`).
+
+**Le lien externe libre n'est pas un champ structuré.** Un premier champ `resourceLinks`
+(`[{label, url}]`, porté directement par `PedagogicalLogPage`) avait été livré le même jour, puis
+retiré aussitôt après un test utilisateur réel de la PR : le lien doit s'insérer **dans** le
+texte de `sessionSummary`/`homework` via la syntaxe légère `[label](url)`, rendue côté front à
+l'affichage — pas dans une liste séparée. Voir « Liens dans le texte » ci-dessus et l'arbitrage
+"Syntaxe legere unifiee pour le texte enrichi" dans `docs/architecture.md`. `linkedResources`
+(déjà présent, non documenté avant ce chantier) reste inchangé : il exige `{id: UUID, type:
+string}` et **jette silencieusement tout `url`** — c'est une référence interne vers une ressource
+future de `content-catalog-service` (phase 3), non concernée par ce qui précède.
+
+**Pièces jointes — nouvelles routes, sous le préfixe `/logs` déjà proxié par api-gateway.**
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| POST | /logs/:id/attachments | Ajouter une pièce jointe (multipart, champ `file`, un seul fichier) | 🔒 | **formateur auteur, toujours titulaire de la relation, uniquement** | `201 {id, logEntryId, originalFilename, storedFilename, mimeType, sizeBytes, uploadedBy, createdAt}` · `400` fichier absent, format non reconnu, ou SVG · `401` · `403` rôle non autorisé, non auteur, ou pièces jointes désactivées par le TI · `404` entrée introuvable · `413` fichier ou budget total dépassé (corps structuré, voir ci-dessous) · `503` profile-service injoignable |
+| GET | /logs/:id/attachments | Lister les pièces jointes d'une entrée | 🔒 | mêmes droits que l'entrée elle-même (filtrage par `visibility`) | `200 [PedagogicalLogAttachment]` · `401` · `403` visibilité non autorisée · `404` entrée introuvable |
+| GET | /logs/:id/attachments/:attachmentId | Télécharger les octets d'une pièce jointe | 🔒 | mêmes droits que l'entrée elle-même — **revérifiés à chaque téléchargement**, ne fait jamais confiance à la seule présence de `attachmentId` dans l'URL | `200` octets bruts, `Content-Type` = type détecté, `Content-Disposition: attachment` · `401` · `403` visibilité non autorisée sur l'entrée · `404` entrée ou pièce jointe introuvable |
+| DELETE | /logs/:id/attachments/:attachmentId | Supprimer une pièce jointe | 🔒 | **formateur auteur, toujours titulaire de la relation, uniquement** | `204` · `401` · `403` non autorisé · `404` entrée ou pièce jointe introuvable · `503` profile-service injoignable |
+
+**Autorisation d'écriture** : déléguée à `PedagogicalLogService.getEntryForWrite`, **même régime**
+que `PATCH /logs/:id` sur une entrée normale (formateur auteur + relation `teacher_of_student`
+vérifiée à chaque appel, jamais en cache). Une page spéciale RP n'est **pas** concernée par les
+pièces jointes : seul le rôle `formateur` peut appeler `POST`/`DELETE` (garde de rôle au niveau du
+contrôleur), il n'y a pas de carve-out RP même sur une page spéciale — différence assumée avec
+`sessionSummary`/`homework`, qui restent éditables par le RP sur ses propres pages spéciales.
+
+**Liste blanche de types acceptés** (détection sur les **octets réels**, jamais l'extension ni le
+`Content-Type` client) : PDF, images (JPEG/PNG/WebP/GIF), DOCX/XLSX/PPTX (Office moderne, détectés
+individuellement), DOC/XLS/PPT (détectés génériquement comme `application/x-cfb` — la signature
+binaire seule ne permet pas de distinguer lequel des trois formats hérités il s'agit), texte/CSV.
+**SVG explicitement refusé** (`400`, document XML exécutable), même s'il est précédé d'une
+déclaration `<?xml ...?>` — jamais confondu avec du texte inoffensif. Pas de re-encodage
+systématique (impossible pour un PDF/DOCX) : la protection vient de la détection + liste blanche.
+
+**Stockage** : volume Docker nommé dédié `pedagogical_log_media` (`PEDAGOGICAL_LOG_MEDIA_PATH`),
+jamais le volume `media_data` de `profile-service`. Nom de fichier stocké généré côté serveur
+(UUID), jamais dérivé du nom client. **Non couvert par le dump Postgres, à ajouter à la routine de
+sauvegarde.**
+
+**Plafonds — deux niveaux, tous deux paramétrables par le TI** (jamais codés en dur côté front) :
+par fichier et total par entrée. Par défaut **100 000 octets (100 Ko SI) par fichier**,
+**5 000 000 octets (5 Mo SI) par entrée**. Vérifiés **après** lecture complète du fichier par
+multer (pas de refus en streaming ici, contrairement à l'avatar de `profile-service` : le plafond
+est réglable en base par le TI, donc pas connu au moment où l'intercepteur multer est configuré) —
+aux valeurs par défaut, un envoi n'approche jamais les plafonds réseau (`nginx-global` 1 Mio non
+déclaré, `api-gateway` 10 Mio déclaré).
+
+Corps de la réponse `413` — même style que le `413` de `profile-service` pour l'avatar :
+
+```json
+{
+  "statusCode": 413,
+  "error": "Payload Too Large",
+  "code": "UPLOAD_FILE_TOO_LARGE",
+  "message": "Uploaded file exceeds the maximum allowed size",
+  "maxUploadBytes": 100000,
+  "receivedBytes": 145000,
+  "requestBodyBytes": null
+}
+```
+
+`code` vaut `UPLOAD_FILE_TOO_LARGE` (fichier seul trop lourd) ou `UPLOAD_TOTAL_SIZE_EXCEEDED`
+(budget total de l'entrée dépassé une fois ce fichier ajouté) — deux causes distinctes, deux codes
+distincts. `requestBodyBytes` est toujours `null` ici (pas d'interception en streaming à ce niveau,
+contrairement à l'avatar).
+
+**Réglages système** — sous le préfixe `/pedagogical-logs`, déjà proxié par api-gateway :
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /pedagogical-logs/settings/attachments | Lire les réglages courants des pièces jointes | 🔒 | tout compte authentifié | `200 {id, attachmentsEnabled, maxFileBytes, maxTotalBytesPerEntry, updatedAt}` · `401` |
+| PATCH | /pedagogical-logs/settings/attachments | Modifier les réglages (mise à jour partielle) | 🔒 | technicien_informatique uniquement | `200` (même forme que le GET) · `400` plafond par fichier supérieur au plafond total, ou validation · `401` · `403` réservé au TI |
+
+Interrupteur `attachmentsEnabled` (défaut `true`) : quand `false`, `POST /logs/:id/attachments`
+refuse explicitement (`403`), jamais un `201` qui ignorerait le fichier envoyé. Ne bloque pas la
+lecture ni la suppression d'une pièce jointe déjà existante. Lecture ouverte à tout compte
+authentifié (le formateur doit pouvoir lire le plafond avant d'afficher le bouton "Joindre un
+fichier", même discipline que `GET /profiles/avatar/constraints`).
+
+`profile-service` reste propriétaire du plafond de la photo de profil (domaine séparé) —
+`pedagogical-log-service` n'est propriétaire que de ses propres réglages de pièces jointes.
 
 ---
 ---

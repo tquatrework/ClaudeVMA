@@ -747,7 +747,7 @@ describe('Alignement mémo — élève accède sans 403', () => {
   })
 
   it('élève — peut modifier un mémo via PUT /memos/:id', async () => {
-    const { updateMemo } = await import('../../src/api/pedagogicalLog')
+    const { updateMemo } = await import('../../src/api/pedagogicalLogMemos')
     mockApiClient.put = vi.fn().mockResolvedValue({ data: { id: 'memo-1', title: 'Modifié', content: 'nouveau contenu', chapterId: null } })
 
     await updateMemo('memo-1', { content: 'nouveau contenu' })
@@ -756,7 +756,7 @@ describe('Alignement mémo — élève accède sans 403', () => {
   })
 
   it('élève — peut supprimer un mémo via DELETE /memos/:id', async () => {
-    const { deleteMemo } = await import('../../src/api/pedagogicalLog')
+    const { deleteMemo } = await import('../../src/api/pedagogicalLogMemos')
     mockApiClient.delete = vi.fn().mockResolvedValue({})
 
     await deleteMemo('memo-1')
@@ -765,7 +765,7 @@ describe('Alignement mémo — élève accède sans 403', () => {
   })
 
   it('élève — createMemo appelle POST /memos avec le bon payload', async () => {
-    const { createMemo } = await import('../../src/api/pedagogicalLog')
+    const { createMemo } = await import('../../src/api/pedagogicalLogMemos')
     mockApiClient.post = vi.fn().mockResolvedValue({
       data: { id: 'memo-new', title: 'Test', content: 'Contenu', chapterId: null },
     })
@@ -780,7 +780,7 @@ describe('Alignement mémo — élève accède sans 403', () => {
   })
 
   it('élève — createMemo avec chapitre appelle POST /memos avec chapterId renseigné', async () => {
-    const { createMemo } = await import('../../src/api/pedagogicalLog')
+    const { createMemo } = await import('../../src/api/pedagogicalLogMemos')
     mockApiClient.post = vi.fn().mockResolvedValue({
       data: { id: 'memo-new', title: 'Test', content: 'Contenu', chapterId: 'ch-42' },
     })

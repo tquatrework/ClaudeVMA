@@ -1,10 +1,15 @@
 /**
  * SiteMetadataEditor — Phase 15 (admin-observability-service)
  *
- * Éditeur des métadonnées du site VisioMath (TI uniquement).
- * Permet de gérer les bandeaux d'annonce, le mode maintenance et les contacts.
+ * Éditeur des paramètres système de VisioMath (TI uniquement). Un seul écran
+ * agrège plusieurs domaines, chacun appelant son propre service propriétaire
+ * (arbitrage du 2026-08-26, point 8) — pas de nouveau service de
+ * configuration transverse :
+ *   - métadonnées du site (bandeaux, maintenance, contacts) — `admin-observability-service` ;
+ *   - photo de profil (`AvatarUploadSettingsPanel`) — `profile-service` ;
+ *   - pièces jointes du cahier de texte (`AttachmentSettingsPanel`) — `pedagogical-log-service`.
  *
- * Routes API consommées :
+ * Routes API consommées pour les métadonnées du site :
  *   PATCH /admin/site-metadata/:id
  */
 
@@ -16,6 +21,8 @@ import {
   type SiteMetadata,
   type UpdateSiteMetadataPayload,
 } from '../api/adminObservability'
+import { AvatarUploadSettingsPanel } from '../components/admin/AvatarUploadSettingsPanel'
+import { AttachmentSettingsPanel } from '../components/admin/AttachmentSettingsPanel'
 
 // ID par défaut de la configuration du site (singleton)
 const DEFAULT_METADATA_ID = 'site-config'
@@ -220,6 +227,9 @@ export default function SiteMetadataEditor() {
             </button>
           </div>
         </form>
+
+        <AvatarUploadSettingsPanel />
+        <AttachmentSettingsPanel />
       </div>
     </Layout>
   )

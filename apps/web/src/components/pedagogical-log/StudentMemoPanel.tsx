@@ -19,7 +19,7 @@ import {
   createMemoChapter,
   type Memo,
   type MemoChapter,
-} from '../../api/pedagogicalLog'
+} from '../../api/pedagogicalLogMemos'
 import MemoChapterEditor from './MemoChapterEditor'
 import MemoItemEditor from './MemoItemEditor'
 import MemoSearch from './MemoSearch'

@@ -28,6 +28,30 @@
  * cahier ; formateur/parent/RP/AP choisissent parmi leurs élèves liés
  * (`GET /relations/my-contacts`, premier élève sélectionné par défaut — pas
  * d'option « Tous », le cahier de texte se lit un élève à la fois).
+ *
+ * Liens et pièces jointes (2026-08-26) : un lien s'insère directement dans
+ * le texte de `sessionSummary`/`homework` via `InsertLinkButton` (syntaxe
+ * légère `[texte](url)`, `src/utils/lightMarkup.ts`) — plus de champ
+ * `resourceLinks` structuré séparé (retiré après retour utilisateur réel).
+ * Le formulaire de création et l'édition inline sont gérés par les hooks
+ * `useNewLogEntryForm`/`useLogEntryEditing` (extraits pour rester sous
+ * 300 lignes) ; les pièces jointes des entrées déjà créées vivent dans
+ * `LogEntryAttachments` (via `LogEntryList`).
+ *
+ * Pièce jointe choisie **pendant** la saisie de la nouvelle entrée
+ * (2026-08-27, défaut majeur remonté par test utilisateur) : les réglages
+ * système (`useAttachmentSettings`) sont désormais lus **avant** de
+ * construire `useNewLogEntryForm`, qui en a besoin pour valider localement le
+ * fichier choisi et l'envoyer juste après la création de l'entrée — voir ce
+ * hook pour le détail de la séquence.
+ *
+ * Pièce jointe sur une entrée déjà créée (révisé le 2026-08-27, second
+ * correctif du jour) : l'ajout, retiré une première fois de
+ * `LogEntryAttachments`, est réintroduit **en mode édition uniquement** —
+ * modifier une entrée existante redonne le même niveau de contrôle qu'une
+ * entrée non encore validée. `attachmentSettings` est donc transmis à
+ * `LogEntryList` (et de là à chaque `PedagogicalLogEntryItem`), en plus de
+ * `NewLogPageForm`.
  */
 
 import React, { useState } from 'react'
@@ -36,18 +60,18 @@ import { useAuth } from '../hooks/useAuth'
 import Layout from '../components/Layout'
 import { useMyContacts } from '../hooks/relations/useMyContacts'
 import { usePedagogicalLog } from '../hooks/pedagogical-log/usePedagogicalLog'
+import { useAttachmentSettings } from '../hooks/pedagogical-log/useAttachmentSettings'
+import { useNewLogEntryForm } from '../hooks/pedagogical-log/useNewLogEntryForm'
+import { useLogEntryEditing } from '../hooks/pedagogical-log/useLogEntryEditing'
 import { isStudentLikeContact } from '../utils/relationAccess'
-import { todayIsoCalendarDate } from '../utils/dateFormat'
-import type { LogVisibility, PedagogicalLogPage as LogPage } from '../api/pedagogicalLog'
+import { getAttachmentMaxSizeHint } from '../utils/logAttachment'
+import type { PedagogicalLogPage as LogPage } from '../api/pedagogicalLog'
 import SpecialLogPageVisibilityDialog from '../components/pedagogical-log/SpecialLogPageVisibilityDialog'
 import { NewLogPageForm } from '../components/pedagogical-log/NewLogPageForm'
-import type { LogEntryEditValues } from '../components/pedagogical-log/PedagogicalLogEntryItem'
 import LogStudentSelector from '../components/pedagogical-log/LogStudentSelector'
 import LogDateRangeFilter from '../components/pedagogical-log/LogDateRangeFilter'
 import LogEntryList from '../components/pedagogical-log/LogEntryList'
 import { ErrorMessage } from '../components/ui/ErrorMessage'
-
-const EMPTY_EDIT_VALUES: LogEntryEditValues = { date: '', sessionSummary: '', homework: '' }
 
 export default function PedagogicalLogPage() {
   const { user, hasRole } = useAuth()
@@ -92,38 +116,17 @@ export default function PedagogicalLogPage() {
     addLocalEntry,
   } = usePedagogicalLog(studentId, { from: fromDate || undefined, to: toDate || undefined })
 
-  // ─── Formulaire de création (points 1 et 2) ──────────────────────────────
-  const [newDate, setNewDate] = useState(todayIsoCalendarDate())
-  const [newSessionSummary, setNewSessionSummary] = useState('')
-  const [newHomework, setNewHomework] = useState('')
-  const [newVisibility, setNewVisibility] = useState<LogVisibility>('eleve_parent_formateur')
-  // Replié par défaut (point 5) : la liste reste visible sans être poussée par le formulaire.
-  const [isNewEntryFormOpen, setIsNewEntryFormOpen] = useState(false)
+  const canWriteNormalEntry = isFormateur && Boolean(studentId)
 
-  const resetNewEntryFields = () => {
-    setNewSessionSummary('')
-    setNewHomework('')
-    setNewDate(todayIsoCalendarDate())
-  }
+  // Réglages système des pièces jointes — lus une seule fois par la page (pas
+  // par entrée), utiles seulement au formateur qui peut en joindre. Lus
+  // **avant** `useNewLogEntryForm`, qui en a besoin pour valider localement
+  // un fichier choisi pendant la saisie (2026-08-27).
+  const { attachmentSettings } = useAttachmentSettings(canWriteNormalEntry)
 
-  const handleAddPage = async (event: React.FormEvent) => {
-    event.preventDefault()
-    const success = await createEntry({
-      date: newDate || undefined,
-      sessionSummary: newSessionSummary.trim() || undefined,
-      homework: newHomework.trim() || undefined,
-      visibility: newVisibility,
-    })
-    if (success) {
-      resetNewEntryFields()
-      setIsNewEntryFormOpen(false)
-    }
-  }
-
-  const handleCancelNewEntry = () => {
-    setIsNewEntryFormOpen(false)
-    resetNewEntryFields()
-  }
+  // ─── Formulaire de création (points 1, 2, liens du 2026-08-26, pièce
+  // jointe choisie pendant la saisie du 2026-08-27) ─────────────────────────
+  const newEntryForm = useNewLogEntryForm(createEntry, isCreating, attachmentSettings)
 
   // ─── Page spéciale RP — mécanisme inchangé ───────────────────────────────
   const [isSpecialPageDialogOpen, setIsSpecialPageDialogOpen] = useState(false)
@@ -132,41 +135,8 @@ export default function PedagogicalLogPage() {
     setIsSpecialPageDialogOpen(false)
   }
 
-  // ─── Édition inline (point 3 : réservée au formateur pour une entrée normale) ──
-  const [editingLogId, setEditingLogId] = useState<string | null>(null)
-  const [editValues, setEditValues] = useState<LogEntryEditValues>(EMPTY_EDIT_VALUES)
-  const [editContent, setEditContent] = useState('')
-
-  const startEdit = (entry: LogPage) => {
-    setEditingLogId(entry.id)
-    if (entry.isSpecialPage) {
-      setEditContent(entry.content ?? '')
-    } else {
-      setEditValues({
-        date: entry.date ?? '',
-        sessionSummary: entry.sessionSummary ?? '',
-        homework: entry.homework ?? '',
-      })
-    }
-  }
-
-  const cancelEdit = () => {
-    setEditingLogId(null)
-    setEditValues(EMPTY_EDIT_VALUES)
-    setEditContent('')
-  }
-
-  const handleSaveEdit = async (entry: LogPage) => {
-    const payload = entry.isSpecialPage
-      ? { content: editContent.trim() }
-      : {
-          date: editValues.date || undefined,
-          sessionSummary: editValues.sessionSummary.trim() || undefined,
-          homework: editValues.homework.trim() || undefined,
-        }
-    const success = await updateEntry(entry.id, payload)
-    if (success) cancelEdit()
-  }
+  // ─── Édition inline (point 3, et liens du 2026-08-26) ─────────────────────
+  const entryEditing = useLogEntryEditing(updateEntry)
 
   const handleDeletePage = async (entry: LogPage) => {
     if (!window.confirm('Supprimer cette entrée du cahier de texte ?')) return
@@ -180,7 +150,6 @@ export default function PedagogicalLogPage() {
     isTechnicienInformatique: hasRole('technicien_informatique'),
   }
 
-  const canWriteNormalEntry = isFormateur && Boolean(studentId)
   const isReadOnly = !isFormateur && !isResponsablePedagogique
 
   return (
@@ -232,34 +201,51 @@ export default function PedagogicalLogPage() {
               }}
             />
 
-            {canWriteNormalEntry && !isNewEntryFormOpen && (
+            {canWriteNormalEntry && !newEntryForm.isNewEntryFormOpen && (
               <button
                 type="button"
-                onClick={() => setIsNewEntryFormOpen(true)}
+                onClick={newEntryForm.openForm}
                 className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
               >
                 Nouvelle entrée
               </button>
             )}
 
-            {canWriteNormalEntry && isNewEntryFormOpen && (
+            {canWriteNormalEntry && newEntryForm.isNewEntryFormOpen && (
               <NewLogPageForm
-                date={newDate}
-                onDateChange={setNewDate}
-                sessionSummary={newSessionSummary}
-                onSessionSummaryChange={setNewSessionSummary}
-                homework={newHomework}
-                onHomeworkChange={setNewHomework}
-                selectedVisibility={newVisibility}
-                onVisibilityChange={setNewVisibility}
-                isSaving={isCreating}
+                date={newEntryForm.date}
+                onDateChange={newEntryForm.onDateChange}
+                sessionSummary={newEntryForm.sessionSummary}
+                onSessionSummaryChange={newEntryForm.onSessionSummaryChange}
+                homework={newEntryForm.homework}
+                onHomeworkChange={newEntryForm.onHomeworkChange}
+                selectedVisibility={newEntryForm.visibility}
+                onVisibilityChange={newEntryForm.onVisibilityChange}
+                isSaving={newEntryForm.isSaving}
                 errorMessage={createError}
-                onSubmit={handleAddPage}
-                onCancel={handleCancelNewEntry}
+                onSubmit={newEntryForm.handleSubmit}
+                onCancel={newEntryForm.handleCancel}
+                attachmentsEnabled={attachmentSettings.attachmentsEnabled}
+                maxFileBytesHint={getAttachmentMaxSizeHint(attachmentSettings.maxFileBytes)}
+                pendingAttachmentName={newEntryForm.pendingAttachmentName}
+                pendingAttachmentSizeLabel={newEntryForm.pendingAttachmentSizeLabel}
+                attachmentError={newEntryForm.attachmentError}
+                onSelectAttachment={newEntryForm.onSelectAttachment}
+                onRemoveAttachment={newEntryForm.onRemoveAttachment}
               />
             )}
             {!canWriteNormalEntry && createError && (
               <ErrorMessage message={createError} onClose={dismissCreateError} />
+            )}
+            {/* Échec d'envoi de la pièce jointe survenu après une création réussie :
+                le formulaire s'est déjà refermé, l'entrée existe — on garde le
+                message d'erreur visible au niveau de la page (2026-08-27). */}
+            {!newEntryForm.isNewEntryFormOpen && newEntryForm.attachmentError && (
+              <ErrorMessage
+                message={newEntryForm.attachmentError}
+                onClose={newEntryForm.dismissAttachmentError}
+                variant="warning"
+              />
             )}
 
             {isResponsablePedagogique && (
@@ -279,14 +265,15 @@ export default function PedagogicalLogPage() {
               isLoading={isLoading}
               canWriteNormalEntry={canWriteNormalEntry}
               viewer={viewerContext}
-              editingLogId={editingLogId}
-              editValues={editValues}
-              onEditValuesChange={setEditValues}
-              editContent={editContent}
-              onEditContentChange={setEditContent}
-              onStartEdit={startEdit}
-              onCancelEdit={cancelEdit}
-              onSaveEdit={handleSaveEdit}
+              attachmentSettings={attachmentSettings}
+              editingLogId={entryEditing.editingLogId}
+              editValues={entryEditing.editValues}
+              onEditValuesChange={entryEditing.onEditValuesChange}
+              editContent={entryEditing.editContent}
+              onEditContentChange={entryEditing.onEditContentChange}
+              onStartEdit={entryEditing.startEdit}
+              onCancelEdit={entryEditing.cancelEdit}
+              onSaveEdit={entryEditing.saveEdit}
               updatingLogId={updatingLogId}
               updateError={updateError}
               onDelete={handleDeletePage}

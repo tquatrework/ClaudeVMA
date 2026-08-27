@@ -5,6 +5,211 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-26 — liens et pièces jointes sur le cahier de texte
+
+Demande explicite de l'utilisateur, en continuant de tester le cahier de texte. Deux ajouts :
+
+1. **Lien vers une ressource** (externe ou interne) dans le formulaire de nouvelle entrée : un
+   petit bouton pour saisir un lien avec un texte affiché et une URL. Le lien doit être cliquable
+   par l'élève et le parent (lecteurs autorisés de l'entrée).
+   **Révisé le 2026-08-26 après test réel de l'utilisateur** : le premier jet (champ `resourceLinks`
+   séparé) était déconnecté du texte. Remplacé par une syntaxe légère `[texte](url)` insérée
+   directement dans `sessionSummary`/`homework` via un bouton « Insérer un lien », rendue comme
+   vrai lien cliquable à l'affichage. `resourceLinks` retiré (voir `docs/architecture.md`,
+   « Syntaxe legere unifiee »). Le même mécanisme est pensé pour accueillir plus tard une notation
+   mathématique (KaTeX) côté `content-catalog-service`, phase 3 — non implémenté maintenant.
+2. **Pièce jointe** : bouton pour joindre un fichier, avec une limite de taille par défaut très
+   basse (100 Ko).
+3. **Paramètres système (TI)** : sur l'écran existant `/admin/site-metadata`
+   (`SiteMetadataEditor.tsx`), ajouter — taille max de la photo de profil (défaut 1 Mo, déjà
+   existante côté `profile-service` mais figée en variable d'environnement, à rendre réglable) ;
+   activation/désactivation des pièces jointes du cahier de texte (défaut activé) ; si activé,
+   taille max par fichier (défaut 100 Ko) et taille max totale par entrée (défaut 5 Mo).
+
+Arbitrage d'architecture complet posé par l'orchestrateur dans `docs/architecture.md` (point
+« Liens et pieces jointes sur une entree de cahier de texte », 2026-08-26), après investigation
+HTTP directe contre la pile réelle : le champ `linkedResources` déjà présent sur l'entité (repéré
+mais non documenté le 2026-08-20) **n'est pas réutilisable** pour un lien externe — il exige
+`id`+`type` (référence vers un contenu interne futur, phase 3) et jette silencieusement `url`.
+Nouveau champ `resourceLinks: [{label, url}]` créé à la place, distinct et porté directement par
+l'entrée. Pièces jointes : nouvelle entité `PedagogicalLogAttachment`, stockage sur un volume
+Docker nommé dédié à `pedagogical-log-service` (jamais le volume `media_data` de
+`profile-service`), liste blanche de types (PDF, images, bureautique courante, texte/CSV), pas de
+service de configuration transverse — chaque service reste propriétaire de ses réglages, l'écran
+front les agrège.
+
+### Comment on saura que c'est fait
+
+Capture d'écran de `/pedagogical-log` (formateur) : bouton lien fonctionnel, lien affiché
+cliquable côté élève/parent, bouton pièce jointe fonctionnel, refus explicite d'un fichier trop
+gros citant la taille et la limite. Capture de l'écran `/admin/site-metadata` montrant les
+nouveaux réglages et leur sauvegarde effective (relue après rechargement).
+
+### État
+
+- [x] Backend `pedagogical-log-service` — `resourceLinks`, entité `PedagogicalLogAttachment`,
+  stockage, réglages TI. Vérifié en HTTP direct contre la pile réelle (201 création avec
+  `resourceLinks`, 200 lecture des réglages par défaut, 201 upload, 413 fichier trop gros). Deux
+  bugs réels trouvés et corrigés en cours de route : conflit de résolution npm `file-type`
+  (bloquait le build Docker propre) et permissions du volume `pedagogical_log_media` (root vs
+  utilisateur `node`, `EACCES` à l'upload — Dockerfile corrigé sur le modèle de `profile-service`).
+- [x] Backend `profile-service` — réglage TI du plafond avatar (`PATCH /profiles/avatar/settings`,
+  PR #134 mergée directement — correctif prouvé par tests, pas à juger à l'écran). Intégré dans
+  cette branche par merge de `master`.
+- [x] Front — formulaire (lien + pièce jointe), affichage/téléchargement, extension de
+  `SiteMetadataEditor.tsx`. `tsc --noEmit` propre, `npm run build` ok, 1882/1884 tests verts (2
+  échecs préexistants sans lien, confirmés par `git stash`).
+- [x] Déployé sur la pile réelle (`docker compose build/up frontend`, testé en `curl`).
+- [x] Comptes de test à rôle interne créés (demande explicite de l'utilisateur, 2026-08-26) :
+  `technicien.informatique`, `admin.financier`, `animateurpeda.lycee`, `animateurpeda.sup`
+  (mot de passe commun `VisioTest2026!`) — via script de provisioning ponctuel
+  (`services/identity-access-service/scripts/maintenance/provision-internal-test-accounts.ts`,
+  PR #136 mergée), IAM-FB-002 interdisant la création de rôles internes par toute route HTTP.
+- [x] Preuve — **l'utilisateur a explicitement choisi, le 2026-08-26, de ne pas demander de preuve
+  visuelle pour ce chantier** : build + tests + vérification API en ligne de commande suffisent
+  (voir mémoire `feedback-ask-before-visual-proof`). Les trois volets vérifiés en HTTP direct
+  contre la pile réelle avec le compte TI : `GET`/`PATCH /profiles/avatar/settings` (plafond
+  avatar, round-trip confirmé), `GET`/`PATCH /pedagogical-logs/settings/attachments` (activation +
+  plafonds, round-trip confirmé), `resourceLinks` + upload/refus 413 (formateur), lien affiché
+  côté élève/parent (à confirmer côté rendu front, non testé visuellement par choix utilisateur).
+  Bug de déploiement trouvé et corrigé au passage : l'image `profile-service` servie ne portait
+  pas la route `PATCH /profiles/avatar/settings` (glitch de cache Docker, pas un bug de code) —
+  résolu par `docker compose build --no-cache profile-service`.
+- [x] **Révision post-test utilisateur (2026-08-26)** : `resourceLinks` retiré, remplacé par la
+  syntaxe légère `[texte](url)` insérée dans le texte (backend + front), bouton pièce jointe rendu
+  visible par défaut pour le formateur (au lieu d'être caché derrière un repli). Backend et front
+  redéployés, revérifiés en HTTP direct : `resourceLinks` envoyé n'a plus d'effet, un lien
+  `[label](url)` dans `sessionSummary` est bien enregistré et renvoyé tel quel. Point préexistant
+  repéré au passage, hors périmètre : `POST .../pedagogical-log` accepte et ignore silencieusement
+  tout champ inconnu (violation de la convention « aucun champ non prévu n'est absorbé en
+  silence ») — non corrigé, signalé à l'utilisateur pour arbitrage séparé.
+- [x] **Correctif rendu du lien sur `ActivityDetailPage` (2026-08-26/27)** — `PedagogicalLogEntryItem`
+  utilisait déjà `LightMarkupText` pour rendre `[label](url)` en lien cliquable, mais
+  `ActivityDetailPage` (autre écran affichant le même `sessionSummary`/`homework`, depuis le détail
+  d'une activité de calendrier) affichait le motif brut en texte. Corrigé (commit `049b795`) :
+  `LightMarkupText` câblé aux deux endroits. 11/11 tests de la page verts (nouveau test de
+  comportement ajouté). Déjà déployé sur la pile réelle — l'image `claudevma-frontend` a été
+  reconstruite 41s après ce commit (`19:38:59` vs commit `19:38:18`), conteneur `visiomath_frontend`
+  démarré dans la foulée, aucun rebuild supplémentaire nécessaire.
+- [ ] **Deux défauts remontés par le test utilisateur (2026-08-27), à corriger avant merge** :
+  1. **Mineur** — dans le formulaire de nouvelle entrée, après avoir inséré un lien via le bouton
+     « Insérer un lien », le texte affiche le motif brut `[label](url)` pendant la saisie, alors
+     que ce même texte s'affichera en lien bleu cliquable une fois l'entrée validée
+     (`LightMarkupText`). Décalage perturbant pour l'utilisateur. Demande explicite : transformer
+     l'affichage **dès la validation du lien dans sa petite saisie**, avant même de valider la
+     nouvelle entrée — pas seulement au rendu final. Tension à arbitrer avec l'arbitrage du
+     2026-08-26 (« Syntaxe légère unifiée ») qui écarte explicitement un éditeur riche
+     (contenteditable, stockage HTML) : le champ stocké doit rester du texte brut
+     (`sessionSummary`/`homework`), seule la **présentation pendant la saisie** doit changer — pas
+     le modèle de données. Délégué à `front-developper` en lui signalant explicitement cette
+     tension, à charge pour lui de proposer une solution de rendu à la saisie qui n'introduit pas
+     un vrai éditeur riche ni un format stocké autre que le texte brut actuel.
+  2. **Majeur** — le bouton d'ajout de pièce jointe n'apparaît aujourd'hui qu'**après** la création
+     de l'entrée (après clic sur « Ajouter une entrée »), parce que `PedagogicalLogAttachment`
+     exige un `logEntryId` existant (arbitrage 2026-08-26). Demande explicite : pouvoir choisir le
+     fichier **pendant** la saisie de la nouvelle entrée, entre le clic sur « Nouvelle entrée » et
+     le clic sur « Ajouter une entrée » — pas comme étape séparée après coup. Pas de changement de
+     contrat backend nécessaire a priori (l'upload continue d'exiger un `logEntryId`) : le fichier
+     choisi doit être gardé en état local côté front pendant la saisie, puis uploadé juste après la
+     création de l'entrée dans le même geste de soumission, transparent pour l'utilisateur.
+  Délégué à `front-developper` sur la même branche `feat/cahier-de-texte-liens-pieces-jointes`
+  (PR #135 toujours ouverte, pas de nouvelle branche).
+  **Corrigé par `front-developper` (2026-08-27)**, commits `8fdbd8f`+`206b2ad`, poussés et
+  fast-forwardés localement par l'orchestrateur, vérifiés indépendamment (`tsc --noEmit` propre,
+  44/44 tests ciblés verts dont 8 nouveaux couvrant les deux défauts, 1893/1895 suite complète —
+  2 échecs préexistants sans rapport). Solutions retenues : (1) nouveau composant
+  `LightMarkupTextarea` — calque de coloration syntaxique purement décoratif au-dessus d'un
+  `<textarea>` natif rendu transparent, qui reste l'unique source de vérité (texte brut, jamais de
+  HTML stocké) — ne rouvre pas l'arbitrage du 2026-08-26 ; (2) fichier choisi gardé en état local
+  (`pendingAttachment`) pendant la saisie, avec refus local immédiat si trop volumineux, uploadé
+  juste après la création de l'entrée dans le même geste de soumission. Déployé sur la pile réelle
+  par l'orchestrateur (`docker compose build/up frontend`), bundle `index-_Cj9pNnA.js` confirmé
+  servi par `https://claudevma.visioprof.fr`.
+- [ ] **Trois nouveaux défauts remontés par le test utilisateur en direct (2026-08-27), à corriger
+  avant merge** — le premier correctif n'était pas suffisant :
+  1. **Le bouton « Joindre un fichier » apparaît sur toutes les entrées déjà validées**, pas
+     seulement sur le formulaire de nouvelle entrée. Décision explicite de l'utilisateur, qui
+     restreint le périmètre posé le 2026-08-26 : l'ajout d'une pièce jointe **ne doit plus être
+     possible qu'au moment de la création** d'une entrée — la capacité d'ajouter après coup sur
+     une entrée déjà existante (`LogEntryAttachments`, bouton d'ajout visible pour le formateur
+     `canManage`) doit disparaître. La liste/téléchargement des pièces jointes déjà présentes sur
+     une entrée existante n'est pas remise en cause, seul le point d'ajout après coup l'est.
+  2. **Design du bouton d'ajout (dans le formulaire de nouvelle entrée uniquement)** : le bouton
+     actuel (`bg-indigo-600`, plein, « Joindre un fichier ») se confond visuellement avec les
+     boutons de validation du formulaire (« Ajouter une entrée », « Annuler »). Demande explicite :
+     le transformer en lien discret, **exactement le style du bouton « Insérer un lien »**
+     (`InsertLinkButton.tsx` : `text-xs text-indigo-500 hover:underline`, préfixe `+`).
+  3. **L'URL doit rester cachée dès l'insertion d'un lien**, pas seulement recolorée. Le correctif
+     du 2026-08-27 (`LightMarkupTextarea`) recolore `[label](url)` en bleu mais garde les crochets
+     et l'URL visibles dans le texte pendant toute la saisie — tradeoff documenté dans le code pour
+     préserver l'alignement du curseur natif du `<textarea>`. L'utilisateur demande maintenant
+     explicitement que seul le **label** reste visible dès l'insertion, sans crochets ni URL — un
+     vrai rendu final, pas une simple coloration syntaxique. Le stockage doit rester du texte brut
+     `[label](url)` (arbitrage du 2026-08-26, inchangé) : seule la présentation à l'écran change.
+     Délégué à `front-developper` avec la piste d'un `<textarea>` remplacé par un éditeur limité
+     à des « jetons » de lien non éditables (technique dite « mention/chip » — un `contenteditable`
+     scopé aux seuls liens insérés, jamais un éditeur riche généraliste, jamais de HTML stocké :
+     l'extraction du texte brut `[label](url)` reste la seule donnée envoyée au serveur), à charge
+     pour le sous-agent de choisir l'implémentation exacte et d'adapter `InsertLinkButton`
+     (aujourd'hui dépendant de `selectionStart`/`selectionEnd` d'un vrai `<textarea>`) en
+     conséquence.
+  Délégué à `front-developper`, même branche `feat/cahier-de-texte-liens-pieces-jointes`.
+  **Corrigé par `front-developper` (2026-08-27)**, commits `9385405`+`e3d2586`, fast-forwardés
+  localement et vérifiés indépendamment par l'orchestrateur (`tsc --noEmit` propre, 86/86 tests
+  ciblés verts dont 24 nouveaux sur `lightMarkup.ts`). Solutions retenues : (1) le bloc d'ajout de
+  `LogEntryAttachments` (entrées déjà créées) est retiré, seules liste/téléchargement/suppression
+  y restent — l'ajout n'existe plus qu'à la création ; (2) bouton du formulaire de création
+  restylé en lien discret, identique à « Insérer un lien » ; (3) `LightMarkupTextarea` remplacé par
+  `LightMarkupEditor` — zone `contentEditable` où chaque lien inséré devient un jeton atomique
+  (`contentEditable=false`) n'affichant que son libellé, jamais crochets ni URL ; le texte brut
+  `[label](url)` reste l'unique donnée envoyée au serveur, reconstruite depuis le DOM à chaque
+  frappe (`serializeLightMarkupEditor`) — aucun HTML stocké, ne rouvre pas l'arbitrage du
+  2026-08-26. `InsertLinkButton` adapté (insertion au curseur via une API impérative dédiée au lieu
+  de `selectionStart`/`selectionEnd`). Déployé sur la pile réelle par l'orchestrateur
+  (`docker compose build/up frontend`), bundle `index-Bvp2uQBN.js` confirmé servi par
+  `https://claudevma.visioprof.fr`. Risque résiduel connu, non traité (signalé par le sous-agent,
+  sans impact fonctionnel) : un cas limite navigateur réel où vider un champ peut laisser un
+  `<br>` orphelin sérialisé en `"\n"` — les deux chemins de soumission font déjà `.trim()`.
+- [ ] **Deux nouveaux petits défauts remontés par le test utilisateur en direct (2026-08-27)** :
+  1. **« Modifier une entrée » ne permet plus de joindre de fichier.** Le retrait de l'ajout hors
+     création (défaut 1 du tour précédent) est allé trop loin : demande explicite de l'utilisateur,
+     le mode édition d'une entrée existante (`isEditing` sur `PedagogicalLogEntryItem`) doit
+     redonner **le même niveau de contrôle qu'une nouvelle entrée non encore validée** — ajout d'une
+     pièce jointe compris. Différence avec la création : l'entrée existe déjà (elle a un `logId`),
+     l'upload peut donc être **immédiat** (comme l'ancien mécanisme d'ajout retiré la dernière fois,
+     via `uploadLogAttachment`), pas différé comme `useNewLogEntryForm`. Hors édition (affichage
+     simple), le comportement reste lecture seule pour tous, formateur compris — cohérent avec
+     « l'édition redonne l'état d'une entrée non validée, l'affichage normal est figé ».
+     Délégué à `front-developper`, à charge pour lui de choisir si la suppression d'une pièce
+     jointe (actuellement disponible en affichage simple pour `canManage`) doit migrer elle aussi
+     vers le mode édition uniquement, par cohérence avec ce même principe — à signaler dans son
+     rapport si le choix n'est pas évident.
+  2. **Élève/parent doivent cliquer deux fois pour voir puis télécharger une pièce jointe**, alors
+     que le formateur voit déjà la liste directement. `LogEntryAttachments` replie la section par
+     défaut derrière un lien « Afficher les pièces jointes » pour tout lecteur non `canManage`
+     (`isExpanded = useState(canManage)`), chargement différé au premier dépliage. Demande
+     explicite : afficher directement le nom des pièces jointes avec possibilité de téléchargement,
+     **sans étape intermédiaire** — même comportement que celui déjà en place pour le formateur,
+     étendu à tout lecteur (élève, parent, RP).
+  Délégué à `front-developper`, même branche `feat/cahier-de-texte-liens-pieces-jointes`.
+  **Corrigé par `front-developper` (2026-08-27)**, commits `75af477`+`392cf85`, fast-forwardés
+  localement et vérifiés indépendamment par l'orchestrateur (`tsc --noEmit` propre, 54/54 tests
+  ciblés verts). `LogEntryAttachments` est désormais monté dans les deux branches de
+  `PedagogicalLogEntryItem` : `canManage={canEdit}` en édition (ajout immédiat + suppression),
+  `canManage={false}` toujours en affichage simple (lecture seule pour tous, formateur compris —
+  confirmé par lecture directe du code par l'orchestrateur). Interprétation explicitement tranchée
+  par le sous-agent conformément à la délégation : la suppression migre elle aussi vers le mode
+  édition uniquement. Le toggle « Afficher les pièces jointes » est supprimé : tout lecteur voit
+  désormais directement noms + téléchargement, sans clic préalable, comme le formateur avant.
+  Déployé sur la pile réelle par l'orchestrateur (`docker compose build/up frontend`), bundle
+  `index-D7B1Ri19.js` confirmé servi par `https://claudevma.visioprof.fr`.
+- [ ] **Preuve à obtenir avant merge** — défauts de nature visuelle/tactile : à valider par
+  relecture de l'utilisateur en conditions réelles sur `https://claudevma.visioprof.fr` (déjà son
+  choix pour les tours précédents).
+- [ ] Validé par l'utilisateur — **PR #135 en attente de merge**, prête dès accord.
+
+---
+
 ## Besoin — 2026-08-21 — formulaire de nouvelle entrée replié par défaut
 
 Demande explicite de l'utilisateur, en continuant de tester le chantier "refonte du cahier de

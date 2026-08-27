@@ -7,12 +7,16 @@ import { NotebookModule } from './notebook/notebook.module';
 import { MemoModule } from './memo/memo.module';
 import { HealthModule } from './health/health.module';
 import { EventsModule } from './events/events.module';
+import { AttachmentsModule } from './attachments/attachments.module';
+import { SettingsModule } from './settings/settings.module';
 import { PedagogicalLog } from './pedagogical-log/entities/pedagogical-log.entity';
 import { NotebookEntry } from './notebook/entities/notebook-entry.entity';
 import { MemoChapter } from './memo/entities/memo-chapter.entity';
 import { MemoItem } from './memo/entities/memo-item.entity';
 import { ActivityProjection } from './events/entities/activity-projection.entity';
 import { ProcessedEvent } from './events/entities/processed-event.entity';
+import { PedagogicalLogAttachment } from './attachments/entities/pedagogical-log-attachment.entity';
+import { PedagogicalLogSettings } from './settings/entities/pedagogical-log-settings.entity';
 
 @Module({
   imports: [
@@ -30,6 +34,8 @@ import { ProcessedEvent } from './events/entities/processed-event.entity';
           MemoItem,
           ActivityProjection,
           ProcessedEvent,
+          PedagogicalLogAttachment,
+          PedagogicalLogSettings,
         ],
         // Migrations réelles depuis la refonte du 2026-08-20 (nouvelles colonnes/tables) —
         // synchronize reste réservé aux environnements non-production, migrationsRun
@@ -46,6 +52,8 @@ import { ProcessedEvent } from './events/entities/processed-event.entity';
     MemoModule,
     HealthModule,
     EventsModule,
+    SettingsModule,
+    AttachmentsModule,
   ],
 })
 export class AppModule {}

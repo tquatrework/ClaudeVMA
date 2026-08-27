@@ -8,14 +8,37 @@
  * `canDelete` sont calculés par la page, cette entrée ne fait qu'afficher les
  * boutons qu'on lui autorise).
  *
+ * Liens dans le texte (2026-08-26) : `sessionSummary`/`homework` sont rendus
+ * via `LightMarkupText` (transforme `[texte](url)` en vrai lien cliquable) au
+ * lieu de texte brut ; en édition, un bouton « Insérer un lien »
+ * (`InsertLinkButton`) accompagne chaque `LightMarkupEditor` (remplace
+ * `LightMarkupTextarea` le 2026-08-27 — un lien inséré devient un jeton
+ * n'affichant que son libellé, jamais l'URL ni les crochets, dès l'insertion
+ * — voir ce composant). Remplace l'ancien `ResourceLinkEditor`/`resourceLinks`
+ * (champ structuré séparé, retiré).
+ *
+ * Pièces jointes d'une entrée déjà créée (révisé le 2026-08-27, second
+ * correctif du jour) : l'édition d'une entrée redonne le même niveau de
+ * contrôle qu'une nouvelle entrée non encore validée, pièce jointe comprise.
+ * `LogEntryAttachments` est donc monté dans les DEUX branches — édition et
+ * affichage — avec `canManage` vrai uniquement en édition (`canEdit`) ; hors
+ * édition, la section reste toujours en lecture seule, pour tous les rôles y
+ * compris le formateur auteur. Les réglages système (`attachmentSettings`)
+ * sont transmis dans les deux cas, seule leur utilisation change.
+ *
  * Extrait de PedagogicalLogPage (lot 10 — normalisation, découpage > 300 lignes).
  * Présentationnel : le state d'édition reste porté par la page.
  */
 
-import React from 'react'
+import React, { useRef } from 'react'
 import type { PedagogicalLogPage as LogPage, LogVisibility } from '../../api/pedagogicalLog'
+import type { PedagogicalLogAttachmentSettings } from '../../api/pedagogicalLogAttachments'
 import { formatIsoCalendarDate } from '../../utils/dateFormat'
 import { getLogVisibilityLabel } from '../../utils/pedagogicalLogLabels'
+import { LightMarkupText } from '../ui/LightMarkupText'
+import { LogEntryAttachments } from './LogEntryAttachments'
+import { InsertLinkButton } from './InsertLinkButton'
+import { LightMarkupEditor, type LightMarkupEditorHandle } from './LightMarkupEditor'
 
 export interface LogEntryEditValues {
   date: string
@@ -40,6 +63,8 @@ interface PedagogicalLogEntryItemProps {
   canDelete: boolean
   onDelete: () => void
   isDeleting: boolean
+  /** Réglages système des pièces jointes — transmis à `LogEntryAttachments` dans les deux branches. */
+  attachmentSettings: PedagogicalLogAttachmentSettings
 }
 
 const VISIBILITY_LABELS: Record<LogVisibility, string> = {
@@ -69,7 +94,11 @@ export function PedagogicalLogEntryItem({
   canDelete,
   onDelete,
   isDeleting,
+  attachmentSettings,
 }: PedagogicalLogEntryItemProps) {
+  const editSummaryRef = useRef<LightMarkupEditorHandle>(null)
+  const editHomeworkRef = useRef<LightMarkupEditorHandle>(null)
+
   return (
     <li
       className={`bg-white border rounded-xl p-4 ${
@@ -111,32 +140,53 @@ export function PedagogicalLogEntryItem({
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1" htmlFor={`edit-summary-${logPage.id}`}>
+                <label className="block text-xs text-gray-500 mb-1" id={`edit-summary-${logPage.id}-label`}>
                   Déroulement de la séance
                 </label>
-                <textarea
+                <LightMarkupEditor
                   id={`edit-summary-${logPage.id}`}
+                  ariaLabelledBy={`edit-summary-${logPage.id}-label`}
+                  ref={editSummaryRef}
                   value={editValues.sessionSummary}
-                  onChange={(event) =>
-                    onEditValuesChange({ ...editValues, sessionSummary: event.target.value })
-                  }
+                  onChange={(value) => onEditValuesChange({ ...editValues, sessionSummary: value })}
                   rows={3}
-                  className="w-full border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
+                  borderClassName="border-indigo-300"
+                />
+                <InsertLinkButton
+                  fieldLabel="Déroulement de la séance"
+                  editorRef={editSummaryRef}
+                  value={editValues.sessionSummary}
+                  onChange={(value) => onEditValuesChange({ ...editValues, sessionSummary: value })}
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1" htmlFor={`edit-homework-${logPage.id}`}>
+                <label className="block text-xs text-gray-500 mb-1" id={`edit-homework-${logPage.id}-label`}>
                   À faire
                 </label>
-                <textarea
+                <LightMarkupEditor
                   id={`edit-homework-${logPage.id}`}
+                  ariaLabelledBy={`edit-homework-${logPage.id}-label`}
+                  ref={editHomeworkRef}
                   value={editValues.homework}
-                  onChange={(event) => onEditValuesChange({ ...editValues, homework: event.target.value })}
+                  onChange={(value) => onEditValuesChange({ ...editValues, homework: value })}
                   rows={3}
-                  className="w-full border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
+                  borderClassName="border-indigo-300"
+                />
+                <InsertLinkButton
+                  fieldLabel="À faire"
+                  editorRef={editHomeworkRef}
+                  value={editValues.homework}
+                  onChange={(value) => onEditValuesChange({ ...editValues, homework: value })}
                 />
               </div>
             </>
+          )}
+          {!logPage.isSpecialPage && (
+            <LogEntryAttachments
+              logId={logPage.id}
+              canManage={canEdit}
+              attachmentSettings={attachmentSettings}
+            />
           )}
           <div className="flex gap-3">
             <button
@@ -181,19 +231,31 @@ export function PedagogicalLogEntryItem({
               {logPage.sessionSummary && (
                 <div>
                   <p className="text-xs font-semibold text-gray-500">Déroulement de la séance</p>
-                  <p className="text-sm text-gray-800 whitespace-pre-wrap">{logPage.sessionSummary}</p>
+                  <p className="text-sm text-gray-800 whitespace-pre-wrap">
+                    <LightMarkupText text={logPage.sessionSummary} />
+                  </p>
                 </div>
               )}
               {logPage.homework && (
                 <div>
                   <p className="text-xs font-semibold text-gray-500">À faire</p>
-                  <p className="text-sm text-gray-800 whitespace-pre-wrap">{logPage.homework}</p>
+                  <p className="text-sm text-gray-800 whitespace-pre-wrap">
+                    <LightMarkupText text={logPage.homework} />
+                  </p>
                 </div>
               )}
               {!logPage.sessionSummary && !logPage.homework && (
                 <p className="text-sm text-gray-400 italic">Entrée vide, non encore complétée.</p>
               )}
             </div>
+          )}
+
+          {!logPage.isSpecialPage && (
+            <LogEntryAttachments
+              logId={logPage.id}
+              canManage={false}
+              attachmentSettings={attachmentSettings}
+            />
           )}
 
           <div className="flex items-center justify-between mt-3">

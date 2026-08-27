@@ -1396,4 +1396,253 @@ describe('[E2E] Pedagogical Log Service', () => {
       expect(res.status).toBe(503);
     });
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Liens et pièces jointes — arbitrage du 2026-08-26 (docs/architecture.md
+  // "Liens et pièces jointes sur une entrée de cahier de texte, et paramètres
+  // système associés").
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('GET/PATCH /pedagogical-logs/settings/attachments — réglages TI', () => {
+    it('sans token → 401 (GET et PATCH)', async () => {
+      const getRes = await request(app.getHttpServer()).get('/pedagogical-logs/settings/attachments');
+      expect(getRes.status).toBe(401);
+
+      const patchRes = await request(app.getHttpServer())
+        .patch('/pedagogical-logs/settings/attachments')
+        .send({ attachmentsEnabled: false });
+      expect(patchRes.status).toBe(401);
+    });
+
+    it('[OK] tout compte authentifié peut lire les réglages courants, valeurs par défaut', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/pedagogical-logs/settings/attachments')
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.attachmentsEnabled).toBe(true);
+      expect(res.body.maxFileBytes).toBe(100000);
+      expect(res.body.maxTotalBytesPerEntry).toBe(5000000);
+    });
+
+    it('formateur peut lire les réglages (pas seulement les administrateurs)', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/pedagogical-logs/settings/attachments')
+        .set('Authorization', `Bearer ${teacher1Token}`);
+
+      expect(res.status).toBe(200);
+    });
+
+    it('[CRITIQUE] un formateur ne peut pas modifier les réglages → 403 (réservé au TI)', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/pedagogical-logs/settings/attachments')
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send({ attachmentsEnabled: false });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('[CRITIQUE] un RP ne peut pas modifier les réglages → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/pedagogical-logs/settings/attachments')
+        .set('Authorization', `Bearer ${rp1Token}`)
+        .send({ maxFileBytes: 1 });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('[CRITIQUE] le TI peut modifier les réglages, la lecture suivante reflète le changement', async () => {
+      const patchRes = await request(app.getHttpServer())
+        .patch('/pedagogical-logs/settings/attachments')
+        .set('Authorization', `Bearer ${tiToken}`)
+        .send({ maxFileBytes: 50000 });
+
+      expect(patchRes.status).toBe(200);
+      expect(patchRes.body.maxFileBytes).toBe(50000);
+
+      const getRes = await request(app.getHttpServer())
+        .get('/pedagogical-logs/settings/attachments')
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      expect(getRes.body.maxFileBytes).toBe(50000);
+      // Les autres champs ne sont pas affectés par une mise à jour partielle.
+      expect(getRes.body.maxTotalBytesPerEntry).toBe(5000000);
+    });
+
+    it('[CRITIQUE] plafond par fichier supérieur au plafond total → 400, jamais enregistré', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/pedagogical-logs/settings/attachments')
+        .set('Authorization', `Bearer ${tiToken}`)
+        .send({ maxFileBytes: 999999999 });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('remet attachmentsEnabled à true pour ne pas bloquer les tests suivants', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/pedagogical-logs/settings/attachments')
+        .set('Authorization', `Bearer ${tiToken}`)
+        .send({ attachmentsEnabled: true, maxFileBytes: 100000, maxTotalBytesPerEntry: 5000000 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.attachmentsEnabled).toBe(true);
+    });
+  });
+
+  describe('/logs/:id/attachments — pièces jointes du cahier de texte', () => {
+    let repository: Repository<PedagogicalLog>;
+    let normalEntryId: string;
+
+    beforeAll(async () => {
+      repository = app.get<Repository<PedagogicalLog>>(getRepositoryToken(PedagogicalLog));
+      const entry = await repository.save(
+        repository.create({
+          studentId: IDS.student1,
+          authorId: IDS.teacher1,
+          authorRole: 'formateur',
+          date: '2026-08-26',
+          sessionSummary: 'Entrée avec pièces jointes',
+          visibility: 'eleve_parent_formateur',
+          isSpecialPage: false,
+          hiddenFromStudent: false,
+        }),
+      );
+      normalEntryId = entry.id;
+    });
+
+    describe('Auth guard', () => {
+      it('POST sans token → 401', async () => {
+        const res = await request(app.getHttpServer()).post(`/logs/${normalEntryId}/attachments`);
+        expect(res.status).toBe(401);
+      });
+
+      it('GET (liste) sans token → 401', async () => {
+        const res = await request(app.getHttpServer()).get(`/logs/${normalEntryId}/attachments`);
+        expect(res.status).toBe(401);
+      });
+    });
+
+    describe('GET /logs/:id/attachments — liste', () => {
+      it('[OK] le formateur auteur voit une liste vide (aucune pièce jointe créée)', async () => {
+        const res = await request(app.getHttpServer())
+          .get(`/logs/${normalEntryId}/attachments`)
+          .set('Authorization', `Bearer ${teacher1Token}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual([]);
+      });
+
+      it('[point 4] même filtrage de visibilité que l\'entrée : un parent ne peut pas lister les pièces jointes d\'une page formateur_rp → 403', async () => {
+        if (!createdSpecialLogId) return;
+        const res = await request(app.getHttpServer())
+          .get(`/logs/${createdSpecialLogId}/attachments`)
+          .set('Authorization', `Bearer ${parent1Token}`);
+
+        expect(res.status).toBe(403);
+      });
+
+      it('entrée introuvable → 404', async () => {
+        const res = await request(app.getHttpServer())
+          .get(`/logs/${IDS.unknown}/attachments`)
+          .set('Authorization', `Bearer ${teacher1Token}`);
+
+        expect(res.status).toBe(404);
+      });
+    });
+
+    describe('GET /logs/:id/attachments/:attachmentId — téléchargement', () => {
+      it('pièce jointe introuvable → 404, ne fait pas confiance au seul id', async () => {
+        const res = await request(app.getHttpServer())
+          .get(`/logs/${normalEntryId}/attachments/${IDS.unknown}`)
+          .set('Authorization', `Bearer ${teacher1Token}`);
+
+        expect(res.status).toBe(404);
+      });
+    });
+
+    describe('POST /logs/:id/attachments — création (réservé au formateur auteur titulaire)', () => {
+      it('[CRITIQUE] un RP ne peut pas créer de pièce jointe → 403 (rôle non autorisé, arbitrage 2026-08-26)', async () => {
+        const res = await request(app.getHttpServer())
+          .post(`/logs/${normalEntryId}/attachments`)
+          .set('Authorization', `Bearer ${rp1Token}`);
+
+        expect(res.status).toBe(403);
+      });
+
+      it('[CRITIQUE] un élève ne peut pas créer de pièce jointe → 403', async () => {
+        const res = await request(app.getHttpServer())
+          .post(`/logs/${normalEntryId}/attachments`)
+          .set('Authorization', `Bearer ${student1Token}`);
+
+        expect(res.status).toBe(403);
+      });
+
+      it('[CRITIQUE] un parent ne peut pas créer de pièce jointe → 403', async () => {
+        const res = await request(app.getHttpServer())
+          .post(`/logs/${normalEntryId}/attachments`)
+          .set('Authorization', `Bearer ${parent1Token}`);
+
+        expect(res.status).toBe(403);
+      });
+
+      it('[CRITIQUE] un formateur non-auteur ne peut pas créer de pièce jointe → 403', async () => {
+        const res = await request(app.getHttpServer())
+          .post(`/logs/${normalEntryId}/attachments`)
+          .set('Authorization', `Bearer ${teacher2Token}`)
+          .attach('file', Buffer.from('contenu'), 'devoir.txt');
+
+        expect(res.status).toBe(403);
+      });
+
+      // La relation est revérifiée à chaque action auprès de profile-service,
+      // non configuré dans cet environnement e2e (voir les autres describe de
+      // ce fichier pour le même constat sur PATCH/DELETE) : l'auteur titulaire
+      // obtient donc 503, jamais un 201 ni un 400 « fichier absent » (ce
+      // dernier cas est couvert en test unitaire, inatteignable ici car
+      // l'autorisation d'écriture est vérifiée avant la présence du fichier).
+      it('l\'auteur formateur, avec un fichier joint : la relation est revérifiée → 503', async () => {
+        const res = await request(app.getHttpServer())
+          .post(`/logs/${normalEntryId}/attachments`)
+          .set('Authorization', `Bearer ${teacher1Token}`)
+          .attach('file', Buffer.from('%PDF-1.4 contenu de test'), 'devoir.pdf');
+
+        expect(res.status).toBe(503);
+      });
+
+      it('entrée introuvable → 404 (avant toute vérification de fichier)', async () => {
+        const res = await request(app.getHttpServer())
+          .post(`/logs/${IDS.unknown}/attachments`)
+          .set('Authorization', `Bearer ${teacher1Token}`)
+          .attach('file', Buffer.from('contenu'), 'devoir.txt');
+
+        expect(res.status).toBe(404);
+      });
+    });
+
+    describe('DELETE /logs/:id/attachments/:attachmentId — suppression (réservé au formateur auteur titulaire)', () => {
+      it('[CRITIQUE] un RP ne peut pas supprimer de pièce jointe → 403', async () => {
+        const res = await request(app.getHttpServer())
+          .delete(`/logs/${normalEntryId}/attachments/${IDS.unknown}`)
+          .set('Authorization', `Bearer ${rp1Token}`);
+
+        expect(res.status).toBe(403);
+      });
+
+      it('un formateur non-auteur ne peut pas supprimer → 403', async () => {
+        const res = await request(app.getHttpServer())
+          .delete(`/logs/${normalEntryId}/attachments/${IDS.unknown}`)
+          .set('Authorization', `Bearer ${teacher2Token}`);
+
+        expect(res.status).toBe(403);
+      });
+
+      it('l\'auteur formateur : la relation est revérifiée à chaque action → 503', async () => {
+        const res = await request(app.getHttpServer())
+          .delete(`/logs/${normalEntryId}/attachments/${IDS.unknown}`)
+          .set('Authorization', `Bearer ${teacher1Token}`);
+
+        expect(res.status).toBe(503);
+      });
+    });
+  });
 });

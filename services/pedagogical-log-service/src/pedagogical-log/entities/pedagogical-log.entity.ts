@@ -115,7 +115,8 @@ export class PedagogicalLog {
 
   /**
    * Références vers ressources liées (exercices, évaluations, tutos, visios…).
-   * XML spec functionality 002.
+   * XML spec functionality 002. Réservé à une référence interne par UUID+type
+   * (futur content-catalog-service, phase 3) — n'accepte pas d'URL externe.
    */
   @Column({ name: 'linked_resources', type: 'simple-json', nullable: true })
   linkedResources: Array<{ type: string; id: string; label?: string }>;

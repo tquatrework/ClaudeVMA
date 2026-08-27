@@ -249,6 +249,45 @@ export class PedagogicalLogService {
   }
 
   /**
+   * Récupère une entrée et vérifie le droit d'écriture du demandeur, selon le
+   * même régime que update() ci-dessus — réutilisé par AttachmentsService
+   * pour les pièces jointes (mêmes règles d'écriture que sessionSummary/
+   * homework/date, arbitrage du 2026-08-26, docs/architecture.md "Liens et
+   * pièces jointes sur une entrée de cahier de texte", point 2/3).
+   * Entrée normale : formateur auteur, toujours titulaire de la relation
+   * (vérifiée à chaque appel). Page spéciale RP : auteur ou RP/TI (mécanisme
+   * inchangé, hors périmètre).
+   */
+  async getEntryForWrite(
+    id: string,
+    callerId: string,
+    callerRole: string,
+  ): Promise<PedagogicalLog> {
+    const entry = await this.pedagogicalLogRepository.findOne({ where: { id } });
+    if (!entry) throw new NotFoundException(`Log ${id} not found`);
+
+    if (entry.isSpecialPage) {
+      const canEdit =
+        entry.authorId === callerId ||
+        callerRole === UserRole.RESPONSABLE_PEDAGOGIQUE ||
+        callerRole === UserRole.TECHNICIEN_INFORMATIQUE;
+
+      if (!canEdit) {
+        throw new ForbiddenException('Only the author or a RP/TI can update this page');
+      }
+    } else {
+      if (callerRole !== UserRole.FORMATEUR || entry.authorId !== callerId) {
+        throw new ForbiddenException(
+          'Seul le formateur auteur peut modifier cette entrée du cahier de texte',
+        );
+      }
+      await this.profileRelationsClient.assertTeacherOfStudent(entry.authorId, entry.studentId);
+    }
+
+    return entry;
+  }
+
+  /**
    * Supprimer une entrée de cahier de texte.
    *
    * Correctif du 2026-08-20 (relecture du point 3, signalé par l'orchestrateur) :

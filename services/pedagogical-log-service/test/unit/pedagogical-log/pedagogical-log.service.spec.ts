@@ -475,6 +475,109 @@ describe('PedagogicalLogService', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
+  // getEntryForWrite() — arbitrage du 2026-08-26, réutilisé par
+  // AttachmentsService (pièces jointes). Même régime que update() ci-dessus.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('getEntryForWrite() — entrée normale (isSpecialPage=false)', () => {
+    it('[OK] le formateur auteur, toujours titulaire de la relation, obtient l\'entrée', async () => {
+      const log = buildSampleLog();
+      mockRepository.findOne.mockResolvedValue(log);
+
+      const result = await pedagogicalLogService.getEntryForWrite(LOG_ID, FORMATEUR_ID, 'formateur');
+
+      expect(mockRelationsClient.assertTeacherOfStudent).toHaveBeenCalledWith(FORMATEUR_ID, STUDENT_ID);
+      expect(result.id).toBe(LOG_ID);
+    });
+
+    it('[CRITIQUE] un autre formateur (non auteur) → ForbiddenException', async () => {
+      const log = buildSampleLog();
+      mockRepository.findOne.mockResolvedValue(log);
+
+      await expect(
+        pedagogicalLogService.getEntryForWrite(LOG_ID, OTHER_FORMATEUR, 'formateur'),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockRelationsClient.assertTeacherOfStudent).not.toHaveBeenCalled();
+    });
+
+    it('[CRITIQUE] un RP ne peut pas écrire sur une entrée normale → ForbiddenException', async () => {
+      const log = buildSampleLog();
+      mockRepository.findOne.mockResolvedValue(log);
+
+      await expect(
+        pedagogicalLogService.getEntryForWrite(LOG_ID, RP_ID, 'responsable_pedagogique'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('formateur auteur mais relation rompue entre-temps → ForbiddenException', async () => {
+      const log = buildSampleLog();
+      mockRepository.findOne.mockResolvedValue(log);
+      mockRelationsClient.assertTeacherOfStudent.mockRejectedValue(
+        new ForbiddenException('relation rompue'),
+      );
+
+      await expect(
+        pedagogicalLogService.getEntryForWrite(LOG_ID, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('profile-service injoignable → ServiceUnavailableException (échec fermé)', async () => {
+      const log = buildSampleLog();
+      mockRepository.findOne.mockResolvedValue(log);
+      mockRelationsClient.assertTeacherOfStudent.mockRejectedValue(
+        new ServiceUnavailableException('profile-service is unreachable'),
+      );
+
+      await expect(
+        pedagogicalLogService.getEntryForWrite(LOG_ID, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(ServiceUnavailableException);
+    });
+
+    it('entrée introuvable → NotFoundException', async () => {
+      mockRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        pedagogicalLogService.getEntryForWrite(LOG_ID, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('getEntryForWrite() — page spéciale RP (isSpecialPage=true, mécanisme hors périmètre inchangé)', () => {
+    it('[OK] l\'auteur RP obtient sa page spéciale, sans vérification de relation', async () => {
+      const specialLog = buildSampleLog({
+        isSpecialPage: true,
+        authorId: RP_ID,
+        authorRole: 'responsable_pedagogique',
+        visibility: 'special',
+      });
+      mockRepository.findOne.mockResolvedValue(specialLog);
+
+      const result = await pedagogicalLogService.getEntryForWrite(LOG_ID, RP_ID, 'responsable_pedagogique');
+
+      expect(mockRelationsClient.assertTeacherOfStudent).not.toHaveBeenCalled();
+      expect(result.id).toBe(LOG_ID);
+    });
+
+    it('[OK] un TI obtient n\'importe quelle page spéciale', async () => {
+      const specialLog = buildSampleLog({ isSpecialPage: true, authorId: RP_ID, visibility: 'special' });
+      mockRepository.findOne.mockResolvedValue(specialLog);
+
+      await expect(
+        pedagogicalLogService.getEntryForWrite(LOG_ID, 'ti-id', 'technicien_informatique'),
+      ).resolves.toBeDefined();
+    });
+
+    it('un formateur non-auteur ne peut pas écrire sur une page spéciale', async () => {
+      const specialLog = buildSampleLog({ isSpecialPage: true, authorId: RP_ID, visibility: 'special' });
+      mockRepository.findOne.mockResolvedValue(specialLog);
+
+      await expect(
+        pedagogicalLogService.getEntryForWrite(LOG_ID, OTHER_FORMATEUR, 'formateur'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
   // remove()
   //
   // Correctif du 2026-08-20 (relecture du point 3) : DELETE suit désormais

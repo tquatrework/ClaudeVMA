@@ -52,6 +52,12 @@ export interface PedagogicalLogPage {
  * optionnels. `content` n'est pertinent que pour `PATCH` d'une **page
  * spéciale** RP (mécanisme inchangé, hors périmètre de cette refonte) — ne
  * jamais l'envoyer pour une entrée normale.
+ *
+ * Aucun champ dédié aux liens : un lien s'insère directement dans le texte
+ * de `sessionSummary`/`homework` via la syntaxe légère `[texte](url)`
+ * (`src/utils/lightMarkup.ts`) — l'ancien `resourceLinks` structuré a été
+ * retiré le 2026-08-26 après retour utilisateur réel (le lien doit vivre
+ * dans le texte, pas à côté).
  */
 export interface LogEntryPayload {
   date?: string
@@ -64,54 +70,6 @@ export interface LogEntryPayload {
 export interface CreateSpecialPagePayload {
   content: string
   hiddenFromStudent: boolean
-}
-
-export interface Memo {
-  id: string
-  title: string
-  content: string
-  chapterId: string | null
-  createdAt: string
-  updatedAt?: string
-}
-
-export interface MemoChapter {
-  id: string
-  title: string
-  studentId?: string
-  createdAt: string
-}
-
-export interface CreateChapterPayload {
-  title: string
-}
-
-export interface CreateMemoPayload {
-  title: string
-  content: string
-  chapterId?: string | null
-}
-
-export interface UpdateMemoPayload {
-  title?: string
-  content?: string
-  chapterId?: string | null
-}
-
-export interface NotebookEntry {
-  id: string
-  studentId: string
-  content: string
-  createdAt: string
-  updatedAt?: string
-}
-
-export interface CreateNotebookEntryPayload {
-  content: string
-}
-
-export interface UpdateNotebookEntryPayload {
-  content: string
 }
 
 // ─── Cahier de texte ──────────────────────────────────────────────────────────
@@ -213,110 +171,7 @@ export async function fetchSessionLogs(sessionId: string): Promise<PedagogicalLo
   return Array.isArray(data) ? data : []
 }
 
-// ─── Mémo élève ───────────────────────────────────────────────────────────────
-
-/**
- * Liste les mémos de l'élève connecté.
- * Route : GET /memos — élève uniquement.
- */
-export async function fetchMemos(): Promise<Memo[]> {
-  const { data } = await apiClient.get<Memo[]>('/memos')
-  return data
-}
-
-/**
- * Liste les chapitres de mémo de l'élève connecté.
- * Route : GET /memos/chapters — élève uniquement.
- */
-export async function fetchMemoChapters(): Promise<MemoChapter[]> {
-  const { data } = await apiClient.get<MemoChapter[]>('/memos/chapters')
-  return data
-}
-
-/**
- * Recherche dans les mémos de l'élève.
- * Route : GET /memos/search?q=
- */
-export async function searchMemos(query: string): Promise<Memo[]> {
-  const { data } = await apiClient.get<Memo[]>(`/memos/search`, { params: { q: query } })
-  return data
-}
-
-/**
- * Crée un mémo (avec ou sans chapitre).
- * Route : POST /memos — élève uniquement.
- */
-export async function createMemo(payload: CreateMemoPayload): Promise<Memo> {
-  const { data } = await apiClient.post<Memo>('/memos', payload)
-  return data
-}
-
-/**
- * Crée un chapitre de mémo.
- * Route : POST /memos/chapters — élève uniquement.
- */
-export async function createMemoChapter(payload: CreateChapterPayload): Promise<MemoChapter> {
-  const { data } = await apiClient.post<MemoChapter>('/memos/chapters', payload)
-  return data
-}
-
-/**
- * Modifie un mémo (élève propriétaire uniquement).
- * Route : PUT /memos/:id
- */
-export async function updateMemo(memoId: string, payload: UpdateMemoPayload): Promise<Memo> {
-  const { data } = await apiClient.put<Memo>(`/memos/${memoId}`, payload)
-  return data
-}
-
-/**
- * Supprime un mémo (élève propriétaire uniquement).
- * Route : DELETE /memos/:id
- */
-export async function deleteMemo(memoId: string): Promise<void> {
-  await apiClient.delete(`/memos/${memoId}`)
-}
-
-/**
- * Lit un mémo individuel par identifiant.
- * Autorisé pour : élève (propriétaire), formateur lié, RP, AP.
- * Route : GET /memos/:id
- */
-export async function fetchMemoById(memoId: string): Promise<Memo> {
-  const { data } = await apiClient.get<Memo>(`/memos/${memoId}`)
-  return data
-}
-
-// ─── Carnet personnel ─────────────────────────────────────────────────────────
-
-export async function fetchNotebookEntries(studentId: string): Promise<NotebookEntry[]> {
-  const { data } = await apiClient.get<NotebookEntry[]>(`/students/${studentId}/notebook`)
-  return data
-}
-
-export async function createNotebookEntry(
-  studentId: string,
-  payload: CreateNotebookEntryPayload,
-): Promise<NotebookEntry> {
-  const { data } = await apiClient.post<NotebookEntry>(
-    `/students/${studentId}/notebook`,
-    payload,
-  )
-  return data
-}
-
-export async function updateNotebookEntry(
-  studentId: string,
-  entryId: string,
-  payload: UpdateNotebookEntryPayload,
-): Promise<NotebookEntry> {
-  const { data } = await apiClient.patch<NotebookEntry>(
-    `/students/${studentId}/notebook/${entryId}`,
-    payload,
-  )
-  return data
-}
-
-export async function deleteNotebookEntry(studentId: string, entryId: string): Promise<void> {
-  await apiClient.delete(`/students/${studentId}/notebook/${entryId}`)
-}
+// Mémo élève et carnet personnel : extraits dans `pedagogicalLogMemos.ts` et
+// `pedagogicalLogNotebook.ts` (chantier « Liens et pièces jointes »,
+// 2026-08-26) — sous-domaines indépendants du cahier de texte, pour rester
+// sous le seuil de 300 lignes par fichier.

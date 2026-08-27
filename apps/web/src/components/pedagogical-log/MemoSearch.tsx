@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react'
-import { searchMemos, type Memo } from '../../api/pedagogicalLog'
+import { searchMemos, type Memo } from '../../api/pedagogicalLogMemos'
 
 interface MemoSearchProps {
   onClose: () => void

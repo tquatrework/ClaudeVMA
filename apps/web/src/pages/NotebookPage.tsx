@@ -21,7 +21,7 @@ import {
   updateNotebookEntry,
   deleteNotebookEntry,
   type NotebookEntry,
-} from '../api/pedagogicalLog'
+} from '../api/pedagogicalLogNotebook'
 
 /**
  * Carnet personnel — réservé à l'élève propriétaire (FRONT-BR-004, PLOG-FB-001).

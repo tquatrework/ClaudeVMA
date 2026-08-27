@@ -52,7 +52,7 @@ export interface UsePedagogicalLogResult {
   errorMessage: string | null
   dismissError: () => void
 
-  createEntry: (payload: LogEntryPayload) => Promise<boolean>
+  createEntry: (payload: LogEntryPayload) => Promise<PedagogicalLogPage | null>
   isCreating: boolean
   createError: string | null
   dismissCreateError: () => void
@@ -104,17 +104,17 @@ export function usePedagogicalLog(
   const entries = entriesOverride ?? data ?? []
 
   const createEntry = useCallback(
-    async (payload: LogEntryPayload): Promise<boolean> => {
-      if (!studentId) return false
+    async (payload: LogEntryPayload): Promise<PedagogicalLogPage | null> => {
+      if (!studentId) return null
       setIsCreating(true)
       setCreateError(null)
       try {
         const created = await createStudentLogEntry(studentId, payload)
         setEntriesOverride(sortPedagogicalLogEntries([created, ...(entriesOverride ?? data ?? [])]))
-        return true
+        return created
       } catch (caughtError: unknown) {
         setCreateError(getErrorMessage(caughtError, CREATE_FALLBACK_MESSAGE))
-        return false
+        return null
       } finally {
         setIsCreating(false)
       }

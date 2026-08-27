@@ -9,13 +9,18 @@
  * l'ancien accès spécial TI "incident" est retiré par cette même session.
  *
  * Cas critiques obligatoires :
- *   - Un utilisateur de N'IMPORTE QUEL rôle crée/lit/modifie/supprime son
+ *   - Un utilisateur de N'IMPORTE QUEL rôle crée/lit/supprime dans son
  *     propre carnet → succès, quel que soit le rôle.
  *   - Un autre utilisateur (même rôle ou rôle différent, y compris
  *     administratif : RP, TI, AF) tente de lire/écrire le carnet d'autrui
  *     → 403, sans aucune exception.
  *
- * Couvre : create(), findAll(), findOne(), update(), remove().
+ * Spécification fonctionnelle réelle — notes rapides immuables (docs/
+ * architecture.md, arbitrage du 2026-08-27) : `update()` est retirée (une
+ * pensée instantanée ne s'édite pas), `findAll()` accepte désormais un
+ * filtre optionnel `from`/`to`/`q`.
+ *
+ * Couvre : create(), findAll() (avec et sans filtre), findOne(), remove().
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
@@ -33,6 +38,16 @@ const TI_ID       = 'ffffffff-0000-4000-f000-ffffffffffff';
 const AF_ID       = '11111111-0000-4000-a000-111111111111';
 const PARENT_ID   = '22222222-0000-4000-a000-222222222222';
 
+function buildMockQueryBuilder(entries: NotebookEntry[]) {
+  const qb: any = {
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    getMany: jest.fn().mockResolvedValue(entries),
+  };
+  return qb;
+}
+
 function buildMockRepository() {
   return {
     create: jest.fn(),
@@ -40,6 +55,7 @@ function buildMockRepository() {
     find: jest.fn(),
     findOne: jest.fn(),
     remove: jest.fn(),
+    createQueryBuilder: jest.fn(),
   };
 }
 
@@ -117,16 +133,54 @@ describe('NotebookService', () => {
       ['élève', STUDENT_ID],
       ['formateur', TEACHER_ID],
       ['animateur pédagogique', AP_ID],
-    ])('[OK] un utilisateur (%s) lit son propre carnet', async (_label, callerId) => {
+    ])('[OK] un utilisateur (%s) lit son propre carnet, sans filtre', async (_label, callerId) => {
       const entries = [buildSampleEntry({ ownerId: callerId })];
-      mockRepository.find.mockResolvedValue(entries);
+      const qb = buildMockQueryBuilder(entries);
+      mockRepository.createQueryBuilder.mockReturnValue(qb);
 
       const result = await notebookService.findAll(callerId);
 
-      expect(mockRepository.find).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { ownerId: callerId } }),
-      );
+      expect(qb.where).toHaveBeenCalledWith('entry.ownerId = :ownerId', { ownerId: callerId });
+      expect(qb.andWhere).not.toHaveBeenCalled();
       expect(result).toHaveLength(1);
+    });
+
+    it('[OK] filtre par plage de dates (from/to) sur createdAt', async () => {
+      const qb = buildMockQueryBuilder([buildSampleEntry({ ownerId: STUDENT_ID })]);
+      mockRepository.createQueryBuilder.mockReturnValue(qb);
+
+      await notebookService.findAll(STUDENT_ID, { from: '2026-08-01', to: '2026-08-31' });
+
+      expect(qb.andWhere).toHaveBeenCalledWith('DATE(entry.createdAt) >= :from', { from: '2026-08-01' });
+      expect(qb.andWhere).toHaveBeenCalledWith('DATE(entry.createdAt) <= :to', { to: '2026-08-31' });
+    });
+
+    it('[OK] une date précise se cherche avec from=to', async () => {
+      const qb = buildMockQueryBuilder([]);
+      mockRepository.createQueryBuilder.mockReturnValue(qb);
+
+      await notebookService.findAll(STUDENT_ID, { from: '2026-08-27', to: '2026-08-27' });
+
+      expect(qb.andWhere).toHaveBeenCalledWith('DATE(entry.createdAt) >= :from', { from: '2026-08-27' });
+      expect(qb.andWhere).toHaveBeenCalledWith('DATE(entry.createdAt) <= :to', { to: '2026-08-27' });
+    });
+
+    it('[OK] recherche texte libre (q) sur content', async () => {
+      const qb = buildMockQueryBuilder([buildSampleEntry({ ownerId: STUDENT_ID })]);
+      mockRepository.createQueryBuilder.mockReturnValue(qb);
+
+      await notebookService.findAll(STUDENT_ID, { q: 'dérivée' });
+
+      expect(qb.andWhere).toHaveBeenCalledWith('entry.content ILIKE :q', { q: '%dérivée%' });
+    });
+
+    it('[OK] filtres combinables (from/to et q en même temps)', async () => {
+      const qb = buildMockQueryBuilder([]);
+      mockRepository.createQueryBuilder.mockReturnValue(qb);
+
+      await notebookService.findAll(STUDENT_ID, { from: '2026-08-01', to: '2026-08-31', q: 'test' });
+
+      expect(qb.andWhere).toHaveBeenCalledTimes(3);
     });
   });
 
@@ -170,43 +224,10 @@ describe('NotebookService', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // update() + remove()
+  // remove() — aucune méthode update() : une pensée instantanée ne s'édite
+  // pas, elle se supprime et se réécrit si besoin (docs/architecture.md,
+  // arbitrage du 2026-08-27, "notes rapides immuables")
   // ─────────────────────────────────────────────────────────────────────────
-
-  describe('update()', () => {
-    it('[OK] le titulaire (formateur) modifie sa propre entrée', async () => {
-      const entry = buildSampleEntry({ ownerId: TEACHER_ID });
-      const updatedEntry = buildSampleEntry({ ownerId: TEACHER_ID, content: 'Modifié' });
-
-      mockRepository.findOne.mockResolvedValue(entry);
-      mockRepository.save.mockResolvedValue(updatedEntry);
-
-      const result = await notebookService.update(ENTRY_ID, { content: 'Modifié' }, TEACHER_ID);
-
-      expect(result.content).toBe('Modifié');
-    });
-
-    it.each([
-      ['un autre utilisateur du même rôle', STUDENT_ID],
-      ['le RP', RP_ID],
-      ['le TI', TI_ID],
-    ])('[CRITIQUE] %s ne peut pas modifier le carnet d\'autrui → ForbiddenException', async (_label, callerId) => {
-      const entry = buildSampleEntry({ ownerId: TEACHER_ID });
-      mockRepository.findOne.mockResolvedValue(entry);
-
-      await expect(
-        notebookService.update(ENTRY_ID, { content: 'hack' }, callerId),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('entrée introuvable → NotFoundException', async () => {
-      mockRepository.findOne.mockResolvedValue(null);
-
-      await expect(
-        notebookService.update(ENTRY_ID, { content: 'x' }, STUDENT_ID),
-      ).rejects.toThrow(NotFoundException);
-    });
-  });
 
   describe('remove()', () => {
     it('[OK] le titulaire (animateur pédagogique) supprime sa propre entrée', async () => {

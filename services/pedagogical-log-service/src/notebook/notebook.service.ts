@@ -7,7 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NotebookEntry } from './entities/notebook-entry.entity';
 import { CreateNotebookEntryDto } from './dto/create-notebook-entry.dto';
-import { UpdateNotebookEntryDto } from './dto/update-notebook-entry.dto';
+import { FindNotebookQueryDto } from './dto/find-notebook-query.dto';
 
 /**
  * Carnet personnel — un carnet strictement privé par utilisateur authentifié,
@@ -24,6 +24,12 @@ import { UpdateNotebookEntryDto } from './dto/update-notebook-entry.dto';
  * un rôle administratif (RP, AF, TI, y compris l'ancien accès TI "incident")
  * n'ouvre de droit sur le carnet d'un tiers. C'est la seule exception totale
  * à la règle "les administrateurs voient tout" du projet.
+ *
+ * Spécification fonctionnelle réelle — notes rapides immuables (docs/
+ * architecture.md, arbitrage du 2026-08-27) : une entrée est une « pensée
+ * instantanée » horodatée automatiquement (`createdAt`), jamais éditée après
+ * coup. Elle se supprime et se réécrit si besoin, elle ne se modifie jamais
+ * — d'où l'absence délibérée d'une méthode `update()`.
  */
 @Injectable()
 export class NotebookService {
@@ -44,13 +50,28 @@ export class NotebookService {
   }
 
   /**
-   * Get all notebook entries belonging to the authenticated user.
+   * Get the notebook entries belonging to the authenticated user, optionally
+   * filtered by a `createdAt` date range (`from`/`to`) and/or a free-text
+   * search on `content` (`q`). Sans filtre, retourne tout le carnet
+   * (comportement inchangé) — les pensées instantanées se retrouvent par
+   * recherche, pas par simple défilement, mais rien n'impose de chercher.
    */
-  async findAll(callerId: string): Promise<NotebookEntry[]> {
-    return this.notebookEntryRepository.find({
-      where: { ownerId: callerId },
-      order: { createdAt: 'DESC' },
-    });
+  async findAll(callerId: string, query?: FindNotebookQueryDto): Promise<NotebookEntry[]> {
+    const qb = this.notebookEntryRepository
+      .createQueryBuilder('entry')
+      .where('entry.ownerId = :ownerId', { ownerId: callerId });
+
+    if (query?.from) {
+      qb.andWhere('DATE(entry.createdAt) >= :from', { from: query.from });
+    }
+    if (query?.to) {
+      qb.andWhere('DATE(entry.createdAt) <= :to', { to: query.to });
+    }
+    if (query?.q) {
+      qb.andWhere('entry.content ILIKE :q', { q: `%${query.q}%` });
+    }
+
+    return qb.orderBy('entry.createdAt', 'DESC').getMany();
   }
 
   /**
@@ -61,22 +82,6 @@ export class NotebookService {
     if (!entry) throw new NotFoundException(`Notebook entry ${id} not found`);
     this.assertIsOwner(entry, callerId);
     return entry;
-  }
-
-  /**
-   * Update a notebook entry. Only the owner can update.
-   */
-  async update(
-    id: string,
-    dto: UpdateNotebookEntryDto,
-    callerId: string,
-  ): Promise<NotebookEntry> {
-    const entry = await this.notebookEntryRepository.findOne({ where: { id } });
-    if (!entry) throw new NotFoundException(`Notebook entry ${id} not found`);
-    this.assertIsOwner(entry, callerId);
-
-    Object.assign(entry, dto);
-    return this.notebookEntryRepository.save(entry);
   }
 
   /**

@@ -13,12 +13,13 @@
  *   GET    /pedagogical-logs/session/:sessionId       logs d'une séance
  *   PATCH  /pedagogical-logs/:id                      modifier partiel (auteur, RP, TI)
  *
- *   Carnet personnel
- *   POST   /students/:studentId/notebook          créer une entrée
- *   GET    /students/:studentId/notebook          lire les entrées
- *   GET    /students/:studentId/notebook/:id      détail d'une entrée
- *   PATCH  /students/:studentId/notebook/:id      modifier une entrée
- *   DELETE /students/:studentId/notebook/:id      supprimer une entrée
+ *   Carnet personnel — désormais couvert par test/e2e/notebook.e2e-spec.ts.
+ *   Généralisé le 2026-08-27 (docs/architecture.md, "Generalisation du carnet
+ *   personnel a d'autres roles que l'eleve") : routes déplacées de
+ *   /students/:studentId/notebook (réservé élève+TI) vers
+ *   /pedagogical-logs/notebook (tout rôle authentifié, titulaire uniquement,
+ *   plus de paramètre de chemin désignant un tiers). Retiré de ce fichier
+ *   avec ce chantier.
  *
  *   Mémos élève et chapitres — désormais couverts par test/e2e/memo.e2e-spec.ts
  *   (routes réelles /memos/*, voir docs/routes.md > pedagogical-log-service >
@@ -64,7 +65,6 @@ describe('[E2E] Pedagogical Log Service', () => {
   let createdLogId: string;
   let createdSpecialLogId: string;
   let createdSessionId: string;
-  let createdNotebookEntryId: string;
 
   beforeAll(async () => {
     app = await createTestApp();
@@ -113,16 +113,6 @@ describe('[E2E] Pedagogical Log Service', () => {
     if (specialRes.status === 201) {
       createdSpecialLogId = specialRes.body.id;
     }
-
-    // Seed: créer une entrée de carnet pour student1
-    const notebookRes = await request(app.getHttpServer())
-      .post(`/students/${IDS.student1}/notebook`)
-      .set('Authorization', `Bearer ${student1Token}`)
-      .send({ content: 'Mon journal personnel', title: 'Jour 1' });
-
-    if (notebookRes.status === 201) {
-      createdNotebookEntryId = notebookRes.body.id;
-    }
   });
 
   afterAll(async () => {
@@ -146,12 +136,6 @@ describe('[E2E] Pedagogical Log Service', () => {
       expect(res.status).toBe(401);
     });
 
-    it('POST /students/:id/notebook sans token → 401', async () => {
-      const res = await request(app.getHttpServer())
-        .post(`/students/${IDS.student1}/notebook`)
-        .send({ content: 'Test' });
-      expect(res.status).toBe(401);
-    });
   });
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -629,178 +613,6 @@ describe('[E2E] Pedagogical Log Service', () => {
         .send({ content: 'x' });
 
       expect(res.status).toBe(404);
-    });
-  });
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Carnet personnel — POST /students/:studentId/notebook
-  // ──────────────────────────────────────────────────────────────────────────
-
-  describe('Carnet personnel — création (PLOG-BR-004, PLOG-FB-001)', () => {
-    it('[PLOG-BR-004] L\'élève peut créer une entrée dans son carnet → 201', async () => {
-      const res = await request(app.getHttpServer())
-        .post(`/students/${IDS.student1}/notebook`)
-        .set('Authorization', `Bearer ${student1Token}`)
-        .send({ content: 'Aujourd\'hui j\'ai compris les intégrales', title: 'Bonne séance' });
-
-      expect(res.status).toBe(201);
-      expect(res.body).toHaveProperty('id');
-      expect(res.body.studentId).toBe(IDS.student1);
-    });
-
-    it('[PLOG-FB-001] Un parent ne peut pas écrire dans le carnet d\'un élève → 403', async () => {
-      const res = await request(app.getHttpServer())
-        .post(`/students/${IDS.student1}/notebook`)
-        .set('Authorization', `Bearer ${parent1Token}`)
-        .send({ content: 'Tentative du parent' });
-
-      expect(res.status).toBe(403);
-    });
-
-    it('[PLOG-FB-001] Un formateur ne peut pas écrire dans le carnet d\'un élève → 403', async () => {
-      const res = await request(app.getHttpServer())
-        .post(`/students/${IDS.student1}/notebook`)
-        .set('Authorization', `Bearer ${teacher1Token}`)
-        .send({ content: 'Tentative du formateur' });
-
-      expect(res.status).toBe(403);
-    });
-
-    it('Un élève ne peut pas écrire dans le carnet d\'un autre élève → 403', async () => {
-      const res = await request(app.getHttpServer())
-        .post(`/students/${IDS.student1}/notebook`)
-        .set('Authorization', `Bearer ${student2Token}`)
-        .send({ content: 'Intrusion dans le carnet d\'un autre élève' });
-
-      expect(res.status).toBe(403);
-    });
-
-    it('Content manquant → 400', async () => {
-      const res = await request(app.getHttpServer())
-        .post(`/students/${IDS.student1}/notebook`)
-        .set('Authorization', `Bearer ${student1Token}`)
-        .send({ title: 'Sans contenu' });
-
-      expect(res.status).toBe(400);
-    });
-  });
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Carnet personnel — GET /students/:studentId/notebook
-  // ──────────────────────────────────────────────────────────────────────────
-
-  describe('Carnet personnel — lecture (PLOG-BR-005, PLOG-FB-001)', () => {
-    it('[PLOG-RA-001] L\'élève peut lire son propre carnet → 200', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`/students/${IDS.student1}/notebook`)
-        .set('Authorization', `Bearer ${student1Token}`);
-
-      expect(res.status).toBe(200);
-      expect(Array.isArray(res.body)).toBe(true);
-    });
-
-    it('[PLOG-BR-005] Le parent ne peut pas accéder au carnet de l\'élève → 403', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`/students/${IDS.student1}/notebook`)
-        .set('Authorization', `Bearer ${parent1Token}`);
-
-      expect(res.status).toBe(403);
-    });
-
-    it('[PLOG-BR-005] Un formateur ne peut pas accéder au carnet d\'un élève → 403', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`/students/${IDS.student1}/notebook`)
-        .set('Authorization', `Bearer ${teacher1Token}`);
-
-      expect(res.status).toBe(403);
-    });
-
-    it('[PLOG-BR-005] Un RP ne peut pas accéder au carnet d\'un élève → 403', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`/students/${IDS.student1}/notebook`)
-        .set('Authorization', `Bearer ${rp1Token}`);
-
-      expect(res.status).toBe(403);
-    });
-
-    it('Un autre élève ne peut pas accéder au carnet → 403', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`/students/${IDS.student1}/notebook`)
-        .set('Authorization', `Bearer ${student2Token}`);
-
-      expect(res.status).toBe(403);
-    });
-
-    it('GET /students/:id/notebook/:entryId — l\'élève peut lire une entrée → 200', async () => {
-      if (!createdNotebookEntryId) {
-        console.warn('createdNotebookEntryId non défini — seed a échoué, skip');
-        return;
-      }
-      const res = await request(app.getHttpServer())
-        .get(`/students/${IDS.student1}/notebook/${createdNotebookEntryId}`)
-        .set('Authorization', `Bearer ${student1Token}`);
-
-      expect(res.status).toBe(200);
-      expect(res.body.id).toBe(createdNotebookEntryId);
-    });
-
-    it('GET entrée inexistante → 404', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`/students/${IDS.student1}/notebook/${IDS.unknown}`)
-        .set('Authorization', `Bearer ${student1Token}`);
-
-      expect(res.status).toBe(404);
-    });
-  });
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Carnet personnel — PATCH et DELETE
-  // ──────────────────────────────────────────────────────────────────────────
-
-  describe('Carnet personnel — modification et suppression', () => {
-    it('L\'élève peut modifier son entrée → 200', async () => {
-      if (!createdNotebookEntryId) return;
-      const res = await request(app.getHttpServer())
-        .patch(`/students/${IDS.student1}/notebook/${createdNotebookEntryId}`)
-        .set('Authorization', `Bearer ${student1Token}`)
-        .send({ content: 'Contenu mis à jour' });
-
-      expect(res.status).toBe(200);
-    });
-
-    it('Un parent ne peut pas modifier le carnet → 403', async () => {
-      if (!createdNotebookEntryId) return;
-      const res = await request(app.getHttpServer())
-        .patch(`/students/${IDS.student1}/notebook/${createdNotebookEntryId}`)
-        .set('Authorization', `Bearer ${parent1Token}`)
-        .send({ content: 'Tentative' });
-
-      expect(res.status).toBe(403);
-    });
-
-    it('L\'élève peut supprimer son entrée → 204', async () => {
-      const createRes = await request(app.getHttpServer())
-        .post(`/students/${IDS.student1}/notebook`)
-        .set('Authorization', `Bearer ${student1Token}`)
-        .send({ content: 'À supprimer' });
-
-      expect(createRes.status).toBe(201);
-      const toDeleteId = createRes.body.id;
-
-      const res = await request(app.getHttpServer())
-        .delete(`/students/${IDS.student1}/notebook/${toDeleteId}`)
-        .set('Authorization', `Bearer ${student1Token}`);
-
-      expect(res.status).toBe(204);
-    });
-
-    it('Un parent ne peut pas supprimer une entrée du carnet → 403', async () => {
-      if (!createdNotebookEntryId) return;
-      const res = await request(app.getHttpServer())
-        .delete(`/students/${IDS.student1}/notebook/${createdNotebookEntryId}`)
-        .set('Authorization', `Bearer ${parent1Token}`);
-
-      expect(res.status).toBe(403);
     });
   });
 

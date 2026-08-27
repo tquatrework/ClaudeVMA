@@ -9,6 +9,22 @@ import { NotebookEntry } from './entities/notebook-entry.entity';
 import { CreateNotebookEntryDto } from './dto/create-notebook-entry.dto';
 import { UpdateNotebookEntryDto } from './dto/update-notebook-entry.dto';
 
+/**
+ * Carnet personnel — un carnet strictement privé par utilisateur authentifié,
+ * quel que soit son rôle (élève, formateur, animateur pédagogique, et tout
+ * rôle futur). Généralisé le 2026-08-27 (docs/architecture.md).
+ *
+ * Il n'existe qu'un seul chemin d'accès : l'utilisateur authentifié lit et
+ * écrit SON PROPRE carnet (`ownerId = callerId`). Aucun paramètre de chemin
+ * ne désigne un titulaire — contrairement à l'ancienne route
+ * `students/:studentId/notebook`, il est désormais structurellement
+ * impossible de construire une URL pointant vers le carnet d'autrui.
+ *
+ * Aucune exception : ni une relation métier (parent, formateur, AP, RP), ni
+ * un rôle administratif (RP, AF, TI, y compris l'ancien accès TI "incident")
+ * n'ouvre de droit sur le carnet d'un tiers. C'est la seule exception totale
+ * à la règle "les administrateurs voient tout" du projet.
+ */
 @Injectable()
 export class NotebookService {
   constructor(
@@ -17,90 +33,72 @@ export class NotebookService {
   ) {}
 
   /**
-   * Create a notebook entry for the authenticated student.
-   * PLOG-RA-001: only the student themselves can write in their notebook.
+   * Create a notebook entry for the authenticated user, in their own notebook.
    */
   async create(
-    studentId: string,
     dto: CreateNotebookEntryDto,
     callerId: string,
   ): Promise<NotebookEntry> {
-    this.assertIsOwner(studentId, callerId);
-    const entry = this.notebookEntryRepository.create({ ...dto, studentId });
+    const entry = this.notebookEntryRepository.create({ ...dto, ownerId: callerId });
     return this.notebookEntryRepository.save(entry);
   }
 
   /**
-   * Get all notebook entries for a student.
-   * PLOG-FB-001 / PLOG-RA-001: only the student themselves can access their notebook.
-   * Phase 1 arbitrage conservateur: RP n'a PAS accès au carnet personnel.
-   * TI peut accéder pour résolution d'incident technique uniquement.
+   * Get all notebook entries belonging to the authenticated user.
    */
-  async findAll(studentId: string, callerId: string, callerRole: string): Promise<NotebookEntry[]> {
-    // TI can access for technical incident resolution only
-    if (callerRole === 'technicien_informatique') {
-      return this.notebookEntryRepository.find({
-        where: { studentId },
-        order: { createdAt: 'DESC' },
-      });
-    }
-    this.assertIsOwner(studentId, callerId);
+  async findAll(callerId: string): Promise<NotebookEntry[]> {
     return this.notebookEntryRepository.find({
-      where: { studentId },
+      where: { ownerId: callerId },
       order: { createdAt: 'DESC' },
     });
   }
 
   /**
-   * Get a single notebook entry.
-   * Only the student owner (or TI) can access.
+   * Get a single notebook entry. Only the owner can access it.
    */
-  async findOne(
-    studentId: string,
-    id: string,
-    callerId: string,
-    callerRole: string,
-  ): Promise<NotebookEntry> {
-    const entry = await this.notebookEntryRepository.findOne({ where: { id, studentId } });
+  async findOne(id: string, callerId: string): Promise<NotebookEntry> {
+    const entry = await this.notebookEntryRepository.findOne({ where: { id } });
     if (!entry) throw new NotFoundException(`Notebook entry ${id} not found`);
-
-    if (callerRole !== 'technicien_informatique') {
-      this.assertIsOwner(studentId, callerId);
-    }
+    this.assertIsOwner(entry, callerId);
     return entry;
   }
 
   /**
-   * Update a notebook entry. Only the student owner can update.
+   * Update a notebook entry. Only the owner can update.
    */
   async update(
-    studentId: string,
     id: string,
     dto: UpdateNotebookEntryDto,
     callerId: string,
   ): Promise<NotebookEntry> {
-    this.assertIsOwner(studentId, callerId);
-    const entry = await this.notebookEntryRepository.findOne({ where: { id, studentId } });
+    const entry = await this.notebookEntryRepository.findOne({ where: { id } });
     if (!entry) throw new NotFoundException(`Notebook entry ${id} not found`);
+    this.assertIsOwner(entry, callerId);
 
     Object.assign(entry, dto);
     return this.notebookEntryRepository.save(entry);
   }
 
   /**
-   * Delete a notebook entry. Only the student owner can delete.
+   * Delete a notebook entry. Only the owner can delete.
    */
-  async remove(studentId: string, id: string, callerId: string): Promise<void> {
-    this.assertIsOwner(studentId, callerId);
-    const entry = await this.notebookEntryRepository.findOne({ where: { id, studentId } });
+  async remove(id: string, callerId: string): Promise<void> {
+    const entry = await this.notebookEntryRepository.findOne({ where: { id } });
     if (!entry) throw new NotFoundException(`Notebook entry ${id} not found`);
+    this.assertIsOwner(entry, callerId);
     await this.notebookEntryRepository.remove(entry);
   }
 
-  private assertIsOwner(studentId: string, callerId: string): void {
-    if (studentId !== callerId) {
+  /**
+   * On ne révèle jamais qu'une entrée appartenant à un tiers existe : un
+   * appelant qui n'est pas le titulaire reçoit exactement le même 403 qu'un
+   * appelant qui cible un id inexistant reçoit un 404 — jamais d'indice
+   * distinguant les deux cas côté client.
+   */
+  private assertIsOwner(entry: NotebookEntry, callerId: string): void {
+    if (entry.ownerId !== callerId) {
       throw new ForbiddenException(
-        'Le carnet personnel est réservé à l\'élève uniquement — PLOG-FB-001',
+        'Le carnet personnel est strictement privé — réservé à son titulaire',
       );
     }
   }

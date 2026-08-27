@@ -114,6 +114,21 @@ nouveaux réglages et leur sauvegarde effective (relue après rechargement).
      création de l'entrée dans le même geste de soumission, transparent pour l'utilisateur.
   Délégué à `front-developper` sur la même branche `feat/cahier-de-texte-liens-pieces-jointes`
   (PR #135 toujours ouverte, pas de nouvelle branche).
+  **Corrigé par `front-developper` (2026-08-27)**, commits `8fdbd8f`+`206b2ad`, poussés et
+  fast-forwardés localement par l'orchestrateur, vérifiés indépendamment (`tsc --noEmit` propre,
+  44/44 tests ciblés verts dont 8 nouveaux couvrant les deux défauts, 1893/1895 suite complète —
+  2 échecs préexistants sans rapport). Solutions retenues : (1) nouveau composant
+  `LightMarkupTextarea` — calque de coloration syntaxique purement décoratif au-dessus d'un
+  `<textarea>` natif rendu transparent, qui reste l'unique source de vérité (texte brut, jamais de
+  HTML stocké) — ne rouvre pas l'arbitrage du 2026-08-26 ; (2) fichier choisi gardé en état local
+  (`pendingAttachment`) pendant la saisie, avec refus local immédiat si trop volumineux, uploadé
+  juste après la création de l'entrée dans le même geste de soumission. Déployé sur la pile réelle
+  par l'orchestrateur (`docker compose build/up frontend`), bundle `index-_Cj9pNnA.js` confirmé
+  servi par `https://claudevma.visioprof.fr`.
+- [ ] **Preuve à obtenir avant merge** — les deux défauts corrigés sont de nature visuelle/tactile
+  (rendu de couleur pendant la frappe, ordre des étapes du formulaire) : à valider par relecture de
+  l'utilisateur en conditions réelles sur `https://claudevma.visioprof.fr`, niveau de preuve à
+  confirmer avec lui (capture, test Playwright, ou test direct par l'utilisateur lui-même).
 - [ ] Validé par l'utilisateur — **PR #135 en attente de merge**, prête dès accord.
 
 ---

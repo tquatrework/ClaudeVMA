@@ -136,9 +136,16 @@ formule saisie via MathLive et rendue en LaTeX, une image jointe et affichée.
   Vérifié indépendamment par l'orchestrateur après fast-forward : `tsc --noEmit` propre, 25/25
   tests ciblés verts. Déployé sur la pile réelle (`docker compose build/up frontend`), bundle
   `index-DKF_XKGd.js` confirmé servi par `https://claudevma.visioprof.fr`.
-- [ ] **Preuve à obtenir** — défauts de nature visuelle : à valider par relecture de l'utilisateur
-  en conditions réelles (choix déjà fait pour ce chantier).
-- [ ] Validé par l'utilisateur.
+- [x] **Preuve** — l'utilisateur a testé en direct sur `https://claudevma.visioprof.fr` et confirmé
+  (« C'est bon merge »).
+- [x] Validé par l'utilisateur — 2026-08-27 (« C'est bon merge »). PR #137 créée et mergée dans
+  `master` (squash `5de9757`), branche `feat/memo-formules` supprimée (locale + `origin`).
+  `pedagogical-log-service` et `frontend` reconstruits et redéployés depuis `master` (état
+  durable) — bundle identique à celui déjà testé (`index-DKF_XKGd.js`, hash Vite déterministe sur
+  contenu inchangé par le squash), migrations `CreateMemoTables`/`AddTitleToMemoItems` confirmées
+  appliquées (`migration:show` → `[X]`), les deux services sains.
+
+**Clôturé le 2026-08-27.**
 
 ---
 

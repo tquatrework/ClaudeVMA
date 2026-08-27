@@ -203,10 +203,18 @@ nouveaux réglages et leur sauvegarde effective (relue après rechargement).
   désormais directement noms + téléchargement, sans clic préalable, comme le formateur avant.
   Déployé sur la pile réelle par l'orchestrateur (`docker compose build/up frontend`), bundle
   `index-D7B1Ri19.js` confirmé servi par `https://claudevma.visioprof.fr`.
-- [ ] **Preuve à obtenir avant merge** — défauts de nature visuelle/tactile : à valider par
-  relecture de l'utilisateur en conditions réelles sur `https://claudevma.visioprof.fr` (déjà son
-  choix pour les tours précédents).
-- [ ] Validé par l'utilisateur — **PR #135 en attente de merge**, prête dès accord.
+- [x] **Preuve** — l'utilisateur a testé en direct sur `https://claudevma.visioprof.fr` et confirmé
+  (« c'est bon, merge »).
+- [x] Validé par l'utilisateur — 2026-08-27 (« c'est bon, merge »). Mergé dans `master` — PR #135,
+  squash `27fe7ba`, branche supprimée (locale + `origin`). `pedagogical-log-service`,
+  `profile-service` et `frontend` reconstruits depuis `master` (état durable) — images identiques
+  (contenu inchangé par le squash), aucun redémarrage nécessaire pour `profile-service` (déjà à
+  jour), `pedagogical-log-service` et `frontend` recréés, tous `healthy`. Migrations confirmées
+  appliquées (`migration:show` → 3/3 et 8/8 `[X]`). Bundle `index-D7B1Ri19.js` reconfirmé identique
+  à celui déjà testé et validé par l'utilisateur, servi par `https://claudevma.visioprof.fr`,
+  gateway rechargée.
+
+**Clôturé le 2026-08-27.**
 
 ---
 

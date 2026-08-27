@@ -91,6 +91,29 @@ nouveaux réglages et leur sauvegarde effective (relue après rechargement).
   comportement ajouté). Déjà déployé sur la pile réelle — l'image `claudevma-frontend` a été
   reconstruite 41s après ce commit (`19:38:59` vs commit `19:38:18`), conteneur `visiomath_frontend`
   démarré dans la foulée, aucun rebuild supplémentaire nécessaire.
+- [ ] **Deux défauts remontés par le test utilisateur (2026-08-27), à corriger avant merge** :
+  1. **Mineur** — dans le formulaire de nouvelle entrée, après avoir inséré un lien via le bouton
+     « Insérer un lien », le texte affiche le motif brut `[label](url)` pendant la saisie, alors
+     que ce même texte s'affichera en lien bleu cliquable une fois l'entrée validée
+     (`LightMarkupText`). Décalage perturbant pour l'utilisateur. Demande explicite : transformer
+     l'affichage **dès la validation du lien dans sa petite saisie**, avant même de valider la
+     nouvelle entrée — pas seulement au rendu final. Tension à arbitrer avec l'arbitrage du
+     2026-08-26 (« Syntaxe légère unifiée ») qui écarte explicitement un éditeur riche
+     (contenteditable, stockage HTML) : le champ stocké doit rester du texte brut
+     (`sessionSummary`/`homework`), seule la **présentation pendant la saisie** doit changer — pas
+     le modèle de données. Délégué à `front-developper` en lui signalant explicitement cette
+     tension, à charge pour lui de proposer une solution de rendu à la saisie qui n'introduit pas
+     un vrai éditeur riche ni un format stocké autre que le texte brut actuel.
+  2. **Majeur** — le bouton d'ajout de pièce jointe n'apparaît aujourd'hui qu'**après** la création
+     de l'entrée (après clic sur « Ajouter une entrée »), parce que `PedagogicalLogAttachment`
+     exige un `logEntryId` existant (arbitrage 2026-08-26). Demande explicite : pouvoir choisir le
+     fichier **pendant** la saisie de la nouvelle entrée, entre le clic sur « Nouvelle entrée » et
+     le clic sur « Ajouter une entrée » — pas comme étape séparée après coup. Pas de changement de
+     contrat backend nécessaire a priori (l'upload continue d'exiger un `logEntryId`) : le fichier
+     choisi doit être gardé en état local côté front pendant la saisie, puis uploadé juste après la
+     création de l'entrée dans le même geste de soumission, transparent pour l'utilisateur.
+  Délégué à `front-developper` sur la même branche `feat/cahier-de-texte-liens-pieces-jointes`
+  (PR #135 toujours ouverte, pas de nouvelle branche).
 - [ ] Validé par l'utilisateur — **PR #135 en attente de merge**, prête dès accord.
 
 ---

@@ -3,7 +3,7 @@
  * Accent : Cyan oklch(0.60 0.12 210)
  */
 
-import React from 'react'
+import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import DashboardShell from '../components/dashboard/DashboardShell'
@@ -11,6 +11,7 @@ import '../styles/tokens.css'
 import { getRailGroupsForRole, filterTopNavItems } from '../navigation/navigationConfig'
 import { PageTitle } from '../components/ui/PageTitle'
 import { useParentDashboard } from '../hooks/dashboard/useParentDashboard'
+import { MemoReadOnlyModal } from '../components/pedagogical-log/MemoReadOnlyModal'
 
 export default function ParentDashboardPage() {
   const { user, hasRole } = useAuth()
@@ -20,6 +21,14 @@ export default function ParentDashboardPage() {
   const railGroups = getRailGroupsForRole('parent_financeur')
 
   const { studentCards, isLoading } = useParentDashboard(user?.id)
+
+  // Pas de navigation : la page reste affichée derrière la modale — état
+  // local de l'élève dont le mémo est actuellement consulté (`null` = aucune
+  // modale ouverte). Même pattern que MyStudentsPage.
+  const [memoModalStudent, setMemoModalStudent] = useState<{
+    studentId: string
+    displayName: string
+  } | null>(null)
 
   return (
     <DashboardShell
@@ -142,12 +151,32 @@ export default function ParentDashboardPage() {
                   >
                     Cahier
                   </Link>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setMemoModalStudent({
+                        studentId: studentCard.studentId,
+                        displayName: studentCard.displayName,
+                      })
+                    }
+                    className="text-[12px] text-[color:var(--accent)] border border-[var(--color-surface)] rounded-[var(--radius-pill)] py-[5px] px-3 font-medium"
+                  >
+                    Mémos
+                  </button>
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {memoModalStudent && (
+        <MemoReadOnlyModal
+          studentId={memoModalStudent.studentId}
+          title={`Mémo de ${memoModalStudent.displayName}`}
+          onClose={() => setMemoModalStudent(null)}
+        />
+      )}
 
       <style>{`
         @media (max-width: 768px) {

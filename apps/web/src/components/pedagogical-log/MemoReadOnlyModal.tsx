@@ -16,14 +16,26 @@ interface MemoReadOnlyModalProps {
   onClose: () => void
   /** Personnalise le titre affiché — ex. « Mémo de Camille Durand ». Par défaut « Mémo ». */
   title?: string
+  /** Préselectionne un chapitre (lien « Détacher » posé sur un chapitre précis). */
+  initialChapterId?: string | null
 }
 
-export function MemoReadOnlyModal({ studentId, onClose, title = 'Mémo' }: MemoReadOnlyModalProps) {
+export function MemoReadOnlyModal({
+  studentId,
+  onClose,
+  title = 'Mémo',
+  initialChapterId = null,
+}: MemoReadOnlyModalProps) {
   const { chapters, isLoading, error } = useStudentMemo(studentId)
 
   return (
     <DraggableModal title={title} onClose={onClose}>
-      <MemoReadOnlyContent chapters={chapters} isLoading={isLoading} error={error} />
+      <MemoReadOnlyContent
+        chapters={chapters}
+        isLoading={isLoading}
+        error={error}
+        initialChapterId={initialChapterId}
+      />
     </DraggableModal>
   )
 }

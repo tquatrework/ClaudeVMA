@@ -154,9 +154,25 @@ nouveaux réglages et leur sauvegarde effective (relue après rechargement).
      (aujourd'hui dépendant de `selectionStart`/`selectionEnd` d'un vrai `<textarea>`) en
      conséquence.
   Délégué à `front-developper`, même branche `feat/cahier-de-texte-liens-pieces-jointes`.
+  **Corrigé par `front-developper` (2026-08-27)**, commits `9385405`+`e3d2586`, fast-forwardés
+  localement et vérifiés indépendamment par l'orchestrateur (`tsc --noEmit` propre, 86/86 tests
+  ciblés verts dont 24 nouveaux sur `lightMarkup.ts`). Solutions retenues : (1) le bloc d'ajout de
+  `LogEntryAttachments` (entrées déjà créées) est retiré, seules liste/téléchargement/suppression
+  y restent — l'ajout n'existe plus qu'à la création ; (2) bouton du formulaire de création
+  restylé en lien discret, identique à « Insérer un lien » ; (3) `LightMarkupTextarea` remplacé par
+  `LightMarkupEditor` — zone `contentEditable` où chaque lien inséré devient un jeton atomique
+  (`contentEditable=false`) n'affichant que son libellé, jamais crochets ni URL ; le texte brut
+  `[label](url)` reste l'unique donnée envoyée au serveur, reconstruite depuis le DOM à chaque
+  frappe (`serializeLightMarkupEditor`) — aucun HTML stocké, ne rouvre pas l'arbitrage du
+  2026-08-26. `InsertLinkButton` adapté (insertion au curseur via une API impérative dédiée au lieu
+  de `selectionStart`/`selectionEnd`). Déployé sur la pile réelle par l'orchestrateur
+  (`docker compose build/up frontend`), bundle `index-Bvp2uQBN.js` confirmé servi par
+  `https://claudevma.visioprof.fr`. Risque résiduel connu, non traité (signalé par le sous-agent,
+  sans impact fonctionnel) : un cas limite navigateur réel où vider un champ peut laisser un
+  `<br>` orphelin sérialisé en `"\n"` — les deux chemins de soumission font déjà `.trim()`.
 - [ ] **Preuve à obtenir avant merge** — défauts de nature visuelle/tactile : à valider par
   relecture de l'utilisateur en conditions réelles sur `https://claudevma.visioprof.fr` (déjà son
-  choix pour le tour précédent).
+  choix pour les deux tours précédents).
 - [ ] Validé par l'utilisateur — **PR #135 en attente de merge**, prête dès accord.
 
 ---

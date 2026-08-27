@@ -2,10 +2,16 @@
  * MemoSearch — composant de recherche dans le mémo élève.
  * Route API : GET /memos/search?q=
  * Élève uniquement (le backend renvoie 403 aux autres rôles).
+ *
+ * Réécrit le 2026-08-27 : la recherche renvoie désormais des `MemoItem`
+ * (texte/formule/image), plus des `Memo` plats — voir `MemoItemDisplay` pour
+ * le rendu par type.
  */
 
 import React, { useState, useRef, useEffect } from 'react'
-import { searchMemos, type Memo } from '../../api/pedagogicalLogMemos'
+import { searchMemoItems } from '../../api/pedagogicalLogMemos'
+import type { MemoItem } from '../../types/memo'
+import { MemoItemDisplay } from './MemoItemDisplay'
 
 interface MemoSearchProps {
   onClose: () => void
@@ -13,7 +19,7 @@ interface MemoSearchProps {
 
 export default function MemoSearch({ onClose }: MemoSearchProps) {
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<Memo[]>([])
+  const [searchResults, setSearchResults] = useState<MemoItem[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [hasSearched, setHasSearched] = useState(false)
@@ -33,7 +39,7 @@ export default function MemoSearch({ onClose }: MemoSearchProps) {
     setErrorMessage(null)
     setHasSearched(true)
     try {
-      const results = await searchMemos(trimmedQuery)
+      const results = await searchMemoItems(trimmedQuery)
       setSearchResults(results)
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status
@@ -85,13 +91,9 @@ export default function MemoSearch({ onClose }: MemoSearchProps) {
 
       {searchResults.length > 0 && (
         <ul className="space-y-2">
-          {searchResults.map((memo) => (
-            <li
-              key={memo.id}
-              className="bg-gray-50 border border-gray-100 rounded-lg px-3 py-2"
-            >
-              <p className="text-sm font-medium text-gray-700">{memo.title}</p>
-              <p className="text-sm text-gray-600 mt-0.5 whitespace-pre-wrap">{memo.content}</p>
+          {searchResults.map((item) => (
+            <li key={item.id} className="bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+              <MemoItemDisplay item={item} />
             </li>
           ))}
         </ul>

@@ -477,9 +477,16 @@ services:
       # a ce service, jamais le volume media_data de profile-service (chaque
       # service reste proprietaire de ses propres binaires, point 4).
       PEDAGOGICAL_LOG_MEDIA_PATH: /app/storage/media
+      # Images du Memo eleve (chantier feat/memo-formules, 2026-08-27).
+      # Volume distinct de pedagogical_log_media ci-dessus : deux
+      # fonctionnalites differentes du meme service, deux cycles de vie
+      # separes (une image de memo se supprime avec son item, jamais liee au
+      # cycle de vie d'une entree de cahier de texte).
+      PEDAGOGICAL_LOG_MEMO_IMAGE_PATH: /app/storage/memo-images
       PORT: 3008
     volumes:
       - pedagogical_log_media:/app/storage/media
+      - pedagogical_log_memo_images:/app/storage/memo-images
     depends_on:
       postgres:
         condition: service_healthy
@@ -643,6 +650,11 @@ volumes:
   # arbitrage du 2026-08-26 — volume dedie, distinct de media_data ci-dessus.
   # ATTENTION : non couvert par le dump Postgres, a ajouter a la sauvegarde.
   pedagogical_log_media:
+  # Images du Memo eleve (pedagogical-log-service uniquement), chantier
+  # feat/memo-formules, 2026-08-27 — volume dedie, distinct de
+  # pedagogical_log_media ci-dessus (deux fonctionnalites, deux cycles de vie).
+  # ATTENTION : non couvert par le dump Postgres, a ajouter a la sauvegarde.
+  pedagogical_log_memo_images:
 
 networks:
   visiomath_network:

@@ -5,6 +5,143 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-27 — Mémo (pense-bête de formules de l'élève)
+
+Demande explicite de l'utilisateur. Branche : `feat/memo-formules` (créée depuis `master`, poussée).
+
+Le Mémo est le pense-bête de formules mathématiques de l'élève, organisé par chapitres. L'élève
+crée/modifie/supprime des items (texte, formule, image) groupés par chapitre — c'est tout ce qu'il
+a besoin de faire. Formateurs et parents liés peuvent **lire** (jamais écrire), via un bouton ajouté
+à la suite des autres sur la tuile élève déjà existante (`/my-students`) — **aucune nouvelle entrée
+de menu à gauche** pour eux. La lecture (élève compris) doit se faire via une **fenêtre modale
+déplaçable**, pour garder les formules sous les yeux pendant une autre activité.
+
+Deux investigations en lecture seule (front + backend) ont montré que ce n'est pas un ajout sur une
+base saine : le Mémo documenté est **cassé en profondeur**. Backend
+(`pedagogical-log-service`) : deux implémentations concurrentes incompatibles sous `src/memo/`, une
+collision de route réelle qui fait gagner systématiquement le contrôleur cassé
+(`ChapterController`/`Chapter`/`Memo`, entités jamais enregistrées TypeORM → `500`) sur le
+contrôleur correct (`MemoController`/`MemoChapter`/`MemoItem`) — et surtout **aucune migration ne
+crée les tables mémo**, elles n'existent pas en production. Front : un flux élève fonctionne déjà
+(`/memos`) mais reste à plat (pas de distinction texte/formule/image), sans bibliothèque LaTeX,
+sans fenêtre modale nulle part dans le projet. Plan complet, décisions d'architecture et
+séquencement : `/home/debian/.claude/plans/non-on-passe-au-wise-sedgewick.md`.
+
+Décisions arbitrées avec l'utilisateur (2026-08-27) :
+- **Saisie de formule : éditeur visuel MathLive** (`mathlive`, auto-hébergé, aucun appel externe),
+  produisant du LaTeX en texte brut, rendu via KaTeX — première mise en œuvre réelle de la
+  « Syntaxe légère unifiée » anticipée dans `docs/architecture.md` (2026-08-26) pour la notation
+  mathématique.
+- **Images : fichier séparé, type vérifié sur les octets réels** — même discipline que les pièces
+  jointes du cahier de texte, pas de base64 en colonne texte.
+
+### Comment on saura que c'est fait
+
+Réponse HTTP citée montrant : création d'une formule par l'élève, refus en écriture pour
+formateur/parent, lecture `200` pour un formateur/parent lié, refus pour un tiers non lié,
+migration confirmée créant les tables avec `synchronize: false`. Capture d'écran ou test réel
+montrant : la modale déplaçable ouverte depuis `/my-students` (bouton « Voir le mémo »), une
+formule saisie via MathLive et rendue en LaTeX, une image jointe et affichée.
+
+### État
+
+- [x] Backend `pedagogical-log-service` — B1 à B7 du plan livrés (commit `d4e4e3d`) : implémentation
+  morte (`ChapterController`/`Chapter`/`Memo`) retirée, vraie migration `CreateMemoTables`
+  (`memo_chapters`/`memo_items`), CRUD complet, plafonds (longueur, nombre, taille image), image
+  sur fichier séparé (type vérifié sur les octets, volume dédié `pedagogical_log_memo_images`),
+  lecture par relation réelle (formateur/RP/parent liés, `503` si `profile-service` injoignable,
+  `403` sans lien), route consolidée `GET /memos/students/:studentId`, `docs/routes.md` à jour.
+  173 tests unitaires + 38 e2e, vérifiés indépendamment par l'orchestrateur après fast-forward
+  (173/173 rejoués, `tsc --noEmit` propre).
+- [x] Vérification backend contre la pile réelle — image reconstruite et déployée par
+  l'orchestrateur, migration `CreateMemoTables1789500000000` confirmée appliquée
+  (`migration:show` → `[X]`, tables `memo_chapters`/`memo_items` présentes en base réelle), aucune
+  collision avec un éventuel `synchronize` (voir point ouvert ci-dessous). Fumée HTTP contre la
+  gateway réelle : `401` propre sur les routes mémo (ancien bug de collision répondait `500`),
+  aucune erreur au démarrage du conteneur.
+  **Point ouvert repéré au passage, hors périmètre, documenté dans `docs/architecture.md`** :
+  `NODE_ENV=development` sur toute la pile réelle déployée (`.env` racine, tous les services
+  échantillonnés) — aucune crise constatée sur ce déploiement précis, mais le risque général de
+  dérive de schéma n'est pas écarté ; bascule vers `production` non tentée, à traiter comme
+  chantier dédié.
+- [x] Front `apps/web` — F1 à F8 du plan livrés par `front-developper` (commits `b9a30ce`+`f02240e`,
+  mergés dans `feat/memo-formules` sans conflit — l'agent avait poussé sur sa propre branche
+  worktree, réconcilié par l'orchestrateur, commit de merge `29162d1`). Client API aligné sur le
+  contrat réel, `MemoFormulaInput` (MathLive, repli textarea LaTeX si le composant web échoue à
+  s'enregistrer), `MathRenderer` (KaTeX), segment `math` ajouté à `lightMarkup.ts`,
+  `DraggableModal` (première modale déplaçable du projet, déplacement par événements pointer, pas
+  de nouvelle dépendance de drag), `MemoReadOnlyContent`/`MemoReadOnlyModal`, bouton « Voir le
+  mémo » sur `MyStudentsPage`, page orpheline `/memos/:id` retirée, `InVideoMemoDrawer` remplacé
+  par la modale déplaçable dans `VideoPage`. `npm install mathlive katex` — vulnérabilités npm
+  détectées toutes préexistantes (axios/form-data/react-router), aucune introduite par ces deux
+  nouvelles dépendances. Vérifié indépendamment par l'orchestrateur après fusion : `tsc --noEmit`
+  propre, 1952/1954 tests verts (2 échecs préexistants sans rapport, `EleveDashboardPage.test.tsx`,
+  déjà signalés à plusieurs reprises sur ce projet), `npm run build` ok.
+- [x] Déployé sur la pile réelle — `docker compose build/up frontend`, bundle `index-dUrdOwIw.js`
+  confirmé servi par `https://claudevma.visioprof.fr`.
+- [x] Preuve — vérification HTTP réelle bout en bout par l'orchestrateur, comptes réels créés pour
+  l'occasion (élève, formateur lié, formateur non lié), relation posée via la route interne : élève
+  crée un chapitre puis un item formule (`201`) ; écriture refusée à un formateur (`403`) ; lecture
+  `GET /memos/students/:studentId` → `200` avec le contenu réel pour le formateur **lié**, `403`
+  pour le formateur **non lié** ; upload d'image (`POST .../items/image`, multipart) → `201`, type
+  détecté sur les octets réels ; téléchargement par le formateur lié → `200`, octets identiques à
+  l'original (`cmp` confirmé) ; suppression du chapitre → `204`, cascade sur l'item et le fichier
+  image. Données de test nettoyées après vérification (chapitre supprimé).
+  **Non couvert par cette preuve HTTP, nécessite un test visuel réel** : le rendu MathLive/KaTeX à
+  l'écran, le comportement de la modale déplaçable (glisser réellement la fenêtre), l'apparence du
+  bouton « Voir le mémo » sur la tuile élève — à demander à l'utilisateur quel niveau de preuve il
+  souhaite pour cette partie (comme pour le chantier précédent).
+- [ ] **Deux défauts remontés par le test utilisateur en direct (2026-08-27), à corriger avant
+  validation** :
+  1. **Le titre par item a disparu.** Régression réelle, pas une nouvelle demande : l'ancien modèle
+     plat `Memo` portait un `title` (l'ancien `MemoItemEditor` avait un champ titre), mais la
+     migration `CreateMemoTables` (B2 du plan, approuvé par l'utilisateur) ne l'a jamais repris sur
+     `memo_items` — **oubli de l'orchestrateur dans la spécification du plan**, pas un défaut
+     d'exécution du sous-agent. Confirmé par relecture de `docs/routes.md` : la forme d'un
+     `MemoItem` documentée ne porte que `{id, chapterId, type, content, order, ...}`, aucun
+     `title`. Vérifié aussi rétrospectivement sur le test HTTP de l'orchestrateur : un `title`
+     envoyé à la création avait été silencieusement absorbé sans effet (violation de la convention
+     du projet « aucun champ non prévu n'est absorbé en silence », déjà signalée ailleurs sur ce
+     service). À corriger : nouvelle migration ajoutant `title` à `memo_items`, DTOs mis à jour,
+     `docs/routes.md` corrigé, formulaire front restauré. **Backend livré et vérifié** par
+     `pedagogical-log-service` (commits `526cc75`+`6ba678e`+`2f83425`) : migration
+     `AddTitleToMemoItems1789600000000`, DTOs et service mis à jour, 178 tests unitaires (rejoués
+     indépendamment par l'orchestrateur après fast-forward) + tests e2e, vérifié en HTTP réel
+     (création/modification/lecture du titre, plafond `400` à 200 caractères). Redéployé par
+     l'orchestrateur depuis le checkout principal (l'agent avait déployé depuis son worktree via
+     `docker compose -p claudevma`, reconstruit ensuite depuis le checkout principal pour rester
+     cohérent), migration confirmée appliquée (`migration:show` → `[X]`). **Front livré** (commits
+     `31daf51`+`90c0ef0`) : champ titre restauré dans `MemoItemEditor.tsx` (texte/formule/image),
+     affiché en lecture via `MemoItemDisplay.tsx` (composant déjà partagé par les trois vues —
+     panneau élève, modale de lecture, recherche — donc aucune duplication). Une première tentative
+     de correction avait échoué à mi-parcours (limite de session), sans rien committer ; relancée
+     avec succès après reset de la limite.
+  2. **Une formule incomplète produit un texte d'erreur brut affiché à l'écran.** L'utilisateur a
+     rapporté : « Formule illisible : x^2=a,S=\left\lbrace\sqrt[\placeholder{}]{a};-\sqrt
+     [\placeholder{}]{a}\right\rbrace ». Cause identifiée par l'orchestrateur (lecture directe de
+     `apps/web/src/components/ui/MathRenderer.tsx`) : quand un gabarit MathLive (ex. racine
+     n-ième) est inséré sans que l'utilisateur ne renseigne toutes ses cases, MathLive sérialise la
+     case vide en `\placeholder{}` dans le LaTeX exporté — syntaxe interne à MathLive, jamais
+     valide pour KaTeX, qui échoue au rendu (`throwOnError: true`) et déclenche le repli
+     `MathRenderer` affichant le LaTeX brut avec ce jargon interne, incompréhensible pour un élève.
+     Le vrai problème n'est pas le message de repli en lui-même mais qu'une formule incomplète ait
+     pu être **enregistrée** telle quelle : la validation doit avoir lieu **avant** la sauvegarde
+     (détecter `\placeholder{}`/case non remplie, refuser l'enregistrement avec un message clair en
+     français invitant à compléter la formule), pas seulement au rendu. **Corrigé** (commit
+     `31daf51`) : nouveau `hasUnfilledMathPlaceholder()` (`utils/memo.ts`), appelé dans
+     `MemoItemEditor.tsx` avant tout appel réseau — refus avec « Formule incomplète — un champ n'a
+     pas été rempli. », formulaire laissé ouvert, jamais de LaTeX brut affiché. `MathRenderer.tsx`
+     inchangé, son repli devient un filet de sécurité résiduel (vieil item, vraie erreur de
+     syntaxe) plutôt que le chemin normal.
+  Vérifié indépendamment par l'orchestrateur après fast-forward : `tsc --noEmit` propre, 25/25
+  tests ciblés verts. Déployé sur la pile réelle (`docker compose build/up frontend`), bundle
+  `index-DKF_XKGd.js` confirmé servi par `https://claudevma.visioprof.fr`.
+- [ ] **Preuve à obtenir** — défauts de nature visuelle : à valider par relecture de l'utilisateur
+  en conditions réelles (choix déjà fait pour ce chantier).
+- [ ] Validé par l'utilisateur.
+
+---
+
 ## Besoin — 2026-08-26 — liens et pièces jointes sur le cahier de texte
 
 Demande explicite de l'utilisateur, en continuant de tester le cahier de texte. Deux ajouts :

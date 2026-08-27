@@ -2089,33 +2089,107 @@ désactivé et journalise un avertissement au boot, aucune entrée automatique n
 `PROFILE_SERVICE_URL` et `INTERNAL_SECRET` (vérification de relation, point 3),
 `DASHBOARD_NOTIFICATION_SERVICE_URL` (rappel quotidien).
 
-### Mémo élève — formulaire structuré appartenant à l'élève
+### Mémo élève — assaini le 2026-08-27 (chantier feat/memo-formules)
 
-Le mémo est un outil personnel de l'élève (formules, trucs essentiels). Il n'est PAS une note interne du personnel. L'élève propriétaire crée, modifie et supprime ses propres entrées. Les acteurs autorisés (formateur lié, RP, AP) peuvent lire selon rattachement, sans droit d'écriture.
+Le mémo est un pense-bête personnel de l'élève (formules, trucs essentiels), organisé par
+chapitres. Écriture (chapitres, items) réservée au titulaire élève. Lecture ouverte au titulaire
+et aux tiers reliés (formateur, RP/AP coordinateur, parent financeur) ou administrateurs (RP/AF/TI).
+
+**Constat de départ, corrigé par ce chantier — à ne pas redécouvrir.** Avant le 2026-08-27, deux
+implémentations concurrentes coexistaient sous `src/memo/` : `ChapterController`
+(`@Controller('memos/chapters')`, entités `Chapter`/`Memo`, **jamais enregistrées** dans
+`TypeOrmModule.forRootAsync` de `app.module.ts`) répondait **`500` systématique**, et gagnait par
+simple ordre de déclaration la collision de route avec le `MemoController` correct sur
+`POST/GET memos/chapters(/:id)` — rendant ce dernier **inatteignable**. Les routes
+`POST/GET/PUT/DELETE /memos/:id` documentées ici depuis longtemps **n'ont jamais existé** sur
+aucun contrôleur (`CreateMemoDto`/`UpdateMemoDto` étaient du code mort). Et surtout : **aucune
+migration ne créait `memo_chapters`/`memo_items`** — ces tables n'existaient en réalité que par un
+`synchronize: true` accidentel d'un déploiement antérieur, jamais par une migration réelle.
+`ChapterController`/`ChapterService`, les entités `Chapter`/`Memo` et les tables `chapters`/`memos`
+sont **retirés** par ce chantier (`CreateMemoTables1789500000000`, migration `up`/`down` vérifiée
+contre `visiomath_postgres` avec `synchronize: false`). Le contrat ci-dessous est le contrat réel.
+
+**Rôles autorisés (colonne du tableau) — deux régimes distincts :**
+- **Écriture** (`POST`/`PUT`/`DELETE`, toutes les routes chapitres/items) : `eleve` **titulaire**
+  uniquement (`assertIsEleve` — rôle `eleve` **et** `callerId === studentId`). Tout autre rôle,
+  ou un élève sur le mémo d'un autre élève → `403`.
+- **Lecture** (`GET`, toutes les routes) : titulaire élève **ou** tiers relié — vérifié à chaque
+  appel auprès de `profile-service`
+  (`GET /internal/relations/:viewerId/:targetId?viewerRole=`), **jamais en cache**
+  (`MemoService.assertCanRead`, même politique que le cahier de texte). Ouvre la lecture : relation
+  `teacher_of_student` (formateur), `coordinator_of_student` (RP/AP coordinateur),
+  `finance_owner_of_student` (parent financeur), ou `isAdministrator: true` (RP/AF/TI — accès
+  complet). `profile-service` injoignable → `503` (échec fermé) ; relation absente → `403`. Le
+  titulaire (`callerId === studentId`) est **toujours** autorisé, sans aucun appel réseau.
 
 | Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /memos | Lister chapitres + items du mémo de l'élève connecté | 🔒 | eleve uniquement | `200 [MemoChapter avec items]` · `403` tout autre rôle |
-| GET | /memos/search?q= | Recherche dans le mémo | 🔒 | eleve uniquement | `200 [MemoItem]` · `400` q vide · `403` tout autre rôle |
-| GET | /memos/:id | Lire un mémo | 🔒 | eleve (propriétaire), formateur lié (lecture), RP lié (lecture) | `200 Memo` · `403` parent/autre · `404` introuvable |
-| POST | /memos | Créer un mémo | 🔒 | eleve uniquement | `201 Memo` · `403` formateur/RP/parent → refusé |
-| PUT | /memos/:id | Modifier un mémo | 🔒 | eleve (propriétaire) uniquement | `200 Memo` · `403` tout autre rôle · `404` introuvable |
-| DELETE | /memos/:id | Supprimer un mémo | 🔒 | eleve (propriétaire) uniquement | `204` · `403` tout autre rôle · `404` introuvable |
+| GET | /memos | Lister chapitres + items du mémo de l'élève connecté | 🔒 | eleve uniquement (route hardcodée sur `studentId = callerId`) | `200 [MemoChapter avec items]` · `403` tout autre rôle |
+| GET | /memos/search?q= | Recherche textuelle dans les items du mémo de l'élève connecté | 🔒 | eleve uniquement | `200 [MemoItem]` · `400` q vide · `403` tout autre rôle |
+| GET | /memos/students/:studentId | **Nouvelle route (B6)** — mémo consolidé d'un élève, même forme que `GET /memos`, pour un tiers relié ou le titulaire lui-même | 🔒 | eleve (soi-même), formateur/RP/AP/parent reliés, ou administrateur (RP/AF/TI) | `200 [MemoChapter avec items]` · `403` aucune relation · `503` profile-service injoignable |
+| POST | /memos/chapters | Créer un chapitre | 🔒 | eleve titulaire uniquement | `201 MemoChapter` · `400` validation ou plafond de 50 chapitres atteint · `403` tout autre rôle |
+| GET | /memos/chapters/:chapterId | Détail d'un chapitre et de ses items | 🔒 | eleve titulaire, ou tiers relié/administrateur en lecture | `200 MemoChapter avec items` · `403` aucune relation · `404` introuvable · `503` profile-service injoignable |
+| PUT | /memos/chapters/:chapterId | Renommer un chapitre (mise à jour partielle : `title?`, `order?`) | 🔒 | eleve titulaire uniquement | `200 MemoChapter` · `400` validation · `403` tout autre rôle · `404` introuvable |
+| DELETE | /memos/chapters/:chapterId | Supprimer un chapitre — les items sont supprimés en cascade (FK `ON DELETE CASCADE`), les fichiers image associés sont supprimés explicitement (la cascade ne nettoie que les lignes) | 🔒 | eleve titulaire uniquement | `204` · `403` tout autre rôle · `404` introuvable |
+| POST | /memos/chapters/:chapterId/items | Ajouter un item **texte ou formule** (JSON, `{type: "text"\|"formula", content, title?, order?}`) — `type: "image"` refusé ici (`400`), voir la route multipart ci-dessous | 🔒 | eleve titulaire uniquement | `201 MemoItem` · `400` validation, `type` invalide, ou plafond de 200 items/chapitre atteint · `403` tout autre rôle · `404` chapitre introuvable |
+| POST | /memos/chapters/:chapterId/items/image | **Nouvelle route** — ajouter un item **image** (multipart, champ `file`, `caption?` optionnel, `title?` optionnel, `order?` optionnel) | 🔒 | eleve titulaire uniquement | `201 MemoItem {type: "image", ...}` · `400` fichier absent, format non reconnu, SVG, ou plafond de 200 items/chapitre atteint · `403` tout autre rôle · `404` chapitre introuvable · `413` image trop volumineuse |
+| GET | /memos/chapters/:chapterId/items/:itemId/image | **Nouvelle route** — télécharger les octets d'un item image | 🔒 | eleve titulaire, ou tiers relié/administrateur en lecture (revérifiée à chaque téléchargement) | `200` octets bruts, `Content-Type` = type détecté · `403` aucune relation · `404` chapitre/item introuvable, ou item non-image · `503` profile-service injoignable |
+| PUT | /memos/chapters/:chapterId/items/:itemId | Modifier un item (`content?`, `title?`, `order?`) — le type n'est jamais modifiable ; pour un item image, `content` porte la légende, les octets ne se remplacent pas ici (supprimer puis recréer) | 🔒 | eleve titulaire uniquement | `200 MemoItem` · `400` validation · `403` tout autre rôle · `404` chapitre/item introuvable |
+| DELETE | /memos/chapters/:chapterId/items/:itemId | Supprimer un item — supprime aussi le fichier image associé le cas échéant | 🔒 | eleve titulaire uniquement | `204` · `403` tout autre rôle · `404` chapitre/item introuvable |
 
-CRITIQUE: Un formateur tente d'écrire dans le mémo → `403 ForbiddenException`. Types d'items supportés dans le contenu : `text`, `formula` (LaTeX), `image` (max 500 Ko) (XML spec func 004, 005).
+**Les routes `POST/GET/PUT/DELETE /memos/:id` et `GET/POST /memos/chapters` (sans `:chapterId`)
+documentées jusqu'ici sont retirées** : elles n'ont jamais existé côté contrôleur (les deux
+premières) ou sont remplacées par la forme ci-dessus qui les rend inutiles (`GET /memos` fait déjà
+office de liste des chapitres avec leurs items).
 
-### Chapitres de mémo — étiquettes de classement optionnelles
+**Plafonds — jamais de liste non bornée (`src/memo/memo.constants.ts`) :**
+- `content` (texte/formule) : 5000 caractères max (`MEMO_ITEM_CONTENT_MAX_LENGTH`, aligné sur les
+  autres champs de texte long du projet — `description`/`message` de `teacher-request-service`).
+- `title` de chapitre : 200 caractères max.
+- `title` d'item (texte/formule/image, optionnel pour les trois) : 200 caractères max
+  (`MEMO_ITEM_TITLE_MAX_LENGTH`, même plafond que le titre de chapitre — ajouté le 2026-08-27,
+  voir « Correctif du 2026-08-27 » ci-dessous).
+- 50 chapitres par élève max (`MEMO_MAX_CHAPTERS_PER_STUDENT`), 200 items par chapitre max
+  (`MEMO_MAX_ITEMS_PER_CHAPTER`) — `400` explicite au-delà, jamais un tronquage silencieux.
+- Image : **500 000 octets (500 Ko SI)** max (`MEMO_IMAGE_MAX_BYTES`), refus `413` structuré au
+  format `{statusCode, error, code: "UPLOAD_FILE_TOO_LARGE", message, maxUploadBytes,
+  receivedBytes}` — même style que le `413` des pièces jointes du cahier de texte. **Non
+  paramétrable par le TI** pour l'instant (à la différence des pièces jointes du cahier de texte,
+  arbitrage du 2026-08-26) — ce chantier n'a pas demandé de réglage TI pour le Mémo.
 
-Les mémos sont affichés groupés par chapitre. Les mémos sans chapitre (`chapterId` null) apparaissent sous la catégorie virtuelle "Général".
+**Images — stockage sur fichier séparé, jamais en base64.** Type détecté sur les **octets réels**
+(jamais l'extension ni le `Content-Type` client, réutilise `detectAttachmentMimeType` du cahier de
+texte), liste blanche stricte **JPEG/PNG/WebP/GIF uniquement** (plus étroite que celle des pièces
+jointes du cahier de texte, qui accepte aussi PDF/Office/texte) — **SVG explicitement refusé**
+(`400`, document XML exécutable). Stockage sur un volume Docker nommé dédié
+`pedagogical_log_memo_images` (`PEDAGOGICAL_LOG_MEMO_IMAGE_PATH`), **distinct** de
+`pedagogical_log_media` (pièces jointes du cahier de texte) — deux fonctionnalités du même
+service, deux cycles de vie séparés (une image de mémo se supprime avec son item, jamais liée au
+cycle de vie d'une entrée de cahier de texte). Nom de fichier stocké généré côté serveur (UUID),
+jamais dérivé du nom client. **Non couvert par le dump Postgres, à ajouter à la routine de
+sauvegarde** (même rappel que `pedagogical_log_media`).
 
-| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
-|---|---|---|---|---|---|
-| GET | /memos/chapters | Lister les chapitres de l'élève connecté | 🔒 | eleve uniquement | `200 [Chapter]` · `403` tout autre rôle |
-| POST | /memos/chapters | Créer un chapitre | 🔒 | eleve uniquement | `201 MemoChapter` · `403` formateur/RP/parent → refusé |
-| GET | /memos/chapters/:id | Détail d'un chapitre et ses mémos | 🔒 | eleve (propriétaire), formateur lié (lecture), RP lié (lecture) | `200 {id, title, studentId, createdAt, memos: [Memo]}` · `403` parent/autre · `404` introuvable |
-| PUT | /memos/chapters/:id | Renommer un chapitre | 🔒 | eleve (propriétaire) uniquement | `200 {id, title, studentId, createdAt}` · `403` tout autre rôle · `404` introuvable |
-| DELETE | /memos/chapters/:id | Supprimer un chapitre (les mémos associés passent à `chapterId=null`) | 🔒 | eleve (propriétaire) uniquement | `204` · `403` tout autre rôle · `404` introuvable |
-| POST | /memos/chapters/:chapterId/items | Ajouter un item (texte/formule/image) | 🔒 | eleve uniquement | `201 MemoItem` · `400` image > 500 Ko · `403` autre rôle · `404` chapitre introuvable |
+**Forme d'un `MemoItem`** : `{id, chapterId, type: "text"|"formula"|"image", content, title,
+order, createdAt, updatedAt}` pour `text`/`formula` (`content` toujours requis, `title` toujours
+optionnel — `null` si absent) ; pour `image` :
+`{..., type: "image", content: <légende ou null>, title: <titre ou null>,
+imageOriginalFilename, imageStoredFilename, imageMimeType, imageSizeBytes}` (`content` optionnel —
+légende, jamais les octets de l'image elle-même, servis par la route de téléchargement dédiée
+ci-dessus).
+
+**Correctif du 2026-08-27 : `title` d'item, régression signalée par l'utilisateur.** L'ancien
+modèle plat `Memo` (avant l'assainissement du même jour) portait un `title` optionnel, mais la
+migration `CreateMemoTables1789500000000` ne l'a jamais repris sur `memo_items` — oubli dans la
+spécification du plan de chantier, pas une erreur d'exécution. Un `title` envoyé à la création
+était donc silencieusement absorbé sans effet (`ValidationPipe({whitelist:true})` sans
+`forbidNonWhitelisted`, et le DTO ne portait aucune propriété `title`). Corrigé par
+`AddTitleToMemoItems1789600000000` (colonne `title` varchar nullable sur `memo_items`) et par
+l'ajout de `title?` sur `CreateMemoItemDto`/`CreateMemoImageItemDto`/`UpdateMemoItemDto`
+(`@IsOptional`, `@MaxLength(MEMO_ITEM_TITLE_MAX_LENGTH)`). **Le réglage global `whitelist: true`
+sans `forbidNonWhitelisted` reste inchangé** (`main.ts`, appliqué à tout le service, pas seulement
+au mémo) : un champ non prévu par un DTO continue d'être silencieusement ignoré ailleurs dans ce
+service — point relevé mais non corrigé ici (portée limitée à `src/memo/` pour ce chantier),
+aucun autre champ manquant identifié sur les routes chapitres/items du mémo au passage.
 
 ### Carnet personnel (élève uniquement)
 

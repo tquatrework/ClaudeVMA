@@ -1,45 +1,49 @@
-import {
-  IsString,
-  IsNotEmpty,
-  IsOptional,
-  IsNumber,
-  Min,
-  IsIn,
-} from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsNumber, Min, IsIn, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { MemoItemType } from '../entities/memo-item.entity';
-
-const ITEM_TYPES: MemoItemType[] = ['text', 'formula', 'image'];
-const IMAGE_SIZE_LIMIT_KB = 500;
+import { MEMO_ITEM_CONTENT_MAX_LENGTH, MEMO_ITEM_TITLE_MAX_LENGTH } from '../memo.constants';
 
 /**
- * DTO pour l'ajout d'un item dans un chapitre de mémo (élève uniquement).
- * XML spec functionality 004: formules mathématiques et images limitées en taille.
+ * Types créables via cette route JSON — `image` est exclu : une image se
+ * crée via la route multipart dédiée `POST .../items/image`
+ * (`CreateMemoImageItemDto` implicite, voir `MemoController`), jamais via ce
+ * DTO texte (chantier feat/memo-formules, B4 — "images: fichier séparé,
+ * jamais base64 dans une colonne texte").
+ */
+const JSON_ITEM_TYPES: Array<Exclude<MemoItemType, 'image'>> = ['text', 'formula'];
+
+/**
+ * DTO pour l'ajout d'un item texte ou formule dans un chapitre de mémo
+ * (élève uniquement). XML spec functionality 004.
  */
 export class CreateMemoItemDto {
   @ApiProperty({
-    enum: ['text', 'formula', 'image'],
-    description: 'Type d\'item: texte court, formule LaTeX, ou image (max 500 Ko)',
+    enum: ['text', 'formula'],
+    description:
+      "Type d'item : texte court ou formule LaTeX. Pour une image, utiliser " +
+      'POST /memos/chapters/:chapterId/items/image (multipart).',
   })
-  @IsIn(ITEM_TYPES)
-  type: MemoItemType;
+  @IsIn(JSON_ITEM_TYPES)
+  type: Exclude<MemoItemType, 'image'>;
 
   @ApiProperty({
     description:
-      'Contenu: texte libre, formule LaTeX (ex: $\\\\frac{a}{b}$), ou données image (base64/URL)',
+      'Contenu : texte libre, ou formule LaTeX (ex: $\\\\frac{a}{b}$)',
+    maxLength: MEMO_ITEM_CONTENT_MAX_LENGTH,
   })
   @IsString()
   @IsNotEmpty()
+  @MaxLength(MEMO_ITEM_CONTENT_MAX_LENGTH)
   content: string;
 
   @ApiPropertyOptional({
-    description: `Taille de l'image en Ko (obligatoire si type=image, max ${IMAGE_SIZE_LIMIT_KB} Ko)`,
-    maximum: IMAGE_SIZE_LIMIT_KB,
+    description: "Titre court, optionnel, affiché au-dessus de l'item",
+    maxLength: MEMO_ITEM_TITLE_MAX_LENGTH,
   })
   @IsOptional()
-  @IsNumber()
-  @Min(0)
-  sizeKb?: number;
+  @IsString()
+  @MaxLength(MEMO_ITEM_TITLE_MAX_LENGTH)
+  title?: string;
 
   @ApiPropertyOptional({ description: 'Ordre d\'affichage dans le chapitre', default: 0 })
   @IsOptional()
@@ -47,5 +51,3 @@ export class CreateMemoItemDto {
   @Min(0)
   order?: number;
 }
-
-export { IMAGE_SIZE_LIMIT_KB };

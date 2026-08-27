@@ -5,7 +5,7 @@ import { useVideoRoom } from '../hooks/video/useVideoRoom'
 import Layout from '../components/Layout'
 import RecordingListPanel from '../components/video/RecordingListPanel'
 import CourseSummaryView from '../components/video/CourseSummaryView'
-import InVideoMemoDrawer from '../components/pedagogical-log/InVideoMemoDrawer'
+import { MemoReadOnlyModal } from '../components/pedagogical-log/MemoReadOnlyModal'
 import LiveVideoCall from '../components/video/LiveVideoCall'
 import type { JoinRoomResult } from '../types/video'
 import { isJoinableRoomStatus } from '../utils/video'
@@ -36,8 +36,14 @@ export default function VideoPage() {
   const [activeCall, setActiveCall] = useState<JoinRoomResult | null>(null)
 
   const canClose = hasRole('formateur', 'responsable_pedagogique', 'technicien_informatique', 'animateur_pedagogique')
-  // Le bouton mémo est accessible à l'élève ET au formateur (drawer affiche readonly pour le formateur)
-  const canOpenMemo = hasRole('eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique')
+  // Restreint à l'élève seul (choix tranché le 2026-08-27, chantier
+  // `feat/memo-formules`) : la modale de lecture a besoin d'un `studentId`
+  // explicite, et rien dans `room.participants` (liste d'ids sans rôle) ne
+  // permet de désigner sans ambiguïté « l'élève » du point de vue d'un
+  // formateur/RP/AP. Avant ce chantier, ces rôles voyaient déjà le bouton
+  // mais n'obtenaient jamais qu'un message « non disponible » — aucune
+  // fonctionnalité perdue pour eux, juste un clic mort en moins.
+  const canOpenMemo = hasRole('eleve')
 
   // Erreur d'action affichée en priorité (clôture > rejointe > présence) — chacune est
   // réinitialisée au début de sa propre tentative, donc ne reste visible que jusqu'au prochain essai.
@@ -266,11 +272,11 @@ export default function VideoPage() {
         )}
       </div>
 
-      {/* In-video memo drawer */}
-      <InVideoMemoDrawer
-        isOpen={isMemoDrawerOpen}
-        onClose={() => setIsMemoDrawerOpen(false)}
-      />
+      {/* Mémo de l'élève, en fenêtre déplaçable — garder les formules sous
+          les yeux pendant la session, sans quitter la page. */}
+      {isMemoDrawerOpen && user && (
+        <MemoReadOnlyModal studentId={user.id} onClose={() => setIsMemoDrawerOpen(false)} />
+      )}
     </Layout>
   )
 }

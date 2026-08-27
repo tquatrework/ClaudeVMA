@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildInlineLinkMarkup,
+  buildMathMarkup,
   domPositionForRawOffset,
   insertTextAtSelection,
   isAbsoluteHttpUrl,
@@ -47,6 +48,60 @@ describe('parseLightMarkup', () => {
     expect(parseLightMarkup('[Suspect](javascript:alert(1))')).toEqual([
       { type: 'text', value: '[Suspect](javascript:alert(1))' },
     ])
+  })
+})
+
+// ─── Segment math (2026-08-27, chantier Mémo) ──────────────────────────────
+
+describe('parseLightMarkup — segment math', () => {
+  it('reconnaît une formule inline $...$', () => {
+    expect(parseLightMarkup('Voir $x^2$ ci-dessous.')).toEqual([
+      { type: 'text', value: 'Voir ' },
+      { type: 'math', latex: 'x^2', displayMode: false },
+      { type: 'text', value: ' ci-dessous.' },
+    ])
+  })
+
+  it('reconnaît un bloc mathématique $$...$$ (displayMode)', () => {
+    expect(parseLightMarkup('$$a^2 + b^2 = c^2$$')).toEqual([
+      { type: 'math', latex: 'a^2 + b^2 = c^2', displayMode: true },
+    ])
+  })
+
+  it('distingue $$...$$ de deux formules inline adjacentes', () => {
+    // $$...$$ doit être reconnu comme UN bloc, pas comme un $ vide suivi
+    // d'un texte puis d'un autre $.
+    expect(parseLightMarkup('$$x$$')).toEqual([{ type: 'math', latex: 'x', displayMode: true }])
+  })
+
+  it('mélange liens et maths, dans l\'ordre d\'apparition', () => {
+    expect(parseLightMarkup('Voir [la fiche](https://example.com) et $x^2$.')).toEqual([
+      { type: 'text', value: 'Voir ' },
+      { type: 'link', label: 'la fiche', url: 'https://example.com' },
+      { type: 'text', value: ' et ' },
+      { type: 'math', latex: 'x^2', displayMode: false },
+      { type: 'text', value: '.' },
+    ])
+  })
+
+  it('une formule inline ne franchit jamais un saut de ligne', () => {
+    expect(parseLightMarkup('$x\ny$')).toEqual([{ type: 'text', value: '$x\ny$' }])
+  })
+
+  it('un texte sans formule renvoie un unique segment texte', () => {
+    expect(parseLightMarkup('5 euros pour un café')).toEqual([
+      { type: 'text', value: '5 euros pour un café' },
+    ])
+  })
+})
+
+describe('buildMathMarkup', () => {
+  it('reconstruit une formule inline en $latex$', () => {
+    expect(buildMathMarkup({ latex: 'x^2', displayMode: false })).toBe('$x^2$')
+  })
+
+  it('reconstruit un bloc en $$latex$$', () => {
+    expect(buildMathMarkup({ latex: 'x^2', displayMode: true })).toBe('$$x^2$$')
   })
 })
 

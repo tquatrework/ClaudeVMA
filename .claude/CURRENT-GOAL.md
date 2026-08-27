@@ -5,6 +5,56 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Besoin — 2026-08-27 — Mémo : accès parent + corrections de la modale de lecture
+
+Demande explicite de l'utilisateur, en continuant de tester le Mémo (chantier précédent, PR #137,
+mergé). Branche : `feat/memo-parent-et-modale` (créée depuis `master`, poussée).
+
+1. **Le parent doit avoir accès au Mémo de son enfant en lecture seule depuis l'accueil.**
+   Investigation faite par l'orchestrateur avant délégation : ce n'est **pas** `/my-students`
+   (`MyStudentsPage.tsx`, déjà doté d'un bouton mémo, déjà partagé formateur/parent) que
+   l'utilisateur désigne par « les tuiles de l'accueil » — c'est `ParentDashboardPage.tsx`, la
+   page d'accueil réelle du parent, qui affiche ses propres tuiles élève avec 3 boutons
+   (« Profil », « Calendrier », « Cahier ») distincts de ceux de `MyStudentsPage`. C'est là qu'il
+   faut ajouter un 4ᵉ bouton, après ces trois-là.
+2. **Renommer le bouton « Voir le mémo » en « Mémos »** (tout simplement), sur `MyStudentsPage`
+   et sur la nouvelle tuile du parent.
+3. **Bug réel : le bouton × ne referme pas la modale.** Diagnostic fait par l'orchestrateur
+   (lecture directe de `DraggableModal.tsx`) : `handlePointerDown` du bandeau d'en-tête capture le
+   pointeur (`setPointerCapture`) sur **tout** `pointerdown` dans le bandeau, y compris un clic sur
+   le bouton de fermeture (qui y est imbriqué) — dans ce cas, la capture de pointeur redirige aussi
+   l'événement `click` de compatibilité vers l'élément capturant (le bandeau), pas vers le bouton
+   qui l'a réellement reçu, donc `onClose` ne se déclenche jamais. Correctif : ignorer le
+   déclenchement du glisser (ne pas capturer le pointeur) quand le `pointerdown` provient du bouton
+   de fermeture (ou plus généralement de tout élément interactif du bandeau).
+4. **Filtre par chapitre dans la modale de lecture**, pour formateur/RP/parent comme pour l'élève.
+5. **L'élève doit aussi pouvoir consulter son propre Mémo en modale déplaçable**, globalement ou
+   chapitre par chapitre, pour le garder sous les yeux pendant qu'il fait autre chose — pas
+   seulement pendant une visio (déjà fait). Ajouter des liens/boutons « Détacher » sur sa propre
+   page `/memos` (un global, un par chapitre), ouvrant la même modale déplaçable déjà construite.
+
+Backend : aucun changement identifié a priori — l'accès en lecture du parent
+(`FINANCE_OWNER_OF_STUDENT`) est déjà câblé dans `assertCanRead` côté `pedagogical-log-service`
+(chantier précédent), à reconfirmer en HTTP réel une fois le front livré plutôt que supposé acquis.
+
+### Comment on saura que c'est fait
+
+Capture ou test réel montrant : bouton « Mémos » sur la tuile parent de l'accueil, ouvrant la
+modale en lecture seule ; le bouton × referme bien la modale (formateur, parent, élève) ; un
+filtre par chapitre fonctionnel dans la modale ; un lien « Détacher » sur `/memos` (élève) ouvrant
+la modale sur son propre contenu, global ou par chapitre. Réponse HTTP citée confirmant l'accès
+parent (`GET /memos/students/:studentId` → `200` pour un parent lié, `403` pour un parent non lié).
+
+### État
+
+- [ ] Front `apps/web` — les 5 points. Pas encore délégué.
+- [ ] Vérification backend (accès parent) contre la pile réelle.
+- [ ] Déployé sur la pile réelle.
+- [ ] Preuve livrée à l'utilisateur.
+- [ ] Validé par l'utilisateur.
+
+---
+
 ## Besoin — 2026-08-27 — Mémo (pense-bête de formules de l'élève)
 
 Demande explicite de l'utilisateur. Branche : `feat/memo-formules` (créée depuis `master`, poussée).

@@ -91,6 +91,33 @@ formule saisie via MathLive et rendue en LaTeX, une image jointe et affichée.
   l'écran, le comportement de la modale déplaçable (glisser réellement la fenêtre), l'apparence du
   bouton « Voir le mémo » sur la tuile élève — à demander à l'utilisateur quel niveau de preuve il
   souhaite pour cette partie (comme pour le chantier précédent).
+- [ ] **Deux défauts remontés par le test utilisateur en direct (2026-08-27), à corriger avant
+  validation** :
+  1. **Le titre par item a disparu.** Régression réelle, pas une nouvelle demande : l'ancien modèle
+     plat `Memo` portait un `title` (l'ancien `MemoItemEditor` avait un champ titre), mais la
+     migration `CreateMemoTables` (B2 du plan, approuvé par l'utilisateur) ne l'a jamais repris sur
+     `memo_items` — **oubli de l'orchestrateur dans la spécification du plan**, pas un défaut
+     d'exécution du sous-agent. Confirmé par relecture de `docs/routes.md` : la forme d'un
+     `MemoItem` documentée ne porte que `{id, chapterId, type, content, order, ...}`, aucun
+     `title`. Vérifié aussi rétrospectivement sur le test HTTP de l'orchestrateur : un `title`
+     envoyé à la création avait été silencieusement absorbé sans effet (violation de la convention
+     du projet « aucun champ non prévu n'est absorbé en silence », déjà signalée ailleurs sur ce
+     service). À corriger : nouvelle migration ajoutant `title` à `memo_items`, DTOs mis à jour,
+     `docs/routes.md` corrigé, formulaire front restauré. Délégué à `pedagogical-log-service` puis
+     `front-developper`, séquencé backend d'abord.
+  2. **Une formule incomplète produit un texte d'erreur brut affiché à l'écran.** L'utilisateur a
+     rapporté : « Formule illisible : x^2=a,S=\left\lbrace\sqrt[\placeholder{}]{a};-\sqrt
+     [\placeholder{}]{a}\right\rbrace ». Cause identifiée par l'orchestrateur (lecture directe de
+     `apps/web/src/components/ui/MathRenderer.tsx`) : quand un gabarit MathLive (ex. racine
+     n-ième) est inséré sans que l'utilisateur ne renseigne toutes ses cases, MathLive sérialise la
+     case vide en `\placeholder{}` dans le LaTeX exporté — syntaxe interne à MathLive, jamais
+     valide pour KaTeX, qui échoue au rendu (`throwOnError: true`) et déclenche le repli
+     `MathRenderer` affichant le LaTeX brut avec ce jargon interne, incompréhensible pour un élève.
+     Le vrai problème n'est pas le message de repli en lui-même mais qu'une formule incomplète ait
+     pu être **enregistrée** telle quelle : la validation doit avoir lieu **avant** la sauvegarde
+     (détecter `\placeholder{}`/case non remplie, refuser l'enregistrement avec un message clair en
+     français invitant à compléter la formule), pas seulement au rendu. Délégué à
+     `front-developper`.
 - [ ] Validé par l'utilisateur.
 
 ---

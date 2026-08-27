@@ -14,9 +14,12 @@
  * captures d'écran (docs/architecture.md, « Specification fonctionnelle
  * reelle du carnet personnel — notes rapides immuables ») : ce sont des
  * pensées instantanées, IMMUABLES une fois écrites (suppression possible,
- * AUCUNE édition), retrouvées par recherche (date ou mot). Cette suite
- * couvre donc : ajout, suppression, recherche — et vérifie explicitement
- * l'ABSENCE de tout mécanisme d'édition.
+ * AUCUNE édition), retrouvées par recherche (date ou mot). Contrat de
+ * recherche réel confirmé le même jour par le backend (PR #144,
+ * pedagogical-log-service) : `GET .../notebook?from=&to=&q=`, `PATCH` retiré
+ * (`404`). Cette suite couvre donc : ajout, suppression, recherche par mot,
+ * recherche par date (`from`=`to`) — et vérifie explicitement l'ABSENCE de
+ * tout mécanisme d'édition.
  *
  * PedagogicalLogPage (cahier de texte) a sa propre suite dédiée depuis la
  * refonte du 2026-08-20 : test/pages/PedagogicalLogPage.test.tsx.
@@ -218,12 +221,12 @@ describe('NotebookPage — pensées instantanées', () => {
 
     await waitFor(() => {
       expect(mockApiClient.get).toHaveBeenCalledWith('/pedagogical-logs/notebook', {
-        params: { q: 'intégrales', date: undefined },
+        params: { q: 'intégrales', from: undefined, to: undefined },
       })
     })
   })
 
-  it('recherche par date et transmet le paramètre `date`', async () => {
+  it('recherche par date et transmet `from`/`to` identiques (contrat PR #144)', async () => {
     mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
 
     renderNotebookPage()
@@ -240,7 +243,7 @@ describe('NotebookPage — pensées instantanées', () => {
 
     await waitFor(() => {
       expect(mockApiClient.get).toHaveBeenCalledWith('/pedagogical-logs/notebook', {
-        params: { q: undefined, date: '2026-08-20' },
+        params: { q: undefined, from: '2026-08-20', to: '2026-08-20' },
       })
     })
   })

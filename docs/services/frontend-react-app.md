@@ -2578,16 +2578,38 @@
         <file path="src/pages/QuizzPage.tsx">Etat « a venir » pour Quizz, aucun appel API.</file>
       </filesAdded>
 
+      <decision id="notebook-search-contract-confirmed-pr144">
+        <title>Contrat de recherche confirme (PR #144) : from/to/q, plus de date</title>
+        <description>
+          Le coordinateur a transmis le contrat HTTP reel de la PR #144 (pedagogical-log-service,
+          **ouverte, non mergee**) juste apres la correction precedente, qui avait code `date`/`q`
+          par anticipation d'apres l'arbitrage docs/architecture.md. Contrat reel, different :
+          `GET /pedagogical-logs/notebook?from=&to=&q=`, tous optionnels et combinables — `from`/`to`
+          filtrent sur `createdAt` en **plage**, une date precise s'exprime en envoyant `from=to`
+          (meme valeur sur les deux) ; `q` reste une recherche texte libre inchangee ; sans parametre,
+          comportement inchange (tout renvoye). `PATCH /pedagogical-logs/notebook/:id` **n'existe
+          plus** (`404`), confirmant la decision precedente de ne construire aucune UI d'edition.
+          `NotebookSearchParams` passe de `{date?, q?}` a `{from?, to?, q?}` dans
+          `src/api/pedagogicalLogNotebook.ts` ; `NotebookPage.tsx` garde son ergonomie a deux champs
+          (mot + date, choix explicitement laisse a l'agent par le coordinateur — « a toi de choisir
+          l'ergonomie la plus simple ») mais traduit desormais en interne le champ date unique en
+          `{from: valeur, to: valeur}` avant l'appel — un seul controle visible, deux parametres
+          transmis. Tests adaptes en consequence (memes six cas, assertions sur `from`/`to`
+          seulement).
+        </description>
+        <status>resolved</status>
+      </decision>
+
       <filesModified>
         <file path="src/navigation/navigationConfig.ts">Quatre blocs de rail modifies (eleve, formateur, parent_financeur, animateur_pedagogique) — voir decisions ci-dessus. Chemin du Carnet personnel devenu statique (`/notebook/mine`) pour tous les roles concernes.</file>
         <file path="src/navigation/routeAccessMap.ts">Ajout de `/content/quizz` (eleve, formateur) ; consolidation de l'ancien `/notebook` (eleve/RP/TI) et du nouveau `/notebook/mine` en une seule entree `/notebook/mine` (eleve, formateur, animateur_pedagogique).</file>
         <file path="src/App.tsx">Ajout de la route `/content/quizz` ; remplacement de `/notebook/:studentId` par `/notebook/mine` (roles eleve, formateur, animateur_pedagogique), toutes deux montant desormais `NotebookPage`.</file>
         <file path="src/pages/MyStudentsPage.tsx">Titre et sous-titre role-dependants pour l'AP (« Mes professeurs »), aucun changement de logique de droit ni de donnee.</file>
-        <file path="src/api/pedagogicalLogNotebook.ts">Contrat entierement reecrit : plus de `studentId` en parametre, chemin `pedagogical-logs/notebook`(`/:id`), champ de reponse `ownerId` ; puis correction : retrait de `updateNotebookEntry`/`UpdateNotebookEntryPayload` et de `updatedAt`, ajout de `NotebookSearchParams {date?, q?}` sur `fetchNotebookEntries`.</file>
-        <file path="src/pages/NotebookPage.tsx">Devient generique par titulaire : plus de `useParams`, plus de garde de role interne (delegue a `ProtectedRoute`), consomme le nouveau contrat d'API ; puis correction : retrait complet de l'UI d'edition, ajout de la saisie rapide (« Noter ») et de la barre de recherche (mot + date).</file>
+        <file path="src/api/pedagogicalLogNotebook.ts">Contrat entierement reecrit : plus de `studentId` en parametre, chemin `pedagogical-logs/notebook`(`/:id`), champ de reponse `ownerId` ; puis correction : retrait de `updateNotebookEntry`/`UpdateNotebookEntryPayload` et de `updatedAt` ; puis contrat de recherche final `NotebookSearchParams {from?, to?, q?}` (PR #144) sur `fetchNotebookEntries`.</file>
+        <file path="src/pages/NotebookPage.tsx">Devient generique par titulaire : plus de `useParams`, plus de garde de role interne (delegue a `ProtectedRoute`), consomme le nouveau contrat d'API ; puis correction : retrait complet de l'UI d'edition, ajout de la saisie rapide (« Noter ») et de la barre de recherche (mot + date, traduite en `from`/`to` identiques avant l'appel).</file>
         <file path="src/components/Layout.tsx">Retrait de la reecriture `/notebook/${'{user.id}'}` (chemin desormais statique dans navigationConfig.ts).</file>
         <file path="src/pages/EleveDashboardPage.tsx">Meme retrait de reecriture que Layout.tsx.</file>
-        <file path="test/pages/pedagogicalLog.test.tsx">Suite NotebookPage adaptee au nouveau contrat (route `/notebook/mine`, appels `/pedagogical-logs/notebook`, champ `ownerId`) ; puis reecrite pour la specification « pensees instantanees » : ajout, suppression, recherche par mot, recherche par date, et un test explicite verifiant l'ABSENCE de tout mecanisme d'edition (aucun bouton « Modifier »/« Enregistrer », aucun appel `PATCH`).</file>
+        <file path="test/pages/pedagogicalLog.test.tsx">Suite NotebookPage adaptee au nouveau contrat (route `/notebook/mine`, appels `/pedagogical-logs/notebook`, champ `ownerId`) ; reecrite pour la specification « pensees instantanees » (ajout, suppression, recherche par mot, recherche par date, absence de tout mecanisme d'edition) ; puis alignee sur le contrat final `from`/`to` de la PR #144.</file>
       </filesModified>
 
       <filesRemoved>
@@ -2598,17 +2620,17 @@
         `npx tsc --noEmit` : 0 erreur. `npm run build` : succes (bundle genere,
         avertissement de taille de chunk preexistant, sans lien avec cette session).
         `npx vitest run` (suite complete, 179 fichiers) : 1974/1977 tests verts (6/6 sur
-        `test/pages/pedagogicalLog.test.tsx` apres la correction « pensees instantanees »). Les 3
+        `test/pages/pedagogicalLog.test.tsx` avec le contrat final `from`/`to`/`q`). Les 3
         echecs restants sont **preexistants**, verifies par `git stash` contre l'etat de `master`
         avant cette session (memes echecs, memes fichiers, aucun lien avec les changements de cette
         session) : 2 dans `test/pages/EleveDashboardPage.test.tsx` (assertions sur « Demander un
         professeur » / « Changer de professeur », deja rouges avant), 1 dans
         `test/pedagogicalLogMemos.api.test.ts` (upload d'image memo, sans rapport avec le rail de
         navigation). **Non verifie contre la pile reelle deployee** pour la partie carnet personnel :
-        ni la PR #140 (deja mergee sur master, mais docs/routes.md non mis a jour, voir plus bas) ni
-        la nouvelle branche backend (retrait de PATCH, ajout recherche date/mot, PR #143 pour
-        l'arbitrage docs) n'ont ete verifiees ensemble contre la pile deployee au moment ou cette
-        correction se termine — a rejouer en HTTP direct une fois toutes les PR concernees mergees.
+        PR #140 (generalisation) est deja mergee sur master, mais PR #144
+        (pedagogical-log-service, retrait de `PATCH` + recherche `from`/`to`/`q`) et cette PR front
+        restent toutes deux **ouvertes** — a rejouer en HTTP direct une fois les deux mergees et
+        deployees ensemble.
       </realStackVerification>
 
       <openPoints>
@@ -2618,20 +2640,12 @@
           une interpretation assumee par l'agent, pas confirmee mot pour mot. A valider ou
           corriger explicitement par l'utilisateur.
         </item>
-        <item id="notebook-search-contract-not-yet-confirmed-by-backend-report">
-          Les noms de parametres de recherche (`date`, `q`) sont repris de l'arbitrage
-          docs/architecture.md, pas encore confirmes par un rapport du sous-agent
-          pedagogical-log-service (chantier en cours sur une branche distincte au moment ou cette
-          correction est codee). A verifier/ajuster des que ce rapport arrive — forme exacte des
-          valeurs acceptees pour `date` (jour seul ? plage ?), comportement si les deux parametres
-          sont combines, format de reponse en cas de recherche sans resultat.
-        </item>
         <item id="notebook-not-verified-against-real-stack">
           Le carnet personnel generalise et corrige (route `/pedagogical-logs/notebook`, champ
-          `ownerId`, recherche `date`/`q`, plus de `PATCH`) est cable et couvert par des tests
-          simulant le reseau, mais n'a pas ete rejoue en HTTP direct contre la pile reelle. A
-          verifier des que toutes les PR concernees (celle-ci, #140 deja mergee, et la nouvelle
-          branche backend retirant PATCH/ajoutant la recherche) sont deployees ensemble — un
+          `ownerId`, recherche `from`/`to`/`q`, plus de `PATCH`) est cable et couvert par des tests
+          simulant le reseau, mais n'a pas ete rejoue en HTTP direct contre la pile reelle : la
+          PR #144 (pedagogical-log-service) n'etait pas encore mergee au moment ou cette session se
+          termine. A verifier des que cette PR front et la PR #144 sont deployees ensemble — un
           decalage de deploiement romprait le carnet personnel de l'eleve, deja en production sur
           l'ancien contrat.
         </item>
@@ -2644,7 +2658,7 @@
           `PATCH`, `updatedAt`) alors meme que PR #140 (generalisation) est **deja mergee sur
           master** : la mise a jour de ce fichier releve du sous-agent pedagogical-log-service
           (proprietaire du service), pas de ce sous-agent front. A verifier que la documentation est
-          bien mise a jour au merge de la PR en cours (retrait PATCH + recherche).
+          bien mise a jour au merge de la PR #144.
         </item>
       </openPoints>
     </session>

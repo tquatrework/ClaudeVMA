@@ -23,8 +23,15 @@
  * menu n'a été demandée pour eux : ne pas l'ouvrir sans demande explicite
  * (règle projet « jamais de menu sans approbation »).
  *
+ * Contrat de recherche réel (PR #144, pedagogical-log-service, contrat confirmé
+ * le 2026-08-27) : `GET /pedagogical-logs/notebook?from=&to=&q=`. `from`/`to`
+ * filtrent sur `createdAt` (plage) ; une recherche par date précise envoie la
+ * même valeur sur les deux. Le champ de recherche « une date » de cet écran
+ * traduit donc en interne un seul champ saisi en `{from, to}` identiques —
+ * un seul contrôle visible, deux paramètres transmis.
+ *
  * Routes API (voir src/api/pedagogicalLogNotebook.ts) :
- *   GET    /pedagogical-logs/notebook?date=&q=
+ *   GET    /pedagogical-logs/notebook?from=&to=&q=
  *   POST   /pedagogical-logs/notebook
  *   DELETE /pedagogical-logs/notebook/:id
  */
@@ -51,7 +58,7 @@ export default function NotebookPage() {
   const [searchDate, setSearchDate] = useState('')
   const [isSearching, setIsSearching] = useState(false)
 
-  const loadEntries = (params?: { q?: string; date?: string }) => {
+  const loadEntries = (params?: { q?: string; from?: string; to?: string }) => {
     setIsLoading(true)
     setErrorMessage(null)
     fetchNotebookEntries(params)
@@ -102,9 +109,12 @@ export default function NotebookPage() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
     setIsSearching(true)
+    // Une date précise se traduit en from=to (même valeur sur les deux
+    // bornes), comme documenté par le contrat réel de la route.
     loadEntries({
       q: searchWord.trim() || undefined,
-      date: searchDate || undefined,
+      from: searchDate || undefined,
+      to: searchDate || undefined,
     })
   }
 

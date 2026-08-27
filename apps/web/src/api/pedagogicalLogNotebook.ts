@@ -17,11 +17,15 @@
  * ce sont des notes rapides horodatées automatiquement à la création, des
  * « pensées instantanées », strictement IMMUABLES une fois écrites —
  * suppression possible, AUCUNE édition. `updateNotebookEntry` est donc retiré
- * (la route `PATCH .../notebook/:id`, ajoutée le même jour par la
- * généralisation, est elle-même retirée côté serveur, PR distincte en cours).
- * La lecture se fait par recherche (une date, ou un mot), pas par simple
- * défilement d'une liste brute : `fetchNotebookEntries` accepte des
- * paramètres de filtre optionnels `date` et `q`.
+ * (la route `PATCH .../notebook/:id` n'existe plus côté serveur — `404` —
+ * depuis la PR #144 pedagogical-log-service, contrat confirmé le 2026-08-27).
+ *
+ * Contrat de recherche réel (PR #144, transmis par le coordinateur) :
+ * `GET /pedagogical-logs/notebook?from=&to=&q=`, tous optionnels et
+ * combinables. `from`/`to` filtrent sur `createdAt` (plage) ; pour une date
+ * précise, envoyer `from=to` (même valeur sur les deux). `q` fait une
+ * recherche texte libre sur le contenu. Sans aucun paramètre, comportement
+ * inchangé (tout renvoyé).
  *
  * Toutes les requêtes passent par apiClient (base /api/v1).
  */
@@ -42,11 +46,13 @@ export interface CreateNotebookEntryPayload {
 /**
  * Filtre de recherche optionnel — une pensée instantanée se retrouve par sa
  * date ou par un mot de son contenu, jamais en faisant défiler une liste
- * brute. Les deux peuvent être combinés.
+ * brute. Les trois peuvent être combinés (PR #144, pedagogical-log-service).
  */
 export interface NotebookSearchParams {
-  /** Date de création (`YYYY-MM-DD`), pour retrouver les notes d'un jour donné. */
-  date?: string
+  /** Borne basse de `createdAt` (ISO). Pour une date précise, égale à `to`. */
+  from?: string
+  /** Borne haute de `createdAt` (ISO). Pour une date précise, égale à `from`. */
+  to?: string
   /** Recherche textuelle libre dans le contenu de la note. */
   q?: string
 }

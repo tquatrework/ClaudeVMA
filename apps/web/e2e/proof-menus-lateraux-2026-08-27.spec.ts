@@ -37,3 +37,14 @@ for (const { role, login } of accounts) {
     })
   })
 }
+
+test('carnet personnel — notes rapides, sans édition, recherche par mot', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByPlaceholder('jean.dupont').fill('menutest.eleve.1787857885')
+  await page.getByPlaceholder('••••••••').fill(PASSWORD)
+  await page.getByRole('button', { name: 'Se connecter' }).click()
+  await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 })
+
+  await page.goto('/notebook/mine')
+  await page.screenshot({ path: 'test-results/proof-carnet-personnel.png', fullPage: true })
+})

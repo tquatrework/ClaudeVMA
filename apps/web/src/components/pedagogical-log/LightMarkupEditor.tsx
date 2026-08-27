@@ -46,6 +46,7 @@
 
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useId, useRef } from 'react'
 import {
+  buildMathMarkup,
   domPositionForRawOffset,
   LIGHT_MARKUP_CHIP_ATTR,
   LIGHT_MARKUP_LABEL_ATTR,
@@ -96,7 +97,12 @@ function buildEditorNodes(document: Document, text: string): Node[] {
       chip.textContent = segment.label
       nodes.push(chip)
     } else {
-      const lines = segment.value.split('\n')
+      // Un segment `math` ($...$/$$...$$) n'est pas rendu en jeton ici — ce
+      // composant ne gère que les liens comme jetons atomiques ; une formule
+      // reste du texte brut éditable au caractère près, comme avant que le
+      // parseur ne la reconnaisse (voir `buildMathMarkup`).
+      const textValue = segment.type === 'text' ? segment.value : buildMathMarkup(segment)
+      const lines = textValue.split('\n')
       lines.forEach((line, index) => {
         if (index > 0) nodes.push(document.createElement('br'))
         if (line) nodes.push(document.createTextNode(line))

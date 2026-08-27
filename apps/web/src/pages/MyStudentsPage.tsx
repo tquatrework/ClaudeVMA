@@ -16,12 +16,13 @@
  * liens qui vont dans l'autre sens (mon professeur, mon parent) relèvent de Contacts.
  */
 
-import React from 'react'
+import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
 import { useMyContacts } from '../hooks/relations/useMyContacts'
-import { describeRelations, isSupervisedContact } from '../utils/relationAccess'
+import { describeRelations, isStudentLikeContact, isSupervisedContact } from '../utils/relationAccess'
+import { MemoReadOnlyModal } from '../components/pedagogical-log/MemoReadOnlyModal'
 
 export default function MyStudentsPage() {
   const { hasRole } = useAuth()
@@ -29,6 +30,13 @@ export default function MyStudentsPage() {
 
   const supervisedContacts = contacts.filter(isSupervisedContact)
   const isParentFinanceur = hasRole('parent_financeur')
+
+  // Pas de navigation : la page reste affichée derrière la modale — état
+  // local de l'élève actuellement consulté (`null` = aucune modale ouverte).
+  const [memoModalContact, setMemoModalContact] = useState<{
+    userId: string
+    displayName: string
+  } | null>(null)
 
   return (
     <Layout>
@@ -95,10 +103,29 @@ export default function MyStudentsPage() {
                   >
                     Cahier de texte
                   </Link>
+                  {isStudentLikeContact(contact) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setMemoModalContact({ userId: contact.userId, displayName: contact.displayName })
+                      }
+                      className="text-sm text-indigo-600 border border-indigo-200 px-3 py-1 rounded-lg hover:bg-indigo-50 transition-colors"
+                    >
+                      Voir le mémo
+                    </button>
+                  )}
                 </div>
               </li>
             ))}
           </ul>
+        )}
+
+        {memoModalContact && (
+          <MemoReadOnlyModal
+            studentId={memoModalContact.userId}
+            title={`Mémo de ${memoModalContact.displayName}`}
+            onClose={() => setMemoModalContact(null)}
+          />
         )}
       </div>
     </Layout>

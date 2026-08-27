@@ -11,8 +11,10 @@
  * Liens dans le texte (2026-08-26) : `sessionSummary`/`homework` sont rendus
  * via `LightMarkupText` (transforme `[texte](url)` en vrai lien cliquable) au
  * lieu de texte brut ; en édition, un bouton « Insérer un lien »
- * (`InsertLinkButton`) accompagne chaque `<textarea>`. Remplace l'ancien
- * `ResourceLinkEditor`/`resourceLinks` (champ structuré séparé, retiré).
+ * (`InsertLinkButton`) accompagne chaque `LightMarkupTextarea` (calque de
+ * coloration syntaxique pendant la saisie, corrigé le 2026-08-27 — voir ce
+ * composant). Remplace l'ancien `ResourceLinkEditor`/`resourceLinks` (champ
+ * structuré séparé, retiré).
  *
  * Extrait de PedagogicalLogPage (lot 10 — normalisation, découpage > 300 lignes).
  * Présentationnel : le state d'édition reste porté par la page.
@@ -26,6 +28,7 @@ import { getLogVisibilityLabel } from '../../utils/pedagogicalLogLabels'
 import { LightMarkupText } from '../ui/LightMarkupText'
 import { LogEntryAttachments } from './LogEntryAttachments'
 import { InsertLinkButton } from './InsertLinkButton'
+import { LightMarkupTextarea } from './LightMarkupTextarea'
 
 export interface LogEntryEditValues {
   date: string
@@ -130,15 +133,13 @@ export function PedagogicalLogEntryItem({
                 <label className="block text-xs text-gray-500 mb-1" htmlFor={`edit-summary-${logPage.id}`}>
                   Déroulement de la séance
                 </label>
-                <textarea
+                <LightMarkupTextarea
                   id={`edit-summary-${logPage.id}`}
                   ref={editSummaryRef}
                   value={editValues.sessionSummary}
-                  onChange={(event) =>
-                    onEditValuesChange({ ...editValues, sessionSummary: event.target.value })
-                  }
+                  onChange={(value) => onEditValuesChange({ ...editValues, sessionSummary: value })}
                   rows={3}
-                  className="w-full border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
+                  borderClassName="border-indigo-300"
                 />
                 <InsertLinkButton
                   fieldLabel="Déroulement de la séance"
@@ -151,13 +152,13 @@ export function PedagogicalLogEntryItem({
                 <label className="block text-xs text-gray-500 mb-1" htmlFor={`edit-homework-${logPage.id}`}>
                   À faire
                 </label>
-                <textarea
+                <LightMarkupTextarea
                   id={`edit-homework-${logPage.id}`}
                   ref={editHomeworkRef}
                   value={editValues.homework}
-                  onChange={(event) => onEditValuesChange({ ...editValues, homework: event.target.value })}
+                  onChange={(value) => onEditValuesChange({ ...editValues, homework: value })}
                   rows={3}
-                  className="w-full border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
+                  borderClassName="border-indigo-300"
                 />
                 <InsertLinkButton
                   fieldLabel="À faire"

@@ -35,9 +35,15 @@
  * `resourceLinks` structuré séparé (retiré après retour utilisateur réel).
  * Le formulaire de création et l'édition inline sont gérés par les hooks
  * `useNewLogEntryForm`/`useLogEntryEditing` (extraits pour rester sous
- * 300 lignes) ; les pièces jointes vivent sur chaque entrée déjà créée
- * (`LogEntryAttachments`, dans `LogEntryList`), le `logId` étant requis par
- * `POST /logs/:id/attachments`.
+ * 300 lignes) ; les pièces jointes des entrées déjà créées vivent dans
+ * `LogEntryAttachments` (via `LogEntryList`).
+ *
+ * Pièce jointe choisie **pendant** la saisie de la nouvelle entrée
+ * (2026-08-27, défaut majeur remonté par test utilisateur) : les réglages
+ * système (`useAttachmentSettings`) sont désormais lus **avant** de
+ * construire `useNewLogEntryForm`, qui en a besoin pour valider localement le
+ * fichier choisi et l'envoyer juste après la création de l'entrée — voir ce
+ * hook pour le détail de la séquence.
  */
 
 import React, { useState } from 'react'
@@ -50,6 +56,7 @@ import { useAttachmentSettings } from '../hooks/pedagogical-log/useAttachmentSet
 import { useNewLogEntryForm } from '../hooks/pedagogical-log/useNewLogEntryForm'
 import { useLogEntryEditing } from '../hooks/pedagogical-log/useLogEntryEditing'
 import { isStudentLikeContact } from '../utils/relationAccess'
+import { getAttachmentMaxSizeHint } from '../utils/logAttachment'
 import type { PedagogicalLogPage as LogPage } from '../api/pedagogicalLog'
 import SpecialLogPageVisibilityDialog from '../components/pedagogical-log/SpecialLogPageVisibilityDialog'
 import { NewLogPageForm } from '../components/pedagogical-log/NewLogPageForm'
@@ -101,8 +108,17 @@ export default function PedagogicalLogPage() {
     addLocalEntry,
   } = usePedagogicalLog(studentId, { from: fromDate || undefined, to: toDate || undefined })
 
-  // ─── Formulaire de création (points 1, 2, et liens du 2026-08-26) ────────
-  const newEntryForm = useNewLogEntryForm(createEntry)
+  const canWriteNormalEntry = isFormateur && Boolean(studentId)
+
+  // Réglages système des pièces jointes — lus une seule fois par la page (pas
+  // par entrée), utiles seulement au formateur qui peut en joindre. Lus
+  // **avant** `useNewLogEntryForm`, qui en a besoin pour valider localement
+  // un fichier choisi pendant la saisie (2026-08-27).
+  const { attachmentSettings } = useAttachmentSettings(canWriteNormalEntry)
+
+  // ─── Formulaire de création (points 1, 2, liens du 2026-08-26, pièce
+  // jointe choisie pendant la saisie du 2026-08-27) ─────────────────────────
+  const newEntryForm = useNewLogEntryForm(createEntry, isCreating, attachmentSettings)
 
   // ─── Page spéciale RP — mécanisme inchangé ───────────────────────────────
   const [isSpecialPageDialogOpen, setIsSpecialPageDialogOpen] = useState(false)
@@ -126,12 +142,7 @@ export default function PedagogicalLogPage() {
     isTechnicienInformatique: hasRole('technicien_informatique'),
   }
 
-  const canWriteNormalEntry = isFormateur && Boolean(studentId)
   const isReadOnly = !isFormateur && !isResponsablePedagogique
-
-  // Réglages système des pièces jointes — lus une seule fois par la page (pas
-  // par entrée), utile seulement au formateur qui peut en joindre.
-  const { attachmentSettings } = useAttachmentSettings(isFormateur)
 
   return (
     <Layout>
@@ -202,14 +213,31 @@ export default function PedagogicalLogPage() {
                 onHomeworkChange={newEntryForm.onHomeworkChange}
                 selectedVisibility={newEntryForm.visibility}
                 onVisibilityChange={newEntryForm.onVisibilityChange}
-                isSaving={isCreating}
+                isSaving={newEntryForm.isSaving}
                 errorMessage={createError}
                 onSubmit={newEntryForm.handleSubmit}
                 onCancel={newEntryForm.handleCancel}
+                attachmentsEnabled={attachmentSettings.attachmentsEnabled}
+                maxFileBytesHint={getAttachmentMaxSizeHint(attachmentSettings.maxFileBytes)}
+                pendingAttachmentName={newEntryForm.pendingAttachmentName}
+                pendingAttachmentSizeLabel={newEntryForm.pendingAttachmentSizeLabel}
+                attachmentError={newEntryForm.attachmentError}
+                onSelectAttachment={newEntryForm.onSelectAttachment}
+                onRemoveAttachment={newEntryForm.onRemoveAttachment}
               />
             )}
             {!canWriteNormalEntry && createError && (
               <ErrorMessage message={createError} onClose={dismissCreateError} />
+            )}
+            {/* Échec d'envoi de la pièce jointe survenu après une création réussie :
+                le formulaire s'est déjà refermé, l'entrée existe — on garde le
+                message d'erreur visible au niveau de la page (2026-08-27). */}
+            {!newEntryForm.isNewEntryFormOpen && newEntryForm.attachmentError && (
+              <ErrorMessage
+                message={newEntryForm.attachmentError}
+                onClose={newEntryForm.dismissAttachmentError}
+                variant="warning"
+              />
             )}
 
             {isResponsablePedagogique && (

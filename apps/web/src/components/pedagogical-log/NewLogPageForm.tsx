@@ -18,12 +18,25 @@
  * la position du curseur — remplace l'ancien `ResourceLinkEditor` (champ
  * structuré séparé, retiré). Nécessite une référence DOM vers chaque
  * `<textarea>` pour connaître la position du curseur au moment du clic.
+ * Le rendu du lien pendant la saisie passe par `LightMarkupTextarea`
+ * (défaut mineur corrigé le 2026-08-27, voir ce fichier) — expose toujours
+ * un vrai `HTMLTextAreaElement`, `InsertLinkButton` n'a pas changé.
+ *
+ * Pièce jointe choisie pendant la saisie (2026-08-27, défaut majeur) : un
+ * fichier peut être sélectionné avant même que l'entrée existe — il est gardé
+ * en état local (porté par `useNewLogEntryForm`) et envoyé juste après la
+ * création, dans le même geste de soumission pour l'utilisateur. Auparavant,
+ * le bouton de pièce jointe n'apparaissait qu'après coup, sur l'entrée déjà
+ * créée (`LogEntryAttachments`), parce que l'upload exige un `logEntryId`
+ * existant — cette contrainte serveur n'a pas changé, seule la séquence côté
+ * front est désormais transparente pour l'utilisateur.
  */
 
-import React, { useRef } from 'react'
+import React, { useId, useRef } from 'react'
 import type { LogVisibility } from '../../api/pedagogicalLog'
 import { LOG_VISIBILITY_LABELS, SELECTABLE_LOG_VISIBILITIES } from '../../utils/pedagogicalLogLabels'
 import { InsertLinkButton } from './InsertLinkButton'
+import { LightMarkupTextarea } from './LightMarkupTextarea'
 
 interface NewLogPageFormProps {
   date: string
@@ -38,6 +51,15 @@ interface NewLogPageFormProps {
   errorMessage: string | null
   onSubmit: (event: React.FormEvent) => void
   onCancel: () => void
+
+  /** Pièce jointe choisie pendant la saisie — voir `useNewLogEntryForm`. */
+  attachmentsEnabled: boolean
+  maxFileBytesHint: string
+  pendingAttachmentName: string | null
+  pendingAttachmentSizeLabel: string | null
+  attachmentError: string | null
+  onSelectAttachment: (file: File | null) => void
+  onRemoveAttachment: () => void
 }
 
 export function NewLogPageForm({
@@ -53,9 +75,17 @@ export function NewLogPageForm({
   errorMessage,
   onSubmit,
   onCancel,
+  attachmentsEnabled,
+  maxFileBytesHint,
+  pendingAttachmentName,
+  pendingAttachmentSizeLabel,
+  attachmentError,
+  onSelectAttachment,
+  onRemoveAttachment,
 }: NewLogPageFormProps) {
   const sessionSummaryRef = useRef<HTMLTextAreaElement>(null)
   const homeworkRef = useRef<HTMLTextAreaElement>(null)
+  const attachmentInputId = useId()
 
   return (
     <div className="mb-6">
@@ -106,14 +136,13 @@ export function NewLogPageForm({
           <label htmlFor="log-session-summary" className="block text-xs text-gray-500 mb-1">
             Déroulement de la séance
           </label>
-          <textarea
+          <LightMarkupTextarea
             id="log-session-summary"
             ref={sessionSummaryRef}
             value={sessionSummary}
-            onChange={(event) => onSessionSummaryChange(event.target.value)}
+            onChange={onSessionSummaryChange}
             placeholder="Notions abordées, difficultés observées… (optionnel)"
             rows={3}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
           />
           <InsertLinkButton
             fieldLabel="Déroulement de la séance"
@@ -127,14 +156,13 @@ export function NewLogPageForm({
           <label htmlFor="log-homework" className="block text-xs text-gray-500 mb-1">
             À faire
           </label>
-          <textarea
+          <LightMarkupTextarea
             id="log-homework"
             ref={homeworkRef}
             value={homework}
-            onChange={(event) => onHomeworkChange(event.target.value)}
+            onChange={onHomeworkChange}
             placeholder="Exercices, révisions… (optionnel)"
             rows={3}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
           />
           <InsertLinkButton
             fieldLabel="À faire"
@@ -143,6 +171,52 @@ export function NewLogPageForm({
             onChange={onHomeworkChange}
           />
         </div>
+
+        {attachmentsEnabled && (
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Pièce jointe</label>
+            {pendingAttachmentName ? (
+              <div className="flex items-center gap-2 text-sm text-gray-700">
+                <span className="truncate">{pendingAttachmentName}</span>
+                {pendingAttachmentSizeLabel && (
+                  <span className="text-xs text-gray-400">({pendingAttachmentSizeLabel})</span>
+                )}
+                <button
+                  type="button"
+                  onClick={onRemoveAttachment}
+                  className="text-xs text-red-400 hover:underline"
+                >
+                  Retirer
+                </button>
+              </div>
+            ) : (
+              <>
+                <label
+                  htmlFor={attachmentInputId}
+                  className="inline-flex cursor-pointer items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+                >
+                  Joindre un fichier
+                </label>
+                <input
+                  id={attachmentInputId}
+                  type="file"
+                  className="sr-only"
+                  onChange={(event) => {
+                    const selectedFile = event.target.files?.[0] ?? null
+                    onSelectAttachment(selectedFile)
+                    event.target.value = ''
+                  }}
+                />
+                <p className="mt-0.5 text-xs text-gray-400">{maxFileBytesHint}</p>
+              </>
+            )}
+            {attachmentError && (
+              <p className="mt-1 text-xs text-red-600" role="alert">
+                {attachmentError}
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="flex gap-3">
           <button

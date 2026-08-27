@@ -65,10 +65,19 @@ parent (`GET /memos/students/:studentId` → `200` pour un parent lié, `403` po
   le parent **non lié**. Données de test nettoyées après vérification.
 - [x] Déployé sur la pile réelle — `docker compose build/up frontend`, bundle `index-BU30bUKB.js`
   confirmé servi par `https://claudevma.visioprof.fr`.
-- [ ] **Preuve à obtenir** — notamment le correctif du bouton × (non couvert par les tests
-  automatisés) : à valider par test réel de l'utilisateur, comme pour les tours précédents de ce
-  chantier.
-- [ ] Validé par l'utilisateur.
+- [x] Preuve — retour utilisateur ambigu (« Rien n'a l'air corrigé ») après vérification complète
+  côté serveur par l'orchestrateur (bundle, code source, en-têtes de cache — rien d'anormal
+  trouvé) ; l'utilisateur a ensuite confirmé que c'était bon sans autre précision, en enchaînant
+  sur une petite correction supplémentaire.
+- [x] **Petite correction (2026-08-27)** : ajouter un « s » à « Mémo » côté interface élève.
+  Corrigé par `front-developper` (commit `1deeb73`) : entrée de rail (`navigationConfig.ts`),
+  titre de la page `/memos` (`MemosPage.tsx`), titre par défaut de la modale de lecture quand
+  l'élève consulte son propre mémo (`MemoReadOnlyModal.tsx`, affecte `VideoPage`/`StudentMemoPanel`
+  uniquement) — les titres contextuels « Mémo de {élève} » vus par un tiers (formateur/parent)
+  restent au singulier, non touchés. Vérifié indépendamment par l'orchestrateur après
+  fast-forward : `tsc --noEmit` propre, 40/40 tests ciblés verts. Déployé sur la pile réelle,
+  bundle `index-BhUR7RgS.js` confirmé servi.
+- [x] Validé par l'utilisateur — 2026-08-27 (« ok c'est bon ... tu peux merger et pusher »).
 
 ---
 

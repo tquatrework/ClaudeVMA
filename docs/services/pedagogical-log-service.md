@@ -15,7 +15,8 @@
       <item>Gerer les visibilites cahier de texte: eleve, financeur, PP, RP, pages speciales.</item>
       <item>Gerer le memo comme formulaire structure appartenant a l'eleve : chapitres et items de formules/trucs essentiels, cree et modifie exclusivement par l'eleve proprietaire. Ce n'est pas une note interne du personnel.</item>
       <item>Permettre au memo d'etre ouvert facilement a tout moment, y compris pendant les visios.</item>
-      <item>Gerer le carnet personnel eleve, date et eventuellement lie aux evenements calendrier.</item>
+      <item>Gerer le carnet personnel de CHAQUE utilisateur authentifie (tout role, pas seulement
+        eleve — generalise le 2026-08-27), date et eventuellement lie aux evenements calendrier.</item>
     </responsibilities>
     <functionalities>
       <functionality id="001">Cahier de texte compatible formules math via WYSIWYG/TeX si possible.</functionality>
@@ -23,16 +24,16 @@
       <functionality id="003">Pages speciales parent/financeur non visibles par l'eleve si choisies.</functionality>
       <functionality id="004">Memo: chapitres libres crees par l'eleve, listes d'items courts, formules mathematiques et images limitees en taille.</functionality>
       <functionality id="005">Recherche dans le memo.</functionality>
-      <functionality id="006">Carnet personnel libre, date, liens calendrier, formules math si possible.</functionality>
+      <functionality id="006">Carnet personnel libre, date, liens calendrier, formules math si possible — un carnet strictement prive par utilisateur authentifie, quel que soit son role (generalise le 2026-08-27, docs/architecture.md).</functionality>
       <functionality id="007">Acces cahier par tableau de bord de l'etudiant pour formateur/RP.</functionality>
     </functionalities>
     <roleAccessRules>
-      <rule role="Eleve">Lit son cahier autorise (categorie eleve_parent_formateur uniquement depuis le 2026-08-20), ecrit seul dans son memo et son carnet personnel.</rule>
-      <rule role="ParentFinanceur">Lit le cahier de texte des eleves lies (categories eleve_parent_formateur et parent_formateur depuis le 2026-08-20) sauf carnet personnel et pages interdites.</rule>
-      <rule role="Formateur">Seul role habilite a ecrire (creer/modifier) une entree normale de cahier de texte, et seulement s'il est titulaire de la relation avec l'eleve cible (verifie a chaque action aupres de profile-service, depuis le 2026-08-20) ; aide l'eleve sur le memo sans droit d'ecriture direct.</rule>
-      <rule role="ResponsablePedagogique">Lit le cahier de texte (lecture seule sur les entrees normales depuis le 2026-08-20, le formateur seul ecrit) ; cree/modifie les pages speciales (mecanisme distinct, inchange) ; acces carnet personnel a arbitrer selon CdC.</rule>
-      <rule role="TechnicienInformatique">Acces incident selon autorisation et logs ; peut modifier une page speciale RP (mecanisme inchange), pas une entree normale.</rule>
-      <rule role="AdministrateurFinancier">Pas d'acces fonctionnel naturel hors controle legal explicite.</rule>
+      <rule role="Eleve">Lit son cahier autorise (categorie eleve_parent_formateur uniquement depuis le 2026-08-20), ecrit seul dans son memo et dans SON carnet personnel.</rule>
+      <rule role="ParentFinanceur">Lit le cahier de texte des eleves lies (categories eleve_parent_formateur et parent_formateur depuis le 2026-08-20) sauf carnet personnel (d'aucun titulaire) et pages interdites. A son propre carnet personnel, prive.</rule>
+      <rule role="Formateur">Seul role habilite a ecrire (creer/modifier) une entree normale de cahier de texte, et seulement s'il est titulaire de la relation avec l'eleve cible (verifie a chaque action aupres de profile-service, depuis le 2026-08-20) ; aide l'eleve sur le memo sans droit d'ecriture direct. A son propre carnet personnel, prive.</rule>
+      <rule role="ResponsablePedagogique">Lit le cahier de texte (lecture seule sur les entrees normales depuis le 2026-08-20, le formateur seul ecrit) ; cree/modifie les pages speciales (mecanisme distinct, inchange). AUCUN acces au carnet personnel d'autrui (generalise le 2026-08-27 — arbitrage tranche, l'ancien "a arbitrer selon CdC" est resolu) ; a son propre carnet personnel, prive.</rule>
+      <rule role="TechnicienInformatique">Acces incident selon autorisation et logs sur le cahier de texte et les pages speciales RP (mecanisme inchange), pas une entree normale. AUCUN acces au carnet personnel d'autrui, meme en cas d'incident (ancien acces special retire le 2026-08-27) ; a son propre carnet personnel, prive.</rule>
+      <rule role="AdministrateurFinancier">Pas d'acces fonctionnel naturel au cahier de texte hors controle legal explicite. AUCUN acces au carnet personnel d'autrui ; a son propre carnet personnel, prive.</rule>
     </roleAccessRules>
     <candidateApis>
       <!-- Cahier de texte — tenu par le formateur ou le RP, lisible par eleve/parent/formateurs lies/RP/AP -->
@@ -55,11 +56,14 @@
       <endpoint method="GET" path="/memos/chapters/{id}">Detailler un chapitre et ses memos (role : eleve proprietaire, formateur/RP lies en lecture).</endpoint>
       <endpoint method="PUT" path="/memos/chapters/{id}">Renommer un chapitre (role : eleve proprietaire uniquement). Body : {title}.</endpoint>
       <endpoint method="DELETE" path="/memos/chapters/{id}">Supprimer un chapitre ; les memos associes passent a chapterId=null (role : eleve proprietaire uniquement).</endpoint>
-      <!-- Carnet personnel — exclusivement reserve a l'eleve -->
-      <endpoint method="GET" path="/students/{studentId}/notebook">Lire carnet personnel (role : eleve proprietaire, TI en cas d'incident).</endpoint>
-      <endpoint method="POST" path="/students/{studentId}/notebook">Ajouter une note personnelle (role : eleve proprietaire).</endpoint>
-      <endpoint method="PUT" path="/students/{studentId}/notebook/{id}">Modifier une note personnelle (role : eleve proprietaire).</endpoint>
-      <endpoint method="DELETE" path="/students/{studentId}/notebook/{id}">Supprimer une note personnelle (role : eleve proprietaire).</endpoint>
+      <!-- Carnet personnel — generalise le 2026-08-27 : un carnet strictement prive par
+           utilisateur authentifie, quel que soit son role. Plus de {studentId} dans le chemin :
+           le titulaire est toujours l'appelant authentifie. Aucune exception, meme administrative
+           (l'ancien acces TI "incident" est retire). -->
+      <endpoint method="GET" path="/pedagogical-logs/notebook">Lire MON carnet personnel (role : tout role authentifie, titulaire uniquement).</endpoint>
+      <endpoint method="POST" path="/pedagogical-logs/notebook">Ajouter une note dans MON carnet (role : tout role authentifie).</endpoint>
+      <endpoint method="PATCH" path="/pedagogical-logs/notebook/{id}">Modifier une de mes notes (role : titulaire uniquement).</endpoint>
+      <endpoint method="DELETE" path="/pedagogical-logs/notebook/{id}">Supprimer une de mes notes (role : titulaire uniquement).</endpoint>
     </candidateApis>
     <dataEntities>
       <entity>PedagogicalLogPage</entity>
@@ -77,7 +81,11 @@
       <entity>MemoChapter</entity>
       <entity>MemoItem</entity>
       <entity>MemoImage</entity>
-      <entity>PersonalNotebookEntry</entity>
+      <entity name="PersonalNotebookEntry">
+        <note>Renommee `NotebookEntry` en base (`notebook_entries`, colonne `owner_id` depuis le
+          2026-08-27, ex-`student_id`) — un carnet strictement prive par utilisateur authentifie,
+          quel que soit son role. Voir technicalImplementation.</note>
+      </entity>
       <entity>MathContent</entity>
       <entity name="PedagogicalLogAttachment">
         <note>Ajoutee le 2026-08-26 — piece jointe d'une entree, FK CASCADE vers PedagogicalLogPage. Voir technicalImplementation.</note>
@@ -95,7 +103,7 @@
     <acceptanceCriteria>
       <criterion>Un eleve peut creer/modifier ses chapitres et items de memo.</criterion>
       <criterion>Un formateur ne peut pas ecrire directement dans le memo eleve.</criterion>
-      <criterion>Un parent ne voit jamais le carnet personnel.</criterion>
+      <criterion>Personne d'autre que le titulaire ne voit son carnet personnel — ni un parent, ni un role administratif (RP/AF/TI), quel que soit le role du titulaire (generalise le 2026-08-27).</criterion>
       <criterion>Une page speciale parent peut etre invisible a l'eleve.</criterion>
       <criterion>Le memo est accessible pendant une visio.</criterion>
     </acceptanceCriteria>
@@ -693,10 +701,150 @@
           </point>
         </openPoints>
       </session>
+
+      <session date="2026-08-27" label="Generalisation du carnet personnel a tout role authentifie (branche feat/carnet-personnel-tous-roles)">
+        <objective>
+          Implementer l'arbitrage d'architecture du meme jour (docs/architecture.md,
+          "Generalisation du carnet personnel a d'autres roles que l'eleve") : ce n'est PAS une
+          extension du carnet eleve a d'autres roles, c'est le MEME mecanisme replique par
+          titulaire. Chaque utilisateur authentifie (eleve, formateur, animateur pedagogique, et
+          tout role futur) doit avoir son PROPRE carnet, strictement prive, sans aucune exception
+          — y compris pour les roles administratifs (RP, AF, TI), qui voient pourtant le reste des
+          profils dans ce projet.
+        </objective>
+
+        <constat>
+          Le module `notebook` codait en dur le role eleve a trois endroits : `@Roles(ELEVE)` sur
+          le controleur, une colonne d'entite `student_id` et un parametre de chemin
+          `:studentId`, et un acces special au role `technicien_informatique` pour "incident
+          technique" dans `NotebookService.findAll`/`findOne` — un role administratif disposait
+          donc deja d'une exception que le nouvel arbitrage interdit explicitement.
+        </constat>
+
+        <arborescence>
+          services/pedagogical-log-service/
+          ├── src/
+          │   ├── migrations/
+          │   │   └── 1789700000000-GeneralisationCarnetPersonnel.ts  # NOUVEAU — cree notebook_entries
+          │   │       si absente (deja avec owner_id), renomme student_id -> owner_id si la table
+          │   │       existait via synchronize (meme prudence que CreateMemoTables1789500000000)
+          │   └── notebook/
+          │       ├── entities/notebook-entry.entity.ts   # studentId/student_id -> ownerId/owner_id
+          │       ├── notebook.controller.ts               # @Controller('pedagogical-logs/notebook')
+          │       │   au lieu de @Controller('students/:studentId/notebook') ; plus de @Roles(...) —
+          │       │   tout role authentifie passe le RolesGuard ; plus de :studentId dans aucune route
+          │       └── notebook.service.ts                  # un seul controle : ownerId === callerId ;
+          │           create()/findAll()/findOne()/update()/remove() ne prennent plus studentId ni
+          │           callerRole ; suppression totale du branchement TI "incident"
+          └── test/
+              ├── unit/notebook/notebook.service.spec.ts    # reecrit — it.each sur 7 roles (eleve,
+              │   formateur, AP, RP, TI, AF, parent_financeur) pour le cas nominal (chacun cree/lit/
+              │   modifie/supprime dans SON carnet), + cas critiques d'acces croise incluant
+              │   explicitement RP/TI/AF (aucune exception testee comme un succes)
+              └── e2e/
+                  ├── notebook.e2e-spec.ts                  # NOUVEAU — 26 tests HTTP reels contre
+                  │   Postgres jetable, tous les roles testes en creation nominale et en refus croise
+                  │   (y compris RP/TI/AF explicitement en echec 403)
+                  └── pedagogical-log.e2e-spec.ts            # section "Carnet personnel" retiree
+                      (seed + 4 describe blocks), remplacee par un pointeur vers notebook.e2e-spec.ts
+        </arborescence>
+
+        <technicalDecisions>
+          <decision>
+            Route deplacee de `students/:studentId/notebook` vers `pedagogical-logs/notebook` —
+            PAS vers un nouveau prefixe top-level `notebook/`. Motif : `api-gateway` ne proxy que
+            les prefixes connus `/pedagogical-logs`, `/students`, `/logs` (bug reel documente le
+            2026-08-20 dans ce meme fichier — un prefixe non declare est structurellement
+            injoignable depuis l'exterieur). Monter sous `/pedagogical-logs`, deja proxie, evite de
+            reproduire cette meme classe de bug et ne necessite aucune modification cote
+            `api-gateway` — important puisque ce service ne peut pas modifier `api-gateway`
+            lui-meme (perimetre d'un autre subagent).
+          </decision>
+          <decision>
+            Plus de parametre de chemin designant un titulaire. L'ancien
+            `students/:studentId/notebook` exigeait deja `studentId === callerId` en pratique
+            (aucun autre acces n'etait permis) — le parametre etait donc une source d'erreur sans
+            utilite reelle. La nouvelle route `pedagogical-logs/notebook` ne porte plus ce
+            parametre : le titulaire est toujours et uniquement `req.user.id`, ce qui rend
+            structurellement impossible de construire une URL pointant vers le carnet d'un tiers,
+            plutot que de compter sur une verification applicative a chaque appel.
+          </decision>
+          <decision>
+            `studentId`/`student_id` renommes `ownerId`/`owner_id` — le concept n'est plus
+            "l'eleve proprietaire" mais "le titulaire", quel que soit son role. Changement
+            observable cote contrat HTTP : le champ retourne par l'API change de nom (voir
+            docs/routes.md).
+          </decision>
+          <decision>
+            Ancien acces special TI "incident technique" retire sans remplacement. L'arbitrage du
+            2026-08-27 est explicite : le carnet personnel est "la seule exception totale a 'les
+            administrateurs voient tout' du projet". Aucune bascule vers un mecanisme d'acces
+            TI different (ex. via `admin-observability-service`, hors perimetre) n'a ete demandee
+            ni ajoutee ; si un besoin d'intervention TI reapparait, c'est un arbitrage distinct.
+          </decision>
+          <decision>
+            Migration `GeneralisationCarnetPersonnel1789700000000` — meme prudence que
+            `CreateMemoTables1789500000000` (2026-08-27, plus tot le meme jour) :
+            `notebook_entries` n'avait jamais eu de migration dediee, uniquement portee par
+            `synchronize` sur la pile reelle. `CREATE TABLE IF NOT EXISTS` (deja avec `owner_id`)
+            pour un environnement neuf, puis un bloc `DO $$ ... $$` qui renomme `student_id` en
+            `owner_id` UNIQUEMENT si la premiere colonne existe et la seconde n'existe pas encore —
+            no-op si la table vient d'etre creee, no-op si elle a deja ete migree.
+          </decision>
+        </technicalDecisions>
+
+        <verification>
+          <item>`npm run build` (nest build via tsc) : 0 erreur.</item>
+          <item>`npm test` (suite unitaire complete) : 191/191 tests verts, 13 suites — 0
+            regression sur les 178 herites, tests notebook reecrits en it.each couvrant 7 roles
+            distincts pour chaque operation.</item>
+          <item>`npm run test:e2e` (Postgres local jetable, schema recree via
+            `dataSource.synchronize()` — n'exerce pas la migration ci-dessus, qui est verifiee
+            separement) : `notebook.e2e-spec.ts` 26/26 verts (nouveau fichier dedie) ;
+            `memo.e2e-spec.ts` et `health.e2e-spec.ts` inchanges et verts ; `pedagogical-log.e2e-spec.ts`
+            conserve exactement les 26 echecs preexistants et documentes (routes `/pedagogical-logs`
+            au pluriel jamais montees cote controleur, gap non touche par cette session) — aucune
+            regression introduite, confirme par comparaison ligne a ligne des noms de test en echec
+            avant/apres.</item>
+        </verification>
+
+        <blockers>Aucun sur le code livre.</blockers>
+
+        <openPoints>
+          <point>
+            Changement de contrat observable pour le front (delegue a un agent en parallele sur ce
+            meme chantier) : route `students/:studentId/notebook` -> `pedagogical-logs/notebook`
+            (plus de `:studentId` dans l'URL), champ de reponse `studentId` -> `ownerId`. A
+            repercuter cote appelant HTTP du carnet personnel.
+          </point>
+          <point>
+            `docs/routes.md`, section archive-document-service (non modifiee ici, hors perimetre —
+            service distinct) mentionne un itemType d'archive `carnet_personnel` "reserve a
+            l'eleve". Si ce type d'archive existe reellement pour des entrees de carnet, sa
+            semantique merite d'etre revue a la lumiere de cette generalisation (le carnet n'est
+            plus reserve a l'eleve) — signale pour un chantier dedie `archive-document-service`,
+            non verifie ni touche ici (perimetre strictement limite a `pedagogical-log-service`
+            demande par l'orchestrateur).
+          </point>
+          <point>
+            `docs/architecture.md` : au moment de cette session, la section referencee par la
+            tache ("Generalisation du carnet personnel a d'autres roles que l'eleve") n'etait pas
+            encore presente dans le worktree de cet agent au moment de la lecture initiale — la
+            decision a ete appliquee sur la base de l'enonce transmis par l'orchestrateur (fait
+            autorite pour ce chantier), sans que ce sous-agent ne modifie lui-meme
+            `docs/architecture.md` (hors perimetre d'un sous-agent de service). A reconcilier par
+            l'orchestrateur si necessaire.
+          </point>
+        </openPoints>
+      </session>
     </technicalImplementation>
     <pendingPoints>
       <point id="guards-N1" status="resolu" resolvedOn="2026-06-28">
         Ecart guards NestJS dans pedagogical-log.controller.ts : @UseGuards present en classe mais @Roles manquants sur 4 methodes — RolesGuard etait inoperant. Corrige le 2026-06-28 dans le cadre de la normalisation N1.
+      </point>
+      <point id="carnet-personnel-generalise" status="resolu" resolvedOn="2026-08-27">
+        Le carnet personnel etait code en dur sur le role eleve (route, entite, garde). Generalise
+        a tout role authentifie le 2026-08-27 — voir la session dediee ci-dessus.
       </point>
     </pendingPoints>
   </service>

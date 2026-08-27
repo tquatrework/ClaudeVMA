@@ -83,6 +83,14 @@ nouveaux réglages et leur sauvegarde effective (relue après rechargement).
   repéré au passage, hors périmètre : `POST .../pedagogical-log` accepte et ignore silencieusement
   tout champ inconnu (violation de la convention « aucun champ non prévu n'est absorbé en
   silence ») — non corrigé, signalé à l'utilisateur pour arbitrage séparé.
+- [x] **Correctif rendu du lien sur `ActivityDetailPage` (2026-08-26/27)** — `PedagogicalLogEntryItem`
+  utilisait déjà `LightMarkupText` pour rendre `[label](url)` en lien cliquable, mais
+  `ActivityDetailPage` (autre écran affichant le même `sessionSummary`/`homework`, depuis le détail
+  d'une activité de calendrier) affichait le motif brut en texte. Corrigé (commit `049b795`) :
+  `LightMarkupText` câblé aux deux endroits. 11/11 tests de la page verts (nouveau test de
+  comportement ajouté). Déjà déployé sur la pile réelle — l'image `claudevma-frontend` a été
+  reconstruite 41s après ce commit (`19:38:59` vs commit `19:38:18`), conteneur `visiomath_frontend`
+  démarré dans la foulée, aucun rebuild supplémentaire nécessaire.
 - [ ] Validé par l'utilisateur — **PR #135 en attente de merge**, prête dès accord.
 
 ---

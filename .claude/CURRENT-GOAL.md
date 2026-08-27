@@ -77,7 +77,12 @@ parent (`GET /memos/students/:studentId` → `200` pour un parent lié, `403` po
   restent au singulier, non touchés. Vérifié indépendamment par l'orchestrateur après
   fast-forward : `tsc --noEmit` propre, 40/40 tests ciblés verts. Déployé sur la pile réelle,
   bundle `index-BhUR7RgS.js` confirmé servi.
-- [x] Validé par l'utilisateur — 2026-08-27 (« ok c'est bon ... tu peux merger et pusher »).
+- [x] Validé par l'utilisateur — 2026-08-27 (« ok c'est bon ... tu peux merger et pusher »). PR #138
+  créée et mergée dans `master` (squash `c421bd5`), branche `feat/memo-parent-et-modale` supprimée
+  (locale + `origin`). `frontend` reconstruit et redéployé depuis `master` (état durable) — bundle
+  identique à celui déjà testé (`index-BhUR7RgS.js`).
+
+**Clôturé le 2026-08-27.**
 
 ---
 

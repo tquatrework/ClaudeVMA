@@ -833,6 +833,28 @@ Phase 3 enrichit l'offre :
      reellement besoin, mais le nommer ici pour que la convention de syntaxe choisie pour les
      liens ne ferme pas la porte a son extension future.
 
+- Generalisation du carnet personnel a d'autres roles que l'eleve. Arbitrage rendu le 2026-08-27,
+  sur clarification explicite de l'utilisateur, a l'occasion d'une revue des menus lateraux ajoutant
+  "Carnet personnel" au menu des professeurs et des animateurs pedagogiques (AP).
+  1. **Ce n'est pas une extension de droit sur le carnet personnel de l'eleve.** Le carnet
+     personnel de l'eleve reste exactement ce qu'il etait — reserve a l'eleve, exclu meme du
+     parent financeur (arbitrage du 2026-08-09). Aucun role n'obtient un acces supplementaire au
+     carnet d'un tiers par cet arbitrage.
+  2. **C'est le meme mecanisme, replique par titulaire.** Tout utilisateur, quel que soit son
+     role (eleve, formateur, AP, et par extension tout role futur), dispose de son **propre**
+     carnet personnel, strictement prive, visible et modifiable par lui seul. « Chacun a le
+     sien » — mot de l'utilisateur. Un professeur ne voit jamais le carnet d'un eleve ni celui
+     d'un autre professeur ; un AP ne voit jamais celui d'un formateur qu'il anime.
+  3. **Consequence pour `pedagogical-log-service`, proprietaire de la donnee.** Le modele et les
+     routes du carnet personnel doivent etre lus par proprietaire (`ownerId` = utilisateur
+     authentifie) et non par role eleve code en dur, si ce codage en dur existe aujourd'hui — a
+     verifier a l'implementation. Le controle d'acces reste le meme principe que partout ailleurs
+     dans ce projet : chacun lit et ecrit son propre carnet, aucune relation metier (parent,
+     formateur, AP, RP) n'ouvre de droit dessus, y compris les roles administratifs qui ont par
+     ailleurs un acces large aux profils — le carnet personnel reste la seule exception totale a
+     "les administrateurs voient tout" (2026-08-07), pour tous les titulaires, pas seulement pour
+     l'eleve.
+
 ## Points ouverts a arbitrer
 
 - `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a

@@ -855,6 +855,26 @@ Phase 3 enrichit l'offre :
      "les administrateurs voient tout" (2026-08-07), pour tous les titulaires, pas seulement pour
      l'eleve.
 
+- Specification fonctionnelle reelle du carnet personnel — notes rapides immuables. Arbitrage rendu
+  le 2026-08-27, sur clarification explicite de l'utilisateur apres verification visuelle des menus
+  (« les carnets personnels n'ont pas l'air vraiment actifs »). Complete [[Generalisation du carnet
+  personnel]] ci-dessus : la generalisation par titulaire etait correcte, mais le contenu meme du
+  carnet ne correspondait pas encore au concept reel.
+  1. **Ce sont des notes rapides horodatees, des « pensees instantanees ».** La date est enregistree
+     automatiquement a la creation (`createdAt`), jamais saisie par l'utilisateur.
+  2. **Immuable une fois ecrite : suppression possible, AUCUNE edition.** Une pensee instantanee ne
+     se corrige pas — elle se supprime et se reecrit si besoin. La route
+     `PATCH /pedagogical-logs/notebook/:id`, ajoutee par la generalisation du meme jour, est
+     **retiree** : elle portait un modele qui ne correspond pas au concept, meme raisonnement que
+     les routes d'un modele abandonne retirees ailleurs dans ce projet (flow demande de professeur,
+     2026-08-12) plutot que laissees mortes et sources de confusion.
+  3. **Lecture par recherche, pas par simple defilement d'une liste brute.** L'utilisateur retrouve
+     une pensee en cherchant une **date** ou un **mot** — `GET /pedagogical-logs/notebook` doit
+     accepter des parametres de filtre (`date?`, `q?` texte libre sur le contenu) plutot que de se
+     limiter a tout renvoyer sans filtre.
+  4. **Aucun autre role n'y a acces** — deja acquis par l'arbitrage ci-dessus, confirme ici sans
+     rien y changer.
+
 ## Points ouverts a arbitrer
 
 - `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a

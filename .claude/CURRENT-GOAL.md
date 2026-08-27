@@ -170,9 +170,31 @@ nouveaux réglages et leur sauvegarde effective (relue après rechargement).
   `https://claudevma.visioprof.fr`. Risque résiduel connu, non traité (signalé par le sous-agent,
   sans impact fonctionnel) : un cas limite navigateur réel où vider un champ peut laisser un
   `<br>` orphelin sérialisé en `"\n"` — les deux chemins de soumission font déjà `.trim()`.
+- [ ] **Deux nouveaux petits défauts remontés par le test utilisateur en direct (2026-08-27)** :
+  1. **« Modifier une entrée » ne permet plus de joindre de fichier.** Le retrait de l'ajout hors
+     création (défaut 1 du tour précédent) est allé trop loin : demande explicite de l'utilisateur,
+     le mode édition d'une entrée existante (`isEditing` sur `PedagogicalLogEntryItem`) doit
+     redonner **le même niveau de contrôle qu'une nouvelle entrée non encore validée** — ajout d'une
+     pièce jointe compris. Différence avec la création : l'entrée existe déjà (elle a un `logId`),
+     l'upload peut donc être **immédiat** (comme l'ancien mécanisme d'ajout retiré la dernière fois,
+     via `uploadLogAttachment`), pas différé comme `useNewLogEntryForm`. Hors édition (affichage
+     simple), le comportement reste lecture seule pour tous, formateur compris — cohérent avec
+     « l'édition redonne l'état d'une entrée non validée, l'affichage normal est figé ».
+     Délégué à `front-developper`, à charge pour lui de choisir si la suppression d'une pièce
+     jointe (actuellement disponible en affichage simple pour `canManage`) doit migrer elle aussi
+     vers le mode édition uniquement, par cohérence avec ce même principe — à signaler dans son
+     rapport si le choix n'est pas évident.
+  2. **Élève/parent doivent cliquer deux fois pour voir puis télécharger une pièce jointe**, alors
+     que le formateur voit déjà la liste directement. `LogEntryAttachments` replie la section par
+     défaut derrière un lien « Afficher les pièces jointes » pour tout lecteur non `canManage`
+     (`isExpanded = useState(canManage)`), chargement différé au premier dépliage. Demande
+     explicite : afficher directement le nom des pièces jointes avec possibilité de téléchargement,
+     **sans étape intermédiaire** — même comportement que celui déjà en place pour le formateur,
+     étendu à tout lecteur (élève, parent, RP).
+  Délégué à `front-developper`, même branche `feat/cahier-de-texte-liens-pieces-jointes`.
 - [ ] **Preuve à obtenir avant merge** — défauts de nature visuelle/tactile : à valider par
   relecture de l'utilisateur en conditions réelles sur `https://claudevma.visioprof.fr` (déjà son
-  choix pour les deux tours précédents).
+  choix pour les tours précédents).
 - [ ] Validé par l'utilisateur — **PR #135 en attente de merge**, prête dès accord.
 
 ---

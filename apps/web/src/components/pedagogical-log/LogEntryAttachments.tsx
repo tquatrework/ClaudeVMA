@@ -1,32 +1,45 @@
 /**
  * LogEntryAttachments — pièces jointes d'une entrée de cahier de texte déjà
- * créée : liste, téléchargement et suppression uniquement.
+ * créée : liste, téléchargement, et — en mode édition seulement — ajout et
+ * suppression.
  *
- * Deux publics dans un seul composant :
- * - **tout lecteur** de l'entrée (élève, parent, formateur, RP selon la
- *   catégorie de visibilité déjà appliquée au niveau de l'entrée) peut déplier
- *   et télécharger ;
- * - **le formateur auteur** (`canManage`) peut en plus supprimer.
+ * Révision du 2026-08-27 (second correctif du jour, deux défauts remontés par
+ * test utilisateur réel) :
  *
- * Ajout retiré le 2026-08-27 (décision explicite de l'utilisateur, qui
- * restreint le périmètre posé le 2026-08-26) : une pièce jointe ne se joint
- * plus qu'**au moment de la création** d'une entrée (`NewLogPageForm` /
- * `useNewLogEntryForm`) — il n'y a donc plus de point d'ajout ici, sur une
- * entrée déjà créée. La liste des pièces jointes déjà présentes, leur
- * téléchargement et leur suppression restent inchangés.
+ * 1. **L'ajout et la suppression sont réservés au mode édition.** Une entrée
+ *    en cours de modification (`canManage`, formateur auteur, `isEditing`
+ *    dans `PedagogicalLogEntryItem`) redonne le même niveau de contrôle qu'une
+ *    entrée non encore créée : voir les pièces jointes existantes, en ajouter
+ *    une (envoi immédiat, l'entrée existe déjà — pas besoin de différer
+ *    l'envoi comme `useNewLogEntryForm`), et en supprimer une. **Hors édition,
+ *    la section est toujours en lecture seule, pour tous les rôles, y compris
+ *    le formateur auteur** — la suppression, auparavant disponible en simple
+ *    affichage pour le formateur, migre donc elle aussi vers le mode édition
+ *    uniquement, par cohérence avec ce même principe.
+ * 2. **Plus de dépliage préalable.** Tout lecteur (élève, parent, formateur,
+ *    RP) voit directement les noms des pièces jointes et le bouton de
+ *    téléchargement, chargés au montage — l'ancienne distinction
+ *    `canManage`/lecteur sur l'affichage repliée par défaut a disparu.
  */
 
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useId, useRef } from 'react'
+import type { PedagogicalLogAttachmentSettings } from '../../api/pedagogicalLogAttachments'
 import type { PedagogicalLogAttachment } from '../../api/pedagogicalLogAttachments'
 import { useLogEntryAttachments } from '../../hooks/pedagogical-log/useLogEntryAttachments'
 import { formatFileSize } from '../../utils/fileSize'
-import { ATTACHMENT_LABELS } from '../../utils/logAttachment'
+import { ATTACHMENT_LABELS, getAttachmentMaxSizeHint } from '../../utils/logAttachment'
 import { ErrorMessage } from '../ui/ErrorMessage'
 
 interface LogEntryAttachmentsProps {
   logId: string
-  /** Autorise la suppression d'une pièce jointe existante (le formateur auteur). */
+  /**
+   * Autorise l'ajout et la suppression d'une pièce jointe — vrai uniquement
+   * en mode édition, pour le formateur auteur. En dehors, la section reste
+   * en lecture seule pour tous les rôles.
+   */
   canManage: boolean
+  /** Réglages système — n'a d'effet que lorsque `canManage` est vrai. */
+  attachmentSettings: PedagogicalLogAttachmentSettings
 }
 
 function AttachmentRow({
@@ -74,17 +87,18 @@ function AttachmentRow({
   )
 }
 
-export function LogEntryAttachments({ logId, canManage }: LogEntryAttachmentsProps) {
-  // Dépliée par défaut pour le formateur qui peut gérer les pièces jointes
-  // (suppression) — repliée par défaut pour un simple lecteur, inchangé.
-  const [isExpanded, setIsExpanded] = useState(canManage)
+export function LogEntryAttachments({ logId, canManage, attachmentSettings }: LogEntryAttachmentsProps) {
   const hasRequestedLoad = useRef(false)
+  const attachmentInputId = useId()
 
   const {
     attachments,
     isLoadingAttachments,
     loadError,
     loadAttachments,
+    uploadAttachment,
+    isUploadingAttachment,
+    uploadError,
     deleteAttachment,
     deletingAttachmentId,
     deleteError,
@@ -93,70 +107,89 @@ export function LogEntryAttachments({ logId, canManage }: LogEntryAttachmentsPro
     downloadError,
   } = useLogEntryAttachments(logId)
 
+  // Chargement au montage, sans condition de rôle : tout lecteur voit les
+  // pièces jointes directement, sans dépliage préalable.
   useEffect(() => {
-    if (canManage && !hasRequestedLoad.current) {
+    if (!hasRequestedLoad.current) {
       hasRequestedLoad.current = true
       void loadAttachments()
     }
-  }, [canManage, loadAttachments])
+  }, [loadAttachments])
 
-  const handleToggle = () => {
-    const nextExpanded = !isExpanded
-    setIsExpanded(nextExpanded)
-    if (nextExpanded && !hasRequestedLoad.current) {
-      hasRequestedLoad.current = true
-      void loadAttachments()
-    }
+  const handleSelectFile = (file: File | null) => {
+    if (!file) return
+    void uploadAttachment(file, attachmentSettings.maxFileBytes, attachmentSettings.maxTotalBytesPerEntry)
   }
 
   return (
     <div className="mt-2 border-t border-gray-100 pt-2">
-      {canManage ? (
-        <p className="text-xs font-semibold text-gray-500">{ATTACHMENT_LABELS.sectionTitle}</p>
-      ) : (
-        <button
-          type="button"
-          onClick={handleToggle}
-          className="text-xs text-gray-500 hover:underline"
-        >
-          {isExpanded ? ATTACHMENT_LABELS.toggleHide : ATTACHMENT_LABELS.toggleShow}
-        </button>
-      )}
+      <p className="text-xs font-semibold text-gray-500">{ATTACHMENT_LABELS.sectionTitle}</p>
 
-      {isExpanded && (
-        <div className="mt-2">
-          {isLoadingAttachments && (
-            <p className="text-xs text-gray-400">{ATTACHMENT_LABELS.loading}</p>
-          )}
+      <div className="mt-2">
+        {isLoadingAttachments && (
+          <p className="text-xs text-gray-400">{ATTACHMENT_LABELS.loading}</p>
+        )}
 
-          {loadError && <ErrorMessage message={loadError} variant="warning" className="text-xs" />}
+        {loadError && <ErrorMessage message={loadError} variant="warning" className="text-xs" />}
 
-          {!isLoadingAttachments && !loadError && (attachments?.length ?? 0) === 0 && (
-            <p className="text-xs text-gray-400">{ATTACHMENT_LABELS.empty}</p>
-          )}
+        {!isLoadingAttachments && !loadError && (attachments?.length ?? 0) === 0 && (
+          <p className="text-xs text-gray-400">{ATTACHMENT_LABELS.empty}</p>
+        )}
 
-          {!isLoadingAttachments && (attachments?.length ?? 0) > 0 && (
-            <ul className="divide-y divide-gray-50">
-              {attachments!.map((attachment) => (
-                <AttachmentRow
-                  key={attachment.id}
-                  attachment={attachment}
-                  canManage={canManage}
-                  onDownload={() => downloadAttachment(attachment)}
-                  isDownloading={downloadingAttachmentId === attachment.id}
-                  onDelete={() => deleteAttachment(attachment.id)}
-                  isDeleting={deletingAttachmentId === attachment.id}
+        {!isLoadingAttachments && (attachments?.length ?? 0) > 0 && (
+          <ul className="divide-y divide-gray-50">
+            {attachments!.map((attachment) => (
+              <AttachmentRow
+                key={attachment.id}
+                attachment={attachment}
+                canManage={canManage}
+                onDownload={() => downloadAttachment(attachment)}
+                isDownloading={downloadingAttachmentId === attachment.id}
+                onDelete={() => deleteAttachment(attachment.id)}
+                isDeleting={deletingAttachmentId === attachment.id}
+              />
+            ))}
+          </ul>
+        )}
+
+        {downloadError && (
+          <ErrorMessage message={downloadError} variant="warning" className="mt-1 text-xs" />
+        )}
+        {deleteError && <ErrorMessage message={deleteError} variant="warning" className="mt-1 text-xs" />}
+
+        {canManage && attachmentSettings.attachmentsEnabled && (
+          <div className="mt-2">
+            {isUploadingAttachment ? (
+              <p className="text-xs text-gray-400">{ATTACHMENT_LABELS.uploading}</p>
+            ) : (
+              <>
+                <label
+                  htmlFor={attachmentInputId}
+                  className="cursor-pointer text-xs text-indigo-500 hover:underline"
+                >
+                  {`+ ${ATTACHMENT_LABELS.addAction}`}
+                </label>
+                <input
+                  id={attachmentInputId}
+                  type="file"
+                  className="sr-only"
+                  onChange={(event) => {
+                    const selectedFile = event.target.files?.[0] ?? null
+                    handleSelectFile(selectedFile)
+                    event.target.value = ''
+                  }}
                 />
-              ))}
-            </ul>
-          )}
-
-          {downloadError && (
-            <ErrorMessage message={downloadError} variant="warning" className="mt-1 text-xs" />
-          )}
-          {deleteError && <ErrorMessage message={deleteError} variant="warning" className="mt-1 text-xs" />}
-        </div>
-      )}
+                <p className="mt-0.5 text-xs text-gray-400">
+                  {getAttachmentMaxSizeHint(attachmentSettings.maxFileBytes)}
+                </p>
+              </>
+            )}
+            {uploadError && (
+              <ErrorMessage message={uploadError} variant="warning" className="mt-1 text-xs" />
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -43,11 +43,15 @@
  * système (`useAttachmentSettings`) sont désormais lus **avant** de
  * construire `useNewLogEntryForm`, qui en a besoin pour valider localement le
  * fichier choisi et l'envoyer juste après la création de l'entrée — voir ce
- * hook pour le détail de la séquence. **Ajout retiré des entrées déjà créées
- * le même jour** (décision explicite de l'utilisateur) : `attachmentSettings`
- * ne sert donc plus qu'à `NewLogPageForm`, plus à `LogEntryList` ; sur une
- * entrée existante, `LogEntryAttachments` ne fait plus que lister,
- * télécharger et supprimer.
+ * hook pour le détail de la séquence.
+ *
+ * Pièce jointe sur une entrée déjà créée (révisé le 2026-08-27, second
+ * correctif du jour) : l'ajout, retiré une première fois de
+ * `LogEntryAttachments`, est réintroduit **en mode édition uniquement** —
+ * modifier une entrée existante redonne le même niveau de contrôle qu'une
+ * entrée non encore validée. `attachmentSettings` est donc transmis à
+ * `LogEntryList` (et de là à chaque `PedagogicalLogEntryItem`), en plus de
+ * `NewLogPageForm`.
  */
 
 import React, { useState } from 'react'
@@ -261,6 +265,7 @@ export default function PedagogicalLogPage() {
               isLoading={isLoading}
               canWriteNormalEntry={canWriteNormalEntry}
               viewer={viewerContext}
+              attachmentSettings={attachmentSettings}
               editingLogId={entryEditing.editingLogId}
               editValues={entryEditing.editValues}
               onEditValuesChange={entryEditing.onEditValuesChange}

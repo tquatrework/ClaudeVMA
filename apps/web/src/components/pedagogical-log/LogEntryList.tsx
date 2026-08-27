@@ -6,6 +6,7 @@
 
 import React from 'react'
 import type { PedagogicalLogPage as LogPage } from '../../api/pedagogicalLog'
+import type { PedagogicalLogAttachmentSettings } from '../../api/pedagogicalLogAttachments'
 import { canDeleteLogEntry, canEditLogEntry, type LogEntryViewerContext } from '../../utils/pedagogicalLogPermissions'
 import { PedagogicalLogEntryItem, type LogEntryEditValues } from './PedagogicalLogEntryItem'
 
@@ -14,6 +15,8 @@ interface LogEntryListProps {
   isLoading: boolean
   canWriteNormalEntry: boolean
   viewer: LogEntryViewerContext
+  /** Réglages système des pièces jointes — transmis à chaque entrée pour son bouton d'ajout en mode édition. */
+  attachmentSettings: PedagogicalLogAttachmentSettings
 
   editingLogId: string | null
   editValues: LogEntryEditValues
@@ -35,6 +38,7 @@ export default function LogEntryList({
   isLoading,
   canWriteNormalEntry,
   viewer,
+  attachmentSettings,
   editingLogId,
   editValues,
   onEditValuesChange,
@@ -85,6 +89,7 @@ export default function LogEntryList({
           canDelete={canDeleteLogEntry(entry, viewer)}
           onDelete={() => onDelete(entry)}
           isDeleting={deletingLogId === entry.id}
+          attachmentSettings={attachmentSettings}
         />
       ))}
     </ul>

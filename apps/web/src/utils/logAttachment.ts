@@ -19,9 +19,7 @@ export const ATTACHMENT_LABELS = {
   deleting: 'Suppression…',
   downloading: 'Téléchargement…',
   loading: 'Chargement des pièces jointes…',
-  toggleShow: 'Afficher les pièces jointes',
-  toggleHide: 'Masquer les pièces jointes',
-  /** En-tête de la section quand elle est dépliée par défaut (formateur, `canManage`) — pas de bouton à masquer/afficher dans ce cas. */
+  /** En-tête de la section, toujours dépliée depuis le 2026-08-27 (plus de bouton à masquer/afficher). */
   sectionTitle: 'Pièces jointes',
   empty: 'Aucune pièce jointe.',
   deleteAction: 'Supprimer',

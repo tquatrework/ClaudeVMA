@@ -17,10 +17,14 @@
  * — voir ce composant). Remplace l'ancien `ResourceLinkEditor`/`resourceLinks`
  * (champ structuré séparé, retiré).
  *
- * Pièces jointes d'une entrée déjà créée (2026-08-27) : `LogEntryAttachments`
- * n'affiche plus de point d'ajout — un fichier ne se joint désormais qu'au
- * moment de la création (`NewLogPageForm`) — cette entrée ne lui transmet
- * donc plus les réglages système, devenus sans objet ici.
+ * Pièces jointes d'une entrée déjà créée (révisé le 2026-08-27, second
+ * correctif du jour) : l'édition d'une entrée redonne le même niveau de
+ * contrôle qu'une nouvelle entrée non encore validée, pièce jointe comprise.
+ * `LogEntryAttachments` est donc monté dans les DEUX branches — édition et
+ * affichage — avec `canManage` vrai uniquement en édition (`canEdit`) ; hors
+ * édition, la section reste toujours en lecture seule, pour tous les rôles y
+ * compris le formateur auteur. Les réglages système (`attachmentSettings`)
+ * sont transmis dans les deux cas, seule leur utilisation change.
  *
  * Extrait de PedagogicalLogPage (lot 10 — normalisation, découpage > 300 lignes).
  * Présentationnel : le state d'édition reste porté par la page.
@@ -28,6 +32,7 @@
 
 import React, { useRef } from 'react'
 import type { PedagogicalLogPage as LogPage, LogVisibility } from '../../api/pedagogicalLog'
+import type { PedagogicalLogAttachmentSettings } from '../../api/pedagogicalLogAttachments'
 import { formatIsoCalendarDate } from '../../utils/dateFormat'
 import { getLogVisibilityLabel } from '../../utils/pedagogicalLogLabels'
 import { LightMarkupText } from '../ui/LightMarkupText'
@@ -58,6 +63,8 @@ interface PedagogicalLogEntryItemProps {
   canDelete: boolean
   onDelete: () => void
   isDeleting: boolean
+  /** Réglages système des pièces jointes — transmis à `LogEntryAttachments` dans les deux branches. */
+  attachmentSettings: PedagogicalLogAttachmentSettings
 }
 
 const VISIBILITY_LABELS: Record<LogVisibility, string> = {
@@ -87,6 +94,7 @@ export function PedagogicalLogEntryItem({
   canDelete,
   onDelete,
   isDeleting,
+  attachmentSettings,
 }: PedagogicalLogEntryItemProps) {
   const editSummaryRef = useRef<LightMarkupEditorHandle>(null)
   const editHomeworkRef = useRef<LightMarkupEditorHandle>(null)
@@ -173,6 +181,13 @@ export function PedagogicalLogEntryItem({
               </div>
             </>
           )}
+          {!logPage.isSpecialPage && (
+            <LogEntryAttachments
+              logId={logPage.id}
+              canManage={canEdit}
+              attachmentSettings={attachmentSettings}
+            />
+          )}
           <div className="flex gap-3">
             <button
               onClick={onSaveEdit}
@@ -236,7 +251,11 @@ export function PedagogicalLogEntryItem({
           )}
 
           {!logPage.isSpecialPage && (
-            <LogEntryAttachments logId={logPage.id} canManage={canEdit} />
+            <LogEntryAttachments
+              logId={logPage.id}
+              canManage={false}
+              attachmentSettings={attachmentSettings}
+            />
           )}
 
           <div className="flex items-center justify-between mt-3">

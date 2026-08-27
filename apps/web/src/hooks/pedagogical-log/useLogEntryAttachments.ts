@@ -1,18 +1,21 @@
 /**
  * useLogEntryAttachments — pièces jointes d'une entrée de cahier de texte
- * déjà créée : chargement, téléchargement et suppression.
+ * déjà créée : chargement, envoi, téléchargement et suppression.
  *
- * L'ajout n'en fait plus partie depuis le 2026-08-27 (décision explicite de
- * l'utilisateur) : une pièce jointe ne se joint plus qu'au moment de la
- * création d'une entrée (`useNewLogEntryForm`, qui appelle `uploadLogAttachment`
- * directement, indépendamment de ce hook).
+ * Ajout réintroduit le 2026-08-27 (second correctif du jour, après un premier
+ * retrait trop large) : l'édition d'une entrée déjà créée doit redonner le
+ * même niveau de contrôle qu'une nouvelle entrée non encore validée, pièce
+ * jointe comprise — voir `LogEntryAttachments`, qui n'ouvre `uploadAttachment`
+ * qu'en mode édition (`canManage`). Le refus local avant envoi reprend la
+ * même logique que `useNewLogEntryForm.onSelectAttachment` (comparaison au
+ * plafond par fichier connu du réglage système, message uniforme).
  *
- * Chargement **à la demande** (pas au montage) : une entrée de cahier de texte
- * peut être ancienne et jamais consultée pour ses pièces jointes — appeler
- * `GET /logs/:id/attachments` pour chaque entrée affichée exigerait autant de
- * requêtes que d'entrées visibles, pour une information que le lecteur n'a pas
- * forcément demandée. `loadAttachments` est donc déclenché explicitement par
- * la page/le composant (ex. au premier dépliage du bloc « Pièces jointes »).
+ * Chargement **au montage**, sans condition de rôle (second correctif du
+ * 2026-08-27) : tout lecteur d'une entrée doit voir les noms des pièces
+ * jointes et le bouton de téléchargement directement, sans dépliage
+ * préalable — voir `LogEntryAttachments`, qui appelait auparavant
+ * `loadAttachments` seulement pour le formateur au montage, et au premier
+ * dépliage pour les autres lecteurs.
  *
  * Téléchargement authentifié : même pattern que `PedagogicalArchivePage`
  * (`downloadArchiveDocument` + object URL + ancre temporaire) — la route est
@@ -25,19 +28,27 @@ import {
   deleteLogAttachment,
   fetchLogAttachmentBlob,
   fetchLogAttachments,
+  uploadLogAttachment,
   type PedagogicalLogAttachment,
 } from '../../api/pedagogicalLogAttachments'
 import {
   getAttachmentDeleteErrorMessage,
   getAttachmentDownloadErrorMessage,
   getAttachmentLoadErrorMessage,
+  getAttachmentTooLargeMessage,
+  getAttachmentUploadErrorMessage,
 } from '../../utils/logAttachment'
+import { isAvatarFileTooLarge } from '../../utils/profileAvatarConstraints'
 
 export interface UseLogEntryAttachmentsResult {
   attachments: PedagogicalLogAttachment[] | null
   isLoadingAttachments: boolean
   loadError: string | null
   loadAttachments: () => Promise<void>
+
+  uploadAttachment: (file: File, maxFileBytes: number, maxTotalBytesPerEntry: number) => Promise<void>
+  isUploadingAttachment: boolean
+  uploadError: string | null
 
   deleteAttachment: (attachmentId: string) => Promise<void>
   deletingAttachmentId: string | null
@@ -65,6 +76,40 @@ export function useLogEntryAttachments(logId: string): UseLogEntryAttachmentsRes
       setIsLoadingAttachments(false)
     }
   }, [logId])
+
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+
+  const uploadAttachment = useCallback(
+    async (file: File, maxFileBytes: number, maxTotalBytesPerEntry: number) => {
+      setUploadError(null)
+
+      // Refus local immédiat, avant même d'appeler le serveur — même logique
+      // que `useNewLogEntryForm.onSelectAttachment` pour une entrée pas
+      // encore créée.
+      if (isAvatarFileTooLarge(file, maxFileBytes)) {
+        setUploadError(getAttachmentTooLargeMessage(file.size, maxFileBytes))
+        return
+      }
+
+      setIsUploadingAttachment(true)
+      try {
+        const uploaded = await uploadLogAttachment(logId, file)
+        setAttachments((current) => [...(current ?? []), uploaded])
+      } catch (caughtError) {
+        setUploadError(
+          getAttachmentUploadErrorMessage(caughtError, {
+            maxFileBytes,
+            maxTotalBytesPerEntry,
+            attemptedFileSizeBytes: file.size,
+          }),
+        )
+      } finally {
+        setIsUploadingAttachment(false)
+      }
+    },
+    [logId],
+  )
 
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -114,6 +159,10 @@ export function useLogEntryAttachments(logId: string): UseLogEntryAttachmentsRes
     isLoadingAttachments,
     loadError,
     loadAttachments,
+
+    uploadAttachment,
+    isUploadingAttachment,
+    uploadError,
 
     deleteAttachment,
     deletingAttachmentId,

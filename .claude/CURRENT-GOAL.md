@@ -47,10 +47,27 @@ parent (`GET /memos/students/:studentId` → `200` pour un parent lié, `403` po
 
 ### État
 
-- [ ] Front `apps/web` — les 5 points. Pas encore délégué.
-- [ ] Vérification backend (accès parent) contre la pile réelle.
-- [ ] Déployé sur la pile réelle.
-- [ ] Preuve livrée à l'utilisateur.
+- [x] Front `apps/web` — les 5 points livrés par `front-developper` (commits `0bae448`+`766304e`) :
+  bouton « Mémos » ajouté sur `ParentDashboardPage.tsx` (4ᵉ bouton, tuile élève de l'accueil
+  parent) ; renommage « Voir le mémo » → « Mémos » sur `MyStudentsPage` et la nouvelle tuile
+  parent ; correctif du bouton × dans `DraggableModal.tsx` (le `pointerdown` sur le bouton de
+  fermeture ne déclenche plus la capture de pointeur du bandeau — vérifié par lecture directe du
+  code par l'orchestrateur, correspond exactement au diagnostic) ; filtre par chapitre dans
+  `MemoReadOnlyContent.tsx` (« Tous les chapitres » + par chapitre, prop `initialChapterId`) ;
+  liens « Détacher » global et par chapitre sur `StudentMemoPanel.tsx`/`MemoChapterSection.tsx`,
+  réutilisant la même modale et le même filtre. Vérifié indépendamment par l'orchestrateur après
+  fast-forward : `tsc --noEmit` propre, 56/56 tests ciblés verts. Le correctif du bouton × n'est
+  **pas testable en jsdom** (pas de `setPointerCapture`) — signalé explicitement par le sous-agent,
+  correction validée par lecture de code, pas par un test qui exerce le bug réel.
+- [x] Vérification backend (accès parent) contre la pile réelle — comptes réels créés par
+  l'orchestrateur (élève, parent lié via `POST /internal/link-parent`, parent non lié) :
+  `GET /memos/students/:studentId` → `200` avec le contenu réel pour le parent **lié**, `403` pour
+  le parent **non lié**. Données de test nettoyées après vérification.
+- [x] Déployé sur la pile réelle — `docker compose build/up frontend`, bundle `index-BU30bUKB.js`
+  confirmé servi par `https://claudevma.visioprof.fr`.
+- [ ] **Preuve à obtenir** — notamment le correctif du bouton × (non couvert par les tests
+  automatisés) : à valider par test réel de l'utilisateur, comme pour les tours précédents de ce
+  chantier.
 - [ ] Validé par l'utilisateur.
 
 ---

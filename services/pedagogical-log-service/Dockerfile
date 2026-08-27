@@ -22,7 +22,7 @@ COPY --from=builder /app/dist ./dist
 # nomme est vide, Docker recopie le proprietaire et les droits du repertoire
 # de l'image : le creer ici suffit donc a initialiser le volume correctement.
 # Meme correctif que services/profile-service/Dockerfile pour `media_data`.
-RUN mkdir -p /app/storage/media && chown -R node:node /app/storage
+RUN mkdir -p /app/storage/media /app/storage/memo-images && chown -R node:node /app/storage
 
 USER node
 EXPOSE 3000

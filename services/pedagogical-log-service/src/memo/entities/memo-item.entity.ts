@@ -15,6 +15,16 @@ import { MemoChapter } from './memo-chapter.entity';
  * Un item peut être du texte court, une formule LaTeX, ou une image.
  * XML spec data entities: MemoItem, MemoImage.
  * XML spec functionality 004: listes d'items courts, formules mathématiques et images limitées en taille.
+ *
+ * Refonte du chantier feat/memo-formules (assainissement backend, B4) :
+ * les images ne sont plus transportées en base64 dans `content` — elles sont
+ * stockées sur un fichier séparé (`MemoImageStorageService`, volume Docker
+ * dédié `pedagogical_log_memo_images`), même discipline que
+ * `PedagogicalLogAttachment` pour les pièces jointes du cahier de texte.
+ * `content` devient nullable : vide ou légende optionnelle pour un item
+ * `image`, toujours requis pour `text`/`formula`. `sizeKb` (taille déclarée
+ * par le client, jamais vérifiée) est retiré, remplacé par `imageSizeBytes`
+ * (taille réelle, mesurée côté serveur après lecture du fichier envoyé).
  */
 export type MemoItemType = 'text' | 'formula' | 'image';
 
@@ -35,21 +45,33 @@ export class MemoItem {
    * Type d'item :
    * - text    : texte court libre
    * - formula : formule mathématique (LaTeX)
-   * - image   : image encodée base64 ou URL (limitée à 500 Ko)
+   * - image   : image stockée sur fichier séparé (voir champs image* ci-dessous)
    */
   @Column({ type: 'varchar' })
   type: MemoItemType;
 
-  /** Contenu : texte, LaTeX ou données image (base64/URL) */
-  @Column({ type: 'text' })
-  content: string;
-
   /**
-   * Taille de l'image en Ko (uniquement pour type=image).
-   * XML spec: "images limitees en taille" — limite appliquée en service (500 Ko).
+   * Contenu texte : le texte lui-même pour `text`/`formula` (requis), une
+   * légende optionnelle pour `image` (nullable).
    */
-  @Column({ name: 'size_kb', nullable: true, type: 'int' })
-  sizeKb: number;
+  @Column({ type: 'text', nullable: true })
+  content: string | null;
+
+  /** Nom de fichier original fourni par le client (type=image) — affichage uniquement, jamais utilisé comme chemin. */
+  @Column({ name: 'image_original_filename', nullable: true })
+  imageOriginalFilename: string | null;
+
+  /** Nom de fichier généré côté serveur (UUID, type=image) — identifie le fichier sur le volume dédié. */
+  @Column({ name: 'image_stored_filename', nullable: true })
+  imageStoredFilename: string | null;
+
+  /** Type MIME détecté sur les octets réels (type=image, jamais l'extension ni le Content-Type client). */
+  @Column({ name: 'image_mime_type', nullable: true })
+  imageMimeType: string | null;
+
+  /** Taille réelle de l'image en octets (type=image), mesurée côté serveur. */
+  @Column({ name: 'image_size_bytes', type: 'integer', nullable: true })
+  imageSizeBytes: number | null;
 
   /** Ordre d'affichage dans le chapitre */
   @Column({ default: 0 })

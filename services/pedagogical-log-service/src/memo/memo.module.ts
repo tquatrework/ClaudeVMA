@@ -1,35 +1,37 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
-import { ChapterController } from './chapter.controller';
 import { MemoController } from './memo.controller';
-import { ChapterService } from './chapter.service';
 import { MemoService } from './memo.service';
-import { Chapter } from './entities/chapter.entity';
-import { Memo } from './entities/memo.entity';
+import { MemoImageStorageService } from './memo-image-storage.service';
 import { MemoChapter } from './entities/memo-chapter.entity';
 import { MemoItem } from './entities/memo-item.entity';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { ClientsModule } from '../common/clients/clients.module';
 
 /**
- * MemoModule — Chapitres et mémos élève
+ * MemoModule — Mémo élève (chapitres et items), chantier feat/memo-formules.
  *
- * IMPORTANT: ChapterController est déclaré AVANT MemoController pour que
- * la route GET /memos/chapters ne soit pas interceptée par GET /memos/:id.
- * NestJS matche les routes dans l'ordre de déclaration des contrôleurs.
- *
- * Chapter et Memo sont enregistrés ici car ChapterService en a besoin :
- * - ChapterRepository (index 0) : opérations CRUD sur les chapitres
- * - MemoRepository (index 1) : passage chapterId → null à la suppression
+ * L'ancien `ChapterController`/`ChapterService` (entités `Chapter`/`Memo`,
+ * modèle concurrent jamais enregistré dans `TypeOrmModule.forRootAsync` de
+ * `app.module.ts`, donc jamais fonctionnel en production — `500`
+ * systématique, et gagnant la collision de route sur `POST/GET
+ * memos/chapters(/:id)` par simple ordre de déclaration) sont retirés par ce
+ * chantier. `MemoController`/`MemoService` (entités `MemoChapter`/`MemoItem`)
+ * sont désormais la seule implémentation, complétée du CRUD manquant et de
+ * la lecture pour les tiers reliés (formateur, RP/AP, parent financeur) via
+ * `ClientsModule` (`ProfileRelationsClient`, même mécanisme que le cahier de
+ * texte).
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Chapter, Memo, MemoChapter, MemoItem]),
+    TypeOrmModule.forFeature([MemoChapter, MemoItem]),
     JwtModule.register({}),
+    ClientsModule,
   ],
-  controllers: [ChapterController, MemoController],
-  providers: [ChapterService, MemoService, JwtAuthGuard, RolesGuard],
-  exports: [MemoService, ChapterService],
+  controllers: [MemoController],
+  providers: [MemoService, MemoImageStorageService, JwtAuthGuard, RolesGuard],
+  exports: [MemoService],
 })
 export class MemoModule {}

@@ -834,3 +834,21 @@ Phase 3 enrichit l'offre :
      liens ne ferme pas la porte a son extension future.
 
 ## Points ouverts a arbitrer
+
+- `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a
+  releve. Constate le 2026-08-27 pendant le chantier Memo : `docker-compose.yml` declare
+  `NODE_ENV: ${NODE_ENV:-production}` (defaut production) pour chaque service, mais le `.env` a la
+  racine du projet fixe `NODE_ENV=development` — verifie par l'orchestrateur en lisant l'env reel
+  des conteneurs (`docker compose exec <service> env`), confirme sur `pedagogical-log-service`,
+  `profile-service`, `identity-access-service`, `calendar-service` (echantillon, pas necessairement
+  exhaustif). Consequence rapportee par le sous-agent `pedagogical-log-service` : ce mode explique
+  pourquoi des tables sans migration pouvaient sembler exister « par accident » avant meme la
+  redecouverte du vrai probleme (aucune migration ne creait `memo_chapters`/`memo_items`). Verifie
+  empiriquement le meme jour que la nouvelle migration `CreateMemoTables1789500000000` s'est
+  appliquee proprement sans collision au redeploiement (`migration:show` -> `[X]`, tables presentes,
+  aucune erreur "already exists") — donc pas de crise immediate constatee sur ce cas precis, mais le
+  risque general de derive de schema causee par ce mode n'est pas ecarte pour autant, et n'a pas ete
+  audite au-dela de ce seul cas. Bascule vers `NODE_ENV=production` non tentee ici : changement
+  transverse a tous les services, qui exigerait d'abord de verifier que chaque service dispose bien
+  d'une migration couvrant l'integralite de son schema reel avant de couper le filet qui masque
+  aujourd'hui d'eventuels ecarts — a traiter comme un chantier dedie, pas en marge d'un autre.

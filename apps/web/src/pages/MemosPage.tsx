@@ -2,14 +2,12 @@
  * MemosPage — page principale du mémo élève.
  *
  * Règles d'accès (gérées par App.tsx / ProtectedRoute) :
- *   - Élève uniquement : CRUD complet via GET /memos, POST /memos, PUT /memos/:id, DELETE /memos/:id
- *   - Tout autre rôle → redirection /forbidden par ProtectedRoute
+ *   - Élève uniquement : CRUD des chapitres et items via `StudentMemoPanel`
+ *     (`docs/routes.md` § « Mémo élève — assaini le 2026-08-27 »).
+ *   - Tout autre rôle → redirection /forbidden par ProtectedRoute.
  *
- * Routes API :
- *   GET  /memos
- *   GET  /memos/search?q=
- *   POST /memos/chapters
- *   POST /memos/chapters/:chapterId/items
+ * La lecture par un tiers relié (formateur, RP/AP, parent) ne passe pas par
+ * cette page : voir `MemoReadOnlyModal`, ouverte depuis `/my-students`.
  */
 
 import React from 'react'

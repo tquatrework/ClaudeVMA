@@ -1,15 +1,17 @@
 /**
  * lightMarkup.ts — syntaxe légère textuelle pour le texte enrichi du cahier
- * de texte (`docs/architecture.md` > « Syntaxe legere unifiee pour le texte
- * enrichi », 2026-08-26).
+ * de texte et du Mémo (`docs/architecture.md` > « Syntaxe legere unifiee
+ * pour le texte enrichi », 2026-08-26).
  *
- * Aujourd'hui : liens `[label](url)`, reconnus dans une chaîne de texte et
- * transformés en vrais liens cliquables **au rendu, côté client uniquement**
- * — le champ reste un champ texte brut côté serveur, jamais transformé en
- * HTML stocké. Demain (phase 3, non implémenté ici) : notation mathématique
- * `$...$`/`$$...$$` rendue via KaTeX, sur le même principe (texte brut
- * stocké, transformé à l'affichage). Nommé génériquement — pas
- * `parseResourceLinks` ni équivalent — pour ne pas fermer cette porte.
+ * Liens `[label](url)` et notation mathématique `$...$`/`$$...$$`, reconnus
+ * dans une chaîne de texte et transformés au rendu **côté client
+ * uniquement** — le champ reste un champ texte brut côté serveur, jamais
+ * transformé en HTML/MathML stocké. Le segment `math` est la première mise
+ * en œuvre réelle de la notation mathématique anticipée le 2026-08-26 (rendu
+ * KaTeX, chantier Mémo — `MathRenderer.tsx`) ; il vaut aussi bien pour un
+ * item texte de mémo contenant une formule inline que pour une future
+ * évaluation de `content-catalog-service` (phase 3), sans nouvelle
+ * architecture parallèle.
  *
  * Remplace `resourceLinks` (champ structuré séparé, retiré le 2026-08-26
  * après retour utilisateur : le lien doit vivre **dans** le texte, pas à
@@ -19,30 +21,43 @@
 export type LightMarkupSegment =
   | { type: 'text'; value: string }
   | { type: 'link'; label: string; url: string }
+  | { type: 'math'; latex: string; displayMode: boolean }
 
-// `[label](url)` — l'URL doit être absolue http(s), jamais une URL relative
-// ni un protocole `javascript:` (même exigence que l'ancienne validation de
-// `resourceLinks`).
-const INLINE_LINK_PATTERN = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g
+// Un seul passage combine les trois motifs reconnus, dans l'ordre où ils
+// apparaissent dans le texte — un unique `RegExpExecArray` par occurrence,
+// distingué par le groupe capturant non vide :
+//   1-2 : lien `[label](url)` — URL absolue http(s) uniquement
+//   3   : bloc mathématique `$$...$$` (displayMode)
+//   4   : formule inline `$...$` (jamais multi-lignes, jamais `$$`)
+const COMBINED_PATTERN =
+  /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|\$\$([^$]+?)\$\$|\$([^$\n]+?)\$/g
 
 /**
- * Découpe un texte brut en segments texte / lien, dans l'ordre d'apparition.
- * Un texte sans motif reconnu renvoie un unique segment `text`. Une chaîne
- * vide renvoie un tableau vide.
+ * Découpe un texte brut en segments texte / lien / math, dans l'ordre
+ * d'apparition. Un texte sans motif reconnu renvoie un unique segment
+ * `text`. Une chaîne vide renvoie un tableau vide.
  */
 export function parseLightMarkup(text: string): LightMarkupSegment[] {
   if (!text) return []
 
   const segments: LightMarkupSegment[] = []
   let lastIndex = 0
-  INLINE_LINK_PATTERN.lastIndex = 0
+  COMBINED_PATTERN.lastIndex = 0
 
   let match: RegExpExecArray | null
-  while ((match = INLINE_LINK_PATTERN.exec(text)) !== null) {
+  while ((match = COMBINED_PATTERN.exec(text)) !== null) {
     if (match.index > lastIndex) {
       segments.push({ type: 'text', value: text.slice(lastIndex, match.index) })
     }
-    segments.push({ type: 'link', label: match[1], url: match[2] })
+
+    if (match[1] !== undefined) {
+      segments.push({ type: 'link', label: match[1], url: match[2] })
+    } else if (match[3] !== undefined) {
+      segments.push({ type: 'math', latex: match[3].trim(), displayMode: true })
+    } else if (match[4] !== undefined) {
+      segments.push({ type: 'math', latex: match[4].trim(), displayMode: false })
+    }
+
     lastIndex = match.index + match[0].length
   }
 
@@ -56,6 +71,16 @@ export function parseLightMarkup(text: string): LightMarkupSegment[] {
 /** URL absolue `http://` ou `https://` uniquement — une URL relative ou `javascript:` est refusée. */
 export function isAbsoluteHttpUrl(url: string): boolean {
   return /^https?:\/\//i.test(url.trim())
+}
+
+/**
+ * Reconstruit la syntaxe brute `$latex$`/`$$latex$$` d'un segment `math` —
+ * utilisée par `LightMarkupEditor` pour réafficher un segment math comme
+ * texte éditable (il ne rend pas de jeton pour les formules, seulement pour
+ * les liens ; portée volontairement étroite du chantier Mémo, 2026-08-27).
+ */
+export function buildMathMarkup(segment: { latex: string; displayMode: boolean }): string {
+  return segment.displayMode ? `$$${segment.latex}$$` : `$${segment.latex}$`
 }
 
 /** Construit la syntaxe `[label](url)` à insérer dans un champ texte. */

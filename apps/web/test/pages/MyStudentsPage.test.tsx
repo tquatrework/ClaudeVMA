@@ -12,6 +12,7 @@
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import MyStudentsPage from '../../src/pages/MyStudentsPage'
@@ -20,6 +21,15 @@ import type { MyContact } from '../../src/types/relations'
 
 vi.mock('../../src/hooks/useAuth')
 vi.mock('../../src/api/relations')
+vi.mock('../../src/components/pedagogical-log/MemoReadOnlyModal', () => ({
+  MemoReadOnlyModal: (props: { studentId: string; title?: string; onClose: () => void }) => (
+    <div data-testid="memo-modal-stub">
+      <p>{props.title}</p>
+      <p>studentId: {props.studentId}</p>
+      <button onClick={props.onClose}>Fermer (mock)</button>
+    </div>
+  ),
+}))
 
 import { useAuth } from '../../src/hooks/useAuth'
 import { fetchMyContacts } from '../../src/api/relations'
@@ -32,6 +42,13 @@ const STUDENT_CONTACT: MyContact = {
   firstName: 'Lina',
   lastName: 'Archivet',
   relations: [{ kind: 'teacher_of_student', isPrincipalTeacher: true }],
+}
+
+const ANIMATED_TEACHER_CONTACT: MyContact = {
+  userId: '9a2f3c10-1111-4b2b-9e9e-000000000001',
+  firstName: 'Karim',
+  lastName: 'Formateur',
+  relations: [{ kind: 'animator_of_teacher' }],
 }
 
 const ANIMATOR_CONTACT: MyContact = {
@@ -126,6 +143,54 @@ describe('MyStudentsPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('link', { name: 'Rattacher un élève' })).toBeDefined()
     })
+  })
+
+  it('propose « Voir le mémo » et ouvre la modale sans naviguer', async () => {
+    mockFetchMyContacts.mockResolvedValue([STUDENT_CONTACT])
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Voir le mémo' })).toBeDefined()
+    })
+
+    expect(screen.queryByTestId('memo-modal-stub')).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Voir le mémo' }))
+
+    // Toujours sur la même page (pas de navigation) — la liste des élèves
+    // reste affichée derrière la modale.
+    expect(screen.getByText('Lina Archivet')).toBeDefined()
+    expect(screen.getByTestId('memo-modal-stub')).toBeDefined()
+    expect(screen.getByText('studentId: fd0fe655-cd28-4f75-b225-846e8aad7e62')).toBeDefined()
+  })
+
+  it('ne propose pas « Voir le mémo » pour un formateur animé (pas un élève)', async () => {
+    mockUseAuth.mockReturnValue(makeUseAuthReturn({ id: 'ap-1', role: 'animateur_pedagogique' }))
+    mockFetchMyContacts.mockResolvedValue([ANIMATED_TEACHER_CONTACT])
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Karim Formateur')).toBeDefined()
+    })
+    expect(screen.queryByRole('button', { name: 'Voir le mémo' })).toBeNull()
+  })
+
+  it('ferme la modale du mémo', async () => {
+    mockFetchMyContacts.mockResolvedValue([STUDENT_CONTACT])
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Voir le mémo' })).toBeDefined()
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Voir le mémo' }))
+    expect(screen.getByTestId('memo-modal-stub')).toBeDefined()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Fermer (mock)' }))
+
+    expect(screen.queryByTestId('memo-modal-stub')).toBeNull()
   })
 
   it("affiche un repli lisible quand la personne n'a pas de profil administratif", async () => {

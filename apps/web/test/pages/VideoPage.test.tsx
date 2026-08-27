@@ -10,7 +10,10 @@
  *    redirection `window.location.href = joinUrl`).
  * 4. Enregistrer la présence explicitement (bouton dédié)
  * 5. Clôturer la session (rôles autorisés uniquement)
- * 6. Boutons Mémo / Clôturer visibles selon le rôle
+ * 6. Bouton Mémo réservé à l'élève (studentId non ambigu) ; ouvre/ferme une
+ *    fenêtre `MemoReadOnlyModal` (mockée ici — comportement propre couvert par
+ *    test/components/pedagogical-log/MemoReadOnlyModal.test.tsx) plutôt que
+ *    l'ancien tiroir `InVideoMemoDrawer` (retiré, chantier `feat/memo-formules`)
  *
  * `RecordingListPanel` et `CourseSummaryView` (montés comme enfants de VideoPage) consomment
  * désormais `src/api/video` — mocké ici comme le reste du module pour éviter tout appel réseau
@@ -32,6 +35,14 @@ vi.mock('../../src/components/video/LiveVideoCall', () => ({
       <p>token: {props.token}</p>
       <p>url: {props.url}</p>
       <button onClick={props.onLeave}>Quitter l'appel (mock)</button>
+    </div>
+  ),
+}))
+vi.mock('../../src/components/pedagogical-log/MemoReadOnlyModal', () => ({
+  MemoReadOnlyModal: (props: { studentId: string; onClose: () => void }) => (
+    <div role="dialog" aria-label="Mémo" data-testid="memo-modal-stub">
+      <p>studentId: {props.studentId}</p>
+      <button onClick={props.onClose}>Fermer (mock)</button>
     </div>
   ),
 }))
@@ -385,6 +396,52 @@ describe('VideoPage — bouton Mémo', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('Ouvrir le mémo')).toBeDefined()
     })
+  })
+
+  it("n'affiche pas le bouton Mémo pour un formateur — pas de studentId non ambigu côté visio", async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
+    mockFetchRoomInfo.mockResolvedValue({ id: 'room-abc', status: 'active' })
+
+    renderVideoPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Session visio')).toBeDefined()
+    })
+    expect(screen.queryByLabelText('Ouvrir le mémo')).toBeNull()
+  })
+
+  it('ouvre la fenêtre du mémo au clic, avec le studentId de l\'élève connecté', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
+    mockFetchRoomInfo.mockResolvedValue({ id: 'room-abc', status: 'active' })
+
+    renderVideoPage()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Ouvrir le mémo')).toBeDefined()
+    })
+    expect(screen.queryByTestId('memo-modal-stub')).toBeNull()
+
+    await userEvent.click(screen.getByLabelText('Ouvrir le mémo'))
+
+    expect(screen.getByTestId('memo-modal-stub')).toBeDefined()
+    expect(screen.getByText(`studentId: ${STUDENT_USER.id}`)).toBeDefined()
+  })
+
+  it('ferme la fenêtre du mémo', async () => {
+    mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
+    mockFetchRoomInfo.mockResolvedValue({ id: 'room-abc', status: 'active' })
+
+    renderVideoPage()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Ouvrir le mémo')).toBeDefined()
+    })
+    await userEvent.click(screen.getByLabelText('Ouvrir le mémo'))
+    expect(screen.getByTestId('memo-modal-stub')).toBeDefined()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Fermer (mock)' }))
+
+    expect(screen.queryByTestId('memo-modal-stub')).toBeNull()
   })
 })
 

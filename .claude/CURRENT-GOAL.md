@@ -64,11 +64,33 @@ formule saisie via MathLive et rendue en LaTeX, une image jointe et affichée.
   échantillonnés) — aucune crise constatée sur ce déploiement précis, mais le risque général de
   dérive de schéma n'est pas écarté ; bascule vers `production` non tentée, à traiter comme
   chantier dédié.
-- [ ] Front `apps/web` — F1 à F8 du plan (client API, saisie MathLive/KaTeX, éditeur d'item,
-  modale déplaçable générique, vue de lecture, bouton sur la tuile élève, retrait de la page
-  orpheline). Pas encore délégué.
-- [ ] Déployé sur la pile réelle.
-- [ ] Preuve livrée à l'utilisateur.
+- [x] Front `apps/web` — F1 à F8 du plan livrés par `front-developper` (commits `b9a30ce`+`f02240e`,
+  mergés dans `feat/memo-formules` sans conflit — l'agent avait poussé sur sa propre branche
+  worktree, réconcilié par l'orchestrateur, commit de merge `29162d1`). Client API aligné sur le
+  contrat réel, `MemoFormulaInput` (MathLive, repli textarea LaTeX si le composant web échoue à
+  s'enregistrer), `MathRenderer` (KaTeX), segment `math` ajouté à `lightMarkup.ts`,
+  `DraggableModal` (première modale déplaçable du projet, déplacement par événements pointer, pas
+  de nouvelle dépendance de drag), `MemoReadOnlyContent`/`MemoReadOnlyModal`, bouton « Voir le
+  mémo » sur `MyStudentsPage`, page orpheline `/memos/:id` retirée, `InVideoMemoDrawer` remplacé
+  par la modale déplaçable dans `VideoPage`. `npm install mathlive katex` — vulnérabilités npm
+  détectées toutes préexistantes (axios/form-data/react-router), aucune introduite par ces deux
+  nouvelles dépendances. Vérifié indépendamment par l'orchestrateur après fusion : `tsc --noEmit`
+  propre, 1952/1954 tests verts (2 échecs préexistants sans rapport, `EleveDashboardPage.test.tsx`,
+  déjà signalés à plusieurs reprises sur ce projet), `npm run build` ok.
+- [x] Déployé sur la pile réelle — `docker compose build/up frontend`, bundle `index-dUrdOwIw.js`
+  confirmé servi par `https://claudevma.visioprof.fr`.
+- [x] Preuve — vérification HTTP réelle bout en bout par l'orchestrateur, comptes réels créés pour
+  l'occasion (élève, formateur lié, formateur non lié), relation posée via la route interne : élève
+  crée un chapitre puis un item formule (`201`) ; écriture refusée à un formateur (`403`) ; lecture
+  `GET /memos/students/:studentId` → `200` avec le contenu réel pour le formateur **lié**, `403`
+  pour le formateur **non lié** ; upload d'image (`POST .../items/image`, multipart) → `201`, type
+  détecté sur les octets réels ; téléchargement par le formateur lié → `200`, octets identiques à
+  l'original (`cmp` confirmé) ; suppression du chapitre → `204`, cascade sur l'item et le fichier
+  image. Données de test nettoyées après vérification (chapitre supprimé).
+  **Non couvert par cette preuve HTTP, nécessite un test visuel réel** : le rendu MathLive/KaTeX à
+  l'écran, le comportement de la modale déplaçable (glisser réellement la fenêtre), l'apparence du
+  bouton « Voir le mémo » sur la tuile élève — à demander à l'utilisateur quel niveau de preuve il
+  souhaite pour cette partie (comme pour le chantier précédent).
 - [ ] Validé par l'utilisateur.
 
 ---

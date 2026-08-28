@@ -17,6 +17,7 @@ import { ActivityProjection } from './events/entities/activity-projection.entity
 import { ProcessedEvent } from './events/entities/processed-event.entity';
 import { PedagogicalLogAttachment } from './attachments/entities/pedagogical-log-attachment.entity';
 import { PedagogicalLogSettings } from './settings/entities/pedagogical-log-settings.entity';
+import { NotebookAccessSettings } from './settings/entities/notebook-access-settings.entity';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { PedagogicalLogSettings } from './settings/entities/pedagogical-log-sett
           ProcessedEvent,
           PedagogicalLogAttachment,
           PedagogicalLogSettings,
+          NotebookAccessSettings,
         ],
         // Migrations réelles depuis la refonte du 2026-08-20 (nouvelles colonnes/tables) —
         // synchronize reste réservé aux environnements non-production, migrationsRun

@@ -2226,13 +2226,47 @@ défilement d'une liste brute.
 |---|---|---|---|---|---|
 | POST | /pedagogical-logs/notebook | Ajouter une entrée dans MON carnet | 🔒 | tout rôle authentifié | `201 {id, ownerId, ...}` · `400` validation |
 | GET | /pedagogical-logs/notebook | Lister (ou rechercher) MES entrées — query params optionnels `from?`, `to?`, `q?` | 🔒 | tout rôle authentifié | `200 [NotebookEntry]` |
+| GET | /pedagogical-logs/notebook/owners/:ownerId | **Nouvelle route (2026-08-28)** — lire (ou rechercher) le carnet d'un TIERS, en lecture seule, mêmes query params `from?`/`to?`/`q?` que ci-dessus. Voir « Accès administratif et parental » ci-dessous | 🔒 | parent_financeur, responsable_pedagogique, technicien_informatique, administrateur_financier (piloté ensuite par le réglage TI, voir ci-dessous) | `200 [NotebookEntry]` · `403` rôle structurellement jamais éligible (eleve, formateur, animateur_pedagogique) · `404` réglage désactivé pour ce rôle, ou relation parent-élève absente/rompue (indiscernable d'un carnet vide) · `503` profile-service injoignable (axe parental uniquement) |
 | GET | /pedagogical-logs/notebook/:id | Détail d'une de mes entrées | 🔒 | tout rôle authentifié (titulaire de l'entrée) | `200 NotebookEntry` · `403` non titulaire · `404` introuvable |
 | DELETE | /pedagogical-logs/notebook/:id | Supprimer une de mes entrées | 🔒 | titulaire de l'entrée uniquement | `204` · `403` · `404` |
 
-Aucune exception, y compris administrative : ni une relation métier (parent, formateur, AP, RP)
-ni un rôle administratif (RP, AF, TI) n'ouvre de droit sur le carnet d'un tiers — seule exception
-totale à « les administrateurs voient tout » du projet. Testé explicitement en e2e pour chaque
-rôle, y compris RP/TI/AF (`test/e2e/notebook.e2e-spec.ts`).
+Écriture (création, suppression) : aucune exception, y compris administrative — ni une relation
+métier (parent, formateur, AP, RP) ni un rôle administratif (RP, AF, TI) n'ouvre de droit
+d'ÉCRITURE sur le carnet d'un tiers. Testé explicitement en e2e pour chaque rôle, y compris
+RP/TI/AF (`test/e2e/notebook.e2e-spec.ts`).
+
+#### Accès administratif et parental — arbitrage du 2026-08-28, LECTURE SEULE, désactivé par défaut
+
+Réf. `docs/architecture.md` > "Acces administratif et parental au carnet personnel — parametrable
+par le TI, defaut ferme". **Révise** le paragraphe ci-dessus sur l'exception totale : le carnet
+personnel n'est plus une exception totale et définitive en lecture, mais reste une exception
+totale en écriture — créer/supprimer une entrée reste réservé au seul titulaire dans tous les cas,
+même quand l'accès administratif ou parental est activé.
+
+Deux axes indépendants, tous deux gérés par `pedagogical-log-service`, contrôlés à chaque appel
+(jamais en cache) :
+- **Administratif**, curseur hiérarchique `adminAccess` : `none` (défaut, comportement inchangé)
+  < `rp` (ouvre la lecture de TOUS les carnets à `responsable_pedagogique`) < `all_admins` (ouvre
+  en plus à `administrateur_financier` et `technicien_informatique`).
+- **Parental**, booléen indépendant `parentAccessToOwnChild` (défaut `false`) : ouvre au parent
+  financeur la lecture du carnet du **seul élève auquel il est activement rattaché** — relation
+  `finance_owner_of_student` vérifiée à chaque lecture auprès de `profile-service`
+  (`GET /internal/relations/:viewerId/:targetId?viewerRole=parent_financeur`), jamais en cache.
+
+Le titulaire lisant son propre carnet via `GET .../notebook/owners/:ownerId` reste toujours
+autorisé, sans aucun appel réseau, quel que soit le réglage (repli sur le comportement normal).
+
+**Réglages TI, sur le modèle déjà établi pour les pièces jointes** — table singleton distincte de
+`pedagogical_log_settings` :
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /pedagogical-logs/settings/notebook-access | Lire les réglages courants d'accès au carnet personnel d'un tiers | 🔒 | tout compte authentifié | `200 {id, adminAccess, parentAccessToOwnChild, updatedAt}` · `401` |
+| PATCH | /pedagogical-logs/settings/notebook-access | Modifier les réglages (mise à jour partielle) | 🔒 | technicien_informatique uniquement | `200` (même forme que le GET) · `400` valeur hors énumération pour `adminAccess` · `401` · `403` réservé au TI |
+
+Testé explicitement en e2e (`test/e2e/pedagogical-log.e2e-spec.ts` pour les réglages,
+`test/e2e/notebook.e2e-spec.ts` pour la route de lecture tierce elle-même, y compris les deux axes
+et le repli 503 côté parent en environnement sans `profile-service`).
 
 ### Pièces jointes — arbitrage du 2026-08-26
 

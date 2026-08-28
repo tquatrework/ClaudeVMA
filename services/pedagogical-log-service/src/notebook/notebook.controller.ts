@@ -20,6 +20,8 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { UserRole } from '../common/enums/user-role.enum';
 import { NotebookService } from './notebook.service';
 import { CreateNotebookEntryDto } from './dto/create-notebook-entry.dto';
 import { FindNotebookQueryDto } from './dto/find-notebook-query.dto';
@@ -33,19 +35,22 @@ import { FindNotebookQueryDto } from './dto/find-notebook-query.dto';
  * N'IMPORTE QUEL utilisateur authentifié — élève, formateur, animateur
  * pédagogique, et tout rôle futur — a son propre carnet.
  *
- * Aucun `@Roles(...)` sur ce contrôleur : `RolesGuard` laisse passer tout
- * rôle authentifié dès lors qu'aucune liste de rôles n'est déclarée. Le seul
- * contrôle d'accès qui compte est celui de `NotebookService` : titulaire
- * uniquement, jamais personne d'autre — y compris les rôles administratifs
- * (RP, AF, TI), qui n'ont ici AUCUNE exception, contrairement à leur accès
- * large habituel au reste des profils.
+ * Aucun `@Roles(...)` sur les routes `POST`/`GET`/`GET :id`/`DELETE`
+ * ci-dessous : `RolesGuard` laisse passer tout rôle authentifié dès lors
+ * qu'aucune liste de rôles n'est déclarée. Le seul contrôle d'accès qui
+ * compte pour l'ÉCRITURE (`POST`, `DELETE`) et pour le détail (`GET :id`)
+ * reste celui de `NotebookService` : titulaire uniquement, jamais personne
+ * d'autre — y compris les rôles administratifs (RP, AF, TI), qui n'ont ici
+ * AUCUNE exception. Ceci reste inchangé depuis le 2026-08-27.
  *
  * Changement observable par rapport à l'ancienne route :
  *   AVANT : students/:studentId/notebook          (réservé au rôle éleve, TI en plus)
  *   APRÈS : pedagogical-logs/notebook              (tout rôle, titulaire uniquement)
  * Le titulaire n'est plus un paramètre de chemin : il n'est jamais que
  * l'utilisateur authentifié (`req.user.id`), donc il n'existe plus d'URL
- * pouvant désigner le carnet d'un tiers.
+ * pouvant désigner le carnet d'un tiers — SAUF la route dédiée
+ * `GET .../notebook/owners/:ownerId` ci-dessous (2026-08-28), seule
+ * exception, en LECTURE SEULE, contrôlée par réglage TI.
  *
  * Préfixe `pedagogical-logs/` choisi délibérément (et non un nouveau préfixe
  * top-level `notebook/`) : `api-gateway` ne proxy que les préfixes connus
@@ -66,6 +71,20 @@ import { FindNotebookQueryDto } from './dto/find-notebook-query.dto';
  * paramètres de requête optionnels et combinables : `from`/`to` (plage de
  * dates sur `createdAt`, une date précise s'exprime avec `from=to`) et `q`
  * (recherche texte libre sur `content`) — voir `FindNotebookQueryDto`.
+ *
+ * Accès administratif et parental — arbitrage du 2026-08-28 (docs/
+ * architecture.md, "Acces administratif et parental au carnet personnel —
+ * parametrable par le TI, defaut ferme") : `GET .../notebook/owners/:ownerId`
+ * ouvre, en LECTURE SEULE et seulement si le TI l'a activé (fermé par
+ * défaut), le carnet d'un tiers à un rôle administratif (RP, puis AF/TI) ou
+ * à un parent financeur activement rattaché. `@Roles(...)` y filtre déjà les
+ * rôles STRUCTURELLEMENT jamais éligibles (élève, formateur, animateur
+ * pédagogique) → `403` ; le réglage TI et la relation sont revérifiés à
+ * chaque appel par `NotebookService.assertCanReadThirdParty` → `404` si non
+ * couverts. Cette route ne segmente jamais avec `GET .../notebook/:id`
+ * (nombre de segments différent, `owners/:ownerId` contre `:id` seul) — même
+ * prudence d'ordre que `finance-owners` avant `:viewerId` chez
+ * `profile-service` (docs/routes.md).
  */
 @ApiTags('notebook')
 @ApiBearerAuth()
@@ -101,6 +120,42 @@ export class NotebookController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   findAll(@Query() query: FindNotebookQueryDto, @Req() req: any) {
     return this.service.findAll(req.user.id, query);
+  }
+
+  @Get('owners/:ownerId')
+  @Roles(
+    UserRole.PARENT_FINANCEUR,
+    UserRole.RESPONSABLE_PEDAGOGIQUE,
+    UserRole.TECHNICIEN_INFORMATIQUE,
+    UserRole.ADMINISTRATEUR_FINANCIER,
+  )
+  @ApiParam({ name: 'ownerId', description: 'UUID du titulaire du carnet' })
+  @ApiOperation({
+    summary: "Lire (ou rechercher) le carnet personnel d'un tiers",
+    description:
+      "Ouverte en LECTURE SEULE, uniquement si le réglage TI l'autorise (fermé par défaut). " +
+      "RP (si adminAccess ∈ {rp, all_admins}) ou AF/TI (si adminAccess = all_admins) lisent le " +
+      "carnet de n'importe quel titulaire. Un parent financeur lit le carnet du seul élève " +
+      "auquel il est activement rattaché, si parentAccessToOwnChild est activé. Mêmes " +
+      "paramètres de recherche (`from`/`to`/`q`) que GET /pedagogical-logs/notebook.",
+  })
+  @ApiResponse({ status: 200, description: 'Notebook entries list' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({
+    status: 403,
+    description: "Rôle structurellement jamais éligible à cette route (élève, formateur, animateur pédagogique)",
+  })
+  @ApiResponse({
+    status: 404,
+    description: "Réglage désactivé pour ce rôle, ou relation parent-élève absente/rompue (indiscernable d'un carnet vide)",
+  })
+  @ApiResponse({ status: 503, description: 'profile-service injoignable (vérification de la relation parent-élève)' })
+  findAllForThirdParty(
+    @Param('ownerId') ownerId: string,
+    @Query() query: FindNotebookQueryDto,
+    @Req() req: any,
+  ) {
+    return this.service.findAllForThirdParty(ownerId, req.user.id, req.user.role, query);
   }
 
   @Get(':id')

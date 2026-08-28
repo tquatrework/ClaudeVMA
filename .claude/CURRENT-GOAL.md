@@ -5,28 +5,39 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
-## Besoin — 2026-08-28 — Écran de validation Quizz introuvable pour RP/AP
+## Besoin courant
 
-L'utilisateur ne trouve toujours pas où un RP ou un AP valide un Quizz. Vérifié par
-l'orchestrateur en HTTP direct contre `https://claudevma.visioprof.fr` avant délégation — **la
-logique métier est intégralement correcte et déjà déployée** (AP lié voit et valide, AP non lié
-voit une liste vide et se voit refuser en `403`, quizz validé visible par tous sans relation).
-Donc un problème de **navigation/découvrabilité front** uniquement : les tests précédents
-accédaient toujours à l'écran par URL directe (`page.goto`), jamais par un clic depuis un menu —
-signe probable qu'aucun lien n'y mène réellement pour RP/AP.
+Aucun — voir l'archive ci-dessous pour le dernier chantier clos. En attente du prochain besoin.
 
-Comptes de test créés pour vérifier ce point (existent sur la pile réelle) :
+<details>
+<summary>Archive — besoin du 2026-08-28, écran de validation Quizz "introuvable" (clos, aucun bug)</summary>
+
+### Besoin
+
+L'utilisateur ne trouvait pas où un RP ou un AP valide un Quizz. Vérifié par l'orchestrateur en
+HTTP direct contre `https://claudevma.visioprof.fr` avant délégation — **la logique métier était
+intégralement correcte et déjà déployée** (AP lié voit et valide, AP non lié voit une liste vide
+et se voit refuser en `403`, quizz validé visible par tous sans relation). Comptes de test créés
+pour cette vérification (existent sur la pile réelle, réutilisables) :
 - AP lié à `e2e.quizprof.1787932490` (relation `animator_of_teacher` créée) :
   `e2e.relatedap.1787957050` / `E2eTest!2026`
 - AP non lié : `e2e.unrelatedap.1787957050` / `E2eTest!2026`
 
-**Autorisation explicite donnée** à `front-developper` d'ajouter un lien de navigation vers l'écran
-de validation pour RP/AP si aucun n'existe — dérogation à la règle "jamais de menu sans
-approbation", l'utilisateur demandant lui-même cette découvrabilité.
+### Conclusion du subagent — aucun bug trouvé
 
-## État — délégué à front-developper, aucun retour pour l'instant
+Le lien de navigation existait déjà ("Contenus à valider" pour RP, "File de validation" pour AP,
+tous deux vers `/content/validation`), déployé et présent dans le bundle réellement servi. Preuve
+Playwright en **cliquant** depuis le menu (jamais `page.goto` direct) : RP voit 10 quizz en
+attente, AP lié en voit 6 (bien scopés par relation), AP non lié voit un état vide propre. PR #173
+mergée (ajoute seulement le test de preuve, aucun changement de code fonctionnel).
 
-## Besoin courant (suivant, une fois ci-dessus clos)
+**Hypothèse la plus probable si l'utilisateur ne le trouve toujours pas après cette vérification** :
+cache navigateur d'un bundle antérieur — un rechargement forcé (Ctrl+Maj+R) devrait résoudre le cas.
+À rouvrir si le problème persiste après ce rechargement.
+
+</details>
+
+## Archive — chantiers Quizz précédents (clos)
 
 Aucun autre — les 5 retours Quizz post-production initiaux, plus un 6e retour sur l'affordance de
 saisie de formule, sont clos, voir l'archive ci-dessous.

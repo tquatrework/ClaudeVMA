@@ -238,12 +238,16 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
     {
       groupLabel: 'Contenus',
       items: [
+        // 'Quizz' repositionné en première position le 2026-08-28 (demande
+        // explicite utilisateur, correctif de positionnement) : ajouté en
+        // dernière position le 2026-08-27 faute de consigne d'ordre explicite
+        // pour ce rôle, alors que la règle posée pour l'élève le même jour
+        // était déjà « Quizz en première position du groupe Contenus ». Même
+        // état « à venir » que côté élève, voir QuizzPage.
+        { label: 'Quizz', path: '/content/quizz', icon: '❓' },
         { label: 'Exercices', path: '/content/exercises', icon: '📐' },
         { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
         { label: 'Tutos-vidéos', path: '/content/tutorials', icon: '🎬' },
-        // 'Quizz' ajouté le 2026-08-27 (demande explicite utilisateur) : même
-        // état « à venir » que côté élève, voir QuizzPage.
-        { label: 'Quizz', path: '/content/quizz', icon: '❓' },
       ],
     },
     {

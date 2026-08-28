@@ -56,6 +56,7 @@ import ExerciseDetailPage from './pages/ExerciseDetailPage'
 import EvaluationCatalogPage from './pages/EvaluationCatalogPage'
 import EvaluationAttemptPage from './pages/EvaluationAttemptPage'
 import TutorialCatalogPage from './pages/TutorialCatalogPage'
+import QuizzPage from './pages/QuizzPage'
 import ContentValidationQueuePage from './pages/ContentValidationQueuePage'
 import OpenActivitiesPage from './pages/OpenActivitiesPage'
 import OpenActivityDetailPage from './pages/OpenActivityDetailPage'
@@ -301,11 +302,15 @@ export default function App() {
             }
           />
 
-          {/* Notebook — student-only: the page itself enforces the role check */}
+          {/* Carnet personnel — route générique unique depuis le 2026-08-27
+              (chantier de généralisation pedagogical-log-service, PR #140) :
+              plus de /notebook/:studentId, le titulaire est déduit du JWT
+              côté serveur. Rôles limités à ceux explicitement demandés pour
+              cette session (élève, formateur, AP) — voir routeAccessMap.ts. */}
           <Route
-            path="/notebook/:studentId"
+            path="/notebook/mine"
             element={
-              <ProtectedRoute allowedRoles={['eleve', 'responsable_pedagogique', 'technicien_informatique']}>
+              <ProtectedRoute allowedRoles={['eleve', 'formateur', 'animateur_pedagogique']}>
                 <NotebookPage />
               </ProtectedRoute>
             }
@@ -593,6 +598,17 @@ export default function App() {
                 ]}
               >
                 <PedagogicalArchivePage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Quizz — ajouté le 2026-08-27, état « à venir » (aucun backend de
+              quiz n'existe encore, content-catalog-service est phase 3) */}
+          <Route
+            path="/content/quizz"
+            element={
+              <ProtectedRoute allowedRoles={['eleve', 'formateur']}>
+                <QuizzPage />
               </ProtectedRoute>
             }
           />

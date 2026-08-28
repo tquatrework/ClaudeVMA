@@ -55,16 +55,11 @@ export default function EleveDashboardPage() {
 
   const topNavItems = filterTopNavItems('eleve', hasRole)
 
-  // Rail avec chemin carnet personnel résolu
-  const baseRailGroups = getRailGroupsForRole('eleve')
-  const railGroupsWithNotebook = user
-    ? baseRailGroups.map((group) => ({
-        ...group,
-        items: group.items.map((item) =>
-          item.label === 'Carnet personnel' ? { ...item, path: `/notebook/${user.id}` } : item,
-        ),
-      }))
-    : baseRailGroups
+  // Rail — chemin du « Carnet personnel » désormais statique (route générique
+  // /notebook/mine, titulaire déduit du JWT côté serveur — chantier de
+  // généralisation pedagogical-log-service, PR #140, 2026-08-27) : plus
+  // besoin de le réécrire ici avec l'id de l'utilisateur.
+  const railGroups = getRailGroupsForRole('eleve')
 
   // Professeur assigné, résolu depuis la relation élève↔formateur de profile-service
   // (source de vérité de l'affectation pédagogique — pas les contacts de
@@ -80,7 +75,7 @@ export default function EleveDashboardPage() {
   return (
     <DashboardShell
       accentClass="role-eleve"
-      railGroups={railGroupsWithNotebook}
+      railGroups={railGroups}
       topNavItems={topNavItems}
       userName={firstName}
       userRole="Élève"

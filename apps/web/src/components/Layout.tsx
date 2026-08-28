@@ -40,16 +40,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   // Navigation haute — filtrée depuis la config centralisée
   const visibleTopNavItems = filterTopNavItems(user?.role, hasRole)
 
-  // Rail gauche — depuis la config centralisée, avec résolution du carnet personnel
-  const baseRailGroups = user ? getRailGroupsForRole(user.role) : []
-  const railGroups = user?.role === 'eleve'
-    ? baseRailGroups.map((group) => ({
-        ...group,
-        items: group.items.map((item) =>
-          item.label === 'Carnet personnel' ? { ...item, path: `/notebook/${user.id}` } : item,
-        ),
-      }))
-    : baseRailGroups
+  // Rail gauche — depuis la config centralisée. Le chemin du « Carnet
+  // personnel » est désormais statique et identique pour tous les rôles qui
+  // y ont accès (route générique /notebook/mine, titulaire déduit du JWT
+  // côté serveur — chantier de généralisation pedagogical-log-service,
+  // PR #140, 2026-08-27) : plus besoin de le réécrire ici avec l'id de
+  // l'utilisateur.
+  const railGroups = user ? getRailGroupsForRole(user.role) : []
 
   const handleLogout = async () => {
     await logout()

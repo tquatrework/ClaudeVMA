@@ -158,13 +158,22 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
         { label: 'Demandes professeurs', path: '/teacher-requests', icon: '🎓' },
         { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
         { label: 'Mémos', path: '/memos', icon: '💡' },
-        { label: 'Carnet personnel', path: '/notebook/', icon: '📓' },
-        { label: 'Stats / Archives', path: '/archives', icon: '🗂️' },
+        // Route générique depuis le 2026-08-27 (plus de /notebook/:studentId,
+        // titulaire déduit du JWT) — identique pour tous les rôles qui y ont accès.
+        { label: 'Carnet personnel', path: '/notebook/mine', icon: '📓' },
+        // 'Stats / Archives' retiré du rail le 2026-08-27 (demande explicite
+        // utilisateur) : l'entrée reste accessible pour l'élève via le menu du
+        // haut (TOP_NAV_CONFIG, id 'archives'), qui l'ouvre déjà.
       ],
     },
     {
       groupLabel: 'Contenus',
       items: [
+        // 'Quizz' ajouté en première position le 2026-08-27 (demande explicite
+        // utilisateur) : aucun backend de quiz n'existe encore
+        // (content-catalog-service, phase 3) — QuizzPage affiche un état
+        // « à venir » explicite, sans appel API (voir le composant).
+        { label: 'Quizz', path: '/content/quizz', icon: '❓' },
         { label: 'Exercices', path: '/content/exercises', icon: '📐' },
         { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
         { label: 'Tutos-vidéos', path: '/content/tutorials', icon: '🎬' },
@@ -181,18 +190,20 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
   ],
 
   parent_financeur: [
+    // 'Démarches' repositionné tout en haut du rail le 2026-08-27 (demande
+    // explicite utilisateur) — avant tout le reste, y compris 'Suivi élève'.
+    {
+      groupLabel: 'Démarches',
+      items: [
+        { label: 'Demande de rattachement', path: '/parent-link-requests', icon: '🔗' },
+      ],
+    },
     {
       groupLabel: 'Suivi élève',
       items: [
         { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
         { label: 'Calendrier', path: '/calendar', icon: '📅' },
-        { label: 'Archives', path: '/archives', icon: '🗂️' },
-      ],
-    },
-    {
-      groupLabel: 'Démarches',
-      items: [
-        { label: 'Demande de rattachement', path: '/parent-link-requests', icon: '🔗' },
+        // 'Archives' retiré le 2026-08-27 (demande explicite utilisateur).
       ],
     },
     {
@@ -216,6 +227,12 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
       items: [
         { label: 'Mes élèves', path: '/my-students', icon: '👥' },
         { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
+        // 'Carnet personnel' ajouté en dernière position le 2026-08-27 (demande
+        // explicite utilisateur) : carnet strictement privé du formateur —
+        // même route générique que les autres rôles (NotebookPage), le
+        // titulaire est déduit du JWT (chantier de généralisation
+        // pedagogical-log-service, PR #140).
+        { label: 'Carnet personnel', path: '/notebook/mine', icon: '📓' },
       ],
     },
     {
@@ -224,6 +241,9 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
         { label: 'Exercices', path: '/content/exercises', icon: '📐' },
         { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
         { label: 'Tutos-vidéos', path: '/content/tutorials', icon: '🎬' },
+        // 'Quizz' ajouté le 2026-08-27 (demande explicite utilisateur) : même
+        // état « à venir » que côté élève, voir QuizzPage.
+        { label: 'Quizz', path: '/content/quizz', icon: '❓' },
       ],
     },
     {
@@ -276,6 +296,29 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
   ],
 
   animateur_pedagogique: [
+    // Groupe 'Suivi' repositionné tout en haut du rail le 2026-08-27 (demande
+    // explicite utilisateur), et enrichi de deux entrées :
+    //  - 'Carnet personnel' : carnet strictement privé de l'AP — même route
+    //    générique que les autres rôles (NotebookPage), le titulaire est
+    //    déduit du JWT (chantier de généralisation pedagogical-log-service,
+    //    PR #140).
+    //  - 'Mes professeurs' : liste des formateurs que l'AP anime. Réutilise
+    //    /my-students (GET /relations/my-contacts, relation animator_of_teacher
+    //    déjà gérée par MyStudentsPage/isSupervisedContact) — aucune nouvelle
+    //    route ni nouveau composant nécessaire.
+    // 'Cahier de texte' est retiré de ce groupe (demande explicite utilisateur).
+    // Les deux entrées déjà présentes ('Activités non pourvues', 'Activité
+    // globale') restent dans ce même groupe 'Suivi', simplement déplacé en
+    // tête plutôt que dupliqué sous un second groupe au même libellé.
+    {
+      groupLabel: 'Suivi',
+      items: [
+        { label: 'Carnet personnel', path: '/notebook/mine', icon: '📓' },
+        { label: 'Mes professeurs', path: '/my-students', icon: '👥' },
+        { label: 'Activités non pourvues', path: '/open-activities', icon: '📢' },
+        { label: 'Activité globale', path: '/admin/activity', icon: '📊' },
+      ],
+    },
     {
       groupLabel: 'Mes contenus',
       items: [
@@ -290,14 +333,6 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
       items: [
         { label: 'Forums', path: '/community/forums', icon: '💬' },
         { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
-      ],
-    },
-    {
-      groupLabel: 'Suivi',
-      items: [
-        { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
-        { label: 'Activités non pourvues', path: '/open-activities', icon: '📢' },
-        { label: 'Activité globale', path: '/admin/activity', icon: '📊' },
       ],
     },
   ],

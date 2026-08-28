@@ -1,9 +1,25 @@
 /**
  * Tests — Carnet personnel (NotebookPage)
  *
- * Couvre :
- * 1. Parent reçoit un message d'accès refusé sur le carnet personnel
- * 2. NotebookPage — CRUD complet pour l'élève
+ * Chantier de généralisation (pedagogical-log-service, PR #140, 2026-08-27) :
+ * la page est désormais générique par titulaire, montée sur la route unique
+ * `/notebook/mine` (plus de `:studentId` dans l'URL, le titulaire est déduit
+ * du JWT côté serveur). Le contrôle de rôle (parent refusé, etc.) est
+ * désormais entièrement porté par `ProtectedRoute` (App.tsx), pas par
+ * `NotebookPage` elle-même — cette suite ne teste donc plus qu'un rôle
+ * autorisé (élève) et vérifie le contrat contre `/pedagogical-logs/notebook`
+ * (champ `ownerId`).
+ *
+ * Spécification révisée le 2026-08-27, après retour utilisateur sur les
+ * captures d'écran (docs/architecture.md, « Specification fonctionnelle
+ * reelle du carnet personnel — notes rapides immuables ») : ce sont des
+ * pensées instantanées, IMMUABLES une fois écrites (suppression possible,
+ * AUCUNE édition), retrouvées par recherche (date ou mot). Contrat de
+ * recherche réel confirmé le même jour par le backend (PR #144,
+ * pedagogical-log-service) : `GET .../notebook?from=&to=&q=`, `PATCH` retiré
+ * (`404`). Cette suite couvre donc : ajout, suppression, recherche par mot,
+ * recherche par date (`from`=`to`) — et vérifie explicitement l'ABSENCE de
+ * tout mécanisme d'édition.
  *
  * PedagogicalLogPage (cahier de texte) a sa propre suite dédiée depuis la
  * refonte du 2026-08-20 : test/pages/PedagogicalLogPage.test.tsx.
@@ -41,13 +57,6 @@ const STUDENT_USER = {
   validationStatus: 'active' as const,
 }
 
-const PARENT_USER = {
-  id: 'parent-5',
-  email: 'parent@test.com',
-  role: 'parent_financeur' as const,
-  validationStatus: 'active' as const,
-}
-
 function buildAuthMock(userObj = STUDENT_USER) {
   return {
     user: userObj,
@@ -67,43 +76,27 @@ beforeEach(() => {
   mockUseAuth.mockReturnValue(buildAuthMock(STUDENT_USER))
 })
 
-// ─── Helper renderers ─────────────────────────────────────────────────────────
+// ─── Helper renderer ──────────────────────────────────────────────────────────
 
-function renderNotebookPage(studentId = 'student-42') {
+function renderNotebookPage() {
   return render(
-    <MemoryRouter initialEntries={[`/notebook/${studentId}`]}>
+    <MemoryRouter initialEntries={['/notebook/mine']}>
       <Routes>
-        <Route path="/notebook/:studentId" element={<NotebookPage />} />
+        <Route path="/notebook/mine" element={<NotebookPage />} />
         <Route path="/forbidden" element={<div>Accès interdit</div>} />
       </Routes>
     </MemoryRouter>,
   )
 }
 
-// ─── Parent — accès refusé au carnet personnel ────────────────────────────
+// ─── NotebookPage — pensées instantanées, route /pedagogical-logs/notebook ──
 
-describe('NotebookPage — parent accès refusé', () => {
-  beforeEach(() => {
-    mockUseAuth.mockReturnValue(buildAuthMock(PARENT_USER))
-  })
-
-  it('redirige le parent vers /forbidden', async () => {
-    renderNotebookPage('student-42')
-
-    await waitFor(() => {
-      expect(screen.getByText('Accès interdit')).toBeDefined()
-    })
-  })
-})
-
-// ─── NotebookPage — CRUD pour l'élève ─────────────────────────────────────
-
-describe('NotebookPage — CRUD élève propriétaire', () => {
-  it('charge et affiche les notes du carnet', async () => {
+describe('NotebookPage — pensées instantanées', () => {
+  it('charge et affiche les notes du carnet (sans filtre au montage)', async () => {
     const entries = [
       {
         id: 'note-1',
-        studentId: 'student-42',
+        ownerId: 'student-42',
         content: 'Mon objectif : 18/20 en maths',
         createdAt: new Date().toISOString(),
       },
@@ -111,19 +104,21 @@ describe('NotebookPage — CRUD élève propriétaire', () => {
 
     mockApiClient.get = vi.fn().mockResolvedValue({ data: entries })
 
-    renderNotebookPage('student-42')
+    renderNotebookPage()
 
     await waitFor(() => {
       expect(screen.getByText('Mon objectif : 18/20 en maths')).toBeDefined()
     })
 
-    expect(mockApiClient.get).toHaveBeenCalledWith('/students/student-42/notebook')
+    expect(mockApiClient.get).toHaveBeenCalledWith('/pedagogical-logs/notebook', {
+      params: undefined,
+    })
   })
 
-  it('permet à l\'élève d\'ajouter une note', async () => {
+  it('permet au titulaire de noter une pensée', async () => {
     const newEntry = {
       id: 'note-new',
-      studentId: 'student-42',
+      ownerId: 'student-42',
       content: 'Revoir les intégrales',
       createdAt: new Date().toISOString(),
     }
@@ -131,20 +126,20 @@ describe('NotebookPage — CRUD élève propriétaire', () => {
     mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
     mockApiClient.post = vi.fn().mockResolvedValue({ data: newEntry })
 
-    renderNotebookPage('student-42')
+    renderNotebookPage()
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText(/écrire une note personnelle/i)).toBeDefined()
+      expect(screen.getByPlaceholderText(/noter une pensée/i)).toBeDefined()
     })
 
-    const textarea = screen.getByPlaceholderText(/écrire une note personnelle/i)
+    const textarea = screen.getByPlaceholderText(/noter une pensée/i)
     await userEvent.type(textarea, 'Revoir les intégrales')
 
-    await userEvent.click(screen.getByRole('button', { name: /ajouter une note/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^noter$/i }))
 
     await waitFor(() => {
       expect(mockApiClient.post).toHaveBeenCalledWith(
-        '/students/student-42/notebook',
+        '/pedagogical-logs/notebook',
         { content: 'Revoir les intégrales' },
       )
     })
@@ -154,11 +149,11 @@ describe('NotebookPage — CRUD élève propriétaire', () => {
     })
   })
 
-  it('permet à l\'élève de supprimer une note', async () => {
+  it('permet au titulaire de supprimer une note', async () => {
     const entries = [
       {
         id: 'note-del',
-        studentId: 'student-42',
+        ownerId: 'student-42',
         content: 'Note à supprimer',
         createdAt: new Date().toISOString(),
       },
@@ -169,7 +164,7 @@ describe('NotebookPage — CRUD élève propriétaire', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    renderNotebookPage('student-42')
+    renderNotebookPage()
 
     await waitFor(() => {
       expect(screen.getByText('Note à supprimer')).toBeDefined()
@@ -178,11 +173,78 @@ describe('NotebookPage — CRUD élève propriétaire', () => {
     await userEvent.click(screen.getByRole('button', { name: /supprimer/i }))
 
     await waitFor(() => {
-      expect(mockApiClient.delete).toHaveBeenCalledWith('/students/student-42/notebook/note-del')
+      expect(mockApiClient.delete).toHaveBeenCalledWith('/pedagogical-logs/notebook/note-del')
     })
 
     await waitFor(() => {
       expect(screen.queryByText('Note à supprimer')).toBeNull()
+    })
+  })
+
+  it("n'affiche aucun mécanisme d'édition (immuable une fois écrite)", async () => {
+    const entries = [
+      {
+        id: 'note-1',
+        ownerId: 'student-42',
+        content: 'Une pensée déjà notée',
+        createdAt: new Date().toISOString(),
+      },
+    ]
+
+    mockApiClient.get = vi.fn().mockResolvedValue({ data: entries })
+
+    renderNotebookPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Une pensée déjà notée')).toBeDefined()
+    })
+
+    expect(screen.queryByRole('button', { name: /modifier/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /enregistrer/i })).toBeNull()
+    expect(mockApiClient.patch).not.toHaveBeenCalled()
+  })
+
+  it('recherche par mot et transmet le paramètre `q`', async () => {
+    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+
+    renderNotebookPage()
+
+    await waitFor(() => {
+      expect(mockApiClient.get).toHaveBeenCalledWith('/pedagogical-logs/notebook', {
+        params: undefined,
+      })
+    })
+
+    const wordInput = screen.getByLabelText(/rechercher un mot/i)
+    await userEvent.type(wordInput, 'intégrales')
+    await userEvent.click(screen.getByRole('button', { name: /^rechercher$/i }))
+
+    await waitFor(() => {
+      expect(mockApiClient.get).toHaveBeenCalledWith('/pedagogical-logs/notebook', {
+        params: { q: 'intégrales', from: undefined, to: undefined },
+      })
+    })
+  })
+
+  it('recherche par date et transmet `from`/`to` identiques (contrat PR #144)', async () => {
+    mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
+
+    renderNotebookPage()
+
+    await waitFor(() => {
+      expect(mockApiClient.get).toHaveBeenCalledWith('/pedagogical-logs/notebook', {
+        params: undefined,
+      })
+    })
+
+    const dateInput = screen.getByLabelText(/rechercher une date/i)
+    await userEvent.type(dateInput, '2026-08-20')
+    await userEvent.click(screen.getByRole('button', { name: /^rechercher$/i }))
+
+    await waitFor(() => {
+      expect(mockApiClient.get).toHaveBeenCalledWith('/pedagogical-logs/notebook', {
+        params: { q: undefined, from: '2026-08-20', to: '2026-08-20' },
+      })
     })
   })
 })

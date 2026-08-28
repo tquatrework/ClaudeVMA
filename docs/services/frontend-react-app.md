@@ -2390,5 +2390,277 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-08-27" label="Revision des menus lateraux par role (branche feat/menus-lateraux-par-role)">
+      <context>
+        Demande utilisateur explicite : quatre changements de rail gauche (eleve, professeur,
+        parent, AP), chacun precede d'une investigation obligatoire avant tout code — ne pas
+        deviner, ne pas fabriquer de contenu, ne pas inventer d'appel API absent de
+        docs/routes.md. Trois questions posees explicitement : (1) « Quizz » a-t-il deja une
+        page/route, sinon existe-t-il un pattern « a venir » deja utilise dans le rail ? (2) une
+        route backend liste-t-elle deja les formateurs animes par un AP pour « Mes professeurs » ?
+        (3) le backend du carnet personnel generalise a d'autres roles (chantier parallele,
+        pedagogical-log-service) est-il pret ?
+      </context>
+
+      <decision id="menu-eleve-changes">
+        <title>Eleve : retrait Stats/Archives (groupe Cours), ajout Quizz en tete (groupe Contenus)</title>
+        <description>
+          `RAIL_GROUPS_BY_ROLE.eleve` (navigation/navigationConfig.ts) : l'entree unique
+          « Stats / Archives » (`/archives`) est retiree du groupe Cours — elle reste accessible
+          via le menu du haut (`TOP_NAV_CONFIG`, id `archives`), qui l'ouvre deja pour l'eleve.
+          « Quizz » (`/content/quizz`) est ajoutee en premiere position du groupe Contenus, avant
+          Exercices/Evaluations/Tutos-videos.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="menu-professeur-changes">
+        <title>Professeur : Carnet personnel en fin de Suivi, Quizz en fin de Contenus</title>
+        <description>
+          Ajout de « Carnet personnel » (`/notebook/mine`) en derniere position du groupe Suivi,
+          apres « Cahier de texte ». Ajout de « Quizz » (`/content/quizz`) en fin du groupe
+          Contenus (position non specifiee par l'utilisateur, valeur par defaut retenue :
+          ajout).
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="menu-parent-changes">
+        <title>Parent : groupe Demarches deplace en tete, entree Archives retiree</title>
+        <description>
+          Le groupe « Demarches » (contenant « Demande de rattachement ») est repositionne en
+          premiere position du tableau `RAIL_GROUPS_BY_ROLE.parent_financeur`, avant « Suivi
+          eleve ». L'entree « Archives » (`/archives`) est retiree du groupe « Suivi eleve », qui
+          ne conserve plus que « Cahier de texte » et « Calendrier ».
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="menu-ap-changes-and-group-consolidation">
+        <title>AP : « Cahier de texte » retire, groupe « Suivi » repositionne en tete et enrichi</title>
+        <description>
+          L'enonce demandait litteralement deux choses distinctes : retirer « Cahier de texte »,
+          puis « Ajouter tout en haut du menu un nouveau groupe Suivi contenant Carnet
+          personnel ». Un groupe « Suivi » existait deja pour l'AP (Cahier de texte, Activites
+          non pourvues, Activite globale) — creer un second groupe au meme libelle aurait produit
+          deux en-tetes « Suivi » distincts dans le meme rail, ce qui contredirait la regle
+          projet de design coherent et simple. Decision (interpretation assumee, signalee dans le
+          rapport a l'utilisateur pour confirmation/ajustement) : consolidation en un seul groupe
+          « Suivi », deplace en tete, contenant desormais dans l'ordre : « Carnet personnel »
+          (nouveau, `/notebook/mine`), « Mes professeurs » (nouveau, `/my-students`), « Activites
+          non pourvues » (deja present), « Activite globale » (deja presente). « Cahier de
+          texte » est retire. Les groupes « Mes contenus » et « Communaute » suivent, dans le
+          meme ordre relatif qu'avant.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="mes-professeurs-reuses-my-students">
+        <title>« Mes professeurs » (AP) : aucune nouvelle route, reutilisation de /my-students</title>
+        <description>
+          Investigation menee AVANT tout code (regle projet) : `GET /relations/animator-teacher/:animatorId`
+          existe cote profile-service (docs/routes.md), mais surtout `GET /relations/my-contacts`
+          — deja consomme par `MyStudentsPage` via `useMyContacts` — inclut deja la nature de
+          lien `animator_of_teacher` dans `SUPERVISED_RELATION_KINDS` (utils/relationAccess.ts),
+          et un test existant (`test/pages/MyStudentsPage.test.tsx`, cas « ne propose pas Memos
+          pour un formateur anime ») couvrait deja ce cas cote AP. La route `/my-students` avait
+          deja `animateur_pedagogique` dans `allowedRoles` (App.tsx) et dans `routeAccessMap.ts`.
+          Aucun gap backend, aucune nouvelle route front necessaire — seul un habillage manquait :
+          le titre affiche restait « Mes eleves » quel que soit le role, trompeur pour un AP qui
+          consulte des formateurs. `MyStudentsPage.tsx` affiche desormais un titre et un sous-titre
+          role-dependants (« Mes professeurs » / « Formateurs que vous animez... » pour l'AP,
+          inchange pour les autres roles). Aucune logique de droit modifiee, uniquement le libelle
+          affiche — conforme a la regle « le front affiche, il ne decide jamais du droit ».
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="quizz-coming-soon-state">
+        <title>Quizz : etat « a venir » explicite, sans appel API</title>
+        <description>
+          Investigation : aucune page/route « Quizz » n'existait avant cette session (recherche
+          exhaustive dans src/pages, src/App.tsx, docs/routes.md, docs/api-mapping.md). Aucun
+          pattern de composant « ComingSoon » dedie n'existait deja dans le projet ; le pattern
+          etabli pour « rien a afficher pour l'instant » est le composant reutilisable
+          `EmptyState` (deja utilise par ExerciseCatalogPage, TutorialCatalogPage pour des listes
+          vides). Nouvelle page minimale suivant ce meme pattern
+          (`PageHeader` + `EmptyState`, sans aucun import d'`apiClient`) : `QuizzPage.tsx`
+          (`/content/quizz`, roles eleve+formateur). Ne fabrique aucun faux contenu ni n'appelle
+          une route non documentee — conforme a la regle projet « verifier la route dans
+          docs/routes.md avant tout appel, sinon ne pas coder l'appel ».
+          `content-catalog-service` etant phase 3 (non construit), cette page reste volontairement
+          non branchee tant qu'aucune route de quiz n'est documentee.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="notebook-generalization-wired-mid-session">
+        <title>Carnet personnel : generalise et branche sur le contrat reel (PR #140 recue en cours de session)</title>
+        <description>
+          Une premiere version de cette session avait construit `PersonalNotebookPage.tsx`, un
+          ecran-coquille sans appel API pour professeur/AP, faute de contrat backend documente au
+          moment de l'investigation initiale (aucune entree « Generalisation du carnet personnel »
+          dans docs/architecture.md, aucun rapport recent dans .claude/reports/). Le coordinateur a
+          transmis en cours de session le contrat reel livre par le chantier parallele
+          (pedagogical-log-service, PR #140, 191/191 tests unitaires + 26/26 tests e2e verts contre
+          Postgres reel) : carnet generique par titulaire, ouvert a tout role authentifie, chacun
+          voyant strictement le sien (aucune exception, y compris administrateurs) ; route deplacee
+          de `students/:studentId/notebook` vers `pedagogical-logs/notebook` (plus de `:studentId`,
+          titulaire deduit du JWT) ; champ de reponse `studentId` renomme `ownerId`.
+          Consequence : `PersonalNotebookPage.tsx` est supprimee (jamais mergee) — sa raison d'etre
+          disparait puisque `NotebookPage.tsx` (deja l'implementation CRUD complete de l'eleve)
+          devient directement reutilisable par tous les roles demandes, sans duplication de code.
+          `NotebookPage.tsx` perd son `useParams&lt;{studentId}&gt;` et ses gardes internes
+          (parent/RP refuses en dur) : le titulaire est desormais implicite (JWT cote serveur), et
+          le filtrage de role est entierement delegue a `ProtectedRoute` (deja le mecanisme
+          generique du projet, teste separement dans test/components/ProtectedRoute.test.tsx) — la
+          page elle-meme n'a plus a le reimplementer.
+          Route front consolidee en une seule, `/notebook/mine`, pour eleve + formateur + AP —
+          l'ancienne route `/notebook/:studentId` est retiree : aucun appelant interne ne
+          construisait cette URL avec un id different de celui de l'utilisateur connecte
+          (`Layout.tsx` et `EleveDashboardPage.tsx` reecrivaient deja systematiquement
+          `/notebook/${'{user.id}'}` pour l'eleve), donc aucune perte de fonctionnalite.
+          Perimetre de roles autorises **volontairement limite** a ce qui a ete explicitement
+          demande dans cette session (eleve, formateur, animateur_pedagogique) : le backend
+          autoriserait RP/TI/AF/parent_financeur a avoir chacun leur propre carnet, mais aucune
+          entree de menu ni aucun acces n'a ete demande pour ces roles — ne pas l'ouvrir sans
+          demande explicite (regle projet « jamais de menu sans approbation »).
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <decision id="notebook-corrected-to-immutable-quick-notes">
+        <title>Correction en cours de session : pensees instantanees IMMUABLES, pas des notes editables</title>
+        <description>
+          Suite directe de la decision precedente, sur la meme branche (feat/menus-lateraux-par-role,
+          PR #142 toujours ouverte — l'utilisateur a explicitement demande de continuer ici, pas un
+          nouveau chantier). Apres avoir vu les captures d'ecran des menus, l'utilisateur precise que
+          le carnet personnel n'est PAS un espace de notes editables : ce sont des « pensees
+          instantanees » — notes rapides, horodatees automatiquement a la creation, **immuables**
+          (suppression possible, AUCUNE edition), retrouvees par **recherche** (une date, ou un mot),
+          jamais par simple defilement de liste. Arbitrage persiste par le coordinateur dans
+          docs/architecture.md, section « Specification fonctionnelle reelle du carnet personnel —
+          notes rapides immuables » (2026-08-27, branche `docs/carnet-personnel-notes-rapides`, PR
+          #143 — **non mergee** au moment ou cette correction est codee).
+          Un autre agent (pedagogical-log-service) retire en parallele la route
+          `PATCH /pedagogical-logs/notebook/:id` (ajoutee le meme jour par la generalisation, PR #140,
+          elle-meme deja mergee sur master) et ajoute une recherche par date/mot sur
+          `GET /pedagogical-logs/notebook` — chantier sur une **nouvelle branche distincte de PR #140**,
+          **non mergee non plus** au moment ou cette correction front est codee. Cote front, demande
+          explicite du coordinateur : commencer sans attendre le rapport exact du sous-agent backend,
+          en s'appuyant sur les noms de parametres deja actes dans l'arbitrage (`date?`, `q?`).
+          1. **Toute UI d'edition est retiree** : `updateNotebookEntry`/`UpdateNotebookEntryPayload`
+             supprimes de `src/api/pedagogicalLogNotebook.ts` (plus aucun appel `PATCH`), et
+             `NotebookPage.tsx` perd son etat d'edition (`editingEntryId`, `editContent`,
+             `isSavingEdit`, `startEdit`, `cancelEdit`, `handleSaveEdit`) et le bouton « Modifier ».
+             Seuls restent : creation (`POST`) et suppression (`DELETE`).
+          2. **`updatedAt` retire du type `NotebookEntry`** — un objet immuable n'a pas de date de
+             derniere modification distincte de sa date de creation ; l'affichage « modifie le… » sur
+             l'ancienne UI d'edition disparait avec elle.
+          3. **Recherche ajoutee** : `fetchNotebookEntries` accepte desormais un parametre optionnel
+             `{date?, q?}`, transmis en query string (`apiClient.get(url, {params})`). `NotebookPage`
+             affiche une seconde saisie (distincte du formulaire d'ajout) avec un champ texte libre
+             (« Rechercher un mot ») et un champ date (« Rechercher une date »), combinables, plus un
+             bouton « Reinitialiser » qui revient a la liste complete (query vide).
+          4. **La saisie rapide reste inchangee dans son principe** : un seul champ texte + un bouton
+             (libelle « Noter », l'un des deux mots suggeres par le coordinateur — « Ajouter »/« Noter »
+             — choisi car plus proche de la notion de « pensee instantanee » que « Ajouter une note »).
+          5. **Le contrat exact des parametres de recherche (`date`/`q`) n'est pas encore confirme par
+             un rapport du sous-agent backend** — repris tel quel de l'arbitrage persiste dans
+             docs/architecture.md, la source la plus autoritative disponible au moment du codage. A
+             verifier/ajuster des que le rapport arrive, comme pour le contrat de base de PR #140.
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <filesAdded>
+        <file path="src/pages/QuizzPage.tsx">Etat « a venir » pour Quizz, aucun appel API.</file>
+      </filesAdded>
+
+      <decision id="notebook-search-contract-confirmed-pr144">
+        <title>Contrat de recherche confirme (PR #144) : from/to/q, plus de date</title>
+        <description>
+          Le coordinateur a transmis le contrat HTTP reel de la PR #144 (pedagogical-log-service,
+          **ouverte, non mergee**) juste apres la correction precedente, qui avait code `date`/`q`
+          par anticipation d'apres l'arbitrage docs/architecture.md. Contrat reel, different :
+          `GET /pedagogical-logs/notebook?from=&to=&q=`, tous optionnels et combinables — `from`/`to`
+          filtrent sur `createdAt` en **plage**, une date precise s'exprime en envoyant `from=to`
+          (meme valeur sur les deux) ; `q` reste une recherche texte libre inchangee ; sans parametre,
+          comportement inchange (tout renvoye). `PATCH /pedagogical-logs/notebook/:id` **n'existe
+          plus** (`404`), confirmant la decision precedente de ne construire aucune UI d'edition.
+          `NotebookSearchParams` passe de `{date?, q?}` a `{from?, to?, q?}` dans
+          `src/api/pedagogicalLogNotebook.ts` ; `NotebookPage.tsx` garde son ergonomie a deux champs
+          (mot + date, choix explicitement laisse a l'agent par le coordinateur — « a toi de choisir
+          l'ergonomie la plus simple ») mais traduit desormais en interne le champ date unique en
+          `{from: valeur, to: valeur}` avant l'appel — un seul controle visible, deux parametres
+          transmis. Tests adaptes en consequence (memes six cas, assertions sur `from`/`to`
+          seulement).
+        </description>
+        <status>resolved</status>
+      </decision>
+
+      <filesModified>
+        <file path="src/navigation/navigationConfig.ts">Quatre blocs de rail modifies (eleve, formateur, parent_financeur, animateur_pedagogique) — voir decisions ci-dessus. Chemin du Carnet personnel devenu statique (`/notebook/mine`) pour tous les roles concernes.</file>
+        <file path="src/navigation/routeAccessMap.ts">Ajout de `/content/quizz` (eleve, formateur) ; consolidation de l'ancien `/notebook` (eleve/RP/TI) et du nouveau `/notebook/mine` en une seule entree `/notebook/mine` (eleve, formateur, animateur_pedagogique).</file>
+        <file path="src/App.tsx">Ajout de la route `/content/quizz` ; remplacement de `/notebook/:studentId` par `/notebook/mine` (roles eleve, formateur, animateur_pedagogique), toutes deux montant desormais `NotebookPage`.</file>
+        <file path="src/pages/MyStudentsPage.tsx">Titre et sous-titre role-dependants pour l'AP (« Mes professeurs »), aucun changement de logique de droit ni de donnee.</file>
+        <file path="src/api/pedagogicalLogNotebook.ts">Contrat entierement reecrit : plus de `studentId` en parametre, chemin `pedagogical-logs/notebook`(`/:id`), champ de reponse `ownerId` ; puis correction : retrait de `updateNotebookEntry`/`UpdateNotebookEntryPayload` et de `updatedAt` ; puis contrat de recherche final `NotebookSearchParams {from?, to?, q?}` (PR #144) sur `fetchNotebookEntries`.</file>
+        <file path="src/pages/NotebookPage.tsx">Devient generique par titulaire : plus de `useParams`, plus de garde de role interne (delegue a `ProtectedRoute`), consomme le nouveau contrat d'API ; puis correction : retrait complet de l'UI d'edition, ajout de la saisie rapide (« Noter ») et de la barre de recherche (mot + date, traduite en `from`/`to` identiques avant l'appel).</file>
+        <file path="src/components/Layout.tsx">Retrait de la reecriture `/notebook/${'{user.id}'}` (chemin desormais statique dans navigationConfig.ts).</file>
+        <file path="src/pages/EleveDashboardPage.tsx">Meme retrait de reecriture que Layout.tsx.</file>
+        <file path="test/pages/pedagogicalLog.test.tsx">Suite NotebookPage adaptee au nouveau contrat (route `/notebook/mine`, appels `/pedagogical-logs/notebook`, champ `ownerId`) ; reecrite pour la specification « pensees instantanees » (ajout, suppression, recherche par mot, recherche par date, absence de tout mecanisme d'edition) ; puis alignee sur le contrat final `from`/`to` de la PR #144.</file>
+      </filesModified>
+
+      <filesRemoved>
+        <file path="src/pages/PersonalNotebookPage.tsx">Ecran-coquille cree en debut de session puis retire, jamais merge — remplace par la reutilisation directe de NotebookPage.tsx une fois le vrai contrat recu.</file>
+      </filesRemoved>
+
+      <realStackVerification>
+        `npx tsc --noEmit` : 0 erreur. `npm run build` : succes (bundle genere,
+        avertissement de taille de chunk preexistant, sans lien avec cette session).
+        `npx vitest run` (suite complete, 179 fichiers) : 1974/1977 tests verts (6/6 sur
+        `test/pages/pedagogicalLog.test.tsx` avec le contrat final `from`/`to`/`q`). Les 3
+        echecs restants sont **preexistants**, verifies par `git stash` contre l'etat de `master`
+        avant cette session (memes echecs, memes fichiers, aucun lien avec les changements de cette
+        session) : 2 dans `test/pages/EleveDashboardPage.test.tsx` (assertions sur « Demander un
+        professeur » / « Changer de professeur », deja rouges avant), 1 dans
+        `test/pedagogicalLogMemos.api.test.ts` (upload d'image memo, sans rapport avec le rail de
+        navigation). **Non verifie contre la pile reelle deployee** pour la partie carnet personnel :
+        PR #140 (generalisation) est deja mergee sur master, mais PR #144
+        (pedagogical-log-service, retrait de `PATCH` + recherche `from`/`to`/`q`) et cette PR front
+        restent toutes deux **ouvertes** — a rejouer en HTTP direct une fois les deux mergees et
+        deployees ensemble.
+      </realStackVerification>
+
+      <openPoints>
+        <item id="ap-suivi-group-consolidation-to-confirm">
+          L'enonce utilisateur pour l'AP demandait litteralement un « nouveau groupe Suivi » —
+          la consolidation en un seul groupe (plutot que deux groupes « Suivi » distincts) est
+          une interpretation assumee par l'agent, pas confirmee mot pour mot. A valider ou
+          corriger explicitement par l'utilisateur.
+        </item>
+        <item id="notebook-not-verified-against-real-stack">
+          Le carnet personnel generalise et corrige (route `/pedagogical-logs/notebook`, champ
+          `ownerId`, recherche `from`/`to`/`q`, plus de `PATCH`) est cable et couvert par des tests
+          simulant le reseau, mais n'a pas ete rejoue en HTTP direct contre la pile reelle : la
+          PR #144 (pedagogical-log-service) n'etait pas encore mergee au moment ou cette session se
+          termine. A verifier des que cette PR front et la PR #144 sont deployees ensemble — un
+          decalage de deploiement romprait le carnet personnel de l'eleve, deja en production sur
+          l'ancien contrat.
+        </item>
+        <item id="quizz-permanently-unwired-until-content-catalog-phase-3">
+          `QuizzPage` n'effectue aucun appel reseau : `content-catalog-service` est phase 3, non
+          construit. A rebrancher quand une route de quiz sera documentee dans docs/routes.md.
+        </item>
+        <item id="docs-routes-md-not-updated-by-this-session">
+          `docs/routes.md` documente encore l'ancien contrat (`students/:studentId/notebook`,
+          `PATCH`, `updatedAt`) alors meme que PR #140 (generalisation) est **deja mergee sur
+          master** : la mise a jour de ce fichier releve du sous-agent pedagogical-log-service
+          (proprietaire du service), pas de ce sous-agent front. A verifier que la documentation est
+          bien mise a jour au merge de la PR #144.
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

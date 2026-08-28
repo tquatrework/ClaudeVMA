@@ -29,38 +29,35 @@ Différence notable avec le modèle "évaluation" déjà arbitré (solution jama
 demandée après coup) : ici la notation est **automatique et immédiate** à la fin du Quizz — pas de
 correction humaine à la demande.
 
-## État — backend mergé et redéployé, UI front en cours de construction
+## État — front Quizz écrit (PR #157), bloqué par 3 bugs hors périmètre `apps/web`
 
-Backend terminé, mergé dans `master` et redéployé (2026-08-28) :
-- `content-catalog-service` : création/définition/recherche/validation du Quizz — PR #152 mergée.
-  Un bug réel a été trouvé et corrigé pendant l'alignement sur la précision "notation par item"
-  (point 10 de `docs/architecture.md`, section Quizz) : le barème `per_option` se répartissait sur
-  le nombre total d'options au lieu des seules options correctes.
-- `learning-activity-service` : inscription, passage, historique — PR #151 mergée, déjà conforme
-  (score négatif non plafonné, confirmé par tests ajoutés).
-- `#155` (fix front, menu "Quizz" en tête du groupe "Contenus" pour professeur) mergée aussi.
-- Les 3 services (`content-catalog-service`, `learning-activity-service`, `frontend`) ont été
-  reconstruits et redéployés ; `/health` vérifié sur les deux backends, route `/quizzes` confirmée
-  protégée (401 sans JWT) contre la pile réelle.
+Backend mergé/redéployé (PR #151, #152, #155 — voir historique de ce fichier). `front-developper`
+a livré la PR #157 (`feat/quizz-ui`, non mergée) : recherche/catalogue, formulaire de création
+complète, passage avec score, historique, onglet Quizz dans la file de validation AP/RP existante.
+Vérifié en HTTP direct contre les conteneurs backend (contournant volontairement la gateway) :
+création, recherche par tag, tentative notée (score réel confirmé) — les formes exactes des DTO
+ont été fixées sur ces réponses réelles, pas devinées.
 
-**Constat utilisateur du 2026-08-28, après vérification à l'écran** : le menu "Quizz" affiche
-encore un placeholder ("bientôt disponible") — attendu, car aucune UI de création/recherche/passage
-n'existait avant cette étape. C'est le point normal d'avancement, pas une régression.
+**Mais l'utilisateur ne peut pas encore l'utiliser en vrai dans le navigateur** : 3 bugs trouvés
+hors du périmètre front, chacun délégué à son service propriétaire (2026-08-28) :
+1. `api-gateway` — `gateway/api-gateway/nginx.conf` n'a **jamais eu de route** pour
+   `/api/v1/quizzes`, `/api/v1/validations`, `/api/v1/quiz-attempts`. Délégué à `api-gateway` pour
+   ajouter les blocs `location` manquants (et corriger au passage `/api/v1/evaluations` /
+   `/api/v1/tutorials`, gap pré-existant qui casse déjà la file de validation RP/AP indépendamment
+   du Quizz).
+2. `content-catalog-service` — `GET /quizzes/pending-validation` renvoie `500` sans `page`/`limit`
+   explicites (bug TypeORM `skip`). Délégué pour correctif + test de non-régression.
+3. `content-catalog-service` — `POST /validations/quiz/:id/decision` refuse **toute** valeur de
+   `decision` (énumération vide côté serveur pour `ContentType.QUIZ`). Délégué pour correctif +
+   test.
 
-**En cours** : `front-developper` construit, sur une nouvelle branche `feat/quizz-ui` :
-1. Écran de recherche/visualisation des quizz existants (par tag/mot-clé) + passage d'un quizz
-   (réponse selon les 3 catégories de question, soumission, score affiché sans plancher à zéro).
-2. Formulaire de création complète (RP/AP/professeur) : titre, tags, barème/pénalité globaux et
-   par question, questions des 3 catégories.
-3. Historique personnel des tentatives notées.
-4. Pour AP/RP : liste des quizz en attente de validation + décision, en réutilisant le mécanisme
-   de validation générique déjà en place pour les autres types de contenu.
+**En cours** : `api-gateway` et `content-catalog-service` travaillent en parallèle sur ces 3
+points, chacun sur une nouvelle branche depuis `master`. Aucun des deux n'a encore rapporté.
 
-Contrat API détaillé transmis à l'agent (routes, DTO, codes d'erreur) — voir le prompt de
-délégation dans la session si besoin de le retrouver ; sinon `docs/routes.md` (section Quizz) fait
-autorité. Preuve attendue avant de considérer le chantier terminé : script(s) Playwright ou
-capture(s) d'écran contre `https://claudevma.visioprof.fr`, couvrant recherche + création +
-passage avec score affiché. Aucun retour de l'agent pour l'instant.
+Prochaine étape après leur retour : merger les correctifs, redéployer `api-gateway` +
+`content-catalog-service`, puis rejouer la preuve e2e de la PR #157 **à travers la gateway** (pas
+en HTTP direct sur les conteneurs) contre `https://claudevma.visioprof.fr` avant de considérer le
+chantier Quizz terminé — c'est la seule preuve qui vaille selon la règle du projet.
 
 <details>
 <summary>Archive — besoin du 2026-08-28, carnet personnel admin/parent (clos)</summary>

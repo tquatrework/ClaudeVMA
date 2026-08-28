@@ -5,13 +5,47 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
-## Besoin courant
+## Besoin — 2026-08-28 — Quizz, retours après mise en production
 
-Aucun — le dernier chantier (Quizz) est clos, voir l'archive ci-dessous. En attente du prochain
-besoin de l'utilisateur.
+5 retours de l'utilisateur après vérification en production du chantier Quizz initial (voir
+archive ci-dessous pour le contexte complet) :
+1. Libellé du bouton de création → "Créer un nouveau Quizz".
+2. Après création : deux choix "Commencer le Quizz" / "Modifier le Quizz" (un seul aujourd'hui).
+3. Lien vers "mes Quizz" (créés par l'utilisateur), pour pouvoir les modifier.
+4. Notation mathématique dans énoncés/options/mots-clés, en réutilisant le pipeline KaTeX déjà
+   construit pour le Mémo — signalé comme complexe par l'utilisateur.
+5. La procédure de validation/refus par AP/RP n'est pas visible : un professeur n'a aujourd'hui
+   aucun moyen de voir que son Quizz est en attente ou a été refusé (absence de l'écran "mes
+   Quizz" du point 3), et l'AP devrait être restreint aux formateurs qu'il anime (RP reste
+   illimité).
+
+**Décisions prises et persistées dans `docs/architecture.md`** (section Quizz, sous-section
+"Edition d'un Quizz par son auteur, filtre mes Quizz, et validation AP scopee par relation",
+2026-08-28) — signalées à l'utilisateur, à corriger s'il avait une autre intention :
+- Édition réservée à l'auteur ; un `formateur` qui édite un Quizz déjà `validated` le fait
+  repasser en `pending_validation` (re-revue nécessaire) ; AP/RP éditant leur propre Quizz ne
+  changent pas son statut (déjà leur propre validateur).
+- Validation AP scopée à la relation `animator_of_teacher` (déjà existante côté profile-service),
+  limité au Quizz pour l'instant — pas de changement sur exercice/évaluation/tutoriel.
+
+## État — délégué en parallèle, aucun retour pour l'instant
+
+- `content-catalog-service` : route d'édition (auteur seul, effet sur statut), filtre "mes Quizz"
+  sur `GET /quizzes`, scoping AP par relation sur la validation, vérification compatibilité LaTeX
+  (`$`/`\`) sur les champs texte.
+- `front-developper` : libellé bouton, double choix post-création, écran "Mes Quizz" (statut,
+  commentaire de refus, édition, resoumission), réutilisation du pipeline KaTeX du Mémo pour
+  énoncés/options, re-vérification que l'onglet de validation AP/RP fonctionne réellement de bout
+  en bout (bloqué jusqu'ici par le gap gateway evaluations/tutorials, corrigé depuis PR #159).
+
+Prochaine étape après leur retour : merger, rebuild + redéployer `content-catalog-service` et
+`frontend`, puis rejouer une preuve e2e contre `https://claudevma.visioprof.fr` couvrant
+spécifiquement : édition d'un Quizz, écran "mes Quizz" avec un Quizz refusé et son commentaire,
+rendu d'une formule mathématique, et validation par un AP réellement relié vs refusée pour un AP
+non relié.
 
 <details>
-<summary>Archive — besoin du 2026-08-28, Quizz (clos, vérifié en production)</summary>
+<summary>Archive — besoin du 2026-08-28, Quizz initial (clos, vérifié en production)</summary>
 
 ### Besoin — Quizz (nouvelle fonctionnalité)
 

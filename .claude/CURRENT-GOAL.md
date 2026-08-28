@@ -5,7 +5,15 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
-## Besoin — 2026-08-28 — Quizz (nouvelle fonctionnalité)
+## Besoin courant
+
+Aucun — le dernier chantier (Quizz) est clos, voir l'archive ci-dessous. En attente du prochain
+besoin de l'utilisateur.
+
+<details>
+<summary>Archive — besoin du 2026-08-28, Quizz (clos, vérifié en production)</summary>
+
+### Besoin — Quizz (nouvelle fonctionnalité)
 
 Demande explicite de l'utilisateur, énoncé complet reçu, **architecture de répartition entre
 services pas encore tranchée** — c'est la première chose à faire avant toute délégation.
@@ -29,35 +37,29 @@ Différence notable avec le modèle "évaluation" déjà arbitré (solution jama
 demandée après coup) : ici la notation est **automatique et immédiate** à la fin du Quizz — pas de
 correction humaine à la demande.
 
-## État — front Quizz écrit (PR #157), bloqué par 3 bugs hors périmètre `apps/web`
+### État final — terminé et vérifié le 2026-08-28
 
-Backend mergé/redéployé (PR #151, #152, #155 — voir historique de ce fichier). `front-developper`
-a livré la PR #157 (`feat/quizz-ui`, non mergée) : recherche/catalogue, formulaire de création
-complète, passage avec score, historique, onglet Quizz dans la file de validation AP/RP existante.
-Vérifié en HTTP direct contre les conteneurs backend (contournant volontairement la gateway) :
-création, recherche par tag, tentative notée (score réel confirmé) — les formes exactes des DTO
-ont été fixées sur ces réponses réelles, pas devinées.
+Backend + front + gateway tous mergés dans `master` et redéployés : PR #151
+(learning-activity-service), #152 (content-catalog-service), #155 (menu), #157 (front UI), #159
+(routes gateway manquantes), #160 (2 bugs content-catalog-service : pagination `pending-validation`,
+message de décision de validation).
 
-**Mais l'utilisateur ne peut pas encore l'utiliser en vrai dans le navigateur** : 3 bugs trouvés
-hors du périmètre front, chacun délégué à son service propriétaire (2026-08-28) :
-1. `api-gateway` — `gateway/api-gateway/nginx.conf` n'a **jamais eu de route** pour
-   `/api/v1/quizzes`, `/api/v1/validations`, `/api/v1/quiz-attempts`. Délégué à `api-gateway` pour
-   ajouter les blocs `location` manquants (et corriger au passage `/api/v1/evaluations` /
-   `/api/v1/tutorials`, gap pré-existant qui casse déjà la file de validation RP/AP indépendamment
-   du Quizz).
-2. `content-catalog-service` — `GET /quizzes/pending-validation` renvoie `500` sans `page`/`limit`
-   explicites (bug TypeORM `skip`). Délégué pour correctif + test de non-régression.
-3. `content-catalog-service` — `POST /validations/quiz/:id/decision` refuse **toute** valeur de
-   `decision` (énumération vide côté serveur pour `ContentType.QUIZ`). Délégué pour correctif +
-   test.
+**Preuve finale contre `https://claudevma.visioprof.fr` (pas en HTTP direct sur les conteneurs,
+la seule preuve qui vaille selon la règle du projet)**, cycle complet joué par l'orchestrateur :
+professeur crée un quizz (`pending_validation`) → RP le voit dans `/quizzes/pending-validation`
+(`200`, l'ancien bug 500 est bien corrigé) → RP le valide via `/validations/quiz/:id/decision`
+(`201 decision: validated`, l'ancien refus systématique est bien corrigé) → élève le retrouve par
+tag (`status: validated`) → élève consulte le détail (aucune solution exposée) → élève démarre une
+tentative, soumet une bonne et une mauvaise réponse → `score: 1, maxScore: 2` exact → historique
+confirme l'entrée. Les 3 bugs remontés par `front-developper` sont donc réellement résolus, pas
+seulement par les tests unitaires des services qui les ont corrigés.
 
-**En cours** : `api-gateway` et `content-catalog-service` travaillent en parallèle sur ces 3
-points, chacun sur une nouvelle branche depuis `master`. Aucun des deux n'a encore rapporté.
+Point mineur non traité (signalé par `front-developper`, hors périmètre du besoin utilisateur) :
+`api-gateway` ne proxyait pas non plus `/api/v1/evaluations` ni `/api/v1/tutorials` avant ce
+chantier — corrigé au passage par le même correctif de gateway (PR #159), sans demande explicite
+sur ce point précis.
 
-Prochaine étape après leur retour : merger les correctifs, redéployer `api-gateway` +
-`content-catalog-service`, puis rejouer la preuve e2e de la PR #157 **à travers la gateway** (pas
-en HTTP direct sur les conteneurs) contre `https://claudevma.visioprof.fr` avant de considérer le
-chantier Quizz terminé — c'est la seule preuve qui vaille selon la règle du projet.
+</details>
 
 <details>
 <summary>Archive — besoin du 2026-08-28, carnet personnel admin/parent (clos)</summary>

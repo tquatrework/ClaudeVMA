@@ -5,44 +5,57 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
-## Besoin — 2026-08-28 — Quizz, retours après mise en production
+## Besoin courant
 
-5 retours de l'utilisateur après vérification en production du chantier Quizz initial (voir
-archive ci-dessous pour le contexte complet) :
+Aucun — les 5 retours Quizz post-production sont clos, voir l'archive ci-dessous. En attente du
+prochain besoin de l'utilisateur.
+
+Rappel hors périmètre, signalé par plusieurs subagents : `feat/front-reprise-candidature-formateur`
+et `feat/reprise-candidature-formateur` restent non fusionnées, avec de gros diffstats qui
+suggèrent des branches périmées plutôt que du travail réellement en attente — à examiner de plus
+près quand ce sera le bon moment, pas traité ici.
+
+<details>
+<summary>Archive — besoin du 2026-08-28, Quizz retours post-production (clos, vérifié en production)</summary>
+
+### Besoin — 5 retours de l'utilisateur après vérification en production du chantier Quizz initial
+
 1. Libellé du bouton de création → "Créer un nouveau Quizz".
-2. Après création : deux choix "Commencer le Quizz" / "Modifier le Quizz" (un seul aujourd'hui).
+2. Après création : deux choix "Commencer le Quizz" / "Modifier le Quizz" (un seul auparavant).
 3. Lien vers "mes Quizz" (créés par l'utilisateur), pour pouvoir les modifier.
 4. Notation mathématique dans énoncés/options/mots-clés, en réutilisant le pipeline KaTeX déjà
    construit pour le Mémo — signalé comme complexe par l'utilisateur.
-5. La procédure de validation/refus par AP/RP n'est pas visible : un professeur n'a aujourd'hui
-   aucun moyen de voir que son Quizz est en attente ou a été refusé (absence de l'écran "mes
-   Quizz" du point 3), et l'AP devrait être restreint aux formateurs qu'il anime (RP reste
-   illimité).
+5. La procédure de validation/refus par AP/RP n'était pas visible : un professeur n'avait aucun
+   moyen de voir que son Quizz était en attente ou refusé, et l'AP devait être restreint aux
+   formateurs qu'il anime (RP reste illimité).
 
-**Décisions prises et persistées dans `docs/architecture.md`** (section Quizz, sous-section
-"Edition d'un Quizz par son auteur, filtre mes Quizz, et validation AP scopee par relation",
-2026-08-28) — signalées à l'utilisateur, à corriger s'il avait une autre intention :
+**Décisions prises et persistées dans `docs/architecture.md`** (section Quizz) :
 - Édition réservée à l'auteur ; un `formateur` qui édite un Quizz déjà `validated` le fait
-  repasser en `pending_validation` (re-revue nécessaire) ; AP/RP éditant leur propre Quizz ne
-  changent pas son statut (déjà leur propre validateur).
-- Validation AP scopée à la relation `animator_of_teacher` (déjà existante côté profile-service),
-  limité au Quizz pour l'instant — pas de changement sur exercice/évaluation/tutoriel.
+  repasser en `pending_validation` ; AP/RP éditant leur propre Quizz ne changent pas son statut.
+- Validation AP scopée à la relation `animator_of_teacher`, limité au Quizz pour l'instant.
+- L'auteur peut lire sa propre solution (`GET /quizzes/:id/solution`, nouvelle route) et son
+  propre motif de refus (`GET /validations/:type/:id/history` ouverte à l'auteur, généralisée aux
+  4 types de contenu) — décision prise après coup, un vrai gap trouvé en construisant l'édition.
 
-## État — délégué en parallèle, aucun retour pour l'instant
+### État final — terminé et vérifié le 2026-08-28
 
-- `content-catalog-service` : route d'édition (auteur seul, effet sur statut), filtre "mes Quizz"
-  sur `GET /quizzes`, scoping AP par relation sur la validation, vérification compatibilité LaTeX
-  (`$`/`\`) sur les champs texte.
-- `front-developper` : libellé bouton, double choix post-création, écran "Mes Quizz" (statut,
-  commentaire de refus, édition, resoumission), réutilisation du pipeline KaTeX du Mémo pour
-  énoncés/options, re-vérification que l'onglet de validation AP/RP fonctionne réellement de bout
-  en bout (bloqué jusqu'ici par le gap gateway evaluations/tutorials, corrigé depuis PR #159).
+Tout mergé dans `master` et redéployé : PR #164 (édition/mine/scoping AP, content-catalog-service),
+#165 (UI : bouton, double choix, écran Mes Quizz, KaTeX, correctif du bug de validation jamais
+fonctionnel, front), #166/#162 (doc), #167 (route solution + historique ouvert à l'auteur,
+content-catalog-service), #168 (pré-remplissage réel de l'édition avec la solution, front).
 
-Prochaine étape après leur retour : merger, rebuild + redéployer `content-catalog-service` et
-`frontend`, puis rejouer une preuve e2e contre `https://claudevma.visioprof.fr` couvrant
-spécifiquement : édition d'un Quizz, écran "mes Quizz" avec un Quizz refusé et son commentaire,
-rendu d'une formule mathématique, et validation par un AP réellement relié vs refusée pour un AP
-non relié.
+**Bug réel découvert et corrigé au passage (cause principale du point 5)** : le front envoyait
+`decision: 'approve'/'reject'` alors que le serveur attend `'validated'/'rejected'` — la validation
+d'un Quizz n'avait **jamais fonctionné en production** avant ce correctif, depuis la toute première
+livraison (PR #157).
+
+**Preuve finale contre `https://claudevma.visioprof.fr`** (HTTP direct par l'orchestrateur, en plus
+des preuves Playwright de chaque subagent) : `GET /quizzes?mine=true` liste bien tous les Quizz de
+l'auteur tous statuts confondus ; `PUT /quizzes/:id` édite réellement et fait repasser un Quizz
+`validated` en `pending_validation` ; `GET /quizzes/:id/solution` renvoie la solution complète à
+l'auteur (`200`) et la refuse à un élève tiers (`403 Insufficient role`).
+
+</details>
 
 <details>
 <summary>Archive — besoin du 2026-08-28, Quizz initial (clos, vérifié en production)</summary>

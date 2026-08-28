@@ -875,6 +875,62 @@ Phase 3 enrichit l'offre :
   4. **Aucun autre role n'y a acces** — deja acquis par l'arbitrage ci-dessus, confirme ici sans
      rien y changer.
 
+- Acces administratif et parental au carnet personnel — parametrable par le TI, defaut ferme.
+  Arbitrage rendu le 2026-08-28, sur demande explicite de l'utilisateur. **Revise l'arbitrage
+  ci-dessus** (« aucun autre role n'y a acces », 2026-08-27, lui-meme une confirmation de celui du
+  2026-08-07) : le carnet personnel n'est plus une exception **totale et definitive**, mais une
+  exception dont l'ouverture devient un choix du TI, **desactivee par defaut** — le comportement
+  actuel (personne d'autre que le titulaire) reste donc inchange tant que le TI n'a rien active.
+  1. **Deux axes independants, tous deux geres par `pedagogical-log-service`** (proprietaire du
+     carnet) :
+     - **Axe administratif**, curseur hierarchique a trois positions : `Non` (defaut) < `RP` <
+       `Tous les administrateurs`. `RP` ouvre la lecture de **tous les carnets personnels** au
+       seul role `responsable_pedagogique`. `Tous les administrateurs` l'ouvre en plus a
+       `administrateur_financier` et `technicien_informatique` (memes trois roles que partout
+       ailleurs dans le projet, "Roles administratifs = RP, AF et TI"). Un curseur plutot que
+       trois cases independantes : `RP` et `Tous les administrateurs` se recouvrent (RP fait
+       deja partie des administrateurs), une combinaison libre aurait permis un reglage
+       incoherent ("Tous les administrateurs" actif mais "RP" desactive).
+     - **Axe parental**, case a cocher independante : `Parents sur son enfant` (defaut `Non`).
+       Ouvre au parent financeur la lecture du carnet personnel du **seul eleve auquel il est
+       rattache** (lien finance-owner-student actif, verifie a chaque lecture aupres de
+       `profile-service`, jamais en cache — meme discipline que partout ailleurs dans ce projet).
+       Axe distinct du premier : ce n'est pas un role qui ouvre un droit general, c'est une
+       relation qui ouvre un droit cible.
+  2. **Lecture seule, sans aucune exception.** Ce parametrage n'ouvre jamais l'ecriture : creer,
+     modifier (deja impossible pour quiconque, y compris le titulaire — voir l'immutabilite
+     ci-dessus) ou supprimer une pensee instantanee reste reserve au seul titulaire, meme quand
+     l'acces administratif ou parental est active. Un admin ou un parent qui lirait le carnet d'un
+     tiers n'y laisse aucune trace ni n'y modifie rien.
+  3. **Le controle se fait a chaque lecture, jamais par un droit accorde une fois pour toutes.**
+     Meme principe que le reste du projet (relations, consentements, visibilite) : changer le
+     reglage TI ou rompre le lien parent-eleve referme immediatement l'acces, sans purge ni
+     migration necessaire — la verification est faite a la volee a chaque appel.
+  4. **Nouvelles routes, cote `pedagogical-log-service`** (contrat detaille a fixer par le service
+     lors de l'implementation, principes ci-dessous non negociables) :
+     - un couple `GET`/`PATCH` de reglages, sur le modele deja etabli pour les pieces jointes du
+       cahier de texte (2026-08-26) : lecture ouverte a tout compte authentifie (le front doit
+       savoir si un point d'entree de consultation a un sens avant de l'afficher), ecriture
+       reservee au TI.
+     - une route de lecture du carnet **d'un tiers**, distincte de la route existante qui ne sert
+       que le carnet du titulaire (`ownerId` implicite au JWT) — celle-ci prend un identifiant de
+       titulaire explicite, applique la meme forme de reponse et les memes parametres de recherche
+       (`from`/`to`/`q`) que la route existante, et refuse (403 pour un role qui n'a structurellement
+       jamais ce droit, 404 pour une relation absente — meme convention que les statistiques et
+       archives pedagogiques, ou l'absence de relation ne se distingue pas d'une absence de
+       ressource) tout appel non couvert par le reglage courant.
+  5. **Cote front, aucun nouveau menu.** Pas de nouvelle entree de rail (regle du projet : jamais
+     de menu sans approbation, non demandee ici) : le carnet d'un tiers, en lecture seule et sans
+     aucun controle d'edition/suppression, s'affiche comme une section conditionnelle sur un ecran
+     deja existant — la fiche de la personne (`ProfilePage`) pour RP/AF/TI, la vue de l'eleve deja
+     accessible au parent pour l'axe parental. La section n'apparait que si le reglage TI l'autorise
+     **et** que l'appelant a effectivement le droit (role ou relation) — jamais affichee pour la
+     decouvrir vide ou en erreur.
+  6. **Reglage TI integre a l'ecran "Parametres systeme" deja existant**, cote propre a
+     `pedagogical-log-service` comme les autres domaines de reglages du projet (photo de profil
+     chez `profile-service`, pieces jointes chez `pedagogical-log-service` lui-meme) — aucun
+     service transverse de configuration a inventer, meme raisonnement que le 2026-08-26.
+
 ## Points ouverts a arbitrer
 
 - `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a

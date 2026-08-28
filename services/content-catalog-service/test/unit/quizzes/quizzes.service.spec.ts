@@ -492,6 +492,86 @@ describe('QuizzesService', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
+  // findOneWithSolution() — lecture de la solution par l'auteur (2026-08-28)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('findOneWithSolution()', () => {
+    it('lève NotFoundException si le quizz est introuvable', async () => {
+      quizRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        quizzesService.findOneWithSolution(QUIZ_ID, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('permet à l\'auteur de lire sa propre solution (bonnes réponses, mots-clés)', async () => {
+      const quiz = buildSampleQuiz({ authorId: FORMATEUR_ID, questions: [buildSampleQuestion()] });
+      quizRepo.findOne.mockResolvedValue(quiz);
+
+      const result = await quizzesService.findOneWithSolution(QUIZ_ID, FORMATEUR_ID, 'formateur');
+
+      expect(result.questions[0].options).toEqual([
+        { id: 'opt-a', text: 'Trois', isCorrect: false },
+        { id: 'opt-b', text: 'Quatre', isCorrect: true },
+      ]);
+    });
+
+    it('permet à un RP de lire la solution d\'un quizz d\'un tiers', async () => {
+      const quiz = buildSampleQuiz({ authorId: FORMATEUR_ID, questions: [buildSampleQuestion()] });
+      quizRepo.findOne.mockResolvedValue(quiz);
+
+      const result = await quizzesService.findOneWithSolution(QUIZ_ID, RP_ID, 'responsable_pedagogique');
+
+      expect(result.questions[0].options?.some((option) => option.isCorrect)).toBe(true);
+    });
+
+    it('permet à un TI de lire la solution d\'un quizz d\'un tiers', async () => {
+      const quiz = buildSampleQuiz({ authorId: FORMATEUR_ID, questions: [buildSampleQuestion()] });
+      quizRepo.findOne.mockResolvedValue(quiz);
+
+      const result = await quizzesService.findOneWithSolution(
+        QUIZ_ID,
+        'ti00-0000-4000-h000-hhhhhhhhhhhh',
+        'technicien_informatique',
+      );
+
+      expect(result.id).toBe(QUIZ_ID);
+    });
+
+    it('lève ForbiddenException si un tiers non administrateur tente de lire la solution', async () => {
+      const quiz = buildSampleQuiz({ authorId: FORMATEUR_ID, questions: [buildSampleQuestion()] });
+      quizRepo.findOne.mockResolvedValue(quiz);
+
+      await expect(
+        quizzesService.findOneWithSolution(QUIZ_ID, OTHER_FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('lève ForbiddenException si un élève tente de lire la solution', async () => {
+      const quiz = buildSampleQuiz({ authorId: FORMATEUR_ID, questions: [buildSampleQuestion()] });
+      quizRepo.findOne.mockResolvedValue(quiz);
+
+      await expect(
+        quizzesService.findOneWithSolution(QUIZ_ID, ELEVE_ID, 'eleve'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('la solution est incluse même pour un quizz non validé lu par son auteur', async () => {
+      const quiz = buildSampleQuiz({
+        authorId: FORMATEUR_ID,
+        status: ContentStatus.REJECTED,
+        questions: [buildSampleQuestion()],
+      });
+      quizRepo.findOne.mockResolvedValue(quiz);
+
+      const result = await quizzesService.findOneWithSolution(QUIZ_ID, FORMATEUR_ID, 'formateur');
+
+      expect(result.status).toBe(ContentStatus.REJECTED);
+      expect(result.questions[0].options?.find((o) => o.id === 'opt-b')?.isCorrect).toBe(true);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
   // getPendingValidation()
   // ─────────────────────────────────────────────────────────────────────────
 

@@ -257,4 +257,43 @@ describe('ValidationsService — ContentType.QUIZ', () => {
       expect(profileRelationsClient.hasAnimatorOfTeacherRelation).not.toHaveBeenCalled();
     });
   });
+
+  describe('getValidationHistory() — auteur formateur d\'un quizz refusé (2026-08-28)', () => {
+    it('l\'auteur formateur peut relire le motif de son propre refus', async () => {
+      quizRepo.findOne.mockResolvedValue(buildSampleQuiz({ authorId: FORMATEUR_ID }));
+      validationRepo.find.mockResolvedValue([
+        {
+          id: 'val-quiz-hist-001',
+          decision: ContentStatus.REJECTED,
+          comment: 'Barème incohérent',
+        },
+      ]);
+
+      const result = await validationsService.getValidationHistory(
+        QUIZ_ID,
+        ContentType.QUIZ,
+        FORMATEUR_ID,
+        'formateur',
+      );
+
+      expect(result).toHaveLength(1);
+      expect(result[0].comment).toBe('Barème incohérent');
+    });
+
+    it('lève ForbiddenException si un formateur tente de lire l\'historique du quizz d\'un tiers', async () => {
+      quizRepo.findOne.mockResolvedValue(buildSampleQuiz({ authorId: AP_ID }));
+
+      await expect(
+        validationsService.getValidationHistory(QUIZ_ID, ContentType.QUIZ, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('un AP/RP/TI conserve un accès non restreint à l\'historique du quizz', async () => {
+      validationRepo.find.mockResolvedValue([]);
+
+      await validationsService.getValidationHistory(QUIZ_ID, ContentType.QUIZ, RP_ID, 'responsable_pedagogique');
+
+      expect(quizRepo.findOne).not.toHaveBeenCalled();
+    });
+  });
 });

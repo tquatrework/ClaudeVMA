@@ -134,4 +134,30 @@ export class QuizzesController {
   ) {
     return this.quizzesService.findOne(quizId, currentUser.id, currentUser.role);
   }
+
+  @Get(':id/solution')
+  @Roles(
+    UserRole.FORMATEUR,
+    UserRole.ANIMATEUR_PEDAGOGIQUE,
+    UserRole.RESPONSABLE_PEDAGOGIQUE,
+    UserRole.TECHNICIEN_INFORMATIQUE,
+  )
+  @ApiOperation({
+    summary: 'Récupérer la solution complète d\'un quizz',
+    description:
+      'Retourne les questions avec la solution (bonnes réponses cochées, mots-clés attendus). ' +
+      'Réservé à l\'auteur du quizz et aux AP, RP, TI — jamais aux autres appelants. ' +
+      '`GET /quizzes/:id` reste la route publique et ne renvoie jamais la solution, ' +
+      'quel que soit l\'appelant (arbitrage du 2026-08-28).',
+  })
+  @ApiParam({ name: 'id', description: 'UUID du quizz' })
+  @ApiResponse({ status: 200, description: 'Quizz avec solution complète' })
+  @ApiResponse({ status: 403, description: 'Réservé à l\'auteur du quizz et aux AP/RP/TI' })
+  @ApiResponse({ status: 404, description: 'Quizz introuvable' })
+  async getSolution(
+    @Param('id') quizId: string,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ) {
+    return this.quizzesService.findOneWithSolution(quizId, currentUser.id, currentUser.role);
+  }
 }

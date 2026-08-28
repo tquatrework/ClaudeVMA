@@ -101,21 +101,35 @@ export class ValidationsController {
   }
 
   @Get(':type/:id/history')
-  @Roles(UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE, UserRole.TECHNICIEN_INFORMATIQUE)
+  @Roles(
+    UserRole.FORMATEUR,
+    UserRole.ANIMATEUR_PEDAGOGIQUE,
+    UserRole.RESPONSABLE_PEDAGOGIQUE,
+    UserRole.TECHNICIEN_INFORMATIQUE,
+  )
   @ApiOperation({
     summary: 'Historique des validations d\'un contenu',
-    description: 'Retourne toutes les décisions de validation prises sur un contenu donné.',
+    description:
+      'Retourne toutes les décisions de validation prises sur un contenu donné. ' +
+      'Accessible sans restriction aux AP, RP et TI, et à l\'auteur du contenu pour son propre ' +
+      'historique — notamment pour relire le motif de son propre refus.',
   })
-  @ApiParam({ name: 'type', description: 'Type de contenu : exercise, evaluation, tutorial' })
+  @ApiParam({ name: 'type', description: 'Type de contenu : exercise, evaluation, tutorial, quiz' })
   @ApiParam({ name: 'id', description: 'UUID du contenu' })
   @ApiResponse({ status: 200, description: 'Historique des validations' })
-  @ApiResponse({ status: 403, description: 'Rôle insuffisant' })
+  @ApiResponse({ status: 403, description: 'Réservé aux AP/RP/TI ou à l\'auteur du contenu' })
+  @ApiResponse({ status: 404, description: 'Contenu introuvable' })
   async getValidationHistory(
     @Param('type') contentTypeRaw: string,
     @Param('id') contentId: string,
     @CurrentUser() currentUser: AuthenticatedUser,
   ) {
     const contentType = this.parseContentType(contentTypeRaw);
-    return this.validationsService.getValidationHistory(contentId, contentType);
+    return this.validationsService.getValidationHistory(
+      contentId,
+      contentType,
+      currentUser.id,
+      currentUser.role,
+    );
   }
 }

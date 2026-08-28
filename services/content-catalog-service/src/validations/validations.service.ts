@@ -17,6 +17,13 @@ import { Tutorial } from '../tutorials/entities/tutorial.entity';
 import { Quiz } from '../quizzes/entities/quiz.entity';
 import { ProfileRelationsClient } from '../common/clients/profile-relations.client';
 
+/** Rôles à accès non restreint sur l'historique de validation (comportement inchangé). */
+const ADMIN_ROLES = [
+  UserRole.ANIMATEUR_PEDAGOGIQUE,
+  UserRole.RESPONSABLE_PEDAGOGIQUE,
+  UserRole.TECHNICIEN_INFORMATIQUE,
+];
+
 @Injectable()
 export class ValidationsService {
   constructor(
@@ -147,10 +154,61 @@ export class ValidationsService {
     }
   }
 
-  async getValidationHistory(contentId: string, contentType: ContentType): Promise<ContentValidation[]> {
+  /**
+   * Historique des décisions de validation d'un contenu.
+   *
+   * Ouvert sans restriction aux AP/RP/TI (comportement inchangé), et à
+   * l'auteur du contenu visé pour son propre historique — notamment pour
+   * relire le motif de son propre refus (arbitrage du 2026-08-28, "Lecture
+   * de sa propre solution... et de son propre motif de refus"). Mécanisme
+   * partagé par les 4 types de contenu du flux de validation générique
+   * (exercise/evaluation/tutorial/quiz), pas une exception réservée au
+   * Quizz.
+   */
+  async getValidationHistory(
+    contentId: string,
+    contentType: ContentType,
+    callerId: string,
+    callerRole: string,
+  ): Promise<ContentValidation[]> {
+    if (!ADMIN_ROLES.includes(callerRole as UserRole)) {
+      const authorId = await this.getContentAuthorId(contentId, contentType);
+      if (authorId === null) {
+        throw new NotFoundException(`Contenu ${contentId} introuvable`);
+      }
+      if (authorId !== callerId) {
+        throw new ForbiddenException(
+          'Vous ne pouvez consulter que l\'historique de validation de vos propres contenus',
+        );
+      }
+    }
+
     return this.validationRepository.find({
       where: { contentId, contentType },
       order: { createdAt: 'DESC' },
     });
+  }
+
+  private async getContentAuthorId(contentId: string, contentType: ContentType): Promise<string | null> {
+    switch (contentType) {
+      case ContentType.EXERCISE: {
+        const exercise = await this.exerciseRepository.findOne({ where: { id: contentId } });
+        return exercise?.authorId ?? null;
+      }
+      case ContentType.EVALUATION: {
+        const evaluation = await this.evaluationRepository.findOne({ where: { id: contentId } });
+        return evaluation?.authorId ?? null;
+      }
+      case ContentType.TUTORIAL: {
+        const tutorial = await this.tutorialRepository.findOne({ where: { id: contentId } });
+        return tutorial?.authorId ?? null;
+      }
+      case ContentType.QUIZ: {
+        const quiz = await this.quizRepository.findOne({ where: { id: contentId } });
+        return quiz?.authorId ?? null;
+      }
+      default:
+        throw new BadRequestException(`Type de contenu inconnu : ${contentType}`);
+    }
   }
 }

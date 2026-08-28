@@ -51,8 +51,10 @@
       <endpoint method="POST" path="/quizzes">Creer un quizz avec questions, solution et bareme (ajoute le 2026-08-28).</endpoint>
       <endpoint method="PUT" path="/quizzes/{id}">Modifier un quizz, reserve a son auteur ; repasse en pending_validation si l'auteur est formateur (ajoute le 2026-08-28 session 3).</endpoint>
       <endpoint method="GET" path="/quizzes/pending-validation">Lister les quizz en attente de validation ; un AP ne voit que les formateurs qu'il anime, RP voit tout (ajoute le 2026-08-28, scoping AP ajoute session 3).</endpoint>
-      <endpoint method="GET" path="/quizzes/{id}">Recuperer un quizz sans sa solution (ajoute le 2026-08-28).</endpoint>
+      <endpoint method="GET" path="/quizzes/{id}">Recuperer un quizz sans sa solution (ajoute le 2026-08-28). Reste inchangee par la session 4 : jamais la solution, quel que soit l'appelant.</endpoint>
+      <endpoint method="GET" path="/quizzes/{id}/solution">Recuperer la solution complete d'un quizz (bonnes reponses, mots-cles) — reserve a l'auteur et aux AP/RP/TI (ajoute le 2026-08-28 session 4).</endpoint>
       <endpoint method="POST" path="/validations/quiz/{id}/decision">Valider/rejeter un quizz — reutilise le flux generique existant ; AP scope par relation animator_of_teacher (ajoute le 2026-08-28, scoping session 3).</endpoint>
+      <endpoint method="GET" path="/validations/{type}/{id}/history">Historique des validations (exercise/evaluation/tutorial/quiz) — ouvert sans restriction aux AP/RP/TI, et a l'auteur du contenu pour son propre historique (ouverture a l'auteur ajoutee le 2026-08-28 session 4).</endpoint>
       <endpoint method="POST" path="/internal/quizzes/{quizId}/grade">Route interne de notation, jamais exposee par api-gateway (ajoute le 2026-08-28).</endpoint>
     </candidateApis>
     <dataEntities>
@@ -494,6 +496,84 @@
             testee (/api/quizzes, /quizzes, /api/content-catalog/quizzes) n'a atteint
             content-catalog-service au travers de ce conteneur — sujet hors perimetre de ce
             service, a verifier par le proprietaire d'api-gateway si le front en a besoin.
+          </point>
+        </openPoints>
+      </session>
+
+      <session date="2026-08-28" label="Lecture de sa propre solution par l'auteur d'un Quizz, et de son propre motif de refus (branche feat/quiz-author-solution-and-rejection-reason)">
+        <context>
+          Deux manques reels trouves par le subagent front-developper en construisant l'ecran
+          d'edition Quizz (PR #164/#165, mergees) : GET /quizzes/:id ne renvoie jamais la solution,
+          meme a l'auteur, qui doit donc re-cocher les bonnes reponses et ressaisir les mots-cles a
+          chaque edition ; et GET /validations/quiz/:id/history renvoie 403 a l'auteur formateur
+          d'un quizz refuse, qui ne peut donc jamais relire le motif de son propre refus. Arbitrage
+          docs/architecture.md du 2026-08-28 ("Lecture de sa propre solution par l'auteur d'un
+          Quizz, et de son propre motif de refus").
+        </context>
+        <filesModified>
+          <file path="src/quizzes/quizzes.service.ts">Nouveaux types QuizQuestionOptionWithSolution / QuizQuestionWithSolution / QuizDetailWithSolution ; toQuestionWithSolution()/toDetailWithSolution() (mappent options avec isCorrect et keywords) ; findOneWithSolution(quizId, callerId, callerRole) — 404 si introuvable, 403 si ni auteur ni AP/RP/TI.</file>
+          <file path="src/quizzes/quizzes.controller.ts">Nouvelle route GET /quizzes/:id/solution, @Roles(FORMATEUR, ANIMATEUR_PEDAGOGIQUE, RESPONSABLE_PEDAGOGIQUE, TECHNICIEN_INFORMATIQUE) — filtrage fin (auteur vs tiers) fait cote service, pas par le guard de roles seul.</file>
+          <file path="src/validations/validations.service.ts">Ajout de ADMIN_ROLES (AP/RP/TI, comportement non restreint inchange) ; getValidationHistory() prend desormais callerId/callerRole — pour un appelant non-admin, resout l'auteur du contenu vise (getContentAuthorId(), nouveau, un switch sur les 4 repositories deja injectes) et n'autorise que si authorId === callerId (404 si contenu introuvable, 403 si tiers). Mecanisme partage par les 4 types (exercise/evaluation/tutorial/quiz), pas une exception Quizz.</file>
+          <file path="src/validations/validations.controller.ts">@Roles de GET /validations/:type/:id/history etendu a FORMATEUR (en plus de AP/RP/TI) ; passe currentUser.id/role au service.</file>
+        </filesModified>
+        <technicalDecisions>
+          <decision>
+            Forme retenue pour le point 1 : route separee GET /quizzes/:id/solution plutot qu'un
+            parametre sur GET /quizzes/:id. GET /quizzes/:id reste executee par n'importe quel
+            appelant sans jamais changer de forme de reponse selon le role — plus simple a auditer
+            (« cette route ne renvoie jamais la solution, point ») qu'un GET conditionnel.
+          </decision>
+          <decision>
+            Point 2 generalise aux 4 types de contenu plutot que limite au Quizz : les 4 entites
+            (Exercise/Evaluation/Tutorial/Quiz) portent deja authorId, et l'arbitrage demandait
+            explicitement de corriger dans le sens le plus coherent avec le mecanisme partage.
+            Verifie par un appel HTTP reel sur /validations/exercise/:id/history en plus de
+            /validations/quiz/:id/history.
+          </decision>
+          <decision>
+            Le controle d'acces fin (auteur vs tiers) est fait cote service et non par le guard
+            @Roles seul : @Roles ne peut exprimer une regle de propriete, seulement un ensemble de
+            roles. FORMATEUR est ajoute a @Roles pour laisser passer les auteurs formateurs, et
+            c'est getContentAuthorId()/isOwner qui tranche ensuite l'acces reel.
+          </decision>
+        </technicalDecisions>
+        <verification>
+          <item>`npm run build` : 0 erreur.</item>
+          <item>`npm test` : 220/220 tests verts, 17 suites (205 precedents + 15 nouveaux) —
+            extension de quizzes.service.spec.ts (findOneWithSolution : auteur, RP, TI, tiers
+            refuse, eleve refuse, 404, quizz rejected), validations.service.rules.spec.ts
+            (getValidationHistory : auteur autorise, tiers refuse, admin toujours non restreint,
+            404 sur contenu absent) et validations.service.quiz.spec.ts (memes cas sur Quizz).</item>
+          <item>Preuve HTTP directe contre le conteneur reel redeploye (image reconstruite depuis
+            le worktree, retaguee claudevma-content-catalog-service:latest, conteneur recree en
+            place avec les memes variables d'environnement) :
+            <detail>POST /quizzes (formateur A) -&gt; 201, quizz pending_validation.</detail>
+            <detail>GET /quizzes/:id/solution par l'auteur -&gt; 200, options avec isCorrect et
+              keywords.</detail>
+            <detail>GET /quizzes/:id/solution par un autre formateur -&gt; 403.</detail>
+            <detail>GET /quizzes/:id/solution par un RP, puis par un TI -&gt; 200 (aucune
+              restriction admin).</detail>
+            <detail>GET /quizzes/:id/solution par un eleve -&gt; 403 (bloque par le RolesGuard,
+              jamais atteint le service).</detail>
+            <detail>GET /quizzes/:id/solution sur un id inexistant -&gt; 404.</detail>
+            <detail>GET /quizzes/:id (route publique) par l'auteur lui-meme -&gt; 200 sans jamais
+              isCorrect ni keywords, y compris apres le rejet ci-dessous.</detail>
+            <detail>POST /validations/quiz/:id/decision (RP, rejected, commentaire) -&gt; 201.</detail>
+            <detail>GET /validations/quiz/:id/history par l'auteur formateur -&gt; 200, motif de
+              refus lisible ; par un autre formateur -&gt; 403 ; par le RP -&gt; 200 (inchange).</detail>
+            <detail>Generalisation verifiee sur exercise : POST /exercises (formateur A) -&gt; 201 ;
+              POST /validations/exercise/:id/decision (RP, rejected) -&gt; 201 ; GET
+              /validations/exercise/:id/history par l'auteur -&gt; 200 ; par un tiers -&gt; 403.</detail>
+          </item>
+        </verification>
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <point>
+            Donnees de test creees sur la pile partagee pendant la verification (un quizz
+            "Quizz verif solution auteur" et un exercice "Exercice verif historique auteur",
+            appartenant a des comptes de test synthetiques signes localement, pas de compte reel
+            enregistre dans identity-access-service) — non supprimees, coherent avec la pratique
+            des sessions precedentes sur ce service.
           </point>
         </openPoints>
       </session>

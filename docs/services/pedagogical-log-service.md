@@ -26,16 +26,18 @@
       <functionality id="003">Pages speciales parent/financeur non visibles par l'eleve si choisies.</functionality>
       <functionality id="004">Memo: chapitres libres crees par l'eleve, listes d'items courts, formules mathematiques et images limitees en taille.</functionality>
       <functionality id="005">Recherche dans le memo.</functionality>
-      <functionality id="006">Carnet personnel : notes rapides horodatees automatiquement (createdAt), immuables (suppression et recreation, pas d'edition), retrouvees par recherche (from/to, q) — un carnet strictement prive par utilisateur authentifie, quel que soit son role (generalise le 2026-08-27, notes immuables depuis le meme jour, docs/architecture.md).</functionality>
+      <functionality id="006">Carnet personnel : notes rapides horodatees automatiquement (createdAt), immuables (suppression et recreation, pas d'edition), retrouvees par recherche (from/to, q) — un carnet strictement prive par utilisateur authentifie, quel que soit son role (generalise le 2026-08-27, notes immuables depuis le meme jour, docs/architecture.md). Depuis le 2026-08-28, un acces en LECTURE SEULE d'un tiers reste possible mais desactive par defaut, parametrable par le TI (curseur administratif none/rp/all_admins + case parentale independante) — voir functionality 008 et la session dediee ci-dessous.</functionality>
+      <functionality id="008">Acces administratif et parental au carnet personnel, en lecture seule, parametrable par le TI (arbitrage du 2026-08-28) : reglages GET/PATCH /pedagogical-logs/settings/notebook-access (desactives par defaut) + route de lecture GET /pedagogical-logs/notebook/owners/{ownerId}. N'ouvre jamais l'ecriture — creer/supprimer une entree reste reserve au seul titulaire dans tous les cas.</functionality>
       <functionality id="007">Acces cahier par tableau de bord de l'etudiant pour formateur/RP.</functionality>
     </functionalities>
     <roleAccessRules>
-      <rule role="Eleve">Lit son cahier autorise (categorie eleve_parent_formateur uniquement depuis le 2026-08-20), ecrit seul dans son memo et dans SON carnet personnel.</rule>
-      <rule role="ParentFinanceur">Lit le cahier de texte des eleves lies (categories eleve_parent_formateur et parent_formateur depuis le 2026-08-20) sauf carnet personnel (d'aucun titulaire) et pages interdites. A son propre carnet personnel, prive.</rule>
-      <rule role="Formateur">Seul role habilite a ecrire (creer/modifier) une entree normale de cahier de texte, et seulement s'il est titulaire de la relation avec l'eleve cible (verifie a chaque action aupres de profile-service, depuis le 2026-08-20) ; aide l'eleve sur le memo sans droit d'ecriture direct. A son propre carnet personnel, prive.</rule>
-      <rule role="ResponsablePedagogique">Lit le cahier de texte (lecture seule sur les entrees normales depuis le 2026-08-20, le formateur seul ecrit) ; cree/modifie les pages speciales (mecanisme distinct, inchange). AUCUN acces au carnet personnel d'autrui (generalise le 2026-08-27 — arbitrage tranche, l'ancien "a arbitrer selon CdC" est resolu) ; a son propre carnet personnel, prive.</rule>
-      <rule role="TechnicienInformatique">Acces incident selon autorisation et logs sur le cahier de texte et les pages speciales RP (mecanisme inchange), pas une entree normale. AUCUN acces au carnet personnel d'autrui, meme en cas d'incident (ancien acces special retire le 2026-08-27) ; a son propre carnet personnel, prive.</rule>
-      <rule role="AdministrateurFinancier">Pas d'acces fonctionnel naturel au cahier de texte hors controle legal explicite. AUCUN acces au carnet personnel d'autrui ; a son propre carnet personnel, prive.</rule>
+      <rule role="Eleve">Lit son cahier autorise (categorie eleve_parent_formateur uniquement depuis le 2026-08-20), ecrit seul dans son memo et dans SON carnet personnel. Structurellement jamais eligible a lire le carnet personnel d'un tiers, meme si le TI ouvre l'acces administratif ou parental (2026-08-28) — 403 systematique sur GET .../notebook/owners/{ownerId}.</rule>
+      <rule role="ParentFinanceur">Lit le cahier de texte des eleves lies (categories eleve_parent_formateur et parent_formateur depuis le 2026-08-20) sauf carnet personnel (d'aucun titulaire) et pages interdites. A son propre carnet personnel, prive. Depuis le 2026-08-28, si le TI active `parentAccessToOwnChild`, lit en LECTURE SEULE le carnet personnel du seul eleve auquel il est activement rattache (relation verifiee a chaque lecture aupres de profile-service, jamais en cache) — desactive par defaut.</rule>
+      <rule role="Formateur">Seul role habilite a ecrire (creer/modifier) une entree normale de cahier de texte, et seulement s'il est titulaire de la relation avec l'eleve cible (verifie a chaque action aupres de profile-service, depuis le 2026-08-20) ; aide l'eleve sur le memo sans droit d'ecriture direct. A son propre carnet personnel, prive. Structurellement jamais eligible a lire le carnet personnel d'un tiers (2026-08-28) — 403 systematique.</rule>
+      <rule role="ResponsablePedagogique">Lit le cahier de texte (lecture seule sur les entrees normales depuis le 2026-08-20, le formateur seul ecrit) ; cree/modifie les pages speciales (mecanisme distinct, inchange). AUCUN acces EN ECRITURE au carnet personnel d'autrui (generalise le 2026-08-27, confirme en ecriture le 2026-08-28) ; a son propre carnet personnel, prive. Depuis le 2026-08-28, si le TI positionne le curseur `adminAccess` sur `rp` ou `all_admins`, lit en LECTURE SEULE le carnet personnel de N'IMPORTE QUEL titulaire — desactive (`none`) par defaut.</rule>
+      <rule role="TechnicienInformatique">Acces incident selon autorisation et logs sur le cahier de texte et les pages speciales RP (mecanisme inchange), pas une entree normale. AUCUN acces EN ECRITURE au carnet personnel d'autrui, meme en cas d'incident (ancien acces special retire le 2026-08-27) ; a son propre carnet personnel, prive. Depuis le 2026-08-28, si `adminAccess = all_admins`, lit en LECTURE SEULE le carnet personnel de n'importe quel titulaire — desactive par defaut. Seul role habilite a modifier les reglages `GET/PATCH /pedagogical-logs/settings/notebook-access`.</rule>
+      <rule role="AdministrateurFinancier">Pas d'acces fonctionnel naturel au cahier de texte hors controle legal explicite. AUCUN acces EN ECRITURE au carnet personnel d'autrui ; a son propre carnet personnel, prive. Depuis le 2026-08-28, si `adminAccess = all_admins`, lit en LECTURE SEULE le carnet personnel de n'importe quel titulaire — desactive par defaut.</rule>
+      <rule role="AnimateurPedagogique">Structurellement jamais eligible a lire le carnet personnel d'un tiers (2026-08-28) — 403 systematique, meme si le TI ouvre l'acces administratif ou parental. A son propre carnet personnel, prive.</rule>
     </roleAccessRules>
     <candidateApis>
       <!-- Cahier de texte — tenu par le formateur ou le RP, lisible par eleve/parent/formateurs lies/RP/AP -->
@@ -69,6 +71,12 @@
            une "pensee instantanee" immuable, elle ne s'edite pas, elle se supprime et se
            reecrit si besoin. Voir docs/architecture.md, "Specification fonctionnelle reelle
            du carnet personnel — notes rapides immuables". -->
+      <!-- Acces administratif et parental au carnet personnel — 2026-08-28, LECTURE SEULE,
+           desactive par defaut. Voir docs/architecture.md, "Acces administratif et parental
+           au carnet personnel — parametrable par le TI, defaut ferme". -->
+      <endpoint method="GET" path="/pedagogical-logs/notebook/owners/{ownerId}">Lire ou rechercher le carnet personnel d'un TIERS, en lecture seule (role : parent_financeur, responsable_pedagogique, technicien_informatique, administrateur_financier — piloté ensuite par le reglage TI ; eleve/formateur/animateur_pedagogique structurellement jamais eligibles, 403). Memes query params que GET .../notebook (from?/to?/q?). Le titulaire lisant son propre carnet via cette route est toujours autorise, sans reference au reglage.</endpoint>
+      <endpoint method="GET" path="/pedagogical-logs/settings/notebook-access">Lire les reglages courants d'acces administratif/parental au carnet personnel (role : tout compte authentifie).</endpoint>
+      <endpoint method="PATCH" path="/pedagogical-logs/settings/notebook-access">Modifier les reglages d'acces administratif/parental au carnet personnel — {adminAccess?: none|rp|all_admins, parentAccessToOwnChild?: boolean} (role : technicien_informatique uniquement).</endpoint>
     </candidateApis>
     <dataEntities>
       <entity>PedagogicalLogPage</entity>
@@ -945,6 +953,162 @@
           </point>
         </openPoints>
       </session>
+
+      <session date="2026-08-28" label="Accès administratif et parental au carnet personnel, en lecture seule, paramétrable par le TI (branche feat/carnet-personnel-acces-admin-parent)">
+        <objective>
+          Implementer l'arbitrage d'architecture du meme jour (docs/architecture.md, "Acces
+          administratif et parental au carnet personnel — parametrable par le TI, defaut ferme") :
+          ouvrir, uniquement en LECTURE SEULE et desactive par defaut, deux axes independants —
+          administratif (curseur `none`/`rp`/`all_admins`) et parental (case `parentAccessToOwnChild`,
+          relation finance-owner-student verifiee a chaque lecture aupres de profile-service).
+        </objective>
+
+        <arborescence>
+          services/pedagogical-log-service/
+          ├── src/
+          │   ├── migrations/1789800000000-AccesAdminParentCarnetPersonnel.ts  # NOUVEAU — cree
+          │   │   notebook_access_settings (singleton, id fixe distinct de
+          │   │   pedagogical_log_settings), seed la ligne par defaut (none/false)
+          │   ├── settings/
+          │   │   ├── entities/notebook-access-settings.entity.ts   # NOUVEAU — adminAccess (enum
+          │   │   │   NotebookAdminAccess: none/rp/all_admins), parentAccessToOwnChild (bool)
+          │   │   ├── dto/update-notebook-access-settings.dto.ts    # NOUVEAU
+          │   │   ├── notebook-access-settings.service.ts           # NOUVEAU — getSettings()
+          │   │   │   (cree la ligne singleton si absente, comme PedagogicalLogSettingsService),
+          │   │   │   updateSettings() (mise a jour partielle)
+          │   │   ├── settings.controller.ts     # + GET/PATCH /pedagogical-logs/settings/notebook-access
+          │   │   │   (meme controleur que /settings/attachments, meme discipline lecture ouverte/
+          │   │   │   ecriture TI)
+          │   │   └── settings.module.ts          # + entite/service notebook-access, exporte
+          │   │       NotebookAccessSettingsService
+          │   ├── notebook/
+          │   │   ├── notebook.service.ts   # + findAllForThirdParty() (self-access toujours
+          │   │   │   autorise sans reseau ; sinon assertCanReadThirdParty() : RP/AF/TI selon
+          │   │   │   adminAccess -> 404 si non couvert ; parent_financeur selon
+          │   │   │   parentAccessToOwnChild + ProfileRelationsClient.getRelation(kind
+          │   │   │   finance_owner_of_student) -> 404 si reglage ferme ou relation absente,
+          │   │   │   503 si profile-service injoignable ; tout autre role -> ForbiddenException,
+          │   │   │   garde-fou redondant avec @Roles() cote controleur)
+          │   │   ├── notebook.controller.ts  # + GET owners/:ownerId, @Roles(parent_financeur,
+          │   │   │   responsable_pedagogique, technicien_informatique, administrateur_financier)
+          │   │   │   — filtre deja eleve/formateur/animateur_pedagogique en 403 avant tout appel
+          │   │   │   service ; declaree sans collision avec GET :id (nombre de segments different)
+          │   │   └── notebook.module.ts   # + import ClientsModule (ProfileRelationsClient) et
+          │   │       SettingsModule (NotebookAccessSettingsService)
+          │   └── app.module.ts   # + entite NotebookAccessSettings dans TypeOrmModule.forRootAsync
+          └── test/
+              ├── unit/
+              │   ├── notebook/notebook.service.spec.ts   # + describe findAllForThirdParty()
+              │   │   (self-access, 403 structurel eleve/formateur/AP, axe admin rp/all_admins,
+              │   │   axe parental avec/sans relation, 503 profile-service injoignable) — mocks
+              │   │   NotebookAccessSettingsService + ProfileRelationsClient ajoutes au TestingModule
+              │   └── settings/notebook-access-settings.service.spec.ts   # NOUVEAU — getSettings()
+              │       (creation singleton, defauts fermes), updateSettings() (partiel, axes
+              │       independants)
+              └── e2e/
+                  ├── notebook.e2e-spec.ts   # + describe GET .../notebook/owners/:ownerId — 20
+                  │   tests HTTP reels (401, self-access, 403 structurel x3, axe admin rp puis
+                  │   all_admins avec AF/TI, axe parental 404 par defaut puis 503 profile-service
+                  │   injoignable, query params, carnet vide)
+                  └── pedagogical-log.e2e-spec.ts   # + describe GET/PATCH .../settings/notebook-access
+                      — 9 tests HTTP reels (401, lecture ouverte, ecriture reservee TI, 400 valeur
+                      hors enum, cycle patch/lecture, reset en fin de bloc)
+        </arborescence>
+
+        <technicalDecisions>
+          <decision>
+            Table singleton distincte (`notebook_access_settings`, id fixe
+            `00000000-0000-0000-0000-000000000002`) plutot que d'ajouter des colonnes a
+            `pedagogical_log_settings` (pieces jointes). Motif : deux domaines de reglages
+            independants a l'interieur du meme service — fusionner les tables aurait fait fuiter
+            les champs d'un domaine dans les reponses de l'autre (`GET .../settings/attachments`
+            aurait commence a exposer `adminAccess`/`parentAccessToOwnChild`, changement de contrat
+            non demande), et aurait couple deux cycles de vie de reglages sans rapport.
+          </decision>
+          <decision>
+            Route `GET .../notebook/owners/:ownerId` plutot que de reutiliser `GET .../notebook/:id`
+            avec une semantique differente selon le role : deux segments (`owners/:ownerId`) contre
+            un seul (`:id`) — aucune collision possible avec la route de detail d'entree existante,
+            contrairement au risque deja documente pour `finance-owners` vs `:viewerId` chez
+            profile-service (docs/routes.md). Le nom `owners` (et non `students` ou `users`) choisi
+            car le carnet est generalise a tout role depuis le 2026-08-27 : le titulaire vise n'est
+            pas necessairement un eleve.
+          </decision>
+          <decision>
+            `@Roles(parent_financeur, responsable_pedagogique, technicien_informatique,
+            administrateur_financier)` pose directement sur la route controleur, en plus du controle
+            fin cote service. Ce n'est pas une redondance inutile : c'est ce qui transforme
+            naturellement un role structurellement inéligible (eleve, formateur,
+            animateur_pedagogique) en `403` — exactement la convention demandee — sans dupliquer une
+            liste de roles a la main dans le service. Le garde-fou identique laisse dans
+            `NotebookService.assertCanReadThirdParty` (throw ForbiddenException en dernier recours)
+            n'est atteint que par un appel direct au service contournant le controleur (tests
+            unitaires, ou un futur appelant interne) — jamais par un appel HTTP reel.
+          </decision>
+          <decision>
+            Self-access (`callerId === ownerId`) court-circuite entierement `assertCanReadThirdParty`
+            — aucun appel a `NotebookAccessSettingsService` ni a `ProfileRelationsClient`, verifie
+            explicitement en unit test (`toHaveBeenCalledTimes`/`not.toHaveBeenCalled`). Un RP/AF/TI/
+            parent_financeur lisant son propre carnet via cette route reste donc toujours autorise,
+            meme quand le reglage TI est `none`/`false` — coherent avec le fait que le titulaire a
+            de toute facon deja acces a son propre carnet via `GET .../notebook`.
+          </decision>
+          <decision>
+            Convention 403/404 reprise telle quelle de l'arbitrage (meme famille que les statistiques
+            et archives pedagogiques, 2026-08-11) : `404`, message generique identique
+            ("Carnet personnel introuvable ou accès non autorisé"), pour TOUTE combinaison
+            role-eligible-mais-non-couverte-par-le-reglage-courant (RP avec `adminAccess=none`,
+            AF/TI avec `adminAccess=rp` seul, parent avec `parentAccessToOwnChild=false`, ou parent
+            avec relation absente/rompue) — ces quatre cas sont volontairement indiscernables entre
+            eux et d'un carnet reellement vide, pour ne jamais reveler par le code de reponse la
+            nature exacte du refus.
+          </decision>
+          <decision>
+            Reutilisation directe de `ProfileRelationsClient.getRelation` (deja utilise par le
+            cahier de texte et le memo) avec `viewerRole = 'parent_financeur'` et verification du
+            `kind` `finance_owner_of_student` dans la reponse — aucun nouveau client HTTP, la route
+            interne `GET /internal/relations/:viewerId/:targetId?viewerRole=` deja documentee
+            (docs/routes.md > profile-service) couvre exactement ce besoin. Politique d'echec deja
+            en place reutilisee telle quelle : profile-service injoignable -> `503` (echec ferme).
+          </decision>
+        </technicalDecisions>
+
+        <verification>
+          <item>`npm run build` (nest build) : 0 erreur.</item>
+          <item>`npm test` (suite unitaire complete) : 210/210 tests verts, 14 suites — 0
+            regression (41 tests sur `notebook.service.spec.ts`, dont 16 nouveaux sur
+            `findAllForThirdParty()` ; 10 nouveaux sur `notebook-access-settings.service.spec.ts`).</item>
+          <item>`npm run test:e2e` (Postgres jetable dediee, base `pedagogical_log_test` creee pour
+            cette verification sur l'instance Postgres reelle du projet, isolee de
+            `visiomath_pedagogical_log`) : `notebook.e2e-spec.ts` 43/43 verts (20 nouveaux tests sur
+            la route tierce) ; `memo.e2e-spec.ts` et `health.e2e-spec.ts` inchanges et verts ;
+            `pedagogical-log.e2e-spec.ts` 65/91 verts (9 nouveaux tests sur les reglages, tous verts)
+            — les 26 echecs restants sont EXACTEMENT les memes, verifies identiques par comparaison
+            directe sur `master` (`git stash` avant/apres, meme nombre, memes intitules) : gap
+            preexistant deja documente dans la session du 2026-08-27 ("routes /pedagogical-logs au
+            pluriel jamais montees cote controleur"), hors perimetre de cette session, aucune
+            regression introduite ni corrigee ici.</item>
+        </verification>
+
+        <blockers>Aucun sur le code livre.</blockers>
+
+        <openPoints>
+          <point>
+            L'axe parental n'a pu etre teste en e2e que jusqu'au repli `503` (profile-service non
+            configure dans l'environnement e2e local, comme documente pour le cahier de texte et le
+            memo) — le succes reel (`200` avec relation active) n'est verifie qu'en unit test avec
+            `ProfileRelationsClient` mocke. Coherent avec la pratique deja etablie sur ce service
+            pour les autres verifications de relation, pas un manque propre a cette session.
+          </point>
+          <point>
+            Cote front, aucun ecran n'a ete modifie par cette session (hors perimetre du sous-agent
+            pedagogical-log-service) : la section conditionnelle sur `ProfilePage` (RP/AF/TI) et sur
+            la vue eleve du parent, ainsi que l'extension de l'ecran "Parametres systeme" pour le
+            nouveau couple GET/PATCH, restent a implementer cote front-developper — le contrat HTTP
+            est pret et documente (docs/routes.md).
+          </point>
+        </openPoints>
+      </session>
     </technicalImplementation>
     <pendingPoints>
       <point id="guards-N1" status="resolu" resolvedOn="2026-06-28">
@@ -958,6 +1122,13 @@
         Le carnet personnel etait un CRUD classique (POST/GET/PATCH/DELETE). Aligne sur le concept
         reel de "pensees instantanees" immuables le 2026-08-27 : PATCH retiree, recherche
         (from/to/q) ajoutee sur GET — voir la session dediee ci-dessus.
+      </point>
+      <point id="carnet-personnel-acces-admin-parent" status="resolu" resolvedOn="2026-08-28">
+        Le carnet personnel etait une exception totale et definitive a "les administrateurs voient
+        tout", sans aucune ouverture possible. Rendu parametrable par le TI (deux axes independants,
+        lecture seule, desactive par defaut) le 2026-08-28 — voir la session dediee ci-dessus. Reste
+        ouvert : implementation front (section conditionnelle sur les ecrans concernes, extension de
+        l'ecran "Parametres systeme").
       </point>
     </pendingPoints>
   </service>

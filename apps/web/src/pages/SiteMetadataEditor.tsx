@@ -7,7 +7,9 @@
  * configuration transverse :
  *   - métadonnées du site (bandeaux, maintenance, contacts) — `admin-observability-service` ;
  *   - photo de profil (`AvatarUploadSettingsPanel`) — `profile-service` ;
- *   - pièces jointes du cahier de texte (`AttachmentSettingsPanel`) — `pedagogical-log-service`.
+ *   - pièces jointes du cahier de texte (`AttachmentSettingsPanel`) — `pedagogical-log-service` ;
+ *   - accès admin/parent au carnet personnel (`NotebookAccessSettingsPanel`) — `pedagogical-log-service`
+ *     (arbitrage du 2026-08-28).
  *
  * Routes API consommées pour les métadonnées du site :
  *   PATCH /admin/site-metadata/:id
@@ -23,6 +25,7 @@ import {
 } from '../api/adminObservability'
 import { AvatarUploadSettingsPanel } from '../components/admin/AvatarUploadSettingsPanel'
 import { AttachmentSettingsPanel } from '../components/admin/AttachmentSettingsPanel'
+import { NotebookAccessSettingsPanel } from '../components/admin/NotebookAccessSettingsPanel'
 
 // ID par défaut de la configuration du site (singleton)
 const DEFAULT_METADATA_ID = 'site-config'
@@ -230,6 +233,7 @@ export default function SiteMetadataEditor() {
 
         <AvatarUploadSettingsPanel />
         <AttachmentSettingsPanel />
+        <NotebookAccessSettingsPanel />
       </div>
     </Layout>
   )

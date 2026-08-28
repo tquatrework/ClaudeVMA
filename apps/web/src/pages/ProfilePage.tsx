@@ -15,6 +15,7 @@ import { PedagogicalProfilePanel } from '../components/profile/PedagogicalProfil
 import { FilteredProfileNotice } from '../components/profile/FilteredProfileNotice'
 import { ProfileLinkCard } from '../components/profile/ProfileLinkCard'
 import { ProfileConsentsSection } from '../components/profile/ProfileConsentsSection'
+import { ThirdPartyNotebookSection } from '../components/profile/ThirdPartyNotebookSection'
 import { resolvePedagogicalProfileKind } from '../utils/profileFields'
 import {
   canEditAdministrativeProfile,
@@ -90,6 +91,25 @@ export default function ProfilePage() {
    * pour un rôle qu'elle mènerait vers un refus (règle de filtrage UI).
    */
   const canTerminateTeacherRelation = hasRole('responsable_pedagogique')
+
+  /**
+   * Carnet personnel d'un tiers, en lecture seule — arbitrage du 2026-08-28.
+   * Deux populations distinctes, un seul point d'affichage : RP/AF/TI sur
+   * n'importe quelle fiche qui n'est pas la leur, et le parent financeur sur
+   * la fiche de son enfant (déjà l'écran où il consulte tout le reste du
+   * profil, sauf le carnet — cette section reste la seule exception
+   * paramétrable par le TI). Jamais sur son propre profil : le titulaire
+   * utilise `/notebook/mine`. `enabled` ne fait qu'éviter un appel réseau
+   * inutile ; le serveur reste seul juge du droit réel (réglage TI + relation).
+   */
+  const canAttemptThirdPartyNotebook =
+    !isViewingOwnProfile &&
+    hasRole(
+      'responsable_pedagogique',
+      'administrateur_financier',
+      'technicien_informatique',
+      'parent_financeur',
+    )
 
   /**
    * Onglet "relations" : visible pour l'élève (ses parents) ou le parent (ses élèves)
@@ -297,6 +317,21 @@ export default function ProfilePage() {
                     addNote={addNote}
                     isSavingNote={isSavingNote}
                     noteSaveError={noteSaveError}
+                  />
+                )}
+
+                {/* Carnet personnel du tiers consulté — lecture seule, ne
+                    s'affiche que si le réglage TI l'autorise ET que l'appel
+                    réussit réellement (voir ThirdPartyNotebookSection). */}
+                {canAttemptThirdPartyNotebook && userId && (
+                  <ThirdPartyNotebookSection
+                    ownerId={userId}
+                    enabled={canAttemptThirdPartyNotebook}
+                    ownerFirstName={
+                      typeof profile.administrative?.firstName === 'string'
+                        ? profile.administrative.firstName
+                        : null
+                    }
                   />
                 )}
               </div>

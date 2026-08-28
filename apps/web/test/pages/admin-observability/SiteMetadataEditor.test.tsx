@@ -15,17 +15,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../../../src/hooks/useAuth')
 vi.mock('../../../src/api/adminObservability')
-// Sections « Photo de profil » et « Pièces jointes » ajoutées le 2026-08-26 :
-// appellent leurs propres services (profile-service, pedagogical-log-service).
-// Mockées ici pour que ce fichier, qui ne teste que le formulaire de
-// métadonnées préexistant, ne dépende jamais d'un appel réseau réel.
+// Sections « Photo de profil », « Pièces jointes » (2026-08-26) et « Accès au
+// carnet personnel » (2026-08-28) : appellent leurs propres services
+// (profile-service, pedagogical-log-service). Mockées ici pour que ce
+// fichier, qui ne teste que le formulaire de métadonnées préexistant, ne
+// dépende jamais d'un appel réseau réel.
 vi.mock('../../../src/api/profile')
 vi.mock('../../../src/api/pedagogicalLogAttachments')
+vi.mock('../../../src/api/pedagogicalLogNotebookAccess')
 
 import { useAuth } from '../../../src/hooks/useAuth'
 import { updateSiteMetadata } from '../../../src/api/adminObservability'
 import { fetchProfileAvatarConstraints } from '../../../src/api/profile'
 import { fetchAttachmentSettings } from '../../../src/api/pedagogicalLogAttachments'
+import { fetchNotebookAccessSettings } from '../../../src/api/pedagogicalLogNotebookAccess'
 import SiteMetadataEditor from '../../../src/pages/SiteMetadataEditor'
 import type { SiteMetadata } from '../../../src/api/adminObservability'
 
@@ -33,6 +36,7 @@ const mockUseAuth = vi.mocked(useAuth)
 const mockUpdateSiteMetadata = vi.mocked(updateSiteMetadata)
 const mockFetchProfileAvatarConstraints = vi.mocked(fetchProfileAvatarConstraints)
 const mockFetchAttachmentSettings = vi.mocked(fetchAttachmentSettings)
+const mockFetchNotebookAccessSettings = vi.mocked(fetchNotebookAccessSettings)
 
 /**
  * Le bouton « Sauvegarder » du formulaire de métadonnées n'est plus le seul
@@ -119,6 +123,12 @@ beforeEach(() => {
     maxFileBytes: 100_000,
     maxTotalBytesPerEntry: 5_000_000,
     updatedAt: '2026-08-26T00:00:00.000Z',
+  })
+  mockFetchNotebookAccessSettings.mockResolvedValue({
+    id: 'notebook-access-1',
+    adminAccess: 'none',
+    parentAccessToOwnChild: false,
+    updatedAt: '2026-08-28T00:00:00.000Z',
   })
 })
 

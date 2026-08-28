@@ -1,14 +1,16 @@
 /**
  * Tests — SiteMetadataEditor, sections « Photo de profil » et « Pièces
- * jointes du cahier de texte » ajoutées le 2026-08-26.
+ * jointes du cahier de texte » ajoutées le 2026-08-26, « Accès au carnet
+ * personnel » ajoutée le 2026-08-28.
  *
- * Deux services distincts derrière un seul écran d'agrégation (arbitrage du
+ * Trois services distincts derrière un seul écran d'agrégation (arbitrage du
  * 2026-08-26, point 8) : `profile-service` pour la photo,
- * `pedagogical-log-service` pour les pièces jointes — chacun mocké
- * séparément, jamais un service de configuration transverse inventé.
+ * `pedagogical-log-service` pour les pièces jointes ET l'accès au carnet
+ * personnel (deux domaines de réglages distincts du même service) — chacun
+ * mocké séparément, jamais un service de configuration transverse inventé.
  *
  * Le formulaire préexistant (métadonnées du site) n'est pas retesté ici :
- * seules les deux nouvelles sections le sont.
+ * seules les nouvelles sections le sont.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -21,6 +23,7 @@ import { makeUseAuthReturn } from '../../src/test-helpers'
 vi.mock('../../src/hooks/useAuth')
 vi.mock('../../src/api/profile')
 vi.mock('../../src/api/pedagogicalLogAttachments')
+vi.mock('../../src/api/pedagogicalLogNotebookAccess')
 
 import { useAuth } from '../../src/hooks/useAuth'
 import { fetchProfileAvatarConstraints, updateProfileAvatarSettings } from '../../src/api/profile'
@@ -28,12 +31,18 @@ import {
   fetchAttachmentSettings,
   updateAttachmentSettings,
 } from '../../src/api/pedagogicalLogAttachments'
+import {
+  fetchNotebookAccessSettings,
+  updateNotebookAccessSettings,
+} from '../../src/api/pedagogicalLogNotebookAccess'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockFetchProfileAvatarConstraints = vi.mocked(fetchProfileAvatarConstraints)
 const mockUpdateProfileAvatarSettings = vi.mocked(updateProfileAvatarSettings)
 const mockFetchAttachmentSettings = vi.mocked(fetchAttachmentSettings)
 const mockUpdateAttachmentSettings = vi.mocked(updateAttachmentSettings)
+const mockFetchNotebookAccessSettings = vi.mocked(fetchNotebookAccessSettings)
+const mockUpdateNotebookAccessSettings = vi.mocked(updateNotebookAccessSettings)
 
 const DEFAULT_AVATAR_CONSTRAINTS = {
   maxUploadBytes: 1_000_000,
@@ -48,6 +57,13 @@ const DEFAULT_ATTACHMENT_SETTINGS = {
   maxFileBytes: 100_000,
   maxTotalBytesPerEntry: 5_000_000,
   updatedAt: '2026-08-26T00:00:00.000Z',
+}
+
+const DEFAULT_NOTEBOOK_ACCESS_SETTINGS = {
+  id: 'notebook-access-1',
+  adminAccess: 'none' as const,
+  parentAccessToOwnChild: false,
+  updatedAt: '2026-08-28T00:00:00.000Z',
 }
 
 function asTi() {
@@ -67,6 +83,7 @@ beforeEach(() => {
   asTi()
   mockFetchProfileAvatarConstraints.mockResolvedValue(DEFAULT_AVATAR_CONSTRAINTS)
   mockFetchAttachmentSettings.mockResolvedValue(DEFAULT_ATTACHMENT_SETTINGS)
+  mockFetchNotebookAccessSettings.mockResolvedValue(DEFAULT_NOTEBOOK_ACCESS_SETTINGS)
 })
 
 describe('SiteMetadataEditor — accès réservé au TI', () => {
@@ -178,8 +195,11 @@ describe('SiteMetadataEditor — section Pièces jointes du cahier de texte', ()
 
     await userEvent.click(screen.getByLabelText(/autoriser les pièces jointes/i))
 
+    // Quatre boutons « Sauvegarder » sur l'écran depuis le 2026-08-28
+    // (métadonnées, photo, pièces jointes, accès au carnet personnel) :
+    // celui des pièces jointes est le troisième dans l'ordre du DOM.
     const submitButtons = screen.getAllByRole('button', { name: /sauvegarder/i })
-    await userEvent.click(submitButtons[submitButtons.length - 1])
+    await userEvent.click(submitButtons[2])
 
     await waitFor(() => {
       expect(mockUpdateAttachmentSettings).toHaveBeenCalledWith({ attachmentsEnabled: false })
@@ -201,11 +221,103 @@ describe('SiteMetadataEditor — section Pièces jointes du cahier de texte', ()
     await userEvent.clear(maxFileInput)
     await userEvent.type(maxFileInput, '999999')
 
+    // Voir remarque ci-dessus : le bouton des pièces jointes est le troisième.
     const submitButtons = screen.getAllByRole('button', { name: /sauvegarder/i })
-    await userEvent.click(submitButtons[submitButtons.length - 1])
+    await userEvent.click(submitButtons[2])
 
     await waitFor(() => {
       expect(screen.getByText(/ne peut pas dépasser le plafond total/i)).toBeDefined()
+    })
+  })
+})
+
+describe('SiteMetadataEditor — section Accès au carnet personnel', () => {
+  it('affiche les réglages actuels', async () => {
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Non', { selector: 'strong' })).toBeDefined()
+    })
+    expect(screen.getByText('Désactivé')).toBeDefined()
+  })
+
+  it('sélecteur à trois valeurs pour l\'axe administratif', async () => {
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/accès administratif/i)).toBeDefined()
+    })
+
+    const select = screen.getByLabelText(/accès administratif/i) as HTMLSelectElement
+    const optionValues = Array.from(select.options).map((option) => option.value)
+    expect(optionValues).toEqual(['none', 'rp', 'all_admins'])
+  })
+
+  it('mise à jour partielle — seul le champ modifié est envoyé (axe administratif)', async () => {
+    mockUpdateNotebookAccessSettings.mockResolvedValue({
+      ...DEFAULT_NOTEBOOK_ACCESS_SETTINGS,
+      adminAccess: 'rp',
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/accès administratif/i)).toBeDefined()
+    })
+
+    await userEvent.selectOptions(screen.getByLabelText(/accès administratif/i), 'rp')
+
+    const submitButtons = screen.getAllByRole('button', { name: /sauvegarder/i })
+    await userEvent.click(submitButtons[3])
+
+    await waitFor(() => {
+      expect(mockUpdateNotebookAccessSettings).toHaveBeenCalledWith({ adminAccess: 'rp' })
+    })
+    await waitFor(() => {
+      expect(screen.getByText('RP', { selector: 'strong' })).toBeDefined()
+    })
+  })
+
+  it('mise à jour partielle — seul le champ modifié est envoyé (axe parental)', async () => {
+    mockUpdateNotebookAccessSettings.mockResolvedValue({
+      ...DEFAULT_NOTEBOOK_ACCESS_SETTINGS,
+      parentAccessToOwnChild: true,
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/parents sur son enfant/i)).toBeDefined()
+    })
+
+    await userEvent.click(screen.getByLabelText(/parents sur son enfant/i))
+
+    const submitButtons = screen.getAllByRole('button', { name: /sauvegarder/i })
+    await userEvent.click(submitButtons[3])
+
+    await waitFor(() => {
+      expect(mockUpdateNotebookAccessSettings).toHaveBeenCalledWith({
+        parentAccessToOwnChild: true,
+      })
+    })
+  })
+
+  it("affiche un message d'erreur 403 si non autorisé", async () => {
+    mockUpdateNotebookAccessSettings.mockRejectedValue({ response: { status: 403 } })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/accès administratif/i)).toBeDefined()
+    })
+
+    await userEvent.selectOptions(screen.getByLabelText(/accès administratif/i), 'all_admins')
+
+    const submitButtons = screen.getAllByRole('button', { name: /sauvegarder/i })
+    await userEvent.click(submitButtons[3])
+
+    await waitFor(() => {
+      expect(screen.getByText(/vous n'êtes pas autorisé à modifier ces réglages/i)).toBeDefined()
     })
   })
 })

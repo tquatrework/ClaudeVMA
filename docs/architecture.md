@@ -1004,6 +1004,28 @@ Phase 3 enrichit l'offre :
        `POST /quiz-attempts/:id/submit` (passage : recoit les reponses, appelle la route interne
        ci-dessus, persiste le resultat) et `GET /quiz-attempts/history` (historique note par
        utilisateur).
+  10. **Precision sur la notation "par item" (choix multiples case par case, texte mot par mot) et
+      son interaction avec la penalite.** Point souleve par `content-catalog-service` en cours
+      d'implementation, non couvert par la specification initiale de l'utilisateur — tranche par
+      l'orchestrateur le 2026-08-28, a verifier/aligner dans les deux PR (#151, #152) :
+      - Le bareme de la question (individuel ou derive du bareme global) se **repartit a parts
+        egales entre les items attendus** : le nombre de bonnes reponses a cocher pour un choix
+        multiple, le nombre de mots-cles pour une reponse texte. Cocher une case correcte, ou
+        retrouver un mot-cle, rapporte cette part ; une case incorrecte cochee ou un mot-cle absent
+        ne rapporte rien. Objectif : le score maximum d'une question reste toujours egal a son
+        bareme configure, que la notation choisie soit "unique" ou "par item".
+      - **La penalite s'applique au meme niveau que le bareme choisi, jamais aux deux a la fois.**
+        En notation "par item", une penalite active s'applique par item incorrect (une case cochee
+        a tort, ou — non applicable au texte, qui n'a pas de notion d'item "incorrect" saisi par
+        l'utilisateur au-dela des mots-cles absents) ; en notation "unique", elle s'applique une
+        seule fois si la reponse n'est pas integralement correcte. Il n'y a pas de second niveau de
+        penalite globale de la question par-dessus une penalite deja comptee par item : c'est le
+        sens du "non-cumul".
+      - **Le score d'une question peut devenir negatif** si les penalites depassent les points
+        gagnes sur cette question — la specification initiale parle explicitement de "note
+        negative". Aucun plancher a zero n'est introduit par cet arbitrage, ni par question ni sur
+        le total du quizz ; a rouvrir si l'usage reel montre qu'un score de quizz negatif est
+        indesirable a l'affichage.
 
 ## Points ouverts a arbitrer
 

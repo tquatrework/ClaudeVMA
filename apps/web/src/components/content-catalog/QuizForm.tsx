@@ -1,5 +1,5 @@
 /**
- * QuizCreateForm — création complète d'un Quizz (content-catalog-service).
+ * QuizForm — création et édition d'un Quizz (content-catalog-service).
  *
  * Formulaire majoritairement auto-porté (état local) : une liste dynamique de questions,
  * chacune avec sa propre forme selon sa catégorie, ne se prête pas au découpage
@@ -9,12 +9,24 @@
  *
  * Rôles autorisés à créer un Quizz : formateur, animateur_pedagogique, responsable_pedagogique
  * (statut initial `pending_validation` pour un formateur, `validated` — auto-validé — pour AP/RP).
+ *
+ * Renommé depuis `QuizCreateForm` le 2026-08-28 (retour post-production) : le même formulaire sert
+ * désormais aussi l'édition d'un Quizz par son auteur (`mode="edit"`, `initialState` pré-rempli
+ * via `buildEditableStateFromAuthorDetail` — voir `docs/architecture.md` > « Edition d'un Quizz
+ * par son auteur »). Un `formateur` éditant un Quizz déjà `validated` le fait repasser en
+ * `pending_validation` côté serveur ; ce comportement n'est pas recalculé ici, il vient tel quel
+ * de la réponse d'écriture (règle du projet : on réaffiche la réponse reçue, jamais le corps
+ * envoyé).
+ *
+ * Notation mathématique (2026-08-28) : énoncé, options et mots-clés acceptent la syntaxe légère
+ * `$...$`/`$$...$$` du projet (même pipeline KaTeX que le Mémo) — l'aperçu est rendu directement
+ * dans `QuizQuestionEditor`, ce composant n'a rien à faire de plus.
  */
 
 import React, { useState } from 'react'
-import { createQuiz } from '../../api/quizzes'
+import { createQuiz, updateQuiz } from '../../api/quizzes'
 import { getErrorMessage } from '../../utils/apiError'
-import { buildQuizCreatePayload } from '../../utils/quizPayload'
+import { buildQuizCreatePayload, type EditableQuizFormState } from '../../utils/quizPayload'
 import type { CreateQuizPayload, PublicQuizDetail } from '../../types/quiz'
 import {
   QuizQuestionEditor,
@@ -22,19 +34,27 @@ import {
   type EditableQuizQuestion,
 } from './QuizQuestionEditor'
 
-interface QuizCreateFormProps {
-  onCreated: (quiz: PublicQuizDetail) => void
+interface QuizFormProps {
+  /** `edit` réservé à l'auteur du quizz — vérifié côté serveur, pas ici. */
+  mode?: 'create' | 'edit'
+  /** Requis en mode `edit` — identifiant du quizz modifié. */
+  quizId?: string
+  /** État initial pré-rempli — requis en mode `edit`, ignoré en mode `create`. */
+  initialState?: EditableQuizFormState
+  onSaved: (quiz: PublicQuizDetail) => void
   onCancel: () => void
 }
 
-export function QuizCreateForm({ onCreated, onCancel }: QuizCreateFormProps) {
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-  const [tagsInput, setTagsInput] = useState('')
-  const [defaultPoints, setDefaultPoints] = useState('1')
-  const [penaltyEnabled, setPenaltyEnabled] = useState(false)
-  const [penaltyPoints, setPenaltyPoints] = useState('')
-  const [questions, setQuestions] = useState<EditableQuizQuestion[]>([createEditableQuestion()])
+export function QuizForm({ mode = 'create', quizId, initialState, onSaved, onCancel }: QuizFormProps) {
+  const [title, setTitle] = useState(initialState?.title ?? '')
+  const [description, setDescription] = useState(initialState?.description ?? '')
+  const [tagsInput, setTagsInput] = useState(initialState?.tagsInput ?? '')
+  const [defaultPoints, setDefaultPoints] = useState(initialState?.defaultPoints ?? '1')
+  const [penaltyEnabled, setPenaltyEnabled] = useState(initialState?.penaltyEnabled ?? false)
+  const [penaltyPoints, setPenaltyPoints] = useState(initialState?.penaltyPoints ?? '')
+  const [questions, setQuestions] = useState<EditableQuizQuestion[]>(
+    initialState?.questions ?? [createEditableQuestion()],
+  )
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -70,10 +90,16 @@ export function QuizCreateForm({ onCreated, onCancel }: QuizCreateFormProps) {
 
     setIsSubmitting(true)
     try {
-      const created = await createQuiz(payload)
-      onCreated(created)
+      const saved =
+        mode === 'edit' && quizId ? await updateQuiz(quizId, payload) : await createQuiz(payload)
+      onSaved(saved)
     } catch (apiError: unknown) {
-      setFormError(getErrorMessage(apiError, 'Impossible de créer le quizz.'))
+      setFormError(
+        getErrorMessage(
+          apiError,
+          mode === 'edit' ? 'Impossible de modifier le quizz.' : 'Impossible de créer le quizz.',
+        ),
+      )
     } finally {
       setIsSubmitting(false)
     }
@@ -81,7 +107,9 @@ export function QuizCreateForm({ onCreated, onCancel }: QuizCreateFormProps) {
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
-      <h2 className="text-base font-semibold text-gray-800">Créer un Quizz</h2>
+      <h2 className="text-base font-semibold text-gray-800">
+        {mode === 'edit' ? 'Modifier le Quizz' : 'Créer un nouveau Quizz'}
+      </h2>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -212,7 +240,13 @@ export function QuizCreateForm({ onCreated, onCancel }: QuizCreateFormProps) {
             disabled={isSubmitting}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {isSubmitting ? 'Création…' : 'Créer le Quizz'}
+            {isSubmitting
+              ? mode === 'edit'
+                ? 'Enregistrement…'
+                : 'Création…'
+              : mode === 'edit'
+                ? 'Enregistrer les modifications'
+                : 'Créer le Quizz'}
           </button>
         </div>
       </form>

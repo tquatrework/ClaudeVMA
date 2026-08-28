@@ -1,12 +1,17 @@
 /**
- * buildQuizCreatePayload — traduit l'état d'édition de `QuizCreateForm` en payload d'API
+ * buildQuizCreatePayload — traduit l'état d'édition de `QuizForm` en payload d'API
  * (`CreateQuizPayload`), ou lève une erreur avec un message français directement affichable.
  *
- * Extrait de `QuizCreateForm.tsx` (> 300 lignes) pour rester lisible et testable isolément.
+ * Extrait de `QuizForm.tsx` (anciennement `QuizCreateForm.tsx`, > 300 lignes) pour rester
+ * lisible et testable isolément.
  */
 
-import type { CreateQuizPayload } from '../types/quiz'
-import type { EditableQuizQuestion } from '../components/content-catalog/QuizQuestionEditor'
+import type { CreateQuizPayload, PublicQuizDetail } from '../types/quiz'
+import {
+  createEditableOption,
+  type EditableQuizOption,
+  type EditableQuizQuestion,
+} from '../components/content-catalog/QuizQuestionEditor'
 
 export function buildQuizCreatePayload(
   title: string,
@@ -99,5 +104,87 @@ export function buildQuizCreatePayload(
     penaltyEnabled,
     ...(penaltyEnabled && penaltyPoints.trim() !== '' ? { penaltyPoints: Number(penaltyPoints) } : {}),
     questions: builtQuestions,
+  }
+}
+
+// ─── Pré-remplissage du formulaire d'édition (2026-08-28) ─────────────────────
+
+export interface EditableQuizFormState {
+  title: string
+  description: string
+  tagsInput: string
+  defaultPoints: string
+  penaltyEnabled: boolean
+  penaltyPoints: string
+  questions: EditableQuizQuestion[]
+}
+
+let editQuestionCounter = 0
+let editOptionCounter = 0
+
+/**
+ * Convertit le détail **public** d'un quizz (`PublicQuizDetail` — `fetchQuiz`, la même route que
+ * la lecture normale) en état d'édition pour `QuizForm`.
+ *
+ * **Vérifié en HTTP direct le 2026-08-28** : aucune route de content-catalog-service ne renvoie
+ * la solution à l'auteur (ni `GET /quizzes/:id/edit`, absente, ni un paramètre sur la route
+ * publique). En conséquence :
+ * - les options de choix (unique/multiple) sont pré-remplies avec leur **texte**, mais
+ *   `isCorrect: false` pour toutes — l'auteur doit re-cocher la ou les bonnes réponses ;
+ * - les mots-clés d'une question à texte court ne peuvent pas être pré-remplis du tout
+ *   (`keywordsInput` reste vide) — l'auteur doit les ressaisir.
+ *
+ * `hasOverride` reste reconstruit par heuristique à partir du barème/de la pénalité *effectifs*
+ * de chaque question (seule donnée non secrète disponible) : un override est supposé dès que la
+ * valeur effective diverge du réglage global du quizz.
+ */
+export function buildEditableStateForEdit(quiz: PublicQuizDetail): EditableQuizFormState {
+  const globalDefaultPoints = quiz.defaultPoints ?? 1
+  const globalPenaltyEnabled = quiz.penaltyEnabled
+  const globalPenaltyPoints = quiz.penaltyPoints ?? 0
+
+  const questions: EditableQuizQuestion[] = quiz.questions.map((question) => {
+    editQuestionCounter += 1
+    const options: EditableQuizOption[] = (question.options ?? []).map((option) => {
+      editOptionCounter += 1
+      return {
+        localId: `edit-opt-${editOptionCounter}`,
+        text: option.text,
+        // La solution n'est jamais renvoyée par le serveur, y compris à l'auteur — voir l'en-tête
+        // de cette fonction. L'auteur doit re-cocher la ou les bonnes réponses avant d'enregistrer.
+        isCorrect: false,
+      }
+    })
+
+    const hasOverride =
+      question.points !== globalDefaultPoints ||
+      question.penaltyEnabled !== globalPenaltyEnabled ||
+      (question.penaltyEnabled && question.penaltyPoints !== globalPenaltyPoints)
+
+    return {
+      localId: `edit-q-${editQuestionCounter}`,
+      category: question.category,
+      prompt: question.prompt,
+      options: options.length > 0 ? options : [createEditableOption(), createEditableOption()],
+      // Les mots-clés d'une question à texte court ne sont jamais renvoyés par le serveur —
+      // l'auteur doit les ressaisir entièrement.
+      keywordsInput: '',
+      multipleChoiceScoringMode: question.multipleChoiceScoringMode ?? 'all_or_nothing',
+      shortTextScoringMode: question.shortTextScoringMode ?? 'all_or_nothing',
+      hasOverride,
+      pointsOverrideInput: hasOverride ? String(question.points) : '',
+      penaltyEnabledOverride: hasOverride ? question.penaltyEnabled : false,
+      penaltyPointsOverrideInput: hasOverride && question.penaltyEnabled ? String(question.penaltyPoints) : '',
+    }
+  })
+
+  return {
+    title: quiz.title,
+    description: quiz.description ?? '',
+    tagsInput: quiz.tags.join(', '),
+    defaultPoints: String(globalDefaultPoints),
+    penaltyEnabled: globalPenaltyEnabled,
+    penaltyPoints: globalPenaltyEnabled ? String(globalPenaltyPoints) : '',
+    questions,
   }
 }

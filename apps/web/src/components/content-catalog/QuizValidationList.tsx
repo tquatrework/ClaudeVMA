@@ -6,15 +6,19 @@
  * (`POST /validations/quiz/:id/decision`, `ContentType.QUIZ` du flux de validation générique) —
  * ce composant l'appelle réellement, il ne se contente pas d'un retrait optimiste local.
  * Un commentaire est obligatoire en cas de rejet.
+ *
+ * Bug réel corrigé le 2026-08-28 : ce composant envoyait `'approve'`/`'reject'`, vocabulaire
+ * jamais accepté par le serveur (`400`, voir `src/api/quizzes.ts`) — la validation Quizz n'a
+ * jamais fonctionné en production avant ce correctif. Vocabulaire réel : `'validated'`/`'rejected'`.
  */
 
 import React, { useState } from 'react'
 import { getErrorMessage } from '../../utils/apiError'
-import type { QuizSummary } from '../../types/quiz'
+import type { QuizSummary, QuizValidationDecision } from '../../types/quiz'
 
 interface QuizValidationListProps {
   quizzes: QuizSummary[]
-  onDecide: (quizId: string, decision: 'approve' | 'reject', comment?: string) => Promise<void>
+  onDecide: (quizId: string, decision: QuizValidationDecision, comment?: string) => Promise<void>
 }
 
 export function QuizValidationList({ quizzes, onDecide }: QuizValidationListProps) {
@@ -31,7 +35,7 @@ export function QuizValidationList({ quizzes, onDecide }: QuizValidationListProp
     setPendingQuizId(quizId)
     setRowError(null)
     try {
-      await onDecide(quizId, 'approve')
+      await onDecide(quizId, 'validated')
     } catch (error: unknown) {
       setRowError(getErrorMessage(error, 'Impossible de valider ce quizz.'))
     } finally {
@@ -45,7 +49,7 @@ export function QuizValidationList({ quizzes, onDecide }: QuizValidationListProp
     setPendingQuizId(quizId)
     setRowError(null)
     try {
-      await onDecide(quizId, 'reject', comment.trim())
+      await onDecide(quizId, 'rejected', comment.trim())
       setRejectingQuizId(null)
       setComment('')
     } catch (error: unknown) {

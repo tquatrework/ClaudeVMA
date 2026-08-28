@@ -8,8 +8,8 @@
  *   POST /quiz-attempts/:id/submit (learning-activity-service — passage)
  */
 
-import React, { useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import React, { useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { PageHeader } from '../components/ui/PageHeader'
 import { ErrorMessage } from '../components/ui/ErrorMessage'
@@ -23,10 +23,16 @@ import { QUIZ_STATUS_BADGE_CLASSES, QUIZ_STATUS_LABELS } from '../utils/quizLabe
 import { getErrorMessage } from '../utils/apiError'
 import type { QuizAnswerPayload, QuizAttempt } from '../types/quiz'
 
+interface QuizDetailLocationState {
+  /** Posé par `QuizzPage` juste après la création d'un quizz (« Commencer le Quizz »). */
+  autoStart?: boolean
+}
+
 export default function QuizDetailPage() {
   const { quizId } = useParams<{ quizId: string }>()
   const navigate = useNavigate()
-  const { hasRole } = useAuth()
+  const location = useLocation()
+  const { hasRole, user } = useAuth()
   const resolvedQuizId = quizId ?? ''
 
   const {
@@ -43,6 +49,7 @@ export default function QuizDetailPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [result, setResult] = useState<QuizAttempt | null>(null)
+  const hasAutoStartedRef = useRef(false)
 
   const canAttempt = hasRole(
     'eleve',
@@ -50,6 +57,7 @@ export default function QuizDetailPage() {
     'responsable_pedagogique',
     'animateur_pedagogique',
   )
+  const isAuthor = !!user && !!quiz && quiz.authorId === user.id
 
   const handleStart = async () => {
     if (!resolvedQuizId) return
@@ -64,6 +72,18 @@ export default function QuizDetailPage() {
       setIsStarting(false)
     }
   }
+
+  // « Commencer le Quizz » depuis l'écran de création : démarre la tentative automatiquement,
+  // une seule fois, dès que le quizz et le droit de passage sont connus.
+  useEffect(() => {
+    const state = location.state as QuizDetailLocationState | null
+    if (!state?.autoStart) return
+    if (hasAutoStartedRef.current) return
+    if (!quiz || !canAttempt || attempt) return
+    hasAutoStartedRef.current = true
+    handleStart()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleStart est stable pour ce cas d'usage ponctuel
+  }, [location.state, quiz, canAttempt, attempt])
 
   const handleSubmit = async (answers: QuizAnswerPayload[]) => {
     if (!attempt) return
@@ -118,12 +138,23 @@ export default function QuizDetailPage() {
           title={quiz.title}
           subtitle={quiz.description}
           action={
-            <StatusBadge
-              status={quiz.status}
-              label={QUIZ_STATUS_LABELS[quiz.status]}
-              badgeClasses={QUIZ_STATUS_BADGE_CLASSES}
-              size="md"
-            />
+            <div className="flex items-center gap-3">
+              {isAuthor && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/content/quizz/${resolvedQuizId}/edit`)}
+                  className="px-3 py-1.5 text-xs font-medium text-indigo-700 bg-white border border-indigo-300 rounded-md hover:bg-indigo-50 transition-colors"
+                >
+                  Modifier le Quizz
+                </button>
+              )}
+              <StatusBadge
+                status={quiz.status}
+                label={QUIZ_STATUS_LABELS[quiz.status]}
+                badgeClasses={QUIZ_STATUS_BADGE_CLASSES}
+                size="md"
+              />
+            </div>
           }
         />
 

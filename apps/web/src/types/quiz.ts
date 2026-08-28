@@ -25,6 +25,13 @@ export type ShortTextScoringMode = 'all_or_nothing' | 'per_keyword'
  */
 export type QuizStatus = 'pending_validation' | 'validated' | 'rejected'
 
+/**
+ * Valeurs réelles attendues par `POST /validations/quiz/:id/decision` — vérifiées en HTTP direct
+ * contre la pile réelle le 2026-08-28. `'approve'`/`'reject'` (vocabulaire utilisé par erreur par
+ * la PR #157 initiale) ne sont **jamais** acceptées par le serveur (`400`).
+ */
+export type QuizValidationDecision = 'validated' | 'rejected'
+
 /** Option d'une question, telle qu'exposée publiquement — jamais `isCorrect`. */
 export interface PublicQuizOption {
   id: string
@@ -93,6 +100,36 @@ export interface CreateQuizPayload {
   penaltyEnabled?: boolean
   penaltyPoints?: number
   questions: CreateQuizQuestionPayload[]
+}
+
+// ─── Édition par l'auteur (2026-08-28, retour post-production) ────────────────
+//
+// Contrat vérifié en HTTP direct contre la pile réelle le 2026-08-28 (PR #164
+// content-catalog-service, déployée sur le conteneur en service bien qu'encore ouverte au
+// moment de cette vérification) : **aucune route ne renvoie la solution à l'auteur**, ni
+// `GET /quizzes/:id/edit` (`404`, n'existe pas), ni `GET /quizzes/:id?includeSolution=true`
+// (paramètre ignoré). L'édition part donc de `PublicQuizDetail` (comme la lecture publique) et
+// l'auteur **ressaisit** la solution (bonnes réponses, mots-clés) à chaque édition — voir
+// `buildEditableStateForEdit` dans `quizPayload.ts`. Les types `AuthorQuizDetail`/
+// `AuthorQuizOption`/`AuthorQuizQuestion` envisagés initialement sont abandonnés : ils ne
+// correspondent à aucune route réelle.
+
+/**
+ * Entrée d'historique de validation d'un quizz (décision + commentaire) — forme vérifiée en
+ * HTTP direct le 2026-08-28 contre `GET /validations/quiz/:id/history`. **Route accessible à
+ * RP/AP, mais refuse `403` à l'auteur formateur** : elle ne peut donc pas servir à l'auteur pour
+ * retrouver le motif de son propre refus (blocage réel, signalé au rapport de session).
+ */
+export interface QuizValidationHistoryEntry {
+  id: string
+  contentId: string
+  contentType: string
+  validatorId: string
+  validatorRole: string
+  decision: QuizValidationDecision
+  comment?: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 // ─── Passage (learning-activity-service) ──────────────────────────────────────

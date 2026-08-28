@@ -23,7 +23,7 @@ import {
   type Tutorial,
 } from '../api/contentCatalog'
 import { decideQuizValidation, fetchPendingQuizzes } from '../api/quizzes'
-import type { QuizSummary } from '../types/quiz'
+import type { QuizSummary, QuizValidationDecision } from '../types/quiz'
 
 export default function ContentValidationQueuePage() {
   const { hasRole } = useAuth()
@@ -72,12 +72,12 @@ export default function ContentValidationQueuePage() {
 
   const handleDecideQuiz = async (
     quizId: string,
-    decision: 'approve' | 'reject',
+    decision: QuizValidationDecision,
     comment?: string,
   ) => {
     await decideQuizValidation(quizId, decision, comment)
     setPendingQuizzes((previous) => previous.filter((quiz) => quiz.id !== quizId))
-    setValidationFeedback(decision === 'approve' ? 'Quizz validé avec succès.' : 'Quizz rejeté.')
+    setValidationFeedback(decision === 'validated' ? 'Quizz validé avec succès.' : 'Quizz rejeté.')
     setTimeout(() => setValidationFeedback(null), 3000)
   }
 

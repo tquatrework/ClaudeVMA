@@ -58,6 +58,7 @@ import EvaluationAttemptPage from './pages/EvaluationAttemptPage'
 import TutorialCatalogPage from './pages/TutorialCatalogPage'
 import QuizzPage from './pages/QuizzPage'
 import QuizDetailPage from './pages/QuizDetailPage'
+import QuizEditPage from './pages/QuizEditPage'
 import ContentValidationQueuePage from './pages/ContentValidationQueuePage'
 import OpenActivitiesPage from './pages/OpenActivitiesPage'
 import OpenActivityDetailPage from './pages/OpenActivityDetailPage'
@@ -635,6 +636,23 @@ export default function App() {
                 ]}
               >
                 <QuizDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* Édition réservée à l'auteur (retour post-production du 2026-08-28) — mêmes rôles
+              créateurs que le formulaire de création, le contrôle réel (auteur ou non) restant
+              du côté serveur. */}
+          <Route
+            path="/content/quizz/:quizId/edit"
+            element={
+              <ProtectedRoute
+                allowedRoles={[
+                  'formateur',
+                  'animateur_pedagogique',
+                  'responsable_pedagogique',
+                ]}
+              >
+                <QuizEditPage />
               </ProtectedRoute>
             }
           />

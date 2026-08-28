@@ -173,13 +173,13 @@ describe('ContentValidationQueue', () => {
     expect(screen.getByText('Quiz fractions')).toBeDefined()
   })
 
-  it('le bouton Valider du Quizz appelle onDecideQuiz avec "approve"', async () => {
+  it('le bouton Valider du Quizz appelle onDecideQuiz avec "validated"', async () => {
     const { onDecideQuiz } = renderQueue({ pendingQuizzes: [PENDING_QUIZ] })
 
     await userEvent.click(screen.getByRole('button', { name: /quizz/i }))
     await userEvent.click(screen.getByRole('button', { name: /valider/i }))
 
-    await waitFor(() => expect(onDecideQuiz).toHaveBeenCalledWith('quiz-1', 'approve'))
+    await waitFor(() => expect(onDecideQuiz).toHaveBeenCalledWith('quiz-1', 'validated'))
   })
 
   it('le rejet d\'un Quizz exige un commentaire avant confirmation', async () => {
@@ -197,7 +197,7 @@ describe('ContentValidationQueue', () => {
     await userEvent.click(confirmButton)
 
     await waitFor(() =>
-      expect(onDecideQuiz).toHaveBeenCalledWith('quiz-1', 'reject', 'Trop simple'),
+      expect(onDecideQuiz).toHaveBeenCalledWith('quiz-1', 'rejected', 'Trop simple'),
     )
   })
 })

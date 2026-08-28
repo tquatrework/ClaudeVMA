@@ -5,6 +5,21 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
+## Aucun objectif actif
+
+Dernier besoin traité — **2026-08-27/28 — Révision des menus latéraux par rôle + carnet personnel
+généralisé** : terminé et validé le 2026-08-28. PR #143 (doc), #144 (backend, contrat notes
+rapides immuables) et #142 (front, 4 rails + carnet branché) mergées dans `master` dans cet ordre,
+`pedagogical-log-service` et `frontend` reconstruits et redéployés ensemble. Preuve rejouée contre
+`https://claudevma.visioprof.fr` **après** ce redéploiement (5/5 tests du script
+`apps/web/e2e/proof-menus-lateraux-2026-08-27.spec.ts`) : les 4 rails par rôle correspondent à la
+demande, le carnet personnel fonctionne sur le nouveau contrat (`from`/`to`/`q`, sans édition).
+Consolidation du groupe « Suivi » AP en un seul groupe (plutôt qu'un doublon de libellé) confirmée
+par l'utilisateur.
+
+<details>
+<summary>Archive — besoin du 2026-08-27 (clos)</summary>
+
 ## Besoin — 2026-08-27 — Révision des menus latéraux par rôle + carnet personnel généralisé
 
 Demande explicite de l'utilisateur. Branche à créer depuis `master` : une par service touché
@@ -59,3 +74,5 @@ lit pas le code des services) :
 - 5 branches non fusionnées signalées à l'utilisateur avant de démarrer (hors périmètre de cette
   tâche) : `feat/front-reprise-candidature-formateur`, `feat/reprise-candidature-formateur`, plus
   les worktrees d'agents en cours.
+
+</details>

@@ -104,21 +104,39 @@ export interface CreateQuizPayload {
 
 // ─── Édition par l'auteur (2026-08-28, retour post-production) ────────────────
 //
-// Contrat vérifié en HTTP direct contre la pile réelle le 2026-08-28 (PR #164
-// content-catalog-service, déployée sur le conteneur en service bien qu'encore ouverte au
-// moment de cette vérification) : **aucune route ne renvoie la solution à l'auteur**, ni
-// `GET /quizzes/:id/edit` (`404`, n'existe pas), ni `GET /quizzes/:id?includeSolution=true`
-// (paramètre ignoré). L'édition part donc de `PublicQuizDetail` (comme la lecture publique) et
-// l'auteur **ressaisit** la solution (bonnes réponses, mots-clés) à chaque édition — voir
-// `buildEditableStateForEdit` dans `quizPayload.ts`. Les types `AuthorQuizDetail`/
-// `AuthorQuizOption`/`AuthorQuizQuestion` envisagés initialement sont abandonnés : ils ne
-// correspondent à aucune route réelle.
+// Suite du 2026-08-28 (PR #167 content-catalog-service, mergée et déployée) :
+// `GET /quizzes/:id/solution` renvoie désormais le quizz complet AVEC solution, réservée à
+// l'auteur et aux AP/RP/TI (`403` pour tout autre rôle, `404` si absent/non visible). Vérifié en
+// HTTP direct contre la pile réelle le 2026-08-28 : même forme que `PublicQuizDetail`, avec en
+// plus `isCorrect` sur chaque option et `keywords` sur les questions à texte court. La première
+// tentative (PR #164) avait constaté qu'aucune route ne l'exposait — c'est corrigé, l'écran
+// d'édition utilise désormais cette route (`fetchQuizSolution` dans `api/quizzes.ts`) au lieu de
+// faire ressaisir la solution par l'auteur à chaque édition.
+
+/** Option d'une question, telle qu'exposée à l'auteur — porte la solution. */
+export interface AuthorQuizOption extends PublicQuizOption {
+  isCorrect: boolean
+}
+
+/** Question d'un quizz, telle qu'exposée à l'auteur — porte la solution complète. */
+export interface AuthorQuizQuestion extends Omit<PublicQuizQuestion, 'options'> {
+  options?: AuthorQuizOption[]
+  /** Présent uniquement pour les questions `short_text`. */
+  keywords?: string[]
+}
+
+/** Détail complet d'un quizz AVEC solution — réservé à l'auteur et aux AP/RP/TI. */
+export interface AuthorQuizDetail extends QuizSummary {
+  questions: AuthorQuizQuestion[]
+}
 
 /**
  * Entrée d'historique de validation d'un quizz (décision + commentaire) — forme vérifiée en
- * HTTP direct le 2026-08-28 contre `GET /validations/quiz/:id/history`. **Route accessible à
- * RP/AP, mais refuse `403` à l'auteur formateur** : elle ne peut donc pas servir à l'auteur pour
- * retrouver le motif de son propre refus (blocage réel, signalé au rapport de session).
+ * HTTP direct le 2026-08-28 contre `GET /validations/quiz/:id/history`. **Route désormais ouverte
+ * à l'auteur du contenu, en plus de RP/AP** (PR #167 content-catalog-service, mergée et
+ * déployée) : un professeur peut relire le motif de son propre refus. Vérifié en HTTP direct
+ * contre la pile réelle le 2026-08-28 : `200` avec le commentaire réel du RP pour l'auteur
+ * formateur, sur un quizz `rejected` lui appartenant.
  */
 export interface QuizValidationHistoryEntry {
   id: string

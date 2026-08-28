@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { buildEditableStateForEdit, buildQuizCreatePayload } from '../../src/utils/quizPayload'
 import { createEditableQuestion } from '../../src/components/content-catalog/QuizQuestionEditor'
 import type { EditableQuizQuestion } from '../../src/components/content-catalog/QuizQuestionEditor'
-import type { PublicQuizDetail } from '../../src/types/quiz'
+import type { AuthorQuizDetail } from '../../src/types/quiz'
 
 function singleChoiceQuestion(overrides: Partial<EditableQuizQuestion> = {}): EditableQuizQuestion {
   const base = createEditableQuestion()
@@ -126,7 +126,10 @@ describe('buildQuizCreatePayload', () => {
 })
 
 describe('buildEditableStateForEdit', () => {
-  function publicQuiz(overrides: Partial<PublicQuizDetail> = {}): PublicQuizDetail {
+  // `AuthorQuizDetail` — forme réelle de `GET /quizzes/:id/solution` (PR #167
+  // content-catalog-service, mergée et déployée, vérifiée en HTTP direct le 2026-08-28) :
+  // `isCorrect` sur les options, `keywords` sur les questions à texte court.
+  function authorQuiz(overrides: Partial<AuthorQuizDetail> = {}): AuthorQuizDetail {
     return {
       id: 'quiz-1',
       title: 'Un quizz',
@@ -147,8 +150,8 @@ describe('buildEditableStateForEdit', () => {
           category: 'single_choice',
           prompt: 'Que vaut $x^2$ quand $x = 3$ ?',
           options: [
-            { id: 'o1', text: '$8$' },
-            { id: 'o2', text: '$9$' },
+            { id: 'o1', text: '$8$', isCorrect: false },
+            { id: 'o2', text: '$9$', isCorrect: true },
           ],
           points: 2,
           penaltyEnabled: false,
@@ -159,7 +162,7 @@ describe('buildEditableStateForEdit', () => {
   }
 
   it('pré-remplit le titre, la description, les tags et le barème global', () => {
-    const state = buildEditableStateForEdit(publicQuiz())
+    const state = buildEditableStateForEdit(authorQuiz())
 
     expect(state.title).toBe('Un quizz')
     expect(state.description).toBe('une description')
@@ -168,23 +171,24 @@ describe('buildEditableStateForEdit', () => {
     expect(state.penaltyEnabled).toBe(false)
   })
 
-  it("pré-remplit le texte des options mais jamais leur caractère correct (solution jamais renvoyée par le serveur)", () => {
-    const state = buildEditableStateForEdit(publicQuiz())
+  it('pré-remplit le texte des options et leur caractère correct réel (GET /quizzes/:id/solution)', () => {
+    const state = buildEditableStateForEdit(authorQuiz())
     const [question] = state.questions
 
     expect(question.prompt).toBe('Que vaut $x^2$ quand $x = 3$ ?')
     expect(question.options.map((o) => o.text)).toEqual(['$8$', '$9$'])
-    expect(question.options.every((o) => o.isCorrect === false)).toBe(true)
+    expect(question.options.map((o) => o.isCorrect)).toEqual([false, true])
   })
 
-  it('laisse les mots-clés vides pour une question à texte court (jamais renvoyés par le serveur)', () => {
-    const quiz = publicQuiz({
+  it('pré-remplit les mots-clés déjà saisis pour une question à texte court', () => {
+    const quiz = authorQuiz({
       questions: [
         {
           id: 'q1',
           order: 1,
           category: 'short_text',
           prompt: 'Capitale de la France ?',
+          keywords: ['paris', 'capitale'],
           points: 2,
           penaltyEnabled: false,
         },
@@ -193,11 +197,11 @@ describe('buildEditableStateForEdit', () => {
 
     const state = buildEditableStateForEdit(quiz)
 
-    expect(state.questions[0].keywordsInput).toBe('')
+    expect(state.questions[0].keywordsInput).toBe('paris, capitale')
   })
 
   it('déduit hasOverride quand le barème effectif de la question diverge du réglage global', () => {
-    const quiz = publicQuiz({
+    const quiz = authorQuiz({
       defaultPoints: 1,
       questions: [
         {
@@ -205,7 +209,7 @@ describe('buildEditableStateForEdit', () => {
           order: 1,
           category: 'single_choice',
           prompt: 'Question à barème spécifique',
-          options: [{ id: 'o1', text: 'A' }],
+          options: [{ id: 'o1', text: 'A', isCorrect: true }],
           points: 5,
           penaltyEnabled: false,
         },
@@ -219,7 +223,7 @@ describe('buildEditableStateForEdit', () => {
   })
 
   it('ne déduit pas hasOverride quand le barème effectif suit le réglage global', () => {
-    const state = buildEditableStateForEdit(publicQuiz({ defaultPoints: 2 }))
+    const state = buildEditableStateForEdit(authorQuiz({ defaultPoints: 2 }))
 
     expect(state.questions[0].hasOverride).toBe(false)
     expect(state.questions[0].pointsOverrideInput).toBe('')

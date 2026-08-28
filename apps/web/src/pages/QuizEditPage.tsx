@@ -5,16 +5,15 @@
  * auteur ») : aucune route d'édition n'existait, aucun écran ne permettait à un professeur de
  * retrouver et corriger son propre Quizz.
  *
- * **Vérifié en HTTP direct contre la pile réelle le 2026-08-28** : `content-catalog-service` ne
- * renvoie jamais la solution (bonnes réponses, mots-clés) à l'auteur, sur aucune route — ni
- * `GET /quizzes/:id/edit` (n'existe pas), ni un paramètre sur la route publique. Le formulaire
- * charge donc le détail **public** (même route que la lecture normale) et l'auteur doit
- * **ressaisir la solution** avant d'enregistrer — voir le bandeau d'avertissement ci-dessous et
- * `buildEditableStateForEdit` dans `quizPayload.ts`.
+ * Suite directe (PR #167 content-catalog-service, mergée et déployée) : le formulaire charge
+ * désormais le détail **avec solution** (`GET /quizzes/:id/solution`, réservé à l'auteur et aux
+ * AP/RP/TI), et pré-remplit réellement les bonnes réponses cochées et les mots-clés déjà saisis
+ * — voir `buildEditableStateForEdit` dans `quizPayload.ts`. Vérifié en HTTP direct contre la
+ * pile réelle le 2026-08-28.
  *
  * Routes API consommées :
- *   GET /quizzes/:id  (content-catalog-service — lecture publique, sans la solution)
- *   PUT /quizzes/:id  (content-catalog-service — confirmé, même DTO que la création)
+ *   GET /quizzes/:id/solution  (content-catalog-service — réservée à l'auteur et aux AP/RP/TI)
+ *   PUT /quizzes/:id           (content-catalog-service — confirmé, même DTO que la création)
  */
 
 import React from 'react'
@@ -23,7 +22,7 @@ import Layout from '../components/Layout'
 import { PageHeader } from '../components/ui/PageHeader'
 import { ErrorMessage } from '../components/ui/ErrorMessage'
 import { useAsyncData } from '../hooks/useAsyncData'
-import { fetchQuiz } from '../api/quizzes'
+import { fetchQuizSolution } from '../api/quizzes'
 import { buildEditableStateForEdit } from '../utils/quizPayload'
 import { QuizForm } from '../components/content-catalog/QuizForm'
 
@@ -36,7 +35,7 @@ export default function QuizEditPage() {
     data: quiz,
     isLoading,
     error: loadError,
-  } = useAsyncData(() => fetchQuiz(resolvedQuizId), [resolvedQuizId], {
+  } = useAsyncData(() => fetchQuizSolution(resolvedQuizId), [resolvedQuizId], {
     fallbackErrorMessage: 'Impossible de charger ce quizz pour modification.',
   })
 
@@ -80,16 +79,6 @@ export default function QuizEditPage() {
         </button>
 
         <PageHeader title="Modifier le Quizz" subtitle={quiz.title} />
-
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-          <p className="text-sm text-amber-800">
-            Pour des raisons de sécurité, les bonnes réponses et les mots-clés attendus ne sont
-            jamais renvoyés au formulaire d'édition : merci de{' '}
-            <strong>re-cocher la ou les bonnes réponses</strong> et de{' '}
-            <strong>ressaisir les mots-clés attendus</strong> pour chaque question avant
-            d'enregistrer.
-          </p>
-        </div>
 
         <QuizForm
           mode="edit"

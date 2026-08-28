@@ -6,7 +6,7 @@
  * lisible et testable isolément.
  */
 
-import type { CreateQuizPayload, PublicQuizDetail } from '../types/quiz'
+import type { AuthorQuizDetail, CreateQuizPayload } from '../types/quiz'
 import {
   createEditableOption,
   type EditableQuizOption,
@@ -123,22 +123,18 @@ let editQuestionCounter = 0
 let editOptionCounter = 0
 
 /**
- * Convertit le détail **public** d'un quizz (`PublicQuizDetail` — `fetchQuiz`, la même route que
- * la lecture normale) en état d'édition pour `QuizForm`.
- *
- * **Vérifié en HTTP direct le 2026-08-28** : aucune route de content-catalog-service ne renvoie
- * la solution à l'auteur (ni `GET /quizzes/:id/edit`, absente, ni un paramètre sur la route
- * publique). En conséquence :
- * - les options de choix (unique/multiple) sont pré-remplies avec leur **texte**, mais
- *   `isCorrect: false` pour toutes — l'auteur doit re-cocher la ou les bonnes réponses ;
- * - les mots-clés d'une question à texte court ne peuvent pas être pré-remplis du tout
- *   (`keywordsInput` reste vide) — l'auteur doit les ressaisir.
+ * Convertit le détail **avec solution** d'un quizz (`AuthorQuizDetail` — `fetchQuizSolution`,
+ * `GET /quizzes/:id/solution`, PR #167 content-catalog-service, mergée et déployée) en état
+ * d'édition pour `QuizForm`, en pré-remplissant réellement la solution :
+ * - les options de choix (unique/multiple) reprennent leur `isCorrect` réel ;
+ * - les mots-clés d'une question à texte court sont repris tels quels dans `keywordsInput`.
  *
  * `hasOverride` reste reconstruit par heuristique à partir du barème/de la pénalité *effectifs*
- * de chaque question (seule donnée non secrète disponible) : un override est supposé dès que la
- * valeur effective diverge du réglage global du quizz.
+ * de chaque question (le barème global/individuel n'est pas distingué explicitement par le
+ * serveur) : un override est supposé dès que la valeur effective diverge du réglage global du
+ * quizz.
  */
-export function buildEditableStateForEdit(quiz: PublicQuizDetail): EditableQuizFormState {
+export function buildEditableStateForEdit(quiz: AuthorQuizDetail): EditableQuizFormState {
   const globalDefaultPoints = quiz.defaultPoints ?? 1
   const globalPenaltyEnabled = quiz.penaltyEnabled
   const globalPenaltyPoints = quiz.penaltyPoints ?? 0
@@ -150,9 +146,7 @@ export function buildEditableStateForEdit(quiz: PublicQuizDetail): EditableQuizF
       return {
         localId: `edit-opt-${editOptionCounter}`,
         text: option.text,
-        // La solution n'est jamais renvoyée par le serveur, y compris à l'auteur — voir l'en-tête
-        // de cette fonction. L'auteur doit re-cocher la ou les bonnes réponses avant d'enregistrer.
-        isCorrect: false,
+        isCorrect: option.isCorrect,
       }
     })
 
@@ -166,9 +160,7 @@ export function buildEditableStateForEdit(quiz: PublicQuizDetail): EditableQuizF
       category: question.category,
       prompt: question.prompt,
       options: options.length > 0 ? options : [createEditableOption(), createEditableOption()],
-      // Les mots-clés d'une question à texte court ne sont jamais renvoyés par le serveur —
-      // l'auteur doit les ressaisir entièrement.
-      keywordsInput: '',
+      keywordsInput: (question.keywords ?? []).join(', '),
       multipleChoiceScoringMode: question.multipleChoiceScoringMode ?? 'all_or_nothing',
       shortTextScoringMode: question.shortTextScoringMode ?? 'all_or_nothing',
       hasOverride,

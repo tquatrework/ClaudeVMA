@@ -16,11 +16,19 @@
  *           aucun paramètre de chemin désignant un titulaire)
  * Le champ retourné `studentId` devient `ownerId`.
  *
+ * Spécification fonctionnelle réelle — notes rapides immuables (docs/
+ * architecture.md, arbitrage du 2026-08-27) : une entrée est une pensée
+ * instantanée horodatée automatiquement (`createdAt`), jamais éditée après
+ * coup. Conséquence sur ce contrat HTTP, testée ci-dessous :
+ *   - `PATCH /pedagogical-logs/notebook/:id` est RETIRÉE (404, plus de route).
+ *   - `GET /pedagogical-logs/notebook` accepte des paramètres de requête
+ *     optionnels et combinables `from`/`to` (plage sur `createdAt`) et `q`
+ *     (recherche texte libre sur `content`).
+ *
  * Routes testées :
  *   POST   /pedagogical-logs/notebook          créer une entrée dans MON carnet
- *   GET    /pedagogical-logs/notebook          lire MES entrées
+ *   GET    /pedagogical-logs/notebook          lire (ou rechercher) MES entrées
  *   GET    /pedagogical-logs/notebook/:id      détail d'une de mes entrées
- *   PATCH  /pedagogical-logs/notebook/:id      modifier une de mes entrées
  *   DELETE /pedagogical-logs/notebook/:id      supprimer une de mes entrées
  */
 
@@ -169,38 +177,92 @@ describe('[E2E] Carnet personnel (Notebook)', () => {
     });
   });
 
-  describe('PATCH /pedagogical-logs/notebook/:id — modification, titulaire uniquement', () => {
-    let entryId: string;
-
-    beforeAll(async () => {
+  describe('PATCH /pedagogical-logs/notebook/:id — RETIRÉE (notes rapides immuables)', () => {
+    it('[OK] une pensée instantanée ne s\'édite pas → PATCH n\'est plus une route (404)', async () => {
       const created = await request(app.getHttpServer())
         .post('/pedagogical-logs/notebook')
         .set('Authorization', `Bearer ${teacherToken}`)
-        .send({ content: 'À modifier' });
-      entryId = created.body.id;
+        .send({ content: 'Pensée immuable' });
+
+      const res = await request(app.getHttpServer())
+        .patch(`/pedagogical-logs/notebook/${created.body.id}`)
+        .set('Authorization', `Bearer ${teacherToken}`)
+        .send({ content: 'Tentative de modification' });
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('GET /pedagogical-logs/notebook — recherche (from/to, q)', () => {
+    let firstEntryId: string;
+    let secondEntryId: string;
+
+    beforeAll(async () => {
+      const first = await request(app.getHttpServer())
+        .post('/pedagogical-logs/notebook')
+        .set('Authorization', `Bearer ${otherStudentToken}`)
+        .send({ content: 'Penser à réviser les dérivées' });
+      firstEntryId = first.body.id;
+
+      const second = await request(app.getHttpServer())
+        .post('/pedagogical-logs/notebook')
+        .set('Authorization', `Bearer ${otherStudentToken}`)
+        .send({ content: 'Ne pas oublier le rendez-vous formateur' });
+      secondEntryId = second.body.id;
     });
 
-    it('[OK] le titulaire modifie sa propre entrée → 200', async () => {
+    it('[OK] q filtre par recherche texte libre, insensible à la casse, sur content', async () => {
       const res = await request(app.getHttpServer())
-        .patch(`/pedagogical-logs/notebook/${entryId}`)
-        .set('Authorization', `Bearer ${teacherToken}`)
-        .send({ content: 'Contenu mis à jour' });
+        .get('/pedagogical-logs/notebook')
+        .query({ q: 'DÉRIVÉES' })
+        .set('Authorization', `Bearer ${otherStudentToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.content).toBe('Contenu mis à jour');
+      expect(res.body.some((e: any) => e.id === firstEntryId)).toBe(true);
+      expect(res.body.some((e: any) => e.id === secondEntryId)).toBe(false);
     });
 
-    it.each([
-      ['un autre utilisateur', () => studentToken],
-      ['le RP', () => rpToken],
-      ['le TI', () => tiToken],
-    ])('[CRITIQUE] %s ne peut pas modifier le carnet d\'autrui → 403', async (_label, getToken) => {
+    it('[OK] from/to filtrent sur createdAt (plage englobant aujourd\'hui)', async () => {
+      const today = new Date().toISOString().slice(0, 10);
       const res = await request(app.getHttpServer())
-        .patch(`/pedagogical-logs/notebook/${entryId}`)
-        .set('Authorization', `Bearer ${getToken()}`)
-        .send({ content: 'Intrusion' });
+        .get('/pedagogical-logs/notebook')
+        .query({ from: today, to: today })
+        .set('Authorization', `Bearer ${otherStudentToken}`);
 
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(200);
+      expect(res.body.some((e: any) => e.id === firstEntryId)).toBe(true);
+      expect(res.body.some((e: any) => e.id === secondEntryId)).toBe(true);
+    });
+
+    it('[OK] from/to hors plage → aucune entrée retournée', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/pedagogical-logs/notebook')
+        .query({ from: '2000-01-01', to: '2000-01-02' })
+        .set('Authorization', `Bearer ${otherStudentToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.some((e: any) => e.id === firstEntryId)).toBe(false);
+      expect(res.body.some((e: any) => e.id === secondEntryId)).toBe(false);
+    });
+
+    it('[OK] sans filtre, GET continue de tout renvoyer (comportement inchangé)', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/pedagogical-logs/notebook')
+        .set('Authorization', `Bearer ${otherStudentToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.some((e: any) => e.id === firstEntryId)).toBe(true);
+      expect(res.body.some((e: any) => e.id === secondEntryId)).toBe(true);
+    });
+
+    it('[CRITIQUE] la recherche reste isolée par titulaire — q ne remonte pas le carnet d\'autrui', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/pedagogical-logs/notebook')
+        .query({ q: 'dérivées' })
+        .set('Authorization', `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.some((e: any) => e.id === firstEntryId)).toBe(false);
     });
   });
 

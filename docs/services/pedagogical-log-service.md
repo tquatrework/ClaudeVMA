@@ -16,7 +16,9 @@
       <item>Gerer le memo comme formulaire structure appartenant a l'eleve : chapitres et items de formules/trucs essentiels, cree et modifie exclusivement par l'eleve proprietaire. Ce n'est pas une note interne du personnel.</item>
       <item>Permettre au memo d'etre ouvert facilement a tout moment, y compris pendant les visios.</item>
       <item>Gerer le carnet personnel de CHAQUE utilisateur authentifie (tout role, pas seulement
-        eleve — generalise le 2026-08-27), date et eventuellement lie aux evenements calendrier.</item>
+        eleve — generalise le 2026-08-27) comme des notes rapides ("pensees instantanees"),
+        horodatees automatiquement (createdAt), immuables une fois ecrites — suppression et
+        recreation, jamais d'edition (arbitrage du 2026-08-27, docs/architecture.md).</item>
     </responsibilities>
     <functionalities>
       <functionality id="001">Cahier de texte compatible formules math via WYSIWYG/TeX si possible.</functionality>
@@ -24,7 +26,7 @@
       <functionality id="003">Pages speciales parent/financeur non visibles par l'eleve si choisies.</functionality>
       <functionality id="004">Memo: chapitres libres crees par l'eleve, listes d'items courts, formules mathematiques et images limitees en taille.</functionality>
       <functionality id="005">Recherche dans le memo.</functionality>
-      <functionality id="006">Carnet personnel libre, date, liens calendrier, formules math si possible — un carnet strictement prive par utilisateur authentifie, quel que soit son role (generalise le 2026-08-27, docs/architecture.md).</functionality>
+      <functionality id="006">Carnet personnel : notes rapides horodatees automatiquement (createdAt), immuables (suppression et recreation, pas d'edition), retrouvees par recherche (from/to, q) — un carnet strictement prive par utilisateur authentifie, quel que soit son role (generalise le 2026-08-27, notes immuables depuis le meme jour, docs/architecture.md).</functionality>
       <functionality id="007">Acces cahier par tableau de bord de l'etudiant pour formateur/RP.</functionality>
     </functionalities>
     <roleAccessRules>
@@ -60,10 +62,13 @@
            utilisateur authentifie, quel que soit son role. Plus de {studentId} dans le chemin :
            le titulaire est toujours l'appelant authentifie. Aucune exception, meme administrative
            (l'ancien acces TI "incident" est retire). -->
-      <endpoint method="GET" path="/pedagogical-logs/notebook">Lire MON carnet personnel (role : tout role authentifie, titulaire uniquement).</endpoint>
+      <endpoint method="GET" path="/pedagogical-logs/notebook">Lire ou rechercher MON carnet personnel (role : tout role authentifie, titulaire uniquement). Query params optionnels et combinables : from?/to? (plage sur createdAt), q? (recherche texte libre sur content). Sans filtre, renvoie tout le carnet.</endpoint>
       <endpoint method="POST" path="/pedagogical-logs/notebook">Ajouter une note dans MON carnet (role : tout role authentifie).</endpoint>
-      <endpoint method="PATCH" path="/pedagogical-logs/notebook/{id}">Modifier une de mes notes (role : titulaire uniquement).</endpoint>
       <endpoint method="DELETE" path="/pedagogical-logs/notebook/{id}">Supprimer une de mes notes (role : titulaire uniquement).</endpoint>
+      <!-- PATCH /pedagogical-logs/notebook/{id} retiree le 2026-08-27 : une note du carnet est
+           une "pensee instantanee" immuable, elle ne s'edite pas, elle se supprime et se
+           reecrit si besoin. Voir docs/architecture.md, "Specification fonctionnelle reelle
+           du carnet personnel — notes rapides immuables". -->
     </candidateApis>
     <dataEntities>
       <entity>PedagogicalLogPage</entity>
@@ -84,7 +89,8 @@
       <entity name="PersonalNotebookEntry">
         <note>Renommee `NotebookEntry` en base (`notebook_entries`, colonne `owner_id` depuis le
           2026-08-27, ex-`student_id`) — un carnet strictement prive par utilisateur authentifie,
-          quel que soit son role. Voir technicalImplementation.</note>
+          quel que soit son role. Immuable depuis le 2026-08-27 : aucune route de modification,
+          seuls create/read/delete existent. Voir technicalImplementation.</note>
       </entity>
       <entity>MathContent</entity>
       <entity name="PedagogicalLogAttachment">
@@ -837,6 +843,108 @@
           </point>
         </openPoints>
       </session>
+
+      <session date="2026-08-27" label="Correctif — carnet personnel, notes rapides immuables (branche feat/carnet-personnel-notes-immuables)">
+        <objective>
+          Implementer l'arbitrage d'architecture du meme jour (docs/architecture.md,
+          "Specification fonctionnelle reelle du carnet personnel — notes rapides immuables") :
+          la generalisation par titulaire livree plus tot le meme jour (PR #140) portait un
+          modele CRUD classique, alors que le concept reel est celui de « pensees instantanees »
+          horodatees automatiquement et immuables. Retour utilisateur explicite apres verification
+          visuelle : « n'a pas l'air vraiment actif ».
+        </objective>
+
+        <arborescence>
+          services/pedagogical-log-service/
+          ├── src/notebook/
+          │   ├── notebook.controller.ts        # route PATCH :id supprimee ; GET() accepte
+          │   │   desormais @Query() FindNotebookQueryDto
+          │   ├── notebook.service.ts            # update() supprimee ; findAll() reecrite en
+          │   │   query builder avec filtres from/to (sur createdAt) et q (ILIKE sur content),
+          │   │   combinables, tous optionnels
+          │   └── dto/
+          │       ├── find-notebook-query.dto.ts # NOUVEAU — {from?, to?, q?}
+          │       └── update-notebook-entry.dto.ts # SUPPRIME (PATCH retiree)
+          └── test/
+              ├── unit/notebook/notebook.service.spec.ts  # describe update() supprime ; describe
+              │   findAll() etendu (filtre from/to seul, q seul, combinaison, sans filtre) via un
+              │   mock de QueryBuilder (where/andWhere/orderBy/getMany)
+              └── e2e/notebook.e2e-spec.ts        # describe PATCH remplace par un test constatant
+                  404 (route retiree) ; nouveau describe "recherche (from/to, q)" — 5 tests HTTP
+                  reels contre Postgres jetable, dont l'isolation stricte par titulaire appliquee
+                  aussi a la recherche (q ne remonte jamais le carnet d'autrui)
+        </arborescence>
+
+        <technicalDecisions>
+          <decision>
+            `update()` supprimee sans remplacement, pas desactivee ni gardee morte : une pensee
+            instantanee ne s'edite pas, elle se supprime (`DELETE`, conserve) et se reecrit si
+            besoin (`POST`, conserve). Meme raisonnement que le retrait de routes d'un modele
+            abandonne ailleurs dans ce projet (flow demande de professeur, 2026-08-12) plutot que
+            les laisser mortes et sources de confusion. `UpdateNotebookEntryDto` est supprimee
+            (aucun autre usage trouve dans le service).
+          </decision>
+          <decision>
+            Forme retenue pour la recherche, alignee sur la convention deja etablie par
+            `FindLogsQueryDto` (cahier de texte, session du 2026-08-20) : `from?`/`to?` (ISO 8601,
+            filtrage sur `createdAt`, seul horodatage de l'entree — aucun champ de date saisi ou
+            modifiable par l'utilisateur n'est ajoute) plutot qu'un unique parametre `date`. Une
+            date precise s'exprime en passant la meme valeur aux deux bornes (`from=to`). Filtrage
+            par jour civil via `DATE(entry.createdAt)` (Postgres) plutot qu'une comparaison
+            timestamp brute, pour eviter que l'heure de creation ne fasse sortir une entree de sa
+            journee attendue. `q` est une recherche texte libre sur `content` via `ILIKE`
+            (insensible a la casse), plafonnee a 200 caracteres (`@MaxLength`) — pas de plafond
+            demande explicitement pour `from`/`to`/`q` par ailleurs, la longueur de recherche
+            suffit a eviter un abus trivial.
+          </decision>
+          <decision>
+            `entryDate`/`calendarEventId` (champs preexistants de `NotebookEntry`, herites de la
+            premiere version reservee a l'eleve) ne sont PAS retires par cette session : le
+            perimetre demande etait strictement (1) retirer PATCH, (2) ajouter la recherche sur
+            GET, (3) confirmer que `createdAt` reste le seul horodatage du FILTRE de recherche —
+            interprete comme portant sur le filtre ajoute au point (2), pas comme une instruction
+            de retirer un champ preexistant non mentionne explicitement, en application de la
+            consigne explicite "ne le retouche pas au-dela de ce qui precede". Signale en point
+            ouvert ci-dessous : `entryDate` reste un champ optionnel saisissable a la creation, ce
+            qui est en tension avec l'esprit "horodatee automatiquement, pas de champ de date
+            modifiable" de l'arbitrage — a trancher explicitement si l'intention etait de le
+            retirer aussi.
+          </decision>
+        </technicalDecisions>
+
+        <verification>
+          <item>`npm run build` (nest build) : 0 erreur.</item>
+          <item>`npm test` (suite unitaire complete) : 190/190 tests verts, 13 suites — 0
+            regression (25 tests sur `notebook.service.spec.ts`, dont 4 nouveaux sur les filtres
+            de `findAll()`, 5 tests d'`update()` retires).</item>
+          <item>`npm run test:e2e` (Postgres jetable dediee, `pedagogical_log_test`, creee pour
+            cette verification) : `notebook.e2e-spec.ts` 28/28 verts (dont le test constatant le
+            404 sur PATCH et les 5 nouveaux tests de recherche) ; `memo.e2e-spec.ts` et
+            `health.e2e-spec.ts` inchanges et verts ; `pedagogical-log.e2e-spec.ts` conserve
+            exactement les 26 echecs preexistants et documentes (routes `/pedagogical-logs` au
+            pluriel jamais montees cote controleur, gap non touche par cette session) — total
+            130 tests verts + 26 echecs preexistants inchanges sur 156, aucune regression
+            introduite.</item>
+        </verification>
+
+        <blockers>Aucun sur le code livre.</blockers>
+
+        <openPoints>
+          <point>
+            Changement de contrat observable pour le front (delegue en parallele sur ce meme
+            chantier, PR #142 / branche menus lateraux) : `PATCH /pedagogical-logs/notebook/:id`
+            n'existe plus (404) — toute UI d'edition doit etre retiree cote front, remplacee par
+            supprimer + recreer. `GET /pedagogical-logs/notebook` accepte desormais `from`, `to`,
+            `q` en query params optionnels, pour une UI de recherche plutot qu'une simple liste.
+          </point>
+          <point>
+            `entryDate`/`calendarEventId` (voir decision technique ci-dessus) : champs preexistants
+            non retires, potentiellement en tension avec l'esprit de l'arbitrage "notes rapides
+            immuables, horodatees automatiquement". Signale pour tranchage explicite si le concept
+            doit aller jusqu'a interdire toute date saisie par l'utilisateur, meme a la creation.
+          </point>
+        </openPoints>
+      </session>
     </technicalImplementation>
     <pendingPoints>
       <point id="guards-N1" status="resolu" resolvedOn="2026-06-28">
@@ -845,6 +953,11 @@
       <point id="carnet-personnel-generalise" status="resolu" resolvedOn="2026-08-27">
         Le carnet personnel etait code en dur sur le role eleve (route, entite, garde). Generalise
         a tout role authentifie le 2026-08-27 — voir la session dediee ci-dessus.
+      </point>
+      <point id="carnet-personnel-notes-immuables" status="resolu" resolvedOn="2026-08-27">
+        Le carnet personnel etait un CRUD classique (POST/GET/PATCH/DELETE). Aligne sur le concept
+        reel de "pensees instantanees" immuables le 2026-08-27 : PATCH retiree, recherche
+        (from/to/q) ajoutee sur GET — voir la session dediee ci-dessus.
       </point>
     </pendingPoints>
   </service>

@@ -2,10 +2,10 @@ import {
   Controller,
   Get,
   Post,
-  Patch,
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   Req,
   HttpCode,
@@ -22,7 +22,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { NotebookService } from './notebook.service';
 import { CreateNotebookEntryDto } from './dto/create-notebook-entry.dto';
-import { UpdateNotebookEntryDto } from './dto/update-notebook-entry.dto';
+import { FindNotebookQueryDto } from './dto/find-notebook-query.dto';
 
 /**
  * Carnet personnel — espace privé réservé au titulaire authentifié.
@@ -54,6 +54,18 @@ import { UpdateNotebookEntryDto } from './dto/update-notebook-entry.dto';
  * injoignable depuis l'extérieur). Monter sous `/pedagogical-logs`, déjà
  * proxié, évite de reproduire cette même classe de bug et ne nécessite aucune
  * modification côté `api-gateway`.
+ *
+ * Spécification fonctionnelle réelle — notes rapides immuables (docs/
+ * architecture.md, arbitrage du 2026-08-27) : une entrée n'est PAS une note
+ * éditable, c'est une « pensée instantanée » horodatée automatiquement
+ * (`createdAt`), retrouvée par recherche plutôt que par simple défilement.
+ * Conséquence sur le contrat HTTP : `PATCH .../notebook/:id` (édition, livrée
+ * par la généralisation du même jour) est RETIRÉE — une pensée instantanée ne
+ * se corrige pas, elle se supprime (`DELETE`, conservé) et se réécrit si
+ * besoin (`POST`, conservé). `GET .../notebook` accepte désormais des
+ * paramètres de requête optionnels et combinables : `from`/`to` (plage de
+ * dates sur `createdAt`, une date précise s'exprime avec `from=to`) et `q`
+ * (recherche texte libre sur `content`) — voir `FindNotebookQueryDto`.
  */
 @ApiTags('notebook')
 @ApiBearerAuth()
@@ -77,15 +89,18 @@ export class NotebookController {
 
   @Get()
   @ApiOperation({
-    summary: 'List my own personal notebook entries',
+    summary: 'List (or search) my own personal notebook entries',
     description:
-      "Retourne les entrées du carnet personnel de l'utilisateur authentifié. " +
+      "Retourne les entrées du carnet personnel de l'utilisateur authentifié, " +
+      "filtrées par les paramètres de requête optionnels s'ils sont fournis " +
+      '(`from`/`to` sur `createdAt`, `q` en recherche texte libre sur `content`) ; ' +
+      'sans filtre, retourne tout le carnet. ' +
       'Aucune exception, y compris pour les rôles administratifs : chacun ne voit que son propre carnet.',
   })
   @ApiResponse({ status: 200, description: 'Notebook entries list' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  findAll(@Req() req: any) {
-    return this.service.findAll(req.user.id);
+  findAll(@Query() query: FindNotebookQueryDto, @Req() req: any) {
+    return this.service.findAll(req.user.id, query);
   }
 
   @Get(':id')
@@ -97,21 +112,6 @@ export class NotebookController {
   @ApiResponse({ status: 404, description: 'Not found' })
   findOne(@Param('id') id: string, @Req() req: any) {
     return this.service.findOne(id, req.user.id);
-  }
-
-  @Patch(':id')
-  @ApiParam({ name: 'id', description: 'Notebook entry UUID' })
-  @ApiOperation({ summary: 'Update one of my own notebook entries' })
-  @ApiResponse({ status: 200, description: 'Notebook entry updated' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden — not the owner of this entry' })
-  @ApiResponse({ status: 404, description: 'Not found' })
-  update(
-    @Param('id') id: string,
-    @Body() dto: UpdateNotebookEntryDto,
-    @Req() req: any,
-  ) {
-    return this.service.update(id, dto, req.user.id);
   }
 
   @Delete(':id')

@@ -2191,11 +2191,18 @@ au mémo) : un champ non prévu par un DTO continue d'être silencieusement igno
 service — point relevé mais non corrigé ici (portée limitée à `src/memo/` pour ce chantier),
 aucun autre champ manquant identifié sur les routes chapitres/items du mémo au passage.
 
-### Carnet personnel — généralisé à tout rôle le 2026-08-27
+### Carnet personnel — généralisé à tout rôle le 2026-08-27, notes rapides immuables depuis le même jour
 
-Réf. `docs/architecture.md` > "Generalisation du carnet personnel a d'autres roles que l'eleve".
-Ce n'est PAS une extension du carnet élève à d'autres rôles : c'est le MÊME mécanisme répliqué
-par titulaire. **Changement observable côté contrat HTTP** par rapport à l'ancienne route :
+Réf. `docs/architecture.md` > "Generalisation du carnet personnel a d'autres roles que l'eleve" et
+"Specification fonctionnelle reelle du carnet personnel — notes rapides immuables". Ce n'est PAS
+une extension du carnet élève à d'autres rôles : c'est le MÊME mécanisme répliqué par titulaire.
+Et ce ne sont PAS des notes éditables : ce sont des **pensées instantanées**, horodatées
+automatiquement à la création (`createdAt`, seul horodatage — aucun champ de date n'est ni saisi
+ni modifiable par l'utilisateur), **immuables** une fois écrites — on les supprime et on les
+réécrit si besoin, on ne les édite jamais — et retrouvées **par recherche**, pas par simple
+défilement d'une liste brute.
+
+**Changement observable côté contrat HTTP** par rapport à l'ancienne route `/students/:studentId/notebook` :
 
 - Chemin : `/students/:studentId/notebook` → `/pedagogical-logs/notebook` (préfixe déjà proxié
   par api-gateway, aucun changement côté gateway nécessaire — le nouveau préfixe top-level
@@ -2207,13 +2214,19 @@ par titulaire. **Changement observable côté contrat HTTP** par rapport à l'an
 - Champ renvoyé `studentId` → `ownerId`.
 - Tout rôle authentifié est accepté (plus de `@Roles(ELEVE)` sur le contrôleur) ; l'ancien accès
   spécial TI "incident" est **retiré**, sans aucune exception résiduelle.
+- **`PATCH /pedagogical-logs/notebook/:id` est RETIRÉE** (livrée par la généralisation du
+  2026-08-27, retirée le même jour) : une pensée instantanée ne se corrige pas.
+- **`GET /pedagogical-logs/notebook` accepte désormais des paramètres de requête optionnels et
+  combinables** pour rechercher dans le carnet : `from`/`to` (plage de dates sur `createdAt`, ISO
+  8601 ; une date précise s'exprime en passant la même valeur aux deux bornes) et `q` (recherche
+  texte libre, insensible à la casse, sur `content`). Sans filtre, comportement inchangé : toutes
+  les entrées du titulaire sont renvoyées.
 
 | Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
 | POST | /pedagogical-logs/notebook | Ajouter une entrée dans MON carnet | 🔒 | tout rôle authentifié | `201 {id, ownerId, ...}` · `400` validation |
-| GET | /pedagogical-logs/notebook | Lister MES entrées | 🔒 | tout rôle authentifié | `200 [NotebookEntry]` |
+| GET | /pedagogical-logs/notebook | Lister (ou rechercher) MES entrées — query params optionnels `from?`, `to?`, `q?` | 🔒 | tout rôle authentifié | `200 [NotebookEntry]` |
 | GET | /pedagogical-logs/notebook/:id | Détail d'une de mes entrées | 🔒 | tout rôle authentifié (titulaire de l'entrée) | `200 NotebookEntry` · `403` non titulaire · `404` introuvable |
-| PATCH | /pedagogical-logs/notebook/:id | Modifier une de mes entrées | 🔒 | titulaire de l'entrée uniquement | `200 NotebookEntry` · `403` · `404` |
 | DELETE | /pedagogical-logs/notebook/:id | Supprimer une de mes entrées | 🔒 | titulaire de l'entrée uniquement | `204` · `403` · `404` |
 
 Aucune exception, y compris administrative : ni une relation métier (parent, formateur, AP, RP)

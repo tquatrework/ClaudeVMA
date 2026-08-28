@@ -17,6 +17,7 @@ import { ContentValidation } from '../../../src/validations/entities/content-val
 import { Exercise } from '../../../src/exercises/entities/exercise.entity';
 import { Evaluation } from '../../../src/evaluations/entities/evaluation.entity';
 import { Tutorial } from '../../../src/tutorials/entities/tutorial.entity';
+import { Quiz } from '../../../src/quizzes/entities/quiz.entity';
 import { ContentType } from '../../../src/common/enums/content-type.enum';
 import { ContentStatus } from '../../../src/common/enums/content-status.enum';
 import { TutorialType, TutorialFormat } from '../../../src/common/enums/content-type.enum';
@@ -119,12 +120,14 @@ describe('ValidationsService — règles métier complémentaires', () => {
   let exerciseRepo: ReturnType<typeof buildMockRepo>;
   let evaluationRepo: ReturnType<typeof buildMockRepo>;
   let tutorialRepo: ReturnType<typeof buildMockRepo>;
+  let quizRepo: ReturnType<typeof buildMockRepo>;
 
   beforeEach(async () => {
     validationRepo = buildMockRepo();
     exerciseRepo = buildMockRepo();
     evaluationRepo = buildMockRepo();
     tutorialRepo = buildMockRepo();
+    quizRepo = buildMockRepo();
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
@@ -133,6 +136,7 @@ describe('ValidationsService — règles métier complémentaires', () => {
         { provide: getRepositoryToken(Exercise), useValue: exerciseRepo },
         { provide: getRepositoryToken(Evaluation), useValue: evaluationRepo },
         { provide: getRepositoryToken(Tutorial), useValue: tutorialRepo },
+        { provide: getRepositoryToken(Quiz), useValue: quizRepo },
       ],
     }).compile();
 

@@ -6,6 +6,7 @@ import { EvaluationsModule } from './evaluations/evaluations.module';
 import { TutorialsModule } from './tutorials/tutorials.module';
 import { ContentsModule } from './contents/contents.module';
 import { ValidationsModule } from './validations/validations.module';
+import { QuizzesModule } from './quizzes/quizzes.module';
 import { HealthModule } from './health/health.module';
 import { Exercise } from './exercises/entities/exercise.entity';
 import { ExercisePart } from './exercises/entities/exercise-part.entity';
@@ -18,6 +19,8 @@ import { Tutorial } from './tutorials/entities/tutorial.entity';
 import { ContentComment } from './contents/entities/content-comment.entity';
 import { ContentRating } from './contents/entities/content-rating.entity';
 import { ContentValidation } from './validations/entities/content-validation.entity';
+import { Quiz } from './quizzes/entities/quiz.entity';
+import { QuizQuestion } from './quizzes/entities/quiz-question.entity';
 
 @Module({
   imports: [
@@ -39,6 +42,8 @@ import { ContentValidation } from './validations/entities/content-validation.ent
           ContentComment,
           ContentRating,
           ContentValidation,
+          Quiz,
+          QuizQuestion,
         ],
         synchronize: configService.get<string>('NODE_ENV') !== 'production',
       }),
@@ -49,6 +54,7 @@ import { ContentValidation } from './validations/entities/content-validation.ent
     TutorialsModule,
     ContentsModule,
     ValidationsModule,
+    QuizzesModule,
     HealthModule,
   ],
 })

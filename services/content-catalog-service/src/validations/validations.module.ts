@@ -8,10 +8,11 @@ import { ContentValidation } from './entities/content-validation.entity';
 import { Exercise } from '../exercises/entities/exercise.entity';
 import { Evaluation } from '../evaluations/entities/evaluation.entity';
 import { Tutorial } from '../tutorials/entities/tutorial.entity';
+import { Quiz } from '../quizzes/entities/quiz.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ContentValidation, Exercise, Evaluation, Tutorial]),
+    TypeOrmModule.forFeature([ContentValidation, Exercise, Evaluation, Tutorial, Quiz]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({

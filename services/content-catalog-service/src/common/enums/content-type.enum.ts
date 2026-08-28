@@ -2,6 +2,7 @@ export enum ContentType {
   EXERCISE = 'exercise',
   EVALUATION = 'evaluation',
   TUTORIAL = 'tutorial',
+  QUIZ = 'quiz',
 }
 
 export enum TutorialType {

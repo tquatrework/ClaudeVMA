@@ -14,6 +14,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import { Exercise } from '../exercises/entities/exercise.entity';
 import { Evaluation } from '../evaluations/entities/evaluation.entity';
 import { Tutorial } from '../tutorials/entities/tutorial.entity';
+import { Quiz } from '../quizzes/entities/quiz.entity';
 
 @Injectable()
 export class ValidationsService {
@@ -29,6 +30,9 @@ export class ValidationsService {
 
     @InjectRepository(Tutorial)
     private readonly tutorialRepository: Repository<Tutorial>,
+
+    @InjectRepository(Quiz)
+    private readonly quizRepository: Repository<Quiz>,
   ) {}
 
   async validateContent(
@@ -108,6 +112,13 @@ export class ValidationsService {
         if (!tutorial) throw new NotFoundException(`Tutoriel ${contentId} introuvable`);
         tutorial.status = newStatus;
         await this.tutorialRepository.save(tutorial);
+        break;
+      }
+      case ContentType.QUIZ: {
+        const quiz = await this.quizRepository.findOne({ where: { id: contentId } });
+        if (!quiz) throw new NotFoundException(`Quizz ${contentId} introuvable`);
+        quiz.status = newStatus;
+        await this.quizRepository.save(quiz);
         break;
       }
       default:

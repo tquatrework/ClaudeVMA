@@ -2862,3 +2862,51 @@ Body `POST` : `{targetType: "account"|"profile"|"content", targetId, reason, exp
 | PATCH | /admin/site-metadata/:id | Mettre à jour les métadonnées globales du site | 🔒 | technicien_informatique | `200 SiteMetadata` · `400` · `401` · `403` · `404` |
 
 Body : `{siteName?, maintenanceMessage?, isMaintenanceMode?, contactEmail?, supportUrl?, announcementBanner?}`
+
+---
+
+## content-catalog-service
+
+Swagger complet exposé sur `/api/docs` (routes publiques uniquement — les routes `/internal/*`
+sont exclues via `@ApiExcludeController()`). Le tableau ci-dessous couvre uniquement les routes
+Quizz ajoutées le 2026-08-28 ; voir `docs/services/content-catalog-service.md` pour le reste du
+catalogue (exercices, évaluations, tutoriels, validations génériques).
+
+### Quizz
+
+Arbitrage de répartition avec `learning-activity-service` : `docs/architecture.md`,
+"Fonctionnalite Quizz" (2026-08-28). `content-catalog-service` porte la création, la définition,
+la solution, le barème et la validation d'un quizz ; `learning-activity-service` porte
+l'inscription, le passage et l'historique des tentatives.
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /quizzes | Rechercher les quizz visibles par l'appelant, filtrables par `tag` et `keyword` (titre), paginés (`page`, `limit`). Un quizz non validé reste invisible sauf à son auteur et aux AP/RP/TI. Ne renvoie jamais les questions (liste de synthèse uniquement) | 🔒 | tous rôles authentifiés | `200 {items, total}` · `401` |
+| POST | /quizzes | Créer un quizz avec ses questions, sa solution (jamais renvoyée en clair au-delà de l'auteur/AP/RP/TI eux-mêmes non plus), son barème et ses pénalités. `400` si une question est mal formée (choix unique sans exactement une bonne réponse, choix multiple sans aucune bonne réponse, texte court sans mot-clé). Statut initial : `pending_validation` pour un formateur, `validated` (auto-validé) pour un AP ou un RP | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `201 PublicQuizDetail` · `400` · `403` |
+| GET | /quizzes/pending-validation | Lister les quizz créés par un professeur en attente de validation, paginés, triés du plus ancien au plus récent | 🔒 | animateur_pedagogique, responsable_pedagogique | `200 {items, total}` · `403` |
+| GET | /quizzes/:id | Récupérer un quizz par id — questions et choix, **jamais la solution** (`correctOptionIds`/`keywords` ne sortent jamais de cette route ni d'aucune autre route publique). `404` (jamais `403`) si le quizz n'existe pas ou n'est pas visible pour l'appelant (non validé et appelant ni auteur ni AP/RP/TI) — un quizz masqué se comporte comme un quizz absent, même convention que les autres masquages du projet | 🔒 | tous rôles authentifiés | `200 PublicQuizDetail` · `404` |
+| POST | /validations/quiz/:id/decision | **Réutilise le flux de validation générique déjà existant** (`ValidationsController`, `ContentType.QUIZ` ajouté à l'énumération partagée) plutôt qu'une route bespoke — un quizz créé par un professeur passe par ce même mécanisme que pour exercice/évaluation/tutoriel. Commentaire obligatoire en cas de rejet. Un quizz déjà auto-validé (créé par AP/RP) n'a pas besoin d'y repasser, mais rien n'empêche techniquement de rappeler cette route dessus (même comportement pré-existant pour les autres types de contenu, non spécifique au quizz) | 🔒 | animateur_pedagogique, responsable_pedagogique | `201 ContentValidation` · `400` commentaire manquant en cas de rejet · `403` · `404` |
+| POST | /validations/quiz/:id/request | Réutilise le flux générique de soumission à validation (utile pour resoumettre un quizz `rejected`) | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `204` · `403` · `404` |
+
+Body `POST /quizzes` : `{title, description?, tags?: string[], defaultPoints?, penaltyEnabled?,
+penaltyPoints?, questions: [{category: "single_choice"|"multiple_choice"|"short_text", prompt,
+options?: [{id?, text, isCorrect}], keywords?: string[], multipleChoiceScoringMode?:
+"all_or_nothing"|"per_option", shortTextScoringMode?: "all_or_nothing"|"per_keyword",
+pointsOverride?, penaltyEnabledOverride?, penaltyPointsOverride?}]}`. Le barème/la pénalité
+individuels d'une question, si renseignés, prévalent sur le réglage global du quizz.
+
+#### Route interne — jamais exposée par api-gateway
+
+Exclue de Swagger (`@ApiExcludeController`). Protégée par `X-Internal-Secret: <INTERNAL_SECRET>`
+(guard `InternalSecretGuard`, échec fermé — refuse `401` si `INTERNAL_SECRET` n'est pas configuré
+côté serveur, plutôt que de laisser passer). `INTERNAL_SECRET` est déjà déclarée dans
+`docker-compose.yml` pour ce service (valeur par défaut `change_me_in_production`, à faire
+correspondre à celle de `learning-activity-service`).
+
+| Méthode | Chemin | Description | Auth | Réponse attendue |
+|---|---|---|---|---|
+| POST | /internal/quizzes/:quizId/grade | **Contrat figé avec `learning-activity-service`** (`docs/architecture.md`, point 9) : note les réponses soumises pour un quizz sans jamais transmettre la solution en clair. Ne vérifie pas le statut du quizz (pas de garde `validated` ici) — cette responsabilité revient à `learning-activity-service`, propriétaire du cycle de vie de la tentative | `X-Internal-Secret` | `200 {score, maxScore, details: [{questionId, isCorrect, pointsEarned, pointsPossible}]}` · `401` secret absent ou invalide · `404` quizz introuvable |
+
+Body : `{answers: [{questionId, selectedOptionIds?: string[], text?: string}]}`. Notation détaillée
+par catégorie de question dans `docs/services/content-catalog-service.md` (barème effectif,
+notation par option/mot-clé, non-cumul pénalité/score partiel).

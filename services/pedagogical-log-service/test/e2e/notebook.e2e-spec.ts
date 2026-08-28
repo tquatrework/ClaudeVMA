@@ -298,4 +298,174 @@ describe('[E2E] Carnet personnel (Notebook)', () => {
       expect(res.status).toBe(403);
     });
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // GET /pedagogical-logs/notebook/owners/:ownerId — accès administratif et
+  // parental, arbitrage du 2026-08-28 (docs/architecture.md, "Acces
+  // administratif et parental au carnet personnel — parametrable par le TI,
+  // defaut ferme"). Toujours en LECTURE SEULE, désactivé par défaut : ces
+  // tests s'appuient sur `PATCH /pedagogical-logs/settings/notebook-access`
+  // (testée en détail dans pedagogical-log.e2e-spec.ts) pour faire varier le
+  // réglage. Réinitialisé au défaut fermé en fin de bloc pour ne pas affecter
+  // d'éventuels tests suivants dans ce même fichier.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('GET /pedagogical-logs/notebook/owners/:ownerId — accès administratif et parental', () => {
+    let teacherOwnerEntryId: string;
+
+    async function patchNotebookAccessSettings(body: Record<string, unknown>) {
+      return request(app.getHttpServer())
+        .patch('/pedagogical-logs/settings/notebook-access')
+        .set('Authorization', `Bearer ${tiToken}`)
+        .send(body);
+    }
+
+    beforeAll(async () => {
+      const created = await request(app.getHttpServer())
+        .post('/pedagogical-logs/notebook')
+        .set('Authorization', `Bearer ${teacherToken}`)
+        .send({ content: 'Pensée du formateur, visée par les tests de tiers' });
+      teacherOwnerEntryId = created.body.id;
+    });
+
+    afterAll(async () => {
+      await patchNotebookAccessSettings({ adminAccess: 'none', parentAccessToOwnChild: false });
+    });
+
+    it('sans token → 401', async () => {
+      const res = await request(app.getHttpServer()).get(
+        `/pedagogical-logs/notebook/owners/${IDS.teacher1}`,
+      );
+      expect(res.status).toBe(401);
+    });
+
+    it('[OK] le titulaire (RP) lit son propre carnet via cette route, même quand le réglage est fermé (défaut)', async () => {
+      const own = await request(app.getHttpServer())
+        .post('/pedagogical-logs/notebook')
+        .set('Authorization', `Bearer ${rpToken}`)
+        .send({ content: 'Pensée du RP, lue par lui-même via la route tiers' });
+
+      const res = await request(app.getHttpServer())
+        .get(`/pedagogical-logs/notebook/owners/${IDS.rp1}`)
+        .set('Authorization', `Bearer ${rpToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.some((e: any) => e.id === own.body.id)).toBe(true);
+    });
+
+    describe('rôles structurellement jamais éligibles → 403, même réglage grand ouvert', () => {
+      beforeAll(async () => {
+        const res = await patchNotebookAccessSettings({ adminAccess: 'all_admins', parentAccessToOwnChild: true });
+        expect(res.status).toBe(200);
+      });
+
+      it.each([
+        ['élève', () => studentToken],
+        ['formateur (même un autre formateur)', () => teacherToken],
+        ['animateur pédagogique', () => apToken],
+      ])('[CRITIQUE] %s → 403', async (_label, getToken) => {
+        const res = await request(app.getHttpServer())
+          .get(`/pedagogical-logs/notebook/owners/${IDS.teacher1}`)
+          .set('Authorization', `Bearer ${getToken()}`);
+
+        expect(res.status).toBe(403);
+      });
+    });
+
+    describe('axe administratif', () => {
+      it('[CRITIQUE] RP → 404 par défaut (adminAccess = "none")', async () => {
+        const reset = await patchNotebookAccessSettings({ adminAccess: 'none' });
+        expect(reset.status).toBe(200);
+
+        const res = await request(app.getHttpServer())
+          .get(`/pedagogical-logs/notebook/owners/${IDS.teacher1}`)
+          .set('Authorization', `Bearer ${rpToken}`);
+
+        expect(res.status).toBe(404);
+      });
+
+      it('[OK] RP lit le carnet d\'un tiers formateur quand adminAccess = "rp"', async () => {
+        const patch = await patchNotebookAccessSettings({ adminAccess: 'rp' });
+        expect(patch.status).toBe(200);
+
+        const res = await request(app.getHttpServer())
+          .get(`/pedagogical-logs/notebook/owners/${IDS.teacher1}`)
+          .set('Authorization', `Bearer ${rpToken}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.some((e: any) => e.id === teacherOwnerEntryId)).toBe(true);
+      });
+
+      it.each([
+        ["l'administrateur financier (AF)", () => adminFinancierToken],
+        ['le technicien informatique (TI)', () => tiToken],
+      ])('[CRITIQUE] %s → 404 quand adminAccess = "rp" (AF/TI pas couverts par "rp" seul)', async (_label, getToken) => {
+        const res = await request(app.getHttpServer())
+          .get(`/pedagogical-logs/notebook/owners/${IDS.teacher1}`)
+          .set('Authorization', `Bearer ${getToken()}`);
+
+        expect(res.status).toBe(404);
+      });
+
+      it.each([
+        ["l'administrateur financier (AF)", () => adminFinancierToken],
+        ['le technicien informatique (TI)', () => tiToken],
+      ])('[OK] %s lit un carnet tiers quand adminAccess = "all_admins"', async (_label, getToken) => {
+        const patch = await patchNotebookAccessSettings({ adminAccess: 'all_admins' });
+        expect(patch.status).toBe(200);
+
+        const res = await request(app.getHttpServer())
+          .get(`/pedagogical-logs/notebook/owners/${IDS.teacher1}`)
+          .set('Authorization', `Bearer ${getToken()}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.some((e: any) => e.id === teacherOwnerEntryId)).toBe(true);
+      });
+    });
+
+    describe('axe parental', () => {
+      it('[CRITIQUE] parent financeur → 404 par défaut (parentAccessToOwnChild = false)', async () => {
+        const reset = await patchNotebookAccessSettings({ adminAccess: 'none', parentAccessToOwnChild: false });
+        expect(reset.status).toBe(200);
+
+        const res = await request(app.getHttpServer())
+          .get(`/pedagogical-logs/notebook/owners/${IDS.student1}`)
+          .set('Authorization', `Bearer ${parentToken}`);
+
+        expect(res.status).toBe(404);
+      });
+
+      it('[CRITIQUE] parent financeur, réglage activé mais profile-service injoignable dans cet environnement e2e → 503 (échec fermé, jamais un accès silencieux)', async () => {
+        const patch = await patchNotebookAccessSettings({ parentAccessToOwnChild: true });
+        expect(patch.status).toBe(200);
+
+        const res = await request(app.getHttpServer())
+          .get(`/pedagogical-logs/notebook/owners/${IDS.student1}`)
+          .set('Authorization', `Bearer ${parentToken}`);
+
+        expect(res.status).toBe(503);
+      });
+    });
+
+    it('paramètres de recherche (q) transmis, comme sur GET /pedagogical-logs/notebook', async () => {
+      await patchNotebookAccessSettings({ adminAccess: 'rp', parentAccessToOwnChild: false });
+
+      const res = await request(app.getHttpServer())
+        .get(`/pedagogical-logs/notebook/owners/${IDS.teacher1}`)
+        .query({ q: 'ne correspond à rien de saisi' })
+        .set('Authorization', `Bearer ${rpToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.some((e: any) => e.id === teacherOwnerEntryId)).toBe(false);
+    });
+
+    it('entrée introuvable/carnet vide pour un titulaire sans entrée → 200 []', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/pedagogical-logs/notebook/owners/${IDS.unknown}`)
+        .set('Authorization', `Bearer ${rpToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([]);
+    });
+  });
 });

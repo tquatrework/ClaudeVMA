@@ -1038,6 +1038,98 @@ describe('[E2E] Pedagogical Log Service', () => {
     });
   });
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Accès administratif et parental au carnet personnel — arbitrage du
+  // 2026-08-28 (docs/architecture.md, "Acces administratif et parental au
+  // carnet personnel — parametrable par le TI, defaut ferme").
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('GET/PATCH /pedagogical-logs/settings/notebook-access — réglages TI', () => {
+    it('sans token → 401 (GET et PATCH)', async () => {
+      const getRes = await request(app.getHttpServer()).get('/pedagogical-logs/settings/notebook-access');
+      expect(getRes.status).toBe(401);
+
+      const patchRes = await request(app.getHttpServer())
+        .patch('/pedagogical-logs/settings/notebook-access')
+        .send({ adminAccess: 'rp' });
+      expect(patchRes.status).toBe(401);
+    });
+
+    it('[OK] tout compte authentifié peut lire les réglages courants, valeurs par défaut FERMÉES', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/pedagogical-logs/settings/notebook-access')
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.adminAccess).toBe('none');
+      expect(res.body.parentAccessToOwnChild).toBe(false);
+    });
+
+    it('un parent financeur peut lire les réglages (pas seulement les administrateurs)', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/pedagogical-logs/settings/notebook-access')
+        .set('Authorization', `Bearer ${parent1Token}`);
+
+      expect(res.status).toBe(200);
+    });
+
+    it('[CRITIQUE] un RP ne peut pas modifier les réglages → 403 (réservé au TI)', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/pedagogical-logs/settings/notebook-access')
+        .set('Authorization', `Bearer ${rp1Token}`)
+        .send({ adminAccess: 'rp' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('[CRITIQUE] un formateur ne peut pas modifier les réglages → 403', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/pedagogical-logs/settings/notebook-access')
+        .set('Authorization', `Bearer ${teacher1Token}`)
+        .send({ parentAccessToOwnChild: true });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('valeur hors énumération pour adminAccess → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/pedagogical-logs/settings/notebook-access')
+        .set('Authorization', `Bearer ${tiToken}`)
+        .send({ adminAccess: 'superadmin' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('[CRITIQUE] le TI peut modifier les réglages, la lecture suivante reflète le changement', async () => {
+      const patchRes = await request(app.getHttpServer())
+        .patch('/pedagogical-logs/settings/notebook-access')
+        .set('Authorization', `Bearer ${tiToken}`)
+        .send({ adminAccess: 'all_admins', parentAccessToOwnChild: true });
+
+      expect(patchRes.status).toBe(200);
+      expect(patchRes.body.adminAccess).toBe('all_admins');
+      expect(patchRes.body.parentAccessToOwnChild).toBe(true);
+
+      const getRes = await request(app.getHttpServer())
+        .get('/pedagogical-logs/settings/notebook-access')
+        .set('Authorization', `Bearer ${student1Token}`);
+
+      expect(getRes.body.adminAccess).toBe('all_admins');
+      expect(getRes.body.parentAccessToOwnChild).toBe(true);
+    });
+
+    it('remet les réglages au défaut fermé pour ne pas affecter les tests suivants', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/pedagogical-logs/settings/notebook-access')
+        .set('Authorization', `Bearer ${tiToken}`)
+        .send({ adminAccess: 'none', parentAccessToOwnChild: false });
+
+      expect(res.status).toBe(200);
+      expect(res.body.adminAccess).toBe('none');
+      expect(res.body.parentAccessToOwnChild).toBe(false);
+    });
+  });
+
   describe('/logs/:id/attachments — pièces jointes du cahier de texte', () => {
     let repository: Repository<PedagogicalLog>;
     let normalEntryId: string;

@@ -5,40 +5,55 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
-## Besoin — 2026-08-28 — Accès admin/parent au carnet personnel, paramétrable par le TI
+## Besoin — 2026-08-28 — Quizz (nouvelle fonctionnalité)
 
-Demande explicite de l'utilisateur : ouvrir un accès en **lecture seule** au carnet personnel
-(par défaut strictement privé au titulaire) via un réglage TI désactivé par défaut, à deux axes
-indépendants — confirmés par l'utilisateur ("oui") après clarification en prose :
-1. **Axe administratif**, curseur hiérarchique : `Non` (défaut) / `RP` / `Tous les administrateurs`
-   (RP+AF+TI).
-2. **Axe parental**, case indépendante : `Parents sur son enfant` (défaut `Non`) — un parent
-   financeur lit le carnet du/des élève(s) auquel il est activement rattaché, rien d'autre.
+Demande explicite de l'utilisateur, énoncé complet reçu, **architecture de répartition entre
+services pas encore tranchée** — c'est la première chose à faire avant toute délégation.
 
-Arbitrage persisté dans `docs/architecture.md` (PR #145, mergée) — révise explicitement
-l'arbitrage du 2026-08-27 qui posait le carnet personnel comme exception totale sans dérogation.
-Points actés : lecture seule sans exception, contrôle à chaque lecture (jamais en cache), pas de
-nouveau menu (sections conditionnelles sur des écrans existants — fiche profil pour RP/AF/TI, vue
-élève déjà accessible au parent), réglage intégré à l'écran "Paramètres système" existant côté
-`pedagogical-log-service`.
+Specification donnée par l'utilisateur :
+- Un Quizz est une série de questions avec correction connue, aboutissant à une notation.
+- 3 catégories de questions : choix unique (radio, 1 bonne réponse) ; choix multiples (cases à
+  cocher, note unique si tout juste, ou notée case par case) ; texte court (juste si un ou
+  plusieurs mots-clés attendus sont présents, insensible à la casse ; note unique ou par mot).
+- Le créateur fournit questions, réponses/solution, notation, et des tags de recherche.
+- Notation par défaut : 1 point/question. Le créateur peut fixer un barème global (X points par
+  question) ou individuel (barème par question qui prévaut sur le global). Pénalité (note
+  négative) optionnelle en cas de réponse fausse.
+- Créateurs autorisés : RP, AP, professeurs. Un Quizz créé par un professeur doit être validé par
+  un AP ou un RP avant d'être visible aux élèves et aux autres professeurs. Les Quizz créés par
+  RP/AP sont auto-validés, donc visibles immédiatement.
+- Visible et démarrable (recherche + lancement) par : élèves, professeurs, RP, AP. À la fin, score
+  affiché rapporté au maximum possible, et le résultat enregistré dans un historique personnel.
 
-## Aucun objectif actif
+Différence notable avec le modèle "évaluation" déjà arbitré (solution jamais publiée, correction
+demandée après coup) : ici la notation est **automatique et immédiate** à la fin du Quizz — pas de
+correction humaine à la demande.
 
-Dernier besoin traité — **2026-08-28 — Accès admin/parent au carnet personnel** : terminé et
-validé le 2026-08-28. PR #147 (backend) et #148 (front) mergées dans `master`, `pedagogical-log-
-service` et `frontend` reconstruits et redéployés ensemble. Preuve complète contre
-`https://claudevma.visioprof.fr` **après** ce redéploiement :
-- HTTP direct (curl, comptes réels créés/liés pour l'occasion) : les deux axes (`rp` < `all_admins`,
-  `parentAccessToOwnChild`) refusent en `404` avant activation par le TI, puis autorisent
-  exactement les rôles/relations prévus une fois activés — RP seul avec `rp`, RP+AF+TI avec
-  `all_admins`, parent rattaché avec l'axe parental, aucun autre rôle (`eleve`, `formateur`,
-  `animateur_pedagogique`) jamais.
-- Captures d'écran (`apps/web/e2e/proof-carnet-acces-admin-parent-2026-08-28.spec.ts`) : réglage
-  visible et modifiable dans Paramètres système (TI), section carnet en lecture seule visible sur
-  la fiche élève pour le RP, et pour le parent rattaché — dans les deux cas sans bouton
-  Modifier/Supprimer.
-- Réglage remis à `none`/`false` (défaut) après la vérification, aucun accès tiers actif en
-  production à l'issue de la session.
+## Aucun objectif actif — question d'architecture à trancher avant délégation
+
+Candidats naturels d'après `docs/architecture.md`/`docs/microservices.md` :
+- `content-catalog-service` : "Exercices, evaluations, tutos-videos, validation et moderation
+  pedagogique" — porterait la définition du Quizz (questions, solution, barème, tags, workflow de
+  validation AP/RP), sur le même schéma que les évaluations.
+- `learning-activity-service` : "Reponses, corrections, scores, points pedagogiques" — porterait
+  la prise du Quizz par un utilisateur (réponses soumises, calcul du score, historique).
+
+Point non tranché : le calcul du score a besoin de la solution, qui ne doit jamais transiter vers
+le front ni être dupliquée hors de son propriétaire. Cela pousse vers une route interne de
+notation exposée par le service propriétaire de la solution, appelée par le service qui gère la
+tentative — sur le modèle des routes `/internal/*` déjà en place ailleurs dans le projet. À
+soumettre à l'utilisateur en prose avant toute délégation, pas encore fait.
+
+<details>
+<summary>Archive — besoin du 2026-08-28, carnet personnel admin/parent (clos)</summary>
+
+Accès admin/parent au carnet personnel, paramétrable par le TI : terminé et validé le 2026-08-28.
+PR #147 (backend) et #148 (front) mergées dans `master`, `pedagogical-log-service` et `frontend`
+reconstruits et redéployés ensemble. Preuve complète contre `https://claudevma.visioprof.fr`
+après ce redéploiement (HTTP direct + captures d'écran e2e), réglage remis à `none`/`false` après
+vérification. Détail complet dans l'historique git de ce fichier si besoin.
+
+</details>
 
 <details>
 <summary>Archive — besoin du 2026-08-27 (clos)</summary>

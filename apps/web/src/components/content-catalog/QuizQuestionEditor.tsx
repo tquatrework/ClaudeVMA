@@ -6,8 +6,9 @@
  * prévalent sur le réglage global du quizz (`docs/architecture.md` > « Fonctionnalite Quizz »).
  */
 
-import React from 'react'
+import React, { useRef } from 'react'
 import { QUIZ_QUESTION_CATEGORY_LABELS } from '../../utils/quizLabels'
+import { InsertFormulaButton } from '../ui/InsertFormulaButton'
 import { LightMarkupText } from '../ui/LightMarkupText'
 import { QuizQuestionOverrideFields } from './QuizQuestionOverrideFields'
 import type {
@@ -75,6 +76,9 @@ export function QuizQuestionEditor({
   onChange,
   onRemove,
 }: QuizQuestionEditorProps) {
+  const promptFieldRef = useRef<HTMLTextAreaElement>(null)
+  const optionFieldRefs = useRef<Map<string, HTMLInputElement | null>>(new Map())
+
   const update = (patch: Partial<EditableQuizQuestion>) => onChange({ ...question, ...patch })
 
   const updateOption = (localId: string, patch: Partial<EditableQuizOption>) => {
@@ -168,12 +172,19 @@ export function QuizQuestionEditor({
         </label>
         <textarea
           id={`${question.localId}-prompt`}
+          ref={promptFieldRef}
           value={question.prompt}
           onChange={(e) => update({ prompt: e.target.value })}
           placeholder="Vous pouvez insérer une formule mathématique, ex : $x^2 + y^2 = z^2$"
           rows={2}
           disabled={isSubmitting}
           className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm resize-y"
+        />
+        <InsertFormulaButton
+          fieldLabel="Énoncé"
+          fieldRef={promptFieldRef}
+          value={question.prompt}
+          onChange={(value) => update({ prompt: value })}
         />
         {question.prompt.trim() !== '' && (
           <p className="mt-1 text-xs text-gray-500">
@@ -187,42 +198,55 @@ export function QuizQuestionEditor({
           <label className="block text-xs text-gray-600">
             Options — cochez la ou les bonnes réponses
           </label>
-          {question.options.map((option) => (
-            <div key={option.localId} className="flex items-center gap-2">
-              <input
-                type={question.category === 'single_choice' ? 'radio' : 'checkbox'}
-                name={`correct-${question.localId}`}
-                checked={option.isCorrect}
-                disabled={isSubmitting}
-                onChange={() =>
-                  question.category === 'single_choice'
-                    ? toggleSingleCorrect(option.localId)
-                    : updateOption(option.localId, { isCorrect: !option.isCorrect })
-                }
-              />
-              <input
-                type="text"
-                value={option.text}
-                onChange={(e) => updateOption(option.localId, { text: e.target.value })}
-                placeholder="Texte de l'option — formule possible, ex : $x^2$"
-                disabled={isSubmitting}
-                className="flex-1 border border-gray-300 rounded-md px-2 py-1 text-sm"
-              />
-              {option.text.trim() !== '' && (
-                <span className="text-xs text-gray-500 shrink-0">
-                  <LightMarkupText text={option.text} />
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() =>
-                  update({ options: question.options.filter((o) => o.localId !== option.localId) })
-                }
-                disabled={isSubmitting || question.options.length <= 2}
-                className="text-xs text-gray-400 hover:text-red-600 disabled:opacity-30"
-              >
-                ✕
-              </button>
+          {question.options.map((option, optionIndex) => (
+            <div key={option.localId} className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <input
+                  type={question.category === 'single_choice' ? 'radio' : 'checkbox'}
+                  name={`correct-${question.localId}`}
+                  checked={option.isCorrect}
+                  disabled={isSubmitting}
+                  onChange={() =>
+                    question.category === 'single_choice'
+                      ? toggleSingleCorrect(option.localId)
+                      : updateOption(option.localId, { isCorrect: !option.isCorrect })
+                  }
+                />
+                <input
+                  type="text"
+                  ref={(el) => {
+                    optionFieldRefs.current.set(option.localId, el)
+                  }}
+                  value={option.text}
+                  onChange={(e) => updateOption(option.localId, { text: e.target.value })}
+                  placeholder="Texte de l'option — formule possible, ex : $x^2$"
+                  disabled={isSubmitting}
+                  className="flex-1 border border-gray-300 rounded-md px-2 py-1 text-sm"
+                />
+                {option.text.trim() !== '' && (
+                  <span className="text-xs text-gray-500 shrink-0">
+                    <LightMarkupText text={option.text} />
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() =>
+                    update({ options: question.options.filter((o) => o.localId !== option.localId) })
+                  }
+                  disabled={isSubmitting || question.options.length <= 2}
+                  className="text-xs text-gray-400 hover:text-red-600 disabled:opacity-30"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="pl-6">
+                <InsertFormulaButton
+                  fieldLabel={`Option ${optionIndex + 1}`}
+                  fieldRef={{ current: optionFieldRefs.current.get(option.localId) ?? null }}
+                  value={option.text}
+                  onChange={(value) => updateOption(option.localId, { text: value })}
+                />
+              </div>
             </div>
           ))}
           <button

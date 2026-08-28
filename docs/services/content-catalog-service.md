@@ -179,32 +179,41 @@
             serialisation publique.
           </decision>
           <decision>
-            Regles de notation retenues (quiz-grading.util.ts), pour lever l'ambiguite de la
-            specification fonctionnelle sur les points suivants non precises par l'utilisateur :
-            (a) Choix multiples, notation "par case" (per_option) : chaque option est jugee
-            INDEPENDAMMENT — coche a raison OU decoche a raison compte comme "case reussie" —
-            plutot que de ne recompenser que les cases correctement cochees sans jamais penaliser
-            une case cochee a tort. Ceci recompense/penalise symetriquement sans avoir besoin d'un
-            second mecanisme de penalite specifique aux cases, et rend "cocher toutes les cases"
-            structurellement sous-optimal (contrairement a un design qui ne compterait que les
-            cases correctement cochees, exploitable en cochant tout). Fraction de reussite = cases
-            correctement jugees / nombre total de cases, multipliee par le bareme effectif de la
-            question.
+            Regles de notation "par item" (per_option / per_keyword) et non-cumul penalite/bareme
+            — VERSION REVISEE le 2026-08-28 sur arbitrage explicite de l'orchestrateur (docs/
+            architecture.md, section "Fonctionnalite Quizz", point 10), qui remplace
+            l'interpretation initiale livree dans ce meme chantier (voir ancienne formulation
+            ci-dessous, gardee a titre d'historique) :
+            (a) Choix multiples, notation "par case" (per_option) : le bareme de la question se
+            REPARTIT A PARTS EGALES entre les items ATTENDUS, c'est-a-dire le nombre d'options
+            correctes (correctOptionIds.length), PAS le nombre total d'options proposees. Cocher
+            une case correcte rapporte sa part (bareme / nombre d'items attendus) ; une case
+            correcte non cochee ne rapporte rien mais n'est pas penalisee (simple manque a
+            gagner) ; une case incorrecte cochee, si la penalite est activee, coute la meme part
+            (penaltyPoints / nombre d'items attendus) — jamais le nombre total d'options.
             (b) Texte court, notation "par mot-cle" (per_keyword) : fraction = mots-cles trouves
-            (sous-chaine, insensible a la casse) / nombre total de mots-cles attendus.
-            (c) Penalite : ne s'applique QUE si la question a recu une reponse (selection ou texte
-            non vide) ET que cette reponse n'a rapporté STRICTEMENT AUCUN point (fraction de
-            reussite = 0). Une reponse partiellement correcte (per_option/per_keyword) n'est
-            JAMAIS cumulee avec une penalite en plus de son propre manque a gagner, et une absence
-            de reponse n'est jamais penalisee. Ce choix evite un double mecanisme de penalite
-            (globale + par-composant) non demande par la specification, qui ne mentionne la
-            penalite qu'au niveau de la question entiere, symetriquement au bareme.
-            (d) Bareme/penalite effectifs d'une question = surcharge individuelle si presente,
+            (sous-chaine, insensible a la casse) / nombre total de mots-cles attendus — inchange,
+            deja conforme a l'arbitrage. Aucune penalite ne s'applique jamais en per_keyword : le
+            texte libre n'a pas de notion d'item "incorrect" saisi par l'utilisateur au-dela des
+            mots-cles absents, qui ne rapportent simplement rien.
+            (c) Non-cumul : la penalite s'applique EXACTEMENT au meme niveau que le bareme choisi
+            pour la question — une seule fois pour la question entiere en notation "unique"
+            (all_or_nothing, si la question a recu une reponse et n'est pas integralement
+            correcte), ou par item incorrect en notation "par item" (choix multiples uniquement).
+            Il n'existe jamais de second niveau de penalite globale de question par-dessus une
+            penalite deja comptee par item.
+            (d) Le score d'une question, et donc le score total du quizz, PEUT DEVENIR NEGATIF si
+            les penalites depassent les points gagnes. Aucun plancher a zero n'est introduit, ni
+            par question ni sur le total — verifie explicitement par un test dedie.
+            (e) Bareme/penalite effectifs d'une question = surcharge individuelle si presente,
             sinon reglage global du quizz, sinon 1 point / pas de penalite (resolveEffectiveScoring,
-            fonction exportee et testee isolement).
-            Ces choix sont documentes ici precisement parce qu'ils comblent un blanc de la
-            specification utilisateur — a reviser explicitement si l'usage reel du RP/AP revele
-            une attente differente.
+            fonction exportee et testee isolement, inchangee par cette revision).
+            Ancienne formulation (livree le meme jour, remplacee ci-dessus) : le per_option jugeait
+            CHAQUE option independamment (coche a raison OU decochee a raison comptait comme "case
+            reussie"), fraction = cases correctement jugees / NOMBRE TOTAL d'options — ce qui
+            divisait le bareme entre toutes les options y compris les distracteurs, au lieu des
+            seuls items attendus. Signale dans le rapport de PR comme une interpretation a
+            confirmer ; l'orchestrateur a tranche en faveur de la repartition ci-dessus.
           </decision>
           <decision>
             Route interne de notation (POST /internal/quizzes/:quizId/grade) : AUCUNE verification
@@ -238,10 +247,12 @@
         </technicalDecisions>
         <verification>
           <item>`npm run build` (tsc via nest build) : 0 erreur.</item>
-          <item>`npm test` (suite unitaire complete) : 169/169 tests verts, 13 suites — inclut
+          <item>`npm test` (suite unitaire complete) : 174/174 tests verts, 13 suites (169 puis
+            +5 lors de la revision du 2026-08-28 sur l'arbitrage de notation "par item") — inclut
             quiz-grading.util.spec.ts (notation pure des 3 categories, bareme global/individuel,
-            penalite/absence de cumul avec score partiel), quizzes.service.spec.ts (roles
-            createurs, validation des questions par categorie, visibilite recherche/lecture,
+            repartition a parts egales entre items attendus, non-cumul penalite/bareme, score de
+            question et de quizz pouvant devenir negatif sans plancher), quizzes.service.spec.ts
+            (roles createurs, validation des questions par categorie, visibilite recherche/lecture,
             notation interne, 404 jamais 403 sur masquage), internal-secret.guard.spec.ts (echec
             ferme), et validations.service.quiz.spec.ts (reemploi du flux generique pour
             ContentType.QUIZ). Les fichiers de test preexistants de ValidationsService ont ete
@@ -273,10 +284,11 @@
             l'orchestrateur pour arbitrage sur une correction ulterieure eventuelle.
           </point>
           <point>
-            Regles de notation "per_option" et "per_keyword" (voir decision detaillee ci-dessus)
-            comblent un blanc de la specification utilisateur par une interpretation choisie et
-            documentee, non validee explicitement par l'utilisateur. A confirmer ou ajuster si le
-            comportement reel attendu differe.
+            RESOLU le 2026-08-28 : les regles de notation "per_option"/"per_keyword" et le
+            non-cumul penalite/bareme, initialement livrees comme interpretation a confirmer, ont
+            ete tranchees par l'orchestrateur (docs/architecture.md, section "Fonctionnalite
+            Quizz", point 10) et implementees telles quelles dans quiz-grading.util.ts — voir
+            decision detaillee ci-dessus. Plus un point ouvert.
           </point>
           <point>
             Aucun evenement metier n'est publie par ce chantier (ex. QuizCreated, QuizValidated) —

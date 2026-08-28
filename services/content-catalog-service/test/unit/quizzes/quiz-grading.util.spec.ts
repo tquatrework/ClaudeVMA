@@ -168,7 +168,7 @@ describe('gradeQuestion() — multiple_choice', () => {
     expect(withExtra.pointsEarned).toBe(0);
   });
 
-  it('per_option : chaque case correctement traitée rapporte sa part de points', () => {
+  it('per_option : le barème se répartit à parts égales entre les items attendus (les bonnes options), pas entre toutes les options', () => {
     const quiz = buildQuiz({ defaultPoints: 3 });
     const question = buildQuestion({
       category: QuizQuestionCategory.MULTIPLE_CHOICE,
@@ -177,18 +177,18 @@ describe('gradeQuestion() — multiple_choice', () => {
       multipleChoiceScoringMode: MultipleChoiceScoringMode.PER_OPTION,
     });
 
-    // a coché (correct), b non coché (incorrect, devait être coché), c non coché (correct)
-    // 2 cases correctement traitées sur 3 => 2/3 * 3 = 2
+    // 2 items attendus (a, b) => 3/2 = 1.5 point par item.
+    // a coché (correct) : 1 item sur 2 => 1.5 point, c (non attendu) non coché : sans effet.
     const result = gradeQuestion(quiz, question, { questionId: question.id, selectedOptionIds: ['a'] });
     expect(result.isCorrect).toBe(false);
-    expect(result.pointsEarned).toBeCloseTo(2);
+    expect(result.pointsEarned).toBeCloseTo(1.5);
 
     const fullyCorrect = gradeQuestion(quiz, question, { questionId: question.id, selectedOptionIds: ['a', 'b'] });
     expect(fullyCorrect.isCorrect).toBe(true);
     expect(fullyCorrect.pointsEarned).toBe(3);
   });
 
-  it('ne pénalise pas un score partiel même si la pénalité est activée', () => {
+  it('ne pénalise pas une case attendue restée non cochée (manque à gagner, pas une pénalité)', () => {
     const quiz = buildQuiz({ defaultPoints: 3, penaltyEnabled: true, penaltyPoints: 3 });
     const question = buildQuestion({
       category: QuizQuestionCategory.MULTIPLE_CHOICE,
@@ -197,8 +197,67 @@ describe('gradeQuestion() — multiple_choice', () => {
       multipleChoiceScoringMode: MultipleChoiceScoringMode.PER_OPTION,
     });
 
+    // b n'est pas coché (item attendu manquant) mais aucune case incorrecte
+    // n'est cochée : pas de pénalité, seulement l'absence du gain sur b.
     const result = gradeQuestion(quiz, question, { questionId: question.id, selectedOptionIds: ['a'] });
-    expect(result.pointsEarned).toBeGreaterThan(0);
+    expect(result.pointsEarned).toBeCloseTo(1.5);
+  });
+
+  it('per_option : pénalise chaque case incorrecte cochée, au même niveau que le barème (par item)', () => {
+    const quiz = buildQuiz({ defaultPoints: 3, penaltyEnabled: true, penaltyPoints: 3 });
+    const question = buildQuestion({
+      category: QuizQuestionCategory.MULTIPLE_CHOICE,
+      options,
+      correctOptionIds: ['a', 'b'],
+      multipleChoiceScoringMode: MultipleChoiceScoringMode.PER_OPTION,
+    });
+
+    // a (correct, 1.5) coché + c (incorrect, cochée à tort) => pénalité de 3/2 = 1.5
+    // pointsEarned = 1.5 - 1.5 = 0
+    const result = gradeQuestion(quiz, question, {
+      questionId: question.id,
+      selectedOptionIds: ['a', 'c'],
+    });
+    expect(result.isCorrect).toBe(false);
+    expect(result.pointsEarned).toBeCloseTo(0);
+  });
+
+  it('per_option : le score de la question peut devenir négatif si les pénalités dépassent les points gagnés', () => {
+    const quiz = buildQuiz({ defaultPoints: 2, penaltyEnabled: true, penaltyPoints: 2 });
+    const question = buildQuestion({
+      category: QuizQuestionCategory.MULTIPLE_CHOICE,
+      options,
+      correctOptionIds: ['a'],
+      multipleChoiceScoringMode: MultipleChoiceScoringMode.PER_OPTION,
+    });
+
+    // Un seul item attendu (a), non coché : 0 point. b et c cochées à tort :
+    // 2 pénalités de 2/1 = 2 chacune => pointsEarned = 0 - 4 = -4, aucun plancher à zéro.
+    const result = gradeQuestion(quiz, question, {
+      questionId: question.id,
+      selectedOptionIds: ['b', 'c'],
+    });
+    expect(result.isCorrect).toBe(false);
+    expect(result.pointsEarned).toBe(-4);
+  });
+
+  it('ne cumule jamais une pénalité par item avec une pénalité globale de la question', () => {
+    // Non-cumul : en notation per_option, seule la pénalité par item
+    // s'applique ; il n'existe pas de second niveau de pénalité "question
+    // entière" appliqué en plus (arbitrage du 2026-08-28).
+    const quiz = buildQuiz({ defaultPoints: 3, penaltyEnabled: true, penaltyPoints: 3 });
+    const question = buildQuestion({
+      category: QuizQuestionCategory.MULTIPLE_CHOICE,
+      options,
+      correctOptionIds: ['a', 'b'],
+      multipleChoiceScoringMode: MultipleChoiceScoringMode.PER_OPTION,
+    });
+
+    // Une seule case incorrecte cochée (c), aucune correcte : une seule
+    // pénalité de 1.5 est appliquée, pas une pénalité de question entière de 3
+    // en plus.
+    const result = gradeQuestion(quiz, question, { questionId: question.id, selectedOptionIds: ['c'] });
+    expect(result.pointsEarned).toBeCloseTo(-1.5);
   });
 });
 
@@ -262,6 +321,19 @@ describe('gradeQuestion() — short_text', () => {
     const result = gradeQuestion(quiz, question, { questionId: question.id, text: '   ' });
     expect(result.pointsEarned).toBe(0);
   });
+
+  it('per_keyword : aucun mot-clé absent ne pénalise, même avec la pénalité activée — le texte n\'a pas de notion d\'item incorrect', () => {
+    const quiz = buildQuiz({ defaultPoints: 4, penaltyEnabled: true, penaltyPoints: 4 });
+    const question = buildQuestion({
+      category: QuizQuestionCategory.SHORT_TEXT,
+      keywords: ['pomme', 'banane', 'cerise', 'orange'],
+      shortTextScoringMode: ShortTextScoringMode.PER_KEYWORD,
+    });
+
+    const result = gradeQuestion(quiz, question, { questionId: question.id, text: 'aucun mot-clé pertinent ici' });
+    expect(result.isCorrect).toBe(false);
+    expect(result.pointsEarned).toBe(0);
+  });
 });
 
 describe('gradeQuiz()', () => {
@@ -308,5 +380,25 @@ describe('gradeQuiz()', () => {
     expect(result.score).toBe(0);
     expect(result.maxScore).toBe(1);
     expect(result.details[0].isCorrect).toBe(false);
+  });
+
+  it('le score total du quizz peut être négatif, aucun plancher à zéro n\'est appliqué', () => {
+    const q1 = buildQuestion({
+      id: 'q1',
+      order: 1,
+      category: QuizQuestionCategory.SINGLE_CHOICE,
+      options: [{ id: 'a', text: 'A' }, { id: 'b', text: 'B' }],
+      correctOptionIds: ['a'],
+      pointsOverride: 1,
+      penaltyEnabledOverride: true,
+      penaltyPointsOverride: 5,
+    });
+
+    const quiz = buildQuiz({ defaultPoints: 1, questions: [q1] });
+
+    const result = gradeQuiz(quiz, [{ questionId: 'q1', selectedOptionIds: ['b'] }]);
+
+    expect(result.score).toBe(-5);
+    expect(result.maxScore).toBe(1);
   });
 });

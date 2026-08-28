@@ -21,6 +21,7 @@ import {
 import { QuizzesService } from './quizzes.service';
 import { CreateQuizDto } from './dto/create-quiz.dto';
 import { SearchQuizDto } from './dto/search-quiz.dto';
+import { PendingValidationQueryDto } from './dto/pending-validation-query.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -84,10 +85,9 @@ export class QuizzesController {
   @ApiResponse({ status: 403, description: 'Réservé aux AP et RP' })
   async getPendingValidation(
     @CurrentUser() currentUser: AuthenticatedUser,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Query() query: PendingValidationQueryDto,
   ) {
-    return this.quizzesService.getPendingValidation(currentUser.role, page, limit);
+    return this.quizzesService.getPendingValidation(currentUser.role, query.page, query.limit);
   }
 
   @Get(':id')

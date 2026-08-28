@@ -931,6 +931,80 @@ Phase 3 enrichit l'offre :
      chez `profile-service`, pieces jointes chez `pedagogical-log-service` lui-meme) — aucun
      service transverse de configuration a inventer, meme raisonnement que le 2026-08-26.
 
+- Fonctionnalite Quizz, et repartition generale entre `content-catalog-service` et
+  `learning-activity-service` pour tout contenu evalue (quizz, exercices, evaluations). Arbitrage
+  rendu le 2026-08-28, sur specification complete donnee par l'utilisateur puis clarification
+  explicite du decoupage souhaite entre les deux services, avec consigne de simplicite de code.
+  1. **Specification fonctionnelle du Quizz.** Une serie de questions avec correction connue,
+     aboutissant a une notation. Trois categories de question : choix unique (radio, une seule
+     bonne reponse) ; choix multiples (cases a cocher, note unique si toutes les cases attendues
+     sont cochees et aucune autre, ou notee case par case) ; texte court (juste si un ou plusieurs
+     mots-cles attendus sont presents dans la reponse, insensible a la casse ; note unique ou par
+     mot). Le createur fournit questions, reponses/solution, notation et des tags de recherche.
+     Bareme par defaut : 1 point/question ; le createur peut fixer un bareme global (X points par
+     question) ou individuel (le bareme d'une question prevaut alors sur le global) ; une penalite
+     (note negative) sur reponse fausse est une option du createur, par quizz ou par question selon
+     le meme mecanisme global/individuel que le bareme.
+  2. **Createurs et validation.** RP, AP et professeurs peuvent creer un Quizz. Un Quizz cree par
+     un professeur doit etre valide par un AP ou un RP avant d'etre visible aux eleves et aux
+     autres professeurs — meme mecanisme que la validation des forums AP (2026-08-x, arbitrage
+     initial du fichier) et des contenus pedagogiques en general. Les Quizz crees par RP ou AP sont
+     auto-valides, donc visibles immediatement. Visible et demarrable par eleves, professeurs, RP,
+     AP, avec recherche par tags.
+  3. **`content-catalog-service` porte la creation et la definition du Quizz**, decision actee sans
+     ambiguite par l'utilisateur : questions, categories de question, solution, bareme, penalites,
+     tags, statut de validation. Coherent avec son role documente ("exercices, evaluations,
+     tutos-videos, validation et moderation pedagogique").
+  4. **`learning-activity-service` porte l'inscription au Quizz et l'historique des Quizz passes
+     avec leurs scores**, egalement acte sans ambiguite par l'utilisateur. Coherent avec son role
+     documente ("reponses, corrections, scores, points pedagogiques").
+  5. **Le passage du Quizz (les reponses soumises par l'utilisateur pendant qu'il le fait) est
+     tranche ici, laisse a l'appreciation de l'orchestrateur par l'utilisateur : il releve de
+     `learning-activity-service`, pas de `content-catalog-service`.** Raisonnement : "reponses" est
+     litteralement le premier mot du role documente de `learning-activity-service` — le passage
+     d'un Quizz consiste precisement a soumettre des reponses. Separer inscription+historique d'un
+     cote et passage de l'autre aurait force une meme "tentative" (inscription -> reponses ->
+     score -> historique) a vivre a cheval sur deux services, avec une machine a etats partagee et
+     une synchronisation intermediaire a maintenir en coherence — le contraire de la simplicite de
+     code demandee. En gardant les trois etapes dans un seul service, une tentative de Quizz est un
+     agregat unique, dans une seule base, avec une seule transition d'etat par appel.
+  6. **Le calcul du score reste chez le proprietaire de la solution.** La solution ne doit jamais
+     transiter vers le front ni etre dupliquee hors de `content-catalog-service` (meme principe que
+     les evaluations : solution jamais publiee directement). `learning-activity-service` appelle
+     donc une route interne de `content-catalog-service`, protegee par `X-Internal-Secret` sur le
+     modele des routes `/internal/*` deja en place ailleurs dans le projet (resolution de nom,
+     formateurs valides, relations financeur-eleve) : elle recoit `quizId` + les reponses soumises,
+     et renvoie uniquement le resultat (score obtenu, score maximum, detail correct/incorrect par
+     question) — jamais la solution elle-meme en clair.
+  7. **Pas de passage par l'orchestrateur.** `learning-activity-service` possede tout le cycle de
+     vie de la tentative (inscription, passage, historique) et n'appelle `content-catalog-service`
+     que pour lire un fait (la correction) dont sa propre regle a besoin — cas (a) de l'arbitrage
+     du 2026-08-12 sur la frontiere service metier/orchestrateur. Aucune reprise, compensation ou
+     idempotence inter-etapes n'est necessaire : l'appel de notation est un aller-retour synchrone
+     unique au moment de la soumission finale.
+  8. **Regle generale, valable au-dela du Quizz : ce decoupage s'appliquera identiquement aux
+     exercices et aux evaluations**, deja types dans `content-catalog-service` (creation/solution)
+     et deja evoques dans le role de `learning-activity-service` ("declencher une demande de
+     correction"). La seule variation entre Quizz et evaluation est que la correction du Quizz est
+     **automatique et immediate** (regles structurees : radio/checkbox/mots-cles), tandis que
+     celle d'une evaluation reste **demandee puis traitee separement** (arbitrage deja existant,
+     non remis en cause) — mais dans les deux cas, `content-catalog-service` reste seul a connaitre
+     la solution et seul a trancher la correction, et `learning-activity-service` reste seul a
+     porter la reponse de l'utilisateur, son score et son historique.
+  9. **Contrat interne pose des maintenant, pour eviter toute divergence entre les deux services
+     developpes en parallele** :
+     - `content-catalog-service` expose `POST /internal/quizzes/:quizId/grade`, body
+       `{ answers: [{ questionId, selectedOptionIds?: string[], text?: string }] }`, reponse
+       `{ score: number, maxScore: number, details: [{ questionId, isCorrect: boolean,
+       pointsEarned: number, pointsPossible: number }] }`.
+     - `content-catalog-service` expose aussi les routes publiques de creation/recherche/lecture
+       d'un Quizz (sans jamais exposer la solution en dehors de la route interne ci-dessus) et de
+       validation AP/RP.
+     - `learning-activity-service` expose `POST /quiz-attempts` (demarrage = inscription),
+       `POST /quiz-attempts/:id/submit` (passage : recoit les reponses, appelle la route interne
+       ci-dessus, persiste le resultat) et `GET /quiz-attempts/history` (historique note par
+       utilisateur).
+
 ## Points ouverts a arbitrer
 
 - `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a

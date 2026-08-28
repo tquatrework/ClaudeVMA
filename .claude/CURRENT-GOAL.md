@@ -22,14 +22,23 @@ nouveau menu (sections conditionnelles sur des écrans existants — fiche profi
 élève déjà accessible au parent), réglage intégré à l'écran "Paramètres système" existant côté
 `pedagogical-log-service`.
 
-## État
-- Implémentation déléguée en parallèle le 2026-08-28 : `pedagogical-log-service` (réglages
-  `GET/PATCH .../settings/notebook-access` + route de lecture du carnet d'un tiers) et
-  `front-developper` (section Paramètres système TI + sections de consultation en lecture seule,
-  sans nouveau menu). Le front a été explicitement chargé de vérifier le contrat réel du backend
-  avant de coder dessus plutôt que de le deviner en parallèle.
-- Aucune preuve contre la pile réelle encore produite — à obtenir avant de considérer terminé,
-  comme pour le chantier précédent.
+## Aucun objectif actif
+
+Dernier besoin traité — **2026-08-28 — Accès admin/parent au carnet personnel** : terminé et
+validé le 2026-08-28. PR #147 (backend) et #148 (front) mergées dans `master`, `pedagogical-log-
+service` et `frontend` reconstruits et redéployés ensemble. Preuve complète contre
+`https://claudevma.visioprof.fr` **après** ce redéploiement :
+- HTTP direct (curl, comptes réels créés/liés pour l'occasion) : les deux axes (`rp` < `all_admins`,
+  `parentAccessToOwnChild`) refusent en `404` avant activation par le TI, puis autorisent
+  exactement les rôles/relations prévus une fois activés — RP seul avec `rp`, RP+AF+TI avec
+  `all_admins`, parent rattaché avec l'axe parental, aucun autre rôle (`eleve`, `formateur`,
+  `animateur_pedagogique`) jamais.
+- Captures d'écran (`apps/web/e2e/proof-carnet-acces-admin-parent-2026-08-28.spec.ts`) : réglage
+  visible et modifiable dans Paramètres système (TI), section carnet en lecture seule visible sur
+  la fiche élève pour le RP, et pour le parent rattaché — dans les deux cas sans bouton
+  Modifier/Supprimer.
+- Réglage remis à `none`/`false` (défaut) après la vérification, aucun accès tiers actif en
+  production à l'issue de la session.
 
 <details>
 <summary>Archive — besoin du 2026-08-27 (clos)</summary>

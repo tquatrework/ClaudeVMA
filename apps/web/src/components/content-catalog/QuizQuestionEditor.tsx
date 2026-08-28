@@ -1,5 +1,5 @@
 /**
- * QuizQuestionEditor — édition d'une question au sein de `QuizCreateForm`.
+ * QuizQuestionEditor — édition d'une question au sein de `QuizForm`.
  *
  * Une question porte sa catégorie (choix unique / choix multiples / texte court), son énoncé,
  * ses options ou mots-clés, son mode de notation, et d'éventuels barème/pénalité individuels qui
@@ -8,6 +8,8 @@
 
 import React from 'react'
 import { QUIZ_QUESTION_CATEGORY_LABELS } from '../../utils/quizLabels'
+import { LightMarkupText } from '../ui/LightMarkupText'
+import { QuizQuestionOverrideFields } from './QuizQuestionOverrideFields'
 import type {
   MultipleChoiceScoringMode,
   QuizQuestionCategory,
@@ -168,10 +170,16 @@ export function QuizQuestionEditor({
           id={`${question.localId}-prompt`}
           value={question.prompt}
           onChange={(e) => update({ prompt: e.target.value })}
+          placeholder="Vous pouvez insérer une formule mathématique, ex : $x^2 + y^2 = z^2$"
           rows={2}
           disabled={isSubmitting}
           className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm resize-y"
         />
+        {question.prompt.trim() !== '' && (
+          <p className="mt-1 text-xs text-gray-500">
+            Aperçu : <LightMarkupText text={question.prompt} />
+          </p>
+        )}
       </div>
 
       {isChoiceCategory && (
@@ -196,10 +204,15 @@ export function QuizQuestionEditor({
                 type="text"
                 value={option.text}
                 onChange={(e) => updateOption(option.localId, { text: e.target.value })}
-                placeholder="Texte de l'option"
+                placeholder="Texte de l'option — formule possible, ex : $x^2$"
                 disabled={isSubmitting}
                 className="flex-1 border border-gray-300 rounded-md px-2 py-1 text-sm"
               />
+              {option.text.trim() !== '' && (
+                <span className="text-xs text-gray-500 shrink-0">
+                  <LightMarkupText text={option.text} />
+                </span>
+              )}
               <button
                 type="button"
                 onClick={() =>
@@ -233,66 +246,27 @@ export function QuizQuestionEditor({
             type="text"
             value={question.keywordsInput}
             onChange={(e) => update({ keywordsInput: e.target.value })}
-            placeholder="paris, capitale"
+            placeholder="paris, capitale, $\pi$"
             disabled={isSubmitting}
             className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
           />
+          {question.keywordsInput.trim() !== '' && (
+            <p className="mt-1 text-xs text-gray-500 flex flex-wrap gap-x-2">
+              {question.keywordsInput
+                .split(',')
+                .map((keyword) => keyword.trim())
+                .filter((keyword) => keyword.length > 0)
+                .map((keyword, keywordIndex) => (
+                  <span key={keywordIndex}>
+                    <LightMarkupText text={keyword} />
+                  </span>
+                ))}
+            </p>
+          )}
         </div>
       )}
 
-      <div className="pt-1 border-t border-gray-200">
-        <label className="flex items-center gap-2 text-xs text-gray-600">
-          <input
-            type="checkbox"
-            checked={question.hasOverride}
-            onChange={(e) => update({ hasOverride: e.target.checked })}
-            disabled={isSubmitting}
-          />
-          Fixer un barème/pénalité spécifique à cette question (prévaut sur le réglage global)
-        </label>
-
-        {question.hasOverride && (
-          <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs text-gray-600 mb-1">Points</label>
-              <input
-                type="number"
-                min={0}
-                step="0.5"
-                value={question.pointsOverrideInput}
-                onChange={(e) => update({ pointsOverrideInput: e.target.value })}
-                disabled={isSubmitting}
-                className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-              />
-            </div>
-            <div>
-              <label className="flex items-center gap-2 text-xs text-gray-600 mt-5">
-                <input
-                  type="checkbox"
-                  checked={question.penaltyEnabledOverride}
-                  onChange={(e) => update({ penaltyEnabledOverride: e.target.checked })}
-                  disabled={isSubmitting}
-                />
-                Pénalité si erreur
-              </label>
-            </div>
-            {question.penaltyEnabledOverride && (
-              <div>
-                <label className="block text-xs text-gray-600 mb-1">Points de pénalité</label>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.5"
-                  value={question.penaltyPointsOverrideInput}
-                  onChange={(e) => update({ penaltyPointsOverrideInput: e.target.value })}
-                  disabled={isSubmitting}
-                  className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-                />
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      <QuizQuestionOverrideFields question={question} isSubmitting={isSubmitting} onUpdate={update} />
     </div>
   )
 }

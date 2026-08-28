@@ -2,13 +2,15 @@
  * QuizzPage — catalogue des Quizz.
  *
  * Recherche par tag/mot-clé, pagination, ouverture d'un quizz pour le passer, création
- * (formateur/AP/RP) et historique personnel des tentatives passées.
+ * (formateur/AP/RP), historique personnel des tentatives passées, et — retour post-production du
+ * 2026-08-28 — onglet « Mes Quizz » pour retrouver, modifier et resoumettre ses propres créations
+ * (`docs/architecture.md` > « Edition d'un Quizz par son auteur »).
  *
  * Fonctionnalité branchée sur la pile réelle le 2026-08-28 (`content-catalog-service` PR #152,
  * `learning-activity-service` PR #151) — remplace l'état « à venir » précédent.
  *
  * Routes API consommées :
- *   GET  /quizzes                 (content-catalog-service — recherche)
+ *   GET  /quizzes                 (content-catalog-service — recherche, et « mes Quizz » via `mine=true`)
  *   POST /quizzes                 (content-catalog-service — création)
  *   GET  /quiz-attempts/history   (learning-activity-service — historique)
  */
@@ -19,16 +21,19 @@ import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
 import { useAsyncData } from '../hooks/useAsyncData'
 import { useQuizAttemptHistory } from '../hooks/learning-activity/useQuizAttemptHistory'
+import { useMyQuizzes } from '../hooks/content-catalog/useMyQuizzes'
 import { PageHeader } from '../components/ui/PageHeader'
 import { EmptyState } from '../components/ui/EmptyState'
 import { ErrorMessage } from '../components/ui/ErrorMessage'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { CatalogItemCard } from '../components/ui/CatalogItemCard'
 import { Tabs, TabPanel } from '../components/ui/Tabs'
-import { QuizCreateForm } from '../components/content-catalog/QuizCreateForm'
+import { QuizForm } from '../components/content-catalog/QuizForm'
 import { QuizAttemptHistoryList } from '../components/learning-activity/QuizAttemptHistoryList'
+import { MyQuizzesList } from '../components/content-catalog/MyQuizzesList'
 import { searchQuizzes } from '../api/quizzes'
 import { QUIZ_STATUS_BADGE_CLASSES, QUIZ_STATUS_LABELS } from '../utils/quizLabels'
+import type { PublicQuizDetail } from '../types/quiz'
 
 const PAGE_SIZE = 20
 
@@ -36,13 +41,14 @@ export default function QuizzPage() {
   const { hasRole } = useAuth()
   const navigate = useNavigate()
 
-  const [activeTab, setActiveTab] = useState<'catalog' | 'history'>('catalog')
+  const [activeTab, setActiveTab] = useState<'catalog' | 'history' | 'mine'>('catalog')
   const [tagFilter, setTagFilter] = useState('')
   const [keywordFilter, setKeywordFilter] = useState('')
   const [appliedTag, setAppliedTag] = useState('')
   const [appliedKeyword, setAppliedKeyword] = useState('')
   const [page, setPage] = useState(1)
   const [shouldShowCreateForm, setShouldShowCreateForm] = useState(false)
+  const [justCreatedQuiz, setJustCreatedQuiz] = useState<PublicQuizDetail | null>(null)
 
   const canCreateQuiz = hasRole('formateur', 'animateur_pedagogique', 'responsable_pedagogique')
 
@@ -59,6 +65,13 @@ export default function QuizzPage() {
 
   const { entries: historyEntries, isLoading: isLoadingHistory, error: historyError } =
     useQuizAttemptHistory()
+
+  const {
+    items: myQuizzes,
+    isLoading: isLoadingMyQuizzes,
+    error: myQuizzesError,
+    refetch: refetchMyQuizzes,
+  } = useMyQuizzes()
 
   const handleSearchSubmit = (event: React.FormEvent) => {
     event.preventDefault()
@@ -79,24 +92,61 @@ export default function QuizzPage() {
             canCreateQuiz ? (
               <button
                 type="button"
-                onClick={() => setShouldShowCreateForm(true)}
+                onClick={() => {
+                  setJustCreatedQuiz(null)
+                  setShouldShowCreateForm(true)
+                }}
                 className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
               >
-                Nouveau Quizz
+                Créer un nouveau Quizz
               </button>
             ) : undefined
           }
         />
 
-        {shouldShowCreateForm && (
-          <QuizCreateForm
-            onCreated={(created) => {
+        {shouldShowCreateForm && !justCreatedQuiz && (
+          <QuizForm
+            onSaved={(created) => {
               setShouldShowCreateForm(false)
+              setJustCreatedQuiz(created)
               refetch()
-              navigate(`/content/quizz/${created.id}`)
+              refetchMyQuizzes()
             }}
             onCancel={() => setShouldShowCreateForm(false)}
           />
+        )}
+
+        {justCreatedQuiz && (
+          <div className="bg-green-50 border border-green-200 rounded-xl p-5 space-y-3">
+            <p className="text-sm text-green-800">
+              Quizz « {justCreatedQuiz.title} » créé avec succès. Que souhaitez-vous faire ?
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() =>
+                  navigate(`/content/quizz/${justCreatedQuiz.id}`, { state: { autoStart: true } })
+                }
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 transition-colors"
+              >
+                Commencer le Quizz
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate(`/content/quizz/${justCreatedQuiz.id}/edit`)}
+                className="px-4 py-2 text-sm font-medium text-indigo-700 bg-white border border-indigo-300 rounded-md hover:bg-indigo-50 transition-colors"
+              >
+                Modifier le Quizz
+              </button>
+              <button
+                type="button"
+                onClick={() => setJustCreatedQuiz(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
         )}
 
         <Tabs
@@ -104,9 +154,10 @@ export default function QuizzPage() {
           tabs={[
             { id: 'catalog', label: 'Catalogue' },
             { id: 'history', label: 'Mon historique' },
+            ...(canCreateQuiz ? [{ id: 'mine', label: 'Mes Quizz' }] : []),
           ]}
           activeTab={activeTab}
-          onTabChange={(id) => setActiveTab(id as 'catalog' | 'history')}
+          onTabChange={(id) => setActiveTab(id as 'catalog' | 'history' | 'mine')}
         />
 
         <TabPanel tabId="catalog" activeTab={activeTab}>
@@ -214,6 +265,16 @@ export default function QuizzPage() {
             <QuizAttemptHistoryList entries={historyEntries} />
           )}
         </TabPanel>
+
+        {canCreateQuiz && (
+          <TabPanel tabId="mine" activeTab={activeTab}>
+            {isLoadingMyQuizzes && <p className="text-gray-400 text-sm">Chargement de vos quizz…</p>}
+            {myQuizzesError && <ErrorMessage message={myQuizzesError} />}
+            {!isLoadingMyQuizzes && !myQuizzesError && (
+              <MyQuizzesList quizzes={myQuizzes} onResubmitted={() => refetchMyQuizzes()} />
+            )}
+          </TabPanel>
+        )}
       </div>
     </Layout>
   )

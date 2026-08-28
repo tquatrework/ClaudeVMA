@@ -219,7 +219,7 @@ describe('ContentValidationQueuePage', () => {
     await userEvent.click(screen.getByRole('button', { name: /valider/i }))
 
     await waitFor(() => {
-      expect(mockDecideQuizValidation).toHaveBeenCalledWith('quiz-1', 'approve', undefined)
+      expect(mockDecideQuizValidation).toHaveBeenCalledWith('quiz-1', 'validated', undefined)
       expect(screen.getByText(/Quizz validé avec succès/)).toBeDefined()
     })
   })

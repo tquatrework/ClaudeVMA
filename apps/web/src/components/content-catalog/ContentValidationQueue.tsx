@@ -18,9 +18,12 @@
 
 import React, { useState } from 'react'
 import type { Exercise, Evaluation, Tutorial } from '../../api/contentCatalog'
-import type { QuizSummary } from '../../types/quiz'
+import type { QuizSummary, QuizValidationDecision } from '../../types/quiz'
 import { QuizValidationList } from './QuizValidationList'
 
+// Vocabulaire local, propre aux exercices/évaluations/tutoriels (validation encore optimiste
+// côté client, aucune route de décision documentée en phase 12 — voir plus bas). Distinct de
+// `QuizValidationDecision`, qui porte le vocabulaire réel attendu par le serveur pour le Quizz.
 type ContentDecision = 'approve' | 'reject'
 
 interface ContentValidationQueueProps {
@@ -33,7 +36,11 @@ interface ContentValidationQueueProps {
     contentId: string,
     decision: ContentDecision,
   ) => void
-  onDecideQuiz: (quizId: string, decision: ContentDecision, comment?: string) => Promise<void>
+  onDecideQuiz: (
+    quizId: string,
+    decision: QuizValidationDecision,
+    comment?: string,
+  ) => Promise<void>
 }
 
 type ActiveValidationTab = 'exercises' | 'evaluations' | 'tutorials' | 'quizzes'

@@ -7,6 +7,7 @@
 import React, { useState } from 'react'
 import type { PublicQuizDetail, QuizAnswerPayload, QuizAttempt } from '../../types/quiz'
 import { formatQuizScore } from '../../utils/quizLabels'
+import { LightMarkupText } from '../ui/LightMarkupText'
 
 interface QuizPlayerProps {
   quiz: PublicQuizDetail
@@ -56,7 +57,7 @@ export function QuizPlayer({ quiz, isSubmitting, submitError, result, onSubmit }
       {quiz.questions.map((question, index) => (
         <div key={question.id} className="bg-white border border-gray-200 rounded-xl p-4">
           <p className="text-sm font-semibold text-gray-800 mb-3">
-            {index + 1}. {question.prompt}
+            {index + 1}. <LightMarkupText text={question.prompt} />
           </p>
 
           {question.category === 'single_choice' && (
@@ -70,7 +71,7 @@ export function QuizPlayer({ quiz, isSubmitting, submitError, result, onSubmit }
                     onChange={() => toggleSingleChoice(question.id, option.id)}
                     disabled={isSubmitting}
                   />
-                  {option.text}
+                  <LightMarkupText text={option.text} />
                 </label>
               ))}
             </div>
@@ -86,7 +87,7 @@ export function QuizPlayer({ quiz, isSubmitting, submitError, result, onSubmit }
                     onChange={() => toggleMultipleChoice(question.id, option.id)}
                     disabled={isSubmitting}
                   />
-                  {option.text}
+                  <LightMarkupText text={option.text} />
                 </label>
               ))}
             </div>
@@ -145,7 +146,7 @@ function QuizResult({ quiz, result }: { quiz: PublicQuizDetail; result: QuizAtte
               }`}
             >
               <p className="text-sm font-medium text-gray-800">
-                {index + 1}. {question.prompt}
+                {index + 1}. <LightMarkupText text={question.prompt} />
               </p>
               {detail && (
                 <p className="text-xs mt-1 text-gray-600">

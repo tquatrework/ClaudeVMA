@@ -44,6 +44,8 @@ import {
   deleteNotebookEntry,
   type NotebookEntry,
 } from '../api/pedagogicalLogNotebook'
+import { NotebookEntryList } from '../components/notebook/NotebookEntryList'
+import { NotebookSearchForm } from '../components/notebook/NotebookSearchForm'
 
 export default function NotebookPage() {
   const [entries, setEntries] = useState<NotebookEntry[]>([])
@@ -171,81 +173,29 @@ export default function NotebookPage() {
         </form>
 
         {/* Recherche — par date ou par mot, pas de défilement d'une liste brute */}
-        <form
+        <NotebookSearchForm
+          idPrefix="notebook"
+          searchWord={searchWord}
+          onSearchWordChange={setSearchWord}
+          searchDate={searchDate}
+          onSearchDateChange={setSearchDate}
           onSubmit={handleSearch}
-          className="mb-6 bg-gray-50 border border-gray-200 rounded-xl p-4 flex flex-wrap items-end gap-3"
-        >
-          <div className="flex-1 min-w-[160px]">
-            <label htmlFor="notebook-search-word" className="block text-xs text-gray-500 mb-1">
-              Rechercher un mot
-            </label>
-            <input
-              id="notebook-search-word"
-              type="text"
-              value={searchWord}
-              onChange={(e) => setSearchWord(e.target.value)}
-              placeholder="ex. intégrales"
-              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            />
-          </div>
-          <div>
-            <label htmlFor="notebook-search-date" className="block text-xs text-gray-500 mb-1">
-              Rechercher une date
-            </label>
-            <input
-              id="notebook-search-date"
-              type="date"
-              value={searchDate}
-              onChange={(e) => setSearchDate(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={isSearching}
-            className="bg-white border border-indigo-300 text-indigo-600 px-4 py-1.5 rounded-lg text-sm hover:bg-indigo-50 disabled:opacity-50"
-          >
-            {isSearching ? 'Recherche…' : 'Rechercher'}
-          </button>
-          {hasActiveSearch && (
-            <button
-              type="button"
-              onClick={handleResetSearch}
-              className="text-xs text-gray-500 hover:underline"
-            >
-              Réinitialiser
-            </button>
-          )}
-        </form>
+          onReset={handleResetSearch}
+          isSearching={isSearching}
+          hasActiveSearch={hasActiveSearch}
+        />
 
         {isLoading && <p className="text-gray-400 text-sm">Chargement…</p>}
 
-        {!isLoading && entries.length === 0 && !errorMessage && (
-          <div className="text-center py-12 bg-white border border-gray-200 rounded-xl">
-            <p className="text-gray-400 text-sm">
-              {hasActiveSearch ? 'Aucune note ne correspond à cette recherche' : 'Aucune note pour l\'instant'}
-            </p>
-          </div>
+        {!isLoading && !errorMessage && (
+          <NotebookEntryList
+            entries={entries}
+            emptyMessage={
+              hasActiveSearch ? 'Aucune note ne correspond à cette recherche' : "Aucune note pour l'instant"
+            }
+            onDelete={handleDeleteEntry}
+          />
         )}
-
-        <ul className="space-y-3">
-          {entries.map((entry) => (
-            <li key={entry.id} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
-              <p className="text-sm text-gray-800 whitespace-pre-wrap">{entry.content}</p>
-              <div className="flex items-center justify-between mt-2">
-                <p className="text-xs text-gray-400">
-                  {new Date(entry.createdAt).toLocaleString('fr-FR')}
-                </p>
-                <button
-                  onClick={() => handleDeleteEntry(entry.id)}
-                  className="text-xs text-red-400 hover:underline"
-                >
-                  Supprimer
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
       </div>
     </Layout>
   )

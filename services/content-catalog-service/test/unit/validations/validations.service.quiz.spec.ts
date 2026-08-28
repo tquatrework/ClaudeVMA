@@ -10,7 +10,12 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  NotFoundException,
+  BadRequestException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ValidationsService } from '../../../src/validations/validations.service';
 import { ContentValidation } from '../../../src/validations/entities/content-validation.entity';
 import { Exercise } from '../../../src/exercises/entities/exercise.entity';
@@ -19,6 +24,7 @@ import { Tutorial } from '../../../src/tutorials/entities/tutorial.entity';
 import { Quiz } from '../../../src/quizzes/entities/quiz.entity';
 import { ContentType } from '../../../src/common/enums/content-type.enum';
 import { ContentStatus } from '../../../src/common/enums/content-status.enum';
+import { ProfileRelationsClient } from '../../../src/common/clients/profile-relations.client';
 
 const AP_ID        = 'ap00-0000-4000-a000-aaaaaaaaaaaa';
 const RP_ID        = 'rp00-0000-4000-b000-bbbbbbbbbbbb';
@@ -60,10 +66,12 @@ describe('ValidationsService — ContentType.QUIZ', () => {
   let validationsService: ValidationsService;
   let validationRepo: ReturnType<typeof buildMockRepo>;
   let quizRepo: ReturnType<typeof buildMockRepo>;
+  let profileRelationsClient: { hasAnimatorOfTeacherRelation: jest.Mock };
 
   beforeEach(async () => {
     validationRepo = buildMockRepo();
     quizRepo = buildMockRepo();
+    profileRelationsClient = { hasAnimatorOfTeacherRelation: jest.fn() };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
@@ -73,6 +81,7 @@ describe('ValidationsService — ContentType.QUIZ', () => {
         { provide: getRepositoryToken(Evaluation), useValue: buildMockRepo() },
         { provide: getRepositoryToken(Tutorial), useValue: buildMockRepo() },
         { provide: getRepositoryToken(Quiz), useValue: quizRepo },
+        { provide: ProfileRelationsClient, useValue: profileRelationsClient },
       ],
     }).compile();
 
@@ -130,6 +139,7 @@ describe('ValidationsService — ContentType.QUIZ', () => {
       expect(quizRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({ status: ContentStatus.VALIDATED }),
       );
+      expect(profileRelationsClient.hasAnimatorOfTeacherRelation).not.toHaveBeenCalled();
     });
 
     it('lève ForbiddenException si un formateur tente de valider un quizz', async () => {
@@ -168,6 +178,83 @@ describe('ValidationsService — ContentType.QUIZ', () => {
           'animateur_pedagogique',
         ),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('validateContent() — scoping AP par relation animator_of_teacher', () => {
+    it('un AP qui anime le formateur auteur peut valider son quizz', async () => {
+      quizRepo.findOne.mockResolvedValue(buildSampleQuiz());
+      quizRepo.save.mockResolvedValue({});
+      const savedValidation = { id: 'val-quiz-0002', decision: ContentStatus.VALIDATED };
+      validationRepo.create.mockReturnValue(savedValidation);
+      validationRepo.save.mockResolvedValue(savedValidation);
+      profileRelationsClient.hasAnimatorOfTeacherRelation.mockResolvedValue(true);
+
+      const result = await validationsService.validateContent(
+        QUIZ_ID,
+        ContentType.QUIZ,
+        { decision: ContentStatus.VALIDATED },
+        AP_ID,
+        'animateur_pedagogique',
+      );
+
+      expect(result.decision).toBe(ContentStatus.VALIDATED);
+      expect(profileRelationsClient.hasAnimatorOfTeacherRelation).toHaveBeenCalledWith(
+        AP_ID,
+        FORMATEUR_ID,
+      );
+    });
+
+    it('lève ForbiddenException si l\'AP n\'anime pas le formateur auteur', async () => {
+      quizRepo.findOne.mockResolvedValue(buildSampleQuiz());
+      profileRelationsClient.hasAnimatorOfTeacherRelation.mockResolvedValue(false);
+
+      await expect(
+        validationsService.validateContent(
+          QUIZ_ID,
+          ContentType.QUIZ,
+          { decision: ContentStatus.VALIDATED },
+          AP_ID,
+          'animateur_pedagogique',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('propage une ServiceUnavailableException si profile-service est injoignable', async () => {
+      quizRepo.findOne.mockResolvedValue(buildSampleQuiz());
+      profileRelationsClient.hasAnimatorOfTeacherRelation.mockRejectedValue(
+        new ServiceUnavailableException('profile-service injoignable'),
+      );
+
+      await expect(
+        validationsService.validateContent(
+          QUIZ_ID,
+          ContentType.QUIZ,
+          { decision: ContentStatus.VALIDATED },
+          AP_ID,
+          'animateur_pedagogique',
+        ),
+      ).rejects.toThrow(ServiceUnavailableException);
+    });
+
+    it('un RP valide sans jamais consulter la relation, même sans lien avec l\'auteur', async () => {
+      quizRepo.findOne.mockResolvedValue(buildSampleQuiz());
+      quizRepo.save.mockResolvedValue({});
+      const savedValidation = { id: 'val-quiz-0003', decision: ContentStatus.VALIDATED };
+      validationRepo.create.mockReturnValue(savedValidation);
+      validationRepo.save.mockResolvedValue(savedValidation);
+      profileRelationsClient.hasAnimatorOfTeacherRelation.mockResolvedValue(false);
+
+      const result = await validationsService.validateContent(
+        QUIZ_ID,
+        ContentType.QUIZ,
+        { decision: ContentStatus.VALIDATED },
+        RP_ID,
+        'responsable_pedagogique',
+      );
+
+      expect(result.decision).toBe(ContentStatus.VALIDATED);
+      expect(profileRelationsClient.hasAnimatorOfTeacherRelation).not.toHaveBeenCalled();
     });
   });
 });

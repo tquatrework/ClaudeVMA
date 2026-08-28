@@ -9,6 +9,7 @@ import { Exercise } from '../exercises/entities/exercise.entity';
 import { Evaluation } from '../evaluations/entities/evaluation.entity';
 import { Tutorial } from '../tutorials/entities/tutorial.entity';
 import { Quiz } from '../quizzes/entities/quiz.entity';
+import { ProfileClientModule } from '../common/clients/profile-client.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { Quiz } from '../quizzes/entities/quiz.entity';
       }),
       inject: [ConfigService],
     }),
+    ProfileClientModule,
   ],
   controllers: [ValidationsController],
   providers: [ValidationsService],

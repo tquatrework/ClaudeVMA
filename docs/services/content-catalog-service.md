@@ -47,11 +47,12 @@
       <endpoint method="POST" path="/tutorials">Charger tuto/video.</endpoint>
       <endpoint method="POST" path="/contents/{id}/comments">Commenter une ressource.</endpoint>
       <endpoint method="POST" path="/contents/{id}/ratings">Scorer une ressource.</endpoint>
-      <endpoint method="GET" path="/quizzes">Rechercher les quizz visibles (ajoute le 2026-08-28).</endpoint>
+      <endpoint method="GET" path="/quizzes">Rechercher les quizz visibles, ou tous ses propres quizz avec `mine=true` tous statuts confondus (ajoute le 2026-08-28, mine ajoute le 2026-08-28 session 3).</endpoint>
       <endpoint method="POST" path="/quizzes">Creer un quizz avec questions, solution et bareme (ajoute le 2026-08-28).</endpoint>
-      <endpoint method="GET" path="/quizzes/pending-validation">Lister les quizz en attente de validation (ajoute le 2026-08-28).</endpoint>
+      <endpoint method="PUT" path="/quizzes/{id}">Modifier un quizz, reserve a son auteur ; repasse en pending_validation si l'auteur est formateur (ajoute le 2026-08-28 session 3).</endpoint>
+      <endpoint method="GET" path="/quizzes/pending-validation">Lister les quizz en attente de validation ; un AP ne voit que les formateurs qu'il anime, RP voit tout (ajoute le 2026-08-28, scoping AP ajoute session 3).</endpoint>
       <endpoint method="GET" path="/quizzes/{id}">Recuperer un quizz sans sa solution (ajoute le 2026-08-28).</endpoint>
-      <endpoint method="POST" path="/validations/quiz/{id}/decision">Valider/rejeter un quizz — reutilise le flux generique existant (ajoute le 2026-08-28).</endpoint>
+      <endpoint method="POST" path="/validations/quiz/{id}/decision">Valider/rejeter un quizz — reutilise le flux generique existant ; AP scope par relation animator_of_teacher (ajoute le 2026-08-28, scoping session 3).</endpoint>
       <endpoint method="POST" path="/internal/quizzes/{quizId}/grade">Route interne de notation, jamais exposee par api-gateway (ajoute le 2026-08-28).</endpoint>
     </candidateApis>
     <dataEntities>
@@ -363,6 +364,136 @@
             avant correction) — le message d'erreur vide sur une valeur invalide en est
             l'explication la plus probable, mais la sequence exacte de test qui a produit ce
             diagnostic n'a pas pu etre confirmee.
+          </point>
+        </openPoints>
+      </session>
+
+      <session date="2026-08-28" label="Edition Quizz par l'auteur, filtre mes-quizz, validation AP scopee (branche feat/quiz-edit-mine-ap-scoping)">
+        <objective>
+          Combler les 3 manques reels signales par l'utilisateur apres verification en
+          production (PR #152/#160 mergees) : aucune route d'edition de Quizz, aucun point
+          d'entree pour retrouver ses propres Quizz, validation AP non restreinte par relation.
+          Conforme a l'arbitrage docs/architecture.md, "Edition d'un Quizz par son auteur, filtre
+          mes Quizz, et validation AP scopee par relation" (2026-08-28).
+        </objective>
+        <filesAdded>
+          <file path="src/common/clients/profile-relations.client.ts">Nouveau client interservices vers profile-service (fetch natif Node 20, aucune dependance axios/@nestjs/axios ajoutee). Methode hasAnimatorOfTeacherRelation(viewerId, targetId) : GET /internal/relations/:viewerId/:targetId?viewerRole=animateur_pedagogique, header X-Internal-Secret. 404 (cible inconnue) traite comme "pas de relation" ; toute autre erreur (reseau, 5xx) leve ServiceUnavailableException — echec ferme, jamais un acces accorde par defaut.</file>
+          <file path="src/common/clients/profile-client.module.ts">Module partage exportant ProfileRelationsClient, importe par QuizzesModule et ValidationsModule.</file>
+          <file path="src/quizzes/dto/update-quiz.dto.ts">UpdateQuizDto extends CreateQuizDto — corps de PUT /quizzes/:id de meme forme que POST /quizzes, sur demande explicite de l'utilisateur.</file>
+        </filesAdded>
+        <filesModified>
+          <file path="src/quizzes/quizzes.service.ts">
+            Ajout de update() : 404 si introuvable, 403 si authorId different de l'appelant, 400
+            si question mal formee (reutilise validateQuestionDto), remplacement integral des
+            questions (delete puis recreation). Effet sur le statut : authorRole===FORMATEUR
+            repasse toujours en PENDING_VALIDATION (quel que soit le statut precedent) ; AP/RP
+            auteur de son propre quizz ne change jamais de statut.
+            search() : nouveau filtre mine (SearchQuizDto.mine) — quand vrai, ignore le filtre de
+            visibilite par defaut et ne renvoie que quiz.authorId = callerId, tous statuts
+            confondus, y compris pour un appelant administratif.
+            getPendingValidation() : nouveau parametre callerId (signature changee, callerId
+            avant callerRole). Pour un AP, la liste est chargee entiere (quizRepository.find, pas
+            findAndCount), filtree par relation animator_of_teacher aupres de profile-service
+            (un appel par auteur unique, deduplique via Set), puis paginee en memoire. Pour RP,
+            comportement historique inchange (findAndCount pagine cote base).
+          </file>
+          <file path="src/quizzes/quizzes.controller.ts">Ajout de PUT /quizzes/:id (roles createurs). Mise a jour de l'appel a getPendingValidation avec currentUser.id.</file>
+          <file path="src/quizzes/quizzes.module.ts">Import de ProfileClientModule.</file>
+          <file path="src/quizzes/dto/search-quiz.dto.ts">Ajout de mine?: boolean, avec @Transform(({value}) => value === true || value === 'true') — Boolean('false') vaut true en JS, @Type(() => Boolean) aurait accepte ?mine=false comme vrai.</file>
+          <file path="src/validations/validations.service.ts">validateContent() : si contentType===QUIZ et validatorRole===ANIMATEUR_PEDAGOGIQUE, fetch du quiz (404 si absent) puis verification hasAnimatorOfTeacherRelation(validatorId, quiz.authorId) aupres de profile-service — 403 si absente. Place apres la verification "commentaire obligatoire au rejet" pour ne pas la court-circuiter (ordre verifie par les tests preexistants). RP inchange, aucun appel a profile-service pour ce role. Exercise/evaluation/tutorial non touches.</file>
+          <file path="src/validations/validations.module.ts">Import de ProfileClientModule.</file>
+          <file path="docker-compose.yml">Ajout de PROFILE_SERVICE_URL: http://profile-service:3002 au bloc content-catalog-service (absent jusqu'ici, ce service n'appelait aucun autre service).</file>
+        </filesModified>
+        <bugsFixedDuringVerification>
+          <bug>
+            update() provoquait un 500 reel ("null value in column quizId violates not-null
+            constraint") des la premiere edition testee en HTTP direct contre le conteneur reel.
+            Cause : le findOne() initial chargeait relations: ['questions'], donc quiz.questions
+            portait les anciennes entites QuizQuestion deja supprimees par le delete({quizId})
+            qui suit ; quizRepository.save(quiz) tentait alors de persister ce tableau perime,
+            TypeORM essayant une UPDATE sur des lignes n'ayant plus de quizId valide. Corrige en
+            retirant relations: ['questions'] du findOne() de update() — les questions existantes
+            n'ont jamais besoin d'etre lues puisqu'elles sont remplacees integralement. Ce bug
+            n'etait pas detectable par les tests unitaires (repository mocke, aucun comportement
+            TypeORM reel) : seule la verification HTTP directe contre le conteneur reel l'a
+            revele, conformement a la regle du projet sur la definition de "termine".
+          </bug>
+        </bugsFixedDuringVerification>
+        <technicalDecisions>
+          <decision>
+            fetch natif de Node 20 plutot qu'axios/@nestjs/axios : ce service n'avait jusqu'ici
+            aucun appel interservices, ajouter une dependance pour un seul client aurait ete
+            disproportionne. @types/node@20 declare le fetch global, verifie par `npm run build`
+            sans erreur.
+          </decision>
+          <decision>
+            Ordre des verifications dans PUT /quizzes/:id : 404 (introuvable) avant 403 (pas
+            l'auteur) avant 400 (question mal formee) — litteralement l'ordre demande. Une
+            divergence assumee avec la convention masquage-403-jamais-revele : ici le 403 est
+            volontairement distinct du 404, l'utilisateur ayant explicitement separe les deux cas
+            dans sa demande plutot que de reclamer un 404 uniforme pour non-auteur.
+          </decision>
+          <decision>
+            getPendingValidation() pour un AP charge la liste entiere des quizz pending puis
+            filtre et pagine en memoire, plutot qu'un filtre SQL par sous-requete sur les
+            relations (qui vivent dans profile-service, pas dans cette base) — le nombre de
+            quizz en attente reste petit dans ce contexte, et la relation ne peut de toute facon
+            etre verifiee que par appel HTTP a profile-service, jamais par jointure locale.
+          </decision>
+          <decision>
+            Compatibilite LaTeX (point 4 du retour utilisateur) : aucune regle @Matches ou
+            equivalent trouvee sur prompt/options[].text/keywords dans les DTO existants — etat
+            deja conforme, confirme par un test dedie (validate() de class-validator sur un DTO
+            contenant $, \\(, \\), $$, \\int, \\frac) plutot que par une simple lecture du code,
+            et reconfirme par un appel HTTP reel (creation d'un quizz avec ces caracteres,
+            round-trip verifie dans la reponse). Aucune modification necessaire.
+          </decision>
+        </technicalDecisions>
+        <verification>
+          <item>`npm run build` : 0 erreur.</item>
+          <item>`npm test` : 205/205 tests verts, 17 suites (182 precedents + 23 nouveaux) —
+            inclut profile-relations.client.spec.ts (relation presente/absente, 404 cible inconnue
+            traite comme non-panne, ServiceUnavailableException sur erreur reseau/5xx),
+            latex-compatibility.spec.ts, et l'extension de quizzes.service.spec.ts /
+            validations.service.quiz.spec.ts (update(), mine=true, scoping AP avec/sans relation,
+            503 propage).</item>
+          <item>Preuve HTTP directe contre le conteneur reel redeploye (image reconstruite depuis
+            le worktree corrige, retaguee claudevma-content-catalog-service:latest, conteneur
+            recree en place avec les memes variables d'environnement + PROFILE_SERVICE_URL) :
+            <detail>PUT /quizzes/:id par un tiers non-auteur -&gt; 403.</detail>
+            <detail>PUT /quizzes/:id par l'auteur formateur sur un quizz validated -&gt; 200,
+              statut repasse a pending_validation, questions integralement remplacees.</detail>
+            <detail>PUT /quizzes/:id sur un id inexistant -&gt; 404.</detail>
+            <detail>GET /quizzes?mine=true -&gt; ne renvoie que les quizz de l'appelant, y
+              compris pending_validation, invisible via une recherche normale par un autre
+              formateur.</detail>
+            <detail>Relation animator_of_teacher creee reellement via profile-service
+              (POST /relations/animator-teacher par un RP) entre un AP et un formateur de test.</detail>
+            <detail>GET /quizzes/pending-validation par l'AP lie -&gt; ne voit que les quizz du
+              formateur anime ; par un AP non lie -&gt; liste vide.</detail>
+            <detail>POST /validations/quiz/:id/decision par l'AP lie -&gt; 201, valide avec
+              succes ; par l'AP non lie -&gt; 403 "Vous ne pouvez valider que les quizz des
+              formateurs que vous animez" ; par le RP -&gt; 201 sans jamais interroger la
+              relation.</detail>
+            <detail>Creation d'un quizz avec $, \\int, \\frac dans prompt/keywords -&gt; 201,
+              caracteres LaTeX conserves tels quels dans la reponse.</detail>
+          </item>
+        </verification>
+        <blockers>Aucun sur le code livre.</blockers>
+        <openPoints>
+          <point>
+            503 (profile-service injoignable) verifie uniquement par tests unitaires (mocks), pas
+            en conditions reelles — arreter profile-service sur la pile partagee aurait risque de
+            perturber d'autres travaux en cours sur la meme machine, jugee disproportionnee pour
+            ce seul cas.
+          </point>
+          <point>
+            Routage api-gateway pour PUT /quizzes/:id et le parametre mine non verifie : le
+            conteneur "visiomath_gateway" observe sur ce depot est un nginx (pas le NestJS
+            documente comme api-gateway dans l'architecture), et aucune combinaison de prefixe
+            testee (/api/quizzes, /quizzes, /api/content-catalog/quizzes) n'a atteint
+            content-catalog-service au travers de ce conteneur — sujet hors perimetre de ce
+            service, a verifier par le proprietaire d'api-gateway si le front en a besoin.
           </point>
         </openPoints>
       </session>

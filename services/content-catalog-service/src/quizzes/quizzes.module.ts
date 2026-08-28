@@ -7,6 +7,7 @@ import { InternalQuizzesController } from './internal-quizzes.controller';
 import { QuizzesService } from './quizzes.service';
 import { Quiz } from './entities/quiz.entity';
 import { QuizQuestion } from './entities/quiz-question.entity';
+import { ProfileClientModule } from '../common/clients/profile-client.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { QuizQuestion } from './entities/quiz-question.entity';
       }),
       inject: [ConfigService],
     }),
+    ProfileClientModule,
   ],
   controllers: [QuizzesController, InternalQuizzesController],
   providers: [QuizzesService],

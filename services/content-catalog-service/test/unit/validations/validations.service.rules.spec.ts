@@ -21,6 +21,7 @@ import { Quiz } from '../../../src/quizzes/entities/quiz.entity';
 import { ContentType } from '../../../src/common/enums/content-type.enum';
 import { ContentStatus } from '../../../src/common/enums/content-status.enum';
 import { TutorialType, TutorialFormat } from '../../../src/common/enums/content-type.enum';
+import { ProfileRelationsClient } from '../../../src/common/clients/profile-relations.client';
 
 const AP_ID        = 'ap00-0000-4000-a000-aaaaaaaaaaaa';
 const RP_ID        = 'rp00-0000-4000-b000-bbbbbbbbbbbb';
@@ -137,6 +138,7 @@ describe('ValidationsService — règles métier complémentaires', () => {
         { provide: getRepositoryToken(Evaluation), useValue: evaluationRepo },
         { provide: getRepositoryToken(Tutorial), useValue: tutorialRepo },
         { provide: getRepositoryToken(Quiz), useValue: quizRepo },
+        { provide: ProfileRelationsClient, useValue: { hasAnimatorOfTeacherRelation: jest.fn() } },
       ],
     }).compile();
 

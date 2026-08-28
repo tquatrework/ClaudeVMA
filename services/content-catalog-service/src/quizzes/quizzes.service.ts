@@ -6,12 +6,14 @@ import { Quiz } from './entities/quiz.entity';
 import { QuizQuestion, QuizQuestionOption } from './entities/quiz-question.entity';
 import { CreateQuizDto } from './dto/create-quiz.dto';
 import { CreateQuizQuestionDto } from './dto/create-quiz-question.dto';
+import { UpdateQuizDto } from './dto/update-quiz.dto';
 import { SearchQuizDto } from './dto/search-quiz.dto';
 import { GradeQuizDto } from './dto/grade-quiz.dto';
 import { gradeQuiz, resolveEffectiveScoring, QuizGradeResult } from './quiz-grading.util';
 import { QuizQuestionCategory, MultipleChoiceScoringMode, ShortTextScoringMode } from './enums/quiz-question-category.enum';
 import { ContentStatus } from '../common/enums/content-status.enum';
 import { UserRole } from '../common/enums/user-role.enum';
+import { ProfileRelationsClient } from '../common/clients/profile-relations.client';
 
 const CREATOR_ROLES = [
   UserRole.FORMATEUR,
@@ -72,6 +74,8 @@ export class QuizzesService {
 
     @InjectRepository(QuizQuestion)
     private readonly quizQuestionRepository: Repository<QuizQuestion>,
+
+    private readonly profileRelationsClient: ProfileRelationsClient,
   ) {}
 
   private isAdminRole(role: string): boolean {
@@ -259,6 +263,68 @@ export class QuizzesService {
   }
 
   // ───────────────────────────────────────────────────────────────────────
+  // Édition — réservée à l'auteur (arbitrage du 2026-08-28)
+  // ───────────────────────────────────────────────────────────────────────
+
+  async update(
+    quizId: string,
+    updateQuizDto: UpdateQuizDto,
+    callerId: string,
+    callerRole: string,
+  ): Promise<PublicQuizDetail> {
+    // Pas de `relations: ['questions']` ici : les questions existantes sont
+    // remplacées intégralement plus bas (delete + recréation), les charger
+    // ferait persister un tableau d'entités déjà supprimées lors du
+    // `quizRepository.save(quiz)` final (TypeORM tente alors de les mettre à
+    // jour et échoue, `quizId` étant devenu orphelin — bug constaté en HTTP
+    // direct pendant la vérification de ce chantier).
+    const quiz = await this.quizRepository.findOne({ where: { id: quizId } });
+    if (!quiz) {
+      throw new NotFoundException(`Quizz ${quizId} introuvable`);
+    }
+
+    if (quiz.authorId !== callerId) {
+      throw new ForbiddenException('Seul l\'auteur peut modifier ce quizz');
+    }
+
+    if (!updateQuizDto.questions || updateQuizDto.questions.length === 0) {
+      throw new BadRequestException('Un quizz doit contenir au moins une question');
+    }
+    updateQuizDto.questions.forEach((question, index) => this.validateQuestionDto(question, index));
+
+    quiz.title = updateQuizDto.title;
+    quiz.description = updateQuizDto.description;
+    quiz.tags = updateQuizDto.tags ?? [];
+    quiz.defaultPoints = updateQuizDto.defaultPoints ?? 1;
+    quiz.penaltyEnabled = updateQuizDto.penaltyEnabled ?? false;
+    quiz.penaltyPoints = updateQuizDto.penaltyPoints;
+
+    // Effet sur le statut (arbitrage du 2026-08-28, point 2) : un auteur
+    // formateur repasse systématiquement en revue — modifier un contenu déjà
+    // validé sans nouvelle revue viderait la validation de son sens, et un
+    // quizz pending_validation/rejected reste ou redevient pending_validation.
+    // Un auteur AP/RP ne change jamais le statut : il est déjà son propre
+    // validateur, une revue supplémentaire n'aurait pas de sens.
+    if (quiz.authorRole === UserRole.FORMATEUR) {
+      quiz.status = ContentStatus.PENDING_VALIDATION;
+    }
+
+    // Remplacement intégral des questions : on ne tente pas de faire
+    // correspondre les anciennes aux nouvelles (pas d'identité stable côté
+    // client), la même approche que la création.
+    await this.quizQuestionRepository.delete({ quizId });
+    const questionEntities = updateQuizDto.questions.map((question, index) =>
+      this.buildQuestionEntity(question, index, quizId),
+    );
+    const savedQuestions = await this.quizQuestionRepository.save(questionEntities);
+
+    const savedQuiz = await this.quizRepository.save(quiz);
+    savedQuiz.questions = savedQuestions;
+
+    return this.toPublicDetail(savedQuiz);
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
   // Lecture / recherche
   // ───────────────────────────────────────────────────────────────────────
 
@@ -273,7 +339,12 @@ export class QuizzesService {
 
     const qb = this.quizRepository.createQueryBuilder('quiz');
 
-    if (!this.isAdminRole(callerRole)) {
+    if (searchParams.mine) {
+      // Tous les quizz de l'appelant, tous statuts confondus (y compris
+      // rejected) — point d'entrée manquant pour retrouver, éditer et
+      // resoumettre ses propres créations (arbitrage du 2026-08-28).
+      qb.andWhere('quiz.authorId = :callerId', { callerId });
+    } else if (!this.isAdminRole(callerRole)) {
       // Un quizz non validé reste invisible aux autres, sauf à son auteur
       qb.andWhere('(quiz.status = :validated OR quiz.authorId = :callerId)', {
         validated: ContentStatus.VALIDATED,
@@ -315,12 +386,40 @@ export class QuizzesService {
   }
 
   async getPendingValidation(
+    callerId: string,
     callerRole: string,
     page = 1,
     limit = 20,
   ): Promise<{ items: PublicQuizSummary[]; total: number }> {
     if (!VALIDATOR_ROLES.includes(callerRole as UserRole)) {
       throw new ForbiddenException('Seuls les AP et RP peuvent consulter les quizz en attente de validation');
+    }
+
+    // Un AP ne voit que les quizz des formateurs qu'il anime (arbitrage du
+    // 2026-08-28) ; le RP reste sans restriction (rôle administratif).
+    if (callerRole === UserRole.ANIMATEUR_PEDAGOGIQUE) {
+      const allPending = await this.quizRepository.find({
+        where: { status: ContentStatus.PENDING_VALIDATION },
+        order: { createdAt: 'ASC' },
+      });
+
+      const authorIds = [...new Set(allPending.map((quiz) => quiz.authorId))];
+      const allowedAuthorIds = new Set<string>();
+      await Promise.all(
+        authorIds.map(async (authorId) => {
+          const hasRelation = await this.profileRelationsClient.hasAnimatorOfTeacherRelation(callerId, authorId);
+          if (hasRelation) {
+            allowedAuthorIds.add(authorId);
+          }
+        }),
+      );
+
+      const scoped = allPending.filter((quiz) => allowedAuthorIds.has(quiz.authorId));
+      const total = scoped.length;
+      const skip = (page - 1) * limit;
+      const items = scoped.slice(skip, skip + limit);
+
+      return { items: items.map((quiz) => this.toPublicSummary(quiz)), total };
     }
 
     const skip = (page - 1) * limit;

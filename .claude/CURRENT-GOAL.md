@@ -29,24 +29,36 @@ Différence notable avec le modèle "évaluation" déjà arbitré (solution jama
 demandée après coup) : ici la notation est **automatique et immédiate** à la fin du Quizz — pas de
 correction humaine à la demande.
 
-## État — architecture tranchée (2026-08-28), délégation en cours
+## État — 2 PR backend ouvertes, alignement sur la précision "notation par item" en cours
 
 Répartition actée par l'utilisateur puis complétée par l'orchestrateur, persistée dans
-`docs/architecture.md` (branche `docs/quizz-arbitrage`, PR à ouvrir) :
+`docs/architecture.md` (mergé, PR #150 puis précision #153) :
 - `content-catalog-service` : création/définition du Quizz (questions, catégories de question,
   solution, barème global/individuel, pénalités, tags, statut de validation AP/RP).
+  → **PR #152 ouverte** (`feat/quiz-definition`), non mergée.
 - `learning-activity-service` : **inscription, passage (soumission des réponses) ET historique**
-  des Quizz — les trois dans le même service, pour garder une tentative comme un agrégat unique
-  (décision de l'orchestrateur, motivée par la simplicité de code demandée par l'utilisateur : pas
-  de machine à états partagée entre deux services). Ce découpage s'appliquera aussi aux exercices
-  et évaluations plus tard (règle générale actée).
-- Notation : `learning-activity-service` appelle une route interne de `content-catalog-service`
-  (`POST /internal/quizzes/:quizId/grade`, protégée `X-Internal-Secret`) pour obtenir le score sans
-  jamais faire transiter la solution. Contrat détaillé dans `docs/architecture.md`.
+  des Quizz — les trois dans le même service, pour garder une tentative comme un agrégat unique.
+  → **PR #151 ouverte** (`feat/quiz-attempts`), non mergée.
+- Notation : `learning-activity-service` appelle `POST /internal/quizzes/:quizId/grade` de
+  `content-catalog-service` (protégée `X-Internal-Secret`) pour obtenir le score sans jamais faire
+  transiter la solution. Contrat détaillé dans `docs/architecture.md`.
 
-Prochaine étape : déléguer en parallèle à `content-catalog-service` et `learning-activity-service`
-avec le contrat interne déjà fixé, puis `front-developper` pour la création/recherche/passage côté
-UI une fois les deux back prêts.
+Pendant l'implémentation de la PR #152, un blanc de la spécification est apparu (répartition du
+barème par item pour choix multiples/texte court, interaction avec la pénalité, plancher à zéro ou
+non). Tranché par l'orchestrateur le 2026-08-28 et persisté dans `docs/architecture.md` (point 10
+de la section Quizz) : répartition à parts égales entre items, pénalité au même niveau que le
+barème choisi (jamais cumulée), score de question ou de quizz pouvant devenir négatif, aucun
+plancher à zéro.
+
+**En cours** : deux subagents lancés en parallèle pour réconcilier ce point avec le code déjà
+écrit — `content-catalog-service` (corrige/confirme la logique de notation dans PR #152) et
+`learning-activity-service` (vérifie qu'aucune validation ne rejette/plafonne un score négatif
+transmis par la route de notation, dans PR #151). Aucun des deux n'a encore rapporté.
+
+Prochaine étape après leur retour : merger les deux PR (si conformes), puis déléguer à
+`front-developper` pour la création/recherche/passage côté UI. Preuve e2e contre la pile réelle
+requise avant de considérer le chantier Quizz terminé (aucune des deux PR n'en fournit une
+aujourd'hui — seuls des tests unitaires).
 
 <details>
 <summary>Archive — besoin du 2026-08-28, carnet personnel admin/parent (clos)</summary>

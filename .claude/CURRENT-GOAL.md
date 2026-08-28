@@ -5,17 +5,31 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
-## Aucun objectif actif
+## Besoin — 2026-08-28 — Accès admin/parent au carnet personnel, paramétrable par le TI
 
-Dernier besoin traité — **2026-08-27/28 — Révision des menus latéraux par rôle + carnet personnel
-généralisé** : terminé et validé le 2026-08-28. PR #143 (doc), #144 (backend, contrat notes
-rapides immuables) et #142 (front, 4 rails + carnet branché) mergées dans `master` dans cet ordre,
-`pedagogical-log-service` et `frontend` reconstruits et redéployés ensemble. Preuve rejouée contre
-`https://claudevma.visioprof.fr` **après** ce redéploiement (5/5 tests du script
-`apps/web/e2e/proof-menus-lateraux-2026-08-27.spec.ts`) : les 4 rails par rôle correspondent à la
-demande, le carnet personnel fonctionne sur le nouveau contrat (`from`/`to`/`q`, sans édition).
-Consolidation du groupe « Suivi » AP en un seul groupe (plutôt qu'un doublon de libellé) confirmée
-par l'utilisateur.
+Demande explicite de l'utilisateur : ouvrir un accès en **lecture seule** au carnet personnel
+(par défaut strictement privé au titulaire) via un réglage TI désactivé par défaut, à deux axes
+indépendants — confirmés par l'utilisateur ("oui") après clarification en prose :
+1. **Axe administratif**, curseur hiérarchique : `Non` (défaut) / `RP` / `Tous les administrateurs`
+   (RP+AF+TI).
+2. **Axe parental**, case indépendante : `Parents sur son enfant` (défaut `Non`) — un parent
+   financeur lit le carnet du/des élève(s) auquel il est activement rattaché, rien d'autre.
+
+Arbitrage persisté dans `docs/architecture.md` (PR #145, mergée) — révise explicitement
+l'arbitrage du 2026-08-27 qui posait le carnet personnel comme exception totale sans dérogation.
+Points actés : lecture seule sans exception, contrôle à chaque lecture (jamais en cache), pas de
+nouveau menu (sections conditionnelles sur des écrans existants — fiche profil pour RP/AF/TI, vue
+élève déjà accessible au parent), réglage intégré à l'écran "Paramètres système" existant côté
+`pedagogical-log-service`.
+
+## État
+- Implémentation déléguée en parallèle le 2026-08-28 : `pedagogical-log-service` (réglages
+  `GET/PATCH .../settings/notebook-access` + route de lecture du carnet d'un tiers) et
+  `front-developper` (section Paramètres système TI + sections de consultation en lecture seule,
+  sans nouveau menu). Le front a été explicitement chargé de vérifier le contrat réel du backend
+  avant de coder dessus plutôt que de le deviner en parallèle.
+- Aucune preuve contre la pile réelle encore produite — à obtenir avant de considérer terminé,
+  comme pour le chantier précédent.
 
 <details>
 <summary>Archive — besoin du 2026-08-27 (clos)</summary>

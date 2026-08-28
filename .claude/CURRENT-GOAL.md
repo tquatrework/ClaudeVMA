@@ -29,20 +29,24 @@ Différence notable avec le modèle "évaluation" déjà arbitré (solution jama
 demandée après coup) : ici la notation est **automatique et immédiate** à la fin du Quizz — pas de
 correction humaine à la demande.
 
-## Aucun objectif actif — question d'architecture à trancher avant délégation
+## État — architecture tranchée (2026-08-28), délégation en cours
 
-Candidats naturels d'après `docs/architecture.md`/`docs/microservices.md` :
-- `content-catalog-service` : "Exercices, evaluations, tutos-videos, validation et moderation
-  pedagogique" — porterait la définition du Quizz (questions, solution, barème, tags, workflow de
-  validation AP/RP), sur le même schéma que les évaluations.
-- `learning-activity-service` : "Reponses, corrections, scores, points pedagogiques" — porterait
-  la prise du Quizz par un utilisateur (réponses soumises, calcul du score, historique).
+Répartition actée par l'utilisateur puis complétée par l'orchestrateur, persistée dans
+`docs/architecture.md` (branche `docs/quizz-arbitrage`, PR à ouvrir) :
+- `content-catalog-service` : création/définition du Quizz (questions, catégories de question,
+  solution, barème global/individuel, pénalités, tags, statut de validation AP/RP).
+- `learning-activity-service` : **inscription, passage (soumission des réponses) ET historique**
+  des Quizz — les trois dans le même service, pour garder une tentative comme un agrégat unique
+  (décision de l'orchestrateur, motivée par la simplicité de code demandée par l'utilisateur : pas
+  de machine à états partagée entre deux services). Ce découpage s'appliquera aussi aux exercices
+  et évaluations plus tard (règle générale actée).
+- Notation : `learning-activity-service` appelle une route interne de `content-catalog-service`
+  (`POST /internal/quizzes/:quizId/grade`, protégée `X-Internal-Secret`) pour obtenir le score sans
+  jamais faire transiter la solution. Contrat détaillé dans `docs/architecture.md`.
 
-Point non tranché : le calcul du score a besoin de la solution, qui ne doit jamais transiter vers
-le front ni être dupliquée hors de son propriétaire. Cela pousse vers une route interne de
-notation exposée par le service propriétaire de la solution, appelée par le service qui gère la
-tentative — sur le modèle des routes `/internal/*` déjà en place ailleurs dans le projet. À
-soumettre à l'utilisateur en prose avant toute délégation, pas encore fait.
+Prochaine étape : déléguer en parallèle à `content-catalog-service` et `learning-activity-service`
+avec le contrat interne déjà fixé, puis `front-developper` pour la création/recherche/passage côté
+UI une fois les deux back prêts.
 
 <details>
 <summary>Archive — besoin du 2026-08-28, carnet personnel admin/parent (clos)</summary>

@@ -29,36 +29,38 @@ Différence notable avec le modèle "évaluation" déjà arbitré (solution jama
 demandée après coup) : ici la notation est **automatique et immédiate** à la fin du Quizz — pas de
 correction humaine à la demande.
 
-## État — 2 PR backend ouvertes, alignement sur la précision "notation par item" en cours
+## État — backend mergé et redéployé, UI front en cours de construction
 
-Répartition actée par l'utilisateur puis complétée par l'orchestrateur, persistée dans
-`docs/architecture.md` (mergé, PR #150 puis précision #153) :
-- `content-catalog-service` : création/définition du Quizz (questions, catégories de question,
-  solution, barème global/individuel, pénalités, tags, statut de validation AP/RP).
-  → **PR #152 ouverte** (`feat/quiz-definition`), non mergée.
-- `learning-activity-service` : **inscription, passage (soumission des réponses) ET historique**
-  des Quizz — les trois dans le même service, pour garder une tentative comme un agrégat unique.
-  → **PR #151 ouverte** (`feat/quiz-attempts`), non mergée.
-- Notation : `learning-activity-service` appelle `POST /internal/quizzes/:quizId/grade` de
-  `content-catalog-service` (protégée `X-Internal-Secret`) pour obtenir le score sans jamais faire
-  transiter la solution. Contrat détaillé dans `docs/architecture.md`.
+Backend terminé, mergé dans `master` et redéployé (2026-08-28) :
+- `content-catalog-service` : création/définition/recherche/validation du Quizz — PR #152 mergée.
+  Un bug réel a été trouvé et corrigé pendant l'alignement sur la précision "notation par item"
+  (point 10 de `docs/architecture.md`, section Quizz) : le barème `per_option` se répartissait sur
+  le nombre total d'options au lieu des seules options correctes.
+- `learning-activity-service` : inscription, passage, historique — PR #151 mergée, déjà conforme
+  (score négatif non plafonné, confirmé par tests ajoutés).
+- `#155` (fix front, menu "Quizz" en tête du groupe "Contenus" pour professeur) mergée aussi.
+- Les 3 services (`content-catalog-service`, `learning-activity-service`, `frontend`) ont été
+  reconstruits et redéployés ; `/health` vérifié sur les deux backends, route `/quizzes` confirmée
+  protégée (401 sans JWT) contre la pile réelle.
 
-Pendant l'implémentation de la PR #152, un blanc de la spécification est apparu (répartition du
-barème par item pour choix multiples/texte court, interaction avec la pénalité, plancher à zéro ou
-non). Tranché par l'orchestrateur le 2026-08-28 et persisté dans `docs/architecture.md` (point 10
-de la section Quizz) : répartition à parts égales entre items, pénalité au même niveau que le
-barème choisi (jamais cumulée), score de question ou de quizz pouvant devenir négatif, aucun
-plancher à zéro.
+**Constat utilisateur du 2026-08-28, après vérification à l'écran** : le menu "Quizz" affiche
+encore un placeholder ("bientôt disponible") — attendu, car aucune UI de création/recherche/passage
+n'existait avant cette étape. C'est le point normal d'avancement, pas une régression.
 
-**En cours** : deux subagents lancés en parallèle pour réconcilier ce point avec le code déjà
-écrit — `content-catalog-service` (corrige/confirme la logique de notation dans PR #152) et
-`learning-activity-service` (vérifie qu'aucune validation ne rejette/plafonne un score négatif
-transmis par la route de notation, dans PR #151). Aucun des deux n'a encore rapporté.
+**En cours** : `front-developper` construit, sur une nouvelle branche `feat/quizz-ui` :
+1. Écran de recherche/visualisation des quizz existants (par tag/mot-clé) + passage d'un quizz
+   (réponse selon les 3 catégories de question, soumission, score affiché sans plancher à zéro).
+2. Formulaire de création complète (RP/AP/professeur) : titre, tags, barème/pénalité globaux et
+   par question, questions des 3 catégories.
+3. Historique personnel des tentatives notées.
+4. Pour AP/RP : liste des quizz en attente de validation + décision, en réutilisant le mécanisme
+   de validation générique déjà en place pour les autres types de contenu.
 
-Prochaine étape après leur retour : merger les deux PR (si conformes), puis déléguer à
-`front-developper` pour la création/recherche/passage côté UI. Preuve e2e contre la pile réelle
-requise avant de considérer le chantier Quizz terminé (aucune des deux PR n'en fournit une
-aujourd'hui — seuls des tests unitaires).
+Contrat API détaillé transmis à l'agent (routes, DTO, codes d'erreur) — voir le prompt de
+délégation dans la session si besoin de le retrouver ; sinon `docs/routes.md` (section Quizz) fait
+autorité. Preuve attendue avant de considérer le chantier terminé : script(s) Playwright ou
+capture(s) d'écran contre `https://claudevma.visioprof.fr`, couvrant recherche + création +
+passage avec score affiché. Aucun retour de l'agent pour l'instant.
 
 <details>
 <summary>Archive — besoin du 2026-08-28, carnet personnel admin/parent (clos)</summary>

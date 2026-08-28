@@ -41,6 +41,21 @@ lit pas le code des services) :
 ## État
 - Investigation + implémentation déléguées à `front-developper` (menus, 4 rôles) et
   `pedagogical-log-service` (généralisation carnet personnel) en parallèle, le 2026-08-27.
+- PR #140 (carnet personnel généralisé), #139 (doc) et #141 (comptes de test) mergées dans
+  `master` sur validation explicite de l'utilisateur.
+- PR #142 (front, 4 menus + branchement carnet personnel généralisé) ouverte, non mergée — preuve
+  visuelle envoyée à l'utilisateur (4 captures d'écran, script `apps/web/e2e/proof-menus-lateraux-2026-08-27.spec.ts`,
+  joué contre la pile réelle), en attente de sa confirmation avant merge.
+- **Retour utilisateur du 2026-08-27, après vérification visuelle** : le carnet personnel généralisé
+  « n'a pas l'air vraiment actif » — clarification du concept réel obtenue et persistée dans
+  `docs/architecture.md` (« Specification fonctionnelle reelle du carnet personnel », PR #143,
+  ouverte) : ce sont des **notes rapides horodatées automatiquement, immuables** (suppression
+  possible, **édition retirée** — le `PATCH .../notebook/:id` livré par PR #140 doit être retiré),
+  retrouvées par **recherche** (date ou mot), pas par simple liste. **Reste à déléguer** :
+  `pedagogical-log-service` (nouvelle branche depuis `master`, PR #140 déjà mergée — retirer PATCH,
+  ajouter filtre de recherche `date?`/`q?` sur `GET /pedagogical-logs/notebook`) et
+  `front-developper` (continuer sur `feat/menus-lateraux-par-role`, PR #142 encore ouverte — UI de
+  saisie rapide + liste avec date + suppression + recherche, sans aucune UI d'édition).
 - 5 branches non fusionnées signalées à l'utilisateur avant de démarrer (hors périmètre de cette
-  tâche) : `chore/provision-internal-test-accounts`, `feat/front-reprise-candidature-formateur`,
-  `feat/reprise-candidature-formateur`, deux worktrees d'agents résiduels.
+  tâche) : `feat/front-reprise-candidature-formateur`, `feat/reprise-candidature-formateur`, plus
+  les worktrees d'agents en cours.

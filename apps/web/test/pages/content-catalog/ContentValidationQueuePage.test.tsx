@@ -16,6 +16,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../../../src/hooks/useAuth')
 vi.mock('../../../src/api/contentCatalog')
+vi.mock('../../../src/api/quizzes')
 
 import { useAuth } from '../../../src/hooks/useAuth'
 import {
@@ -23,6 +24,7 @@ import {
   fetchEvaluations,
   fetchTutorials,
 } from '../../../src/api/contentCatalog'
+import { fetchPendingQuizzes, decideQuizValidation } from '../../../src/api/quizzes'
 import ContentValidationQueuePage from '../../../src/pages/ContentValidationQueuePage'
 import type { Exercise } from '../../../src/api/contentCatalog'
 
@@ -30,6 +32,8 @@ const mockUseAuth = vi.mocked(useAuth)
 const mockFetchExercises = vi.mocked(fetchExercises)
 const mockFetchEvaluations = vi.mocked(fetchEvaluations)
 const mockFetchTutorials = vi.mocked(fetchTutorials)
+const mockFetchPendingQuizzes = vi.mocked(fetchPendingQuizzes)
+const mockDecideQuizValidation = vi.mocked(decideQuizValidation)
 
 const STUDENT_USER = {
   id: 'student-1',
@@ -93,6 +97,8 @@ beforeEach(() => {
   mockFetchExercises.mockResolvedValue([])
   mockFetchEvaluations.mockResolvedValue([])
   mockFetchTutorials.mockResolvedValue([])
+  mockFetchPendingQuizzes.mockResolvedValue({ items: [], total: 0 })
+  mockDecideQuizValidation.mockResolvedValue(undefined)
 })
 
 describe('ContentValidationQueuePage', () => {
@@ -170,6 +176,51 @@ describe('ContentValidationQueuePage', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Impossible de charger les contenus en attente/)).toBeDefined()
+    })
+  })
+
+  it("l'échec du chargement des quizz n'empêche pas d'afficher les autres contenus", async () => {
+    mockFetchExercises.mockResolvedValue([PENDING_EXERCISE])
+    mockFetchPendingQuizzes.mockRejectedValue(new Error('Server error'))
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Exercice en attente de validation')).toBeDefined()
+      expect(screen.getByText(/Impossible de charger les quizz en attente/)).toBeDefined()
+    })
+  })
+
+  it('valider un quizz appelle decideQuizValidation et affiche un feedback', async () => {
+    mockFetchPendingQuizzes.mockResolvedValue({
+      items: [
+        {
+          id: 'quiz-1',
+          title: 'Quiz en attente',
+          description: 'Un quiz',
+          tags: [],
+          status: 'pending_validation',
+          authorId: 'teacher-1',
+          authorRole: 'formateur',
+          defaultPoints: 1,
+          penaltyEnabled: false,
+          penaltyPoints: 0,
+          createdAt: '2026-06-15T08:00:00Z',
+          updatedAt: '2026-06-15T08:00:00Z',
+        },
+      ],
+      total: 1,
+    })
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(/Quizz \(1\)/)).toBeDefined()
+    })
+    await userEvent.click(screen.getByRole('button', { name: /Quizz \(1\)/ }))
+    await userEvent.click(screen.getByRole('button', { name: /valider/i }))
+
+    await waitFor(() => {
+      expect(mockDecideQuizValidation).toHaveBeenCalledWith('quiz-1', 'approve', undefined)
+      expect(screen.getByText(/Quizz validé avec succès/)).toBeDefined()
     })
   })
 })

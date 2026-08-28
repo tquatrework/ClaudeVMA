@@ -170,9 +170,9 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
       groupLabel: 'Contenus',
       items: [
         // 'Quizz' ajouté en première position le 2026-08-27 (demande explicite
-        // utilisateur) : aucun backend de quiz n'existe encore
-        // (content-catalog-service, phase 3) — QuizzPage affiche un état
-        // « à venir » explicite, sans appel API (voir le composant).
+        // utilisateur), branché sur la pile réelle le 2026-08-28
+        // (content-catalog-service PR #152, learning-activity-service PR #151) —
+        // recherche, passage et historique, voir QuizzPage/QuizDetailPage.
         { label: 'Quizz', path: '/content/quizz', icon: '❓' },
         { label: 'Exercices', path: '/content/exercises', icon: '📐' },
         { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
@@ -242,8 +242,8 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
         // explicite utilisateur, correctif de positionnement) : ajouté en
         // dernière position le 2026-08-27 faute de consigne d'ordre explicite
         // pour ce rôle, alors que la règle posée pour l'élève le même jour
-        // était déjà « Quizz en première position du groupe Contenus ». Même
-        // état « à venir » que côté élève, voir QuizzPage.
+        // était déjà « Quizz en première position du groupe Contenus ». Branché
+        // sur la pile réelle le 2026-08-28, voir QuizzPage/QuizDetailPage.
         { label: 'Quizz', path: '/content/quizz', icon: '❓' },
         { label: 'Exercices', path: '/content/exercises', icon: '📐' },
         { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
@@ -288,6 +288,12 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
         { label: 'Archives', path: '/archives', icon: '🗂️' },
         { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
         { label: 'Forums', path: '/community/forums', icon: '💬' },
+        // 'Quizz' ajouté le 2026-08-28 : le RP est un créateur autorisé
+        // (docs/architecture.md > « Fonctionnalite Quizz »), auto-validé à la
+        // création — sans cette entrée il n'aurait aucun moyen d'atteindre le
+        // formulaire de création. La file de validation des quizz créés par
+        // les professeurs reste accessible via « Contenus à valider » ci-dessous.
+        { label: 'Quizz', path: '/content/quizz', icon: '❓' },
       ],
     },
     {
@@ -326,6 +332,10 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
     {
       groupLabel: 'Mes contenus',
       items: [
+        // 'Quizz' ajouté le 2026-08-28 : l'AP est un créateur autorisé
+        // (docs/architecture.md > « Fonctionnalite Quizz »), auto-validé à la
+        // création, comme le RP.
+        { label: 'Quizz', path: '/content/quizz', icon: '❓' },
         { label: 'Exercices', path: '/content/exercises', icon: '📐' },
         { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
         { label: 'Tutoriels vidéo', path: '/content/tutorials', icon: '🎬' },

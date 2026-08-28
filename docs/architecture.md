@@ -1074,6 +1074,28 @@ Phase 3 enrichit l'offre :
   regle de validation cote serveur ne doit rejeter les caracteres `$`/`\` propres a LaTeX dans ces
   champs — a verifier et corriger si un DTO existant s'y oppose deja.
 
+- Lecture de sa propre solution par l'auteur d'un Quizz, et de son propre motif de refus. Arbitrage
+  rendu le 2026-08-28, sur constat du subagent front-developper en construisant l'ecran d'edition :
+  aucune route ne renvoie la solution a l'auteur, qui doit donc re-cocher les bonnes reponses et
+  ressaisir les mots-cles a chaque edition ; et `GET /validations/quiz/:id/history` renvoie `403`
+  a l'auteur formateur, qui ne peut donc jamais relire le commentaire de son propre refus.
+  1. **La regle "jamais la solution" protege les eleves, pas l'auteur de son propre contenu.**
+     L'arbitrage initial ("jamais la solution... y compris pour l'auteur") visait a empecher une
+     fuite vers qui passe le Quizz, pas a aveugler celui qui l'a ecrit sur ce qu'il vient
+     d'ecrire — aucun autre endroit du projet n'applique une regle de ce type a son propre auteur.
+     `GET /quizzes/:id` reste **inchangee** (jamais la solution, quel que soit l'appelant, c'est la
+     route publique de consultation/passage) ; un moyen distinct doit exposer la solution, reserve
+     a l'auteur et aux AP/RP/TI (memes roles que ceux qui voient deja un Quizz non valide) — forme
+     exacte (route separee, ou parametre sur la route existante limite a ces roles) laissee a
+     l'appreciation de `content-catalog-service`.
+  2. **`GET /validations/quiz/:id/history` doit s'ouvrir a l'auteur du contenu vise**, en plus des
+     AP/RP qui y ont deja acces — meme principe que partout ailleurs dans ce projet ("l'utilisateur
+     lit ses propres donnees", 2026-08-07 et suivants). Cette route est partagee par les 4 types de
+     contenu du flux de validation generique ; verifier si l'ouverture a l'auteur doit se limiter au
+     Quizz ou vaut pour les 4 (exercice/evaluation/tutoriel/quizz) — a l'appreciation de
+     `content-catalog-service`, en corrigeant dans le sens le plus coherent avec le code deja en
+     place plutot qu'en ajoutant une exception specifique au Quizz si le mecanisme est partage.
+
 ## Points ouverts a arbitrer
 
 - `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a

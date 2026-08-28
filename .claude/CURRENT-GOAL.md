@@ -5,10 +5,31 @@
 > Il contient le **besoin métier**, pas l'état technique — celui-ci se relit dans git.
 > Une seule entrée à la fois. Tenu à jour pendant le travail, pas à la fin.
 
-## Besoin courant
+## Besoin — 2026-08-28 — Écran de validation Quizz introuvable pour RP/AP
 
-Aucun — les 5 retours Quizz post-production, plus un 6e retour sur l'affordance de saisie de
-formule, sont clos, voir l'archive ci-dessous. En attente du prochain besoin de l'utilisateur.
+L'utilisateur ne trouve toujours pas où un RP ou un AP valide un Quizz. Vérifié par
+l'orchestrateur en HTTP direct contre `https://claudevma.visioprof.fr` avant délégation — **la
+logique métier est intégralement correcte et déjà déployée** (AP lié voit et valide, AP non lié
+voit une liste vide et se voit refuser en `403`, quizz validé visible par tous sans relation).
+Donc un problème de **navigation/découvrabilité front** uniquement : les tests précédents
+accédaient toujours à l'écran par URL directe (`page.goto`), jamais par un clic depuis un menu —
+signe probable qu'aucun lien n'y mène réellement pour RP/AP.
+
+Comptes de test créés pour vérifier ce point (existent sur la pile réelle) :
+- AP lié à `e2e.quizprof.1787932490` (relation `animator_of_teacher` créée) :
+  `e2e.relatedap.1787957050` / `E2eTest!2026`
+- AP non lié : `e2e.unrelatedap.1787957050` / `E2eTest!2026`
+
+**Autorisation explicite donnée** à `front-developper` d'ajouter un lien de navigation vers l'écran
+de validation pour RP/AP si aucun n'existe — dérogation à la règle "jamais de menu sans
+approbation", l'utilisateur demandant lui-même cette découvrabilité.
+
+## État — délégué à front-developper, aucun retour pour l'instant
+
+## Besoin courant (suivant, une fois ci-dessus clos)
+
+Aucun autre — les 5 retours Quizz post-production initiaux, plus un 6e retour sur l'affordance de
+saisie de formule, sont clos, voir l'archive ci-dessous.
 
 <details>
 <summary>Archive — besoin du 2026-08-28, affordance de saisie de formule Quizz (clos)</summary>

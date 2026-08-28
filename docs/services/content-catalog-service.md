@@ -299,6 +299,73 @@
           </point>
         </openPoints>
       </session>
+
+      <session date="2026-08-28" label="Correction de 2 bugs Quizz signales par le test HTTP du front-developer (branche fix/quiz-validation-bugs)">
+        <objective>
+          Corriger 2 bugs reels trouves par le subagent front-developer en testant le flow Quizz
+          en HTTP direct contre le conteneur reel (PR #152 mergee, redeployee), remontes par
+          l'orchestrateur.
+        </objective>
+        <prLink>https://github.com/tquatrework/ClaudeVMA/pull/160 (ouverte, non mergee)</prLink>
+        <bugsFixed>
+          <bug id="1" route="GET /quizzes/pending-validation">
+            500 quand page/limit absents de la query (confirme par reproduction HTTP directe :
+            "TypeORMError: Provided \"skip\" value is not a number."). Cause : le ValidationPipe
+            global (transform: true) convertit un Number primitif absent en NaN (+undefined), pas
+            en undefined, pour un parametre @Query('page') declare individuellement sans DTO — les
+            valeurs par defaut du service (page = 1, limit = 20) ne s'appliquent qu'a undefined
+            strict, jamais a NaN. Corrige par une nouvelle DTO PendingValidationQueryDto
+            (src/quizzes/dto/pending-validation-query.dto.ts), meme schema que SearchQuizDto deja
+            utilisee par GET /quizzes (qui n'avait pas ce bug precisement parce qu'elle passe deja
+            par une DTO).
+          </bug>
+          <bug id="2" route="POST /validations/:type/:id/decision (dont /validations/quiz/:id/decision)">
+            Message d'erreur a enumeration vide pour toute decision invalide
+            ("decision must be one of the following values: "). Cause : @IsEnum([tableau
+            litteral]) dans ValidateContentDto — class-validator filtre les cles numeriques d'un
+            tableau (mecanisme pense pour ignorer le mapping inverse des enums TS numeriques),
+            videant la liste affichee. La validation elle-meme acceptait deja correctement
+            'validated'/'rejected' (confirme par 2 appels HTTP reussis avant toute correction) :
+            seul le message d'erreur etait vide. Bug pre-existant depuis le tout premier commit du
+            service, partage par les 4 types de contenu (exercise/evaluation/tutorial/quiz), pas
+            une regression de PR #152. Corrige par @IsIn([...]) a la place de @IsEnum([...]).
+          </bug>
+        </bugsFixed>
+        <technicalDecisions>
+          <decision>
+            Le bug 2 n'est pas specifique au Quizz : la correction (@IsIn au lieu de @IsEnum) porte
+            sur ValidateContentDto, partagee par les 4 types de contenu — corrige une fois pour
+            tous, sans elargir le perimetre demande a d'autres routes.
+          </decision>
+          <decision>
+            Preuve HTTP produite contre le conteneur reel redeploye (pas seulement des tests
+            unitaires), conformement a la regle du projet sur la definition de "termine" :
+            conteneur reconstruit via `docker build` depuis le worktree corrige, retague
+            claudevma-content-catalog-service:latest, recree en place (stop/rm/run) avec les memes
+            variables d'environnement, meme reseau et alias, meme politique de redemarrage.
+          </decision>
+        </technicalDecisions>
+        <verification>
+          <item>2 nouveaux fichiers de tests unitaires reproduisant chaque bug avant correction
+            (mecanisme ValidationPipe pour le bug 1, message class-validator pour le bug 2), puis
+            prouvant la correction : test/unit/quizzes/pending-validation-query.dto.spec.ts et
+            test/unit/validations/validate-content.dto.spec.ts.</item>
+          <item>`npm test` : 182/182 tests verts, 15 suites (169 precedents + 13 nouveaux).</item>
+          <item>`npm run build` : 0 erreur.</item>
+          <item>Preuve HTTP directe contre le conteneur redeploye, avant/apres correctif : voir
+            tableau dans .claude/reports/content-catalog-service-2026-08-28.md, session 2.</item>
+        </verification>
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <point>
+            Le symptome rapporte par le front ("refuse systematiquement toute valeur de decision")
+            etait plus fort que le defaut reel constate ('validated'/'rejected' fonctionnaient deja
+            avant correction) — le message d'erreur vide sur une valeur invalide en est
+            l'explication la plus probable, mais la sequence exacte de test qui a produit ce
+            diagnostic n'a pas pu etre confirmee.
+          </point>
+        </openPoints>
+      </session>
     </technicalImplementation>
   </service>
 </serviceFunctionalSpecification>

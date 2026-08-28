@@ -144,3 +144,121 @@ En plus de `feat/quiz-definition` (cette tâche, PR #152 ouverte) :
 - `/home/debian/Documents/claudeVMA/.claude/worktrees/agent-a2f6969a015e765b5/services/content-catalog-service/test/unit/quizzes/`, `test/unit/common/internal-secret.guard.spec.ts`, `test/unit/validations/validations.service.quiz.spec.ts`
 - `/home/debian/Documents/claudeVMA/.claude/worktrees/agent-a2f6969a015e765b5/docs/routes.md`
 - `/home/debian/Documents/claudeVMA/.claude/worktrees/agent-a2f6969a015e765b5/docs/services/content-catalog-service.md`
+
+---
+
+# Session 2 — correction de 2 bugs signalés après test HTTP par front-developer
+
+Suite au test de bout en bout du flow Quizz par le subagent front-developer contre le
+conteneur réel (PR #152 mergée, redéployée). Deux bugs remontés, tous deux confirmés par
+reproduction HTTP directe contre `visiomath_content_catalog` (bypass du gateway, qui ne
+routait pas encore vers ces endpoints — corrigé en parallèle par `api-gateway`).
+
+Branche : `fix/quiz-validation-bugs`
+PR : https://github.com/tquatrework/ClaudeVMA/pull/160 (ouverte, non mergée)
+
+## Bug 1 — `GET /quizzes/pending-validation` → `500` sans `page`/`limit` en query
+
+**Confirmé par reproduction directe** avant correctif : requête sans query → `500 Internal
+server error` ; log serveur : `TypeORMError: Provided "skip" value is not a number.`
+
+**Cause réelle**, établie en lisant le compiled `dist` et le comportement du
+`ValidationPipe` global de NestJS (`{whitelist: true, transform: true}`) : pour un
+paramètre individuel `@Query('page') page?: number` **sans DTO**, `ValidationPipe`
+appelle `transformPrimitive()`, qui fait `return +value` pour un `metatype === Number` —
+`+undefined` vaut `NaN`, **pas** `undefined`. Les valeurs par défaut de
+`QuizzesService.getPendingValidation(callerRole, page = 1, limit = 20)` ne s'appliquent
+qu'à un argument strictement `undefined` : `NaN !== undefined`, donc les défauts ne
+s'appliquent jamais, `skip`/`take` valent `NaN`, TypeORM lève une erreur non attrapée →
+500. Ceci n'est **pas** spécifique au Quizz : c'est un piège générique de NestJS pour tout
+paramètre `@Query()` scalaire optionnel sans DTO — mais c'est la seule route de ce
+service qui l'avait.
+
+**Correctif** : nouvelle DTO `PendingValidationQueryDto`
+(`src/quizzes/dto/pending-validation-query.dto.ts`), même schéma que `SearchQuizDto`
+(déjà utilisée par `GET /quizzes`, qui n'avait pas ce bug précisément parce qu'elle passe
+déjà par une DTO). Un champ absent d'une DTO reste `undefined` après transformation, il
+n'est jamais coercé en `NaN`. Le contrôleur passe désormais `query.page`/`query.limit` au
+service, sans changement côté service.
+
+## Bug 2 — `POST /validations/quiz/:id/decision` → message d'erreur à énumération vide
+
+**Investigation** : contrairement à l'hypothèse initiale transmise par l'orchestrateur
+("l'ajout de `ContentType.QUIZ` n'a pas correctement branché les décisions valides"), la
+**validation elle-même fonctionnait déjà** pour `'validated'` et `'rejected'` — confirmé
+par 2 appels HTTP directs réussis (`201`) avant même toute correction, sur un quizz réel
+créé puis validé/rejeté par un AP/RP. Le défaut réel, confirmé par reproduction directe
+d'une valeur invalide (`{"decision":"approved"}`) : `400` avec
+`"decision must be one of the following values: "` — **liste vide**, quelle que soit la
+valeur envoyée.
+
+**Cause réelle** : `ValidateContentDto.decision` utilisait
+`@IsEnum([ContentStatus.VALIDATED, ContentStatus.REJECTED])` — un **tableau littéral**
+passé à `@IsEnum`, décorateur prévu pour un véritable objet enum TS/JS. `class-validator`
+construit la liste affichée dans le message via `validEnumValues()`, qui filtre les clés
+dont `isNaN(parseInt(key))` est faux (mécanisme pensé pour ignorer le mapping inverse des
+enums numériques `{0: 'A', 'A': 0}`). Sur un tableau, les clés ('0', '1') sont
+précisément des index numériques et sont donc **toutes filtrées** → liste vide dans le
+message. Bug **pré-existant depuis le tout premier commit du service** (`git log` sur ce
+fichier ne montre qu'un commit), partagé par les 4 types de contenu
+(exercise/evaluation/tutorial/quiz) — pas une régression introduite par PR #152, révélée
+par le test du flow quizz car c'est la première fois que cette route était testée avec
+une valeur de décision invalide.
+
+**Correctif** : `@IsIn([ContentStatus.VALIDATED, ContentStatus.REJECTED])` à la place de
+`@IsEnum([...])` — `IsIn` est prévu pour un tableau de valeurs autorisées et construit son
+message directement à partir du tableau fourni, sans ce filtrage.
+
+## Tests ajoutés
+
+- `test/unit/quizzes/pending-validation-query.dto.spec.ts` : reproduit le mécanisme fautif
+  (`ValidationPipe.transform(undefined, {metatype: Number, type:'query', data:'page'})` →
+  `NaN`), puis prouve que la nouvelle DTO laisse `page`/`limit` `undefined` en absence de
+  query, les convertit correctement quand fournis, et rejette une valeur non numérique ou
+  `page < 1`.
+- `test/unit/validations/validate-content.dto.spec.ts` : prouve qu'un `decision` invalide
+  produit désormais un message listant `validated`/`rejected` (pas vide), et que
+  `'validated'`/`'rejected'` restent acceptés.
+
+`npm test` : **182/182 tests verts, 15 suites** (169 précédents + 13 nouveaux).
+`npm run build` : 0 erreur.
+
+## Preuve HTTP contre la pile réelle (avant/après)
+
+Conteneur reconstruit (`docker build` depuis le worktree corrigé,
+`claudevma-content-catalog-service:latest`) et recréé en place
+(`docker stop/rm/run`, mêmes variables d'environnement, même réseau
+`claudevma_visiomath_network`, mêmes alias, `restart: unless-stopped` préservé).
+
+| Requête | Avant | Après |
+|---|---|---|
+| `GET /quizzes/pending-validation` (sans query) | `500` (`TypeORMError: Provided "skip" value is not a number.`) | `200 {"items":[],"total":0}` |
+| `GET /quizzes/pending-validation?page=1&limit=5` | `200` (déjà OK) | `200` (non-régression) |
+| `POST /validations/quiz/:id/decision` `{"decision":"validated"}` | `201` (déjà OK) | `201` (non-régression) |
+| `POST /validations/quiz/:id/decision` `{"decision":"rejected","comment":"..."}` | `201` (déjà OK) | `201` (non-régression) |
+| `POST /validations/quiz/:id/decision` `{"decision":"rejected"}` (sans commentaire) | `400` "commentaire obligatoire" (déjà OK) | `400` "commentaire obligatoire" (non-régression) |
+| `POST /validations/quiz/:id/decision` `{"decision":"approved"}` (valeur invalide) | `400` `"...values: "` (liste vide) | `400` `"...values: validated, rejected"` |
+
+## Points signalés à l'orchestrateur
+
+1. **Bug 2 n'était pas spécifique au Quizz** : il affecte identiquement
+   `/validations/exercise/:id/decision`, `/validations/evaluation/:id/decision` et
+   `/validations/tutorial/:id/decision` sur toute valeur de décision invalide — corrigé
+   pour les 4 types de contenu en un seul point (`ValidateContentDto` est partagée), sans
+   élargir le périmètre demandé.
+2. **Le symptôme rapporté ("refuse systématiquement toute valeur de decision") était plus
+   fort que le défaut réel constaté** ('validated'/'rejected' fonctionnaient déjà). Le
+   message d'erreur vide sur une valeur invalide est l'explication la plus probable de
+   cette lecture par le testeur front, mais je n'ai pas pu confirmer l'exacte séquence de
+   test qui a produit ce diagnostic — signalé pour transparence, la correction couvre le
+   défaut réellement observable.
+3. **`NODE_ENV=development` / absence de migrations** (point ouvert déjà consigné dans
+   `docs/architecture.md`) : non retouché ici, hors périmètre de cette tâche.
+
+## Fichiers modifiés/créés (chemins absolus, worktree de cet agent)
+
+- `/home/debian/Documents/claudeVMA/.claude/worktrees/agent-a290631a96d50c80d/services/content-catalog-service/src/quizzes/dto/pending-validation-query.dto.ts` (nouveau)
+- `/home/debian/Documents/claudeVMA/.claude/worktrees/agent-a290631a96d50c80d/services/content-catalog-service/src/quizzes/quizzes.controller.ts` (modifié)
+- `/home/debian/Documents/claudeVMA/.claude/worktrees/agent-a290631a96d50c80d/services/content-catalog-service/src/validations/dto/validate-content.dto.ts` (modifié)
+- `/home/debian/Documents/claudeVMA/.claude/worktrees/agent-a290631a96d50c80d/services/content-catalog-service/test/unit/quizzes/pending-validation-query.dto.spec.ts` (nouveau)
+- `/home/debian/Documents/claudeVMA/.claude/worktrees/agent-a290631a96d50c80d/services/content-catalog-service/test/unit/validations/validate-content.dto.spec.ts` (nouveau)

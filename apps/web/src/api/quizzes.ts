@@ -7,25 +7,28 @@
  * `src/types/quiz.ts` pour les formes vérifiées contre la pile réelle.
  *
  * Contrat d'édition/mine/validation **vérifié en HTTP direct contre la pile réelle le
- * 2026-08-28** (PR #164 `content-catalog-service` déjà déployée sur le conteneur en service,
- * bien qu'encore ouverte au moment de cette vérification) :
+ * 2026-08-28** (PR #164 `content-catalog-service`, mergée et déployée) :
  * - `GET /quizzes?mine=true` fonctionne tel quel (nom de paramètre confirmé).
  * - `PUT /quizzes/:id` fonctionne tel quel (même DTO que `POST /quizzes`), et fait bien repasser
  *   un Quizz `validated` en `pending_validation` quand l'auteur formateur l'édite.
- * - **Aucune route ne renvoie la solution à l'auteur**, y compris `GET /quizzes/:id/edit`
- *   (`404`) et `GET /quizzes/:id?includeSolution=true` (paramètre ignoré) : l'édition ne peut
- *   donc PAS pré-remplir les bonnes réponses/mots-clés — l'auteur doit les ressaisir à chaque
- *   édition (voir `buildEditableStateForEdit` dans `quizPayload.ts`).
  * - `POST /validations/quiz/:id/decision` attend `decision: 'validated' | 'rejected'`, **pas**
  *   `'approve' | 'reject'` — bug réel corrigé ici (présent depuis la PR #157, jamais fonctionnel
  *   en production jusqu'à ce correctif : tout appel avec l'ancien vocabulaire échouait `400`).
- * - `GET /validations/quiz/:id/history` existe et fonctionne pour RP, mais renvoie `403` à
- *   l'auteur formateur — impossible pour l'auteur de lire le motif de son propre refus par
- *   cette voie. Blocage réel, signalé au rapport de session.
+ *
+ * Suite directe (PR #167 `content-catalog-service`, mergée et déployée), **vérifiée en HTTP
+ * direct contre la pile réelle le 2026-08-28** :
+ * - `GET /quizzes/:id/solution` renvoie désormais le quizz complet AVEC solution (`isCorrect`
+ *   sur les options, `keywords` sur les questions à texte court), réservée à l'auteur et aux
+ *   AP/RP/TI (`403` pour tout autre rôle, `404` si absent/non visible) — l'édition peut
+ *   désormais pré-remplir réellement les bonnes réponses/mots-clés (voir
+ *   `buildEditableStateForEdit` dans `quizPayload.ts`).
+ * - `GET /validations/quiz/:id/history` est désormais ouverte à l'auteur du contenu concerné,
+ *   en plus de RP/AP — un professeur peut relire le motif de son propre refus.
  */
 
 import apiClient from './client'
 import type {
+  AuthorQuizDetail,
   CreateQuizPayload,
   PublicQuizDetail,
   QuizSummary,
@@ -97,14 +100,26 @@ export async function fetchPendingQuizzes(
 
 /**
  * GET /quizzes/:id
- * Détail avec questions et choix — jamais la solution, **y compris pour l'auteur** (vérifié le
- * 2026-08-28 : ni `?includeSolution=true` ni une route `/edit` dédiée ne la renvoient). `404` si
- * absent ou non visible pour l'appelant (masquage classique du projet, pas de distinction avec
- * un id inexistant). Sert aussi de source pour pré-remplir le formulaire d'édition — sans la
- * solution, qui doit être ressaisie (voir `buildEditableStateForEdit`).
+ * Détail avec questions et choix — jamais la solution, quel que soit l'appelant (route
+ * publique de lecture/passage, inchangée par PR #167). `404` si absent ou non visible pour
+ * l'appelant (masquage classique du projet, pas de distinction avec un id inexistant). Pour
+ * pré-remplir le formulaire d'édition avec la solution, voir `fetchQuizSolution` ci-dessous.
  */
 export async function fetchQuiz(quizId: string): Promise<PublicQuizDetail> {
   const { data } = await apiClient.get<PublicQuizDetail>(`/quizzes/${quizId}`)
+  return data
+}
+
+/**
+ * GET /quizzes/:id/solution
+ * Détail complet AVEC solution (`isCorrect` sur les options, `keywords` sur les questions à
+ * texte court) — réservée à l'auteur du quizz et aux AP/RP/TI. `403` pour tout autre rôle, `404`
+ * si le quizz est absent ou non visible pour l'appelant. Source pour pré-remplir réellement le
+ * formulaire d'édition (`buildEditableStateForEdit`), à la différence de `fetchQuiz` qui ne
+ * renvoie jamais la solution.
+ */
+export async function fetchQuizSolution(quizId: string): Promise<AuthorQuizDetail> {
+  const { data } = await apiClient.get<AuthorQuizDetail>(`/quizzes/${quizId}/solution`)
   return data
 }
 
@@ -137,11 +152,10 @@ export async function updateQuiz(
 
 /**
  * GET /validations/quiz/:id/history
- * Historique chronologique des décisions de validation d'un quizz. **Existe et fonctionne pour
- * RP/AP** (vérifié le 2026-08-28), mais renvoie `403` à l'auteur formateur — l'auteur ne peut
- * donc pas l'utiliser pour retrouver le motif de son propre refus. `useMyQuizzes` appelle quand
- * même cette route (au cas où l'appelant serait aussi RP/AP) et tolère l'échec dans le cas
- * contraire, sans jamais bloquer l'affichage de la liste.
+ * Historique chronologique des décisions de validation d'un quizz. Ouverte à RP/AP et,
+ * depuis PR #167, à l'auteur du quizz — un professeur peut donc retrouver le motif de son propre
+ * refus. `useMyQuizzes` tolère malgré tout un échec sans jamais bloquer l'affichage de la liste
+ * (repli `rejectionCommentStatus: 'unavailable'`), par prudence face à un cas non prévu.
  */
 export async function fetchQuizValidationHistory(
   quizId: string,

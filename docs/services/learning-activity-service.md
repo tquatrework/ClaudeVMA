@@ -127,4 +127,61 @@
       <failed>0</failed>
     </testResults>
   </implementationSession>
+
+  <implementationSession date="2026-08-28" topic="Quizz - inscription, passage, historique">
+    <status>completed</status>
+    <framework>NestJS 10 + TypeORM + PostgreSQL + Swagger (inchangé)</framework>
+    <context>
+      Fonctionnalité Quizz répartie entre deux services (arbitrage docs/architecture.md du
+      2026-08-28, « Fonctionnalite Quizz ») : content-catalog-service porte la création, la
+      définition et la solution du Quizz (hors périmètre de cet agent) ; learning-activity-service
+      porte le cycle de vie complet de la tentative d'un utilisateur — démarrage (inscription),
+      passage (réponses soumises) et historique des scores — dans un seul agrégat/une seule table,
+      conformément à la consigne de simplicité.
+    </context>
+
+    <folderStructure>
+      <folder path="src/common/">
+        <file path="src/common/enums/quiz-attempt-status.enum.ts">Statuts d'une tentative : in_progress, completed</file>
+      </folder>
+      <folder path="src/quiz-attempts/">
+        <file path="entities/quiz-attempt.entity.ts">Entité QuizAttempt (id, quizId, userId, userRole, status, score, maxScore, details jsonb, startedAt, completedAt, updatedAt). Interface QuizAttemptQuestionResult pour le détail par question (jamais la solution).</file>
+        <file path="dto/start-quiz-attempt.dto.ts">DTO de démarrage : quizId (requis)</file>
+        <file path="dto/quiz-answer.dto.ts">DTO d'une réponse soumise : questionId (requis), selectedOptionIds? (choix unique/multiple), text? (texte court)</file>
+        <file path="dto/submit-quiz-attempt.dto.ts">DTO de soumission : answers[] (au moins 1, validation imbriquée)</file>
+        <file path="quiz-grading-client.service.ts">Client HTTP interne vers content-catalog-service (POST /internal/quizzes/:quizId/grade), header X-Internal-Secret + propagation x-correlation-id. Valide strictement la forme de la réponse (score/maxScore/details) avant de la faire confiance ; ne connaît et ne stocke jamais la solution.</file>
+        <file path="quiz-attempts.service.ts">Service métier : start (contrôle de rôle), submit (contrôle de rôle + propriété de la tentative + appel de notation + clôture), history (tentatives terminées de l'utilisateur, triées par date de fin décroissante)</file>
+        <file path="quiz-attempts.controller.ts">Contrôleur REST : POST /quiz-attempts, POST /quiz-attempts/:id/submit, GET /quiz-attempts/history — Swagger complet (summary/description/réponses par code)</file>
+        <file path="quiz-attempts.module.ts">Module NestJS</file>
+      </folder>
+      <folder path="test/unit/quiz-attempts/">
+        <file path="quiz-attempts.service.spec.ts">Tests service : démarrage par rôle autorisé/refusé, soumission nominale, refus de re-soumission d'une tentative terminée, tentative introuvable ou appartenant à un tiers (404, pas de fuite d'existence), propagation d'une erreur de notation sans persistance partielle, historique filtré par utilisateur+statut</file>
+        <file path="quiz-grading-client.spec.ts">Tests du client interne : appel nominal avec en-têtes corrects, configuration manquante, service injoignable, 404 amont, échec HTTP générique, JSON illisible, réponse malformée (champs manquants ou de mauvais type)</file>
+      </folder>
+      <file path="src/app.module.ts">QuizAttempt ajoutée aux entités TypeORM ; QuizAttemptsModule enregistré</file>
+    </folderStructure>
+
+    <technicalDecisions>
+      <decision>Une seule entité QuizAttempt porte les trois étapes (inscription/passage/historique), conformément à l'arbitrage du 2026-08-28 : pas de découpage en plusieurs tables ni de machine à états partagée avec un autre service.</decision>
+      <decision>Rôles autorisés à démarrer/passer un Quizz : élève, formateur, RP, AP — vérifié côté service (pas via le décorateur @Roles, même style que open-activities.service.ts qui fait ses propres contrôles de rôle en fonction de l'action).</decision>
+      <decision>Ownership de la tentative vérifié par userId ; une tentative absente ou appartenant à un tiers renvoie la même 404 « Tentative introuvable » — pas de fuite d'existence, cohérent avec la convention de masquage déjà appliquée ailleurs dans le projet.</decision>
+      <decision>Notation appelée via l'API fetch native (Node 20, pas de nouvelle dépendance HTTP) — cohérent avec la consigne de simplicité et l'absence de @nestjs/axios dans ce service.</decision>
+      <decision>Réponse de notation validée strictement (score/maxScore numériques, details tableau bien formé) avant toute persistance ; toute divergence lève une 502 explicite (BadGatewayException), jamais une absorption silencieuse. Un 404 amont (quizId inconnu) est traduit en 404 côté learning-activity-service. Un échec réseau est traduit en 503 (ServiceUnavailableException).</decision>
+      <decision>Re-soumission d'une tentative déjà COMPLETED refusée explicitement (400) — une tentative se joue une seule fois.</decision>
+      <decision>CONTENT_CATALOG_SERVICE_URL ajoutée à l'environnement docker-compose de learning-activity-service (http://content-catalog-service:3013), plus une dépendance de démarrage (condition: service_started, content-catalog-service n'exposant pas de healthcheck).</decision>
+      <decision>Documentation via Swagger (module déjà en place dans ce service) plutôt que docs/routes.md, qui ne couvre aujourd'hui que les services de phase 1 — cohérent avec la consigne du chantier.</decision>
+    </technicalDecisions>
+
+    <pendingPoints>
+      <item>Preuve de bout en bout impossible tant que content-catalog-service n'expose pas encore réellement POST /internal/quizzes/:quizId/grade (développé en parallèle sur le même contrat) : les tests ici couvrent le contrat via un mock du client de notation et des réponses fetch simulées, jamais contre la pile réelle. Nécessite un déploiement conjoint des deux services pour valider un passage de Quizz réel.</item>
+        <item>Aucune contradiction ni manque identifié dans la spécification transmise : le contrat interne (body/réponse) correspond exactement à ce qui est implémenté ici.</item>
+    </pendingPoints>
+
+    <testResults>
+      <suites>2 (nouvelles, en plus des 2 existantes)</suites>
+      <tests>62 (total du service après ce chantier, 42 existants + 20 nouveaux)</tests>
+      <passed>62</passed>
+      <failed>0</failed>
+    </testResults>
+  </implementationSession>
 </serviceFunctionalSpecification>

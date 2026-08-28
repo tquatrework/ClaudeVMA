@@ -1027,6 +1027,53 @@ Phase 3 enrichit l'offre :
         le total du quizz ; a rouvrir si l'usage reel montre qu'un score de quizz negatif est
         indesirable a l'affichage.
 
+- Edition d'un Quizz par son auteur, filtre "mes Quizz", et validation AP scopee par relation.
+  Arbitrage rendu le 2026-08-28, sur retour utilisateur apres verification en production : aucune
+  route d'edition n'existait, aucun ecran ne permettait a un professeur de retrouver ses propres
+  Quizz (crees, en attente, refuses), et la procedure de validation/refus n'etait pas visible en
+  pratique faute de ces deux manques.
+  1. **Edition reservee a l'auteur.** Nouvelle route d'edition sur `content-catalog-service`, aucun
+     autre role ne peut modifier un Quizz qui ne lui appartient pas — meme principe que partout
+     ailleurs dans ce projet (l'ecriture est plus restreinte que la lecture, arbitrage du
+     2026-08-07 applique ici a un contenu plutot qu'a un profil).
+  2. **Effet de l'edition sur le statut, tranche par l'orchestrateur, a confirmer par
+     l'utilisateur si l'intention differait** : un `formateur` qui modifie un Quizz deja `validated`
+     le fait repasser en `pending_validation` — modifier le contenu deja valide sans nouvelle
+     revue viderait la validation de son sens. Un AP/RP qui modifie un Quizz qu'il a lui-meme cree
+     ne change pas son statut : il est deja son propre validateur, une revue supplementaire n'aurait
+     pas de sens. Un Quizz `pending_validation` ou `rejected` modifie par son auteur formateur reste
+     ou redevient `pending_validation`.
+  3. **Filtre "mes Quizz"** sur `GET /quizzes` (ex. `mine=true`) : renvoie tous les Quizz de
+     l'appelant, tous statuts confondus (y compris `rejected`, invisible autrement des lors que
+     seul l'auteur et les AP/RP/TI y ont acces) — c'est le point d'entree qui manquait pour qu'un
+     professeur retrouve, modifie et resoumette ses propres creations.
+  4. **Validation AP scopee par la relation `animator_of_teacher`, RP inchange.** Lecture de
+     l'utilisateur : la procedure de validation existe cote serveur depuis le debut (route de
+     decision, statuts `pending_validation`/`validated`/`rejected` deja en place et verifies en
+     production le 2026-08-28), mais elle n'etait scopee par aucune relation — n'importe quel AP
+     pouvait valider n'importe quel Quizz de n'importe quel formateur, alors que l'intention est
+     qu'un AP valide les Quizz des formateurs **qu'il anime** (relation deja posee le 2026-08-11,
+     "Rattacher un AP a un formateur qu'il anime"). Pour l'instant, cette restriction est **limitee
+     au Quizz** — les autres types de contenu (exercice, evaluation, tutoriel) qui partagent le
+     meme flux de validation generique restent inchanges, ne pas les toucher sans demande separee.
+     RP reste sans restriction (voir "Roles administratifs = RP, AF et TI" et l'acces large deja
+     etabli le 2026-08-07).
+  5. **Refus et nouvelle soumission — mecanisme deja pose, desormais visible.** Le commentaire de
+     refus (deja obligatoire cote serveur) et le mecanisme de resoumission
+     (`POST /validations/quiz/:id/request`, deja existant) n'avaient simplement aucun ecran pour
+     les exposer a l'auteur : c'est l'ecran "mes Quizz" (point 3) qui les rend enfin utilisables,
+     sans changement cote serveur au-dela de ce qui existe deja.
+
+- Notation mathematique pour les Quizz — mise en oeuvre du point laisse ouvert le 2026-08-26.
+  Arbitrage du 2026-08-26 ("Syntaxe legere unifiee pour le texte enrichi") avait deja pose le
+  principe et differe l'implementation a la premiere reelle demande. C'est fait ici : les enonces,
+  options de reponse et mots-cles de Quizz sont du texte brut stocke tel quel cote serveur (aucun
+  changement de schema necessaire), transforme au rendu cote client **en reutilisant exactement le
+  meme pipeline KaTeX deja construit pour le Memo** (meme syntaxe `$...$`/`$$...$$`, meme
+  composant de rendu, meme aide de saisie a l'insertion) plutot que d'en ecrire un second. Aucune
+  regle de validation cote serveur ne doit rejeter les caracteres `$`/`\` propres a LaTeX dans ces
+  champs — a verifier et corriger si un DTO existant s'y oppose deja.
+
 ## Points ouverts a arbitrer
 
 - `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a

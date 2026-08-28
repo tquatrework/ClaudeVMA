@@ -612,10 +612,13 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-visiomath}:${POSTGRES_PASSWORD:-visiomath_secret}@postgres:5432/visiomath_learning_activity
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
       INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
+      CONTENT_CATALOG_SERVICE_URL: http://content-catalog-service:3013
       PORT: 3014
     depends_on:
       postgres:
         condition: service_healthy
+      content-catalog-service:
+        condition: service_started
     networks:
       - visiomath_network
     restart: unless-stopped

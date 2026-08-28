@@ -76,3 +76,30 @@ export async function createNotebookEntry(
 export async function deleteNotebookEntry(entryId: string): Promise<void> {
   await apiClient.delete(`/pedagogical-logs/notebook/${entryId}`)
 }
+
+/**
+ * GET /pedagogical-logs/notebook/owners/:ownerId — lecture du carnet
+ * personnel d'un tiers, ouverte uniquement si le réglage TI l'autorise
+ * (arbitrage du 2026-08-28, docs/architecture.md « Acces administratif et
+ * parental au carnet personnel »). Contrat confirmé par le sous-agent
+ * pedagogical-log-service, PR #147 : mêmes paramètres de recherche
+ * (`from`/`to`/`q`) et même forme de réponse que `fetchNotebookEntries`
+ * ci-dessus. Toujours en lecture seule — aucune écriture n'est jamais
+ * ouverte sur le carnet d'un tiers.
+ *
+ * `403` si le rôle appelant est structurellement inéligible (élève,
+ * formateur, animateur_pedagogique) ; `404` si le réglage n'autorise pas ce
+ * rôle pour cet `ownerId`, ou si la relation (parent↔élève) est
+ * absente/rompue — volontairement indiscernable d'un carnet vide, même
+ * convention que les statistiques et archives pédagogiques.
+ */
+export async function fetchThirdPartyNotebookEntries(
+  ownerId: string,
+  params?: NotebookSearchParams,
+): Promise<NotebookEntry[]> {
+  const { data } = await apiClient.get<NotebookEntry[]>(
+    `/pedagogical-logs/notebook/owners/${ownerId}`,
+    { params },
+  )
+  return data
+}

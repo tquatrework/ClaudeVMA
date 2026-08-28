@@ -28,6 +28,7 @@ vi.mock('../../src/api/client')
 vi.mock('../../src/api/profile')
 vi.mock('../../src/api/relations')
 vi.mock('../../src/api/accounts')
+vi.mock('../../src/api/pedagogicalLogNotebook')
 
 import { useAuth } from '../../src/hooks/useAuth'
 import apiClient from '../../src/api/client'
@@ -40,6 +41,7 @@ import {
 } from '../../src/api/profile'
 import { fetchTeacherStudentRelations, unlinkTeacherStudentRelation } from '../../src/api/relations'
 import { fetchConsents } from '../../src/api/accounts'
+import { fetchThirdPartyNotebookEntries } from '../../src/api/pedagogicalLogNotebook'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockApiClient = vi.mocked(apiClient)
@@ -51,6 +53,7 @@ const mockFetchProfileStatistics = vi.mocked(fetchProfileStatistics)
 const mockFetchTeacherStudentRelations = vi.mocked(fetchTeacherStudentRelations)
 const mockUnlinkTeacherStudentRelation = vi.mocked(unlinkTeacherStudentRelation)
 const mockFetchConsents = vi.mocked(fetchConsents)
+const mockFetchThirdPartyNotebookEntries = vi.mocked(fetchThirdPartyNotebookEntries)
 
 const STUDENT_USER = {
   id: 'student-1',
@@ -122,6 +125,10 @@ beforeEach(() => {
   mockFetchInternalNotes.mockResolvedValue([])
   mockFetchProfileStatistics.mockResolvedValue({})
   mockFetchConsents.mockResolvedValue([])
+  // Par défaut, aucun accès au carnet personnel d'un tiers — la section ne
+  // doit alors apparaître dans aucun test existant. Chaque test dédié
+  // ci-dessous surcharge explicitement cette valeur.
+  mockFetchThirdPartyNotebookEntries.mockRejectedValue({ response: { status: 404 } })
 })
 
 describe('ProfilePage', () => {
@@ -900,6 +907,88 @@ describe('ProfilePage', () => {
       })
       expect(screen.queryByText('Consentements RGPD / CGU')).toBeNull()
       expect(mockFetchConsents).not.toHaveBeenCalled()
+    })
+  })
+
+  /**
+   * Carnet personnel d'un tiers, en lecture seule — arbitrage du 2026-08-28.
+   * La section ne doit jamais apparaître sur son propre profil, ni pour un
+   * rôle sans droit structurel ; côté RP/AF/TI et parent financeur, elle ne
+   * s'affiche que si l'appel réussit réellement (règle projet : jamais de
+   * section vide/en erreur affichée à tort).
+   */
+  describe('carnet personnel du tiers consulté (onglet administratif)', () => {
+    it("n'appelle jamais la route sur son propre profil", async () => {
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+
+      renderProfilePage('student-1')
+
+      await waitFor(() => {
+        expect((screen.getByLabelText('Prénom') as HTMLInputElement).value).toBe('Marie')
+      })
+      expect(mockFetchThirdPartyNotebookEntries).not.toHaveBeenCalled()
+    })
+
+    it("n'appelle jamais la route pour un rôle sans droit structurel (formateur)", async () => {
+      const TEACHER_USER = {
+        id: 'teacher-1',
+        email: 'prof@test.com',
+        role: 'formateur' as const,
+        validationStatus: 'active' as const,
+      }
+      mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+
+      renderProfilePage('student-1')
+
+      await waitFor(() => {
+        expect(screen.getByText('Fiche profil')).toBeDefined()
+      })
+      expect(mockFetchThirdPartyNotebookEntries).not.toHaveBeenCalled()
+    })
+
+    it("n'affiche rien pour le RP quand l'appel échoue (réglage désactivé)", async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+      // Reprend le repli par défaut du beforeEach (404) — explicite ici pour la lisibilité.
+      mockFetchThirdPartyNotebookEntries.mockRejectedValue({ response: { status: 404 } })
+
+      renderProfilePage('student-1')
+
+      await waitFor(() => {
+        expect(mockFetchThirdPartyNotebookEntries).toHaveBeenCalledWith('student-1', undefined)
+      })
+      expect(screen.queryByText(/carnet personnel de/i)).toBeNull()
+    })
+
+    it('affiche le carnet en lecture seule pour le RP quand le réglage TI l’autorise', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+      mockFetchThirdPartyNotebookEntries.mockResolvedValue([
+        { id: 'entry-1', ownerId: 'student-1', content: 'Réviser les intégrales', createdAt: '2026-08-01T10:00:00.000Z' },
+      ])
+
+      renderProfilePage('student-1')
+
+      await waitFor(() => {
+        expect(screen.getByText('Carnet personnel de Marie')).toBeDefined()
+        expect(screen.getByText('Réviser les intégrales')).toBeDefined()
+      })
+      // Lecture seule stricte : aucun bouton Supprimer.
+      expect(screen.queryByRole('button', { name: /supprimer/i })).toBeNull()
+    })
+
+    it('affiche le carnet en lecture seule pour un parent financeur sur le profil de son enfant', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(PARENT_USER))
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+      mockFetchThirdPartyNotebookEntries.mockResolvedValue([])
+
+      renderProfilePage('student-1')
+
+      await waitFor(() => {
+        expect(screen.getByText('Carnet personnel de Marie')).toBeDefined()
+        expect(screen.getByText('Aucune note pour le moment')).toBeDefined()
+      })
     })
   })
 })

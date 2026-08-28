@@ -194,6 +194,35 @@ describe('QuizAttemptsService', () => {
       ).rejects.toThrow(BadGatewayException);
       expect(attemptRepo.save).not.toHaveBeenCalled();
     });
+
+    it(
+      'persiste un score de tentative négatif tel quel, sans plancher à zéro ' +
+        '(docs/architecture.md > Fonctionnalite Quizz, point 10 : pénalités non plafonnées)',
+      async () => {
+        const attempt = buildSampleAttempt();
+        attemptRepo.findOne.mockResolvedValue(attempt);
+        gradingClient.grade.mockResolvedValue({
+          score: -3,
+          maxScore: 5,
+          details: [
+            { questionId: 'q1', isCorrect: false, pointsEarned: -3, pointsPossible: 2 },
+            { questionId: 'q2', isCorrect: false, pointsEarned: 0, pointsPossible: 3 },
+          ],
+        });
+        attemptRepo.save.mockImplementation((value) => Promise.resolve(value));
+
+        const result = await quizAttemptsService.submit(
+          ATTEMPT_ID,
+          { answers: [{ questionId: 'q1', text: 'faux' }] },
+          ELEVE_ID,
+          UserRole.ELEVE,
+        );
+
+        expect(result.score).toBe(-3);
+        expect(result.details?.[0].pointsEarned).toBe(-3);
+        expect(result.status).toBe(QuizAttemptStatus.COMPLETED);
+      },
+    );
   });
 
   describe('history', () => {
@@ -211,5 +240,19 @@ describe('QuizAttemptsService', () => {
       });
       expect(result).toEqual(completed);
     });
+
+    it(
+      'renvoie un score de tentative négatif tel quel dans l\'historique, sans plancher à zéro',
+      async () => {
+        const completedWithPenalty = [
+          buildSampleAttempt({ id: 'a2', status: QuizAttemptStatus.COMPLETED, score: -2, maxScore: 5 }),
+        ];
+        attemptRepo.find.mockResolvedValue(completedWithPenalty);
+
+        const result = await quizAttemptsService.history(ELEVE_ID);
+
+        expect(result[0].score).toBe(-2);
+      },
+    );
   });
 });

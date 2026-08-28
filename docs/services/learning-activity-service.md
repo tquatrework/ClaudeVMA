@@ -184,4 +184,40 @@
       <failed>0</failed>
     </testResults>
   </implementationSession>
+
+  <implementationSession date="2026-08-28" topic="Quizz - alignement score negatif (penalites)">
+    <status>completed</status>
+    <context>
+      Précision apportée le même jour dans docs/architecture.md (« Fonctionnalite Quizz », point
+      10) : le score d'une question (pointsEarned) peut être négatif si les pénalités dépassent
+      les points gagnés, et aucun plancher à zéro n'est introduit, ni par question ni sur le
+      score total de la tentative (score). Vérification demandée : la validation stricte de la
+      réponse de notation côté QuizGradingClientService (isValidGradingResult) ne devait pas
+      imposer par erreur pointsEarned >= 0 ni score >= 0.
+    </context>
+    <verificationResult>
+      Aucun écart trouvé. isValidGradingResult ne contrôle que typeof === 'number' sur score,
+      maxScore et pointsEarned/pointsPossible — aucune borne de signe. Aucun décorateur
+      class-validator (@Min, @IsPositive, etc.) n'existe sur le chemin quiz-attempts (les seuls
+      @Min(0)/@Min(1) du service sont dans le module open-activities, sans rapport). La colonne
+      TypeORM `decimal` de QuizAttempt (score, maxScore) n'a pas de contrainte unsigned. Aucun
+      calcul intermédiaire n'est fait côté learning-activity-service : le résultat de
+      content-catalog-service est persisté tel quel (score, maxScore, details) sans
+      recalcul — donc aucun risque de plancher introduit à l'écriture ni à la lecture
+      (history()).
+    </verificationResult>
+    <technicalDecisions>
+      <decision>Aucune correction de code nécessaire — le service était déjà conforme à la règle du 2026-08-28 dès sa livraison initiale (aucun plancher à zéro codé).</decision>
+      <decision>Ajout de tests explicites couvrant ce cas, pour éviter toute régression future qui introduirait par erreur un @Min(0) ou une validation de signe : un test client (score/pointsEarned négatifs acceptés comme réponse valide), un test service (submit persiste un score de tentative négatif tel quel) et un test history (score négatif renvoyé sans transformation dans l'historique).</decision>
+    </technicalDecisions>
+    <pendingPoints>
+      <item>Aucun. La preuve de bout en bout contre content-catalog-service réel reste conditionnée à son déploiement (déjà noté dans la session précédente), inchangé par ce correctif de vérification.</item>
+    </pendingPoints>
+    <testResults>
+      <suites>2 (inchangé, tests ajoutés dans les suites existantes quiz-attempts)</suites>
+      <tests>65 (total du service, +3 nouveaux tests de score négatif)</tests>
+      <passed>65</passed>
+      <failed>0</failed>
+    </testResults>
+  </implementationSession>
 </serviceFunctionalSpecification>

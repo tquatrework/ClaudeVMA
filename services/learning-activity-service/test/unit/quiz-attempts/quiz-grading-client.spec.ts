@@ -169,4 +169,35 @@ describe('QuizGradingClientService', () => {
 
     await expect(client.grade(QUIZ_ID, [])).rejects.toThrow(BadGatewayException);
   });
+
+  it(
+    'accepte un score de question négatif (pénalité) sans le rejeter comme malformé ' +
+      '(docs/architecture.md > Fonctionnalite Quizz, point 10 : aucun plancher à zéro)',
+    async () => {
+      const gradingResult = {
+        score: -1,
+        maxScore: 5,
+        details: [
+          { questionId: 'q1', isCorrect: false, pointsEarned: -2, pointsPossible: 2 },
+          { questionId: 'q2', isCorrect: true, pointsEarned: 1, pointsPossible: 3 },
+        ],
+      };
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: jest.fn().mockResolvedValue(gradingResult),
+      }) as unknown as typeof fetch;
+
+      const client = new QuizGradingClientService(
+        buildConfigService({ CONTENT_CATALOG_SERVICE_URL: 'http://content-catalog-service:3013' }),
+      );
+
+      const result = await client.grade(QUIZ_ID, [{ questionId: 'q1', text: 'faux' }]);
+
+      expect(result).toEqual(gradingResult);
+      expect(result.score).toBe(-1);
+      expect(result.details[0].pointsEarned).toBe(-2);
+    },
+  );
 });

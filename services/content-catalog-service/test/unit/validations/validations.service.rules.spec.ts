@@ -354,11 +354,11 @@ describe('ValidationsService — règles métier complémentaires', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // getValidationHistory() — historique non testé
+  // getValidationHistory() — historique, et ouverture à l'auteur (2026-08-28)
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('getValidationHistory()', () => {
-    it('retourne l\'historique complet des validations pour un contenu donné', async () => {
+    it('retourne l\'historique complet des validations pour un contenu donné (AP)', async () => {
       const historyEntries = [
         {
           id: 'val-hist-001',
@@ -384,6 +384,8 @@ describe('ValidationsService — règles métier complémentaires', () => {
       const result = await validationsService.getValidationHistory(
         EXERCISE_ID,
         ContentType.EXERCISE,
+        AP_ID,
+        'animateur_pedagogique',
       );
 
       expect(result).toHaveLength(2);
@@ -397,12 +399,14 @@ describe('ValidationsService — règles métier complémentaires', () => {
       );
     });
 
-    it('retourne un historique vide si aucune validation n\'a été effectuée', async () => {
+    it('retourne un historique vide si aucune validation n\'a été effectuée (RP)', async () => {
       validationRepo.find.mockResolvedValue([]);
 
       const result = await validationsService.getValidationHistory(
         EXERCISE_ID,
         ContentType.EXERCISE,
+        RP_ID,
+        'responsable_pedagogique',
       );
 
       expect(result).toHaveLength(0);
@@ -411,13 +415,87 @@ describe('ValidationsService — règles métier complémentaires', () => {
     it('trie l\'historique par date de création décroissante (plus récent en premier)', async () => {
       validationRepo.find.mockResolvedValue([]);
 
-      await validationsService.getValidationHistory(EXERCISE_ID, ContentType.EXERCISE);
+      await validationsService.getValidationHistory(
+        EXERCISE_ID,
+        ContentType.EXERCISE,
+        RP_ID,
+        'responsable_pedagogique',
+      );
 
       expect(validationRepo.find).toHaveBeenCalledWith(
         expect.objectContaining({
           order: expect.objectContaining({ createdAt: 'DESC' }),
         }),
       );
+    });
+
+    it('un AP/RP/TI accède à l\'historique de n\'importe quel contenu sans vérification d\'auteur', async () => {
+      validationRepo.find.mockResolvedValue([]);
+
+      await validationsService.getValidationHistory(
+        EXERCISE_ID,
+        ContentType.EXERCISE,
+        'ti00-0000-4000-h000-hhhhhhhhhhhh',
+        'technicien_informatique',
+      );
+
+      expect(exerciseRepo.findOne).not.toHaveBeenCalled();
+    });
+
+    it('l\'auteur formateur de l\'exercice peut relire son propre historique (motif de refus)', async () => {
+      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ authorId: FORMATEUR_ID }));
+      validationRepo.find.mockResolvedValue([
+        { id: 'val-hist-003', decision: ContentStatus.REJECTED, comment: 'Non conforme' },
+      ]);
+
+      const result = await validationsService.getValidationHistory(
+        EXERCISE_ID,
+        ContentType.EXERCISE,
+        FORMATEUR_ID,
+        'formateur',
+      );
+
+      expect(result).toHaveLength(1);
+      expect(result[0].comment).toBe('Non conforme');
+    });
+
+    it('lève ForbiddenException si un formateur tente de lire l\'historique du contenu d\'un tiers', async () => {
+      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ authorId: AP_ID }));
+
+      await expect(
+        validationsService.getValidationHistory(
+          EXERCISE_ID,
+          ContentType.EXERCISE,
+          FORMATEUR_ID,
+          'formateur',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('lève ForbiddenException si un élève tente de lire un historique', async () => {
+      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ authorId: AP_ID }));
+
+      await expect(
+        validationsService.getValidationHistory(
+          EXERCISE_ID,
+          ContentType.EXERCISE,
+          ELEVE_ID,
+          'eleve',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('lève NotFoundException si le contenu est introuvable pour un appelant non administrateur', async () => {
+      exerciseRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        validationsService.getValidationHistory(
+          EXERCISE_ID,
+          ContentType.EXERCISE,
+          FORMATEUR_ID,
+          'formateur',
+        ),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 

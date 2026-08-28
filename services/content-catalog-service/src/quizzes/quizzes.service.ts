@@ -66,6 +66,26 @@ export interface PublicQuizDetail extends PublicQuizSummary {
   questions: PublicQuizQuestion[];
 }
 
+/**
+ * Choix avec indicateur de correction — jamais renvoyé par une route
+ * publique. Réservé à l'auteur du quizz et aux AP/RP/TI (arbitrage du
+ * 2026-08-28, "Lecture de sa propre solution par l'auteur d'un Quizz").
+ */
+export interface QuizQuestionOptionWithSolution {
+  id: string;
+  text: string;
+  isCorrect: boolean;
+}
+
+export interface QuizQuestionWithSolution extends Omit<PublicQuizQuestion, 'options'> {
+  options?: QuizQuestionOptionWithSolution[];
+  keywords?: string[];
+}
+
+export interface QuizDetailWithSolution extends PublicQuizSummary {
+  questions: QuizQuestionWithSolution[];
+}
+
 @Injectable()
 export class QuizzesService {
   constructor(
@@ -125,6 +145,44 @@ export class QuizzesService {
     return {
       ...this.toPublicSummary(quiz),
       questions: questions.map((question) => this.toPublicQuestion(quiz, question)),
+    };
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Sérialisation avec solution — réservée à l'auteur et aux AP/RP/TI
+  // ───────────────────────────────────────────────────────────────────────
+
+  private toQuestionWithSolution(quiz: Quiz, question: QuizQuestion): QuizQuestionWithSolution {
+    const { points, penaltyEnabled, penaltyPoints } = resolveEffectiveScoring(quiz, question);
+    const correctOptionIds = new Set(question.correctOptionIds ?? []);
+    const options = question.options
+      ? question.options.map((option) => ({
+          id: option.id,
+          text: option.text,
+          isCorrect: correctOptionIds.has(option.id),
+        }))
+      : undefined;
+
+    return {
+      id: question.id,
+      order: question.order,
+      category: question.category,
+      prompt: question.prompt,
+      options,
+      keywords: question.keywords ?? undefined,
+      multipleChoiceScoringMode: question.multipleChoiceScoringMode ?? undefined,
+      shortTextScoringMode: question.shortTextScoringMode ?? undefined,
+      points,
+      penaltyEnabled,
+      penaltyPoints: penaltyEnabled ? penaltyPoints : undefined,
+    };
+  }
+
+  private toDetailWithSolution(quiz: Quiz): QuizDetailWithSolution {
+    const questions = [...(quiz.questions ?? [])].sort((a, b) => a.order - b.order);
+    return {
+      ...this.toPublicSummary(quiz),
+      questions: questions.map((question) => this.toQuestionWithSolution(quiz, question)),
     };
   }
 
@@ -383,6 +441,37 @@ export class QuizzesService {
     }
 
     return this.toPublicDetail(quiz);
+  }
+
+  /**
+   * Solution complète d'un quizz (bonnes réponses, mots-clés attendus) —
+   * réservée à son auteur et aux AP/RP/TI (arbitrage du 2026-08-28,
+   * "Lecture de sa propre solution par l'auteur d'un Quizz"). `GET
+   * /quizzes/:id` reste inchangée et ne renvoie jamais cette forme : c'est
+   * un point d'accès distinct, motivé par l'édition qui a besoin de
+   * pré-remplir les bonnes réponses sans que l'auteur les ressaisisse.
+   */
+  async findOneWithSolution(
+    quizId: string,
+    callerId: string,
+    callerRole: string,
+  ): Promise<QuizDetailWithSolution> {
+    const quiz = await this.quizRepository.findOne({
+      where: { id: quizId },
+      relations: ['questions'],
+    });
+    if (!quiz) {
+      throw new NotFoundException(`Quizz ${quizId} introuvable`);
+    }
+
+    const isOwner = quiz.authorId === callerId;
+    if (!isOwner && !this.isAdminRole(callerRole)) {
+      throw new ForbiddenException(
+        'Seul l\'auteur du quizz ou un AP/RP/TI peut consulter sa solution',
+      );
+    }
+
+    return this.toDetailWithSolution(quiz);
   }
 
   async getPendingValidation(

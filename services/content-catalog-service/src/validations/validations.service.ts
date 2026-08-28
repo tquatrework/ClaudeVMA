@@ -15,6 +15,7 @@ import { Exercise } from '../exercises/entities/exercise.entity';
 import { Evaluation } from '../evaluations/entities/evaluation.entity';
 import { Tutorial } from '../tutorials/entities/tutorial.entity';
 import { Quiz } from '../quizzes/entities/quiz.entity';
+import { ProfileRelationsClient } from '../common/clients/profile-relations.client';
 
 @Injectable()
 export class ValidationsService {
@@ -33,6 +34,8 @@ export class ValidationsService {
 
     @InjectRepository(Quiz)
     private readonly quizRepository: Repository<Quiz>,
+
+    private readonly profileRelationsClient: ProfileRelationsClient,
   ) {}
 
   async validateContent(
@@ -52,6 +55,24 @@ export class ValidationsService {
 
     if (validateDto.decision === ContentStatus.REJECTED && !validateDto.comment) {
       throw new BadRequestException('Un commentaire est obligatoire pour rejeter un contenu');
+    }
+
+    // Validation AP scopée par la relation animator_of_teacher, limitée au
+    // Quizz (arbitrage du 2026-08-28) — RP reste sans restriction.
+    if (contentType === ContentType.QUIZ && validatorRole === UserRole.ANIMATEUR_PEDAGOGIQUE) {
+      const quiz = await this.quizRepository.findOne({ where: { id: contentId } });
+      if (!quiz) {
+        throw new NotFoundException(`Quizz ${contentId} introuvable`);
+      }
+      const hasRelation = await this.profileRelationsClient.hasAnimatorOfTeacherRelation(
+        validatorId,
+        quiz.authorId,
+      );
+      if (!hasRelation) {
+        throw new ForbiddenException(
+          'Vous ne pouvez valider que les quizz des formateurs que vous animez',
+        );
+      }
     }
 
     // Mettre à jour le statut du contenu

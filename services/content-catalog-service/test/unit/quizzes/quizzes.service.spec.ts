@@ -10,12 +10,18 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  NotFoundException,
+  BadRequestException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { QuizzesService } from '../../../src/quizzes/quizzes.service';
 import { Quiz } from '../../../src/quizzes/entities/quiz.entity';
 import { QuizQuestion } from '../../../src/quizzes/entities/quiz-question.entity';
 import { QuizQuestionCategory } from '../../../src/quizzes/enums/quiz-question-category.enum';
 import { ContentStatus } from '../../../src/common/enums/content-status.enum';
+import { ProfileRelationsClient } from '../../../src/common/clients/profile-relations.client';
 
 const FORMATEUR_ID = 'form-0000-4000-a000-aaaaaaaaaaaa';
 const OTHER_FORMATEUR_ID = 'form-0000-4000-a000-bbbbbbbbbbbb';
@@ -46,6 +52,13 @@ function buildMockQuestionRepo() {
   return {
     create: jest.fn((data) => data),
     save: jest.fn((data) => Promise.resolve(data)),
+    delete: jest.fn(() => Promise.resolve({ affected: 0 })),
+  };
+}
+
+function buildMockProfileRelationsClient() {
+  return {
+    hasAnimatorOfTeacherRelation: jest.fn(),
   };
 }
 
@@ -97,16 +110,19 @@ describe('QuizzesService', () => {
   let quizzesService: QuizzesService;
   let quizRepo: ReturnType<typeof buildMockQuizRepo>;
   let questionRepo: ReturnType<typeof buildMockQuestionRepo>;
+  let profileRelationsClient: ReturnType<typeof buildMockProfileRelationsClient>;
 
   beforeEach(async () => {
     quizRepo = buildMockQuizRepo();
     questionRepo = buildMockQuestionRepo();
+    profileRelationsClient = buildMockProfileRelationsClient();
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         QuizzesService,
         { provide: getRepositoryToken(Quiz), useValue: quizRepo },
         { provide: getRepositoryToken(QuizQuestion), useValue: questionRepo },
+        { provide: ProfileRelationsClient, useValue: profileRelationsClient },
       ],
     }).compile();
 
@@ -243,6 +259,113 @@ describe('QuizzesService', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
+  // update() — édition réservée à l'auteur (arbitrage du 2026-08-28)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('update()', () => {
+    const validUpdateDto = {
+      title: 'Quizz trimestre 1 — révisé',
+      questions: [
+        {
+          category: QuizQuestionCategory.SINGLE_CHOICE,
+          prompt: 'Combien font 3+3 ?',
+          options: [
+            { text: 'Cinq', isCorrect: false },
+            { text: 'Six', isCorrect: true },
+          ],
+        },
+      ],
+    };
+
+    it('lève NotFoundException si le quizz est introuvable', async () => {
+      quizRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        quizzesService.update(QUIZ_ID, validUpdateDto as any, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('lève ForbiddenException si l\'appelant n\'est pas l\'auteur', async () => {
+      const quiz = buildSampleQuiz({ authorId: FORMATEUR_ID });
+      quizRepo.findOne.mockResolvedValue(quiz);
+
+      await expect(
+        quizzesService.update(QUIZ_ID, validUpdateDto as any, OTHER_FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('lève BadRequestException pour une question mal formée', async () => {
+      const quiz = buildSampleQuiz({ authorId: FORMATEUR_ID });
+      quizRepo.findOne.mockResolvedValue(quiz);
+
+      const invalidDto = {
+        title: 'Invalide',
+        questions: [
+          {
+            category: QuizQuestionCategory.SINGLE_CHOICE,
+            prompt: 'Question ?',
+            options: [
+              { text: 'A', isCorrect: false },
+              { text: 'B', isCorrect: false },
+            ],
+          },
+        ],
+      };
+
+      await expect(
+        quizzesService.update(QUIZ_ID, invalidDto as any, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('un formateur éditant son quizz validé le fait repasser en attente de validation', async () => {
+      const quiz = buildSampleQuiz({ authorId: FORMATEUR_ID, authorRole: 'formateur', status: ContentStatus.VALIDATED });
+      quizRepo.findOne.mockResolvedValue(quiz);
+      quizRepo.save.mockImplementation((q) => Promise.resolve(q));
+
+      const result = await quizzesService.update(QUIZ_ID, validUpdateDto as any, FORMATEUR_ID, 'formateur');
+
+      expect(result.status).toBe(ContentStatus.PENDING_VALIDATION);
+      expect(questionRepo.delete).toHaveBeenCalledWith({ quizId: QUIZ_ID });
+    });
+
+    it('un formateur éditant son quizz rejeté le fait rester/redevenir en attente de validation', async () => {
+      const quiz = buildSampleQuiz({ authorId: FORMATEUR_ID, authorRole: 'formateur', status: ContentStatus.REJECTED });
+      quizRepo.findOne.mockResolvedValue(quiz);
+      quizRepo.save.mockImplementation((q) => Promise.resolve(q));
+
+      const result = await quizzesService.update(QUIZ_ID, validUpdateDto as any, FORMATEUR_ID, 'formateur');
+
+      expect(result.status).toBe(ContentStatus.PENDING_VALIDATION);
+    });
+
+    it('un AP/RP éditant son propre quizz ne change pas son statut', async () => {
+      const quiz = buildSampleQuiz({
+        authorId: RP_ID,
+        authorRole: 'responsable_pedagogique',
+        status: ContentStatus.VALIDATED,
+      });
+      quizRepo.findOne.mockResolvedValue(quiz);
+      quizRepo.save.mockImplementation((q) => Promise.resolve(q));
+
+      const result = await quizzesService.update(QUIZ_ID, validUpdateDto as any, RP_ID, 'responsable_pedagogique');
+
+      expect(result.status).toBe(ContentStatus.VALIDATED);
+    });
+
+    it('remplace intégralement les questions et ne laisse jamais fuiter la solution', async () => {
+      const quiz = buildSampleQuiz({ authorId: FORMATEUR_ID, authorRole: 'formateur', status: ContentStatus.VALIDATED });
+      quizRepo.findOne.mockResolvedValue(quiz);
+      quizRepo.save.mockImplementation((q) => Promise.resolve(q));
+
+      const result = await quizzesService.update(QUIZ_ID, validUpdateDto as any, FORMATEUR_ID, 'formateur');
+
+      expect(questionRepo.delete).toHaveBeenCalledWith({ quizId: QUIZ_ID });
+      expect(questionRepo.save).toHaveBeenCalled();
+      expect(JSON.stringify(result)).not.toMatch(/correctOptionIds/);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
   // search()
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -268,6 +391,32 @@ describe('QuizzesService', () => {
       );
       expect(statusFilterCalls).toHaveLength(0);
       expect(result.total).toBe(1);
+    });
+
+    it('mine=true renvoie tous les quizz de l\'appelant, tous statuts confondus', async () => {
+      quizRepo.__qb.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await quizzesService.search({ mine: true }, FORMATEUR_ID, 'formateur');
+
+      expect(quizRepo.__qb.andWhere).toHaveBeenCalledWith(
+        'quiz.authorId = :callerId',
+        expect.objectContaining({ callerId: FORMATEUR_ID }),
+      );
+      const statusFilterCalls = quizRepo.__qb.andWhere.mock.calls.filter(([clause]) =>
+        String(clause).includes('quiz.status = :validated'),
+      );
+      expect(statusFilterCalls).toHaveLength(0);
+    });
+
+    it('mine=true s\'applique aussi à un rôle administratif (ne renvoie que ses propres quizz)', async () => {
+      quizRepo.__qb.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await quizzesService.search({ mine: true }, RP_ID, 'responsable_pedagogique');
+
+      expect(quizRepo.__qb.andWhere).toHaveBeenCalledWith(
+        'quiz.authorId = :callerId',
+        expect.objectContaining({ callerId: RP_ID }),
+      );
     });
 
     it('filtre par tag quand fourni', async () => {
@@ -347,19 +496,71 @@ describe('QuizzesService', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('getPendingValidation()', () => {
-    it('autorise un RP', async () => {
+    it('autorise un RP, sans restriction de relation', async () => {
       quizRepo.findAndCount.mockResolvedValue([[buildSampleQuiz({ status: ContentStatus.PENDING_VALIDATION })], 1]);
 
-      const result = await quizzesService.getPendingValidation('responsable_pedagogique');
+      const result = await quizzesService.getPendingValidation(RP_ID, 'responsable_pedagogique');
+
       expect(result.total).toBe(1);
+      expect(profileRelationsClient.hasAnimatorOfTeacherRelation).not.toHaveBeenCalled();
     });
 
     it('lève ForbiddenException pour un formateur', async () => {
-      await expect(quizzesService.getPendingValidation('formateur')).rejects.toThrow(ForbiddenException);
+      await expect(
+        quizzesService.getPendingValidation(FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(ForbiddenException);
     });
 
     it('lève ForbiddenException pour un élève', async () => {
-      await expect(quizzesService.getPendingValidation('eleve')).rejects.toThrow(ForbiddenException);
+      await expect(quizzesService.getPendingValidation(ELEVE_ID, 'eleve')).rejects.toThrow(ForbiddenException);
+    });
+
+    it('un AP ne voit que les quizz des formateurs qu\'il anime', async () => {
+      const APId = 'ap00-0000-4000-a000-aaaaaaaaaaaa';
+      const animatedQuiz = buildSampleQuiz({
+        id: 'quiz-animated',
+        authorId: FORMATEUR_ID,
+        status: ContentStatus.PENDING_VALIDATION,
+      });
+      const otherQuiz = buildSampleQuiz({
+        id: 'quiz-other',
+        authorId: OTHER_FORMATEUR_ID,
+        status: ContentStatus.PENDING_VALIDATION,
+      });
+      quizRepo.find.mockResolvedValue([animatedQuiz, otherQuiz]);
+      profileRelationsClient.hasAnimatorOfTeacherRelation.mockImplementation(
+        async (_viewerId: string, targetId: string) => targetId === FORMATEUR_ID,
+      );
+
+      const result = await quizzesService.getPendingValidation(APId, 'animateur_pedagogique');
+
+      expect(result.total).toBe(1);
+      expect(result.items[0].id).toBe('quiz-animated');
+      expect(profileRelationsClient.hasAnimatorOfTeacherRelation).toHaveBeenCalledWith(APId, FORMATEUR_ID);
+      expect(profileRelationsClient.hasAnimatorOfTeacherRelation).toHaveBeenCalledWith(APId, OTHER_FORMATEUR_ID);
+    });
+
+    it('un AP sans aucun formateur animé ne voit aucun quizz en attente', async () => {
+      const APId = 'ap00-0000-4000-a000-aaaaaaaaaaaa';
+      quizRepo.find.mockResolvedValue([buildSampleQuiz({ status: ContentStatus.PENDING_VALIDATION })]);
+      profileRelationsClient.hasAnimatorOfTeacherRelation.mockResolvedValue(false);
+
+      const result = await quizzesService.getPendingValidation(APId, 'animateur_pedagogique');
+
+      expect(result.total).toBe(0);
+      expect(result.items).toHaveLength(0);
+    });
+
+    it('propage une ServiceUnavailableException si profile-service est injoignable', async () => {
+      const APId = 'ap00-0000-4000-a000-aaaaaaaaaaaa';
+      quizRepo.find.mockResolvedValue([buildSampleQuiz({ status: ContentStatus.PENDING_VALIDATION })]);
+      profileRelationsClient.hasAnimatorOfTeacherRelation.mockRejectedValue(
+        new ServiceUnavailableException('profile-service injoignable'),
+      );
+
+      await expect(
+        quizzesService.getPendingValidation(APId, 'animateur_pedagogique'),
+      ).rejects.toThrow(ServiceUnavailableException);
     });
   });
 

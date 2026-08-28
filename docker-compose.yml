@@ -595,6 +595,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
       INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
       PORT: 3013
+      # Verification de la relation animator_of_teacher (validation AP scopee
+      # par relation, arbitrage du 2026-08-28). profile-service reste l'unique
+      # proprietaire des relations.
+      PROFILE_SERVICE_URL: http://profile-service:3002
     depends_on:
       postgres:
         condition: service_healthy

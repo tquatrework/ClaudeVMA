@@ -7,8 +7,41 @@
 
 ## Besoin courant
 
-Aucun — les 5 retours Quizz post-production sont clos, voir l'archive ci-dessous. En attente du
-prochain besoin de l'utilisateur.
+Aucun — les 5 retours Quizz post-production, plus un 6e retour sur l'affordance de saisie de
+formule, sont clos, voir l'archive ci-dessous. En attente du prochain besoin de l'utilisateur.
+
+<details>
+<summary>Archive — besoin du 2026-08-28, affordance de saisie de formule Quizz (clos)</summary>
+
+### Besoin
+
+L'utilisateur a signalé que l'insertion de formule mathématique dans l'énoncé/les options d'une
+question de Quizz n'était pas accessible/visible, malgré le rendu KaTeX déjà en place. Demande
+explicite : regarder comment un élève saisit une formule dans le Mémo, et reprendre la même
+technique.
+
+### Constat du subagent (nuance par rapport à la demande initiale)
+
+Le Mémo n'a pas de bouton d'insertion inline dans un champ texte libre : il a un **type d'item
+dédié "formule"** (`MemoFormulaInput.tsx`, champ MathLive avec clavier virtuel et aperçu en temps
+réel). Le besoin du Quizz est différent (insérer une formule *au milieu* d'un texte libre), plus
+proche du mécanisme déjà existant pour les liens dans le cahier de texte (`InsertLinkButton`).
+
+### Solution livrée
+
+Nouveau composant `InsertFormulaButton` combinant le patron d'interaction de `InsertLinkButton`
+(bouton → popover → insertion au curseur) avec le moteur de saisie MathLive réutilisé du Mémo
+(`MemoFormulaInput`). Câblé dans `QuizQuestionEditor.tsx` à côté de l'énoncé et de chaque option,
+partagé automatiquement par la création et l'édition. L'aperçu KaTeX en direct (déjà existant)
+fonctionne désormais avec cette affordance.
+
+### État final — mergé et redéployé le 2026-08-28
+
+PR #170 mergée, `frontend` reconstruit et redéployé. Preuve Playwright complète contre
+`https://claudevma.visioprof.fr` (bouton visible, insertion réelle d'une formule dans l'énoncé et
+dans une option, aperçu KaTeX rendu, formule pré-remplie retrouvée à l'édition).
+
+</details>
 
 Rappel hors périmètre, signalé par plusieurs subagents : `feat/front-reprise-candidature-formateur`
 et `feat/reprise-candidature-formateur` restent non fusionnées, avec de gros diffstats qui

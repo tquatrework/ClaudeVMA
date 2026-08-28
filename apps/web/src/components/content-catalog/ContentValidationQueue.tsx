@@ -18,6 +18,8 @@
 
 import React, { useState } from 'react'
 import type { Exercise, Evaluation, Tutorial } from '../../api/contentCatalog'
+import type { QuizSummary } from '../../types/quiz'
+import { QuizValidationList } from './QuizValidationList'
 
 type ContentDecision = 'approve' | 'reject'
 
@@ -25,25 +27,30 @@ interface ContentValidationQueueProps {
   pendingExercises: Exercise[]
   pendingEvaluations: Evaluation[]
   pendingTutorials: Tutorial[]
+  pendingQuizzes: QuizSummary[]
   onValidateContent: (
     contentType: 'exercise' | 'evaluation' | 'tutorial',
     contentId: string,
     decision: ContentDecision,
   ) => void
+  onDecideQuiz: (quizId: string, decision: ContentDecision, comment?: string) => Promise<void>
 }
 
-type ActiveValidationTab = 'exercises' | 'evaluations' | 'tutorials'
+type ActiveValidationTab = 'exercises' | 'evaluations' | 'tutorials' | 'quizzes'
 
 export default function ContentValidationQueue({
   pendingExercises,
   pendingEvaluations,
   pendingTutorials,
+  pendingQuizzes,
   onValidateContent,
+  onDecideQuiz,
 }: ContentValidationQueueProps) {
   const [activeTab, setActiveTab] = useState<ActiveValidationTab>('exercises')
 
   const totalPendingCount =
-    pendingExercises.length + pendingEvaluations.length + pendingTutorials.length
+    pendingExercises.length + pendingEvaluations.length + pendingTutorials.length +
+    pendingQuizzes.length
 
   if (totalPendingCount === 0) {
     return (
@@ -95,6 +102,17 @@ export default function ContentValidationQueue({
         >
           Tutoriels ({pendingTutorials.length})
         </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('quizzes')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'quizzes'
+              ? 'border-indigo-600 text-indigo-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Quizz ({pendingQuizzes.length})
+        </button>
       </div>
 
       {/* Contenu selon l'onglet */}
@@ -123,6 +141,10 @@ export default function ContentValidationQueue({
           onValidate={onValidateContent}
           emptyLabel="Aucun tutoriel en attente."
         />
+      )}
+
+      {activeTab === 'quizzes' && (
+        <QuizValidationList quizzes={pendingQuizzes} onDecide={onDecideQuiz} />
       )}
     </div>
   )

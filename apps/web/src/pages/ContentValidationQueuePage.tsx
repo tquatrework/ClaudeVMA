@@ -22,6 +22,8 @@ import {
   type Evaluation,
   type Tutorial,
 } from '../api/contentCatalog'
+import { decideQuizValidation, fetchPendingQuizzes } from '../api/quizzes'
+import type { QuizSummary } from '../types/quiz'
 
 export default function ContentValidationQueuePage() {
   const { hasRole } = useAuth()
@@ -29,8 +31,10 @@ export default function ContentValidationQueuePage() {
   const [pendingExercises, setPendingExercises] = useState<Exercise[]>([])
   const [pendingEvaluations, setPendingEvaluations] = useState<Evaluation[]>([])
   const [pendingTutorials, setPendingTutorials] = useState<Tutorial[]>([])
+  const [pendingQuizzes, setPendingQuizzes] = useState<QuizSummary[]>([])
   const [isLoadingContent, setIsLoadingContent] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [quizLoadError, setQuizLoadError] = useState<string | null>(null)
   const [validationFeedback, setValidationFeedback] = useState<string | null>(null)
 
   const canValidateContent = hasRole('responsable_pedagogique', 'animateur_pedagogique')
@@ -43,7 +47,11 @@ export default function ContentValidationQueuePage() {
 
     setIsLoadingContent(true)
     setLoadError(null)
+    setQuizLoadError(null)
 
+    // Le Quizz est chargé séparément des trois autres types de contenu : sa route est plus
+    // récente et peut échouer indépendamment (ex. gateway pas encore mis à jour) sans que cela
+    // ne prive le RP/AP des files exercices/évaluations/tutoriels qui, elles, fonctionnent déjà.
     Promise.all([
       fetchExercises({ status: 'pending_validation' }),
       fetchEvaluations({ status: 'pending_validation' }),
@@ -56,7 +64,22 @@ export default function ContentValidationQueuePage() {
       })
       .catch(() => setLoadError('Impossible de charger les contenus en attente.'))
       .finally(() => setIsLoadingContent(false))
+
+    fetchPendingQuizzes()
+      .then((quizResult) => setPendingQuizzes(quizResult.items))
+      .catch(() => setQuizLoadError('Impossible de charger les quizz en attente.'))
   }, [canValidateContent])
+
+  const handleDecideQuiz = async (
+    quizId: string,
+    decision: 'approve' | 'reject',
+    comment?: string,
+  ) => {
+    await decideQuizValidation(quizId, decision, comment)
+    setPendingQuizzes((previous) => previous.filter((quiz) => quiz.id !== quizId))
+    setValidationFeedback(decision === 'approve' ? 'Quizz validé avec succès.' : 'Quizz rejeté.')
+    setTimeout(() => setValidationFeedback(null), 3000)
+  }
 
   const handleValidateContent = (
     contentType: 'exercise' | 'evaluation' | 'tutorial',
@@ -120,6 +143,12 @@ export default function ContentValidationQueuePage() {
           </p>
         </div>
 
+        {quizLoadError && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3">
+            <p className="text-yellow-700 text-sm">{quizLoadError}</p>
+          </div>
+        )}
+
         {/* Feedback de validation */}
         {validationFeedback && (
           <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3">
@@ -131,7 +160,9 @@ export default function ContentValidationQueuePage() {
           pendingExercises={pendingExercises}
           pendingEvaluations={pendingEvaluations}
           pendingTutorials={pendingTutorials}
+          pendingQuizzes={pendingQuizzes}
           onValidateContent={handleValidateContent}
+          onDecideQuiz={handleDecideQuiz}
         />
       </div>
     </Layout>

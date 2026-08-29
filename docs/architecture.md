@@ -1147,6 +1147,102 @@ Phase 3 enrichit l'offre :
      pas encore confirmee mot pour mot — a corriger si l'intention etait un import atomique
      (tout ou rien) pour l'ensemble du fichier.
 
+- Refonte des Exercices : blocs ordonnes enonce/question, solutions et reponses
+  texte/math/image, droits alignes sur le Quizz. Arbitrage rendu le 2026-08-29, sur specification
+  de l'utilisateur puis clarification apres constat d'un ecart avec l'existant. Constat prealable :
+  `content-catalog-service` porte deja des entites `Exercise`/`ExercisePart`/`ExerciseSolution`/
+  `ExerciseAnswer`/`ExerciseCorrection` depuis un chantier de juin 2026, **anterieur** a l'arbitrage
+  du 2026-08-28 sur la repartition Quizz. Ce modele ancien est un enonce texte unique + des
+  "parties" a reponse attendue + plusieurs `ExerciseSolution` concurrentes notees par un `cost`, et
+  un flux ou l'eleve demande une correction a un enseignant (`ExerciseCorrection`, jamais branchee,
+  code mort). Statut toujours `DRAFT` a la creation quel que soit le role, aucun scoping AP,
+  `tags` en base mais jamais exploite en recherche. L'utilisateur confirme que ce flux de demande de
+  correction humaine correspond en realite a l'**Evaluation** deja distincte dans
+  `content-catalog-service` ("solution jamais publiee directement, correction demandee apres coup") —
+  il est **retire du perimetre des Exercices**, pas reconstruit ici.
+  1. **Structure : sequence ordonnee de blocs types, pas un enonce unique + parties.** Un Exercice
+     porte un titre optionnel, des tags, et une liste ordonnee de blocs (`ExercisePart` reutilise,
+     champ `category: 'statement'|'question'` ajoute) — plusieurs blocs "enonce" sont possibles,
+     entrelaces avec des blocs "question", exactement comme le Quizz alterne ses blocs `quizz`/
+     `question` a l'import. Choix fait sur arbitrage explicite de l'utilisateur : la premiere
+     description (un seul enonce + des questions) etait une vue simplifiee, et generaliser a une
+     sequence libre n'est pas plus complexe a modeliser qu'un enonce unique special-case — c'est au
+     contraire plus simple (un seul mecanisme de sequence, pas un champ `statement` a part).
+  2. **Chaque bloc (enonce, question, solution, reponse) porte du contenu texte/formule/image, sur
+     le meme mecanisme que le Memo** (items typés `text`/`formula`/`image`, MathLive/KaTeX pour la
+     formule) — demande explicite de l'utilisateur, deja vrai en intention depuis juin mais jamais
+     implemente concretement (le modele actuel n'a qu'un `content: text` brut). `content-catalog-service`
+     n'a aujourd'hui aucun stockage binaire propre : un nouveau volume Docker nomme est necessaire
+     pour les images d'exercice, sur le meme patron que l'avatar (2026-08-10) et les pieces jointes
+     du cahier de texte (2026-08-26) — route de lecture authentifiee qui reapplique la visibilite de
+     l'exercice parent, re-encodage a l'envoi, type detecte sur les octets reels, SVG refuse, nom de
+     fichier genere cote serveur, plafonds de taille explicites et annonces au front. Nouveau volume
+     a ajouter a la routine de sauvegarde, meme rappel que pour les volumes existants.
+  3. **`ExerciseSolution` reste la solution definie par l'auteur, mais 1-a-1 avec un bloc question**
+     (FK `partId` obligatoire), plus les champs `cost`/`isOfficial`/plusieurs-solutions-concurrentes
+     retires — un exercice a exactement une solution par question, pas un choix de solutions notees.
+     Le contenu de la solution suit le meme mecanisme texte/formule/image que les blocs (point 2).
+  4. **`ExerciseAnswer` migre vers `learning-activity-service`**, sous un nouveau nom d'entite propre
+     a ce service (ex. `ExerciseAttempt`/reponses associees) — c'est la reponse **soumise par
+     l'eleve qui passe l'exercice**, pas une donnee de definition, meme raisonnement que "reponses,
+     corrections, scores" deja le role documente de ce service et que la repartition tranchee pour
+     le Quizz le 2026-08-28. `content-catalog-service` ne la porte plus. Une reponse par question,
+     **facultative** (l'eleve n'est pas oblige de repondre a tout), meme mecanisme
+     texte/formule/image. Precision de l'utilisateur : ces reponses sont "potentiellement
+     partageables" (c'est la meme idee que la demande de correction retiree du perimetre au point
+     ci-dessus) — **non implemente pour l'instant**, a reprendre plus tard, probablement sur les
+     Evaluations plutot que sur l'Exercice lui-meme.
+  5. **Droits et cycle de validation alignes point par point sur le Quizz** (arbitrage du
+     2026-08-28), et non plus sur l'ancien flux DRAFT + demande de validation separee partage avec
+     Evaluation/Tutoriel :
+     - Createurs : formateur, AP, RP (deja le cas aujourd'hui, a conserver).
+     - Statut fixe **a la creation** selon le role, comme le Quizz : `pending_validation` pour un
+       formateur, `validated` immediatement pour AP/RP — l'ancien `DRAFT` systematique disparait
+       pour les Exercices.
+     - Edition reservee a l'auteur ; un formateur qui edite un Exercice deja `validated` le fait
+       repasser en `pending_validation` ; AP/RP editant leur propre Exercice ne changent pas son
+       statut — copie exacte de la regle Quizz du 2026-08-28.
+     - Validation reservee au RP (illimite) et a l'AP **scope par la relation `animator_of_teacher`**
+       — reutiliser exactement le mecanisme deja construit pour le Quizz (PR #164), pas le
+       redevelopper.
+     - Lecture d'un Exercice `validated` ouverte a eleve, professeur, AP, RP — memes 4 roles que le
+       Quizz, aucune relation requise en lecture une fois valide.
+     - La route generique de decision de validation (`POST /validations/exercise/:id/decision`,
+       partagee avec evaluation/tutoriel/quizz) reste utilisable telle quelle : elle opere sur un
+       contenu deja en `pending_validation`, peu importe comment il y est arrive — `content-catalog-service`
+       doit verifier que sauter l'etape "demande de validation" separee pour l'Exercice ne casse
+       rien pour Evaluation/Tutoriel, qui continuent d'utiliser leur flux actuel inchange. Ne pas
+       toucher au comportement d'Evaluation/Tutoriel dans ce chantier.
+  6. **Tags realises en recherche.** Le champ existe deja en base mais n'est jamais applique par
+     `exercises.service.ts` — corrige immediatement dans ce chantier, l'utilisateur le demande
+     explicitement ("il faudra le rajouter rapidement"), pas differe.
+  7. **Timer differe, hors perimetre de ce chantier.** L'utilisateur le decrit comme "un plus que
+     l'on peut reporter davantage" : aucune colonne ni logique de timer construite maintenant, a
+     reprendre dans un chantier dedie plus tard. Consequence pour le mecanisme de reponse/solution
+     (point suivant) : pas de verification de delai a batir aujourd'hui.
+  8. **Mediation de la solution par `learning-activity-service`, meme si rien n'est secret pour
+     l'instant.** Pas de notation ni de risque de triche sur un Exercice (l'eleve choisit lui-meme
+     de reveler la solution), donc pas d'obligation de securite immediate a cacher la solution — mais
+     le front ne doit **jamais** aller chercher une solution directement aupres de
+     `content-catalog-service`. `content-catalog-service` expose une route interne
+     (`X-Internal-Secret`, meme modele que les routes `/internal/*` deja en place, et que la
+     notation Quizz du 2026-08-28) pour qu'une seule action cote `learning-activity-service`
+     (marquer une solution "revelee") aille chercher le contenu et le renvoie au front. Choix fait
+     pour rester coherent avec le patron deja eprouve du Quizz, et pour ne pas devoir redessiner ce
+     point le jour ou le timer (point 7) doit reellement bloquer la revelation avant l'echeance —
+     le blocage se posera alors naturellement dans cette meme action mediee, sans redecoupage.
+  9. **Etat d'une tentative et regle de completion**, portes par `learning-activity-service` : par
+     question, une reponse facultative et un indicateur "solution revelee". **Fait** quand *toutes*
+     les solutions ont ete revelees, **ou** quand *toutes* les questions ont recu une reponse (l'un
+     ou l'autre suffit, pas les deux) ; sinon **en cours**. Alimente un historique par utilisateur,
+     meme principe que l'historique de tentatives Quizz.
+  10. **Contrat interne minimal entre les deux services** : `learning-activity-service` lit la
+      structure de l'exercice (blocs, categorie, nombre de questions) via la route publique
+      existante `GET /exercises/:id` (deja ouverte a tout authentifie, ne renvoie jamais de
+      solution) pour savoir combien de zones de reponse proposer et calculer la completion ; il
+      n'a besoin de la route interne de solution (point 8) qu'au moment ou l'eleve revele
+      effectivement une solution donnee.
+
 ## Points ouverts a arbitrer
 
 - `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a

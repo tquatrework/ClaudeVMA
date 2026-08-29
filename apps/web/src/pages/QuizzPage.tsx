@@ -2,17 +2,23 @@
  * QuizzPage — catalogue des Quizz.
  *
  * Recherche par tag/mot-clé, pagination, ouverture d'un quizz pour le passer, création
- * (formateur/AP/RP), historique personnel des tentatives passées, et — retour post-production du
- * 2026-08-28 — onglet « Mes Quizz » pour retrouver, modifier et resoumettre ses propres créations
- * (`docs/architecture.md` > « Edition d'un Quizz par son auteur »).
+ * (formateur/AP/RP), historique personnel des tentatives passées, onglet « Mes Quizz » pour
+ * retrouver/modifier/resoumettre ses propres créations (2026-08-28,
+ * `docs/architecture.md` > « Edition d'un Quizz par son auteur »), et — demande du 2026-08-29 —
+ * onglet « Validation » pour que RP/AP valident ou rejettent directement depuis la page Quizz,
+ * sans redescendre vers l'écran générique « Contenus à valider ». Réutilise le même composant
+ * (`QuizValidationList`) et les mêmes routes que cet écran générique ; le scoping AP par relation
+ * `animator_of_teacher` est déjà appliqué côté serveur, non dupliqué ici.
  *
  * Fonctionnalité branchée sur la pile réelle le 2026-08-28 (`content-catalog-service` PR #152,
  * `learning-activity-service` PR #151) — remplace l'état « à venir » précédent.
  *
  * Routes API consommées :
- *   GET  /quizzes                 (content-catalog-service — recherche, et « mes Quizz » via `mine=true`)
- *   POST /quizzes                 (content-catalog-service — création)
- *   GET  /quiz-attempts/history   (learning-activity-service — historique)
+ *   GET  /quizzes                     (content-catalog-service — recherche, et « mes Quizz » via `mine=true`)
+ *   GET  /quizzes/pending-validation  (content-catalog-service — file de validation RP/AP)
+ *   POST /quizzes                     (content-catalog-service — création)
+ *   POST /validations/quiz/:id/decision (content-catalog-service — décision de validation)
+ *   GET  /quiz-attempts/history       (learning-activity-service — historique)
  */
 
 import React, { useState } from 'react'
@@ -22,6 +28,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useAsyncData } from '../hooks/useAsyncData'
 import { useQuizAttemptHistory } from '../hooks/learning-activity/useQuizAttemptHistory'
 import { useMyQuizzes } from '../hooks/content-catalog/useMyQuizzes'
+import { useQuizValidationQueue } from '../hooks/content-catalog/useQuizValidationQueue'
 import { PageHeader } from '../components/ui/PageHeader'
 import { EmptyState } from '../components/ui/EmptyState'
 import { ErrorMessage } from '../components/ui/ErrorMessage'
@@ -31,6 +38,7 @@ import { Tabs, TabPanel } from '../components/ui/Tabs'
 import { QuizCreationSection } from '../components/content-catalog/QuizCreationSection'
 import { QuizAttemptHistoryList } from '../components/learning-activity/QuizAttemptHistoryList'
 import { MyQuizzesList } from '../components/content-catalog/MyQuizzesList'
+import { QuizValidationList } from '../components/content-catalog/QuizValidationList'
 import { searchQuizzes } from '../api/quizzes'
 import { QUIZ_STATUS_BADGE_CLASSES, QUIZ_STATUS_LABELS } from '../utils/quizLabels'
 import type { PublicQuizDetail } from '../types/quiz'
@@ -41,7 +49,9 @@ export default function QuizzPage() {
   const { hasRole } = useAuth()
   const navigate = useNavigate()
 
-  const [activeTab, setActiveTab] = useState<'catalog' | 'history' | 'mine'>('catalog')
+  const [activeTab, setActiveTab] = useState<'catalog' | 'history' | 'mine' | 'validation'>(
+    'catalog',
+  )
   const [tagFilter, setTagFilter] = useState('')
   const [keywordFilter, setKeywordFilter] = useState('')
   const [appliedTag, setAppliedTag] = useState('')
@@ -50,6 +60,7 @@ export default function QuizzPage() {
   const [justCreatedQuiz, setJustCreatedQuiz] = useState<PublicQuizDetail | null>(null)
 
   const canCreateQuiz = hasRole('formateur', 'animateur_pedagogique', 'responsable_pedagogique')
+  const canValidateQuiz = hasRole('responsable_pedagogique', 'animateur_pedagogique')
 
   const {
     data: searchResult,
@@ -71,6 +82,13 @@ export default function QuizzPage() {
     error: myQuizzesError,
     refetch: refetchMyQuizzes,
   } = useMyQuizzes()
+
+  const {
+    items: pendingValidationQuizzes,
+    isLoading: isLoadingValidationQueue,
+    error: validationQueueError,
+    decide: decideValidationQueue,
+  } = useQuizValidationQueue(canValidateQuiz)
 
   const handleSearchSubmit = (event: React.FormEvent) => {
     event.preventDefault()
@@ -135,9 +153,10 @@ export default function QuizzPage() {
             { id: 'catalog', label: 'Catalogue' },
             { id: 'history', label: 'Mon historique' },
             ...(canCreateQuiz ? [{ id: 'mine', label: 'Mes Quizz' }] : []),
+            ...(canValidateQuiz ? [{ id: 'validation', label: 'Validation' }] : []),
           ]}
           activeTab={activeTab}
-          onTabChange={(id) => setActiveTab(id as 'catalog' | 'history' | 'mine')}
+          onTabChange={(id) => setActiveTab(id as 'catalog' | 'history' | 'mine' | 'validation')}
         />
 
         <TabPanel tabId="catalog" activeTab={activeTab}>
@@ -252,6 +271,24 @@ export default function QuizzPage() {
             {myQuizzesError && <ErrorMessage message={myQuizzesError} />}
             {!isLoadingMyQuizzes && !myQuizzesError && (
               <MyQuizzesList quizzes={myQuizzes} onResubmitted={() => refetchMyQuizzes()} />
+            )}
+          </TabPanel>
+        )}
+
+        {canValidateQuiz && (
+          <TabPanel tabId="validation" activeTab={activeTab}>
+            <p className="text-sm text-gray-500 mb-3">
+              Quizz créés par un professeur, en attente de votre validation.
+            </p>
+            {isLoadingValidationQueue && (
+              <p className="text-gray-400 text-sm">Chargement des quizz en attente…</p>
+            )}
+            {validationQueueError && <ErrorMessage message={validationQueueError} />}
+            {!isLoadingValidationQueue && !validationQueueError && (
+              <QuizValidationList
+                quizzes={pendingValidationQuizzes}
+                onDecide={decideValidationQueue}
+              />
             )}
           </TabPanel>
         )}

@@ -13,6 +13,15 @@ import { QUIZ_IMPORT_MAX_FILE_SIZE_BYTES } from './quiz-import.constants';
  * limite est atteinte, la taille réelle du fichier n'est donc jamais connue
  * avec certitude dans ce cas (même limite documentée pour l'avatar :
  * `receivedBytes` vaut `null` quand multer a coupé le flux).
+ *
+ * `maxUploadBytes` est un ALIAS de `maxFileSizeBytes`, même valeur : le front
+ * réutilise le composant générique de gestion d'erreur d'upload construit
+ * pour l'avatar, qui lit `maxUploadBytes` en priorité (avec repli sur la
+ * valeur lue depuis `GET /quizzes/import/constraints` sinon). Les deux clés
+ * sont exposées pour que ce composant fonctionne sans adaptation, tout en
+ * gardant `maxFileSizeBytes` comme nom canonique de cette fonctionnalité
+ * (cohérent avec `GET /quizzes/import/constraints`). Réconciliation du
+ * 2026-08-29 avec la PR front #176.
  */
 @Catch(PayloadTooLargeException)
 export class QuizImportPayloadTooLargeFilter implements ExceptionFilter {
@@ -31,6 +40,7 @@ export class QuizImportPayloadTooLargeFilter implements ExceptionFilter {
       code: 'QUIZ_IMPORT_FILE_TOO_LARGE',
       message: 'Uploaded file exceeds the maximum allowed size',
       maxFileSizeBytes: QUIZ_IMPORT_MAX_FILE_SIZE_BYTES,
+      maxUploadBytes: QUIZ_IMPORT_MAX_FILE_SIZE_BYTES,
       requestBodyBytes,
     });
   }

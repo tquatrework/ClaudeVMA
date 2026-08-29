@@ -36,6 +36,9 @@ describe('QuizImportPayloadTooLargeFilter', () => {
         statusCode: 413,
         code: 'QUIZ_IMPORT_FILE_TOO_LARGE',
         maxFileSizeBytes: QUIZ_IMPORT_MAX_FILE_SIZE_BYTES,
+        // Alias attendu par le composant générique d'erreur d'upload du front
+        // (réutilisé depuis l'avatar) — même valeur que maxFileSizeBytes.
+        maxUploadBytes: QUIZ_IMPORT_MAX_FILE_SIZE_BYTES,
         requestBodyBytes: 1258291,
       }),
     );

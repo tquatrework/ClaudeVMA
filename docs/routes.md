@@ -2937,9 +2937,15 @@ Corps de la réponse `413` :
   "code": "QUIZ_IMPORT_FILE_TOO_LARGE",
   "message": "Uploaded file exceeds the maximum allowed size",
   "maxFileSizeBytes": 900000,
+  "maxUploadBytes": 900000,
   "requestBodyBytes": 1258291
 }
 ```
+
+`maxUploadBytes` est un **alias** de `maxFileSizeBytes`, même valeur — ajouté le 2026-08-29 pour
+que le composant générique de gestion d'erreur d'upload du front (construit pour l'avatar, qui lit
+`maxUploadBytes` en priorité) fonctionne sans adaptation sur cette route. `maxFileSizeBytes` reste
+le nom canonique de cette fonctionnalité, cohérent avec `GET /quizzes/import/constraints`.
 
 `requestBodyBytes` est la taille **déclarée** par le client (`Content-Length`), jamais vérifiée —
 `null` si absente. Le flux étant coupé par multer dès le dépassement, la taille réelle du fichier

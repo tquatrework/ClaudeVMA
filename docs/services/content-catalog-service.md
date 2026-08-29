@@ -35,11 +35,15 @@
       <rule role="ParentFinanceur">Lecture via eleves suivis selon droits, pas intervention pedagogique directe.</rule>
     </roleAccessRules>
     <candidateApis>
-      <endpoint method="GET" path="/exercises">Rechercher exercices.</endpoint>
-      <endpoint method="POST" path="/exercises">Charger un exercice.</endpoint>
-      <endpoint method="POST" path="/exercises/{id}/answers">Charger une reponse.</endpoint>
-      <endpoint method="POST" path="/exercise-answers/{id}/correction-requests">Demander correction.</endpoint>
-      <endpoint method="POST" path="/exercises/{id}/solutions">Proposer solution.</endpoint>
+      <endpoint method="GET" path="/exercises">Rechercher exercices, filtrable par tag (ANY(tags), applique le 2026-08-29).</endpoint>
+      <endpoint method="POST" path="/exercises">Charger un exercice : sequence ordonnee de blocs statement/question, chaque bloc question portant une solution obligatoire (refonte du 2026-08-29).</endpoint>
+      <endpoint method="PUT" path="/exercises/{id}">Modifier un exercice, reserve a son auteur ; repasse en pending_validation si l'auteur est formateur (ajoute le 2026-08-29).</endpoint>
+      <endpoint method="GET" path="/exercises/pending-validation">Lister les exercices en attente de validation ; AP scope par relation animator_of_teacher, RP illimite (ajoute le 2026-08-29).</endpoint>
+      <endpoint method="GET" path="/exercises/{id}/images/{itemId}">Octets d'une image de bloc (jamais de solution) (ajoute le 2026-08-29).</endpoint>
+      <endpoint method="POST" path="/exercises/{id}/parts/{partId}/images">Ajouter une image a un bloc, multipart, re-encodage WebP (ajoute le 2026-08-29).</endpoint>
+      <endpoint method="POST" path="/exercises/{id}/parts/{partId}/solution/images">Ajouter une image a la solution d'un bloc question, jamais servie publiquement (ajoute le 2026-08-29).</endpoint>
+      <endpoint method="POST" path="/internal/exercises/{exerciseId}/parts/{partId}/solution">Route interne, contenu complet de la solution pour learning-activity-service (ajoute le 2026-08-29).</endpoint>
+      <endpoint method="GET" path="/internal/exercises/images/{itemId}">Route interne, octets de n'importe quelle image (ajoute le 2026-08-29).</endpoint>
       <endpoint method="GET" path="/evaluations">Rechercher evaluations.</endpoint>
       <endpoint method="POST" path="/evaluations">Creer evaluation.</endpoint>
       <endpoint method="POST" path="/evaluations/{id}/attempts">Passer une evaluation.</endpoint>
@@ -58,11 +62,18 @@
       <endpoint method="POST" path="/internal/quizzes/{quizId}/grade">Route interne de notation, jamais exposee par api-gateway (ajoute le 2026-08-28).</endpoint>
     </candidateApis>
     <dataEntities>
-      <entity>Exercise</entity>
-      <entity>ExercisePart</entity>
-      <entity>ExerciseAnswer</entity>
-      <entity>ExerciseCorrection</entity>
-      <entity>ExerciseSolution</entity>
+      <entity name="Exercise">
+        <note>Refonte du 2026-08-29 : titre optionnel, tags en text[] postgres (ANY() en recherche). statement/correctionCost retires (remplaces par les blocs ; le flux de correction humaine sort du perimetre). Voir technicalImplementation.</note>
+      </entity>
+      <entity name="ExercisePart">
+        <note>Refonte du 2026-08-29 : bloc ordonne (partNumber), category statement|question. expectedAnswer retire. Contenu porte par ExerciseContentItem (partId).</note>
+      </entity>
+      <entity name="ExerciseContentItem">
+        <note>Ajoutee le 2026-08-29 — item texte/formule/image, meme mecanisme que MemoItem (pedagogical-log-service). Rattache a EXACTEMENT un parent : partId OU solutionId (jamais les deux). Champs image* (originalFilename/storedFilename/mimeType/sizeBytes) pour type=image.</note>
+      </entity>
+      <entity name="ExerciseSolution">
+        <note>Refonte du 2026-08-29 : 1-a-1 avec un bloc question (partId unique, FK obligatoire). cost/isOfficial/isValidated et solutions concurrentes retires. Contenu porte par ExerciseContentItem (solutionId). Jamais exposee par une route publique.</note>
+      </entity>
       <entity>Evaluation</entity>
       <entity>EvaluationAttempt</entity>
       <entity>Tutorial</entity>
@@ -94,6 +105,9 @@
       <criterion>Un quizz cree par un formateur n'est visible aux eleves et aux autres professeurs qu'apres validation AP/RP ; un quizz cree par un AP ou un RP est visible immediatement (ajoute le 2026-08-28).</criterion>
       <criterion>La solution d'un quizz (correctOptionIds, keywords) n'est jamais exposee par une route publique, y compris dans la liste de recherche et dans la lecture par id (ajoute le 2026-08-28).</criterion>
       <criterion>La notation d'un quizz est calculee uniquement par content-catalog-service, jamais par learning-activity-service, via la route interne /internal/quizzes/:quizId/grade (ajoute le 2026-08-28).</criterion>
+      <criterion>Un exercice cree par un formateur n'est visible aux eleves et aux autres professeurs qu'apres validation AP/RP ; un exercice cree par un AP ou un RP est visible immediatement (ajoute le 2026-08-29, refonte des Exercices).</criterion>
+      <criterion>Le contenu d'une ExerciseSolution n'est jamais expose par une route publique (GET /exercises/:id ne renvoie que hasSolution:boolean sur un bloc question) — seule la route interne /internal/exercises/:exerciseId/parts/:partId/solution y donne acces, reservee a learning-activity-service (ajoute le 2026-08-29).</criterion>
+      <criterion>Une image de solution d'exercice n'est jamais servie par la route publique GET /exercises/:id/images/:itemId (404) — seule la route interne GET /internal/exercises/images/:itemId la sert, sans verification de visibilite, sous responsabilite de learning-activity-service (ajoute le 2026-08-29).</criterion>
     </acceptanceCriteria>
     <technicalImplementation>
       <session date="2026-08-28" label="Creation et definition du Quizz (branche feat/quiz-definition)">
@@ -707,6 +721,179 @@
             dependance preexistante du service) — usage interne d'exceljs pour generer des
             identifiants, jamais avec un buffer fourni par l'appelant : risque juge faible pour cet
             usage, mais signale explicitement conformement a la regle du projet sur la securite.
+          </point>
+        </openPoints>
+      </session>
+
+      <session date="2026-08-29" label="Refonte des Exercices en blocs typés texte/formule/image (branche feat/exercises-rebuild-content-catalog)">
+        <objective>
+          Remplacer le modèle Exercise/ExercisePart/ExerciseSolution/ExerciseAnswer/ExerciseCorrection
+          hérité du chantier de juin 2026 par le modèle posé par l'arbitrage docs/architecture.md,
+          "Refonte des Exercices" (2026-08-29) : séquence ordonnée de blocs statement/question,
+          contenu texte/formule/image (mécanisme du Mémo), solution 1-à-1 par bloc question, droits
+          et validation alignés sur le Quizz, ExerciseAnswer/ExerciseCorrection retirés (migrent
+          vers learning-activity-service, développé en parallèle sur le même contrat).
+        </objective>
+        <filesAdded>
+          <file path="src/exercises/enums/exercise-part-category.enum.ts">ExercisePartCategory (statement/question).</file>
+          <file path="src/exercises/entities/exercise-content-item.entity.ts">ExerciseContentItem — item text/formula/image, rattaché à EXACTEMENT un parent (partId OU solutionId, jamais les deux) : une seule table plutôt que deux tables identiques dupliquées pour ExercisePart et ExerciseSolution, qui partagent la même forme de contenu (arbitrage de simplicité de code du chantier Quizz, réappliqué ici).</file>
+          <file path="src/exercises/exercise.constants.ts">Plafonds : EXERCISE_ITEM_CONTENT_MAX_LENGTH (5000), EXERCISE_MAX_PARTS (100), EXERCISE_MAX_ITEMS_PER_PART (50), EXERCISE_IMAGE_MAX_BYTES (500 000 octets, même ordre de grandeur que les images du Mémo), EXERCISE_ACCEPTED_IMAGE_MIME_TYPES (liste blanche JPEG/PNG/WebP/GIF).</file>
+          <file path="src/exercises/exercise-image-transcoder.ts">ExerciseImageTranscoder — détection de format sur les octets réels (nombres magiques, fonction pure detectImageFormat testée seule) puis RÉ-ENCODAGE systématique via sharp en WebP (côté maximal 1600px, fit "inside" — contrairement au recadrage carré "cover" de l'avatar, une illustration d'énoncé garde son ratio). SVG refusé explicitement. Port direct du patron déjà éprouvé de profile-service/src/media/image-transcoder.ts (avatar, 2026-08-10), avec `import * as sharp` (jamais `import sharp from 'sharp'`, cf. commentaire du fichier sur esModuleInterop).</file>
+          <file path="src/exercises/exercise-image-storage.service.ts">ExerciseImageStorageService — port de stockage disque, nom de fichier stocké généré côté serveur (UUID), volume Docker nommé dédié EXERCISE_IMAGE_STORAGE_PATH (défaut storage/exercise-images). Premier stockage binaire propre à ce service.</file>
+          <file path="src/exercises/dto/create-exercise-content-item.dto.ts">CreateExerciseContentItemDto — type limité à text/formula (image exclue, créée uniquement via route multipart dédiée, même discipline que CreateMemoItemDto).</file>
+          <file path="src/exercises/dto/create-exercise-part.dto.ts">CreateExercisePartDto (category, items[]) + CreateExercisePartSolutionDto (items[]), solution imbriquée optionnelle.</file>
+          <file path="src/exercises/dto/create-exercise-image.dto.ts">CreateExerciseImageDto — champ caption? accompagnant l'upload multipart.</file>
+          <file path="src/exercises/dto/update-exercise.dto.ts">UpdateExerciseDto extends CreateExerciseDto, même modèle que UpdateQuizDto.</file>
+          <file path="src/exercises/internal-exercises.controller.ts">POST /internal/exercises/:exerciseId/parts/:partId/solution (contrat figé, point 10 de l'arbitrage) et GET /internal/exercises/images/:itemId (octets de n'importe quelle image, bloc ou solution, sans vérification de visibilité — le proprietaire de la décision de révéler est learning-activity-service, en amont de l'appel). @ApiExcludeController, InternalSecretGuard, jamais exposées par api-gateway.</file>
+          <file path="test/unit/exercises/exercises.service.spec.ts">create()/update()/search()/findOne()/getPendingValidation()/removeExercise() — remplace l'ancien fichier du même nom (modèle abandonné).</file>
+          <file path="test/unit/exercises/exercises.service.images.spec.ts">addImageToPart()/addImageToSolution()/getPartImageForDownload()/getImageForInternalDownload()/getSolutionContentForInternal().</file>
+          <file path="test/unit/exercises/exercise-image-transcoder.spec.ts">detectImageFormat() (fonction pure, tous formats + cas limites) et transcode() (PNG réel encodé en WebP, SVG refusé, contenu non reconnu, en-tête valide mais fichier corrompu).</file>
+          <file path="test/unit/validations/validations.service.exercise-scoping.spec.ts">Scoping AP par relation animator_of_teacher appliqué à ContentType.EXERCISE — miroir de validations.service.quiz.spec.ts, plus un test explicite que ContentType.EVALUATION reste non scopé.</file>
+        </filesAdded>
+        <filesModified>
+          <file path="src/exercises/entities/exercise.entity.ts">title nullable ; statement/correctionCost retirés ; tags passé en text[] postgres natif (même motif que Quiz, 2026-08-28 : ANY(tags) exact plutôt qu'un LIKE fragile sur simple-array) ; relations answers/solutions(plural) retirées.</file>
+          <file path="src/exercises/entities/exercise-part.entity.ts">category ajoutée ; content(text)/expectedAnswer retirés, remplacés par items: ExerciseContentItem[] et solution: ExerciseSolution (OneToOne).</file>
+          <file path="src/exercises/entities/exercise-solution.entity.ts">partId (unique, FK obligatoire) remplace la relation plurielle vers Exercise ; cost/isValidated/isOfficial retirés ; content(text) remplacé par items: ExerciseContentItem[].</file>
+          <file path="src/exercises/exercises.service.ts">Réécriture quasi intégrale. validatePartDto() (catégorie, items non vides, solution requise/interdite selon catégorie) ; savePartsAndSolutions() (création imbriquée blocs+items+solution+items) ; update() (remplacement intégral via delete({exerciseId}) + cascade DB, purge préalable des fichiers image orphelins) ; search() migré vers QueryBuilder (visibilité alignée Quizz + filtre tag ANY()) ; findOne()/getPendingValidation() copiés du patron Quizz (ProfileRelationsClient injecté) ; addImageToPart()/addImageToSolution() (transcodage + stockage + statut) ; getPartImageForDownload() (jamais une image de solution) ; getImageForInternalDownload() ; getSolutionContentForInternal().</file>
+          <file path="src/exercises/exercises.controller.ts">Routes answers/correction-requests/solutions retirées ; PUT, images (part et solution), pending-validation ajoutés.</file>
+          <file path="src/exercises/exercises.module.ts">Enregistrement ExerciseContentItem, ExerciseImageStorageService, ExerciseImageTranscoder, InternalExercisesController, import ProfileClientModule.</file>
+          <file path="src/app.module.ts">Entités ExerciseAnswer/ExerciseCorrection retirées, ExerciseContentItem ajoutée.</file>
+          <file path="src/validations/validations.service.ts">Scoping AP par relation animator_of_teacher étendu de ContentType.QUIZ à ContentType.EXERCISE (point 5 de l'arbitrage : "réutilise exactement le mécanisme déjà construit pour le Quizz"). Refactor : appel unique à getContentAuthorId() pour les deux types plutôt qu'un fetch dupliqué. Evaluation/Tutorial explicitement non touchés — vérifié par un test dédié.</file>
+          <file path="test/unit/validations/validations.service.spec.ts">buildSampleExercise() aligné sur le nouveau schéma (statement/correctionCost/answers/solutions retirés) ; test "l'AP peut valider un exercice" corrigé pour mocker la relation animator_of_teacher, plus un nouveau test du refus sans relation.</file>
+          <file path="test/unit/validations/validations.service.rules.spec.ts">Même correction de buildSampleExercise() ; hasAnimatorOfTeacherRelation mocké à true par défaut dans le beforeEach (ce fichier ne teste pas spécifiquement le scoping, déjà couvert par le nouveau fichier dédié).</file>
+          <file path="docker-compose.yml">Ajout du volume content_catalog_exercise_images (nommé, non couvert par le dump Postgres — à ajouter à la routine de sauvegarde) et de EXERCISE_IMAGE_STORAGE_PATH sur le bloc content-catalog-service.</file>
+          <file path="package.json">Ajout de sharp (^0.34.5, même version que profile-service) — première dépendance de traitement d'image de ce service.</file>
+          <file path="docs/routes.md">Nouvelle section "Exercices — refonte du 2026-08-29" (routes publiques + internes), sous la section Quizz existante.</file>
+        </filesModified>
+        <filesRemoved>
+          <file>src/exercises/entities/exercise-answer.entity.ts, src/exercises/entities/exercise-correction.entity.ts</file>
+          <file>src/exercises/exercise-answers.controller.ts (portait POST /exercise-answers/:id/correction-requests)</file>
+          <file>src/exercises/dto/create-exercise-answer.dto.ts, create-correction-request.dto.ts, propose-solution.dto.ts</file>
+          <file>Routes retirées : POST /exercises/:id/answers, POST /exercise-answers/:id/correction-requests, POST /exercises/:id/solutions, GET /exercises/:id/solutions/official (n'a plus de sens sans solutions concurrentes).</file>
+        </filesRemoved>
+        <technicalDecisions>
+          <decision>
+            Contenu porté par une table unique ExerciseContentItem (partId XOR solutionId), plutôt
+            que deux tables identiques dupliquées ou un tableau JSONB directement sur ExercisePart/
+            ExerciseSolution. Choix relationnel (comme MemoItem) plutôt que JSONB (comme
+            QuizQuestion.options) : les items nécessitent une identité stable propre (id de ligne)
+            pour servir de référence d'image téléchargeable (GET .../images/:itemId), et
+            insertion/suppression individuelle (upload d'image après création) est nativement plus
+            simple avec des lignes qu'avec un read-modify-write d'un tableau JSON.
+          </decision>
+          <decision>
+            LIMITE CONNUE ET ASSUMÉE, documentée dans le code (exercises.service.ts, update()) et
+            dans docs/routes.md : PUT /exercises/:id remplace intégralement blocs/items/solutions
+            (même patron que Quiz.update(), aucune identité stable côté client pour un diff fin) —
+            les images précédemment envoyées sont donc supprimées (fichiers sur le volume dédié
+            inclus, pour ne jamais laisser de fichier orphelin) et doivent être renvoyées après
+            l'édition. Le DTO JSON de toute façon ne peut jamais transporter d'item image
+            (CreateExerciseContentItemDto exclut ce type), donc un remplacement complet ne pourrait
+            de toute façon jamais réintroduire une image existante sans passer par les routes
+            multipart, après coup. Un diff par identifiant stable serait l'amélioration naturelle
+            d'un chantier ultérieur si ce comportement gêne l'usage réel.
+          </decision>
+          <decision>
+            Images de solution : jamais servies par une route publique. GET /exercises/:id/images/
+            :itemId 404 explicitement si l'item appartient à une solution (item.partId absent) —
+            même conséquence que "jamais la solution" pour le texte. Une route interne séparée,
+            GET /internal/exercises/images/:itemId, sert N'IMPORTE QUELLE image (bloc ou solution)
+            sans aucune vérification de visibilité : la décision de révéler une solution à un
+            utilisateur donné appartient à learning-activity-service (état de la tentative, règle
+            de complétion posée par l'arbitrage, point 9), pas à content-catalog-service — cette
+            route interne est un simple proxy binaire vers un appelant déjà déclaré de confiance
+            par le secret partagé.
+          </decision>
+          <decision>
+            Route interne de solution : jamais d'embarquement base64 des images dans la réponse
+            JSON — chaque item image renvoie son id (utilisable tel quel comme itemId), et
+            learning-activity-service récupère les octets séparément via la route binaire dédiée
+            ci-dessus. Alternative écartée (embarquer les bytes en base64 dans la réponse texte)
+            pour ne pas dupliquer un mécanisme de transport binaire déjà existant, et pour garder
+            la réponse JSON légère même si la solution ne contient aucune image.
+          </decision>
+          <decision>
+            Ré-encodage complet (sharp, WebP, EXIF supprimé) plutôt qu'une simple détection de type
+            sans transformation (comme les pièces jointes du cahier de texte ou les images du
+            Mémo) : le contrat de ce chantier demande explicitement "ré-encodage à l'envoi" sur le
+            patron de l'avatar — divergence assumée du patron Mémo, plus léger, qui ne
+            re-transforme jamais les octets reçus. Dimension maximale 1600px avec fit "inside"
+            (préserve le ratio) plutôt que le recadrage carré "cover" de l'avatar : une
+            illustration d'énoncé mathématique (schéma, graphique) perdrait son sens si elle était
+            rognée en carré.
+          </decision>
+          <decision>
+            Champs conservés sans changement bien que non mentionnés explicitement par l'arbitrage :
+            description/level/difficulty/theme/competencies restent sur Exercise (métadonnées de
+            recherche déjà fonctionnelles, orthogonales à la restructuration en blocs) — seuls
+            statement et correctionCost sont retirés, explicitement remplacés/rendus caducs par la
+            refonte (statement par les blocs, correctionCost par le retrait du flux de correction
+            humaine du périmètre des Exercices).
+          </decision>
+          <decision>
+            Scoping AP étendu à ContentType.EXERCISE dans ValidationsService.validateContent() —
+            demande explicite du point 5 de l'arbitrage ("réutilise exactement le mécanisme déjà
+            construit pour le Quizz"). Contrairement à l'arbitrage du 2026-08-28 qui limitait
+            volontairement cette restriction au seul Quizz ("ne pas les toucher sans demande
+            séparée"), cette session constitue précisément cette demande séparée pour Exercise.
+            Evaluation/Tutorial restent inchangés — vérifié par un test dédié
+            (validations.service.exercise-scoping.spec.ts) qui appelle validateContent() sur
+            ContentType.EVALUATION avec un AP et vérifie que hasAnimatorOfTeacherRelation n'est
+            jamais appelé.
+          </decision>
+          <decision>
+            Aucune migration TypeORM ajoutée — ce service n'en a jamais eu (schéma poussé par
+            `synchronize: NODE_ENV !== 'production'`), même situation déjà documentée pour le
+            chantier Quizz du 2026-08-28. Cohérent avec la convention déjà établie sur ce service ;
+            le point ouvert général sur NODE_ENV=development en production (docs/architecture.md,
+            "Points ouverts à arbitrer") reste inchangé par cette session, non traité ici.
+          </decision>
+        </technicalDecisions>
+        <verification>
+          <item>`npm install` : ajout de sharp (^0.34.5) sans conflit, 806 paquets installés.</item>
+          <item>`npm run build` (tsc via nest build) : 0 erreur.</item>
+          <item>`npm test` : 272/272 tests verts, 22 suites — inclut les nouveaux fichiers listés
+            ci-dessus, plus l'ensemble des suites préexistantes (Quizz, Évaluations, Tutoriels,
+            Contents, Validations) toutes vertes après les corrections de buildSampleExercise() et
+            l'ajout du mock de relation. Un seul WARN de log attendu (ré-encodage volontairement
+            raté d'un JPEG tronqué de test) — comportement testé, pas un défaut.</item>
+          <item>`python3 -c "import yaml; yaml.safe_load(...)"` : docker-compose.yml reste un YAML
+            valide après l'ajout du volume et de la variable d'environnement.</item>
+          <item>Aucune preuve HTTP contre la pile réelle pour ce chantier (pas de conteneur
+            reconstruit, pas d'appel multipart réel exécuté) — uniquement des tests unitaires
+            (repositories mockés, ExerciseImageTranscoder testé en réel sur un PNG minimal mais
+            sans passer par un conteneur Docker). À signaler explicitement comme limite de la
+            preuve fournie, conformément à la règle du projet sur la définition de "terminé".
+            `learning-activity-service` étant développé en parallèle par un autre agent sur le même
+            contrat, une preuve HTTP bout-en-bout du couple des deux services n'était de toute
+            façon pas réalisable dans cette session isolée.</item>
+        </verification>
+        <blockers>Aucun sur le code livré.</blockers>
+        <openPoints>
+          <point>
+            Aucune preuve HTTP réelle : conteneur non reconstruit, aucune requête multipart réelle
+            exécutée contre content-catalog-service redéployé. À faire en session ultérieure,
+            idéalement conjointement avec learning-activity-service une fois les deux PR mergées,
+            pour vérifier le contrat interne bout en bout (POST /internal/exercises/.../solution,
+            GET /internal/exercises/images/:itemId).
+          </point>
+          <point>
+            Limite connue de PUT /exercises/:id qui supprime les images existantes à chaque édition
+            (voir décision détaillée ci-dessus) — un diff par identifiant stable côté client serait
+            l'amélioration naturelle si l'usage réel s'avère gênant.
+          </point>
+          <point>
+            Le plafond EXERCISE_IMAGE_MAX_BYTES (500 000 octets) n'est pas exposé par une route de
+            constraints lisible par le front (contrairement à GET /profiles/avatar/constraints ou
+            GET /quizzes/import/constraints) — non demandé explicitement par l'arbitrage de ce
+            chantier ("plafonds de taille explicites et lisibles par le front" a été interprété
+            comme satisfait par la documentation de docs/routes.md, pas nécessairement par une route
+            dédiée). À ajouter si le front en a besoin pour annoncer la limite avant sélection de
+            fichier, sur le modèle déjà établi.
+          </point>
+          <point>
+            Aucun événement métier n'est publié par ce chantier (ex. ExerciseCreated,
+            ExerciseValidated) — non demandé par l'arbitrage, même situation que le Quizz.
           </point>
         </openPoints>
       </session>

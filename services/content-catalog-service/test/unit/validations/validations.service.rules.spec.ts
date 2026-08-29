@@ -41,29 +41,25 @@ function buildMockRepo() {
   };
 }
 
-function buildSampleExercise(overrides = {}): Exercise {
+function buildSampleExercise(overrides: Partial<Exercise> = {}): Exercise {
   return {
     id: EXERCISE_ID,
     title: 'Exercice test',
     description: null,
-    statement: 'Résoudre x^2 = 4',
     level: 'seconde',
     difficulty: 'moyen',
     theme: 'algèbre',
     competencies: [],
     tags: [],
-    correctionCost: 5,
     authorId: FORMATEUR_ID,
     authorRole: 'formateur',
     status: ContentStatus.PENDING_VALIDATION,
     shareableLink: null,
     parts: [],
-    answers: [],
-    solutions: [],
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
-  };
+  } as Exercise;
 }
 
 function buildSampleEvaluation(overrides = {}): Evaluation {
@@ -122,6 +118,7 @@ describe('ValidationsService — règles métier complémentaires', () => {
   let evaluationRepo: ReturnType<typeof buildMockRepo>;
   let tutorialRepo: ReturnType<typeof buildMockRepo>;
   let quizRepo: ReturnType<typeof buildMockRepo>;
+  let profileRelationsClient: { hasAnimatorOfTeacherRelation: jest.Mock };
 
   beforeEach(async () => {
     validationRepo = buildMockRepo();
@@ -129,6 +126,7 @@ describe('ValidationsService — règles métier complémentaires', () => {
     evaluationRepo = buildMockRepo();
     tutorialRepo = buildMockRepo();
     quizRepo = buildMockRepo();
+    profileRelationsClient = { hasAnimatorOfTeacherRelation: jest.fn().mockResolvedValue(true) };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
@@ -138,7 +136,7 @@ describe('ValidationsService — règles métier complémentaires', () => {
         { provide: getRepositoryToken(Evaluation), useValue: evaluationRepo },
         { provide: getRepositoryToken(Tutorial), useValue: tutorialRepo },
         { provide: getRepositoryToken(Quiz), useValue: quizRepo },
-        { provide: ProfileRelationsClient, useValue: { hasAnimatorOfTeacherRelation: jest.fn() } },
+        { provide: ProfileRelationsClient, useValue: profileRelationsClient },
       ],
     }).compile();
 

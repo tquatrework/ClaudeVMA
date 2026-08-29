@@ -599,6 +599,14 @@ services:
       # par relation, arbitrage du 2026-08-28). profile-service reste l'unique
       # proprietaire des relations.
       PROFILE_SERVICE_URL: http://profile-service:3002
+      # Images d'exercice (blocs et solutions), refonte du 2026-08-29 —
+      # premier stockage binaire propre a ce service. Volume nomme dedie,
+      # jamais media_data (profile-service) ni les volumes de
+      # pedagogical-log-service : chaque service reste proprietaire de ses
+      # propres binaires.
+      EXERCISE_IMAGE_STORAGE_PATH: /app/storage/exercise-images
+    volumes:
+      - content_catalog_exercise_images:/app/storage/exercise-images
     depends_on:
       postgres:
         condition: service_healthy
@@ -662,6 +670,10 @@ volumes:
   # pedagogical_log_media ci-dessus (deux fonctionnalites, deux cycles de vie).
   # ATTENTION : non couvert par le dump Postgres, a ajouter a la sauvegarde.
   pedagogical_log_memo_images:
+  # Images d'exercice (content-catalog-service uniquement), refonte des
+  # Exercices, 2026-08-29 — premier stockage binaire propre a ce service.
+  # ATTENTION : non couvert par le dump Postgres, a ajouter a la sauvegarde.
+  content_catalog_exercise_images:
 
 networks:
   visiomath_network:

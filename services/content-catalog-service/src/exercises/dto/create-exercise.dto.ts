@@ -1,47 +1,36 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsString,
-  IsNotEmpty,
   IsOptional,
   IsArray,
-  IsNumber,
-  Min,
+  ArrayMinSize,
+  ArrayMaxSize,
   ValidateNested,
-  IsUUID,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { CreateExercisePartDto } from './create-exercise-part.dto';
+import { EXERCISE_MAX_PARTS } from '../exercise.constants';
 
-export class CreateExercisePartDto {
-  @ApiProperty({ description: 'Numéro de la partie (ordre)' })
-  @IsNumber()
-  partNumber: number;
+export { CreateExercisePartDto, CreateExercisePartSolutionDto } from './create-exercise-part.dto';
+export { CreateExerciseContentItemDto } from './create-exercise-content-item.dto';
 
-  @ApiProperty({ description: 'Contenu texte de la partie' })
-  @IsString()
-  @IsNotEmpty()
-  content: string;
-
-  @ApiPropertyOptional({ description: 'Réponse attendue (optionnelle, pour correction automatique)' })
+/**
+ * DTO de création d'un exercice — refonte du 2026-08-29. Un exercice est une
+ * séquence ordonnée de blocs (`parts`), pas un énoncé unique + parties.
+ * `title` est optionnel. `solutionContent` disparaît : la solution est
+ * désormais portée individuellement par chaque bloc `question`
+ * (`parts[].solution`).
+ */
+export class CreateExerciseDto {
+  @ApiPropertyOptional({ description: 'Titre de l\'exercice (optionnel)' })
   @IsOptional()
   @IsString()
-  expectedAnswer?: string;
-}
-
-export class CreateExerciseDto {
-  @ApiProperty({ description: 'Titre de l\'exercice' })
-  @IsString()
-  @IsNotEmpty()
-  title: string;
+  title?: string;
 
   @ApiPropertyOptional({ description: 'Description courte de l\'exercice' })
   @IsOptional()
   @IsString()
   description?: string;
-
-  @ApiProperty({ description: 'Énoncé principal de l\'exercice' })
-  @IsString()
-  @IsNotEmpty()
-  statement: string;
 
   @ApiPropertyOptional({ description: 'Niveau scolaire ciblé (ex: seconde, terminale)' })
   @IsOptional()
@@ -70,21 +59,15 @@ export class CreateExerciseDto {
   @IsString({ each: true })
   tags?: string[];
 
-  @ApiPropertyOptional({ description: 'Coût en crédits pour demander une correction' })
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  correctionCost?: number;
-
-  @ApiPropertyOptional({ description: 'Parties de l\'exercice', type: [CreateExercisePartDto] })
-  @IsOptional()
+  @ApiProperty({
+    description:
+      'Séquence ordonnée de blocs (énoncé et/ou question). Chaque bloc question porte une solution obligatoire.',
+    type: [CreateExercisePartDto],
+  })
   @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(EXERCISE_MAX_PARTS)
   @ValidateNested({ each: true })
   @Type(() => CreateExercisePartDto)
-  parts?: CreateExercisePartDto[];
-
-  @ApiProperty({ description: 'Solution obligatoire pour les formateurs (texte)' })
-  @IsString()
-  @IsNotEmpty()
-  solutionContent: string;
+  parts: CreateExercisePartDto[];
 }

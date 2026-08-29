@@ -8,22 +8,29 @@ import {
 } from 'typeorm';
 import { ContentStatus } from '../../common/enums/content-status.enum';
 import { ExercisePart } from './exercise-part.entity';
-import { ExerciseAnswer } from './exercise-answer.entity';
-import { ExerciseSolution } from './exercise-solution.entity';
 
+/**
+ * Exercise — refonte du 2026-08-29 (docs/architecture.md, "Refonte des
+ * Exercices"). Un exercice est une séquence ordonnée de blocs typés
+ * (`ExercisePart`), pas un énoncé unique + parties à réponse attendue.
+ * `statement`/`correctionCost` retirés (remplacés par les blocs, et par le
+ * retrait du flux de demande de correction humaine qui sort du périmètre des
+ * Exercices — il relève de l'Évaluation). `title` devient optionnel.
+ *
+ * Colonne `tags` en `text[]` postgres natif (et non `simple-array`), même
+ * choix que `Quiz` (2026-08-28) : permet une recherche exacte par tag via
+ * `ANY(tags)`, sans faux positif de sous-chaîne.
+ */
 @Entity('exercises')
 export class Exercise {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
-  title: string;
+  @Column({ nullable: true })
+  title: string | null;
 
   @Column({ nullable: true })
   description: string;
-
-  @Column({ type: 'text' })
-  statement: string;
 
   @Column({ nullable: true })
   level: string;
@@ -37,11 +44,8 @@ export class Exercise {
   @Column({ type: 'simple-array', nullable: true })
   competencies: string[];
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column('text', { array: true, nullable: true })
   tags: string[];
-
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
-  correctionCost: number;
 
   @Column()
   authorId: string;
@@ -61,12 +65,6 @@ export class Exercise {
 
   @OneToMany(() => ExercisePart, (part) => part.exercise, { cascade: true })
   parts: ExercisePart[];
-
-  @OneToMany(() => ExerciseAnswer, (answer) => answer.exercise)
-  answers: ExerciseAnswer[];
-
-  @OneToMany(() => ExerciseSolution, (solution) => solution.exercise)
-  solutions: ExerciseSolution[];
 
   @CreateDateColumn()
   createdAt: Date;

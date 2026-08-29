@@ -10,9 +10,8 @@ import { QuizzesModule } from './quizzes/quizzes.module';
 import { HealthModule } from './health/health.module';
 import { Exercise } from './exercises/entities/exercise.entity';
 import { ExercisePart } from './exercises/entities/exercise-part.entity';
-import { ExerciseAnswer } from './exercises/entities/exercise-answer.entity';
-import { ExerciseCorrection } from './exercises/entities/exercise-correction.entity';
 import { ExerciseSolution } from './exercises/entities/exercise-solution.entity';
+import { ExerciseContentItem } from './exercises/entities/exercise-content-item.entity';
 import { Evaluation } from './evaluations/entities/evaluation.entity';
 import { EvaluationAttempt } from './evaluations/entities/evaluation-attempt.entity';
 import { Tutorial } from './tutorials/entities/tutorial.entity';
@@ -33,9 +32,8 @@ import { QuizQuestion } from './quizzes/entities/quiz-question.entity';
         entities: [
           Exercise,
           ExercisePart,
-          ExerciseAnswer,
-          ExerciseCorrection,
           ExerciseSolution,
+          ExerciseContentItem,
           Evaluation,
           EvaluationAttempt,
           Tutorial,

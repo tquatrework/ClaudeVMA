@@ -35,29 +35,25 @@ function buildMockRepo() {
   };
 }
 
-function buildSampleExercise(overrides = {}): Exercise {
+function buildSampleExercise(overrides: Partial<Exercise> = {}): Exercise {
   return {
     id: EXERCISE_ID,
     title: 'Exercice test',
     description: null,
-    statement: 'Résoudre x^2 = 4',
     level: 'seconde',
     difficulty: 'moyen',
     theme: 'algèbre',
     competencies: [],
     tags: [],
-    correctionCost: 5,
     authorId: FORMATEUR_ID,
     authorRole: 'formateur',
     status: ContentStatus.DRAFT,
     shareableLink: null,
     parts: [],
-    answers: [],
-    solutions: [],
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
-  };
+  } as Exercise;
 }
 
 describe('ValidationsService', () => {
@@ -67,6 +63,7 @@ describe('ValidationsService', () => {
   let evaluationRepo: ReturnType<typeof buildMockRepo>;
   let tutorialRepo: ReturnType<typeof buildMockRepo>;
   let quizRepo: ReturnType<typeof buildMockRepo>;
+  let profileRelationsClient: { hasAnimatorOfTeacherRelation: jest.Mock };
 
   beforeEach(async () => {
     validationRepo = buildMockRepo();
@@ -74,6 +71,7 @@ describe('ValidationsService', () => {
     evaluationRepo = buildMockRepo();
     tutorialRepo = buildMockRepo();
     quizRepo = buildMockRepo();
+    profileRelationsClient = { hasAnimatorOfTeacherRelation: jest.fn() };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
@@ -83,7 +81,7 @@ describe('ValidationsService', () => {
         { provide: getRepositoryToken(Evaluation), useValue: evaluationRepo },
         { provide: getRepositoryToken(Tutorial), useValue: tutorialRepo },
         { provide: getRepositoryToken(Quiz), useValue: quizRepo },
-        { provide: ProfileRelationsClient, useValue: { hasAnimatorOfTeacherRelation: jest.fn() } },
+        { provide: ProfileRelationsClient, useValue: profileRelationsClient },
       ],
     }).compile();
 
@@ -97,9 +95,10 @@ describe('ValidationsService', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('validateContent()', () => {
-    it('l\'AP peut valider un exercice', async () => {
+    it('l\'AP qui anime le formateur auteur peut valider un exercice (arbitrage du 2026-08-29)', async () => {
       exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ status: ContentStatus.PENDING_VALIDATION }));
       exerciseRepo.save.mockResolvedValue({});
+      profileRelationsClient.hasAnimatorOfTeacherRelation.mockResolvedValue(true);
       const savedValidation = { id: 'val-0001', decision: ContentStatus.VALIDATED };
       validationRepo.create.mockReturnValue(savedValidation);
       validationRepo.save.mockResolvedValue(savedValidation);
@@ -113,6 +112,22 @@ describe('ValidationsService', () => {
       );
 
       expect(result.decision).toBe(ContentStatus.VALIDATED);
+      expect(profileRelationsClient.hasAnimatorOfTeacherRelation).toHaveBeenCalledWith(AP_ID, FORMATEUR_ID);
+    });
+
+    it('lève ForbiddenException si l\'AP n\'anime pas le formateur auteur de l\'exercice', async () => {
+      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ status: ContentStatus.PENDING_VALIDATION }));
+      profileRelationsClient.hasAnimatorOfTeacherRelation.mockResolvedValue(false);
+
+      await expect(
+        validationsService.validateContent(
+          EXERCISE_ID,
+          ContentType.EXERCISE,
+          { decision: ContentStatus.VALIDATED },
+          AP_ID,
+          'animateur_pedagogique',
+        ),
+      ).rejects.toThrow(ForbiddenException);
     });
 
     it('lève ForbiddenException si un formateur tente de valider', async () => {

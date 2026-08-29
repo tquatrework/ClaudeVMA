@@ -28,7 +28,7 @@ import { ErrorMessage } from '../components/ui/ErrorMessage'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { CatalogItemCard } from '../components/ui/CatalogItemCard'
 import { Tabs, TabPanel } from '../components/ui/Tabs'
-import { QuizForm } from '../components/content-catalog/QuizForm'
+import { QuizCreationSection } from '../components/content-catalog/QuizCreationSection'
 import { QuizAttemptHistoryList } from '../components/learning-activity/QuizAttemptHistoryList'
 import { MyQuizzesList } from '../components/content-catalog/MyQuizzesList'
 import { searchQuizzes } from '../api/quizzes'
@@ -47,7 +47,6 @@ export default function QuizzPage() {
   const [appliedTag, setAppliedTag] = useState('')
   const [appliedKeyword, setAppliedKeyword] = useState('')
   const [page, setPage] = useState(1)
-  const [shouldShowCreateForm, setShouldShowCreateForm] = useState(false)
   const [justCreatedQuiz, setJustCreatedQuiz] = useState<PublicQuizDetail | null>(null)
 
   const canCreateQuiz = hasRole('formateur', 'animateur_pedagogique', 'responsable_pedagogique')
@@ -85,36 +84,17 @@ export default function QuizzPage() {
   return (
     <Layout>
       <div className="space-y-6">
-        <PageHeader
-          title="Quizz"
-          subtitle="Des quiz rapides pour réviser en s'amusant."
-          action={
-            canCreateQuiz ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setJustCreatedQuiz(null)
-                  setShouldShowCreateForm(true)
-                }}
-                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
-              >
-                Créer un nouveau Quizz
-              </button>
-            ) : undefined
-          }
-        />
+        <PageHeader title="Quizz" subtitle="Des quiz rapides pour réviser en s'amusant." />
 
-        {shouldShowCreateForm && !justCreatedQuiz && (
-          <QuizForm
-            onSaved={(created) => {
-              setShouldShowCreateForm(false)
-              setJustCreatedQuiz(created)
-              refetch()
-              refetchMyQuizzes()
-            }}
-            onCancel={() => setShouldShowCreateForm(false)}
-          />
-        )}
+        <QuizCreationSection
+          canCreateQuiz={canCreateQuiz}
+          onOpenCreateForm={() => setJustCreatedQuiz(null)}
+          onQuizCreated={(createdQuiz) => setJustCreatedQuiz(createdQuiz)}
+          onListsChanged={() => {
+            refetch()
+            refetchMyQuizzes()
+          }}
+        />
 
         {justCreatedQuiz && (
           <div className="bg-green-50 border border-green-200 rounded-xl p-5 space-y-3">

@@ -186,3 +186,44 @@ export interface QuizAttempt {
   completedAt: string | null
   updatedAt: string
 }
+
+// ─── Import depuis un tableur (content-catalog-service) ───────────────────────
+//
+// Contrat posé par `docs/architecture.md` > « Import de Quizz depuis un tableur »
+// (arbitrage du 2026-08-29, sur la branche `docs/quiz-import-spreadsheet-arbitrage`,
+// PR #175 — pas encore mergée dans `master` au moment où ce front a été écrit).
+// `content-catalog-service` est développé EN PARALLÈLE sur ce même contrat par un
+// autre chantier : les noms de champs ci-dessous sont ceux fixés par l'arbitrage,
+// à réconcilier avec la PR `content-catalog-service` une fois ouverte si un écart
+// apparaît (voir le rapport de session pour le détail des points à vérifier).
+
+/** `created` : le bloc a produit un Quizz. `error` : le bloc a été rejeté, en entier. */
+export type QuizImportBlockStatus = 'created' | 'error'
+
+/** Une ligne fautive d'un bloc en erreur, avec le motif du refus. */
+export interface QuizImportBlockError {
+  row: number
+  message: string
+}
+
+/**
+ * Résultat d'un bloc de Quizz détecté dans le fichier importé. Un bloc en erreur
+ * n'empêche jamais la création des autres blocs valides du même fichier — la
+ * réponse est donc toujours un compte-rendu par bloc, jamais un état global.
+ *
+ * Le titre du Quizz créé n'est **pas** porté par ce contrat (seul `quizId` l'est) :
+ * le front le relit via `GET /quizzes/:id` après import, voir
+ * `useQuizImport` (`src/hooks/content-catalog/useQuizImport.ts`).
+ */
+export interface QuizImportBlockResult {
+  blockIndex: number
+  status: QuizImportBlockStatus
+  quizId?: string
+  validationStatus?: Extract<QuizStatus, 'pending_validation' | 'validated'>
+  errors?: QuizImportBlockError[]
+}
+
+/** `GET /quizzes/import/constraints` — plafond de taille en vigueur pour un envoi. */
+export interface QuizImportConstraints {
+  maxFileSizeBytes: number
+}

@@ -7,27 +7,55 @@
 
 ## Besoin courant
 
-Import de Quizz depuis un tableur (CSV/Excel), demandé le 2026-08-29. Un créateur (professeur, AP,
-RP) doit pouvoir charger un fichier contenant plusieurs Quizz d'un coup (une ligne pour les éléments
-du Quizz, une ligne par question, réponses séparées par `;` dans une même cellule) plutôt que de les
-saisir un par un.
+Visibilité de la validation des Quizz depuis l'onglet Quizz lui-même, demandé le 2026-08-29. La
+validation existe déjà et fonctionne (prouvé le même jour, voir archive ci-dessous), mais uniquement
+via l'écran générique « Contenus à valider » rangé dans une section « Validation » séparée du menu
+RP/AP — rien dans l'onglet **Quizz** (Catalogue / Mon historique / Mes Quizz) ne signale ni ne permet
+de valider. C'est un vrai gap de placement, pas un problème de cache ou de lien manquant (déjà écarté
+par le chantier du 2026-08-28 sur la seule question de l'existence du lien).
 
-Arbitrage complet persisté dans `docs/architecture.md` (PR #175, branche
-`docs/quiz-import-spreadsheet-arbitrage`, pas encore mergée). Deux points restent des propositions de
-l'orchestrateur non confirmées mot pour mot par l'utilisateur : le format exact de colonnes
-(discriminant `type=quizz|question`), et le comportement "un Quizz en erreur n'empêche pas les
-autres" (plutôt qu'un import strictement atomique) — à corriger si l'intention était autre.
+Délégué à `front-developper` le 2026-08-29 : ajouter un onglet **Validation** dans la page Quizz
+elle-même, visible seulement pour RP et AP (scopé par relation `animator_of_teacher` comme
+l'existant), listant les Quizz en attente avec Valider/Rejeter sur place. Aucun changement backend :
+réutilise les routes déjà existantes (`GET /quizzes/pending-validation`,
+`POST /validations/quiz/:id/decision`).
 
-Délégué en parallèle le 2026-08-29 :
-- `content-catalog-service` (branche `feat/quiz-import-content-catalog` à créer par le subagent) :
-  route `POST /quizzes/import`, parsing CSV+xlsx, réutilisation de la création existante,
-  `GET /quizzes/import/constraints`.
-- `front-developper` (branche `feat/quiz-import-front` à créer par le subagent) : bouton d'import,
-  sélecteur de fichier, écran de résultat par bloc.
+**Preuve attendue avant clôture** : capture d'écran contre `https://claudevma.visioprof.fr` montrant
+l'onglet Validation dans la page Quizz, avec un Quizz en attente réellement validé depuis cet onglet.
 
-**Preuve finale attendue avant clôture** : fichier CSV réel avec 2 Quizz envoyé par un compte
-professeur contre `https://claudevma.visioprof.fr`, apparition en `pending_validation`, validation
-RP, passage par un élève avec score correct — pas seulement des tests unitaires verts.
+<details>
+<summary>Archive — besoin du 2026-08-29, import de Quizz depuis un tableur (CSV/Excel) (clos, vérifié en production)</summary>
+
+### Besoin
+
+Un créateur (professeur, AP, RP) doit pouvoir charger un fichier contenant plusieurs Quizz d'un coup
+(une ligne pour les éléments du Quizz, une ligne par question, réponses séparées par `;` dans une
+même cellule) plutôt que de les saisir un par un.
+
+### Livré
+
+- Arbitrage persisté dans `docs/architecture.md` (PR #175, mergée).
+- `content-catalog-service` : route `POST /quizzes/import`, parsing CSV+xlsx (colonnes
+  point-virgule, discriminant `type=quizz`/`type=question`), `GET /quizzes/import/constraints`
+  (PR #177, mergée).
+- `front-developper` : bouton d'import, sélecteur de fichier, écran de résultat par bloc (PR #176,
+  mergée).
+- Un vrai bug de disque plein (118,6 Go de cache Docker accumulé, partagé entre tous les projets
+  hébergés sur la machine) a bloqué le rebuild — nettoyé sans impact sur les conteneurs en cours.
+
+### Preuve finale — jouée contre `https://claudevma.visioprof.fr`, captures à l'appui
+
+Fichier CSV avec 2 Quizz envoyé par un compte professeur → les deux apparaissent
+`pending_validation` → RP `trsflow.rp.0811` les valide → un élève retrouve « Import CSV - Fractions »
+par tag, répond aux 3 catégories de question (choix unique, choix multiples, texte court), score
+final 4/4 avec le barème individuel de la question 2 (2 points) bien respecté.
+
+**Écart entre l'arbitrage et le livré** : le séparateur de colonnes réel est `;` (point-virgule),
+pas la virgule esquissée dans l'arbitrage initial — `content-catalog-service` a tranché pour la
+convention CSV locale FR déjà évoquée comme possibilité, avec cellules citées pour les listes
+intra-cellule. Documenté dans `docs/routes.md`/`docs/architecture.md`.
+
+</details>
 
 <details>
 <summary>Archive — besoin du 2026-08-28, écran de validation Quizz "introuvable" (clos, aucun bug)</summary>

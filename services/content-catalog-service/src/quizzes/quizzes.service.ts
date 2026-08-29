@@ -15,7 +15,10 @@ import { ContentStatus } from '../common/enums/content-status.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { ProfileRelationsClient } from '../common/clients/profile-relations.client';
 
-const CREATOR_ROLES = [
+// Exporté pour être réutilisé par QuizImportService (mêmes rôles créateurs
+// que la création manuelle — arbitrage du 2026-08-29, "Import de Quizz
+// depuis un tableur", point 1).
+export const CREATOR_ROLES = [
   UserRole.FORMATEUR,
   UserRole.ANIMATEUR_PEDAGOGIQUE,
   UserRole.RESPONSABLE_PEDAGOGIQUE,

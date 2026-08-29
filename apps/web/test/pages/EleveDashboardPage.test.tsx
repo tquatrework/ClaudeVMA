@@ -24,6 +24,7 @@ vi.mock('../../src/api/dashboardNotifications')
 vi.mock('../../src/api/communication')
 vi.mock('../../src/api/relations')
 vi.mock('../../src/api/profile')
+vi.mock('../../src/api/teacherRequests')
 
 import { useAuth } from '../../src/hooks/useAuth'
 import { fetchUserEvents } from '../../src/api/calendar'
@@ -31,6 +32,7 @@ import { fetchNotifications } from '../../src/api/dashboardNotifications'
 import { fetchContacts } from '../../src/api/communication'
 import { fetchTeacherStudentRelations } from '../../src/api/relations'
 import { fetchProfileAvatarBlob } from '../../src/api/profile'
+import { fetchTeacherRequests } from '../../src/api/teacherRequests'
 
 const mockUseAuth = vi.mocked(useAuth)
 const mockFetchUserEvents = vi.mocked(fetchUserEvents)
@@ -38,6 +40,7 @@ const mockFetchNotifications = vi.mocked(fetchNotifications)
 const mockFetchContacts = vi.mocked(fetchContacts)
 const mockFetchTeacherStudentRelations = vi.mocked(fetchTeacherStudentRelations)
 const mockFetchProfileAvatarBlob = vi.mocked(fetchProfileAvatarBlob)
+const mockFetchTeacherRequests = vi.mocked(fetchTeacherRequests)
 
 const STUDENT_USER = {
   id: 'student-1',
@@ -83,6 +86,7 @@ beforeEach(() => {
   mockFetchUserEvents.mockResolvedValue([])
   mockFetchTeacherStudentRelations.mockResolvedValue([])
   mockFetchProfileAvatarBlob.mockRejectedValue(notFoundError())
+  mockFetchTeacherRequests.mockResolvedValue([])
 })
 
 describe('EleveDashboardPage — prochain cours', () => {

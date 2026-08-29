@@ -897,6 +897,91 @@
           </point>
         </openPoints>
       </session>
+
+      <session date="2026-08-29" label="Incident de production — synchronize en crash-loop sur données pré-refonte (branche fix/exercise-schema-migration-content-catalog)">
+        <context>
+          PR #184 (refonte des Exercices) mergée et redéployée : le service ne démarrait plus,
+          `QueryFailedError: column "partId" of relation "exercise_solutions" contains null
+          values`. Cause : `synchronize` (seul mécanisme de schéma de ce service jusqu'ici, aucune
+          migration n'existait) tentait d'ajouter les nouvelles colonnes NOT NULL
+          (`exercise_solutions.partId` unique, `exercise_parts.category`) sur des tables encore
+          porteuses de quelques lignes du modèle Exercise pré-refonte (chantier de juin 2026,
+          jamais éprouvé en HTTP réel). L'orchestrateur a débloqué la production manuellement en
+          attendant ce correctif (DELETE direct sur les lignes bloquantes, redémarrage, service de
+          nouveau healthy) — ce correctif reste nécessaire pour tout futur redéploiement sur une
+          base contenant encore ces anciennes lignes (autre environnement, restauration d'un dump
+          antérieur à la refonte).
+        </context>
+        <filesAdded>
+          <file path="src/data-source.ts">DataSource autonome pour le CLI TypeORM (migration:generate/run/revert), synchronize:false, même modèle exact que pedagogical-log-service/video-session-service/teacher-request-service. Première introduction de migrations réelles pour ce service.</file>
+          <file path="src/migrations/1790000000000-CleanupPreRefonteExerciseData.ts">Migration unique : DROP TABLE IF EXISTS exercise_answers/exercise_corrections (orphelines, plus aucune entité ne les mappe depuis la refonte) ; DELETE FROM exercise_solutions/exercise_parts/exercises sous garde `to_regclass` (idempotente, sûre sur une base neuve où ces tables n'existent pas encore). down() sans action (irréversible par nature, arbitrage "reconstruction, pas migration de données" — aucune valeur à restaurer).</file>
+          <file path="test/unit/migrations/cleanup-pre-refonte-exercise-data.spec.ts">Smoke test (QueryRunner mocké, aucune autre migration du projet n'est unit-testée contre un Postgres réel) : vérifie les tables ciblées par up(), la garde to_regclass, et que down() ne lève jamais.</file>
+        </filesAdded>
+        <filesModified>
+          <file path="src/app.module.ts">Ajout de migrations/migrationsRun sur TypeOrmModule.forRootAsync — même expression exacte que pedagogical-log-service (`synchronize: NODE_ENV !== 'production'`, `migrationsRun: NODE_ENV !== 'test'`).</file>
+          <file path="package.json">Ajout des scripts typeorm/migration:generate/migration:run/migration:revert (mêmes commandes que les 3 autres services du projet qui ont déjà des migrations) et de la dépendance dotenv (^16.6.1, requise par data-source.ts).</file>
+        </filesModified>
+        <technicalDecisions>
+          <decision>
+            Ordre d'exécution vérifié directement dans le code source de la version de TypeORM
+            installée (node_modules/typeorm/data-source/DataSource.js, méthode initialize()) plutôt
+            que supposé : `runMigrations()` s'exécute AVANT `synchronize()`, jamais l'inverse. C'est
+            ce qui rend une migration de nettoyage efficace ici — sans cette garantie d'ordre, une
+            migration seule n'aurait pas suffi à empêcher `synchronize` de tenter son ALTER avant que
+            le nettoyage n'ait eu lieu, et il aurait fallu un garde de démarrage distinct (script
+            pré-init hors TypeORM) pour forcer l'ordre.
+          </decision>
+          <decision>
+            Vidage des tables (DELETE) plutôt que tentative de transformation ligne par ligne vers le
+            nouveau modèle : conforme à l'arbitrage explicite ("reconstruction, pas une migration de
+            données") et évite d'avoir à deviner une correspondance pour des lignes dont la forme
+            exacte pré-refonte n'est plus connue avec certitude (colonnes déjà retirées de l'entité
+            TypeORM au moment d'écrire cette migration).
+          </decision>
+          <decision>
+            Périmètre du nettoyage limité aux 5 tables explicitement concernées par le changement de
+            schéma (exercises, exercise_parts, exercise_solutions, exercise_answers,
+            exercise_corrections) — vérifié qu'aucune autre entité de ce service (Quiz/QuizQuestion,
+            Evaluation/EvaluationAttempt, Tutorial, ContentComment/ContentRating, ContentValidation)
+            ne porte de colonne nouvellement NOT NULL ni de changement de type sur des données
+            préexistantes : aucune de ces tables n'est concernée par la refonte des Exercices, aucun
+            risque de blocage similaire identifié pour elles.
+          </decision>
+          <decision>
+            Pas de modification du Dockerfile : `migrationsRun` est une option TypeORM exécutée à
+            l'intérieur de `DataSource.initialize()` (déclenché par `NestFactory.create(AppModule)`
+            dans main.ts), pas une étape séparée à orchestrer dans le conteneur — contrairement à
+            certains projets qui ajoutent une étape `migration:run` explicite au CMD/entrypoint.
+            Vérifié que `nest build` compile bien `src/migrations/*.ts` vers `dist/src/migrations/
+            *.js`, résolu par le glob relatif de `app.module.ts` (`__dirname + '/migrations/*
+            {.ts,.js}'`) une fois le conteneur reconstruit.
+          </decision>
+        </technicalDecisions>
+        <verification>
+          <item>`npm run build` : 0 erreur ; `dist/src/migrations/1790000000000-CleanupPreRefonteExerciseData.js` bien généré, `dist/src/data-source.js` bien généré.</item>
+          <item>`npm test` : 276/276 tests verts, 23 suites (272 précédents + 4 nouveaux du smoke test de migration).</item>
+          <item>Aucune preuve contre une base Postgres réelle pour cette migration précise (le
+            correctif est livré en urgence, la production a déjà été débloquée manuellement par
+            l'orchestrateur avant ce commit) — à vérifier au prochain redéploiement réel : `npm run
+            migration:run` doit apparaître dans les logs de démarrage (ou son équivalent via
+            `migrationsRun`), sans erreur, suivi d'un `synchronize` sans erreur non plus.</item>
+        </verification>
+        <blockers>Aucun sur le code livré. Le déploiement (rebuild/redémarrage) reste à la charge de l'orchestrateur.</blockers>
+        <openPoints>
+          <point>
+            Exécution réelle de la migration non vérifiée contre une base Postgres contenant encore
+            des données pré-refonte (la production a déjà été nettoyée manuellement avant que ce
+            correctif soit prêt) — seul un environnement de restauration/un nouvel environnement
+            avec un dump antérieur permettrait une vérification complète en conditions réelles.
+          </point>
+          <point>
+            `NODE_ENV=development` sur toute la pile réelle déployée reste un point ouvert général
+            du projet (docs/architecture.md, "Points ouverts à arbitrer") — non traité ici, cet
+            incident en est une illustration concrète supplémentaire (synchronize actif en
+            production malgré le nom de la variable), pas une résolution.
+          </point>
+        </openPoints>
+      </session>
     </technicalImplementation>
   </service>
 </serviceFunctionalSpecification>

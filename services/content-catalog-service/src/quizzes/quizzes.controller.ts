@@ -7,10 +7,14 @@ import {
   Param,
   Query,
   UseGuards,
+  UseInterceptors,
+  UseFilters,
+  UploadedFile,
   HttpCode,
   HttpStatus,
   Headers,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
@@ -18,8 +22,13 @@ import {
   ApiBearerAuth,
   ApiParam,
   ApiHeader,
+  ApiConsumes,
+  ApiBody,
 } from '@nestjs/swagger';
 import { QuizzesService } from './quizzes.service';
+import { QuizImportService, QuizImportBlockResult } from './quiz-import.service';
+import { QuizImportPayloadTooLargeFilter } from './quiz-import-payload-too-large.filter';
+import { QUIZ_IMPORT_MAX_FILE_SIZE_BYTES } from './quiz-import.constants';
 import { CreateQuizDto } from './dto/create-quiz.dto';
 import { UpdateQuizDto } from './dto/update-quiz.dto';
 import { SearchQuizDto } from './dto/search-quiz.dto';
@@ -36,7 +45,10 @@ import { AuthenticatedUser } from '../common/guards/jwt-auth.guard';
 @Controller('quizzes')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class QuizzesController {
-  constructor(private readonly quizzesService: QuizzesService) {}
+  constructor(
+    private readonly quizzesService: QuizzesService,
+    private readonly quizImportService: QuizImportService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -118,6 +130,58 @@ export class QuizzesController {
     @Query() query: PendingValidationQueryDto,
   ) {
     return this.quizzesService.getPendingValidation(currentUser.id, currentUser.role, query.page, query.limit);
+  }
+
+  @Get('import/constraints')
+  @ApiOperation({
+    summary: 'Contraintes de l\'import de quizz par fichier',
+    description:
+      'À lire AVANT d\'ouvrir le sélecteur de fichier, pour annoncer la limite avant sélection. ' +
+      'Ouverte à tout compte authentifié (le formateur doit pouvoir la lire sans être AP/RP).',
+  })
+  @ApiResponse({ status: 200, description: 'Contraintes en vigueur', schema: { example: { maxFileSizeBytes: 900000 } } })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  getImportConstraints(): { maxFileSizeBytes: number } {
+    return this.quizImportService.getConstraints();
+  }
+
+  @Post('import')
+  @HttpCode(HttpStatus.CREATED)
+  @Roles(UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: QUIZ_IMPORT_MAX_FILE_SIZE_BYTES } }))
+  @UseFilters(QuizImportPayloadTooLargeFilter)
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } },
+  })
+  @ApiOperation({
+    summary: 'Importer plusieurs quizz depuis un fichier tableur (CSV ou Excel .xlsx)',
+    description:
+      'Réutilise le service de création existant bloc par bloc : un quizz importé par un formateur ' +
+      'passe en attente de validation exactement comme à la création manuelle, un quizz importé par ' +
+      'un AP ou un RP est auto-validé. Un fichier peut contenir plusieurs quizz empilés ; l\'échec ' +
+      'd\'un bloc (ligne malformée, catégorie inconnue...) n\'empêche jamais la création des autres ' +
+      'blocs valides du même fichier. Le type de fichier est détecté sur les octets réels (CSV ou ' +
+      'ZIP/xlsx), jamais sur l\'extension ni le Content-Type du client.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Un résultat par bloc "quizz" détecté dans le fichier (créé ou en erreur)',
+    schema: {
+      example: [
+        { blockIndex: 0, status: 'created', quizId: 'uuid', validationStatus: 'pending_validation' },
+        { blockIndex: 1, status: 'error', errors: [{ row: 12, message: 'Catégorie de question inconnue : "qcm"' }] },
+      ],
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Aucun fichier, format non reconnu, ou fichier vide/sans bloc "quizz"' })
+  @ApiResponse({ status: 403, description: 'Rôle insuffisant' })
+  @ApiResponse({ status: 413, description: 'Fichier trop volumineux — corps structuré (code, maxFileSizeBytes, requestBodyBytes)' })
+  async importQuizzes(
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<QuizImportBlockResult[]> {
+    return this.quizImportService.importFile(file, currentUser.id, currentUser.role);
   }
 
   @Get(':id')

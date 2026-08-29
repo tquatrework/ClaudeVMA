@@ -2895,6 +2895,62 @@ options?: [{id?, text, isCorrect}], keywords?: string[], multipleChoiceScoringMo
 pointsOverride?, penaltyEnabledOverride?, penaltyPointsOverride?}]}`. Le barème/la pénalité
 individuels d'une question, si renseignés, prévalent sur le réglage global du quizz.
 
+### Import de quizz depuis un fichier tableur (CSV/Excel)
+
+Ajoutées le 2026-08-29, conformes à `docs/architecture.md`, "Import de Quizz depuis un tableur
+(CSV/Excel)". Réutilise intégralement `QuizzesService.create()` bloc par bloc : un quizz importé
+par un formateur passe par `pending_validation` exactement comme à la création manuelle, un quizz
+importé par un AP ou un RP est auto-validé. Aucune règle de validation n'est contournée par
+l'import.
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /quizzes/import/constraints | **À lire AVANT d'ouvrir le sélecteur de fichier**, sur le modèle de `GET /profiles/avatar/constraints`. Publie le plafond de taille en vigueur | 🔒 | tout compte authentifié | `200 {maxFileSizeBytes}` — ex. `{"maxFileSizeBytes":900000}` · `401` |
+| POST | /quizzes/import | **Multipart**, champ `file`, un seul fichier CSV ou Excel (`.xlsx`). Type détecté sur les **octets réels** (signature ZIP pour `.xlsx`, texte sans octet nul pour CSV) — ni l'extension ni le `Content-Type` du client ne sont consultés. Un fichier peut contenir plusieurs quizz empilés (colonnes fixes, discriminant `type=quizz`/`type=question` en première colonne, quoting CSV RFC 4180 — `;` sert à la fois de séparateur de colonnes et, à l'intérieur d'une cellule citée, de séparateur intra-cellule). L'échec d'un bloc (ligne malformée, catégorie inconnue, réponse correcte introuvable parmi les options...) n'empêche **jamais** la création des autres blocs valides du même fichier | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `201 [{blockIndex, status: "created"\|"error", quizId?, validationStatus?, errors?: [{row, message}]}]` — un résultat par bloc détecté · `400` aucun fichier, fichier vide, ou format non reconnu (ni CSV ni xlsx) · `403` rôle insuffisant · `413` au-delà du plafond en vigueur — **corps structuré, voir ci-dessous** |
+
+**Format du fichier.** Ligne `quizz` (ouvre un bloc, valable jusqu'à la prochaine ligne `quizz` ou
+la fin du fichier) : `type=quizz | titre | tags (";"-séparés) | bareme_global (optionnel, défaut 1)
+| penalite_globale (optionnel)`. Ligne `question` : `type=question | categorie
+(choix_unique|choix_multiple|texte_court) | enonce | options (";"-séparées, vide si texte_court) |
+bonnes_reponses (";"-séparées : options correctes, ou mots-clés pour texte_court) | notation
+(unique|par_item) | points (optionnel, prévaut sur le barème global) | penalite (optionnel,
+prévaut sur la pénalité globale)`. Le discriminant de première colonne accepte à la fois la valeur
+littérale `quizz`/`question` et la forme préfixée `type=quizz`/`type=question` (ambiguïté du
+contrat initial, les deux lectures sont acceptées pour ne pas piéger un import sur une
+interprétation de format — voir `.claude/reports/content-catalog-service-2026-08-29.md`).
+
+**Taille maximale — 900 000 octets (900 Ko SI) par défaut, réglable uniquement par variable
+d'environnement (`QUIZ_IMPORT_MAX_FILE_SIZE_BYTES`), pas de réglage TI en base pour cette
+fonctionnalité** (contrairement à l'avatar ou aux pièces jointes du cahier de texte — consigne de
+simplicité de code du chantier Quizz). Reste strictement sous le défaut non déclaré de
+`nginx-global` (1 Mio) ; `api-gateway` déclare déjà `client_max_body_size 10m`, largement
+suffisant — **aucun changement de routage ni de plafond nécessaire côté `api-gateway`** :
+`location ^~ /api/v1/quizzes` proxie déjà tout le préfixe par octets bruts, multipart compris,
+vérifié le 2026-08-29 en relisant `gateway/api-gateway/nginx.conf`.
+
+Corps de la réponse `413` :
+
+```json
+{
+  "statusCode": 413,
+  "error": "Payload Too Large",
+  "code": "QUIZ_IMPORT_FILE_TOO_LARGE",
+  "message": "Uploaded file exceeds the maximum allowed size",
+  "maxFileSizeBytes": 900000,
+  "maxUploadBytes": 900000,
+  "requestBodyBytes": 1258291
+}
+```
+
+`maxUploadBytes` est un **alias** de `maxFileSizeBytes`, même valeur — ajouté le 2026-08-29 pour
+que le composant générique de gestion d'erreur d'upload du front (construit pour l'avatar, qui lit
+`maxUploadBytes` en priorité) fonctionne sans adaptation sur cette route. `maxFileSizeBytes` reste
+le nom canonique de cette fonctionnalité, cohérent avec `GET /quizzes/import/constraints`.
+
+`requestBodyBytes` est la taille **déclarée** par le client (`Content-Length`), jamais vérifiée —
+`null` si absente. Le flux étant coupé par multer dès le dépassement, la taille réelle du fichier
+n'est jamais connue avec certitude dans ce cas (même limite documentée pour l'avatar).
+
 #### Route interne — jamais exposée par api-gateway
 
 Exclue de Swagger (`@ApiExcludeController`). Protégée par `X-Internal-Secret: <INTERNAL_SECRET>`

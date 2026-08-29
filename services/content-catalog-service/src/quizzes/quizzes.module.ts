@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { QuizzesController } from './quizzes.controller';
 import { InternalQuizzesController } from './internal-quizzes.controller';
 import { QuizzesService } from './quizzes.service';
+import { QuizImportService } from './quiz-import.service';
 import { Quiz } from './entities/quiz.entity';
 import { QuizQuestion } from './entities/quiz-question.entity';
 import { ProfileClientModule } from '../common/clients/profile-client.module';
@@ -22,7 +23,7 @@ import { ProfileClientModule } from '../common/clients/profile-client.module';
     ProfileClientModule,
   ],
   controllers: [QuizzesController, InternalQuizzesController],
-  providers: [QuizzesService],
+  providers: [QuizzesService, QuizImportService],
   exports: [QuizzesService],
 })
 export class QuizzesModule {}

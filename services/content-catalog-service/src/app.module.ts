@@ -43,7 +43,15 @@ import { QuizQuestion } from './quizzes/entities/quiz-question.entity';
           Quiz,
           QuizQuestion,
         ],
+        // Migrations réelles depuis l'incident de production du 2026-08-29
+        // (colonnes NOT NULL ajoutées par la refonte des Exercices sur des
+        // tables contenant encore des lignes du modèle pré-refonte) —
+        // synchronize reste réservé aux environnements non-production,
+        // migrationsRun s'exécute au boot en dehors des tests. Même modèle
+        // que pedagogical-log-service.
         synchronize: configService.get<string>('NODE_ENV') !== 'production',
+        migrations: [__dirname + '/migrations/*{.ts,.js}'],
+        migrationsRun: configService.get<string>('NODE_ENV') !== 'test',
       }),
       inject: [ConfigService],
     }),

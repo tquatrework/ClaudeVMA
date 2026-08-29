@@ -2966,3 +2966,46 @@ correspondre à celle de `learning-activity-service`).
 Body : `{answers: [{questionId, selectedOptionIds?: string[], text?: string}]}`. Notation détaillée
 par catégorie de question dans `docs/services/content-catalog-service.md` (barème effectif,
 notation par option/mot-clé, non-cumul pénalité/score partiel).
+
+### Exercices — refonte du 2026-08-29
+
+Conforme à `docs/architecture.md`, "Refonte des Exercices" : un exercice est une séquence ordonnée
+de blocs `statement`/`question` portant du contenu texte/formule/image (même mécanisme que le
+Mémo, `pedagogical-log-service`) ; un bloc `question` porte exactement une solution
+(`ExerciseSolution`, 1-à-1 par `partId`), jamais exposée par une route publique. Droits et cycle de
+validation alignés point par point sur le Quizz (2026-08-28) : créateurs formateur/AP/RP, statut
+`pending_validation`/`validated` fixé au rôle à la création, édition réservée à l'auteur (fait
+repasser en `pending_validation` si l'auteur est formateur), validation RP illimitée / AP scopé par
+la relation `animator_of_teacher` (extension du mécanisme Quizz à Exercise dans
+`ValidationsService`). `ExerciseAnswer`/`ExerciseCorrection` retirés de ce service — ils migrent
+vers `learning-activity-service` (réponse de l'élève, tentative, historique).
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /exercises | Rechercher les exercices visibles par l'appelant, filtrables par `level`, `difficulty`, `theme`, `authorId`, `tag` (`ANY(tags)`, exact), `keyword` (titre), paginés. Un exercice non validé reste invisible sauf à son auteur et aux AP/RP/TI | 🔒 | tous rôles authentifiés | `200 {items, total}` · `401` |
+| POST | /exercises | Créer un exercice : séquence ordonnée de blocs, chaque bloc `question` portant une solution obligatoire. `400` si un bloc est mal formé (catégorie inconnue, aucun item, solution manquante sur une question, solution présente sur un énoncé). Statut initial : `pending_validation` pour un formateur, `validated` (auto-validé) pour un AP ou un RP | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `201 PublicExerciseDetail` · `400` · `403` |
+| PUT | /exercises/:id | Remplace intégralement blocs/items/solutions. Réservé à l'auteur. **Supprime les images précédemment envoyées** (limite connue, documentée dans `docs/services/content-catalog-service.md`) — à renvoyer après l'édition si besoin. Un auteur formateur repasse en `pending_validation` | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique (auteur uniquement) | `200 PublicExerciseDetail` · `400` · `403` · `404` |
+| GET | /exercises/pending-validation | Lister les exercices en attente de validation ; un AP ne voit que les formateurs qu'il anime, RP voit tout (même mécanisme que Quizz) | 🔒 | animateur_pedagogique, responsable_pedagogique | `200 {items, total}` · `403` · `503` profile-service injoignable |
+| GET | /exercises/:id | Récupérer un exercice — blocs et items complets, **jamais le contenu d'une solution** (seulement `hasSolution: boolean` sur un bloc `question`). `404` si non trouvé ou non visible | 🔒 | tous rôles authentifiés | `200 PublicExerciseDetail` · `404` |
+| GET | /exercises/:id/images/:itemId | Octets d'une image de **bloc uniquement** — une image de solution n'est **jamais** servie ici (`404`). Revérifie la visibilité de l'exercice à chaque téléchargement | 🔒 | tous rôles authentifiés | `200` octets · `404` |
+| POST | /exercises/:id/parts/:partId/images | Ajoute une image à un bloc (multipart, champ `file`, `caption?`). Ré-encodage systématique en WebP (sharp), type détecté sur les octets réels, SVG refusé, plafond 500 000 octets en sortie. Réservé à l'auteur ; fait repasser en `pending_validation` si l'auteur est formateur | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique (auteur uniquement) | `201 PublicContentItem` · `400` · `403` · `404` · `413` |
+| POST | /exercises/:id/parts/:partId/solution/images | Ajoute une image à la solution d'un bloc `question` (multipart, mêmes règles). Jamais servie par une route publique — accessible uniquement via la médiation de `learning-activity-service` | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique (auteur uniquement) | `201 PublicContentItem` · `400` · `403` · `404` · `413` |
+| DELETE | /exercises/:id | Retire un exercice (statut `REMOVED`) | 🔒 | responsable_pedagogique, technicien_informatique, ou auteur | `204` · `403` · `404` |
+
+Body `POST`/`PUT /exercises` : `{title?, description?, level?, difficulty?, theme?, competencies?:
+string[], tags?: string[], parts: [{category: "statement"|"question", items: [{type:
+"text"|"formula", content}], solution?: {items: [{type: "text"|"formula", content}]}}]}`. `solution`
+est **obligatoire** si `category="question"`, **interdit** si `category="statement"`. Les items de
+type `image` ne peuvent jamais être créés via ce DTO JSON — uniquement via les routes multipart
+dédiées, après création de l'exercice.
+
+#### Routes internes — jamais exposées par api-gateway
+
+Exclues de Swagger (`@ApiExcludeController`). Protégées par `X-Internal-Secret`
+(`InternalSecretGuard`, même échec fermé que pour le Quizz). Le front ne doit jamais pouvoir lire
+une solution d'exercice autrement que via `learning-activity-service`.
+
+| Méthode | Chemin | Description | Auth | Réponse attendue |
+|---|---|---|---|---|
+| POST | /internal/exercises/:exerciseId/parts/:partId/solution | Contrat figé avec `learning-activity-service` (`docs/architecture.md`, point 10) : renvoie le contenu complet de la solution d'un bloc `question`, sous la même forme que le contenu des blocs (`{id, type, order, content, imageMimeType?, imageSizeBytes?}[]`). Pour un item `image`, `id` sert directement d'`itemId` à passer à la route ci-dessous — les octets ne sont jamais embarqués en base64 dans cette réponse | `X-Internal-Secret` | `200 {content: PublicContentItem[]}` · `401` · `404` bloc ou solution introuvable |
+| GET | /internal/exercises/images/:itemId | Octets de **n'importe quelle** image (bloc ou solution) — aucune vérification de visibilité ici : le proprietaire de la décision (révéler ou non une solution à l'élève) est `learning-activity-service`, en amont de cet appel | `X-Internal-Secret` | `200` octets · `401` · `404` |

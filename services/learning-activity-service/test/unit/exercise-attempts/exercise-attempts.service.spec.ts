@@ -2,14 +2,20 @@
  * Unit tests — ExerciseAttemptsService
  *
  * Couvre :
- *   - start()        → seuls élèves/formateurs/RP/AP peuvent démarrer une tentative ;
- *                       lit la structure (blocs question uniquement) et seed les parts
- *   - submitAnswer()  → idempotent (remplace), rôle refusé, tentative introuvable/non
- *                       possédée, bloc question inexistant
- *   - reveal()        → médiation content-catalog-service, mise en cache (pas de second
- *                       appel), rôle refusé, tentative/bloc introuvables, échec amont propagé
- *   - findOne()        → calcul du statut done/in_progress
- *   - history()       → tentatives passées ET en cours de l'utilisateur
+ *   - start()           → seuls élèves/formateurs/RP/AP peuvent démarrer une tentative ;
+ *                          lit la structure (blocs question uniquement) et seed les parts
+ *   - submitAnswer()     → idempotent (remplace), rôle refusé, tentative introuvable/non
+ *                          possédée, bloc question inexistant
+ *   - reveal()           → médiation content-catalog-service, mise en cache (pas de second
+ *                          appel), rôle refusé, tentative/bloc introuvables, échec amont propagé
+ *   - getRevealedImage() → sert uniquement une image appartenant à une solution déjà révélée
+ *                          sur cette tentative (pas d'id orphelin), rôle refusé, tentative
+ *                          d'un tiers refusée, échec amont propagé
+ *   - findOne()          → calcul du statut done/in_progress
+ *   - history()          → tentatives passées ET en cours de l'utilisateur
+ *
+ * Les items de réponse/solution utilisent le champ `content` (pas `value`),
+ * conformément au contrat confirmé par content-catalog-service (PR #184).
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
@@ -34,6 +40,7 @@ const EXERCISE_ID = 'ex-0000-4000-a000-aaaaaaaaaaaa';
 const ATTEMPT_ID = 'at-0000-4000-b000-bbbbbbbbbbbb';
 const PART_Q1 = 'part-q1';
 const PART_Q2 = 'part-q2';
+const IMAGE_ITEM_ID = 'item-0000-4000-c000-cccccccccccc';
 
 function buildMockRepo() {
   return {
@@ -77,13 +84,13 @@ describe('ExerciseAttemptsService', () => {
   let attemptRepo: ReturnType<typeof buildMockRepo>;
   let partRepo: ReturnType<typeof buildMockRepo>;
   let structureClient: { getStructure: jest.Mock };
-  let solutionClient: { reveal: jest.Mock };
+  let solutionClient: { reveal: jest.Mock; getImageBytes: jest.Mock };
 
   beforeEach(async () => {
     attemptRepo = buildMockRepo();
     partRepo = buildMockRepo();
     structureClient = { getStructure: jest.fn() };
-    solutionClient = { reveal: jest.fn() };
+    solutionClient = { reveal: jest.fn(), getImageBytes: jest.fn() };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
@@ -182,12 +189,12 @@ describe('ExerciseAttemptsService', () => {
       partRepo.findOne.mockResolvedValue(part);
       partRepo.save.mockImplementation((value) => Promise.resolve(value));
       partRepo.find.mockResolvedValue([
-        { ...part, answerContent: [{ type: 'text', value: '42' }], answeredAt: new Date() },
+        { ...part, answerContent: [{ type: 'text', content: '42' }], answeredAt: new Date() },
       ]);
 
       const result = await service.submitAnswer(
         ATTEMPT_ID,
-        { partId: PART_Q1, content: [{ type: ExerciseContentItemType.TEXT, value: '42' }] },
+        { partId: PART_Q1, content: [{ type: ExerciseContentItemType.TEXT, content: '42' }] },
         ELEVE_ID,
         UserRole.ELEVE,
       );
@@ -195,10 +202,10 @@ describe('ExerciseAttemptsService', () => {
       expect(partRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({
           partId: PART_Q1,
-          answerContent: [{ type: 'text', value: '42' }],
+          answerContent: [{ type: 'text', content: '42' }],
         }),
       );
-      expect(result.parts[0].answerContent).toEqual([{ type: 'text', value: '42' }]);
+      expect(result.parts[0].answerContent).toEqual([{ type: 'text', content: '42' }]);
     });
 
     it('remplace la réponse précédente pour le même bloc (idempotent)', async () => {
@@ -206,7 +213,7 @@ describe('ExerciseAttemptsService', () => {
       attemptRepo.findOne.mockResolvedValue(attempt);
       const existingPart = buildSamplePart({
         partId: PART_Q1,
-        answerContent: [{ type: 'text', value: 'ancienne réponse' }],
+        answerContent: [{ type: 'text', content: 'ancienne réponse' }],
         answeredAt: new Date('2026-08-29T09:00:00Z'),
       });
       partRepo.findOne.mockResolvedValue(existingPart);
@@ -215,12 +222,12 @@ describe('ExerciseAttemptsService', () => {
 
       await service.submitAnswer(
         ATTEMPT_ID,
-        { partId: PART_Q1, content: [{ type: ExerciseContentItemType.TEXT, value: 'nouvelle réponse' }] },
+        { partId: PART_Q1, content: [{ type: ExerciseContentItemType.TEXT, content: 'nouvelle réponse' }] },
         ELEVE_ID,
         UserRole.ELEVE,
       );
 
-      expect(existingPart.answerContent).toEqual([{ type: 'text', value: 'nouvelle réponse' }]);
+      expect(existingPart.answerContent).toEqual([{ type: 'text', content: 'nouvelle réponse' }]);
       expect(partRepo.save).toHaveBeenCalledTimes(1);
     });
 
@@ -232,7 +239,7 @@ describe('ExerciseAttemptsService', () => {
       await expect(
         service.submitAnswer(
           ATTEMPT_ID,
-          { partId: 'part-inconnu', content: [{ type: ExerciseContentItemType.TEXT, value: 'x' }] },
+          { partId: 'part-inconnu', content: [{ type: ExerciseContentItemType.TEXT, content: 'x' }] },
           ELEVE_ID,
           UserRole.ELEVE,
         ),
@@ -246,7 +253,7 @@ describe('ExerciseAttemptsService', () => {
       await expect(
         service.submitAnswer(
           ATTEMPT_ID,
-          { partId: PART_Q1, content: [{ type: ExerciseContentItemType.TEXT, value: 'x' }] },
+          { partId: PART_Q1, content: [{ type: ExerciseContentItemType.TEXT, content: 'x' }] },
           ELEVE_ID,
           UserRole.ELEVE,
         ),
@@ -259,7 +266,7 @@ describe('ExerciseAttemptsService', () => {
       await expect(
         service.submitAnswer(
           ATTEMPT_ID,
-          { partId: PART_Q1, content: [{ type: ExerciseContentItemType.TEXT, value: 'x' }] },
+          { partId: PART_Q1, content: [{ type: ExerciseContentItemType.TEXT, content: 'x' }] },
           ELEVE_ID,
           UserRole.ELEVE,
         ),
@@ -271,7 +278,7 @@ describe('ExerciseAttemptsService', () => {
       await expect(
         service.submitAnswer(
           ATTEMPT_ID,
-          { partId: PART_Q1, content: [{ type: ExerciseContentItemType.TEXT, value: 'x' }] },
+          { partId: PART_Q1, content: [{ type: ExerciseContentItemType.TEXT, content: 'x' }] },
           ELEVE_ID,
           UserRole.PARENT_FINANCEUR,
         ),
@@ -286,10 +293,16 @@ describe('ExerciseAttemptsService', () => {
       attemptRepo.findOne.mockResolvedValue(attempt);
       const part = buildSamplePart({ partId: PART_Q1 });
       partRepo.findOne.mockResolvedValue(part);
-      solutionClient.reveal.mockResolvedValue({ content: [{ type: 'text', value: 'x = 2' }] });
+      solutionClient.reveal.mockResolvedValue({
+        content: [{ id: 'i1', type: 'text', order: 0, content: 'x = 2' }],
+      });
       partRepo.save.mockImplementation((value) => Promise.resolve(value));
       partRepo.find.mockResolvedValue([
-        { ...part, solutionRevealed: true, revealedContent: [{ type: 'text', value: 'x = 2' }] },
+        {
+          ...part,
+          solutionRevealed: true,
+          revealedContent: [{ id: 'i1', type: 'text', order: 0, content: 'x = 2' }],
+        },
       ]);
 
       const result = await service.reveal(
@@ -303,7 +316,33 @@ describe('ExerciseAttemptsService', () => {
       expect(solutionClient.reveal).toHaveBeenCalledWith(EXERCISE_ID, PART_Q1, 'corr-1');
       expect(part.solutionRevealed).toBe(true);
       expect(part.revealedAt).toBeInstanceOf(Date);
-      expect(result.parts[0].revealedContent).toEqual([{ type: 'text', value: 'x = 2' }]);
+      expect(result.parts[0].revealedContent).toEqual([
+        { id: 'i1', type: 'text', order: 0, content: 'x = 2' },
+      ]);
+    });
+
+    it('révèle une solution avec un item image (id de l\'item = référence de l\'image)', async () => {
+      const attempt = buildSampleAttempt();
+      attemptRepo.findOne.mockResolvedValue(attempt);
+      const part = buildSamplePart({ partId: PART_Q1 });
+      partRepo.findOne.mockResolvedValue(part);
+      const imageItem = {
+        id: IMAGE_ITEM_ID,
+        type: 'image',
+        order: 0,
+        content: '',
+        imageMimeType: 'image/png',
+        imageSizeBytes: 4096,
+      };
+      solutionClient.reveal.mockResolvedValue({ content: [imageItem] });
+      partRepo.save.mockImplementation((value) => Promise.resolve(value));
+      partRepo.find.mockResolvedValue([
+        { ...part, solutionRevealed: true, revealedContent: [imageItem] },
+      ]);
+
+      const result = await service.reveal(ATTEMPT_ID, { partId: PART_Q1 }, ELEVE_ID, UserRole.ELEVE);
+
+      expect(result.parts[0].revealedContent).toEqual([imageItem]);
     });
 
     it('ne rappelle pas content-catalog-service pour une solution déjà révélée (idempotent)', async () => {
@@ -313,7 +352,7 @@ describe('ExerciseAttemptsService', () => {
         partId: PART_Q1,
         solutionRevealed: true,
         revealedAt: new Date('2026-08-29T09:30:00Z'),
-        revealedContent: [{ type: 'text', value: 'déjà révélée' }],
+        revealedContent: [{ id: 'i1', type: 'text', order: 0, content: 'déjà révélée' }],
       });
       partRepo.findOne.mockResolvedValue(alreadyRevealedPart);
       partRepo.find.mockResolvedValue([alreadyRevealedPart]);
@@ -322,7 +361,9 @@ describe('ExerciseAttemptsService', () => {
 
       expect(solutionClient.reveal).not.toHaveBeenCalled();
       expect(partRepo.save).not.toHaveBeenCalled();
-      expect(result.parts[0].revealedContent).toEqual([{ type: 'text', value: 'déjà révélée' }]);
+      expect(result.parts[0].revealedContent).toEqual([
+        { id: 'i1', type: 'text', order: 0, content: 'déjà révélée' },
+      ]);
     });
 
     it('renvoie 404 si le bloc question est inexistant pour cette tentative', async () => {
@@ -352,6 +393,24 @@ describe('ExerciseAttemptsService', () => {
       expect(attemptRepo.findOne).not.toHaveBeenCalled();
     });
 
+    it(
+      'propage une 404 telle quelle si content-catalog-service la renvoie ' +
+        '(partId inexistant, bloc statement, ou bloc question sans solution — un seul comportement, jamais de 400 distinct)',
+      async () => {
+        const attempt = buildSampleAttempt();
+        attemptRepo.findOne.mockResolvedValue(attempt);
+        const part = buildSamplePart({ partId: PART_Q1 });
+        partRepo.findOne.mockResolvedValue(part);
+        solutionClient.reveal.mockRejectedValue(new NotFoundException('Solution introuvable'));
+
+        await expect(
+          service.reveal(ATTEMPT_ID, { partId: PART_Q1 }, ELEVE_ID, UserRole.ELEVE),
+        ).rejects.toThrow(NotFoundException);
+        expect(part.solutionRevealed).toBe(false);
+        expect(partRepo.save).not.toHaveBeenCalled();
+      },
+    );
+
     it('propage un échec de content-catalog-service sans marquer la solution comme révélée', async () => {
       const attempt = buildSampleAttempt();
       attemptRepo.findOne.mockResolvedValue(attempt);
@@ -364,6 +423,94 @@ describe('ExerciseAttemptsService', () => {
       ).rejects.toThrow(ServiceUnavailableException);
       expect(part.solutionRevealed).toBe(false);
       expect(partRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getRevealedImage', () => {
+    it('renvoie les octets d\'une image appartenant à une solution déjà révélée sur cette tentative', async () => {
+      attemptRepo.findOne.mockResolvedValue(buildSampleAttempt());
+      partRepo.find.mockResolvedValue([
+        buildSamplePart({
+          partId: PART_Q1,
+          solutionRevealed: true,
+          revealedContent: [
+            { id: IMAGE_ITEM_ID, type: 'image', order: 0, content: '', imageMimeType: 'image/png', imageSizeBytes: 100 },
+          ],
+        }),
+      ]);
+      const image = { buffer: Buffer.from([1, 2, 3]), contentType: 'image/png' };
+      solutionClient.getImageBytes.mockResolvedValue(image);
+
+      const result = await service.getRevealedImage(
+        ATTEMPT_ID,
+        IMAGE_ITEM_ID,
+        ELEVE_ID,
+        UserRole.ELEVE,
+        'corr-1',
+      );
+
+      expect(solutionClient.getImageBytes).toHaveBeenCalledWith(IMAGE_ITEM_ID, 'corr-1');
+      expect(result).toEqual(image);
+    });
+
+    it('renvoie 404 pour un itemId qui n\'appartient à aucune solution révélée de cette tentative (pas d\'id orphelin)', async () => {
+      attemptRepo.findOne.mockResolvedValue(buildSampleAttempt());
+      partRepo.find.mockResolvedValue([
+        buildSamplePart({ partId: PART_Q1, solutionRevealed: false }),
+      ]);
+
+      await expect(
+        service.getRevealedImage(ATTEMPT_ID, IMAGE_ITEM_ID, ELEVE_ID, UserRole.ELEVE),
+      ).rejects.toThrow(NotFoundException);
+      expect(solutionClient.getImageBytes).not.toHaveBeenCalled();
+    });
+
+    it('renvoie 404 si l\'image existe dans une solution révélée d\'un autre bloc mais pas celui demandé', async () => {
+      attemptRepo.findOne.mockResolvedValue(buildSampleAttempt());
+      partRepo.find.mockResolvedValue([
+        buildSamplePart({
+          partId: PART_Q1,
+          solutionRevealed: true,
+          revealedContent: [{ id: 'other-item', type: 'text', order: 0, content: 'x' }],
+        }),
+      ]);
+
+      await expect(
+        service.getRevealedImage(ATTEMPT_ID, IMAGE_ITEM_ID, ELEVE_ID, UserRole.ELEVE),
+      ).rejects.toThrow(NotFoundException);
+      expect(solutionClient.getImageBytes).not.toHaveBeenCalled();
+    });
+
+    it('renvoie 404 si la tentative appartient à un tiers', async () => {
+      attemptRepo.findOne.mockResolvedValue(buildSampleAttempt({ userId: OTHER_ELEVE_ID }));
+
+      await expect(
+        service.getRevealedImage(ATTEMPT_ID, IMAGE_ITEM_ID, ELEVE_ID, UserRole.ELEVE),
+      ).rejects.toThrow(NotFoundException);
+      expect(solutionClient.getImageBytes).not.toHaveBeenCalled();
+    });
+
+    it('refuse un rôle non autorisé avant même de chercher la tentative', async () => {
+      await expect(
+        service.getRevealedImage(ATTEMPT_ID, IMAGE_ITEM_ID, ELEVE_ID, UserRole.PARENT_FINANCEUR),
+      ).rejects.toThrow(ForbiddenException);
+      expect(attemptRepo.findOne).not.toHaveBeenCalled();
+    });
+
+    it('propage un échec de content-catalog-service lors de la récupération des octets', async () => {
+      attemptRepo.findOne.mockResolvedValue(buildSampleAttempt());
+      partRepo.find.mockResolvedValue([
+        buildSamplePart({
+          partId: PART_Q1,
+          solutionRevealed: true,
+          revealedContent: [{ id: IMAGE_ITEM_ID, type: 'image', order: 0, content: '' }],
+        }),
+      ]);
+      solutionClient.getImageBytes.mockRejectedValue(new ServiceUnavailableException('injoignable'));
+
+      await expect(
+        service.getRevealedImage(ATTEMPT_ID, IMAGE_ITEM_ID, ELEVE_ID, UserRole.ELEVE),
+      ).rejects.toThrow(ServiceUnavailableException);
     });
   });
 
@@ -383,8 +530,8 @@ describe('ExerciseAttemptsService', () => {
     it('statut "done" quand toutes les questions ont reçu une réponse', async () => {
       attemptRepo.findOne.mockResolvedValue(buildSampleAttempt());
       partRepo.find.mockResolvedValue([
-        buildSamplePart({ partId: PART_Q1, answerContent: [{ type: 'text', value: 'a' }] }),
-        buildSamplePart({ partId: PART_Q2, answerContent: [{ type: 'text', value: 'b' }] }),
+        buildSamplePart({ partId: PART_Q1, answerContent: [{ type: 'text', content: 'a' }] }),
+        buildSamplePart({ partId: PART_Q2, answerContent: [{ type: 'text', content: 'b' }] }),
       ]);
 
       const result = await service.findOne(ATTEMPT_ID, ELEVE_ID, UserRole.ELEVE);
@@ -395,7 +542,7 @@ describe('ExerciseAttemptsService', () => {
     it('statut "in_progress" si ni toutes révélées ni toutes répondues', async () => {
       attemptRepo.findOne.mockResolvedValue(buildSampleAttempt());
       partRepo.find.mockResolvedValue([
-        buildSamplePart({ partId: PART_Q1, answerContent: [{ type: 'text', value: 'a' }] }),
+        buildSamplePart({ partId: PART_Q1, answerContent: [{ type: 'text', content: 'a' }] }),
         buildSamplePart({ partId: PART_Q2 }),
       ]);
 

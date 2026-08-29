@@ -8,9 +8,21 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+/**
+ * Forme d'un bloc telle que renvoyée par content-catalog-service (contrat
+ * confirmé par sa PR #184) : `partNumber`, `items` et `hasSolution` existent
+ * réellement dans la réponse mais ne sont **pas consommés** par ce client —
+ * seuls `id` et `category` déterminent le nombre et l'ordre des zones de
+ * réponse à proposer, sans jamais dupliquer le contenu des blocs dans ce
+ * service. Ces champs supplémentaires sont donc typés en `unknown`/optionnels
+ * et ignorés par la validation (isValidStructure), pas requis.
+ */
 export interface ExercisePartSummary {
   id: string;
+  partNumber?: number;
   category: 'statement' | 'question';
+  items?: unknown;
+  hasSolution?: boolean;
 }
 
 export interface ExerciseStructure {

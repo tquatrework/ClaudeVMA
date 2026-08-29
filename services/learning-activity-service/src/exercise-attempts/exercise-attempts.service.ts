@@ -7,7 +7,10 @@ import { StartExerciseAttemptDto } from './dto/start-exercise-attempt.dto';
 import { SubmitExerciseAnswerDto } from './dto/submit-exercise-answer.dto';
 import { RevealExerciseSolutionDto } from './dto/reveal-exercise-solution.dto';
 import { ExerciseStructureClientService } from './exercise-structure-client.service';
-import { ExerciseSolutionClientService } from './exercise-solution-client.service';
+import {
+  ExerciseSolutionClientService,
+  ExerciseSolutionImage,
+} from './exercise-solution-client.service';
 import { ExerciseAttemptStatus } from '../common/enums/exercise-attempt-status.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 
@@ -185,6 +188,45 @@ export class ExerciseAttemptsService {
     const attempt = await this.findOwnedAttemptOrFail(attemptId, userId);
     const parts = await this.partRepository.find({ where: { attemptId: attempt.id } });
     return this.toView(attempt, parts);
+  }
+
+  /**
+   * Octets d'une image de solution déjà révélée, via la seconde médiation
+   * interne (content-catalog-service ne transite jamais d'image en base64
+   * dans un JSON). L'itemId doit appartenir à un bloc de cette tentative dont
+   * la solution a déjà été révélée — jamais un id orphelin accepté à
+   * l'aveugle : on ne sert pas une image de solution qui n'a pas été
+   * explicitement révélée par cette tentative, même si content-catalog-service
+   * l'accepterait techniquement (pas de fuite d'une solution non révélée par
+   * ce biais).
+   */
+  async getRevealedImage(
+    attemptId: string,
+    itemId: string,
+    userId: string,
+    userRole: string,
+    correlationId?: string,
+  ): Promise<ExerciseSolutionImage> {
+    if (!EXERCISE_TAKER_ROLES.includes(userRole)) {
+      throw new ForbiddenException(
+        'Seuls les élèves, formateurs, RP et AP peuvent consulter une image de solution d\'Exercice',
+      );
+    }
+
+    const attempt = await this.findOwnedAttemptOrFail(attemptId, userId);
+    const parts = await this.partRepository.find({ where: { attemptId: attempt.id } });
+
+    const hasRevealedImageItem = parts.some(
+      (part) =>
+        part.solutionRevealed &&
+        part.revealedContent?.some((item) => item.id === itemId && item.type === 'image'),
+    );
+
+    if (!hasRevealedImageItem) {
+      throw new NotFoundException(`Image de solution ${itemId} introuvable pour cette tentative`);
+    }
+
+    return this.solutionClient.getImageBytes(itemId, correlationId);
   }
 
   /**

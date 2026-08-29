@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Param,
+  Res,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -17,6 +18,7 @@ import {
   ApiParam,
   ApiHeader,
 } from '@nestjs/swagger';
+import { Response } from 'express';
 import { ExerciseAttemptsService } from './exercise-attempts.service';
 import { StartExerciseAttemptDto } from './dto/start-exercise-attempt.dto';
 import { SubmitExerciseAnswerDto } from './dto/submit-exercise-answer.dto';
@@ -123,6 +125,42 @@ export class ExerciseAttemptsController {
       currentUser.role,
       correlationId,
     );
+  }
+
+  @Get(':id/images/:itemId')
+  @ApiOperation({
+    summary: 'Octets d\'une image de solution révélée',
+    description:
+      'Proxy authentifié vers content-catalog-service : ne sert que les images appartenant à ' +
+      'une solution déjà révélée sur cette tentative — jamais un id orphelin, jamais de base64 ' +
+      'dans du JSON. Le front ne doit jamais contacter content-catalog-service directement.',
+  })
+  @ApiParam({ name: 'id', description: 'UUID de la tentative' })
+  @ApiParam({ name: 'itemId', description: 'Identifiant de l\'item image (défini par content-catalog-service)' })
+  @ApiResponse({ status: 200, description: 'Octets de l\'image' })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  @ApiResponse({ status: 403, description: 'Rôle insuffisant' })
+  @ApiResponse({ status: 404, description: 'Tentative introuvable, ou image non révélée sur cette tentative' })
+  @ApiResponse({ status: 502, description: 'Réponse d\'image invalide de content-catalog-service' })
+  @ApiResponse({ status: 503, description: 'Service de contenu (content-catalog-service) injoignable' })
+  @ApiHeader({ name: 'x-correlation-id', required: false, description: 'Identifiant de corrélation inter-services' })
+  async getRevealedImage(
+    @Param('id') attemptId: string,
+    @Param('itemId') itemId: string,
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Res({ passthrough: true }) response: Response,
+    @Headers('x-correlation-id') correlationId?: string,
+  ) {
+    const { buffer, contentType } = await this.exerciseAttemptsService.getRevealedImage(
+      attemptId,
+      itemId,
+      currentUser.id,
+      currentUser.role,
+      correlationId,
+    );
+
+    response.setHeader('Content-Type', contentType);
+    return buffer;
   }
 
   @Get('history')

@@ -289,4 +289,34 @@
       <failed>0</failed>
     </testResults>
   </implementationSession>
+
+  <implementationSession date="2026-08-29" topic="Refonte des Exercices - alignement sur le contrat confirme (PR #184)">
+    <status>completed</status>
+    <context>
+      content-catalog-service a ouvert sa PR #184 confirmant le contrat interne exact, corrigeant
+      trois hypothèses prises lors de la session précédente sans coordination synchrone possible.
+      Correctifs appliqués sur la branche non mergée feat/exercises-rebuild-learning-activity,
+      avant tout déploiement conjoint.
+    </context>
+    <technicalDecisions>
+      <decision>Champ renommé `value` → `content` sur ExerciseContentItemDto (réponse soumise par l'élève) et sur la forme validée/stockée pour les items de solution — alignement avec le nom réel utilisé par content-catalog-service pour GET /exercises/:id et POST /internal/exercises/:exerciseId/parts/:partId/solution, plutôt que de laisser deux noms concurrents pour le même concept (règle « un seul nom par donnée »).</decision>
+      <decision>Entité ExerciseAttemptPart : l'ancienne interface unique ExerciseContentItem est scindée en deux — ExerciseAnswerItem ({type, content}, propre à ce service, jamais lu par content-catalog-service) pour answerContent, et ExerciseSolutionItem ({id, type, order, content, imageMimeType?, imageSizeBytes?}, forme exacte renvoyée par content-catalog-service) pour revealedContent — stocké tel quel, jamais transformé.</decision>
+      <decision>ExerciseSolutionClientService.isValidSolutionResult réécrit pour exiger id (string), order (number), content (string), type énuméré, et imageMimeType/imageSizeBytes optionnels mais typés si présents — l'ancienne validation (type + value) aurait rejeté à tort toute vraie réponse de content-catalog-service en 502.</decision>
+      <decision>Nouvelle méthode ExerciseSolutionClientService.getImageBytes(itemId, correlationId) : GET /internal/exercises/images/:itemId, X-Internal-Secret, lit les octets bruts (response.arrayBuffer(), pas de parsing JSON) et le Content-Type de la réponse (repli sur application/octet-stream si absent).</decision>
+      <decision>Nouvelle méthode ExerciseAttemptsService.getRevealedImage(attemptId, itemId, userId, userRole, correlationId) : vérifie que itemId appartient à un item de type image d'une solution *déjà révélée* sur *cette* tentative (recherche dans les revealedContent de toutes les ExerciseAttemptPart de la tentative) avant d'appeler getImageBytes — aucun id orphelin accepté à l'aveugle, même si content-catalog-service le servirait techniquement.</decision>
+      <decision>Nouvelle route GET /exercise-attempts/:id/images/:itemId (contrôleur) : proxy authentifié, @Res({passthrough:true}) sur le modèle déjà établi par ActivitiesController (export CSV) — Content-Type forwardé, corps = Buffer brut, jamais de base64 dans du JSON, cohérent avec le choix de content-catalog-service sur sa propre route interne.</decision>
+      <decision>Aucune correction nécessaire sur la gestion d'erreur "un seul 404, jamais de 400 dédié" (point 3 du message de coordination) : le design existant garantissait déjà ce comportement sans le savoir — findPartOrFail() ne trouve jamais un partId de catégorie "statement" dans ExerciseAttemptPart (seuls les blocs "question" y sont seedés au démarrage), donc un tel appel échoue en 404 avant même d'atteindre content-catalog-service ; et le client ne traitait déjà aucun 400 comme un cas distinct (seul 404 est spécifiquement intercepté, tout le reste ≥400 non-404 tombe en 502 générique). Test explicite ajouté pour figer ce comportement (400 → 502, jamais un cas spécial).</decision>
+      <decision>ExercisePartSummary (structure client) étendu avec des champs optionnels non validés (partNumber, items, hasSolution) réellement présents dans la réponse mais non consommés par ce service — documente le contrat réel sans en imposer une validation inutile.</decision>
+    </technicalDecisions>
+    <pendingPoints>
+      <item>Toujours pas de preuve de bout en bout contre la pile réelle : content-catalog-service n'a pas encore déployé sa PR #184 au moment de cette correction. Les nouveaux tests figent le contrat confirmé par le message de coordination, mais un déploiement conjoint reste nécessaire pour une vérification réelle (notamment GET /internal/exercises/images/:itemId, jamais appelée en conditions réelles ici).</item>
+      <item>Point 3 (erreurs 404 uniformes) confirmé déjà conforme sans changement de code — voir technicalDecisions.</item>
+    </pendingPoints>
+    <testResults>
+      <suites>3 (inchangé, tests ajoutés dans les suites existantes exercise-attempts)</suites>
+      <tests>127 (total du service après ce correctif, 109 existants + 18 nouveaux)</tests>
+      <passed>127</passed>
+      <failed>0</failed>
+    </testResults>
+  </implementationSession>
 </serviceFunctionalSpecification>

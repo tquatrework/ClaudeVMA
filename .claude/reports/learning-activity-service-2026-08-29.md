@@ -162,3 +162,82 @@ modification d'infrastructure nécessaire.
 
 `docs/services/learning-activity-service.md` — nouvelle session `implementationSession` datée
 2026-08-29, arborescence complète, décisions techniques et points en suspens.
+
+---
+
+## Addendum — alignement sur le contrat confirmé par `content-catalog-service` (PR #184)
+
+Le coordinateur a transmis le contrat exact confirmé par la PR #184 de `content-catalog-service`.
+Comparaison avec l'implémentation initiale (ci-dessus) et corrections apportées sur la même
+branche, avant tout merge :
+
+### Écarts trouvés et corrigés
+
+1. **Nom de champ `value` → `content`.** L'implémentation initiale utilisait `{type, value}` pour
+   les items de contenu (réponse soumise et solution mise en cache). Le contrat réel de
+   `content-catalog-service` utilise `content`, pas `value`, aussi bien pour les items de
+   `GET /exercises/:id` que pour ceux de la route interne de solution. **Corrigé** :
+   `ExerciseContentItemDto.value` → `ExerciseContentItemDto.content` ; l'ancienne interface unique
+   `ExerciseContentItem` de l'entité est scindée en deux — `ExerciseAnswerItem` (`{type, content}`,
+   propre à ce service pour la réponse de l'élève) et `ExerciseSolutionItem` (`{id, type, order,
+   content, imageMimeType?, imageSizeBytes?}`, forme exacte reçue de content-catalog-service,
+   stockée telle quelle dans `revealedContent`). C'était le bug le plus sérieux : la validation
+   stricte côté `ExerciseSolutionClientService.isValidSolutionResult` aurait rejeté **toute**
+   vraie réponse de `content-catalog-service` en 502, faute du bon nom de champ.
+2. **Pas de champ `imageId` séparé pour les items image ; nouvelle route interne d'octets.** Non
+   géré du tout dans la première passe (aucun mécanisme de récupération d'image de solution
+   n'existait). **Ajouté** :
+   - `ExerciseSolutionClientService.getImageBytes(itemId, correlationId)` — appelle
+     `GET /internal/exercises/images/:itemId` (`X-Internal-Secret`), lit les octets bruts
+     (`response.arrayBuffer()`, jamais de parsing JSON) et le `Content-Type` de la réponse.
+   - `ExerciseAttemptsService.getRevealedImage(attemptId, itemId, userId, userRole, correlationId)`
+     — vérifie que `itemId` appartient à un item `type: 'image'` d'une solution **déjà révélée**
+     sur **cette** tentative (recherche dans les `revealedContent` de toutes les
+     `ExerciseAttemptPart` de la tentative) avant d'appeler `getImageBytes` : aucun id orphelin
+     n'est accepté à l'aveugle, même si `content-catalog-service` le servirait techniquement — pas
+     de fuite d'une solution non révélée par ce biais.
+   - Nouvelle route publique `GET /exercise-attempts/:id/images/:itemId` sur le contrôleur, en
+     proxy authentifié : `@Res({ passthrough: true })` sur le modèle déjà établi par
+     `ActivitiesController` (export CSV de `open-activities`), `Content-Type` forwardé, corps =
+     `Buffer` brut, jamais de base64 dans du JSON — cohérent avec le choix de
+     `content-catalog-service` sur sa propre route interne.
+3. **Gestion d'erreur "un seul 404, jamais de 400 dédié" — déjà conforme, aucune correction
+   nécessaire.** Vérification faite : le design initial garantissait déjà ce comportement sans le
+   savoir explicitement.
+   - `ExerciseAttemptsService.findPartOrFail()` ne trouve **jamais** un `partId` de catégorie
+     `statement` dans `ExerciseAttemptPart`, puisque seuls les blocs `question` y sont seedés au
+     démarrage (`start()` filtre `category === 'question'`) — un appel de révélation sur un bloc
+     `statement` échoue donc déjà en 404 **avant même d'atteindre** `content-catalog-service`.
+   - `ExerciseSolutionClientService.reveal()` n'a jamais traité de 400 comme un cas distinct :
+     seul `404` est spécifiquement intercepté (`NotFoundException`), tout le reste `≥400` non-404
+     tombe déjà dans le cas générique `502` (`BadGatewayException`). Un test explicite a été
+     ajouté (`400 → 502, jamais un cas spécial`) pour figer ce comportement et prévenir toute
+     régression future qui introduirait par erreur une distinction 400.
+
+### Ce qui n'a pas changé
+
+- `ExercisePartSummary` (structure) : `id`/`category` suffisaient déjà et restent la seule base de
+  la validation ; les champs réels supplémentaires (`partNumber`, `items`, `hasSolution`) sont
+  maintenant documentés dans l'interface TypeScript comme optionnels et non consommés, sans
+  imposer de validation inutile dessus.
+- Aucune modification du flux `start()`/`submitAnswer()`/`findOne()`/`history()` au-delà du
+  renommage de champ — la logique métier (seed des blocs question, idempotence de la réponse,
+  calcul de statut, historique mixte) était déjà correcte.
+
+### Tests
+
+18 nouveaux tests (109 → **127**, tous verts) : validation stricte du nouveau format d'item
+(id/order/content requis, `value` explicitement rejeté), item image avec
+`imageMimeType`/`imageSizeBytes`, `getImageBytes` (nominal, repli `Content-Type`, configuration
+manquante, service injoignable, 404, 502), `getRevealedImage` (nominal, id orphelin refusé, id
+appartenant à un autre bloc refusé, tentative d'un tiers refusée, rôle refusé, échec amont
+propagé), et le test figeant le comportement 400→502 côté client de solution. `npx nest build`
+recompile sans erreur.
+
+### Toujours en attente
+
+Aucune preuve de bout en bout contre la pile réelle : `content-catalog-service` n'a pas encore
+déployé sa PR #184 au moment de cette correction. Le contrat est maintenant figé par des tests
+qui reproduisent exactement la forme confirmée par le message de coordination, mais un
+déploiement conjoint reste nécessaire pour une vérification réelle — en particulier
+`GET /internal/exercises/images/:itemId`, jamais exercée en conditions réelles ici.

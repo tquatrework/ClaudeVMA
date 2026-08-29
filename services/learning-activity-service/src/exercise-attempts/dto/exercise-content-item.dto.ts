@@ -12,13 +12,20 @@ export enum ExerciseContentItemType {
   IMAGE = 'image',
 }
 
+/**
+ * Champ nommé `content`, pas `value` — aligné sur le contrat confirmé par
+ * content-catalog-service (PR #184) pour les items de blocs/solutions
+ * (`GET /exercises/:id`, `POST /internal/exercises/:exerciseId/parts/:partId/solution`),
+ * pour que le front puisse réutiliser le même rendu quelle que soit l'origine
+ * de l'item (réponse soumise ou solution révélée).
+ */
 export class ExerciseContentItemDto {
   @ApiProperty({ enum: ExerciseContentItemType, description: 'Type de contenu' })
   @IsEnum(ExerciseContentItemType)
   type: ExerciseContentItemType;
 
-  @ApiProperty({ description: 'Contenu (texte brut, LaTeX, ou référence d\'image selon le type)' })
+  @ApiProperty({ description: 'Contenu (texte brut, LaTeX, ou légende d\'image selon le type)' })
   @IsString()
   @IsNotEmpty()
-  value: string;
+  content: string;
 }

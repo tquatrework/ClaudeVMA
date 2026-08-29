@@ -8,12 +8,32 @@ import {
 } from 'typeorm';
 
 /**
- * Item de contenu texte/formule/image, même mécanisme que le Memo
- * (docs/architecture.md > « Refonte des Exercices », point 2).
+ * Item de réponse soumis par l'élève — même mécanisme texte/formule/image
+ * que le Memo (docs/architecture.md > « Refonte des Exercices », point 2).
+ * Forme propre à ce service (pas de contrat avec content-catalog-service ici :
+ * la réponse de l'élève n'est jamais lue par content-catalog-service).
  */
-export interface ExerciseContentItem {
+export interface ExerciseAnswerItem {
   type: 'text' | 'formula' | 'image';
-  value: string;
+  content: string;
+}
+
+/**
+ * Item de contenu tel que renvoyé par content-catalog-service pour un bloc
+ * solution (POST /internal/exercises/:exerciseId/parts/:partId/solution),
+ * contrat confirmé par sa PR #184 : `id` (référence de l'item, utilisée pour
+ * les images via GET /internal/exercises/images/:itemId — pas de champ
+ * imageId séparé), `type`, `order`, `content` (texte/LaTeX/légende, jamais
+ * `value`), et `imageMimeType`/`imageSizeBytes` pour les items image. Stocké
+ * tel quel dans revealedContent une fois révélé, jamais transformé.
+ */
+export interface ExerciseSolutionItem {
+  id: string;
+  type: 'text' | 'formula' | 'image';
+  order: number;
+  content: string;
+  imageMimeType?: string;
+  imageSizeBytes?: number;
 }
 
 /**
@@ -42,7 +62,7 @@ export class ExerciseAttemptPart {
   partId: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  answerContent: ExerciseContentItem[] | null;
+  answerContent: ExerciseAnswerItem[] | null;
 
   @Column({ type: 'timestamptz', nullable: true })
   answeredAt: Date | null;
@@ -54,7 +74,7 @@ export class ExerciseAttemptPart {
   revealedAt: Date | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  revealedContent: ExerciseContentItem[] | null;
+  revealedContent: ExerciseSolutionItem[] | null;
 
   @CreateDateColumn()
   createdAt: Date;

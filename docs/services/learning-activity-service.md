@@ -220,4 +220,73 @@
       <failed>0</failed>
     </testResults>
   </implementationSession>
+
+  <implementationSession date="2026-08-29" topic="Refonte des Exercices - tentatives d'auto-controle">
+    <status>completed</status>
+    <framework>NestJS 10 + TypeORM + PostgreSQL + Swagger (inchangé)</framework>
+    <context>
+      Refonte des Exercices répartie entre deux services, en construction en parallèle sans
+      coordination synchrone possible (arbitrage docs/architecture.md du 2026-08-29,
+      « Refonte des Exercices », PR #181 pas encore mergée au moment de ce chantier) :
+      content-catalog-service porte la définition (blocs ordonnés énoncé/question, solution 1-à-1
+      par question, hors périmètre de cet agent) ; learning-activity-service porte tout le cycle de
+      vie de la tentative d'un utilisateur — démarrage, réponses facultatives, révélations de
+      solution médiées, historique — sans aucune notation ni correction automatique
+      (contrairement au Quizz, c'est de l'auto-contrôle). Remplace conceptuellement l'ancien
+      ExerciseAnswer qui vivait à tort côté content-catalog-service (reconstruction, pas migration
+      de données).
+    </context>
+
+    <folderStructure>
+      <folder path="src/common/">
+        <file path="src/common/enums/exercise-attempt-status.enum.ts">Statut calculé (jamais persisté) d'une tentative : in_progress, done</file>
+      </folder>
+      <folder path="src/exercise-attempts/">
+        <file path="entities/exercise-attempt.entity.ts">Entité ExerciseAttempt (id, exerciseId, userId, userRole, startedAt, updatedAt) — ne duplique jamais la définition de l'exercice</file>
+        <file path="entities/exercise-attempt-part.entity.ts">Entité ExerciseAttemptPart, une ligne par bloc question (attemptId, partId, answerContent jsonb nullable, answeredAt, solutionRevealed, revealedAt, revealedContent jsonb nullable — mis en cache une fois révélé). Interface ExerciseContentItem (type text/formula/image + value), même mécanisme que le Memo. Index unique (attemptId, partId).</file>
+        <file path="dto/exercise-content-item.dto.ts">DTO + enum ExerciseContentItemType (text/formula/image)</file>
+        <file path="dto/start-exercise-attempt.dto.ts">DTO de démarrage : exerciseId (requis)</file>
+        <file path="dto/submit-exercise-answer.dto.ts">DTO de soumission de réponse : partId (requis), content[] (au moins 1 item, validation imbriquée)</file>
+        <file path="dto/reveal-exercise-solution.dto.ts">DTO de révélation : partId (requis)</file>
+        <file path="exercise-structure-client.service.ts">Client HTTP vers la route publique GET /exercises/:id de content-catalog-service (authentifiée, jamais la solution) — forward l'en-tête Authorization de l'appelant, jamais un X-Internal-Secret ici. Valide strictement la forme (id + parts[{id, category}]) avant de faire confiance.</file>
+        <file path="exercise-solution-client.service.ts">Client HTTP interne vers content-catalog-service (POST /internal/exercises/:exerciseId/parts/:partId/solution), header X-Internal-Secret + x-correlation-id. Seule route qui connaît la solution ; le front ne la contacte jamais directement.</file>
+        <file path="exercise-attempts.service.ts">Service métier : start (contrôle de rôle, lit la structure, seed une ExerciseAttemptPart par bloc question), submitAnswer (idempotent, remplace la réponse existante), reveal (médiation, idempotent — pas de second appel si déjà révélé), findOne (calcul de statut), history (toutes les tentatives, passées et en cours, avec statut)</file>
+        <file path="exercise-attempts.controller.ts">Contrôleur REST : POST /exercise-attempts, POST /exercise-attempts/:id/answers, POST /exercise-attempts/:id/reveal, GET /exercise-attempts/history, GET /exercise-attempts/:id — Swagger complet</file>
+        <file path="exercise-attempts.module.ts">Module NestJS</file>
+      </folder>
+      <folder path="test/unit/exercise-attempts/">
+        <file path="exercise-attempts.service.spec.ts">Tests service : démarrage par rôle autorisé/refusé (+ seed uniquement des blocs question, exercice sans question = done d'emblée), soumission idempotente, réponse à un bloc inexistant (404), tentative introuvable/d'un tiers (404, pas de fuite), révélation nominale + idempotente (pas de second appel) + bloc/tentative introuvables + échec amont propagé sans marquer révélé, calcul du statut done (toutes révélées OU toutes répondues) / in_progress, historique incluant les tentatives en cours et terminées</file>
+        <file path="exercise-structure-client.spec.ts">Tests du client structure : appel nominal avec Authorization forwardé + x-correlation-id, pas d'Authorization si absent, configuration manquante, service injoignable, 404 amont, 401/403 amont (Forbidden), échec HTTP générique, JSON illisible, réponse malformée</file>
+        <file path="exercise-solution-client.spec.ts">Tests du client solution interne : appel nominal avec X-Internal-Secret + x-correlation-id, configuration manquante, service injoignable, 404 amont, échec HTTP générique, JSON illisible, réponse malformée</file>
+      </folder>
+      <file path="src/app.module.ts">ExerciseAttempt + ExerciseAttemptPart ajoutées aux entités TypeORM ; ExerciseAttemptsModule enregistré</file>
+    </folderStructure>
+
+    <technicalDecisions>
+      <decision>Deux tables (ExerciseAttempt + ExerciseAttemptPart), pas une seule comme QuizAttempt : contrairement au Quizz (résultat plat score/maxScore/details jsonb), une tentative d'Exercice a un état par bloc question qui évolue indépendamment (réponse ET révélation possibles simultanément, sans notation) — une table de détail par question colle mieux au modèle que le jsonb Quizz.</decision>
+      <decision>Aucun statut persisté : status est calculé à la volée (computeStatus) à partir des ExerciseAttemptPart existantes, jamais stocké sur ExerciseAttempt — évite toute désynchronisation entre un champ statut et l'état réel des parts.</decision>
+      <decision>Les blocs question sont "seedés" (une ExerciseAttemptPart par bloc) au démarrage, à partir de GET /exercises/:id — ceci fixe le nombre de questions pour toute la durée de la tentative sans avoir à rappeler content-catalog-service à chaque lecture ni dupliquer le contenu de l'exercice (seuls partId et category transitent, jamais le texte/formule/image de l'énoncé).</decision>
+      <decision>GET /exercises/:id étant une route publique authentifiée (pas interne), le client de structure forward l'en-tête Authorization reçu par le contrôleur, contrairement au client de notation Quizz et au client de solution qui utilisent X-Internal-Secret. Hypothèse de contrat non confirmée par une PR réelle de content-catalog-service au moment de ce chantier (voir pendingPoints).</decision>
+      <decision>Révélation idempotente par construction : si ExerciseAttemptPart.solutionRevealed est déjà vrai, le contenu mis en cache (revealedContent) est renvoyé sans rappeler content-catalog-service — pas de règle explicite demandée pour ce cas dans la spécification transmise, choix pris pour cohérence avec "jamais redemander une fois révélé" (docs/architecture.md, point 8) et pour ne pas consommer inutilement l'appel interne à chaque réaffichage.</decision>
+      <decision>Un exercice sans aucun bloc question est considéré "done" dès le démarrage (vérité vacueuse de "toutes les questions...") — cas limite non traité explicitement par la spécification, testé et documenté explicitement dans le code.</decision>
+      <decision>Rôles autorisés à démarrer/passer un Exercice : élève, formateur, RP, AP — mêmes 4 rôles que le Quizz (arbitrage explicite du 2026-08-29, point 5).</decision>
+      <decision>Ownership de la tentative vérifié par userId, même convention 404 sans fuite d'existence que quiz-attempts et le reste du projet.</decision>
+      <decision>Aucune migration ni variable d'environnement supplémentaire nécessaire : CONTENT_CATALOG_SERVICE_URL et INTERNAL_SECRET sont déjà déclarées dans docker-compose.yml pour ce service depuis le chantier Quizz ; synchronize (hors production) crée les nouvelles tables comme pour QuizAttempt.</decision>
+      <decision>Pas de passage par l'orchestrateur — mêmes deux appels de lecture de fait (structure, solution) vers content-catalog-service que pour le Quizz, cas (a) de l'arbitrage du 2026-08-12 sur la frontière service métier/orchestrateur.</decision>
+    </technicalDecisions>
+
+    <pendingPoints>
+      <item>Contrat interne non vérifiable contre la pile réelle : content-catalog-service développe sa PR sur le même chantier en parallèle, sans coordination synchrone possible au moment de cette session. Deux points en particulier restent des hypothèses de ce service, à confirmer une fois la PR de content-catalog-service ouverte : (1) la forme exacte de GET /exercises/:id — supposée { id, parts: [{id, category}, ...] }, avec possibly d'autres champs ignorés par ce client ; (2) la forme exacte de POST /internal/exercises/:exerciseId/parts/:partId/solution — supposée { content: [{type, value}, ...] }. Les deux clients valident strictement la forme reçue et lèvent une 502 explicite en cas d'écart, donc aucun risque d'absorption silencieuse, mais un déploiement conjoint sera nécessaire pour une preuve de bout en bout.</item>
+      <item>Authentification de GET /exercises/:id : ce service suppose que le JWT forwardé (même secret JWT_SECRET que celui vérifié par ce service) suffit à authentifier l'appel auprès de content-catalog-service, comme pour toute route publique authentifiée du projet. Non vérifié contre du code réel (hors périmètre de lecture de cet agent) — à confirmer.</item>
+      <item>Timer explicitement hors périmètre (différé par l'utilisateur, point 7 de l'arbitrage) : aucune colonne ni logique de délai construite ici.</item>
+      <item>Partage des réponses ("potentiellement partageables", point 4 de l'arbitrage) explicitement non implémenté, remis à plus tard sur les Évaluations plutôt que sur l'Exercice.</item>
+    </pendingPoints>
+
+    <testResults>
+      <suites>3 (nouvelles, en plus des 4 existantes)</suites>
+      <tests>109 (total du service après ce chantier, 84 existants + 25 nouveaux)</tests>
+      <passed>109</passed>
+      <failed>0</failed>
+    </testResults>
+  </implementationSession>
 </serviceFunctionalSpecification>

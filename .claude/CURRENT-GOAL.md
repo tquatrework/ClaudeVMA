@@ -7,21 +7,61 @@
 
 ## Besoin courant
 
-Visibilité de la validation des Quizz depuis l'onglet Quizz lui-même, demandé le 2026-08-29. La
-validation existe déjà et fonctionne (prouvé le même jour, voir archive ci-dessous), mais uniquement
-via l'écran générique « Contenus à valider » rangé dans une section « Validation » séparée du menu
-RP/AP — rien dans l'onglet **Quizz** (Catalogue / Mon historique / Mes Quizz) ne signale ni ne permet
-de valider. C'est un vrai gap de placement, pas un problème de cache ou de lien manquant (déjà écarté
-par le chantier du 2026-08-28 sur la seule question de l'existence du lien).
+Refonte des Exercices, demandée le 2026-08-29, alignée sur le modèle Quizz. Arbitrage complet
+persisté dans `docs/architecture.md` (PR #181, branche `docs/exercises-rebuild-arbitrage`, pas
+encore mergée) après constat que l'implémentation existante (chantier de juin 2026, entités
+`Exercise`/`ExercisePart`/`ExerciseSolution`/`ExerciseAnswer`/`ExerciseCorrection` côté
+`content-catalog-service`) est un modèle différent (énoncé unique + demande de correction humaine,
+jamais branchée) — à remplacer, pas compléter.
 
-Délégué à `front-developper` le 2026-08-29 : ajouter un onglet **Validation** dans la page Quizz
-elle-même, visible seulement pour RP et AP (scopé par relation `animator_of_teacher` comme
-l'existant), listant les Quizz en attente avec Valider/Rejeter sur place. Aucun changement backend :
-réutilise les routes déjà existantes (`GET /quizzes/pending-validation`,
-`POST /validations/quiz/:id/decision`).
+Résumé du contrat : blocs ordonnés énoncé/question (texte/formule/image, mécanisme Memo), une
+solution par question (plus de solutions concurrentes notées par coût), réponses de l'élève
+migrées vers `learning-activity-service` (nouvelle entité de tentative), droits/statut/validation
+copiés du Quizz (formateur → `pending_validation`, AP/RP → `validated` immédiat, AP scopé
+`animator_of_teacher`, RP illimité, lecture ouverte élève/professeur/AP/RP une fois validé). Tags
+enfin appliqués en recherche (gap corrigé au passage). Timer explicitement différé, hors périmètre.
+Demande de correction humaine retirée du périmètre des Exercices (relève de l'Évaluation).
 
-**Preuve attendue avant clôture** : capture d'écran contre `https://claudevma.visioprof.fr` montrant
-l'onglet Validation dans la page Quizz, avec un Quizz en attente réellement validé depuis cet onglet.
+Délégué en parallèle le 2026-08-29 :
+- `content-catalog-service` : réécriture Exercise/ExercisePart/ExerciseSolution, stockage image
+  propre (nouveau volume Docker), tags en recherche, alignement du cycle de validation sur le
+  Quizz, route interne de solution pour `learning-activity-service`.
+- `learning-activity-service` : nouvelle entité de tentative d'exercice (réponses facultatives par
+  question, révélation de solution médiée, calcul fait/en cours, historique).
+- `front-developper` : à lancer une fois le contrat backend stabilisé — écrans de création/édition
+  (blocs Memo-style), catalogue avec recherche par tag fonctionnelle, **onglet Validation intégré
+  directement dans la page Exercices dès le départ** (leçon du retour Quizz du 2026-08-29 : ne pas
+  reproduire l'écran de validation séparé et peu découvrable), écran de passage avec zones de
+  réponse et révélation de solution, historique.
+
+**Preuve finale attendue avant clôture** : cycle complet contre `https://claudevma.visioprof.fr` —
+professeur crée un Exercice multi-blocs avec image → `pending_validation` → RP/AP valide → élève le
+passe (répond à certaines questions, révèle d'autres solutions) → statut fait/en cours correct →
+historique à jour.
+
+<details>
+<summary>Archive — besoin du 2026-08-29, onglet Validation dans la page Quizz (clos, vérifié en production)</summary>
+
+### Besoin
+
+La validation d'un Quizz fonctionnait mais uniquement via l'écran générique « Contenus à valider »,
+séparé de l'onglet Quizz — pas assez découvrable.
+
+### Livré et prouvé
+
+Onglet « Validation » ajouté directement dans `QuizzPage` (RP illimité, AP scopé
+`animator_of_teacher`), réutilisant `QuizValidationList` et les routes existantes. PR #178 (doc) et
+#179 (front) mergées, déployé. Preuve par capture d'écran contre `https://claudevma.visioprof.fr` :
+onglet visible, liste en attente affichée sur place, décision réelle (le Quizz disparaît de la
+file après clic Valider).
+
+### Correctif connexe le même jour
+
+Correction d'un mock manquant dans `EleveDashboardPage.test.tsx` (`api/teacherRequests` non mocké
+depuis la PR #119, sans lien avec le Quizz) — PR #180 mergée, suite front à 2059/2060 (seul échec
+restant : `pedagogicalLogMemos.api.test.ts`, préexistant et distinct).
+
+</details>
 
 <details>
 <summary>Archive — besoin du 2026-08-29, import de Quizz depuis un tableur (CSV/Excel) (clos, vérifié en production)</summary>

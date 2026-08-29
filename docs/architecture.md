@@ -1096,6 +1096,57 @@ Phase 3 enrichit l'offre :
      `content-catalog-service`, en corrigeant dans le sens le plus coherent avec le code deja en
      place plutot qu'en ajoutant une exception specifique au Quizz si le mecanisme est partage.
 
+- Import de Quizz depuis un tableur (CSV/Excel), par les createurs deja autorises (professeur, AP,
+  RP). Arbitrage rendu le 2026-08-29, sur demande explicite de l'utilisateur, en complement direct
+  du modele Quizz deja livre (2026-08-28). Ce n'est pas une nouvelle regle metier : c'est un nouveau
+  point d'entree vers une donnee deja entierement modelisee (categories de question, bareme
+  global/individuel, penalite, tags, statut de validation) — aucune regle deja arbitree n'est
+  rouverte, seule la maniere de remplir un Quizz change.
+  1. **`content-catalog-service` reste seul proprietaire du parsing et de la creation.** Nouvelle
+     route `POST /quizzes/import` (multipart), reservee aux memes createurs que la creation
+     manuelle. Elle reutilise le service de creation existant : un Quizz importe par un professeur
+     passe par `pending_validation` exactement comme a la creation manuelle, un Quizz importe par
+     AP/RP est auto-valide — l'import ne contourne aucune regle de validation.
+  2. **Format propose** : une seule feuille/CSV, colonnes fixes, discriminant de type de ligne en
+     premiere colonne (`type=quizz` ou `type=question`) plutot qu'une detection par colonnes vides,
+     pour lever toute ambiguite sur la frontiere entre deux Quizz empiles dans le meme fichier.
+     Ligne `quizz` (ouvre un bloc, valable jusqu'a la prochaine ligne `quizz` ou la fin du fichier) :
+     `type=quizz | titre | tags (";"-separes) | bareme_global (optionnel, defaut 1) |
+     penalite_globale (optionnel)`. Ligne `question` :
+     `type=question | categorie (choix_unique|choix_multiple|texte_court) | enonce | options
+     (";"-separees, vide si texte_court) | bonnes_reponses (";"-separees) | notation
+     (unique|par_item) | points (optionnel, prevaut sur le bareme global) | penalite (optionnel,
+     prevaut sur la penalite globale)`. Reprend exactement les champs deja arbitres le 2026-08-28.
+     Le `;` intra-cellule ne conflicte pas avec un `;` comme separateur de colonnes CSV (format
+     frequent en local FR) tant que les cellules sont correctement quotees (RFC 4180) — a verifier
+     par `content-catalog-service` au moment du parsing, pas un split naif.
+  3. **Un fichier peut contenir plusieurs Quizz ; l'echec d'un bloc n'empeche pas les autres.**
+     Chaque bloc `quizz` + ses lignes `question` est traite independamment. Reponse de l'API : un
+     statut par bloc (`created` avec `quizId` + statut de validation, ou `error` avec la liste des
+     lignes en cause et le motif) — meme principe que partout ailleurs dans ce projet : un champ ou
+     une ligne invalide est refuse explicitement, jamais absorbe en silence ni bloquant pour le
+     reste du fichier.
+  4. **CSV et Excel (`.xlsx`) tous deux acceptes, type detecte sur les octets reels**, pas sur
+     l'extension ni le `Content-Type` client — meme discipline que les autres uploads du projet
+     (avatar 2026-08-10, pieces jointes du cahier de texte 2026-08-26).
+  5. **Plafond de taille explicite, annonce avant l'envoi, refus explicite avec taille/limite en
+     francais** — meme regle que l'avatar et les pieces jointes. `nginx-global` a un defaut non
+     declare de 1 Mio pour tout le corps de requete et sa reconstruction reste hors de portee
+     courante (interrompt tous les sites heberges) : la limite applicative doit rester **sous ce
+     defaut**, meme raisonnement que l'avatar arrete a 1 Mo pour cette meme raison. Valeur proposee
+     ~900 Ko, a confirmer par `content-catalog-service` une fois le format reel de fichiers Excel
+     teste (overhead de conteneur zip non negligeable meme pour peu de lignes). `api-gateway` (deja
+     a 10 Mio depuis l'avatar) est probablement deja suffisant mais doit etre verifie explicitement,
+     pas suppose.
+  6. **Front** : bouton d'import a cote du bouton de creation existant, visible aux memes createurs.
+     Limite de taille lue cote serveur, jamais codee en dur (meme principe que
+     `GET /profiles/avatar/constraints`). Resultat affiche par bloc (Quizz cree + statut, ou
+     erreurs avec numeros de ligne), jamais un succes/echec global qui masquerait un import partiel.
+  7. **Point laisse ouvert par l'utilisateur au moment de cet arbitrage** : le comportement
+     "un Quizz en erreur n'empeche pas les autres" (point 3) est une proposition de l'orchestrateur,
+     pas encore confirmee mot pour mot — a corriger si l'intention etait un import atomique
+     (tout ou rien) pour l'ensemble du fichier.
+
 ## Points ouverts a arbitrer
 
 - `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a

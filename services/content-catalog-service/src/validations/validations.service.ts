@@ -64,20 +64,28 @@ export class ValidationsService {
       throw new BadRequestException('Un commentaire est obligatoire pour rejeter un contenu');
     }
 
-    // Validation AP scopée par la relation animator_of_teacher, limitée au
-    // Quizz (arbitrage du 2026-08-28) — RP reste sans restriction.
-    if (contentType === ContentType.QUIZ && validatorRole === UserRole.ANIMATEUR_PEDAGOGIQUE) {
-      const quiz = await this.quizRepository.findOne({ where: { id: contentId } });
-      if (!quiz) {
-        throw new NotFoundException(`Quizz ${contentId} introuvable`);
+    // Validation AP scopée par la relation animator_of_teacher — Quizz
+    // (arbitrage du 2026-08-28) puis Exercice (arbitrage du 2026-08-29,
+    // "Refonte des Exercices", point 5 : "réutilise exactement le mécanisme
+    // déjà construit pour le Quizz"). Evaluation/Tutorial restent inchangés.
+    // RP reste sans restriction pour les 4 types.
+    if (
+      (contentType === ContentType.QUIZ || contentType === ContentType.EXERCISE) &&
+      validatorRole === UserRole.ANIMATEUR_PEDAGOGIQUE
+    ) {
+      const authorId = await this.getContentAuthorId(contentId, contentType);
+      if (authorId === null) {
+        const label = contentType === ContentType.QUIZ ? 'Quizz' : 'Exercice';
+        throw new NotFoundException(`${label} ${contentId} introuvable`);
       }
       const hasRelation = await this.profileRelationsClient.hasAnimatorOfTeacherRelation(
         validatorId,
-        quiz.authorId,
+        authorId,
       );
       if (!hasRelation) {
+        const label = contentType === ContentType.QUIZ ? 'quizz' : 'exercices';
         throw new ForbiddenException(
-          'Vous ne pouvez valider que les quizz des formateurs que vous animez',
+          `Vous ne pouvez valider que les ${label} des formateurs que vous animez`,
         );
       }
     }

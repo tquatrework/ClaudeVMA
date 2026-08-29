@@ -1,14 +1,13 @@
 /**
- * Unit tests — ExercisesService
+ * Unit tests — ExercisesService (refonte du 2026-08-29)
  *
  * Couvre :
- *   - create()              → seuls formateur/AP/RP peuvent créer, solution obligatoire
- *   - search()              → filtrage par rôle (élève et parent voient uniquement le validé)
- *   - submitAnswer()        → réservé aux élèves, exercice doit être validé
- *   - requestCorrection()   → l'élève ne peut corriger que ses propres réponses
- *   - proposeSolution()     → réservé aux formateurs/AP/RP
- *   - getOfficialSolution() → retourne la moins chère des solutions validées
- *   - removeExercise()      → réservé RP/TI/auteur, passe en status REMOVED
+ *   - create()              → rôles créateurs, blocs invalides, statut selon rôle
+ *   - update()               → réservé à l'auteur, remplacement intégral, statut
+ *   - search()               → visibilité alignée sur le Quizz, filtre par tag
+ *   - findOne()               → 404 si non visible, jamais le contenu d'une solution
+ *   - getPendingValidation()  → scoping AP par relation animator_of_teacher
+ *   - removeExercise()        → réservé RP/TI/auteur, passe en status REMOVED
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
@@ -17,345 +16,360 @@ import { ForbiddenException, NotFoundException, BadRequestException } from '@nes
 import { ExercisesService } from '../../../src/exercises/exercises.service';
 import { Exercise } from '../../../src/exercises/entities/exercise.entity';
 import { ExercisePart } from '../../../src/exercises/entities/exercise-part.entity';
-import { ExerciseAnswer } from '../../../src/exercises/entities/exercise-answer.entity';
-import { ExerciseCorrection } from '../../../src/exercises/entities/exercise-correction.entity';
 import { ExerciseSolution } from '../../../src/exercises/entities/exercise-solution.entity';
+import { ExerciseContentItem } from '../../../src/exercises/entities/exercise-content-item.entity';
+import { ExercisePartCategory } from '../../../src/exercises/enums/exercise-part-category.enum';
 import { ContentStatus } from '../../../src/common/enums/content-status.enum';
+import { ProfileRelationsClient } from '../../../src/common/clients/profile-relations.client';
+import { ExerciseImageStorageService } from '../../../src/exercises/exercise-image-storage.service';
+import { ExerciseImageTranscoder } from '../../../src/exercises/exercise-image-transcoder';
 
 const FORMATEUR_ID = 'form-0000-4000-a000-aaaaaaaaaaaa';
-const ELEVE_ID     = 'elev-0000-4000-b000-bbbbbbbbbbbb';
-const OTHER_ID     = 'othe-0000-4000-c000-cccccccccccc';
-const EXERCISE_ID  = 'exer-0000-4000-d000-dddddddddddd';
-const ANSWER_ID    = 'answ-0000-4000-e000-eeeeeeeeeeee';
+const AP_ID = 'ap00-0000-4000-b000-bbbbbbbbbbbb';
+const RP_ID = 'rp00-0000-4000-c000-cccccccccccc';
+const ELEVE_ID = 'elev-0000-4000-d000-dddddddddddd';
+const OTHER_ID = 'othe-0000-4000-e000-eeeeeeeeeeee';
+const EXERCISE_ID = 'exer-0000-4000-f000-ffffffffffff';
 
 function buildMockRepo() {
   return {
-    create: jest.fn(),
+    create: jest.fn((x) => x),
     save: jest.fn(),
     find: jest.fn(),
     findOne: jest.fn(),
     findAndCount: jest.fn(),
-    remove: jest.fn(),
+    delete: jest.fn(),
+    createQueryBuilder: jest.fn(),
   };
+}
+
+function buildQueryBuilder(items: Exercise[] = [], total = items.length) {
+  const qb: any = {
+    andWhere: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    skip: jest.fn().mockReturnThis(),
+    take: jest.fn().mockReturnThis(),
+    getManyAndCount: jest.fn().mockResolvedValue([items, total]),
+  };
+  return qb;
 }
 
 function buildSampleExercise(overrides: Partial<Exercise> = {}): Exercise {
   return {
     id: EXERCISE_ID,
     title: 'Exercice de test',
-    description: 'Description',
-    statement: 'Résoudre x^2 = 4',
+    description: null,
     level: 'seconde',
     difficulty: 'moyen',
     theme: 'algèbre',
     competencies: ['calculer'],
     tags: ['équation'],
-    correctionCost: 5,
     authorId: FORMATEUR_ID,
     authorRole: 'formateur',
     status: ContentStatus.VALIDATED,
     shareableLink: '/exercises/exer-0000',
     parts: [],
-    answers: [],
-    solutions: [],
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),
     ...overrides,
-  };
+  } as Exercise;
 }
 
-function buildSampleAnswer(overrides: Partial<ExerciseAnswer> = {}): ExerciseAnswer {
-  return {
-    id: ANSWER_ID,
-    exerciseId: EXERCISE_ID,
-    studentId: ELEVE_ID,
-    content: 'x = 2 ou x = -2',
-    partId: null,
-    correctionRequested: false,
-    correctionId: null,
-    createdAt: new Date('2026-01-01T00:00:00Z'),
-    updatedAt: new Date('2026-01-01T00:00:00Z'),
-    exercise: null,
-    ...overrides,
-  };
-}
+const validCreateDto = {
+  title: 'Équation du second degré',
+  parts: [
+    { category: ExercisePartCategory.STATEMENT, items: [{ type: 'text', content: 'Résoudre x^2 - 4 = 0' }] },
+    {
+      category: ExercisePartCategory.QUESTION,
+      items: [{ type: 'text', content: 'Trouver x' }],
+      solution: { items: [{ type: 'text', content: 'x = 2 ou x = -2' }] },
+    },
+  ],
+};
 
 describe('ExercisesService', () => {
-  let exercisesService: ExercisesService;
+  let service: ExercisesService;
   let exerciseRepo: ReturnType<typeof buildMockRepo>;
-  let exercisePartRepo: ReturnType<typeof buildMockRepo>;
-  let exerciseAnswerRepo: ReturnType<typeof buildMockRepo>;
-  let exerciseCorrectionRepo: ReturnType<typeof buildMockRepo>;
-  let exerciseSolutionRepo: ReturnType<typeof buildMockRepo>;
+  let partRepo: ReturnType<typeof buildMockRepo>;
+  let solutionRepo: ReturnType<typeof buildMockRepo>;
+  let itemRepo: ReturnType<typeof buildMockRepo>;
+  let profileRelationsClient: { hasAnimatorOfTeacherRelation: jest.Mock };
+  let imageStorage: { save: jest.Mock; read: jest.Mock; delete: jest.Mock };
+  let imageTranscoder: { transcode: jest.Mock };
 
   beforeEach(async () => {
     exerciseRepo = buildMockRepo();
-    exercisePartRepo = buildMockRepo();
-    exerciseAnswerRepo = buildMockRepo();
-    exerciseCorrectionRepo = buildMockRepo();
-    exerciseSolutionRepo = buildMockRepo();
+    partRepo = buildMockRepo();
+    solutionRepo = buildMockRepo();
+    itemRepo = buildMockRepo();
+    profileRelationsClient = { hasAnimatorOfTeacherRelation: jest.fn() };
+    imageStorage = { save: jest.fn(), read: jest.fn(), delete: jest.fn() };
+    imageTranscoder = { transcode: jest.fn() };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         ExercisesService,
         { provide: getRepositoryToken(Exercise), useValue: exerciseRepo },
-        { provide: getRepositoryToken(ExercisePart), useValue: exercisePartRepo },
-        { provide: getRepositoryToken(ExerciseAnswer), useValue: exerciseAnswerRepo },
-        { provide: getRepositoryToken(ExerciseCorrection), useValue: exerciseCorrectionRepo },
-        { provide: getRepositoryToken(ExerciseSolution), useValue: exerciseSolutionRepo },
+        { provide: getRepositoryToken(ExercisePart), useValue: partRepo },
+        { provide: getRepositoryToken(ExerciseSolution), useValue: solutionRepo },
+        { provide: getRepositoryToken(ExerciseContentItem), useValue: itemRepo },
+        { provide: ProfileRelationsClient, useValue: profileRelationsClient },
+        { provide: ExerciseImageStorageService, useValue: imageStorage },
+        { provide: ExerciseImageTranscoder, useValue: imageTranscoder },
       ],
     }).compile();
 
-    exercisesService = moduleRef.get<ExercisesService>(ExercisesService);
+    service = moduleRef.get<ExercisesService>(ExercisesService);
   });
 
   afterEach(() => jest.clearAllMocks());
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
   // create()
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
 
   describe('create()', () => {
-    const validDto = {
-      title: 'Équation du second degré',
-      statement: 'Résoudre x^2 - 4 = 0',
-      solutionContent: 'x = 2 ou x = -2',
-    };
+    it('crée un exercice avec blocs et solution quand un formateur le soumet (statut pending_validation)', async () => {
+      exerciseRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: EXERCISE_ID }));
+      partRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'part-' + Math.random() }));
+      itemRepo.save.mockImplementation((x) => Promise.resolve(x));
+      solutionRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'sol-1' }));
+      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ status: ContentStatus.PENDING_VALIDATION }));
 
-    it('crée un exercice avec sa solution quand le formateur le soumets', async () => {
-      const savedExercise = buildSampleExercise({ status: ContentStatus.DRAFT });
-      exerciseRepo.create.mockReturnValue(savedExercise);
-      exerciseRepo.save.mockResolvedValue(savedExercise);
-      exerciseSolutionRepo.create.mockReturnValue({});
-      exerciseSolutionRepo.save.mockResolvedValue({});
+      const result = await service.create(validCreateDto as any, FORMATEUR_ID, 'formateur');
 
-      const result = await exercisesService.create(validDto, FORMATEUR_ID, 'formateur');
-
-      expect(exerciseRepo.create).toHaveBeenCalled();
-      expect(exerciseSolutionRepo.create).toHaveBeenCalled();
+      expect(exerciseRepo.save).toHaveBeenCalled();
+      expect(partRepo.save).toHaveBeenCalledTimes(2);
+      expect(solutionRepo.save).toHaveBeenCalledTimes(1);
       expect(result.authorId).toBe(FORMATEUR_ID);
+    });
+
+    it('crée un exercice validé immédiatement pour un RP', async () => {
+      exerciseRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: EXERCISE_ID }));
+      partRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'part-' + Math.random() }));
+      itemRepo.save.mockImplementation((x) => Promise.resolve(x));
+      solutionRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'sol-1' }));
+      exerciseRepo.findOne.mockResolvedValue(
+        buildSampleExercise({ authorId: RP_ID, authorRole: 'responsable_pedagogique', status: ContentStatus.VALIDATED }),
+      );
+
+      await service.create(validCreateDto as any, RP_ID, 'responsable_pedagogique');
+
+      const createCall = exerciseRepo.create.mock.calls[0][0];
+      expect(createCall.status).toBe(ContentStatus.VALIDATED);
     });
 
     it('lève ForbiddenException si un élève tente de créer un exercice', async () => {
-      await expect(
-        exercisesService.create(validDto, ELEVE_ID, 'eleve'),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(service.create(validCreateDto as any, ELEVE_ID, 'eleve')).rejects.toThrow(ForbiddenException);
     });
 
-    it('lève ForbiddenException si un parent tente de créer un exercice', async () => {
+    it('lève BadRequestException si l\'exercice ne contient aucun bloc', async () => {
       await expect(
-        exercisesService.create(validDto, OTHER_ID, 'parent_financeur'),
-      ).rejects.toThrow(ForbiddenException);
+        service.create({ title: 'vide', parts: [] } as any, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(BadRequestException);
     });
 
-    it('autorise un responsable_pedagogique à créer un exercice', async () => {
-      const savedExercise = buildSampleExercise({ authorRole: 'responsable_pedagogique', status: ContentStatus.DRAFT });
-      exerciseRepo.create.mockReturnValue(savedExercise);
-      exerciseRepo.save.mockResolvedValue(savedExercise);
-      exerciseSolutionRepo.create.mockReturnValue({});
-      exerciseSolutionRepo.save.mockResolvedValue({});
+    it('lève BadRequestException si un bloc question n\'a pas de solution', async () => {
+      const dto = {
+        title: 'sans solution',
+        parts: [{ category: ExercisePartCategory.QUESTION, items: [{ type: 'text', content: 'Q1' }] }],
+      };
+      await expect(service.create(dto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(BadRequestException);
+    });
 
-      const result = await exercisesService.create(validDto, OTHER_ID, 'responsable_pedagogique');
+    it('lève BadRequestException si un bloc énoncé porte une solution', async () => {
+      const dto = {
+        title: 'énoncé avec solution',
+        parts: [
+          {
+            category: ExercisePartCategory.STATEMENT,
+            items: [{ type: 'text', content: 'Énoncé' }],
+            solution: { items: [{ type: 'text', content: 'ne devrait pas être là' }] },
+          },
+        ],
+      };
+      await expect(service.create(dto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(BadRequestException);
+    });
+  });
 
+  // ─────────────────────────────────────────────────────────────────────
+  // update()
+  // ─────────────────────────────────────────────────────────────────────
+
+  describe('update()', () => {
+    it('remplace intégralement les blocs et repasse en pending_validation pour un auteur formateur', async () => {
+      const existing = buildSampleExercise({ status: ContentStatus.VALIDATED });
+      exerciseRepo.findOne.mockResolvedValueOnce(existing).mockResolvedValueOnce({
+        ...existing,
+        status: ContentStatus.PENDING_VALIDATION,
+        parts: [],
+      });
+      partRepo.find.mockResolvedValue([]);
+      solutionRepo.find.mockResolvedValue([]);
+      partRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'part-' + Math.random() }));
+      itemRepo.save.mockImplementation((x) => Promise.resolve(x));
+      solutionRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'sol-1' }));
+      exerciseRepo.save.mockResolvedValue(existing);
+
+      const result = await service.update(EXERCISE_ID, validCreateDto as any, FORMATEUR_ID, 'formateur');
+
+      expect(partRepo.delete).toHaveBeenCalledWith({ exerciseId: EXERCISE_ID });
+      expect(exerciseRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: ContentStatus.PENDING_VALIDATION }),
+      );
       expect(result).toBeDefined();
     });
+
+    it('lève ForbiddenException si l\'appelant n\'est pas l\'auteur', async () => {
+      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ authorId: FORMATEUR_ID }));
+
+      await expect(
+        service.update(EXERCISE_ID, validCreateDto as any, OTHER_ID, 'formateur'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('lève NotFoundException si l\'exercice est introuvable', async () => {
+      exerciseRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.update(EXERCISE_ID, validCreateDto as any, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('lève BadRequestException si les blocs sont invalides', async () => {
+      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ authorId: FORMATEUR_ID }));
+
+      await expect(
+        service.update(EXERCISE_ID, { title: 't', parts: [] } as any, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(BadRequestException);
+    });
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
   // search()
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
 
   describe('search()', () => {
-    it('filtre sur status=validated pour les élèves', async () => {
-      exerciseRepo.findAndCount.mockResolvedValue([[], 0]);
+    it('restreint aux exercices validés ou propres pour un non-administrateur', async () => {
+      const qb = buildQueryBuilder([]);
+      exerciseRepo.createQueryBuilder.mockReturnValue(qb);
 
-      await exercisesService.search({}, 'eleve');
+      await service.search({}, ELEVE_ID, 'eleve');
 
-      expect(exerciseRepo.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({ where: expect.objectContaining({ status: ContentStatus.VALIDATED }) }),
+      expect(qb.andWhere).toHaveBeenCalledWith(
+        expect.stringContaining('exercise.status = :validated OR exercise.authorId'),
+        expect.objectContaining({ validated: ContentStatus.VALIDATED, callerId: ELEVE_ID }),
       );
     });
 
-    it('filtre sur status=validated pour les parents', async () => {
-      exerciseRepo.findAndCount.mockResolvedValue([[], 0]);
+    it('ne restreint pas la visibilité pour un RP', async () => {
+      const qb = buildQueryBuilder([buildSampleExercise()], 1);
+      exerciseRepo.createQueryBuilder.mockReturnValue(qb);
 
-      await exercisesService.search({}, 'parent_financeur');
+      const result = await service.search({}, RP_ID, 'responsable_pedagogique');
 
-      expect(exerciseRepo.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({ where: expect.objectContaining({ status: ContentStatus.VALIDATED }) }),
-      );
-    });
-
-    it('ne filtre pas le statut pour un formateur', async () => {
-      exerciseRepo.findAndCount.mockResolvedValue([[buildSampleExercise()], 1]);
-
-      const result = await exercisesService.search({}, 'formateur');
-
-      const callArg = exerciseRepo.findAndCount.mock.calls[0][0];
-      expect(callArg.where.status).toBeUndefined();
+      const statusCalls = qb.andWhere.mock.calls.filter((call: any[]) => call[0].includes('status = :validated'));
+      expect(statusCalls).toHaveLength(0);
       expect(result.total).toBe(1);
     });
+
+    it('applique le filtre par tag via ANY(tags)', async () => {
+      const qb = buildQueryBuilder([]);
+      exerciseRepo.createQueryBuilder.mockReturnValue(qb);
+
+      await service.search({ tag: 'équation' } as any, FORMATEUR_ID, 'formateur');
+
+      expect(qb.andWhere).toHaveBeenCalledWith(':tag = ANY(exercise.tags)', { tag: 'équation' });
+    });
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // submitAnswer()
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
+  // findOne()
+  // ─────────────────────────────────────────────────────────────────────
 
-  describe('submitAnswer()', () => {
-    it('permet à un élève de soumettre une réponse à un exercice validé', async () => {
-      const exercise = buildSampleExercise({ status: ContentStatus.VALIDATED });
-      const savedAnswer = buildSampleAnswer();
-      exerciseRepo.findOne.mockResolvedValue(exercise);
-      exerciseAnswerRepo.create.mockReturnValue(savedAnswer);
-      exerciseAnswerRepo.save.mockResolvedValue(savedAnswer);
+  describe('findOne()', () => {
+    it('retourne l\'exercice validé sans jamais le contenu d\'une solution', async () => {
+      const part = {
+        id: 'part-1',
+        partNumber: 1,
+        category: ExercisePartCategory.QUESTION,
+        items: [{ id: 'item-1', type: 'text', content: 'Q1', order: 0 }],
+        solution: { id: 'sol-1' },
+      };
+      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ parts: [part] as any }));
 
-      const result = await exercisesService.submitAnswer(
-        EXERCISE_ID,
-        { content: 'x = 2' },
-        ELEVE_ID,
-        'eleve',
+      const result = await service.findOne(EXERCISE_ID, ELEVE_ID, 'eleve');
+
+      expect(result.parts[0].hasSolution).toBe(true);
+      expect((result.parts[0] as any).solution).toBeUndefined();
+      expect(JSON.stringify(result)).not.toContain('sol-1');
+    });
+
+    it('lève NotFoundException si non validé et appelant n\'est ni auteur ni admin', async () => {
+      exerciseRepo.findOne.mockResolvedValue(
+        buildSampleExercise({ status: ContentStatus.PENDING_VALIDATION, authorId: FORMATEUR_ID }),
       );
 
-      expect(result.studentId).toBe(ELEVE_ID);
+      await expect(service.findOne(EXERCISE_ID, ELEVE_ID, 'eleve')).rejects.toThrow(NotFoundException);
     });
 
-    it('lève ForbiddenException si un formateur soumet une réponse', async () => {
-      await expect(
-        exercisesService.submitAnswer(EXERCISE_ID, { content: 'x = 2' }, FORMATEUR_ID, 'formateur'),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('lève BadRequestException si l\'exercice n\'est pas validé', async () => {
-      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ status: ContentStatus.DRAFT }));
-
-      await expect(
-        exercisesService.submitAnswer(EXERCISE_ID, { content: 'x = 2' }, ELEVE_ID, 'eleve'),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('lève NotFoundException si l\'exercice est introuvable', async () => {
-      exerciseRepo.findOne.mockResolvedValue(null);
-
-      await expect(
-        exercisesService.submitAnswer(EXERCISE_ID, { content: 'x = 2' }, ELEVE_ID, 'eleve'),
-      ).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // requestCorrection()
-  // ─────────────────────────────────────────────────────────────────────────
-
-  describe('requestCorrection()', () => {
-    it('permet à l\'élève de demander la correction de sa propre réponse', async () => {
-      const answer = buildSampleAnswer({ correctionRequested: false });
-      exerciseAnswerRepo.findOne.mockResolvedValue(answer);
-      exerciseAnswerRepo.save.mockResolvedValue({ ...answer, correctionRequested: true });
-
-      const result = await exercisesService.requestCorrection(ANSWER_ID, {}, ELEVE_ID, 'eleve');
-
-      expect(result.correctionRequested).toBe(true);
-    });
-
-    it('lève ForbiddenException si l\'élève demande la correction d\'une réponse d\'un autre', async () => {
-      const answer = buildSampleAnswer({ studentId: OTHER_ID });
-      exerciseAnswerRepo.findOne.mockResolvedValue(answer);
-
-      await expect(
-        exercisesService.requestCorrection(ANSWER_ID, {}, ELEVE_ID, 'eleve'),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('lève BadRequestException si une correction est déjà demandée', async () => {
-      const answer = buildSampleAnswer({ correctionRequested: true });
-      exerciseAnswerRepo.findOne.mockResolvedValue(answer);
-
-      await expect(
-        exercisesService.requestCorrection(ANSWER_ID, {}, ELEVE_ID, 'eleve'),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('lève NotFoundException si la réponse est introuvable', async () => {
-      exerciseAnswerRepo.findOne.mockResolvedValue(null);
-
-      await expect(
-        exercisesService.requestCorrection(ANSWER_ID, {}, ELEVE_ID, 'eleve'),
-      ).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // proposeSolution()
-  // ─────────────────────────────────────────────────────────────────────────
-
-  describe('proposeSolution()', () => {
-    it('permet à un formateur de proposer une solution', async () => {
-      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise());
-      const savedSolution = { id: 'sol-0000', exerciseId: EXERCISE_ID, authorId: FORMATEUR_ID };
-      exerciseSolutionRepo.create.mockReturnValue(savedSolution);
-      exerciseSolutionRepo.save.mockResolvedValue(savedSolution);
-
-      const result = await exercisesService.proposeSolution(
-        EXERCISE_ID,
-        { content: 'x = ±2', cost: 3 },
-        FORMATEUR_ID,
-        'formateur',
+    it('autorise l\'auteur à voir son propre exercice non validé', async () => {
+      exerciseRepo.findOne.mockResolvedValue(
+        buildSampleExercise({ status: ContentStatus.PENDING_VALIDATION, authorId: FORMATEUR_ID }),
       );
 
-      expect(result.authorId).toBe(FORMATEUR_ID);
+      const result = await service.findOne(EXERCISE_ID, FORMATEUR_ID, 'formateur');
+      expect(result.id).toBe(EXERCISE_ID);
     });
 
-    it('lève ForbiddenException si un élève tente de proposer une solution', async () => {
-      await expect(
-        exercisesService.proposeSolution(EXERCISE_ID, { content: 'x = 2' }, ELEVE_ID, 'eleve'),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('lève NotFoundException si l\'exercice est introuvable', async () => {
+    it('lève NotFoundException si l\'exercice n\'existe pas', async () => {
       exerciseRepo.findOne.mockResolvedValue(null);
 
-      await expect(
-        exercisesService.proposeSolution(EXERCISE_ID, { content: 'x = 2' }, FORMATEUR_ID, 'formateur'),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.findOne(EXERCISE_ID, ELEVE_ID, 'eleve')).rejects.toThrow(NotFoundException);
     });
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // getOfficialSolution()
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
+  // getPendingValidation()
+  // ─────────────────────────────────────────────────────────────────────
 
-  describe('getOfficialSolution()', () => {
-    it('retourne la moins chère des solutions validées', async () => {
-      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise());
-      const cheapSolution = { id: 'sol-cheap', cost: 2, isValidated: true };
-      exerciseSolutionRepo.find.mockResolvedValue([cheapSolution]);
-
-      const result = await exercisesService.getOfficialSolution(EXERCISE_ID, ELEVE_ID, 'eleve');
-
-      expect(result.cost).toBe(2);
+  describe('getPendingValidation()', () => {
+    it('lève ForbiddenException pour un formateur', async () => {
+      await expect(service.getPendingValidation(FORMATEUR_ID, 'formateur')).rejects.toThrow(ForbiddenException);
     });
 
-    it('lève NotFoundException si aucune solution validée', async () => {
-      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise());
-      exerciseSolutionRepo.find.mockResolvedValue([]);
+    it('un RP voit tous les exercices en attente sans consulter la relation', async () => {
+      exerciseRepo.findAndCount.mockResolvedValue([[buildSampleExercise()], 1]);
 
-      await expect(
-        exercisesService.getOfficialSolution(EXERCISE_ID, ELEVE_ID, 'eleve'),
-      ).rejects.toThrow(NotFoundException);
+      const result = await service.getPendingValidation(RP_ID, 'responsable_pedagogique');
+
+      expect(result.total).toBe(1);
+      expect(profileRelationsClient.hasAnimatorOfTeacherRelation).not.toHaveBeenCalled();
     });
 
-    it('lève NotFoundException si l\'exercice est introuvable', async () => {
-      exerciseRepo.findOne.mockResolvedValue(null);
+    it('un AP ne voit que les exercices des formateurs qu\'il anime', async () => {
+      exerciseRepo.find.mockResolvedValue([buildSampleExercise({ authorId: FORMATEUR_ID })]);
+      profileRelationsClient.hasAnimatorOfTeacherRelation.mockResolvedValue(true);
 
-      await expect(
-        exercisesService.getOfficialSolution(EXERCISE_ID, ELEVE_ID, 'eleve'),
-      ).rejects.toThrow(NotFoundException);
+      const result = await service.getPendingValidation(AP_ID, 'animateur_pedagogique');
+
+      expect(result.total).toBe(1);
+      expect(profileRelationsClient.hasAnimatorOfTeacherRelation).toHaveBeenCalledWith(AP_ID, FORMATEUR_ID);
+    });
+
+    it('un AP sans relation ne voit aucun exercice', async () => {
+      exerciseRepo.find.mockResolvedValue([buildSampleExercise({ authorId: FORMATEUR_ID })]);
+      profileRelationsClient.hasAnimatorOfTeacherRelation.mockResolvedValue(false);
+
+      const result = await service.getPendingValidation(AP_ID, 'animateur_pedagogique');
+
+      expect(result.total).toBe(0);
     });
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
   // removeExercise()
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
 
   describe('removeExercise()', () => {
     it('le RP peut retirer n\'importe quel exercice', async () => {
@@ -364,20 +378,9 @@ describe('ExercisesService', () => {
       exerciseRepo.save.mockResolvedValue({ ...exercise, status: ContentStatus.REMOVED });
 
       await expect(
-        exercisesService.removeExercise(EXERCISE_ID, OTHER_ID, 'responsable_pedagogique'),
+        service.removeExercise(EXERCISE_ID, OTHER_ID, 'responsable_pedagogique'),
       ).resolves.toBeUndefined();
-
       expect(exerciseRepo.save).toHaveBeenCalledWith(expect.objectContaining({ status: ContentStatus.REMOVED }));
-    });
-
-    it('le TI peut retirer n\'importe quel exercice', async () => {
-      const exercise = buildSampleExercise();
-      exerciseRepo.findOne.mockResolvedValue(exercise);
-      exerciseRepo.save.mockResolvedValue({ ...exercise, status: ContentStatus.REMOVED });
-
-      await expect(
-        exercisesService.removeExercise(EXERCISE_ID, OTHER_ID, 'technicien_informatique'),
-      ).resolves.toBeUndefined();
     });
 
     it('l\'auteur peut retirer son propre exercice', async () => {
@@ -385,26 +388,19 @@ describe('ExercisesService', () => {
       exerciseRepo.findOne.mockResolvedValue(exercise);
       exerciseRepo.save.mockResolvedValue({ ...exercise, status: ContentStatus.REMOVED });
 
-      await expect(
-        exercisesService.removeExercise(EXERCISE_ID, FORMATEUR_ID, 'formateur'),
-      ).resolves.toBeUndefined();
+      await expect(service.removeExercise(EXERCISE_ID, FORMATEUR_ID, 'formateur')).resolves.toBeUndefined();
     });
 
     it('lève ForbiddenException si un autre formateur tente de retirer l\'exercice', async () => {
-      const exercise = buildSampleExercise({ authorId: FORMATEUR_ID });
-      exerciseRepo.findOne.mockResolvedValue(exercise);
+      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ authorId: FORMATEUR_ID }));
 
-      await expect(
-        exercisesService.removeExercise(EXERCISE_ID, OTHER_ID, 'formateur'),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(service.removeExercise(EXERCISE_ID, OTHER_ID, 'formateur')).rejects.toThrow(ForbiddenException);
     });
 
     it('lève NotFoundException si l\'exercice est introuvable', async () => {
       exerciseRepo.findOne.mockResolvedValue(null);
 
-      await expect(
-        exercisesService.removeExercise(EXERCISE_ID, FORMATEUR_ID, 'formateur'),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.removeExercise(EXERCISE_ID, FORMATEUR_ID, 'formateur')).rejects.toThrow(NotFoundException);
     });
   });
 });

@@ -27,7 +27,8 @@
     "reflect-metadata": "^0.1.13",
     "swagger-ui-express": "^5.0.0",
     "csv-parse": "^7.0.2",
-    "exceljs": "^4.4.0"
+    "exceljs": "^4.4.0",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.0.0",

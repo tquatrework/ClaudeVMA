@@ -577,6 +577,139 @@
           </point>
         </openPoints>
       </session>
+
+      <session date="2026-08-29" label="Import de plusieurs Quizz depuis un fichier CSV/Excel (branche feat/quiz-import-content-catalog)">
+        <objective>
+          Implementer POST /quizzes/import et GET /quizzes/import/constraints, conformement a
+          l'arbitrage docs/architecture.md du 2026-08-29 ("Import de Quizz depuis un tableur
+          (CSV/Excel)"). Permettre a un createur (formateur, AP, RP) de charger plusieurs Quizz
+          d'un coup plutot que de les saisir un par un, sans dupliquer ni contourner aucune regle
+          de validation deja en place.
+        </objective>
+        <filesAdded>
+          <file path="src/quizzes/quiz-import.constants.ts">QUIZ_IMPORT_MAX_FILE_SIZE_BYTES — 900 000 octets par defaut (variable d'environnement QUIZ_IMPORT_MAX_FILE_SIZE_BYTES pour ajuster), volontairement sous le defaut non declare de nginx-global (1 Mio). Pas de reglage TI en base pour cette fonctionnalite (contrairement a l'avatar ou aux pieces jointes du cahier de texte) : le contrat ne le demande pas, et la simplicite de code est une consigne explicite du chantier Quizz.</file>
+          <file path="src/quizzes/quiz-import.parser.ts">Module PUR (aucune dependance TypeORM/Nest hors BadRequestException), testable sans base de donnees, sur le meme principe que quiz-grading.util.ts. Porte : detectFileKind() (signature ZIP pour .xlsx, texte sans octet nul pour CSV — jamais l'extension ni le Content-Type client) ; parseCsvRows() via csv-parse/sync avec quoting RFC 4180 (";" separateur de colonnes ET de valeurs intra-cellule) ; parseXlsxRows() via exceljs (Workbook.xlsx.load + eachRow) ; buildBlocksFromRows() qui regroupe les lignes en blocs "quizz"+"question(s)" et convertit chaque bloc valide en CreateQuizDto pret a etre passe a QuizzesService.create().</file>
+          <file path="src/quizzes/quiz-import.service.ts">QuizImportService — verifie le role createur (CREATOR_ROLES, desormais exporte de quizzes.service.ts), appelle parseQuizImportFile(), puis QuizzesService.create() bloc par bloc (jamais de logique de creation dupliquee). Un bloc invalide au parsing OU rejete par create() (regle metier, ex. choix unique sans exactement une bonne reponse) est renvoye en erreur SANS bloquer les autres blocs du meme fichier — un tableau de resultats par bloc, {blockIndex, status, quizId?, validationStatus?, errors?}.</file>
+          <file path="src/quizzes/quiz-import-payload-too-large.filter.ts">Filtre d'exception scope a la route POST /quizzes/import (@UseFilters), convertit le PayloadTooLargeException generique de multer (FileInterceptor, limite fileSize) en corps JSON structure — meme discipline que POST /profiles/:userId/avatar (code stable QUIZ_IMPORT_FILE_TOO_LARGE, maxFileSizeBytes, requestBodyBytes issu de Content-Length quand disponible, jamais verifie).</file>
+          <file path="test/unit/quizzes/quiz-import.parser.spec.ts">17 tests : detection de format (signature ZIP, texte CSV, octet nul refuse), fichier multi-quizz couvrant les 3 categories de question et bareme/penalite globaux ET individuels, ligne "quizz" sans titre, categorie inconnue, reponse correcte introuvable parmi les options, ligne "question" orpheline, bloc sans aucune question, un bloc en erreur n'empechant pas les autres, valeur numerique invalide, fichier vide, format non reconnu, equivalence CSV/xlsx pour le meme contenu logique.</file>
+          <file path="test/unit/quizzes/quiz-import.service.spec.ts">13 tests : roles createurs (accepte formateur/AP/RP, refuse eleve), fichier absent/vide, format non reconnu propage, creation par bloc avec statut de validation renvoye, un bloc en erreur au parsing OU rejete par QuizzesService.create() n'empeche pas la creation des autres blocs, getConstraints().</file>
+          <file path="test/unit/quizzes/quiz-import-payload-too-large.filter.spec.ts">2 tests : corps 413 structure avec Content-Length present, requestBodyBytes null si absent.</file>
+        </filesAdded>
+        <filesModified>
+          <file path="src/quizzes/quizzes.controller.ts">Nouvelles routes GET /quizzes/import/constraints et POST /quizzes/import (FileInterceptor('file', {limits:{fileSize}}), @UseFilters(QuizImportPayloadTooLargeFilter), @Roles memes que la creation manuelle), placees avant GET /quizzes/:id pour eviter toute capture par le parametre dynamique.</file>
+          <file path="src/quizzes/quizzes.service.ts">CREATOR_ROLES exporte (au lieu de prive au module) pour etre reutilise par QuizImportService sans dupliquer la liste des roles createurs.</file>
+          <file path="src/quizzes/quizzes.module.ts">Enregistrement de QuizImportService comme provider.</file>
+          <file path="package.json">Nouvelles dependances csv-parse (^7.0.2, parsing RFC 4180) et exceljs (^4.4.0, lecture .xlsx) ; @types/multer (^2.2.0, devDependency) pour typer Express.Multer.File — multer lui-meme (2.3.0) etait deja present via @nestjs/platform-express, aucune nouvelle dependance d'upload necessaire.</file>
+        </filesModified>
+        <technicalDecisions>
+          <decision>
+            xlsx (SheetJS) ECARTE au profit d'exceljs pour la lecture Excel : la derniere version
+            publiee sur le registre npm public de xlsx est 0.18.5, anterieure au correctif de la
+            pollution de prototype CVE-2023-30533 (corrigee en 0.19.3, disponible uniquement via
+            le CDN prive de SheetJS, jamais republie sur npm). Un fichier d'import etant par nature
+            une entree utilisateur potentiellement malveillante, exceljs (activement maintenu sur
+            npm, sans CVE equivalent connu) a ete prefere. Signale comme risque de securite ecarte,
+            conformement a la regle du projet sur la validation des entrees utilisateur.
+          </decision>
+          <decision>
+            file-type ECARTE au profit d'une detection de signature ZIP ecrite a la main
+            (detectFileKind) : les versions recentes de file-type (&gt;=17) sont ESM-only,
+            incompatibles avec ce service CommonJS (tsconfig module: "commonjs") ; la seule version
+            CJS compatible (16.5.4) est ancienne. Le besoin reel se limite a reconnaitre un
+            conteneur ZIP (signature "PK") pour .xlsx et a exclure le binaire non-texte pour le
+            reste (CSV n'a, par nature, aucune signature propre puisque c'est un format texte) :
+            quelques lignes suffisent, sans nouvelle dependance ni contrainte de format de module.
+          </decision>
+          <decision>
+            Discriminant de premiere colonne ("type=quizz"/"type=question") : le contrat transmis
+            est ambigu entre une valeur litterale "type=quizz" dans la cellule et une valeur simple
+            "quizz" (la notation "type=quizz | titre | ..." du contrat pouvant se lire comme "la
+            colonne type vaut quizz" aussi bien que comme "la cellule contient litteralement la
+            chaine type=quizz"). Les DEUX lectures sont acceptees (prefixe "type=" optionnel,
+            insensible a la casse) plutot que de trancher arbitrairement — signale dans ce rapport
+            pour confirmation ulterieure si l'intention etait differente.
+          </decision>
+          <decision>
+            Traitement bloc par bloc scinde en deux categories d'erreur distinctes, toutes deux
+            couvertes par le meme contrat de reponse {blockIndex, status, errors} : les erreurs de
+            FORMAT (ligne malformee, categorie inconnue, reponse introuvable parmi les options,
+            valeur numerique invalide) sont detectees au PARSING, sans jamais appeler
+            QuizzesService.create() pour ce bloc ; les erreurs de REGLE METIER (ex. choix unique
+            sans exactement une bonne reponse) restent detectees par QuizzesService.create()
+            lui-meme, jamais dupliquees cote parseur — reutilisation integrale demandee par le
+            contrat (point 1), conforme a la consigne de simplicite de code du chantier Quizz.
+            Consequence : le numero de ligne remonte pour une erreur de regle metier est celui de
+            la ligne "quizz" du bloc (pas de la question precise), le message de
+            QuizzesService.create() etant indexe sur la position de la question dans le DTO plutot
+            que sur un numero de ligne fichier — limite documentee, pas corrigee ici pour ne pas
+            dupliquer la validation.
+          </decision>
+          <decision>
+            Numerotation des lignes CSV : parseCsvRows() desactive volontairement
+            skip_empty_lines (csv-parse) pour garder une correspondance 1:1 entre l'index d'un
+            enregistrement et son numero de ligne physique dans le fichier, les lignes vides etant
+            filtrees ensuite manuellement. Hypothese simplificatrice assumee : aucun champ ne
+            contient de saut de ligne interne a une cellule citee (cas non couvert par ce format
+            d'import, non rencontre en pratique pour des Quizz).
+          </decision>
+          <decision>
+            Plafond de taille (900 000 octets par defaut) reglable UNIQUEMENT par variable
+            d'environnement, sans reglage TI en base ni route PATCH dediee — divergence assumee
+            avec l'avatar et les pieces jointes du cahier de texte, qui exposent toutes deux un
+            reglage dynamique. Le contrat de ce chantier ne demande pas de reglage TI, et la
+            consigne de simplicite de code du chantier Quizz (2026-08-28) a ete appliquee ici par
+            defaut. A reconsiderer si un besoin de reglage a chaud apparait.
+          </decision>
+          <decision>
+            api-gateway NON MODIFIE : gateway/api-gateway/nginx.conf relu integralement (lecture
+            explicitement demandee par l'orchestrateur, hors perimetre habituel de ce service).
+            `location ^~ /api/v1/quizzes` proxie deja tout le prefixe par octets bruts, sans
+            distinction multipart/JSON (nginx ne connait pas la notion de multipart, il relaie le
+            corps tel quel) ; `client_max_body_size 10m` couvre largement le plafond applicatif de
+            900 000 octets. Aucun ajustement de route ni de limite de taille necessaire.
+          </decision>
+        </technicalDecisions>
+        <verification>
+          <item>`npm run build` (tsc via nest build) : 0 erreur.</item>
+          <item>`npm test` : 250/250 tests verts, 20 suites (220 precedents + 30 nouveaux :
+            17 quiz-import.parser.spec.ts + 11 quiz-import.service.spec.ts +
+            2 quiz-import-payload-too-large.filter.spec.ts).</item>
+          <item>Aucune preuve HTTP contre la pile reelle pour ce chantier : pas de conteneur
+            reconstruit ni de requete multipart reelle executee, uniquement des tests unitaires
+            (parseur pur + service avec QuizzesService mocke). A signaler explicitement comme
+            limite de la preuve fournie, conformement a la regle du projet sur la definition de
+            "termine".</item>
+        </verification>
+        <blockers>Aucun sur le code livre.</blockers>
+        <openPoints>
+          <point>
+            Ambiguite du discriminant de premiere colonne ("type=quizz" litteral vs "quizz" simple)
+            resolue en acceptant les deux formes plutot qu'en tranchant — voir decision
+            correspondante ci-dessus. A confirmer si une des deux lectures doit etre la seule
+            acceptee.
+          </point>
+          <point>
+            Precision de ligne perdue pour les erreurs de regle metier (rejet par
+            QuizzesService.create(), ex. choix unique mal forme) : le numero de ligne remonte est
+            celui de la ligne "quizz" du bloc, pas celui de la question fautive precise — limite
+            assumee pour eviter de dupliquer la validation deja portee par QuizzesService.
+          </point>
+          <point>
+            Aucune preuve HTTP reelle (conteneur reconstruit, requete multipart contre la pile
+            deployee) : seuls des tests unitaires ont ete executes. A faire en session ulterieure
+            si une preuve de bout en bout est demandee, notamment pour confirmer le comportement
+            reel du plafond 413 a travers les trois couches (nginx-global, api-gateway, filtre
+            applicatif).
+          </point>
+          <point>
+            Dependance exceljs porte une alerte npm audit de severite moderee, transitive via uuid
+            &lt;11.1.1 (CVE de bornage de buffer sur v3/v5/v6, deja partagee avec @nestjs/typeorm,
+            dependance preexistante du service) — usage interne d'exceljs pour generer des
+            identifiants, jamais avec un buffer fourni par l'appelant : risque juge faible pour cet
+            usage, mais signale explicitement conformement a la regle du projet sur la securite.
+          </point>
+        </openPoints>
+      </session>
     </technicalImplementation>
   </service>
 </serviceFunctionalSpecification>

@@ -7,7 +7,27 @@
 
 ## Besoin courant
 
-Aucun — voir l'archive ci-dessous pour le dernier chantier clos. En attente du prochain besoin.
+Import de Quizz depuis un tableur (CSV/Excel), demandé le 2026-08-29. Un créateur (professeur, AP,
+RP) doit pouvoir charger un fichier contenant plusieurs Quizz d'un coup (une ligne pour les éléments
+du Quizz, une ligne par question, réponses séparées par `;` dans une même cellule) plutôt que de les
+saisir un par un.
+
+Arbitrage complet persisté dans `docs/architecture.md` (PR #175, branche
+`docs/quiz-import-spreadsheet-arbitrage`, pas encore mergée). Deux points restent des propositions de
+l'orchestrateur non confirmées mot pour mot par l'utilisateur : le format exact de colonnes
+(discriminant `type=quizz|question`), et le comportement "un Quizz en erreur n'empêche pas les
+autres" (plutôt qu'un import strictement atomique) — à corriger si l'intention était autre.
+
+Délégué en parallèle le 2026-08-29 :
+- `content-catalog-service` (branche `feat/quiz-import-content-catalog` à créer par le subagent) :
+  route `POST /quizzes/import`, parsing CSV+xlsx, réutilisation de la création existante,
+  `GET /quizzes/import/constraints`.
+- `front-developper` (branche `feat/quiz-import-front` à créer par le subagent) : bouton d'import,
+  sélecteur de fichier, écran de résultat par bloc.
+
+**Preuve finale attendue avant clôture** : fichier CSV réel avec 2 Quizz envoyé par un compte
+professeur contre `https://claudevma.visioprof.fr`, apparition en `pending_validation`, validation
+RP, passage par un élève avec score correct — pas seulement des tests unitaires verts.
 
 <details>
 <summary>Archive — besoin du 2026-08-28, écran de validation Quizz "introuvable" (clos, aucun bug)</summary>

@@ -79,6 +79,8 @@ Deux niveaux, dans le même script :
 | learning-activity-service | `^~ /api/v1/quiz-attempts` | `/quiz-attempts` | `learning_activity` | Oui | Tentatives de Quizz (2026-08-28) |
 | learning-activity-service | `^~ /api/v1/exercise-attempts` | `/exercise-attempts` | `learning_activity` | Oui | Tentatives d'Exercice — Gap gateway corrigé 2026-09-01 |
 | learning-activity-service | `^~ /api/v1/open-activities` | `/open-activities` | `learning_activity` | Oui | Activités non pourvues — Gap gateway corrigé 2026-09-01 |
+| learning-activity-service | `^~ /api/v1/evaluation-attempts` | `/evaluation-attempts` | `learning_activity` | Oui | Tentatives d'Évaluation (module `evaluation-attempts/`, PR #196) — Gap gateway corrigé 2026-09-01 |
+| learning-activity-service | `^~ /api/v1/evaluation-corrections` | `/evaluation-corrections` | `learning_activity` | Oui | Demande de correction manuelle d'Évaluation — Gap gateway corrigé 2026-09-01 |
 | gateway (nginx) | `/health` | — | — | Non | Healthcheck gateway |
 | gateway (nginx) | `/docs` | — | — | Non | Index JSON des Swagger |
 
@@ -355,6 +357,34 @@ reste sur `master`), l'image a été reconstruite explicitement depuis la branch
 (`docker build -t claudevma-api-gateway ./gateway/api-gateway`) puis le conteneur recréé avec
 `docker compose up -d --no-build --force-recreate api-gateway` pour ne pas écraser l'image avec un
 rebuild depuis `master`.
+
+### Session 2026-09-01 — Gap gateway : `/evaluation-attempts` et `/evaluation-corrections` non proxyés
+
+Même famille de défaut que la session précédente (`/exercise-attempts`, `/open-activities`) : le
+module `evaluation-attempts/` livré par `learning-activity-service` (PR #196, chantier « Refonte
+des Evaluations » documenté dans `docs/architecture.md`) expose deux nouveaux préfixes de route,
+`/evaluation-attempts` et `/evaluation-corrections`, sans qu'aucune `location` nginx ne les couvre.
+Constaté en HTTP direct contre `https://claudevma.visioprof.fr` avant correction : `POST
+/api/v1/evaluation-attempts` avec un token valide répondait un `404` nginx **brut** (page HTML),
+pas une réponse applicative.
+
+**Correction** : deux `location` ajoutées dans la section `learning-activity-service`, juste après
+`/api/v1/open-activities`, sur le patron exact déjà en place pour `/api/v1/quiz-attempts` et
+`/api/v1/exercise-attempts` (mêmes en-têtes, `auth_request /internal/auth`, propagation
+`x-correlation-id`) :
+- `^~ /api/v1/evaluation-attempts` → `$upstream_learning_activity$api_v1_suffix`
+- `^~ /api/v1/evaluation-corrections` → `$upstream_learning_activity$api_v1_suffix`
+
+**Tests** : `bash gateway/api-gateway/test/nginx-conf.test.sh` — 19 ok, 0 KO sur la partie
+statique (`nginx -t`, garanties de routage/résolution DNS/réécriture d'URI/taille de corps),
+partie « gateway vivante » ignorée en local faute de `GATEWAY_URL`/`ACCESS_TOKEN`.
+
+**Preuve contre la pile réelle** : à faire après build/redéploiement (hors périmètre de ce
+correctif, laissé à l'orchestrateur) — vérifier que `POST /api/v1/evaluation-attempts` et
+`/evaluation-corrections/*` répondent une réponse applicative (401/400/etc.) et non plus un `404`
+nginx brut, sans régression sur `/quiz-attempts` ni `/exercise-attempts`.
+
+**PR** : #198, branche `fix/api-gateway-evaluation-attempts-proxy`.
 
 ## Points en suspens
 - **Collision `/api/v1/activities` entre `calendar-service` et `learning-activity-service`**

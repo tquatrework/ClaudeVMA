@@ -1,23 +1,20 @@
 /**
  * ExerciseItemListEditor — édition d'une liste ordonnée d'items texte/formule.
  *
- * Réutilisé deux fois par `ExercisePartEditor` : pour les items d'un bloc (énoncé ou question),
- * et pour les items de la solution d'un bloc question. Les items de type `image` ne peuvent pas
- * être créés ici — le serveur les refuse dans le DTO JSON (`docs/routes.md` > content-catalog-service
- * > « Exercices — refonte du 2026-08-29 ») ; ils s'ajoutent après enregistrement via
- * `ExerciseImageManager`.
+ * Réutilisé deux fois par `ExercisePartEditor` : pour les items d'un bloc énoncé/question, et pour
+ * les items de la solution d'un bloc question. Les items de type `image` ne peuvent pas être créés
+ * ici — le serveur les refuse dans le DTO JSON. **Depuis le 2026-09-01, l'image n'est plus un item
+ * embarqué dans un bloc énoncé/question : c'est un bloc de premier niveau à part entière**
+ * (`category: 'image'`), édité par `ExerciseImageBlockEditor`, jamais par ce composant — voir
+ * `docs/architecture.md` > « Bloc "image" de premier niveau pour l'Exercice ».
  *
  * Réutilise directement le mécanisme de saisie de formule déjà construit pour le Quizz/le Mémo
  * (`InsertFormulaButton`, `LightMarkupText`/`MathRenderer` pour l'aperçu).
  *
  * Le bouton générique « + Ajouter un élément » a été retiré le 2026-09-01 (arbitrage « Titre des
- * Exercices et des Quizz », point 5, `docs/architecture.md`) : le texte se saisit directement dans
- * l'item déjà présent, et la formule dispose déjà de sa propre affordance d'insertion
- * (`InsertFormulaButton`) — le bouton n'a donc plus de raison d'exister pour ces deux types. Une
- * image ne peut techniquement pas être ajoutée depuis ce formulaire (aucun `partId` réel avant
- * l'enregistrement, et `PUT /exercises/:id` supprime de toute façon les images déjà envoyées) :
- * elle se rajoute exclusivement via `ExerciseImageManager`, déjà correctement labellisé « Ajouter
- * une image », affiché sous ce formulaire une fois l'exercice enregistré.
+ * Exercices et des Quizz », point 5) : le texte se saisit directement dans l'item déjà présent, et
+ * la formule dispose déjà de sa propre affordance d'insertion (`InsertFormulaButton`) — le bouton
+ * n'a donc plus de raison d'exister pour ces deux types.
  */
 
 import React, { useRef } from 'react'

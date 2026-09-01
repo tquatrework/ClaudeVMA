@@ -47,21 +47,42 @@ function buildItemsPayload(items: EditableExerciseItem[]) {
     .map((item) => ({ type: item.type, content: item.content.trim() }))
 }
 
+/**
+ * Contraintes de composition minimale, vérifiées côté serveur (arbitrage du 2026-09-01, point 2) —
+ * guidées ici avant soumission plutôt que de laisser échouer un appel réseau évitable : au moins un
+ * bloc énoncé (peut être vide, voir ci-dessous) et au moins un bloc question non vide.
+ */
 export function buildExerciseCreatePayload(state: EditableExerciseFormState): CreateExercisePayload {
   if (!state.title.trim()) {
     throw new Error('Le titre est obligatoire.')
   }
   if (state.parts.length === 0) {
-    throw new Error('Ajoutez au moins un bloc (énoncé ou question).')
+    throw new Error('Ajoutez au moins un bloc (énoncé, image ou question).')
+  }
+  if (!state.parts.some((part) => part.category === 'statement')) {
+    throw new Error('Ajoutez au moins un bloc énoncé.')
+  }
+  if (!state.parts.some((part) => part.category === 'question')) {
+    throw new Error('Ajoutez au moins un bloc question.')
   }
 
   const parts = state.parts.map((part, index) => {
-    const items = buildItemsPayload(part.items)
-    if (items.length === 0) {
-      throw new Error(`Le bloc ${index + 1} doit contenir au moins un élément.`)
+    if (part.category === 'image') {
+      // Placeholder envoyé au serveur pour réserver la position du bloc dans la séquence — le
+      // contenu binaire est envoyé séparément, après l'enregistrement (voir
+      // `utils/exerciseImageUpload.ts`, orchestré par `ExerciseForm`).
+      if (!part.imageFile && !part.existingImageItem) {
+        throw new Error(`Le bloc image ${index + 1} doit contenir une image.`)
+      }
+      return { category: 'image' as const, items: [] }
     }
 
+    const items = buildItemsPayload(part.items)
+
     if (part.category === 'question') {
+      if (items.length === 0) {
+        throw new Error(`Le bloc ${index + 1} (question) doit contenir au moins un élément.`)
+      }
       const solutionItems = buildItemsPayload(part.solutionItems)
       if (solutionItems.length === 0) {
         throw new Error(`La solution du bloc ${index + 1} (question) est obligatoire.`)
@@ -69,6 +90,7 @@ export function buildExerciseCreatePayload(state: EditableExerciseFormState): Cr
       return { category: 'question' as const, items, solution: { items: solutionItems } }
     }
 
+    // 'statement' — peut être vide (arbitrage du 2026-09-01, point 2).
     return { category: 'statement' as const, items }
   })
 
@@ -112,6 +134,10 @@ function buildEditableItemsFromContent(items: PublicContentItem[]): EditableExer
  * texte/formule uniquement — les images de solution ne sont, comme les images de bloc, jamais
  * reprises ici) ; sinon un seul élément vide est proposé, à ressaisir par l'auteur — signalé
  * explicitement à l'écran (`ExerciseEditPage`), jamais silencieusement vidé.
+ *
+ * Un bloc `category: 'image'` reprend son image déjà enregistrée dans `existingImageItem`
+ * (affichée par `ExerciseImageBlockEditor` tant qu'aucun nouveau fichier n'est choisi) — voir
+ * `docs/architecture.md` > « Bloc "image" de premier niveau pour l'Exercice ».
  */
 export function buildEditableStateForExerciseEdit(
   exercise: PublicExerciseDetail | AuthorExerciseDetail,
@@ -126,6 +152,9 @@ export function buildEditableStateForExerciseEdit(
         ? buildEditableItemsFromContent(authorPart.solution.items)
         : []
 
+    const existingImageItem =
+      part.category === 'image' ? (part.items.find((item) => item.type === 'image') ?? null) : null
+
     return {
       ...editablePart,
       items: textOrFormulaItems.length > 0 ? textOrFormulaItems : editablePart.items,
@@ -135,6 +164,7 @@ export function buildEditableStateForExerciseEdit(
             ? prefilledSolutionItems
             : editablePart.solutionItems
           : [],
+      existingImageItem,
     }
   })
 

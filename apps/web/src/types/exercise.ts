@@ -6,21 +6,29 @@
  * définition, la solution et la validation d'un exercice ; `learning-activity-service` porte
  * l'inscription (tentative), le passage (réponses, révélation de solution) et l'historique.
  *
- * Un exercice est une séquence ordonnée de blocs (`parts`) — énoncé ou question — portant du
+ * Un exercice est une séquence ordonnée de blocs (`parts`) — énoncé, image ou question — portant du
  * contenu texte/formule/image (même mécanisme que le Mémo, `pedagogical-log-service`). Un bloc
  * « question » porte exactement une solution (mêmes types de contenu), jamais exposée par une
  * route publique de `content-catalog-service` — voir `docs/routes.md` > content-catalog-service >
  * « Exercices — refonte du 2026-08-29 ».
  *
- * Contrairement au Quizz, `content-catalog-service` ne renvoie **jamais** la solution à l'auteur
- * via une route publique dédiée (pas d'équivalent de `GET /quizzes/:id/solution`) — seule la route
- * interne `POST /internal/exercises/:exerciseId/parts/:partId/solution`, réservée à
- * `learning-activity-service`, l'expose. Un auteur qui édite un exercice existant ne peut donc pas
- * relire une solution déjà saisie : `ExerciseEditPage` le signale explicitement plutôt que de
- * prétendre pré-remplir un contenu qu'aucune route ne peut fournir — voir le rapport de session.
+ * Depuis le 2026-09-01 (`docs/architecture.md` > « Bloc "image" de premier niveau pour
+ * l'Exercice »), l'image n'est plus un item embarqué dans un bloc énoncé/question : c'est un bloc
+ * de premier niveau à part entière (`category: 'image'`), au même rang que énoncé et question dans
+ * la séquence ordonnée. Un bloc image porte 0 (placeholder avant envoi) ou 1 item de type `image`
+ * dans son tableau `items` — aucun nouveau champ n'a été nécessaire, `PublicExercisePart`/
+ * `PublicContentItem` restent inchangés dans leur forme. Disponible **dès la création** (contrairement
+ * à l'ancien mécanisme `ExerciseImageManager`, retiré) via un flux en deux temps porté par
+ * `ExerciseForm` : la structure (avec les blocs image en placeholder) est créée/mise à jour d'abord,
+ * puis chaque image en attente est envoyée au bloc réel nouvellement créé.
+ *
+ * Solutions : contrairement au Quizz, `content-catalog-service` ne renvoie **jamais** le contenu
+ * d'une solution via la route publique de consultation (`GET /exercises/:id`) — seule
+ * `GET /exercises/:id/solutions` (réservée à l'auteur et aux AP/RP/TI, voir plus bas) l'expose,
+ * pour que l'écran d'édition puisse réellement pré-remplir une solution déjà saisie.
  */
 
-export type ExercisePartCategory = 'statement' | 'question'
+export type ExercisePartCategory = 'statement' | 'image' | 'question'
 
 export type ExerciseItemType = 'text' | 'formula' | 'image'
 
@@ -45,7 +53,10 @@ export interface PublicContentItem {
   imageSizeBytes?: number | null
 }
 
-/** Un bloc (énoncé ou question), tel qu'exposé publiquement — jamais le contenu d'une solution. */
+/**
+ * Un bloc (énoncé, image ou question), tel qu'exposé publiquement — jamais le contenu d'une
+ * solution. `items` porte 0 ou 1 item de type `image` pour un bloc `category: 'image'`.
+ */
 export interface PublicExercisePart {
   id: string
   partNumber: number
@@ -84,8 +95,14 @@ export interface CreateExerciseItemPayload {
 
 export interface CreateExercisePartPayload {
   category: ExercisePartCategory
+  /**
+   * `items` peut être vide pour `category: 'statement'` (un énoncé peut être vide) ou
+   * `category: 'image'` (placeholder — le contenu binaire ne peut jamais transiter par ce DTO
+   * JSON, il est envoyé séparément après création via `uploadExercisePartImage`). Requis non vide
+   * pour `category: 'question'`.
+   */
   items: CreateExerciseItemPayload[]
-  /** Obligatoire si `category === 'question'`, interdit si `category === 'statement'`. */
+  /** Obligatoire si `category === 'question'`, interdit sinon. */
   solution?: { items: CreateExerciseItemPayload[] }
 }
 

@@ -8,22 +8,28 @@
  * Rôles autorisés à créer un Exercice : formateur, animateur_pedagogique, responsable_pedagogique
  * (statut initial `pending_validation` pour un formateur, `validated` — auto-validé — pour AP/RP).
  *
- * ⚠️ **Éditer un exercice déjà enregistré supprime ses images déjà envoyées** (limite documentée
- * côté serveur, `docs/routes.md` § Exercices) : un bandeau prévient l'auteur avant l'enregistrement
- * en mode édition. Les images se rajoutent ensuite via `ExerciseImageManager`, sur `ExerciseEditPage`.
- *
  * Titre obligatoire, avec valeur par défaut suggérée par le serveur, et champ Description retiré
  * de l'écran (arbitrage du 2026-09-01, `docs/architecture.md` > « Titre des Exercices et des
  * Quizz »). En mode création, le titre est pré-rempli depuis `GET /exercises/default-title` dès
  * l'ouverture du formulaire — l'utilisateur reste libre de le modifier.
+ *
+ * **Blocs image de premier niveau** (même arbitrage du 2026-09-01, « Bloc "image" de premier
+ * niveau pour l'Exercice ») : un bloc image se choisit dès la création, comme un énoncé ou une
+ * question — plus besoin d'un premier enregistrement préalable (l'ancien mécanisme
+ * `ExerciseImageManager`, post-enregistrement uniquement, est retiré). La soumission du formulaire
+ * enregistre d'abord la structure (blocs image en placeholder), puis envoie chaque image en
+ * attente au bloc réel nouvellement créé (`utils/exerciseImageUpload.ts`), en une seule action pour
+ * l'utilisateur.
  */
 
 import React, { useEffect, useState } from 'react'
 import { createExercise, fetchExerciseDefaultTitle, updateExercise } from '../../api/exercises'
 import { getErrorMessage } from '../../utils/apiError'
 import { buildExerciseCreatePayload, type EditableExerciseFormState } from '../../utils/exercisePayload'
-import type { CreateExercisePayload, PublicExerciseDetail } from '../../types/exercise'
+import { resolvePendingExerciseImages, uploadPendingExerciseImages } from '../../utils/exerciseImageUpload'
+import type { CreateExercisePayload, ExercisePartCategory, PublicExerciseDetail } from '../../types/exercise'
 import { ExercisePartEditor, createEditableExercisePart, type EditableExercisePart } from './ExercisePartEditor'
+import { ExercisePartAddButtons } from './ExercisePartAddButtons'
 
 interface ExerciseFormProps {
   /** `edit` réservé à l'auteur de l'exercice — vérifié côté serveur, pas ici. */
@@ -111,11 +117,19 @@ export function ExerciseForm({ mode = 'create', exerciseId, initialState, onSave
 
     setIsSubmitting(true)
     try {
+      // Résolu AVANT l'appel create/update : un bloc image déjà rempli en édition doit être
+      // récupéré pendant que son ancien `itemId` est encore garanti valide (voir
+      // `utils/exerciseImageUpload.ts`).
+      const pendingImages = await resolvePendingExerciseImages(
+        parts,
+        mode === 'edit' ? exerciseId : undefined,
+      )
       const saved =
         mode === 'edit' && exerciseId
           ? await updateExercise(exerciseId, payload)
           : await createExercise(payload)
-      onSaved(saved)
+      const savedWithImages = await uploadPendingExerciseImages(saved, pendingImages)
+      onSaved(savedWithImages)
     } catch (apiError: unknown) {
       setFormError(
         getErrorMessage(
@@ -133,15 +147,6 @@ export function ExerciseForm({ mode = 'create', exerciseId, initialState, onSave
       <h2 className="text-base font-semibold text-gray-800">
         {mode === 'edit' ? "Modifier l'exercice" : 'Créer un nouvel exercice'}
       </h2>
-
-      {mode === 'edit' && (
-        <div className="bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-          <p className="text-xs text-amber-800">
-            Enregistrer ces modifications supprime les images déjà envoyées sur cet exercice. Vous
-            pourrez les rajouter juste après, depuis l'écran de gestion des images.
-          </p>
-        </div>
-      )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -235,7 +240,7 @@ export function ExerciseForm({ mode = 'create', exerciseId, initialState, onSave
         </div>
 
         <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-gray-800">Blocs (énoncés et questions)</h3>
+          <h3 className="text-sm font-semibold text-gray-800">Blocs (énoncés, images et questions)</h3>
           {parts.map((part, index) => (
             <ExercisePartEditor
               key={part.localId}
@@ -248,26 +253,15 @@ export function ExerciseForm({ mode = 'create', exerciseId, initialState, onSave
               onMoveDown={() => movePart(index, 1)}
               isFirst={index === 0}
               isLast={index === parts.length - 1}
+              exerciseId={exerciseId}
             />
           ))}
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={() => setParts((previous) => [...previous, createEditableExercisePart('statement')])}
-              disabled={isSubmitting}
-              className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
-            >
-              + Ajouter un énoncé
-            </button>
-            <button
-              type="button"
-              onClick={() => setParts((previous) => [...previous, createEditableExercisePart('question')])}
-              disabled={isSubmitting}
-              className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
-            >
-              + Ajouter une question
-            </button>
-          </div>
+          <ExercisePartAddButtons
+            isSubmitting={isSubmitting}
+            onAdd={(category: ExercisePartCategory) =>
+              setParts((previous) => [...previous, createEditableExercisePart(category)])
+            }
+          />
         </div>
 
         {formError && <p className="text-red-600 text-sm">{formError}</p>}

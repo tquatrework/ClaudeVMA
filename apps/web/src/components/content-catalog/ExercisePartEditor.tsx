@@ -1,7 +1,10 @@
 /**
- * ExercisePartEditor — édition d'un bloc d'exercice (énoncé ou question), au sein de
- * `ExerciseForm`. Un bloc porte une liste ordonnée d'items texte/formule ; un bloc « question »
- * porte en plus une solution obligatoire (même mécanisme de liste d'items).
+ * ExercisePartEditor — édition d'un bloc d'exercice (énoncé, image ou question), au sein de
+ * `ExerciseForm`. Un bloc énoncé/question porte une liste ordonnée d'items texte/formule ; un bloc
+ * « question » porte en plus une solution obligatoire (même mécanisme de liste d'items). Un bloc
+ * « image » (catégorie de premier niveau depuis le 2026-09-01, `docs/architecture.md` > « Bloc
+ * "image" de premier niveau pour l'Exercice ») porte un fichier choisi localement, envoyé après
+ * l'enregistrement du formulaire — voir `ExerciseImageBlockEditor`/`utils/exerciseImageUpload.ts`.
  *
  * Patron de structure directement inspiré de `QuizQuestionEditor` — une section « énoncé »
  * pouvant devenir « question + solution » selon la catégorie choisie.
@@ -9,15 +12,24 @@
 
 import React from 'react'
 import { ExerciseItemListEditor, createEditableExerciseItem, type EditableExerciseItem } from './ExerciseItemListEditor'
+import { ExerciseImageBlockEditor } from './ExerciseImageBlockEditor'
 import { EXERCISE_PART_CATEGORY_LABELS } from '../../utils/exerciseLabels'
-import type { ExercisePartCategory } from '../../types/exercise'
+import type { ExercisePartCategory, PublicContentItem } from '../../types/exercise'
 
 export interface EditableExercisePart {
   localId: string
   category: ExercisePartCategory
+  /** Utilisé pour `category === 'statement'|'question'` uniquement. */
   items: EditableExerciseItem[]
   /** Utilisé uniquement si `category === 'question'`. */
   solutionItems: EditableExerciseItem[]
+  /** Utilisé uniquement si `category === 'image'` — fichier choisi localement, pas encore envoyé. */
+  imageFile: File | null
+  /**
+   * Utilisé uniquement si `category === 'image'`, en édition — contenu déjà enregistré côté
+   * serveur, affiché tant qu'aucun nouveau fichier n'a été choisi.
+   */
+  existingImageItem: PublicContentItem | null
 }
 
 let partCounter = 0
@@ -28,8 +40,10 @@ export function createEditableExercisePart(
   return {
     localId: `part-${partCounter}`,
     category,
-    items: [createEditableExerciseItem()],
+    items: category === 'image' ? [] : [createEditableExerciseItem()],
     solutionItems: category === 'question' ? [createEditableExerciseItem()] : [],
+    imageFile: null,
+    existingImageItem: null,
   }
 }
 
@@ -43,6 +57,8 @@ interface ExercisePartEditorProps {
   onMoveDown: () => void
   isFirst: boolean
   isLast: boolean
+  /** Requis pour afficher une image de bloc déjà enregistrée — absent en mode création. */
+  exerciseId?: string
 }
 
 export function ExercisePartEditor({
@@ -55,11 +71,13 @@ export function ExercisePartEditor({
   onMoveDown,
   isFirst,
   isLast,
+  exerciseId,
 }: ExercisePartEditorProps) {
   const handleCategoryChange = (category: ExercisePartCategory) => {
     onChange({
       ...part,
       category,
+      items: category === 'image' ? [] : part.items.length > 0 ? part.items : [createEditableExerciseItem()],
       solutionItems:
         category === 'question' && part.solutionItems.length === 0
           ? [createEditableExerciseItem()]
@@ -81,6 +99,7 @@ export function ExercisePartEditor({
             className="border border-gray-300 rounded-md px-2 py-1 text-xs bg-white"
           >
             <option value="statement">Énoncé</option>
+            <option value="image">Image</option>
             <option value="question">Question</option>
           </select>
           <button
@@ -112,12 +131,22 @@ export function ExercisePartEditor({
         </div>
       </div>
 
-      <ExerciseItemListEditor
-        items={part.items}
-        onChange={(items) => onChange({ ...part, items })}
-        isSubmitting={isSubmitting}
-        itemLabelPrefix="Élément"
-      />
+      {part.category === 'image' ? (
+        <ExerciseImageBlockEditor
+          exerciseId={exerciseId}
+          imageFile={part.imageFile}
+          existingImageItem={part.existingImageItem}
+          onFileSelected={(imageFile) => onChange({ ...part, imageFile })}
+          isSubmitting={isSubmitting}
+        />
+      ) : (
+        <ExerciseItemListEditor
+          items={part.items}
+          onChange={(items) => onChange({ ...part, items })}
+          isSubmitting={isSubmitting}
+          itemLabelPrefix="Élément"
+        />
+      )}
 
       {part.category === 'question' && (
         <div className="border-t border-gray-300 pt-3 space-y-2">

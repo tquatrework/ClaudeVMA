@@ -1,5 +1,6 @@
 /**
- * ExerciseEditPage — édition d'un Exercice par son auteur, et gestion de ses images.
+ * ExerciseEditPage — édition d'un Exercice par son auteur (structure et images, en une seule
+ * soumission de formulaire depuis le 2026-09-01).
  *
  * Correctif du 2026-09-01 (`docs/architecture.md` > « Titre des Exercices et des Quizz », point 6) :
  * les solutions déjà saisies sont désormais pré-remplies quand `content-catalog-service` expose
@@ -9,12 +10,16 @@
  * solution) — l'auteur ressaisit alors sa solution comme avant, signalé par le bandeau ci-dessous,
  * affiché uniquement dans ce cas.
  *
+ * `ExerciseImageManager` (upload d'image post-enregistrement, distinct du formulaire) est retiré
+ * le même jour (arbitrage « Bloc "image" de premier niveau pour l'Exercice ») : les blocs image
+ * font désormais partie de la séquence éditée par `ExerciseForm` lui-même, envoyés en un seul flux
+ * de soumission (structure puis images en attente) — voir `utils/exerciseImageUpload.ts`.
+ *
  * Routes API consommées :
  *   GET /exercises/:id/solutions  (content-catalog-service — avec solution, réservée à l'auteur)
  *   GET /exercises/:id            (content-catalog-service — repli, sans solution)
- *   PUT /exercises/:id            (content-catalog-service — remplace intégralement, supprime les images)
- *   POST /exercises/:id/parts/:partId/images           (ajout d'image de bloc, après coup)
- *   POST /exercises/:id/parts/:partId/solution/images  (ajout d'image de solution, après coup)
+ *   PUT /exercises/:id            (content-catalog-service — remplace intégralement la structure)
+ *   POST /exercises/:id/parts/:partId/images  (envoi de chaque image en attente, orchestré par `ExerciseForm`)
  */
 
 import React, { useState } from 'react'
@@ -26,7 +31,6 @@ import { useAsyncData } from '../hooks/useAsyncData'
 import { fetchExerciseForEdit } from '../api/exercises'
 import { buildEditableStateForExerciseEdit } from '../utils/exercisePayload'
 import { ExerciseForm } from '../components/content-catalog/ExerciseForm'
-import { ExerciseImageManager } from '../components/content-catalog/ExerciseImageManager'
 import { getExerciseDisplayTitle } from '../utils/exerciseLabels'
 import type { PublicExerciseDetail } from '../types/exercise'
 
@@ -110,8 +114,6 @@ export default function ExerciseEditPage() {
           onSaved={(saved) => setExercise(saved)}
           onCancel={() => navigate(`/content/exercises/${resolvedExerciseId}`)}
         />
-
-        <ExerciseImageManager exercise={currentExercise} onExerciseChange={setExercise} />
       </div>
     </Layout>
   )

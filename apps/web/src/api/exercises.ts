@@ -135,8 +135,10 @@ export async function fetchExerciseForEdit(
 /**
  * POST /exercises
  * Crée un exercice. Statut initial `pending_validation` (professeur) ou `validated` (AP/RP,
- * auto-validé). Les items de type `image` ne peuvent pas être créés ici — voir
- * `uploadExercisePartImage`/`uploadExerciseSolutionImage`, à appeler après création.
+ * auto-validé). Un bloc `category: 'image'` est envoyé en placeholder (`items: []`) — le contenu
+ * binaire ne peut jamais transiter par ce DTO JSON, voir `uploadExercisePartImage` ci-dessous et
+ * `utils/exerciseImageUpload.ts` pour l'orchestration en deux temps (arbitrage du 2026-09-01,
+ * « Bloc "image" de premier niveau pour l'Exercice »).
  */
 export async function createExercise(
   payload: CreateExercisePayload,
@@ -147,9 +149,10 @@ export async function createExercise(
 
 /**
  * PUT /exercises/:id
- * Remplace intégralement un exercice — réservé à l'auteur. Repasse en `pending_validation` si
- * l'auteur est formateur et que l'exercice était `validated`. **Supprime les images déjà
- * envoyées** (limite documentée côté serveur) : à renvoyer après l'édition si besoin.
+ * Remplace intégralement la structure d'un exercice — réservé à l'auteur. Repasse en
+ * `pending_validation` si l'auteur est formateur et que l'exercice était `validated`. Comme pour
+ * `POST /exercises`, un bloc `category: 'image'` est envoyé en placeholder — voir
+ * `utils/exerciseImageUpload.ts` pour le renvoi des images en attente juste après cet appel.
  */
 export async function updateExercise(
   exerciseId: string,
@@ -187,6 +190,18 @@ export async function fetchExercisePartImageBlob(
  * Ajoute une image à un bloc (multipart, champ `file`, `caption?`). Réservé à l'auteur —
  * repasse l'exercice en `pending_validation` si l'auteur est formateur. `Content-Type`
  * neutralisé pour laisser le navigateur poser le `boundary` multipart.
+ *
+ * Depuis le 2026-09-01, c'est la route d'envoi du contenu d'un bloc `category: 'image'`
+ * (arbitrage « Bloc "image" de premier niveau pour l'Exercice ») — appelée par
+ * `utils/exerciseImageUpload.ts` juste après `createExercise`/`updateExercise`, pour chaque image
+ * en attente. Route inchangée par rapport à l'ancien mécanisme (`ExerciseImageManager`, retiré),
+ * seul l'appelant a changé.
+ *
+ * ⚠️ `uploadExerciseSolutionImage` (image d'une solution, distincte du contenu du bloc) a été
+ * retirée le même jour, faute de mécanisme de remplacement défini par l'arbitrage du 2026-09-01 —
+ * `ExerciseImageManager`, seul point d'appel, a été retiré sans être reconstruit pour ce cas
+ * précis. Les solutions restent éditables en texte/formule uniquement pour l'instant ; à reprendre
+ * si le besoin d'image de solution redevient réel.
  */
 export async function uploadExercisePartImage(
   exerciseId: string,
@@ -200,30 +215,6 @@ export async function uploadExercisePartImage(
 
   const { data } = await apiClient.post<PublicContentItem>(
     `/exercises/${exerciseId}/parts/${partId}/images`,
-    formData,
-    { headers: { 'Content-Type': undefined } },
-  )
-  return data
-}
-
-/**
- * POST /exercises/:id/parts/:partId/solution/images
- * Ajoute une image à la solution d'un bloc `question` (multipart, mêmes règles). Jamais servie
- * par une route publique de lecture — accessible uniquement via la médiation de
- * `learning-activity-service` une fois révélée.
- */
-export async function uploadExerciseSolutionImage(
-  exerciseId: string,
-  partId: string,
-  file: File,
-  caption?: string,
-): Promise<PublicContentItem> {
-  const formData = new FormData()
-  formData.append('file', file)
-  if (caption) formData.append('caption', caption)
-
-  const { data } = await apiClient.post<PublicContentItem>(
-    `/exercises/${exerciseId}/parts/${partId}/solution/images`,
     formData,
     { headers: { 'Content-Type': undefined } },
   )

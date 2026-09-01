@@ -3083,5 +3083,156 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-09-01" label="Bloc image de premier niveau pour l'Exercice (suite de fix/front-exercises-post-test-feedback)">
+      <context>
+        Retour utilisateur, suite directe de la session précédente : le mécanisme d'ajout d'image
+        (retrait pur du bouton « Ajouter un élément », renvoi vers `ExerciseImageManager`
+        post-enregistrement) jugé insatisfaisant une fois expliqué. Nouveau modèle proposé par
+        l'utilisateur, arbitré et persisté dans `docs/architecture.md` > « Bloc "image" de premier
+        niveau pour l'Exercice » (2026-09-01) : l'image devient une **catégorie de bloc à part
+        entière** (`statement` / `image` / `question`), disponible **dès la création**, plus besoin
+        d'un premier enregistrement préalable. `ExerciseImageManager` (upload post-enregistrement,
+        séparé du formulaire) est retiré, remplacé par un flux en deux temps intégré au formulaire
+        lui-même. Contrat backend développé en parallèle par `content-catalog-service`
+        (`feat/content-catalog-exercise-image-block`, non poussée au moment de cette session) — codé
+        contre une hypothèse raisonnable, documentée ci-dessous, à ajuster dès le rapport disponible.
+      </context>
+
+      <tree>
+        <folder path="apps/web/src/types/">
+          <file path="exercise.ts">
+            `ExercisePartCategory` gagne `'image'` (`'statement' | 'image' | 'question'`). Aucun
+            nouveau champ nécessaire sur `PublicExercisePart`/`PublicContentItem` : un bloc image
+            porte 0 (placeholder) ou 1 item de type `image` dans son `items[]` existant — décision
+            qui a permis de ne toucher ni `ExercisePlayer.tsx` ni `ExerciseDetailPage.tsx` (boucle de
+            rendu déjà générique par catégorie).
+          </file>
+        </folder>
+        <folder path="apps/web/src/utils/">
+          <file path="exerciseLabels.ts">+ `EXERCISE_PART_CATEGORY_LABELS.image = 'Image'`.</file>
+          <file path="exercisePayload.ts">
+            `buildExerciseCreatePayload` : nouvelles validations front guidant les contraintes
+            serveur (au moins un bloc `statement`, au moins un bloc `question` non vide) ; un bloc
+            `statement` peut désormais être **vide** (`items: []` accepté, plus de rejet
+            systématique) ; un bloc `image` est envoyé en placeholder (`items: []`) après
+            vérification qu'un fichier (nouveau ou déjà enregistré) est bien présent côté état
+            local. `buildEditableStateForExerciseEdit` reprend l'image déjà enregistrée d'un bloc
+            `image` dans `existingImageItem`.
+          </file>
+          <file path="exerciseImageUpload.ts">
+            Nouveau. Orchestration du flux en deux temps : `resolvePendingExerciseImages` (appelée
+            AVANT `createExercise`/`updateExercise` — un bloc image déjà rempli en édition sans
+            nouveau fichier voit son contenu existant **pré-récupéré** via
+            `fetchExercisePartImageBlob`, par prudence contre un éventuel effacement côté serveur au
+            `PUT`, non confirmé) et `uploadPendingExerciseImages` (appelée après, zippe les fichiers
+            en attente avec `saved.parts` par **position** — hypothèse de contrat documentée dans le
+            fichier lui-même).
+          </file>
+        </folder>
+        <folder path="apps/web/src/components/content-catalog/">
+          <file path="ExerciseImageBlockEditor.tsx">
+            Nouveau. Édition d'un bloc image : sélecteur de fichier local, aperçu immédiat
+            (`URL.createObjectURL`, révoqué au changement/démontage) ; en édition, affiche l'image
+            déjà enregistrée (`ExerciseContentItemView`) tant qu'aucun nouveau fichier n'est choisi.
+          </file>
+          <file path="ExercisePartAddButtons.tsx">
+            Nouveau. Extrait des trois boutons « + Ajouter un énoncé/une image/une question » de
+            `ExerciseForm.tsx`, pour repasser sous le seuil de 300 lignes (314 → 295) après l'ajout
+            du bouton image.
+          </file>
+          <file path="ExercisePartEditor.tsx">
+            `EditableExercisePart` gagne `imageFile: File | null` et
+            `existingImageItem: PublicContentItem | null`. Nouvelle option « Image » dans le sélecteur
+            de catégorie ; rendu conditionnel : `ExerciseImageBlockEditor` pour `category === 'image'`,
+            `ExerciseItemListEditor` sinon. Nouvelle prop `exerciseId?` (transmise à
+            `ExerciseImageBlockEditor` pour afficher une image déjà enregistrée en édition).
+          </file>
+          <file path="ExerciseItemListEditor.tsx">Docstring mise à jour (référence à l'ancien mécanisme retirée).</file>
+          <file path="ExerciseImageManager.tsx">
+            **Supprimé.** Upload d'image post-enregistrement, séparé du formulaire — remplacé par le
+            flux en deux temps intégré à `ExerciseForm`.
+          </file>
+          <file path="ExerciseForm.tsx">
+            Bandeau d'avertissement « l'enregistrement supprime les images » retiré (le bug qu'il
+            documentait disparaît structurellement, arbitrage point 6). `handleSubmit` orchestre
+            désormais : validation → `resolvePendingExerciseImages` (avant l'appel réseau) →
+            `createExercise`/`updateExercise` → `uploadPendingExerciseImages` → `onSaved`. Passe
+            `exerciseId` à chaque `ExercisePartEditor`.
+          </file>
+        </folder>
+        <folder path="apps/web/src/api/">
+          <file path="exercises.ts">
+            `uploadExerciseSolutionImage` **retirée** (seul appelant, `ExerciseImageManager`,
+            supprimé — aucun mécanisme de remplacement défini par cet arbitrage pour l'image de
+            solution, distincte du bloc image ; à reprendre si le besoin redevient réel).
+            `uploadExercisePartImage` conservée à l'identique, réutilisée par le nouveau flux.
+          </file>
+        </folder>
+        <folder path="apps/web/src/pages/">
+          <file path="ExerciseEditPage.tsx">Import/usage de `ExerciseImageManager` retirés, docstring mise à jour.</file>
+        </folder>
+      </tree>
+
+      <decisions>
+        <decision id="reuse-items-array-for-image-blocks">
+          <description>
+            Un bloc `category: 'image'` réutilise le champ `items: PublicContentItem[]` déjà
+            existant (0 ou 1 item de type `image`) plutôt que d'introduire un champ dédié. Choix qui
+            a permis à `ExercisePlayer.tsx`/`ExerciseDetailPage.tsx` (boucle générique par
+            `part.category`/`part.items`) de fonctionner sans aucune modification pour la
+            consultation/passage d'un exercice contenant des blocs image.
+          </description>
+          <status>resolved</status>
+        </decision>
+        <decision id="two-phase-flow-with-pre-fetch">
+          <description>
+            Flux en deux temps choisi (structure d'abord, images ensuite) plutôt qu'un endpoint
+            multipart combiné — conforme à la suggestion du message de délégation. Prudence ajoutée
+            de mon fait : le contenu d'un bloc image déjà existant (édition, sans nouveau fichier
+            choisi) est **récupéré avant** l'appel `PUT`, pas après, pour ne pas dépendre d'un
+            comportement de conservation serveur non confirmé au moment de l'écriture — protège
+            contre une perte silencieuse d'image dans les deux cas (le serveur efface ou non le
+            contenu binaire des blocs image à chaque remplacement de structure).
+          </description>
+          <status>resolved-pending-backend-contract-confirmation</status>
+        </decision>
+      </decisions>
+
+      <realStackVerification>
+        `npx tsc --noEmit` : 0 erreur. `npm run build` : succès. `npm run test` : 1997 passants / 49
+        échecs — identiques (mêmes fichiers, mêmes messages) aux 49 échecs pré-existants déjà
+        confirmés sans rapport avec les sessions Exercices de cette branche (mocks de l'ancien
+        modèle Exercice). Aucune vérification HTTP directe contre la pile réelle : code non
+        mergé/déployé au moment de cette session, et contrat backend (`content-catalog-service`) non
+        confirmé — voir `openPoints`.
+      </realStackVerification>
+
+      <openPoints>
+        <item id="backend-contract-not-confirmed-image-block">
+          Codé contre une hypothèse (bloc `category: 'image'` dans la même structure de séquence que
+          `statement`/`question`, items placeholder vides côté JSON, upload via la route existante
+          `POST /exercises/:id/parts/:partId/images` réutilisée telle quelle, ordre de `parts[]`
+          préservé par le serveur) — le sous-agent `content-catalog-service` travaillait en parallèle
+          sur `feat/content-catalog-exercise-image-block`, non poussée/mergée au moment de cette
+          session. À revérifier/ajuster dès son rapport disponible, en particulier :
+          l'hypothèse de préservation de l'ordre de `parts[]` entre soumission et réponse, et le
+          comportement réel de `PUT /exercises/:id` sur un bloc image non resoumis (efface ou
+          préserve — le front s'est prémuni des deux cas par prudence, voir la décision
+          `two-phase-flow-with-pre-fetch`, mais cela reste à confirmer/simplifier une fois connu).
+        </item>
+        <item id="solution-image-upload-removed-no-replacement">
+          `uploadExerciseSolutionImage` retirée avec `ExerciseImageManager`, sans mécanisme de
+          remplacement — l'arbitrage du 2026-09-01 ne couvre que le bloc image de premier niveau, pas
+          l'image de solution (distincte). Les solutions restent éditables en texte/formule
+          uniquement depuis cette session ; à traiter dans un chantier séparé si le besoin redevient
+          réel.
+        </item>
+        <item id="pre-existing-test-debt-exercise-old-model">
+          Toujours 49 échecs de tests pré-existants sur mocks de l'ancien modèle Exercice (voir
+          session précédente) — non liés à cette session.
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

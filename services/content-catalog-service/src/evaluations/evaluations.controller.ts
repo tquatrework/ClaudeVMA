@@ -22,7 +22,6 @@ import {
 import { EvaluationsService } from './evaluations.service';
 import { CreateEvaluationDto } from './dto/create-evaluation.dto';
 import { SearchEvaluationDto } from './dto/search-evaluation.dto';
-import { CreateEvaluationAttemptDto } from './dto/create-evaluation-attempt.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -40,7 +39,9 @@ export class EvaluationsController {
   @Get()
   @ApiOperation({
     summary: 'Rechercher des évaluations',
-    description: 'Retourne la liste des évaluations filtrées. Les élèves et parents ne voient que les évaluations validées.',
+    description:
+      'Retourne la liste des évaluations filtrées (niveau, difficulté, thème, tag, mot-clé). ' +
+      'Les élèves et parents ne voient que les évaluations validées.',
   })
   @ApiResponse({ status: 200, description: 'Liste des évaluations correspondantes' })
   @ApiResponse({ status: 401, description: 'Non authentifié' })
@@ -57,10 +58,13 @@ export class EvaluationsController {
   @Roles(UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE)
   @ApiOperation({
     summary: 'Créer une évaluation',
-    description: 'Crée une évaluation à partir d\'une liste d\'exercices, avec chronométrage et option de blocage du retour arrière.',
+    description:
+      'Crée une évaluation à partir d\'une liste d\'exercices, avec chronométrage obligatoire et option de ' +
+      'blocage du retour arrière. Une évaluation créée par un formateur passe en attente de validation ; ' +
+      'une évaluation créée par un AP ou un RP est auto-validée (cycle aligné sur Quizz/Exercice).',
   })
   @ApiResponse({ status: 201, description: 'Évaluation créée' })
-  @ApiResponse({ status: 400, description: 'Données invalides ou liste d\'exercices vide' })
+  @ApiResponse({ status: 400, description: 'Données invalides, liste d\'exercices vide ou durée absente/invalide' })
   @ApiResponse({ status: 403, description: 'Rôle insuffisant' })
   @ApiHeader({ name: 'x-correlation-id', required: false })
   async create(
@@ -84,32 +88,6 @@ export class EvaluationsController {
     @CurrentUser() currentUser: AuthenticatedUser,
   ) {
     return this.evaluationsService.findOne(evaluationId);
-  }
-
-  @Post(':id/attempts')
-  @HttpCode(HttpStatus.CREATED)
-  @Roles(UserRole.ELEVE)
-  @ApiOperation({
-    summary: 'Démarrer une tentative d\'évaluation',
-    description: 'Démarre une session de passage d\'évaluation pour l\'élève. Les solutions d\'exercices sont bloquées pendant cette période.',
-  })
-  @ApiParam({ name: 'id', description: 'UUID de l\'évaluation' })
-  @ApiResponse({ status: 201, description: 'Tentative démarrée' })
-  @ApiResponse({ status: 400, description: 'Évaluation non disponible ou tentative déjà en cours' })
-  @ApiResponse({ status: 403, description: 'Réservé aux élèves' })
-  @ApiHeader({ name: 'x-correlation-id', required: false })
-  async startAttempt(
-    @Param('id') evaluationId: string,
-    @Body() attemptDto: CreateEvaluationAttemptDto,
-    @CurrentUser() currentUser: AuthenticatedUser,
-    @Headers('x-correlation-id') correlationId?: string,
-  ) {
-    return this.evaluationsService.startAttempt(
-      evaluationId,
-      attemptDto,
-      currentUser.id,
-      currentUser.role,
-    );
   }
 
   @Delete(':id')

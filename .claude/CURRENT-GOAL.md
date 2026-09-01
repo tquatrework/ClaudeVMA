@@ -20,6 +20,16 @@ de solution lisible mais pas éditable" :
 
 Délégué à `front-developper` le 2026-09-01 (voir ci-dessous pour le chantier précédent, clos).
 
+**État au 2026-09-01, fin de session `front-developper`** : les deux points sont codés,
+`npx tsc --noEmit`/`npm run build`/`npx vitest run` passent (49 échecs pré-existants, sans
+rapport), et le point 1 a été **vérifié en HTTP direct contre la production** avant d'écrire le
+code — `PUT /exercises/:id` accepte déjà `solution.items[].imageData` en écriture, aucun blocage
+serveur, pur gap front comblé. PR #192 ouverte (`fix/exercise-edit-solution-image-and-navigation`),
+**non mergée, non déployée** — pas encore de preuve visuelle/HTTP en conditions réelles pour
+l'utilisateur (aucune capture Playwright produite, conformément à la consigne reçue). Reste à
+merger + déployer, puis obtenir la preuve attendue par l'utilisateur avant de considérer ce besoin
+clos.
+
 ---
 
 Retours utilisateur du 2026-09-01 après premier test visuel en production de la refonte des

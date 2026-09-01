@@ -3371,5 +3371,147 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-09-01" label="Image de solution editable + retour ecran apres edition Exercice (branche fix/exercise-edit-solution-image-and-navigation, PR #192)">
+      <goal>
+        Deux retours utilisateur après clarification du point "image de solution lisible mais pas
+        éditable" laissé ouvert par la session précédente (PR #191) :
+        1. En édition d'un Exercice, l'image de solution doit être modifiable, pas seulement
+           consultable.
+        2. Après l'enregistrement d'une modification d'Exercice, retour à l'écran précédent avec
+           confirmation, au lieu de rester sur le formulaire sans retour visuel.
+      </goal>
+
+      <verificationPreliminaire>
+        Avant tout code, vérification directe contre `docs/routes.md` (mis à jour le même jour par
+        `content-catalog-service`) **et** vérification HTTP directe contre
+        `https://claudevma.visioprof.fr` (compte formateur réel `trsflow.prof1.0811`, mot de passe
+        de test partagé entre sessions) — pas seulement l'un ou l'autre :
+        - `POST /exercises` avec `parts[].solution.items` contenant un item `{type: "image",
+          imageData: <base64>}` → `201`. `GET /exercises/:id/solutions` relit l'image en base64
+          (`imageMimeType: "image/webp"`, 44 octets pour un pixel de test).
+        - `PUT /exercises/:id` avec un **nouveau** texte de solution et une **nouvelle** image →
+          `200`. Relecture confirmant le remplacement des deux (texte ET image) en une seule
+          soumission.
+        Conclusion : **pur gap front**, aucun correctif serveur nécessaire — le contrat
+        `solution.items[].imageData` documenté dans `docs/routes.md` fonctionne réellement en
+        écriture, pas seulement en théorie. Exercice de test laissé en base
+        (`id c8a91e1b-ba0f-4211-b742-1bc921cd4da8`, `pending_validation`, invisible aux autres
+        utilisateurs) — `DELETE /exercises/:id` reste `403` pour un auteur formateur, incohérence
+        déjà signalée dans `docs/routes.md` (2026-09-01, hors périmètre de cette session).
+      </verificationPreliminaire>
+
+      <tree>
+        <folder path="apps/web/src/components/content-catalog/">
+          <file path="ExerciseSolutionImageEditor.tsx">
+            Nouveau. Édition de l'image (optionnelle) d'une solution de bloc question — patron
+            directement calqué sur `ExerciseImageBlockEditor.tsx`, mais l'aperçu d'une image déjà
+            enregistrée ne passe **pas** par la même route (`GET /exercises/:id/images/:itemId` ne
+            sert **jamais** une image de solution, `404` documenté). Le base64 est déjà en mémoire
+            (`AuthorContentItem.imageData`, chargé une fois au montage de la page via
+            `GET /exercises/:id/solutions`) et affiché directement en `data:` URL — aucun appel
+            réseau supplémentaire pour prévisualiser une image déjà enregistrée.
+          </file>
+          <file path="ExercisePartEditor.tsx">
+            `EditableExercisePart` gagne `solutionImageFile: File | null` et
+            `existingSolutionImageItem: AuthorContentItem | null`. Le bloc "Solution" d'un bloc
+            question rend désormais `ExerciseSolutionImageEditor` en plus de
+            `ExerciseItemListEditor` (texte/formule).
+          </file>
+        </folder>
+        <folder path="apps/web/src/utils/">
+          <file path="exerciseImageResolution.ts">
+            Nouveau. `resolveExerciseImagePayloadItems`/`resolveExerciseSolutionImagePayloadItems`
+            **déplacées** depuis `exercisePayload.ts` (qui dépassait 300 lignes après l'ajout de la
+            résolution de solution) — même découpage que `exerciseImageEncoding.ts`/
+            `exerciseImageConstraints.ts`, ce fichier porte les fonctions qui font de vrais appels
+            réseau/FileReader, `exercisePayload.ts` reste synchrone. Résolution d'une image de
+            solution : nouveau fichier choisi → `readFileAsBase64` ; image déjà enregistrée → le
+            base64 déjà en mémoire est réinjecté tel quel, **aucun appel réseau** (contrairement à
+            un bloc image, qui doit relire `fetchExercisePartImageBlob` avant chaque `PUT`).
+          </file>
+          <file path="exercisePayload.ts">
+            `buildExerciseCreatePayload` prend un 3ᵉ paramètre `resolvedSolutionImageItems`. La
+            validation "solution obligatoire" accepte désormais une solution ne portant qu'une
+            image (aucun texte) — refuse uniquement si ni texte ni image. L'image de solution
+            résolue est ajoutée en fin de `solution.items`, après les items texte/formule.
+            `buildEditableStateForExerciseEdit` peuple `existingSolutionImageItem` en cherchant un
+            item `type: "image"` dans `authorPart.solution.items` (uniquement disponible via
+            `GET /exercises/:id/solutions`, jamais via la route publique sans solution).
+          </file>
+        </folder>
+        <folder path="apps/web/src/components/content-catalog/">
+          <file path="ExerciseForm.tsx">
+            `handleSubmit` résout aussi `resolveExerciseSolutionImagePayloadItems(parts)` (import
+            désormais depuis `exerciseImageResolution.ts`) avant de construire le payload.
+          </file>
+        </folder>
+        <folder path="apps/web/src/pages/">
+          <file path="ExerciseEditPage.tsx">
+            `onSaved` ne stocke plus l'exercice enregistré en état local — il navigue directement
+            vers `/content/exercises/:id` avec `state: { message: 'Modifications enregistrées.' }`
+            (`navigate`, react-router). La page se démonte à la navigation, l'état local
+            `exercise`/`currentExercise` devenu inutile est retiré (repli désormais direct sur
+            `loadResult?.exercise`).
+          </file>
+          <file path="ExerciseDetailPage.tsx">
+            Lit `location.state.message` au montage (`useLocation`) et l'affiche dans un bandeau
+            vert — **même mécanisme déjà en place** pour l'inscription
+            (`LoginPage`/`StudentRegistrationPage`, `registrationMessage`), pas un nouveau pattern
+            de confirmation inventé pour l'occasion.
+          </file>
+        </folder>
+      </tree>
+
+      <decisions>
+        <decision id="reuse-login-page-confirmation-pattern">
+          <description>
+            Avant d'écrire le bandeau de confirmation, recherche d'un mécanisme déjà existant dans
+            le projet plutôt que d'en inventer un nouveau (toast, snackbar…) : aucun composant
+            toast/snackbar centralisé n'existe dans `src/components/ui/`, mais le pattern
+            `navigate(path, { state: { message } })` + lecture de `location.state` au montage de la
+            page de destination est déjà utilisé par `LoginPage`/`StudentRegistrationPage`. Repris
+            à l'identique (même style de bandeau vert `bg-green-50 border-green-200 text-green-700`)
+            plutôt que de fragmenter les patterns de confirmation du projet.
+          </description>
+          <status>resolved</status>
+        </decision>
+        <decision id="solution-image-optional-add-not-just-replace">
+          <description>
+            La demande portait explicitement sur le remplacement d'une image déjà enregistrée, mais
+            `ExerciseSolutionImageEditor` permet aussi d'**ajouter** une image à une solution qui
+            n'en avait pas — même formulaire, même champ de fichier toujours affiché (existant ou
+            non), cohérent avec `ExerciseImageBlockEditor` qui ne distingue pas non plus les deux
+            cas. Choix d'ingénierie pour rester au plus près du mécanisme déjà éprouvé du bloc
+            image, non explicitement demandé mais sans coût supplémentaire réel.
+          </description>
+          <status>resolved</status>
+        </decision>
+      </decisions>
+
+      <realStackVerification>
+        `npx tsc --noEmit` : 0 erreur. `npm run build` : succès. `npx vitest run` : 2010 passants /
+        49 échecs — les 49 échecs sont **identiques** aux échecs pré-existants déjà confirmés sans
+        rapport avec les sessions Exercices (mocks d'un ancien modèle Exercice, remplacé par la
+        refonte du 2026-08-29). 13 nouveaux tests ajoutés dans cette session
+        (`test/utils/exercisePayload.test.ts`, `test/pages/content-catalog/ExerciseEditPage.test.tsx`,
+        `test/pages/content-catalog/ExerciseDetailPageConfirmation.test.tsx`), tous verts. Le point 1
+        (image de solution éditable) est en outre vérifié par une preuve HTTP directe contre la
+        production — voir `verificationPreliminaire` ci-dessus — avant même d'écrire le code front,
+        ce qui a permis de confirmer qu'aucun blocage serveur n'existait.
+      </realStackVerification>
+
+      <openPoints>
+        <item id="exercise-detail-page-test-legacy">
+          `test/pages/content-catalog/ExerciseDetailPage.test.tsx` teste un modèle d'Exercice
+          antérieur à la refonte du 2026-08-29 (mocks `api/contentCatalog`, page
+          `"Détail de l'exercice"` qui n'existe plus dans le code réel) — ses 16 tests font partie
+          des 49 échecs pré-existants. Non corrigé ici (hors périmètre de cette tâche, dette
+          technique déjà signalée dans plusieurs rapports de session précédents) ; le bandeau de
+          confirmation de cette session a donc été testé dans un fichier dédié
+          (`ExerciseDetailPageConfirmation.test.tsx`) plutôt que d'être ajouté à ce fichier obsolète.
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

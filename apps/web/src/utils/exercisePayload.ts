@@ -4,10 +4,13 @@
  * directement affichable.
  *
  * Extrait de `ExerciseForm.tsx` pour rester lisible et testable isolément — même découpage que
- * `quizPayload.ts`/`QuizForm.tsx`.
+ * `quizPayload.ts`/`QuizForm.tsx`. La résolution réseau des images (bloc et solution) vit dans
+ * `exerciseImageResolution.ts`, extraite le 2026-09-01 pour redescendre ce fichier sous 300 lignes
+ * — ce fichier-ci reste synchrone, `exerciseImageResolution.ts` effectue de vrais appels réseau.
  */
 
 import type {
+  AuthorContentItem,
   AuthorExerciseDetail,
   AuthorExercisePart,
   CreateExerciseItemPayload,
@@ -20,8 +23,6 @@ import {
   type EditableExercisePart,
 } from '../components/content-catalog/ExercisePartEditor'
 import { createEditableExerciseItem, type EditableExerciseItem } from '../components/content-catalog/ExerciseItemListEditor'
-import { fetchExercisePartImageBlob } from '../api/exercises'
-import { readBlobAsBase64, readFileAsBase64 } from './exerciseImageEncoding'
 
 /**
  * `description` a été retirée le 2026-09-01 (arbitrage « Titre des Exercices et des Quizz »,
@@ -56,63 +57,19 @@ function buildItemsPayload(items: EditableExerciseItem[]) {
 }
 
 /**
- * Résout, pour chaque bloc image du formulaire, l'item `{type: 'image', imageData, ...}` à
- * embarquer dans le payload — appelée **avant** `buildExerciseCreatePayload`, car elle effectue de
- * vrais appels réseau (encodage local d'un fichier, ou relecture d'une image déjà enregistrée).
- *
- * Contrat réel confirmé par `content-catalog-service` (PR #191, 2026-09-01) : l'image transite en
- * base64 **dans le même appel** `POST`/`PUT /exercises`, aucune route multipart séparée n'existe.
- * `PUT /exercises/:id` remplace intégralement la structure et **supprime les images non
- * resoumises** — un bloc image déjà rempli en édition, sans nouveau fichier choisi, doit donc voir
- * son contenu **relu maintenant** (`fetchExercisePartImageBlob`, pendant que l'ancien `itemId` est
- * garanti valide) pour être réinjecté dans ce même appel, plutôt que d'être silencieusement perdu.
- */
-export async function resolveExerciseImagePayloadItems(
-  parts: EditableExercisePart[],
-  existingExerciseId: string | undefined,
-): Promise<Map<string, CreateExerciseItemPayload>> {
-  const resolved = new Map<string, CreateExerciseItemPayload>()
-
-  await Promise.all(
-    parts.map(async (part) => {
-      if (part.category !== 'image') return
-
-      if (part.imageFile) {
-        const imageData = await readFileAsBase64(part.imageFile)
-        resolved.set(part.localId, {
-          type: 'image',
-          imageData,
-          imageOriginalFilename: part.imageFile.name,
-        })
-        return
-      }
-
-      if (part.existingImageItem && existingExerciseId) {
-        const blob = await fetchExercisePartImageBlob(existingExerciseId, part.existingImageItem.id)
-        const imageData = await readBlobAsBase64(blob)
-        resolved.set(part.localId, {
-          type: 'image',
-          imageData,
-          ...(part.existingImageItem.content ? { content: part.existingImageItem.content } : {}),
-        })
-      }
-    }),
-  )
-
-  return resolved
-}
-
-/**
  * Contraintes de composition minimale, vérifiées côté serveur (arbitrage du 2026-09-01, point 2) —
  * guidées ici avant soumission plutôt que de laisser échouer un appel réseau évitable : au moins un
  * bloc énoncé (peut être vide, voir ci-dessous) et au moins un bloc question non vide.
  *
  * @param resolvedImageItems résultat de `resolveExerciseImagePayloadItems`, appelée avant cette
  *   fonction (elle-même synchrone — la résolution des images est un préalable séparé).
+ * @param resolvedSolutionImageItems résultat de `resolveExerciseSolutionImagePayloadItems`, même
+ *   préalable que ci-dessus.
  */
 export function buildExerciseCreatePayload(
   state: EditableExerciseFormState,
   resolvedImageItems: Map<string, CreateExerciseItemPayload>,
+  resolvedSolutionImageItems: Map<string, CreateExerciseItemPayload>,
 ): CreateExercisePayload {
   if (!state.title.trim()) {
     throw new ExerciseFormValidationError('Le titre est obligatoire.')
@@ -144,12 +101,16 @@ export function buildExerciseCreatePayload(
           `Le bloc ${index + 1} (question) doit contenir au moins un élément.`,
         )
       }
-      const solutionItems = buildItemsPayload(part.solutionItems)
-      if (solutionItems.length === 0) {
+      const solutionTextItems = buildItemsPayload(part.solutionItems)
+      const solutionImageItem = resolvedSolutionImageItems.get(part.localId)
+      if (solutionTextItems.length === 0 && !solutionImageItem) {
         throw new ExerciseFormValidationError(
           `La solution du bloc ${index + 1} (question) est obligatoire.`,
         )
       }
+      const solutionItems = solutionImageItem
+        ? [...solutionTextItems, solutionImageItem]
+        : solutionTextItems
       return { category: 'question' as const, items, solution: { items: solutionItems } }
     }
 
@@ -193,11 +154,12 @@ function buildEditableItemsFromContent(items: PublicContentItem[]): EditableExer
  * Accepte soit `GET /exercises/:id` (`PublicExerciseDetail`, jamais de solution), soit
  * `GET /exercises/:id/solutions` (`AuthorExerciseDetail`, réservée à l'auteur et aux AP/RP/TI,
  * corrective du 2026-09-01 — voir `fetchExerciseForEdit` dans `api/exercises.ts`). Quand la
- * solution d'un bloc question est disponible, elle est réellement pré-remplie (items
- * texte/formule uniquement — une image de solution est désormais lisible en base64
- * (`AuthorContentItem.imageData`) mais n'est pas encore éditable depuis ce formulaire, texte/
- * formule seulement) ; sinon un seul élément vide est proposé, à ressaisir par l'auteur — signalé
- * explicitement à l'écran (`ExerciseEditPage`), jamais silencieusement vidé.
+ * solution d'un bloc question est disponible, elle est réellement pré-remplie — items
+ * texte/formule dans `solutionItems`, image éventuelle (base64 déjà en mémoire,
+ * `AuthorContentItem.imageData`) dans `existingSolutionImageItem`, éditable/remplaçable depuis ce
+ * formulaire (`ExerciseSolutionImageEditor`, correctif du 2026-09-01) ; sinon un seul élément
+ * texte vide est proposé, à ressaisir par l'auteur — signalé explicitement à l'écran
+ * (`ExerciseEditPage`), jamais silencieusement vidé.
  *
  * Un bloc `category: 'image'` reprend son image déjà enregistrée dans `existingImageItem`
  * (affichée par `ExerciseImageBlockEditor` tant qu'aucun nouveau fichier n'est choisi) — voir
@@ -215,6 +177,12 @@ export function buildEditableStateForExerciseEdit(
       part.category === 'question' && authorPart.solution
         ? buildEditableItemsFromContent(authorPart.solution.items)
         : []
+    const existingSolutionImageItem: AuthorContentItem | null =
+      part.category === 'question' && authorPart.solution
+        ? ((authorPart.solution.items.find((item) => item.type === 'image') as
+            | AuthorContentItem
+            | undefined) ?? null)
+        : null
 
     const existingImageItem =
       part.category === 'image' ? (part.items.find((item) => item.type === 'image') ?? null) : null
@@ -229,6 +197,7 @@ export function buildEditableStateForExerciseEdit(
             : editablePart.solutionItems
           : [],
       existingImageItem,
+      existingSolutionImageItem,
     }
   })
 

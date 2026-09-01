@@ -4,6 +4,11 @@
  *
  * Auto-contrôle, pas un Quizz noté — aucune notation, aucun score affiché.
  *
+ * C'est aussi l'écran de destination après une édition réussie (`ExerciseEditPage`, correctif du
+ * 2026-09-01 « retour à l'écran précédent avec confirmation ») : un message de confirmation est
+ * porté par `location.state.message`, même mécanisme déjà en place pour l'inscription
+ * (`LoginPage`/`StudentRegistrationPage`) — lu ici une fois au montage, jamais recréé côté serveur.
+ *
  * Routes API consommées :
  *   GET  /exercises/:id                    (content-catalog-service)
  *   POST /exercise-attempts                (learning-activity-service — démarrage)
@@ -12,7 +17,7 @@
  */
 
 import React, { useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { PageHeader } from '../components/ui/PageHeader'
 import { ErrorMessage } from '../components/ui/ErrorMessage'
@@ -39,8 +44,12 @@ import type { ExerciseAttempt } from '../types/exercise'
 export default function ExerciseDetailPage() {
   const { exerciseId } = useParams<{ exerciseId: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
   const resolvedExerciseId = exerciseId ?? ''
+
+  const locationState = location.state as { message?: string } | null
+  const confirmationMessage = locationState?.message ?? null
 
   const {
     data: exercise,
@@ -122,6 +131,12 @@ export default function ExerciseDetailPage() {
         >
           ← Retour au catalogue
         </button>
+
+        {confirmationMessage && (
+          <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
+            {confirmationMessage}
+          </div>
+        )}
 
         <PageHeader
           title={getExerciseDisplayTitle(exercise.title)}

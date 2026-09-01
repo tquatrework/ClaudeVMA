@@ -204,11 +204,11 @@ export async function fetchExercisePartImageBlob(
 // existé un temps le 2026-09-01, avant que le contrat réel de `content-catalog-service` (PR #191)
 // ne soit confirmé : elles sont **retirées côté serveur**
 // (`POST /exercises/:id/parts/:partId/images` et `.../solution/images` n'existent plus). L'image
-// d'un bloc transite désormais en base64, inline, dans `createExercise`/`updateExercise` — voir
-// `utils/exercisePayload.ts` (`resolveExerciseImagePayloadItems`). Une image de solution reste,
-// elle, éditable en texte/formule uniquement côté formulaire (voir `types/exercise.ts`,
-// `AuthorContentItem` — la donnée base64 est désormais lisible via `GET /exercises/:id/solutions`,
-// mais rien ne permet encore de l'écrire depuis ce formulaire).
+// d'un bloc, comme l'image d'une solution, transite désormais en base64, inline, dans
+// `createExercise`/`updateExercise` — voir `utils/exercisePayload.ts`
+// (`resolveExerciseImagePayloadItems`/`resolveExerciseSolutionImagePayloadItems`). Confirmé en HTTP
+// direct contre la production le 2026-09-01 pour l'écriture d'une image de solution (`AuthorContentItem`,
+// `types/exercise.ts`).
 
 // ─── Validation — flux générique partagé avec le Quizz (ContentType.EXERCISE) ─────────────────
 

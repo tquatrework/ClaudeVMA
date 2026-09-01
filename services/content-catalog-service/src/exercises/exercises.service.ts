@@ -21,9 +21,12 @@ import { ContentStatus } from '../common/enums/content-status.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { ProfileRelationsClient } from '../common/clients/profile-relations.client';
 import { ExerciseImageStorageService } from './exercise-image-storage.service';
-import { ExerciseImageTranscoder } from './exercise-image-transcoder';
-import { CreateExerciseImageDto } from './dto/create-exercise-image.dto';
-import { EXERCISE_IMAGE_MAX_BYTES } from './exercise.constants';
+import { ExerciseImageTranscoder, TranscodedExerciseImage } from './exercise-image-transcoder';
+import {
+  EXERCISE_IMAGE_MAX_BYTES,
+  EXERCISE_IMAGE_INPUT_MAX_BYTES,
+  EXERCISE_JSON_BODY_MAX_BYTES,
+} from './exercise.constants';
 
 /** Rôles autorisés à créer/éditer un exercice — mêmes rôles que le Quizz (2026-08-28). */
 export const EXERCISE_CREATOR_ROLES = [
@@ -40,7 +43,15 @@ const ADMIN_ROLES = [
 
 const VALIDATOR_ROLES = [UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE];
 
-/** Forme publique d'un item de contenu — jamais le contenu d'une solution hors de la route interne dédiée. */
+/**
+ * Forme publique d'un item de contenu — jamais le contenu d'une solution
+ * hors de la route interne dédiée ou de `GET /exercises/:id/solutions`
+ * (auteur/AP/RP/TI). `imageData` (base64) n'est JAMAIS peuplé sur un item de
+ * bloc (déjà accessible via `GET /exercises/:id/images/:itemId`) — seulement
+ * sur un item de SOLUTION renvoyé par `findOneWithSolutions` (arbitrage du
+ * 2026-09-01, point 5 : « l'auteur doit pouvoir revoir une image de solution
+ * qu'il a lui-même envoyée, via la même route de lecture d'auteur »).
+ */
 export interface PublicContentItem {
   id: string;
   type: ExerciseContentItemType;
@@ -48,6 +59,7 @@ export interface PublicContentItem {
   content: string | null;
   imageMimeType?: string;
   imageSizeBytes?: number;
+  imageData?: string;
 }
 
 export interface PublicExercisePart {
@@ -178,25 +190,46 @@ export class ExercisesService {
   // (arbitrage du 2026-09-01, "Titre des Exercices et des Quizz", point 6)
   // ───────────────────────────────────────────────────────────────────────
 
-  private toPublicPartWithSolution(part: ExercisePart): PublicExercisePartWithSolution {
+  /**
+   * Même forme que `toPublicItem`, mais embarque en plus les octets d'une
+   * image de SOLUTION en base64 (`imageData`) — jamais pour un item de bloc
+   * (déjà téléchargeable via `GET /exercises/:id/images/:itemId`). Corrige
+   * le bug "image de solution jamais rerelisible par l'auteur" (arbitrage
+   * du 2026-09-01, point 5) en réutilisant cette route de lecture d'auteur
+   * plutôt qu'un mécanisme binaire séparé.
+   */
+  private async toPublicItemWithSolutionData(item: ExerciseContentItem): Promise<PublicContentItem> {
+    const base = this.toPublicItem(item);
+    if (item.type === 'image' && item.imageStoredFilename) {
+      const buffer = await this.imageStorage.read(item.imageStoredFilename);
+      return { ...base, imageData: buffer.toString('base64') };
+    }
+    return base;
+  }
+
+  private async toPublicPartWithSolution(part: ExercisePart): Promise<PublicExercisePartWithSolution> {
     const items = [...(part.items ?? [])].sort((a, b) => a.order - b.order);
-    const solutionItems = part.solution
-      ? [...(part.solution.items ?? [])].sort((a, b) => a.order - b.order)
-      : null;
+    let solution: { items: PublicContentItem[] } | null = null;
+    if (part.solution) {
+      const solutionItems = [...(part.solution.items ?? [])].sort((a, b) => a.order - b.order);
+      solution = {
+        items: await Promise.all(solutionItems.map((item) => this.toPublicItemWithSolutionData(item))),
+      };
+    }
     return {
       id: part.id,
       partNumber: part.partNumber,
       category: part.category,
       items: items.map((item) => this.toPublicItem(item)),
-      solution: solutionItems ? { items: solutionItems.map((item) => this.toPublicItem(item)) } : null,
+      solution,
     };
   }
 
-  private toPublicDetailWithSolutions(exercise: Exercise): PublicExerciseDetailWithSolutions {
+  private async toPublicDetailWithSolutions(exercise: Exercise): Promise<PublicExerciseDetailWithSolutions> {
     const parts = [...(exercise.parts ?? [])].sort((a, b) => a.partNumber - b.partNumber);
     return {
       ...this.toPublicSummary(exercise),
-      parts: parts.map((part) => this.toPublicPartWithSolution(part)),
+      parts: await Promise.all(parts.map((part) => this.toPublicPartWithSolution(part))),
     };
   }
 
@@ -204,6 +237,16 @@ export class ExercisesService {
   // Validation des blocs à la création/édition
   // ───────────────────────────────────────────────────────────────────────
 
+  /**
+   * Validation par bloc — 3 catégories depuis le 2026-09-01 (docs/architecture.md,
+   * "Bloc 'image' de premier niveau pour l'Exercice") :
+   *   - `statement` : items texte/formule uniquement, PEUT être vide.
+   *   - `image`     : exactement un item, de type `image`. Aucune solution.
+   *   - `question`  : items texte/formule non vide + solution obligatoire.
+   * Une image ne peut JAMAIS apparaître dans les items d'un bloc
+   * `statement`/`question` : elle se dépose dans un bloc `image` dédié
+   * (l'ancien mécanisme d'item-image imbriqué est retiré).
+   */
   private validatePartDto(part: CreateExercisePartDto, index: number): void {
     const position = index + 1;
 
@@ -211,34 +254,160 @@ export class ExercisesService {
       throw new BadRequestException(`Bloc ${position} : catégorie inconnue`);
     }
 
-    if (!part.items || part.items.length === 0) {
-      throw new BadRequestException(`Bloc ${position} : au moins un item de contenu est requis`);
+    const items = part.items ?? [];
+
+    if (part.category === ExercisePartCategory.IMAGE) {
+      if (items.length !== 1 || items[0].type !== 'image') {
+        throw new BadRequestException(`Bloc ${position} : un bloc image doit porter exactement une image`);
+      }
+      if (part.solution) {
+        throw new BadRequestException(`Bloc ${position} : un bloc image ne peut pas porter de solution`);
+      }
+      return;
+    }
+
+    if (items.some((item) => item.type === 'image')) {
+      throw new BadRequestException(
+        `Bloc ${position} : une image se dépose dans un bloc dédié (catégorie "image"), pas comme item de ce bloc`,
+      );
     }
 
     if (part.category === ExercisePartCategory.QUESTION) {
+      if (items.length === 0) {
+        throw new BadRequestException(`Bloc ${position} : au moins un item de contenu est requis`);
+      }
       if (!part.solution || !part.solution.items || part.solution.items.length === 0) {
         throw new BadRequestException(
           `Bloc ${position} : un bloc question doit porter une solution avec au moins un item de contenu`,
         );
       }
     } else if (part.solution) {
+      // STATEMENT
       throw new BadRequestException(`Bloc ${position} : un bloc énoncé ne peut pas porter de solution`);
     }
   }
 
-  private buildItemEntities(
+  /**
+   * Contrainte de composition minimale de l'exercice entier (arbitrage du
+   * 2026-09-01, point 2) : au moins un bloc `statement` (peut être vide) et
+   * au moins un bloc `question` non vide — ce dernier point est déjà garanti
+   * structurellement par `validatePartDto` (un bloc `question` porte
+   * toujours au moins un item + une solution), il suffit donc de vérifier
+   * la PRÉSENCE d'au moins un bloc de chaque catégorie obligatoire.
+   */
+  private validateExerciseComposition(parts: CreateExercisePartDto[]): void {
+    if (!parts.some((part) => part.category === ExercisePartCategory.STATEMENT)) {
+      throw new BadRequestException("Un exercice doit comporter au moins un bloc énoncé (il peut être vide)");
+    }
+    if (!parts.some((part) => part.category === ExercisePartCategory.QUESTION)) {
+      throw new BadRequestException('Un exercice doit comporter au moins un bloc question non vide');
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Images embarquées en base64 (arbitrage du 2026-09-01) — décodage,
+  // garde de taille d'entrée, ré-encodage et stockage.
+  // ───────────────────────────────────────────────────────────────────────
+
+  /** Décode `imageData` (base64, avec ou sans préfixe data URI) et vérifie la taille d'entrée avant tout décodage coûteux (ré-encodage sharp). */
+  private decodeBase64Image(raw: string | undefined): Buffer {
+    if (!raw) {
+      throw new BadRequestException("Contenu d'image manquant (imageData requis pour un item de type image)");
+    }
+    const commaIndex = raw.indexOf(',');
+    const payload = raw.startsWith('data:') && commaIndex !== -1 ? raw.slice(commaIndex + 1) : raw;
+
+    let buffer: Buffer;
+    try {
+      buffer = Buffer.from(payload, 'base64');
+    } catch {
+      throw new BadRequestException("Contenu d'image invalide (base64 attendu)");
+    }
+    if (buffer.length === 0) {
+      throw new BadRequestException("Contenu d'image vide ou invalide");
+    }
+    if (buffer.length > EXERCISE_IMAGE_INPUT_MAX_BYTES) {
+      throw new PayloadTooLargeException({
+        statusCode: 413,
+        error: 'Payload Too Large',
+        code: 'EXERCISE_IMAGE_TOO_LARGE',
+        message: 'Le fichier envoyé est trop volumineux',
+        maxUploadBytes: EXERCISE_IMAGE_INPUT_MAX_BYTES,
+        receivedBytes: buffer.length,
+      });
+    }
+    return buffer;
+  }
+
+  /** Ré-encode et vérifie le plafond de SORTIE — même garde que l'ancien mécanisme multipart (2026-08-29), inchangée. */
+  private async transcodeAndValidateImage(buffer: Buffer): Promise<TranscodedExerciseImage> {
+    const transcoded = await this.imageTranscoder.transcode(buffer);
+    if (transcoded.bytes.length > EXERCISE_IMAGE_MAX_BYTES) {
+      throw new PayloadTooLargeException({
+        statusCode: 413,
+        error: 'Payload Too Large',
+        code: 'EXERCISE_IMAGE_TOO_LARGE',
+        message: "L'image ré-encodée dépasse la taille maximale autorisée",
+        maxUploadBytes: EXERCISE_IMAGE_MAX_BYTES,
+        receivedBytes: transcoded.bytes.length,
+      });
+    }
+    return transcoded;
+  }
+
+  /**
+   * Construit les entités `ExerciseContentItem` d'un bloc ou d'une solution.
+   * Pour un item `image`, décode/ré-encode/stocke les octets AVANT de créer
+   * l'entité (même mécanisme que le reste de la séquence — un seul appel de
+   * sauvegarde, plus de désynchronisation entre texte et image, arbitrage du
+   * 2026-09-01 point 6).
+   */
+  private async buildItemEntities(
     items: CreateExerciseContentItemDto[],
     ref: { partId?: string; solutionId?: string },
-  ): ExerciseContentItem[] {
-    return items.map((item, index) =>
-      this.exerciseContentItemRepository.create({
-        partId: ref.partId ?? null,
-        solutionId: ref.solutionId ?? null,
-        type: item.type,
-        content: item.content,
-        order: index,
-      }),
-    );
+  ): Promise<ExerciseContentItem[]> {
+    const entities: ExerciseContentItem[] = [];
+
+    for (let index = 0; index < items.length; index += 1) {
+      const dto = items[index];
+
+      if (dto.type === 'image') {
+        const rawBuffer = this.decodeBase64Image(dto.imageData);
+        const transcoded = await this.transcodeAndValidateImage(rawBuffer);
+        const storedFilename = await this.imageStorage.save(transcoded.bytes);
+
+        entities.push(
+          this.exerciseContentItemRepository.create({
+            partId: ref.partId ?? null,
+            solutionId: ref.solutionId ?? null,
+            type: 'image',
+            content: dto.content ?? null,
+            imageOriginalFilename: dto.imageOriginalFilename ?? null,
+            imageStoredFilename: storedFilename,
+            imageMimeType: transcoded.contentType,
+            imageSizeBytes: transcoded.bytes.length,
+            order: index,
+          }),
+        );
+        continue;
+      }
+
+      if (!dto.content || !dto.content.trim()) {
+        throw new BadRequestException(`Le contenu d'un item de type "${dto.type}" est requis`);
+      }
+
+      entities.push(
+        this.exerciseContentItemRepository.create({
+          partId: ref.partId ?? null,
+          solutionId: ref.solutionId ?? null,
+          type: dto.type,
+          content: dto.content,
+          order: index,
+        }),
+      );
+    }
+
+    return entities;
   }
 
   // ───────────────────────────────────────────────────────────────────────
@@ -300,6 +469,7 @@ export class ExercisesService {
       throw new BadRequestException('Un exercice doit contenir au moins un bloc');
     }
     createExerciseDto.parts.forEach((part, index) => this.validatePartDto(part, index));
+    this.validateExerciseComposition(createExerciseDto.parts);
 
     // Statut fixé à la création selon le rôle, aligné sur le Quizz (2026-08-28) :
     // pending_validation pour un formateur, validated immédiatement pour AP/RP.
@@ -344,8 +514,10 @@ export class ExercisesService {
       });
       const savedPart = await this.exercisePartRepository.save(part);
 
-      const itemEntities = this.buildItemEntities(partDto.items, { partId: savedPart.id });
-      await this.exerciseContentItemRepository.save(itemEntities);
+      const itemEntities = await this.buildItemEntities(partDto.items ?? [], { partId: savedPart.id });
+      if (itemEntities.length > 0) {
+        await this.exerciseContentItemRepository.save(itemEntities);
+      }
 
       if (partDto.category === ExercisePartCategory.QUESTION && partDto.solution) {
         const solution = this.exerciseSolutionRepository.create({
@@ -356,7 +528,7 @@ export class ExercisesService {
         });
         const savedSolution = await this.exerciseSolutionRepository.save(solution);
 
-        const solutionItems = this.buildItemEntities(partDto.solution.items, { solutionId: savedSolution.id });
+        const solutionItems = await this.buildItemEntities(partDto.solution.items, { solutionId: savedSolution.id });
         await this.exerciseContentItemRepository.save(solutionItems);
       }
     }
@@ -369,16 +541,18 @@ export class ExercisesService {
   /**
    * Remplace intégralement les blocs, items et solutions d'un exercice.
    *
-   * LIMITE CONNUE, documentée et assumée faute de temps pour un diff par
-   * identifiant stable côté client (même absence d'identité stable que les
-   * questions du Quizz) : les IMAGES précédemment envoyées sur les blocs ou
-   * solutions de cet exercice sont supprimées avec le reste (fichiers sur le
-   * volume dédié inclus, pour ne jamais laisser de fichier orphelin) — elles
-   * doivent être renvoyées après l'édition si elles doivent être conservées.
-   * Le DTO JSON ne transporte de toute façon que des items texte/formule
-   * (`CreateExerciseContentItemDto` exclut `image`), donc un remplacement
-   * complet ne peut de toute façon jamais réintroduire une image existante
-   * sans passer par les routes multipart dédiées, après l'édition.
+   * LIMITE CONNUE, assumée faute de diff par identifiant stable côté client
+   * (même absence d'identité stable que les questions du Quizz) : les IMAGES
+   * précédemment envoyées sur les blocs ou solutions de cet exercice sont
+   * supprimées avec le reste (fichiers sur le volume dédié inclus, pour ne
+   * jamais laisser de fichier orphelin) à chaque édition. Depuis le
+   * 2026-09-01, `CreateExerciseContentItemDto` accepte le type `image`
+   * (base64) : une image existante PEUT donc être réintroduite dans le même
+   * appel `PUT`, à condition que le front la renvoie explicitement (par
+   * exemple en la retéléchargeant via `GET /exercises/:id/images/:itemId` ou
+   * `GET /exercises/:id/solutions` puis en la ré-encodant en base64) — ce
+   * n'est plus une impossibilité structurelle du DTO comme avant cette date,
+   * seulement un renvoi explicite à la charge du front.
    */
   async update(
     exerciseId: string,
@@ -403,6 +577,7 @@ export class ExercisesService {
       throw new BadRequestException('Un exercice doit contenir au moins un bloc');
     }
     updateExerciseDto.parts.forEach((part, index) => this.validatePartDto(part, index));
+    this.validateExerciseComposition(updateExerciseDto.parts);
 
     await this.deleteImagesForExercise(exerciseId);
 
@@ -610,142 +785,13 @@ export class ExercisesService {
 
   // ───────────────────────────────────────────────────────────────────────
   // Images — blocs (publiques, sous réserve de visibilité) et solutions
-  // (jamais publiques, voir InternalExercisesController)
+  // (jamais publiques, voir InternalExercisesController). Depuis le
+  // 2026-09-01, une image se dépose exclusivement à la création/l'édition
+  // de l'exercice (base64, voir `buildItemEntities` plus haut) — l'ancien
+  // mécanisme d'upload multipart post-création (`addImageToPart`,
+  // `addImageToSolution`) est retiré, pas conservé en parallèle. Seule la
+  // LECTURE des images (téléchargement des octets) reste ici.
   // ───────────────────────────────────────────────────────────────────────
-
-  /** Vérifie que l'appelant est l'auteur de l'exercice, et que le bloc existe. Fait repasser l'exercice en revue si l'auteur est formateur. */
-  private async assertPartOwnership(exerciseId: string, partId: string, callerId: string): Promise<{ exercise: Exercise; part: ExercisePart }> {
-    const exercise = await this.exerciseRepository.findOne({ where: { id: exerciseId } });
-    if (!exercise) {
-      throw new NotFoundException(`Exercice ${exerciseId} introuvable`);
-    }
-    if (exercise.authorId !== callerId) {
-      throw new ForbiddenException("Seul l'auteur peut modifier cet exercice");
-    }
-
-    const part = await this.exercisePartRepository.findOne({ where: { id: partId, exerciseId } });
-    if (!part) {
-      throw new NotFoundException(`Bloc ${partId} introuvable`);
-    }
-
-    // Ajouter une image modifie le contenu : un auteur formateur repasse en
-    // revue, même règle que update() (2026-08-28, alignement Quizz).
-    if (exercise.authorRole === UserRole.FORMATEUR && exercise.status !== ContentStatus.PENDING_VALIDATION) {
-      exercise.status = ContentStatus.PENDING_VALIDATION;
-      await this.exerciseRepository.save(exercise);
-    }
-
-    return { exercise, part };
-  }
-
-  private async transcodeUploadedImage(file: Express.Multer.File | undefined) {
-    if (!file) {
-      throw new BadRequestException('Aucun fichier envoyé');
-    }
-    if (file.size > EXERCISE_IMAGE_MAX_BYTES * 8) {
-      // Garde-fou grossier avant décodage — le plafond réel porte sur la
-      // SORTIE ré-encodée (voir plus bas), le fichier d'entrée peut être plus
-      // lourd avant compression WebP.
-      throw new PayloadTooLargeException({
-        statusCode: 413,
-        error: 'Payload Too Large',
-        code: 'EXERCISE_IMAGE_TOO_LARGE',
-        message: 'Le fichier envoyé est trop volumineux',
-        receivedBytes: file.size,
-      });
-    }
-
-    const transcoded = await this.imageTranscoder.transcode(file.buffer);
-    if (transcoded.bytes.length > EXERCISE_IMAGE_MAX_BYTES) {
-      throw new PayloadTooLargeException({
-        statusCode: 413,
-        error: 'Payload Too Large',
-        code: 'EXERCISE_IMAGE_TOO_LARGE',
-        message: "L'image ré-encodée dépasse la taille maximale autorisée",
-        maxUploadBytes: EXERCISE_IMAGE_MAX_BYTES,
-        receivedBytes: transcoded.bytes.length,
-      });
-    }
-
-    return transcoded;
-  }
-
-  async addImageToPart(
-    exerciseId: string,
-    partId: string,
-    file: Express.Multer.File | undefined,
-    dto: CreateExerciseImageDto,
-    callerId: string,
-  ): Promise<PublicContentItem> {
-    await this.assertPartOwnership(exerciseId, partId, callerId);
-    const transcoded = await this.transcodeUploadedImage(file);
-    const storedFilename = await this.imageStorage.save(transcoded.bytes);
-
-    const item = await this.appendImageItem(
-      { partId },
-      storedFilename,
-      file.originalname,
-      transcoded.contentType,
-      transcoded.bytes.length,
-      dto.caption,
-    );
-    return this.toPublicItem(item);
-  }
-
-  async addImageToSolution(
-    exerciseId: string,
-    partId: string,
-    file: Express.Multer.File | undefined,
-    dto: CreateExerciseImageDto,
-    callerId: string,
-  ): Promise<PublicContentItem> {
-    const { part } = await this.assertPartOwnership(exerciseId, partId, callerId);
-    if (part.category !== ExercisePartCategory.QUESTION) {
-      throw new BadRequestException('Seul un bloc question porte une solution');
-    }
-    const solution = await this.exerciseSolutionRepository.findOne({ where: { partId } });
-    if (!solution) {
-      throw new NotFoundException(`Solution du bloc ${partId} introuvable`);
-    }
-
-    const transcoded = await this.transcodeUploadedImage(file);
-    const storedFilename = await this.imageStorage.save(transcoded.bytes);
-
-    const item = await this.appendImageItem(
-      { solutionId: solution.id },
-      storedFilename,
-      file.originalname,
-      transcoded.contentType,
-      transcoded.bytes.length,
-      dto.caption,
-    );
-    return this.toPublicItem(item);
-  }
-
-  private async appendImageItem(
-    ref: { partId?: string; solutionId?: string },
-    storedFilename: string,
-    originalFilename: string,
-    mimeType: string,
-    sizeBytes: number,
-    caption: string | undefined,
-  ): Promise<ExerciseContentItem> {
-    const existing = await this.exerciseContentItemRepository.find({ where: ref });
-    const nextOrder = existing.reduce((max, item) => Math.max(max, item.order), -1) + 1;
-
-    const item = this.exerciseContentItemRepository.create({
-      partId: ref.partId ?? null,
-      solutionId: ref.solutionId ?? null,
-      type: 'image',
-      content: caption ?? null,
-      imageOriginalFilename: originalFilename,
-      imageStoredFilename: storedFilename,
-      imageMimeType: mimeType,
-      imageSizeBytes: sizeBytes,
-      order: nextOrder,
-    });
-    return this.exerciseContentItemRepository.save(item);
-  }
 
   /**
    * Octets d'une image publique (bloc uniquement, jamais une solution) —
@@ -805,5 +851,23 @@ export class ExercisesService {
 
     const items = [...(solution.items ?? [])].sort((a, b) => a.order - b.order);
     return items.map((item) => this.toPublicItem(item));
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Plafonds d'image — lus par le front avant d'afficher le bouton d'ajout
+  // (même discipline que GET /profiles/avatar/constraints,
+  // GET /quizzes/import/constraints), jamais codés en dur côté client.
+  // ───────────────────────────────────────────────────────────────────────
+
+  getImageConstraints(): {
+    maxImageInputBytes: number;
+    maxImageOutputBytes: number;
+    maxRequestBodyBytes: number;
+  } {
+    return {
+      maxImageInputBytes: EXERCISE_IMAGE_INPUT_MAX_BYTES,
+      maxImageOutputBytes: EXERCISE_IMAGE_MAX_BYTES,
+      maxRequestBodyBytes: EXERCISE_JSON_BODY_MAX_BYTES,
+    };
   }
 }

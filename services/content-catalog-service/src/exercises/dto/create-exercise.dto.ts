@@ -26,6 +26,15 @@ export { CreateExerciseContentItemDto } from './create-exercise-content-item.dto
  * par auteur vérifiée côté service (`ExercisesService.assertTitleUnique`),
  * jamais devinée par le front — voir `GET /exercises/default-title` pour la
  * valeur suggérée avant saisie.
+ *
+ * Depuis le 2026-09-01 (docs/architecture.md, "Bloc 'image' de premier
+ * niveau pour l'Exercice"), `parts` porte 3 catégories de bloc
+ * (`statement`/`image`/`question`) au lieu de 2 : un exercice doit
+ * comporter au moins un bloc `statement` (peut être vide) et au moins un
+ * bloc `question` non vide (vérifié côté service,
+ * `ExercisesService.validateExerciseComposition`). Une image se dépose
+ * directement dans un bloc `image` dédié, encodée en base64 dans le même
+ * appel — l'ancien mécanisme d'upload multipart après création est retiré.
  */
 export class CreateExerciseDto {
   @ApiProperty({ description: 'Titre de l\'exercice' })

@@ -14,13 +14,17 @@ import { ExerciseSolution } from './exercise-solution.entity';
 import { ExercisePartCategory } from '../enums/exercise-part-category.enum';
 
 /**
- * ExercisePart — bloc ordonné d'un exercice (refonte du 2026-08-29). Un
- * exercice est une séquence libre de blocs `statement` (énoncé) et
- * `question`, plusieurs blocs `statement` étant possibles et entrelacés avec
- * des blocs `question`. `partNumber` porte l'ordre explicite de la séquence.
- * Le contenu (texte/formule/image) est porté par les `items` enfants
- * (`ExerciseContentItem`), plus `expectedAnswer` (texte libre, retiré : la
- * réponse relève désormais de `learning-activity-service`).
+ * ExercisePart — bloc ordonné d'un exercice (refonte du 2026-08-29, étendue
+ * le 2026-09-01). Un exercice est une séquence libre de blocs `statement`
+ * (énoncé), `image` et `question`, plusieurs blocs `statement`/`image`
+ * étant possibles et librement entrelacés avec des blocs `question`.
+ * `partNumber` porte l'ordre explicite de la séquence.
+ *
+ * Le contenu est porté par les `items` enfants (`ExerciseContentItem`) :
+ * texte/formule pour `statement`/`question`, EXACTEMENT un item de type
+ * `image` pour un bloc `image` (arbitrage du 2026-09-01, "Bloc 'image' de
+ * premier niveau pour l'Exercice" — l'image est un bloc à part entière, plus
+ * un item parmi d'autres au sein d'un bloc `statement`/`question`).
  */
 @Entity('exercise_parts')
 export class ExercisePart {

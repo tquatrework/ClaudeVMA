@@ -1,20 +1,19 @@
 /**
- * Unit tests — ExercisesService, gestion des images et de la route interne
- * de solution (refonte du 2026-08-29).
+ * Unit tests — ExercisesService, lecture des images et de la route interne
+ * de solution (refonte du 2026-08-29, mécanisme d'écriture remplacé le
+ * 2026-09-01 par l'embarquement base64 — voir exercises.service.spec.ts
+ * pour les tests de création/édition d'un bloc image).
  *
  * Couvre :
- *   - addImageToPart()             → réservé à l'auteur, fait repasser en
- *                                     pending_validation, ré-encodage via le
- *                                     transcoder injecté
- *   - addImageToSolution()         → réservé à l'auteur, bloc question requis
  *   - getPartImageForDownload()    → jamais une image de solution (404)
  *   - getImageForInternalDownload()→ toute image, sans vérification de visibilité
  *   - getSolutionContentForInternal() → jamais exposée hors de la route interne
+ *   - getImageConstraints()        → plafonds lus par le front
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ForbiddenException, NotFoundException, BadRequestException, PayloadTooLargeException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { ExercisesService } from '../../../src/exercises/exercises.service';
 import { Exercise } from '../../../src/exercises/entities/exercise.entity';
 import { ExercisePart } from '../../../src/exercises/entities/exercise-part.entity';
@@ -63,8 +62,6 @@ describe('ExercisesService — images et route interne', () => {
   const questionPart = { id: PART_ID, exerciseId: EXERCISE_ID, category: ExercisePartCategory.QUESTION } as ExercisePart;
   const statementPart = { id: PART_ID, exerciseId: EXERCISE_ID, category: ExercisePartCategory.STATEMENT } as ExercisePart;
 
-  const validFile = { originalname: 'photo.png', buffer: Buffer.from('fake'), size: 1000 } as Express.Multer.File;
-
   beforeEach(async () => {
     exerciseRepo = buildMockRepo();
     partRepo = buildMockRepo();
@@ -99,100 +96,15 @@ describe('ExercisesService — images et route interne', () => {
 
   afterEach(() => jest.clearAllMocks());
 
-  describe('addImageToPart()', () => {
-    it("ajoute une image et fait repasser l'exercice formateur en pending_validation", async () => {
-      exerciseRepo.findOne.mockResolvedValue({ ...exercise });
-      exerciseRepo.save.mockResolvedValue({});
-      partRepo.findOne.mockResolvedValue(statementPart);
-      itemRepo.find.mockResolvedValue([]);
-      itemRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'item-1' }));
+  describe('getImageConstraints()', () => {
+    it('renvoie les plafonds configurés', () => {
+      const result = service.getImageConstraints();
 
-      const result = await service.addImageToPart(EXERCISE_ID, PART_ID, validFile, {}, FORMATEUR_ID);
-
-      expect(imageTranscoder.transcode).toHaveBeenCalledWith(validFile.buffer);
-      expect(imageStorage.save).toHaveBeenCalled();
-      expect(exerciseRepo.save).toHaveBeenCalledWith(expect.objectContaining({ status: ContentStatus.PENDING_VALIDATION }));
-      expect(result.type).toBe('image');
-    });
-
-    it('lève ForbiddenException si l\'appelant n\'est pas l\'auteur', async () => {
-      exerciseRepo.findOne.mockResolvedValue({ ...exercise });
-
-      await expect(
-        service.addImageToPart(EXERCISE_ID, PART_ID, validFile, {}, OTHER_ID),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('lève NotFoundException si le bloc est introuvable', async () => {
-      exerciseRepo.findOne.mockResolvedValue({ ...exercise });
-      partRepo.findOne.mockResolvedValue(null);
-
-      await expect(
-        service.addImageToPart(EXERCISE_ID, PART_ID, validFile, {}, FORMATEUR_ID),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('lève BadRequestException si aucun fichier n\'est envoyé', async () => {
-      exerciseRepo.findOne.mockResolvedValue({ ...exercise });
-      exerciseRepo.save.mockResolvedValue({});
-      partRepo.findOne.mockResolvedValue(statementPart);
-
-      await expect(
-        service.addImageToPart(EXERCISE_ID, PART_ID, undefined, {}, FORMATEUR_ID),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('lève PayloadTooLargeException si l\'image ré-encodée dépasse le plafond', async () => {
-      exerciseRepo.findOne.mockResolvedValue({ ...exercise });
-      exerciseRepo.save.mockResolvedValue({});
-      partRepo.findOne.mockResolvedValue(statementPart);
-      imageTranscoder.transcode.mockResolvedValue({
-        bytes: Buffer.alloc(EXERCISE_IMAGE_MAX_BYTES + 1),
-        contentType: 'image/webp',
-        width: 1,
-        height: 1,
-        sourceFormat: 'png',
+      expect(result).toEqual({
+        maxImageInputBytes: expect.any(Number),
+        maxImageOutputBytes: EXERCISE_IMAGE_MAX_BYTES,
+        maxRequestBodyBytes: expect.any(Number),
       });
-
-      await expect(
-        service.addImageToPart(EXERCISE_ID, PART_ID, validFile, {}, FORMATEUR_ID),
-      ).rejects.toThrow(PayloadTooLargeException);
-    });
-  });
-
-  describe('addImageToSolution()', () => {
-    it('ajoute une image à la solution d\'un bloc question', async () => {
-      exerciseRepo.findOne.mockResolvedValue({ ...exercise });
-      exerciseRepo.save.mockResolvedValue({});
-      partRepo.findOne.mockResolvedValue(questionPart);
-      solutionRepo.findOne.mockResolvedValue({ id: 'sol-1', partId: PART_ID });
-      itemRepo.find.mockResolvedValue([]);
-      itemRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'item-1' }));
-
-      const result = await service.addImageToSolution(EXERCISE_ID, PART_ID, validFile, {}, FORMATEUR_ID);
-
-      expect(result.type).toBe('image');
-    });
-
-    it('lève BadRequestException si le bloc n\'est pas une question', async () => {
-      exerciseRepo.findOne.mockResolvedValue({ ...exercise });
-      exerciseRepo.save.mockResolvedValue({});
-      partRepo.findOne.mockResolvedValue(statementPart);
-
-      await expect(
-        service.addImageToSolution(EXERCISE_ID, PART_ID, validFile, {}, FORMATEUR_ID),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('lève NotFoundException si la solution n\'existe pas', async () => {
-      exerciseRepo.findOne.mockResolvedValue({ ...exercise });
-      exerciseRepo.save.mockResolvedValue({});
-      partRepo.findOne.mockResolvedValue(questionPart);
-      solutionRepo.findOne.mockResolvedValue(null);
-
-      await expect(
-        service.addImageToSolution(EXERCISE_ID, PART_ID, validFile, {}, FORMATEUR_ID),
-      ).rejects.toThrow(NotFoundException);
     });
   });
 

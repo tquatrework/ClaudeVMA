@@ -92,6 +92,10 @@ const validCreateDto = {
   ],
 };
 
+// PNG 1x1 valide (transparent) — même fixture que exercise-image-transcoder.spec.ts.
+const TINY_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
 describe('ExercisesService', () => {
   let service: ExercisesService;
   let exerciseRepo: ReturnType<typeof buildMockRepo>;
@@ -230,6 +234,121 @@ describe('ExercisesService', () => {
       // getOne() reste undefined par défaut (aucun doublon POUR CET auteur)
 
       await expect(service.create(validCreateDto as any, OTHER_ID, 'formateur')).resolves.toBeDefined();
+    });
+
+    // Arbitrage du 2026-09-01, "Bloc 'image' de premier niveau pour
+    // l'Exercice" — composition minimale de l'exercice.
+    it('lève BadRequestException si l\'exercice ne comporte aucun bloc énoncé', async () => {
+      const dto = {
+        title: 'sans énoncé',
+        parts: [
+          {
+            category: ExercisePartCategory.QUESTION,
+            items: [{ type: 'text', content: 'Q1' }],
+            solution: { items: [{ type: 'text', content: 'R1' }] },
+          },
+        ],
+      };
+      await expect(service.create(dto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(BadRequestException);
+    });
+
+    it('lève BadRequestException si l\'exercice ne comporte aucun bloc question', async () => {
+      const dto = {
+        title: 'sans question',
+        parts: [{ category: ExercisePartCategory.STATEMENT, items: [{ type: 'text', content: 'Énoncé seul' }] }],
+      };
+      await expect(service.create(dto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(BadRequestException);
+    });
+
+    it('autorise un bloc énoncé vide (sans item)', async () => {
+      exerciseRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: EXERCISE_ID }));
+      partRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'part-' + Math.random() }));
+      itemRepo.save.mockImplementation((x) => Promise.resolve(x));
+      solutionRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'sol-1' }));
+      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ status: ContentStatus.PENDING_VALIDATION }));
+
+      const dto = {
+        title: 'énoncé vide',
+        parts: [
+          { category: ExercisePartCategory.STATEMENT, items: [] },
+          {
+            category: ExercisePartCategory.QUESTION,
+            items: [{ type: 'text', content: 'Q1' }],
+            solution: { items: [{ type: 'text', content: 'R1' }] },
+          },
+        ],
+      };
+
+      await expect(service.create(dto as any, FORMATEUR_ID, 'formateur')).resolves.toBeDefined();
+    });
+
+    // Bloc image de premier niveau (2026-09-01).
+    it('crée un bloc image avec une image encodée en base64', async () => {
+      exerciseRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: EXERCISE_ID }));
+      partRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'part-' + Math.random() }));
+      itemRepo.save.mockImplementation((x) => Promise.resolve(x));
+      solutionRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'sol-1' }));
+      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ status: ContentStatus.PENDING_VALIDATION }));
+      imageTranscoder.transcode.mockResolvedValue({
+        bytes: Buffer.from('encoded'),
+        contentType: 'image/webp',
+        width: 1,
+        height: 1,
+        sourceFormat: 'png',
+      });
+      imageStorage.save.mockResolvedValue('stored-uuid');
+
+      const dto = {
+        title: 'avec image',
+        parts: [
+          { category: ExercisePartCategory.STATEMENT, items: [{ type: 'text', content: 'Énoncé' }] },
+          { category: ExercisePartCategory.IMAGE, items: [{ type: 'image', imageData: TINY_PNG_BASE64 }] },
+          {
+            category: ExercisePartCategory.QUESTION,
+            items: [{ type: 'text', content: 'Q1' }],
+            solution: { items: [{ type: 'text', content: 'R1' }] },
+          },
+        ],
+      };
+
+      await service.create(dto as any, FORMATEUR_ID, 'formateur');
+
+      expect(imageTranscoder.transcode).toHaveBeenCalled();
+      expect(imageStorage.save).toHaveBeenCalledWith(Buffer.from('encoded'));
+      expect(itemRepo.save).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ type: 'image', imageStoredFilename: 'stored-uuid' })]),
+      );
+    });
+
+    it('lève BadRequestException si un bloc image ne porte pas exactement une image', async () => {
+      const dto = {
+        title: 'bloc image invalide',
+        parts: [
+          { category: ExercisePartCategory.STATEMENT, items: [] },
+          { category: ExercisePartCategory.IMAGE, items: [] },
+          {
+            category: ExercisePartCategory.QUESTION,
+            items: [{ type: 'text', content: 'Q1' }],
+            solution: { items: [{ type: 'text', content: 'R1' }] },
+          },
+        ],
+      };
+      await expect(service.create(dto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(BadRequestException);
+    });
+
+    it('lève BadRequestException si une image apparaît dans les items d\'un bloc énoncé', async () => {
+      const dto = {
+        title: 'image mal placée',
+        parts: [
+          { category: ExercisePartCategory.STATEMENT, items: [{ type: 'image', imageData: TINY_PNG_BASE64 }] },
+          {
+            category: ExercisePartCategory.QUESTION,
+            items: [{ type: 'text', content: 'Q1' }],
+            solution: { items: [{ type: 'text', content: 'R1' }] },
+          },
+        ],
+      };
+      await expect(service.create(dto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -488,6 +607,40 @@ describe('ExercisesService', () => {
       await expect(service.findOneWithSolutions(EXERCISE_ID, FORMATEUR_ID, 'formateur')).rejects.toThrow(
         NotFoundException,
       );
+    });
+
+    // Arbitrage du 2026-09-01, point 5 : l'auteur doit pouvoir revoir une
+    // image de solution qu'il a lui-même envoyée, via CETTE route.
+    it('renvoie imageData (base64) pour une image de solution', async () => {
+      const partWithImageSolution = {
+        id: 'part-2',
+        partNumber: 2,
+        category: ExercisePartCategory.QUESTION,
+        items: [{ id: 'item-2', type: 'text', content: 'Q2', order: 0 }],
+        solution: {
+          id: 'sol-2',
+          items: [
+            {
+              id: 'sol-item-img',
+              type: 'image',
+              content: null,
+              order: 0,
+              imageStoredFilename: 'stored-uuid',
+              imageMimeType: 'image/webp',
+              imageSizeBytes: 42,
+            },
+          ],
+        },
+      };
+      exerciseRepo.findOne.mockResolvedValue(
+        buildSampleExercise({ authorId: FORMATEUR_ID, parts: [partWithImageSolution] as any }),
+      );
+      imageStorage.read.mockResolvedValue(Buffer.from('image-bytes'));
+
+      const result = await service.findOneWithSolutions(EXERCISE_ID, FORMATEUR_ID, 'formateur');
+
+      expect(imageStorage.read).toHaveBeenCalledWith('stored-uuid');
+      expect(result.parts[0].solution?.items[0].imageData).toBe(Buffer.from('image-bytes').toString('base64'));
     });
 
     it('renvoie null pour un bloc énoncé sans solution', async () => {

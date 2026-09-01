@@ -917,6 +917,7 @@ Vérifié contre la pile réelle pour la relation formateur (2026-08-12) : le fo
 | GET | /internal/profiles/:userId/display-name | **Résoudre le prénom et le nom d'une personne** pour un service appelant (arbitrage du 2026-08-12, « Resolution des noms entre services »). Servie **sans lecteur** et **sans filtrage champ par champ** : un formateur qui reçoit une proposition n'est encore lié à aucun élève, la route publique lui répondrait `403` et l'écran retomberait sur un UUID. **Contrat figé : `firstName` et `lastName`, jamais un champ de plus** — l'étendre en ferait une porte dérobée contournant le filtrage de visibilité pour tout service détenant `INTERNAL_SECRET`. Tout autre besoin passe par `GET /profiles/:userId` et ses règles de droit. `x-correlation-id` accepté et propagé. **Jamais exposée par api-gateway** | `X-Internal-Secret` | `200 {userId, firstName, lastName}` — valeurs `string\|null` · `400` `userId` non-UUID · `401` secret absent ou invalide · `404` `userId` inconnu de identity-access-service · `500` compte connu **sans** profil administratif (incohérence de données, jamais masquée) |
 | POST | /internal/profiles/display-names | **Variante par lot** de la route ci-dessus, pour qu'une liste de N lignes ne coûte pas N appels HTTP (une seule requête SQL). `POST` alors que l'opération est une **lecture** : le corps porte la liste, qu'une query string ne peut pas transporter sans limite de longueur — d'où le `200`, aucune ressource n'est créée. Body : `{userIds: string[]}`, UUID, **200 identifiants au maximum** (plafond déclaré, pas de défaut caché). Ordre d'entrée conservé, doublons réduits à une entrée. Un `userId` sans profil administratif est **absent** de la réponse plutôt que de faire échouer le lot (l'anomalie reste tracée côté serveur) : un identifiant douteux ne prive pas l'appelant des autres noms. Même contrat figé que la route unitaire. **Jamais exposée par api-gateway** | `X-Internal-Secret` | `200 {displayNames: [{userId, firstName, lastName}]}` · `400` liste vide, au-delà du plafond, ou identifiant non-UUID · `401` secret absent ou invalide |
 | GET | /internal/relations/finance-owners/:studentId | **Résoudre les parents financeurs d'un élève** pour un appelant interservices — arbitrage du 2026-08-14 (`docs/architecture.md` > « Systeme de notifications transversal », point 5). Premier consommateur : `dashboard-notification-service`, pour notifier les parents financeurs quand un professeur est validé pour leur élève. Réutilise directement `RelationsService.getFinanceOwnersByStudent` (liens **actifs** uniquement — un parent délié n'apparaît plus). **Périmètre volontairement étroit : `userId` uniquement**, jamais de nom ni de statut de lien — la résolution de nom passe séparément par `GET /internal/profiles/:userId/display-name` / `POST /internal/profiles/display-names`. **Déclarée avant** `GET /internal/relations/:viewerId/:targetId` ci-dessous dans le contrôleur : même nombre de segments, `finance-owners` serait sinon capturé comme `:viewerId`. **Jamais exposée par api-gateway** | `X-Internal-Secret` | `200 {studentId, financeOwnerUserIds: string[]}` — liste vide si aucun parent financeur actif · `400` `studentId` non-UUID · `401` secret absent ou invalide |
+| GET | /internal/relations/teachers/:studentId | **Résoudre les professeurs actifs d'un élève** pour un appelant interservices — arbitrage du 2026-09-01 (`docs/architecture.md` > « Refonte des Evaluations », point 4b : demande de correction humaine). Premier consommateur prévu : `learning-activity-service`, pour notifier les professeurs liés à l'élève (en plus du RP, notifié par ailleurs via son rôle) quand celui-ci demande une correction. Réutilise directement `RelationsService.getTeachersByStudent` (liens **actifs** uniquement — un professeur délié n'apparaît plus). **Périmètre volontairement étroit : `userId` uniquement**, jamais de nom ni de statut de lien — la résolution de nom passe séparément par `GET /internal/profiles/:userId/display-name` / `POST /internal/profiles/display-names`. **Déclarée avant** `GET /internal/relations/:viewerId/:targetId` ci-dessous dans le contrôleur, même précaution que `finance-owners` juste au-dessus : même nombre de segments, `teachers` serait sinon capturé comme `:viewerId`. **Jamais exposée par api-gateway** | `X-Internal-Secret` | `200 {studentId, teacherUserIds: string[]}` — liste vide si aucun professeur actif · `400` `studentId` non-UUID · `401` secret absent ou invalide |
 | GET | /internal/relations/:viewerId/:targetId | **Lire la nature et le sens des relations entre deux personnes**, pour qu'un service appelant applique la même règle sans tenir de copie des relations — `profile-service` en reste l'unique propriétaire (arbitrage du 2026-08-11). Premier consommateur : `archive-document-service`. Query **obligatoire** `viewerRole` (`400` si absent ou hors énumération, avec la liste des valeurs acceptées) : le rôle accompagne systématiquement les appels interservices, `profile-service` ne le persiste ni ne l'expose. La réponse est **suffisante pour décider** : elle donne le **sens** du lien, pas un booléen — un élève voit les statistiques de son formateur mais **pas** ses archives pédagogiques, distinction impossible à faire sans lui. Ce service **ne rend pas le verdict** à la place de l'appelant : il fournit les faits, chaque service propriétaire décide de sa surface | `X-Internal-Secret` | `200 {viewerId, targetId, isSelf, isAdministrator, relations: [{kind, isPrincipalTeacher?, throughUserIds?}]}` — `relations: []` = aucun lien (et toujours `[]` quand `isSelf`) ; `isAdministrator` vaut `true` pour RP, AF, TI, **jamais pour l'AP** ; valeurs de `kind` : voir « Droit d'accès aux statistiques » ci-dessus · `400` UUID ou `viewerRole` invalide · `401` secret absent ou invalide |
 
 **Noms des blocs de profil — `administrative` / `pedagogical`, ici comme partout ailleurs.**
@@ -2868,9 +2869,10 @@ Body : `{siteName?, maintenanceMessage?, isMaintenanceMode?, contactEmail?, supp
 ## content-catalog-service
 
 Swagger complet exposé sur `/api/docs` (routes publiques uniquement — les routes `/internal/*`
-sont exclues via `@ApiExcludeController()`). Le tableau ci-dessous couvre uniquement les routes
-Quizz ajoutées le 2026-08-28 ; voir `docs/services/content-catalog-service.md` pour le reste du
-catalogue (exercices, évaluations, tutoriels, validations génériques).
+sont exclues via `@ApiExcludeController()`). Le tableau ci-dessous couvre les routes Quizz
+(2026-08-28), Exercices (2026-08-29) et Évaluations (2026-09-01) ; voir
+`docs/services/content-catalog-service.md` pour le reste du catalogue (tutoriels, validations
+génériques).
 
 ### Quizz
 
@@ -3059,6 +3061,42 @@ une solution d'exercice autrement que via `learning-activity-service`.
 |---|---|---|---|---|
 | POST | /internal/exercises/:exerciseId/parts/:partId/solution | Contrat figé avec `learning-activity-service` (`docs/architecture.md`, point 10) : renvoie le contenu complet de la solution d'un bloc `question`, sous la même forme que le contenu des blocs (`{id, type, order, content, imageMimeType?, imageSizeBytes?}[]`). Pour un item `image`, `id` sert directement d'`itemId` à passer à la route ci-dessous — les octets ne sont jamais embarqués en base64 dans cette réponse | `X-Internal-Secret` | `200 {content: PublicContentItem[]}` · `401` · `404` bloc ou solution introuvable |
 | GET | /internal/exercises/images/:itemId | Octets de **n'importe quelle** image (bloc ou solution) — aucune vérification de visibilité ici : le proprietaire de la décision (révéler ou non une solution à l'élève) est `learning-activity-service`, en amont de cet appel | `X-Internal-Secret` | `200` octets · `401` · `404` |
+
+### Évaluations
+
+Cycle de vie aligné sur Quizz/Exercice le 2026-09-01 (`docs/architecture.md`, "Refonte des
+Evaluations : notation manuelle, demande de correction, notifications" — périmètre
+`content-catalog-service` uniquement ; le passage chronométré, la demande de correction et
+l'historique de tentative sont portés par `learning-activity-service`, délégation séparée). Une
+évaluation reste une liste ordonnée d'exercices existants (`exerciseItems`), pas ses propres
+questions — structure inchangée par ce chantier.
+
+**Retiré le 2026-09-01** : `POST /evaluations/:id/attempts` (créait une session `in_progress` sans
+aucune suite — ni soumission de réponses, ni calcul de score, code jamais branché depuis juin 2026)
+et l'entité `EvaluationAttempt` qui la portait. Un appel sur cette route renvoie désormais `404`
+(route absente du contrôleur), jamais `500`. Remplacée par une entité équivalente côté
+`learning-activity-service`.
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /evaluations | Rechercher les évaluations, filtrables par `level`, `difficulty`, `theme`, `tag` (`ANY(tags)`, exact — **corrigé le 2026-09-01**, le DTO exposait déjà ce champ sans jamais l'appliquer), `keyword` (titre, ILIKE), paginées. Élèves et parents ne voient que les évaluations `validated` | 🔒 | tous rôles authentifiés | `200 {items, total}` · `401` |
+| POST | /evaluations | Créer une évaluation à partir d'une liste d'exercices existants (`exerciseItems`, non vide), avec durée de chronométrage **désormais obligatoire** (`durationSeconds`, entier > 0 — `400` sinon) et option de blocage du retour arrière. **Statut initial aligné sur Quizz/Exercice depuis le 2026-09-01** (remplace le `DRAFT` systématique antérieur) : `pending_validation` pour un formateur, `validated` (auto-validé) immédiatement pour un AP ou un RP | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `201 Evaluation` · `400` liste d'exercices vide ou durée absente/invalide · `403` |
+| GET | /evaluations/:id | Récupérer une évaluation par id — détail avec ses exercices. Comportement de visibilité par statut inchangé par ce chantier (`findOne()` ne filtre pas par statut, contrairement à Quizz/Exercice — écart pré-existant, non corrigé ici, hors périmètre explicite de la tâche) | 🔒 | tous rôles authentifiés | `200 Evaluation` · `404` |
+| DELETE | /evaluations/:id | Retire une évaluation (statut `REMOVED`) | 🔒 | responsable_pedagogique, technicien_informatique, ou auteur | `204` · `403` · `404` |
+| POST | /validations/evaluation/:id/decision | Réutilise le flux de validation générique partagé avec exercise/tutorial/quiz. **Validation AP scopée par la relation `animator_of_teacher` depuis le 2026-09-01** — révise une note du 2026-08-28 qui limitait volontairement ce scoping au Quizz ; réutilise exactement le mécanisme déjà construit pour Quizz/Exercice (`ProfileRelationsClient.hasAnimatorOfTeacherRelation`), pas redéveloppé. RP reste sans restriction | 🔒 | animateur_pedagogique, responsable_pedagogique | `201 ContentValidation` · `400` commentaire manquant en cas de rejet · `403` AP non lié au formateur auteur · `404` |
+| POST | /validations/evaluation/:id/request | Réutilise le flux générique de soumission à validation | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `204` · `403` · `404` |
+
+Body `POST /evaluations` : `{title, description?, exerciseItems: [{exerciseId, titleOverride?,
+order}] (non vide), level?, difficulty?, theme?, competencies?: string[], tags?: string[],
+durationSeconds (obligatoire, > 0), blockBackNavigation?}`. `tags` porte désormais sur une colonne
+`text[]` postgres native (comme Quizz/Exercice), convertie depuis `simple-array` par la migration
+`ConvertEvaluationTagsToNativeArray1797000000000`.
+
+**Aucune route de lecture de solution supplémentaire** n'a été construite pour ce chantier
+(arbitrage explicite du 2026-09-01, point 6 : "une correction n'a rien à voir avec une solution...
+la correction consiste à revoir la tentative/la réponse d'un utilisateur") — la solution d'un
+Exercice référencé par une évaluation reste accessible uniquement via les mécanismes déjà existants
+côté Exercice (`GET /exercises/:id/solutions`, route interne dédiée à `learning-activity-service`).
 
 ## learning-activity-service
 

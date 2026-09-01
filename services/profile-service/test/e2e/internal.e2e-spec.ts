@@ -15,6 +15,7 @@
  *   GET  /internal/profiles/:userId/display-name
  *   POST /internal/profiles/display-names
  *   GET  /internal/relations/finance-owners/:studentId
+ *   GET  /internal/relations/teachers/:studentId
  *
  * Source : docs/services/profile-service.md — section InternalController
  */
@@ -814,6 +815,115 @@ describe('[E2E] Internal routes', () => {
     it("N'est pas confondue avec GET /internal/relations/:viewerId/:targetId", async () => {
       const res = await request(app.getHttpServer())
         .get(`/internal/relations/finance-owners/${IDS.studentWithFinanceOwners}`)
+        .set('x-internal-secret', INTERNAL_SECRET);
+
+      expect(res.status).toBe(200);
+      expect(res.body).not.toHaveProperty('viewerId');
+      expect(res.body).not.toHaveProperty('relations');
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────
+  // GET /internal/relations/teachers/:studentId
+  //
+  // Arbitrage du 2026-09-01 (« Refonte des Evaluations », point 4b) :
+  // learning-activity-service doit retrouver les professeurs actifs d'un
+  // élève sans jeton utilisateur humain, pour les notifier quand l'élève
+  // demande une correction humaine. Réutilise RelationsService.getTeachersByStudent.
+  // Même patron exact que GET /internal/relations/finance-owners/:studentId
+  // ci-dessus.
+  // ──────────────────────────────────────────────────────────────
+
+  describe('GET /internal/relations/teachers/:studentId', () => {
+    beforeAll(async () => {
+      await request(app.getHttpServer())
+        .post('/internal/create-teacher-student-relation')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ teacherId: IDS.teacherA, studentId: IDS.studentWithTeachers });
+
+      await request(app.getHttpServer())
+        .post('/internal/create-teacher-student-relation')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .send({ teacherId: IDS.teacherB, studentId: IDS.studentWithTeachers });
+    });
+
+    it('Renvoie {studentId, teacherUserIds} avec les deux professeurs liés → 200', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/internal/relations/teachers/${IDS.studentWithTeachers}`)
+        .set('x-internal-secret', INTERNAL_SECRET);
+
+      expect(res.status).toBe(200);
+      expect(res.body.studentId).toBe(IDS.studentWithTeachers);
+      expect(res.body.teacherUserIds.sort()).toEqual([IDS.teacherA, IDS.teacherB].sort());
+    });
+
+    /**
+     * Garde-fou du périmètre volontairement étroit (même règle que
+     * finance-owners) : ni nom, ni statut de lien ne doivent sortir de cette
+     * route.
+     */
+    it('Ne renvoie que studentId et teacherUserIds, rien d’autre', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/internal/relations/teachers/${IDS.studentWithTeachers}`)
+        .set('x-internal-secret', INTERNAL_SECRET);
+
+      expect(res.status).toBe(200);
+      expect(Object.keys(res.body).sort()).toEqual(['studentId', 'teacherUserIds']);
+    });
+
+    it("Élève sans professeur actif → 200 avec une liste vide, jamais une erreur", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/internal/relations/teachers/${IDS.studentWithoutTeachers}`)
+        .set('x-internal-secret', INTERNAL_SECRET);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        studentId: IDS.studentWithoutTeachers,
+        teacherUserIds: [],
+      });
+    });
+
+    it('studentId non-UUID → 400', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/internal/relations/teachers/pas-un-uuid')
+        .set('x-internal-secret', INTERNAL_SECRET);
+
+      expect(res.status).toBe(400);
+    });
+
+    it('Sans x-internal-secret → 401', async () => {
+      const res = await request(app.getHttpServer()).get(
+        `/internal/relations/teachers/${IDS.studentWithTeachers}`,
+      );
+
+      expect(res.status).toBe(401);
+    });
+
+    it('Avec un secret incorrect → 401', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/internal/relations/teachers/${IDS.studentWithTeachers}`)
+        .set('x-internal-secret', WRONG_SECRET);
+
+      expect(res.status).toBe(401);
+    });
+
+    it('Un JWT ne remplace pas le secret interne → 401', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/internal/relations/teachers/${IDS.studentWithTeachers}`)
+        .set('Authorization', `Bearer ${makeJwt(IDS.rp1, 'responsable_pedagogique')}`);
+
+      expect(res.status).toBe(401);
+    });
+
+    /**
+     * Le segment littéral `teachers` ne doit jamais être capturé comme
+     * `:viewerId` par `GET /internal/relations/:viewerId/:targetId` — vérifié
+     * en positif ici : la route dédiée répond bien la forme attendue, pas
+     * `{viewerId, targetId, isSelf, isAdministrator, relations}`.
+     */
+    it("N'est pas confondue avec GET /internal/relations/:viewerId/:targetId", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/internal/relations/teachers/${IDS.studentWithTeachers}`)
         .set('x-internal-secret', INTERNAL_SECRET);
 
       expect(res.status).toBe(200);

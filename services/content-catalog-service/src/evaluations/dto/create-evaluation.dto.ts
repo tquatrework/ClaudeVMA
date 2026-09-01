@@ -72,11 +72,14 @@ export class CreateEvaluationDto {
   @IsString({ each: true })
   tags?: string[];
 
-  @ApiPropertyOptional({ description: 'Durée en secondes (chronométrage)' })
-  @IsOptional()
+  @ApiProperty({
+    description:
+      'Durée en secondes (chronométrage), obligatoire — arbitrage du 2026-09-01 ("Refonte des ' +
+      'Evaluations", point 7) : pas d\'évaluation sans limite de temps.',
+  })
   @IsNumber()
-  @Min(0)
-  durationSeconds?: number;
+  @Min(1)
+  durationSeconds: number;
 
   @ApiPropertyOptional({ description: 'Bloquer le retour en arrière entre les exercices', default: false })
   @IsOptional()

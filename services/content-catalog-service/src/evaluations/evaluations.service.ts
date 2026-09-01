@@ -5,23 +5,25 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Evaluation } from './entities/evaluation.entity';
-import { EvaluationAttempt, AttemptStatus } from './entities/evaluation-attempt.entity';
 import { CreateEvaluationDto } from './dto/create-evaluation.dto';
 import { SearchEvaluationDto } from './dto/search-evaluation.dto';
-import { CreateEvaluationAttemptDto } from './dto/create-evaluation-attempt.dto';
 import { ContentStatus } from '../common/enums/content-status.enum';
 import { UserRole } from '../common/enums/user-role.enum';
+
+/** Rôles autorisés à créer/éditer une évaluation — mêmes rôles que Quizz/Exercice. */
+export const EVALUATION_CREATOR_ROLES = [
+  UserRole.FORMATEUR,
+  UserRole.ANIMATEUR_PEDAGOGIQUE,
+  UserRole.RESPONSABLE_PEDAGOGIQUE,
+];
 
 @Injectable()
 export class EvaluationsService {
   constructor(
     @InjectRepository(Evaluation)
     private readonly evaluationRepository: Repository<Evaluation>,
-
-    @InjectRepository(EvaluationAttempt)
-    private readonly attemptRepository: Repository<EvaluationAttempt>,
   ) {}
 
   async search(
@@ -32,22 +34,33 @@ export class EvaluationsService {
     const limit = searchParams.limit ?? 20;
     const skip = (page - 1) * limit;
 
-    const whereClause: FindOptionsWhere<Evaluation> = {};
+    const qb = this.evaluationRepository.createQueryBuilder('evaluation');
 
     if (callerRole === UserRole.PARENT_FINANCEUR || callerRole === UserRole.ELEVE) {
-      whereClause.status = ContentStatus.VALIDATED;
+      qb.andWhere('evaluation.status = :validated', { validated: ContentStatus.VALIDATED });
     }
 
-    if (searchParams.level) whereClause.level = searchParams.level;
-    if (searchParams.difficulty) whereClause.difficulty = searchParams.difficulty;
-    if (searchParams.theme) whereClause.theme = searchParams.theme;
+    if (searchParams.level) qb.andWhere('evaluation.level = :level', { level: searchParams.level });
+    if (searchParams.difficulty) {
+      qb.andWhere('evaluation.difficulty = :difficulty', { difficulty: searchParams.difficulty });
+    }
+    if (searchParams.theme) qb.andWhere('evaluation.theme = :theme', { theme: searchParams.theme });
 
-    const [items, total] = await this.evaluationRepository.findAndCount({
-      where: whereClause,
-      skip,
-      take: limit,
-      order: { createdAt: 'DESC' },
-    });
+    // Corrige le gap de recherche par tag/mot-clé (arbitrage du 2026-09-01,
+    // "Refonte des Evaluations", point 1) — SearchEvaluationDto exposait déjà
+    // ces deux champs, jamais appliqués. Même correctif que celui déjà fait
+    // pour l'Exercice le 2026-08-29 (ANY(tags) sur une colonne text[]
+    // native — voir la migration ConvertEvaluationTagsToNativeArray).
+    if (searchParams.tag) {
+      qb.andWhere(':tag = ANY(evaluation.tags)', { tag: searchParams.tag });
+    }
+    if (searchParams.keyword) {
+      qb.andWhere('evaluation.title ILIKE :keyword', { keyword: `%${searchParams.keyword}%` });
+    }
+
+    qb.orderBy('evaluation.createdAt', 'DESC').skip(skip).take(limit);
+
+    const [items, total] = await qb.getManyAndCount();
 
     return { items, total };
   }
@@ -57,12 +70,7 @@ export class EvaluationsService {
     authorId: string,
     authorRole: string,
   ): Promise<Evaluation> {
-    const allowedUploaderRoles = [
-      UserRole.FORMATEUR,
-      UserRole.ANIMATEUR_PEDAGOGIQUE,
-      UserRole.RESPONSABLE_PEDAGOGIQUE,
-    ];
-    if (!allowedUploaderRoles.includes(authorRole as UserRole)) {
+    if (!EVALUATION_CREATOR_ROLES.includes(authorRole as UserRole)) {
       throw new ForbiddenException('Seuls les formateurs et rôles pédagogiques peuvent créer des évaluations');
     }
 
@@ -70,11 +78,34 @@ export class EvaluationsService {
       throw new BadRequestException('Une évaluation doit contenir au moins un exercice');
     }
 
+    // Durée obligatoire (arbitrage du 2026-09-01, point 7) — refus explicite
+    // plutôt qu'une absence silencieuse de chronométrage. Le DTO impose déjà
+    // @IsNumber()/@Min(1) sans @IsOptional (donc déjà refusé en amont par le
+    // ValidationPipe global si absent/négatif), ce contrôle reste en défense
+    // en profondeur avec un message explicite en français.
+    if (
+      createEvaluationDto.durationSeconds === undefined ||
+      createEvaluationDto.durationSeconds === null ||
+      createEvaluationDto.durationSeconds <= 0
+    ) {
+      throw new BadRequestException(
+        "La durée de l'évaluation (en secondes) est obligatoire et doit être supérieure à zéro",
+      );
+    }
+
+    // Statut fixé à la création selon le rôle, aligné sur Quizz (2026-08-28)
+    // et Exercice (2026-08-29) : pending_validation pour un formateur,
+    // validated immédiatement pour AP/RP — remplace l'ancien DRAFT
+    // systématique (arbitrage du 2026-09-01, "Refonte des Evaluations",
+    // point 5).
+    const status =
+      authorRole === UserRole.FORMATEUR ? ContentStatus.PENDING_VALIDATION : ContentStatus.VALIDATED;
+
     const evaluation = this.evaluationRepository.create({
       ...createEvaluationDto,
       authorId,
       authorRole,
-      status: ContentStatus.DRAFT,
+      status,
       shareableLink: null,
     });
 
@@ -91,49 +122,6 @@ export class EvaluationsService {
       throw new NotFoundException(`Évaluation ${evaluationId} introuvable`);
     }
     return evaluation;
-  }
-
-  async startAttempt(
-    evaluationId: string,
-    attemptDto: CreateEvaluationAttemptDto,
-    studentId: string,
-    callerRole: string,
-  ): Promise<EvaluationAttempt> {
-    if (callerRole !== UserRole.ELEVE) {
-      throw new ForbiddenException('Seuls les élèves peuvent passer une évaluation');
-    }
-
-    const evaluation = await this.evaluationRepository.findOne({ where: { id: evaluationId } });
-    if (!evaluation) {
-      throw new NotFoundException(`Évaluation ${evaluationId} introuvable`);
-    }
-    if (evaluation.status !== ContentStatus.VALIDATED) {
-      throw new BadRequestException('Cette évaluation n\'est pas encore disponible');
-    }
-
-    // Vérifier s'il y a déjà une tentative en cours
-    const existingAttempt = await this.attemptRepository.findOne({
-      where: { evaluationId, studentId, status: AttemptStatus.IN_PROGRESS },
-    });
-    if (existingAttempt) {
-      throw new BadRequestException('Une tentative est déjà en cours pour cette évaluation');
-    }
-
-    const attempt = this.attemptRepository.create({
-      evaluationId,
-      studentId,
-      status: AttemptStatus.IN_PROGRESS,
-      startedAt: new Date(),
-    });
-
-    return this.attemptRepository.save(attempt);
-  }
-
-  async hasActiveAttempt(studentId: string, evaluationId: string): Promise<boolean> {
-    const attempt = await this.attemptRepository.findOne({
-      where: { evaluationId, studentId, status: AttemptStatus.IN_PROGRESS },
-    });
-    return !!attempt;
   }
 
   async removeEvaluation(evaluationId: string, requesterId: string, callerRole: string): Promise<void> {

@@ -267,6 +267,47 @@ export class InternalController {
   }
 
   /**
+   * `GET /internal/relations/teachers/:studentId`
+   *
+   * Résout les PROFESSEURS ACTIFS d'un élève pour un appelant interservices —
+   * arbitrage du 2026-09-01 (`docs/architecture.md` > « Refonte des
+   * Evaluations », point 4b). Premier consommateur :
+   * `learning-activity-service`, pour notifier les professeurs liés à l'élève
+   * (et le RP, par ailleurs) quand celui-ci demande une correction humaine.
+   *
+   * DÉCLARÉE AVANT `GET /internal/relations/:viewerId/:targetId` ci-dessous,
+   * pour la même raison que `finance-owners` juste au-dessus : les deux routes
+   * ont le même nombre de segments, et `:viewerId` capturerait silencieusement
+   * le littéral `teachers` si la route paramétrée était enregistrée en
+   * premier — Express résout dans l'ordre de déclaration, pas par spécificité
+   * du segment. Ne jamais réordonner sans vérifier ce point.
+   *
+   * PÉRIMÈTRE VOLONTAIREMENT ÉTROIT : ne renvoie que les `userId`, rien
+   * d'autre — pas de nom, pas de statut du lien. Les noms se résolvent via
+   * `GET /internal/profiles/:userId/display-name` /
+   * `POST /internal/profiles/display-names`, séparément. Réutilise
+   * directement `RelationsService.getTeachersByStudent`, qui ne renvoie que
+   * les liens ACTIFS (un professeur délié n'apparaît plus).
+   *
+   * Jamais exposée par `api-gateway`.
+   */
+  @ApiOperation({
+    summary: 'Résoudre les professeurs actifs d’un élève (interservices)',
+    description:
+      'Renvoie {studentId, teacherUserIds}. Liens actifs uniquement. Aucun nom, aucun statut de ' +
+      'lien — la résolution de nom passe par les routes dédiées. Jamais exposée par api-gateway.',
+  })
+  @ApiResponse({ status: 200, description: '{studentId, teacherUserIds: string[]}' })
+  @ApiResponse({ status: 400, description: 'studentId n’est pas un UUID.' })
+  @ApiResponse({ status: 401, description: 'X-Internal-Secret absent ou invalide.' })
+  @Get('relations/teachers/:studentId')
+  getTeachersByStudent(
+    @Param('studentId', ParseUUIDPipe) studentId: string,
+  ): Promise<Awaited<ReturnType<InternalService['getTeachersByStudent']>>> {
+    return this.internalService.getTeachersByStudent(studentId);
+  }
+
+  /**
    * `GET /internal/relations/:viewerId/:targetId?viewerRole=<rôle>`
    *
    * Renvoie la NATURE et le SENS des relations entre deux personnes, pour qu'un

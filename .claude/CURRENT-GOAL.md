@@ -30,11 +30,29 @@ Tentative/réponse/correction/historique migrent vers `learning-activity-service
 Exercice), `evaluation_attempts` actuel de `content-catalog-service` est à retirer (jamais utilisé
 réellement).
 
-**Prochaine étape** : découper et déléguer, dans cet ordre suggéré par l'arbitrage :
-`content-catalog-service` (validation cycle, tags en recherche, durée obligatoire, retrait
-d'`evaluation_attempts`) ; `learning-activity-service` (tentative + demande de correction +
-chronométrage/verrouillage de solution) ; `dashboard-notification-service` (nouveaux événements) ;
-`front-developper` seulement une fois le contrat backend stabilisé.
+Délégué en parallèle le 2026-09-01 à `content-catalog-service` et `learning-activity-service`.
+
+**`content-catalog-service` mergé (PR #195), déployé et vérifié en HTTP direct par l'orchestrateur**
+contre `https://claudevma.visioprof.fr` : création sans durée → `400` ; création par un formateur →
+`pending_validation` ; recherche par tag fonctionnelle (`GET /evaluations?tag=...`) ; ancienne route
+`POST /evaluations/:id/attempts` bien retirée (`404`) ; démarrage propre, pas de crash-loop. Données
+de test nettoyées de la production.
+
+**`learning-activity-service` livré (PR #196, non mergée) — un blocage réel identifié avant merge.**
+L'agent a construit son client vers `profile-service` sur une route hypothétique
+`GET /internal/relations/teachers/:studentId` (par analogie avec
+`GET /internal/relations/finance-owners/:studentId`, existante), documentée comme non confirmée
+plutôt que supposée silencieusement. Vérifié dans `docs/routes.md` par l'orchestrateur : cette
+route **n'existe effectivement pas**. Délégué à `profile-service` le 2026-09-01 pour la créer sur
+le même modèle exact que la route finance-owners (périmètre étroit `{studentId,
+teacherUserIds: string[]}`, liens actifs uniquement, `X-Internal-Secret`, jamais exposée par
+`api-gateway`).
+
+**Ordre restant** : `profile-service` (route interne, en cours) → merger/déployer
+`learning-activity-service` une fois la route confirmée fonctionnelle → déléguer
+`dashboard-notification-service` (nouveaux types d'événement, contrat exact dans le rapport
+`learning-activity-service-evaluations-2026-09-01.md`) → `front-developper` seulement une fois le
+backend stabilisé.
 
 ---
 

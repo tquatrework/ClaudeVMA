@@ -65,17 +65,22 @@ export class ValidationsService {
     }
 
     // Validation AP scopée par la relation animator_of_teacher — Quizz
-    // (arbitrage du 2026-08-28) puis Exercice (arbitrage du 2026-08-29,
-    // "Refonte des Exercices", point 5 : "réutilise exactement le mécanisme
-    // déjà construit pour le Quizz"). Evaluation/Tutorial restent inchangés.
-    // RP reste sans restriction pour les 4 types.
+    // (arbitrage du 2026-08-28), puis Exercice (arbitrage du 2026-08-29,
+    // "Refonte des Exercices", point 5), puis Évaluation (arbitrage du
+    // 2026-09-01, "Refonte des Evaluations", point 5 : "cette restriction
+    // est levée par le présent arbitrage" — une note du 2026-08-28 disait
+    // explicitement ce scoping limité au Quizz, cette limitation n'est plus
+    // vraie). Tutorial reste seul inchangé (hors périmètre de cet
+    // arbitrage). RP reste sans restriction pour les 4 types.
     if (
-      (contentType === ContentType.QUIZ || contentType === ContentType.EXERCISE) &&
+      (contentType === ContentType.QUIZ ||
+        contentType === ContentType.EXERCISE ||
+        contentType === ContentType.EVALUATION) &&
       validatorRole === UserRole.ANIMATEUR_PEDAGOGIQUE
     ) {
       const authorId = await this.getContentAuthorId(contentId, contentType);
       if (authorId === null) {
-        const label = contentType === ContentType.QUIZ ? 'Quizz' : 'Exercice';
+        const label = this.contentTypeLabel(contentType);
         throw new NotFoundException(`${label} ${contentId} introuvable`);
       }
       const hasRelation = await this.profileRelationsClient.hasAnimatorOfTeacherRelation(
@@ -83,7 +88,7 @@ export class ValidationsService {
         authorId,
       );
       if (!hasRelation) {
-        const label = contentType === ContentType.QUIZ ? 'quizz' : 'exercices';
+        const label = this.contentTypePluralLabel(contentType);
         throw new ForbiddenException(
           `Vous ne pouvez valider que les ${label} des formateurs que vous animez`,
         );
@@ -195,6 +200,38 @@ export class ValidationsService {
       where: { contentId, contentType },
       order: { createdAt: 'DESC' },
     });
+  }
+
+  /** Libellé singulier capitalisé pour un message de 404, par type de contenu. */
+  private contentTypeLabel(contentType: ContentType): string {
+    switch (contentType) {
+      case ContentType.QUIZ:
+        return 'Quizz';
+      case ContentType.EXERCISE:
+        return 'Exercice';
+      case ContentType.EVALUATION:
+        return 'Évaluation';
+      case ContentType.TUTORIAL:
+        return 'Tutoriel';
+      default:
+        return 'Contenu';
+    }
+  }
+
+  /** Libellé pluriel minuscule pour un message de 403 ("... que vous animez"), par type de contenu. */
+  private contentTypePluralLabel(contentType: ContentType): string {
+    switch (contentType) {
+      case ContentType.QUIZ:
+        return 'quizz';
+      case ContentType.EXERCISE:
+        return 'exercices';
+      case ContentType.EVALUATION:
+        return 'évaluations';
+      case ContentType.TUTORIAL:
+        return 'tutoriels';
+      default:
+        return 'contenus';
+    }
   }
 
   private async getContentAuthorId(contentId: string, contentType: ContentType): Promise<string | null> {

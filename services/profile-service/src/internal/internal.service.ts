@@ -446,6 +446,38 @@ export class InternalService {
       financeOwnerUserIds: links.map((link) => link.financeOwnerId),
     };
   }
+
+  /**
+   * LECTURE des professeurs ACTIFS d'un élève, POUR UN APPEL INTERSERVICES —
+   * même patron que `getFinanceOwnersByStudent` ci-dessus (arbitrage du
+   * 2026-09-01, chantier refonte des Evaluations : demande de correction
+   * humaine). Premier consommateur : `learning-activity-service`, qui doit
+   * notifier les professeurs de l'élève quand celui-ci demande une correction,
+   * sans détenir de jeton utilisateur humain.
+   *
+   * RÉUTILISE `RelationsService.getTeachersByStudent`, propriétaire de la
+   * donnée et de sa logique de sélection (liens ACTIFS uniquement, un
+   * professeur délié n'apparaît plus), au lieu de la dupliquer. Même acteur
+   * système que `getFinanceOwnersByStudent` : l'autorisation réelle de cette
+   * route est déjà tranchée en amont par `InternalGuard` (X-Internal-Secret).
+   *
+   * PÉRIMÈTRE VOLONTAIREMENT ÉTROIT : ne renvoie que les `userId`, jamais les
+   * noms — la résolution de nom passe par `GET /internal/profiles/:userId/display-name` /
+   * `POST /internal/profiles/display-names`, séparément.
+   */
+  async getTeachersByStudent(studentId: string): Promise<{
+    studentId: string;
+    teacherUserIds: string[];
+  }> {
+    const links = await this.relationsService.getTeachersByStudent(
+      studentId,
+      INTERNAL_SYSTEM_ACTOR,
+    );
+    return {
+      studentId,
+      teacherUserIds: links.map((link) => link.teacherId),
+    };
+  }
 }
 
 /**

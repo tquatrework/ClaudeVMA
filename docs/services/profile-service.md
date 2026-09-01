@@ -61,6 +61,8 @@
       <endpoint method="GET" path="/internal/relations/{viewerId}/{targetId}">Nature et SENS des relations entre deux personnes, pour un service appelant (archive-document-service). X-Internal-Secret ; query viewerRole obligatoire.</endpoint>
       <!-- Resolution des parents financeurs — decision C24 (2026-08-14) -->
       <endpoint method="GET" path="/internal/relations/finance-owners/{studentId}">Parents financeurs (userId uniquement, aucun nom) d'un eleve, pour un service appelant (dashboard-notification-service). X-Internal-Secret. Reutilise RelationsService.getFinanceOwnersByStudent (liens actifs uniquement). DECLAREE AVANT la route generique ci-dessus dans le controleur pour eviter que 'finance-owners' soit capture comme :viewerId. Jamais exposee par api-gateway.</endpoint>
+      <!-- Resolution des professeurs actifs — arbitrage 2026-09-01, refonte des Evaluations -->
+      <endpoint method="GET" path="/internal/relations/teachers/{studentId}">Professeurs ACTIFS (userId uniquement, aucun nom) d'un eleve, pour un service appelant (learning-activity-service — notifier les professeurs lors d'une demande de correction humaine sur une Evaluation). X-Internal-Secret. Reutilise RelationsService.getTeachersByStudent avec un acteur systeme (meme patron exact que finance-owners ci-dessus). DECLAREE AVANT la route generique {viewerId}/{targetId} pour eviter que 'teachers' soit capture comme :viewerId. Jamais exposee par api-gateway. Reponse {studentId, teacherUserIds: string[]} — liste vide si aucun professeur actif, jamais une erreur.</endpoint>
       <!-- Resolution de nom entre services — decision C18 (2026-08-12) -->
       <endpoint method="GET" path="/internal/profiles/{userId}/display-name">Prenom et nom d'une personne, pour un service appelant (teacher-request-service). X-Internal-Secret. CONTRAT FIGE : firstName et lastName UNIQUEMENT, jamais un champ de plus — servie sans lecteur et sans filtrage champ par champ, tout ajout en ferait une porte derobee. Jamais exposee par api-gateway.</endpoint>
       <endpoint method="POST" path="/internal/profiles/display-names">Meme contrat PAR LOT ({userIds}, 200 maximum), pour qu'une liste ne coute pas un appel HTTP par ligne. Les userIds non resolus sont absents de la reponse.</endpoint>
@@ -2823,6 +2825,76 @@
           rejoue faute d'acces a une base Postgres de test depuis cet environnement (pas de
           .env.test present, TEST_DB_* non configures dans ce worktree).
         </testCoverage>
+      </decision>
+      <decision id="C27" status="implemented" session="2026-09-01">
+        <title>GET /internal/relations/teachers/:studentId — resolution des professeurs actifs pour learning-activity-service</title>
+        <filesTouched>
+          <file path="services/profile-service/src/internal/internal.controller.ts">
+            Nouvelle route `GET /internal/relations/teachers/:studentId`, declaree AVANT
+            `GET /internal/relations/:viewerId/:targetId` — meme precaution d'ordre que
+            `finance-owners` (C24) : meme nombre de segments, `:viewerId` capturerait sinon
+            silencieusement le litteral `teachers`.
+          </file>
+          <file path="services/profile-service/src/internal/internal.service.ts">
+            `InternalService.getTeachersByStudent(studentId)` : appelle
+            `RelationsService.getTeachersByStudent(studentId, actor)` avec le meme
+            `INTERNAL_SYSTEM_ACTOR` deja utilise par `getFinanceOwnersByStudent` (role
+            privilegie, autorisation reelle deja tranchee en amont par `InternalGuard`). Projette
+            le resultat vers `{studentId, teacherUserIds: string[]}`, en ne gardant que
+            `teacherId` de chaque lien.
+          </file>
+          <file path="services/profile-service/test/unit/internal/internal.service.spec.ts">
+            Mock `relationsService.getTeachersByStudent` ajoute ; 4 tests, memes intitules que
+            `getFinanceOwnersByStudent` : delegation avec l'acteur systeme, perimetre etroit de la
+            reponse, liste vide, propagation d'erreur.
+          </file>
+          <file path="services/profile-service/test/e2e/internal.e2e-spec.ts">
+            8 tests contre PostgreSQL reel, meme structure que le bloc `finance-owners` : 2
+            professeurs lies (via `POST /internal/create-teacher-student-relation`) -&gt; les deux
+            `userId` ; perimetre etroit (aucune cle en plus) ; eleve sans professeur -&gt; liste
+            vide ; `studentId` non-UUID -&gt; 400 ; sans secret -&gt; 401 ; secret errone -&gt; 401 ;
+            JWT humain refuse -&gt; 401 ; non-confusion avec la route generique
+            `:viewerId/:targetId`.
+          </file>
+          <file path="services/profile-service/test/e2e/helpers/app.helper.ts">
+            4 nouveaux `IDS` dedies (`studentWithTeachers`, `teacherA`, `teacherB`,
+            `studentWithoutTeachers`), isoles des IDs deja mobilises ailleurs dans le fichier.
+          </file>
+          <file path="docs/routes.md">Route ajoutee, avant la route generique existante.</file>
+        </filesTouched>
+        <description>
+          Arbitrage du 2026-09-01 (`docs/architecture.md` &gt; « Refonte des Evaluations :
+          notation manuelle, demande de correction, notifications », point 4b), demande
+          explicitement par l'orchestrateur en preparation de `learning-activity-service`
+          (demande de correction humaine sur une tentative d'Evaluation).
+
+          BESOIN : notifier le(s) professeur(s) actifs d'un eleve quand celui-ci demande une
+          correction suppose de retrouver leurs `userId` a partir d'un `studentId`.
+          `RelationsService.getTeachersByStudent` fait deja ce travail (liens actifs uniquement,
+          `endedAt IS NULL`) mais n'etait exposee que par `GET /relations/teacher-student/:studentId`,
+          protegee par `JwtAuthGuard` — inatteignable par un appel interservice sans jeton
+          utilisateur humain.
+
+          PATRON STRICTEMENT IDENTIQUE a `getFinanceOwnersByStudent` (C24, 2026-08-14) : meme
+          perimetre volontairement etroit (`userId` uniquement, jamais de nom ni de statut de
+          lien — la resolution de nom reste separee via `/internal/profiles/:userId/display-name`
+          et sa variante par lot), meme acteur systeme synthetique pour satisfaire le controle de
+          droit humain de la methode reutilisee, meme precaution d'ordre de declaration dans le
+          controleur (verifiee par un test e2e dedie, comme pour `finance-owners`).
+
+          Un subagent `learning-activity-service` avait prealablement fait l'hypothese non
+          confirmee d'une route `GET /internal/relations/teachers/:studentId` par analogie — cette
+          session la construit reellement, avec le contrat exact `{studentId, teacherUserIds:
+          string[]}` (a comparer avec l'hypothese du subagent appelant pour confirmation).
+        </description>
+        <verification>
+          73 tests e2e verts sur `internal.e2e-spec.ts` (dont les 8 nouveaux), contre PostgreSQL
+          reel (testcontainers). 685 tests unitaires verts au total. Build (`npm run build`) OK.
+          Un seul test e2e en echec sur l'ensemble de la suite (`profiles.e2e-spec.ts`,
+          « administrateur financier peut ajouter une note interne »), confirme PRE-EXISTANT et
+          sans rapport avec ce chantier (echec reproduit a l'identique apres `git stash` des
+          changements de cette session).
+        </verification>
       </decision>
       <openPoints>
         <item priority="medium" status="to-do" raisedIn="C26" raisedOn="2026-08-26" owner="orchestrateur">

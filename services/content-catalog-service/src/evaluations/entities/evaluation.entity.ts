@@ -4,11 +4,35 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  OneToMany,
 } from 'typeorm';
 import { ContentStatus } from '../../common/enums/content-status.enum';
-import { EvaluationAttempt } from './evaluation-attempt.entity';
 
+/**
+ * Evaluation — cycle de vie aligné sur Quizz/Exercice (arbitrage du
+ * 2026-09-01, docs/architecture.md, "Refonte des Evaluations : notation
+ * manuelle, demande de correction, notifications"). Une évaluation reste une
+ * liste ordonnée d'Exercices existants (`exerciseItems`) — cette structure ne
+ * change pas dans ce chantier, seul son cycle de vie et deux colonnes sont
+ * touchés :
+ *
+ *   - `status` : fixé à la création selon le rôle par `EvaluationsService`
+ *     (pending_validation pour un formateur, validated pour AP/RP), comme
+ *     Quiz/Exercise depuis fin août — le défaut `DRAFT` ci-dessous n'est
+ *     qu'une valeur de repli au niveau colonne, jamais utilisée en pratique
+ *     puisque le service fixe toujours explicitement le statut.
+ *   - `tags` : colonne `text[]` postgres native (et non `simple-array`),
+ *     même choix que `Quiz`/`Exercise` — permet une recherche exacte par tag
+ *     via `ANY(tags)`, sans faux positif de sous-chaîne. Convertie depuis
+ *     `simple-array` par la migration `ConvertEvaluationTagsToNativeArray`.
+ *   - `durationSeconds` : devient obligatoire (arbitrage du 2026-09-01, point
+ *     7, "duree obligatoire — confirmé") — colonne rendue NOT NULL par la
+ *     migration `MakeEvaluationDurationRequired`.
+ *
+ * `EvaluationAttempt` (tentative/réponses/score) est retirée de ce service :
+ * elle migre vers `learning-activity-service`, sur le même modèle que Quiz
+ * et Exercise (delegation séparée, en cours en parallèle) — voir la
+ * migration `DropEvaluationAttempts`.
+ */
 @Entity('evaluations')
 export class Evaluation {
   @PrimaryGeneratedColumn('uuid')
@@ -35,10 +59,10 @@ export class Evaluation {
   @Column({ type: 'simple-array', nullable: true })
   competencies: string[];
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column('text', { array: true, nullable: true })
   tags: string[];
 
-  @Column({ nullable: true })
+  @Column()
   durationSeconds: number;
 
   @Column({ default: false })
@@ -59,9 +83,6 @@ export class Evaluation {
 
   @Column({ nullable: true })
   shareableLink: string;
-
-  @OneToMany(() => EvaluationAttempt, (attempt) => attempt.evaluation)
-  attempts: EvaluationAttempt[];
 
   @CreateDateColumn()
   createdAt: Date;

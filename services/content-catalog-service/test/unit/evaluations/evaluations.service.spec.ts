@@ -1,11 +1,19 @@
 /**
  * Unit tests — EvaluationsService
  *
- * Couvre :
- *   - create()       → seuls formateur/AP/RP, exige au moins un exercice
- *   - search()       → élève et parent ne voient que les évaluations validées
- *   - startAttempt() → réservé aux élèves, évaluation doit être validée
+ * Couvre (arbitrage du 2026-09-01, "Refonte des Evaluations : notation
+ * manuelle, demande de correction, notifications" — périmètre
+ * content-catalog-service uniquement) :
+ *   - create()  → seuls formateur/AP/RP, exige au moins un exercice, exige
+ *                 une durée > 0, statut fixé selon le rôle (pending_validation
+ *                 pour un formateur, validated pour AP/RP — aligné Quizz/Exercice)
+ *   - search()  → élève et parent ne voient que les évaluations validées,
+ *                 filtre par tag (ANY) et mot-clé (ILIKE) désormais appliqués
  *   - removeEvaluation() → réservé RP/TI/auteur
+ *
+ * `startAttempt()`/`hasActiveAttempt()` ont disparu avec `EvaluationAttempt`
+ * (retirée de ce service, migre vers `learning-activity-service`) — plus
+ * aucun test ne les couvre ici.
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
@@ -13,21 +21,32 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { EvaluationsService } from '../../../src/evaluations/evaluations.service';
 import { Evaluation } from '../../../src/evaluations/entities/evaluation.entity';
-import { EvaluationAttempt, AttemptStatus } from '../../../src/evaluations/entities/evaluation-attempt.entity';
 import { ContentStatus } from '../../../src/common/enums/content-status.enum';
 
 const FORMATEUR_ID    = 'form-0000-4000-a000-aaaaaaaaaaaa';
+const AP_ID           = 'apid-0000-4000-a000-aaaaaaaaaaaa';
+const RP_ID           = 'rpid-0000-4000-a000-aaaaaaaaaaaa';
 const ELEVE_ID        = 'elev-0000-4000-b000-bbbbbbbbbbbb';
 const OTHER_ID        = 'othe-0000-4000-c000-cccccccccccc';
 const EVALUATION_ID   = 'eval-0000-4000-d000-dddddddddddd';
+
+function buildMockQueryBuilder(result: [Evaluation[], number] = [[], 0]) {
+  const qb: any = {
+    andWhere: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    skip: jest.fn().mockReturnThis(),
+    take: jest.fn().mockReturnThis(),
+    getManyAndCount: jest.fn().mockResolvedValue(result),
+  };
+  return qb;
+}
 
 function buildMockRepo() {
   return {
     create: jest.fn(),
     save: jest.fn(),
-    find: jest.fn(),
     findOne: jest.fn(),
-    findAndCount: jest.fn(),
+    createQueryBuilder: jest.fn(),
   };
 }
 
@@ -48,7 +67,6 @@ function buildSampleEvaluation(overrides: Partial<Evaluation> = {}): Evaluation 
     authorRole: 'formateur',
     status: ContentStatus.VALIDATED,
     shareableLink: '/evaluations/eval-0000',
-    attempts: [],
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),
     ...overrides,
@@ -58,17 +76,14 @@ function buildSampleEvaluation(overrides: Partial<Evaluation> = {}): Evaluation 
 describe('EvaluationsService', () => {
   let evaluationsService: EvaluationsService;
   let evaluationRepo: ReturnType<typeof buildMockRepo>;
-  let attemptRepo: ReturnType<typeof buildMockRepo>;
 
   beforeEach(async () => {
     evaluationRepo = buildMockRepo();
-    attemptRepo = buildMockRepo();
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         EvaluationsService,
         { provide: getRepositoryToken(Evaluation), useValue: evaluationRepo },
-        { provide: getRepositoryToken(EvaluationAttempt), useValue: attemptRepo },
       ],
     }).compile();
 
@@ -85,17 +100,44 @@ describe('EvaluationsService', () => {
     const validDto = {
       title: 'Eval trimestre 1',
       exerciseItems: [{ exerciseId: 'exer-0001', order: 1 }],
+      durationSeconds: 1800,
     };
 
-    it('crée une évaluation pour un formateur', async () => {
-      const savedEvaluation = buildSampleEvaluation({ status: ContentStatus.DRAFT });
+    it('crée une évaluation pending_validation pour un formateur', async () => {
+      const savedEvaluation = buildSampleEvaluation({ status: ContentStatus.PENDING_VALIDATION });
       evaluationRepo.create.mockReturnValue(savedEvaluation);
       evaluationRepo.save.mockResolvedValue(savedEvaluation);
 
       const result = await evaluationsService.create(validDto, FORMATEUR_ID, 'formateur');
 
       expect(result).toBeDefined();
-      expect(evaluationRepo.create).toHaveBeenCalled();
+      expect(evaluationRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ status: ContentStatus.PENDING_VALIDATION }),
+      );
+    });
+
+    it('crée une évaluation validated pour un animateur_pedagogique', async () => {
+      const savedEvaluation = buildSampleEvaluation({ authorRole: 'animateur_pedagogique', status: ContentStatus.VALIDATED });
+      evaluationRepo.create.mockReturnValue(savedEvaluation);
+      evaluationRepo.save.mockResolvedValue(savedEvaluation);
+
+      await evaluationsService.create(validDto, AP_ID, 'animateur_pedagogique');
+
+      expect(evaluationRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ status: ContentStatus.VALIDATED }),
+      );
+    });
+
+    it('crée une évaluation validated pour un responsable_pedagogique', async () => {
+      const savedEvaluation = buildSampleEvaluation({ authorRole: 'responsable_pedagogique', status: ContentStatus.VALIDATED });
+      evaluationRepo.create.mockReturnValue(savedEvaluation);
+      evaluationRepo.save.mockResolvedValue(savedEvaluation);
+
+      await evaluationsService.create(validDto, RP_ID, 'responsable_pedagogique');
+
+      expect(evaluationRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ status: ContentStatus.VALIDATED }),
+      );
     });
 
     it('lève ForbiddenException si un élève tente de créer une évaluation', async () => {
@@ -106,7 +148,39 @@ describe('EvaluationsService', () => {
 
     it('lève BadRequestException si la liste d\'exercices est vide', async () => {
       await expect(
-        evaluationsService.create({ title: 'Test', exerciseItems: [] }, FORMATEUR_ID, 'formateur'),
+        evaluationsService.create(
+          { title: 'Test', exerciseItems: [], durationSeconds: 1800 },
+          FORMATEUR_ID,
+          'formateur',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('lève BadRequestException si durationSeconds est absent', async () => {
+      await expect(
+        evaluationsService.create(
+          { title: 'Test', exerciseItems: [{ exerciseId: 'exer-0001', order: 1 }] } as any,
+          FORMATEUR_ID,
+          'formateur',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('lève BadRequestException si durationSeconds est nul ou négatif', async () => {
+      await expect(
+        evaluationsService.create(
+          { title: 'Test', exerciseItems: [{ exerciseId: 'exer-0001', order: 1 }], durationSeconds: 0 },
+          FORMATEUR_ID,
+          'formateur',
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        evaluationsService.create(
+          { title: 'Test', exerciseItems: [{ exerciseId: 'exer-0001', order: 1 }], durationSeconds: -10 },
+          FORMATEUR_ID,
+          'formateur',
+        ),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -117,72 +191,62 @@ describe('EvaluationsService', () => {
 
   describe('search()', () => {
     it('filtre sur status=validated pour les élèves', async () => {
-      evaluationRepo.findAndCount.mockResolvedValue([[], 0]);
+      const qb = buildMockQueryBuilder();
+      evaluationRepo.createQueryBuilder.mockReturnValue(qb);
 
       await evaluationsService.search({}, 'eleve');
 
-      expect(evaluationRepo.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({ where: expect.objectContaining({ status: ContentStatus.VALIDATED }) }),
+      expect(qb.andWhere).toHaveBeenCalledWith(
+        'evaluation.status = :validated',
+        expect.objectContaining({ validated: ContentStatus.VALIDATED }),
       );
     });
 
     it('ne filtre pas le statut pour un formateur', async () => {
-      evaluationRepo.findAndCount.mockResolvedValue([[buildSampleEvaluation()], 1]);
+      const qb = buildMockQueryBuilder([[buildSampleEvaluation()], 1]);
+      evaluationRepo.createQueryBuilder.mockReturnValue(qb);
 
       const result = await evaluationsService.search({}, 'formateur');
 
-      const callArg = evaluationRepo.findAndCount.mock.calls[0][0];
-      expect(callArg.where.status).toBeUndefined();
+      const statusCalls = qb.andWhere.mock.calls.filter((call: any[]) => call[0].includes('status'));
+      expect(statusCalls.length).toBe(0);
       expect(result.total).toBe(1);
     });
-  });
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // startAttempt()
-  // ─────────────────────────────────────────────────────────────────────────
+    it('applique le filtre par tag via ANY(tags)', async () => {
+      const qb = buildMockQueryBuilder();
+      evaluationRepo.createQueryBuilder.mockReturnValue(qb);
 
-  describe('startAttempt()', () => {
-    it('permet à un élève de démarrer une tentative sur une évaluation validée', async () => {
-      evaluationRepo.findOne.mockResolvedValue(buildSampleEvaluation({ status: ContentStatus.VALIDATED }));
-      attemptRepo.findOne.mockResolvedValue(null);
-      const savedAttempt = { id: 'atmp-0000', evaluationId: EVALUATION_ID, studentId: ELEVE_ID, status: AttemptStatus.IN_PROGRESS };
-      attemptRepo.create.mockReturnValue(savedAttempt);
-      attemptRepo.save.mockResolvedValue(savedAttempt);
+      await evaluationsService.search({ tag: 'algèbre' }, 'formateur');
 
-      const result = await evaluationsService.startAttempt(EVALUATION_ID, {}, ELEVE_ID, 'eleve');
-
-      expect(result.status).toBe(AttemptStatus.IN_PROGRESS);
+      expect(qb.andWhere).toHaveBeenCalledWith(
+        ':tag = ANY(evaluation.tags)',
+        expect.objectContaining({ tag: 'algèbre' }),
+      );
     });
 
-    it('lève ForbiddenException si un formateur tente de passer une évaluation', async () => {
-      await expect(
-        evaluationsService.startAttempt(EVALUATION_ID, {}, FORMATEUR_ID, 'formateur'),
-      ).rejects.toThrow(ForbiddenException);
+    it('applique le filtre par mot-clé via ILIKE sur le titre', async () => {
+      const qb = buildMockQueryBuilder();
+      evaluationRepo.createQueryBuilder.mockReturnValue(qb);
+
+      await evaluationsService.search({ keyword: 'trimestre' }, 'formateur');
+
+      expect(qb.andWhere).toHaveBeenCalledWith(
+        'evaluation.title ILIKE :keyword',
+        expect.objectContaining({ keyword: '%trimestre%' }),
+      );
     });
 
-    it('lève BadRequestException si l\'évaluation n\'est pas validée', async () => {
-      evaluationRepo.findOne.mockResolvedValue(buildSampleEvaluation({ status: ContentStatus.DRAFT }));
+    it('n\'applique aucun filtre tag/mot-clé si absents des paramètres', async () => {
+      const qb = buildMockQueryBuilder();
+      evaluationRepo.createQueryBuilder.mockReturnValue(qb);
 
-      await expect(
-        evaluationsService.startAttempt(EVALUATION_ID, {}, ELEVE_ID, 'eleve'),
-      ).rejects.toThrow(BadRequestException);
-    });
+      await evaluationsService.search({}, 'formateur');
 
-    it('lève BadRequestException si une tentative est déjà en cours', async () => {
-      evaluationRepo.findOne.mockResolvedValue(buildSampleEvaluation({ status: ContentStatus.VALIDATED }));
-      attemptRepo.findOne.mockResolvedValue({ id: 'atmp-existing', status: AttemptStatus.IN_PROGRESS });
-
-      await expect(
-        evaluationsService.startAttempt(EVALUATION_ID, {}, ELEVE_ID, 'eleve'),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('lève NotFoundException si l\'évaluation est introuvable', async () => {
-      evaluationRepo.findOne.mockResolvedValue(null);
-
-      await expect(
-        evaluationsService.startAttempt(EVALUATION_ID, {}, ELEVE_ID, 'eleve'),
-      ).rejects.toThrow(NotFoundException);
+      const tagCalls = qb.andWhere.mock.calls.filter((call: any[]) => call[0].includes('ANY'));
+      const keywordCalls = qb.andWhere.mock.calls.filter((call: any[]) => call[0].includes('ILIKE'));
+      expect(tagCalls.length).toBe(0);
+      expect(keywordCalls.length).toBe(0);
     });
   });
 

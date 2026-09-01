@@ -3159,14 +3159,15 @@ chantier** (développé en parallèle, alignement du cycle de validation sur Qui
 `durationSeconds` rendu obligatoire).
 
 **Vers `profile-service`** (interne, `X-Internal-Secret`) : `GET
-/internal/relations/teachers/:studentId` → `{teacherIds: string[]}`. **HYPOTHÈSE non confirmée
-contre le code réel de `profile-service`** (hors périmètre de lecture de l'agent
-`learning-activity-service`, cf. règle projet « Interfaces externes ») — construite par analogie
-directe avec `GET /internal/relations/finance-owners/:studentId`, déjà documentée plus haut dans ce
-fichier (section `profile-service`). Un `404` amont est traité comme une liste vide (pas une
-erreur) plutôt que propagé, pour ne pas bloquer une demande de correction d'un élève sans aucun
-professeur lié. **À vérifier/aligner avec `profile-service` avant mise en production réelle du
-flux de correction.**
+/internal/relations/teachers/:studentId` → `{studentId, teacherUserIds: string[]}`. **Contrat
+confirmé** contre la route réelle livrée par `profile-service` (PR #197, déployée) — le nom du
+champ est `teacherUserIds`, cohérent avec `financeOwnerUserIds` déjà utilisé pour la route
+équivalente des parents financeurs (documentée plus haut dans ce fichier, section
+`profile-service`). Corrigé le 2026-09-01 : une première implémentation avait construit le client
+sur l'hypothèse non confirmée `{teacherIds: string[]}`, provoquant un `502 "Réponse de relations
+malformée (profile-service)"` systématique sur `POST /evaluation-attempts/:id/request-correction`.
+Un `404` amont est traité comme une liste vide (pas une erreur) plutôt que propagé, pour ne pas
+bloquer une demande de correction d'un élève sans aucun professeur lié.
 
 ### Événements émis (outbox + Redis XADD, stream `visiomath:events`)
 

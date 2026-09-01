@@ -11,22 +11,15 @@ import { ConfigService } from '@nestjs/config';
  * même modèle que les autres routes /internal/* déjà en place dans le
  * projet (résolution de nom, formateurs validés, relations financeur-élève).
  *
- * ATTENTION — contrat NON CONFIRMÉ contre du code réel de profile-service
- * (hors périmètre de lecture de cet agent, cf. règle « Interfaces
- * externes »). `docs/architecture.md` ne documente aujourd'hui explicitement
- * qu'une route de relation unique (`GET /internal/relations/:viewerId/:targetId`)
- * et une route de parents financeurs
- * (`GET /internal/relations/finance-owners/:studentId`) — aucune route
- * documentée ne liste les professeurs liés à un élève. Cette route est donc
- * une HYPOTHÈSE construite par analogie directe avec
- * `GET /internal/relations/finance-owners/:studentId` (même préfixe, même
- * forme de réponse `{ <role>Ids: string[] }`), à confirmer/aligner avec
- * profile-service — voir le rapport de chantier pour la coordination
- * explicite demandée. La validation stricte de la réponse ci-dessous lève
- * une 502 explicite en cas d'écart, jamais une absorption silencieuse.
+ * Contrat confirmé contre la route réelle livrée par profile-service
+ * (PR #197) : `GET /internal/relations/teachers/:studentId` répond
+ * `{ studentId: string, teacherUserIds: string[] }` — cohérent avec le nom
+ * déjà utilisé pour la route équivalente des parents financeurs
+ * (`financeOwnerUserIds`). La validation stricte de la réponse ci-dessous
+ * lève une 502 explicite en cas d'écart, jamais une absorption silencieuse.
  */
 export interface LinkedTeachers {
-  teacherIds: string[];
+  teacherUserIds: string[];
 }
 
 @Injectable()
@@ -99,15 +92,15 @@ export class ProfileRelationsClientService {
       throw new BadGatewayException('Réponse de relations malformée (profile-service)');
     }
 
-    return body.teacherIds;
+    return body.teacherUserIds;
   }
 
   private isValidLinkedTeachers(body: unknown): body is LinkedTeachers {
     if (!body || typeof body !== 'object') return false;
     const candidate = body as Record<string, unknown>;
     return (
-      Array.isArray(candidate.teacherIds) &&
-      candidate.teacherIds.every((id: unknown) => typeof id === 'string')
+      Array.isArray(candidate.teacherUserIds) &&
+      candidate.teacherUserIds.every((id: unknown) => typeof id === 'string')
     );
   }
 }

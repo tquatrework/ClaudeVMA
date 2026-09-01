@@ -1,11 +1,11 @@
 /**
  * Unit tests — ProfileRelationsClientService
  *
- * Couvre l'appel interne vers profile-service (contrat non confirmé, voir
- * commentaire du service et rapport de chantier) : appel nominal avec
- * X-Internal-Secret + x-correlation-id, configuration manquante, service
- * injoignable, 404 traité comme liste vide (pas une erreur), échec HTTP
- * générique, JSON illisible, réponse malformée.
+ * Couvre l'appel interne vers profile-service (contrat confirmé contre la
+ * route réelle livrée par profile-service, PR #197 : `teacherUserIds`) :
+ * appel nominal avec X-Internal-Secret + x-correlation-id, configuration
+ * manquante, service injoignable, 404 traité comme liste vide (pas une
+ * erreur), échec HTTP générique, JSON illisible, réponse malformée.
  */
 
 import { ConfigService } from '@nestjs/config';
@@ -28,11 +28,11 @@ describe('ProfileRelationsClientService', () => {
     jest.restoreAllMocks();
   });
 
-  it('appelle profile-service avec les bons en-têtes et renvoie les teacherIds', async () => {
+  it('appelle profile-service avec les bons en-têtes et renvoie les teacherUserIds', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: jest.fn().mockResolvedValue({ teacherIds: ['t1', 't2'] }),
+      json: jest.fn().mockResolvedValue({ studentId: STUDENT_ID, teacherUserIds: ['t1', 't2'] }),
     });
     global.fetch = fetchMock as unknown as typeof fetch;
 
@@ -109,7 +109,7 @@ describe('ProfileRelationsClientService', () => {
     await expect(client.getLinkedTeacherIds(STUDENT_ID)).rejects.toThrow(BadGatewayException);
   });
 
-  it('renvoie une 502 si la réponse est malformée (teacherIds absent)', async () => {
+  it('renvoie une 502 si la réponse est malformée (teacherUserIds absent)', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,

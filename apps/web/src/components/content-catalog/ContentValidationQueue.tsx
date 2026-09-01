@@ -3,39 +3,43 @@
  *
  * File de validation des contenus pédagogiques pour les rôles RP et AP.
  * Affiche les contenus en statut `pending_validation` et permet de les valider ou rejeter.
- * Les listes de contenus (exercices, évaluations, tutoriels) en attente sont reçues en props.
+ * Les listes de contenus (exercices, évaluations, tutoriels, quizz) en attente sont reçues en
+ * props.
  *
- * Note : les actions de validation (approve/reject) sont des commandes métier ;
- * en l'absence de routes dédiées dans la spec phase 12, ce composant affiche la file
- * et délègue les actions au parent via callbacks.
- *
- * Props :
- *   pendingExercises   — exercices en attente de validation
- *   pendingEvaluations — évaluations en attente de validation
- *   pendingTutorials   — tutoriels en attente de validation
- *   onValidateContent  — callback (contentType, id, action) appelé lors d'une décision
+ * Exercices et Quizz disposent d'une vraie route de décision (même mécanisme de validation
+ * générique, `docs/architecture.md` > « Refonte des Exercices ») — ce composant l'appelle
+ * réellement via `ExerciseValidationList`/`QuizValidationList`. Évaluations et tutoriels restent
+ * en attente d'une route dédiée (validation encore optimiste côté client).
  */
 
 import React, { useState } from 'react'
-import type { Exercise, Evaluation, Tutorial } from '../../api/contentCatalog'
+import type { Evaluation, Tutorial } from '../../api/contentCatalog'
+import type { ExerciseSummary, ExerciseValidationDecision } from '../../types/exercise'
 import type { QuizSummary, QuizValidationDecision } from '../../types/quiz'
+import { ExerciseValidationList } from './ExerciseValidationList'
 import { QuizValidationList } from './QuizValidationList'
 
-// Vocabulaire local, propre aux exercices/évaluations/tutoriels (validation encore optimiste
-// côté client, aucune route de décision documentée en phase 12 — voir plus bas). Distinct de
-// `QuizValidationDecision`, qui porte le vocabulaire réel attendu par le serveur pour le Quizz.
+// Vocabulaire local, propre aux évaluations/tutoriels (validation encore optimiste côté client,
+// aucune route de décision documentée pour ces deux types — voir plus bas). Distinct de
+// `ExerciseValidationDecision`/`QuizValidationDecision`, qui portent le vocabulaire réel attendu
+// par le serveur.
 type ContentDecision = 'approve' | 'reject'
 
 interface ContentValidationQueueProps {
-  pendingExercises: Exercise[]
+  pendingExercises: ExerciseSummary[]
   pendingEvaluations: Evaluation[]
   pendingTutorials: Tutorial[]
   pendingQuizzes: QuizSummary[]
   onValidateContent: (
-    contentType: 'exercise' | 'evaluation' | 'tutorial',
+    contentType: 'evaluation' | 'tutorial',
     contentId: string,
     decision: ContentDecision,
   ) => void
+  onDecideExercise: (
+    exerciseId: string,
+    decision: ExerciseValidationDecision,
+    comment?: string,
+  ) => Promise<void>
   onDecideQuiz: (
     quizId: string,
     decision: QuizValidationDecision,
@@ -51,6 +55,7 @@ export default function ContentValidationQueue({
   pendingTutorials,
   pendingQuizzes,
   onValidateContent,
+  onDecideExercise,
   onDecideQuiz,
 }: ContentValidationQueueProps) {
   const [activeTab, setActiveTab] = useState<ActiveValidationTab>('exercises')
@@ -124,12 +129,7 @@ export default function ContentValidationQueue({
 
       {/* Contenu selon l'onglet */}
       {activeTab === 'exercises' && (
-        <ValidationItemList
-          items={pendingExercises}
-          contentType="exercise"
-          onValidate={onValidateContent}
-          emptyLabel="Aucun exercice en attente."
-        />
+        <ExerciseValidationList exercises={pendingExercises} onDecide={onDecideExercise} />
       )}
 
       {activeTab === 'evaluations' && (
@@ -157,7 +157,7 @@ export default function ContentValidationQueue({
   )
 }
 
-// ─── Sous-composant liste de validation ───────────────────────────────────────
+// ─── Sous-composant liste de validation (évaluations/tutoriels) ───────────────
 
 interface ValidationItem {
   id: string
@@ -169,9 +169,9 @@ interface ValidationItem {
 
 interface ValidationItemListProps {
   items: ValidationItem[]
-  contentType: 'exercise' | 'evaluation' | 'tutorial'
+  contentType: 'evaluation' | 'tutorial'
   onValidate: (
-    contentType: 'exercise' | 'evaluation' | 'tutorial',
+    contentType: 'evaluation' | 'tutorial',
     contentId: string,
     decision: ContentDecision,
   ) => void

@@ -1,203 +1,194 @@
 /**
- * ExerciseDetailPage — Phase 12 (content-catalog-service)
+ * ExerciseDetailPage — détail d'un Exercice : démarrage d'une tentative, passage bloc par bloc
+ * (réponse facultative, révélation de solution à la demande), statut fait/en cours.
  *
- * Détail d'un exercice pédagogique.
- * L'élève peut soumettre une réponse et demander une correction.
- * Le formateur/RP/AP voit la solution et peut en créer une.
+ * Auto-contrôle, pas un Quizz noté — aucune notation, aucun score affiché.
  *
  * Routes API consommées :
- *   POST /exercises/:id/answers           — soumission de réponse (élève)
- *   POST /exercise-answers/:id/correction-requests — demande de correction (élève)
- *   POST /exercises/:id/solutions         — création de solution (formateur/RP/AP)
- *   POST /contents/:id/comments           — commentaires
+ *   GET  /exercises/:id                    (content-catalog-service)
+ *   POST /exercise-attempts                (learning-activity-service — démarrage)
+ *   POST /exercise-attempts/:id/answers    (learning-activity-service — réponse facultative)
+ *   POST /exercise-attempts/:id/reveal     (learning-activity-service — révélation médiée)
  */
 
 import React, { useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import Layout from '../components/Layout'
+import { PageHeader } from '../components/ui/PageHeader'
+import { ErrorMessage } from '../components/ui/ErrorMessage'
+import { StatusBadge } from '../components/ui/StatusBadge'
 import { useAuth } from '../hooks/useAuth'
-import ExerciseAnswerUpload from '../components/content-catalog/ExerciseAnswerUpload'
-import CorrectionRequestDialog from '../components/content-catalog/CorrectionRequestDialog'
-import ContentCommentsPanel from '../components/content-catalog/ContentCommentsPanel'
+import { useAsyncData } from '../hooks/useAsyncData'
+import { fetchExercise } from '../api/exercises'
 import {
-  createExerciseSolution,
-  type ExerciseAnswer,
-  type ContentComment,
-} from '../api/contentCatalog'
-
-// En phase 12, les détails de l'exercice sont affichés depuis la navigation
-// (la page catalog passe les données via le state de la route, ou une prochaine
-// extension pourra ajouter GET /exercises/:id quand la route sera spécifiée).
-// Pour l'instant la page récupère l'id depuis les params et affiche ce qui est disponible.
+  startExerciseAttempt,
+  submitExerciseAttemptAnswer,
+  revealExerciseAttemptSolution,
+  fetchExerciseAttempt,
+} from '../api/exerciseAttempts'
+import { ExercisePlayer } from '../components/content-catalog/ExercisePlayer'
+import {
+  EXERCISE_ATTEMPT_STATUS_BADGE_CLASSES,
+  EXERCISE_ATTEMPT_STATUS_LABELS,
+  EXERCISE_STATUS_BADGE_CLASSES,
+  EXERCISE_STATUS_LABELS,
+  getExerciseDisplayTitle,
+} from '../utils/exerciseLabels'
+import { getErrorMessage } from '../utils/apiError'
+import type { ExerciseAttempt } from '../types/exercise'
 
 export default function ExerciseDetailPage() {
   const { exerciseId } = useParams<{ exerciseId: string }>()
-  const { hasRole } = useAuth()
-
-  const [submittedAnswer, setSubmittedAnswer] = useState<ExerciseAnswer | null>(null)
-  const [isCorrectionDialogOpen, setIsCorrectionDialogOpen] = useState(false)
-  const [hasCorrectionRequested, setHasCorrectionRequested] = useState(false)
-  const [comments, setComments] = useState<ContentComment[]>([])
-
-  // Solution creation (formateur/RP/AP)
-  const [solutionContent, setSolutionContent] = useState('')
-  const [isCreatingSolution, setIsCreatingSolution] = useState(false)
-  const [solutionError, setSolutionError] = useState<string | null>(null)
-  const [solutionCreated, setSolutionCreated] = useState(false)
-
-  const isStudent = hasRole('eleve')
-  const canManageSolution = hasRole('formateur', 'responsable_pedagogique', 'animateur_pedagogique')
-
+  const navigate = useNavigate()
+  const { user } = useAuth()
   const resolvedExerciseId = exerciseId ?? ''
 
-  const handleAnswerSubmitted = (answer: ExerciseAnswer) => {
-    setSubmittedAnswer(answer)
-  }
+  const {
+    data: exercise,
+    isLoading,
+    error: loadError,
+  } = useAsyncData(() => fetchExercise(resolvedExerciseId), [resolvedExerciseId], {
+    fallbackErrorMessage: 'Impossible de charger cet exercice.',
+  })
 
-  const handleCorrectionRequested = () => {
-    setHasCorrectionRequested(true)
-    setIsCorrectionDialogOpen(false)
-  }
+  const [attempt, setAttempt] = useState<ExerciseAttempt | null>(null)
+  const [isStarting, setIsStarting] = useState(false)
+  const [startError, setStartError] = useState<string | null>(null)
 
-  const handleCommentAdded = (newComment: ContentComment) => {
-    setComments((previous) => [...previous, newComment])
-  }
+  const isAuthor = !!user && !!exercise && exercise.authorId === user.id
 
-  const handleCreateSolution = async (event: React.FormEvent) => {
-    event.preventDefault()
-    if (!solutionContent.trim()) {
-      setSolutionError('Le contenu de la solution ne peut pas être vide.')
-      return
-    }
-    setIsCreatingSolution(true)
-    setSolutionError(null)
+  const handleStart = async () => {
+    if (!resolvedExerciseId) return
+    setIsStarting(true)
+    setStartError(null)
     try {
-      await createExerciseSolution(resolvedExerciseId, { content: solutionContent.trim() })
-      setSolutionCreated(true)
-    } catch (error: unknown) {
-      const responseStatus = (error as { response?: { status?: number } })?.response?.status
-      if (responseStatus === 409) {
-        setSolutionError('Une solution existe déjà pour cet exercice.')
-      } else {
-        setSolutionError('Impossible de créer la solution.')
-      }
+      const startedAttempt = await startExerciseAttempt(resolvedExerciseId)
+      setAttempt(startedAttempt)
+    } catch (apiError: unknown) {
+      setStartError(getErrorMessage(apiError, "Impossible de démarrer cet exercice."))
     } finally {
-      setIsCreatingSolution(false)
+      setIsStarting(false)
     }
+  }
+
+  const handleAnswerSubmit = async (partId: string, content: string) => {
+    if (!attempt) return
+    const updated = await submitExerciseAttemptAnswer(attempt.id, partId, content)
+    setAttempt(updated)
+  }
+
+  const handleReveal = async (partId: string) => {
+    if (!attempt) return
+    await revealExerciseAttemptSolution(attempt.id, partId)
+    // La révélation ne renvoie que le contenu de ce bloc — on relit l'état complet de la
+    // tentative pour rester réaligné sur la réponse du serveur (règle du 2026-08-10, point 3bis).
+    const refreshed = await fetchExerciseAttempt(attempt.id)
+    setAttempt(refreshed)
   }
 
   if (!resolvedExerciseId) {
     return (
       <Layout>
-        <p className="text-red-600">Exercice introuvable.</p>
+        <ErrorMessage message="Exercice introuvable." />
+      </Layout>
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <Layout>
+        <p className="text-gray-400 text-sm">Chargement de l'exercice…</p>
+      </Layout>
+    )
+  }
+
+  if (loadError || !exercise) {
+    return (
+      <Layout>
+        <ErrorMessage message={loadError ?? 'Cet exercice est introuvable ou non accessible.'} />
       </Layout>
     )
   }
 
   return (
     <Layout>
-      <div className="space-y-8">
-        {/* En-tête */}
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Détail de l'exercice</h1>
-          <p className="text-gray-400 text-xs mt-1 font-mono">#{resolvedExerciseId}</p>
-        </div>
+      <div className="space-y-6">
+        <button
+          type="button"
+          onClick={() => navigate('/content/exercises')}
+          className="text-sm text-indigo-600 hover:text-indigo-800"
+        >
+          ← Retour au catalogue
+        </button>
 
-        {/* Section réponse élève */}
-        {isStudent && (
-          <div className="space-y-4">
-            <h2 className="text-base font-semibold text-gray-800">Votre réponse</h2>
-
-            {!submittedAnswer ? (
-              <ExerciseAnswerUpload
-                exerciseId={resolvedExerciseId}
-                onAnswerSubmitted={handleAnswerSubmitted}
-              />
-            ) : (
-              <div className="space-y-3">
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                  <p className="text-green-700 text-sm font-medium">Réponse soumise.</p>
-                  <p className="text-green-600 text-sm mt-1 line-clamp-3">
-                    {submittedAnswer.content}
-                  </p>
-                </div>
-
-                {!hasCorrectionRequested ? (
-                  <button
-                    type="button"
-                    onClick={() => setIsCorrectionDialogOpen(true)}
-                    className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
-                  >
-                    Demander une correction
-                  </button>
-                ) : (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
-                    <p className="text-blue-700 text-sm">
-                      Demande de correction envoyée. Un formateur vous répondra prochainement.
-                    </p>
-                  </div>
-                )}
-
-                <CorrectionRequestDialog
-                  answerId={submittedAnswer.id}
-                  isOpen={isCorrectionDialogOpen}
-                  onClose={() => setIsCorrectionDialogOpen(false)}
-                  onCorrectionRequested={handleCorrectionRequested}
-                />
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Section solution — formateur/RP/AP */}
-        {canManageSolution && (
-          <div className="space-y-4">
-            <h2 className="text-base font-semibold text-gray-800">Solution</h2>
-
-            {solutionCreated ? (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <p className="text-green-700 text-sm font-medium">Solution créée avec succès.</p>
-              </div>
-            ) : (
-              <form onSubmit={handleCreateSolution} className="space-y-3">
-                <div>
-                  <label htmlFor="solution-content" className="block text-sm text-gray-700 mb-1">
-                    Contenu de la solution
-                    <span className="ml-1 text-xs text-gray-400">(non visible par l'élève)</span>
-                  </label>
-                  <textarea
-                    id="solution-content"
-                    value={solutionContent}
-                    onChange={(e) => setSolutionContent(e.target.value)}
-                    rows={6}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
-                    placeholder="Rédigez ou complétez la solution…"
-                    disabled={isCreatingSolution}
-                  />
-                </div>
-                {solutionError && (
-                  <p className="text-red-600 text-sm">{solutionError}</p>
-                )}
+        <PageHeader
+          title={getExerciseDisplayTitle(exercise.title)}
+          subtitle={exercise.description ?? undefined}
+          action={
+            <div className="flex items-center gap-3">
+              {isAuthor && (
                 <button
-                  type="submit"
-                  disabled={isCreatingSolution || !solutionContent.trim()}
-                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  type="button"
+                  onClick={() => navigate(`/content/exercises/${resolvedExerciseId}/edit`)}
+                  className="px-3 py-1.5 text-xs font-medium text-indigo-700 bg-white border border-indigo-300 rounded-md hover:bg-indigo-50 transition-colors"
                 >
-                  {isCreatingSolution ? 'Enregistrement…' : 'Enregistrer la solution'}
+                  Modifier l'exercice
                 </button>
-              </form>
-            )}
+              )}
+              <StatusBadge
+                status={exercise.status}
+                label={EXERCISE_STATUS_LABELS[exercise.status]}
+                badgeClasses={EXERCISE_STATUS_BADGE_CLASSES}
+                size="md"
+              />
+              {attempt && (
+                <StatusBadge
+                  status={attempt.status}
+                  label={EXERCISE_ATTEMPT_STATUS_LABELS[attempt.status]}
+                  badgeClasses={EXERCISE_ATTEMPT_STATUS_BADGE_CLASSES}
+                  size="md"
+                />
+              )}
+            </div>
+          }
+        />
+
+        {exercise.tags.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {exercise.tags.map((tag) => (
+              <span key={tag} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
+                {tag}
+              </span>
+            ))}
           </div>
         )}
 
-        {/* Section commentaires */}
-        <div>
-          <ContentCommentsPanel
-            contentId={resolvedExerciseId}
-            comments={comments}
-            onCommentAdded={handleCommentAdded}
+        {!attempt && (
+          <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
+            <p className="text-sm text-gray-600">
+              {exercise.parts.length} bloc(s) — auto-contrôle : répondez à votre rythme, révélez la
+              solution quand vous le souhaitez.
+            </p>
+            {startError && <p className="text-red-600 text-sm">{startError}</p>}
+            <button
+              type="button"
+              onClick={handleStart}
+              disabled={isStarting}
+              className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+            >
+              {isStarting ? 'Démarrage…' : "Commencer l'exercice"}
+            </button>
+          </div>
+        )}
+
+        {attempt && (
+          <ExercisePlayer
+            exercise={exercise}
+            attempt={attempt}
+            onAnswerSubmit={handleAnswerSubmit}
+            onReveal={handleReveal}
           />
-        </div>
+        )}
       </div>
     </Layout>
   )

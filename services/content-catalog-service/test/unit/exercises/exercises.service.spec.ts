@@ -12,7 +12,7 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { ExercisesService } from '../../../src/exercises/exercises.service';
 import { Exercise } from '../../../src/exercises/entities/exercise.entity';
 import { ExercisePart } from '../../../src/exercises/entities/exercise-part.entity';
@@ -95,6 +95,18 @@ const validCreateDto = {
 // PNG 1x1 valide (transparent) — même fixture que exercise-image-transcoder.spec.ts.
 const TINY_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+/**
+ * Simule une violation Postgres 23505 de l'index UNIQUE
+ * (authorId, title) — même forme qu'une vraie QueryFailedError TypeORM
+ * (voir `isPostgresUniqueViolation`, code + constraint recopiés dessus).
+ */
+function buildTitleUniqueViolation(): Error & { code: string; constraint: string } {
+  return Object.assign(new Error('duplicate key value violates unique constraint'), {
+    code: '23505',
+    constraint: 'IDX_exercise_author_title_unique',
+  });
+}
 
 describe('ExercisesService', () => {
   let service: ExercisesService;
@@ -265,6 +277,75 @@ describe('ExercisesService', () => {
       // getOne() reste undefined par défaut (aucun doublon POUR CET auteur)
 
       await expect(service.create(validCreateDto as any, OTHER_ID, 'formateur')).resolves.toBeDefined();
+    });
+
+    // Arbitrage du 2026-09-01, point 3 : contrainte UNIQUE + retry —
+    // ferme la fenêtre de compétition (TOCTOU) entre le SELECT de
+    // resolveUniqueTitle et l'INSERT.
+    describe('retry sur violation de contrainte UNIQUE (23505) à l\'écriture', () => {
+      it('retente avec un titre recalculé après une collision de dernière seconde, sans jamais la remonter à l\'appelant', async () => {
+        partRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'part-' + Math.random() }));
+        itemRepo.save.mockImplementation((x) => Promise.resolve(x));
+        solutionRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'sol-1' }));
+        exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ status: ContentStatus.PENDING_VALIDATION }));
+
+        const qb = buildQueryBuilder();
+        // 1er essai : le SELECT ne voit rien (fenêtre de compétition) → le
+        // titre de base est tenté ; 2e essai : le SELECT voit désormais la
+        // ligne concurrente (committée entre-temps) → suffixe "(2)".
+        qb.getOne.mockResolvedValueOnce(undefined).mockResolvedValueOnce(buildSampleExercise());
+        exerciseRepo.createQueryBuilder.mockReturnValue(qb);
+
+        exerciseRepo.save
+          .mockRejectedValueOnce(buildTitleUniqueViolation())
+          .mockImplementation((x: any) => Promise.resolve({ ...x, id: EXERCISE_ID }));
+
+        await service.create(validCreateDto as any, FORMATEUR_ID, 'formateur');
+
+        // 1er essai (échec) + 2e essai (succès) + mise à jour du shareableLink
+        expect(exerciseRepo.save).toHaveBeenCalledTimes(3);
+        expect(exerciseRepo.create.mock.calls[0][0].title).toBe(validCreateDto.title);
+        expect(exerciseRepo.create.mock.calls[1][0].title).toBe(`${validCreateDto.title} (2)`);
+        // La cascade de blocs/solutions n'est jamais rejouée par le retry.
+        expect(partRepo.save).toHaveBeenCalledTimes(2);
+      });
+
+      it('lève ConflictException après épuisement des tentatives si la collision persiste', async () => {
+        exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ status: ContentStatus.PENDING_VALIDATION }));
+        exerciseRepo.createQueryBuilder.mockReturnValue(buildQueryBuilder());
+        exerciseRepo.save.mockRejectedValue(buildTitleUniqueViolation());
+
+        await expect(service.create(validCreateDto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(
+          ConflictException,
+        );
+        expect(exerciseRepo.save).toHaveBeenCalledTimes(10);
+        expect(partRepo.save).not.toHaveBeenCalled();
+      });
+
+      it('propage toute autre erreur d\'écriture sans retry (pas une violation de la contrainte titre)', async () => {
+        exerciseRepo.createQueryBuilder.mockReturnValue(buildQueryBuilder());
+        const otherError = new Error('connexion perdue');
+        exerciseRepo.save.mockRejectedValueOnce(otherError);
+
+        await expect(service.create(validCreateDto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(
+          'connexion perdue',
+        );
+        expect(exerciseRepo.save).toHaveBeenCalledTimes(1);
+      });
+
+      it('ne retente pas sur une violation UNIQUE portant sur une autre contrainte que le titre', async () => {
+        exerciseRepo.createQueryBuilder.mockReturnValue(buildQueryBuilder());
+        const otherConstraintViolation = Object.assign(new Error('duplicate key'), {
+          code: '23505',
+          constraint: 'some_other_unrelated_constraint',
+        });
+        exerciseRepo.save.mockRejectedValueOnce(otherConstraintViolation);
+
+        await expect(service.create(validCreateDto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(
+          'duplicate key',
+        );
+        expect(exerciseRepo.save).toHaveBeenCalledTimes(1);
+      });
     });
 
     // Arbitrage du 2026-09-01, "Bloc 'image' de premier niveau pour
@@ -514,6 +595,56 @@ describe('ExercisesService', () => {
       await expect(
         service.update(EXERCISE_ID, validCreateDto as any, FORMATEUR_ID, 'formateur'),
       ).resolves.toBeDefined();
+    });
+
+    // Arbitrage du 2026-09-01, point 3 : le retry vaut aussi à l'édition —
+    // la ligne racine s'écrit APRÈS la cascade de blocs/solutions, un
+    // retry ne la rejoue donc jamais.
+    it('retente avec un titre recalculé après une collision de dernière seconde, sans rejouer la cascade de blocs', async () => {
+      const existing = buildSampleExercise({ status: ContentStatus.VALIDATED, authorId: FORMATEUR_ID });
+      exerciseRepo.findOne.mockResolvedValueOnce(existing).mockResolvedValueOnce({
+        ...existing,
+        status: ContentStatus.PENDING_VALIDATION,
+        parts: [],
+      });
+      partRepo.find.mockResolvedValue([]);
+      solutionRepo.find.mockResolvedValue([]);
+      partRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'part-' + Math.random() }));
+      itemRepo.save.mockImplementation((x) => Promise.resolve(x));
+      solutionRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'sol-1' }));
+
+      const qb = buildQueryBuilder();
+      qb.getOne.mockResolvedValueOnce(undefined).mockResolvedValueOnce(buildSampleExercise({ id: 'autre-exercice' }));
+      exerciseRepo.createQueryBuilder.mockReturnValue(qb);
+
+      exerciseRepo.save
+        .mockRejectedValueOnce(buildTitleUniqueViolation())
+        .mockImplementation((x: any) => Promise.resolve(x));
+
+      await service.update(EXERCISE_ID, validCreateDto as any, FORMATEUR_ID, 'formateur');
+
+      expect(exerciseRepo.save).toHaveBeenCalledTimes(2);
+      expect(exerciseRepo.save.mock.calls[1][0].title).toBe(`${validCreateDto.title} (2)`);
+      // La cascade (suppression + recréation des blocs) n'a lieu qu'une fois.
+      expect(partRepo.delete).toHaveBeenCalledTimes(1);
+      expect(partRepo.save).toHaveBeenCalledTimes(2);
+    });
+
+    it('lève ConflictException à l\'édition après épuisement des tentatives si la collision persiste', async () => {
+      const existing = buildSampleExercise({ status: ContentStatus.VALIDATED, authorId: FORMATEUR_ID });
+      exerciseRepo.findOne.mockResolvedValue(existing);
+      partRepo.find.mockResolvedValue([]);
+      solutionRepo.find.mockResolvedValue([]);
+      partRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'part-' + Math.random() }));
+      itemRepo.save.mockImplementation((x) => Promise.resolve(x));
+      solutionRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'sol-1' }));
+      exerciseRepo.createQueryBuilder.mockReturnValue(buildQueryBuilder());
+      exerciseRepo.save.mockRejectedValue(buildTitleUniqueViolation());
+
+      await expect(
+        service.update(EXERCISE_ID, validCreateDto as any, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(ConflictException);
+      expect(exerciseRepo.save).toHaveBeenCalledTimes(10);
     });
   });
 

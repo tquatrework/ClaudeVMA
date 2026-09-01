@@ -5,11 +5,25 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
+  Index,
 } from 'typeorm';
 import { ContentStatus } from '../../common/enums/content-status.enum';
 import { QuizQuestion } from './quiz-question.entity';
 
+/**
+ * Index UNIQUE `(authorId, title)` posé par la migration
+ * `AddExerciseQuizTitleUniqueConstraint1795000000000` (docs/architecture.md,
+ * "Titre des Exercices et des Quizz : disambiguation automatique plutôt que
+ * refus", point 3) — ferme la fenêtre de compétition (TOCTOU) entre la
+ * vérification applicative (`QuizzesService.resolveUniqueTitle`) et
+ * l'écriture. Pas de filtre partiel ici (contrairement à `Exercise`) : le
+ * Quizz n'a pas de statut `REMOVED` dans son cycle de vie actuel (pas de
+ * route de retrait). Le retry applicatif sur violation `23505` de CET index
+ * précis vit dans `QuizzesService` (`isPostgresUniqueViolation`,
+ * `src/common/utils/postgres-errors.ts`).
+ */
 @Entity('quizzes')
+@Index('IDX_quiz_author_title_unique', ['authorId', 'title'], { unique: true })
 export class Quiz {
   @PrimaryGeneratedColumn('uuid')
   id: string;

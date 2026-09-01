@@ -1243,6 +1243,47 @@ Phase 3 enrichit l'offre :
       n'a besoin de la route interne de solution (point 8) qu'au moment ou l'eleve revele
       effectivement une solution donnee.
 
+- Titre des Exercices et des Quizz : obligatoire, unique, avec une valeur par defaut proposee par
+  le serveur ; champ Description retire de l'ecran Exercice ; ajout d'element dans un bloc
+  d'Exercice limite aux images. Arbitrage rendu le 2026-09-01, sur retour utilisateur apres test
+  visuel en production du chantier Exercices livre la veille.
+  1. **Le titre n'est plus optionnel.** La creation/edition est refusee (400) si le titre est vide.
+     Meme regle pour Exercice et Quizz — l'utilisateur l'a demande explicitement pour les deux
+     ("precision pour le quizz cela devrait etre la meme chose").
+  2. **Le titre doit etre unique**, mais seulement **par auteur** — deux formateurs differents
+     peuvent legitimement vouloir "Fractions - exercice 1" chacun de leur cote ; une unicite
+     globale serait inutilement contraignante sur un catalogue partage entre de nombreux
+     createurs. Choix de l'orchestrateur, l'utilisateur n'a pas precise le perimetre — a corriger
+     si l'intention etait une unicite globale. L'unicite est verifiee cote serveur uniquement,
+     jamais devinee par le front.
+  3. **Une valeur par defaut est proposee avant saisie**, de la forme "Exercice {n}" / "Quizz {n}",
+     ou {n} est le numero sequentiel du contenu de ce type pour cet auteur (nombre d'Exercices —
+     ou de Quizz — deja crees par lui, plus un). Meme convention deja etablie sur ce projet (le
+     front ne fabrique jamais une valeur par defaut, il la lit du serveur — cf.
+     `GET /profiles/avatar/constraints`, `GET /quizzes/import/constraints`) :
+     `content-catalog-service` expose la suggestion via une route dediee (ex.
+     `GET /exercises/default-title`, `GET /quizzes/default-title`), lue par le front a l'ouverture
+     du formulaire de creation et utilisee pour pre-remplir le champ — l'utilisateur reste libre
+     de le modifier avant de valider.
+  4. **Champ Description retire du formulaire Exercice**, demande explicite de l'utilisateur pour
+     liberer de l'espace a l'ecran. Retrait cote front uniquement ; si le DTO de creation/edition
+     du service l'exige aujourd'hui, `content-catalog-service` doit le rendre optionnel plutot que
+     de laisser le front echouer a l'envoi — aucune route ne doit exiger un champ que l'ecran ne
+     propose plus.
+  5. **Ajout d'element dans un bloc d'Exercice limite aux images.** Le texte se saisit directement
+     dans le bloc et la formule a deja sa propre affordance d'insertion (meme mecanisme que le
+     Memo/Quizz, `InsertFormulaButton`) : le bouton generique "Ajouter un element" n'a donc plus de
+     raison d'exister pour les types texte/formule et devient "Ajouter une image", restreint a ce
+     seul type. Ne concerne que l'Exercice — le Quizz n'a pas ce mecanisme de blocs/items.
+  6. **Bug signale par l'utilisateur, distinct de ce qui precede** : a l'edition d'un Exercice, les
+     solutions deja saisies ne sont pas recuperees (l'ecran d'edition les affiche vides). Cause a
+     diagnostiquer par `content-catalog-service` — persistance defaillante a la creation, ou route
+     de lecture d'edition qui ne renvoie pas les solutions a l'auteur. Meme lecture que
+     l'arbitrage Quizz du 2026-08-28 ("Lecture de sa propre solution par l'auteur") : la regle
+     "jamais la solution" protege l'eleve qui passe le contenu, pas l'auteur qui relit ce qu'il a
+     lui-meme ecrit — si aucune route n'existe aujourd'hui pour que l'auteur relise sa solution
+     d'Exercice, il faut en creer une, sur le meme modele que `GET /quizzes/:id/solution`.
+
 ## Points ouverts a arbitrer
 
 - `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a

@@ -30,11 +30,18 @@ Tentative/réponse/correction/historique migrent vers `learning-activity-service
 Exercice), `evaluation_attempts` actuel de `content-catalog-service` est à retirer (jamais utilisé
 réellement).
 
-**Prochaine étape** : découper et déléguer, dans cet ordre suggéré par l'arbitrage :
-`content-catalog-service` (validation cycle, tags en recherche, durée obligatoire, retrait
-d'`evaluation_attempts`) ; `learning-activity-service` (tentative + demande de correction +
-chronométrage/verrouillage de solution) ; `dashboard-notification-service` (nouveaux événements) ;
-`front-developper` seulement une fois le contrat backend stabilisé.
+Délégué en parallèle le 2026-09-01 à `content-catalog-service` et `learning-activity-service`.
+
+**`content-catalog-service` mergé (PR #195), déployé et vérifié en HTTP direct par l'orchestrateur**
+contre `https://claudevma.visioprof.fr` : création sans durée → `400` ; création par un formateur →
+`pending_validation` ; recherche par tag fonctionnelle (`GET /evaluations?tag=...`) ; ancienne route
+`POST /evaluations/:id/attempts` bien retirée (`404`) ; démarrage propre, pas de crash-loop. Données
+de test nettoyées de la production.
+
+**`learning-activity-service` toujours en cours** (tentative chronométrée + demande de correction +
+notifications). Une fois prêt : merger/déployer, puis déléguer `dashboard-notification-service`
+(nouveaux types d'événement, contrat exact à récupérer du rapport `learning-activity-service`), puis
+`front-developper` seulement une fois le backend stabilisé.
 
 ---
 

@@ -17,10 +17,12 @@ describe('AddImagePartCategoryEnum1792000000000', () => {
         }
         return Promise.resolve(undefined);
       }),
+      commitTransaction: jest.fn().mockResolvedValue(undefined),
+      startTransaction: jest.fn().mockResolvedValue(undefined),
     };
   }
 
-  it("ajoute la valeur 'image' au type enum résolu dynamiquement", async () => {
+  it("ajoute la valeur 'image' au type enum résolu dynamiquement, puis force une frontière de transaction", async () => {
     const queryRunner = buildMockQueryRunner('exercise_parts_category_enum');
     const migration = new AddImagePartCategoryEnum1792000000000();
 
@@ -30,6 +32,21 @@ describe('AddImagePartCategoryEnum1792000000000', () => {
     expect(queries.some((q) => q.includes("ALTER TYPE \"exercise_parts_category_enum\" ADD VALUE IF NOT EXISTS 'image'"))).toBe(
       true,
     );
+    // Correctif du 2026-09-01 : commit puis réouverture immédiate, pour que
+    // la migration suivante (qui UTILISE 'image') ne partage jamais la même
+    // transaction Postgres que cet ALTER TYPE.
+    expect(queryRunner.commitTransaction).toHaveBeenCalled();
+    expect(queryRunner.startTransaction).toHaveBeenCalled();
+  });
+
+  it('ne force aucune frontière de transaction sur une base neuve (rien à committer)', async () => {
+    const queryRunner = buildMockQueryRunner(undefined);
+    const migration = new AddImagePartCategoryEnum1792000000000();
+
+    await migration.up(queryRunner as any);
+
+    expect(queryRunner.commitTransaction).not.toHaveBeenCalled();
+    expect(queryRunner.startTransaction).not.toHaveBeenCalled();
   });
 
   it('ne fait rien sur une base neuve (colonne/table absente)', async () => {

@@ -9,15 +9,23 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * cette catégorie (voir la migration suivante,
  * `MigrateExerciseImageItemsToImageBlocks1793000000000`, qui en a besoin).
  *
- * Volontairement scindée dans SA PROPRE migration (donc sa propre
- * transaction — `migrationsTransactionMode` par défaut de TypeORM est une
- * transaction par fichier de migration) : Postgres autorise
- * `ALTER TYPE ... ADD VALUE` à l'intérieur d'une transaction depuis la
- * version 12, mais interdit d'UTILISER cette nouvelle valeur dans la MÊME
- * transaction sur des versions antérieures. En séparant l'ajout (ici) de
- * l'utilisation (migration suivante, transaction distincte), le correctif
- * reste sûr quelle que soit la version de Postgres réellement déployée —
- * cette migration-ci ne fait STRICTEMENT rien d'autre que l'ALTER TYPE.
+ * CORRECTIF DU 2026-09-01, vérifié contre la pile réelle : scinder l'ajout
+ * de l'enum et son utilisation dans deux FICHIERS de migration distincts ne
+ * suffit PAS à les isoler dans deux transactions Postgres séparées — le
+ * `migrationsTransactionMode` par défaut de TypeORM (`"all"`, pas `"each"`)
+ * exécute TOUTES les migrations en attente dans UNE SEULE transaction. Le
+ * premier déploiement de ce correctif a échoué en HTTP réel avec
+ * `QueryFailedError: unsafe use of new value "image" of enum type
+ * exercise_parts_category_enum`, exactement la restriction Postgres que ce
+ * découpage en deux fichiers visait (à tort) à éviter.
+ *
+ * Cette migration force donc explicitement une frontière de transaction :
+ * `commitTransaction()` juste après l'ALTER TYPE, puis `startTransaction()`
+ * pour rouvrir une transaction avant de rendre la main à l'exécuteur de
+ * migrations TypeORM (qui commit lui-même à la fin du lot) — la migration
+ * suivante (`MigrateExerciseImageItemsToImageBlocks1793000000000`, qui
+ * utilise la valeur `'image'`) s'exécute alors dans une transaction où cette
+ * valeur est déjà validée, quel que soit le mode de transaction configuré.
  *
  * Le nom exact du type enum est résolu dynamiquement
  * (`pg_type`/`pg_attribute`/`pg_class`) plutôt que supposé
@@ -51,6 +59,14 @@ export class AddImagePartCategoryEnum1792000000000 implements MigrationInterface
     }
 
     await queryRunner.query(`ALTER TYPE "${enumTypeName}" ADD VALUE IF NOT EXISTS 'image'`);
+
+    // Force la validation de la nouvelle valeur AVANT que la migration
+    // suivante ne l'utilise, quel que soit `migrationsTransactionMode` (voir
+    // commentaire ci-dessus). `startTransaction()` rouvre immédiatement une
+    // transaction pour que le COMMIT final de l'exécuteur de migrations
+    // TypeORM reste valide.
+    await queryRunner.commitTransaction();
+    await queryRunner.startTransaction();
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

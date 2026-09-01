@@ -79,6 +79,7 @@ describe('InternalService', () => {
           coordinatorRole,
         })),
       getFinanceOwnersByStudent: jest.fn().mockResolvedValue([]),
+      getTeachersByStudent: jest.fn().mockResolvedValue([]),
     };
 
     administrativeProfileLookup = {
@@ -635,6 +636,71 @@ describe('InternalService', () => {
       relationsService.getFinanceOwnersByStudent.mockRejectedValue(new Error('boom'));
 
       await expect(service.getFinanceOwnersByStudent('student-uuid')).rejects.toThrow('boom');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // getTeachersByStudent — arbitrage du 2026-09-01 (refonte des Evaluations,
+  // demande de correction humaine)
+  // ---------------------------------------------------------------------------
+  describe('getTeachersByStudent', () => {
+    it('délègue à RelationsService.getTeachersByStudent et ne renvoie que les userId', async () => {
+      relationsService.getTeachersByStudent.mockResolvedValue([
+        {
+          teacherId: 'teacher-1-uuid',
+          studentId: 'student-uuid',
+          isPrincipalTeacher: true,
+          teacherName: { firstName: 'Camille', lastName: 'Durand' },
+        },
+        {
+          teacherId: 'teacher-2-uuid',
+          studentId: 'student-uuid',
+          isPrincipalTeacher: false,
+          teacherName: null,
+        },
+      ]);
+
+      const result = await service.getTeachersByStudent('student-uuid');
+
+      expect(relationsService.getTeachersByStudent).toHaveBeenCalledWith(
+        'student-uuid',
+        expect.objectContaining({ role: UserRole.RESPONSABLE_PEDAGOGIQUE }),
+      );
+      expect(result).toEqual({
+        studentId: 'student-uuid',
+        teacherUserIds: ['teacher-1-uuid', 'teacher-2-uuid'],
+      });
+    });
+
+    /**
+     * Périmètre volontairement étroit (même patron que getFinanceOwnersByStudent) :
+     * ni nom, ni statut de lien ne doivent fuiter par cette route.
+     */
+    it('ne renvoie que studentId et teacherUserIds, rien d’autre', async () => {
+      relationsService.getTeachersByStudent.mockResolvedValue([
+        { teacherId: 'teacher-1-uuid', studentId: 'student-uuid', isPrincipalTeacher: false, teacherName: null },
+      ]);
+
+      const result = await service.getTeachersByStudent('student-uuid');
+
+      expect(Object.keys(result).sort()).toEqual(['studentId', 'teacherUserIds']);
+    });
+
+    it("renvoie une liste vide quand l'élève n'a aucun professeur actif", async () => {
+      relationsService.getTeachersByStudent.mockResolvedValue([]);
+
+      const result = await service.getTeachersByStudent('student-sans-professeur-uuid');
+
+      expect(result).toEqual({
+        studentId: 'student-sans-professeur-uuid',
+        teacherUserIds: [],
+      });
+    });
+
+    it('propage les erreurs levées par RelationsService', async () => {
+      relationsService.getTeachersByStudent.mockRejectedValue(new Error('boom'));
+
+      await expect(service.getTeachersByStudent('student-uuid')).rejects.toThrow('boom');
     });
   });
 });

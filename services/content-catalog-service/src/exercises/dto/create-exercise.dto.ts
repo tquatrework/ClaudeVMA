@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsString,
   IsOptional,
+  IsNotEmpty,
   IsArray,
   ArrayMinSize,
   ArrayMaxSize,
@@ -17,15 +18,20 @@ export { CreateExerciseContentItemDto } from './create-exercise-content-item.dto
 /**
  * DTO de création d'un exercice — refonte du 2026-08-29. Un exercice est une
  * séquence ordonnée de blocs (`parts`), pas un énoncé unique + parties.
- * `title` est optionnel. `solutionContent` disparaît : la solution est
- * désormais portée individuellement par chaque bloc `question`
- * (`parts[].solution`).
+ * `solutionContent` disparaît : la solution est désormais portée
+ * individuellement par chaque bloc `question` (`parts[].solution`).
+ *
+ * `title` redevient obligatoire le 2026-09-01 (docs/architecture.md, "Titre
+ * des Exercices et des Quizz"), aligné sur `CreateQuizDto.title`. Unicité
+ * par auteur vérifiée côté service (`ExercisesService.assertTitleUnique`),
+ * jamais devinée par le front — voir `GET /exercises/default-title` pour la
+ * valeur suggérée avant saisie.
  */
 export class CreateExerciseDto {
-  @ApiPropertyOptional({ description: 'Titre de l\'exercice (optionnel)' })
-  @IsOptional()
+  @ApiProperty({ description: 'Titre de l\'exercice' })
   @IsString()
-  title?: string;
+  @IsNotEmpty()
+  title: string;
 
   @ApiPropertyOptional({ description: 'Description courte de l\'exercice' })
   @IsOptional()

@@ -80,6 +80,22 @@ export interface PublicExerciseDetail extends PublicExerciseSummary {
   parts: PublicExercisePart[];
 }
 
+/**
+ * Bloc avec le contenu complet de sa solution — jamais renvoyé par une route
+ * publique. Réservé à l'auteur de l'exercice et aux AP/RP/TI (arbitrage du
+ * 2026-09-01, "Titre des Exercices et des Quizz", point 6 : même lecture que
+ * l'arbitrage Quizz du 2026-08-28, "Lecture de sa propre solution par
+ * l'auteur d'un Quizz" — la règle "jamais la solution" protège l'élève qui
+ * passe le contenu, pas l'auteur qui relit ce qu'il a lui-même écrit).
+ */
+export interface PublicExercisePartWithSolution extends Omit<PublicExercisePart, 'hasSolution'> {
+  solution: { items: PublicContentItem[] } | null;
+}
+
+export interface PublicExerciseDetailWithSolutions extends PublicExerciseSummary {
+  parts: PublicExercisePartWithSolution[];
+}
+
 @Injectable()
 export class ExercisesService {
   constructor(
@@ -158,6 +174,33 @@ export class ExercisesService {
   }
 
   // ───────────────────────────────────────────────────────────────────────
+  // Sérialisation avec solution — réservée à l'auteur et aux AP/RP/TI
+  // (arbitrage du 2026-09-01, "Titre des Exercices et des Quizz", point 6)
+  // ───────────────────────────────────────────────────────────────────────
+
+  private toPublicPartWithSolution(part: ExercisePart): PublicExercisePartWithSolution {
+    const items = [...(part.items ?? [])].sort((a, b) => a.order - b.order);
+    const solutionItems = part.solution
+      ? [...(part.solution.items ?? [])].sort((a, b) => a.order - b.order)
+      : null;
+    return {
+      id: part.id,
+      partNumber: part.partNumber,
+      category: part.category,
+      items: items.map((item) => this.toPublicItem(item)),
+      solution: solutionItems ? { items: solutionItems.map((item) => this.toPublicItem(item)) } : null,
+    };
+  }
+
+  private toPublicDetailWithSolutions(exercise: Exercise): PublicExerciseDetailWithSolutions {
+    const parts = [...(exercise.parts ?? [])].sort((a, b) => a.partNumber - b.partNumber);
+    return {
+      ...this.toPublicSummary(exercise),
+      parts: parts.map((part) => this.toPublicPartWithSolution(part)),
+    };
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
   // Validation des blocs à la création/édition
   // ───────────────────────────────────────────────────────────────────────
 
@@ -199,6 +242,47 @@ export class ExercisesService {
   }
 
   // ───────────────────────────────────────────────────────────────────────
+  // Titre — obligatoire et unique par auteur (arbitrage du 2026-09-01)
+  // ───────────────────────────────────────────────────────────────────────
+
+  /**
+   * Refuse (400) si l'auteur possède déjà un autre exercice portant
+   * exactement ce titre. Unicité *par auteur*, pas globale — deux
+   * formateurs différents peuvent légitimement choisir le même titre
+   * chacun de leur côté. `REMOVED` est exclu : un exercice retiré ne bloque
+   * pas la réutilisation de son titre.
+   */
+  private async assertTitleUnique(title: string, authorId: string, excludeExerciseId?: string): Promise<void> {
+    // `.andWhere()` seul (sans `.where()` préalable) — même convention que
+    // `search()` plus bas dans ce service, compatible avec les mocks de test
+    // qui n'exposent que `andWhere`.
+    const qb = this.exerciseRepository
+      .createQueryBuilder('exercise')
+      .andWhere('exercise.authorId = :authorId', { authorId })
+      .andWhere('exercise.title = :title', { title })
+      .andWhere('exercise.status != :removed', { removed: ContentStatus.REMOVED });
+
+    if (excludeExerciseId) {
+      qb.andWhere('exercise.id != :excludeExerciseId', { excludeExerciseId });
+    }
+
+    const existing = await qb.getOne();
+    if (existing) {
+      throw new BadRequestException(`Vous avez déjà un exercice intitulé "${title}"`);
+    }
+  }
+
+  /**
+   * Suggestion de titre par défaut ("Exercice {n}"), lue par le front à
+   * l'ouverture du formulaire de création — ne réserve rien, juste une
+   * proposition modifiable avant validation (arbitrage du 2026-09-01).
+   */
+  async getDefaultTitle(authorId: string): Promise<{ title: string }> {
+    const count = await this.exerciseRepository.count({ where: { authorId } });
+    return { title: `Exercice ${count + 1}` };
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
   // Création
   // ───────────────────────────────────────────────────────────────────────
 
@@ -206,6 +290,11 @@ export class ExercisesService {
     if (!EXERCISE_CREATOR_ROLES.includes(authorRole as UserRole)) {
       throw new ForbiddenException('Seuls les formateurs, AP et RP peuvent créer un exercice');
     }
+
+    if (!createExerciseDto.title || !createExerciseDto.title.trim()) {
+      throw new BadRequestException('Le titre de l\'exercice est obligatoire');
+    }
+    await this.assertTitleUnique(createExerciseDto.title, authorId);
 
     if (!createExerciseDto.parts || createExerciseDto.parts.length === 0) {
       throw new BadRequestException('Un exercice doit contenir au moins un bloc');
@@ -218,7 +307,7 @@ export class ExercisesService {
       authorRole === UserRole.FORMATEUR ? ContentStatus.PENDING_VALIDATION : ContentStatus.VALIDATED;
 
     const exercise = this.exerciseRepository.create({
-      title: createExerciseDto.title ?? null,
+      title: createExerciseDto.title,
       description: createExerciseDto.description,
       level: createExerciseDto.level,
       difficulty: createExerciseDto.difficulty,
@@ -305,6 +394,11 @@ export class ExercisesService {
       throw new ForbiddenException("Seul l'auteur peut modifier cet exercice");
     }
 
+    if (!updateExerciseDto.title || !updateExerciseDto.title.trim()) {
+      throw new BadRequestException('Le titre de l\'exercice est obligatoire');
+    }
+    await this.assertTitleUnique(updateExerciseDto.title, exercise.authorId, exerciseId);
+
     if (!updateExerciseDto.parts || updateExerciseDto.parts.length === 0) {
       throw new BadRequestException('Un exercice doit contenir au moins un bloc');
     }
@@ -312,7 +406,7 @@ export class ExercisesService {
 
     await this.deleteImagesForExercise(exerciseId);
 
-    exercise.title = updateExerciseDto.title ?? null;
+    exercise.title = updateExerciseDto.title;
     exercise.description = updateExerciseDto.description;
     exercise.level = updateExerciseDto.level;
     exercise.difficulty = updateExerciseDto.difficulty;
@@ -414,6 +508,37 @@ export class ExercisesService {
     }
 
     return this.toPublicDetail(exercise);
+  }
+
+  /**
+   * Détail complet de l'exercice AVEC le contenu de chaque solution —
+   * réservé à l'auteur et aux AP/RP/TI (arbitrage du 2026-09-01, point 6).
+   * `GET /exercises/:id` reste inchangée et ne renvoie jamais cette forme :
+   * c'est un point d'accès distinct, motivé par l'édition qui a besoin de
+   * pré-remplir les solutions sans que l'auteur les ressaisisse — même
+   * raisonnement que `QuizzesService.findOneWithSolution` (2026-08-28).
+   */
+  async findOneWithSolutions(
+    exerciseId: string,
+    callerId: string,
+    callerRole: string,
+  ): Promise<PublicExerciseDetailWithSolutions> {
+    const exercise = await this.exerciseRepository.findOne({
+      where: { id: exerciseId },
+      relations: ['parts', 'parts.items', 'parts.solution', 'parts.solution.items'],
+    });
+    if (!exercise) {
+      throw new NotFoundException(`Exercice ${exerciseId} introuvable`);
+    }
+
+    const isOwner = exercise.authorId === callerId;
+    if (!isOwner && !this.isAdminRole(callerRole)) {
+      throw new ForbiddenException(
+        "Seul l'auteur de l'exercice ou un AP/RP/TI peut consulter ses solutions",
+      );
+    }
+
+    return this.toPublicDetailWithSolutions(exercise);
   }
 
   async getPendingValidation(

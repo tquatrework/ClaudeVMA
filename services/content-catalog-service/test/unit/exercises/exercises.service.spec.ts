@@ -39,6 +39,7 @@ function buildMockRepo() {
     findOne: jest.fn(),
     findAndCount: jest.fn(),
     delete: jest.fn(),
+    count: jest.fn(),
     createQueryBuilder: jest.fn(),
   };
 }
@@ -50,6 +51,10 @@ function buildQueryBuilder(items: Exercise[] = [], total = items.length) {
     skip: jest.fn().mockReturnThis(),
     take: jest.fn().mockReturnThis(),
     getManyAndCount: jest.fn().mockResolvedValue([items, total]),
+    // Titre unique par auteur (arbitrage du 2026-09-01) : `getOne()` résolu
+    // à `undefined` par défaut (aucun doublon), surchargé par les tests qui
+    // simulent un titre déjà pris.
+    getOne: jest.fn().mockResolvedValue(undefined),
   };
   return qb;
 }
@@ -102,6 +107,9 @@ describe('ExercisesService', () => {
     partRepo = buildMockRepo();
     solutionRepo = buildMockRepo();
     itemRepo = buildMockRepo();
+    // Défaut : aucun titre en doublon (assertTitleUnique) — les tests de
+    // search() écrasent cette valeur avec leur propre query builder.
+    exerciseRepo.createQueryBuilder.mockReturnValue(buildQueryBuilder());
     profileRelationsClient = { hasAnimatorOfTeacherRelation: jest.fn() };
     imageStorage = { save: jest.fn(), read: jest.fn(), delete: jest.fn() };
     imageTranscoder = { transcode: jest.fn() };
@@ -190,6 +198,62 @@ describe('ExercisesService', () => {
       };
       await expect(service.create(dto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(BadRequestException);
     });
+
+    // Arbitrage du 2026-09-01, "Titre des Exercices et des Quizz" : le
+    // titre n'est plus optionnel, et doit être unique par auteur.
+    it('lève BadRequestException si le titre est vide', async () => {
+      const dto = { ...validCreateDto, title: '' };
+      await expect(service.create(dto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(BadRequestException);
+    });
+
+    it('lève BadRequestException si le titre ne contient que des espaces', async () => {
+      const dto = { ...validCreateDto, title: '   ' };
+      await expect(service.create(dto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(BadRequestException);
+    });
+
+    it('lève BadRequestException si l\'auteur a déjà un exercice avec ce titre', async () => {
+      const qb = buildQueryBuilder();
+      qb.getOne.mockResolvedValue(buildSampleExercise());
+      exerciseRepo.createQueryBuilder.mockReturnValue(qb);
+
+      await expect(service.create(validCreateDto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('autorise deux auteurs différents à choisir le même titre', async () => {
+      exerciseRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: EXERCISE_ID }));
+      partRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'part-' + Math.random() }));
+      itemRepo.save.mockImplementation((x) => Promise.resolve(x));
+      solutionRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'sol-1' }));
+      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ authorId: OTHER_ID }));
+      // getOne() reste undefined par défaut (aucun doublon POUR CET auteur)
+
+      await expect(service.create(validCreateDto as any, OTHER_ID, 'formateur')).resolves.toBeDefined();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // getDefaultTitle()
+  // ─────────────────────────────────────────────────────────────────────
+
+  describe('getDefaultTitle()', () => {
+    it('propose "Exercice {n+1}" où n est le nombre d\'exercices déjà créés par l\'auteur', async () => {
+      exerciseRepo.count.mockResolvedValue(3);
+
+      const result = await service.getDefaultTitle(FORMATEUR_ID);
+
+      expect(result).toEqual({ title: 'Exercice 4' });
+      expect(exerciseRepo.count).toHaveBeenCalledWith({ where: { authorId: FORMATEUR_ID } });
+    });
+
+    it('propose "Exercice 1" pour un auteur sans exercice existant', async () => {
+      exerciseRepo.count.mockResolvedValue(0);
+
+      const result = await service.getDefaultTitle(FORMATEUR_ID);
+
+      expect(result).toEqual({ title: 'Exercice 1' });
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────
@@ -242,6 +306,46 @@ describe('ExercisesService', () => {
       await expect(
         service.update(EXERCISE_ID, { title: 't', parts: [] } as any, FORMATEUR_ID, 'formateur'),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('lève BadRequestException si le titre est vide', async () => {
+      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ authorId: FORMATEUR_ID }));
+
+      await expect(
+        service.update(EXERCISE_ID, { ...validCreateDto, title: '' } as any, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('lève BadRequestException si un autre exercice du même auteur porte déjà ce titre', async () => {
+      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ authorId: FORMATEUR_ID }));
+      const qb = buildQueryBuilder();
+      qb.getOne.mockResolvedValue(buildSampleExercise({ id: 'autre-exercice' }));
+      exerciseRepo.createQueryBuilder.mockReturnValue(qb);
+
+      await expect(
+        service.update(EXERCISE_ID, validCreateDto as any, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('autorise à garder le même titre en éditant le même exercice (exclusion de soi-même)', async () => {
+      const existing = buildSampleExercise({ status: ContentStatus.VALIDATED, authorId: FORMATEUR_ID });
+      exerciseRepo.findOne.mockResolvedValueOnce(existing).mockResolvedValueOnce({
+        ...existing,
+        status: ContentStatus.PENDING_VALIDATION,
+        parts: [],
+      });
+      partRepo.find.mockResolvedValue([]);
+      solutionRepo.find.mockResolvedValue([]);
+      partRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'part-' + Math.random() }));
+      itemRepo.save.mockImplementation((x) => Promise.resolve(x));
+      solutionRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'sol-1' }));
+      exerciseRepo.save.mockResolvedValue(existing);
+      // getOne() résout undefined par défaut : seul l'exercice édité porte ce
+      // titre, exclu par excludeExerciseId.
+
+      await expect(
+        service.update(EXERCISE_ID, validCreateDto as any, FORMATEUR_ID, 'formateur'),
+      ).resolves.toBeDefined();
     });
   });
 
@@ -326,6 +430,81 @@ describe('ExercisesService', () => {
       exerciseRepo.findOne.mockResolvedValue(null);
 
       await expect(service.findOne(EXERCISE_ID, ELEVE_ID, 'eleve')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // findOneWithSolutions() — correctif du bug remonté le 2026-09-01 :
+  // l'auteur doit pouvoir relire le contenu de ses propres solutions.
+  // ─────────────────────────────────────────────────────────────────────
+
+  describe('findOneWithSolutions()', () => {
+    function buildPartWithSolution() {
+      return {
+        id: 'part-1',
+        partNumber: 1,
+        category: ExercisePartCategory.QUESTION,
+        items: [{ id: 'item-1', type: 'text', content: 'Q1', order: 0 }],
+        solution: {
+          id: 'sol-1',
+          items: [{ id: 'sol-item-1', type: 'text', content: 'x = 2', order: 0 }],
+        },
+      };
+    }
+
+    it('renvoie le contenu de la solution à l\'auteur', async () => {
+      exerciseRepo.findOne.mockResolvedValue(
+        buildSampleExercise({ authorId: FORMATEUR_ID, parts: [buildPartWithSolution()] as any }),
+      );
+
+      const result = await service.findOneWithSolutions(EXERCISE_ID, FORMATEUR_ID, 'formateur');
+
+      expect(result.parts[0].solution).toEqual({ items: [{ id: 'sol-item-1', type: 'text', content: 'x = 2', order: 0, imageMimeType: undefined, imageSizeBytes: undefined }] });
+    });
+
+    it('renvoie le contenu de la solution à un RP', async () => {
+      exerciseRepo.findOne.mockResolvedValue(
+        buildSampleExercise({ authorId: FORMATEUR_ID, parts: [buildPartWithSolution()] as any }),
+      );
+
+      const result = await service.findOneWithSolutions(EXERCISE_ID, RP_ID, 'responsable_pedagogique');
+
+      expect(result.parts[0].solution).not.toBeNull();
+    });
+
+    it('lève ForbiddenException pour un tiers non administrateur', async () => {
+      exerciseRepo.findOne.mockResolvedValue(
+        buildSampleExercise({ authorId: FORMATEUR_ID, parts: [buildPartWithSolution()] as any }),
+      );
+
+      await expect(service.findOneWithSolutions(EXERCISE_ID, ELEVE_ID, 'eleve')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('lève NotFoundException si l\'exercice n\'existe pas', async () => {
+      exerciseRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.findOneWithSolutions(EXERCISE_ID, FORMATEUR_ID, 'formateur')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('renvoie null pour un bloc énoncé sans solution', async () => {
+      const statementPart = {
+        id: 'part-0',
+        partNumber: 1,
+        category: ExercisePartCategory.STATEMENT,
+        items: [{ id: 'item-0', type: 'text', content: 'Énoncé', order: 0 }],
+        solution: null,
+      };
+      exerciseRepo.findOne.mockResolvedValue(
+        buildSampleExercise({ authorId: FORMATEUR_ID, parts: [statementPart] as any }),
+      );
+
+      const result = await service.findOneWithSolutions(EXERCISE_ID, FORMATEUR_ID, 'formateur');
+
+      expect(result.parts[0].solution).toBeNull();
     });
   });
 

@@ -62,19 +62,33 @@ nouveaux préfixes `/evaluation-attempts` et `/evaluation-corrections`. Même d�
 et corrigé deux fois pour ce même service (`/quiz-attempts`, puis `/exercise-attempts` le
 2026-09-01, PR #187). **Délégué à `api-gateway` le 2026-09-01, en cours.**
 
-**Ordre restant** : `api-gateway` (proxy, en cours) → terminer la vérification HTTP du cycle complet
-(démarrage tentative → réponse → soumission → demande de correction → acceptation professeur →
-correction → historique élève à jour) → déléguer `dashboard-notification-service` (nouveaux types
-d'événement, contrat exact dans `.claude/reports/learning-activity-service-evaluations-2026-09-01.md`)
-→ `front-developper` seulement une fois le backend entièrement stabilisé.
+**`api-gateway` mergé (PR #198), déployé.** Cycle repris en HTTP direct avec succès jusqu'à un
+second blocage : démarrage de tentative ✅, soumission de réponse ✅, clôture (`submit`) ✅, mais
+**`request-correction` échouait en `502` "Réponse de relations malformée"** — le client de
+`learning-activity-service` attendait `{teacherIds}` (hypothèse non confirmée, documentée comme
+telle) alors que `profile-service` renvoie réellement `{studentId, teacherUserIds}` (cohérent avec
+`financeOwnerUserIds` sur la route équivalente). **Délégué le 2026-09-01, en cours.**
+
+**Point mineur noté en cours de route, non traité (hors périmètre)** : un Exercice référencé par une
+Évaluation validée doit être *lui-même* validé indépendamment pour qu'un élève puisse le lire
+(`GET /exercises/:id` sinon `404`) — comportement cohérent avec les règles existantes mais pas
+explicitement anticipé par l'arbitrage Évaluation ; à surveiller si un vrai flux de création groupe
+Évaluation+Exercices sans validation systématique de chaque exercice.
+
+**Ordre restant** : `learning-activity-service` (correctif nom de champ, en cours) → terminer la
+vérification HTTP du cycle complet (demande de correction → acceptation professeur → correction →
+historique élève à jour) → déléguer `dashboard-notification-service` (nouveaux types d'événement,
+contrat exact dans `.claude/reports/learning-activity-service-evaluations-2026-09-01.md`) →
+`front-developper` seulement une fois le backend entièrement stabilisé.
 
 Comptes de test créés aujourd'hui, réutilisables pour la suite de la vérification (à nettoyer en
 fin de chantier) : formateur `e2e.titletest.1788286184` / `E2eTest!2026` (id
 `d91afd1c-6c2b-4eb7-b625-bd7ce7b2bce1`), RP `e2e.rpeval.1788294768` / `E2eTest!2026` (id
 `365d0543-5c83-478d-99d1-da96e3d55bca`), élève `e2e.studeval.1788294788` / `E2eTest!2026` (id
 `a57d643c-2927-4114-8c91-671b22e62fd6`, lié au formateur ci-dessus). Exercice de test
-`919878f3-2199-4df5-a5f8-e9ac0158d925`, Évaluation de test `1ea78993-9412-4023-87e0-d966f96dbf1d`
-(déjà `validated`).
+`919878f3-2199-4df5-a5f8-e9ac0158d925` (déjà `validated`), Évaluation de test
+`1ea78993-9412-4023-87e0-d966f96dbf1d` (déjà `validated`), tentative de test
+`3dddae72-7880-49e1-bdc0-5ad7d72705b7` (déjà `completed`, prête pour `request-correction`).
 
 ---
 

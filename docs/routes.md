@@ -2868,9 +2868,10 @@ Body : `{siteName?, maintenanceMessage?, isMaintenanceMode?, contactEmail?, supp
 ## content-catalog-service
 
 Swagger complet exposé sur `/api/docs` (routes publiques uniquement — les routes `/internal/*`
-sont exclues via `@ApiExcludeController()`). Le tableau ci-dessous couvre uniquement les routes
-Quizz ajoutées le 2026-08-28 ; voir `docs/services/content-catalog-service.md` pour le reste du
-catalogue (exercices, évaluations, tutoriels, validations génériques).
+sont exclues via `@ApiExcludeController()`). Le tableau ci-dessous couvre les routes Quizz
+(2026-08-28), Exercices (2026-08-29) et Évaluations (2026-09-01) ; voir
+`docs/services/content-catalog-service.md` pour le reste du catalogue (tutoriels, validations
+génériques).
 
 ### Quizz
 
@@ -3059,3 +3060,39 @@ une solution d'exercice autrement que via `learning-activity-service`.
 |---|---|---|---|---|
 | POST | /internal/exercises/:exerciseId/parts/:partId/solution | Contrat figé avec `learning-activity-service` (`docs/architecture.md`, point 10) : renvoie le contenu complet de la solution d'un bloc `question`, sous la même forme que le contenu des blocs (`{id, type, order, content, imageMimeType?, imageSizeBytes?}[]`). Pour un item `image`, `id` sert directement d'`itemId` à passer à la route ci-dessous — les octets ne sont jamais embarqués en base64 dans cette réponse | `X-Internal-Secret` | `200 {content: PublicContentItem[]}` · `401` · `404` bloc ou solution introuvable |
 | GET | /internal/exercises/images/:itemId | Octets de **n'importe quelle** image (bloc ou solution) — aucune vérification de visibilité ici : le proprietaire de la décision (révéler ou non une solution à l'élève) est `learning-activity-service`, en amont de cet appel | `X-Internal-Secret` | `200` octets · `401` · `404` |
+
+### Évaluations
+
+Cycle de vie aligné sur Quizz/Exercice le 2026-09-01 (`docs/architecture.md`, "Refonte des
+Evaluations : notation manuelle, demande de correction, notifications" — périmètre
+`content-catalog-service` uniquement ; le passage chronométré, la demande de correction et
+l'historique de tentative sont portés par `learning-activity-service`, délégation séparée). Une
+évaluation reste une liste ordonnée d'exercices existants (`exerciseItems`), pas ses propres
+questions — structure inchangée par ce chantier.
+
+**Retiré le 2026-09-01** : `POST /evaluations/:id/attempts` (créait une session `in_progress` sans
+aucune suite — ni soumission de réponses, ni calcul de score, code jamais branché depuis juin 2026)
+et l'entité `EvaluationAttempt` qui la portait. Un appel sur cette route renvoie désormais `404`
+(route absente du contrôleur), jamais `500`. Remplacée par une entité équivalente côté
+`learning-activity-service`.
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /evaluations | Rechercher les évaluations, filtrables par `level`, `difficulty`, `theme`, `tag` (`ANY(tags)`, exact — **corrigé le 2026-09-01**, le DTO exposait déjà ce champ sans jamais l'appliquer), `keyword` (titre, ILIKE), paginées. Élèves et parents ne voient que les évaluations `validated` | 🔒 | tous rôles authentifiés | `200 {items, total}` · `401` |
+| POST | /evaluations | Créer une évaluation à partir d'une liste d'exercices existants (`exerciseItems`, non vide), avec durée de chronométrage **désormais obligatoire** (`durationSeconds`, entier > 0 — `400` sinon) et option de blocage du retour arrière. **Statut initial aligné sur Quizz/Exercice depuis le 2026-09-01** (remplace le `DRAFT` systématique antérieur) : `pending_validation` pour un formateur, `validated` (auto-validé) immédiatement pour un AP ou un RP | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `201 Evaluation` · `400` liste d'exercices vide ou durée absente/invalide · `403` |
+| GET | /evaluations/:id | Récupérer une évaluation par id — détail avec ses exercices. Comportement de visibilité par statut inchangé par ce chantier (`findOne()` ne filtre pas par statut, contrairement à Quizz/Exercice — écart pré-existant, non corrigé ici, hors périmètre explicite de la tâche) | 🔒 | tous rôles authentifiés | `200 Evaluation` · `404` |
+| DELETE | /evaluations/:id | Retire une évaluation (statut `REMOVED`) | 🔒 | responsable_pedagogique, technicien_informatique, ou auteur | `204` · `403` · `404` |
+| POST | /validations/evaluation/:id/decision | Réutilise le flux de validation générique partagé avec exercise/tutorial/quiz. **Validation AP scopée par la relation `animator_of_teacher` depuis le 2026-09-01** — révise une note du 2026-08-28 qui limitait volontairement ce scoping au Quizz ; réutilise exactement le mécanisme déjà construit pour Quizz/Exercice (`ProfileRelationsClient.hasAnimatorOfTeacherRelation`), pas redéveloppé. RP reste sans restriction | 🔒 | animateur_pedagogique, responsable_pedagogique | `201 ContentValidation` · `400` commentaire manquant en cas de rejet · `403` AP non lié au formateur auteur · `404` |
+| POST | /validations/evaluation/:id/request | Réutilise le flux générique de soumission à validation | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `204` · `403` · `404` |
+
+Body `POST /evaluations` : `{title, description?, exerciseItems: [{exerciseId, titleOverride?,
+order}] (non vide), level?, difficulty?, theme?, competencies?: string[], tags?: string[],
+durationSeconds (obligatoire, > 0), blockBackNavigation?}`. `tags` porte désormais sur une colonne
+`text[]` postgres native (comme Quizz/Exercice), convertie depuis `simple-array` par la migration
+`ConvertEvaluationTagsToNativeArray1797000000000`.
+
+**Aucune route de lecture de solution supplémentaire** n'a été construite pour ce chantier
+(arbitrage explicite du 2026-09-01, point 6 : "une correction n'a rien à voir avec une solution...
+la correction consiste à revoir la tentative/la réponse d'un utilisateur") — la solution d'un
+Exercice référencé par une évaluation reste accessible uniquement via les mécanismes déjà existants
+côté Exercice (`GET /exercises/:id/solutions`, route interne dédiée à `learning-activity-service`).

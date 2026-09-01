@@ -13,7 +13,6 @@ import { ExercisePart } from './exercises/entities/exercise-part.entity';
 import { ExerciseSolution } from './exercises/entities/exercise-solution.entity';
 import { ExerciseContentItem } from './exercises/entities/exercise-content-item.entity';
 import { Evaluation } from './evaluations/entities/evaluation.entity';
-import { EvaluationAttempt } from './evaluations/entities/evaluation-attempt.entity';
 import { Tutorial } from './tutorials/entities/tutorial.entity';
 import { ContentComment } from './contents/entities/content-comment.entity';
 import { ContentRating } from './contents/entities/content-rating.entity';
@@ -35,7 +34,6 @@ import { QuizQuestion } from './quizzes/entities/quiz-question.entity';
           ExerciseSolution,
           ExerciseContentItem,
           Evaluation,
-          EvaluationAttempt,
           Tutorial,
           ContentComment,
           ContentRating,

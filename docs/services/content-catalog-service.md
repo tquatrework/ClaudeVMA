@@ -46,9 +46,9 @@
       <endpoint method="POST" path="/internal/exercises/{exerciseId}/parts/{partId}/solution">Route interne, contenu complet de la solution pour learning-activity-service (ajoute le 2026-08-29).</endpoint>
       <endpoint method="GET" path="/internal/exercises/images/{itemId}">Route interne, octets de n'importe quelle image (ajoute le 2026-08-29).</endpoint>
       <endpoint method="RETIRE" path="/exercises/{id}/parts/{partId}/images (et .../solution/images)">Ancien mecanisme multipart post-creation, retire le 2026-09-01 — remplace par le bloc image de premier niveau embarque en base64 des la creation/edition.</endpoint>
-      <endpoint method="GET" path="/evaluations">Rechercher evaluations.</endpoint>
-      <endpoint method="POST" path="/evaluations">Creer evaluation.</endpoint>
-      <endpoint method="POST" path="/evaluations/{id}/attempts">Passer une evaluation.</endpoint>
+      <endpoint method="GET" path="/evaluations">Rechercher evaluations, filtrable par tag (ANY(tags)) et keyword (titre) — gap corrige le 2026-09-01, ces deux champs existaient deja dans SearchEvaluationDto sans jamais etre appliques.</endpoint>
+      <endpoint method="POST" path="/evaluations">Creer une evaluation a partir d'une liste d'exercices existants (exerciseItems). Statut initial aligne sur Quizz/Exercice le 2026-09-01 : pending_validation pour un formateur, validated pour AP/RP (remplace le DRAFT systematique). durationSeconds devient obligatoire (400 si absent/nul/negatif, 2026-09-01).</endpoint>
+      <endpoint method="RETIRE" path="/evaluations/{id}/attempts">Retiree le 2026-09-01 avec EvaluationAttempt (jamais utilisee reellement, migre vers learning-activity-service).</endpoint>
       <endpoint method="GET" path="/tutorials">Rechercher tutos/videos.</endpoint>
       <endpoint method="POST" path="/tutorials">Charger tuto/video.</endpoint>
       <endpoint method="POST" path="/contents/{id}/comments">Commenter une ressource.</endpoint>
@@ -77,8 +77,9 @@
       <entity name="ExerciseSolution">
         <note>Refonte du 2026-08-29 : 1-a-1 avec un bloc question (partId unique, FK obligatoire). cost/isOfficial/isValidated et solutions concurrentes retires. Contenu porte par ExerciseContentItem (solutionId). Jamais exposee par une route publique.</note>
       </entity>
-      <entity>Evaluation</entity>
-      <entity>EvaluationAttempt</entity>
+      <entity name="Evaluation">
+        <note>Cycle de vie aligne sur Quizz/Exercice le 2026-09-01 : statut fixe a la creation selon le role (pending_validation formateur, validated AP/RP), validation AP scopee par animator_of_teacher, tags convertis en text[] postgres natif (ANY() en recherche), durationSeconds rendu NOT NULL. EvaluationAttempt retiree (jamais utilisee, migre vers learning-activity-service). Structure exerciseItems inchangee.</note>
+      </entity>
       <entity>Tutorial</entity>
       <entity>ContentComment</entity>
       <entity>ContentRating</entity>
@@ -111,6 +112,10 @@
       <criterion>Un exercice cree par un formateur n'est visible aux eleves et aux autres professeurs qu'apres validation AP/RP ; un exercice cree par un AP ou un RP est visible immediatement (ajoute le 2026-08-29, refonte des Exercices).</criterion>
       <criterion>Le contenu d'une ExerciseSolution n'est jamais expose par une route publique (GET /exercises/:id ne renvoie que hasSolution:boolean sur un bloc question) — seule la route interne /internal/exercises/:exerciseId/parts/:partId/solution y donne acces, reservee a learning-activity-service (ajoute le 2026-08-29).</criterion>
       <criterion>Une image de solution d'exercice n'est jamais servie par la route publique GET /exercises/:id/images/:itemId (404) — seule la route interne GET /internal/exercises/images/:itemId la sert, sans verification de visibilite, sous responsabilite de learning-activity-service (ajoute le 2026-08-29).</criterion>
+      <criterion>Une evaluation creee par un formateur n'est pending_validation qu'apres decision AP/RP ; une evaluation creee par un AP ou un RP est validated immediatement (ajoute le 2026-09-01, aligne sur Quizz/Exercice).</criterion>
+      <criterion>La validation AP d'une evaluation est scopee par la relation animator_of_teacher, RP illimite (ajoute le 2026-09-01, meme mecanisme que Quizz/Exercice).</criterion>
+      <criterion>Une evaluation ne peut pas etre creee sans duree de chronometrage strictement positive (ajoute le 2026-09-01).</criterion>
+      <criterion>evaluation_attempts n'existe plus dans content-catalog-service ; POST /evaluations/:id/attempts renvoie 404 (route absente), jamais 500 (ajoute le 2026-09-01).</criterion>
     </acceptanceCriteria>
     <technicalImplementation>
       <session date="2026-08-28" label="Creation et definition du Quizz (branche feat/quiz-definition)">
@@ -1468,6 +1473,126 @@
             Chantier "Titre unique Exercice/Quizz" complet à l'issue de cette session : disambiguation
             applicative (étape 1) + contrainte UNIQUE en base + retry applicatif (étape 2). Aucun
             point ouvert connu sur ce sujet précis.
+          </point>
+        </openPoints>
+      </session>
+
+      <session date="2026-09-01" label="Cycle de vie Evaluation aligne sur Quizz/Exercice (branche feat/content-catalog-evaluation-lifecycle)">
+        <objective>
+          Perimetre strictement limite a content-catalog-service, conforme a l'arbitrage
+          docs/architecture.md du 2026-09-01 ("Refonte des Evaluations : notation manuelle,
+          demande de correction, notifications"). Quatre points : (1) aligner le cycle de
+          validation sur Quizz/Exercice, avec scoping AP par relation animator_of_teacher,
+          (2) corriger le gap de recherche par tag/keyword, (3) rendre durationSeconds
+          obligatoire, (4) retirer evaluation_attempts de ce service (jamais utilisee
+          reellement — score/answers toujours vides depuis juin 2026 — remplacee par une
+          entite equivalente cote learning-activity-service, delegation separee en parallele).
+          Explicitement hors perimetre : passage chronometre, demande de correction humaine,
+          notifications — tout cela vit desormais cote learning-activity-service. Aucune
+          nouvelle route de lecture de solution n'a ete construite (arbitrage point 6 :
+          "une correction n'a rien a voir avec une solution... la correction consiste a
+          revoir la tentative/la reponse d'un utilisateur").
+        </objective>
+        <filesModified>
+          <file path="src/evaluations/entities/evaluation.entity.ts">Retrait de la relation OneToMany vers EvaluationAttempt. durationSeconds : nullable retire (colonne desormais NOT NULL). tags : simple-array remplace par 'text' array:true (postgres natif), meme choix que Quiz/Exercise.</file>
+          <file path="src/evaluations/dto/create-evaluation.dto.ts">durationSeconds : @IsOptional()/@Min(0) remplaces par @IsNumber()/@Min(1) sans @IsOptional (champ requis).</file>
+          <file path="src/evaluations/evaluations.service.ts">create() : statut fixe explicitement selon le role (PENDING_VALIDATION formateur, VALIDATED AP/RP) au lieu de DRAFT systematique ; verification explicite (BadRequestException, message francais) de durationSeconds > 0 en defense en profondeur du DTO. search() : passage de findAndCount(where) a createQueryBuilder() pour supporter ANY(tags) et ILIKE keyword, filtres tag/keyword ajoutes. startAttempt()/hasActiveAttempt() retires (portaient sur EvaluationAttempt).</file>
+          <file path="src/evaluations/evaluations.controller.ts">Route POST /evaluations/:id/attempts retiree (disparait naturellement en 404 NestJS, pas de handler explicite necessaire).</file>
+          <file path="src/evaluations/evaluations.module.ts">EvaluationAttempt retiree de TypeOrmModule.forFeature().</file>
+          <file path="src/app.module.ts">Import et enregistrement de EvaluationAttempt retires des entities de TypeOrmModule.forRootAsync().</file>
+          <file path="src/validations/validations.service.ts">Condition de scoping AP (deja posee pour QUIZ/EXERCISE) etendue a EVALUATION — revise explicitement la note du 2026-08-28 qui limitait ce scoping au Quizz. Deux nouvelles methodes privees contentTypeLabel()/contentTypePluralLabel() remplacent les ternaires en ligne (devenus a 3 branches) pour les messages 404/403.</file>
+        </filesModified>
+        <filesRemoved>
+          <file path="src/evaluations/entities/evaluation-attempt.entity.ts">Entite retiree — jamais reellement utilisee (score/answers toujours null), remplacee cote learning-activity-service.</file>
+          <file path="src/evaluations/dto/create-evaluation-attempt.dto.ts">DTO retire avec la route qu'il portait.</file>
+        </filesRemoved>
+        <filesAdded>
+          <file path="src/migrations/1796000000000-DropEvaluationAttempts.ts">DROP TABLE evaluation_attempts + DROP TYPE de l'enum de statut associe, sous garde to_regclass. down() recree la table best-effort (aucune donnee a restaurer, verifie vide en base avant ecriture). Verifie en base reelle le 2026-09-01 avant redaction : 0 ligne.</file>
+          <file path="src/migrations/1797000000000-ConvertEvaluationTagsToNativeArray.ts">evaluations.tags : simple-array (colonne text scalaire CSV) vers text[] postgres natif, meme raisonnement que Quiz (2026-08-28)/Exercise (2026-08-29) : ANY(tags) exige un vrai tableau, un simple-array ne permettrait qu'un LIKE fragile. Conversion USING string_to_array/array_to_string, conditionnee sur information_schema.columns.data_type pour rester idempotente. Verifie en base reelle : 0 ligne dans evaluations au moment du chantier, aucune perte de donnee.</file>
+          <file path="src/migrations/1798000000000-MakeEvaluationDurationRequired.ts">Meme mecanique que MakeExerciseTitleRequired1791000000000 : backfill defensif (3600s) des eventuelles lignes NULL avant ALTER COLUMN SET NOT NULL, sous garde to_regclass — necessaire car synchronize reste actif sur la pile reelle (NODE_ENV=development) et crash-loop sur une contrainte NOT NULL posee sur une colonne contenant deja des NULL. Verifie en base reelle : 0 ligne dans evaluations, backfill sans effet reel mais pose par prudence (cf. meme discipline que le chantier titre unique du 2026-09-01).</file>
+          <file path="test/unit/migrations/drop-evaluation-attempts.spec.ts">QueryRunner mocke, meme convention que les autres tests de migration du service.</file>
+          <file path="test/unit/migrations/convert-evaluation-tags-to-native-array.spec.ts">Idem, verifie la garde conditionnelle sur data_type.</file>
+          <file path="test/unit/migrations/make-evaluation-duration-required.spec.ts">Idem, verifie backfill + NOT NULL + down() conditionnel sur to_regclass.</file>
+          <file path="test/unit/validations/validations.service.evaluation-scoping.spec.ts">Miroir de validations.service.exercise-scoping.spec.ts pour ContentType.EVALUATION : AP lie autorise, AP non lie 403, RP illimite sans jamais consulter la relation, ServiceUnavailableException propagee si profile-service injoignable, 404 si evaluation introuvable.</file>
+        </filesAdded>
+        <filesTestsModified>
+          <file path="test/unit/evaluations/evaluations.service.spec.ts">Reecrit : create() couvre les 3 statuts (pending_validation formateur, validated AP, validated RP) + refus BadRequestException si durationSeconds absent/nul/negatif ; search() mocke createQueryBuilder() (andWhere/orderBy/skip/take/getManyAndCount) au lieu de findAndCount, verifie les filtres tag/keyword ; startAttempt()/hasActiveAttempt() retires.</file>
+          <file path="test/unit/evaluations/evaluations.service.rules.spec.ts">CCS-BR-005 (verrou de tentative) et hasActiveAttempt() retires — portaient sur EvaluationAttempt. findOne()/removeEvaluation() conserves inchanges.</file>
+          <file path="test/unit/validations/validations.service.exercise-scoping.spec.ts">Dernier test renomme et reciblé sur ContentType.TUTORIAL (seul type reste hors scoping AP apres l'extension a EVALUATION) — l'ancienne assertion "Evaluation non scopee" ne serait plus vraie.</file>
+          <file path="test/unit/validations/validations.service.rules.spec.ts">buildSampleEvaluation() : champ attempts: [] retire (n'existe plus sur le type Evaluation, aurait cause une erreur de compilation TypeScript).</file>
+        </filesTestsModified>
+        <technicalDecisions>
+          <decision>
+            Visibilite de recherche (qui voit un statut non-validated) volontairement NON
+            alignee sur Quizz/Exercice dans cette session — restée limitee au filtre
+            historique (PARENT_FINANCEUR/ELEVE -> validated uniquement, les autres roles
+            voient tout sans filtre par auteur). Le mandat listait 4 points precis autour du
+            cycle de validation/recherche/duree/retrait ; etendre la visibilite (comme
+            "validated OR own author" pour tout non-admin, deja le cas pour Exercise) aurait
+            elargi le perimetre au-dela de ce qui etait demande — a arbitrer explicitement si
+            souhaite, ce n'est pas un oubli mais un choix de perimetre strict.
+          </decision>
+          <decision>
+            Aucune route GET /evaluations/pending-validation ni PUT /evaluations/:id (edition)
+            ajoutee, contrairement a Quizz/Exercice — non demandees par le mandat (4 points
+            precis), meme raisonnement de perimetre strict que ci-dessus. La validation reste
+            atteignable via le flux generique POST /validations/evaluation/:id/decision, deja
+            existant et desormais scope par relation pour l'AP.
+          </decision>
+          <decision>
+            Verification en base reelle (docker exec + psql) avant d'ecrire chacune des 3
+            migrations : 0 ligne dans evaluations et evaluation_attempts au moment du
+            chantier — les backfills/conversions sont donc sans effet reel sur cette pile,
+            mais poses explicitement pour couvrir tout autre environnement (test, futur
+            redeploiement avec des donnees) plutot que de supposer la table vide partout.
+            Meme discipline que MakeExerciseTitleRequired1791000000000.
+          </decision>
+          <decision>
+            evaluations.tags convertie en text[] natif dans ce chantier (pas seulement le
+            filtre ANY() cote service) : appliquer ANY(evaluation.tags) sur une colonne
+            simple-array (texte scalaire CSV) aurait echoue en SQL au premier appel avec un
+            tag renseigne — le gap de recherche ne pouvait pas etre corrige sans ce
+            changement de type de colonne, meme s'il n'etait pas explicitement nomme dans le
+            mandat (consequence directe et necessaire du point 2 demande).
+          </decision>
+        </technicalDecisions>
+        <verification>
+          <item>`npm run build` : 0 erreur.</item>
+          <item>`npm test` : 348/348 tests verts, 32 suites (contre 337 avant ce chantier — la
+            difference inclut aussi le chantier titre unique livre juste avant dans la meme
+            session de travail globale).</item>
+          <item>`docker build` de l'image du service depuis le Dockerfile : succes, confirme
+            que le code compile aussi dans le contexte de build reel du conteneur (npm ci
+            propre, pas seulement le node_modules du worktree).</item>
+          <item>Verification directe en base reelle (docker exec visiomath_postgres psql)
+            avant redaction des migrations : \d evaluations, \d evaluation_attempts, count(*)
+            — 0 ligne dans les deux tables.</item>
+          <item>Aucune preuve HTTP contre la pile reelle dans cette session — deploiement et
+            verification HTTP delegues a l'orchestrateur (regle du projet : ne pas lancer de
+            scenario Playwright ni de capture d'ecran sans consultation prealable). Preuve a
+            obtenir apres deploiement : statut par role a la creation, scoping AP par
+            relation (lie/non lie), recherche par tag, refus 400 sans duree, disparition
+            propre (404) de POST /evaluations/:id/attempts.</item>
+        </verification>
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <point>
+            Visibilite de recherche non alignee sur Quizz/Exercice (voir decision technique
+            ci-dessus) — a arbitrer si l'utilisateur souhaite qu'un formateur ne voie plus par
+            defaut les evaluations pending_validation/rejected d'un autre auteur.
+          </point>
+          <point>
+            GET /evaluations/:id (findOne()) ne filtre toujours pas par statut ni par auteur —
+            ecart pre-existant avec Quizz/Exercice (qui masquent un contenu non-validated en
+            404 sauf a son auteur/AP/RP/TI), deja signale dans une session anterieure sur les
+            Exercices, non corrige ici (hors perimetre explicite des 4 points du mandat).
+          </point>
+          <point>
+            Contrat interne avec learning-activity-service pour la nouvelle entite de
+            tentative d'Evaluation (chronometre, verrouillage de solution, demande de
+            correction) : a definir conjointement une fois les deux chantiers stabilises —
+            aucun contrat de ce type n'a ete pose dans cette session, contrairement au Quizz
+            (POST /internal/quizzes/:quizId/grade, fige le meme jour que sa creation).
           </point>
         </openPoints>
       </session>

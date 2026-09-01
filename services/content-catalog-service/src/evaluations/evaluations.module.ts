@@ -5,11 +5,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { EvaluationsController } from './evaluations.controller';
 import { EvaluationsService } from './evaluations.service';
 import { Evaluation } from './entities/evaluation.entity';
-import { EvaluationAttempt } from './entities/evaluation-attempt.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Evaluation, EvaluationAttempt]),
+    TypeOrmModule.forFeature([Evaluation]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({

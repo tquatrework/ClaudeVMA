@@ -2856,5 +2856,91 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-09-01" label="Suite — blocages infra levés, contrat de passage corrigé, preuve HTTP + visuelle complète (PR #186)">
+      <context>
+        Suite directe de la session ci-dessus, même jour. Le coordinateur a signalé que les deux
+        blocages infra (gateway ne proxyant pas `/exercise-attempts`, stockage image indisponible)
+        étaient résolus et mergés dans `master` (PR #187, #188), et a demandé de rejouer le cycle
+        complet — HTTP et visuel — avant validation utilisateur du merge.
+      </context>
+
+      <decisions>
+        <decision id="rebase-sur-master">
+          <description>
+            `git rebase origin/master` (sans conflit) pour disposer des deux correctifs, puis
+            `git push --force-with-lease` — branche personnelle, aucun collaborateur dessus.
+          </description>
+          <status>resolved</status>
+        </decision>
+        <decision id="contrat-reel-du-passage-different">
+          <description>
+            Une fois la gateway route réellement les appels, le contrat réel de
+            `POST /exercise-attempts/:id/answers` diffère de ce qui avait été supposé (gap de
+            documentation non comblé par `docs/routes.md`) : `content` doit être un **tableau**
+            d'items `{type, content}` (`400` sur une chaîne brute), et `ExerciseAttempt` porte les
+            réponses/solutions révélées dans `parts[]` (`answerContent`/`revealedContent`), pas
+            dans des tableaux séparés `answers`/`revealedSolutions`. `POST .../reveal` renvoie déjà
+            la tentative complète (le second `GET` de rattrapage devient inutile).
+            `src/types/exercise.ts`, `src/api/exerciseAttempts.ts`, `ExercisePlayer.tsx` et
+            `ExerciseDetailPage.tsx` corrigés en conséquence, `tsc`/`build` revérifiés, cycle HTTP
+            complet rejoué avec succès (création → validation → recherche → démarrage → réponse →
+            révélation partielle → révélation totale → statut fait → historique → image lisible).
+          </description>
+          <status>resolved</status>
+        </decision>
+        <decision id="preuve-visuelle-sans-merge">
+          <description>
+            La PR n'étant pas mergée, aucune capture de production n'est possible. Preuve visuelle
+            produite malgré tout via Playwright piloté contre le code réel de la branche, servi
+            localement (jamais montré à l'utilisateur — seules les captures constituent la preuve)
+            avec un proxy same-origin temporaire (`vite.config.ts`, non committé, annulé en fin de
+            session) vers l'API réelle — un appel cross-origin direct s'étant heurté à un défaut
+            CORS réel de `content-catalog-service` (voir `openPoints`). 15 captures couvrant le
+            cycle complet (création avec image, validation intégrée RP, passage élève, réponse,
+            révélation, statut fait, historique), conservées dans
+            `.claude/reports/screenshots/exercises-visual-proof-2026-09-01/` (non committées —
+            artefacts de preuve, pas du code).
+          </description>
+          <status>resolved</status>
+        </decision>
+      </decisions>
+
+      <realStackVerification>
+        `npx tsc --noEmit` : 0 erreur. `npm run build` : succès.
+
+        **Preuve HTTP complète** (round 2) : cycle entier création → validation RP → recherche par
+        tag → démarrage de tentative → réponse à une question → statut `in_progress` (1/2) →
+        révélation de l'autre question → révélation de la première → statut `done` → présente dans
+        l'historique avec statut `done` → image de bloc relue avec succès (`200`, `image/webp`).
+
+        **Preuve visuelle complète** (round 3) : 15 captures d'écran, code réel de la branche,
+        données 100% réelles (comptes créés via les routes d'inscription publiques). Confirme
+        notamment que l'onglet Validation est bien **intégré directement dans la page Exercices**
+        du RP (pas un écran séparé), conformément à la consigne explicite reçue.
+      </realStackVerification>
+
+      <openPoints>
+        <item id="content-catalog-cors-missing">
+          `content-catalog-service` ne répond pas correctement aux préflights CORS authentifiés
+          cross-origin : `OPTIONS /exercises` avec `Access-Control-Request-Headers: authorization`
+          renvoie `401` sans aucun en-tête `Access-Control-*`, contrairement à
+          `identity-access-service` (`OPTIONS /auth/login` → `204` avec CORS complet). Sans
+          incidence sur la production actuelle (front et API sur la même origine réelle), mais à
+          corriger si un domaine front distinct de l'API est introduit un jour. Non corrigé ici
+          (backend, hors périmètre `apps/web`).
+        </item>
+        <item id="exercise-attempts-not-documented-in-routes-md-still-open">
+          `docs/routes.md` ne documente toujours pas les routes `learning-activity-service` pour
+          les tentatives d'exercice, malgré le contrat désormais vérifié en conditions réelles
+          (voir `realStackVerification` ci-dessus). Toujours à combler par le sous-agent
+          `learning-activity-service`.
+        </item>
+        <item id="pr-186-still-not-merged">
+          PR #186 toujours ouverte, non mergée. Capture de la vraie URL de production impossible
+          tant que ce n'est pas fait — hors de mon ressort (ne jamais merger soi-même).
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

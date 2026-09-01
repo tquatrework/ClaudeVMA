@@ -7,6 +7,28 @@
 
 ## Besoin courant
 
+Titre unique Exercice/Quizz : bug signalé le 2026-09-01 (deux titres identiques peuvent être
+enregistrés sans avertissement), transformé par l'utilisateur en évolution de règle plutôt que
+simple correctif. Plan complet (investigation via 2 agents Explore + 1 agent Plan, approuvé en mode
+plan) : `/home/debian/.claude/plans/le-titre-d-un-quizz-curried-lampson.md`. Arbitrage persisté dans
+`docs/architecture.md` (révise le point "Titre des Exercices et des Quizz" du même jour).
+
+Résumé : titre par défaut `"Exercice (N)"` / `"Quizz (N)"` (parenthèses) ; collision de titre →
+disambiguation automatique par suffixe `"(N)"` au lieu d'un refus 400 ; fermeture de la fenêtre de
+compétition (aucune contrainte UNIQUE en base aujourd'hui, cause racine probable du bug) par un
+index UNIQUE + retry applicatif ; nettoyage des doublons Quizz legacy (2 paires trouvées,
+antérieures à l'arbitrage initial) par migration dédiée. **Séquencement en deux déploiements
+distincts imposé par `synchronize` actif en production** (même risque que 2 incidents déjà
+documentés) : déploiement 1 = disambiguation + nettoyage doublons (aucune modif d'entité) ;
+déploiement 2 = contrainte UNIQUE + décorateur d'entité + retry, seulement après confirmation que
+le déploiement 1 a tourné. Aucun changement front nécessaire (le titre réel retourné par le serveur
+est déjà réaffiché tel quel après enregistrement).
+
+Délégué à `content-catalog-service` le 2026-09-01, étape 1 uniquement pour l'instant (étape 2 après
+confirmation du déploiement 1).
+
+---
+
 Deux retours supplémentaires de l'utilisateur le 2026-09-01, après clarification du point "image
 de solution lisible mais pas éditable" :
 1. En édition d'un Exercice, **tout** doit être modifiable, y compris l'image de solution (pas

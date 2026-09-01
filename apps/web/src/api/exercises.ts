@@ -9,7 +9,9 @@
 
 import apiClient from './client'
 import type {
+  AuthorExerciseDetail,
   CreateExercisePayload,
+  DefaultExerciseTitle,
   ExerciseSummary,
   ExerciseValidationDecision,
   ExerciseValidationHistoryEntry,
@@ -86,6 +88,48 @@ export async function fetchPendingExercises(
 export async function fetchExercise(exerciseId: string): Promise<PublicExerciseDetail> {
   const { data } = await apiClient.get<PublicExerciseDetail>(`/exercises/${exerciseId}`)
   return data
+}
+
+/**
+ * GET /exercises/default-title
+ * Suggestion de titre par défaut ("Exercice {n}") à lire à l'ouverture du formulaire de création,
+ * pour pré-remplir le champ — l'utilisateur reste libre de le modifier (arbitrage du 2026-09-01,
+ * `docs/architecture.md` > « Titre des Exercices et des Quizz »).
+ */
+export async function fetchExerciseDefaultTitle(): Promise<DefaultExerciseTitle> {
+  const { data } = await apiClient.get<DefaultExerciseTitle>('/exercises/default-title')
+  return data
+}
+
+/**
+ * GET /exercises/:id/solutions
+ * Détail complet AVEC solutions — réservée à l'auteur et aux AP/RP/TI, sur le modèle de
+ * `GET /quizzes/:id/solution` (arbitrage du 2026-09-01, point 6 : bug des solutions non
+ * réaffichées à l'édition). Voir `fetchExerciseForEdit` ci-dessous pour l'appel tolérant utilisé
+ * par l'écran d'édition, qui retombe sur `fetchExercise` si cette route échoue.
+ */
+export async function fetchExerciseSolutions(exerciseId: string): Promise<AuthorExerciseDetail> {
+  const { data } = await apiClient.get<AuthorExerciseDetail>(`/exercises/${exerciseId}/solutions`)
+  return data
+}
+
+/**
+ * Charge un exercice pour édition, en essayant d'abord de récupérer ses solutions déjà saisies
+ * (`fetchExerciseSolutions`). Si cette route échoue — pas encore déployée côté
+ * `content-catalog-service`, ou appelant non autorisé à la lire — on retombe sur `fetchExercise`
+ * (sans solution) plutôt que de bloquer l'édition : l'auteur ressaisit sa solution comme avant,
+ * et `solutionsPrefilled` indique à l'écran s'il doit encore afficher l'avertissement.
+ */
+export async function fetchExerciseForEdit(
+  exerciseId: string,
+): Promise<{ exercise: PublicExerciseDetail | AuthorExerciseDetail; solutionsPrefilled: boolean }> {
+  try {
+    const exercise = await fetchExerciseSolutions(exerciseId)
+    return { exercise, solutionsPrefilled: true }
+  } catch {
+    const exercise = await fetchExercise(exerciseId)
+    return { exercise, solutionsPrefilled: false }
+  }
 }
 
 /**

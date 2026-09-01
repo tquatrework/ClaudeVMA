@@ -2942,5 +2942,146 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-09-01" label="4 retours post-test Exercices (branche fix/front-exercises-post-test-feedback)">
+      <context>
+        Suite du chantier Exercices (PR #186, mergée et déployée le 2026-09-01). Retour utilisateur
+        après premier test visuel en production : globalement positif, 4 corrections demandées.
+        Arbitrage complet dans `docs/architecture.md` > « Titre des Exercices et des Quizz ».
+        Travail mené en parallèle du sous-agent `content-catalog-service`
+        (`fix/content-catalog-exercise-title-and-solutions`, non mergée au moment de cette session) :
+        codé contre le contrat annoncé (`GET /exercises/default-title`, `GET /quizzes/default-title`,
+        `GET /exercises/:id/solutions`) avec repli gracieux si la route échoue, plutôt que d'attendre.
+      </context>
+
+      <tree>
+        <folder path="apps/web/src/api/">
+          <file path="exercises.ts">
+            + `fetchExerciseDefaultTitle` (`GET /exercises/default-title`), `fetchExerciseSolutions`
+            (`GET /exercises/:id/solutions`, réservée à l'auteur/AP/RP/TI), et `fetchExerciseForEdit`
+            — wrapper tolérant qui tente `fetchExerciseSolutions` puis retombe sur `fetchExercise`
+            (sans solution) si la nouvelle route échoue pour quelque raison que ce soit (pas encore
+            déployée, 403, etc.). Ce repli est la clé de la résilience au déploiement en parallèle.
+          </file>
+          <file path="quizzes.ts">+ `fetchQuizDefaultTitle` (`GET /quizzes/default-title`).</file>
+        </folder>
+        <folder path="apps/web/src/types/">
+          <file path="exercise.ts">
+            `CreateExercisePayload.title` devient obligatoire (`string`, plus `string?`),
+            `description` retiré du payload. + `DefaultExerciseTitle`, `AuthorExercisePart`
+            (étend `PublicExercisePart` avec `solution?: {items}` optionnel), `AuthorExerciseDetail`.
+          </file>
+          <file path="quiz.ts">+ `DefaultQuizTitle`.</file>
+        </folder>
+        <folder path="apps/web/src/utils/">
+          <file path="exercisePayload.ts">
+            `EditableExerciseFormState` perd `description`. `buildExerciseCreatePayload` refuse un
+            titre vide (`Le titre est obligatoire.`) avant tout, titre toujours envoyé (non
+            conditionnel). `buildEditableStateForExerciseEdit` accepte désormais
+            `PublicExerciseDetail | AuthorExerciseDetail` et pré-remplit réellement `solutionItems`
+            quand `part.solution` est présent (nouvelle fonction interne
+            `buildEditableItemsFromContent`, factorisée pour les items de bloc ET de solution).
+          </file>
+        </folder>
+        <folder path="apps/web/src/components/content-catalog/">
+          <file path="ExerciseForm.tsx">
+            Champ Description retiré. Titre rendu obligatoire à l'écran (astérisque rouge,
+            `required`). En mode `create`, `useEffect` au montage appelle `fetchExerciseDefaultTitle`
+            et pré-remplit le titre — ne remplace jamais un titre déjà saisi par l'utilisateur
+            (vérifié via callback fonctionnel `setTitle((current) => ...)` au moment de la
+            résolution, pas à l'exécution de l'effet, pour éviter une course si l'utilisateur tape
+            vite). Échec de la requête ignoré silencieusement (l'utilisateur saisit lui-même).
+          </file>
+          <file path="QuizForm.tsx">
+            Même mécanisme de pré-remplissage du titre par défaut (`fetchQuizDefaultTitle`) — le
+            titre y était déjà obligatoire côté front avant cette session (`buildQuizCreatePayload`
+            le refusait déjà vide), seule la suggestion par défaut est nouvelle.
+          </file>
+          <file path="ExerciseItemListEditor.tsx">
+            Bouton générique "+ Ajouter un élément [de solution]" **retiré** (prop `fieldIdPrefix`
+            supprimée avec lui). Décision d'ingénierie documentée dans le fichier : une image ne
+            peut techniquement pas être ajoutée depuis ce formulaire JSON (aucun `partId` réel avant
+            l'enregistrement en mode création, et `PUT /exercises/:id` supprime de toute façon les
+            images déjà envoyées en mode édition) — reproduire un bouton "Ajouter une image" ici
+            aurait été non fonctionnel ou trompeur. L'affordance "Ajouter une image", déjà
+            correctement labellisée, existe et fonctionne dans `ExerciseImageManager` (affiché sous
+            le formulaire, après enregistrement). Les items par défaut restent typables
+            texte/formule, réordonnables et supprimables (jusqu'à 1 minimum) ; seul l'ajout de
+            nouveaux items est retiré.
+          </file>
+          <file path="ExercisePartEditor.tsx">Appels à `ExerciseItemListEditor` mis à jour (prop `fieldIdPrefix` retirée).</file>
+        </folder>
+        <folder path="apps/web/src/pages/">
+          <file path="ExerciseEditPage.tsx">
+            Utilise désormais `fetchExerciseForEdit` (au lieu de `fetchExercise` seul) et affiche le
+            bandeau d'avertissement "solutions non rechargées" **uniquement** si
+            `solutionsPrefilled === false` — sinon les solutions apparaissent réellement pré-remplies
+            dans `ExerciseForm` grâce à `buildEditableStateForExerciseEdit`.
+          </file>
+        </folder>
+      </tree>
+
+      <decisions>
+        <decision id="repli-gracieux-solutions">
+          <description>
+            `fetchExerciseForEdit` tente `GET /exercises/:id/solutions` puis retombe sur
+            `GET /exercises/:id` en cas d'échec, quelle qu'en soit la cause. Choix pris car le
+            sous-agent `content-catalog-service` travaillait en parallèle sur cette même route au
+            moment de cette session (branche `fix/content-catalog-exercise-title-and-solutions`, non
+            mergée) : ce repli rend le front déployable indépendamment, sans coupler l'ordre des deux
+            déploiements. Si la route existe et répond, les solutions sont réellement pré-remplies et
+            le bandeau d'avertissement disparaît automatiquement (aucun redéploiement front requis).
+          </description>
+          <status>resolved</status>
+        </decision>
+        <decision id="bouton-ajouter-image-retire-pas-reimplemente">
+          <description>
+            Interprétation retenue pour "le bouton devient Ajouter une image, restreint à ce type" :
+            retrait pur du bouton générique plutôt que reconstruction d'un bouton "image" non
+            fonctionnel dans ce contexte (contrainte technique du formulaire JSON, voir
+            `ExerciseItemListEditor.tsx` ci-dessus). L'affordance "Ajouter une image" existe déjà,
+            correctement labellisée, dans `ExerciseImageManager` — pas de duplication. Décision
+            d'ingénierie assumée dans le doute, signalée explicitement à l'utilisateur dans le
+            rapport de session pour validation ou correction si l'intention différait.
+          </description>
+          <status>resolved-pending-user-confirmation</status>
+        </decision>
+      </decisions>
+
+      <realStackVerification>
+        `npx tsc --noEmit` : 0 erreur. `npm run build` : succès.
+        `npm run test` : 1997 passants / 49 échecs, **confirmés pré-existants et sans rapport avec
+        cette session** — mêmes 49 échecs identiques (mêmes fichiers, mêmes messages
+        `mockResolvedValue`/`Cannot read properties of undefined`) constatés en rejouant la suite sur
+        le code stashé (avant les modifications de cette session), sur des mocks obsolètes
+        (`submitExerciseAnswer`, `requestExerciseCorrection`, `createExerciseSolution`) référençant
+        l'ancien modèle Exercise remplacé par la refonte du 2026-08-29 — dette de tests pré-existante,
+        hors périmètre de cette session (aucun test n'existe pour `ExerciseForm`/`ExerciseItemListEditor`
+        /`ExercisePartEditor`/`exercisePayload`/`ExerciseEditPage`, donc rien à casser côté tests sur
+        les fichiers réellement touchés).
+      </realStackVerification>
+
+      <openPoints>
+        <item id="content-catalog-contract-not-confirmed">
+          Codé contre le contrat annoncé par le message de délégation
+          (`GET /exercises/default-title`, `GET /quizzes/default-title`, `GET /exercises/:id/solutions`)
+          sans confirmation du rapport final du sous-agent `content-catalog-service` (branche
+          `fix/content-catalog-exercise-title-and-solutions` non poussée/mergée au moment de cette
+          session). Le repli gracieux (`fetchExerciseForEdit`) absorbe une divergence sur la route
+          solutions ; les deux routes `default-title` n'ont **pas** de repli explicite — un échec
+          silencieux laisse simplement le champ vide (l'utilisateur saisit lui-même), comportement
+          jugé acceptable mais à revérifier une fois le contrat confirmé.
+        </item>
+        <item id="ajouter-image-decision-a-valider">
+          Voir `decisions/bouton-ajouter-image-retire-pas-reimplemente` — retrait pur plutôt que
+          reconstruction, à confirmer ou corriger par l'utilisateur.
+        </item>
+        <item id="pre-existing-test-debt-exercise-old-model">
+          49 échecs de tests pré-existants sur mocks de l'ancien modèle Exercise (voir
+          `realStackVerification`) — non liés à cette session, non traités ici (hors périmètre de la
+          demande), à signaler pour un chantier de nettoyage dédié.
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

@@ -89,15 +89,44 @@ export interface CreateExercisePartPayload {
   solution?: { items: CreateExerciseItemPayload[] }
 }
 
+/**
+ * `title` est désormais obligatoire et unique par auteur côté serveur (arbitrage du 2026-09-01,
+ * `docs/architecture.md` > « Titre des Exercices et des Quizz »). `description` a été retiré de
+ * l'écran de création/édition (même arbitrage, point 4) et n'est donc plus envoyé — le champ reste
+ * lisible sur `ExerciseSummary`/`PublicExerciseDetail` pour les exercices créés avant ce retrait.
+ */
 export interface CreateExercisePayload {
-  title?: string
-  description?: string
+  title: string
   level?: string
   difficulty?: string
   theme?: string
   competencies?: string[]
   tags?: string[]
   parts: CreateExercisePartPayload[]
+}
+
+/** Réponse de `GET /exercises/default-title` — suggestion de titre par défaut ("Exercice {n}"). */
+export interface DefaultExerciseTitle {
+  title: string
+}
+
+// ─── Lecture par l'auteur, avec solutions (2026-09-01) ─────────────────────────
+//
+// `GET /exercises/:id/solutions`, sur le modèle de `GET /quizzes/:id/solution` : réservée à
+// l'auteur et aux AP/RP/TI, corrige le bug signalé le 2026-09-01 où les solutions déjà saisies
+// n'étaient jamais réaffichées à l'édition (voir `docs/architecture.md`, arbitrage du même jour,
+// point 6). Le front tolère l'absence de cette route (voir `fetchExerciseForEdit` dans
+// `api/exercises.ts`) tant que le déploiement de `content-catalog-service` n'est pas confirmé.
+
+/** Un bloc, tel qu'exposé à l'auteur — porte le contenu complet de sa solution si elle existe. */
+export interface AuthorExercisePart extends PublicExercisePart {
+  /** Présent uniquement pour un bloc `question` dont la solution est enregistrée. */
+  solution?: { items: PublicContentItem[] } | null
+}
+
+/** Détail complet d'un exercice AVEC solutions — réservé à l'auteur et aux AP/RP/TI. */
+export interface AuthorExerciseDetail extends ExerciseSummary {
+  parts: AuthorExercisePart[]
 }
 
 /** Entrée d'historique de validation — même forme que pour le Quizz. */

@@ -21,10 +21,17 @@
  * Notation mathématique (2026-08-28) : énoncé, options et mots-clés acceptent la syntaxe légère
  * `$...$`/`$$...$$` du projet (même pipeline KaTeX que le Mémo) — l'aperçu est rendu directement
  * dans `QuizQuestionEditor`, ce composant n'a rien à faire de plus.
+ *
+ * Titre obligatoire avec valeur par défaut suggérée par le serveur (arbitrage du 2026-09-01,
+ * `docs/architecture.md` > « Titre des Exercices et des Quizz ») : en mode création, le titre est
+ * pré-rempli depuis `GET /quizzes/default-title` dès l'ouverture du formulaire — l'utilisateur
+ * reste libre de le modifier. Le titre était déjà obligatoire côté front avant cet arbitrage
+ * (`buildQuizCreatePayload` refusait déjà un titre vide) ; seule la suggestion par défaut est
+ * nouvelle ici.
  */
 
-import React, { useState } from 'react'
-import { createQuiz, updateQuiz } from '../../api/quizzes'
+import React, { useEffect, useState } from 'react'
+import { createQuiz, fetchQuizDefaultTitle, updateQuiz } from '../../api/quizzes'
 import { getErrorMessage } from '../../utils/apiError'
 import { buildQuizCreatePayload, type EditableQuizFormState } from '../../utils/quizPayload'
 import type { CreateQuizPayload, PublicQuizDetail } from '../../types/quiz'
@@ -57,6 +64,25 @@ export function QuizForm({ mode = 'create', quizId, initialState, onSaved, onCan
   )
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+
+  // Suggestion de titre par défaut, lue à l'ouverture du formulaire de création uniquement — ne
+  // remplace jamais un titre déjà saisi par l'utilisateur (contrôlé au moment de la résolution,
+  // pas à l'exécution de l'effet). Même mécanisme que `ExerciseForm`.
+  useEffect(() => {
+    if (mode !== 'create') return
+    let isCancelled = false
+    fetchQuizDefaultTitle()
+      .then(({ title: defaultTitle }) => {
+        if (isCancelled) return
+        setTitle((current) => (current === '' ? defaultTitle : current))
+      })
+      .catch(() => {
+        // Pas de suggestion disponible : l'utilisateur saisit son titre lui-même.
+      })
+    return () => {
+      isCancelled = true
+    }
+  }, [mode])
 
   const updateQuestion = (localId: string, updated: EditableQuizQuestion) => {
     setQuestions((previous) => previous.map((q) => (q.localId === localId ? updated : q)))
@@ -123,6 +149,7 @@ export function QuizForm({ mode = 'create', quizId, initialState, onSaved, onCan
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               disabled={isSubmitting}
+              required
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>

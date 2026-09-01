@@ -102,6 +102,15 @@ export interface CreateQuizPayload {
   questions: CreateQuizQuestionPayload[]
 }
 
+/**
+ * Réponse de `GET /quizzes/default-title` — suggestion de titre par défaut ("Quizz {n}"), à lire
+ * à l'ouverture du formulaire de création (arbitrage du 2026-09-01, `docs/architecture.md` >
+ * « Titre des Exercices et des Quizz »).
+ */
+export interface DefaultQuizTitle {
+  title: string
+}
+
 // ─── Édition par l'auteur (2026-08-28, retour post-production) ────────────────
 //
 // Suite du 2026-08-28 (PR #167 content-catalog-service, mergée et déployée) :

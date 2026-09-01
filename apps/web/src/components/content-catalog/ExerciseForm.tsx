@@ -11,10 +11,15 @@
  * ⚠️ **Éditer un exercice déjà enregistré supprime ses images déjà envoyées** (limite documentée
  * côté serveur, `docs/routes.md` § Exercices) : un bandeau prévient l'auteur avant l'enregistrement
  * en mode édition. Les images se rajoutent ensuite via `ExerciseImageManager`, sur `ExerciseEditPage`.
+ *
+ * Titre obligatoire, avec valeur par défaut suggérée par le serveur, et champ Description retiré
+ * de l'écran (arbitrage du 2026-09-01, `docs/architecture.md` > « Titre des Exercices et des
+ * Quizz »). En mode création, le titre est pré-rempli depuis `GET /exercises/default-title` dès
+ * l'ouverture du formulaire — l'utilisateur reste libre de le modifier.
  */
 
-import React, { useState } from 'react'
-import { createExercise, updateExercise } from '../../api/exercises'
+import React, { useEffect, useState } from 'react'
+import { createExercise, fetchExerciseDefaultTitle, updateExercise } from '../../api/exercises'
 import { getErrorMessage } from '../../utils/apiError'
 import { buildExerciseCreatePayload, type EditableExerciseFormState } from '../../utils/exercisePayload'
 import type { CreateExercisePayload, PublicExerciseDetail } from '../../types/exercise'
@@ -33,7 +38,6 @@ interface ExerciseFormProps {
 
 export function ExerciseForm({ mode = 'create', exerciseId, initialState, onSaved, onCancel }: ExerciseFormProps) {
   const [title, setTitle] = useState(initialState?.title ?? '')
-  const [description, setDescription] = useState(initialState?.description ?? '')
   const [level, setLevel] = useState(initialState?.level ?? '')
   const [difficulty, setDifficulty] = useState(initialState?.difficulty ?? '')
   const [theme, setTheme] = useState(initialState?.theme ?? '')
@@ -44,6 +48,25 @@ export function ExerciseForm({ mode = 'create', exerciseId, initialState, onSave
   )
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+
+  // Suggestion de titre par défaut, lue à l'ouverture du formulaire de création uniquement — ne
+  // remplace jamais un titre déjà saisi par l'utilisateur (contrôlé au moment de la résolution,
+  // pas à l'exécution de l'effet).
+  useEffect(() => {
+    if (mode !== 'create') return
+    let isCancelled = false
+    fetchExerciseDefaultTitle()
+      .then(({ title: defaultTitle }) => {
+        if (isCancelled) return
+        setTitle((current) => (current === '' ? defaultTitle : current))
+      })
+      .catch(() => {
+        // Pas de suggestion disponible : l'utilisateur saisit son titre lui-même.
+      })
+    return () => {
+      isCancelled = true
+    }
+  }, [mode])
 
   const updatePart = (localId: string, updated: EditableExercisePart) => {
     setParts((previous) => previous.map((p) => (p.localId === localId ? updated : p)))
@@ -72,7 +95,6 @@ export function ExerciseForm({ mode = 'create', exerciseId, initialState, onSave
     try {
       payload = buildExerciseCreatePayload({
         title,
-        description,
         level,
         difficulty,
         theme,
@@ -125,7 +147,7 @@ export function ExerciseForm({ mode = 'create', exerciseId, initialState, onSave
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label htmlFor="exercise-title" className="block text-sm text-gray-700 mb-1">
-              Titre <span className="text-xs text-gray-400">(optionnel)</span>
+              Titre <span className="text-red-500">*</span>
             </label>
             <input
               id="exercise-title"
@@ -133,6 +155,7 @@ export function ExerciseForm({ mode = 'create', exerciseId, initialState, onSave
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               disabled={isSubmitting}
+              required
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
@@ -150,20 +173,6 @@ export function ExerciseForm({ mode = 'create', exerciseId, initialState, onSave
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
-        </div>
-
-        <div>
-          <label htmlFor="exercise-description" className="block text-sm text-gray-700 mb-1">
-            Description
-          </label>
-          <textarea
-            id="exercise-description"
-            rows={2}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            disabled={isSubmitting}
-            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm resize-y"
-          />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

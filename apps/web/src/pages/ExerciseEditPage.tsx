@@ -1,14 +1,18 @@
 /**
  * ExerciseEditPage — édition d'un Exercice par son auteur, et gestion de ses images.
  *
- * ⚠️ `content-catalog-service` n'expose aucune route publique renvoyant le contenu d'une solution
- * à l'auteur (contrairement au Quizz, `GET /quizzes/:id/solution`) — les solutions ne sont donc
- * **jamais** pré-remplies ici, l'auteur les ressaisit à chaque édition structurelle. Signalé
- * explicitement à l'écran, pas silencieusement vidé.
+ * Correctif du 2026-09-01 (`docs/architecture.md` > « Titre des Exercices et des Quizz », point 6) :
+ * les solutions déjà saisies sont désormais pré-remplies quand `content-catalog-service` expose
+ * `GET /exercises/:id/solutions` (réservée à l'auteur et aux AP/RP/TI, sur le modèle de
+ * `GET /quizzes/:id/solution`). Tant que cette route n'est pas disponible ou échoue pour toute
+ * autre raison, `fetchExerciseForEdit` retombe silencieusement sur `GET /exercises/:id` (pas de
+ * solution) — l'auteur ressaisit alors sa solution comme avant, signalé par le bandeau ci-dessous,
+ * affiché uniquement dans ce cas.
  *
  * Routes API consommées :
- *   GET /exercises/:id  (content-catalog-service — pas de solution)
- *   PUT /exercises/:id  (content-catalog-service — remplace intégralement, supprime les images)
+ *   GET /exercises/:id/solutions  (content-catalog-service — avec solution, réservée à l'auteur)
+ *   GET /exercises/:id            (content-catalog-service — repli, sans solution)
+ *   PUT /exercises/:id            (content-catalog-service — remplace intégralement, supprime les images)
  *   POST /exercises/:id/parts/:partId/images           (ajout d'image de bloc, après coup)
  *   POST /exercises/:id/parts/:partId/solution/images  (ajout d'image de solution, après coup)
  */
@@ -19,7 +23,7 @@ import Layout from '../components/Layout'
 import { PageHeader } from '../components/ui/PageHeader'
 import { ErrorMessage } from '../components/ui/ErrorMessage'
 import { useAsyncData } from '../hooks/useAsyncData'
-import { fetchExercise } from '../api/exercises'
+import { fetchExerciseForEdit } from '../api/exercises'
 import { buildEditableStateForExerciseEdit } from '../utils/exercisePayload'
 import { ExerciseForm } from '../components/content-catalog/ExerciseForm'
 import { ExerciseImageManager } from '../components/content-catalog/ExerciseImageManager'
@@ -32,12 +36,14 @@ export default function ExerciseEditPage() {
   const resolvedExerciseId = exerciseId ?? ''
 
   const {
-    data: initialExercise,
+    data: loadResult,
     isLoading,
     error: loadError,
-  } = useAsyncData(() => fetchExercise(resolvedExerciseId), [resolvedExerciseId], {
+  } = useAsyncData(() => fetchExerciseForEdit(resolvedExerciseId), [resolvedExerciseId], {
     fallbackErrorMessage: 'Impossible de charger cet exercice pour modification.',
   })
+  const initialExercise = loadResult?.exercise
+  const solutionsPrefilled = loadResult?.solutionsPrefilled ?? false
 
   // La page conserve l'exercice courant après enregistrement structurel ou ajout d'image — une
   // donnée enregistrée reste affichée, jamais rechargée à chaque action (règle du 2026-08-10).
@@ -88,12 +94,14 @@ export default function ExerciseEditPage() {
           subtitle={getExerciseDisplayTitle(currentExercise.title)}
         />
 
-        <div className="bg-blue-50 border border-blue-200 rounded-md px-3 py-2">
-          <p className="text-xs text-blue-800">
-            La solution de chaque question n'est jamais relue automatiquement : ressaisissez-la si
-            vous modifiez la structure de l'exercice ci-dessous.
-          </p>
-        </div>
+        {!solutionsPrefilled && (
+          <div className="bg-blue-50 border border-blue-200 rounded-md px-3 py-2">
+            <p className="text-xs text-blue-800">
+              Les solutions déjà saisies n'ont pas pu être rechargées : ressaisissez-les si vous
+              modifiez la structure de l'exercice ci-dessous.
+            </p>
+          </div>
+        )}
 
         <ExerciseForm
           mode="edit"

@@ -117,7 +117,6 @@ export function ExercisePartEditor({
         onChange={(items) => onChange({ ...part, items })}
         isSubmitting={isSubmitting}
         itemLabelPrefix="Élément"
-        fieldIdPrefix="content"
       />
 
       {part.category === 'question' && (
@@ -131,7 +130,6 @@ export function ExercisePartEditor({
             onChange={(solutionItems) => onChange({ ...part, solutionItems })}
             isSubmitting={isSubmitting}
             itemLabelPrefix="Solution"
-            fieldIdPrefix="solution"
           />
         </div>
       )}

@@ -40,9 +40,31 @@ redéployé, healthy, pas de crash-loop) :
 - `SELECT ... GROUP BY authorId, title HAVING COUNT(*)>1` sur `quizzes` → **0 ligne** (doublons
   legacy nettoyés par la migration).
 
-**Reste à faire** : déléguer l'étape 2 (contrainte UNIQUE en base + décorateur d'entité + retry
-applicatif sur violation `23505`) à `content-catalog-service`, dans un déploiement séparé — le
-déploiement 1 est confirmé propre en production, condition posée par le plan pour lancer l'étape 2.
+**Correction en cours de route** : le plan supposait `synchronize` s'exécutant avant les migrations
+en production, d'où le séquencement en deux déploiements distincts. L'agent a vérifié factuellement
+(lecture directe de `DataSource.js` réellement installé) que c'est l'inverse — les migrations
+s'exécutent toujours avant `synchronize`. Confirmé indépendamment par l'orchestrateur (même lecture).
+`docs/architecture.md` corrigé en conséquence. Conclusion : l'étape 2 a pu être livrée dans un seul
+commit (contrainte + décorateur + retry), le séquencement de l'étape 1 n'était pas strictement
+nécessaire mais n'a pas nui.
+
+**Étape 2 mergée (PR #194), déployée et vérifiée en HTTP direct par l'orchestrateur — chantier
+terminé** :
+- `\d exercises`/`\d quizzes` : index `UNIQUE (authorId, title)` confirmés (partiel pour Exercice,
+  excluant `removed`).
+- Démarrage propre après déploiement, aucun crash-loop.
+- Contournement direct en base (INSERT SQL hors service applicatif) sur un titre déjà pris → refusé
+  par la contrainte (`23505`), preuve que la garantie ne repose plus uniquement sur l'applicatif.
+- Re-soumission du même titre via l'API après ce contournement → `201`, retry applicatif absorbe la
+  collision et suffixe automatiquement (`"Alpha (2)"` → `"Alpha (2) (2)"` — le suffixe s'ajoute tel
+  quel à la chaîne saisie, sans parser un suffixe existant, conforme à l'algorithme arbitré).
+- Non-régression confirmée : la disambiguation de l'étape 1 fonctionne toujours normalement.
+- Données de test nettoyées de la production après vérification (exercices/quizz/questions créés
+  par le compte de test).
+
+**Chantier clos.** Les 2 demandes initiales de l'utilisateur (format `(N)`, disambiguation
+automatique) sont livrées, ainsi que la fermeture de la cause racine (absence de contrainte DB) et
+le nettoyage des doublons legacy trouvés en cours de route.
 
 ---
 

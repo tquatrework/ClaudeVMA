@@ -3059,3 +3059,91 @@ une solution d'exercice autrement que via `learning-activity-service`.
 |---|---|---|---|---|
 | POST | /internal/exercises/:exerciseId/parts/:partId/solution | Contrat figé avec `learning-activity-service` (`docs/architecture.md`, point 10) : renvoie le contenu complet de la solution d'un bloc `question`, sous la même forme que le contenu des blocs (`{id, type, order, content, imageMimeType?, imageSizeBytes?}[]`). Pour un item `image`, `id` sert directement d'`itemId` à passer à la route ci-dessous — les octets ne sont jamais embarqués en base64 dans cette réponse | `X-Internal-Secret` | `200 {content: PublicContentItem[]}` · `401` · `404` bloc ou solution introuvable |
 | GET | /internal/exercises/images/:itemId | Octets de **n'importe quelle** image (bloc ou solution) — aucune vérification de visibilité ici : le proprietaire de la décision (révéler ou non une solution à l'élève) est `learning-activity-service`, en amont de cet appel | `X-Internal-Secret` | `200` octets · `401` · `404` |
+
+## learning-activity-service
+
+Swagger complet exposé sur `/api/docs`. Le tableau ci-dessous couvre le module
+`evaluation-attempts/` ajouté le 2026-09-01 (`docs/architecture.md`, « Refonte des Evaluations ») ;
+voir `docs/services/learning-activity-service.md` pour les modules `quiz-attempts`,
+`exercise-attempts` et `open-activities`, documentés via Swagger uniquement jusqu'ici.
+
+### Tentatives d'Évaluation
+
+`content-catalog-service` porte la définition de l'Évaluation (titre, niveau, difficulté, thème,
+tags, `durationSeconds`, liste ordonnée d'Exercices via `exerciseItems`) et son cycle de
+validation ; `learning-activity-service` porte tout le cycle de vie de la tentative — démarrage
+chronométré, réponses, clôture, demande de correction, historique — sur le même principe que
+Quizz/Exercice.
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| POST | /evaluation-attempts | Vérifie que l'Évaluation est `validated` auprès de `content-catalog-service` (`GET /evaluations/:id`, jeton de l'appelant forwardé), calcule `deadlineAt = startedAt + durationSeconds`, fige la liste des `exerciseIds` de l'Évaluation | 🔒 | eleve, formateur, animateur_pedagogique, responsable_pedagogique | `201 EvaluationAttemptView` · `400` Évaluation non validée · `403` · `404` Évaluation introuvable · `502`/`503` |
+| POST | /evaluation-attempts/:id/answers | Soumet/remplace la réponse à un bloc question d'un Exercice de l'Évaluation. Refusé (400) après `deadlineAt`, si la tentative est déjà close, ou si l'Exercice ne fait pas partie de l'Évaluation. Idempotent par `(exerciseId, partId)` | 🔒 | eleve, formateur, animateur_pedagogique, responsable_pedagogique | `200 EvaluationAttemptView` · `400` · `403` · `404` |
+| POST | /evaluation-attempts/:id/submit | « Enregistrer sa réponse » : clôture la tentative (`status: completed`), sans déclencher de correction. Autorisé même après l'échéance | 🔒 | eleve, formateur, animateur_pedagogique, responsable_pedagogique | `200 EvaluationAttemptView` · `400` tentative déjà terminée · `403` · `404` |
+| POST | /evaluation-attempts/:id/request-correction | Nécessite une tentative déjà close. Crée une `EvaluationCorrectionRequest` et notifie (événement Redis) les professeurs liés à l'élève + le RP. Un élève sans professeur lié bascule directement en `all_declined` (RP notifié). `400` si une demande active existe déjà pour cette tentative | 🔒 | eleve, formateur, animateur_pedagogique, responsable_pedagogique | `201 EvaluationCorrectionRequest` · `400` · `403` · `404` |
+| GET | /evaluation-attempts/history | Tentatives de l'appelant, passées et en cours | 🔒 | tout compte authentifié | `200 EvaluationAttemptView[]` · `401` |
+| GET | /evaluation-attempts/:id | État d'une tentative, avec `timeExpired` calculé à la volée | 🔒 | eleve, formateur, animateur_pedagogique, responsable_pedagogique (propriétaire uniquement, 404 sinon) | `200 EvaluationAttemptView` · `403` · `404` |
+
+`EvaluationAttemptView` : `{id, evaluationId, userId, userRole, status: "in_progress"|"completed"|
+"abandoned", startedAt, deadlineAt, completedAt, answers: [{exerciseId, partId, content: [{type:
+"text"|"formula"|"image", content}], answeredAt}], timeExpired}`. `abandoned` n'est positionné par
+aucune route aujourd'hui — réservé pour parité de nommage avec l'ancienne entité de
+`content-catalog-service`, point ouvert non traité dans ce chantier.
+
+### Demandes de correction
+
+Machine à états `pending → accepted → corrected`, ou `pending → all_declined` (tous les
+professeurs liés ont refusé). La correction ne compare **jamais** à la solution officielle de
+l'Exercice (`docs/architecture.md`, point 6) : le correcteur ne lit que la réponse soumise par
+l'élève.
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /evaluation-corrections/pending | Professeur : demandes `pending` où il est lié à l'élève et n'a pas encore refusé. RP : toutes les demandes `pending` et `all_declined` (état actionnable) | 🔒 | formateur, responsable_pedagogique | `200 EvaluationCorrectionRequest[]` · `403` |
+| GET | /evaluation-corrections/mine | Demandes acceptées et/ou corrigées par l'appelant | 🔒 | formateur, responsable_pedagogique | `200 EvaluationCorrectionRequest[]` · `403` |
+| GET | /evaluation-corrections/:id | Détail. `attemptAnswers` (réponses de l'élève) jointes uniquement pour l'élève, un professeur lié, le professeur ayant accepté, ou le RP | 🔒 | élève propriétaire, professeur lié, responsable_pedagogique | `200 EvaluationCorrectionRequest` · `403` · `404` |
+| POST | /evaluation-corrections/:id/accept | Premier arrivé premier servi : tout `accept` suivant échoue explicitement (`400`, jamais silencieux). Un professeur doit être actuellement lié à l'élève (revérifié en direct auprès de `profile-service`, jamais en cache) et la demande doit être `pending`. Le RP peut accepter en override d'escalade, y compris depuis `all_declined` | 🔒 | formateur (lié), responsable_pedagogique | `200 EvaluationCorrectionRequest` · `400` déjà pris en charge · `403` non lié · `404` · `502`/`503` |
+| POST | /evaluation-corrections/:id/decline | Refus individuel. Bascule en `all_declined` (et notifie le RP) seulement quand tous les professeurs **actuellement** liés (relus en direct) ont refusé | 🔒 | formateur (lié) | `200 EvaluationCorrectionRequest` · `400` demande non pending · `403` non lié · `404` |
+| POST | /evaluation-corrections/:id/correct | Score et/ou commentaire, réservé à celui qui a accepté (`acceptedByTeacherId`). `400` si ni score ni commentaire | 🔒 | le professeur (ou RP) ayant accepté | `200 EvaluationCorrectionRequest` · `400` · `403` · `404` |
+
+`EvaluationCorrectionRequest` : `{id, attemptId, evaluationId, studentId, status: "pending"|
+"accepted"|"corrected"|"all_declined", linkedTeacherIds, declinedByTeacherIds, acceptedByTeacherId,
+score, comment, createdAt, acceptedAt, correctedAt, attemptAnswers?}`.
+
+### Contrats interservices
+
+**Vers `content-catalog-service`** (public authentifié, jeton forwardé, pas de
+`X-Internal-Secret`) : `GET /evaluations/:id` → `{id, status, durationSeconds, exerciseItems:
+[{exerciseId, ...}], ...}`. `learning-activity-service` valide strictement `durationSeconds`
+(nombre > 0) et `exerciseItems` (tableau d'`{exerciseId: string}`) ; toute réponse non conforme lève
+une `502` — **contrat non confirmé contre une PR réelle de `content-catalog-service` au moment de ce
+chantier** (développé en parallèle, alignement du cycle de validation sur Quizz/Exercice et
+`durationSeconds` rendu obligatoire).
+
+**Vers `profile-service`** (interne, `X-Internal-Secret`) : `GET
+/internal/relations/teachers/:studentId` → `{teacherIds: string[]}`. **HYPOTHÈSE non confirmée
+contre le code réel de `profile-service`** (hors périmètre de lecture de l'agent
+`learning-activity-service`, cf. règle projet « Interfaces externes ») — construite par analogie
+directe avec `GET /internal/relations/finance-owners/:studentId`, déjà documentée plus haut dans ce
+fichier (section `profile-service`). Un `404` amont est traité comme une liste vide (pas une
+erreur) plutôt que propagé, pour ne pas bloquer une demande de correction d'un élève sans aucun
+professeur lié. **À vérifier/aligner avec `profile-service` avant mise en production réelle du
+flux de correction.**
+
+### Événements émis (outbox + Redis XADD, stream `visiomath:events`)
+
+Même transport que `teacher-request-service` (`docs/architecture.md`, « Systeme de notifications
+transversal »). Table `domain_events` propre à `learning-activity-service` (outbox), publiée
+par `XADD` puis republiée par un cycle de rattrapage (toutes les 15s) pour les événements non
+publiés — `at-least-once`, `dashboard-notification-service` doit dédupliquer par `eventId`.
+
+| Type | Émis quand | Payload | Destinataires prévus (à résoudre par `dashboard-notification-service`) |
+|---|---|---|---|
+| `EvaluationCorrectionRequested` | Création d'une demande, au moins un professeur lié | `{correctionRequestId, attemptId, evaluationId, studentId, teacherIds}` | chaque `teacherIds[]` (individuel) + rôle RP |
+| `EvaluationCorrectionAccepted` | Un professeur ou le RP accepte | `{correctionRequestId, attemptId, evaluationId, studentId, teacherId}` | rôle RP |
+| `EvaluationCorrectionDeclined` | Un professeur refuse | `{correctionRequestId, attemptId, evaluationId, studentId, teacherId}` | rôle RP |
+| `EvaluationCorrectionAllDeclined` | Tous les professeurs liés ont refusé, ou aucun professeur lié à la création | `{correctionRequestId, attemptId, evaluationId, studentId, reason: "all_linked_teachers_declined"\|"no_linked_teacher"}` | rôle RP (état actionnable, doit apparaître dans `GET /evaluation-corrections/pending`) |
+| `EvaluationCorrected` | Le correcteur soumet score/commentaire | `{correctionRequestId, attemptId, evaluationId, studentId, teacherId, score, comment}` | l'élève (`studentId`) |
+
+Aucun de ces types n'est aujourd'hui consommé par `dashboard-notification-service` — délégation
+distincte à venir, voir `.claude/reports/learning-activity-service-evaluations-2026-09-01.md`.

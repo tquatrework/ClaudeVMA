@@ -319,4 +319,90 @@
       <failed>0</failed>
     </testResults>
   </implementationSession>
+
+  <implementationSession date="2026-09-01" topic="Refonte des Evaluations - tentatives, correction manuelle, notifications">
+    <status>completed</status>
+    <framework>NestJS 10 + TypeORM + PostgreSQL + Swagger (inchangé) + ioredis (nouvelle dépendance)</framework>
+    <context>
+      Refonte des Évaluations (arbitrage docs/architecture.md du 2026-09-01, « Refonte des
+      Evaluations : notation manuelle, demande de correction, notifications »), en construction en
+      parallèle sans coordination synchrone possible : content-catalog-service aligne son cycle de
+      validation sur Quizz/Exercice, rend durationSeconds obligatoire et retire l'ancienne table
+      evaluation_attempts (jamais réellement utilisée) — hors périmètre de cet agent.
+      learning-activity-service porte tout le cycle de vie de la tentative d'un utilisateur —
+      démarrage chronométré, réponses verrouillées après l'échéance, clôture, demande de correction
+      humaine (jamais automatique, contrairement au Quizz) — plus, nouveau par rapport à Quizz et
+      Exercice, un premier système de notifications transversal (outbox + Redis XADD sur le flux
+      visiomath:events, même transport que teacher-request-service), ce service n'en avait aucun
+      jusqu'ici.
+    </context>
+
+    <folderStructure>
+      <folder path="src/common/">
+        <file path="src/common/enums/evaluation-attempt-status.enum.ts">Statut d'une tentative : in_progress, completed, abandoned (parité de nommage avec l'ancienne entité de content-catalog-service ; abandoned n'est positionné par aucune route)</file>
+        <file path="src/common/enums/evaluation-correction-status.enum.ts">Machine à états d'une demande de correction : pending, accepted, corrected, all_declined</file>
+      </folder>
+      <folder path="src/evaluation-attempts/">
+        <file path="entities/evaluation-attempt.entity.ts">Entité EvaluationAttempt (id, evaluationId, userId, userRole, status, exerciseIds jsonb — snapshot pris au démarrage pour valider les réponses sans rappeler content-catalog-service à chaque soumission —, answers jsonb, startedAt, deadlineAt, completedAt, updatedAt). Interfaces EvaluationAnswerItem/EvaluationAnswerEntry (une réponse par (exerciseId, partId), même mécanisme texte/formule/image que le Memo/Exercice)</file>
+        <file path="entities/evaluation-correction-request.entity.ts">Entité EvaluationCorrectionRequest (id, attemptId, evaluationId, studentId, status, linkedTeacherIds jsonb — snapshot des professeurs liés à la création, sert à la file d'attente —, declinedByTeacherIds jsonb, acceptedByTeacherId, score, comment, createdAt, acceptedAt, correctedAt, updatedAt)</file>
+        <file path="entities/domain-event.entity.ts">Entité DomainEvent (outbox transactionnel, table domain_events) : id, eventType, payload jsonb, correlationId, createdAt, publishedAt nullable</file>
+        <file path="dto/start-evaluation-attempt.dto.ts">DTO de démarrage : evaluationId (requis)</file>
+        <file path="dto/submit-evaluation-answer.dto.ts">DTO de réponse : exerciseId, partId, content[] (réutilise ExerciseContentItemDto du module exercise-attempts plutôt que d'en dupliquer un second)</file>
+        <file path="dto/correct-evaluation.dto.ts">DTO de correction : score?, comment? (au moins l'un des deux requis, vérifié côté service)</file>
+        <file path="evaluation-structure-client.service.ts">Client HTTP vers la route publique GET /evaluations/:id de content-catalog-service (jeton forwardé, pas de X-Internal-Secret) — valide strictement status/durationSeconds (nombre &gt; 0)/exerciseItems, lève 502 sinon. Contrat non confirmé contre une PR réelle au moment de ce chantier (durationSeconds obligatoire et statut aligné Quizz/Exercice développés en parallèle)</file>
+        <file path="profile-relations-client.service.ts">Client HTTP interne vers profile-service (X-Internal-Secret) : GET /internal/relations/teachers/:studentId → {teacherIds}. HYPOTHÈSE non confirmée contre le code réel de profile-service (hors périmètre de lecture de cet agent) — construite par analogie avec GET /internal/relations/finance-owners/:studentId, déjà documentée. Un 404 amont est traité comme liste vide, jamais comme une erreur bloquante</file>
+        <file path="evaluation-attempts.service.ts">Service métier : start (contrôle de rôle, vérifie validated, calcule deadlineAt, seed exerciseIds), submitAnswer (idempotent par (exerciseId,partId), refuse après l'échéance ou tentative close, refuse un exerciseId hors Évaluation), submit (clôture, autorisé même après l'échéance), requestCorrection (exige tentative close, refuse une demande déjà active, bascule ALL_DECLINED direct si aucun professeur lié), findOne (timeExpired calculé à la volée), history</file>
+        <file path="evaluation-corrections.service.ts">Service métier : accept (premier arrivé premier servi, professeur revérifié en direct auprès de profile-service, RP en override d'escalade y compris depuis all_declined), decline (refus individuel, bascule all_declined seulement quand tous les professeurs actuellement liés — relus en direct — ont refusé), correct (réservé à l'accepteur, refuse une correction vide), pending (file par rôle), mine, findOne (attemptAnswers joint seulement pour les ayants droit — jamais de comparaison à la solution officielle de l'Exercice)</file>
+        <file path="evaluation-attempts.controller.ts">POST /evaluation-attempts, POST /evaluation-attempts/:id/answers, POST /evaluation-attempts/:id/submit, POST /evaluation-attempts/:id/request-correction, GET /evaluation-attempts/history, GET /evaluation-attempts/:id — Swagger complet</file>
+        <file path="evaluation-corrections.controller.ts">GET /evaluation-corrections/pending, GET /evaluation-corrections/mine, GET /evaluation-corrections/:id, POST /evaluation-corrections/:id/accept, POST /evaluation-corrections/:id/decline, POST /evaluation-corrections/:id/correct — Swagger complet</file>
+        <file path="evaluation-attempts.module.ts">Module NestJS, enregistre les deux contrôleurs, les deux services métier, les deux clients HTTP et le sous-module d'événements</file>
+        <folder path="events/">
+          <file path="evaluation-event-types.ts">Constantes des 5 types d'événements émis + documentation des destinataires prévus (résolus par dashboard-notification-service, jamais par ce service)</file>
+          <file path="event-publisher.service.ts">Client Redis (ioredis, lazyConnect) : XADD sur le stream visiomath:events avec eventId/eventType/payload(JSON)/correlationId. No-op déclaré (erreur explicite à l'appel) si REDIS_URL absent, jamais un crash au démarrage</file>
+          <file path="events.service.ts">Outbox : emit() écrit domain_events puis tente une publication immédiate (échec journalisé, jamais propagé à l'appelant métier) ; cycle de rattrapage (setInterval 15s, onModuleInit/onModuleDestroy) republie les événements publishedAt IS NULL, s'arrête au premier échec du lot</file>
+        </folder>
+      </folder>
+      <folder path="test/unit/evaluation-attempts/">
+        <file path="evaluation-attempts.service.spec.ts">start (rôle, non-validated, calcul deadlineAt), submitAnswer (404 tiers, tentative close, délai écoulé, exerciseId hors Évaluation, upsert idempotent), submit (clôture, refus de re-clôturer, autorisé après échéance), requestCorrection (tentative non close, demande déjà active, bascule ALL_DECLINED sans professeur lié, PENDING + événement), findOne (timeExpired), history</file>
+        <file path="evaluation-corrections.service.spec.ts">accept (404, non lié refusé, premier arrivé premier servi, second accept refusé, RP depuis PENDING et depuis ALL_DECLINED, rôle non autorisé), decline (rôle, non lié, refus individuel sans bascule, bascule ALL_DECLINED quand tous ont refusé, demande non pending), correct (vide refusé, non ACCEPTED refusé, accepteur uniquement, nominal + événement), pending (RP voit tout, professeur filtré), mine, findOne (404, tiers refusé, attemptAnswers joint pour élève/professeur lié)</file>
+        <file path="evaluation-structure-client.spec.ts">Nominal + en-têtes, configuration manquante, injoignable, 404/401/403 amont, 5xx générique, JSON illisible, durationSeconds manquant/≤0, exerciseItems manquant</file>
+        <file path="profile-relations-client.spec.ts">Nominal + en-têtes (X-Internal-Secret), configuration manquante, injoignable, 404 amont traité comme liste vide, 5xx générique, JSON illisible, réponse malformée</file>
+        <file path="event-publisher.spec.ts">REDIS_URL absent (publish lève), XADD avec les bons champs, correlationId absent → chaîne vide, onModuleDestroy ferme la connexion (ou no-op si jamais configurée)</file>
+        <file path="events.service.spec.ts">emit() écrit puis publie et marque publishedAt, n'échoue jamais si la publication immédiate échoue, correlationId absent stocké null ; cycle de rattrapage republie et marque publishedAt, s'arrête au premier échec du lot (jest.useFakeTimers + advanceTimersByTimeAsync)</file>
+      </folder>
+      <file path="src/app.module.ts">EvaluationAttempt, EvaluationCorrectionRequest, DomainEvent ajoutées aux entités TypeORM ; EvaluationAttemptsModule enregistré</file>
+      <file path="package.json">Nouvelle dépendance ioredis (^5.4.1)</file>
+    </folderStructure>
+
+    <technicalDecisions>
+      <decision>Deux entités séparées (EvaluationAttempt, EvaluationCorrectionRequest) plutôt qu'une seule comme QuizAttempt : la demande de correction a son propre cycle de vie asynchrone (créée bien après la tentative, impliquant des tiers — professeurs, RP — qui n'agissent jamais sur la tentative elle-même), contrairement à la notation Quizz qui est un aller-retour synchrone unique au moment du submit.</decision>
+      <decision>exerciseIds figé au démarrage (snapshot depuis GET /evaluations/:id) pour valider qu'une réponse porte sur un Exercice de l'Évaluation, sans revalider la structure interne de chaque Exercice (partId) à chaque soumission — contrairement à exercise-attempts qui seed une ligne par bloc question, une Évaluation pouvant référencer plusieurs Exercices, revalider chaque partId aurait exigé un appel content-catalog-service par Exercice référencé. Simplification assumée et documentée : le partId n'est pas cross-validé contre la structure réelle de l'Exercice à la soumission.</decision>
+      <decision>submitAnswer refuse explicitement après deadlineAt (verrouillage de confiance, pas anti-triche durci — arbitrage explicite : "il est supposé ne pas changer d'url non plus"), mais submit (clôture) reste autorisé même après l'échéance : il ne rouvre aucune fenêtre de saisie, il se contente de figer l'état existant, ce qui est nécessaire pour qu'une tentative expirée sans clôture explicite de l'utilisateur reste clôturable a posteriori.</decision>
+      <decision>Un seul EvaluationCorrectionRequest actif par tentative (pending/accepted/corrected bloquent une nouvelle demande ; all_declined n'est pas bloquant en théorie mais aucune route ne permet aujourd'hui de recréer une demande depuis cet état côté élève — le contournement passe par le RP via accept() en override, conformément à "le RP gère manuellement" de l'arbitrage).</decision>
+      <decision>RP peut accept() une demande depuis PENDING (comme un professeur) ou depuis ALL_DECLINED (override d'escalade exclusif au RP) — traduit "le RP gère manuellement, peut corriger lui-même" sans construire de mécanisme de réassignation séparé.</decision>
+      <decision>Vérification du lien élève↔professeur toujours en direct auprès de profile-service à accept()/decline() (jamais en cache), y compris quand linkedTeacherIds (snapshot pris à la création de la demande) contient déjà l'appelant — cohérent avec l'arbitrage du 2026-08-11/12 : un droit ouvert par une relation se revérifie à chaque action, la relation pouvant avoir pris fin entre-temps. linkedTeacherIds ne sert qu'à accélérer GET /evaluation-corrections/pending côté professeur, jamais comme preuve d'autorisation.</decision>
+      <decision>"Tous ont refusé" recalculé contre la liste vivante de profile-service à chaque decline() (pas contre le seul linkedTeacherIds figé à la création) — un professeur délié entre-temps ne bloque plus indéfiniment le calcul.</decision>
+      <decision>Premier système de notifications de ce service : outbox (domain_events) + Redis XADD sur visiomath:events, réutilisant exactement le pattern documenté pour teacher-request-service (docs/architecture.md, 2026-08-14) plutôt que d'inventer un transport. EventsService.emit() n'échoue jamais l'action métier appelante (erreur de publication immédiate journalisée, laissée à un cycle de rattrapage périodique de 15s) — créer une demande de correction doit réussir même si Redis est en panne.</decision>
+      <decision>REDIS_URL et PROFILE_SERVICE_URL ajoutées à docker-compose.yml pour learning-activity-service (absentes jusqu'ici), plus une dépendance de démarrage sur redis (condition: service_healthy, déjà utilisée par les autres services consommateurs de Redis).</decision>
+      <decision>ioredis choisi (déjà présent en dépendance transitive dans package-lock.json, version 5.x) plutôt qu'une nouvelle bibliothèque, cohérent avec le choix déjà documenté pour teacher-request-service/dashboard-notification-service.</decision>
+      <decision>Aucune migration ajoutée : NODE_ENV=development sur la pile réelle (point ouvert déjà documenté dans docs/architecture.md) fait créer les nouvelles tables (evaluation_attempts, evaluation_correction_requests, domain_events) par synchronize, même convention que QuizAttempt/ExerciseAttempt/ExerciseAttemptPart.</decision>
+      <decision>Rôles autorisés à démarrer/répondre/clôturer/demander une correction : mêmes 4 rôles que Quizz/Exercice (élève, formateur, RP, AP) — arbitrage explicite du 2026-09-01 point 5 ("Les droits et historiques se gerent de la meme maniere que les quizz et exercices"). requestCorrection n'est pas restreint au seul rôle élève : un professeur/AP/RP passant une Évaluation en auto-évaluation peut aussi demander une correction, avec dégradation gracieuse (aucun professeur lié à lui-même → ALL_DECLINED immédiat, RP notifié).</decision>
+    </technicalDecisions>
+
+    <pendingPoints>
+      <item>Contrat GET /internal/relations/teachers/:studentId côté profile-service NON CONFIRMÉ — construit par analogie avec GET /internal/relations/finance-owners/:studentId (seule route documentée de forme équivalente), aucune route de ce type n'étant documentée dans docs/architecture.md pour la relation élève→professeurs. Un 404 amont est absorbé en liste vide (comportement défensif choisi pour ne pas bloquer une demande de correction), mais toute autre divergence de forme lève une 502 explicite. À vérifier/aligner avec profile-service avant toute preuve de bout en bout réelle.</item>
+      <item>Contrat GET /evaluations/:id (durationSeconds obligatoire, statut aligné pending_validation/validated/rejected) non confirmé contre une PR réelle de content-catalog-service au moment de ce chantier (développé en parallèle sur le même arbitrage). Validation stricte côté client (502 si non conforme), donc pas d'absorption silencieuse, mais preuve de bout en bout impossible avant déploiement conjoint.</item>
+      <item>Aucun événement n'est aujourd'hui consommé par dashboard-notification-service : les 5 types (EvaluationCorrectionRequested/Accepted/Declined/AllDeclined, EvaluationCorrected), leurs payloads et les destinataires prévus par événement sont documentés dans docs/routes.md (section learning-activity-service) et dans le rapport de chantier — délégation séparée à mener.</item>
+      <item>Statut ABANDONED déclaré (parité de nommage avec l'ancienne entité de content-catalog-service) mais jamais positionné par aucune route — aucune règle métier ne l'a demandé explicitement dans l'arbitrage transmis, laissé en l'état plutôt que construit par anticipation.</item>
+      <item>Partage/consultation croisée des réponses d'Évaluation par un tiers hors flux de correction (mentionné comme "potentiellement partageable" pour l'Exercice, jamais implémenté) : non traité ici non plus, même point ouvert que pour l'Exercice.</item>
+      <item>Preuve de bout en bout contre la pile réelle impossible dans cette session (contrainte explicite de la délégation : aucun scénario Playwright, aucun déploiement par cet agent) — tests unitaires uniquement (72 nouveaux, 199 au total pour le service), en attente du déploiement par l'orchestrateur pour la vérification HTTP directe demandée.</item>
+    </pendingPoints>
+
+    <testResults>
+      <suites>6 (nouvelles, en plus des 7 existantes)</suites>
+      <tests>199 (total du service après ce chantier, 127 existants + 72 nouveaux)</tests>
+      <passed>199</passed>
+      <failed>0</failed>
+    </testResults>
+  </implementationSession>
 </serviceFunctionalSpecification>

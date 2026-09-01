@@ -48,11 +48,33 @@ le même modèle exact que la route finance-owners (périmètre étroit `{studen
 teacherUserIds: string[]}`, liens actifs uniquement, `X-Internal-Secret`, jamais exposée par
 `api-gateway`).
 
-**Ordre restant** : `profile-service` (route interne, en cours) → merger/déployer
-`learning-activity-service` une fois la route confirmée fonctionnelle → déléguer
-`dashboard-notification-service` (nouveaux types d'événement, contrat exact dans le rapport
-`learning-activity-service-evaluations-2026-09-01.md`) → `front-developper` seulement une fois le
-backend stabilisé.
+**`profile-service` mergé (PR #197), déployé et vérifié en HTTP direct** (réponse correcte, `400`
+UUID invalide, `401` secret invalide, `404` via la passerelle — jamais exposée, comme prévu).
+
+**`learning-activity-service` mergé (PR #196, avec conflit doc résolu par l'orchestrateur — les
+deux PR avaient ajouté des sections indépendantes à `docs/routes.md` au même endroit, rien de
+fonctionnel), déployé, démarrage propre.** En vérifiant le cycle complet en HTTP direct
+(comptes de test : formateur `e2e.titletest.1788286184`, RP `e2e.rpeval.1788294768` promu par
+`UPDATE` SQL direct comme le veut le précédent du 2026-08-11, élève `e2e.studeval.1788294788`,
+liés par `POST /relations/teacher-student`), **un nouveau trou de passerelle a été trouvé** :
+`POST /evaluation-attempts` renvoie un `404` nginx brut — `api-gateway` ne proxy pas encore les
+nouveaux préfixes `/evaluation-attempts` et `/evaluation-corrections`. Même défaut déjà rencontré
+et corrigé deux fois pour ce même service (`/quiz-attempts`, puis `/exercise-attempts` le
+2026-09-01, PR #187). **Délégué à `api-gateway` le 2026-09-01, en cours.**
+
+**Ordre restant** : `api-gateway` (proxy, en cours) → terminer la vérification HTTP du cycle complet
+(démarrage tentative → réponse → soumission → demande de correction → acceptation professeur →
+correction → historique élève à jour) → déléguer `dashboard-notification-service` (nouveaux types
+d'événement, contrat exact dans `.claude/reports/learning-activity-service-evaluations-2026-09-01.md`)
+→ `front-developper` seulement une fois le backend entièrement stabilisé.
+
+Comptes de test créés aujourd'hui, réutilisables pour la suite de la vérification (à nettoyer en
+fin de chantier) : formateur `e2e.titletest.1788286184` / `E2eTest!2026` (id
+`d91afd1c-6c2b-4eb7-b625-bd7ce7b2bce1`), RP `e2e.rpeval.1788294768` / `E2eTest!2026` (id
+`365d0543-5c83-478d-99d1-da96e3d55bca`), élève `e2e.studeval.1788294788` / `E2eTest!2026` (id
+`a57d643c-2927-4114-8c91-671b22e62fd6`, lié au formateur ci-dessus). Exercice de test
+`919878f3-2199-4df5-a5f8-e9ac0158d925`, Évaluation de test `1ea78993-9412-4023-87e0-d966f96dbf1d`
+(déjà `validated`).
 
 ---
 

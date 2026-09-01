@@ -45,6 +45,16 @@ le chantier terminé :**
 Délégué en parallèle le 2026-09-01 : `content-catalog-service` (volume image) et `api-gateway`
 (proxy `/exercise-attempts`).
 
+**Blocage 2 (gateway) résolu et mergé** : PR #187, `/exercise-attempts` et `/open-activities`
+proxyés vers `learning-activity-service`. Preuve HTTP directe par le subagent (404 HTML brut →
+401 JSON applicatif), sans régression sur `/quiz-attempts`. Mergé sans attendre validation
+(correctif d'infra prouvé par mesure objective, pas de jugement à l'écran). Point mineur laissé de
+côté par le subagent, hors périmètre : collision de préfixe `activities` entre
+`learning-activity-service` et `calendar-service` (déjà tranchée par le routage existant vers
+`calendar-service`, pas un bug) — à arbitrer séparément si besoin un jour.
+
+**Blocage 1 (stockage image) toujours en cours** chez `content-catalog-service`.
+
 Délégué en parallèle le 2026-08-29 :
 - `content-catalog-service` : réécriture Exercise/ExercisePart/ExerciseSolution, stockage image
   propre (nouveau volume Docker), tags en recherche, alignement du cycle de validation sur le

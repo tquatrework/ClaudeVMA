@@ -16,20 +16,28 @@
  * **Blocs image de premier niveau** (même arbitrage du 2026-09-01, « Bloc "image" de premier
  * niveau pour l'Exercice ») : un bloc image se choisit dès la création, comme un énoncé ou une
  * question — plus besoin d'un premier enregistrement préalable (l'ancien mécanisme
- * `ExerciseImageManager`, post-enregistrement uniquement, est retiré). La soumission du formulaire
- * enregistre d'abord la structure (blocs image en placeholder), puis envoie chaque image en
- * attente au bloc réel nouvellement créé (`utils/exerciseImageUpload.ts`), en une seule action pour
- * l'utilisateur.
+ * `ExerciseImageManager`, post-enregistrement uniquement, est retiré). **Contrat confirmé par
+ * `content-catalog-service` (PR #191)** : l'image est encodée en base64 et embarquée directement
+ * dans le payload `POST`/`PUT /exercises` — un seul appel, aucune route multipart séparée (voir
+ * `utils/exercisePayload.ts`, `resolveExerciseImagePayloadItems`). Le plafond de taille par image
+ * est lu via `GET /exercises/image-constraints` (`useExerciseImageConstraints`), jamais codé en dur.
  */
 
 import React, { useEffect, useState } from 'react'
 import { createExercise, fetchExerciseDefaultTitle, updateExercise } from '../../api/exercises'
 import { getErrorMessage } from '../../utils/apiError'
-import { buildExerciseCreatePayload, type EditableExerciseFormState } from '../../utils/exercisePayload'
-import { resolvePendingExerciseImages, uploadPendingExerciseImages } from '../../utils/exerciseImageUpload'
-import type { CreateExercisePayload, ExercisePartCategory, PublicExerciseDetail } from '../../types/exercise'
+import {
+  buildExerciseCreatePayload,
+  ExerciseFormValidationError,
+  resolveExerciseImagePayloadItems,
+  type EditableExerciseFormState,
+} from '../../utils/exercisePayload'
+import { useExerciseImageConstraints } from '../../hooks/content-catalog/useExerciseImageConstraints'
+import { getExerciseRequestBodyTooLargeMessage, isExerciseRequestBodyTooLarge } from '../../utils/exerciseImageConstraints'
+import type { ExercisePartCategory, PublicExerciseDetail } from '../../types/exercise'
 import { ExercisePartEditor, createEditableExercisePart, type EditableExercisePart } from './ExercisePartEditor'
 import { ExercisePartAddButtons } from './ExercisePartAddButtons'
+import { ExerciseMetadataFields } from './ExerciseMetadataFields'
 
 interface ExerciseFormProps {
   /** `edit` réservé à l'auteur de l'exercice — vérifié côté serveur, pas ici. */
@@ -54,6 +62,7 @@ export function ExerciseForm({ mode = 'create', exerciseId, initialState, onSave
   )
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const { imageConstraints } = useExerciseImageConstraints()
 
   // Suggestion de titre par défaut, lue à l'ouverture du formulaire de création uniquement — ne
   // remplace jamais un titre déjà saisi par l'utilisateur (contrôlé au moment de la résolution,
@@ -96,47 +105,44 @@ export function ExerciseForm({ mode = 'create', exerciseId, initialState, onSave
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     setFormError(null)
-
-    let payload: CreateExercisePayload
-    try {
-      payload = buildExerciseCreatePayload({
-        title,
-        level,
-        difficulty,
-        theme,
-        competenciesInput,
-        tagsInput,
-        parts,
-      })
-    } catch (validationError: unknown) {
-      setFormError(
-        validationError instanceof Error ? validationError.message : 'Formulaire invalide.',
-      )
-      return
-    }
-
     setIsSubmitting(true)
     try {
-      // Résolu AVANT l'appel create/update : un bloc image déjà rempli en édition doit être
-      // récupéré pendant que son ancien `itemId` est encore garanti valide (voir
-      // `utils/exerciseImageUpload.ts`).
-      const pendingImages = await resolvePendingExerciseImages(
+      // Résolu AVANT la construction du payload : un bloc image déjà rempli en édition, sans
+      // nouveau fichier choisi, doit être relu pendant que son ancien `itemId` est encore garanti
+      // valide (voir `utils/exercisePayload.ts`). Encodage local (FileReader), pas d'appel réseau
+      // pour un fichier fraîchement choisi.
+      const resolvedImageItems = await resolveExerciseImagePayloadItems(
         parts,
         mode === 'edit' ? exerciseId : undefined,
       )
+      const payload = buildExerciseCreatePayload(
+        { title, level, difficulty, theme, competenciesInput, tagsInput, parts },
+        resolvedImageItems,
+      )
+
+      const serializedPayload = JSON.stringify(payload)
+      if (isExerciseRequestBodyTooLarge(serializedPayload, imageConstraints.maxRequestBodyBytes)) {
+        throw new ExerciseFormValidationError(
+          getExerciseRequestBodyTooLargeMessage(imageConstraints.maxRequestBodyBytes),
+        )
+      }
+
       const saved =
         mode === 'edit' && exerciseId
           ? await updateExercise(exerciseId, payload)
           : await createExercise(payload)
-      const savedWithImages = await uploadPendingExerciseImages(saved, pendingImages)
-      onSaved(savedWithImages)
-    } catch (apiError: unknown) {
-      setFormError(
-        getErrorMessage(
-          apiError,
-          mode === 'edit' ? "Impossible de modifier l'exercice." : "Impossible de créer l'exercice.",
-        ),
-      )
+      onSaved(saved)
+    } catch (caughtError: unknown) {
+      if (caughtError instanceof ExerciseFormValidationError) {
+        setFormError(caughtError.message)
+      } else {
+        setFormError(
+          getErrorMessage(
+            caughtError,
+            mode === 'edit' ? "Impossible de modifier l'exercice." : "Impossible de créer l'exercice.",
+          ),
+        )
+      }
     } finally {
       setIsSubmitting(false)
     }
@@ -180,64 +186,17 @@ export function ExerciseForm({ mode = 'create', exerciseId, initialState, onSave
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label htmlFor="exercise-level" className="block text-xs text-gray-600 mb-1">
-              Niveau
-            </label>
-            <input
-              id="exercise-level"
-              type="text"
-              value={level}
-              onChange={(e) => setLevel(e.target.value)}
-              placeholder="ex : Terminale, 3ème…"
-              disabled={isSubmitting}
-              className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-            />
-          </div>
-          <div>
-            <label htmlFor="exercise-difficulty" className="block text-xs text-gray-600 mb-1">
-              Difficulté
-            </label>
-            <input
-              id="exercise-difficulty"
-              type="text"
-              value={difficulty}
-              onChange={(e) => setDifficulty(e.target.value)}
-              placeholder="ex : facile, moyen, difficile"
-              disabled={isSubmitting}
-              className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-            />
-          </div>
-          <div>
-            <label htmlFor="exercise-theme" className="block text-xs text-gray-600 mb-1">
-              Thème
-            </label>
-            <input
-              id="exercise-theme"
-              type="text"
-              value={theme}
-              onChange={(e) => setTheme(e.target.value)}
-              placeholder="ex : géométrie plane"
-              disabled={isSubmitting}
-              className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label htmlFor="exercise-competencies" className="block text-xs text-gray-600 mb-1">
-            Compétences travaillées (séparées par des virgules)
-          </label>
-          <input
-            id="exercise-competencies"
-            type="text"
-            value={competenciesInput}
-            onChange={(e) => setCompetenciesInput(e.target.value)}
-            disabled={isSubmitting}
-            className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-          />
-        </div>
+        <ExerciseMetadataFields
+          level={level}
+          onLevelChange={setLevel}
+          difficulty={difficulty}
+          onDifficultyChange={setDifficulty}
+          theme={theme}
+          onThemeChange={setTheme}
+          competenciesInput={competenciesInput}
+          onCompetenciesInputChange={setCompetenciesInput}
+          isSubmitting={isSubmitting}
+        />
 
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-gray-800">Blocs (énoncés, images et questions)</h3>
@@ -254,6 +213,7 @@ export function ExerciseForm({ mode = 'create', exerciseId, initialState, onSave
               isFirst={index === 0}
               isLast={index === parts.length - 1}
               exerciseId={exerciseId}
+              maxImageInputBytes={imageConstraints.maxImageInputBytes}
             />
           ))}
           <ExercisePartAddButtons

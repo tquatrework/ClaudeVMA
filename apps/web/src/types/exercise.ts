@@ -15,17 +15,28 @@
  * Depuis le 2026-09-01 (`docs/architecture.md` > « Bloc "image" de premier niveau pour
  * l'Exercice »), l'image n'est plus un item embarqué dans un bloc énoncé/question : c'est un bloc
  * de premier niveau à part entière (`category: 'image'`), au même rang que énoncé et question dans
- * la séquence ordonnée. Un bloc image porte 0 (placeholder avant envoi) ou 1 item de type `image`
- * dans son tableau `items` — aucun nouveau champ n'a été nécessaire, `PublicExercisePart`/
- * `PublicContentItem` restent inchangés dans leur forme. Disponible **dès la création** (contrairement
- * à l'ancien mécanisme `ExerciseImageManager`, retiré) via un flux en deux temps porté par
- * `ExerciseForm` : la structure (avec les blocs image en placeholder) est créée/mise à jour d'abord,
- * puis chaque image en attente est envoyée au bloc réel nouvellement créé.
+ * la séquence ordonnée.
+ *
+ * **Contrat réel confirmé par `content-catalog-service` (PR #191)** : contrairement à l'hypothèse
+ * initiale d'un flux en deux temps (structure d'abord, upload multipart ensuite), l'image est
+ * envoyée **en base64, inline, dans le même appel `POST`/`PUT /exercises`** que le reste de la
+ * séquence — `CreateExerciseItemPayload.imageData`. Il n'existe **aucune** route multipart
+ * post-création : `POST /exercises/:id/parts/:partId/images` et `.../solution/images` sont
+ * **retirées** côté serveur. Un bloc image reste 1 item de type `image` en lecture
+ * (`PublicContentItem`, forme inchangée, jamais `imageData` — servi par
+ * `GET /exercises/:id/images/:itemId`, blob route inchangée). Disponible **dès la création**,
+ * contrairement à l'ancien mécanisme `ExerciseImageManager` (retiré). Voir
+ * `utils/exerciseImageEncoding.ts` pour l'encodage local (`FileReader`), et
+ * `utils/exercisePayload.ts` (`resolveExerciseImagePayloadItems`) pour la résolution — nouveau
+ * fichier vs. ancien fichier vs. re-lecture d'une image déjà enregistrée en édition.
  *
  * Solutions : contrairement au Quizz, `content-catalog-service` ne renvoie **jamais** le contenu
  * d'une solution via la route publique de consultation (`GET /exercises/:id`) — seule
  * `GET /exercises/:id/solutions` (réservée à l'auteur et aux AP/RP/TI, voir plus bas) l'expose,
- * pour que l'écran d'édition puisse réellement pré-remplir une solution déjà saisie.
+ * pour que l'écran d'édition puisse réellement pré-remplir une solution déjà saisie. Une image de
+ * solution y est elle aussi embarquée en base64 (`AuthorContentItem.imageData`), corrigeant le bug
+ * "image de solution jamais rerelisible" — non exploité côté formulaire pour l'instant (l'éditeur
+ * de solution reste texte/formule uniquement), mais la donnée est désormais disponible.
  */
 
 export type ExercisePartCategory = 'statement' | 'image' | 'question'
@@ -88,20 +99,27 @@ export interface PublicExerciseDetail extends ExerciseSummary {
   parts: PublicExercisePart[]
 }
 
+/**
+ * `content` est requis pour `type: 'text'|'formula'`, optionnel (légende) pour `type: 'image'`.
+ * `imageData`/`imageOriginalFilename` ne s'appliquent qu'à `type: 'image'` — `imageData` est
+ * **requis** dans ce cas (base64, avec ou sans préfixe data URI ; `FileReader.readAsDataURL`
+ * produit directement une forme acceptée par le serveur).
+ */
 export interface CreateExerciseItemPayload {
-  type: 'text' | 'formula'
-  content: string
+  type: 'text' | 'formula' | 'image'
+  content?: string
+  imageData?: string
+  imageOriginalFilename?: string
 }
 
 export interface CreateExercisePartPayload {
   category: ExercisePartCategory
   /**
-   * `items` peut être vide pour `category: 'statement'` (un énoncé peut être vide) ou
-   * `category: 'image'` (placeholder — le contenu binaire ne peut jamais transiter par ce DTO
-   * JSON, il est envoyé séparément après création via `uploadExercisePartImage`). Requis non vide
+   * `items` peut être vide/absent pour `category: 'statement'` (un énoncé peut être vide).
+   * Exactement **un** item `type: 'image'` pour `category: 'image'`. Non vide (texte/formule)
    * pour `category: 'question'`.
    */
-  items: CreateExerciseItemPayload[]
+  items?: CreateExerciseItemPayload[]
   /** Obligatoire si `category === 'question'`, interdit sinon. */
   solution?: { items: CreateExerciseItemPayload[] }
 }
@@ -127,6 +145,20 @@ export interface DefaultExerciseTitle {
   title: string
 }
 
+/**
+ * Réponse de `GET /exercises/image-constraints` (ajoutée le 2026-09-01) — à lire par le front
+ * **avant** d'afficher le bouton d'ajout d'image, même discipline que
+ * `GET /profiles/avatar/constraints`. `maxImageInputBytes` borne le fichier choisi par
+ * l'utilisateur (avant ré-encodage serveur) ; `maxImageOutputBytes` est informatif (taille après
+ * ré-encodage WebP, non vérifiable côté front) ; `maxRequestBodyBytes` borne le corps JSON entier
+ * de `POST`/`PUT /exercises` — pertinent si plusieurs blocs image sont envoyés dans le même appel.
+ */
+export interface ExerciseImageConstraints {
+  maxImageInputBytes: number
+  maxImageOutputBytes: number
+  maxRequestBodyBytes: number
+}
+
 // ─── Lecture par l'auteur, avec solutions (2026-09-01) ─────────────────────────
 //
 // `GET /exercises/:id/solutions`, sur le modèle de `GET /quizzes/:id/solution` : réservée à
@@ -135,10 +167,18 @@ export interface DefaultExerciseTitle {
 // point 6). Le front tolère l'absence de cette route (voir `fetchExerciseForEdit` dans
 // `api/exercises.ts`) tant que le déploiement de `content-catalog-service` n'est pas confirmé.
 
+/**
+ * Un item de solution, tel qu'exposé à l'auteur — `imageData` (base64) présent uniquement pour
+ * `type: 'image'` (correctif du 2026-09-01, "image de solution jamais rerelisible").
+ */
+export interface AuthorContentItem extends PublicContentItem {
+  imageData?: string | null
+}
+
 /** Un bloc, tel qu'exposé à l'auteur — porte le contenu complet de sa solution si elle existe. */
 export interface AuthorExercisePart extends PublicExercisePart {
   /** Présent uniquement pour un bloc `question` dont la solution est enregistrée. */
-  solution?: { items: PublicContentItem[] } | null
+  solution?: { items: AuthorContentItem[] } | null
 }
 
 /** Détail complet d'un exercice AVEC solutions — réservé à l'auteur et aux AP/RP/TI. */

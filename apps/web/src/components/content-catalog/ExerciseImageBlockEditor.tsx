@@ -3,9 +3,13 @@
  * du 2026-09-01, `docs/architecture.md` > « Bloc "image" de premier niveau pour l'Exercice »).
  *
  * Sélection locale d'un fichier, prévisualisée immédiatement — l'envoi réel n'a jamais lieu ici :
- * il est différé à l'enregistrement du formulaire (flux en deux temps orchestré par `ExerciseForm`
- * via `utils/exerciseImageUpload.ts`), disponible dès la création, contrairement à l'ancien
- * mécanisme post-enregistrement (`ExerciseImageManager`, retiré).
+ * l'image est encodée en base64 et embarquée dans le payload `POST`/`PUT /exercises` au moment de
+ * la soumission du formulaire (contrat confirmé par `content-catalog-service`, PR #191 — aucune
+ * route multipart séparée), disponible dès la création, contrairement à l'ancien mécanisme
+ * post-enregistrement (`ExerciseImageManager`, retiré).
+ *
+ * Un fichier trop lourd est refusé **localement**, avant tout envoi, sur la limite lue via
+ * `GET /exercises/image-constraints` (même discipline que l'avatar de `profile-service`).
  *
  * En édition, tant qu'aucun nouveau fichier n'a été choisi, affiche l'image déjà enregistrée
  * (`ExerciseContentItemView`, même route authentifiée que partout ailleurs) — un nouveau choix la
@@ -14,6 +18,11 @@
 
 import React, { useEffect, useState } from 'react'
 import { ExerciseContentItemView } from './ExerciseContentItemView'
+import {
+  getExerciseImageMaxSizeHint,
+  getExerciseImageTooLargeMessage,
+  isExerciseImageFileTooLarge,
+} from '../../utils/exerciseImageConstraints'
 import type { PublicContentItem } from '../../types/exercise'
 
 interface ExerciseImageBlockEditorProps {
@@ -23,6 +32,8 @@ interface ExerciseImageBlockEditorProps {
   existingImageItem: PublicContentItem | null
   onFileSelected: (file: File | null) => void
   isSubmitting: boolean
+  /** Plafond en vigueur (`GET /exercises/image-constraints`) — jamais codé en dur. */
+  maxImageInputBytes: number
 }
 
 export function ExerciseImageBlockEditor({
@@ -31,8 +42,10 @@ export function ExerciseImageBlockEditor({
   existingImageItem,
   onFileSelected,
   isSubmitting,
+  maxImageInputBytes,
 }: ExerciseImageBlockEditorProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [sizeError, setSizeError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!imageFile) {
@@ -44,15 +57,32 @@ export function ExerciseImageBlockEditor({
     return () => URL.revokeObjectURL(objectUrl)
   }, [imageFile])
 
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null
+    event.target.value = ''
+    if (!file) return
+
+    if (isExerciseImageFileTooLarge(file, maxImageInputBytes)) {
+      setSizeError(getExerciseImageTooLargeMessage(file, maxImageInputBytes))
+      return
+    }
+
+    setSizeError(null)
+    onFileSelected(file)
+  }
+
   return (
     <div className="space-y-2">
       <input
         type="file"
         accept="image/*"
         disabled={isSubmitting}
-        onChange={(e) => onFileSelected(e.target.files?.[0] ?? null)}
+        onChange={handleFileChange}
         className="text-sm"
       />
+      <p className="text-xs text-gray-400">{getExerciseImageMaxSizeHint(maxImageInputBytes)}</p>
+
+      {sizeError && <p className="text-xs text-red-600">{sizeError}</p>}
 
       {previewUrl && (
         <figure>

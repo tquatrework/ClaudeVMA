@@ -3,8 +3,9 @@
  * `ExerciseForm`. Un bloc énoncé/question porte une liste ordonnée d'items texte/formule ; un bloc
  * « question » porte en plus une solution obligatoire (même mécanisme de liste d'items). Un bloc
  * « image » (catégorie de premier niveau depuis le 2026-09-01, `docs/architecture.md` > « Bloc
- * "image" de premier niveau pour l'Exercice ») porte un fichier choisi localement, envoyé après
- * l'enregistrement du formulaire — voir `ExerciseImageBlockEditor`/`utils/exerciseImageUpload.ts`.
+ * "image" de premier niveau pour l'Exercice ») porte un fichier choisi localement, encodé en
+ * base64 et embarqué dans le payload à la soumission du formulaire — voir
+ * `ExerciseImageBlockEditor`/`utils/exercisePayload.ts` (`resolveExerciseImagePayloadItems`).
  *
  * Patron de structure directement inspiré de `QuizQuestionEditor` — une section « énoncé »
  * pouvant devenir « question + solution » selon la catégorie choisie.
@@ -59,6 +60,8 @@ interface ExercisePartEditorProps {
   isLast: boolean
   /** Requis pour afficher une image de bloc déjà enregistrée — absent en mode création. */
   exerciseId?: string
+  /** Plafond en vigueur pour un bloc image (`GET /exercises/image-constraints`). */
+  maxImageInputBytes: number
 }
 
 export function ExercisePartEditor({
@@ -72,6 +75,7 @@ export function ExercisePartEditor({
   isFirst,
   isLast,
   exerciseId,
+  maxImageInputBytes,
 }: ExercisePartEditorProps) {
   const handleCategoryChange = (category: ExercisePartCategory) => {
     onChange({
@@ -138,6 +142,7 @@ export function ExercisePartEditor({
           existingImageItem={part.existingImageItem}
           onFileSelected={(imageFile) => onChange({ ...part, imageFile })}
           isSubmitting={isSubmitting}
+          maxImageInputBytes={maxImageInputBytes}
         />
       ) : (
         <ExerciseItemListEditor

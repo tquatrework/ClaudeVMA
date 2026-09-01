@@ -8,37 +8,23 @@ import {
   Param,
   Query,
   UseGuards,
-  UseInterceptors,
-  UploadedFile,
   HttpCode,
   HttpStatus,
   Headers,
   Res,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiBearerAuth,
-  ApiParam,
-  ApiHeader,
-  ApiConsumes,
-  ApiBody,
-} from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiHeader } from '@nestjs/swagger';
 import { ExercisesService } from './exercises.service';
 import { CreateExerciseDto } from './dto/create-exercise.dto';
 import { UpdateExerciseDto } from './dto/update-exercise.dto';
 import { SearchExerciseDto } from './dto/search-exercise.dto';
-import { CreateExerciseImageDto } from './dto/create-exercise-image.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { UserRole } from '../common/enums/user-role.enum';
 import { AuthenticatedUser } from '../common/guards/jwt-auth.guard';
-import { EXERCISE_IMAGE_MAX_BYTES } from './exercise.constants';
 
 @ApiTags('exercises')
 @ApiBearerAuth()
@@ -71,7 +57,10 @@ export class ExercisesController {
   @ApiOperation({
     summary: 'Créer un exercice',
     description:
-      'Crée un exercice avec sa séquence ordonnée de blocs (énoncé/question) et leurs solutions. ' +
+      'Crée un exercice avec sa séquence ordonnée de blocs (énoncé/image/question) et leurs solutions. ' +
+      'Une image se dépose directement dans un bloc "image" dédié, encodée en base64 dans ce même appel ' +
+      '(voir GET /exercises/image-constraints pour les plafonds). L\'exercice doit comporter au moins un ' +
+      'bloc énoncé (peut être vide) et au moins un bloc question non vide. ' +
       'Un exercice créé par un formateur passe en attente de validation ; un exercice créé par un AP ou un RP est auto-validé.',
   })
   @ApiResponse({ status: 201, description: 'Exercice créé (jamais de solution dans la réponse)' })
@@ -93,7 +82,8 @@ export class ExercisesController {
     description:
       'Remplace intégralement les blocs, items et solutions d\'un exercice. Réservé à son auteur. ' +
       'Un exercice édité par son auteur formateur repasse en attente de validation. ' +
-      'ATTENTION : les images précédemment envoyées sont supprimées par ce remplacement intégral, elles doivent être renvoyées après l\'édition.',
+      'ATTENTION : les images précédemment envoyées sont supprimées par ce remplacement intégral ; ' +
+      'pour les conserver, le front doit les renvoyer explicitement (base64) dans ce même appel.',
   })
   @ApiParam({ name: 'id', description: 'UUID de l\'exercice' })
   @ApiResponse({ status: 200, description: 'Exercice modifié' })
@@ -123,6 +113,28 @@ export class ExercisesController {
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   async getDefaultTitle(@CurrentUser() currentUser: AuthenticatedUser): Promise<{ title: string }> {
     return this.exercisesService.getDefaultTitle(currentUser.id);
+  }
+
+  @Get('image-constraints')
+  @Roles(UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE)
+  @ApiOperation({
+    summary: 'Lire les plafonds applicables à une image de bloc',
+    description:
+      'À lire par le front avant d\'afficher le bouton d\'ajout d\'image (arbitrage du 2026-09-01, "Bloc image ' +
+      'de premier niveau pour l\'Exercice") : taille maximale d\'une image en entrée (avant ré-encodage), ' +
+      'taille maximale en sortie (après ré-encodage WebP), et taille maximale du corps JSON entier de ' +
+      'POST/PUT /exercises. Jamais codés en dur côté front.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Plafonds courants',
+    schema: {
+      example: { maxImageInputBytes: 600000, maxImageOutputBytes: 500000, maxRequestBodyBytes: 900000 },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  getImageConstraints() {
+    return this.exercisesService.getImageConstraints();
   }
 
   @Get('pending-validation')
@@ -212,68 +224,6 @@ export class ExercisesController {
       'Content-Length': buffer.length,
     });
     res.send(buffer);
-  }
-
-  @Post(':id/parts/:partId/images')
-  @HttpCode(HttpStatus.CREATED)
-  @Roles(UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE)
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: EXERCISE_IMAGE_MAX_BYTES * 4 } }))
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' }, caption: { type: 'string' } } },
-  })
-  @ApiOperation({
-    summary: 'Ajouter une image à un bloc',
-    description:
-      'Réservé à l\'auteur de l\'exercice. Ré-encodage systématique en WebP, type détecté sur les octets réels, ' +
-      'SVG refusé. Ajouter une image fait repasser l\'exercice en attente de validation si l\'auteur est formateur.',
-  })
-  @ApiParam({ name: 'id', description: 'UUID de l\'exercice' })
-  @ApiParam({ name: 'partId', description: 'UUID du bloc' })
-  @ApiResponse({ status: 201, description: 'Image ajoutée' })
-  @ApiResponse({ status: 400, description: 'Fichier absent, illisible, ou format non reconnu' })
-  @ApiResponse({ status: 403, description: 'Réservé à l\'auteur de l\'exercice' })
-  @ApiResponse({ status: 404, description: 'Exercice ou bloc introuvable' })
-  @ApiResponse({ status: 413, description: 'Image trop volumineuse' })
-  async addPartImage(
-    @Param('id') exerciseId: string,
-    @Param('partId') partId: string,
-    @UploadedFile() file: Express.Multer.File,
-    @Body() dto: CreateExerciseImageDto,
-    @CurrentUser() currentUser: AuthenticatedUser,
-  ) {
-    return this.exercisesService.addImageToPart(exerciseId, partId, file, dto, currentUser.id);
-  }
-
-  @Post(':id/parts/:partId/solution/images')
-  @HttpCode(HttpStatus.CREATED)
-  @Roles(UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE)
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: EXERCISE_IMAGE_MAX_BYTES * 4 } }))
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' }, caption: { type: 'string' } } },
-  })
-  @ApiOperation({
-    summary: 'Ajouter une image à la solution d\'un bloc question',
-    description:
-      'Réservé à l\'auteur de l\'exercice. Jamais servie par une route publique — accessible uniquement via ' +
-      'la médiation de learning-activity-service (route interne dédiée).',
-  })
-  @ApiParam({ name: 'id', description: 'UUID de l\'exercice' })
-  @ApiParam({ name: 'partId', description: 'UUID du bloc question' })
-  @ApiResponse({ status: 201, description: 'Image ajoutée à la solution' })
-  @ApiResponse({ status: 400, description: 'Fichier absent, illisible, format non reconnu, ou bloc non-question' })
-  @ApiResponse({ status: 403, description: 'Réservé à l\'auteur de l\'exercice' })
-  @ApiResponse({ status: 404, description: 'Exercice, bloc ou solution introuvable' })
-  @ApiResponse({ status: 413, description: 'Image trop volumineuse' })
-  async addSolutionImage(
-    @Param('id') exerciseId: string,
-    @Param('partId') partId: string,
-    @UploadedFile() file: Express.Multer.File,
-    @Body() dto: CreateExerciseImageDto,
-    @CurrentUser() currentUser: AuthenticatedUser,
-  ) {
-    return this.exercisesService.addImageToSolution(exerciseId, partId, file, dto, currentUser.id);
   }
 
   @Delete(':id')

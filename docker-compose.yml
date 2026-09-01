@@ -625,12 +625,16 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
       INTERNAL_SECRET: ${INTERNAL_SECRET:-change_me_in_production}
       CONTENT_CATALOG_SERVICE_URL: http://content-catalog-service:3013
+      PROFILE_SERVICE_URL: http://profile-service:3002
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       PORT: 3014
     depends_on:
       postgres:
         condition: service_healthy
       content-catalog-service:
         condition: service_started
+      redis:
+        condition: service_healthy
     networks:
       - visiomath_network
     restart: unless-stopped

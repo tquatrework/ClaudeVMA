@@ -1290,6 +1290,99 @@
           </point>
         </openPoints>
       </session>
+      <session date="2026-09-01" label="Titre unique Exercice/Quizz — étape 1 : disambiguation automatique par suffixe (branche feat/content-catalog-title-disambiguation-step1)">
+        <context>
+          Révision de l'arbitrage du même jour ("Titre des Exercices et des Quizz : obligatoire,
+          unique..."), sur constat utilisateur qu'un doublon de titre pouvait être enregistré sans
+          avertissement. Investigation préalable (2 agents Explore + 1 agent Plan) : le refus 400
+          existant était inefficace en pratique pour deux causes racines — aucune contrainte UNIQUE
+          en base (fenêtre TOCTOU) et des doublons Quizz legacy jamais nettoyés (2 paires, datées du
+          2026-08-28). Plutôt que de simplement corriger le refus 400, l'utilisateur a demandé de
+          changer la règle : disambiguation automatique par suffixe "(N)" au lieu d'un rejet, et
+          nouveau format de titre par défaut avec parenthèses. Délégation scindée en deux étapes
+          distinctes (séquencement imposé par le risque `synchronize` déjà documenté dans ce
+          service) — **cette session couvre uniquement l'étape 1** : disambiguation applicative +
+          migration de dédoublonnage Quizz, sans aucune modification d'entité. L'étape 2 (contrainte
+          UNIQUE en base + décorateur `@Index` + retry applicatif sur violation `23505`) reste à
+          faire séparément, après confirmation que ce déploiement 1 tourne en production.
+        </context>
+        <filesModified>
+          <file path="src/exercises/exercises.service.ts">`assertTitleUnique()` (levait `BadRequestException`) remplacée par `titleTakenByAuthor()` (booléen) + `resolveUniqueTitle(baseTitle, authorId, excludeExerciseId?)` (boucle "candidate = baseTitle puis `${baseTitle} (${n})`, n=2.." jusqu'à trouver un titre libre pour cet auteur). `getDefaultTitle()` : gabarit `Exercice (${count+1})` (parenthèses) au lieu de `Exercice ${count+1}` ; le comptage exclut désormais `status = REMOVED` (`Not(ContentStatus.REMOVED)`, import `Not` de `typeorm`) — harmonise avec `titleTakenByAuthor` qui excluait déjà ce statut, incohérence préexistante corrigée au passage. `create()`/`update()` appellent `resolveUniqueTitle()` et utilisent le titre résolu (potentiellement suffixé) pour l'écriture, plus aucun `throw` sur collision.</file>
+          <file path="src/quizzes/quizzes.service.ts">Même transformation : `assertTitleUnique()` → `titleTakenByAuthor()` + `resolveUniqueTitle()`. `getDefaultTitle()` : gabarit `Quizz (${count+1})`. Pas de statut `REMOVED` à exclure côté Quiz (aucune route de retrait sur ce type de contenu).</file>
+          <file path="src/exercises/entities/exercise.entity.ts">Commentaire mis à jour : référence à `assertTitleUnique` remplacée par `resolveUniqueTitle`, mention de la disambiguation automatique.</file>
+          <file path="src/exercises/dto/create-exercise.dto.ts">Même mise à jour de commentaire.</file>
+          <file path="src/migrations/1794000000000-DeduplicateQuizTitles.ts">Nouvelle migration : bloc `DO $$` transactionnel sous garde `to_regclass('public.quizzes')`, repère les doublons `(authorId, title)` via `ROW_NUMBER() OVER (PARTITION BY "authorId", title ORDER BY "createdAt" ASC, id ASC)`, renomme chaque ligne de rang &gt; 1 en cherchant le prochain suffixe "(N)" libre pour ce même auteur — approche générique (pas limitée aux 2 paires connues), même principe que la disambiguation en ligne. `down()` : no-op documenté irréversible, même convention que `CleanupPreRefonteExerciseData1790000000000`. AUCUNE modification d'entité (le décorateur `@Index` unique est explicitement différé à l'étape 2, pour ne pas faire tenter à `synchronize` de poser un index UNIQUE avant que cette migration n'ait nettoyé les doublons).</file>
+          <file path="test/unit/exercises/exercises.service.spec.ts">Test "lève BadRequestException si l'auteur a déjà un exercice avec ce titre" remplacé par deux tests de disambiguation ("(2)", puis "(3)" si "(2)" est aussi pris) ; test de collision à l'édition remplacé de même (vérifie `exerciseRepo.save` appelé avec le titre suffixé, plus aucune assertion `rejects.toThrow`) ; `getDefaultTitle()` : assertions mises à jour au format `"Exercice (N)"`, avec `status: expect.anything()` dans le matcher `where` du mock de `count`.</file>
+          <file path="test/unit/quizzes/quizzes.service.spec.ts">Mêmes transformations côté Quiz : tests de collision (create + update) remplacés par des tests de suffixe "(2)"/"(3)", `getDefaultTitle()` mis à jour au format `"Quizz (N)"`.</file>
+          <file path="test/unit/migrations/deduplicate-quiz-titles.spec.ts">Nouveau — smoke test sur le modèle de `cleanup-pre-refonte-exercise-data.spec.ts` : QueryRunner mocké, vérifie que `up()` cible `quizzes` sous garde `to_regclass`, utilise `ROW_NUMBER()` partitionné par `authorId, title`, construit le suffixe `"(N)"` et exécute l'`UPDATE` attendu ; vérifie que `down()` ne lève jamais et n'exécute aucune requête ; vérifie `migration.name`.</file>
+        </filesModified>
+        <technicalDecisions>
+          <decision>
+            Boucle de vérification exacte (`titleTakenByAuthor` appelé séquentiellement pour chaque
+            candidat) plutôt qu'un parsing regex du suffixe existant dans le titre saisi par
+            l'utilisateur : ce titre peut déjà contenir des parenthèses non numériques ("Exercice
+            (corrigé)"), une boucle reste correcte dans tous les cas au prix de quelques
+            allers-retours SQL bornés (borne implicite par le nombre de collisions réelles, pas de
+            plafond dur posé dans cette étape — l'étape 2, avec la contrainte UNIQUE + retry borné à
+            `MAX_TITLE_DISAMBIGUATION_ATTEMPTS`, ferme ce dernier angle mort).
+          </decision>
+          <decision>
+            `resolveUniqueTitle` renomme `titleTakenByAuthor` en méthode publique de vérification
+            (au lieu de la logique de rejet précédente) pour la réutiliser telle quelle dans la
+            boucle, sans dupliquer la requête `createQueryBuilder` — un seul point de vérité pour
+            "ce titre est-il déjà pris par cet auteur".
+          </decision>
+          <decision>
+            Migration écrite en PL/pgSQL procédural (`DO $$ ... FOR rec IN ... LOOP`) plutôt qu'un
+            UPDATE ensembliste : le calcul du suffixe libre dépend de l'état déjà modifié par les
+            itérations précédentes de la même boucle (deux doublons du même auteur/titre ne peuvent
+            pas recevoir le même suffixe "(2)"), ce qui exige un état intermédiaire séquentiel —
+            même raisonnement déjà documenté pour `1793000000000-MigrateExerciseImageItemsToImageBlocks.ts`.
+          </decision>
+          <decision>
+            AUCUNE contrainte `@Index(unique: true)` ni modification de colonne dans cette étape,
+            conformément au séquencement imposé par l'arbitrage : poser l'index dans le même
+            déploiement que la migration de dédoublonnage ferait tenter à `synchronize` (actif en
+            production via `NODE_ENV=development`, s'exécute AVANT `migrationsRun`) de créer l'index
+            UNIQUE avant que la migration n'ait eu l'occasion de nettoyer les doublons Quizz encore
+            présents — crash-loop, même famille d'incident que `CleanupPreRefonteExerciseData` et
+            `MakeExerciseTitleRequired`.
+          </decision>
+        </technicalDecisions>
+        <verification>
+          <item>`npm run build` : 0 erreur.</item>
+          <item>`npx jest` (suite complète) : 26 suites, 314/314 tests verts — inclut les nouveaux
+            tests de disambiguation (Exercice et Quiz, create et update, suffixe simple "(2)" et
+            enchaîné "(3)") et le nouveau smoke test de migration
+            (`deduplicate-quiz-titles.spec.ts`).</item>
+          <item>Pas de build/déploiement ni de preuve HTTP directe dans cette session — délégué à
+            l'orchestrateur, qui prend en charge le build et le redéploiement. Preuve HTTP à obtenir
+            après déploiement : format par défaut avec parenthèses, disambiguation sur 2-3
+            soumissions du même titre (create ET update), no-op sur édition vers son propre titre,
+            et absence de doublon Quizz en base après migration
+            (`SELECT "authorId", title, COUNT(*) FROM quizzes GROUP BY "authorId", title HAVING
+            COUNT(*) &gt; 1` → 0 ligne).</item>
+        </verification>
+        <blockers>
+          Aucun sur le code livré. Étape 2 (contrainte UNIQUE en base + décorateur `@Index` +
+          retry applicatif sur `23505`) volontairement hors périmètre de cette session — à délivrer
+          dans un déploiement séparé, uniquement après confirmation que ce déploiement 1 (étape 1)
+          tourne correctement en production (migration de dédoublonnage appliquée sans erreur,
+          disambiguation observée en HTTP direct).
+        </blockers>
+        <openPoints>
+          <point>
+            Étape 2 non commencée : contrainte `CREATE UNIQUE INDEX` (partielle `WHERE status !=
+            'removed'` pour Exercice, simple pour Quiz), décorateur `@Index` sur les deux entités,
+            nouveau fichier `src/common/utils/postgres-errors.ts` (`isPostgresUniqueViolation`),
+            boucle de retry bornée dans `create()` des deux services sur violation `23505` détectée
+            à l'écriture — limitée à la ligne racine (Exercise/Quiz), sans englober
+            `savePartsAndSolutions` pour ne jamais dupliquer des parts déjà sauvegardées en cas de
+            retry. Voir `docs/architecture.md`, "Titre des Exercices et des Quizz : disambiguation
+            automatique plutôt que refus", points 3 et 5.
+          </point>
+        </openPoints>
+      </session>
     </technicalImplementation>
   </service>
 </serviceFunctionalSpecification>

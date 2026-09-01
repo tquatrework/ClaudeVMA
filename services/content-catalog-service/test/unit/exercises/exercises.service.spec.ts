@@ -215,14 +215,45 @@ describe('ExercisesService', () => {
       await expect(service.create(dto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(BadRequestException);
     });
 
-    it('lève BadRequestException si l\'auteur a déjà un exercice avec ce titre', async () => {
+    // Arbitrage du 2026-09-01, "disambiguation automatique plutôt que
+    // refus" : une collision de titre ne bloque plus la création, le
+    // serveur suffixe automatiquement "(N)".
+    it('suffixe automatiquement le titre "(2)" si l\'auteur a déjà un exercice avec ce titre', async () => {
+      exerciseRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: EXERCISE_ID }));
+      partRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'part-' + Math.random() }));
+      itemRepo.save.mockImplementation((x) => Promise.resolve(x));
+      solutionRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'sol-1' }));
+      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ status: ContentStatus.PENDING_VALIDATION }));
+
       const qb = buildQueryBuilder();
-      qb.getOne.mockResolvedValue(buildSampleExercise());
+      // Le titre de base est déjà pris, "{titre} (2)" est libre.
+      qb.getOne.mockResolvedValueOnce(buildSampleExercise()).mockResolvedValueOnce(undefined);
       exerciseRepo.createQueryBuilder.mockReturnValue(qb);
 
-      await expect(service.create(validCreateDto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(
-        BadRequestException,
-      );
+      await service.create(validCreateDto as any, FORMATEUR_ID, 'formateur');
+
+      const createCall = exerciseRepo.create.mock.calls[0][0];
+      expect(createCall.title).toBe(`${validCreateDto.title} (2)`);
+    });
+
+    it('avance au prochain suffixe libre si "(2)" est aussi déjà pris', async () => {
+      exerciseRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: EXERCISE_ID }));
+      partRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'part-' + Math.random() }));
+      itemRepo.save.mockImplementation((x) => Promise.resolve(x));
+      solutionRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'sol-1' }));
+      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ status: ContentStatus.PENDING_VALIDATION }));
+
+      const qb = buildQueryBuilder();
+      qb.getOne
+        .mockResolvedValueOnce(buildSampleExercise())
+        .mockResolvedValueOnce(buildSampleExercise())
+        .mockResolvedValueOnce(undefined);
+      exerciseRepo.createQueryBuilder.mockReturnValue(qb);
+
+      await service.create(validCreateDto as any, FORMATEUR_ID, 'formateur');
+
+      const createCall = exerciseRepo.create.mock.calls[0][0];
+      expect(createCall.title).toBe(`${validCreateDto.title} (3)`);
     });
 
     it('autorise deux auteurs différents à choisir le même titre', async () => {
@@ -357,21 +388,23 @@ describe('ExercisesService', () => {
   // ─────────────────────────────────────────────────────────────────────
 
   describe('getDefaultTitle()', () => {
-    it('propose "Exercice {n+1}" où n est le nombre d\'exercices déjà créés par l\'auteur', async () => {
+    it('propose "Exercice (n+1)" où n est le nombre d\'exercices non retirés déjà créés par l\'auteur', async () => {
       exerciseRepo.count.mockResolvedValue(3);
 
       const result = await service.getDefaultTitle(FORMATEUR_ID);
 
-      expect(result).toEqual({ title: 'Exercice 4' });
-      expect(exerciseRepo.count).toHaveBeenCalledWith({ where: { authorId: FORMATEUR_ID } });
+      expect(result).toEqual({ title: 'Exercice (4)' });
+      expect(exerciseRepo.count).toHaveBeenCalledWith({
+        where: { authorId: FORMATEUR_ID, status: expect.anything() },
+      });
     });
 
-    it('propose "Exercice 1" pour un auteur sans exercice existant', async () => {
+    it('propose "Exercice (1)" pour un auteur sans exercice existant', async () => {
       exerciseRepo.count.mockResolvedValue(0);
 
       const result = await service.getDefaultTitle(FORMATEUR_ID);
 
-      expect(result).toEqual({ title: 'Exercice 1' });
+      expect(result).toEqual({ title: 'Exercice (1)' });
     });
   });
 
@@ -435,15 +468,31 @@ describe('ExercisesService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('lève BadRequestException si un autre exercice du même auteur porte déjà ce titre', async () => {
-      exerciseRepo.findOne.mockResolvedValue(buildSampleExercise({ authorId: FORMATEUR_ID }));
+    it('suffixe automatiquement le titre "(2)" si un autre exercice du même auteur le porte déjà', async () => {
+      const existing = buildSampleExercise({ status: ContentStatus.VALIDATED, authorId: FORMATEUR_ID });
+      exerciseRepo.findOne.mockResolvedValueOnce(existing).mockResolvedValueOnce({
+        ...existing,
+        status: ContentStatus.PENDING_VALIDATION,
+        parts: [],
+      });
+      partRepo.find.mockResolvedValue([]);
+      solutionRepo.find.mockResolvedValue([]);
+      partRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'part-' + Math.random() }));
+      itemRepo.save.mockImplementation((x) => Promise.resolve(x));
+      solutionRepo.save.mockImplementation((x) => Promise.resolve({ ...x, id: 'sol-1' }));
+      exerciseRepo.save.mockResolvedValue(existing);
+
       const qb = buildQueryBuilder();
-      qb.getOne.mockResolvedValue(buildSampleExercise({ id: 'autre-exercice' }));
+      // Un autre exercice ("autre-exercice") porte déjà le titre de base ;
+      // "{titre} (2)" est libre.
+      qb.getOne.mockResolvedValueOnce(buildSampleExercise({ id: 'autre-exercice' })).mockResolvedValueOnce(undefined);
       exerciseRepo.createQueryBuilder.mockReturnValue(qb);
 
-      await expect(
-        service.update(EXERCISE_ID, validCreateDto as any, FORMATEUR_ID, 'formateur'),
-      ).rejects.toThrow(BadRequestException);
+      await service.update(EXERCISE_ID, validCreateDto as any, FORMATEUR_ID, 'formateur');
+
+      expect(exerciseRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ title: `${validCreateDto.title} (2)` }),
+      );
     });
 
     it('autorise à garder le même titre en éditant le même exercice (exclusion de soi-même)', async () => {

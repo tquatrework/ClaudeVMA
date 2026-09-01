@@ -38,10 +38,21 @@ contre `https://claudevma.visioprof.fr` : création sans durée → `400` ; cré
 `POST /evaluations/:id/attempts` bien retirée (`404`) ; démarrage propre, pas de crash-loop. Données
 de test nettoyées de la production.
 
-**`learning-activity-service` toujours en cours** (tentative chronométrée + demande de correction +
-notifications). Une fois prêt : merger/déployer, puis déléguer `dashboard-notification-service`
-(nouveaux types d'événement, contrat exact à récupérer du rapport `learning-activity-service`), puis
-`front-developper` seulement une fois le backend stabilisé.
+**`learning-activity-service` livré (PR #196, non mergée) — un blocage réel identifié avant merge.**
+L'agent a construit son client vers `profile-service` sur une route hypothétique
+`GET /internal/relations/teachers/:studentId` (par analogie avec
+`GET /internal/relations/finance-owners/:studentId`, existante), documentée comme non confirmée
+plutôt que supposée silencieusement. Vérifié dans `docs/routes.md` par l'orchestrateur : cette
+route **n'existe effectivement pas**. Délégué à `profile-service` le 2026-09-01 pour la créer sur
+le même modèle exact que la route finance-owners (périmètre étroit `{studentId,
+teacherUserIds: string[]}`, liens actifs uniquement, `X-Internal-Secret`, jamais exposée par
+`api-gateway`).
+
+**Ordre restant** : `profile-service` (route interne, en cours) → merger/déployer
+`learning-activity-service` une fois la route confirmée fonctionnelle → déléguer
+`dashboard-notification-service` (nouveaux types d'événement, contrat exact dans le rapport
+`learning-activity-service-evaluations-2026-09-01.md`) → `front-developper` seulement une fois le
+backend stabilisé.
 
 ---
 

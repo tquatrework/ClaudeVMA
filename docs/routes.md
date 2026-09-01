@@ -2972,12 +2972,14 @@ Body : `{answers: [{questionId, selectedOptionIds?: string[], text?: string}]}`.
 par catégorie de question dans `docs/services/content-catalog-service.md` (barème effectif,
 notation par option/mot-clé, non-cumul pénalité/score partiel).
 
-### Exercices — refonte du 2026-08-29
+### Exercices — refonte du 2026-08-29, bloc image de premier niveau le 2026-09-01
 
-Conforme à `docs/architecture.md`, "Refonte des Exercices" : un exercice est une séquence ordonnée
-de blocs `statement`/`question` portant du contenu texte/formule/image (même mécanisme que le
-Mémo, `pedagogical-log-service`) ; un bloc `question` porte exactement une solution
-(`ExerciseSolution`, 1-à-1 par `partId`), jamais exposée par une route publique. Droits et cycle de
+Conforme à `docs/architecture.md`, "Refonte des Exercices" puis "Bloc 'image' de premier niveau
+pour l'Exercice" : un exercice est une séquence ordonnée de blocs à **3 catégories**
+`statement`/`image`/`question` (2 catégories jusqu'au 2026-09-01) portant du contenu
+texte/formule/image (même mécanisme que le Mémo, `pedagogical-log-service`) ; un bloc `question`
+porte exactement une solution (`ExerciseSolution`, 1-à-1 par `partId`), jamais exposée par une
+route publique (sauf lecture d'auteur, voir `GET /exercises/:id/solutions`). Droits et cycle de
 validation alignés point par point sur le Quizz (2026-08-28) : créateurs formateur/AP/RP, statut
 `pending_validation`/`validated` fixé au rôle à la création, édition réservée à l'auteur (fait
 repasser en `pending_validation` si l'auteur est formateur), validation RP illimitée / AP scopé par
@@ -2985,18 +2987,32 @@ la relation `animator_of_teacher` (extension du mécanisme Quizz à Exercise dan
 `ValidationsService`). `ExerciseAnswer`/`ExerciseCorrection` retirés de ce service — ils migrent
 vers `learning-activity-service` (réponse de l'élève, tentative, historique).
 
+**Composition minimale (ajoutée le 2026-09-01)** : un exercice doit comporter au moins un bloc
+`statement` (peut être vide) et au moins un bloc `question` non vide — `400` sinon, vérifié à la
+création et à l'édition.
+
+**Image de premier niveau (2026-09-01)** : une image se dépose désormais dans un bloc `image`
+dédié (exactement un item de type `image` dans `items`), embarquée en **base64** dans le **même**
+appel `POST`/`PUT /exercises` que le reste de la séquence — plus de route multipart post-création.
+Une image ne peut plus apparaître comme item d'un bloc `statement`/`question` (`400` sinon).
+L'ancien mécanisme (`POST /exercises/:id/parts/:partId/images`,
+`POST /exercises/:id/parts/:partId/solution/images`) est **retiré**, pas conservé en parallèle. Les
+images existantes créées via l'ancien mécanisme ont été migrées vers des blocs `image` équivalents
+(migrations `AddImagePartCategoryEnum1792000000000` +
+`MigrateExerciseImageItemsToImageBlocks1793000000000`), sans perte — vérifié en HTTP direct contre
+la pile réelle après migration (voir `docs/services/content-catalog-service.md`).
+
 | Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
 | GET | /exercises | Rechercher les exercices visibles par l'appelant, filtrables par `level`, `difficulty`, `theme`, `authorId`, `tag` (`ANY(tags)`, exact), `keyword` (titre), paginés. Un exercice non validé reste invisible sauf à son auteur et aux AP/RP/TI | 🔒 | tous rôles authentifiés | `200 {items, total}` · `401` |
-| POST | /exercises | Créer un exercice : séquence ordonnée de blocs, chaque bloc `question` portant une solution obligatoire. `400` si un bloc est mal formé (catégorie inconnue, aucun item, solution manquante sur une question, solution présente sur un énoncé), **ou si `title` est vide/absent, ou si l'auteur possède déjà un autre exercice portant exactement ce titre** (ajouté le 2026-09-01, unicité *par auteur* uniquement). Statut initial : `pending_validation` pour un formateur, `validated` (auto-validé) pour un AP ou un RP | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `201 PublicExerciseDetail` · `400` · `403` |
-| PUT | /exercises/:id | Remplace intégralement blocs/items/solutions. Réservé à l'auteur. **Supprime les images précédemment envoyées** (limite connue, documentée dans `docs/services/content-catalog-service.md`) — à renvoyer après l'édition si besoin. Mêmes contrôles de titre que `POST` (vide refusé, unicité par auteur — l'exercice édité est exclu de son propre contrôle d'unicité). Un auteur formateur repasse en `pending_validation` | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique (auteur uniquement) | `200 PublicExerciseDetail` · `400` · `403` · `404` |
-| GET | /exercises/default-title | **Ajouté le 2026-09-01.** Suggère un titre par défaut ("Exercice {n}", n = nombre d'exercices déjà créés par l'appelant + 1), à lire par le front à l'ouverture du formulaire de création pour pré-remplir le champ (désormais obligatoire) — ne réserve rien | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `200 {title}` — ex. `{"title":"Exercice 4"}` · `401` |
+| POST | /exercises | Créer un exercice : séquence ordonnée de blocs `statement`/`image`/`question`, chaque bloc `question` portant une solution obligatoire, chaque bloc `image` portant exactement un item `image` (base64). `400` si un bloc est mal formé, si la composition minimale n'est pas respectée (aucun `statement`, aucun `question`), si une image apparaît hors d'un bloc `image` dédié, si `title` est vide/absent, ou si l'auteur possède déjà un autre exercice portant exactement ce titre (unicité *par auteur*). Statut initial : `pending_validation` pour un formateur, `validated` (auto-validé) pour un AP ou un RP | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `201 PublicExerciseDetail` · `400` · `403` · `413` |
+| PUT | /exercises/:id | Remplace intégralement blocs/items/solutions. Réservé à l'auteur. **Supprime les images précédemment envoyées à chaque édition** (remplacement intégral, pas de diff par identifiant stable) — depuis le 2026-09-01, elles PEUVENT être réintroduites dans le même appel (base64), à charge du front de les renvoyer explicitement. Mêmes contrôles de titre et de composition que `POST` (l'exercice édité est exclu de son propre contrôle d'unicité de titre) | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique (auteur uniquement) | `200 PublicExerciseDetail` · `400` · `403` · `404` · `413` |
+| GET | /exercises/default-title | Suggère un titre par défaut ("Exercice {n}", n = nombre d'exercices déjà créés par l'appelant + 1), à lire par le front à l'ouverture du formulaire de création pour pré-remplir le champ (obligatoire) — ne réserve rien | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `200 {title}` — ex. `{"title":"Exercice 4"}` · `401` |
+| GET | /exercises/image-constraints | **Ajouté le 2026-09-01.** Plafonds d'image à lire par le front avant d'afficher le bouton d'ajout, jamais codés en dur | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `200 {maxImageInputBytes, maxImageOutputBytes, maxRequestBodyBytes}` — ex. `{"maxImageInputBytes":600000,"maxImageOutputBytes":500000,"maxRequestBodyBytes":900000}` · `401` |
 | GET | /exercises/pending-validation | Lister les exercices en attente de validation ; un AP ne voit que les formateurs qu'il anime, RP voit tout (même mécanisme que Quizz) | 🔒 | animateur_pedagogique, responsable_pedagogique | `200 {items, total}` · `403` · `503` profile-service injoignable |
 | GET | /exercises/:id | Récupérer un exercice — blocs et items complets, **jamais le contenu d'une solution** (seulement `hasSolution: boolean` sur un bloc `question`). `404` si non trouvé ou non visible | 🔒 | tous rôles authentifiés | `200 PublicExerciseDetail` · `404` |
-| GET | /exercises/:id/solutions | **Ajouté le 2026-09-01**, correctif du bug "solutions non relisibles à l'édition" (`docs/architecture.md`, "Titre des Exercices et des Quizz", point 6). Même forme que `GET /exercises/:id`, mais chaque bloc `question` porte `solution: {items: PublicContentItem[]}` (contenu complet, texte/formule — jamais les images de solution, toujours servies uniquement via `learning-activity-service`) au lieu de `hasSolution: boolean`. Réservé à l'auteur de l'exercice et aux AP/RP/TI ; `GET /exercises/:id` reste inchangée et ne renvoie jamais la solution, quel que soit l'appelant | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique, technicien_informatique | `200 PublicExerciseDetailWithSolutions` · `403` · `404` |
-| GET | /exercises/:id/images/:itemId | Octets d'une image de **bloc uniquement** — une image de solution n'est **jamais** servie ici (`404`). Revérifie la visibilité de l'exercice à chaque téléchargement | 🔒 | tous rôles authentifiés | `200` octets · `404` |
-| POST | /exercises/:id/parts/:partId/images | Ajoute une image à un bloc (multipart, champ `file`, `caption?`). Ré-encodage systématique en WebP (sharp), type détecté sur les octets réels, SVG refusé, plafond 500 000 octets en sortie. Réservé à l'auteur ; fait repasser en `pending_validation` si l'auteur est formateur | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique (auteur uniquement) | `201 PublicContentItem` · `400` · `403` · `404` · `413` |
-| POST | /exercises/:id/parts/:partId/solution/images | Ajoute une image à la solution d'un bloc `question` (multipart, mêmes règles). Jamais servie par une route publique — accessible uniquement via la médiation de `learning-activity-service` | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique (auteur uniquement) | `201 PublicContentItem` · `400` · `403` · `404` · `413` |
+| GET | /exercises/:id/solutions | Même forme que `GET /exercises/:id`, mais chaque bloc `question` porte `solution: {items: PublicContentItem[]}` (contenu complet, texte/formule/**image** — une image de solution est désormais embarquée en base64 dans `imageData`, correctif du bug "image de solution jamais rerelisible", 2026-09-01) au lieu de `hasSolution: boolean`. Réservé à l'auteur de l'exercice et aux AP/RP/TI ; `GET /exercises/:id` reste inchangée et ne renvoie jamais la solution, quel que soit l'appelant | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique, technicien_informatique | `200 PublicExerciseDetailWithSolutions` · `403` · `404` |
+| GET | /exercises/:id/images/:itemId | Octets d'une image de **bloc uniquement** (y compris un bloc `image` de premier niveau) — une image de solution n'est **jamais** servie ici (`404`). Revérifie la visibilité de l'exercice à chaque téléchargement | 🔒 | tous rôles authentifiés | `200` octets · `404` |
 | DELETE | /exercises/:id | Retire un exercice (statut `REMOVED`) | 🔒 | responsable_pedagogique, technicien_informatique, ou auteur | `204` · `403` · `404` |
 
 ⚠️ Constaté le 2026-09-01 en vérification HTTP directe : la branche "auteur" de `DELETE
@@ -3006,16 +3022,30 @@ service. Un auteur formateur reçoit `403` malgré ce que le tableau ci-dessus i
 pré-existante, non corrigée dans cette session (hors périmètre de la tâche) — voir `openPoints` de
 la session 2026-09-01 dans `docs/services/content-catalog-service.md`.
 
+**Retiré le 2026-09-01** (ancien mécanisme d'image, remplacé par le bloc `image` de premier
+niveau) : `POST /exercises/:id/parts/:partId/images` et
+`POST /exercises/:id/parts/:partId/solution/images`.
+
 Body `POST`/`PUT /exercises` : `{title, description?, level?, difficulty?, theme?, competencies?:
-string[], tags?: string[], parts: [{category: "statement"|"question", items: [{type:
-"text"|"formula", content}], solution?: {items: [{type: "text"|"formula", content}]}}]}`. `solution`
-est **obligatoire** si `category="question"`, **interdit** si `category="statement"`. `title` est
-obligatoire (400 si vide) et unique par auteur (400 si un autre exercice du même auteur porte déjà
-ce titre exact — ajouté le 2026-09-01, `docs/architecture.md` "Titre des Exercices et des Quizz").
-`description` reste optionnelle (front retiré de l'écran de création/édition le 2026-09-01, aucun
-changement serveur nécessaire — le champ était déjà optionnel). Les items de
-type `image` ne peuvent jamais être créés via ce DTO JSON — uniquement via les routes multipart
-dédiées, après création de l'exercice.
+string[], tags?: string[], parts: [{category: "statement"|"image"|"question", items?: [{type:
+"text"|"formula"|"image", content?, imageData?, imageOriginalFilename?}], solution?: {items: [{type:
+"text"|"formula"|"image", content?, imageData?, imageOriginalFilename?}]}}]}`.
+- `category="statement"` : `items` texte/formule, **peut être vide ou absent**.
+- `category="image"` : `items` doit contenir **exactement un** item `type="image"`.
+- `category="question"` : `items` texte/formule non vide **requis** + `solution` **obligatoire**
+  (`items` non vide, texte/formule/image).
+- Pour `type="image"` : `imageData` (base64, avec ou sans préfixe data URI) **requis**, `content`
+  devient une légende optionnelle. Pour `type="text"|"formula"` : `content` requis.
+- Une image ne peut **jamais** apparaître dans les `items` d'un bloc `statement`/`question` — `400`
+  sinon ("une image se dépose dans un bloc dédié").
+- `title` obligatoire (400 si vide) et unique par auteur. `description` optionnelle.
+- Plafonds (lisibles via `GET /exercises/image-constraints`, jamais codés en dur côté front) :
+  600 000 octets par image en entrée (avant ré-encodage), 500 000 octets en sortie (après
+  ré-encodage WebP), **900 000 octets pour le corps JSON entier** de la requête — volontairement
+  sous le défaut NON déclaré de nginx-global (1 Mio, vérifié le 2026-09-01 par `nginx -T`, confirmé
+  en HTTP direct : un corps de 1,2 Mo reçoit un `413` HTML de nginx-global, un corps de 950 Ko reçoit
+  un `413` **JSON** propre de l'application `{"statusCode":413,"message":"request entity too large"}`
+  — c'est bien le plafond applicatif qui coupe en premier dans cette fenêtre).
 
 #### Routes internes — jamais exposées par api-gateway
 

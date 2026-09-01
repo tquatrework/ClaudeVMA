@@ -36,16 +36,16 @@
     </roleAccessRules>
     <candidateApis>
       <endpoint method="GET" path="/exercises">Rechercher exercices, filtrable par tag (ANY(tags), applique le 2026-08-29).</endpoint>
-      <endpoint method="POST" path="/exercises">Charger un exercice : sequence ordonnee de blocs statement/question, chaque bloc question portant une solution obligatoire (refonte du 2026-08-29). Titre desormais obligatoire et unique par auteur (ajoute le 2026-09-01, 400 sinon) ; description optionnelle.</endpoint>
-      <endpoint method="PUT" path="/exercises/{id}">Modifier un exercice, reserve a son auteur ; repasse en pending_validation si l'auteur est formateur (ajoute le 2026-08-29). Meme regle de titre obligatoire/unique que la creation (2026-09-01), en excluant l'exercice lui-meme du controle d'unicite.</endpoint>
+      <endpoint method="POST" path="/exercises">Charger un exercice : sequence ordonnee de blocs statement/image/question (3e categorie "image" ajoutee le 2026-09-01), chaque bloc question portant une solution obligatoire, chaque bloc image portant exactement un item image en base64 (refonte du 2026-08-29, bloc image du 2026-09-01). Composition minimale : au moins un statement (peut etre vide), au moins un question non vide. Titre obligatoire et unique par auteur (2026-09-01, 400 sinon) ; description optionnelle.</endpoint>
+      <endpoint method="PUT" path="/exercises/{id}">Modifier un exercice, reserve a son auteur ; repasse en pending_validation si l'auteur est formateur (ajoute le 2026-08-29). Meme regle de titre/composition que la creation, en excluant l'exercice lui-meme du controle d'unicite. Remplacement integral (images incluses) — a renvoyer explicitement en base64 pour les conserver (2026-09-01).</endpoint>
       <endpoint method="GET" path="/exercises/default-title">Suggerer un titre par defaut ("Exercice {n}", n = nombre d'exercices deja crees par l'appelant + 1) — lue par le front a l'ouverture du formulaire de creation (ajoute le 2026-09-01). Reservee aux createurs (formateur/AP/RP).</endpoint>
+      <endpoint method="GET" path="/exercises/image-constraints">Plafonds d'image (entree/sortie/corps JSON) lus par le front avant d'afficher le bouton d'ajout (ajoute le 2026-09-01). Reservee aux createurs.</endpoint>
       <endpoint method="GET" path="/exercises/pending-validation">Lister les exercices en attente de validation ; AP scope par relation animator_of_teacher, RP illimite (ajoute le 2026-08-29).</endpoint>
-      <endpoint method="GET" path="/exercises/{id}/solutions">Recuperer un exercice avec le contenu complet des solutions de chaque bloc question — reserve a l'auteur et aux AP/RP/TI (ajoute le 2026-09-01, correctif du bug "solutions non relisibles a l'edition"). GET /exercises/{id} reste inchangee (hasSolution seulement).</endpoint>
-      <endpoint method="GET" path="/exercises/{id}/images/{itemId}">Octets d'une image de bloc (jamais de solution) (ajoute le 2026-08-29).</endpoint>
-      <endpoint method="POST" path="/exercises/{id}/parts/{partId}/images">Ajouter une image a un bloc, multipart, re-encodage WebP (ajoute le 2026-08-29).</endpoint>
-      <endpoint method="POST" path="/exercises/{id}/parts/{partId}/solution/images">Ajouter une image a la solution d'un bloc question, jamais servie publiquement (ajoute le 2026-08-29).</endpoint>
+      <endpoint method="GET" path="/exercises/{id}/solutions">Recuperer un exercice avec le contenu complet des solutions de chaque bloc question, y compris les images de solution en base64 (imageData, ajoute le 2026-09-01) — reserve a l'auteur et aux AP/RP/TI. GET /exercises/{id} reste inchangee (hasSolution seulement).</endpoint>
+      <endpoint method="GET" path="/exercises/{id}/images/{itemId}">Octets d'une image de bloc, y compris un bloc image de premier niveau (jamais de solution) (ajoute le 2026-08-29).</endpoint>
       <endpoint method="POST" path="/internal/exercises/{exerciseId}/parts/{partId}/solution">Route interne, contenu complet de la solution pour learning-activity-service (ajoute le 2026-08-29).</endpoint>
       <endpoint method="GET" path="/internal/exercises/images/{itemId}">Route interne, octets de n'importe quelle image (ajoute le 2026-08-29).</endpoint>
+      <endpoint method="RETIRE" path="/exercises/{id}/parts/{partId}/images (et .../solution/images)">Ancien mecanisme multipart post-creation, retire le 2026-09-01 — remplace par le bloc image de premier niveau embarque en base64 des la creation/edition.</endpoint>
       <endpoint method="GET" path="/evaluations">Rechercher evaluations.</endpoint>
       <endpoint method="POST" path="/evaluations">Creer evaluation.</endpoint>
       <endpoint method="POST" path="/evaluations/{id}/attempts">Passer une evaluation.</endpoint>
@@ -69,7 +69,7 @@
         <note>Refonte du 2026-08-29 : titre optionnel, tags en text[] postgres (ANY() en recherche). statement/correctionCost retires (remplaces par les blocs ; le flux de correction humaine sort du perimetre). Voir technicalImplementation.</note>
       </entity>
       <entity name="ExercisePart">
-        <note>Refonte du 2026-08-29 : bloc ordonne (partNumber), category statement|question. expectedAnswer retire. Contenu porte par ExerciseContentItem (partId).</note>
+        <note>Refonte du 2026-08-29 : bloc ordonne (partNumber). category statement|image|question (3e valeur "image" ajoutee le 2026-09-01, migration AddImagePartCategoryEnum1792000000000). expectedAnswer retire. Contenu porte par ExerciseContentItem (partId) — un bloc image porte exactement un item de type image.</note>
       </entity>
       <entity name="ExerciseContentItem">
         <note>Ajoutee le 2026-08-29 — item texte/formule/image, meme mecanisme que MemoItem (pedagogical-log-service). Rattache a EXACTEMENT un parent : partId OU solutionId (jamais les deux). Champs image* (originalFilename/storedFilename/mimeType/sizeBytes) pour type=image.</note>
@@ -1133,6 +1133,160 @@
             de test créé pendant cette vérification (id `2f2f8c95-477c-43c4-b665-320f94d45b72`,
             `pending_validation`) n'a donc pas pu être retiré par son auteur formateur de test et
             reste en base, invisible aux élèves et aux autres professeurs tant qu'il n'est pas validé.
+          </point>
+        </openPoints>
+      </session>
+
+      <session date="2026-09-01" label="Bloc image de premier niveau pour l'Exercice (branche feat/content-catalog-exercise-image-block)">
+        <objective>
+          Remplacer le mecanisme d'image comme item embarque dans un bloc statement/question,
+          reconnu insatisfaisant apres constat en production (image impossible a la creation,
+          ajout uniquement post-enregistrement via routes multipart, image de solution jamais
+          rerelisible, edition du texte effacant les images), par une 3e categorie de bloc dediee
+          "image", disponible des la creation, conformement a l'arbitrage docs/architecture.md,
+          "Bloc 'image' de premier niveau pour l'Exercice" (2026-09-01).
+        </objective>
+        <filesModified>
+          <file path="src/exercises/enums/exercise-part-category.enum.ts">Ajout de IMAGE = 'image'.</file>
+          <file path="src/exercises/exercise.constants.ts">Nouveaux plafonds : EXERCISE_IMAGE_INPUT_MAX_BYTES (600 000, avant re-encodage), EXERCISE_IMAGE_BASE64_MAX_LENGTH (820 000, garde DTO), EXERCISE_JSON_BODY_MAX_BYTES (900 000, corps JSON entier de POST/PUT /exercises) — tous volontairement sous le defaut NON declare de nginx-global (1 Mio, verifie par `nginx -T` sur le conteneur reel).</file>
+          <file path="src/exercises/dto/create-exercise-content-item.dto.ts">type accepte desormais 'image' (en plus de text/formula) ; nouveaux champs imageData (base64) et imageOriginalFilename, tous deux optionnels au niveau DTO — la regle "imageData requis pour type=image, content requis pour text/formula" est verifiee cote service (validatePartDto/buildItemEntities), pas par decorateur, meme discipline que le reste du fichier.</file>
+          <file path="src/exercises/dto/create-exercise-part.dto.ts">items devient optionnel (ArrayMinSize(1) retire) — un bloc statement peut desormais etre vide ; les minimums par categorie sont verifies cote service.</file>
+          <file path="src/exercises/dto/create-exercise-image.dto.ts">SUPPRIME — n'etait utilise que par les routes multipart retirees.</file>
+          <file path="src/exercises/exercises.service.ts">validatePartDto() reecrite par categorie (statement/image/question) ; nouvelle validateExerciseComposition() (au moins un statement, au moins un question) appelee dans create()/update() ; buildItemEntities() devient async et gere le decodage base64 + re-encodage + stockage pour type=image (decodeBase64Image(), transcodeAndValidateImage()) ; toPublicPartWithSolution()/toPublicDetailWithSolutions()/findOneWithSolutions() deviennent async et embarquent imageData (base64) pour une image de solution (toPublicItemWithSolutionData(), lecture via imageStorage.read()) ; addImageToPart()/addImageToSolution()/appendImageItem()/assertPartOwnership()/transcodeUploadedImage() SUPPRIMES (ancien mecanisme multipart) ; nouvelle getImageConstraints().</file>
+          <file path="src/exercises/exercises.controller.ts">Routes POST .../parts/:partId/images et .../solution/images RETIREES ; nouvelle route GET /exercises/image-constraints (avant GET /exercises/:id, memes createurs que default-title) ; imports FileInterceptor/CreateExerciseImageDto/UploadedFile/ApiConsumes/ApiBody retires (plus aucune route multipart sur ce controleur).</file>
+          <file path="src/main.ts">bodyParser Nest par defaut desactive (`{bodyParser:false}`) puis reconfigure explicitement via `express.json({limit: EXERCISE_JSON_BODY_MAX_BYTES})`/`urlencoded({limit:...})` — necessaire car le defaut Express (100 Ko) est trop bas pour une image embarquee en base64, et le defaut applicatif precedent (aucun) aurait laisse nginx-global (1 Mio, HTML) trancher en premier. Sans effet sur les routes multipart existantes (FileInterceptor/multer ne passe jamais par json()/urlencoded()).</file>
+          <file path="src/migrations/1792000000000-AddImagePartCategoryEnum.ts">Ajoute 'image' au type enum Postgres de exercise_parts.category, resolu dynamiquement (pg_type/pg_attribute/pg_class) plutot que suppose. CORRIGEE en cours de session (voir bugsFixedDuringVerification) : commitTransaction()/startTransaction() explicites apres l'ALTER TYPE.</file>
+          <file path="src/migrations/1793000000000-MigrateExerciseImageItemsToImageBlocks.ts">Migration de DONNEES (pas une reconstruction comme CleanupPreRefonteExerciseData) : deplace chaque item image legacy (partId non nul, bloc parent de categorie != image) vers un NOUVEAU bloc de categorie image, insere juste apres le bloc d'origine (decalage des partNumber suivants). Ordre de traitement DESC sur `order` au sein d'un meme bloc source pour restituer l'ordre relatif correct apres insertions successives. Idempotente (filtre ep.category != 'image').</file>
+          <file path="docs/routes.md">Section "Exercices" mise a jour : 3 categories de bloc, contrainte de composition, plafonds d'image/corps JSON, retrait des 2 routes multipart, ajout de GET /exercises/image-constraints, forme du body JSON avec imageData.</file>
+        </filesModified>
+        <bugsFixedDuringVerification>
+          <bug>
+            Deploiement reel : `QueryFailedError: unsafe use of new value "image" of enum type
+            exercise_parts_category_enum` au demarrage. Cause : le decoupage en 2 FICHIERS de
+            migration distincts (ajout de la valeur enum, puis utilisation) ne garantit PAS 2
+            transactions Postgres separees — `migrationsTransactionMode` par defaut de TypeORM est
+            `"all"` (toutes les migrations en attente dans une seule transaction), pas `"each"` par
+            fichier comme suppose initialement dans le commentaire de la premiere version de la
+            migration. Corrige en forcant explicitement `queryRunner.commitTransaction()` puis
+            `queryRunner.startTransaction()` a la fin de AddImagePartCategoryEnum1792000000000,
+            avant que la migration suivante n'utilise la valeur. Reverifie par redeploiement complet :
+            les 2 migrations s'appliquent proprement, `enum_range(NULL::exercise_parts_category_enum)`
+            confirme {statement,question,image} en base.
+          </bug>
+        </bugsFixedDuringVerification>
+        <technicalDecisions>
+          <decision>
+            Image de bloc modelisee comme un item UNIQUE de type "image" au sein de `items` d'un
+            bloc de categorie IMAGE, plutot qu'un champ dedie sur ExercisePart. Reutilise
+            integralement le mecanisme ExerciseContentItem deja en place (meme table, meme route de
+            telechargement GET /exercises/:id/images/:itemId, meme purge par deleteImagesForExercise
+            a l'edition) — un seul mecanisme de contenu pour toute la sequence, conforme au point 6
+            de l'arbitrage ("un seul mecanisme de sauvegarde/reordonnancement").
+          </decision>
+          <decision>
+            Images embarquees en base64 DANS le corps JSON de POST/PUT /exercises, plutot qu'un
+            envoi multipart distinct suivi d'une reference — c'est le seul moyen de rendre l'image
+            disponible ATOMIQUEMENT des la creation (point 3 de l'arbitrage) sans exiger un premier
+            enregistrement prealable. Contrepartie assumee et chiffree explicitement (voir plafonds
+            ci-dessus) : le corps JSON grossit significativement par rapport au texte seul, d'ou la
+            necessite d'un plafond de corps applicatif explicite distinct du plafond par image.
+          </decision>
+          <decision>
+            Plafonds redimensionnes a la baisse par rapport a l'ancien mecanisme multipart (qui
+            autorisait jusqu'a 2 Mo bruts par fichier, cote controleur) : l'embarquement base64
+            inflate les octets de 4/3 et partage desormais le MEME corps de requete que le reste de
+            l'exercice (potentiellement plusieurs images + tout le texte). Verifie que nginx-global
+            n'a AUCUNE directive client_max_body_size declaree nulle part dans sa configuration
+            (`nginx -T`, defaut compile 1 Mio) — le plafond applicatif (900 000 octets) est fixe
+            strictement en dessous, avec marge pour la structure JSON. Prouve en HTTP direct : un
+            corps de 1,2 Mo est refuse par nginx-global (413 HTML, hors de portee de l'application),
+            un corps de 950 Ko est refuse par l'application elle-meme (413 JSON propre) — c'est bien
+            le plafond applicatif qui coupe dans la fenetre visee par la regle du projet ("le
+            plafond qui coupe doit toujours etre celui de l'application").
+          </decision>
+          <decision>
+            Composition minimale (point 2 de l'arbitrage) implementee comme une simple verification
+            de PRESENCE d'au moins un bloc de chaque categorie obligatoire (statement, question),
+            et non comme une re-verification du contenu du bloc question : la non-vacuite d'un bloc
+            question est deja garantie structurellement par validatePartDto (qui exige items +
+            solution non vides pour toute question) — dupliquer ce controle au niveau composition
+            aurait ete redondant.
+          </decision>
+          <decision>
+            findOneWithSolutions()/toPublicPartWithSolution() deviennent async (lecture disque pour
+            chaque item image de solution via imageStorage.read()) — accepte comme cout raisonnable
+            car cette route est deja reservee a un usage ponctuel (auteur relisant/editant sa
+            solution), pas une route de forte frequence comme la recherche.
+          </decision>
+          <decision>
+            Migration de donnees (1793) ecrite de facon procedurale (boucle JS de requetes) plutot
+            que declarative (un seul UPDATE/INSERT en masse) : le renumerotage de partNumber et
+            l'insertion d'un nouveau bloc par item legacy necessitent un etat intermediaire par
+            iteration (decalage des blocs suivants avant chaque insertion) difficilement exprimable
+            en un seul enonce SQL sans risque d'ecraser des positions. Volume reel tres faible au
+            moment du chantier (9 items image au total en base, tous des donnees de verification de
+            sessions precedentes) — cout algorithmique O(n) par item accepte a ce volume, comme deja
+            fait pour d'autres migrations de ce projet a faible volume.
+          </decision>
+        </technicalDecisions>
+        <verification>
+          <item>`npm run build` : 0 erreur.</item>
+          <item>`npx jest` (suite complete) : 25 suites, 307/307 tests verts — inclut les nouveaux
+            tests de composition (bloc statement/question manquant, bloc statement vide autorise),
+            de creation de bloc image (base64 mocke), de rejet d'image mal placee, de
+            findOneWithSolutions() avec imageData, et 2 nouveaux fichiers de smoke test de migration
+            (add-image-part-category-enum.spec.ts, migrate-exercise-image-items-to-image-blocks.spec.ts).</item>
+          <item>Image Docker reconstruite depuis le worktree (`docker build`), conteneur recree en
+            place avec les memes variables d'environnement/reseau/volume/politique de redemarrage.</item>
+          <item>Preuve HTTP directe contre https://claudevma.visioprof.fr (compte formateur de test
+            cree via POST /accounts/teachers + POST /auth/login) :
+            <detail>POST /exercises sans bloc statement -&gt; 400 "Un exercice doit comporter au
+              moins un bloc énoncé (il peut être vide)".</detail>
+            <detail>POST /exercises sans bloc question -&gt; 400 "Un exercice doit comporter au
+              moins un bloc question non vide".</detail>
+            <detail>POST /exercises avec un bloc statement (texte) + un bloc image (1 item base64,
+              PNG 1x1) + un bloc question+solution (texte+image base64) -&gt; 201, en un seul appel,
+              sans aucun enregistrement prealable — bloc image renvoye avec
+              imageMimeType:"image/webp", imageSizeBytes:44 (re-encodage confirme).</detail>
+            <detail>GET /exercises/:id/images/:itemId sur l'item du bloc image -&gt; 200, octets
+              WebP valides confirmes par `file` (RIFF....WEBP, 1x1, VP8).</detail>
+            <detail>GET /exercises/:id/solutions par l'auteur -&gt; 200, l'item image de la solution
+              porte imageData (base64, 60 caracteres), decode et confirme comme WebP valide par
+              `file` ; par un autre formateur (tiers) -&gt; 403.</detail>
+            <detail>Exercice pre-existant migre (id fcc52109-1e8e-44f9-b20c-3cfec59f48e5, cree le
+              2026-09-01 AVANT ce chantier avec l'ancien mecanisme d'image-item) : verifie en base
+              que son item image a bien ete deplace vers un nouveau bloc partNumber=2/category=image
+              (au lieu de rester attache au bloc statement d'origine) ; verifie en HTTP direct via
+              GET /internal/exercises/images/:itemId (X-Internal-Secret) que les octets restent
+              servables et valides (WebP, 44 octets) apres migration. Les 9 items image presents en
+              base au moment du chantier (toutes sessions de verification precedentes confondues)
+              pointent tous vers un bloc de categorie image apres migration (verifie par requete
+              SQL directe joignant exercise_content_items/exercise_parts).</detail>
+            <detail>POST /exercises avec un corps JSON de 1,2 Mo -&gt; 413 HTML (nginx-global, hors
+              de portee applicative) ; avec un corps de 950 Ko -&gt; 413 JSON propre
+              (`{"statusCode":413,"message":"request entity too large"}`, emis par l'application) —
+              confirme que le plafond applicatif (900 000 octets) coupe avant nginx-global (1 Mio
+              non declare) dans cette fenetre.</detail>
+          </item>
+        </verification>
+        <blockers>Aucun sur le code livré.</blockers>
+        <openPoints>
+          <point>
+            Donnees de test creees sur la pile partagee pendant la verification (2 comptes
+            formateur synthetiques, 1 exercice "Verif bloc image des la creation") — non
+            supprimees, coherent avec la pratique des sessions precedentes sur ce service.
+          </point>
+          <point>
+            Pas de reglage TI en base pour les plafonds d'image (comme pour l'import Quizz,
+            2026-08-29) — divergence assumee avec l'avatar/pieces jointes du cahier de texte, qui
+            exposent un reglage dynamique. Non demande par l'arbitrage de ce chantier.
+          </point>
+          <point>
+            Reponse decouverte utile pour un futur chantier sur ce projet : le
+            `migrationsTransactionMode` par defaut de TypeORM ("all", pas "each" par fichier) n'est
+            documente nulle part ailleurs dans ce depot avant cette session — a garder en tete pour
+            toute future migration touchant un type enum Postgres (ADD VALUE) suivie d'une
+            utilisation de cette valeur, meme au sein de fichiers de migration distincts.
           </point>
         </openPoints>
       </session>

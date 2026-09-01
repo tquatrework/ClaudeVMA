@@ -1476,32 +1476,36 @@ Phase 3 enrichit l'offre :
        `content-catalog-service` (jamais utilisee reellement, `score`/`answers` toujours vides)
        est a retirer de ce service, pas a completer sur place.
 
-  **Deux points restes sans confirmation explicite de l'utilisateur au moment de cette redaction
-  (session proche de sa limite de contexte) — propositions de l'orchestrateur ci-dessous, a suivre
-  par defaut mais a corriger si l'intention differait** :
-  6. **Acces a la solution pour le professeur qui corrige.** Aujourd'hui, `GET
-     /exercises/:id/solutions` est reserve au **seul auteur** de l'Exercice (+ AP/RP/TI). Or une
-     Evaluation assemble des Exercices potentiellement crees par des auteurs varies — le
-     professeur qui accepte une correction n'est pas necessairement l'auteur de chaque Exercice
-     qu'elle contient. Proposition : un acces dedie, **scope a la correction de cette tentative
-     precise** (le professeur qui a accepte LA demande, pour LA duree du traitement de CETTE
-     demande), sur le meme principe de mediation deja utilise ailleurs dans ce projet (route
-     interne, jamais un elargissement generique du droit de lecture des solutions). Non confirme
-     mot pour mot par l'utilisateur.
-  7. **Duree obligatoire ou optionnelle ?** Le champ `durationSeconds` est aujourd'hui nullable.
-     Proposition de l'orchestrateur : le rendre obligatoire a la creation (comme le titre depuis le
-     chantier precedent), la duree etant decrite par l'utilisateur comme faisant partie du coeur du
-     mecanisme de passage. Non confirme mot pour mot — a corriger si une Evaluation sans limite de
-     temps doit rester possible.
+  **Deux points souleves par l'orchestrateur, tranches par l'utilisateur le 2026-09-01 en reponse
+  directe (session proche de sa limite de contexte au moment de la question, reponse arrivee
+  pendant l'ecriture de cette entree — integree ici, pas en attente)** :
+  6. **La correction n'a rien a voir avec la solution de l'Exercice — correction faite par
+     l'orchestrateur, propositition initiale invalidee.** L'orchestrateur avait suppose que le
+     professeur qui corrige a besoin de relire la solution de chaque Exercice pour comparer.
+     **Faux, dixit l'utilisateur explicitement** : "une correction n'a rien a voir avec une
+     solution. La solution est unique et creee avec l'exercice. La correction consiste a revoir la
+     tentative/la reponse d'un utilisateur." Consequence directe : **aucune route de lecture de
+     solution scopee a la correction n'est necessaire.** Le professeur qui corrige a seulement
+     besoin de lire la **tentative de l'eleve** (ses reponses telles que soumises) — acces deja
+     naturel des lors qu'il a accepte la demande de correction portant sur cette tentative precise
+     (meme logique d'acces que le reste du projet : la relation/l'assignation ouvre le droit de
+     lecture sur ce qui s'y rattache). La correction elle-meme est un jugement du professeur sur la
+     reponse de l'eleve (score et/ou commentaire), pas une comparaison automatisee ou assistee par
+     la solution officielle — celle-ci reste, comme toujours, reservee a son auteur (+ AP/RP/TI),
+     sans exception pour ce flux.
+  7. **Duree obligatoire — confirme.** "oui rend obligatoire" (reponse explicite de l'utilisateur).
+     `durationSeconds` devient un champ requis a la creation d'une Evaluation, meme regle que le
+     titre depuis le chantier precedent (2026-09-01, disambiguation de titre) : pas d'Evaluation
+     sans limite de temps.
 
-  **Etat d'avancement** : arbitrage redige, **rien delegue a aucun service pour l'instant**. Prochaine
-  etape pour la session qui reprend : confirmer (ou laisser filer par defaut) les points 6 et 7
-  ci-dessus avec l'utilisateur si l'occasion se presente naturellement, puis decouper la delegation
-  a peu pres ainsi (a affiner) : `content-catalog-service` (validation cycle aligne Quizz/Exercice,
-  tags en recherche, retrait de `evaluation_attempts` de ce service, route interne de lecture de
-  solution scopee a une correction en cours) ; `learning-activity-service` (nouvelle entite de
-  tentative d'Evaluation avec chronometre et verrouillage de solution, nouvelle entite de demande
-  de correction avec etats pending/accepted/declined-par-professeur/all-declined-escalated-RP/
+  **Etat d'avancement** : arbitrage redige et confirme sur tous les points, **rien delegue a aucun
+  service pour l'instant**. Prochaine etape pour la session qui reprend : decouper la delegation a
+  peu pres ainsi (a affiner) : `content-catalog-service` (validation cycle aligne Quizz/Exercice,
+  tags en recherche, `durationSeconds` rendu obligatoire, retrait de `evaluation_attempts` de ce
+  service — plus aucune route de lecture de solution supplementaire a construire, contrairement a
+  ce qui avait ete envisage a tort) ; `learning-activity-service` (nouvelle entite de tentative
+  d'Evaluation avec chronometre et verrouillage de solution, nouvelle entite de demande de
+  correction avec etats pending/accepted/declined-par-professeur/all-declined-escalated-RP/
   corrected, integration au flux de notifications Redis existant) ; `dashboard-notification-service`
   (nouveaux types d'evenement pour la demande de correction et son issue, memes conventions que les
   evenements Quizz/Exercice deja consommes) ; `front-developper` seulement une fois le contrat

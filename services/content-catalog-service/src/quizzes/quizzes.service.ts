@@ -1,7 +1,14 @@
 import { randomUUID } from 'crypto';
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { isPostgresUniqueViolation } from '../common/utils/postgres-errors';
 import { Quiz } from './entities/quiz.entity';
 import { QuizQuestion, QuizQuestionOption } from './entities/quiz-question.entity';
 import { CreateQuizDto } from './dto/create-quiz.dto';
@@ -34,6 +41,22 @@ const VALIDATOR_ROLES = [
   UserRole.ANIMATEUR_PEDAGOGIQUE,
   UserRole.RESPONSABLE_PEDAGOGIQUE,
 ];
+
+/**
+ * Nom de l'index UNIQUE posé par `AddExerciseQuizTitleUniqueConstraint1795000000000`
+ * — voir `quiz.entity.ts`. Utilisé pour ne détecter QUE cette violation
+ * précise dans le retry ci-dessous, jamais une autre contrainte UNIQUE sans
+ * rapport avec le titre.
+ */
+const QUIZ_TITLE_UNIQUE_CONSTRAINT = 'IDX_quiz_author_title_unique';
+
+/**
+ * Borne du retry sur violation `23505` de l'index UNIQUE titre — même
+ * mécanisme et même valeur que `ExercisesService` (arbitrage du 2026-09-01,
+ * "Titre des Exercices et des Quizz : disambiguation automatique plutôt que
+ * refus", point 3).
+ */
+const MAX_TITLE_DISAMBIGUATION_ATTEMPTS = 10;
 
 /** Forme publique d'un quizz — ne porte jamais correctOptionIds ni keywords. */
 export interface PublicQuizSummary {
@@ -341,6 +364,51 @@ export class QuizzesService {
     });
   }
 
+  /**
+   * Insère la ligne racine `Quiz`, avec disambiguation + retry borné sur
+   * violation de l'index UNIQUE `(authorId, title)` — ferme la fenêtre de
+   * compétition (TOCTOU) entre `resolveUniqueTitle` (un `SELECT`) et
+   * l'`INSERT` qui suit. Même mécanisme que
+   * `ExercisesService.createExerciseRowWithTitleRetry` : recalcule un
+   * nouveau titre à chaque tentative, jamais rejoué au-delà de la ligne
+   * racine (n'englobe jamais la sauvegarde des questions, appelée par
+   * l'appelant après le retour de cette méthode).
+   */
+  private async createQuizRowWithTitleRetry(
+    createQuizDto: CreateQuizDto,
+    authorId: string,
+    authorRole: string,
+    status: ContentStatus,
+  ): Promise<Quiz> {
+    for (let attempt = 1; attempt <= MAX_TITLE_DISAMBIGUATION_ATTEMPTS; attempt += 1) {
+      const title = await this.resolveUniqueTitle(createQuizDto.title, authorId);
+
+      const quiz = this.quizRepository.create({
+        title,
+        description: createQuizDto.description,
+        tags: createQuizDto.tags ?? [],
+        authorId,
+        authorRole,
+        status,
+        defaultPoints: createQuizDto.defaultPoints ?? 1,
+        penaltyEnabled: createQuizDto.penaltyEnabled ?? false,
+        penaltyPoints: createQuizDto.penaltyPoints,
+        shareableLink: null,
+      });
+
+      try {
+        return await this.quizRepository.save(quiz);
+      } catch (err) {
+        if (!isPostgresUniqueViolation(err, QUIZ_TITLE_UNIQUE_CONSTRAINT)) {
+          throw err;
+        }
+        // Collision de dernière seconde : on retente avec un titre recalculé.
+      }
+    }
+
+    throw new ConflictException('Impossible de trouver un titre disponible pour ce quizz, réessayez');
+  }
+
   async create(createQuizDto: CreateQuizDto, authorId: string, authorRole: string): Promise<PublicQuizDetail> {
     if (!CREATOR_ROLES.includes(authorRole as UserRole)) {
       throw new ForbiddenException('Seuls les formateurs, AP et RP peuvent créer un quizz');
@@ -349,7 +417,6 @@ export class QuizzesService {
     if (!createQuizDto.title || !createQuizDto.title.trim()) {
       throw new BadRequestException('Le titre du quizz est obligatoire');
     }
-    const title = await this.resolveUniqueTitle(createQuizDto.title, authorId);
 
     if (!createQuizDto.questions || createQuizDto.questions.length === 0) {
       throw new BadRequestException('Un quizz doit contenir au moins une question');
@@ -361,20 +428,7 @@ export class QuizzesService {
     const status =
       authorRole === UserRole.FORMATEUR ? ContentStatus.PENDING_VALIDATION : ContentStatus.VALIDATED;
 
-    const quiz = this.quizRepository.create({
-      title,
-      description: createQuizDto.description,
-      tags: createQuizDto.tags ?? [],
-      authorId,
-      authorRole,
-      status,
-      defaultPoints: createQuizDto.defaultPoints ?? 1,
-      penaltyEnabled: createQuizDto.penaltyEnabled ?? false,
-      penaltyPoints: createQuizDto.penaltyPoints,
-      shareableLink: null,
-    });
-
-    const savedQuiz = await this.quizRepository.save(quiz);
+    const savedQuiz = await this.createQuizRowWithTitleRetry(createQuizDto, authorId, authorRole, status);
 
     const questionEntities = createQuizDto.questions.map((question, index) =>
       this.buildQuestionEntity(question, index, savedQuiz.id),
@@ -416,14 +470,12 @@ export class QuizzesService {
     if (!updateQuizDto.title || !updateQuizDto.title.trim()) {
       throw new BadRequestException('Le titre du quizz est obligatoire');
     }
-    const title = await this.resolveUniqueTitle(updateQuizDto.title, quiz.authorId, quizId);
 
     if (!updateQuizDto.questions || updateQuizDto.questions.length === 0) {
       throw new BadRequestException('Un quizz doit contenir au moins une question');
     }
     updateQuizDto.questions.forEach((question, index) => this.validateQuestionDto(question, index));
 
-    quiz.title = title;
     quiz.description = updateQuizDto.description;
     quiz.tags = updateQuizDto.tags ?? [];
     quiz.defaultPoints = updateQuizDto.defaultPoints ?? 1;
@@ -449,10 +501,36 @@ export class QuizzesService {
     );
     const savedQuestions = await this.quizQuestionRepository.save(questionEntities);
 
-    const savedQuiz = await this.quizRepository.save(quiz);
+    // Écriture de la ligne racine APRÈS le remplacement des questions
+    // ci-dessus : le retry sur violation de l'index UNIQUE titre (même
+    // mécanisme qu'à la création) ne rejoue donc jamais ce remplacement.
+    const savedQuiz = await this.saveQuizRowWithTitleRetry(quiz, updateQuizDto.title, quizId);
     savedQuiz.questions = savedQuestions;
 
     return this.toPublicDetail(savedQuiz);
+  }
+
+  /**
+   * Persiste la ligne racine `Quiz` en édition, avec la même disambiguation
+   * + retry borné que `createQuizRowWithTitleRetry` — appelée après le
+   * remplacement des questions, jamais rejoué en cas de retry (voir
+   * `update()`).
+   */
+  private async saveQuizRowWithTitleRetry(quiz: Quiz, baseTitle: string, excludeQuizId: string): Promise<Quiz> {
+    for (let attempt = 1; attempt <= MAX_TITLE_DISAMBIGUATION_ATTEMPTS; attempt += 1) {
+      quiz.title = await this.resolveUniqueTitle(baseTitle, quiz.authorId, excludeQuizId);
+
+      try {
+        return await this.quizRepository.save(quiz);
+      } catch (err) {
+        if (!isPostgresUniqueViolation(err, QUIZ_TITLE_UNIQUE_CONSTRAINT)) {
+          throw err;
+        }
+        // Collision de dernière seconde : on retente avec un titre recalculé.
+      }
+    }
+
+    throw new ConflictException('Impossible de trouver un titre disponible pour ce quizz, réessayez');
   }
 
   // ───────────────────────────────────────────────────────────────────────

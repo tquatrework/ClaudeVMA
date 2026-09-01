@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
+  Index,
 } from 'typeorm';
 import { ContentStatus } from '../../common/enums/content-status.enum';
 import { ExercisePart } from './exercise-part.entity';
@@ -30,8 +31,23 @@ import { ExercisePart } from './exercise-part.entity';
  * Colonne `tags` en `text[]` postgres natif (et non `simple-array`), même
  * choix que `Quiz` (2026-08-28) : permet une recherche exacte par tag via
  * `ANY(tags)`, sans faux positif de sous-chaîne.
+ *
+ * Index UNIQUE partiel `(authorId, title)` posé par la migration
+ * `AddExerciseQuizTitleUniqueConstraint1795000000000` (docs/architecture.md,
+ * "Titre des Exercices et des Quizz : disambiguation automatique plutôt que
+ * refus", point 3) — ferme la fenêtre de compétition (TOCTOU) entre la
+ * vérification applicative (`ExercisesService.resolveUniqueTitle`) et
+ * l'écriture. Partiel (`WHERE status != 'removed'`) : cohérent avec
+ * `titleTakenByAuthor`, qui exclut déjà ce statut de la vérification. Le
+ * retry applicatif sur violation `23505` de CET index précis vit dans
+ * `ExercisesService` (`isPostgresUniqueViolation`,
+ * `src/common/utils/postgres-errors.ts`).
  */
 @Entity('exercises')
+@Index('IDX_exercise_author_title_unique', ['authorId', 'title'], {
+  unique: true,
+  where: "status != 'removed'",
+})
 export class Exercise {
   @PrimaryGeneratedColumn('uuid')
   id: string;

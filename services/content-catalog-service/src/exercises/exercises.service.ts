@@ -3,10 +3,12 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  ConflictException,
   PayloadTooLargeException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Not, Repository } from 'typeorm';
+import { isPostgresUniqueViolation } from '../common/utils/postgres-errors';
 import { Exercise } from './entities/exercise.entity';
 import { ExercisePart } from './entities/exercise-part.entity';
 import { ExerciseSolution } from './entities/exercise-solution.entity';
@@ -42,6 +44,22 @@ const ADMIN_ROLES = [
 ];
 
 const VALIDATOR_ROLES = [UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE];
+
+/**
+ * Nom de l'index UNIQUE posé par `AddExerciseQuizTitleUniqueConstraint1795000000000`
+ * — voir `exercise.entity.ts`. Utilisé pour ne détecter QUE cette violation
+ * précise dans le retry ci-dessous, jamais une autre contrainte UNIQUE sans
+ * rapport avec le titre.
+ */
+const EXERCISE_TITLE_UNIQUE_CONSTRAINT = 'IDX_exercise_author_title_unique';
+
+/**
+ * Borne du retry sur violation `23505` de l'index UNIQUE titre (arbitrage du
+ * 2026-09-01, "Titre des Exercices et des Quizz : disambiguation automatique
+ * plutôt que refus", point 3) — au-delà, on renonce explicitement plutôt que
+ * de boucler indéfiniment.
+ */
+const MAX_TITLE_DISAMBIGUATION_ATTEMPTS = 10;
 
 /**
  * Forme publique d'un item de contenu — jamais le contenu d'une solution
@@ -474,6 +492,56 @@ export class ExercisesService {
     return { title: `Exercice (${count + 1})` };
   }
 
+  /**
+   * Insère la ligne racine `Exercise`, avec disambiguation + retry borné sur
+   * violation de l'index UNIQUE `(authorId, title)` — ferme la fenêtre de
+   * compétition (TOCTOU) entre `resolveUniqueTitle` (un `SELECT`) et
+   * l'`INSERT` qui suit. Recalcule un nouveau titre à chaque tentative : la
+   * violation signifie qu'un écrivain concurrent a committé entre-temps, et
+   * ce commit est désormais visible au prochain `SELECT`.
+   *
+   * Volontairement limitée à cette seule ligne — n'englobe JAMAIS
+   * `savePartsAndSolutions` (appelée par l'appelant, après le retour de
+   * cette méthode) : cette cascade ne doit jamais être rejouée, sous peine
+   * de dupliquer des blocs/solutions déjà sauvegardés à une tentative
+   * précédente.
+   */
+  private async createExerciseRowWithTitleRetry(
+    createExerciseDto: CreateExerciseDto,
+    authorId: string,
+    authorRole: string,
+    status: ContentStatus,
+  ): Promise<Exercise> {
+    for (let attempt = 1; attempt <= MAX_TITLE_DISAMBIGUATION_ATTEMPTS; attempt += 1) {
+      const title = await this.resolveUniqueTitle(createExerciseDto.title, authorId);
+
+      const exercise = this.exerciseRepository.create({
+        title,
+        description: createExerciseDto.description,
+        level: createExerciseDto.level,
+        difficulty: createExerciseDto.difficulty,
+        theme: createExerciseDto.theme,
+        competencies: createExerciseDto.competencies,
+        tags: createExerciseDto.tags ?? [],
+        authorId,
+        authorRole,
+        status,
+        shareableLink: null,
+      });
+
+      try {
+        return await this.exerciseRepository.save(exercise);
+      } catch (err) {
+        if (!isPostgresUniqueViolation(err, EXERCISE_TITLE_UNIQUE_CONSTRAINT)) {
+          throw err;
+        }
+        // Collision de dernière seconde : on retente avec un titre recalculé.
+      }
+    }
+
+    throw new ConflictException('Impossible de trouver un titre disponible pour cet exercice, réessayez');
+  }
+
   // ───────────────────────────────────────────────────────────────────────
   // Création
   // ───────────────────────────────────────────────────────────────────────
@@ -486,7 +554,6 @@ export class ExercisesService {
     if (!createExerciseDto.title || !createExerciseDto.title.trim()) {
       throw new BadRequestException('Le titre de l\'exercice est obligatoire');
     }
-    const title = await this.resolveUniqueTitle(createExerciseDto.title, authorId);
 
     if (!createExerciseDto.parts || createExerciseDto.parts.length === 0) {
       throw new BadRequestException('Un exercice doit contenir au moins un bloc');
@@ -499,20 +566,7 @@ export class ExercisesService {
     const status =
       authorRole === UserRole.FORMATEUR ? ContentStatus.PENDING_VALIDATION : ContentStatus.VALIDATED;
 
-    const exercise = this.exerciseRepository.create({
-      title,
-      description: createExerciseDto.description,
-      level: createExerciseDto.level,
-      difficulty: createExerciseDto.difficulty,
-      theme: createExerciseDto.theme,
-      competencies: createExerciseDto.competencies,
-      tags: createExerciseDto.tags ?? [],
-      authorId,
-      authorRole,
-      status,
-      shareableLink: null,
-    });
-    const savedExercise = await this.exerciseRepository.save(exercise);
+    const savedExercise = await this.createExerciseRowWithTitleRetry(createExerciseDto, authorId, authorRole, status);
 
     await this.savePartsAndSolutions(savedExercise.id, createExerciseDto.parts, authorId, authorRole);
 
@@ -594,7 +648,6 @@ export class ExercisesService {
     if (!updateExerciseDto.title || !updateExerciseDto.title.trim()) {
       throw new BadRequestException('Le titre de l\'exercice est obligatoire');
     }
-    const title = await this.resolveUniqueTitle(updateExerciseDto.title, exercise.authorId, exerciseId);
 
     if (!updateExerciseDto.parts || updateExerciseDto.parts.length === 0) {
       throw new BadRequestException('Un exercice doit contenir au moins un bloc');
@@ -604,7 +657,6 @@ export class ExercisesService {
 
     await this.deleteImagesForExercise(exerciseId);
 
-    exercise.title = title;
     exercise.description = updateExerciseDto.description;
     exercise.level = updateExerciseDto.level;
     exercise.difficulty = updateExerciseDto.difficulty;
@@ -625,9 +677,39 @@ export class ExercisesService {
 
     await this.savePartsAndSolutions(exerciseId, updateExerciseDto.parts, exercise.authorId, exercise.authorRole);
 
-    await this.exerciseRepository.save(exercise);
+    // Écriture de la ligne racine APRÈS la cascade ci-dessus : le retry sur
+    // violation de l'index UNIQUE titre (même mécanisme qu'à la création)
+    // ne rejoue donc jamais la suppression/recréation des blocs.
+    await this.saveExerciseRowWithTitleRetry(exercise, updateExerciseDto.title, exerciseId);
 
     return this.findOne(exerciseId, callerId, callerRole);
+  }
+
+  /**
+   * Persiste la ligne racine `Exercise` en édition, avec la même
+   * disambiguation + retry borné que `createExerciseRowWithTitleRetry` —
+   * appelée après la cascade de blocs/solutions, jamais rejouée en cas de
+   * retry (voir `update()`).
+   */
+  private async saveExerciseRowWithTitleRetry(
+    exercise: Exercise,
+    baseTitle: string,
+    excludeExerciseId: string,
+  ): Promise<Exercise> {
+    for (let attempt = 1; attempt <= MAX_TITLE_DISAMBIGUATION_ATTEMPTS; attempt += 1) {
+      exercise.title = await this.resolveUniqueTitle(baseTitle, exercise.authorId, excludeExerciseId);
+
+      try {
+        return await this.exerciseRepository.save(exercise);
+      } catch (err) {
+        if (!isPostgresUniqueViolation(err, EXERCISE_TITLE_UNIQUE_CONSTRAINT)) {
+          throw err;
+        }
+        // Collision de dernière seconde : on retente avec un titre recalculé.
+      }
+    }
+
+    throw new ConflictException('Impossible de trouver un titre disponible pour cet exercice, réessayez');
   }
 
   /** Supprime du volume les fichiers des images déjà attachées à cet exercice, avant un remplacement intégral. */

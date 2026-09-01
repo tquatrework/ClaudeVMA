@@ -15,6 +15,7 @@ import {
   NotFoundException,
   BadRequestException,
   ServiceUnavailableException,
+  ConflictException,
 } from '@nestjs/common';
 import { QuizzesService } from '../../../src/quizzes/quizzes.service';
 import { Quiz } from '../../../src/quizzes/entities/quiz.entity';
@@ -85,6 +86,18 @@ function buildSampleQuiz(overrides: Partial<Quiz> = {}): Quiz {
     updatedAt: new Date('2026-01-01T00:00:00Z'),
     ...overrides,
   };
+}
+
+/**
+ * Simule une violation Postgres 23505 de l'index UNIQUE
+ * (authorId, title) — même forme qu'une vraie QueryFailedError TypeORM
+ * (voir `isPostgresUniqueViolation`, code + constraint recopiés dessus).
+ */
+function buildQuizTitleUniqueViolation(): Error & { code: string; constraint: string } {
+  return Object.assign(new Error('duplicate key value violates unique constraint'), {
+    code: '23505',
+    constraint: 'IDX_quiz_author_title_unique',
+  });
 }
 
 function buildSampleQuestion(overrides: Partial<QuizQuestion> = {}): QuizQuestion {
@@ -311,6 +324,53 @@ describe('QuizzesService', () => {
         quizzesService.create(validDto as any, OTHER_FORMATEUR_ID, 'formateur'),
       ).resolves.toBeDefined();
     });
+
+    // Arbitrage du 2026-09-01, point 3 : contrainte UNIQUE + retry — ferme
+    // la fenêtre de compétition (TOCTOU) entre le SELECT de
+    // resolveUniqueTitle et l'INSERT.
+    describe('retry sur violation de contrainte UNIQUE (23505) à l\'écriture', () => {
+      it('retente avec un titre recalculé après une collision de dernière seconde, sans jamais la remonter à l\'appelant', async () => {
+        quizRepo.create.mockImplementation((x: any) => buildSampleQuiz({ ...x, id: QUIZ_ID }));
+        // 1er essai : le SELECT ne voit rien (fenêtre de compétition) → le
+        // titre de base est tenté ; 2e essai : le SELECT voit désormais la
+        // ligne concurrente (committée entre-temps) → suffixe "(2)".
+        quizRepo.__qb.getOne.mockResolvedValueOnce(undefined).mockResolvedValueOnce(buildSampleQuiz());
+        quizRepo.save
+          .mockRejectedValueOnce(buildQuizTitleUniqueViolation())
+          .mockImplementation((x: any) => Promise.resolve(x));
+
+        await quizzesService.create(validDto as any, FORMATEUR_ID, 'formateur');
+
+        // 1er essai (échec) + 2e essai (succès) + mise à jour du shareableLink
+        expect(quizRepo.save).toHaveBeenCalledTimes(3);
+        expect(quizRepo.create.mock.calls[0][0].title).toBe(validDto.title);
+        expect(quizRepo.create.mock.calls[1][0].title).toBe(`${validDto.title} (2)`);
+        // Les questions ne sont jamais sauvegardées deux fois par le retry.
+        expect(questionRepo.save).toHaveBeenCalledTimes(1);
+      });
+
+      it('lève ConflictException après épuisement des tentatives si la collision persiste', async () => {
+        quizRepo.create.mockImplementation((x: any) => buildSampleQuiz(x));
+        quizRepo.save.mockRejectedValue(buildQuizTitleUniqueViolation());
+
+        await expect(quizzesService.create(validDto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(
+          ConflictException,
+        );
+        expect(quizRepo.save).toHaveBeenCalledTimes(10);
+        expect(questionRepo.save).not.toHaveBeenCalled();
+      });
+
+      it('propage toute autre erreur d\'écriture sans retry (pas une violation de la contrainte titre)', async () => {
+        quizRepo.create.mockImplementation((x: any) => buildSampleQuiz(x));
+        const otherError = new Error('connexion perdue');
+        quizRepo.save.mockRejectedValueOnce(otherError);
+
+        await expect(quizzesService.create(validDto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(
+          'connexion perdue',
+        );
+        expect(quizRepo.save).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -460,6 +520,37 @@ describe('QuizzesService', () => {
       expect(questionRepo.delete).toHaveBeenCalledWith({ quizId: QUIZ_ID });
       expect(questionRepo.save).toHaveBeenCalled();
       expect(JSON.stringify(result)).not.toMatch(/correctOptionIds/);
+    });
+
+    // Arbitrage du 2026-09-01, point 3 : le retry vaut aussi à l'édition —
+    // la ligne racine s'écrit APRÈS le remplacement des questions, un
+    // retry ne le rejoue donc jamais.
+    it('retente avec un titre recalculé après une collision de dernière seconde, sans rejouer le remplacement des questions', async () => {
+      const quiz = buildSampleQuiz({ authorId: FORMATEUR_ID, authorRole: 'formateur', status: ContentStatus.VALIDATED });
+      quizRepo.findOne.mockResolvedValue(quiz);
+      quizRepo.__qb.getOne.mockResolvedValueOnce(undefined).mockResolvedValueOnce(buildSampleQuiz({ id: 'autre-quiz' }));
+      quizRepo.save
+        .mockRejectedValueOnce(buildQuizTitleUniqueViolation())
+        .mockImplementation((q: any) => Promise.resolve(q));
+
+      const result = await quizzesService.update(QUIZ_ID, validUpdateDto as any, FORMATEUR_ID, 'formateur');
+
+      expect(result.title).toBe(`${validUpdateDto.title} (2)`);
+      expect(quizRepo.save).toHaveBeenCalledTimes(2);
+      // Le remplacement des questions (delete + recreate) n'a lieu qu'une fois.
+      expect(questionRepo.delete).toHaveBeenCalledTimes(1);
+      expect(questionRepo.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('lève ConflictException à l\'édition après épuisement des tentatives si la collision persiste', async () => {
+      const quiz = buildSampleQuiz({ authorId: FORMATEUR_ID, authorRole: 'formateur', status: ContentStatus.VALIDATED });
+      quizRepo.findOne.mockResolvedValue(quiz);
+      quizRepo.save.mockRejectedValue(buildQuizTitleUniqueViolation());
+
+      await expect(
+        quizzesService.update(QUIZ_ID, validUpdateDto as any, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(ConflictException);
+      expect(quizRepo.save).toHaveBeenCalledTimes(10);
     });
   });
 

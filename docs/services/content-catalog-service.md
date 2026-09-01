@@ -1383,6 +1383,94 @@
           </point>
         </openPoints>
       </session>
+      <session date="2026-09-01" label="Titre unique Exercice/Quizz — étape 2 (dernière) : contrainte UNIQUE en base + retry applicatif (branche feat/content-catalog-title-uniqueness-step2)">
+        <context>
+          Suite directe de l'étape 1 (PR #193, mergée et vérifiée en production). Ferme la fenêtre
+          de compétition (TOCTOU) identifiée en exploration : l'unicité de titre reposait uniquement
+          sur un `SELECT` puis un `INSERT`/`UPDATE` séparés côté applicatif, sans contrainte en base
+          — deux requêtes concurrentes (double-clic, deux onglets) pouvaient toutes deux passer la
+          vérification et produire un doublon silencieux malgré la disambiguation de l'étape 1.
+          Dernière étape de ce chantier.
+        </context>
+        <filesModified>
+          <file path="src/common/utils/postgres-errors.ts">Nouveau — `isPostgresUniqueViolation(err, constraintName?)` : détecte une `QueryFailedError` TypeORM portant le code Postgres `23505`, optionnellement restreinte au nom de contrainte/index précis. Fonction générique (ne dépend pas de `typeorm`), s'appuie sur le fait que `QueryFailedError` recopie directement les propriétés du `driverError` pg (dont `code`/`constraint`) sur l'instance de l'erreur.</file>
+          <file path="src/migrations/1795000000000-AddExerciseQuizTitleUniqueConstraint.ts">Nouvelle migration : `CREATE UNIQUE INDEX IF NOT EXISTS "IDX_exercise_author_title_unique" ON exercises (authorId, title) WHERE status != 'removed'` + `CREATE UNIQUE INDEX IF NOT EXISTS "IDX_quiz_author_title_unique" ON quizzes (authorId, title)` (pas de filtre — Quiz n'a pas de statut `REMOVED`), sous garde `to_regclass` par table, dans un bloc `DO $$` unique. `down()` : `DROP INDEX IF EXISTS` pour les deux index.</file>
+          <file path="src/exercises/entities/exercise.entity.ts">Décorateur `@Index('IDX_exercise_author_title_unique', ['authorId', 'title'], { unique: true, where: "status != 'removed'" })` posé sur la classe, nom explicite identique à celui créé par la migration (pour que `synchronize` reconnaisse l'index existant et n'essaie pas de le recréer).</file>
+          <file path="src/quizzes/entities/quiz.entity.ts">Décorateur `@Index('IDX_quiz_author_title_unique', ['authorId', 'title'], { unique: true })`, même principe.</file>
+          <file path="src/exercises/exercises.service.ts">`create()`/`update()` : la construction + écriture de la ligne racine `Exercise` (seule partie qui peut violer l'index UNIQUE) est extraite dans deux méthodes privées dédiées — `createExerciseRowWithTitleRetry()` (avant la cascade `savePartsAndSolutions`, comme déjà le cas) et `saveExerciseRowWithTitleRetry()` (déplacée APRÈS la cascade blocs/solutions en édition, pour ne jamais la rejouer). Chacune boucle jusqu'à `MAX_TITLE_DISAMBIGUATION_ATTEMPTS = 10` : appelle `resolveUniqueTitle()`, tente l'écriture, et sur `isPostgresUniqueViolation(err, 'IDX_exercise_author_title_unique')` relance une nouvelle résolution de titre (qui verra désormais la ligne concurrente committée) ; toute autre erreur est repropagée immédiatement ; épuisement des tentatives → `ConflictException` (409).</file>
+          <file path="src/quizzes/quizzes.service.ts">Même transformation : `createQuizRowWithTitleRetry()` (avant la sauvegarde des questions) et `saveQuizRowWithTitleRetry()` (déplacée après le remplacement intégral des questions en édition). Constante `QUIZ_TITLE_UNIQUE_CONSTRAINT = 'IDX_quiz_author_title_unique'`.</file>
+          <file path="test/unit/common/utils/postgres-errors.spec.ts">Nouveau — code/contrainte correspondants, non correspondants, erreur ordinaire, valeurs non-objet, et une classe d'erreur simulant fidèlement le comportement de recopie de `QueryFailedError`.</file>
+          <file path="test/unit/migrations/add-exercise-quiz-title-unique-constraint.spec.ts">Nouveau — QueryRunner mocké : vérifie les deux `CREATE UNIQUE INDEX IF NOT EXISTS` (partiel pour `exercises`, simple pour `quizzes`), la garde `to_regclass` par table, l'idempotence, et les deux `DROP INDEX IF EXISTS` de `down()`.</file>
+          <file path="test/unit/exercises/exercises.service.spec.ts">Nouveaux tests (create + update) : retry après une violation `23505` simulée (titre recalculé, cascade de blocs jamais rejouée), `ConflictException` après 10 tentatives épuisées, propagation immédiate d'une erreur non liée à cette contrainte (autre code, ou même code `23505` mais autre nom de contrainte).</file>
+          <file path="test/unit/quizzes/quizzes.service.spec.ts">Mêmes tests côté Quiz (create + update), avec vérification additionnelle que le remplacement des questions n'est jamais rejoué par le retry.</file>
+        </filesModified>
+        <technicalDecisions>
+          <decision>
+            **Correction d'un raisonnement erroné transmis par la délégation.** La délégation (et le
+            plan amont) affirmaient que `synchronize` s'exécute AVANT `migrationsRun` à chaque boot
+            (`NODE_ENV=development` en production) — c'est ce qui avait justifié de scinder ce
+            chantier en deux déploiements séparés. Vérification directe faite dans cette session
+            contre `node_modules/typeorm/data-source/DataSource.js` réellement installé (`initialize()`,
+            lignes ~150-157) : c'est l'inverse, `runMigrations()` s'exécute AVANT `synchronize()`,
+            jamais l'inverse — ce qui confirme en réalité le commentaire déjà présent dans
+            `CleanupPreRefonteExerciseData1790000000000.ts` ("Ordre d'exécution garanti AVANT
+            synchronize... jamais l'inverse"). Preuve corroborante : `MakeExerciseTitleRequired1791000000000`
+            a déjà, dans un seul et même commit, backfillé les titres NULL ET posé `title: string`
+            (NOT NULL par défaut TypeORM) sur `Exercise`, sans crash-loop en production — possible
+            uniquement parce que la migration s'exécute avant que `synchronize` n'évalue le
+            décorateur. Conséquence pour cette étape 2 : migration (contrainte UNIQUE) + décorateur
+            `@Index` + retry sont livrés dans le MÊME déploiement/commit, sur le même modèle déjà
+            éprouvé par `MakeExerciseTitleRequired`, plutôt que scindés en deux étapes supplémentaires
+            comme le laissait entendre la délégation. La condition de sûreté réelle reste le
+            nettoyage préalable des doublons Quizz (étape 1, `DeduplicateQuizTitles1794000000000`,
+            confirmé en production) — c'est elle qui garantit qu'aucune ligne ne viole la contrainte
+            au moment où cette migration s'exécute, pas l'ordre migrations/synchronize (qui était de
+            toute façon déjà favorable).
+          </decision>
+          <decision>
+            Noms d'index explicites (`IDX_exercise_author_title_unique`, `IDX_quiz_author_title_unique`),
+            posés identiquement par la migration ET par le décorateur `@Index` — pour que `synchronize`
+            reconnaisse l'index déjà créé par la migration au boot suivant, et pour que le retry
+            applicatif (`isPostgresUniqueViolation(err, constraintName)`) ne réagisse qu'à cette
+            violation précise, jamais à une autre contrainte UNIQUE sans rapport.
+          </decision>
+          <decision>
+            Retry borné strictement à la ligne racine (`Exercise`/`Quiz`), jamais à la cascade
+            (`savePartsAndSolutions`, remplacement des questions du Quiz) : à la création, l'écriture
+            de la ligne racine précède déjà la cascade (ordre naturel, rien à changer) ; à l'édition,
+            l'écriture de la ligne racine a été déplacée APRÈS la cascade (elle avait lieu avant dans
+            le code de l'étape 1) — pour qu'un retry ne rejoue jamais une suppression/recréation de
+            blocs ou de questions déjà effectuée à une tentative précédente.
+          </decision>
+          <decision>
+            `ConflictException` (409) après épuisement des 10 tentatives, plutôt qu'une boucle
+            infinie ou une remontée de l'erreur Postgres brute — cohérent avec la règle générale du
+            projet (aucune erreur technique brute ne doit atteindre l'utilisateur).
+          </decision>
+        </technicalDecisions>
+        <verification>
+          <item>`npm run build` : 0 erreur.</item>
+          <item>`npx jest` (suite complète) : 28 suites, 337/337 tests verts.</item>
+          <item>Pas de build/déploiement ni de preuve HTTP directe dans cette session — délégué à
+            l'orchestrateur. Preuve HTTP à obtenir après déploiement : `\d exercises`/`\d quizzes`
+            en psql montrant les deux index UNIQUE ; un `INSERT` SQL direct d'un titre déjà pris
+            pour un auteur échouant en `23505` ; soumission du même titre via l'API produisant un
+            `201` avec le prochain suffixe disponible ; absence de régression sur la disambiguation
+            de l'étape 1.</item>
+        </verification>
+        <blockers>
+          Aucun sur le code livré. Point remonté explicitement à l'orchestrateur (pas un blocage,
+          une correction factuelle) : l'ordre migrations/synchronize supposé par la délégation était
+          inversé par rapport à la réalité du code installé — voir la décision technique ci-dessus.
+        </blockers>
+        <openPoints>
+          <point>
+            Chantier "Titre unique Exercice/Quizz" complet à l'issue de cette session : disambiguation
+            applicative (étape 1) + contrainte UNIQUE en base + retry applicatif (étape 2). Aucun
+            point ouvert connu sur ce sujet précis.
+          </point>
+        </openPoints>
+      </session>
     </technicalImplementation>
   </service>
 </serviceFunctionalSpecification>

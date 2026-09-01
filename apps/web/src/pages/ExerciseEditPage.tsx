@@ -1,6 +1,6 @@
 /**
- * ExerciseEditPage — édition d'un Exercice par son auteur (structure et images, en une seule
- * soumission de formulaire depuis le 2026-09-01).
+ * ExerciseEditPage — édition d'un Exercice par son auteur (structure, images de bloc et de
+ * solution, en une seule soumission de formulaire depuis le 2026-09-01).
  *
  * Correctif du 2026-09-01 (`docs/architecture.md` > « Titre des Exercices et des Quizz », point 6) :
  * les solutions déjà saisies sont désormais pré-remplies quand `content-catalog-service` expose
@@ -15,14 +15,19 @@
  * font désormais partie de la séquence éditée par `ExerciseForm` lui-même, envoyés en un seul flux
  * de soumission (structure puis images en attente) — voir `utils/exerciseImageUpload.ts`.
  *
+ * Correctif du 2026-09-01 (« retour à l'écran précédent avec confirmation ») : un enregistrement
+ * réussi ne laisse plus l'utilisateur sur ce formulaire sans retour visuel — il est redirigé vers
+ * la fiche de l'exercice, avec un message de confirmation porté par `location.state` (même
+ * mécanisme déjà en place pour l'inscription, `LoginPage`/`StudentRegistrationPage`). La page ne
+ * conserve donc plus l'exercice édité en état local : elle se démonte dès la navigation.
+ *
  * Routes API consommées :
  *   GET /exercises/:id/solutions  (content-catalog-service — avec solution, réservée à l'auteur)
  *   GET /exercises/:id            (content-catalog-service — repli, sans solution)
  *   PUT /exercises/:id            (content-catalog-service — remplace intégralement la structure)
- *   POST /exercises/:id/parts/:partId/images  (envoi de chaque image en attente, orchestré par `ExerciseForm`)
  */
 
-import React, { useState } from 'react'
+import React from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { PageHeader } from '../components/ui/PageHeader'
@@ -32,7 +37,6 @@ import { fetchExerciseForEdit } from '../api/exercises'
 import { buildEditableStateForExerciseEdit } from '../utils/exercisePayload'
 import { ExerciseForm } from '../components/content-catalog/ExerciseForm'
 import { getExerciseDisplayTitle } from '../utils/exerciseLabels'
-import type { PublicExerciseDetail } from '../types/exercise'
 
 export default function ExerciseEditPage() {
   const { exerciseId } = useParams<{ exerciseId: string }>()
@@ -46,13 +50,8 @@ export default function ExerciseEditPage() {
   } = useAsyncData(() => fetchExerciseForEdit(resolvedExerciseId), [resolvedExerciseId], {
     fallbackErrorMessage: 'Impossible de charger cet exercice pour modification.',
   })
-  const initialExercise = loadResult?.exercise
+  const currentExercise = loadResult?.exercise ?? null
   const solutionsPrefilled = loadResult?.solutionsPrefilled ?? false
-
-  // La page conserve l'exercice courant après enregistrement structurel ou ajout d'image — une
-  // donnée enregistrée reste affichée, jamais rechargée à chaque action (règle du 2026-08-10).
-  const [exercise, setExercise] = useState<PublicExerciseDetail | null>(null)
-  const currentExercise = exercise ?? initialExercise ?? null
 
   if (!resolvedExerciseId) {
     return (
@@ -111,7 +110,11 @@ export default function ExerciseEditPage() {
           mode="edit"
           exerciseId={resolvedExerciseId}
           initialState={buildEditableStateForExerciseEdit(currentExercise)}
-          onSaved={(saved) => setExercise(saved)}
+          onSaved={() =>
+            navigate(`/content/exercises/${resolvedExerciseId}`, {
+              state: { message: 'Modifications enregistrées.' },
+            })
+          }
           onCancel={() => navigate(`/content/exercises/${resolvedExerciseId}`)}
         />
       </div>

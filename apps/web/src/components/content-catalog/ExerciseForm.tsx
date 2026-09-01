@@ -29,9 +29,12 @@ import { getErrorMessage } from '../../utils/apiError'
 import {
   buildExerciseCreatePayload,
   ExerciseFormValidationError,
-  resolveExerciseImagePayloadItems,
   type EditableExerciseFormState,
 } from '../../utils/exercisePayload'
+import {
+  resolveExerciseImagePayloadItems,
+  resolveExerciseSolutionImagePayloadItems,
+} from '../../utils/exerciseImageResolution'
 import { useExerciseImageConstraints } from '../../hooks/content-catalog/useExerciseImageConstraints'
 import { getExerciseRequestBodyTooLargeMessage, isExerciseRequestBodyTooLarge } from '../../utils/exerciseImageConstraints'
 import type { ExercisePartCategory, PublicExerciseDetail } from '../../types/exercise'
@@ -115,9 +118,11 @@ export function ExerciseForm({ mode = 'create', exerciseId, initialState, onSave
         parts,
         mode === 'edit' ? exerciseId : undefined,
       )
+      const resolvedSolutionImageItems = await resolveExerciseSolutionImagePayloadItems(parts)
       const payload = buildExerciseCreatePayload(
         { title, level, difficulty, theme, competenciesInput, tagsInput, parts },
         resolvedImageItems,
+        resolvedSolutionImageItems,
       )
 
       const serializedPayload = JSON.stringify(payload)

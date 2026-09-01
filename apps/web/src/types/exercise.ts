@@ -35,8 +35,10 @@
  * `GET /exercises/:id/solutions` (réservée à l'auteur et aux AP/RP/TI, voir plus bas) l'expose,
  * pour que l'écran d'édition puisse réellement pré-remplir une solution déjà saisie. Une image de
  * solution y est elle aussi embarquée en base64 (`AuthorContentItem.imageData`), corrigeant le bug
- * "image de solution jamais rerelisible" — non exploité côté formulaire pour l'instant (l'éditeur
- * de solution reste texte/formule uniquement), mais la donnée est désormais disponible.
+ * "image de solution jamais rerelisible". Depuis le 2026-09-01, elle est aussi éditable/remplaçable
+ * depuis le formulaire (`ExerciseSolutionImageEditor`) — le contrat d'écriture
+ * (`solution.items[].imageData` sur `PUT /exercises/:id`) a été confirmé en HTTP direct contre la
+ * production.
  */
 
 export type ExercisePartCategory = 'statement' | 'image' | 'question'

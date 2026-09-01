@@ -1,11 +1,18 @@
 /**
  * ExercisePartEditor — édition d'un bloc d'exercice (énoncé, image ou question), au sein de
  * `ExerciseForm`. Un bloc énoncé/question porte une liste ordonnée d'items texte/formule ; un bloc
- * « question » porte en plus une solution obligatoire (même mécanisme de liste d'items). Un bloc
- * « image » (catégorie de premier niveau depuis le 2026-09-01, `docs/architecture.md` > « Bloc
- * "image" de premier niveau pour l'Exercice ») porte un fichier choisi localement, encodé en
- * base64 et embarqué dans le payload à la soumission du formulaire — voir
- * `ExerciseImageBlockEditor`/`utils/exercisePayload.ts` (`resolveExerciseImagePayloadItems`).
+ * « question » porte en plus une solution obligatoire (même mécanisme de liste d'items, plus une
+ * image optionnelle — voir ci-dessous). Un bloc « image » (catégorie de premier niveau depuis le
+ * 2026-09-01, `docs/architecture.md` > « Bloc "image" de premier niveau pour l'Exercice ») porte un
+ * fichier choisi localement, encodé en base64 et embarqué dans le payload à la soumission du
+ * formulaire — voir `ExerciseImageBlockEditor`/`utils/exercisePayload.ts`
+ * (`resolveExerciseImagePayloadItems`).
+ *
+ * Image de solution (2026-09-01, correctif « en édition, tout doit rester modifiable ») : le
+ * serveur accepte déjà `solution.items[].imageData` en écriture (même mécanisme que les blocs,
+ * confirmé en HTTP direct contre la production) — seul manquait le bouton front pour la
+ * remplacer. Voir `ExerciseSolutionImageEditor`/`utils/exercisePayload.ts`
+ * (`resolveExerciseSolutionImagePayloadItems`).
  *
  * Patron de structure directement inspiré de `QuizQuestionEditor` — une section « énoncé »
  * pouvant devenir « question + solution » selon la catégorie choisie.
@@ -14,8 +21,9 @@
 import React from 'react'
 import { ExerciseItemListEditor, createEditableExerciseItem, type EditableExerciseItem } from './ExerciseItemListEditor'
 import { ExerciseImageBlockEditor } from './ExerciseImageBlockEditor'
+import { ExerciseSolutionImageEditor } from './ExerciseSolutionImageEditor'
 import { EXERCISE_PART_CATEGORY_LABELS } from '../../utils/exerciseLabels'
-import type { ExercisePartCategory, PublicContentItem } from '../../types/exercise'
+import type { AuthorContentItem, ExercisePartCategory, PublicContentItem } from '../../types/exercise'
 
 export interface EditableExercisePart {
   localId: string
@@ -31,6 +39,17 @@ export interface EditableExercisePart {
    * serveur, affiché tant qu'aucun nouveau fichier n'a été choisi.
    */
   existingImageItem: PublicContentItem | null
+  /**
+   * Utilisé uniquement si `category === 'question'` — image (optionnelle) de la solution, fichier
+   * choisi localement, pas encore envoyé.
+   */
+  solutionImageFile: File | null
+  /**
+   * Utilisé uniquement si `category === 'question'`, en édition — image de solution déjà
+   * enregistrée côté serveur, dont le contenu base64 est déjà en mémoire (`GET
+   * /exercises/:id/solutions`) — affichée tant qu'aucun nouveau fichier n'a été choisi.
+   */
+  existingSolutionImageItem: AuthorContentItem | null
 }
 
 let partCounter = 0
@@ -45,6 +64,8 @@ export function createEditableExercisePart(
     solutionItems: category === 'question' ? [createEditableExerciseItem()] : [],
     imageFile: null,
     existingImageItem: null,
+    solutionImageFile: null,
+    existingSolutionImageItem: null,
   }
 }
 
@@ -60,7 +81,7 @@ interface ExercisePartEditorProps {
   isLast: boolean
   /** Requis pour afficher une image de bloc déjà enregistrée — absent en mode création. */
   exerciseId?: string
-  /** Plafond en vigueur pour un bloc image (`GET /exercises/image-constraints`). */
+  /** Plafond en vigueur pour un bloc image et pour une image de solution (`GET /exercises/image-constraints`). */
   maxImageInputBytes: number
 }
 
@@ -165,6 +186,16 @@ export function ExercisePartEditor({
             isSubmitting={isSubmitting}
             itemLabelPrefix="Solution"
           />
+          <div className="pt-2">
+            <p className="text-xs font-semibold text-gray-700">Image de la solution (optionnelle)</p>
+            <ExerciseSolutionImageEditor
+              imageFile={part.solutionImageFile}
+              existingImageItem={part.existingSolutionImageItem}
+              onFileSelected={(solutionImageFile) => onChange({ ...part, solutionImageFile })}
+              isSubmitting={isSubmitting}
+              maxImageInputBytes={maxImageInputBytes}
+            />
+          </div>
         </div>
       )}
     </div>

@@ -27,6 +27,23 @@ est déjà réaffiché tel quel après enregistrement).
 Délégué à `content-catalog-service` le 2026-09-01, étape 1 uniquement pour l'instant (étape 2 après
 confirmation du déploiement 1).
 
+**Déploiement 1 fait et vérifié par l'orchestrateur en HTTP direct contre
+`https://claudevma.visioprof.fr`** (PR #193 mergée, `content-catalog-service` reconstruit et
+redéployé, healthy, pas de crash-loop) :
+- `GET /exercises/default-title` → `{"title":"Exercice (1)"}`, `GET /quizzes/default-title` →
+  `{"title":"Quizz (1)"}` — format avec parenthèses confirmé.
+- 3 créations successives du même titre Exercice → `"Fractions"` → `"Fractions (2)"` →
+  `"Fractions (3)"`, jamais de 400. Idem Quizz : `"Additions"` → `"Additions (2)"` →
+  `"Additions (3)"`.
+- Édition avec collision réelle contre un autre Quizz du même auteur → suffixe correct (`"Alpha"` →
+  `"Alpha (2)"`) ; édition vers son propre titre actuel → no-op confirmé.
+- `SELECT ... GROUP BY authorId, title HAVING COUNT(*)>1` sur `quizzes` → **0 ligne** (doublons
+  legacy nettoyés par la migration).
+
+**Reste à faire** : déléguer l'étape 2 (contrainte UNIQUE en base + décorateur d'entité + retry
+applicatif sur violation `23505`) à `content-catalog-service`, dans un déploiement séparé — le
+déploiement 1 est confirmé propre en production, condition posée par le plan pour lancer l'étape 2.
+
 ---
 
 Deux retours supplémentaires de l'utilisateur le 2026-09-01, après clarification du point "image

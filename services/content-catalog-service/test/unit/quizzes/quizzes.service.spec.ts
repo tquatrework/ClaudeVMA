@@ -271,12 +271,34 @@ describe('QuizzesService', () => {
       );
     });
 
-    it('lève BadRequestException si l\'auteur a déjà un quizz avec ce titre', async () => {
-      quizRepo.__qb.getOne.mockResolvedValue(buildSampleQuiz());
+    // Arbitrage du 2026-09-01, "disambiguation automatique plutôt que
+    // refus" : une collision de titre ne bloque plus la création, le
+    // serveur suffixe automatiquement "(N)".
+    it('suffixe automatiquement le titre "(2)" si l\'auteur a déjà un quizz avec ce titre', async () => {
+      const saved = buildSampleQuiz({ authorRole: 'formateur', status: ContentStatus.PENDING_VALIDATION });
+      quizRepo.create.mockReturnValue(saved);
+      quizRepo.save.mockResolvedValue(saved);
+      quizRepo.__qb.getOne.mockResolvedValueOnce(buildSampleQuiz()).mockResolvedValueOnce(undefined);
 
-      await expect(quizzesService.create(validDto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(
-        BadRequestException,
-      );
+      await quizzesService.create(validDto as any, FORMATEUR_ID, 'formateur');
+
+      const createCall = quizRepo.create.mock.calls[0][0];
+      expect(createCall.title).toBe(`${validDto.title} (2)`);
+    });
+
+    it('avance au prochain suffixe libre si "(2)" est aussi déjà pris', async () => {
+      const saved = buildSampleQuiz({ authorRole: 'formateur', status: ContentStatus.PENDING_VALIDATION });
+      quizRepo.create.mockReturnValue(saved);
+      quizRepo.save.mockResolvedValue(saved);
+      quizRepo.__qb.getOne
+        .mockResolvedValueOnce(buildSampleQuiz())
+        .mockResolvedValueOnce(buildSampleQuiz())
+        .mockResolvedValueOnce(undefined);
+
+      await quizzesService.create(validDto as any, FORMATEUR_ID, 'formateur');
+
+      const createCall = quizRepo.create.mock.calls[0][0];
+      expect(createCall.title).toBe(`${validDto.title} (3)`);
     });
 
     it('autorise deux auteurs différents à choisir le même titre', async () => {
@@ -296,21 +318,21 @@ describe('QuizzesService', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('getDefaultTitle()', () => {
-    it('propose "Quizz {n+1}" où n est le nombre de quizz déjà créés par l\'auteur', async () => {
+    it('propose "Quizz (n+1)" où n est le nombre de quizz déjà créés par l\'auteur', async () => {
       quizRepo.count.mockResolvedValue(2);
 
       const result = await quizzesService.getDefaultTitle(FORMATEUR_ID);
 
-      expect(result).toEqual({ title: 'Quizz 3' });
+      expect(result).toEqual({ title: 'Quizz (3)' });
       expect(quizRepo.count).toHaveBeenCalledWith({ where: { authorId: FORMATEUR_ID } });
     });
 
-    it('propose "Quizz 1" pour un auteur sans quizz existant', async () => {
+    it('propose "Quizz (1)" pour un auteur sans quizz existant', async () => {
       quizRepo.count.mockResolvedValue(0);
 
       const result = await quizzesService.getDefaultTitle(FORMATEUR_ID);
 
-      expect(result).toEqual({ title: 'Quizz 1' });
+      expect(result).toEqual({ title: 'Quizz (1)' });
     });
   });
 
@@ -382,14 +404,15 @@ describe('QuizzesService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('lève BadRequestException si un autre quizz du même auteur porte déjà ce titre', async () => {
-      const quiz = buildSampleQuiz({ authorId: FORMATEUR_ID });
+    it('suffixe automatiquement le titre "(2)" si un autre quizz du même auteur le porte déjà', async () => {
+      const quiz = buildSampleQuiz({ authorId: FORMATEUR_ID, authorRole: 'formateur', status: ContentStatus.VALIDATED });
       quizRepo.findOne.mockResolvedValue(quiz);
-      quizRepo.__qb.getOne.mockResolvedValue(buildSampleQuiz({ id: 'autre-quiz' }));
+      quizRepo.save.mockImplementation((q) => Promise.resolve(q));
+      quizRepo.__qb.getOne.mockResolvedValueOnce(buildSampleQuiz({ id: 'autre-quiz' })).mockResolvedValueOnce(undefined);
 
-      await expect(
-        quizzesService.update(QUIZ_ID, validUpdateDto as any, FORMATEUR_ID, 'formateur'),
-      ).rejects.toThrow(BadRequestException);
+      const result = await quizzesService.update(QUIZ_ID, validUpdateDto as any, FORMATEUR_ID, 'formateur');
+
+      expect(result.title).toBe(`${validUpdateDto.title} (2)`);
     });
 
     it('un formateur éditant son quizz validé le fait repasser en attente de validation', async () => {

@@ -242,18 +242,21 @@ export class QuizzesService {
   }
 
   // ───────────────────────────────────────────────────────────────────────
-  // Titre — obligatoire et unique par auteur (arbitrage du 2026-09-01)
+  // Titre — obligatoire et unique par auteur, disambiguation automatique
+  // (arbitrage du 2026-09-01, "Titre des Exercices et des Quizz :
+  // disambiguation automatique plutôt que refus" — révise l'arbitrage du
+  // même jour qui refusait la collision en 400)
   // ───────────────────────────────────────────────────────────────────────
 
   /**
-   * Refuse (400) si l'auteur possède déjà un autre quizz portant exactement
-   * ce titre. Unicité *par auteur*, pas globale — même règle que l'Exercice
+   * `true` si l'auteur possède déjà un autre quizz portant exactement ce
+   * titre. Unicité *par auteur*, pas globale — même règle que l'Exercice
    * (docs/architecture.md, "Titre des Exercices et des Quizz"). `REMOVED`
-   * (s'il existe pour ce statut) n'est pas exclu ici : le Quizz n'a pas de
-   * statut REMOVED distinct dans son cycle de vie actuel (pas de route de
-   * retrait), donc aucune exclusion nécessaire pour l'instant.
+   * n'est pas exclu ici : le Quizz n'a pas de statut REMOVED distinct dans
+   * son cycle de vie actuel (pas de route de retrait), donc aucune
+   * exclusion nécessaire pour l'instant.
    */
-  private async assertTitleUnique(title: string, authorId: string, excludeQuizId?: string): Promise<void> {
+  private async titleTakenByAuthor(title: string, authorId: string, excludeQuizId?: string): Promise<boolean> {
     // `.andWhere()` seul (sans `.where()` préalable) — même convention que
     // `search()` plus bas dans ce service, compatible avec les mocks de test
     // qui n'exposent que `andWhere`.
@@ -267,19 +270,35 @@ export class QuizzesService {
     }
 
     const existing = await qb.getOne();
-    if (existing) {
-      throw new BadRequestException(`Vous avez déjà un quizz intitulé "${title}"`);
-    }
+    return !!existing;
   }
 
   /**
-   * Suggestion de titre par défaut ("Quizz {n}"), lue par le front à
-   * l'ouverture du formulaire de création — ne réserve rien (arbitrage du
-   * 2026-09-01), même mécanisme que `ExercisesService.getDefaultTitle`.
+   * Calcule un titre garanti libre pour cet auteur, en repartant du titre
+   * saisi et en ajoutant "(N)" tant qu'une collision existe — plus de rejet
+   * 400 sur ce cas. Boucle de vérification exacte plutôt qu'un parsing du
+   * suffixe existant : le titre saisi peut déjà contenir des parenthèses non
+   * numériques, une boucle reste correcte dans tous les cas. Même mécanisme
+   * que `ExercisesService.resolveUniqueTitle`.
+   */
+  private async resolveUniqueTitle(baseTitle: string, authorId: string, excludeQuizId?: string): Promise<string> {
+    let candidate = baseTitle;
+    let n = 2;
+    while (await this.titleTakenByAuthor(candidate, authorId, excludeQuizId)) {
+      candidate = `${baseTitle} (${n})`;
+      n += 1;
+    }
+    return candidate;
+  }
+
+  /**
+   * Suggestion de titre par défaut ("Quizz (N)"), lue par le front à
+   * l'ouverture du formulaire de création — ne réserve rien, même mécanisme
+   * que `ExercisesService.getDefaultTitle`.
    */
   async getDefaultTitle(authorId: string): Promise<{ title: string }> {
     const count = await this.quizRepository.count({ where: { authorId } });
-    return { title: `Quizz ${count + 1}` };
+    return { title: `Quizz (${count + 1})` };
   }
 
   private buildQuestionEntity(question: CreateQuizQuestionDto, index: number, quizId: string): QuizQuestion {
@@ -330,7 +349,7 @@ export class QuizzesService {
     if (!createQuizDto.title || !createQuizDto.title.trim()) {
       throw new BadRequestException('Le titre du quizz est obligatoire');
     }
-    await this.assertTitleUnique(createQuizDto.title, authorId);
+    const title = await this.resolveUniqueTitle(createQuizDto.title, authorId);
 
     if (!createQuizDto.questions || createQuizDto.questions.length === 0) {
       throw new BadRequestException('Un quizz doit contenir au moins une question');
@@ -343,7 +362,7 @@ export class QuizzesService {
       authorRole === UserRole.FORMATEUR ? ContentStatus.PENDING_VALIDATION : ContentStatus.VALIDATED;
 
     const quiz = this.quizRepository.create({
-      title: createQuizDto.title,
+      title,
       description: createQuizDto.description,
       tags: createQuizDto.tags ?? [],
       authorId,
@@ -397,14 +416,14 @@ export class QuizzesService {
     if (!updateQuizDto.title || !updateQuizDto.title.trim()) {
       throw new BadRequestException('Le titre du quizz est obligatoire');
     }
-    await this.assertTitleUnique(updateQuizDto.title, quiz.authorId, quizId);
+    const title = await this.resolveUniqueTitle(updateQuizDto.title, quiz.authorId, quizId);
 
     if (!updateQuizDto.questions || updateQuizDto.questions.length === 0) {
       throw new BadRequestException('Un quizz doit contenir au moins une question');
     }
     updateQuizDto.questions.forEach((question, index) => this.validateQuestionDto(question, index));
 
-    quiz.title = updateQuizDto.title;
+    quiz.title = title;
     quiz.description = updateQuizDto.description;
     quiz.tags = updateQuizDto.tags ?? [];
     quiz.defaultPoints = updateQuizDto.defaultPoints ?? 1;

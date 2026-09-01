@@ -6,7 +6,7 @@ import {
   PayloadTooLargeException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Not, Repository } from 'typeorm';
 import { Exercise } from './entities/exercise.entity';
 import { ExercisePart } from './entities/exercise-part.entity';
 import { ExerciseSolution } from './entities/exercise-solution.entity';
@@ -411,17 +411,20 @@ export class ExercisesService {
   }
 
   // ───────────────────────────────────────────────────────────────────────
-  // Titre — obligatoire et unique par auteur (arbitrage du 2026-09-01)
+  // Titre — obligatoire et unique par auteur, disambiguation automatique
+  // (arbitrage du 2026-09-01, "Titre des Exercices et des Quizz :
+  // disambiguation automatique plutôt que refus" — révise l'arbitrage du
+  // même jour qui refusait la collision en 400)
   // ───────────────────────────────────────────────────────────────────────
 
   /**
-   * Refuse (400) si l'auteur possède déjà un autre exercice portant
-   * exactement ce titre. Unicité *par auteur*, pas globale — deux
-   * formateurs différents peuvent légitimement choisir le même titre
-   * chacun de leur côté. `REMOVED` est exclu : un exercice retiré ne bloque
-   * pas la réutilisation de son titre.
+   * `true` si l'auteur possède déjà un autre exercice portant exactement ce
+   * titre. Unicité *par auteur*, pas globale — deux formateurs différents
+   * peuvent légitimement choisir le même titre chacun de leur côté.
+   * `REMOVED` est exclu : un exercice retiré ne bloque pas la réutilisation
+   * de son titre.
    */
-  private async assertTitleUnique(title: string, authorId: string, excludeExerciseId?: string): Promise<void> {
+  private async titleTakenByAuthor(title: string, authorId: string, excludeExerciseId?: string): Promise<boolean> {
     // `.andWhere()` seul (sans `.where()` préalable) — même convention que
     // `search()` plus bas dans ce service, compatible avec les mocks de test
     // qui n'exposent que `andWhere`.
@@ -436,19 +439,39 @@ export class ExercisesService {
     }
 
     const existing = await qb.getOne();
-    if (existing) {
-      throw new BadRequestException(`Vous avez déjà un exercice intitulé "${title}"`);
-    }
+    return !!existing;
   }
 
   /**
-   * Suggestion de titre par défaut ("Exercice {n}"), lue par le front à
+   * Calcule un titre garanti libre pour cet auteur, en repartant du titre
+   * saisi et en ajoutant "(N)" tant qu'une collision existe — plus de rejet
+   * 400 sur ce cas. Boucle de vérification exacte plutôt qu'un parsing du
+   * suffixe existant : le titre saisi peut déjà contenir des parenthèses non
+   * numériques, une boucle reste correcte dans tous les cas.
+   */
+  private async resolveUniqueTitle(baseTitle: string, authorId: string, excludeExerciseId?: string): Promise<string> {
+    let candidate = baseTitle;
+    let n = 2;
+    while (await this.titleTakenByAuthor(candidate, authorId, excludeExerciseId)) {
+      candidate = `${baseTitle} (${n})`;
+      n += 1;
+    }
+    return candidate;
+  }
+
+  /**
+   * Suggestion de titre par défaut ("Exercice (N)"), lue par le front à
    * l'ouverture du formulaire de création — ne réserve rien, juste une
-   * proposition modifiable avant validation (arbitrage du 2026-09-01).
+   * proposition modifiable avant validation. `REMOVED` est exclu du
+   * comptage, cohérent avec `titleTakenByAuthor` (un exercice retiré ne
+   * bloque pas la réutilisation de son titre, il ne doit donc pas non plus
+   * gonfler le numéro proposé).
    */
   async getDefaultTitle(authorId: string): Promise<{ title: string }> {
-    const count = await this.exerciseRepository.count({ where: { authorId } });
-    return { title: `Exercice ${count + 1}` };
+    const count = await this.exerciseRepository.count({
+      where: { authorId, status: Not(ContentStatus.REMOVED) },
+    });
+    return { title: `Exercice (${count + 1})` };
   }
 
   // ───────────────────────────────────────────────────────────────────────
@@ -463,7 +486,7 @@ export class ExercisesService {
     if (!createExerciseDto.title || !createExerciseDto.title.trim()) {
       throw new BadRequestException('Le titre de l\'exercice est obligatoire');
     }
-    await this.assertTitleUnique(createExerciseDto.title, authorId);
+    const title = await this.resolveUniqueTitle(createExerciseDto.title, authorId);
 
     if (!createExerciseDto.parts || createExerciseDto.parts.length === 0) {
       throw new BadRequestException('Un exercice doit contenir au moins un bloc');
@@ -477,7 +500,7 @@ export class ExercisesService {
       authorRole === UserRole.FORMATEUR ? ContentStatus.PENDING_VALIDATION : ContentStatus.VALIDATED;
 
     const exercise = this.exerciseRepository.create({
-      title: createExerciseDto.title,
+      title,
       description: createExerciseDto.description,
       level: createExerciseDto.level,
       difficulty: createExerciseDto.difficulty,
@@ -571,7 +594,7 @@ export class ExercisesService {
     if (!updateExerciseDto.title || !updateExerciseDto.title.trim()) {
       throw new BadRequestException('Le titre de l\'exercice est obligatoire');
     }
-    await this.assertTitleUnique(updateExerciseDto.title, exercise.authorId, exerciseId);
+    const title = await this.resolveUniqueTitle(updateExerciseDto.title, exercise.authorId, exerciseId);
 
     if (!updateExerciseDto.parts || updateExerciseDto.parts.length === 0) {
       throw new BadRequestException('Un exercice doit contenir au moins un bloc');
@@ -581,7 +604,7 @@ export class ExercisesService {
 
     await this.deleteImagesForExercise(exerciseId);
 
-    exercise.title = updateExerciseDto.title;
+    exercise.title = title;
     exercise.description = updateExerciseDto.description;
     exercise.level = updateExerciseDto.level;
     exercise.difficulty = updateExerciseDto.difficulty;

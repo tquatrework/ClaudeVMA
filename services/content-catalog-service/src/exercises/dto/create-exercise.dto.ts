@@ -23,9 +23,12 @@ export { CreateExerciseContentItemDto } from './create-exercise-content-item.dto
  *
  * `title` redevient obligatoire le 2026-09-01 (docs/architecture.md, "Titre
  * des Exercices et des Quizz"), aligné sur `CreateQuizDto.title`. Unicité
- * par auteur vérifiée côté service (`ExercisesService.assertTitleUnique`),
- * jamais devinée par le front — voir `GET /exercises/default-title` pour la
- * valeur suggérée avant saisie.
+ * par auteur vérifiée côté service (`ExercisesService.resolveUniqueTitle`) —
+ * une collision ne bloque plus la création/édition depuis le 2026-09-01
+ * ("disambiguation automatique plutôt que refus") : le serveur suffixe
+ * automatiquement "(N)" plutôt que de renvoyer 400, jamais devinée par le
+ * front — voir `GET /exercises/default-title` pour la valeur suggérée avant
+ * saisie.
  *
  * Depuis le 2026-09-01 (docs/architecture.md, "Bloc 'image' de premier
  * niveau pour l'Exercice"), `parts` porte 3 catégories de bloc

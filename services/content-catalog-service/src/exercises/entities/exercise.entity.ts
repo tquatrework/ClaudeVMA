@@ -20,7 +20,9 @@ import { ExercisePart } from './exercise-part.entity';
  * `title` redevient obligatoire le 2026-09-01 (docs/architecture.md, "Titre
  * des Exercices et des Quizz"), aligné sur `Quiz.title` — même règle
  * d'unicité par auteur, appliquée au niveau service (voir
- * `ExercisesService.assertTitleUnique`). La colonne NOT NULL est posée par
+ * `ExercisesService.resolveUniqueTitle` — disambiguation automatique par
+ * suffixe "(N)" depuis le 2026-09-01, remplace l'ancien refus 400). La
+ * colonne NOT NULL est posée par
  * la migration `MakeExerciseTitleRequired1791000000000`, qui backfille au
  * préalable les lignes créées avant cette règle (le champ était optionnel
  * jusque-là).

@@ -1388,6 +1388,125 @@ Phase 3 enrichit l'offre :
      silencieusement par le serveur reste visible naturellement a l'ecran suivant, sans UI
      dediee a construire pour signaler le renommage.
 
+- Refonte des Evaluations : notation manuelle, demande de correction, notifications. Arbitrage en
+  cours de redaction le 2026-09-01 (session proche de sa limite de contexte a l'ouverture de ce
+  chantier — cette entree est deliberement tres detaillee pour qu'une session future puisse
+  reprendre la delegation sans re-explorer). Corrige au passage une **derive documentaire** : la
+  ligne "Evaluations : une evaluation doit toujours etre creee avec une solution... l'eleve peut
+  demander une correction apres coup" (plus haut dans ce fichier, section "Arbitrages rendus",
+  et reprise dans l'arbitrage du 2026-08-29 sur la refonte des Exercices) **n'a en realite jamais
+  ete implementee** — verifie par exploration en lecture seule du code reel le 2026-09-01 :
+  l'entite `Evaluation` (`services/content-catalog-service/src/evaluations/`, creee au chantier de
+  juin 2026, jamais retouchee depuis) n'a ni champ `solution` ni mecanisme de correction, meme en
+  code mort. Ce texte historique reste dans le fichier tel quel (les arbitrages ne s'editent pas
+  retroactivement), mais ne doit plus etre pris pour une description du code — cette nouvelle
+  entree fait foi.
+
+  **Etat reel constate avant ce chantier** (exploration du 2026-09-01) : une Evaluation est deja un
+  titre + une **liste ordonnee d'Exercices existants** (`exerciseItems: {exerciseId,
+  titleOverride?, order}`, jsonb — pas ses propres questions), avec niveau/difficulte/theme/
+  competences/tags, un `durationSeconds` (nullable) et un `blockBackNavigation` (booleen) deja
+  presents en base. Mais rien derriere n'est branche : `POST /evaluations/:id/attempts` demarre
+  juste une session (`status: in_progress`) sans aucune route de soumission de reponses ni de
+  calcul de score (`answers`/`score` declares, jamais ecrits par aucun code) ; le statut reste
+  bloque en `DRAFT` a la creation quel que soit le role (jamais `pending_validation`/auto-
+  `validated` comme Quizz/Exercice depuis fin aout) ; aucun scoping AP `animator_of_teacher` ;
+  `tags` stocke mais jamais exploite en recherche (meme lacune que l'Exercice avant sa refonte) ;
+  et surtout, **rien n'existe cote `learning-activity-service`** pour l'Evaluation — contrairement
+  au decoupage deja etabli pour Quizz et Exercice (definition dans `content-catalog-service`,
+  tentative/reponse/score/historique dans `learning-activity-service`), tout est reste dans
+  `content-catalog-service` depuis juin, a l'etat de squelette inerte.
+
+  **Nouvelle specification donnee par l'utilisateur, confirmee par echange le 2026-09-01** :
+
+  1. **Metadonnees** : titre, niveau, difficulte, duree — deja presents, rien a ajouter sur ce
+     point. "La Matiere pourrait devenir un Theme" : deja le cas, le champ s'appelle `theme` sur
+     l'entite actuelle, aucun changement necessaire. Tags a ajouter/completer : le champ existe
+     deja, seul le gap de recherche (deja identifie) reste a corriger, meme correctif que celui
+     deja fait pour l'Exercice (`ANY(tags)`).
+  2. **Coeur : une suite d'Exercices avec une notation associee.** Confirme et deja modelise par
+     `exerciseItems` — aucun changement de structure necessaire sur ce point precis, seul le
+     mecanisme de notation (voir point 4) et le flux de passage (point 3) manquent entierement.
+  3. **Passage chronometre.** Apres avoir demarre, l'utilisateur (eleve, mais aussi professeur, AP
+     ou RP — memes roles que Quizz/Exercice) a un temps imparti pour soumettre ses reponses, et ne
+     peut consulter aucune solution tant que le temps n'est pas ecoule. **Contrainte volontairement
+     posee comme une hypothese de confiance, pas une protection technique durcie** : l'utilisateur
+     precise "il est suppose ne pas changer d'url non plus" — donc pas de detection anti-triche a
+     construire (ex. verifier qu'un eleve n'a pas ouvert l'Exercice sous-jacent dans un autre
+     onglet pour en lire la solution) ; le verrou porte sur les routes normales du parcours
+     Evaluation, pas sur un contournement deliberement cherche.
+  4. **Notation manuelle, pas automatique.** Tranche explicitement le 2026-09-01, apres que
+     l'orchestrateur a souleve la difficulte (les Exercices portent des solutions en texte/formule/
+     image libre, pas structurees comme les questions Quizz, donc pas fiables a noter
+     automatiquement). Flux exact :
+     a. L'eleve termine et dispose de deux actions distinctes, non couplees : **"enregistrer sa
+        reponse"** (cloture sa tentative, ses reponses sont sauvegardees, point final si c'est
+        tout ce qu'il souhaite) et **"demander une correction"** (declenche le circuit humain
+        ci-dessous). Les deux peuvent se faire ensemble ou la demande de correction peut venir
+        plus tard depuis l'historique d'une tentative deja enregistree.
+     b. Une demande de correction notifie **le(s) professeur(s) lies a l'eleve** (relation
+        eleve-formateur existante, `profile-service`) **et le RP** (role, meme mecanisme large que
+        `TeacherRequestCreated -> role RP` deja etabli — pas d'annuaire RP nomme aujourd'hui).
+     c. **Aucune notion de "professeur principal" n'existe dans ce projet** (confirme par
+        l'utilisateur, a ne pas supposer). Un eleve a le plus souvent un seul professeur lie, mais
+        peut en avoir plusieurs. **Cas multiple : le premier professeur qui accepte prend la
+        correction** (premier arrive, premier servi — a la difference du flux de demande de
+        professeur d'origine ou "le premier qui accepte gagne" avait ete explicitement ecarte au
+        profit d'une decision RP, arbitrage du 2026-08-12 : ce n'est PAS une contradiction, ce sont
+        deux mecanismes distincts pour deux besoins distincts — l'un cree une relation
+        pedagogique durable, l'autre assigne une tache ponctuelle de correction). Chaque professeur
+        lie peut aussi **refuser** independamment. **Si tous refusent**, le RP est sollicite pour
+        trouver un autre professeur — decrit par l'utilisateur comme "pour un besoin ponctuel",
+        donc a traiter simplement : pas de systeme de diffusion/sollicitation automatise a
+        construire pour ce cas de repli, le RP gere manuellement (peut corriger lui-meme, ou
+        reassigner a la main) plutot que de reproduire tout le mecanisme de demande de professeur.
+     d. **Quand un professeur accepte ou refuse, le RP est notifie de l'issue** dans tous les cas
+        (pas seulement en cas de refus total).
+  5. **Droits et historique geres comme Quizz/Exercice**, confirme explicitement par l'utilisateur
+     ("Les droits et historiques se gerent de la meme maniere que les quizz et exercices"). Ceci
+     tranche deux points que l'exploration avait identifies comme des ecarts avec le modele actuel :
+     - Le cycle de validation (`pending_validation` pour formateur, auto-`validated` pour AP/RP,
+       AP scope `animator_of_teacher`) **doit desormais s'appliquer a l'Evaluation**, alors qu'une
+       note du 2026-08-28 (`docs/architecture.md`, section Quizz) disait explicitement que ce
+       scoping AP restait volontairement limite au Quizz et n'etait "pas etendu a l'Evaluation" —
+       **cette restriction est levee par le present arbitrage**, l'utilisateur demandant
+       maintenant l'alignement complet.
+     - Attempt/reponse/score/historique doivent migrer vers `learning-activity-service`, sur le
+       meme modele que Quizz et Exercice — la table `evaluation_attempts` actuelle de
+       `content-catalog-service` (jamais utilisee reellement, `score`/`answers` toujours vides)
+       est a retirer de ce service, pas a completer sur place.
+
+  **Deux points restes sans confirmation explicite de l'utilisateur au moment de cette redaction
+  (session proche de sa limite de contexte) — propositions de l'orchestrateur ci-dessous, a suivre
+  par defaut mais a corriger si l'intention differait** :
+  6. **Acces a la solution pour le professeur qui corrige.** Aujourd'hui, `GET
+     /exercises/:id/solutions` est reserve au **seul auteur** de l'Exercice (+ AP/RP/TI). Or une
+     Evaluation assemble des Exercices potentiellement crees par des auteurs varies — le
+     professeur qui accepte une correction n'est pas necessairement l'auteur de chaque Exercice
+     qu'elle contient. Proposition : un acces dedie, **scope a la correction de cette tentative
+     precise** (le professeur qui a accepte LA demande, pour LA duree du traitement de CETTE
+     demande), sur le meme principe de mediation deja utilise ailleurs dans ce projet (route
+     interne, jamais un elargissement generique du droit de lecture des solutions). Non confirme
+     mot pour mot par l'utilisateur.
+  7. **Duree obligatoire ou optionnelle ?** Le champ `durationSeconds` est aujourd'hui nullable.
+     Proposition de l'orchestrateur : le rendre obligatoire a la creation (comme le titre depuis le
+     chantier precedent), la duree etant decrite par l'utilisateur comme faisant partie du coeur du
+     mecanisme de passage. Non confirme mot pour mot — a corriger si une Evaluation sans limite de
+     temps doit rester possible.
+
+  **Etat d'avancement** : arbitrage redige, **rien delegue a aucun service pour l'instant**. Prochaine
+  etape pour la session qui reprend : confirmer (ou laisser filer par defaut) les points 6 et 7
+  ci-dessus avec l'utilisateur si l'occasion se presente naturellement, puis decouper la delegation
+  a peu pres ainsi (a affiner) : `content-catalog-service` (validation cycle aligne Quizz/Exercice,
+  tags en recherche, retrait de `evaluation_attempts` de ce service, route interne de lecture de
+  solution scopee a une correction en cours) ; `learning-activity-service` (nouvelle entite de
+  tentative d'Evaluation avec chronometre et verrouillage de solution, nouvelle entite de demande
+  de correction avec etats pending/accepted/declined-par-professeur/all-declined-escalated-RP/
+  corrected, integration au flux de notifications Redis existant) ; `dashboard-notification-service`
+  (nouveaux types d'evenement pour la demande de correction et son issue, memes conventions que les
+  evenements Quizz/Exercice deja consommes) ; `front-developper` seulement une fois le contrat
+  backend stabilise (meme sequencement que la refonte des Exercices).
+
 ## Points ouverts a arbitrer
 
 - `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a

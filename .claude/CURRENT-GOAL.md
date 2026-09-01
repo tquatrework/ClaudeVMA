@@ -7,7 +7,33 @@
 
 ## Besoin courant
 
-Aucun objectif courant. Refonte des Exercices close le 2026-09-01, voir l'archive ci-dessous.
+Retours utilisateur du 2026-09-01 après premier test visuel en production de la refonte des
+Exercices (voir archive ci-dessous pour le chantier initial) : globalement satisfaisant côté
+graphique, quatre corrections demandées. Arbitrage complet persisté dans `docs/architecture.md`
+("Titre des Exercices et des Quizz : obligatoire, unique, avec une valeur par défaut...").
+
+1. Retirer le champ Description du formulaire Exercice (libère de l'espace à l'écran).
+2. "Ajouter un élément" dans un bloc d'Exercice → limité aux images, relabellisé "Ajouter une image"
+   (texte et formule ont déjà leur propre affordance).
+3. Le titre n'est plus optionnel : obligatoire, unique par auteur, avec une valeur par défaut
+   proposée par le serveur ("Exercice {n}" / "Quizz {n}") — même règle pour Exercice et Quizz.
+4. Bug : à l'édition d'un Exercice, les solutions déjà saisies ne sont pas réaffichées (persistance
+   ou route de lecture à diagnostiquer).
+
+Délégué en parallèle le 2026-09-01 : `content-catalog-service` (titre obligatoire/unique + route de
+suggestion par défaut pour Exercice et Quizz, DTO Description rendu optionnel si nécessaire,
+diagnostic + correctif du bug de solutions non réaffichées) et `front-developper` (retrait du champ
+Description, bouton "Ajouter une image" limité aux images, pré-remplissage du titre par défaut,
+gestion de l'erreur de titre dupliqué, câblage du pré-remplissage des solutions à l'édition une fois
+la route confirmée côté service).
+
+**Preuve attendue avant clôture** : niveau de preuve à redemander à l'utilisateur avant tout
+scénario Playwright (voir hook `pretooluse-ask-before-visual-proof.sh`) — au minimum vérification
+HTTP directe des quatre points contre `https://claudevma.visioprof.fr` après redéploiement.
+
+---
+
+## Archive
 
 <details>
 <summary>Archive — besoin du 2026-08-29, refonte des Exercices alignée sur le modèle Quizz (clos,

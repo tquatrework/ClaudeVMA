@@ -31,6 +31,44 @@ la route confirmée côté service).
 scénario Playwright (voir hook `pretooluse-ask-before-visual-proof.sh`) — au minimum vérification
 HTTP directe des quatre points contre `https://claudevma.visioprof.fr` après redéploiement.
 
+**Rebondissement en cours de route (2026-09-01)** : en constatant l'état réel du point 2, l'ancien
+mécanisme d'image (item dans un bloc, upload post-enregistrement via `ExerciseImageManager`) s'est
+révélé plus cassé que prévu — impossible à la création, bloc par bloc seulement en édition, image de
+solution jamais rerelisible, texte modifié qui efface les images déjà envoyées. L'utilisateur a
+proposé un remplacement structurel plutôt qu'un simple renommage de bouton : un 3e type de bloc
+"image" de premier niveau (au même rang que énoncé/question), disponible dès la création. Arbitrage
+complet persisté dans `docs/architecture.md` ("Bloc 'image' de premier niveau pour l'Exercice").
+
+**Statut final — tout mergé et déployé le 2026-09-01** :
+- PR #190 (`content-catalog-service`) : titre obligatoire/unique par auteur + suggestion par défaut
+  (Exercice et Quizz), `description` déjà optionnelle, bug solutions corrigé
+  (`GET /exercises/:id/solutions`, nouvelle route auteur). Mergée, déployée, vérifiée en HTTP direct.
+- PR #191 (`content-catalog-service`) : bloc image de premier niveau — contrat final en base64
+  inline dans `POST`/`PUT /exercises` (pas d'upload multipart séparé), nouvelle route
+  `GET /exercises/image-constraints`, migration des images existantes sans perte (9 images migrées).
+  Mergée, déployée, vérifiée en HTTP direct (9 preuves par le subagent).
+- PR #189 (`frontend-react-app`) : les 4 points traités, avec deux itérations pour le point 2 (bouton
+  retiré puis reconstruit en bloc image de premier niveau une fois le contrat #191 confirmé) et une
+  réécriture du flux d'envoi pour matcher le contrat réel (base64 inline, un seul appel réseau, plus
+  le flux en deux temps initialement supposé). Mergée.
+- Redéploiement conjoint `content-catalog-service` + `frontend` fait par l'orchestrateur (pour éviter
+  une fenêtre de casse — l'ancien front encore déployé aurait appelé des routes d'upload que #191
+  supprime). **Incident mineur rencontré au redéploiement** : le subagent `content-catalog-service`
+  avait démarré son propre conteneur `visiomath_content_catalog` hors de `docker compose` pendant sa
+  vérification (labels compose vides, conflit de nom au `docker compose up`) — conteneur arrêté et
+  retiré proprement, `docker compose up` a ensuite recréé un conteneur correctement géré. Aucune
+  perte de données (volumes externes au conteneur). Site vérifié `200`, nouvelles routes vérifiées
+  `401` (existent, protégées) après redéploiement.
+
+**Non fait** : aucune nouvelle vérification visuelle par l'orchestrateur après ce dernier
+redéploiement (seulement HTTP) — conformément à la règle du projet sur la preuve visuelle, à
+demander à l'utilisateur avant d'en produire une. À l'utilisateur de constater directement sur
+`https://claudevma.visioprof.fr`.
+
+Point ouvert signalé par `front-developper`, non traité (hors périmètre de cette demande) : une
+image de solution est désormais lisible par l'auteur mais pas éditable depuis ce formulaire (pas de
+mécanisme d'écriture) — à reprendre si le besoin redevient réel.
+
 ---
 
 ## Archive

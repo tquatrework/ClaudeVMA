@@ -22,6 +22,11 @@ copiés du Quizz (formateur → `pending_validation`, AP/RP → `validated` imm�
 enfin appliqués en recherche (gap corrigé au passage). Timer explicitement différé, hors périmètre.
 Demande de correction humaine retirée du périmètre des Exercices (relève de l'Évaluation).
 
+Reprise le 2026-09-01 : backend stabilisé (PR #183, #184, #185 mergées). Worktree
+`feat/exercises-front` trouvé avec un travail front conséquent non committé (coupure de session
+antérieure) — `front-developper` relancé pour le reprendre, le committer/pousser, et l'amener
+jusqu'à la preuve finale.
+
 Délégué en parallèle le 2026-08-29 :
 - `content-catalog-service` : réécriture Exercise/ExercisePart/ExerciseSolution, stockage image
   propre (nouveau volume Docker), tags en recherche, alignement du cycle de validation sur le

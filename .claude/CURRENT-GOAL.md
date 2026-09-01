@@ -7,6 +7,37 @@
 
 ## Besoin courant
 
+Refonte des Évaluations, demandée le 2026-09-01. **Arbitrage complet et confirmé** dans
+`docs/architecture.md` (section "Refonte des Evaluations : notation manuelle, demande de
+correction, notifications") — lire cette section en entier avant de continuer, elle contient tout
+le contexte (état réel du code actuel vérifié par exploration, spec complète confirmée par
+l'utilisateur, y compris les deux points clarifiés en dernière minute). Session précédente
+interrompue par la limite de contexte juste après confirmation des derniers points — **rien n'a
+encore été délégué à aucun service**, c'est la prochaine étape.
+
+Résumé ultra-condensé (le détail complet est dans architecture.md, ne pas se fier qu'à ceci) :
+Évaluation = suite ordonnée d'Exercices existants (déjà modélisé ainsi), chronométrée (durée
+désormais **obligatoire**), notation **manuelle** (pas automatique — les Exercices n'ont pas de
+solution structurée comme le Quizz). Élève : "enregistrer sa réponse" (clôture sa tentative) et/ou
+"demander une correction" (notifie le(s) professeur(s) liés + le RP). Professeurs peuvent
+accepter (premier arrivé prend la correction) ou refuser ; si tous refusent, RP gère manuellement
+(pas de système de diffusion automatisé, cas ponctuel). RP notifié de l'issue dans tous les cas. La
+correction ne nécessite **aucun accès à la solution de l'Exercice** (corrigé après une fausse
+supposition de l'orchestrateur) — le professeur lit juste la réponse de l'élève et juge. Droits et
+cycle de validation alignés sur Quizz/Exercice (pending_validation formateur, auto-validated AP/RP,
+AP scopé animator_of_teacher — lève une restriction posée le 2026-08-28 qui excluait l'Évaluation).
+Tentative/réponse/correction/historique migrent vers `learning-activity-service` (comme Quizz/
+Exercice), `evaluation_attempts` actuel de `content-catalog-service` est à retirer (jamais utilisé
+réellement).
+
+**Prochaine étape** : découper et déléguer, dans cet ordre suggéré par l'arbitrage :
+`content-catalog-service` (validation cycle, tags en recherche, durée obligatoire, retrait
+d'`evaluation_attempts`) ; `learning-activity-service` (tentative + demande de correction +
+chronométrage/verrouillage de solution) ; `dashboard-notification-service` (nouveaux événements) ;
+`front-developper` seulement une fois le contrat backend stabilisé.
+
+---
+
 Titre unique Exercice/Quizz : bug signalé le 2026-09-01 (deux titres identiques peuvent être
 enregistrés sans avertissement), transformé par l'utilisateur en évolution de règle plutôt que
 simple correctif. Plan complet (investigation via 2 agents Explore + 1 agent Plan, approuvé en mode

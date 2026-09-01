@@ -1364,17 +1364,23 @@ Phase 3 enrichit l'offre :
      retry reseau).
   4. **Les doublons Quizz legacy sont nettoyes par une migration dediee**, sur le meme principe de
      suffixe `"(N)"` que la disambiguation en ligne, avant la pose de la contrainte UNIQUE.
-  5. **Sequencement impose en deux deploiements separes**, a cause d'un risque deja rencontre deux
-     fois dans ce service : `NODE_ENV=development` en production maintient `synchronize` actif, qui
-     s'execute **avant** `migrationsRun` a chaque demarrage (voir le point ouvert "NODE_ENV en
-     developpement sur la pile reelle deployee" plus bas, et les deux incidents deja documentes,
-     `CleanupPreRefonteExerciseData` et `MakeExerciseTitleRequired`). Poser le decorateur d'entite
-     `@Index(unique: true)` dans le meme deploiement que la migration de dedoublonnage ferait
-     tenter a `synchronize` de creer l'index UNIQUE avant que la migration n'ait nettoye les
-     doublons Quizz encore presents — crash-loop. D'ou : **deploiement 1** = disambiguation
-     applicative + migration de dedoublonnage seule, aucune modification d'entite ; **deploiement
-     2**, une fois le premier confirme en production = contrainte UNIQUE + decorateur d'entite +
-     retry applicatif.
+  5. **Correction apportee en cours de chantier sur l'ordre `synchronize`/migrations.** Le plan
+     initial supposait `synchronize` actif en production (`NODE_ENV=development`) s'executant
+     **avant** `migrationsRun`, et en avait deduit un sequencement obligatoire en deux deploiements
+     separes (dedoublonnage d'abord, contrainte UNIQUE ensuite) pour eviter un crash-loop. Verifie
+     factuellement pendant l'implementation (lecture directe de `runMigrations`/`synchronize` dans
+     `DataSource.initialize()`, `node_modules/typeorm/data-source/DataSource.js` reellement
+     installe) : **l'ordre reel est l'inverse — les migrations s'executent toujours avant
+     `synchronize`**. Cela confirme un commentaire deja present dans
+     `CleanupPreRefonteExerciseData.ts` et le precedent deja eprouve de
+     `MakeExerciseTitleRequired` (backfill + `NOT NULL` poses dans le meme commit, sans incident).
+     Consequence : la contrainte UNIQUE + le decorateur d'entite + le retry applicatif ont pu etre
+     livres dans le **meme** commit que le nettoyage des doublons Quizz restants (etape 2 du
+     chantier), sans risque de crash — le sequencement en deux deploiements de l'etape 1 n'a pas
+     nui, mais n'etait pas strictement necessaire. **Correction utile pour les chantiers futurs de
+     ce service** : ne plus supposer `synchronize`-avant-migrations sans verification directe dans
+     le code TypeORM reellement installe — le point ouvert "NODE_ENV en developpement" plus bas
+     reste vrai (le mode reste actif en production), seul l'ordre d'execution etait mal compris.
   6. **Aucun changement front necessaire.** Le titre par defaut et le titre final retourne par le
      serveur sont deja reinjectes tels quels cote front, sans transformation ; l'ecran de
      destination apres enregistrement reaffiche deja la reponse serveur, jamais le corps envoye

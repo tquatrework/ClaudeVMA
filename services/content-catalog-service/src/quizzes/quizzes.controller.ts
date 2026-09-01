@@ -114,6 +114,21 @@ export class QuizzesController {
     return this.quizzesService.update(quizId, updateQuizDto, currentUser.id, currentUser.role);
   }
 
+  @Get('default-title')
+  @Roles(UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE)
+  @ApiOperation({
+    summary: 'Suggérer un titre par défaut avant création',
+    description:
+      'À lire par le front à l\'ouverture du formulaire de création, pour pré-remplir le champ titre ' +
+      '(obligatoire). Forme "Quizz {n}", où {n} est le nombre de quizz déjà créés par l\'appelant, plus un. ' +
+      'Ne réserve rien : l\'utilisateur reste libre de modifier la valeur avant de valider.',
+  })
+  @ApiResponse({ status: 200, description: 'Titre suggéré', schema: { example: { title: 'Quizz 4' } } })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  async getDefaultTitle(@CurrentUser() currentUser: AuthenticatedUser): Promise<{ title: string }> {
+    return this.quizzesService.getDefaultTitle(currentUser.id);
+  }
+
   @Get('pending-validation')
   @Roles(UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE)
   @ApiOperation({

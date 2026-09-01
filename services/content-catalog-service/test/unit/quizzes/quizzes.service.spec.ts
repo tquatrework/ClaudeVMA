@@ -36,6 +36,10 @@ function buildMockQuizRepo() {
     skip: jest.fn().mockReturnThis(),
     take: jest.fn().mockReturnThis(),
     getManyAndCount: jest.fn(),
+    // Titre unique par auteur (arbitrage du 2026-09-01) : `getOne()` résolu
+    // à `undefined` par défaut (aucun doublon), surchargé par les tests qui
+    // simulent un titre déjà pris.
+    getOne: jest.fn().mockResolvedValue(undefined),
   };
   return {
     create: jest.fn(),
@@ -43,6 +47,7 @@ function buildMockQuizRepo() {
     find: jest.fn(),
     findOne: jest.fn(),
     findAndCount: jest.fn(),
+    count: jest.fn(),
     createQueryBuilder: jest.fn(() => qb),
     __qb: qb,
   };
@@ -256,6 +261,57 @@ describe('QuizzesService', () => {
         quizzesService.create(dto as any, FORMATEUR_ID, 'formateur'),
       ).rejects.toThrow(BadRequestException);
     });
+
+    // Arbitrage du 2026-09-01, "Titre des Exercices et des Quizz" : le
+    // titre n'est plus optionnel, et doit être unique par auteur.
+    it('lève BadRequestException si le titre est vide', async () => {
+      const dto = { ...validDto, title: '' };
+      await expect(quizzesService.create(dto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('lève BadRequestException si l\'auteur a déjà un quizz avec ce titre', async () => {
+      quizRepo.__qb.getOne.mockResolvedValue(buildSampleQuiz());
+
+      await expect(quizzesService.create(validDto as any, FORMATEUR_ID, 'formateur')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('autorise deux auteurs différents à choisir le même titre', async () => {
+      const saved = buildSampleQuiz({ authorId: OTHER_FORMATEUR_ID, status: ContentStatus.PENDING_VALIDATION });
+      quizRepo.create.mockReturnValue(saved);
+      quizRepo.save.mockResolvedValue(saved);
+      // getOne() reste undefined par défaut (aucun doublon pour cet auteur)
+
+      await expect(
+        quizzesService.create(validDto as any, OTHER_FORMATEUR_ID, 'formateur'),
+      ).resolves.toBeDefined();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // getDefaultTitle()
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('getDefaultTitle()', () => {
+    it('propose "Quizz {n+1}" où n est le nombre de quizz déjà créés par l\'auteur', async () => {
+      quizRepo.count.mockResolvedValue(2);
+
+      const result = await quizzesService.getDefaultTitle(FORMATEUR_ID);
+
+      expect(result).toEqual({ title: 'Quizz 3' });
+      expect(quizRepo.count).toHaveBeenCalledWith({ where: { authorId: FORMATEUR_ID } });
+    });
+
+    it('propose "Quizz 1" pour un auteur sans quizz existant', async () => {
+      quizRepo.count.mockResolvedValue(0);
+
+      const result = await quizzesService.getDefaultTitle(FORMATEUR_ID);
+
+      expect(result).toEqual({ title: 'Quizz 1' });
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -314,6 +370,25 @@ describe('QuizzesService', () => {
 
       await expect(
         quizzesService.update(QUIZ_ID, invalidDto as any, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('lève BadRequestException si le titre est vide', async () => {
+      const quiz = buildSampleQuiz({ authorId: FORMATEUR_ID });
+      quizRepo.findOne.mockResolvedValue(quiz);
+
+      await expect(
+        quizzesService.update(QUIZ_ID, { ...validUpdateDto, title: '' } as any, FORMATEUR_ID, 'formateur'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('lève BadRequestException si un autre quizz du même auteur porte déjà ce titre', async () => {
+      const quiz = buildSampleQuiz({ authorId: FORMATEUR_ID });
+      quizRepo.findOne.mockResolvedValue(quiz);
+      quizRepo.__qb.getOne.mockResolvedValue(buildSampleQuiz({ id: 'autre-quiz' }));
+
+      await expect(
+        quizzesService.update(QUIZ_ID, validUpdateDto as any, FORMATEUR_ID, 'formateur'),
       ).rejects.toThrow(BadRequestException);
     });
 

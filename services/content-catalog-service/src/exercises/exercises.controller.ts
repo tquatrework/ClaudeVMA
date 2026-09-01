@@ -110,6 +110,21 @@ export class ExercisesController {
     return this.exercisesService.update(exerciseId, updateExerciseDto, currentUser.id, currentUser.role);
   }
 
+  @Get('default-title')
+  @Roles(UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE)
+  @ApiOperation({
+    summary: 'Suggérer un titre par défaut avant création',
+    description:
+      'À lire par le front à l\'ouverture du formulaire de création, pour pré-remplir le champ titre ' +
+      '(désormais obligatoire). Forme "Exercice {n}", où {n} est le nombre d\'exercices déjà créés par ' +
+      'l\'appelant, plus un. Ne réserve rien : l\'utilisateur reste libre de modifier la valeur avant de valider.',
+  })
+  @ApiResponse({ status: 200, description: 'Titre suggéré', schema: { example: { title: 'Exercice 4' } } })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  async getDefaultTitle(@CurrentUser() currentUser: AuthenticatedUser): Promise<{ title: string }> {
+    return this.exercisesService.getDefaultTitle(currentUser.id);
+  }
+
   @Get('pending-validation')
   @Roles(UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE)
   @ApiOperation({
@@ -140,6 +155,33 @@ export class ExercisesController {
     @CurrentUser() currentUser: AuthenticatedUser,
   ) {
     return this.exercisesService.findOne(exerciseId, currentUser.id, currentUser.role);
+  }
+
+  @Get(':id/solutions')
+  @Roles(
+    UserRole.FORMATEUR,
+    UserRole.ANIMATEUR_PEDAGOGIQUE,
+    UserRole.RESPONSABLE_PEDAGOGIQUE,
+    UserRole.TECHNICIEN_INFORMATIQUE,
+  )
+  @ApiOperation({
+    summary: 'Récupérer un exercice avec le contenu complet de ses solutions',
+    description:
+      'Retourne la même séquence de blocs que GET /exercises/:id, mais avec le contenu texte/formule/image ' +
+      'de la solution de chaque bloc question (jamais les images de solution, servies uniquement via la ' +
+      'médiation de learning-activity-service). Réservé à l\'auteur de l\'exercice et aux AP/RP/TI. ' +
+      'GET /exercises/:id reste inchangée et ne renvoie jamais la solution, quel que soit l\'appelant ' +
+      '(arbitrage du 2026-09-01, même principe que la solution du Quizz du 2026-08-28).',
+  })
+  @ApiParam({ name: 'id', description: 'UUID de l\'exercice' })
+  @ApiResponse({ status: 200, description: 'Exercice avec solutions complètes' })
+  @ApiResponse({ status: 403, description: 'Réservé à l\'auteur de l\'exercice et aux AP/RP/TI' })
+  @ApiResponse({ status: 404, description: 'Exercice introuvable' })
+  async findOneWithSolutions(
+    @Param('id') exerciseId: string,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ) {
+    return this.exercisesService.findOneWithSolutions(exerciseId, currentUser.id, currentUser.role);
   }
 
   @Get(':id/images/:itemId')

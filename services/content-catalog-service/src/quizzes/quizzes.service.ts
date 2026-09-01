@@ -241,6 +241,47 @@ export class QuizzesService {
     }
   }
 
+  // ───────────────────────────────────────────────────────────────────────
+  // Titre — obligatoire et unique par auteur (arbitrage du 2026-09-01)
+  // ───────────────────────────────────────────────────────────────────────
+
+  /**
+   * Refuse (400) si l'auteur possède déjà un autre quizz portant exactement
+   * ce titre. Unicité *par auteur*, pas globale — même règle que l'Exercice
+   * (docs/architecture.md, "Titre des Exercices et des Quizz"). `REMOVED`
+   * (s'il existe pour ce statut) n'est pas exclu ici : le Quizz n'a pas de
+   * statut REMOVED distinct dans son cycle de vie actuel (pas de route de
+   * retrait), donc aucune exclusion nécessaire pour l'instant.
+   */
+  private async assertTitleUnique(title: string, authorId: string, excludeQuizId?: string): Promise<void> {
+    // `.andWhere()` seul (sans `.where()` préalable) — même convention que
+    // `search()` plus bas dans ce service, compatible avec les mocks de test
+    // qui n'exposent que `andWhere`.
+    const qb = this.quizRepository
+      .createQueryBuilder('quiz')
+      .andWhere('quiz.authorId = :authorId', { authorId })
+      .andWhere('quiz.title = :title', { title });
+
+    if (excludeQuizId) {
+      qb.andWhere('quiz.id != :excludeQuizId', { excludeQuizId });
+    }
+
+    const existing = await qb.getOne();
+    if (existing) {
+      throw new BadRequestException(`Vous avez déjà un quizz intitulé "${title}"`);
+    }
+  }
+
+  /**
+   * Suggestion de titre par défaut ("Quizz {n}"), lue par le front à
+   * l'ouverture du formulaire de création — ne réserve rien (arbitrage du
+   * 2026-09-01), même mécanisme que `ExercisesService.getDefaultTitle`.
+   */
+  async getDefaultTitle(authorId: string): Promise<{ title: string }> {
+    const count = await this.quizRepository.count({ where: { authorId } });
+    return { title: `Quizz ${count + 1}` };
+  }
+
   private buildQuestionEntity(question: CreateQuizQuestionDto, index: number, quizId: string): QuizQuestion {
     const isChoiceCategory =
       question.category === QuizQuestionCategory.SINGLE_CHOICE ||
@@ -285,6 +326,11 @@ export class QuizzesService {
     if (!CREATOR_ROLES.includes(authorRole as UserRole)) {
       throw new ForbiddenException('Seuls les formateurs, AP et RP peuvent créer un quizz');
     }
+
+    if (!createQuizDto.title || !createQuizDto.title.trim()) {
+      throw new BadRequestException('Le titre du quizz est obligatoire');
+    }
+    await this.assertTitleUnique(createQuizDto.title, authorId);
 
     if (!createQuizDto.questions || createQuizDto.questions.length === 0) {
       throw new BadRequestException('Un quizz doit contenir au moins une question');
@@ -347,6 +393,11 @@ export class QuizzesService {
     if (quiz.authorId !== callerId) {
       throw new ForbiddenException('Seul l\'auteur peut modifier ce quizz');
     }
+
+    if (!updateQuizDto.title || !updateQuizDto.title.trim()) {
+      throw new BadRequestException('Le titre du quizz est obligatoire');
+    }
+    await this.assertTitleUnique(updateQuizDto.title, quiz.authorId, quizId);
 
     if (!updateQuizDto.questions || updateQuizDto.questions.length === 0) {
       throw new BadRequestException('Un quizz doit contenir au moins une question');

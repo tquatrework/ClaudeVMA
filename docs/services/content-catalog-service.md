@@ -36,9 +36,11 @@
     </roleAccessRules>
     <candidateApis>
       <endpoint method="GET" path="/exercises">Rechercher exercices, filtrable par tag (ANY(tags), applique le 2026-08-29).</endpoint>
-      <endpoint method="POST" path="/exercises">Charger un exercice : sequence ordonnee de blocs statement/question, chaque bloc question portant une solution obligatoire (refonte du 2026-08-29).</endpoint>
-      <endpoint method="PUT" path="/exercises/{id}">Modifier un exercice, reserve a son auteur ; repasse en pending_validation si l'auteur est formateur (ajoute le 2026-08-29).</endpoint>
+      <endpoint method="POST" path="/exercises">Charger un exercice : sequence ordonnee de blocs statement/question, chaque bloc question portant une solution obligatoire (refonte du 2026-08-29). Titre desormais obligatoire et unique par auteur (ajoute le 2026-09-01, 400 sinon) ; description optionnelle.</endpoint>
+      <endpoint method="PUT" path="/exercises/{id}">Modifier un exercice, reserve a son auteur ; repasse en pending_validation si l'auteur est formateur (ajoute le 2026-08-29). Meme regle de titre obligatoire/unique que la creation (2026-09-01), en excluant l'exercice lui-meme du controle d'unicite.</endpoint>
+      <endpoint method="GET" path="/exercises/default-title">Suggerer un titre par defaut ("Exercice {n}", n = nombre d'exercices deja crees par l'appelant + 1) — lue par le front a l'ouverture du formulaire de creation (ajoute le 2026-09-01). Reservee aux createurs (formateur/AP/RP).</endpoint>
       <endpoint method="GET" path="/exercises/pending-validation">Lister les exercices en attente de validation ; AP scope par relation animator_of_teacher, RP illimite (ajoute le 2026-08-29).</endpoint>
+      <endpoint method="GET" path="/exercises/{id}/solutions">Recuperer un exercice avec le contenu complet des solutions de chaque bloc question — reserve a l'auteur et aux AP/RP/TI (ajoute le 2026-09-01, correctif du bug "solutions non relisibles a l'edition"). GET /exercises/{id} reste inchangee (hasSolution seulement).</endpoint>
       <endpoint method="GET" path="/exercises/{id}/images/{itemId}">Octets d'une image de bloc (jamais de solution) (ajoute le 2026-08-29).</endpoint>
       <endpoint method="POST" path="/exercises/{id}/parts/{partId}/images">Ajouter une image a un bloc, multipart, re-encodage WebP (ajoute le 2026-08-29).</endpoint>
       <endpoint method="POST" path="/exercises/{id}/parts/{partId}/solution/images">Ajouter une image a la solution d'un bloc question, jamais servie publiquement (ajoute le 2026-08-29).</endpoint>
@@ -52,8 +54,9 @@
       <endpoint method="POST" path="/contents/{id}/comments">Commenter une ressource.</endpoint>
       <endpoint method="POST" path="/contents/{id}/ratings">Scorer une ressource.</endpoint>
       <endpoint method="GET" path="/quizzes">Rechercher les quizz visibles, ou tous ses propres quizz avec `mine=true` tous statuts confondus (ajoute le 2026-08-28, mine ajoute le 2026-08-28 session 3).</endpoint>
-      <endpoint method="POST" path="/quizzes">Creer un quizz avec questions, solution et bareme (ajoute le 2026-08-28).</endpoint>
-      <endpoint method="PUT" path="/quizzes/{id}">Modifier un quizz, reserve a son auteur ; repasse en pending_validation si l'auteur est formateur (ajoute le 2026-08-28 session 3).</endpoint>
+      <endpoint method="POST" path="/quizzes">Creer un quizz avec questions, solution et bareme (ajoute le 2026-08-28). Titre obligatoire des l'origine ; unicite par auteur ajoutee le 2026-09-01 (400 si l'auteur a deja un quizz du meme titre).</endpoint>
+      <endpoint method="PUT" path="/quizzes/{id}">Modifier un quizz, reserve a son auteur ; repasse en pending_validation si l'auteur est formateur (ajoute le 2026-08-28 session 3). Meme controle d'unicite de titre que la creation (2026-09-01), en excluant le quizz lui-meme.</endpoint>
+      <endpoint method="GET" path="/quizzes/default-title">Suggerer un titre par defaut ("Quizz {n}", n = nombre de quizz deja crees par l'appelant + 1) — lue par le front a l'ouverture du formulaire de creation (ajoute le 2026-09-01). Reservee aux createurs (formateur/AP/RP).</endpoint>
       <endpoint method="GET" path="/quizzes/pending-validation">Lister les quizz en attente de validation ; un AP ne voit que les formateurs qu'il anime, RP voit tout (ajoute le 2026-08-28, scoping AP ajoute session 3).</endpoint>
       <endpoint method="GET" path="/quizzes/{id}">Recuperer un quizz sans sa solution (ajoute le 2026-08-28). Reste inchangee par la session 4 : jamais la solution, quel que soit l'appelant.</endpoint>
       <endpoint method="GET" path="/quizzes/{id}/solution">Recuperer la solution complete d'un quizz (bonnes reponses, mots-cles) — reserve a l'auteur et aux AP/RP/TI (ajoute le 2026-08-28 session 4).</endpoint>
@@ -1047,6 +1050,89 @@
             avant la première mise en production, plutôt que de le découvrir au premier upload réel
             — c'est la troisième fois que ce même défaut est corrigé isolément (profile-service,
             pedagogical-log-service, content-catalog-service).
+          </point>
+        </openPoints>
+      </session>
+      <session date="2026-09-01" label="Titre obligatoire/unique par auteur (Exercice+Quizz), description Exercice optionnelle confirmée, solutions relisibles par l'auteur (branche fix/content-catalog-exercise-title-and-solutions)">
+        <context>
+          Trois retours utilisateur après test visuel en production du chantier Exercices
+          (docs/architecture.md, "Titre des Exercices et des Quizz : obligatoire, unique, avec une
+          valeur par defaut proposee par le serveur", arbitrage du 2026-09-01) : (1) le titre doit
+          devenir obligatoire et unique par auteur, avec une suggestion par defaut lue depuis le
+          serveur ; (2) le champ Description doit rester acceptable sans valeur pour l'ecran
+          Exercice ; (3) bug — les solutions déjà saisies d'un Exercice ne sont pas réaffichées à
+          l'édition.
+        </context>
+        <diagnosis>
+          Point 2 déjà conforme : `description` était déjà `@IsOptional()` dans `CreateExerciseDto`,
+          aucun changement nécessaire. Point 3 diagnostiqué en lisant `ExercisesService` : la
+          persistance des `ExerciseSolution`/`ExerciseContentItem` était correcte
+          (`savePartsAndSolutions`), le bug était une lecture incomplète — `GET /exercises/:id`
+          (`toPublicDetail`/`toPublicPart`) ne renvoie que `hasSolution: boolean`, et aucune autre
+          route publique n'exposait le contenu de la solution à l'auteur (seule la route interne
+          `POST /internal/exercises/:exerciseId/parts/:partId/solution`, réservée à
+          learning-activity-service via X-Internal-Secret, y accédait). Même lecture que
+          l'arbitrage Quizz du 2026-08-28 ("Lecture de sa propre solution par l'auteur") : la règle
+          "jamais la solution" protège l'élève qui passe le contenu, pas l'auteur qui relit ce qu'il
+          a lui-même écrit.
+        </diagnosis>
+        <filesModified>
+          <file path="src/exercises/dto/create-exercise.dto.ts">`title` devient `@IsString() @IsNotEmpty()` (au lieu de `@IsOptional()`) ; `description` inchangée (déjà optionnelle).</file>
+          <file path="src/exercises/entities/exercise.entity.ts">`title: string` (retrait de `nullable: true` et du type `string | null`) — la contrainte NOT NULL est posée par la migration ci-dessous, pas laissée à `synchronize` seul.</file>
+          <file path="src/exercises/exercises.service.ts">Nouveau `assertTitleUnique(title, authorId, excludeExerciseId?)` (requête `createQueryBuilder` par `.andWhere()`, exclut `status = REMOVED` et l'id édité), appelé dans `create()` et `update()` avant toute écriture ; nouveau `getDefaultTitle(authorId)` (`count({where:{authorId}})+1`) ; nouvelles interfaces `PublicExercisePartWithSolution`/`PublicExerciseDetailWithSolutions` et méthode `findOneWithSolutions(exerciseId, callerId, callerRole)` (403 si ni auteur ni AP/RP/TI, sinon détail complet avec le contenu de chaque solution).</file>
+          <file path="src/exercises/exercises.controller.ts">Nouvelles routes `GET /exercises/default-title` (créateurs uniquement) et `GET /exercises/:id/solutions` (auteur + AP/RP/TI), toutes deux placées avant `GET /exercises/:id` pour ne pas être capturées par la route paramétrée.</file>
+          <file path="src/quizzes/quizzes.service.ts">Même mécanisme `assertTitleUnique`/`getDefaultTitle` pour Quiz (le DTO portait déjà `title` requis depuis le 2026-08-28, seule l'unicité par auteur manquait).</file>
+          <file path="src/quizzes/quizzes.controller.ts">Nouvelle route `GET /quizzes/default-title` (créateurs uniquement), placée avant les routes paramétrées.</file>
+          <file path="src/migrations/1791000000000-MakeExerciseTitleRequired.ts">Backfill des titres NULL/vides (`'Exercice (sans titre) ' || id[:8]`) puis `ALTER TABLE exercises ALTER COLUMN title SET NOT NULL`, sous garde `to_regclass` (idempotente, sûre sur base neuve) — évite le crash-loop `synchronize` déjà rencontré le 2026-08-29 sur ce même service (NODE_ENV=development actif en production, synchronize tente d'ajouter des contraintes NOT NULL avant que la migration n'ait nettoyé les données existantes).</file>
+          <file path="test/unit/exercises/exercises.service.spec.ts">Nouveaux tests : titre vide/espaces refusé, titre dupliqué par le même auteur refusé, deux auteurs différents avec le même titre acceptés, `getDefaultTitle()`, exclusion de soi-même à l'édition, `findOneWithSolutions()` (auteur, RP, tiers 403, énoncé sans solution → `solution: null`). Ajout de `count` et `getOne` aux mocks de repository.</file>
+          <file path="test/unit/quizzes/quizzes.service.spec.ts">Mêmes tests côté Quiz (titre vide, doublon par auteur, deux auteurs différents, `getDefaultTitle()`). Ajout de `count` et `getOne` au mock de repository.</file>
+        </filesModified>
+        <technicalDecisions>
+          <decision>
+            Unicité de titre vérifiée par requête (`createQueryBuilder(...).andWhere(...).getOne()`)
+            plutôt que par contrainte DB unique composite (authorId, title) : la règle exclut les
+            exercices `REMOVED`, ce qu'une contrainte SQL plate ne peut pas exprimer sans index
+            partiel ; cohérent avec le reste du projet, qui n'a pas non plus de contrainte DB pour
+            ce type de règle métier. Fenêtre de course théorique (deux créations concurrentes du même
+            titre) acceptée, non traitée ici — même niveau de rigueur que le reste du service.
+          </decision>
+          <decision>
+            `.andWhere()` utilisé sans `.where()` préalable dans `assertTitleUnique` (les deux
+            services) — même convention déjà en usage dans `search()` des deux services, et
+            compatible avec les mocks de test existants qui n'exposent que `andWhere`.
+          </decision>
+          <decision>
+            Colonne `exercises.title` rendue NOT NULL en base (migration), pas seulement validée
+            côté DTO : cohérent avec `quizzes.title`, déjà NOT NULL depuis sa création. Nécessite un
+            backfill préalable (1 ligne concernée en prod au moment du chantier) pour éviter de
+            reproduire l'incident `synchronize` du 2026-08-29 documenté dans
+            `1790000000000-CleanupPreRefonteExerciseData.ts`.
+          </decision>
+          <decision>
+            `GET /exercises/:id/solutions` renvoie la même forme que `GET /exercises/:id` mais avec
+            `solution: {items: PublicContentItem[]} | null` au lieu de `hasSolution: boolean` sur
+            chaque bloc — jamais les deux formes mélangées sur une même route, pour rester cohérent
+            avec la règle "un seul nom par donnée" (ici, deux routes distinctes portent chacune sa
+            forme).
+          </decision>
+        </technicalDecisions>
+        <verification>
+          <item>`npm run build` : 0 erreur, sur les deux passes (avant et après ajout des tests).</item>
+          <item>`npx jest` (content-catalog-service, suite complète) : 23 suites, 297/297 tests verts.</item>
+          <item>Image Docker reconstruite depuis le contenu réel du worktree (le contexte `docker compose build` pointait vers le checkout partagé, pas le worktree — rebuild manuel via `docker build` puis `docker compose up --no-build` pour forcer l'usage de l'image fraîche) ; conteneur redémarré, migration appliquée (`migration:show` → `[X] 2 MakeExerciseTitleRequired1791000000000`), backfill confirmé en base (`exercises.title` : 0 NULL sur 13 lignes après migration, colonne NOT NULL confirmée par `\d exercises`).</item>
+          <item>Preuve end-to-end contre https://claudevma.visioprof.fr, compte formateur de test créé et connecté : `POST /exercises` sans titre → `400` ("title should not be empty") ; `POST /quizzes` sans titre → `400` (même message) ; `GET /exercises/default-title` → `200 {"title":"Exercice 1"}`, puis `{"title":"Exercice 2"}` après une création ; `GET /quizzes/default-title` → `200 {"title":"Quizz 1"}` ; `POST /exercises` sans `description` → `201` ; `POST /exercises` avec un titre déjà pris par le même auteur → `400` ("Vous avez déjà un exercice intitulé...") ; `GET /exercises/:id/solutions` par l'auteur → `200` avec le contenu réel de la solution (`"Solution attendue XYZ"`, confirmé de nouveau après `PUT` d'édition avec un nouveau contenu de solution) ; même route par un compte élève tiers → `403` ; `GET /exercises/:id` (route publique) ne renvoie jamais la solution, avant ni après l'édition.</item>
+        </verification>
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <point>
+            `DELETE /exercises/:id` reste restreint à `@Roles(RESPONSABLE_PEDAGOGIQUE,
+            TECHNICIEN_INFORMATIQUE)` au niveau contrôleur, alors que `ExercisesService.removeExercise`
+            contient une branche `exercise.authorId === requesterId` inatteignable par la route
+            publique (le RolesGuard bloque un auteur formateur avant que le service ne soit appelé).
+            Incohérence pré-existante, non corrigée ici (hors périmètre de cette tâche) — l'exercice
+            de test créé pendant cette vérification (id `2f2f8c95-477c-43c4-b665-320f94d45b72`,
+            `pending_validation`) n'a donc pas pu être retiré par son auteur formateur de test et
+            reste en base, invisible aux élèves et aux autres professeurs tant qu'il n'est pas validé.
           </point>
         </openPoints>
       </session>

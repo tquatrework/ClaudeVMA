@@ -1284,6 +1284,49 @@ Phase 3 enrichit l'offre :
      lui-meme ecrit — si aucune route n'existe aujourd'hui pour que l'auteur relise sa solution
      d'Exercice, il faut en creer une, sur le meme modele que `GET /quizzes/:id/solution`.
 
+- Bloc "image" de premier niveau pour l'Exercice, remplaçant l'image comme item embarque dans un
+  bloc enonce/question. Arbitrage rendu le 2026-09-01, sur proposition de l'utilisateur apres
+  qu'il ait pointe le mecanisme du point precedent (retrait du bouton "Ajouter un element" par
+  `front-developper`, PR #189) comme insatisfaisant une fois le fonctionnement reel constate :
+  image impossible a la creation (necessite un `exerciseId`/`partId` deja attribue par le
+  serveur, donc un premier enregistrement prealable), ajout uniquement bloc par bloc sur l'ecran
+  d'edition, image de solution jamais rerelisible par l'auteur, et modification du texte du
+  formulaire qui efface les images deja envoyees (bug documente par un bandeau plutot que
+  corrige).
+  1. **Un Exercice est desormais une sequence ordonnee de blocs a 3 categories** :
+     `'statement'` (enonce), `'image'`, `'question'` — au lieu de 2 categories precedentes
+     (`'statement'`/`'question'`) portant chacune des items types `text`/`formula`/`image`. Le
+     bloc `'image'` porte directement une image : ce n'est plus un item parmi d'autres a
+     l'interieur d'un bloc, c'est un bloc a part entiere, au meme rang que enonce et question
+     dans la sequence ordonnee.
+  2. **Contraintes de composition minimale, verifiees cote serveur** : un Exercice doit comporter
+     au moins un bloc `'statement'` (qui peut etre vide) et au moins un bloc `'question'` **non
+     vide** (portant un contenu reel — texte, formule ou reponse attendue). Refus explicite (400)
+     a la creation/edition si ces minimums ne sont pas respectes, jamais une acceptation
+     silencieuse d'un Exercice incomplet.
+  3. **Le bloc image est disponible des la creation**, au meme titre que les blocs enonce/
+     question — resout directement la limitation actuelle qui exige un premier enregistrement.
+     Coherent avec le mecanisme deja etabli pour les blocs texte/formule (Memo-style).
+  4. **Migration des Exercices existants** : tres peu de volume reel a ce jour (le mecanisme
+     precedent vient d'etre livre le meme jour, 2026-09-01), mais `content-catalog-service` ne
+     doit faire disparaitre silencieusement aucune image deja envoyee via l'ancien mecanisme —
+     migrer les items image existants en blocs image equivalents dans la sequence, a la position
+     qu'ils occupaient dans leur bloc d'origine.
+  5. **Le bug de solution-image jamais rerelisible doit etre corrige au passage**, meme
+     raisonnement que le correctif deja fait pour les solutions textuelles le meme jour (point
+     precedent) : l'auteur doit pouvoir revoir une image de solution qu'il a lui-meme envoyee,
+     via la meme route de lecture d'auteur deja creee pour les solutions (`GET /exercises/:id/solutions`)
+     plutot qu'un mecanisme separe.
+  6. **Le bug "modifier le texte efface les images" disparait structurellement** une fois les
+     images promues au rang de bloc de premier niveau : un seul mecanisme de sauvegarde/
+     reordonnancement pour toute la sequence de blocs (enonce/image/question), plus de
+     desynchronisation entre deux flux de sauvegarde distincts (formulaire texte d'un cote,
+     upload d'image de l'autre).
+  7. **L'ancien mecanisme (image comme item dans un bloc, upload post-enregistrement via
+     `ExerciseImageManager`) est retire**, pas conserve en parallele — meme principe que partout
+     ailleurs dans ce projet quand un modele est remplace (ex. refonte des Exercices elle-meme,
+     2026-08-29) : deux mecanismes concurrents pour la meme donnee entretiendraient la confusion.
+
 ## Points ouverts a arbitrer
 
 - `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a

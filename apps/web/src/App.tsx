@@ -53,6 +53,7 @@ import LegalTemplateAdminPage from './pages/LegalTemplateAdminPage'
 import PedagogicalArchivePage from './pages/PedagogicalArchivePage'
 import ExerciseCatalogPage from './pages/ExerciseCatalogPage'
 import ExerciseDetailPage from './pages/ExerciseDetailPage'
+import ExerciseEditPage from './pages/ExerciseEditPage'
 import EvaluationCatalogPage from './pages/EvaluationCatalogPage'
 import EvaluationAttemptPage from './pages/EvaluationAttemptPage'
 import TutorialCatalogPage from './pages/TutorialCatalogPage'
@@ -657,7 +658,9 @@ export default function App() {
             }
           />
 
-          {/* ── Phase 12 — Catalogue pédagogique ────────────────── */}
+          {/* ── Exercices — refonte du 2026-08-29 (blocs typés, auto-contrôle) ──
+              Mêmes rôles créateurs que le Quizz (docs/architecture.md > « Refonte des
+              Exercices ») : formateur/AP/RP créent, eleve/formateur/AP/RP passent. */}
           <Route
             path="/content/exercises"
             element={
@@ -671,8 +674,22 @@ export default function App() {
           <Route
             path="/content/exercises/:exerciseId"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={['eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique']}
+              >
                 <ExerciseDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* Édition réservée à l'auteur — mêmes rôles créateurs, le contrôle réel (auteur ou
+              non) restant du côté serveur, même patron que `/content/quizz/:quizId/edit`. */}
+          <Route
+            path="/content/exercises/:exerciseId/edit"
+            element={
+              <ProtectedRoute
+                allowedRoles={['formateur', 'animateur_pedagogique', 'responsable_pedagogique']}
+              >
+                <ExerciseEditPage />
               </ProtectedRoute>
             }
           />

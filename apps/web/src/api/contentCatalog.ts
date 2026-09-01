@@ -1,7 +1,13 @@
 /**
  * Module API — content-catalog-service (Phase 12)
- * Exercices, évaluations, tutos-vidéos, réponses, corrections, commentaires.
+ * Évaluations, tutos-vidéos, commentaires, notations.
  * Toutes les requêtes passent par apiClient (base /api/v1).
+ *
+ * Les Exercices ont été retirés de ce module le 2026-08-29 (refonte en blocs typés) : voir
+ * `src/api/exercises.ts` (content-catalog-service) et `src/api/exerciseAttempts.ts`
+ * (learning-activity-service, réponses/tentatives/historique). L'ancien modèle plat
+ * (`Exercise`, `ExerciseAnswer`, `ExerciseSolution`, demande de correction) ne correspond plus au
+ * contrat serveur réel — voir `docs/architecture.md` > « Refonte des Exercices ».
  */
 
 import apiClient from './client'
@@ -13,57 +19,6 @@ export type ContentType = 'exercise' | 'evaluation' | 'tutorial'
 export type DifficultyLevel = 'facile' | 'moyen' | 'difficile'
 
 export type ContentStatus = 'draft' | 'pending_validation' | 'published' | 'rejected'
-
-export type CorrectionStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled'
-
-// ─── Exercices ────────────────────────────────────────────────────────────────
-
-export interface Exercise {
-  id: string
-  title: string
-  description: string
-  subject: string
-  level: string
-  difficultyLevel: DifficultyLevel
-  status: ContentStatus
-  authorId: string
-  hasSolution: boolean
-  createdAt: string
-  updatedAt?: string
-}
-
-export interface CreateExercisePayload {
-  title: string
-  description: string
-  subject: string
-  level: string
-  difficultyLevel: DifficultyLevel
-  solutionContent: string
-}
-
-export interface ExerciseAnswer {
-  id: string
-  exerciseId: string
-  studentId: string
-  content: string
-  submittedAt: string
-  correctionStatus?: CorrectionStatus
-}
-
-export interface SubmitExerciseAnswerPayload {
-  content: string
-}
-
-export interface ExerciseSolution {
-  id: string
-  exerciseId: string
-  content: string
-  createdAt: string
-}
-
-export interface CreateExerciseSolutionPayload {
-  content: string
-}
 
 // ─── Évaluations ─────────────────────────────────────────────────────────────
 
@@ -156,20 +111,6 @@ export interface ContentRating {
   createdAt: string
 }
 
-// ─── Demande de correction ────────────────────────────────────────────────────
-
-export interface CorrectionRequest {
-  id: string
-  exerciseAnswerId: string
-  studentId: string
-  requestedAt: string
-  correctionStatus: CorrectionStatus
-}
-
-export interface CreateCorrectionRequestPayload {
-  message?: string
-}
-
 // ─── Liste paginée ────────────────────────────────────────────────────────────
 
 export interface PaginatedResponse<T> {
@@ -179,81 +120,6 @@ export interface PaginatedResponse<T> {
     page: number
     pageSize: number
   }
-}
-
-// ─── API Exercices ────────────────────────────────────────────────────────────
-
-/**
- * GET /exercises
- * Liste les exercices publiés (ou tous pour RP/AP).
- */
-export async function fetchExercises(params?: {
-  subject?: string
-  level?: string
-  difficultyLevel?: DifficultyLevel
-  status?: ContentStatus
-}): Promise<Exercise[]> {
-  const { data } = await apiClient.get<Exercise[] | PaginatedResponse<Exercise>>('/exercises', {
-    params,
-  })
-  if (Array.isArray(data)) return data
-  return (data as PaginatedResponse<Exercise>).data ?? []
-}
-
-/**
- * POST /exercises
- * Crée un exercice (formateur, AP, RP). Nécessite une solution.
- */
-export async function createExercise(payload: CreateExercisePayload): Promise<Exercise> {
-  const { data } = await apiClient.post<Exercise>('/exercises', payload)
-  return data
-}
-
-/**
- * POST /exercises/:id/answers
- * L'élève soumet une réponse à un exercice.
- */
-export async function submitExerciseAnswer(
-  exerciseId: string,
-  payload: SubmitExerciseAnswerPayload,
-): Promise<ExerciseAnswer> {
-  const { data } = await apiClient.post<ExerciseAnswer>(
-    `/exercises/${exerciseId}/answers`,
-    payload,
-  )
-  return data
-}
-
-/**
- * POST /exercises/:id/solutions
- * Publie la solution d'un exercice (formateur, RP, AP).
- */
-export async function createExerciseSolution(
-  exerciseId: string,
-  payload: CreateExerciseSolutionPayload,
-): Promise<ExerciseSolution> {
-  const { data } = await apiClient.post<ExerciseSolution>(
-    `/exercises/${exerciseId}/solutions`,
-    payload,
-  )
-  return data
-}
-
-// ─── API Demande de correction ────────────────────────────────────────────────
-
-/**
- * POST /exercise-answers/:id/correction-requests
- * L'élève demande une correction sur sa réponse soumise.
- */
-export async function requestExerciseCorrection(
-  answerId: string,
-  payload: CreateCorrectionRequestPayload,
-): Promise<CorrectionRequest> {
-  const { data } = await apiClient.post<CorrectionRequest>(
-    `/exercise-answers/${answerId}/correction-requests`,
-    payload,
-  )
-  return data
 }
 
 // ─── API Évaluations ──────────────────────────────────────────────────────────

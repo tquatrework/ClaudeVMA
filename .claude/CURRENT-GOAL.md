@@ -7,6 +7,30 @@
 
 ## Besoin courant
 
+Aucun objectif courant. Refonte des Exercices close le 2026-09-01, voir l'archive ci-dessous.
+
+<details>
+<summary>Archive — besoin du 2026-08-29, refonte des Exercices alignée sur le modèle Quizz (clos,
+mergé et déployé le 2026-09-01, à valider par l'utilisateur en testant directement)</summary>
+
+### Clôture — 2026-09-01
+
+PR #186 (front) mergée sur demande explicite de l'utilisateur (« Merge tout ce qui concerne
+exercices, que je puisse tester et constater »). Les deux blocages backend/infra (#187 gateway,
+#188 stockage image) étaient déjà mergés avant. Conteneur `frontend` reconstruit et redéployé avec
+le code mergé, `https://claudevma.visioprof.fr` répond `200` après redéploiement. Worktrees
+d'agents résiduels nettoyés (`feat/exercises-front`, harness du subagent).
+
+**Preuve produite jusqu'ici** : HTTP directe par les subagents (création → validation RP → recherche
+par tag élève → démarrage de tentative → réponse → révélation de solution → statut fait → historique
+→ image lisible), plus 15 captures Playwright locales (non committées, non montrées à l'utilisateur
+sur sa demande — rapport texte jugé suffisant). **Pas de nouvelle vérification en production après
+ce dernier redéploiement** : le code testé par le subagent tournait en local avec un proxy vers
+l'API réelle, pas encore via le bundle frontend fraîchement construit. À l'utilisateur de constater
+directement sur `https://claudevma.visioprof.fr` — c'est ce qu'il a demandé.
+
+Résumé du besoin original :
+
 Refonte des Exercices, demandée le 2026-08-29, alignée sur le modèle Quizz. Arbitrage complet
 persisté dans `docs/architecture.md` (PR #181, branche `docs/exercises-rebuild-arbitrage`, pas
 encore mergée) après constat que l'implémentation existante (chantier de juin 2026, entités
@@ -80,6 +104,8 @@ Délégué en parallèle le 2026-08-29 :
 professeur crée un Exercice multi-blocs avec image → `pending_validation` → RP/AP valide → élève le
 passe (répond à certaines questions, révèle d'autres solutions) → statut fait/en cours correct →
 historique à jour.
+
+</details>
 
 <details>
 <summary>Archive — besoin du 2026-08-29, onglet Validation dans la page Quizz (clos, vérifié en production)</summary>

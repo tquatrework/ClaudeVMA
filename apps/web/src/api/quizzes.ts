@@ -30,6 +30,7 @@ import apiClient from './client'
 import type {
   AuthorQuizDetail,
   CreateQuizPayload,
+  DefaultQuizTitle,
   PublicQuizDetail,
   QuizSummary,
   QuizValidationDecision,
@@ -95,6 +96,16 @@ export async function fetchPendingQuizzes(
       limit: params.limit ?? DEFAULT_LIMIT,
     },
   })
+  return data
+}
+
+/**
+ * GET /quizzes/default-title
+ * Suggestion de titre par défaut ("Quizz {n}") à lire à l'ouverture du formulaire de création
+ * (arbitrage du 2026-09-01, `docs/architecture.md` > « Titre des Exercices et des Quizz »).
+ */
+export async function fetchQuizDefaultTitle(): Promise<DefaultQuizTitle> {
+  const { data } = await apiClient.get<DefaultQuizTitle>('/quizzes/default-title')
   return data
 }
 

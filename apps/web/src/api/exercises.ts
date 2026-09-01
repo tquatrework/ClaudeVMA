@@ -1,19 +1,23 @@
 /**
  * Module API — Exercices, volet content-catalog-service.
- * Recherche, création, édition, lecture, validation et images d'un exercice.
+ * Recherche, création, édition, lecture et validation d'un exercice — les images de bloc sont
+ * embarquées inline (base64) dans les payloads de création/édition, aucun appel dédié.
  * Toutes les requêtes passent par apiClient (base /api/v1).
  *
- * Voir `docs/routes.md` > content-catalog-service > « Exercices — refonte du 2026-08-29 »
- * pour le contrat documenté, et `src/types/exercise.ts` pour les formes.
+ * Voir `docs/routes.md` > content-catalog-service > « Exercices — refonte du 2026-08-29, bloc
+ * image de premier niveau le 2026-09-01 » pour le contrat documenté, et `src/types/exercise.ts`
+ * pour les formes.
  */
 
 import apiClient from './client'
 import type {
+  AuthorExerciseDetail,
   CreateExercisePayload,
+  DefaultExerciseTitle,
+  ExerciseImageConstraints,
   ExerciseSummary,
   ExerciseValidationDecision,
   ExerciseValidationHistoryEntry,
-  PublicContentItem,
   PublicExerciseDetail,
 } from '../types/exercise'
 
@@ -89,10 +93,54 @@ export async function fetchExercise(exerciseId: string): Promise<PublicExerciseD
 }
 
 /**
+ * GET /exercises/default-title
+ * Suggestion de titre par défaut ("Exercice {n}") à lire à l'ouverture du formulaire de création,
+ * pour pré-remplir le champ — l'utilisateur reste libre de le modifier (arbitrage du 2026-09-01,
+ * `docs/architecture.md` > « Titre des Exercices et des Quizz »).
+ */
+export async function fetchExerciseDefaultTitle(): Promise<DefaultExerciseTitle> {
+  const { data } = await apiClient.get<DefaultExerciseTitle>('/exercises/default-title')
+  return data
+}
+
+/**
+ * GET /exercises/:id/solutions
+ * Détail complet AVEC solutions — réservée à l'auteur et aux AP/RP/TI, sur le modèle de
+ * `GET /quizzes/:id/solution` (arbitrage du 2026-09-01, point 6 : bug des solutions non
+ * réaffichées à l'édition). Voir `fetchExerciseForEdit` ci-dessous pour l'appel tolérant utilisé
+ * par l'écran d'édition, qui retombe sur `fetchExercise` si cette route échoue.
+ */
+export async function fetchExerciseSolutions(exerciseId: string): Promise<AuthorExerciseDetail> {
+  const { data } = await apiClient.get<AuthorExerciseDetail>(`/exercises/${exerciseId}/solutions`)
+  return data
+}
+
+/**
+ * Charge un exercice pour édition, en essayant d'abord de récupérer ses solutions déjà saisies
+ * (`fetchExerciseSolutions`). Si cette route échoue — pas encore déployée côté
+ * `content-catalog-service`, ou appelant non autorisé à la lire — on retombe sur `fetchExercise`
+ * (sans solution) plutôt que de bloquer l'édition : l'auteur ressaisit sa solution comme avant,
+ * et `solutionsPrefilled` indique à l'écran s'il doit encore afficher l'avertissement.
+ */
+export async function fetchExerciseForEdit(
+  exerciseId: string,
+): Promise<{ exercise: PublicExerciseDetail | AuthorExerciseDetail; solutionsPrefilled: boolean }> {
+  try {
+    const exercise = await fetchExerciseSolutions(exerciseId)
+    return { exercise, solutionsPrefilled: true }
+  } catch {
+    const exercise = await fetchExercise(exerciseId)
+    return { exercise, solutionsPrefilled: false }
+  }
+}
+
+/**
  * POST /exercises
  * Crée un exercice. Statut initial `pending_validation` (professeur) ou `validated` (AP/RP,
- * auto-validé). Les items de type `image` ne peuvent pas être créés ici — voir
- * `uploadExercisePartImage`/`uploadExerciseSolutionImage`, à appeler après création.
+ * auto-validé). Un bloc `category: 'image'` porte son image **inline, en base64**
+ * (`items[0].imageData`) — contrat confirmé par `content-catalog-service` (PR #191, 2026-09-01) :
+ * un seul appel, pas de route multipart séparée. Voir `utils/exercisePayload.ts`
+ * (`resolveExerciseImagePayloadItems`) pour la résolution du fichier avant l'appel.
  */
 export async function createExercise(
   payload: CreateExercisePayload,
@@ -103,9 +151,13 @@ export async function createExercise(
 
 /**
  * PUT /exercises/:id
- * Remplace intégralement un exercice — réservé à l'auteur. Repasse en `pending_validation` si
- * l'auteur est formateur et que l'exercice était `validated`. **Supprime les images déjà
- * envoyées** (limite documentée côté serveur) : à renvoyer après l'édition si besoin.
+ * Remplace intégralement la structure d'un exercice — réservé à l'auteur. Repasse en
+ * `pending_validation` si l'auteur est formateur et que l'exercice était `validated`.
+ * **Supprime les images précédemment envoyées à chaque édition** (remplacement intégral, pas de
+ * diff par identifiant stable) — elles doivent être **réintroduites dans ce même appel** si elles
+ * doivent être conservées. `resolveExerciseImagePayloadItems` s'en charge : il relit le contenu
+ * existant d'un bloc image non modifié (via `fetchExercisePartImageBlob`) avant de construire le
+ * payload, pour ne jamais perdre une image silencieusement.
  */
 export async function updateExercise(
   exerciseId: string,
@@ -115,6 +167,16 @@ export async function updateExercise(
     `/exercises/${exerciseId}`,
     payload,
   )
+  return data
+}
+
+/**
+ * GET /exercises/image-constraints
+ * Plafonds d'image à lire par le front **avant** d'afficher le bouton d'ajout d'image, jamais
+ * codés en dur (ajoutée le 2026-09-01, même discipline que `GET /profiles/avatar/constraints`).
+ */
+export async function fetchExerciseImageConstraints(): Promise<ExerciseImageConstraints> {
+  const { data } = await apiClient.get<ExerciseImageConstraints>('/exercises/image-constraints')
   return data
 }
 
@@ -138,53 +200,15 @@ export async function fetchExercisePartImageBlob(
   return data
 }
 
-/**
- * POST /exercises/:id/parts/:partId/images
- * Ajoute une image à un bloc (multipart, champ `file`, `caption?`). Réservé à l'auteur —
- * repasse l'exercice en `pending_validation` si l'auteur est formateur. `Content-Type`
- * neutralisé pour laisser le navigateur poser le `boundary` multipart.
- */
-export async function uploadExercisePartImage(
-  exerciseId: string,
-  partId: string,
-  file: File,
-  caption?: string,
-): Promise<PublicContentItem> {
-  const formData = new FormData()
-  formData.append('file', file)
-  if (caption) formData.append('caption', caption)
-
-  const { data } = await apiClient.post<PublicContentItem>(
-    `/exercises/${exerciseId}/parts/${partId}/images`,
-    formData,
-    { headers: { 'Content-Type': undefined } },
-  )
-  return data
-}
-
-/**
- * POST /exercises/:id/parts/:partId/solution/images
- * Ajoute une image à la solution d'un bloc `question` (multipart, mêmes règles). Jamais servie
- * par une route publique de lecture — accessible uniquement via la médiation de
- * `learning-activity-service` une fois révélée.
- */
-export async function uploadExerciseSolutionImage(
-  exerciseId: string,
-  partId: string,
-  file: File,
-  caption?: string,
-): Promise<PublicContentItem> {
-  const formData = new FormData()
-  formData.append('file', file)
-  if (caption) formData.append('caption', caption)
-
-  const { data } = await apiClient.post<PublicContentItem>(
-    `/exercises/${exerciseId}/parts/${partId}/solution/images`,
-    formData,
-    { headers: { 'Content-Type': undefined } },
-  )
-  return data
-}
+// ⚠️ `uploadExercisePartImage`/`uploadExerciseSolutionImage` (routes multipart post-création) ont
+// existé un temps le 2026-09-01, avant que le contrat réel de `content-catalog-service` (PR #191)
+// ne soit confirmé : elles sont **retirées côté serveur**
+// (`POST /exercises/:id/parts/:partId/images` et `.../solution/images` n'existent plus). L'image
+// d'un bloc transite désormais en base64, inline, dans `createExercise`/`updateExercise` — voir
+// `utils/exercisePayload.ts` (`resolveExerciseImagePayloadItems`). Une image de solution reste,
+// elle, éditable en texte/formule uniquement côté formulaire (voir `types/exercise.ts`,
+// `AuthorContentItem` — la donnée base64 est désormais lisible via `GET /exercises/:id/solutions`,
+// mais rien ne permet encore de l'écrire depuis ce formulaire).
 
 // ─── Validation — flux générique partagé avec le Quizz (ContentType.EXERCISE) ─────────────────
 

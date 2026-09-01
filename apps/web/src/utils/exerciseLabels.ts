@@ -19,6 +19,7 @@ export const EXERCISE_STATUS_BADGE_CLASSES: Record<ExerciseStatus, string> = {
 
 export const EXERCISE_PART_CATEGORY_LABELS: Record<ExercisePartCategory, string> = {
   statement: 'Énoncé',
+  image: 'Image',
   question: 'Question',
 }
 

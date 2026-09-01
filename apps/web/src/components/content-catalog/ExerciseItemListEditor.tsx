@@ -1,14 +1,20 @@
 /**
  * ExerciseItemListEditor — édition d'une liste ordonnée d'items texte/formule.
  *
- * Réutilisé deux fois par `ExercisePartEditor` : pour les items d'un bloc (énoncé ou question),
- * et pour les items de la solution d'un bloc question. Les items de type `image` ne peuvent pas
- * être créés ici — le serveur les refuse dans le DTO JSON (`docs/routes.md` > content-catalog-service
- * > « Exercices — refonte du 2026-08-29 ») ; ils s'ajoutent après enregistrement via
- * `ExerciseImageManager`.
+ * Réutilisé deux fois par `ExercisePartEditor` : pour les items d'un bloc énoncé/question, et pour
+ * les items de la solution d'un bloc question. Les items de type `image` ne peuvent pas être créés
+ * ici — le serveur les refuse dans le DTO JSON. **Depuis le 2026-09-01, l'image n'est plus un item
+ * embarqué dans un bloc énoncé/question : c'est un bloc de premier niveau à part entière**
+ * (`category: 'image'`), édité par `ExerciseImageBlockEditor`, jamais par ce composant — voir
+ * `docs/architecture.md` > « Bloc "image" de premier niveau pour l'Exercice ».
  *
  * Réutilise directement le mécanisme de saisie de formule déjà construit pour le Quizz/le Mémo
  * (`InsertFormulaButton`, `LightMarkupText`/`MathRenderer` pour l'aperçu).
+ *
+ * Le bouton générique « + Ajouter un élément » a été retiré le 2026-09-01 (arbitrage « Titre des
+ * Exercices et des Quizz », point 5) : le texte se saisit directement dans l'item déjà présent, et
+ * la formule dispose déjà de sa propre affordance d'insertion (`InsertFormulaButton`) — le bouton
+ * n'a donc plus de raison d'exister pour ces deux types.
  */
 
 import React, { useRef } from 'react'
@@ -37,8 +43,6 @@ interface ExerciseItemListEditorProps {
   isSubmitting: boolean
   /** Préfixe affiché devant chaque numéro d'item (« Élément 1 », « Solution 1 »…). */
   itemLabelPrefix: string
-  /** Préfixe pour les identifiants DOM/refs — doit être unique dans la page. */
-  fieldIdPrefix: string
 }
 
 export function ExerciseItemListEditor({
@@ -46,7 +50,6 @@ export function ExerciseItemListEditor({
   onChange,
   isSubmitting,
   itemLabelPrefix,
-  fieldIdPrefix,
 }: ExerciseItemListEditorProps) {
   const fieldRefs = useRef<Map<string, HTMLTextAreaElement | null>>(new Map())
 
@@ -154,14 +157,6 @@ export function ExerciseItemListEditor({
           )}
         </div>
       ))}
-      <button
-        type="button"
-        onClick={() => onChange([...items, createEditableExerciseItem()])}
-        disabled={isSubmitting}
-        className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
-      >
-        + Ajouter {fieldIdPrefix === 'solution' ? 'un élément de solution' : 'un élément'}
-      </button>
     </div>
   )
 }

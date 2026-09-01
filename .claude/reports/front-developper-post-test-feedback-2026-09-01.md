@@ -199,3 +199,74 @@ texte/formule uniquement.
 
 Tous les fichiers restent sous 300 lignes (le plus long, `ExerciseForm.tsx`, 295 lignes après
 extraction de `ExercisePartAddButtons.tsx`).
+
+---
+
+## Suite — 2026-09-01, même session : alignement sur le contrat réel (PR #191 content-catalog-service)
+
+### Statut : ✅
+
+Le rapport de `content-catalog-service` (PR #191, mergeable, pas encore mergée) est arrivé pendant
+la session : le contrat réel **diverge de l'hypothèse** sur laquelle j'avais codé au tour
+précédent. Il n'y a **aucun upload en deux temps, aucune route multipart post-création** :
+`POST /exercises/:id/parts/:partId/images` et `.../solution/images` sont **retirées côté serveur**.
+Tout se fait en **un seul appel** `POST`/`PUT /exercises`, l'image étant embarquée **en base64
+inline** dans le payload JSON (`items[0].imageData`). Contrat confirmé également pour
+`GET /exercises/image-constraints` (`{maxImageInputBytes, maxImageOutputBytes,
+maxRequestBodyBytes}`) et pour `GET /exercises/:id/solutions` (une image de solution est
+désormais lisible en base64).
+
+**Repris et réaligné** : `apps/web/src/utils/exerciseImageUpload.ts` (flux en deux temps) est
+**supprimé**, remplacé par un encodage local (`FileReader`, nouveau fichier
+`exerciseImageEncoding.ts`) résolu **avant** la construction du payload
+(`resolveExerciseImagePayloadItems` dans `exercisePayload.ts`) et embarqué directement dans le
+bloc, en un seul appel réseau. `uploadExercisePartImage`/`uploadExerciseSolutionImage` retirées de
+`api/exercises.ts` (routes qui n'existent plus côté serveur — les appeler aurait cassé au
+déploiement). Nouveau hook `useExerciseImageConstraints` + nouveau fichier
+`exerciseImageConstraints.ts` (repli, validation, messages français) pour lire/valider la taille
+maximale d'image **avant** que l'utilisateur choisisse un fichier, même discipline que l'avatar de
+`profile-service`. Ajout d'un contrôle de la taille totale du corps JSON avant envoi (protection
+ajoutée de ma propre initiative, non explicitement demandée — anticipe le `413` documenté côté
+serveur).
+
+**Point conservé de la session précédente, désormais appliqué au bon endroit** : un bloc image déjà
+rempli en édition, sans nouveau fichier choisi, voit son contenu **relu et réencodé avant** l'appel
+`PUT` (plus d'« après » réseau possible dans ce contrat) — protège contre la perte documentée par
+`content-catalog-service` (« PUT supprime les images précédemment envoyées à chaque édition »).
+
+`ExerciseForm.tsx` redécoupé une nouvelle fois (`ExerciseMetadataFields.tsx` extrait) pour repasser
+sous 300 lignes (304 → 255) après l'ajout du hook de contraintes et de la logique de résolution.
+
+### Vérifications
+
+- `npx tsc --noEmit` : 0 erreur.
+- `npm run build` : succès.
+- `npm run test` : 1997 passants / 49 échecs — identiques aux échecs pré-existants déjà confirmés
+  sans rapport avec ces sessions.
+- **Aucune vérification HTTP directe** : conformément au message reçu, le déploiement est pris en
+  charge par le coordinateur une fois le code prêt — pas fait par ce sous-agent.
+
+### Point ouvert
+
+Une image de solution est désormais **lisible** en base64 mais reste **non éditable** depuis ce
+formulaire (l'éditeur de solution ne gère que texte/formule) — aucun mécanisme d'écriture d'image
+de solution n'existe côté front, comme déjà noté au tour précédent. À reprendre si le besoin
+redevient réel.
+
+### Fichiers modifiés dans ce dernier tour
+
+- `apps/web/src/types/exercise.ts` (`CreateExerciseItemPayload.imageData`/`imageOriginalFilename`,
+  `ExerciseImageConstraints`, `AuthorContentItem`)
+- `apps/web/src/utils/exerciseImageUpload.ts` (supprimé)
+- `apps/web/src/utils/exerciseImageEncoding.ts` (nouveau)
+- `apps/web/src/utils/exerciseImageConstraints.ts` (nouveau)
+- `apps/web/src/utils/exercisePayload.ts` (`ExerciseFormValidationError`,
+  `resolveExerciseImagePayloadItems`, `buildExerciseCreatePayload` prend les items résolus)
+- `apps/web/src/hooks/content-catalog/useExerciseImageConstraints.ts` (nouveau)
+- `apps/web/src/components/content-catalog/ExerciseImageBlockEditor.tsx` (validation de taille)
+- `apps/web/src/components/content-catalog/ExercisePartEditor.tsx` (prop `maxImageInputBytes`)
+- `apps/web/src/components/content-catalog/ExerciseMetadataFields.tsx` (nouveau)
+- `apps/web/src/components/content-catalog/ExerciseForm.tsx` (`handleSubmit` réécrit)
+- `apps/web/src/api/exercises.ts` (`uploadExercisePartImage`/`uploadExerciseSolutionImage`
+  retirées, `fetchExerciseImageConstraints` ajoutée)
+- `docs/services/frontend-react-app.md` (nouvelle session documentée)

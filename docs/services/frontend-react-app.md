@@ -3234,5 +3234,142 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-09-01" label="Alignement upload image Exercice sur le vrai contrat backend (PR #191)">
+      <context>
+        Suite directe de la session précédente (bloc image de premier niveau, codée contre une
+        hypothèse de flux en deux temps faute de contrat confirmé). Le rapport de
+        `content-catalog-service` (PR #191) est arrivé : contrat réel divergent — **aucun upload en
+        deux temps, aucune route multipart post-création**. Tout se fait en un seul appel
+        `POST`/`PUT /exercises`, l'image étant embarquée en base64 inline dans le payload JSON.
+        Routes `POST /exercises/:id/parts/:partId/images` et `.../solution/images` retirées côté
+        serveur — le code de la session précédente qui les appelait aurait cassé au déploiement.
+      </context>
+
+      <tree>
+        <folder path="apps/web/src/types/">
+          <file path="exercise.ts">
+            `CreateExerciseItemPayload` : `type` gagne `'image'`, `content` devient optionnel
+            (requis pour text/formula, légende optionnelle pour image), + `imageData?: string`
+            (base64, requis pour type image) et `imageOriginalFilename?: string`.
+            `CreateExercisePartPayload.items` devient optionnel. Nouveau type
+            `ExerciseImageConstraints` (`{maxImageInputBytes, maxImageOutputBytes,
+            maxRequestBodyBytes}`, réponse de `GET /exercises/image-constraints`). Nouveau type
+            `AuthorContentItem extends PublicContentItem` avec `imageData?: string | null` —
+            utilisé uniquement pour `AuthorExercisePart.solution.items` (une image de solution est
+            désormais lisible en base64 via `GET /exercises/:id/solutions`, correctif confirmé).
+          </file>
+        </folder>
+        <folder path="apps/web/src/utils/">
+          <file path="exerciseImageUpload.ts">
+            **Supprimé.** Portait l'orchestration en deux temps (résoudre les fichiers en attente,
+            créer/mettre à jour la structure, uploader chaque image après coup) — devenue obsolète,
+            le contrat réel n'a plus besoin d'un second appel réseau par image.
+          </file>
+          <file path="exerciseImageEncoding.ts">
+            Nouveau. `readFileAsBase64`/`readBlobAsBase64` — encodage local via `FileReader`,
+            produisant directement une data URL base64 acceptée telle quelle par le serveur
+            (« avec ou sans préfixe data URI »).
+          </file>
+          <file path="exerciseImageConstraints.ts">
+            Nouveau, sur le patron de `quizImport.ts`/`profileAvatarConstraints.ts` : repli
+            (`FALLBACK_EXERCISE_IMAGE_CONSTRAINTS`), normalisation, messages français
+            (limite/dépassement), et validations pures (`isExerciseImageFileTooLarge`,
+            `isExerciseRequestBodyTooLarge`) — jamais de limite codée en dur dans un composant.
+          </file>
+          <file path="exercisePayload.ts">
+            Nouvelle classe `ExerciseFormValidationError` (distingue une erreur de validation
+            locale, déjà en français, d'une erreur réseau à traduire via `getErrorMessage`).
+            Nouvelle fonction `resolveExerciseImagePayloadItems(parts, existingExerciseId)` :
+            résout, pour chaque bloc image, l'item `{type:'image', imageData, ...}` à embarquer —
+            encode un fichier fraîchement choisi, ou **relit maintenant** (avant l'appel
+            create/update) le contenu d'un bloc image déjà enregistré sans nouveau fichier choisi,
+            par prudence contre la suppression documentée des images non resoumises au `PUT`.
+            `buildExerciseCreatePayload` prend désormais un second paramètre
+            (`resolvedImageItems: Map<string, CreateExerciseItemPayload>`) et embarque l'item
+            résolu directement dans le bloc, au lieu d'un placeholder vide.
+          </file>
+        </folder>
+        <folder path="apps/web/src/hooks/content-catalog/">
+          <file path="useExerciseImageConstraints.ts">
+            Nouveau. Lit `GET /exercises/image-constraints` au montage, sur le patron de
+            `useQuizImportConstraints`/`useProfileAvatarConstraints` — jamais `null`, repli
+            immédiat en cas d'échec.
+          </file>
+        </folder>
+        <folder path="apps/web/src/components/content-catalog/">
+          <file path="ExerciseImageBlockEditor.tsx">
+            Reçoit désormais `maxImageInputBytes: number` ; valide la taille du fichier choisi
+            **localement**, avant tout envoi (`isExerciseImageFileTooLarge`), affiche la limite
+            en clair sous le sélecteur, refuse avec un message citant taille du fichier + limite.
+          </file>
+          <file path="ExercisePartEditor.tsx">Prop `maxImageInputBytes` transmise telle quelle à `ExerciseImageBlockEditor`.</file>
+          <file path="ExerciseMetadataFields.tsx">
+            Nouveau. Champs Niveau/Difficulté/Thème/Compétences extraits de `ExerciseForm.tsx`
+            pour repasser sous 300 lignes après l'ajout du hook de contraintes et de la logique de
+            résolution d'image (304 → 255 lignes).
+          </file>
+          <file path="ExerciseForm.tsx">
+            `handleSubmit` réécrit : résout les images en attente
+            (`resolveExerciseImagePayloadItems`, avant tout appel réseau create/update) → construit
+            le payload (`buildExerciseCreatePayload`, avec les items résolus) → vérifie la taille
+            du corps JSON entier contre `maxRequestBodyBytes` → un seul appel
+            `createExercise`/`updateExercise`. Catch unique distinguant
+            `ExerciseFormValidationError` (message déjà français) des erreurs réseau
+            (`getErrorMessage`).
+          </file>
+        </folder>
+        <folder path="apps/web/src/api/">
+          <file path="exercises.ts">
+            `uploadExercisePartImage` et `uploadExerciseSolutionImage` **retirées** (routes
+            retirées côté serveur). Nouvelle fonction `fetchExerciseImageConstraints()` (`GET
+            /exercises/image-constraints`). Docstrings de `createExercise`/`updateExercise` mises à
+            jour pour refléter le contrat réel (image inline, pas de second appel).
+          </file>
+        </folder>
+      </tree>
+
+      <decisions>
+        <decision id="pre-fetch-existing-image-before-put">
+          <description>
+            Conservé de la session précédente, désormais appliqué au bon endroit : un bloc image
+            déjà rempli en édition, sans nouveau fichier choisi, voit son contenu existant
+            **relu et réencodé en base64 avant** l'appel `PUT` (pas après, puisqu'il n'y a plus
+            d'« après » réseau). Cette lecture anticipée protège contre la perte documentée par
+            `content-catalog-service` (« PUT supprime les images précédemment envoyées à chaque
+            édition... elles PEUVENT être réintroduites dans le même appel, à charge du front de
+            les renvoyer explicitement ») — exactement le comportement que ce correctif assure.
+          </description>
+          <status>resolved</status>
+        </decision>
+      </decisions>
+
+      <realStackVerification>
+        `npx tsc --noEmit` : 0 erreur. `npm run build` : succès. `npm run test` : 1997 passants /
+        49 échecs — identiques aux échecs pré-existants déjà confirmés sans rapport avec ces
+        sessions Exercices (mocks de l'ancien modèle Exercice). Aucune vérification HTTP directe
+        contre `https://claudevma.visioprof.fr` effectuée par ce sous-agent : le coordinateur a
+        indiqué prendre en charge le déploiement une fois le code prêt.
+      </realStackVerification>
+
+      <openPoints>
+        <item id="solution-image-still-not-editable">
+          Une image de solution est désormais **lisible** en base64
+          (`AuthorContentItem.imageData`, via `GET /exercises/:id/solutions`) mais reste **non
+          éditable** depuis ce formulaire — l'éditeur de solution (`ExerciseItemListEditor`) ne
+          gère que texte/formule. Aucun mécanisme d'écriture d'image de solution n'existe
+          actuellement côté front (l'ancien `uploadExerciseSolutionImage` est retiré sans
+          remplacement, comme noté dans la session précédente) — à reprendre si le besoin devient
+          réel.
+        </item>
+        <item id="request-body-size-guard-not-server-confirmed">
+          Le contrôle client de `maxRequestBodyBytes` (taille totale du JSON avant envoi) est une
+          protection ajoutée de ma propre initiative, non explicitement demandée — se contente
+          d'anticiper le `413` documenté côté serveur pour donner un message plus tôt et plus
+          clair. Comportement non vérifié contre la pile réelle (pas de déploiement effectué par ce
+          sous-agent).
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

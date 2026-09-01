@@ -311,4 +311,15 @@ export const IDS = {
   financeOwnerA: '00000000-0000-4000-8000-000000000081',
   financeOwnerB: '00000000-0000-4000-8000-000000000082',
   studentWithoutFinanceOwners: '00000000-0000-4000-8000-000000000083',
+  /**
+   * Comptes dédiés à `GET /internal/relations/teachers/:studentId`
+   * (arbitrage du 2026-09-01, refonte des Evaluations), isolés des IDs déjà
+   * mobilisés ailleurs dans le fichier pour ne pas dépendre de l'ordre
+   * d'exécution des tests — même convention que les IDs finance-owners
+   * ci-dessus.
+   */
+  studentWithTeachers: '00000000-0000-4000-8000-000000000090',
+  teacherA: '00000000-0000-4000-8000-000000000091',
+  teacherB: '00000000-0000-4000-8000-000000000092',
+  studentWithoutTeachers: '00000000-0000-4000-8000-000000000093',
 };

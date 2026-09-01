@@ -15,6 +15,7 @@ import type { ExerciseAttempt, PublicExerciseDetail } from '../../types/exercise
 interface ExercisePlayerProps {
   exercise: PublicExerciseDetail
   attempt: ExerciseAttempt
+  /** `content` texte brut saisi par l'élève — un seul item texte, cas d'usage courant du champ. */
   onAnswerSubmit: (partId: string, content: string) => Promise<void>
   onReveal: (partId: string) => Promise<void>
 }
@@ -24,8 +25,12 @@ export function ExercisePlayer({ exercise, attempt, onAnswerSubmit, onReveal }: 
   const [busyPartId, setBusyPartId] = useState<string | null>(null)
   const [errorByPartId, setErrorByPartId] = useState<Record<string, string>>({})
 
-  const answerByPartId = new Map(attempt.answers.map((a) => [a.partId, a.content]))
-  const revealedByPartId = new Map(attempt.revealedSolutions.map((r) => [r.partId, r.items]))
+  const partStateByPartId = new Map(attempt.parts.map((p) => [p.partId, p]))
+  const answerByPartId = new Map(
+    attempt.parts
+      .filter((p) => p.answerContent && p.answerContent.length > 0)
+      .map((p) => [p.partId, p.answerContent![0].content]),
+  )
 
   const getDraft = (partId: string) => draftAnswers[partId] ?? answerByPartId.get(partId) ?? ''
 
@@ -62,8 +67,9 @@ export function ExercisePlayer({ exercise, attempt, onAnswerSubmit, onReveal }: 
   return (
     <div className="space-y-4">
       {exercise.parts.map((part, index) => {
-        const revealedItems = revealedByPartId.get(part.id)
-        const isRevealed = !!revealedItems
+        const partState = partStateByPartId.get(part.id)
+        const revealedItems = partState?.revealedContent ?? null
+        const isRevealed = !!partState?.solutionRevealed && !!revealedItems
 
         return (
           <div key={part.id} className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
@@ -118,7 +124,7 @@ export function ExercisePlayer({ exercise, attempt, onAnswerSubmit, onReveal }: 
                   )}
                 </div>
 
-                {isRevealed && (
+                {isRevealed && revealedItems && (
                   <div className="bg-green-50 border border-green-200 rounded-md p-3 space-y-2">
                     <p className="text-xs font-semibold text-green-800">Solution</p>
                     {revealedItems.map((item) => (

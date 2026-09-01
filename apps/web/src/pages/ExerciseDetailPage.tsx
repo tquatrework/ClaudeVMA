@@ -24,7 +24,6 @@ import {
   startExerciseAttempt,
   submitExerciseAttemptAnswer,
   revealExerciseAttemptSolution,
-  fetchExerciseAttempt,
 } from '../api/exerciseAttempts'
 import { ExercisePlayer } from '../components/content-catalog/ExercisePlayer'
 import {
@@ -73,17 +72,20 @@ export default function ExerciseDetailPage() {
 
   const handleAnswerSubmit = async (partId: string, content: string) => {
     if (!attempt) return
-    const updated = await submitExerciseAttemptAnswer(attempt.id, partId, content)
+    // Le serveur attend un tableau d'items texte/formule — un seul item texte couvre le cas
+    // d'usage actuel (zone de réponse en texte libre). Réponse remontée telle quelle (règle du
+    // 2026-08-10, point 3bis) : `submitExerciseAttemptAnswer` renvoie déjà la tentative complète.
+    const updated = await submitExerciseAttemptAnswer(attempt.id, partId, [
+      { type: 'text', content },
+    ])
     setAttempt(updated)
   }
 
   const handleReveal = async (partId: string) => {
     if (!attempt) return
-    await revealExerciseAttemptSolution(attempt.id, partId)
-    // La révélation ne renvoie que le contenu de ce bloc — on relit l'état complet de la
-    // tentative pour rester réaligné sur la réponse du serveur (règle du 2026-08-10, point 3bis).
-    const refreshed = await fetchExerciseAttempt(attempt.id)
-    setAttempt(refreshed)
+    // La révélation renvoie déjà la tentative complète à jour — pas de second appel nécessaire.
+    const updated = await revealExerciseAttemptSolution(attempt.id, partId)
+    setAttempt(updated)
   }
 
   if (!resolvedExerciseId) {

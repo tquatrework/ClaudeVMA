@@ -115,24 +115,35 @@ export interface ExerciseValidationHistoryEntry {
 
 // ─── Passage (learning-activity-service) ──────────────────────────────────────
 //
-// Contrat non documenté dans `docs/routes.md` au moment de l'écriture de ce front (gap de
-// documentation signalé au rapport de session) — formes déduites de la description fonctionnelle
-// donnée pour ce chantier et du contrat interne `content-catalog-service` (même forme
-// `PublicContentItem[]` pour un contenu de bloc, y compris une solution révélée). À vérifier par
-// preuve HTTP contre la pile réelle avant de considérer ce volet du contrat comme stable.
+// Contrat vérifié par preuve HTTP directe contre la pile réelle le 2026-09-01 (une fois les deux
+// blocages infra levés — voir le rapport de session du même jour). La forme diffère de ce qui
+// avait été supposé initialement (gap de documentation, `docs/routes.md` ne documente toujours pas
+// ce volet de `learning-activity-service`) : `answerContent`/`revealedContent` sont portés par
+// `parts[]`, pas par des tableaux séparés `answers`/`revealedSolutions`.
 
 export type ExerciseAttemptStatus = 'in_progress' | 'done'
 
-/** Réponse donnée par l'utilisateur à un bloc « question », le cas échéant. */
-export interface ExerciseAttemptAnswer {
-  partId: string
+/**
+ * Un item de réponse **soumis par l'utilisateur** — même forme que
+ * `CreateExerciseItemPayload` (`type`/`content` uniquement, jamais d'`id`/`order` : le serveur ne
+ * les renvoie pas sur `answerContent`, contrairement à `revealedContent` qui reprend
+ * `PublicContentItem` tel quel).
+ */
+export interface ExerciseAttemptAnswerItem {
+  type: Extract<ExerciseItemType, 'text' | 'formula'>
   content: string
 }
 
-/** Solution révélée pour un bloc « question » au cours de la tentative. */
-export interface ExerciseAttemptRevealedSolution {
+/** État d'un bloc « question » au sein d'une tentative. */
+export interface ExerciseAttemptPartState {
   partId: string
-  items: PublicContentItem[]
+  /** `null` tant qu'aucune réponse n'a été soumise pour ce bloc. */
+  answerContent: ExerciseAttemptAnswerItem[] | null
+  answeredAt: string | null
+  solutionRevealed: boolean
+  revealedAt: string | null
+  /** `null` tant que la solution de ce bloc n'a pas été révélée. */
+  revealedContent: PublicContentItem[] | null
 }
 
 /** Une tentative d'exercice (auto-contrôle — jamais de note ni de score). */
@@ -140,9 +151,9 @@ export interface ExerciseAttempt {
   id: string
   exerciseId: string
   userId: string
+  userRole?: string
   status: ExerciseAttemptStatus
-  answers: ExerciseAttemptAnswer[]
-  revealedSolutions: ExerciseAttemptRevealedSolution[]
+  parts: ExerciseAttemptPartState[]
   startedAt: string
   updatedAt: string
 }

@@ -4,19 +4,19 @@
  * historique des tentatives d'exercice (auto-contrôle — jamais de note ni de score).
  * Toutes les requêtes passent par apiClient (base /api/v1).
  *
- * ⚠️ Contrat non documenté dans `docs/routes.md` au moment de l'écriture de ce module (gap
- * signalé au rapport de session) : les chemins et noms de champs ci-dessous sont ceux donnés par
- * la description fonctionnelle de ce chantier (`POST /exercise-attempts`,
- * `POST /exercise-attempts/:id/answers`, `POST /exercise-attempts/:id/reveal`,
- * `GET /exercise-attempts/:id/images/:itemId`, `GET /exercise-attempts/:id`,
- * `GET /exercise-attempts/history`), pas vérifiés en HTTP direct contre la pile réelle. À
- * confirmer/corriger dès qu'une preuve HTTP est disponible.
+ * Contrat vérifié par preuve HTTP directe contre `https://claudevma.visioprof.fr` le 2026-09-01
+ * (chemins et noms de champs confirmés, y compris les deux écarts avec la première version de ce
+ * module : `answers` attend `content` comme un **tableau** d'items `{type, content}`, jamais une
+ * chaîne brute ; et `POST .../reveal` renvoie déjà la **tentative complète** à jour, ce qui rend
+ * inutile un second appel à `fetchExerciseAttempt` après une révélation). `docs/routes.md` ne
+ * documente toujours pas ce volet de `learning-activity-service` — gap de documentation à signaler
+ * au sous-agent propriétaire, non corrigé ici (hors périmètre `apps/web`).
  */
 
 import apiClient from './client'
 import type {
   ExerciseAttempt,
-  ExerciseAttemptRevealedSolution,
+  ExerciseAttemptAnswerItem,
   PublicContentItem,
 } from '../types/exercise'
 
@@ -31,13 +31,14 @@ export async function startExerciseAttempt(exerciseId: string): Promise<Exercise
 
 /**
  * POST /exercise-attempts/:id/answers
- * Répond (facultativement) à un bloc « question ». Remplace la réponse précédente pour ce
- * `partId` si déjà soumise.
+ * Répond (facultativement) à un bloc « question ». `content` est un tableau d'un ou plusieurs
+ * items texte/formule (jamais vide — le serveur refuse `content: []` en `400`). Remplace la
+ * réponse précédente pour ce `partId` si déjà soumise. Renvoie la tentative complète à jour.
  */
 export async function submitExerciseAttemptAnswer(
   attemptId: string,
   partId: string,
-  content: string,
+  content: ExerciseAttemptAnswerItem[],
 ): Promise<ExerciseAttempt> {
   const { data } = await apiClient.post<ExerciseAttempt>(
     `/exercise-attempts/${attemptId}/answers`,
@@ -49,13 +50,14 @@ export async function submitExerciseAttemptAnswer(
 /**
  * POST /exercise-attempts/:id/reveal
  * Révèle la solution d'un bloc « question » — médié, jamais d'appel direct à
- * content-catalog-service. Renvoie le contenu de la solution dans la réponse.
+ * content-catalog-service. Renvoie la **tentative complète** à jour (tous les blocs, pas
+ * seulement celui révélé) : inutile de relire l'état par un second appel après coup.
  */
 export async function revealExerciseAttemptSolution(
   attemptId: string,
   partId: string,
-): Promise<ExerciseAttemptRevealedSolution> {
-  const { data } = await apiClient.post<ExerciseAttemptRevealedSolution>(
+): Promise<ExerciseAttempt> {
+  const { data } = await apiClient.post<ExerciseAttempt>(
     `/exercise-attempts/${attemptId}/reveal`,
     { partId },
   )

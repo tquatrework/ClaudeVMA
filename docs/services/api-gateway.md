@@ -74,6 +74,11 @@ Deux niveaux, dans le même script :
 | orchestration-service | `/api/v1/orchestration/events/` | `/events/` | `orchestration` | Oui | |
 | orchestration-service | `/api/v1/orchestration/callbacks/` | `/callbacks/` | `orchestration` | **Non** | Protection X-Webhook-Secret |
 | legal-document-service | `^~ /api/v1/legal-templates` | `/legal-templates` | `legal_document` | Oui | Gap gateway corrigé 2026-06-28 |
+| content-catalog-service | `^~ /api/v1/quizzes` | `/quizzes` | `content_catalog` | Oui | Quizz (2026-08-28) |
+| content-catalog-service | `^~ /api/v1/validations` | `/validations` | `content_catalog` | Oui | Flux de validation générique (exercice/évaluation/tutoriel/quizz) |
+| learning-activity-service | `^~ /api/v1/quiz-attempts` | `/quiz-attempts` | `learning_activity` | Oui | Tentatives de Quizz (2026-08-28) |
+| learning-activity-service | `^~ /api/v1/exercise-attempts` | `/exercise-attempts` | `learning_activity` | Oui | Tentatives d'Exercice — Gap gateway corrigé 2026-09-01 |
+| learning-activity-service | `^~ /api/v1/open-activities` | `/open-activities` | `learning_activity` | Oui | Activités non pourvues — Gap gateway corrigé 2026-09-01 |
 | gateway (nginx) | `/health` | — | — | Non | Healthcheck gateway |
 | gateway (nginx) | `/docs` | — | — | Non | Index JSON des Swagger |
 
@@ -309,7 +314,58 @@ directement sur la gateway repart avec le `413` **applicatif**
 bien celui de l'application. Via l'URL publique, c'est `nginx-global` (nginx/1.27.5, hors dépôt,
 défaut de 1 Mio) qui coupe en HTML, situation inchangée et déjà actée.
 
+### Session 2026-09-01 — Gap gateway : `/exercise-attempts` et `/open-activities` non proxyés
+
+Constat, remonté par le subagent front-developper en testant en HTTP direct : `GET
+/exercise-attempts/history` répondait un `404` nginx **brut** (page HTML, pas une réponse
+applicative) via l'URL publique — même famille de défaut que celui déjà corrigé pour
+`/quiz-attempts` le 2026-08-28 (PR #159). `ExerciseAttemptsController`
+(`@Controller('exercise-attempts')`) est pourtant déployé côté `learning-activity-service` depuis
+la PR #183 (refonte des Exercices, `docs/architecture.md` du 2026-08-29) : la gateway n'avait
+simplement jamais été mise à jour pour ce nouveau préfixe.
+
+Vérification systématique des autres contrôleurs du même service (identifiés par leurs préfixes
+`@Controller`, sans lecture du code métier) a révélé un second gap identique sur
+`/open-activities` (`OpenActivitiesController`) — jamais eu de `location` dédiée non plus.
+
+**Correction** : deux `location` ajoutées dans la section `learning-activity-service`, sur le
+patron exact de `/api/v1/quiz-attempts` (mêmes en-têtes, `auth_request`, propagation
+`x-correlation-id`) :
+- `^~ /api/v1/exercise-attempts` → `$upstream_learning_activity$api_v1_suffix`
+- `^~ /api/v1/open-activities` → `$upstream_learning_activity$api_v1_suffix`
+
+**Preuve, contre la pile réelle** (`https://claudevma.visioprof.fr`, sans token pour distinguer
+401 JSON = routé de 404 HTML = non routé) :
+
+| Route | Avant | Après |
+|---|---|---|
+| `GET /api/v1/exercise-attempts/history` | `404` HTML nginx | `401` JSON `{"statusCode":401,"message":"Unauthorized"}` |
+| `GET /api/v1/open-activities` | `404` HTML nginx | `401` JSON |
+| `GET /api/v1/quiz-attempts/history` (non-régression) | `401` | `401` inchangé |
+
+**Collision de préfixe identifiée en passant, non corrigée ici** : `learning-activity-service`
+possède *aussi* un contrôleur `activities` (`GET /activities`, réservé RP/TI/AF, export CSV), mais
+le préfixe `/api/v1/activities` route déjà exclusivement vers `calendar-service` depuis l'origine
+de la gateway. Cette route de `learning-activity-service` reste donc **inatteignable** via la
+gateway — nécessite un arbitrage de nommage (nouveau préfixe dédié), pas un simple ajout de
+`location`. Voir point en suspens ci-dessous.
+
+**Déploiement** : `docker-compose.yml` construisant l'image depuis le checkout principal (qui
+reste sur `master`), l'image a été reconstruite explicitement depuis la branche du correctif
+(`docker build -t claudevma-api-gateway ./gateway/api-gateway`) puis le conteneur recréé avec
+`docker compose up -d --no-build --force-recreate api-gateway` pour ne pas écraser l'image avec un
+rebuild depuis `master`.
+
 ## Points en suspens
+- **Collision `/api/v1/activities` entre `calendar-service` et `learning-activity-service`**
+  (relevée le 2026-09-01) : `GET /activities` de `learning-activity-service` (liste RP/TI/AF,
+  export CSV) n'est joignable par aucun préfixe gateway, le préfixe `/api/v1/activities` étant
+  déjà occupé par `calendar-service`. À arbitrer : nouveau préfixe dédié pour
+  `learning-activity-service`, sur le modèle de `/exercise-attempts` et `/quiz-attempts`.
+- `/api/v1/learning` et `/api/v1/answers` routent vers `learning-activity-service` mais ne
+  correspondent à aucun contrôleur réel du service (préfixes hérités d'une configuration
+  antérieure à l'implémentation). Ni cassés ni dans le périmètre d'un correctif de gap — à
+  nettoyer lors d'un audit dédié de la configuration, pas en marge d'un autre chantier.
 - `nginx-global` applique toujours son défaut de 1 Mio et coupe avant l'application sur les envois
   de fichiers. Hors dépôt, relevé de nouveau le 2026-08-11 ; à traiter avant tout relèvement du
   plafond applicatif.

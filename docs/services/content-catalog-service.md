@@ -982,6 +982,74 @@
           </point>
         </openPoints>
       </session>
+
+      <session date="2026-09-01" label="Incident de production — EACCES sur le volume d'images d'Exercice (branche fix/content-catalog-exercise-image-storage)">
+        <context>
+          POST /exercises/:id/parts/:partId/images renvoyait 500 "Stockage de l'image d'exercice
+          indisponible" en production, constaté par le subagent front-developper en HTTP direct
+          contre https://claudevma.visioprof.fr avec un compte professeur valide. Logs du
+          conteneur : `[ExerciseImageStorageService] Écriture de l'image d'exercice impossible:
+          EACCES: permission denied, open '/app/storage/exercise-images/&lt;uuid&gt;'`.
+        </context>
+        <diagnosis>
+          Le volume nommé `content_catalog_exercise_images` (docker-compose.yml, introduit par la
+          PR #184 le 2026-08-29) et son montage `/app/storage/exercise-images` étaient corrects
+          dans docker-compose.yml et bien montés sur le conteneur (`docker inspect` confirmé).
+          Cause réelle : Docker crée le point de montage d'un volume nommé vide en root:root/0755
+          au premier démarrage — le conteneur tourne en `node` (uid 1000, `USER node` dans le
+          Dockerfile) et n'a donc jamais eu le droit d'écrire dedans. C'est exactement le défaut
+          déjà rencontré et corrigé deux fois ailleurs dans ce projet (profile-service/media_data,
+          2026-08-10 ; pedagogical-log-service/pedagogical_log_media, 2026-08-26, tous deux
+          documentés en commentaire dans leur Dockerfile respectif) — oublié lors de l'introduction
+          du volume d'images d'Exercice par la PR #184, qui n'avait pas ajouté le `chown`
+          correspondant dans le Dockerfile de ce service.
+        </diagnosis>
+        <filesModified>
+          <file path="Dockerfile">Ajout de `RUN mkdir -p /app/storage/exercise-images &amp;&amp; chown -R node:node /app/storage` avant `USER node` — même correctif exact que profile-service et pedagogical-log-service, avec le même commentaire explicatif repris pour ce service.</file>
+        </filesModified>
+        <technicalDecisions>
+          <decision>
+            Correctif immédiat côté production distinct du correctif permanent côté image : le
+            volume nommé existait déjà (créé vide, root:root, lors du premier démarrage post-PR
+            #184) — reconstruire l'image ne suffit pas à réparer un volume déjà initialisé, Docker
+            ne recopie les droits de l'image que lorsque le volume est créé. `chown -R node:node`
+            appliqué directement sur le conteneur en cours d'exécution (`docker exec -u root`) pour
+            débloquer la production sans attendre le merge/redéploiement ; le correctif Dockerfile
+            reste nécessaire pour toute recréation future du volume (nouvel environnement, volume
+            supprimé/prune, restauration).
+          </decision>
+          <decision>
+            Aucune modification de code applicatif (ExerciseImageStorageService, transcodeur,
+            contrôleur) — le contrat déjà arbitré (re-encodage WebP, détection par octets réels,
+            SVG refusé, nom de fichier généré côté serveur) était déjà correctement implémenté et
+            testé (test/unit/exercises/exercises.service.images.spec.ts,
+            exercise-image-transcoder.spec.ts, tous verts) ; seul le provisionnement du volume Docker
+            était en cause.
+          </decision>
+        </technicalDecisions>
+        <verification>
+          <item>`npm test` (content-catalog-service) : 23 suites, 276/276 tests verts, avant tout changement de code — confirme que le défaut était bien hors du code applicatif.</item>
+          <item>`docker build` du Dockerfile corrigé (contexte réel du service) : nouvelle étape `RUN mkdir -p ... &amp;&amp; chown ...` exécutée sans erreur ; conteneur de vérification lancé depuis cette image, `whoami` → node, écriture dans /app/storage/exercise-images réussie.</item>
+          <item>Preuve end-to-end contre https://claudevma.visioprof.fr, après le correctif immédiat appliqué au conteneur de production : compte formateur créé (POST /accounts/teachers, 201), connecté (POST /auth/login, 201), exercice créé (POST /exercises, 201, id fcc52109-1e8e-44f9-b20c-3cfec59f48e5), image envoyée sur son bloc énoncé (POST /exercises/:id/parts/:partId/images, 201, `imageMimeType: image/webp`), puis relue (GET /exercises/:id/images/:itemId, 200, octets WebP valides confirmés par `file`).</item>
+        </verification>
+        <blockers>Aucun. L'incident est résolu en production dès l'application du chown manuel ; le correctif Dockerfile, poussé sur la branche fix/content-catalog-exercise-image-storage (PR ouverte), rend la correction permanente pour toute future recréation du volume.</blockers>
+        <openPoints>
+          <point>
+            Exercice de diagnostic laissé en base de production (id fcc52109-1e8e-44f9-b20c-3cfec59f48e5,
+            statut pending_validation, auteur un compte formateur de test créé pour l'occasion) —
+            invisible aux élèves et aux autres professeurs tant qu'il n'est pas validé ; suppression
+            réservée au RP/TI (DELETE /exercises/:id), non effectuée faute d'un compte à ce rôle sous
+            la main pendant ce diagnostic.
+          </point>
+          <point>
+            Recommandation générale pour la prochaine introduction d'un volume Docker nommé dans ce
+            projet : vérifier systématiquement l'ownership du point de montage dans le Dockerfile
+            avant la première mise en production, plutôt que de le découvrir au premier upload réel
+            — c'est la troisième fois que ce même défaut est corrigé isolément (profile-service,
+            pedagogical-log-service, content-catalog-service).
+          </point>
+        </openPoints>
+      </session>
     </technicalImplementation>
   </service>
 </serviceFunctionalSpecification>

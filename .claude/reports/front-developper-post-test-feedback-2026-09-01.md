@@ -119,3 +119,83 @@ suivant si souhaité.
 Aucun fichier au-dessus de 300 lignes parmi ceux touchés (le plus long, `ExerciseForm.tsx`, fait
 ~302 lignes après édition — marginal, non découpé pour ne pas nuire à la lisibilité d'un
 formulaire déjà factorisé en sous-composants).
+
+---
+
+## Suite — 2026-09-01, même session : bloc image de premier niveau (retour utilisateur après explication)
+
+### Statut : ✅ (contrat backend non confirmé — voir blocage ci-dessous)
+
+Après relais de mon explication sur l'ancien mécanisme (image ajoutable uniquement après
+enregistrement, via `ExerciseImageManager`), l'utilisateur a jugé cela insatisfaisant et proposé un
+nouveau modèle, arbitré et persisté par le coordinateur dans `docs/architecture.md` > « Bloc "image"
+de premier niveau pour l'Exercice ». Implémenté sur la **même branche** (`fix/front-exercises-post-test-feedback`,
+PR #189 toujours ouverte, pas de nouvelle PR créée), commit poussé séparément.
+
+**Changement principal** : l'image devient une **catégorie de bloc à part entière**
+(`statement`/`image`/`question`, au lieu de `statement`/`question` avec image comme item interne),
+disponible **dès la création** — l'ancienne limitation (premier enregistrement obligatoire avant de
+pouvoir ajouter une image) disparaît. `ExerciseImageManager` (composant séparé, post-enregistrement)
+est supprimé, remplacé par un flux en deux temps intégré à `ExerciseForm` : la structure (avec les
+blocs image en placeholder `items: []`) est créée/mise à jour d'abord, puis chaque image en attente
+est envoyée au bloc réel nouvellement créé, en une seule action de soumission pour l'utilisateur.
+
+**Décision d'ingénierie notable** : réutilisation du champ `items: PublicContentItem[]` déjà
+existant sur `PublicExercisePart` pour porter le contenu d'un bloc image (0 ou 1 item de type
+`image`), plutôt que d'introduire un nouveau champ. Ce choix a permis à `ExercisePlayer.tsx` et
+`ExerciseDetailPage.tsx` (déjà génériques par `category`/`items`) de fonctionner **sans aucune
+modification** pour la consultation/passage d'un exercice contenant des blocs image.
+
+**Prudence ajoutée de mon fait, au-delà de la demande initiale** : en édition, si un bloc image
+contient déjà une image et qu'aucun nouveau fichier n'est choisi, son contenu est **récupéré avant**
+l'appel `PUT` (pas après) et réenvoyé après coup — protège contre une perte silencieuse d'image que
+le serveur efface ou non le contenu binaire des blocs image à chaque remplacement de structure
+(comportement non confirmé côté `content-catalog-service` au moment de l'écriture de ce code).
+
+### Blocage / point à surveiller
+
+**Contrat backend non confirmé.** Le sous-agent `content-catalog-service` travaillait en parallèle
+sur la branche `feat/content-catalog-exercise-image-block`, **non poussée sur `origin`** au moment
+de cette session — aucun rapport disponible. J'ai codé contre une hypothèse raisonnable, documentée
+explicitement dans `apps/web/src/utils/exerciseImageUpload.ts` :
+- un bloc `category: 'image'` s'insère dans la même structure de séquence JSON que
+  `statement`/`question`, envoyé en placeholder (`items: []`) ;
+- l'upload réel réutilise la route existante `POST /exercises/:id/parts/:partId/images`
+  (`uploadExercisePartImage`, inchangée) ;
+- **le serveur préserve l'ordre de soumission de `parts[]` dans sa réponse** — c'est cette hypothèse
+  qui permet de faire correspondre un fichier en attente (position locale) à un `partId` réel
+  (même position dans la réponse). C'est le point le plus susceptible de diverger du contrat réel.
+
+À revérifier/ajuster dès que le rapport de `content-catalog-service` est disponible.
+
+**Scope non couvert** : l'image de solution (`uploadExerciseSolutionImage`, distincte du bloc image
+de premier niveau) a été retirée avec `ExerciseImageManager`, sans mécanisme de remplacement — cet
+arbitrage ne couvre que le bloc image de premier niveau. Les solutions restent éditables en
+texte/formule uniquement.
+
+### Vérifications
+
+- `npx tsc --noEmit` : 0 erreur.
+- `npm run build` : succès.
+- `npm run test` : 1997 passants / 49 échecs — identiques aux échecs pré-existants déjà confirmés
+  sans rapport avec ces sessions (mocks de l'ancien modèle Exercice).
+- Aucune vérification HTTP directe : code non mergé/déployé, contrat backend non confirmé.
+
+### Fichiers modifiés (en plus de la liste précédente)
+
+- `apps/web/src/types/exercise.ts` (`ExercisePartCategory` gagne `'image'`)
+- `apps/web/src/utils/exerciseLabels.ts` (libellé « Image »)
+- `apps/web/src/utils/exercisePayload.ts` (validations composition minimale, prefill image en édition)
+- `apps/web/src/utils/exerciseImageUpload.ts` (nouveau — orchestration deux temps)
+- `apps/web/src/components/content-catalog/ExerciseImageBlockEditor.tsx` (nouveau)
+- `apps/web/src/components/content-catalog/ExercisePartAddButtons.tsx` (nouveau, extrait pour rester sous 300 lignes)
+- `apps/web/src/components/content-catalog/ExercisePartEditor.tsx`
+- `apps/web/src/components/content-catalog/ExerciseItemListEditor.tsx` (docstring)
+- `apps/web/src/components/content-catalog/ExerciseForm.tsx`
+- `apps/web/src/components/content-catalog/ExerciseImageManager.tsx` (supprimé)
+- `apps/web/src/pages/ExerciseEditPage.tsx`
+- `apps/web/src/api/exercises.ts` (`uploadExerciseSolutionImage` retirée)
+- `docs/services/frontend-react-app.md` (nouvelle session documentée)
+
+Tous les fichiers restent sous 300 lignes (le plus long, `ExerciseForm.tsx`, 295 lignes après
+extraction de `ExercisePartAddButtons.tsx`).

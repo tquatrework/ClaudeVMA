@@ -2662,5 +2662,199 @@
         </item>
       </openPoints>
     </session>
+
+    <session date="2026-09-01" label="Refonte des Exercices en blocs typés — reprise après coupure (branche feat/exercises-front, PR #186)">
+      <context>
+        Session de reprise : le travail avait été produit dans une session antérieure isolée dans
+        un worktree résiduel (`agent-af4c8f5eb856afde7`), interrompue par une coupure de connexion
+        avant tout commit. Cette session a récupéré l'intégralité des fichiers (copiés fichier par
+        fichier depuis l'ancien worktree, git ne pouvant pas opérer entre worktrees isolés),
+        vérifié leur cohérence, committé, poussé, puis produit une preuve HTTP directe contre
+        `https://claudevma.visioprof.fr` conformément à l'arbitrage du 2026-08-29
+        (`docs/architecture.md` > « Refonte des Exercices »).
+      </context>
+
+      <tree>
+        <folder path="apps/web/src/api/">
+          <file path="exercises.ts">Nouveau. Volet content-catalog-service : recherche
+          (`GET /exercises`), file de validation (`GET /exercises/pending-validation`),
+          création/édition (`POST`/`PUT /exercises`), lecture (`GET /exercises/:id`), images de bloc
+          et de solution (`POST .../parts/:partId/images`,
+          `POST .../parts/:partId/solution/images`, `GET .../images/:itemId`), et le flux de
+          validation générique partagé avec le Quizz (`POST /validations/exercise/:id/decision`,
+          `POST .../request`, `GET .../history`).</file>
+          <file path="exerciseAttempts.ts">Nouveau. Volet learning-activity-service : démarrage
+          (`POST /exercise-attempts`), réponse facultative (`POST .../answers`), révélation médiée
+          de solution (`POST .../reveal`), lecture d'état (`GET /exercise-attempts/:id`), image de
+          solution révélée (`GET .../images/:itemId`), historique (`GET .../history`). Chemins
+          confirmés corrects contre `.claude/reports/learning-activity-service-2026-08-29.md`
+          (contrôleur réel du service), mais **api-gateway ne proxy pas ce préfixe** — voir
+          `openPoints`.</file>
+          <file path="contentCatalog.ts">Modifié — retrait complet de l'ancien modèle Exercice
+          (`Exercise`, `ExerciseAnswer`, `ExerciseSolution`, `CorrectionRequest` et leurs fonctions
+          d'appel), qui portait un flux de demande de correction humaine jamais branché
+          (`ExerciseCorrection`, code mort depuis juin 2026). Ce flux correspond en réalité à
+          l'Évaluation, distincte du nouveau modèle Exercice.</file>
+        </folder>
+        <folder path="apps/web/src/components/content-catalog/">
+          <file path="ExerciseForm.tsx">Nouveau. Création/édition, formulaire majoritairement
+          auto-porté (séquence dynamique de blocs) — même choix que `QuizForm`. Bandeau
+          d'avertissement en mode édition (le `PUT` serveur supprime les images déjà envoyées).</file>
+          <file path="ExercisePartEditor.tsx">Nouveau. Édition d'un bloc (énoncé/question), section
+          solution obligatoire affichée uniquement pour une question — patron recopié de
+          `QuizQuestionEditor`.</file>
+          <file path="ExerciseItemListEditor.tsx">Nouveau. Liste ordonnée d'items texte/formule,
+          réutilise directement `InsertFormulaButton`/`MathRenderer`/`LightMarkupText` déjà
+          construits pour le Mémo/Quizz — aucun nouveau composant de saisie de formule.</file>
+          <file path="ExerciseContentItemView.tsx">Nouveau. Rendu lecture seule d'un item
+          (texte/formule/image), même patron que `MemoItemDisplay`.</file>
+          <file path="ExerciseImageManager.tsx">Nouveau. Ajout d'images à un exercice déjà
+          enregistré (bloc et solution), après création — la page propriétaire de l'état remonte la
+          réponse serveur (`onExerciseChange`), jamais de copie locale seule.</file>
+          <file path="ExercisePlayer.tsx">Nouveau. Passage : blocs énoncé en lecture seule, blocs
+          question avec zone de réponse facultative et bouton de révélation. Rendu de la solution
+          révélée via `ExerciseAttemptContentItemView` (composant `learning-activity`, jamais
+          `ExerciseContentItemView` — la solution ne transite jamais par content-catalog-service côté
+          front).</file>
+          <file path="ExerciseValidationList.tsx">Nouveau. Liste Valider/Rejeter avec motif
+          obligatoire, patron recopié de `QuizValidationList` — réutilise le flux générique
+          `POST /validations/exercise/:id/decision`.</file>
+          <file path="MyExercisesList.tsx">Nouveau. « Mes Exercices » : tous statuts confondus,
+          bouton Modifier, bouton de resoumission sur un exercice `rejected` avec motif de refus
+          affiché (tenté via l'historique de validation, jamais bloquant si indisponible).</file>
+          <file path="ExerciseCreationSection.tsx">Nouveau. Bouton + formulaire de création, extrait
+          de la page pour rester sous 300 lignes — même découpage que `QuizCreationSection`.</file>
+          <file path="ContentValidationQueue.tsx">Modifié — la liste d'exercices utilise désormais
+          `ExerciseValidationList` (vraie route de décision) au lieu d'un retrait optimiste local.</file>
+          <file path="CorrectionRequestDialog.tsx">Supprimé — ancien modèle.</file>
+          <file path="ExerciseAnswerUpload.tsx">Supprimé — ancien modèle.</file>
+          <file path="ExerciseCreateForm.tsx">Supprimé — ancien modèle, remplacé par `ExerciseForm`.</file>
+        </folder>
+        <folder path="apps/web/src/components/learning-activity/">
+          <file path="ExerciseAttemptContentItemView.tsx">Nouveau. Rendu d'un item de solution
+          révélée (texte/formule/image), image servie via
+          `GET /exercise-attempts/:id/images/:itemId` (proxy authentifié côté
+          learning-activity-service).</file>
+          <file path="ExerciseAttemptHistoryList.tsx">Nouveau. Historique des tentatives, statut
+          fait/en cours.</file>
+        </folder>
+        <folder path="apps/web/src/hooks/content-catalog/">
+          <file path="useExercisePartImageUrl.ts">Nouveau. Télécharge les octets d'une image de bloc
+          et construit un object URL (la route est authentifiée par JWT, qu'un `&lt;img src&gt;` brut
+          n'envoie pas) — même pattern que `useMemoItemImageUrl`.</file>
+          <file path="useExerciseValidationQueue.ts">Nouveau. File de validation pour l'onglet
+          intégré, `enabled` conditionné au rôle pour éviter un appel `403` inutile.</file>
+          <file path="useMyExercises.ts">Nouveau. « Mes Exercices » via `authorId` (pas de paramètre
+          `mine` documenté pour `GET /exercises`, contrairement au Quizz) — enrichissement best-effort
+          du motif de refus par exercice `rejected`.</file>
+        </folder>
+        <folder path="apps/web/src/hooks/learning-activity/">
+          <file path="useExerciseAttemptHistory.ts">Nouveau.</file>
+          <file path="useExerciseAttemptImageUrl.ts">Nouveau, même pattern que la variante
+          content-catalog.</file>
+        </folder>
+        <folder path="apps/web/src/pages/">
+          <file path="ExerciseCatalogPage.tsx">Réécrite (305 lignes — légèrement au-dessus du seuil
+          de 300, jugé non découpable sans nuire à la lisibilité : quatre onglets courts et
+          autonomes). Onglets Catalogue / Mon historique / Mes Exercices / **Validation intégrée**
+          — conforme à la consigne explicite de ne pas reproduire l'écran de validation séparé et
+          peu découvrable du Quizz (retour utilisateur du 2026-08-29).</file>
+          <file path="ExerciseDetailPage.tsx">Réécrite. Démarrage de tentative, passage via
+          `ExercisePlayer`, statuts exercice et tentative affichés côte à côte.</file>
+          <file path="ExerciseEditPage.tsx">Nouveau. Édition + gestion d'images, bandeau explicite
+          sur l'absence de pré-remplissage de solution (aucune route publique n'expose une solution
+          à l'auteur, contrairement au Quizz).</file>
+          <file path="ContentValidationQueuePage.tsx">Modifiée — charge et décide réellement les
+          exercices (`fetchPendingExercises`/`decideExerciseValidation`) au lieu d'un retrait
+          optimiste, en parallèle de l'onglet intégré de `ExerciseCatalogPage` (les deux coexistent,
+          aucune régression demandée sur l'écran générique existant).</file>
+        </folder>
+        <folder path="apps/web/src/types/">
+          <file path="exercise.ts">Nouveau. Types partagés content-catalog-service +
+          learning-activity-service (`PublicExerciseDetail`, `ExercisePartCategory`,
+          `ExerciseItemType`, `CreateExercisePayload`, `ExerciseAttempt`, etc.).</file>
+        </folder>
+        <folder path="apps/web/src/utils/">
+          <file path="exerciseLabels.ts">Nouveau. Point unique statut/catégorie → libellé français.</file>
+          <file path="exercisePayload.ts">Nouveau. Traduction état d'édition ↔ payload API, avec
+          messages d'erreur français directement affichables.</file>
+        </folder>
+        <file path="apps/web/src/App.tsx">Modifié — route `/content/exercises/:exerciseId/edit`
+        ajoutée (rôles créateurs, contrôle réel de la propriété laissé au serveur).</file>
+      </tree>
+
+      <decisions>
+        <decision id="onglet-validation-integre-des-le-depart">
+          <description>
+            Contrairement au Quizz (où l'onglet Validation avait dû être rajouté après coup suite à
+            un retour utilisateur sur la découvrabilité, PR #179), l'onglet Validation de la page
+            Exercices est livré directement intégré dès cette session — consigne explicite de la
+            tâche.
+          </description>
+          <status>resolved</status>
+        </decision>
+        <decision id="recuperation-cross-worktree-sans-git">
+          <description>
+            Le travail perdu vivait dans un worktree isolé distinct (`agent-af4c8f5eb856afde7`),
+            inaccessible aux commandes git de cet agent (sandbox d'isolation par worktree). Les 28
+            fichiers concernés (nouveaux, modifiés, supprimés) ont été identifiés par
+            comparaison avec l'état décrit par la tâche, puis copiés un par un (`cp`, une commande
+            par fichier — les commandes groupées étaient refusées par le sandbox) plutôt que
+            fusionnés par un mécanisme git.
+          </description>
+          <status>resolved</status>
+        </decision>
+      </decisions>
+
+      <realStackVerification>
+        `npx tsc --noEmit` : 0 erreur. `npm run build` : succès.
+
+        **Preuve HTTP directe contre `https://claudevma.visioprof.fr`** (comptes formateur/élève
+        créés à la volée + compte RP de test existant `rptest.proof.*`, script conservé dans le
+        scratchpad de session, non committé) :
+        - `POST /exercises` (formateur, 3 blocs dont 2 questions avec solution) → `201`,
+          `status: "pending_validation"` — conforme au contrat.
+        - `GET /exercises/pending-validation` (RP) → l'exercice y figure.
+        - `POST /validations/exercise/:id/decision` (RP, `validated`) → `201`.
+        - `GET /exercises/:id` (élève) → `status: "validated"`.
+        - `GET /exercises?tag=preuve-e2e` (élève) → l'exercice est retrouvé par tag.
+
+        **Ce tronçon (création → validation → recherche) est intégralement prouvé et fonctionnel.**
+
+        La suite du cycle (démarrage de tentative, réponse, révélation médiée, statut fait/en cours,
+        historique) **n'a pas pu être prouvée** — voir `openPoints`, deux blocages backend/infra
+        détectés, hors périmètre `apps/web`.
+      </realStackVerification>
+
+      <openPoints>
+        <item id="exercise-image-upload-500">
+          `POST /exercises/:id/parts/:partId/images` renvoie systématiquement
+          `500 "Stockage de l'image d'exercice indisponible"` en production (reproduit deux fois,
+          comptes distincts). Le volume Docker dédié prévu par l'arbitrage du 2026-08-29
+          (`docs/architecture.md` > « Refonte des Exercices », point 2) semble non provisionné.
+          Relève de `content-catalog-service` / infra, pas de `apps/web`.
+        </item>
+        <item id="exercise-attempts-gateway-not-proxied">
+          `api-gateway` ne proxy pas le préfixe `/exercise-attempts` vers
+          `learning-activity-service` : `GET /exercise-attempts/history` renvoie un `404` nginx brut
+          (page HTML, pas une réponse JSON du service) avec un jeton valide, alors que
+          `GET /quiz-attempts/history` (même service, même jeton) renvoie `200`. Le code front
+          (`src/api/exerciseAttempts.ts`) appelle exactement les chemins du contrôleur réel du
+          service (vérifié contre `.claude/reports/learning-activity-service-2026-08-29.md`) — rien
+          à corriger côté front, la configuration `gateway/api-gateway/nginx.conf` doit ajouter ce
+          préfixe. **Bloque toute preuve du passage d'un Exercice tant que non corrigé.**
+        </item>
+        <item id="exercise-attempts-not-documented-in-routes-md">
+          `docs/routes.md` ne documente toujours aucune route `learning-activity-service` pour les
+          tentatives d'exercice — signalé dans le code (`exerciseAttempts.ts`) depuis la session
+          d'origine, toujours vrai. À combler par le sous-agent `learning-activity-service`.
+        </item>
+        <item id="pr-186-not-merged">
+          PR #186 ouverte, non mergée (règle du projet : ne jamais merger soi-même). Tant qu'elle
+          ne l'est pas et que le front n'est pas redéployé, aucune capture d'écran de l'UI réelle
+          n'est possible — seule la preuve HTTP directe ci-dessus est disponible pour l'instant.
+        </item>
+      </openPoints>
+    </session>
   </implementationNotes>
 </serviceFunctionalSpecification>

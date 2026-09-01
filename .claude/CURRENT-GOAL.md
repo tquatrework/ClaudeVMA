@@ -27,6 +27,24 @@ Reprise le 2026-09-01 : backend stabilisé (PR #183, #184, #185 mergées). Workt
 antérieure) — `front-developper` relancé pour le reprendre, le committer/pousser, et l'amener
 jusqu'à la preuve finale.
 
+**Front livré, PR #186 ouverte, non mergée.** Preuve HTTP directe contre
+`https://claudevma.visioprof.fr` (par le subagent) : création → `pending_validation` → visible et
+validable par le RP → retrouvable par l'élève par tag. Fonctionne exactement comme codé.
+
+**Deux blocages backend/infra empêchent la preuve finale complète, à corriger avant de considérer
+le chantier terminé :**
+1. `POST /exercises/:id/parts/:partId/images` → `500 "Stockage de l'image d'exercice indisponible"`
+   en production — le volume Docker dédié au stockage d'image de `content-catalog-service` (prévu
+   par l'arbitrage du 2026-08-29) n'est probablement pas provisionné en prod.
+2. `api-gateway` ne proxy pas le préfixe `/exercise-attempts` vers `learning-activity-service`
+   (`/exercise-attempts/history` → `404` nginx brut avec un token valide, alors que
+   `/quiz-attempts/history` répond `200` avec le même token) — précédent identique au trou de
+   gateway déjà corrigé pour le Quizz (PR #159, 2026-08-28). Bloque tout le cycle de passage d'un
+   Exercice (démarrer une tentative, répondre, révéler, statut fait/en cours, historique).
+
+Délégué en parallèle le 2026-09-01 : `content-catalog-service` (volume image) et `api-gateway`
+(proxy `/exercise-attempts`).
+
 Délégué en parallèle le 2026-08-29 :
 - `content-catalog-service` : réécriture Exercise/ExercisePart/ExerciseSolution, stockage image
   propre (nouveau volume Docker), tags en recherche, alignement du cycle de validation sur le

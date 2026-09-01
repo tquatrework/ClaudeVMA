@@ -53,7 +53,16 @@ côté par le subagent, hors périmètre : collision de préfixe `activities` en
 `learning-activity-service` et `calendar-service` (déjà tranchée par le routage existant vers
 `calendar-service`, pas un bug) — à arbitrer séparément si besoin un jour.
 
-**Blocage 1 (stockage image) toujours en cours** chez `content-catalog-service`.
+**Blocage 1 (stockage image) résolu et mergé** : PR #188, volume `content_catalog_exercise_images`
+reprovisionné en `node:node` (même défaut de permission déjà vu chez `profile-service` et
+`pedagogical-log-service`) + correctif permanent dans le Dockerfile. Preuve HTTP directe par le
+subagent : upload réel (`201`, ré-encodé en WebP) puis lecture (`200`, octets WebP valides). Mergé
+sans attendre validation (même raisonnement que le blocage gateway).
+
+**Les deux blocages sont résolus. Reste à faire** : reprendre `front-developper` (PR #186 toujours
+ouverte) pour rejouer le cycle complet maintenant que les deux dépendances sont en place, produire
+la preuve finale exigée, puis rapporter à l'utilisateur pour validation avant merge de #186 (écran
+neuf = jugement à l'œil, pas un merge automatique).
 
 Délégué en parallèle le 2026-08-29 :
 - `content-catalog-service` : réécriture Exercise/ExercisePart/ExerciseSolution, stockage image

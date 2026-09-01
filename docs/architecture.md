@@ -1327,6 +1327,61 @@ Phase 3 enrichit l'offre :
      ailleurs dans ce projet quand un modele est remplace (ex. refonte des Exercices elle-meme,
      2026-08-29) : deux mecanismes concurrents pour la meme donnee entretiendraient la confusion.
 
+- Titre des Exercices et des Quizz : disambiguation automatique plutot que refus, revision de
+  l'arbitrage du meme jour ("Titre des Exercices et des Quizz : obligatoire, unique, avec une
+  valeur par defaut proposee par le serveur"). Arbitrage rendu le 2026-09-01, sur constat de
+  l'utilisateur qu'un doublon de titre pouvait etre enregistre sans avertissement. Investigation en
+  lecture seule (2 agents Explore + 1 agent Plan, sans ecriture de code) : le code applicatif
+  faisait deja ce que l'arbitrage initial documentait (verification a la creation ET a l'edition,
+  Exercice comme Quizz), mais deux causes racines rendaient le refus 400 inefficace en pratique :
+  1. **Aucune contrainte UNIQUE en base** (verifie en production, `\d exercises`/`\d quizzes` :
+     seul un index sur la cle primaire existe). L'unicite reposait sur un `SELECT` puis un
+     `INSERT` separes, sans transaction ni verrou — fenetre de competition (TOCTOU) exploitable
+     par un double-clic, deux onglets, une double soumission reseau : les deux requetes passent le
+     `SELECT` avant qu'aucune n'ait committe son `INSERT`.
+  2. **Doublons Quizz preexistants a l'arbitrage jamais nettoyes** (2 paires identifiees, datees du
+     2026-08-28) — contrairement a l'Exercice, dont la migration `MakeExerciseTitleRequired`
+     avait deja fait un backfill des titres NULL.
+  Plutot que de simplement corriger ces deux causes pour faire fonctionner le refus 400 tel quel,
+  l'utilisateur a demande de changer la regle elle-meme :
+  1. **Le titre par defaut change de format** : `"Exercice (N)"` / `"Quizz (N)"` (parentheses
+     autour du numero), remplace `"Exercice {n}"` / `"Quizz {n}"` sans parentheses.
+  2. **Une collision de titre ne bloque plus la creation/edition.** Le serveur calcule desormais
+     automatiquement le plus petit `N >= 2` tel que `"{titre} (N)"` soit libre pour cet auteur, et
+     enregistre sous ce titre — plus de reponse 400 sur ce cas precis. Vaut a la creation et a
+     l'edition, pour Exercice et Quizz. Le refus 400 sur titre **vide** reste inchange (regle
+     distincte, non concernee).
+  3. **Une contrainte UNIQUE en base ferme definitivement la fenetre de competition** (index
+     partiel `(authorId, title)` excluant le statut `REMOVED` pour Exercice, index simple pour
+     Quizz), doublee d'un retry applicatif sur violation Postgres `23505` — la contrainte reste
+     l'arbitre final (protege meme un chemin d'ecriture qui contournerait le service applicatif),
+     le retry ne sert qu'a rendre l'experience fluide en cas de collision de derniere seconde.
+     Choix d'une contrainte DB + retry plutot qu'un verrou explicite `SELECT ... FOR UPDATE` :
+     un verrou aurait exige d'encadrer toute la creation (y compris la cascade
+     `savePartsAndSolutions`, aujourd'hui hors transaction) dans une transaction plus large —
+     changement disproportionne par rapport au besoin, et qui n'aurait de toute facon pas dispense
+     de gerer les erreurs de contrainte pour les autres angles morts (deploiement multi-instances,
+     retry reseau).
+  4. **Les doublons Quizz legacy sont nettoyes par une migration dediee**, sur le meme principe de
+     suffixe `"(N)"` que la disambiguation en ligne, avant la pose de la contrainte UNIQUE.
+  5. **Sequencement impose en deux deploiements separes**, a cause d'un risque deja rencontre deux
+     fois dans ce service : `NODE_ENV=development` en production maintient `synchronize` actif, qui
+     s'execute **avant** `migrationsRun` a chaque demarrage (voir le point ouvert "NODE_ENV en
+     developpement sur la pile reelle deployee" plus bas, et les deux incidents deja documentes,
+     `CleanupPreRefonteExerciseData` et `MakeExerciseTitleRequired`). Poser le decorateur d'entite
+     `@Index(unique: true)` dans le meme deploiement que la migration de dedoublonnage ferait
+     tenter a `synchronize` de creer l'index UNIQUE avant que la migration n'ait nettoye les
+     doublons Quizz encore presents — crash-loop. D'ou : **deploiement 1** = disambiguation
+     applicative + migration de dedoublonnage seule, aucune modification d'entite ; **deploiement
+     2**, une fois le premier confirme en production = contrainte UNIQUE + decorateur d'entite +
+     retry applicatif.
+  6. **Aucun changement front necessaire.** Le titre par defaut et le titre final retourne par le
+     serveur sont deja reinjectes tels quels cote front, sans transformation ; l'ecran de
+     destination apres enregistrement reaffiche deja la reponse serveur, jamais le corps envoye
+     (pattern deja etabli le 2026-09-01 pour l'Exercice, PR #192) — donc un titre renomme
+     silencieusement par le serveur reste visible naturellement a l'ecran suivant, sans UI
+     dediee a construire pour signaler le renommage.
+
 ## Points ouverts a arbitrer
 
 - `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a

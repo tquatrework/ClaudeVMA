@@ -7,6 +7,21 @@
 
 ## Besoin courant
 
+Deux retours supplémentaires de l'utilisateur le 2026-09-01, après clarification du point "image
+de solution lisible mais pas éditable" :
+1. En édition d'un Exercice, **tout** doit être modifiable, y compris l'image de solution (pas
+   seulement consultable). À vérifier d'abord si `PUT /exercises` accepte déjà une mise à jour
+   d'image de solution dans son payload (même mécanisme base64 inline que les blocs) — si oui,
+   pur gap front (pas de bouton pour la remplacer) ; si non, ajout côté `content-catalog-service`
+   à coordonner.
+2. Après l'enregistrement d'une modification d'Exercice, l'écran doit **revenir à la fiche
+   Exercice précédente** avec un message de confirmation ("Modifications enregistrées") — au lieu
+   de rester sur le formulaire d'édition sans aucun retour visuel.
+
+Délégué à `front-developper` le 2026-09-01 (voir ci-dessous pour le chantier précédent, clos).
+
+---
+
 Retours utilisateur du 2026-09-01 après premier test visuel en production de la refonte des
 Exercices (voir archive ci-dessous pour le chantier initial) : globalement satisfaisant côté
 graphique, quatre corrections demandées. Arbitrage complet persisté dans `docs/architecture.md`

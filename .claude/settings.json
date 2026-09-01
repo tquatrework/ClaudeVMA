@@ -53,6 +53,18 @@
   },
 
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pretooluse-ask-before-visual-proof.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [

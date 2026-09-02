@@ -41,3 +41,17 @@ export async function importQuizzes(file: File): Promise<QuizImportBlockResult[]
   })
   return data
 }
+
+/**
+ * GET /quizzes/import/template — fichier CSV modèle directement importable.
+ * Ajoutée rétroactivement le 2026-09-02 (`docs/architecture.md` > « Import d'Exercice
+ * depuis un tableur… », point 7) : l'import de Quizz n'avait jamais eu de fichier
+ * modèle depuis sa création. Renvoyé en octets bruts (`responseType: 'blob'`), même
+ * patron que les autres téléchargements du projet.
+ */
+export async function fetchQuizImportTemplate(): Promise<Blob> {
+  const { data } = await apiClient.get<Blob>('/quizzes/import/template', {
+    responseType: 'blob',
+  })
+  return data
+}

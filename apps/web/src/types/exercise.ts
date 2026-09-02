@@ -245,3 +245,42 @@ export interface ExerciseAttempt {
   startedAt: string
   updatedAt: string
 }
+
+// ─── Import depuis un tableur (content-catalog-service) ───────────────────────
+//
+// Contrat posé par `docs/architecture.md` > « Import d'Exercice depuis un tableur
+// (CSV/Excel), et modèle de type identique pour l'import de Quizz » (arbitrage du
+// 2026-09-02), documenté dans `docs/routes.md` > content-catalog-service > « Import
+// d'exercices depuis un fichier tableur ». Même forme que l'import Quizz
+// (`types/quiz.ts`), un résultat par bloc d'Exercice détecté dans le fichier.
+
+/** `created` : le bloc a produit un Exercice. `error` : le bloc a été rejeté, en entier. */
+export type ExerciseImportBlockStatus = 'created' | 'error'
+
+/** Une ligne fautive d'un bloc en erreur, avec le motif du refus. */
+export interface ExerciseImportBlockError {
+  row: number
+  message: string
+}
+
+/**
+ * Résultat d'un bloc d'Exercice détecté dans le fichier importé. Un bloc en erreur
+ * n'empêche jamais la création des autres blocs valides du même fichier — la
+ * réponse est donc toujours un compte-rendu par bloc, jamais un état global.
+ *
+ * Le titre de l'Exercice créé n'est **pas** porté par ce contrat (seul
+ * `exerciseId` l'est) : le front le relit via `GET /exercises/:id` après import,
+ * voir `useExerciseImport` (`src/hooks/content-catalog/useExerciseImport.ts`).
+ */
+export interface ExerciseImportBlockResult {
+  blockIndex: number
+  status: ExerciseImportBlockStatus
+  exerciseId?: string
+  validationStatus?: Extract<ExerciseStatus, 'pending_validation' | 'validated'>
+  errors?: ExerciseImportBlockError[]
+}
+
+/** `GET /exercises/import/constraints` — plafond de taille en vigueur pour un envoi. */
+export interface ExerciseImportConstraints {
+  maxFileSizeBytes: number
+}

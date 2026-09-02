@@ -20,7 +20,7 @@ vi.mock('../src/api/client', () => ({
 }))
 
 import apiClient from '../src/api/client'
-import { fetchQuizImportConstraints, importQuizzes } from '../src/api/quizImport'
+import { fetchQuizImportConstraints, fetchQuizImportTemplate, importQuizzes } from '../src/api/quizImport'
 
 const mockGet = vi.mocked(apiClient.get)
 const mockPost = vi.mocked(apiClient.post)
@@ -37,6 +37,20 @@ describe('fetchQuizImportConstraints', () => {
 
     expect(mockGet).toHaveBeenCalledWith('/quizzes/import/constraints')
     expect(constraints.maxFileSizeBytes).toBe(900_000)
+  })
+})
+
+describe('fetchQuizImportTemplate', () => {
+  it('appelle GET /quizzes/import/template en blob', async () => {
+    const blob = new Blob(['type,titre'], { type: 'text/csv' })
+    mockGet.mockResolvedValue({ data: blob })
+
+    const result = await fetchQuizImportTemplate()
+
+    expect(mockGet).toHaveBeenCalledWith('/quizzes/import/template', {
+      responseType: 'blob',
+    })
+    expect(result).toBe(blob)
   })
 })
 

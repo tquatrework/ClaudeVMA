@@ -1568,16 +1568,16 @@ Phase 3 enrichit l'offre :
      `POST`/`PUT /exercises` déjà en place depuis le bloc image de premier niveau, 2026-09-01) — noté
      ici comme peu praticable à remplir à la main dans un tableur, mais techniquement supporté pour un
      usage scripté/généré ; ne pas construire de mécanisme d'upload de fichier séparé pour ce cas.
-  3. **`content-catalog-service` gagne des champs de métadonnées qu'il n'avait pas encore sur
-     `Exercise` : niveau, difficulté, thèmes, compétences** (`tags` existe déjà). Lecture de la
-     demande de l'utilisateur, qui les énumère explicitement comme "éléments propres à l'exercice" —
-     traité ici comme une extension confirmée du modèle `Exercise`, symétrique aux champs déjà
-     portés par `Évaluation` (niveau/difficulté/thème/compétences/tags, arbitrage du 2026-08-28 pour
-     le Quizz puis repris pour l'Évaluation). **Reprendre exactement les mêmes noms de champs déjà
-     utilisés côté `Évaluation`/`Quizz` pour ces concepts** (vérifier dans le code réel, ne pas
-     redevine) — un seul nom par donnée, règle du projet. Point signalé comme une lecture de
-     l'orchestrateur, pas confirmé mot pour mot par l'utilisateur au-delà de l'énumération donnée — à
-     corriger si l'intention était plus étroite.
+  3. **Correction du 2026-09-02, après lecture erronée de l'orchestrateur** : `Exercise` porte déjà
+     titre, tags, niveau, difficulté, thème et compétence(s) — confirmé directement par l'utilisateur
+     en constatant l'écran de création réel ("you currently have Titre, tags, Niveau, Difficulté,
+     Thème and Compétence travaillées when you create an exercise"). L'orchestrateur avait cru, sur
+     la seule foi de l'arbitrage de refonte du 2026-08-29/09-01 (qui ne les mentionne pas), qu'il
+     s'agissait d'une extension de modèle à construire — erreur d'appréciation, l'orchestrateur ne
+     lit jamais le code des services et n'avait pas cette information de première main. **Aucune
+     extension de modèle nécessaire pour ces champs** : l'import doit simplement les faire
+     correspondre aux champs déjà existants (vérifier leurs noms réels dans le code plutôt que de
+     redeviner — un seul nom par donnée, règle du projet), pas les créer.
   4. **Contraintes déjà arbitrées pour l'Exercice restent valables à l'import** : au moins un bloc
      `statement` (peut être vide) et au moins un bloc `question` non vide (2026-09-01) ; titre
      obligatoire, unique par auteur, avec disambiguation automatique par suffixe `"(N)"` en cas de

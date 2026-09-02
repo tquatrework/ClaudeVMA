@@ -1598,6 +1598,49 @@ Phase 3 enrichit l'offre :
      taille explicite annoncé avant l'envoi — mêmes conventions déjà posées pour l'import Quizz
      (2026-08-29), à répliquer telles quelles pour l'Exercice plutôt qu'à réinventer.
 
+- Visibilité du contenu en attente de validation, pour son validateur (RP/AP). Arbitrage rendu le
+  2026-09-02, sur constat direct de l'utilisateur : « les RP, tout comme les AP qui doivent valider
+  un contenu, doivent pouvoir le voir comme s'il était validé (même s'il est taggé "en attente de
+  validation"). [...] Actuellement ils doivent valider sans voir. »
+  1. **Étend le principe déjà posé** (administrateurs voient tout, 2026-08-07 ; accès aux
+     statistiques/archives par relation, 2026-08-11) au contenu du flux de validation générique
+     (Quizz, Exercice, Évaluation, Tutoriel — tout type qui partage
+     `POST /validations/:type/:id/decision`) : **un RP doit pouvoir lire l'intégralité d'un contenu
+     quel que soit son statut**, y compris `pending_validation` et `rejected`, pas seulement
+     `validated`. **Un AP a le même droit, scopé à la relation `animator_of_teacher`** déjà en place
+     pour la décision elle-même (2026-08-28) — cohérence : qui peut décider doit pouvoir voir.
+  2. **Ce droit de lecture élargi reste distinct du droit de décision**
+     (`POST /validations/:type/:id/decision`, inchangé). Lire un contenu en attente ne le valide pas
+     par ce simple fait — la décision reste un acte explicite séparé, depuis l'écran "Contenus à
+     valider"/"A traiter".
+  3. **Le contenu s'affiche avec son statut réel** ("en attente de validation") — ne jamais le
+     présenter comme validé à l'écran, seulement rendre son contenu lisible en l'état pour que le
+     validateur puisse juger avant de décider.
+  4. **S'applique aux routes de lecture publique déjà existantes** (`GET /quizzes/:id`,
+     `GET /exercises/:id`, `GET /evaluations/:id`, et l'équivalent Tutoriel s'il existe) — pas de
+     nouvelle route dédiée à construire, il s'agit d'élargir la condition d'autorisation déjà en
+     place sur ces routes.
+  5. **Forums et Parcours suivront le même principe** le jour où leur propre flux de validation sera
+     construit (`community-path-service`, pas encore livré) — non traité ici, hors périmètre
+     immédiat.
+
+- Reconstruction du rail gauche du Responsable Pédagogique (RP). Demandé le 2026-09-02, en même
+  temps que le point de visibilité ci-dessus (le second découle du premier : sans visibilité du
+  contenu, l'écran "Contenus à valider" du nouveau rail resterait aussi peu utile qu'aujourd'hui).
+  Structure exacte donnée par l'utilisateur, à reprendre telle quelle :
+  - **Groupe "Gestion"** (en haut) : Comptes, Délégation, **"Visualisation"** (nouveau — menu
+    permettant au RP d'accéder aux différents éléments des utilisateurs élèves, parents,
+    professeurs, AP).
+  - **Groupe "A traiter"** : Nouveaux Formateurs, Demandes professeurs, Demandes rattachement,
+    Contenus à valider.
+  - **Groupe "Contenu"** : Quizz, Exercices, Évaluations, Tutos/Vidéos, Forums, Parcours, Jeux.
+  - **Groupe "Observabilité"** : inchangé.
+  Point ouvert, à lever par `front-developper` en investigant plutôt qu'en devinant : "Visualisation"
+  et certaines entrées de "Contenu" (Forums, Parcours, Jeux notamment — "Jeux" ne correspond à aucun
+  microservice ni fonctionnalité documentée à ce jour) peuvent pointer vers des écrans qui n'existent
+  pas encore. Ne pas inventer de route : construire ce qui existe déjà, signaler explicitement ce qui
+  manque plutôt que de créer un lien mort ou un écran vide non annoncé.
+
 ## Points ouverts a arbitrer
 
 - `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a

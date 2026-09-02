@@ -23,6 +23,30 @@ Délégué le 2026-09-02 : `profile-service` (paramètre `q` sur `GET /profiles/
 élève, investigation des contacts essentiels déjà affichés ou non par rôle — ne pas construire de
 lecture agrégée avant confirmation du gap réel).
 
+**`profile-service` mergé (PR #210), déployé, site vérifié `200`.** `q` ajouté à
+`GET /profiles/directory/by-role` et `GET /profiles/teachers/validated`, filtre ILIKE côté serveur
+avant pagination, `q` vide = comportement inchangé. 708/708 tests verts, preuve HTTP directe.
+
+**`front-developper` livré (PR #211), non mergée — point 2 fait, point 3 investigué avec un
+résultat mitigé, point 1 (câblage recherche front) pas encore fait** (dépendait du backend, prêt
+maintenant). Détail point 3 (contacts essentiels), par direction :
+- **Élève → professeurs : déjà couvert**, panneau "Formateurs liés" existant sur `ProfilePage`,
+  visible RP/AP/TI/AF/formateur sur tout profil élève. Rien à construire.
+- **Élève → parents / Parent → élèves : gap partiel** — la donnée et l'affichage existent déjà côté
+  `ProfilePage`, mais gardés par `isViewingOwnProfile` : jamais montrés à un tiers (RP inclus).
+  Probablement un petit correctif front (ouvrir l'affichage existant aux rôles administratifs).
+- **Professeur → élèves / Professeur → AP : gap backend réel** — aucune route n'existe dans ce sens
+  de lecture (l'inverse existe : élève→professeurs, AP→professeurs).
+- **AP → professeurs : gap front seul** — la route existe déjà côté `profile-service` (ouverte au
+  RP) mais n'est consommée par aucun composant front à ce jour.
+
+**Reste à trancher avec l'utilisateur** : jusqu'où pousser la fermeture de ces gaps maintenant
+(élève↔parents + AP→professeurs = correctifs front ciblés ; professeur→élèves/AP = nouvelle route
+`profile-service`) vs. clore ce chantier avec l'existant et rouvrir plus tard. Pas encore demandé.
+
+**Reste à faire dans tous les cas** : câbler la recherche (point 1) côté front sur PR #211 avant
+merge, puisque le backend est maintenant prêt.
+
 ---
 
 Deux demandes liées, le 2026-09-02 : reconstruction du rail gauche RP (Gestion : Comptes/

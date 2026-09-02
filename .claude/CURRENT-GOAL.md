@@ -7,6 +7,19 @@
 
 ## Besoin courant
 
+Aucun besoin métier actif — le chantier Évaluations (voir Archive ci-dessous) est clos, backend et
+notifications mergés et déployés. En attente de la prochaine demande de l'utilisateur.
+
+Rappel branches non fusionnées dans `master` (hors périmètre, signalées mais non traitées) :
+`feat/front-reprise-candidature-formateur` et `feat/reprise-candidature-formateur` — travail réel
+inachevé du 2026-08-13 (arbitrage persisté dans `docs/architecture.md`, jamais implémenté).
+
+---
+
+<details>
+<summary>Archive — besoin du 2026-09-01, refonte des Évaluations (clos, backend + notifications
+mergés et déployés)</summary>
+
 Refonte des Évaluations, demandée le 2026-09-01. **Arbitrage complet et confirmé** dans
 `docs/architecture.md` (section "Refonte des Evaluations : notation manuelle, demande de
 correction, notifications") — lire cette section en entier avant de continuer, elle contient tout
@@ -97,16 +110,26 @@ Aucune route interservice manquante (hypothèse initiale invalidée : les payloa
 notification + `metadata` + destinataires — propositions de libellés français incluses pour
 `front-developper`).
 
-**Ordre restant** : déléguer `front-developper` — ajouter les 5 nouveaux `type` dans
-`notificationLabels.ts` (libellés proposés dans le rapport ci-dessus) et vérifier que la cloche de
-notification les affiche correctement. C'est la dernière étape avant de considérer le chantier
-Évaluations entièrement clos (backend + notifications).
+**`front-developper` mergé (PR #201), déployé.** Les 5 nouveaux `type` ajoutés dans
+`notificationLabels.ts` (point unique de correspondance technique↔français), `NotificationBell.tsx`
+les affiche sans changement (mécanisme déjà générique). 30/30 tests verts, `tsc`/build propres.
+Décision assumée par le subagent : pas de `targetPath` de navigation pour ces 5 types tant qu'aucun
+écran `/evaluation-corrections/...` n'existe (clic marque juste lu — mieux que naviguer vers une
+mauvaise page). Frontend redéployé par l'orchestrateur, site vérifié `200`.
+
+**Chantier clos.** Backend (PR #195-199) + notifications (PR #200, #201) tous mergés, déployés,
+vérifiés en HTTP direct par l'orchestrateur ou par mesure objective des subagents (Redis XADD,
+idempotence, tests). Aucune preuve visuelle produite (non demandée, cohérent avec la règle du
+projet de ne pas construire de scénario Playwright sans validation préalable du niveau de preuve) —
+à l'utilisateur de constater directement sur `https://claudevma.visioprof.fr` s'il le souhaite.
 
 Comptes de test réutilisables pour la suite (fin de vie non nettoyée, harmless) : formateur
 `e2e.titletest.1788286184` / `E2eTest!2026` (id `d91afd1c-6c2b-4eb7-b625-bd7ce7b2bce1`), RP
 `e2e.rpeval.1788294768` / `E2eTest!2026` (id `365d0543-5c83-478d-99d1-da96e3d55bca`), élève
 `e2e.studeval.1788294788` / `E2eTest!2026` (id `a57d643c-2927-4114-8c91-671b22e62fd6`, lié au
 formateur ci-dessus).
+
+</details>
 
 ---
 

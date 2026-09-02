@@ -26,8 +26,10 @@ import type {
   SavedProfileBlock,
   TeacherValidationRecord,
   UpdateTeacherValidationPayload,
+  UserDirectoryEntry,
   ValidatedTeacher,
 } from '../types/profile'
+import type { UserRole } from '../types/user'
 
 // ─── Profil ───────────────────────────────────────────────────────────────────
 
@@ -343,6 +345,37 @@ export async function fetchValidatedTeachers(
   const { data } = await apiClient.get<PaginatedResponse<ValidatedTeacher>>(
     '/profiles/teachers/validated',
     { params: { page, limit } },
+  )
+  return data
+}
+
+// ─── Annuaire par rôle (écran « Visualisation » du RP, 2026-09-02) ────────────
+
+/**
+ * Plafond de pagination déclaré par le serveur (`docs/routes.md`) : `limit` maximum
+ * `100`, refusé en `400` au-delà — même convention que `VALIDATED_TEACHERS_MAX_LIMIT`.
+ */
+export const USER_DIRECTORY_PAGE_SIZE = 100
+
+/**
+ * GET /profiles/directory/by-role — annuaire par rôle (élève, parent financeur,
+ * formateur, animateur pédagogique), un rôle à la fois, réservé RP/AF/TI.
+ *
+ * Livrée par `profile-service` le 2026-09-02 (`docs/routes.md`, PR #209) pour l'écran
+ * « Visualisation » du rail RP. `role=formateur` délègue intégralement à
+ * `GET /profiles/teachers/validated` côté serveur (même population, même tri, même
+ * contenu) — ce front n'a donc pas besoin de distinguer les deux annuaires, cette route
+ * suffit pour les 4 rôles. Voir `UserDirectoryEntry` pour le détail des champs et leurs
+ * nuances par rôle (`level` vs `levels`, `parent_financeur` sans bloc pédagogique).
+ */
+export async function fetchUserDirectoryByRole(
+  role: UserRole,
+  page = 1,
+  limit = USER_DIRECTORY_PAGE_SIZE,
+): Promise<PaginatedResponse<UserDirectoryEntry>> {
+  const { data } = await apiClient.get<PaginatedResponse<UserDirectoryEntry>>(
+    '/profiles/directory/by-role',
+    { params: { role, page, limit } },
   )
   return data
 }

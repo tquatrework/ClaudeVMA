@@ -447,6 +447,44 @@ export interface ValidatedTeacher {
 }
 
 /**
+ * Une entrée de l'annuaire par rôle (`GET /profiles/directory/by-role`), livré par
+ * `profile-service` le 2026-09-02 pour l'écran « Visualisation » du rail RP
+ * (`docs/architecture.md` > « Reconstruction du rail gauche du Responsable Pédagogique (RP) »).
+ *
+ * Contrat confirmé par `docs/routes.md` (ligne `GET /profiles/directory/by-role`, PR #209) :
+ * `200 {data: [{userId, firstName, lastName, avatarUrl, level, levels, subjects}], page, limit,
+ * total, totalPages}`.
+ *
+ * Deux nuances qui font contrat, à ne pas confondre :
+ * - **`level` (singulier) et `levels` (pluriel) sont deux champs distincts.** `level` porte le
+ *   niveau scolaire **suivi** par un élève (non nul seulement pour `role=eleve`) ; `levels` porte
+ *   les niveaux **enseignés** par un formateur/AP (non nul seulement pour `role=formateur`/
+ *   `role=animateur_pedagogique`). Les confondre sous un seul nom mélangerait deux données
+ *   différentes.
+ * - **`role=parent_financeur` n'a aucun bloc pédagogique** : `level`, `levels` et `subjects`
+ *   valent toujours `null` pour ce rôle — normal, pas une anomalie.
+ *
+ * `avatarUrl` n'est **jamais** directement utilisable comme `src` d'image (route de lecture
+ * authentifiée, comme partout ailleurs dans ce projet) — passer `userId` à `useReadOnlyAvatar`
+ * (ou au prop `photoUserId` de `PersonTile`), jamais construire une URL à partir de ce champ.
+ *
+ * `userId` sert uniquement à construire les liens d'action (profil, calendrier, cahier de texte)
+ * et à résoudre la photo ; jamais affiché comme texte (arbitrage du 2026-08-09).
+ */
+export interface UserDirectoryEntry {
+  userId: string
+  firstName: string | null
+  lastName: string | null
+  avatarUrl: string | null
+  /** Niveau suivi — élève uniquement, `null` pour les 3 autres rôles. */
+  level: string | null
+  /** Niveaux enseignés — formateur/AP uniquement, `null` pour les 2 autres rôles. */
+  levels: string[] | null
+  /** Matières — formateur/AP uniquement, `null` pour les 2 autres rôles. */
+  subjects: string[] | null
+}
+
+/**
  * Réponse de `GET /profiles/avatar/constraints` — contraintes d'envoi de la
  * photo de profil, **en vigueur côté serveur**.
  *

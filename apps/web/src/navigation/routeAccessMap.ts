@@ -190,9 +190,13 @@ export const ROUTE_ACCESS_MAP: RouteAccessRule[] = [
   // Contenu pédagogique
   {
     prefix: '/content/quizz',
-    // 'Quizz' ajouté le 2026-08-27 : présent uniquement au rail élève et
-    // formateur (navigationConfig.ts) — état « à venir », voir QuizzPage.
-    roles: ['eleve', 'formateur'],
+    // Corrigé le 2026-09-02 : App.tsx (ProtectedRoute réel) autorise déjà
+    // 'animateur_pedagogique' et 'responsable_pedagogique' depuis le
+    // 2026-08-28 (arbitrage « Fonctionnalite Quizz », créateurs RP/AP/formateur)
+    // — cette table était restée sur l'ancienne liste ('eleve', 'formateur'),
+    // ce qui aurait masqué à tort la nouvelle entrée « Quizz » du rail RP
+    // (groupe « Contenu ») à tout composant filtrant via `canAccess`.
+    roles: ['eleve', 'formateur', 'animateur_pedagogique', 'responsable_pedagogique'],
   },
   {
     prefix: '/content/exercises',
@@ -234,8 +238,20 @@ export const ROUTE_ACCESS_MAP: RouteAccessRule[] = [
     roles: ['eleve', 'formateur', 'responsable_pedagogique', 'animateur_pedagogique'],
   },
   {
+    // 'responsable_pedagogique' ajouté le 2026-09-02 (reconstruction du rail
+    // RP, groupe « Contenu ») — même correctif que ci-dessus pour
+    // `/content/quizz` : App.tsx autorise déjà le RP sur `GamesPage` (page
+    // 100% statique, aucun appel API), cette table doit refléter la même
+    // liste de rôles pour que `canAccess` ne masque pas l'entrée à tort.
     prefix: '/community/games',
-    roles: ['eleve'],
+    roles: ['eleve', 'responsable_pedagogique'],
+  },
+
+  // Visualisation — RP seul (reconstruction du rail RP, 2026-09-02, groupe
+  // « Gestion »). Accès administratif structuré, pas un écran ouvert à tous.
+  {
+    prefix: '/rp/visualisation',
+    roles: ['responsable_pedagogique'],
   },
 
   // Admin observabilité
@@ -260,10 +276,4 @@ export const ROUTE_ACCESS_MAP: RouteAccessRule[] = [
 
   // Incidents (accessible à tous les connectés selon App.tsx — pas de allowedRoles)
   // → non listé ici, accessible par défaut
-
-  // Jeux
-  {
-    prefix: '/community/games',
-    roles: ['eleve'],
-  },
 ]

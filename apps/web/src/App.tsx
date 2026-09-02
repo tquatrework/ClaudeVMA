@@ -21,6 +21,7 @@ import ProfileEditPage from './pages/ProfileEditPage'
 import TeacherRequestsPage from './pages/TeacherRequestsPage'
 import TeacherRequestDetailPage from './pages/TeacherRequestDetailPage'
 import TeacherValidationQueuePage from './pages/TeacherValidationQueuePage'
+import RpUserDirectoryPage from './pages/RpUserDirectoryPage'
 import CalendarPage from './pages/CalendarPage'
 import ActivityDetailPage from './pages/ActivityDetailPage'
 import CalendarProposalPage from './pages/CalendarProposalPage'
@@ -164,6 +165,19 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={['responsable_pedagogique']}>
                 <TeacherValidationQueuePage />
+              </ProtectedRoute>
+            }
+          />
+          {/*
+            « Visualisation » — nouveau le 2026-09-02 (reconstruction du rail RP,
+            groupe « Gestion »). RP seul : c'est un accès administratif structuré
+            aux différentes catégories d'utilisateurs, pas un écran ouvert à tous.
+          */}
+          <Route
+            path="/rp/visualisation"
+            element={
+              <ProtectedRoute allowedRoles={['responsable_pedagogique']}>
+                <RpUserDirectoryPage />
               </ProtectedRoute>
             }
           />
@@ -866,7 +880,12 @@ export default function App() {
           <Route
             path="/community/games"
             element={
-              <ProtectedRoute allowedRoles={['eleve']}>
+              // 'responsable_pedagogique' ajouté le 2026-09-02 (reconstruction du
+              // rail RP, groupe « Contenu » — demande explicite « Jeux »).
+              // Page 100% statique (ressources externes, aucun appel API) :
+              // l'élargir à un rôle de plus ne change ni le contenu ni le
+              // comportement pour les élèves déjà autorisés.
+              <ProtectedRoute allowedRoles={['eleve', 'responsable_pedagogique']}>
                 <GamesPage />
               </ProtectedRoute>
             }

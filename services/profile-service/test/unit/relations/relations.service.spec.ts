@@ -564,6 +564,100 @@ describe('RelationsService', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // getStudentsByTeacher — sens INVERSE de getTeachersByStudent (2026-09-02,
+  // gap « Contacts essentiels » sur la Visualisation RP)
+  // ---------------------------------------------------------------------------
+  describe('getStudentsByTeacher', () => {
+    it('RP can list students of any teacher', async () => {
+      teacherRepo.find.mockResolvedValue([{ teacherId: 'teacher-uuid', studentId: 'student-uuid' }]);
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await service.getStudentsByTeacher('teacher-uuid', actor);
+      expect(result).toHaveLength(1);
+    });
+
+    it('AdministrateurFinancier can list students of any teacher', async () => {
+      const actor = makeActor(UserRole.ADMINISTRATEUR_FINANCIER);
+      await expect(service.getStudentsByTeacher('teacher-uuid', actor)).resolves.toEqual([]);
+    });
+
+    it('teacher can list their own students', async () => {
+      teacherRepo.find.mockResolvedValue([{ teacherId: 'teacher-uuid', studentId: 'student-uuid' }]);
+      const actor = makeActor(UserRole.FORMATEUR, 'teacher-uuid');
+      const result = await service.getStudentsByTeacher('teacher-uuid', actor);
+      expect(result).toHaveLength(1);
+      expect(teacherRepo.find).toHaveBeenCalledWith({
+        where: { teacherId: 'teacher-uuid', endedAt: IsNull() },
+        order: { createdAt: 'ASC' },
+      });
+    });
+
+    it("throws 403 when a teacher tries to list another teacher's students", async () => {
+      const actor = makeActor(UserRole.FORMATEUR, 'other-teacher-uuid');
+      await expect(service.getStudentsByTeacher('teacher-uuid', actor)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws 403 for élève', async () => {
+      const actor = makeActor(UserRole.ELEVE, 'student-uuid');
+      await expect(service.getStudentsByTeacher('teacher-uuid', actor)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('enriches each item with studentName resolved from AdministrativeProfileLookupService', async () => {
+      teacherRepo.find.mockResolvedValue([
+        { teacherId: 'teacher-uuid', studentId: 'student-1', createdAt: new Date() },
+      ]);
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(
+        new Map([['student-1', { firstName: 'Alice', lastName: 'Dupont' }]]),
+      );
+
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      const result = await service.getStudentsByTeacher('teacher-uuid', actor);
+
+      expect(result[0]).toHaveProperty('studentName', { firstName: 'Alice', lastName: 'Dupont' });
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // getAnimatorsByTeacher — sens INVERSE de getTeachersByAnimator (2026-09-02)
+  // ---------------------------------------------------------------------------
+  describe('getAnimatorsByTeacher', () => {
+    it("laisse le formateur lister ses propres AP, avec leur nom", async () => {
+      animatorRepo.find.mockResolvedValue([{ animatorId: 'ap-uuid', teacherId: 'teacher-uuid' }]);
+      administrativeProfileLookup.findNamesByUserIds.mockResolvedValue(
+        new Map([['ap-uuid', { firstName: 'Nadia', lastName: 'Belkacem' }]]),
+      );
+
+      const result = await service.getAnimatorsByTeacher(
+        'teacher-uuid',
+        makeActor(UserRole.FORMATEUR, 'teacher-uuid'),
+      );
+
+      expect(result).toEqual([
+        expect.objectContaining({
+          animatorId: 'ap-uuid',
+          animatorName: { firstName: 'Nadia', lastName: 'Belkacem' },
+        }),
+      ]);
+    });
+
+    it('RP can list animateurs of any teacher', async () => {
+      const actor = makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE);
+      await expect(service.getAnimatorsByTeacher('teacher-uuid', actor)).resolves.toEqual([]);
+    });
+
+    it("refuse un formateur qui consulte la liste d'un autre formateur", async () => {
+      await expect(
+        service.getAnimatorsByTeacher('other-teacher-uuid', makeActor(UserRole.FORMATEUR, 'teacher-uuid')),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it("refuse l'AdministrateurFinancier — la relation AP↔formateur est pédagogique, pas financière", async () => {
+      await expect(
+        service.getAnimatorsByTeacher('teacher-uuid', makeActor(UserRole.ADMINISTRATEUR_FINANCIER)),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // resolveRelations — nature ET sens du lien
   // ---------------------------------------------------------------------------
   describe('resolveRelations', () => {

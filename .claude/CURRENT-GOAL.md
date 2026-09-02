@@ -40,9 +40,10 @@ maintenant). Détail point 3 (contacts essentiels), par direction :
 - **AP → professeurs : gap front seul** — la route existe déjà côté `profile-service` (ouverte au
   RP) mais n'est consommée par aucun composant front à ce jour.
 
-**Reste à trancher avec l'utilisateur** : jusqu'où pousser la fermeture de ces gaps maintenant
-(élève↔parents + AP→professeurs = correctifs front ciblés ; professeur→élèves/AP = nouvelle route
-`profile-service`) vs. clore ce chantier avec l'existant et rouvrir plus tard. Pas encore demandé.
+**Tranché par l'utilisateur le 2026-09-02 : fermer les 3 gaps maintenant.** Délégué en parallèle :
+`front-developper` (sur la même PR #211, en plus du câblage recherche déjà en cours : ouvrir
+l'affichage élève↔parents existant aux rôles administratifs, câbler AP→professeurs sur la route déjà
+ouverte) et `profile-service` (nouvelle route professeur→élèves/professeur→AP).
 
 **Reste à faire dans tous les cas** : câbler la recherche (point 1) côté front sur PR #211 avant
 merge, puisque le backend est maintenant prêt.

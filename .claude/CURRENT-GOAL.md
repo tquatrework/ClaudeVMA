@@ -36,16 +36,22 @@ non-auteur→404, non-régression sur `validated`). Aucun changement de contrat 
 recâbler côté front, "voir avant de valider" devrait déjà fonctionner avec l'écran existant une fois
 qu'un RP/AP clique sur un contenu en attente.
 
-**PR #207 (rail RP) toujours ouverte, en attente de deux décisions de l'utilisateur** : (1) "Cahier
-de texte" absent du rail RP reconstruit (hors spec donnée, route toujours accessible mais plus de
-raccourci pour ce rôle) — intentionnel ou oubli ? (2) "Visualisation" ne couvre que les formateurs
-(annuaire déjà existant) — Élèves/Parents/AP affichent "indisponible", aucune route de liste
-n'existant côté serveur pour ces rôles (gap `profile-service` potentiel, non traité).
+**Les deux points tranchés par l'utilisateur le 2026-09-02** : (1) Cahier de texte reste
+volontairement absent du rail RP, confirmé — il y accédera via Visualisation. (2) Visualisation doit
+couvrir les 4 rôles (élèves/parents/professeurs/AP) : un onglet par rôle, tuiles réutilisant le
+composant déjà existant qui présente un élève à son parent, chaque tuile avec des boutons vers
+profil/calendrier/cahier de texte de cet utilisateur. Précision persistée dans
+`docs/architecture.md` (fin de la section "Reconstruction du rail gauche du RP").
 
-**Reste à faire** : merger #207 une fois ces deux points tranchés par l'utilisateur ; vérifier après
-déploiement conjoint que le clic sur un contenu `pending_validation` depuis "Contenus à valider"
-affiche bien le contenu complet désormais (pas de nouvelle délégation attendue si le lien existe
-déjà, sinon petit correctif front à identifier).
+Délégué à `profile-service` le 2026-09-02 : nouvelle route de liste paginée par rôle (élèves/
+parents/professeurs/AP), champs socle pour affichage en tuile, aucun UUID affiché, réservée aux
+rôles administratifs. `front-developper` à déléguer ensuite pour construire les tuiles + boutons une
+fois ce contrat stabilisé (PR #207 déjà ouverte, à compléter plutôt qu'à remplacer).
+
+**Reste à faire** : demander à l'utilisateur s'il veut merger #207 maintenant (structure de rail déjà
+correcte, Visualisation formateurs-only en attendant la suite) ou attendre que Visualisation soit
+complète ; vérifier après déploiement conjoint que le clic sur un contenu `pending_validation` depuis
+"Contenus à valider" affiche bien le contenu complet désormais.
 
 ---
 

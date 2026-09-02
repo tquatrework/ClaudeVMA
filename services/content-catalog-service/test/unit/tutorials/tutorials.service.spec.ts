@@ -152,10 +152,10 @@ describe('TutorialsService', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('findOne()', () => {
-    it('retourne le tutoriel s\'il existe', async () => {
+    it('retourne le tutoriel validé s\'il existe, pour n\'importe quel appelant', async () => {
       tutorialRepo.findOne.mockResolvedValue(buildSampleTutorial());
 
-      const result = await tutorialsService.findOne(TUTORIAL_ID);
+      const result = await tutorialsService.findOne(TUTORIAL_ID, ELEVE_ID, 'eleve');
 
       expect(result.id).toBe(TUTORIAL_ID);
     });
@@ -164,7 +164,76 @@ describe('TutorialsService', () => {
       tutorialRepo.findOne.mockResolvedValue(null);
 
       await expect(
-        tutorialsService.findOne(TUTORIAL_ID),
+        tutorialsService.findOne(TUTORIAL_ID, ELEVE_ID, 'eleve'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    // ───────────────────────────────────────────────────────────────────
+    // Visibilité d'un tutoriel non validé pour son validateur RP/AP
+    // (arbitrage du 2026-09-02, "Visibilité du contenu en attente de
+    // validation, pour son validateur (RP/AP)"). Contrairement au Quizz/
+    // Exercice/Évaluation, la décision de validation d'un Tutoriel n'est
+    // pas scopée par relation animator_of_teacher (2026-08-29) : la
+    // lecture d'un AP reste donc non scopée elle aussi, pas de mock
+    // ProfileRelationsClient requis ici.
+    // ───────────────────────────────────────────────────────────────────
+
+    it('l\'auteur lit son propre tutoriel en attente de validation', async () => {
+      const tutorial = buildSampleTutorial({
+        authorId: FORMATEUR_ID,
+        status: ContentStatus.PENDING_VALIDATION,
+      });
+      tutorialRepo.findOne.mockResolvedValue(tutorial);
+
+      const result = await tutorialsService.findOne(TUTORIAL_ID, FORMATEUR_ID, 'formateur');
+
+      expect(result.id).toBe(TUTORIAL_ID);
+    });
+
+    it('le RP lit n\'importe quel tutoriel en attente ou rejeté', async () => {
+      const tutorial = buildSampleTutorial({
+        authorId: FORMATEUR_ID,
+        status: ContentStatus.PENDING_VALIDATION,
+      });
+      tutorialRepo.findOne.mockResolvedValue(tutorial);
+
+      const result = await tutorialsService.findOne(
+        TUTORIAL_ID,
+        OTHER_ID,
+        'responsable_pedagogique',
+      );
+
+      expect(result.id).toBe(TUTORIAL_ID);
+    });
+
+    it('un AP lit un tutoriel en attente d\'un auteur quelconque (non scopé)', async () => {
+      const tutorial = buildSampleTutorial({
+        authorId: FORMATEUR_ID,
+        status: ContentStatus.PENDING_VALIDATION,
+      });
+      tutorialRepo.findOne.mockResolvedValue(tutorial);
+
+      const result = await tutorialsService.findOne(
+        TUTORIAL_ID,
+        OTHER_ID,
+        'animateur_pedagogique',
+      );
+
+      expect(result.id).toBe(TUTORIAL_ID);
+    });
+
+    it('un tiers non-auteur (élève ou formateur) ne voit pas un tutoriel en attente (404)', async () => {
+      const tutorial = buildSampleTutorial({
+        authorId: FORMATEUR_ID,
+        status: ContentStatus.PENDING_VALIDATION,
+      });
+      tutorialRepo.findOne.mockResolvedValue(tutorial);
+
+      await expect(
+        tutorialsService.findOne(TUTORIAL_ID, OTHER_ID, 'eleve'),
+      ).rejects.toThrow(NotFoundException);
+      await expect(
+        tutorialsService.findOne(TUTORIAL_ID, OTHER_ID, 'formateur'),
       ).rejects.toThrow(NotFoundException);
     });
   });

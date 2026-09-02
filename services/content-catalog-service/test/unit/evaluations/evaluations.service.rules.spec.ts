@@ -18,10 +18,13 @@ import { EvaluationsService } from '../../../src/evaluations/evaluations.service
 import { Evaluation } from '../../../src/evaluations/entities/evaluation.entity';
 import { ContentStatus } from '../../../src/common/enums/content-status.enum';
 import { ExercisePart } from '../../../src/exercises/entities/exercise-part.entity';
+import { ProfileRelationsClient } from '../../../src/common/clients/profile-relations.client';
 
 const FORMATEUR_ID  = 'form-0000-4000-a000-aaaaaaaaaaaa';
 const ELEVE_ID      = 'elev-0000-4000-b000-bbbbbbbbbbbb';
 const OTHER_ID      = 'othe-0000-4000-c000-cccccccccccc';
+const AP_ID         = 'apid-0000-4000-a000-aaaaaaaaaaaa';
+const RP_ID         = 'rpid-0000-4000-a000-aaaaaaaaaaaa';
 const EVALUATION_ID = 'eval-0000-4000-d000-dddddddddddd';
 
 function buildMockRepo() {
@@ -36,6 +39,12 @@ function buildMockRepo() {
 function buildMockExercisePartRepo() {
   return {
     find: jest.fn().mockResolvedValue([]),
+  };
+}
+
+function buildMockProfileRelationsClient() {
+  return {
+    hasAnimatorOfTeacherRelation: jest.fn(),
   };
 }
 
@@ -67,16 +76,19 @@ describe('EvaluationsService — règles métier complémentaires', () => {
   let evaluationsService: EvaluationsService;
   let evaluationRepo: ReturnType<typeof buildMockRepo>;
   let exercisePartRepo: ReturnType<typeof buildMockExercisePartRepo>;
+  let profileRelationsClient: ReturnType<typeof buildMockProfileRelationsClient>;
 
   beforeEach(async () => {
     evaluationRepo = buildMockRepo();
     exercisePartRepo = buildMockExercisePartRepo();
+    profileRelationsClient = buildMockProfileRelationsClient();
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         EvaluationsService,
         { provide: getRepositoryToken(Evaluation), useValue: evaluationRepo },
         { provide: getRepositoryToken(ExercisePart), useValue: exercisePartRepo },
+        { provide: ProfileRelationsClient, useValue: profileRelationsClient },
       ],
     }).compile();
 
@@ -90,11 +102,11 @@ describe('EvaluationsService — règles métier complémentaires', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('findOne()', () => {
-    it('retourne l\'évaluation si elle existe', async () => {
+    it('retourne l\'évaluation validée si elle existe, pour n\'importe quel appelant', async () => {
       const evaluation = buildSampleEvaluation();
       evaluationRepo.findOne.mockResolvedValue(evaluation);
 
-      const result = await evaluationsService.findOne(EVALUATION_ID);
+      const result = await evaluationsService.findOne(EVALUATION_ID, ELEVE_ID, 'eleve');
 
       expect(result.id).toBe(EVALUATION_ID);
     });
@@ -103,7 +115,107 @@ describe('EvaluationsService — règles métier complémentaires', () => {
       evaluationRepo.findOne.mockResolvedValue(null);
 
       await expect(
-        evaluationsService.findOne(EVALUATION_ID),
+        evaluationsService.findOne(EVALUATION_ID, ELEVE_ID, 'eleve'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    // ───────────────────────────────────────────────────────────────────
+    // Visibilité d'une évaluation non validée pour son validateur RP/AP
+    // (arbitrage du 2026-09-02, "Visibilité du contenu en attente de
+    // validation, pour son validateur (RP/AP)").
+    // ───────────────────────────────────────────────────────────────────
+
+    it('l\'auteur lit sa propre évaluation en attente de validation', async () => {
+      const evaluation = buildSampleEvaluation({
+        authorId: FORMATEUR_ID,
+        status: ContentStatus.PENDING_VALIDATION,
+      });
+      evaluationRepo.findOne.mockResolvedValue(evaluation);
+
+      const result = await evaluationsService.findOne(EVALUATION_ID, FORMATEUR_ID, 'formateur');
+
+      expect(result.id).toBe(EVALUATION_ID);
+    });
+
+    it('le RP lit n\'importe quelle évaluation en attente, sans vérifier de relation', async () => {
+      const evaluation = buildSampleEvaluation({
+        authorId: FORMATEUR_ID,
+        status: ContentStatus.PENDING_VALIDATION,
+      });
+      evaluationRepo.findOne.mockResolvedValue(evaluation);
+
+      const result = await evaluationsService.findOne(
+        EVALUATION_ID,
+        RP_ID,
+        'responsable_pedagogique',
+      );
+
+      expect(result.id).toBe(EVALUATION_ID);
+      expect(profileRelationsClient.hasAnimatorOfTeacherRelation).not.toHaveBeenCalled();
+    });
+
+    it('le RP lit une évaluation rejetée', async () => {
+      const evaluation = buildSampleEvaluation({
+        authorId: FORMATEUR_ID,
+        status: ContentStatus.REJECTED,
+      });
+      evaluationRepo.findOne.mockResolvedValue(evaluation);
+
+      const result = await evaluationsService.findOne(
+        EVALUATION_ID,
+        RP_ID,
+        'responsable_pedagogique',
+      );
+
+      expect(result.id).toBe(EVALUATION_ID);
+    });
+
+    it('un AP qui anime l\'auteur lit son évaluation en attente', async () => {
+      const evaluation = buildSampleEvaluation({
+        authorId: FORMATEUR_ID,
+        status: ContentStatus.PENDING_VALIDATION,
+      });
+      evaluationRepo.findOne.mockResolvedValue(evaluation);
+      profileRelationsClient.hasAnimatorOfTeacherRelation.mockResolvedValue(true);
+
+      const result = await evaluationsService.findOne(
+        EVALUATION_ID,
+        AP_ID,
+        'animateur_pedagogique',
+      );
+
+      expect(result.id).toBe(EVALUATION_ID);
+      expect(profileRelationsClient.hasAnimatorOfTeacherRelation).toHaveBeenCalledWith(
+        AP_ID,
+        FORMATEUR_ID,
+      );
+    });
+
+    it('un AP qui n\'anime pas l\'auteur ne voit pas son évaluation en attente (404)', async () => {
+      const evaluation = buildSampleEvaluation({
+        authorId: FORMATEUR_ID,
+        status: ContentStatus.PENDING_VALIDATION,
+      });
+      evaluationRepo.findOne.mockResolvedValue(evaluation);
+      profileRelationsClient.hasAnimatorOfTeacherRelation.mockResolvedValue(false);
+
+      await expect(
+        evaluationsService.findOne(EVALUATION_ID, AP_ID, 'animateur_pedagogique'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('un tiers non-auteur (élève ou formateur) ne voit pas une évaluation en attente (404)', async () => {
+      const evaluation = buildSampleEvaluation({
+        authorId: FORMATEUR_ID,
+        status: ContentStatus.PENDING_VALIDATION,
+      });
+      evaluationRepo.findOne.mockResolvedValue(evaluation);
+
+      await expect(
+        evaluationsService.findOne(EVALUATION_ID, OTHER_ID, 'eleve'),
+      ).rejects.toThrow(NotFoundException);
+      await expect(
+        evaluationsService.findOne(EVALUATION_ID, OTHER_ID, 'formateur'),
       ).rejects.toThrow(NotFoundException);
     });
   });

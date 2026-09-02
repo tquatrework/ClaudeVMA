@@ -11,12 +11,31 @@ import { SearchTutorialDto } from './dto/search-tutorial.dto';
 import { ContentStatus } from '../common/enums/content-status.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 
+/**
+ * Rôles à lecture non restreinte sur un tutoriel non validé (arbitrage du
+ * 2026-09-02, "Visibilité du contenu en attente de validation, pour son
+ * validateur (RP/AP)"). Contrairement au Quizz/Exercice/Évaluation,
+ * la décision de validation d'un Tutoriel n'est PAS scopée par relation
+ * animator_of_teacher (arbitrage du 2026-08-29, resté explicitement hors
+ * périmètre pour ce type) — la lecture suit donc la même règle non scopée
+ * ("qui peut décider doit pouvoir voir"), pas un scoping introduit à part.
+ */
+const ADMIN_ROLES = [
+  UserRole.ANIMATEUR_PEDAGOGIQUE,
+  UserRole.RESPONSABLE_PEDAGOGIQUE,
+  UserRole.TECHNICIEN_INFORMATIQUE,
+];
+
 @Injectable()
 export class TutorialsService {
   constructor(
     @InjectRepository(Tutorial)
     private readonly tutorialRepository: Repository<Tutorial>,
   ) {}
+
+  private isAdminRole(role: string): boolean {
+    return ADMIN_ROLES.includes(role as UserRole);
+  }
 
   async search(
     searchParams: SearchTutorialDto,
@@ -74,13 +93,28 @@ export class TutorialsService {
     return this.tutorialRepository.save(savedTutorial);
   }
 
-  async findOne(tutorialId: string): Promise<Tutorial> {
+  /**
+   * Corrige au passage un gap pré-existant, non lié à l'arbitrage du
+   * 2026-09-02 mais nécessaire pour l'implémenter correctement : cette
+   * méthode ne prenait auparavant ni callerId ni callerRole et ne
+   * vérifiait donc AUCUN statut — un tutoriel DRAFT/pending_validation/
+   * rejected était lisible intégralement par n'importe quel compte
+   * authentifié, y compris élève.
+   */
+  async findOne(tutorialId: string, callerId: string, callerRole: string): Promise<Tutorial> {
     const tutorial = await this.tutorialRepository.findOne({
       where: { id: tutorialId },
     });
     if (!tutorial) {
       throw new NotFoundException(`Tutoriel ${tutorialId} introuvable`);
     }
+
+    const isOwner = tutorial.authorId === callerId;
+    if (tutorial.status !== ContentStatus.VALIDATED && !isOwner && !this.isAdminRole(callerRole)) {
+      // Un tutoriel non validé n'existe pas pour qui n'a pas le droit de le voir
+      throw new NotFoundException(`Tutoriel ${tutorialId} introuvable`);
+    }
+
     return tutorial;
   }
 

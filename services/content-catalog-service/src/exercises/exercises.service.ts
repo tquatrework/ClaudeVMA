@@ -150,6 +150,32 @@ export class ExercisesService {
     return ADMIN_ROLES.includes(role as UserRole);
   }
 
+  /**
+   * Droit de lecture élargi pour le validateur d'un exercice non validé
+   * (arbitrage du 2026-09-02, "Visibilité du contenu en attente de
+   * validation, pour son validateur (RP/AP)") : le RP lit sans restriction,
+   * l'AP est scopé par la relation animator_of_teacher — même scoping que
+   * la décision de validation (arbitrage du 2026-08-29). Distinct de
+   * isAdminRole() (utilisé ailleurs pour search()/getPendingValidation()/
+   * findOneWithSolutions(), non touchés par cet arbitrage).
+   */
+  private async canReadAsValidator(
+    callerRole: string,
+    callerId: string,
+    authorId: string,
+  ): Promise<boolean> {
+    if (
+      callerRole === UserRole.RESPONSABLE_PEDAGOGIQUE ||
+      callerRole === UserRole.TECHNICIEN_INFORMATIQUE
+    ) {
+      return true;
+    }
+    if (callerRole === UserRole.ANIMATEUR_PEDAGOGIQUE) {
+      return this.profileRelationsClient.hasAnimatorOfTeacherRelation(callerId, authorId);
+    }
+    return false;
+  }
+
   // ───────────────────────────────────────────────────────────────────────
   // Sérialisation publique — le contenu d'une solution n'est jamais inclus
   // ───────────────────────────────────────────────────────────────────────
@@ -782,9 +808,12 @@ export class ExercisesService {
     }
 
     const isOwner = exercise.authorId === callerId;
-    if (exercise.status !== ContentStatus.VALIDATED && !isOwner && !this.isAdminRole(callerRole)) {
-      // Un exercice non validé n'existe pas pour qui n'a pas le droit de le voir
-      throw new NotFoundException(`Exercice ${exerciseId} introuvable`);
+    if (exercise.status !== ContentStatus.VALIDATED && !isOwner) {
+      const canRead = await this.canReadAsValidator(callerRole, callerId, exercise.authorId);
+      if (!canRead) {
+        // Un exercice non validé n'existe pas pour qui n'a pas le droit de le voir
+        throw new NotFoundException(`Exercice ${exerciseId} introuvable`);
+      }
     }
 
     return this.toPublicDetail(exercise);

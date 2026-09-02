@@ -15,6 +15,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import { EvaluationScoringMode } from './enums/evaluation-scoring-mode.enum';
 import { ExercisePart } from '../exercises/entities/exercise-part.entity';
 import { ExercisePartCategory } from '../exercises/enums/exercise-part-category.enum';
+import { ProfileRelationsClient } from '../common/clients/profile-relations.client';
 
 /** Rôles autorisés à créer/éditer une évaluation — mêmes rôles que Quizz/Exercice. */
 export const EVALUATION_CREATOR_ROLES = [
@@ -31,7 +32,36 @@ export class EvaluationsService {
 
     @InjectRepository(ExercisePart)
     private readonly exercisePartRepository: Repository<ExercisePart>,
+
+    private readonly profileRelationsClient: ProfileRelationsClient,
   ) {}
+
+  /**
+   * Droit de lecture élargi pour le validateur d'une évaluation non validée
+   * (arbitrage du 2026-09-02, "Visibilité du contenu en attente de
+   * validation, pour son validateur (RP/AP)") : le RP lit sans restriction,
+   * l'AP est scopé par la relation animator_of_teacher — même scoping que
+   * la décision de validation (arbitrage du 2026-09-01, "Refonte des
+   * Evaluations", point 5 : le scoping AP, initialement réservé au Quizz,
+   * a été étendu à l'Évaluation). Même mécanisme que
+   * QuizzesService/ExercisesService.canReadAsValidator().
+   */
+  private async canReadAsValidator(
+    callerRole: string,
+    callerId: string,
+    authorId: string,
+  ): Promise<boolean> {
+    if (
+      callerRole === UserRole.RESPONSABLE_PEDAGOGIQUE ||
+      callerRole === UserRole.TECHNICIEN_INFORMATIQUE
+    ) {
+      return true;
+    }
+    if (callerRole === UserRole.ANIMATEUR_PEDAGOGIQUE) {
+      return this.profileRelationsClient.hasAnimatorOfTeacherRelation(callerId, authorId);
+    }
+    return false;
+  }
 
   // ───────────────────────────────────────────────────────────────────────
   // Barème informatif (arbitrage du 2026-09-02) — validation complète,
@@ -260,13 +290,33 @@ export class EvaluationsService {
     return this.evaluationRepository.save(evaluation);
   }
 
-  async findOne(evaluationId: string): Promise<Evaluation> {
+  /**
+   * Corrige au passage un gap pré-existant, non lié à l'arbitrage du
+   * 2026-09-02 mais nécessaire pour l'implémenter correctement : cette
+   * méthode ne prenait auparavant ni callerId ni callerRole et ne
+   * vérifiait donc AUCUN statut — une évaluation pending_validation ou
+   * rejected était lisible intégralement par n'importe quel compte
+   * authentifié, y compris élève. Alignée ici sur le même modèle que
+   * QuizzesService.findOne()/ExercisesService.findOne() : validated pour
+   * tout le monde, ou auteur, ou RP/AP(scopé)/TI.
+   */
+  async findOne(evaluationId: string, callerId: string, callerRole: string): Promise<Evaluation> {
     const evaluation = await this.evaluationRepository.findOne({
       where: { id: evaluationId },
     });
     if (!evaluation) {
       throw new NotFoundException(`Évaluation ${evaluationId} introuvable`);
     }
+
+    const isOwner = evaluation.authorId === callerId;
+    if (evaluation.status !== ContentStatus.VALIDATED && !isOwner) {
+      const canRead = await this.canReadAsValidator(callerRole, callerId, evaluation.authorId);
+      if (!canRead) {
+        // Une évaluation non validée n'existe pas pour qui n'a pas le droit de la voir
+        throw new NotFoundException(`Évaluation ${evaluationId} introuvable`);
+      }
+    }
+
     return evaluation;
   }
 

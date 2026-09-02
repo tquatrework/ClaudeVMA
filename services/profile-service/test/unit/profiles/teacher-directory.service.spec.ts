@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 import { ForbiddenException, Logger } from '@nestjs/common';
 import { TeacherDirectoryService } from '../../../src/profiles/teacher-directory.service';
 import { TeacherValidation } from '../../../src/profiles/entities/teacher-validation.entity';
@@ -66,6 +67,7 @@ describe('TeacherDirectoryService', () => {
       providers: [
         TeacherDirectoryService,
         { provide: getRepositoryToken(TeacherValidation), useValue: teacherValidationRepo },
+        { provide: ConfigService, useValue: { get: () => undefined } },
       ],
     }).compile();
 
@@ -130,7 +132,7 @@ describe('TeacherDirectoryService', () => {
   // ---------------------------------------------------------------------------
 
   describe('contenu servi', () => {
-    it('ne renvoie que le socle : userId, firstName, lastName, levels, subjects', async () => {
+    it('ne renvoie que le socle : userId, firstName, lastName, avatarUrl, levels, subjects', async () => {
       await buildService(
         [
           {
@@ -150,6 +152,7 @@ describe('TeacherDirectoryService', () => {
       );
 
       expect(Object.keys(result.data[0]).sort()).toEqual([
+        'avatarUrl',
         'firstName',
         'lastName',
         'levels',
@@ -221,6 +224,7 @@ describe('TeacherDirectoryService', () => {
         userId: 'teacher-orphan',
         firstName: null,
         lastName: null,
+        avatarUrl: null,
         levels: null,
         subjects: null,
       });
@@ -439,6 +443,7 @@ describe('TeacherDirectoryService', () => {
         );
 
         expect(Object.keys(result.data[0]).sort()).toEqual([
+          'avatarUrl',
           'firstName',
           'lastName',
           'levels',

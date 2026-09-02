@@ -113,7 +113,9 @@ export class EvaluationsController {
     summary: 'Récupérer une évaluation par identifiant',
     description:
       'Retourne le détail d\'une évaluation avec ses exercices et son barème informatif ' +
-      'éventuel (champ scoring, null si le créateur n\'en a pas défini).',
+      'éventuel (champ scoring, null si le créateur n\'en a pas défini). Une évaluation non ' +
+      'validée reste invisible sauf à son auteur, au RP (sans restriction) et à l\'AP qui anime ' +
+      'le formateur auteur (arbitrage du 2026-09-02).',
   })
   @ApiParam({ name: 'id', description: 'UUID de l\'évaluation' })
   @ApiResponse({ status: 200, description: 'Évaluation trouvée' })
@@ -122,7 +124,7 @@ export class EvaluationsController {
     @Param('id') evaluationId: string,
     @CurrentUser() currentUser: AuthenticatedUser,
   ) {
-    return this.evaluationsService.findOne(evaluationId);
+    return this.evaluationsService.findOne(evaluationId, currentUser.id, currentUser.role);
   }
 
   @Delete(':id')

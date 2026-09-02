@@ -5,8 +5,10 @@ import { ProfileAvatarController } from './profile-avatar.controller';
 import { ProfileInternalNotesController } from './profile-internal-notes.controller';
 import { TeacherValidationController } from './teacher-validation.controller';
 import { TeacherDirectoryController } from './teacher-directory.controller';
+import { RoleDirectoryController } from './role-directory.controller';
 import { ProfilesService } from './profiles.service';
 import { TeacherDirectoryService } from './teacher-directory.service';
+import { RoleDirectoryService } from './role-directory.service';
 import { AvatarService } from './avatar.service';
 import { MediaModule } from '../media/media.module';
 import { FieldVisibilityService } from './field-visibility.service';
@@ -74,6 +76,12 @@ import { ClientsModule } from '../common/clients/clients.module';
     // routes qu'on ajoutera demain. C'est cette collision qui faisait répondre
     // `400` à `GET /profiles/teachers` (« teachers » lu comme un UUID).
     TeacherDirectoryController,
+    // RoleDirectoryController expose `directory/by-role`, deux segments sous
+    // /profiles (jamais un seul, sous peine de collision avec
+    // `GET /profiles/:userId` — voir le commentaire en tête du contrôleur) :
+    // même précaution d'ordre que TeacherDirectoryController malgré tout,
+    // déclaré avant ProfilesController.
+    RoleDirectoryController,
     ProfilesController,
     ProfileAvatarController,
     ProfileInternalNotesController,
@@ -82,6 +90,7 @@ import { ClientsModule } from '../common/clients/clients.module';
   providers: [
     ProfilesService,
     TeacherDirectoryService,
+    RoleDirectoryService,
     AvatarService,
     FieldVisibilityService,
     AdministrativeProfileLookupService,

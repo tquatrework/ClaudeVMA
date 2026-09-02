@@ -6,6 +6,7 @@ import { EvaluationsController } from './evaluations.controller';
 import { EvaluationsService } from './evaluations.service';
 import { Evaluation } from './entities/evaluation.entity';
 import { ExercisePart } from '../exercises/entities/exercise-part.entity';
+import { ProfileClientModule } from '../common/clients/profile-client.module';
 
 @Module({
   imports: [
@@ -21,6 +22,9 @@ import { ExercisePart } from '../exercises/entities/exercise-part.entity';
       }),
       inject: [ConfigService],
     }),
+    // Nécessaire pour ProfileRelationsClient (scoping AP animator_of_teacher
+    // sur la lecture d'une évaluation en attente — arbitrage du 2026-09-02).
+    ProfileClientModule,
   ],
   controllers: [EvaluationsController],
   providers: [EvaluationsService],

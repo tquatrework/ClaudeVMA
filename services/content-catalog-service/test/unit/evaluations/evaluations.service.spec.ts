@@ -23,6 +23,7 @@ import { EvaluationsService } from '../../../src/evaluations/evaluations.service
 import { Evaluation } from '../../../src/evaluations/entities/evaluation.entity';
 import { ContentStatus } from '../../../src/common/enums/content-status.enum';
 import { ExercisePart } from '../../../src/exercises/entities/exercise-part.entity';
+import { ProfileRelationsClient } from '../../../src/common/clients/profile-relations.client';
 
 const FORMATEUR_ID    = 'form-0000-4000-a000-aaaaaaaaaaaa';
 const AP_ID           = 'apid-0000-4000-a000-aaaaaaaaaaaa';
@@ -57,6 +58,12 @@ function buildMockExercisePartRepo() {
   };
 }
 
+function buildMockProfileRelationsClient() {
+  return {
+    hasAnimatorOfTeacherRelation: jest.fn(),
+  };
+}
+
 function buildSampleEvaluation(overrides: Partial<Evaluation> = {}): Evaluation {
   return {
     id: EVALUATION_ID,
@@ -85,16 +92,19 @@ describe('EvaluationsService', () => {
   let evaluationsService: EvaluationsService;
   let evaluationRepo: ReturnType<typeof buildMockRepo>;
   let exercisePartRepo: ReturnType<typeof buildMockExercisePartRepo>;
+  let profileRelationsClient: ReturnType<typeof buildMockProfileRelationsClient>;
 
   beforeEach(async () => {
     evaluationRepo = buildMockRepo();
     exercisePartRepo = buildMockExercisePartRepo();
+    profileRelationsClient = buildMockProfileRelationsClient();
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         EvaluationsService,
         { provide: getRepositoryToken(Evaluation), useValue: evaluationRepo },
         { provide: getRepositoryToken(ExercisePart), useValue: exercisePartRepo },
+        { provide: ProfileRelationsClient, useValue: profileRelationsClient },
       ],
     }).compile();
 

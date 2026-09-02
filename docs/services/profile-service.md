@@ -2896,6 +2896,115 @@
           changements de cette session).
         </verification>
       </decision>
+      <decision id="C28" status="implemented" session="2026-09-02">
+        <title>GET /profiles/directory/by-role — annuaire « Visualisation » du RP par role (eleve/parent_financeur/formateur/animateur_pedagogique)</title>
+        <filesTouched>
+          <file path="services/profile-service/src/profiles/dto/role-directory-page.query.dto.ts">
+            Nouveau DTO. `DIRECTORY_ROLES` (eleve/parent_financeur/formateur/animateur_pedagogique
+            — PAS l'enum UserRole complet, les roles administratifs ne sont pas des personnes a
+            "retrouver"). `role` requis (`@IsIn`), `page`/`limit` memes bornes et memes messages
+            que `TeachersPageQueryDto` (defaut 20, max 100, refus explicite au-dela).
+          </file>
+          <file path="services/profile-service/src/profiles/role-directory.service.ts">
+            Nouveau service. `role=formateur` DELEGUE integralement a
+            `TeacherDirectoryService.listValidatedTeachers` (reprojete vers la forme commune,
+            `level: null`) plutot que de dupliquer sa logique. Les 3 autres roles : population
+            recuperee aupres de `identity-access-service`
+            (`IdentityAccessClient.listAccountsByRole`, nouvelle methode -&gt;
+            `GET /internal/accounts?role=`, deja consommee ailleurs par
+            dashboard-notification-service pour le fan-out par role des notifications), croisee
+            avec `administrative_profiles` (WHERE userId IN (...ids)) + LEFT JOIN
+            `StudentPedagogicalProfile` (eleve) ou `TeacherPedagogicalProfile`
+            (animateur_pedagogique, aucun join pour parent_financeur). Incoherence (compte connu
+            d'identity-access-service sans profil administratif local) journalisee en `error`, pas
+            bloquante — la ligne manque simplement de l'annuaire, contrairement a l'annuaire
+            formateurs qui l'inclut avec des champs `null` (population de reference differente : ici
+            elle vient d'un autre service, il n'y a pas de ligne locale a afficher malgre tout).
+            identity-access-service indisponible -&gt; page vide journalisee, jamais un 5xx.
+          </file>
+          <file path="services/profile-service/src/profiles/role-directory.controller.ts">
+            Nouveau controleur, `GET /profiles/directory/by-role` — DEUX segments a dessein, meme
+            precaution que `teachers/validated` (C19/C20) : un segment unique sous `/profiles`
+            collisionnerait avec `GET /profiles/:userId`, quel que soit l'ordre de declaration des
+            controleurs (Express route par nombre de segments). `@Roles` identique a l'annuaire
+            formateurs (RP, AF, TI).
+          </file>
+          <file path="services/profile-service/src/profiles/profiles.module.ts">
+            `RoleDirectoryController` declare avant `ProfilesController` (meme precaution que
+            `TeacherDirectoryController`) ; `RoleDirectoryService` ajoute aux providers.
+          </file>
+          <file path="services/profile-service/src/profiles/teacher-directory.service.ts">
+            `avatarUrl` ajoute a `TeacherSummary` (champ additif, `listValidatedTeachers` ET
+            `listTeachersPendingValidation`) : construit via `buildAvatarUrl`
+            (`administrative-profile.view.ts`), colonnes avatar ajoutees a la selection brute.
+            Necessaire pour que l'annuaire delegue (`role=formateur`) porte une photo comme les 3
+            autres roles ; injection de `ConfigService` pour `AVATAR_PUBLIC_PATH_PREFIX`, meme
+            pattern que `ProfilesService`.
+          </file>
+          <file path="services/profile-service/src/common/clients/identity-access.client.ts">
+            `listAccountsByRole(role)` + type `IdentityAccountSummary` -&gt;
+            `GET /internal/accounts?role=`. `fetchAccountList` prive, variante de liste de
+            `fetchAccount` (pas de cas 404 : une liste vide est un `200 []` normal).
+          </file>
+          <file path="services/profile-service/test/unit/profiles/teacher-directory.service.spec.ts">
+            Mis a jour pour `avatarUrl` (provider `ConfigService` ajoute, assertions de forme et
+            d'egalite completees).
+          </file>
+          <file path="services/profile-service/test/unit/profiles/role-directory.service.spec.ts">
+            Nouveau, 18 tests : droits (admin only), delegation formateur (aucun appel
+            identity-access-service), population par role via identity-access-service, filtre SQL
+            `IN (...userIds)`, page vide sans requete locale si liste vide, degradation si
+            identity-access-service indisponible, projection `level`/`levels`/`subjects` par role
+            (eleve: `level` seul ; AP: `levels` seul ; parent: tous `null`), journalisation
+            d'incoherence, pagination.
+          </file>
+          <file path="docs/routes.md">
+            Route documentee (nouvelle section « Annuaire Visualisation par role »), et reponse de
+            `GET /profiles/teachers/validated` mise a jour (`avatarUrl` ajoute).
+          </file>
+        </filesTouched>
+        <description>
+          Arbitrage du 2026-09-02 (`docs/architecture.md` &gt; « Reconstruction du rail gauche du
+          RP », precision post-PR #207) : le menu « Visualisation » du RP doit couvrir les 4 roles
+          (eleve, parent, professeur, AP) sous forme de tuiles, avec liens vers
+          profil/calendrier/cahier de texte. Seul le role formateur avait deja un annuaire
+          exploitable (`teachers/validated`, C19/C20) ; il manquait une route de liste pour les 3
+          autres roles.
+
+          VERIFIE AVANT CONSTRUCTION (regle "ne duplique pas") : aucune route de liste par role
+          n'existait hors `teachers/validated` (elleme meme scopee aux formateurs `validated` via
+          `teacher_validations`, table qui ne porte QUE des formateurs). `identity-access-service`
+          reste l'unique proprietaire du role (`docs/architecture.md`, « Propriete du role ») ; sa
+          route `GET /internal/accounts?role=` etait deja utilisee par
+          dashboard-notification-service (fan-out par role des notifications, C24/architecture
+          2026-08-14) — reutilisee ici plutot que redemandee ou devinee.
+
+          POURQUOI PAS `teacher_validations` POUR `animateur_pedagogique` : un AP est un formateur
+          promu (`ProfilesService.promoteToAnimateurPedagogique`) — son
+          `TeacherPedagogicalProfile.isAnimateurPedagogique` passe a `true`, mais sa ligne
+          `teacher_validations` (creee quand il etait encore `formateur`) n'est pas retouchee.
+          Filtrer sur cette seule table aurait melange formateurs et AP dans la meme tuile ; filtrer
+          par le role COURANT renvoye par identity-access-service separe correctement les deux.
+
+          CONTENU LIMITE AU SOCLE (meme discipline que C19/C20) : `userId` (jamais affiche, sert
+          uniquement a router), `firstName`, `lastName`, `avatarUrl`, et les champs pedagogiques
+          deja partages par defaut a un administrateur pour ce role (`level` OU `levels` selon le
+          role, jamais les deux non-nuls sur la meme ligne — deux donnees distinctes, deja nommees
+          differemment sur leurs entites respectives, fusionner sous un seul nom aurait confondu
+          « niveau suivi » et « niveaux enseignes »).
+        </description>
+        <verification>
+          703 tests unitaires verts sur la suite complete du service (391 sur le perimetre
+          `test/unit/profiles` avec les 18 nouveaux inclus), build (`npm run build`) OK. Verifie
+          HTTP direct contre la pile reelle deployee (JWT signe avec le `JWT_SECRET` reel, memes
+          claims que `JwtAuthGuard` exige) : les 4 roles listes avec RP (eleve 166 resultats/56
+          pages, parent_financeur 42, formateur 21 via delegation, animateur_pedagogique 6) ;
+          pagination `page=2` verifiee ; role `eleve` refuse en `403` pour un acteur eleve ; `role`
+          invalide et `role` absent refuses en `400` ; collision avec `GET /profiles/:userId`
+          verifiee absente (UUID inconnu -&gt; `404` propre, pas `400`) ; regression verifiee sur
+          `GET /profiles/teachers/validated` (avatarUrl present, contenu inchange par ailleurs).
+        </verification>
+      </decision>
       <openPoints>
         <item priority="medium" status="to-do" raisedIn="C26" raisedOn="2026-08-26" owner="orchestrateur">
           `pedagogical-log-service` a besoin d'un ecran "Parametres systeme" commun (point 8 de

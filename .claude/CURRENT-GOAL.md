@@ -24,6 +24,35 @@ Délégué en parallèle le 2026-09-02 : `content-catalog-service` (élargir la 
 qui existe déjà pour "Visualisation"/Forums/Parcours/Jeux plutôt que d'inventer des routes ; le
 câblage "voir avant de valider" suivra une fois le contrat backend confirmé).
 
+**`content-catalog-service` mergé (PR #208), déployé, site vérifié `200`.** Cause réelle vérifiée
+dans le code (pas supposée) : Quiz/Exercise autorisaient déjà RP + AP **non scopé** (trop
+permissif), tandis qu'**Evaluation/Tutorial n'avaient aucun contrôle d'accès du tout** sur
+`findOne()` — bug plus large que ce qui avait été signalé, tout le monde pouvait lire n'importe
+quel contenu `pending_validation`/`rejected` de ces deux types. Corrigé uniformément : RP illimité,
+AP scopé `animator_of_teacher` (Quiz/Exercise/Evaluation), AP non scopé pour Tutorial (cohérent avec
+sa décision de validation elle-même non scopée). 419/419 tests verts, preuve HTTP directe contre le
+conteneur réel redéployé (matrice complète : RP→200, AP lié→200, AP non lié→404, élève/prof
+non-auteur→404, non-régression sur `validated`). Aucun changement de contrat de réponse — rien à
+recâbler côté front, "voir avant de valider" devrait déjà fonctionner avec l'écran existant une fois
+qu'un RP/AP clique sur un contenu en attente.
+
+**Les deux points tranchés par l'utilisateur le 2026-09-02** : (1) Cahier de texte reste
+volontairement absent du rail RP, confirmé — il y accédera via Visualisation. (2) Visualisation doit
+couvrir les 4 rôles (élèves/parents/professeurs/AP) : un onglet par rôle, tuiles réutilisant le
+composant déjà existant qui présente un élève à son parent, chaque tuile avec des boutons vers
+profil/calendrier/cahier de texte de cet utilisateur. Précision persistée dans
+`docs/architecture.md` (fin de la section "Reconstruction du rail gauche du RP").
+
+Délégué à `profile-service` le 2026-09-02 : nouvelle route de liste paginée par rôle (élèves/
+parents/professeurs/AP), champs socle pour affichage en tuile, aucun UUID affiché, réservée aux
+rôles administratifs. `front-developper` à déléguer ensuite pour construire les tuiles + boutons une
+fois ce contrat stabilisé (PR #207 déjà ouverte, à compléter plutôt qu'à remplacer).
+
+**Reste à faire** : demander à l'utilisateur s'il veut merger #207 maintenant (structure de rail déjà
+correcte, Visualisation formateurs-only en attendant la suite) ou attendre que Visualisation soit
+complète ; vérifier après déploiement conjoint que le clic sur un contenu `pending_validation` depuis
+"Contenus à valider" affiche bien le contenu complet désormais.
+
 ---
 
 Import d'Exercice depuis un tableur (CSV/Excel), demandé le 2026-09-02, pendant que l'utilisateur

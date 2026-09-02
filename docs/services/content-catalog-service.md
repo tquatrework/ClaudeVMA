@@ -41,6 +41,7 @@
       <endpoint method="GET" path="/exercises/default-title">Suggerer un titre par defaut ("Exercice {n}", n = nombre d'exercices deja crees par l'appelant + 1) — lue par le front a l'ouverture du formulaire de creation (ajoute le 2026-09-01). Reservee aux createurs (formateur/AP/RP).</endpoint>
       <endpoint method="GET" path="/exercises/image-constraints">Plafonds d'image (entree/sortie/corps JSON) lus par le front avant d'afficher le bouton d'ajout (ajoute le 2026-09-01). Reservee aux createurs.</endpoint>
       <endpoint method="GET" path="/exercises/pending-validation">Lister les exercices en attente de validation ; AP scope par relation animator_of_teacher, RP illimite (ajoute le 2026-08-29).</endpoint>
+      <endpoint method="GET" path="/exercises/{id}">Recuperer un exercice. Non-valide invisible sauf a l'auteur, RP (illimite) et AP scope par animator_of_teacher (elargi le 2026-09-02, "Visibilite du contenu en attente de validation pour son validateur RP/AP") — lecture distincte de la decision de validation.</endpoint>
       <endpoint method="GET" path="/exercises/import/constraints">Plafond de taille de l'import CSV/Excel, meme modele que GET /quizzes/import/constraints (ajoute le 2026-09-02).</endpoint>
       <endpoint method="GET" path="/exercises/import/template">Fichier CSV modele directement importable (2 exercices), genere par buildCsvRow a partir des memes constantes que le parseur reel — verifie par un test qui le fait repasser dans parseExerciseImportFile (ajoute le 2026-09-02).</endpoint>
       <endpoint method="POST" path="/exercises/import">Import de plusieurs exercices depuis un fichier CSV/Excel, discriminant type=exercice/enonce/question/solution/image, un bloc question doit etre immediatement suivi d'une ligne solution sinon le bloc entier est refuse, un bloc se termine a la premiere ligne vide OU a la prochaine ligne exercice. Reutilise ExercisesService.create() bloc par bloc, aucune regle de validation/composition/titre contournee (ajoute le 2026-09-02).</endpoint>
@@ -53,10 +54,11 @@
       <endpoint method="GET" path="/evaluations">Rechercher evaluations, filtrable par tag (ANY(tags)) et keyword (titre) — gap corrige le 2026-09-01, ces deux champs existaient deja dans SearchEvaluationDto sans jamais etre appliques.</endpoint>
       <endpoint method="POST" path="/evaluations">Creer une evaluation a partir d'une liste d'exercices existants (exerciseItems). Statut initial aligne sur Quizz/Exercice le 2026-09-01 : pending_validation pour un formateur, validated pour AP/RP (remplace le DRAFT systematique). durationSeconds devient obligatoire (400 si absent/nul/negatif, 2026-09-01). Accepte desormais un bareme informatif optionnel (scoring, ajoute le 2026-09-02).</endpoint>
       <endpoint method="PUT" path="/evaluations/{id}">Modifier une evaluation, reserve a son auteur ; repasse en pending_validation si l'auteur est formateur, inchange pour AP/RP auteur (ajoute le 2026-09-02, meme modele que Quizz/Exercice — comblait un manque signale par front-developper). Meme forme de corps que la creation, remplacement integral (exerciseItems et scoring compris).</endpoint>
-      <endpoint method="GET" path="/evaluations/{id}">Renvoie desormais le bareme informatif eventuel (scoring, null si non defini) en plus des champs deja exposes (ajoute le 2026-09-02).</endpoint>
+      <endpoint method="GET" path="/evaluations/{id}">Renvoie desormais le bareme informatif eventuel (scoring, null si non defini) en plus des champs deja exposes (ajoute le 2026-09-02). Meme jour : corrige l'absence totale de controle d'acces (auparavant ouverte a tout appelant authentifie quel que soit le statut) — non-valide desormais invisible sauf a l'auteur, RP (illimite) et AP scope par animator_of_teacher.</endpoint>
       <endpoint method="RETIRE" path="/evaluations/{id}/attempts">Retiree le 2026-09-01 avec EvaluationAttempt (jamais utilisee reellement, migre vers learning-activity-service).</endpoint>
       <endpoint method="GET" path="/tutorials">Rechercher tutos/videos.</endpoint>
       <endpoint method="POST" path="/tutorials">Charger tuto/video.</endpoint>
+      <endpoint method="GET" path="/tutorials/{id}">Recuperer un tutoriel. Corrige le 2026-09-02 : ne verifiait auparavant aucun statut/appelant (ouvert a tout compte authentifie). Non-valide desormais invisible sauf a l'auteur et a RP/AP/TI — AP non scope par relation ici, a la difference de Quiz/Exercice/Evaluation, car la decision de validation d'un Tutoriel reste elle-meme non scopee (Tutorial n'a pas recu la refonte de cycle 2026-08-28/29/09-01).</endpoint>
       <endpoint method="POST" path="/contents/{id}/comments">Commenter une ressource.</endpoint>
       <endpoint method="POST" path="/contents/{id}/ratings">Scorer une ressource.</endpoint>
       <endpoint method="GET" path="/quizzes">Rechercher les quizz visibles, ou tous ses propres quizz avec `mine=true` tous statuts confondus (ajoute le 2026-08-28, mine ajoute le 2026-08-28 session 3).</endpoint>
@@ -64,7 +66,7 @@
       <endpoint method="PUT" path="/quizzes/{id}">Modifier un quizz, reserve a son auteur ; repasse en pending_validation si l'auteur est formateur (ajoute le 2026-08-28 session 3). Meme controle d'unicite de titre que la creation (2026-09-01), en excluant le quizz lui-meme.</endpoint>
       <endpoint method="GET" path="/quizzes/default-title">Suggerer un titre par defaut ("Quizz {n}", n = nombre de quizz deja crees par l'appelant + 1) — lue par le front a l'ouverture du formulaire de creation (ajoute le 2026-09-01). Reservee aux createurs (formateur/AP/RP).</endpoint>
       <endpoint method="GET" path="/quizzes/pending-validation">Lister les quizz en attente de validation ; un AP ne voit que les formateurs qu'il anime, RP voit tout (ajoute le 2026-08-28, scoping AP ajoute session 3).</endpoint>
-      <endpoint method="GET" path="/quizzes/{id}">Recuperer un quizz sans sa solution (ajoute le 2026-08-28). Reste inchangee par la session 4 : jamais la solution, quel que soit l'appelant.</endpoint>
+      <endpoint method="GET" path="/quizzes/{id}">Recuperer un quizz sans sa solution (ajoute le 2026-08-28). Reste inchangee par la session 4 : jamais la solution, quel que soit l'appelant. Non-valide invisible sauf a l'auteur, RP (illimite) et AP scope par animator_of_teacher (elargi le 2026-09-02, avant : AP non scope).</endpoint>
       <endpoint method="GET" path="/quizzes/{id}/solution">Recuperer la solution complete d'un quizz (bonnes reponses, mots-cles) — reserve a l'auteur et aux AP/RP/TI (ajoute le 2026-08-28 session 4).</endpoint>
       <endpoint method="POST" path="/validations/quiz/{id}/decision">Valider/rejeter un quizz — reutilise le flux generique existant ; AP scope par relation animator_of_teacher (ajoute le 2026-08-28, scoping session 3).</endpoint>
       <endpoint method="GET" path="/validations/{type}/{id}/history">Historique des validations (exercise/evaluation/tutorial/quiz) — ouvert sans restriction aux AP/RP/TI, et a l'auteur du contenu pour son propre historique (ouverture a l'auteur ajoutee le 2026-08-28 session 4).</endpoint>
@@ -1858,6 +1860,126 @@
             Colonne "themes" (CSV) mappée en un champ scalaire unique avec refus explicite si
             plusieurs valeurs — lecture assumée par ce chantier faute de confirmation mot pour mot de
             l'utilisateur sur ce point précis, signalée dans docs/architecture.md et ici.
+          </point>
+        </openPoints>
+      </session>
+
+      <session date="2026-09-02" label="Visibilite du contenu en attente de validation pour son validateur RP/AP (branche feat/content-catalog-validator-read-access)">
+        <objective>
+          Implementer l'arbitrage docs/architecture.md "Visibilite du contenu en attente de
+          validation, pour son validateur (RP/AP)" : un RP doit pouvoir lire l'integralite d'un
+          Quizz/Exercice/Evaluation/Tutoriel quel que soit son statut, un AP le meme droit scope
+          par la relation animator_of_teacher deja utilisee pour la decision (2026-08-28/29/09-01).
+        </objective>
+        <investigation>
+          Verification prealable du code reel avant toute modification (pas de supposition) :
+          - Quiz/Exercise : `findOne()` bloquait deja correctement les tiers non-auteurs sur du
+            non-valide, mais le bypass admin (`isAdminRole`) laissait n'importe quel AP (pas
+            seulement celui qui anime l'auteur) voir n'importe quel contenu en attente — trop
+            permissif par rapport a l'arbitrage, qui exige un scoping par relation pour l'AP.
+          - Evaluation/Tutorial : `findOne()` ne prenait **aucun** parametre d'appelant et ne
+            verifiait **aucun** statut — un contenu `pending_validation`/`rejected`/`DRAFT` etait
+            lisible integralement par n'importe quel compte authentifie, y compris un eleve. Bug
+            plus large que celui decrit dans la demande initiale (pas "RP/AP bloques" mais
+            "personne n'est bloque") ; corrige dans le meme mouvement car necessaire pour
+            implementer correctement l'elargissement demande — on ne peut pas elargir une
+            condition d'autorisation qui n'existe pas.
+        </investigation>
+        <filesModified>
+          <file path="src/quizzes/quizzes.service.ts">Nouvelle methode privee `canReadAsValidator(callerRole, callerId, authorId)` : RP/TI
+            illimites, AP scope via `profileRelationsClient.hasAnimatorOfTeacherRelation`. `findOne()`
+            l'utilise a la place de `isAdminRole()` pour la branche non-validated. `isAdminRole()`
+            reste inchangee et continue de servir `search()`/`getPendingValidation()`/
+            `findOneWithSolution()`, hors perimetre de cet arbitrage.</file>
+          <file path="src/exercises/exercises.service.ts">Meme transformation, meme nom de methode `canReadAsValidator()`, uniquement dans
+            `findOne()`. `search()`/`getPendingValidation()`/`findOneWithSolutions()` inchanges.</file>
+          <file path="src/evaluations/evaluations.service.ts">Injection de `ProfileRelationsClient` (absente jusqu'ici, ce service n'appelait aucun
+            autre service). `findOne()` change de signature
+            (`findOne(evaluationId, callerId, callerRole)`, avant `findOne(evaluationId)`) et
+            applique desormais la meme regle que Quiz/Exercise : validated pour tous, ou auteur, ou
+            `canReadAsValidator()`. Corrige au passage l'absence totale de controle deja documentee
+            ci-dessus.</file>
+          <file path="src/evaluations/evaluations.module.ts">Import de `ProfileClientModule` (deja utilise par Quizzes/Exercises/Validations).</file>
+          <file path="src/evaluations/evaluations.controller.ts">`findOne()` transmet desormais `currentUser.id`/`currentUser.role` au service.</file>
+          <file path="src/tutorials/tutorials.service.ts">Ajout d'un `ADMIN_ROLES`/`isAdminRole()` local (AP/RP/TI, non scope pour l'AP —
+            voir decision ci-dessous). `findOne()` change de signature
+            (`findOne(tutorialId, callerId, callerRole)`) et applique la meme regle que
+            Quiz/Exercise/Evaluation.</file>
+          <file path="src/tutorials/tutorials.controller.ts">`findOne()` transmet `currentUser.id`/`currentUser.role`.</file>
+        </filesModified>
+        <technicalDecisions>
+          <decision>
+            Tutorial : l'AP n'est PAS scope par `animator_of_teacher` en lecture, contrairement a
+            Quiz/Exercise/Evaluation. Justification : l'arbitrage lie explicitement le scoping de
+            lecture au scoping de la decision ("qui peut decider doit pouvoir voir") ; or la
+            decision de validation d'un Tutoriel reste non scopee pour l'AP
+            (`validations.service.ts`, commentaire explicite "Tutorial reste seul inchange", arbitrages
+            du 2026-08-29/09-01). Scoper la lecture mais pas la decision aurait produit une
+            incoherence inverse : un AP aurait pu valider un Tutoriel qu'il ne pouvait pas lire.
+            Aucun appel a `ProfileRelationsClient` necessaire pour Tutorial : verification synchrone
+            par role uniquement, pas de client HTTP injecte dans `TutorialsModule`.
+          </decision>
+          <decision>
+            RP et TI regroupes dans le meme acces illimite pour les 4 types. L'arbitrage ne nomme
+            explicitement que le RP, mais TI beneficiait deja de l'acces illimite via
+            `isAdminRole`/`ADMIN_ROLES` sur Quiz/Exercise avant ce chantier — conserve pour ne pas
+            regresser un acces deja en place, coherent avec "administrateurs voient tout" (2026-08-07).
+          </decision>
+          <decision>
+            Le droit de decision (`POST /validations/:type/:id/decision`) n'est pas touche : aucune
+            modification de `validations.service.ts`/`validations.controller.ts` dans ce chantier.
+            Seule la lecture (`GET /quizzes/:id`, `GET /exercises/:id`, `GET /evaluations/:id`,
+            `GET /tutorials/:id`) est elargie, conformement au point 4 de l'arbitrage ("pas de
+            nouvelle route dediee, elargir la condition d'autorisation deja en place").
+          </decision>
+        </technicalDecisions>
+        <verification>
+          <item>`npm run build` : 0 erreur.</item>
+          <item>`npm test` : 419/419 tests verts, 38 suites — extension de
+            `quizzes.service.spec.ts`/`exercises.service.spec.ts` (RP illimite, AP lie/non-lie sur
+            `findOne()`) et reecriture complete de `evaluations.service.rules.spec.ts`/
+            `tutorials.service.spec.ts` (nouvelle signature de `findOne()`, matrice
+            auteur/RP/AP-lie/AP-non-lie/tiers). Ajout du mock `ProfileRelationsClient` dans les 3
+            fichiers de test Evaluation qui instancient le service (`evaluations.service.spec.ts`,
+            `evaluations.service.rules.spec.ts`, `evaluations.service.scoring.spec.ts`) — devenu une
+            dependance obligatoire du constructeur.</item>
+          <item>Preuve HTTP directe contre le conteneur reel redeploye (image reconstruite depuis
+            le worktree corrige, retaguee `claudevma-content-catalog-service:latest`, conteneur
+            recree via `docker compose up -d --no-deps --no-build content-catalog-service`) — JWT
+            forges avec le `JWT_SECRET` partage du `.env` (dev), relation `animator_of_teacher`
+            creee reellement via `POST /relations/animator-teacher` sur `profile-service` :
+            <detail>Quiz `pending_validation` d'un formateur : RP -&gt; 200 complet ; AP lie -&gt; 200
+              complet (`hasAnimatorOfTeacherRelation` verifiee reellement) ; AP non lie -&gt; 404 ;
+              eleve -&gt; 404 ; autre formateur non-auteur -&gt; 404.</detail>
+            <detail>Exercise `pending_validation` : meme matrice, memes resultats.</detail>
+            <detail>Evaluation `pending_validation` (route auparavant totalement ouverte) : auteur
+              -&gt; 200 ; RP -&gt; 200 ; AP lie -&gt; 200 ; AP non lie -&gt; 404 ; eleve -&gt; 404 ;
+              autre formateur -&gt; 404.</detail>
+            <detail>Non-regression : apres decision RP `validated` sur le Quiz de test, un eleve le
+              lit desormais en 200 (comportement inchange pour le contenu valide).</detail>
+            <detail>Donnees de test (1 quizz, 1 exercice, 1 evaluation, 1 relation
+              animator_of_teacher) creees sur la pile partagee ; exercice et evaluation supprimes en
+              fin de verification via leurs routes DELETE respectives (RP), le quizz `validated`
+              restant et la relation `animator_of_teacher` restant, cohernent avec la pratique des
+              sessions precedentes sur ce service (donnees de test non systematiquement purgees).</detail>
+          </item>
+        </verification>
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <point>
+            Tutorial n'a jamais recu la refonte de cycle de validation (pending_validation
+            formateur / validated AP-RP, scoping AP) appliquee a Quiz/Exercise/Evaluation — il reste
+            sur l'ancien modele DRAFT + demande de validation separee, avec decision AP non scopee.
+            Ce chantier n'a pas etendu cette refonte a Tutorial (hors perimetre de la demande), mais
+            a du composer avec : la lecture reste elle aussi non scopee pour l'AP sur Tutorial, par
+            coherence avec sa decision non scopee — a revisiter ensemble si Tutorial est refondu un
+            jour sur le modele Quiz/Exercise/Evaluation.
+          </point>
+          <point>
+            Front : aucun changement de contrat de reponse (les routes renvoient exactement la meme
+            forme qu'avant, seule l'autorisation change) — probablement aucune action necessaire
+            cote `front-developper` une fois cette PR mergee, a confirmer si l'ecran "Contenus a
+            valider" du nouveau rail RP (arbitrage du meme jour) rencontre un cas non couvert.
           </point>
         </openPoints>
       </session>

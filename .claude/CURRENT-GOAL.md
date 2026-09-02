@@ -16,7 +16,28 @@ la version front de juin, qui appelle un backend aujourd'hui remplacé (PR #195-
 
 Délégué à `front-developper` le 2026-09-02 pour construire les écrans manquants, sur le contrat
 déjà stabilisé (`docs/architecture.md` section "Refonte des Evaluations", `docs/routes.md`,
-`.claude/reports/learning-activity-service-evaluations-2026-09-01.md`). En cours.
+`.claude/reports/learning-activity-service-evaluations-2026-09-01.md`).
+
+**PR #202 livrée** (catalogue, création/validation, passage chronométré, file de correction
+professeur, vue RP, historique), preuve HTTP directe complète contre la pile réelle, 2 bugs trouvés
+et corrigés en route. **Addendum demandé par l'utilisateur** ajouté sur la même branche : bouton
+"nouveau" à côté de "rechercher" dans le sélecteur d'Exercice (crée un Exercice puis revient sur la
+création d'Évaluation en cours, brouillon préservé en `sessionStorage`) ; bug du bouton "rechercher"
+diagnostiqué (formulaire imbriqué invalide qui soumettait silencieusement) et corrigé — pointe
+maintenant vers le vrai catalogue d'Exercices filtré, retour sur l'Évaluation en cours après choix.
+
+**Point d'attention non trivial** : le subagent a reconstruit et redéployé le conteneur `frontend`
+partagé directement depuis sa branche non mergée pour produire sa preuve — `https://claudevma.visioprof.fr`
+sert donc actuellement le code de `feat/front-evaluations-rebuild`, **pas** celui de `master`.
+PR #202 **toujours non mergée**. À réconcilier : merger #202 (ce que le code réellement en
+production réclame déjà) ou revenir sciemment sur le frontend de `master` en attendant validation —
+décision communiquée à l'utilisateur, en attente de sa confirmation.
+
+**Questions posées à l'utilisateur, toujours sans réponse** : (1) confirmation pour merger #202,
+(2) ajout d'une entrée de menu "Exercices"/"Évaluations" au rail RP (absente aujourd'hui, accès
+seulement par URL directe), (3) suite à donner aux 2 gaps backend contournés côté front sans
+inventer de route (`PUT /evaluations/:id` absent → pas d'édition ; `GET /evaluations/pending-validation`
+absent → RP filtré côté client).
 
 Rappel branches non fusionnées dans `master` (hors périmètre, signalées mais non traitées) :
 `feat/front-reprise-candidature-formateur` et `feat/reprise-candidature-formateur` — travail réel

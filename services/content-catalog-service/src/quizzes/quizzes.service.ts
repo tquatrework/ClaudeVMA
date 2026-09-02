@@ -128,6 +128,33 @@ export class QuizzesService {
     return ADMIN_ROLES.includes(role as UserRole);
   }
 
+  /**
+   * Droit de lecture élargi pour le validateur d'un contenu non validé
+   * (arbitrage du 2026-09-02, "Visibilité du contenu en attente de
+   * validation, pour son validateur (RP/AP)") : le RP lit sans restriction,
+   * l'AP est scopé par la relation animator_of_teacher — exactement le même
+   * scoping déjà appliqué à la décision de validation elle-même (arbitrage
+   * du 2026-08-28), pour que « qui peut décider puisse voir ». Distinct de
+   * isAdminRole() (utilisé ailleurs pour search()/getPendingValidation()/
+   * findOneWithSolution(), non touchés par cet arbitrage).
+   */
+  private async canReadAsValidator(
+    callerRole: string,
+    callerId: string,
+    authorId: string,
+  ): Promise<boolean> {
+    if (
+      callerRole === UserRole.RESPONSABLE_PEDAGOGIQUE ||
+      callerRole === UserRole.TECHNICIEN_INFORMATIQUE
+    ) {
+      return true;
+    }
+    if (callerRole === UserRole.ANIMATEUR_PEDAGOGIQUE) {
+      return this.profileRelationsClient.hasAnimatorOfTeacherRelation(callerId, authorId);
+    }
+    return false;
+  }
+
   // ───────────────────────────────────────────────────────────────────────
   // Sérialisation publique — la solution n'est jamais incluse
   // ───────────────────────────────────────────────────────────────────────
@@ -586,9 +613,12 @@ export class QuizzesService {
     }
 
     const isOwner = quiz.authorId === callerId;
-    if (quiz.status !== ContentStatus.VALIDATED && !isOwner && !this.isAdminRole(callerRole)) {
-      // Un quizz non validé n'existe pas pour qui n'a pas le droit de le voir
-      throw new NotFoundException(`Quizz ${quizId} introuvable`);
+    if (quiz.status !== ContentStatus.VALIDATED && !isOwner) {
+      const canRead = await this.canReadAsValidator(callerRole, callerId, quiz.authorId);
+      if (!canRead) {
+        // Un quizz non validé n'existe pas pour qui n'a pas le droit de le voir
+        throw new NotFoundException(`Quizz ${quizId} introuvable`);
+      }
     }
 
     return this.toPublicDetail(quiz);

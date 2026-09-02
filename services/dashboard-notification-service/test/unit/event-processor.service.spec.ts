@@ -599,6 +599,213 @@ describe('EventProcessorService', () => {
     });
   });
 
+  describe('EvaluationCorrectionRequested', () => {
+    it('notifies every linked teacher individually and the RP role, with the resolved student name', async () => {
+      displayNames({ 'student-1': { firstName: 'Camille', lastName: 'Durand' } });
+      identityAccessServiceClient.listUserIdsByRole.mockResolvedValue(['rp-1', 'rp-2']);
+
+      await processor.process({
+        eventId: 'evt-20',
+        eventName: 'EvaluationCorrectionRequested',
+        payload: JSON.stringify({
+          correctionRequestId: 'correction-1',
+          attemptId: 'attempt-1',
+          evaluationId: 'evaluation-1',
+          studentId: 'student-1',
+          teacherIds: ['teacher-1', 'teacher-2'],
+        }),
+      });
+
+      const recipients = txNotificationRepository.save.mock.calls.map(([n]: any) => n.userId);
+      expect(recipients).toEqual(['teacher-1', 'teacher-2', 'rp-1', 'rp-2']);
+      expect(txNotificationRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'teacher-1',
+          type: NotificationType.EVALUATION_CORRECTION_REQUESTED,
+          title: null,
+          message: null,
+          metadata: expect.objectContaining({
+            correctionRequestId: 'correction-1',
+            attemptId: 'attempt-1',
+            evaluationId: 'evaluation-1',
+            studentId: 'student-1',
+            studentName: 'Camille Durand',
+          }),
+        }),
+      );
+      expect(txProcessedEventRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ eventId: 'evt-20', eventName: 'EvaluationCorrectionRequested' }),
+      );
+    });
+
+    it('does not acknowledge (throws) when the student name cannot be resolved', async () => {
+      profileServiceClient.resolveDisplayNames.mockResolvedValue(new Map());
+
+      await expect(
+        processor.process({
+          eventId: 'evt-21',
+          eventName: 'EvaluationCorrectionRequested',
+          payload: JSON.stringify({
+            correctionRequestId: 'correction-1',
+            attemptId: 'attempt-1',
+            evaluationId: 'evaluation-1',
+            studentId: 'student-1',
+            teacherIds: ['teacher-1'],
+          }),
+        }),
+      ).rejects.toThrow(/Unresolved display name/);
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('EvaluationCorrectionAccepted / EvaluationCorrectionDeclined', () => {
+    it.each([
+      ['EvaluationCorrectionAccepted', NotificationType.EVALUATION_CORRECTION_ACCEPTED],
+      ['EvaluationCorrectionDeclined', NotificationType.EVALUATION_CORRECTION_DECLINED],
+    ])('notifies the RP role with the resolved student and teacher names for %s', async (eventName, type) => {
+      displayNames({
+        'student-1': { firstName: 'Camille', lastName: 'Durand' },
+        'teacher-1': { firstName: 'Alex', lastName: 'Martin' },
+      });
+      identityAccessServiceClient.listUserIdsByRole.mockResolvedValue(['rp-1']);
+
+      await processor.process({
+        eventId: 'evt-22',
+        eventName,
+        payload: JSON.stringify({
+          correctionRequestId: 'correction-1',
+          attemptId: 'attempt-1',
+          evaluationId: 'evaluation-1',
+          studentId: 'student-1',
+          teacherId: 'teacher-1',
+        }),
+      });
+
+      expect(txNotificationRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'rp-1',
+          type,
+          metadata: expect.objectContaining({
+            correctionRequestId: 'correction-1',
+            studentId: 'student-1',
+            studentName: 'Camille Durand',
+            teacherId: 'teacher-1',
+            teacherName: 'Alex Martin',
+          }),
+        }),
+      );
+    });
+  });
+
+  describe('EvaluationCorrectionAllDeclined', () => {
+    it('notifies the RP role with the reason and the resolved student name', async () => {
+      displayNames({ 'student-1': { firstName: 'Camille', lastName: 'Durand' } });
+      identityAccessServiceClient.listUserIdsByRole.mockResolvedValue(['rp-1']);
+
+      await processor.process({
+        eventId: 'evt-23',
+        eventName: 'EvaluationCorrectionAllDeclined',
+        payload: JSON.stringify({
+          correctionRequestId: 'correction-1',
+          attemptId: 'attempt-1',
+          evaluationId: 'evaluation-1',
+          studentId: 'student-1',
+          reason: 'all_linked_teachers_declined',
+        }),
+      });
+
+      expect(txNotificationRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'rp-1',
+          type: NotificationType.EVALUATION_CORRECTION_ALL_DECLINED,
+          metadata: expect.objectContaining({
+            studentId: 'student-1',
+            studentName: 'Camille Durand',
+            reason: 'all_linked_teachers_declined',
+          }),
+        }),
+      );
+    });
+
+    it('notifies the RP role with reason no_linked_teacher when the student had no linked teacher', async () => {
+      displayNames({ 'student-1': { firstName: 'Camille', lastName: 'Durand' } });
+      identityAccessServiceClient.listUserIdsByRole.mockResolvedValue(['rp-1']);
+
+      await processor.process({
+        eventId: 'evt-24',
+        eventName: 'EvaluationCorrectionAllDeclined',
+        payload: JSON.stringify({
+          correctionRequestId: 'correction-1',
+          attemptId: 'attempt-1',
+          evaluationId: 'evaluation-1',
+          studentId: 'student-1',
+          reason: 'no_linked_teacher',
+        }),
+      });
+
+      expect(txNotificationRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ metadata: expect.objectContaining({ reason: 'no_linked_teacher' }) }),
+      );
+    });
+  });
+
+  describe('EvaluationCorrected', () => {
+    it('notifies the student with the resolved teacher name, score and comment', async () => {
+      displayNames({ 'teacher-1': { firstName: 'Alex', lastName: 'Martin' } });
+
+      await processor.process({
+        eventId: 'evt-25',
+        eventName: 'EvaluationCorrected',
+        payload: JSON.stringify({
+          correctionRequestId: 'correction-1',
+          attemptId: 'attempt-1',
+          evaluationId: 'evaluation-1',
+          studentId: 'student-1',
+          teacherId: 'teacher-1',
+          score: 14,
+          comment: 'Bon travail, attention aux signes.',
+        }),
+      });
+
+      expect(txNotificationRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'student-1',
+          type: NotificationType.EVALUATION_CORRECTED,
+          metadata: expect.objectContaining({
+            correctionRequestId: 'correction-1',
+            teacherId: 'teacher-1',
+            teacherName: 'Alex Martin',
+            score: 14,
+            comment: 'Bon travail, attention aux signes.',
+          }),
+        }),
+      );
+    });
+
+    it('does not acknowledge (throws) when the teacher name cannot be resolved', async () => {
+      profileServiceClient.resolveDisplayNames.mockResolvedValue(new Map());
+
+      await expect(
+        processor.process({
+          eventId: 'evt-26',
+          eventName: 'EvaluationCorrected',
+          payload: JSON.stringify({
+            correctionRequestId: 'correction-1',
+            attemptId: 'attempt-1',
+            evaluationId: 'evaluation-1',
+            studentId: 'student-1',
+            teacherId: 'teacher-1',
+            score: 10,
+            comment: null,
+          }),
+        }),
+      ).rejects.toThrow(/Unresolved display name/);
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+  });
+
   describe('events with no notification', () => {
     it.each(['TeacherRequestClosed', 'TeacherRequestDeleted'])('marks %s as processed without creating a notification', async (eventName) => {
       await processor.process({ eventId: 'evt-8', eventName, payload: '{}' });

@@ -644,3 +644,92 @@ leve, transaction jamais tentee. Suite complete du service : **103 tests, tous v
   fusionnes et deployes ensemble.
 - Le libelle front (`notificationLabels.ts`) reste a implementer cote front-developper, non
   traite ici.
+
+## Consommation des 5 evenements de correction manuelle d'Evaluation (2026-09-02)
+
+Branche `feat/dashboard-notifications-evaluations`. Cable le dernier maillon manquant du chantier
+"Refonte des Evaluations" (`docs/architecture.md`, arbitrage du 2026-09-01) : `learning-activity-service`
+publie deja 5 evenements reels sur `visiomath:events` (module `evaluation-attempts/`,
+`docs/routes.md` > learning-activity-service > « Événements émis ») ; aucun n'etait consomme avant
+cette session.
+
+### Modification appliquee
+
+Arborescence modifiee (src/) :
+
+```
+services/dashboard-notification-service/src/
+├── notification/
+│   └── entities/notification.entity.ts    # + 5 NotificationType (EVALUATION_CORRECTION_*, EVALUATION_CORRECTED)
+└── events/
+    └── event-processor.service.ts         # + 5 case, + 4 handlers (Accepted/Declined partagent un handler)
+```
+
+5 nouveaux handlers dans `EventProcessorService`, sur le modele deja etabli par les handlers
+existants (jamais de degradation silencieuse : un echec de resolution de nom fait echouer
+`process()`, l'entree Redis reste non acquittee, rejouee par `XAUTOCLAIM`) :
+
+- **`EvaluationCorrectionRequested`** `{correctionRequestId, attemptId, evaluationId, studentId,
+  teacherIds}` → un destinataire par `teacherIds[]` (individuel) + fan-out reel role RP. Metadata :
+  `{correctionRequestId, attemptId, evaluationId, studentId, studentName}`.
+- **`EvaluationCorrectionAccepted`** / **`EvaluationCorrectionDeclined`** `{correctionRequestId,
+  attemptId, evaluationId, studentId, teacherId}` → fan-out role RP uniquement (le professeur
+  concerne n'est pas notifie de sa propre action). Metadata :
+  `{correctionRequestId, attemptId, evaluationId, studentId, studentName, teacherId, teacherName}`.
+  Meme handler partage `handleEvaluationCorrectionDecisionForRp(payload, type)`, sur le modele deja
+  suivi par `handleProposalDecisionForRp` (flow demande de professeur).
+- **`EvaluationCorrectionAllDeclined`** `{correctionRequestId, attemptId, evaluationId, studentId,
+  reason: "all_linked_teachers_declined"|"no_linked_teacher"}` → fan-out role RP uniquement.
+  Metadata : `{correctionRequestId, attemptId, evaluationId, studentId, studentName, reason}`.
+- **`EvaluationCorrected`** `{correctionRequestId, attemptId, evaluationId, studentId, teacherId,
+  score, comment}` → l'eleve (`studentId`) uniquement. Metadata :
+  `{correctionRequestId, attemptId, evaluationId, teacherId, teacherName, score, comment}`.
+
+### Decisions techniques
+
+- **Aucune nouvelle route ni nouveau client HTTP.** Les 5 evenements portent deja `studentId`/
+  `teacherId(s)` dans leur payload — resolution de nom via `ProfileServiceClient.resolveDisplayNames`
+  et fan-out par role via `IdentityAccessServiceClient.listUserIdsByRole`, tous deux deja en place.
+  Aucun appel a `profile-service` pour retrouver une relation eleve-professeur n'est necessaire ici :
+  contrairement au flow demande de professeur, `learning-activity-service` a deja resolu les
+  `teacherIds` avant de publier l'evenement.
+- **Aucune migration necessaire.** `notifications.type` est deja un `varchar(64)` depuis la
+  migration `NotificationEventsConsumer1755100000000` (2026-08-14) — une nouvelle valeur technique
+  n'exige aucune alteration de schema, seule table de suivi (`processed_events`) deja generique.
+- **`EvaluationCorrectionAccepted`/`Declined` ne notifient jamais le professeur qui vient d'agir**,
+  seulement le RP — coherent avec les autres flows du service (le formateur qui accepte une
+  proposition n'est pas notifie de sa propre acceptation non plus).
+
+### Verifie contre la pile reelle (2026-09-02)
+
+Service reconstruit et redeploye (`docker compose -p claudevma build/up dashboard-notification-service`
+depuis la branche). Les 5 evenements publies directement sur le flux Redis reel (`XADD
+visiomath:events`) avec des `userId` reels (RP/formateurs/eleve existants en base) :
+- `EvaluationCorrectionRequested` → 1 notification pour le professeur cible + 10 notifications RP
+  (fan-out reel, `studentName` resolu "Camille Verify").
+- `EvaluationCorrectionAccepted` / `EvaluationCorrectionDeclined` → 10 notifications RP chacune,
+  `studentName`/`teacherName` resolus.
+- `EvaluationCorrectionAllDeclined` (`reason: no_linked_teacher`) → 10 notifications RP.
+- `EvaluationCorrected` → 1 notification pour l'eleve, `teacherName` resolu, `score`/`comment`
+  presents en metadata.
+- Idempotence verifiee : republication du meme `eventId` (`EvaluationCorrected`) → toujours une
+  seule ligne `notifications` et une seule ligne `processed_events` pour cet `eventId`.
+Donnees de verification nettoyees apres coup (`DELETE FROM notifications`/`processed_events` sur
+les `correctionRequestId`/`eventId` de test).
+
+### Tests
+
+`event-processor.service.spec.ts` : 5 nouveaux describe (12 nouveaux cas — fan-out teacher+RP,
+fan-out RP seul x2 avec ses deux variantes de `reason`, notification eleve, plus un cas d'echec de
+resolution de nom par type declenchant). Suite complete du service : **111 tests, tous verts**
+(`npx jest`), et `npm run build` (nest build) sans erreur.
+
+### Points en suspens
+
+- Libelles front (`notificationLabels.ts`) pour les 5 nouveaux `type` — non traites ici, a la
+  charge de `front-developper` une fois ce contrat merge. Metadata precise ci-dessus.
+- `EvaluationCorrectionRequested` suppose toujours `teacherIds.length >= 1` d'apres le contrat
+  documente (`docs/routes.md` : « au moins un professeur lie ») — un eleve sans professeur lie
+  bascule directement en `EvaluationCorrectionAllDeclined` (`reason: no_linked_teacher`) cote
+  `learning-activity-service`, jamais observe ici avec un tableau vide. Traite defensivement
+  (`teacherIds ?? []`) mais non exerce par un test dedie, le contrat l'exclut structurellement.

@@ -3005,6 +3005,52 @@
           `GET /profiles/teachers/validated` (avatarUrl present, contenu inchange par ailleurs).
         </verification>
       </decision>
+      <decision id="C29" status="implemented" session="2026-09-02">
+        <title>Contacts essentiels du formateur — sens inverse eleve/AP -&gt; formateur (GET .../by-teacher/:teacherId)</title>
+        <filesTouched>
+          <file path="services/profile-service/src/relations/relations.service.ts">
+            Deux nouvelles methodes, symetriques de deux methodes existantes :
+            `getStudentsByTeacher(teacherId, actor)` (sens inverse de `getTeachersByStudent`,
+            memes roles privilegies RP/TI/AF + le titulaire, filtre `endedAt IS NULL`, reutilise
+            `attachStudentNames`) et `getAnimatorsByTeacher(teacherId, actor)` (sens inverse de
+            `getTeachersByAnimator`, roles privilegies RP/TI + le titulaire, sans AF — relation
+            pedagogique, pas financiere). Nouveau helper prive `attachAnimatorNames` (miroir de
+            `attachTeacherNames`, resout `animatorName` via `AdministrativeProfileLookupService`).
+          </file>
+          <file path="services/profile-service/src/relations/relations.controller.ts">
+            Deux nouvelles routes : `GET /relations/teacher-student/by-teacher/:teacherId` et
+            `GET /relations/animator-teacher/by-teacher/:teacherId`. Segment litteral `by-teacher`
+            en 2e position -&gt; aucune collision avec les routes existantes a 1 segment
+            (`teacher-student/:studentId`, `animator-teacher/:animatorId`), meme precaution que
+            `finance-owner-student/by-student/:studentId` deja en place.
+          </file>
+          <file path="services/profile-service/test/unit/relations/relations.service.spec.ts">
+            +11 tests (`getStudentsByTeacher`, `getAnimatorsByTeacher`) : droits par role,
+            enrichissement des noms, refus 403 entre pairs.
+          </file>
+        </filesTouched>
+        <description>
+          Gap confirme le 2026-09-02 par `front-developper` en construisant « Contacts essentiels »
+          sur la Visualisation RP (`docs/architecture.md` &gt; « Reconstruction du rail gauche du
+          RP ») : eleve&#8594;professeurs, eleve/parent&#8594;parent/eleve et AP&#8594;professeurs
+          etaient deja lisibles (routes ou affichage existants, parfois gardes par
+          `isViewingOwnProfile`, corrige cote front separement) ; seul le sens
+          professeur&#8594;eleves et professeur&#8594;AP n'avait AUCUNE route. Ce chantier ferme ce
+          seul troisieme gap, cote `profile-service` uniquement — les corrections d'affichage des
+          deux premiers gaps sont du ressort de `front-developper`.
+        </description>
+        <verification>
+          103 tests unitaires verts sur `test/unit/relations/relations.service.spec.ts`
+          (dont 11 nouveaux), `tsc --noEmit` propre. Verifie HTTP direct contre la pile reelle
+          deployee (image buildee depuis la branche, conteneur temporaire joint au reseau Docker
+          reel `claudevma_visiomath_network`, meme `DATABASE_URL`/`JWT_SECRET` que le service en
+          production, JWT signes avec le secret reel) : formateur listant ses propres eleves
+          actifs -&gt; `200` avec `studentName` resolu ; formateur tentant la liste d'un AUTRE
+          formateur -&gt; `403` ; RP listant les eleves de n'importe quel formateur -&gt; `200` ;
+          formateur listant ses propres AP -&gt; `200` avec `animatorName` resolu ; un autre
+          formateur sur la meme route -&gt; `403` ; sans jeton -&gt; `401`.
+        </verification>
+      </decision>
       <openPoints>
         <item priority="medium" status="to-do" raisedIn="C26" raisedOn="2026-08-26" owner="orchestrateur">
           `pedagogical-log-service` a besoin d'un ecran "Parametres systeme" commun (point 8 de

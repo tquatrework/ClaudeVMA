@@ -287,6 +287,66 @@ export class RelationsController {
     return this.relationsService.getTeachersByStudent(studentId, actor);
   }
 
+  @Get('teacher-student/by-teacher/:teacherId')
+  @ApiOperation({
+    summary: 'Lister les élèves liés à un professeur',
+    description:
+      "Renvoie les élèves ACTIFS du formateur désigné — sens INVERSE de " +
+      "`GET /relations/teacher-student/:studentId`. Comble le gap confirmé le " +
+      '2026-09-02 sur la Visualisation RP (« Contacts essentiels ») : un ' +
+      "formateur n'avait jusqu'ici aucun moyen de lister ses propres élèves, " +
+      "seul le sens élève→professeurs existait.\n\n" +
+      "Chaque entrée porte `studentName` ({firstName, lastName} ou `null`), " +
+      "résolu depuis le profil administratif de l'élève, pour qu'aucun écran " +
+      "n'ait à afficher un UUID (arbitrage du 2026-08-09).\n\n" +
+      "Accessible au RP, au TI, à l'AF, et au formateur lui-même. Ne renvoie " +
+      "que les relations ACTIVES : une relation terminée n'est plus un contact " +
+      'courant (même discipline que la route symétrique).',
+  })
+  @ApiParam({ name: 'teacherId', description: 'UUID du formateur' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Relations actives : `[{id, teacherId, studentId, isPrincipalTeacher, createdAt, ' +
+      'endedAt, endedBy, endReason, studentName}]`',
+  })
+  @ApiResponse({ status: 403, description: 'Interdit — droits insuffisants' })
+  getStudentsByTeacher(
+    @Param('teacherId', ParseUUIDPipe) teacherId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<RelationsService['getStudentsByTeacher']>>> {
+    return this.relationsService.getStudentsByTeacher(teacherId, actor);
+  }
+
+  @Get('animator-teacher/by-teacher/:teacherId')
+  @ApiOperation({
+    summary: 'Lister le ou les AP qui animent un professeur',
+    description:
+      "Renvoie les animateurs pédagogiques (AP) du formateur désigné — sens " +
+      "INVERSE de `GET /relations/animator-teacher/:animatorId`. Comble le gap " +
+      'confirmé le 2026-09-02 sur la Visualisation RP (« Contacts essentiels ») : ' +
+      "un formateur n'avait jusqu'ici aucun moyen de lister son ou ses AP, seul " +
+      'le sens AP→formateurs animés existait.\n\n' +
+      "Chaque entrée porte `animatorName` ({firstName, lastName} ou `null`), " +
+      "résolu depuis le profil administratif de l'AP, pour qu'aucun écran n'ait " +
+      "à afficher un UUID (arbitrage du 2026-08-09).\n\n" +
+      "Accessible au RP, au TI et au formateur lui-même (même périmètre que " +
+      "`GET /relations/animator-teacher/:animatorId`, sans l'AF — la relation " +
+      "AP↔formateur est pédagogique, pas financière).",
+  })
+  @ApiParam({ name: 'teacherId', description: 'UUID du formateur' })
+  @ApiResponse({
+    status: 200,
+    description: 'Liste des liens : `[{id, animatorId, teacherId, createdAt, animatorName}]`',
+  })
+  @ApiResponse({ status: 403, description: 'Interdit — droits insuffisants' })
+  getAnimatorsByTeacher(
+    @Param('teacherId', ParseUUIDPipe) teacherId: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<Awaited<ReturnType<RelationsService['getAnimatorsByTeacher']>>> {
+    return this.relationsService.getAnimatorsByTeacher(teacherId, actor);
+  }
+
   @Post('pedagogical-coordinator')
   @Roles(UserRole.RESPONSABLE_PEDAGOGIQUE)
   @ApiOperation({

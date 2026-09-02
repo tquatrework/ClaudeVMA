@@ -1,5 +1,5 @@
 import apiClient from './client'
-import type { TeacherStudentRelation } from '../types/profile'
+import type { AnimatorTeacherRelation, TeacherStudentRelation } from '../types/profile'
 import type { FinanceOwnerStudentLink, MyContact } from '../types/relations'
 
 /**
@@ -121,6 +121,20 @@ export async function unlinkTeacherStudentRelation(
   const { data } = await apiClient.delete<TeacherStudentRelation>(
     `/relations/teacher-student/${teacherId}/${studentId}`,
     reason ? { data: { reason } } : undefined,
+  )
+  return data
+}
+
+/**
+ * GET /relations/animator-teacher/:animatorId — Lister les formateurs animés par un
+ * animateur pédagogique (docs/routes.md § profile-service > Relations). Route déjà
+ * ouverte au RP, au TI et à l'AP lui-même, mais jamais consommée par aucun composant
+ * front avant le complément du 2026-09-02 (point 3, « Contacts essentiels » de
+ * `docs/architecture.md` > « Reconstruction du rail gauche du RP »).
+ */
+export async function fetchAnimatedTeachers(animatorId: string): Promise<AnimatorTeacherRelation[]> {
+  const { data } = await apiClient.get<AnimatorTeacherRelation[]>(
+    `/relations/animator-teacher/${animatorId}`,
   )
   return data
 }

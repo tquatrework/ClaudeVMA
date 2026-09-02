@@ -39,7 +39,13 @@ import {
   fetchProfileStatistics,
   updateAdministrativeProfile,
 } from '../../src/api/profile'
-import { fetchTeacherStudentRelations, unlinkTeacherStudentRelation } from '../../src/api/relations'
+import {
+  fetchTeacherStudentRelations,
+  unlinkTeacherStudentRelation,
+  fetchLinkedParents,
+  fetchLinkedStudents,
+  fetchAnimatedTeachers,
+} from '../../src/api/relations'
 import { fetchConsents } from '../../src/api/accounts'
 import { fetchThirdPartyNotebookEntries } from '../../src/api/pedagogicalLogNotebook'
 
@@ -52,6 +58,9 @@ const mockCreateInternalNote = vi.mocked(createInternalNote)
 const mockFetchProfileStatistics = vi.mocked(fetchProfileStatistics)
 const mockFetchTeacherStudentRelations = vi.mocked(fetchTeacherStudentRelations)
 const mockUnlinkTeacherStudentRelation = vi.mocked(unlinkTeacherStudentRelation)
+const mockFetchLinkedParents = vi.mocked(fetchLinkedParents)
+const mockFetchLinkedStudents = vi.mocked(fetchLinkedStudents)
+const mockFetchAnimatedTeachers = vi.mocked(fetchAnimatedTeachers)
 const mockFetchConsents = vi.mocked(fetchConsents)
 const mockFetchThirdPartyNotebookEntries = vi.mocked(fetchThirdPartyNotebookEntries)
 
@@ -122,6 +131,9 @@ beforeEach(() => {
   // Dépendance non migrée (TeacherValidationPanel) — évite tout appel réseau réel.
   mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
   mockFetchTeacherStudentRelations.mockResolvedValue([])
+  mockFetchLinkedParents.mockResolvedValue([])
+  mockFetchLinkedStudents.mockResolvedValue([])
+  mockFetchAnimatedTeachers.mockResolvedValue([])
   mockFetchInternalNotes.mockResolvedValue([])
   mockFetchProfileStatistics.mockResolvedValue({})
   mockFetchConsents.mockResolvedValue([])
@@ -846,6 +858,204 @@ describe('ProfilePage', () => {
 
       // La boîte reste ouverte, le formateur reste affiché : rien n'a été perdu.
       expect(screen.getByText('Paul Martin')).toBeDefined()
+    })
+  })
+
+  /**
+   * Relations financières d'un tiers, lecture seule (point 3, « Contacts
+   * essentiels » — élève ↔ parents, complément du 2026-09-02). Les deux routes
+   * (`by-student`/`:financeOwnerId`) sont déjà ouvertes à RP/AF/TI sur
+   * n'importe quel tiers ; l'affichage n'était monté que sur son propre profil.
+   */
+  describe('relations financières d’un tiers (RP/AF/TI, point 3)', () => {
+    const AF_USER = {
+      id: 'af-1',
+      email: 'af@test.com',
+      role: 'administrateur_financier' as const,
+      validationStatus: 'active' as const,
+    }
+    const TI_USER = {
+      id: 'ti-1',
+      email: 'ti@test.com',
+      role: 'technicien_informatique' as const,
+      validationStatus: 'active' as const,
+    }
+    const LINKED_PARENT = {
+      id: 'link-1',
+      financeOwnerId: 'parent-9',
+      studentId: 'student-1',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      endedAt: null,
+      endedBy: null,
+      financeOwnerName: { firstName: 'Julie', lastName: 'Petit' },
+    }
+    const LINKED_STUDENT = {
+      id: 'link-2',
+      financeOwnerId: 'student-1',
+      studentId: 'eleve-9',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      endedAt: null,
+      endedBy: null,
+      studentName: { firstName: 'Léo', lastName: 'Blanc' },
+    }
+
+    it('affiche les parents financeurs et les élèves rattachés au RP consultant un tiers', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+      mockFetchLinkedParents.mockResolvedValue([LINKED_PARENT])
+      mockFetchLinkedStudents.mockResolvedValue([LINKED_STUDENT])
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Parents financeurs')).toBeDefined()
+      })
+      expect(screen.getByText('Julie Petit')).toBeDefined()
+      expect(screen.getByText('Élèves rattachés')).toBeDefined()
+      expect(screen.getByText('Léo Blanc')).toBeDefined()
+      expect(mockFetchLinkedParents).toHaveBeenCalledWith('student-1')
+      expect(mockFetchLinkedStudents).toHaveBeenCalledWith('student-1')
+    })
+
+    it("affiche également le panneau pour l'administrateur financier", async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(AF_USER))
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+      mockFetchLinkedParents.mockResolvedValue([LINKED_PARENT])
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Julie Petit')).toBeDefined()
+      })
+    })
+
+    it('affiche également le panneau pour le technicien informatique', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(TI_USER))
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+      mockFetchLinkedParents.mockResolvedValue([LINKED_PARENT])
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Julie Petit')).toBeDefined()
+      })
+    })
+
+    it('ne montre pas le panneau à un formateur consultant un tiers (rôle non administratif)', async () => {
+      const TEACHER_USER = {
+        id: 'teacher-1',
+        email: 'prof@test.com',
+        role: 'formateur' as const,
+        validationStatus: 'active' as const,
+      }
+      mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_USER))
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+      mockFetchTeacherStudentRelations.mockResolvedValue([])
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Formateurs liés')).toBeDefined()
+      })
+      expect(screen.queryByText('Parents financeurs')).toBeNull()
+      expect(mockFetchLinkedParents).not.toHaveBeenCalled()
+    })
+
+    it('ne montre jamais ce panneau sur son propre profil (le RP a déjà son onglet Relations)', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+
+      renderProfilePage('rp-1')
+
+      await waitFor(() => {
+        expect(screen.getByText('Fiche profil')).toBeDefined()
+      })
+      expect(screen.queryByText('Parents financeurs')).toBeNull()
+      expect(mockFetchLinkedParents).not.toHaveBeenCalled()
+    })
+  })
+
+  /**
+   * Professeurs animés par un AP (point 3, « Contacts essentiels » — AP →
+   * professeurs, complément du 2026-09-02). La route existait déjà et est déjà
+   * ouverte au RP/TI/AP lui-même ; elle n'était appelée par aucun composant.
+   */
+  describe('professeurs animés par un AP (point 3)', () => {
+    const AP_PROFILE = {
+      ...SAMPLE_PROFILE,
+      pedagogicalType: 'teacher' as const,
+      pedagogical: { ...SAMPLE_PROFILE.pedagogical, isAnimateurPedagogique: true },
+    }
+    const ANIMATED_RELATION = {
+      id: 'anim-1',
+      animatorId: 'student-1',
+      teacherId: 'teacher-9',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      teacherName: { firstName: 'Sami', lastName: 'Nasser' },
+    }
+    const AF_USER = {
+      id: 'af-1',
+      email: 'af@test.com',
+      role: 'administrateur_financier' as const,
+      validationStatus: 'active' as const,
+    }
+
+    it('affiche les professeurs animés au RP consultant la fiche d’un AP', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+      mockFetchProfile.mockResolvedValue(AP_PROFILE)
+      mockFetchAnimatedTeachers.mockResolvedValue([ANIMATED_RELATION])
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Professeurs animés')).toBeDefined()
+      })
+      expect(screen.getByText('Sami Nasser')).toBeDefined()
+      expect(mockFetchAnimatedTeachers).toHaveBeenCalledWith('student-1')
+    })
+
+    it('affiche le panneau à l’AP consultant sa propre fiche', async () => {
+      const AP_SELF_USER = {
+        id: 'student-1',
+        email: 'ap@test.com',
+        role: 'animateur_pedagogique' as const,
+        validationStatus: 'active' as const,
+      }
+      mockUseAuth.mockReturnValue(buildAuthMock(AP_SELF_USER))
+      mockFetchProfile.mockResolvedValue(AP_PROFILE)
+      mockFetchAnimatedTeachers.mockResolvedValue([ANIMATED_RELATION])
+
+      renderProfilePage('student-1')
+
+      await waitFor(() => {
+        expect(screen.getByText('Sami Nasser')).toBeDefined()
+      })
+    })
+
+    it('ne montre jamais ce panneau à l’administrateur financier', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(AF_USER))
+      mockFetchProfile.mockResolvedValue(AP_PROFILE)
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Fiche profil')).toBeDefined()
+      })
+      expect(screen.queryByText('Professeurs animés')).toBeNull()
+      expect(mockFetchAnimatedTeachers).not.toHaveBeenCalled()
+    })
+
+    it('ne montre pas le panneau au RP quand le titulaire de la fiche n’est pas un AP', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Fiche profil')).toBeDefined()
+      })
+      expect(screen.queryByText('Professeurs animés')).toBeNull()
+      expect(mockFetchAnimatedTeachers).not.toHaveBeenCalled()
     })
   })
 

@@ -136,6 +136,22 @@ export interface TeacherStudentRelation {
   teacherName?: PersonName | null
 }
 
+/**
+ * Lien animateur pédagogique ↔ formateur, tel que renvoyé par
+ * `GET /relations/animator-teacher/:animatorId` (`docs/routes.md` § profile-service >
+ * Relations). Liste des formateurs animés par un AP — câblée le 2026-09-02 sur la fiche
+ * de profil d'un AP (point 3, « Contacts essentiels »), route déjà ouverte au RP/TI/AP
+ * lui-même mais jamais consommée par aucun composant front avant ce complément.
+ */
+export interface AnimatorTeacherRelation {
+  id: string
+  animatorId: string
+  teacherId: string
+  createdAt?: string
+  /** Nom du formateur, résolu côté serveur — jamais un UUID à l'écran. */
+  teacherName?: PersonName | null
+}
+
 export interface CoordinatorRelation {
   coordinatorId: string
   studentId: string

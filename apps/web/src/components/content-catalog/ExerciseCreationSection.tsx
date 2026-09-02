@@ -13,6 +13,8 @@
 
 import React, { useEffect, useState } from 'react'
 import { ExerciseForm } from './ExerciseForm'
+import { ExerciseImportPanel } from './ExerciseImportPanel'
+import { EXERCISE_IMPORT_LABELS } from '../../utils/exerciseImport'
 import type { PublicExerciseDetail } from '../../types/exercise'
 
 interface ExerciseCreationSectionProps {
@@ -35,6 +37,7 @@ export function ExerciseCreationSection({
   autoOpen,
 }: ExerciseCreationSectionProps) {
   const [shouldShowCreateForm, setShouldShowCreateForm] = useState(false)
+  const [shouldShowImportPanel, setShouldShowImportPanel] = useState(false)
 
   useEffect(() => {
     if (autoOpen) setShouldShowCreateForm(true)
@@ -46,17 +49,26 @@ export function ExerciseCreationSection({
 
   return (
     <div className="space-y-4">
-      {!shouldShowCreateForm && (
-        <button
-          type="button"
-          onClick={() => {
-            onOpenCreateForm()
-            setShouldShowCreateForm(true)
-          }}
-          className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
-        >
-          Créer un nouvel exercice
-        </button>
+      {!shouldShowCreateForm && !shouldShowImportPanel && (
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              onOpenCreateForm()
+              setShouldShowCreateForm(true)
+            }}
+            className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
+          >
+            Créer un nouvel exercice
+          </button>
+          <button
+            type="button"
+            onClick={() => setShouldShowImportPanel(true)}
+            className="px-4 py-2 text-indigo-700 bg-white border border-indigo-300 text-sm font-medium rounded-md hover:bg-indigo-50 transition-colors"
+          >
+            {EXERCISE_IMPORT_LABELS.triggerAction}
+          </button>
+        </div>
       )}
 
       {shouldShowCreateForm && (
@@ -67,6 +79,13 @@ export function ExerciseCreationSection({
             onListsChanged()
           }}
           onCancel={() => setShouldShowCreateForm(false)}
+        />
+      )}
+
+      {shouldShowImportPanel && (
+        <ExerciseImportPanel
+          onImported={onListsChanged}
+          onCancel={() => setShouldShowImportPanel(false)}
         />
       )}
     </div>

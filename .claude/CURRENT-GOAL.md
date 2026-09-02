@@ -26,18 +26,20 @@ création d'Évaluation en cours, brouillon préservé en `sessionStorage`) ; bu
 diagnostiqué (formulaire imbriqué invalide qui soumettait silencieusement) et corrigé — pointe
 maintenant vers le vrai catalogue d'Exercices filtré, retour sur l'Évaluation en cours après choix.
 
-**Point d'attention non trivial** : le subagent a reconstruit et redéployé le conteneur `frontend`
-partagé directement depuis sa branche non mergée pour produire sa preuve — `https://claudevma.visioprof.fr`
-sert donc actuellement le code de `feat/front-evaluations-rebuild`, **pas** celui de `master`.
-PR #202 **toujours non mergée**. À réconcilier : merger #202 (ce que le code réellement en
-production réclame déjà) ou revenir sciemment sur le frontend de `master` en attendant validation —
-décision communiquée à l'utilisateur, en attente de sa confirmation.
+**PR #202 mergée sur confirmation explicite de l'utilisateur ("merge et déploie #202"), déployée.**
+Au passage : le conteneur `frontend` que le subagent avait démarré en `docker run` brut depuis son
+worktree (sans labels compose, conflit de nom au redéploiement) a été arrêté/retiré, remplacé par
+un conteneur correctement géré par `docker compose` reconstruit depuis `master`. Site vérifié `200`.
+`master` et la production sont de nouveau synchronisés.
 
-**Questions posées à l'utilisateur, toujours sans réponse** : (1) confirmation pour merger #202,
-(2) ajout d'une entrée de menu "Exercices"/"Évaluations" au rail RP (absente aujourd'hui, accès
-seulement par URL directe), (3) suite à donner aux 2 gaps backend contournés côté front sans
-inventer de route (`PUT /evaluations/:id` absent → pas d'édition ; `GET /evaluations/pending-validation`
-absent → RP filtré côté client).
+**Le chantier Évaluations (backend + notifications + front) est maintenant entièrement livré et en
+production.**
+
+**Questions posées à l'utilisateur, toujours sans réponse** : (1) ajout d'une entrée de menu
+"Exercices"/"Évaluations" au rail RP (absente aujourd'hui, accès seulement par URL directe pour ce
+rôle), (2) suite à donner aux 2 gaps backend contournés côté front sans inventer de route
+(`PUT /evaluations/:id` absent → pas d'édition ; `GET /evaluations/pending-validation` absent → RP
+filtré côté client).
 
 Rappel branches non fusionnées dans `master` (hors périmètre, signalées mais non traitées) :
 `feat/front-reprise-candidature-formateur` et `feat/reprise-candidature-formateur` — travail réel

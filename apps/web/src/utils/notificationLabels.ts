@@ -17,6 +17,7 @@ import type { DashboardNotification, NotificationMetadata } from '../types/dashb
 import type { UserRole } from '../types/user'
 import { EVENT_TYPE_LABELS, type EventType } from '../components/calendar/calendarTypes'
 import { formatEventDate } from './dateFormat'
+import { formatQuizScore } from './quizLabels'
 
 const FALLBACK_STUDENT = 'un élève'
 const FALLBACK_TEACHER = 'un formateur'
@@ -106,6 +107,36 @@ const NOTIFICATION_LABEL_BUILDERS: Record<string, NotificationLabelBuilder> = {
     const whenPart = whenLabel ? ` le ${whenLabel}` : ''
     return `${inviter} vous a invité à un événement${typePart}${whenPart}`
   },
+
+  // Chantier « Refonte des Évaluations », flow de demande de correction (2026-09-01/02).
+  // Contrat exact des 5 types et de leur `metadata` :
+  // .claude/reports/dashboard-notification-service-evaluations-2026-09-02.md — les libellés
+  // ci-dessous reprennent les propositions du rapport, reformulées pour rester cohérentes avec
+  // le ton déjà en place sur ce fichier (mêmes replis neutres, jamais d'UUID affiché).
+  evaluation_correction_requested: (metadata) =>
+    `${studentLabel(metadata)} demande une correction de son évaluation`,
+
+  evaluation_correction_accepted: (metadata) =>
+    `${teacherLabel(metadata)} a pris en charge la correction de ${studentLabel(metadata)}`,
+
+  evaluation_correction_declined: (metadata) =>
+    `${teacherLabel(metadata)} a refusé la correction de ${studentLabel(metadata)}`,
+
+  // Deux libellés distincts selon `reason` — destinataire RP dans les deux cas, mais la raison
+  // de l'escalade change l'action attendue (aucun professeur à relancer vs tous ont refusé).
+  evaluation_correction_all_declined: (metadata) =>
+    metadata?.reason === 'no_linked_teacher'
+      ? `Aucun professeur lié pour corriger ${studentLabel(metadata)} — à traiter manuellement`
+      : `Tous les professeurs liés ont refusé la correction de ${studentLabel(metadata)} — à traiter manuellement`,
+
+  // Destinataire unique : l'élève lui-même (arbitrage du 2026-09-02, `studentName` volontairement
+  // absent de ce `metadata` — il n'a pas besoin de son propre nom).
+  evaluation_corrected: (metadata) => {
+    const teacher = teacherLabel(metadata)
+    const scoreLabel = formatQuizScore(metadata?.score)
+    const scorePart = scoreLabel !== '—' ? ` — note : ${scoreLabel}` : ''
+    return `Votre évaluation a été corrigée par ${teacher}${scorePart}`
+  },
 }
 
 /**
@@ -150,6 +181,12 @@ export function getNotificationDisplayText(
  * invitation à un événement de calendrier s'accepte/refuse directement dans la grille unifiée
  * (bloc `EVENT_PENDING`, voir `CalendarUnifiedView`/`EventDetailDialog`), jamais dans un écran
  * séparé.
+ *
+ * Les 5 types du flow de correction d'Évaluation (2026-09-01/02) sont volontairement **absents**
+ * de cette table : aucun écran `/evaluation-corrections/...` n'existe encore côté front (le
+ * contrat backend seul est stabilisé, voir `.claude/reports/dashboard-notification-service-evaluations-2026-09-02.md`).
+ * Cliquer sur l'une de ces notifications se contente donc de la marquer lue, sans navigation —
+ * à compléter dès que l'écran de correction sera livré, jamais avant.
  */
 const NOTIFICATION_TARGET_PATHS: Record<string, string> = {
   teacher_request_created: '/teacher-requests',

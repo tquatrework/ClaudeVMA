@@ -495,6 +495,65 @@ export class RelationsService {
     return this.attachTeacherNames(links);
   }
 
+  /**
+   * Liste les élèves ACTIFS d'un formateur — sens INVERSE de
+   * `getTeachersByStudent`. Gap confirmé le 2026-09-02 par `front-developper`
+   * en construisant « Contacts essentiels » sur la Visualisation RP
+   * (docs/architecture.md) : élève→professeurs était déjà couvert, mais aucune
+   * route ne permettait à un formateur (ni au RP consultant sa fiche) de lister
+   * ses propres élèves.
+   *
+   * Même garde que `getFinanceOwnersByStudent`/`getStudentsByFinanceOwner` :
+   * les administrateurs (RP, TI, AF) voient tout, le titulaire voit le sien.
+   * Ne renvoie QUE les relations ACTIVES, même discipline que
+   * `getTeachersByStudent` — une relation terminée n'est plus un contact
+   * courant.
+   */
+  async getStudentsByTeacher(teacherId: string, actor: Actor) {
+    const privilegedRoles = [
+      UserRole.RESPONSABLE_PEDAGOGIQUE,
+      UserRole.TECHNICIEN_INFORMATIQUE,
+      UserRole.ADMINISTRATEUR_FINANCIER,
+    ];
+
+    if (!privilegedRoles.includes(actor.role) && actor.id !== teacherId) {
+      throw new ForbiddenException('Vous ne pouvez consulter que vos propres élèves rattachés');
+    }
+
+    const links = await this.teacherRepo.find({
+      where: { teacherId, endedAt: IsNull() },
+      order: { createdAt: 'ASC' },
+    });
+    return this.attachStudentNames(links);
+  }
+
+  /**
+   * Liste les AP qui animent un formateur — sens INVERSE de
+   * `getTeachersByAnimator`. Même besoin que `getStudentsByTeacher` ci-dessus
+   * (Contacts essentiels, 2026-09-02) : un formateur n'avait aucun moyen de
+   * lister son ou ses animateurs pédagogiques.
+   *
+   * Mêmes droits que `getTeachersByAnimator` (son symétrique) : RP, TI et le
+   * formateur lui-même. L'AF en est volontairement absent — la relation
+   * AP↔formateur est pédagogique, pas financière, même logique que
+   * `getTeachersByAnimator`.
+   */
+  async getAnimatorsByTeacher(teacherId: string, actor: Actor) {
+    const privileged = [
+      UserRole.RESPONSABLE_PEDAGOGIQUE,
+      UserRole.TECHNICIEN_INFORMATIQUE,
+    ];
+    if (!privileged.includes(actor.role) && actor.id !== teacherId) {
+      throw new ForbiddenException('You may only list your own animateurs pédagogiques');
+    }
+
+    const links = await this.animatorRepo.find({
+      where: { teacherId },
+      order: { createdAt: 'ASC' },
+    });
+    return this.attachAnimatorNames(links);
+  }
+
   // ---------------------------------------------------------------------------
   // Résolution des relations — socle du droit d'accès au pédagogique
   // ---------------------------------------------------------------------------
@@ -977,6 +1036,21 @@ export class RelationsService {
       links.map((link) => link.teacherId),
     );
     return links.map((link) => ({ ...link, teacherName: names.get(link.teacherId) ?? null }));
+  }
+
+  /**
+   * Attache `animatorName` aux liens formateur → AP (sens inverse de
+   * `attachTeacherNames`, utilisé par `getAnimatorsByTeacher`). Même garantie
+   * que les helpers ci-dessus : un AP sans profil administratif ne fait jamais
+   * échouer la requête, son nom vaut simplement `null`.
+   */
+  private async attachAnimatorNames<T extends { animatorId: string }>(
+    links: T[],
+  ): Promise<(T & { animatorName: AdministrativeName | null })[]> {
+    const names = await this.administrativeProfileLookup.findNamesByUserIds(
+      links.map((link) => link.animatorId),
+    );
+    return links.map((link) => ({ ...link, animatorName: names.get(link.animatorId) ?? null }));
   }
 }
 

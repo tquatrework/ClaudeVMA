@@ -7,8 +7,16 @@
 
 ## Besoin courant
 
-Aucun besoin métier actif — le chantier Évaluations (voir Archive ci-dessous) est clos, backend et
-notifications mergés et déployés. En attente de la prochaine demande de l'utilisateur.
+**Gap trouvé par l'utilisateur le 2026-09-02** : le chantier Évaluations avait été archivé comme
+« clos » alors que le front n'a **jamais été refait**. Erreur de l'orchestrateur — contrairement
+aux chantiers Quizz et Exercice, seule la cloche de notification (PR #201) a été déléguée au front
+pour ce chantier ; les écrans réels (création, catalogue, passage chronométré, demande de
+correction, file de correction professeur) n'ont jamais été construits. L'utilisateur voit toujours
+la version front de juin, qui appelle un backend aujourd'hui remplacé (PR #195-199).
+
+Délégué à `front-developper` le 2026-09-02 pour construire les écrans manquants, sur le contrat
+déjà stabilisé (`docs/architecture.md` section "Refonte des Evaluations", `docs/routes.md`,
+`.claude/reports/learning-activity-service-evaluations-2026-09-01.md`). En cours.
 
 Rappel branches non fusionnées dans `master` (hors périmètre, signalées mais non traitées) :
 `feat/front-reprise-candidature-formateur` et `feat/reprise-candidature-formateur` — travail réel

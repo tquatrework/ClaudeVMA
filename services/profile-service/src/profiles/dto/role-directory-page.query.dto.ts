@@ -1,5 +1,5 @@
-import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { UserRole } from '../../common/enums/user-role.enum';
 
 /**
@@ -53,4 +53,21 @@ export class RoleDirectoryPageQueryDto {
       'Demandez les pages suivantes pour obtenir la suite de la liste.',
   })
   limit?: number = DIRECTORY_PAGE_DEFAULT_LIMIT;
+
+  /**
+   * Recherche insensible à la casse sur `firstName`/`lastName`, combinée au
+   * filtre `role` déjà en place — arbitrage du 2026-09-02
+   * (`docs/architecture.md`, « Reconstruction du rail gauche du RP »,
+   * « Compléments demandés le 2026-09-02 », point 1). Même convention que la
+   * recherche du carnet personnel (`date?`/`q?`, 2026-08-27) : un paramètre
+   * optionnel, appliqué côté serveur avant la pagination, jamais un filtrage
+   * client sur la seule page déjà chargée. `role: formateur` transmet `q` tel
+   * quel à `GET /profiles/teachers/validated`, qui porte désormais le même
+   * paramètre.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString({ message: 'Le terme de recherche doit être une chaîne de caractères.' })
+  @MaxLength(100, { message: 'Le terme de recherche ne peut pas dépasser 100 caractères.' })
+  q?: string;
 }

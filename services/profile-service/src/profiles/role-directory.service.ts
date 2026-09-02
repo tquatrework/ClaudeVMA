@@ -174,6 +174,17 @@ export class RoleDirectoryService {
       .createQueryBuilder('administrative')
       .where('administrative.userId IN (:...userIds)', { userIds });
 
+    if (query.q) {
+      // Recherche insensible à la casse sur prénom/nom, combinée au filtre de
+      // rôle déjà posé ci-dessus — arbitrage du 2026-09-02 (`docs/architecture.md`
+      // > « Reconstruction du rail gauche du RP » > « Compléments demandés le
+      // 2026-09-02 », point 1).
+      baseQuery.andWhere(
+        '(administrative.firstName ILIKE :q OR administrative.lastName ILIKE :q)',
+        { q: `%${query.q}%` },
+      );
+    }
+
     if (pedagogicalEntity) {
       baseQuery.leftJoin(
         pedagogicalEntity,

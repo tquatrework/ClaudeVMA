@@ -30,6 +30,7 @@ function makeQueryBuilderStub(rows: unknown[], total: number) {
   for (const method of [
     'leftJoin',
     'where',
+    'andWhere',
     'select',
     'addSelect',
     'orderBy',
@@ -365,6 +366,38 @@ describe('TeacherDirectoryService', () => {
       );
 
       expect(queryBuilder.calls.clone).toHaveLength(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Recherche par nom (`q`) — ajoutée le 2026-09-02, combinée au filtre de statut
+  // ---------------------------------------------------------------------------
+
+  describe('recherche par nom (q)', () => {
+    it('n\'ajoute aucun filtre supplémentaire quand q est absent', async () => {
+      await service.listValidatedTeachers(
+        new TeachersPageQueryDto(),
+        makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE),
+      );
+
+      expect(queryBuilder.calls.andWhere).toBeUndefined();
+    });
+
+    it('ajoute un filtre ILIKE sur prénom/nom, combiné au statut, quand q est fourni', async () => {
+      const query = new TeachersPageQueryDto();
+      query.q = 'Dupont';
+
+      await service.listValidatedTeachers(query, makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE));
+
+      expect(queryBuilder.calls.where).toEqual([
+        ['validation.status = :status', { status: 'validated' }],
+      ]);
+      expect(queryBuilder.calls.andWhere).toEqual([
+        [
+          '(administrative.firstName ILIKE :q OR administrative.lastName ILIKE :q)',
+          { q: '%Dupont%' },
+        ],
+      ]);
     });
   });
 

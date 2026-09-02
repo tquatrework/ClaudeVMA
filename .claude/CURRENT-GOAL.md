@@ -70,8 +70,14 @@ pendant sa vérification, hors `docker compose`, conflit de nom au redéploiemen
 proprement par l'orchestrateur, aucune perte de données (volumes externes). Contrat exact documenté
 dans `docs/routes.md`/`docs/services/content-catalog-service.md`.
 
-**Reste à déléguer** : `front-developper` — saisie du barème à la création (granularité + valeurs),
-affichage à l'élève pendant la consultation/le passage d'une Évaluation.
+**`front-developper` mergé (PR #204), déployé, site vérifié `200`.** Saisie du barème à la
+création/édition (granularité par Exercice ou par question + valeurs, réutilise le patron visuel du
+barème Quizz), affichage à l'élève avant démarrage et pendant le passage, purement informatif.
+Édition d'une Évaluation câblée via le nouveau `PUT /evaluations/:id` (remplace un bouton "Voir la
+fiche" mort). 24 tests dédiés verts, `tsc`/build propres.
+
+**Chantier barème clos.** Backend (PR #203) + front (PR #204) mergés, déployés, vérifiés `200`.
+Sur confirmation explicite de l'utilisateur ("Oui, d'accord, merge et déploie #204").
 
 Rappel branches non fusionnées dans `master` (hors périmètre, signalées mais non traitées) :
 `feat/front-reprise-candidature-formateur` et `feat/reprise-candidature-formateur` — travail réel

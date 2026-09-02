@@ -2,7 +2,9 @@
  * RpUserDirectoryPage — `/rp/visualisation` (reconstruction du rail RP,
  * 2026-09-02, complétée le même jour pour couvrir les 4 rôles, puis à nouveau
  * pour exploiter le contrat réel confirmé par `docs/routes.md` : `avatarUrl`,
- * `level`, `levels`, `subjects`).
+ * `level`, `levels`, `subjects`, puis une troisième fois pour différencier les
+ * actions de tuile par rôle — `docs/architecture.md` > « Compléments demandés
+ * le 2026-09-02… », point 2).
  *
  * Les 4 onglets (Élèves, Parents financeurs, Professeurs, Animateurs
  * pédagogiques) sont tous branchés sur la même route
@@ -10,7 +12,9 @@
  * correspond. Chaque tuile affiche prénom + nom (jamais l'UUID), une ligne
  * secondaire de niveau/matières quand pertinente, une photo quand
  * `avatarUrl` est renseigné (sinon des initiales, sans appel réseau), et
- * porte trois actions : Profil, Calendrier, Cahier de texte.
+ * porte des actions **différenciées par rôle** : élève → Profil, Calendrier,
+ * Cahier de texte, Mémos ; professeur/AP → Profil, Calendrier ; parent
+ * financeur → Profil seul.
  */
 
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -22,6 +26,15 @@ import type { UserDirectoryEntry } from '../../src/types/profile'
 
 vi.mock('../../src/api/profile')
 vi.mock('../../src/hooks/useAuth')
+vi.mock('../../src/components/pedagogical-log/MemoReadOnlyModal', () => ({
+  MemoReadOnlyModal: (props: { studentId: string; title?: string; onClose: () => void }) => (
+    <div data-testid="memo-modal-stub">
+      <p>{props.title}</p>
+      <p>studentId: {props.studentId}</p>
+      <button onClick={props.onClose}>Fermer (mock)</button>
+    </div>
+  ),
+}))
 
 import { fetchUserDirectoryByRole, fetchProfileAvatarBlob } from '../../src/api/profile'
 import { useAuth } from '../../src/hooks/useAuth'
@@ -110,7 +123,7 @@ describe('RpUserDirectoryPage', () => {
     expect(link.getAttribute('href')).toBe('/profiles/student-abc-123')
   })
 
-  it('chaque tuile porte exactement trois actions : Profil, Calendrier, Cahier de texte', async () => {
+  it('une tuile Élève porte 4 actions : Profil, Calendrier, Cahier de texte, Mémos', async () => {
     mockFetchUserDirectoryByRole.mockImplementation(async (role) => {
       if (role === 'eleve') {
         return onePage(buildEntry({ userId: 'student-1', firstName: 'Jean', lastName: 'Petit' }))
@@ -133,6 +146,102 @@ describe('RpUserDirectoryPage', () => {
     expect(links[0].getAttribute('href')).toBe('/profiles/student-1')
     expect(links[1].getAttribute('href')).toBe('/calendar?studentId=student-1')
     expect(links[2].getAttribute('href')).toBe('/pedagogical-log?studentId=student-1')
+
+    // « Mémos » est un bouton (ouvre une modale), pas un lien de navigation.
+    expect(main.getByRole('button', { name: 'Mémos' })).toBeDefined()
+  })
+
+  it('ouvre le mémo en lecture seule depuis la tuile Élève, sans naviguer', async () => {
+    mockFetchUserDirectoryByRole.mockImplementation(async (role) => {
+      if (role === 'eleve') {
+        return onePage(buildEntry({ userId: 'student-memo', firstName: 'Nadia', lastName: 'Cohen' }))
+      }
+      return emptyPage()
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Mémos' })).toBeDefined()
+    })
+    expect(screen.queryByTestId('memo-modal-stub')).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Mémos' }))
+
+    // Toujours sur la même page (pas de navigation) — la tuile reste affichée
+    // derrière la modale.
+    expect(screen.getByText('Nadia Cohen')).toBeDefined()
+    expect(screen.getByTestId('memo-modal-stub')).toBeDefined()
+    expect(screen.getByText('studentId: student-memo')).toBeDefined()
+    expect(screen.getByText('Mémo de Nadia Cohen')).toBeDefined()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Fermer (mock)' }))
+    expect(screen.queryByTestId('memo-modal-stub')).toBeNull()
+  })
+
+  it('une tuile Professeur porte 2 actions : Profil, Calendrier — jamais Cahier de texte ni Mémos', async () => {
+    mockFetchUserDirectoryByRole.mockImplementation(async (role) => {
+      if (role === 'formateur') {
+        return onePage(buildEntry({ userId: 'teacher-3', firstName: 'Alice', lastName: 'Martin' }))
+      }
+      return emptyPage()
+    })
+
+    renderPage()
+    await userEvent.click(screen.getByRole('tab', { name: 'Professeurs' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Alice Martin')).toBeDefined()
+    })
+
+    const main = within(screen.getByRole('main'))
+    const links = main.getAllByRole('link')
+    expect(links.map((link) => link.textContent)).toEqual(['Profil', 'Calendrier'])
+    expect(links[0].getAttribute('href')).toBe('/profiles/teacher-3')
+    expect(links[1].getAttribute('href')).toBe('/calendar?studentId=teacher-3')
+    expect(main.queryByRole('button', { name: 'Mémos' })).toBeNull()
+  })
+
+  it('une tuile Animateur pédagogique porte 2 actions : Profil, Calendrier', async () => {
+    mockFetchUserDirectoryByRole.mockImplementation(async (role) => {
+      if (role === 'animateur_pedagogique') {
+        return onePage(buildEntry({ userId: 'ap-1', firstName: 'Omar', lastName: 'Belhadj' }))
+      }
+      return emptyPage()
+    })
+
+    renderPage()
+    await userEvent.click(screen.getByRole('tab', { name: 'Animateurs pédagogiques' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Omar Belhadj')).toBeDefined()
+    })
+
+    const main = within(screen.getByRole('main'))
+    const links = main.getAllByRole('link')
+    expect(links.map((link) => link.textContent)).toEqual(['Profil', 'Calendrier'])
+    expect(links[1].getAttribute('href')).toBe('/calendar?studentId=ap-1')
+  })
+
+  it("une tuile Parent financeur ne porte qu'une action : Profil", async () => {
+    mockFetchUserDirectoryByRole.mockImplementation(async (role) => {
+      if (role === 'parent_financeur') {
+        return onePage(buildEntry({ userId: 'parent-2', firstName: 'Sophie', lastName: 'Dubois' }))
+      }
+      return emptyPage()
+    })
+
+    renderPage()
+    await userEvent.click(screen.getByRole('tab', { name: 'Parents financeurs' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Sophie Dubois')).toBeDefined()
+    })
+
+    const main = within(screen.getByRole('main'))
+    const links = main.getAllByRole('link')
+    expect(links.map((link) => link.textContent)).toEqual(['Profil'])
+    expect(links[0].getAttribute('href')).toBe('/profiles/parent-2')
   })
 
   it("affiche le niveau suivi pour un élève, et jamais 'null'", async () => {

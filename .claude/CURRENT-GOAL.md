@@ -24,6 +24,29 @@ Délégué en parallèle le 2026-09-02 : `content-catalog-service` (élargir la 
 qui existe déjà pour "Visualisation"/Forums/Parcours/Jeux plutôt que d'inventer des routes ; le
 câblage "voir avant de valider" suivra une fois le contrat backend confirmé).
 
+**`content-catalog-service` mergé (PR #208), déployé, site vérifié `200`.** Cause réelle vérifiée
+dans le code (pas supposée) : Quiz/Exercise autorisaient déjà RP + AP **non scopé** (trop
+permissif), tandis qu'**Evaluation/Tutorial n'avaient aucun contrôle d'accès du tout** sur
+`findOne()` — bug plus large que ce qui avait été signalé, tout le monde pouvait lire n'importe
+quel contenu `pending_validation`/`rejected` de ces deux types. Corrigé uniformément : RP illimité,
+AP scopé `animator_of_teacher` (Quiz/Exercise/Evaluation), AP non scopé pour Tutorial (cohérent avec
+sa décision de validation elle-même non scopée). 419/419 tests verts, preuve HTTP directe contre le
+conteneur réel redéployé (matrice complète : RP→200, AP lié→200, AP non lié→404, élève/prof
+non-auteur→404, non-régression sur `validated`). Aucun changement de contrat de réponse — rien à
+recâbler côté front, "voir avant de valider" devrait déjà fonctionner avec l'écran existant une fois
+qu'un RP/AP clique sur un contenu en attente.
+
+**PR #207 (rail RP) toujours ouverte, en attente de deux décisions de l'utilisateur** : (1) "Cahier
+de texte" absent du rail RP reconstruit (hors spec donnée, route toujours accessible mais plus de
+raccourci pour ce rôle) — intentionnel ou oubli ? (2) "Visualisation" ne couvre que les formateurs
+(annuaire déjà existant) — Élèves/Parents/AP affichent "indisponible", aucune route de liste
+n'existant côté serveur pour ces rôles (gap `profile-service` potentiel, non traité).
+
+**Reste à faire** : merger #207 une fois ces deux points tranchés par l'utilisateur ; vérifier après
+déploiement conjoint que le clic sur un contenu `pending_validation` depuis "Contenus à valider"
+affiche bien le contenu complet désormais (pas de nouvelle délégation attendue si le lien existe
+déjà, sinon petit correctif front à identifier).
+
 ---
 
 Import d'Exercice depuis un tableur (CSV/Excel), demandé le 2026-09-02, pendant que l'utilisateur

@@ -45,8 +45,12 @@ import {
   updateTeacherValidationStatus,
 } from '../../src/api/profile'
 import {
+  fetchLinkedParents,
   fetchLinkedStudents,
   fetchTeacherStudentRelations,
+  fetchAnimatedTeachers,
+  fetchStudentsOfTeacher,
+  fetchAnimatorsOfTeacher,
 } from '../../src/api/relations'
 
 const mockUseAuth = vi.mocked(useAuth)
@@ -176,7 +180,11 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
   vi.mocked(fetchTeacherStudentRelations).mockResolvedValue([])
+  vi.mocked(fetchLinkedParents).mockResolvedValue([])
   vi.mocked(fetchLinkedStudents).mockResolvedValue([])
+  vi.mocked(fetchAnimatedTeachers).mockResolvedValue([])
+  vi.mocked(fetchStudentsOfTeacher).mockResolvedValue([])
+  vi.mocked(fetchAnimatorsOfTeacher).mockResolvedValue([])
   vi.mocked(fetchInternalNotes).mockResolvedValue([])
   vi.mocked(fetchProfileStatistics).mockResolvedValue({})
   vi.mocked(fetchProfileAvatarConstraints).mockResolvedValue({

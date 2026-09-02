@@ -136,6 +136,59 @@ export interface TeacherStudentRelation {
   teacherName?: PersonName | null
 }
 
+/**
+ * Lien animateur pédagogique ↔ formateur, tel que renvoyé par
+ * `GET /relations/animator-teacher/:animatorId` (`docs/routes.md` § profile-service >
+ * Relations). Liste des formateurs animés par un AP — câblée le 2026-09-02 sur la fiche
+ * de profil d'un AP (point 3, « Contacts essentiels »), route déjà ouverte au RP/TI/AP
+ * lui-même mais jamais consommée par aucun composant front avant ce complément.
+ */
+export interface AnimatorTeacherRelation {
+  id: string
+  animatorId: string
+  teacherId: string
+  createdAt?: string
+  /** Nom du formateur, résolu côté serveur — jamais un UUID à l'écran. */
+  teacherName?: PersonName | null
+}
+
+/**
+ * Lien élève ↔ formateur, **sens inverse** de `TeacherStudentRelation` : tel que
+ * renvoyé par `GET /relations/teacher-student/by-teacher/:teacherId`
+ * (`docs/routes.md` § profile-service > Relations, PR #212, 2026-09-02) — les
+ * élèves actifs d'un formateur. Câblée sur la fiche de profil d'un professeur
+ * (point 3, « Contacts essentiels », professeur → élèves).
+ */
+export interface StudentOfTeacherRelation {
+  id: string
+  teacherId: string
+  studentId: string
+  isPrincipalTeacher?: boolean
+  createdAt?: string
+  endedAt?: string | null
+  endedBy?: string | null
+  endReason?: string | null
+  /** Nom de l'élève, résolu côté serveur — jamais un UUID à l'écran. */
+  studentName?: PersonName | null
+}
+
+/**
+ * Lien animateur pédagogique ↔ formateur, **sens inverse** de
+ * `AnimatorTeacherRelation` : tel que renvoyé par
+ * `GET /relations/animator-teacher/by-teacher/:teacherId` (`docs/routes.md` §
+ * profile-service > Relations, PR #212, 2026-09-02) — le ou les AP qui animent
+ * un formateur. Câblée sur la fiche de profil d'un professeur (point 3,
+ * « Contacts essentiels », professeur → AP).
+ */
+export interface AnimatorOfTeacherRelation {
+  id: string
+  animatorId: string
+  teacherId: string
+  createdAt?: string
+  /** Nom de l'AP, résolu côté serveur — jamais un UUID à l'écran. */
+  animatorName?: PersonName | null
+}
+
 export interface CoordinatorRelation {
   coordinatorId: string
   studentId: string

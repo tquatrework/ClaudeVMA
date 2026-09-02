@@ -1,5 +1,10 @@
 import apiClient from './client'
-import type { TeacherStudentRelation } from '../types/profile'
+import type {
+  AnimatorOfTeacherRelation,
+  AnimatorTeacherRelation,
+  StudentOfTeacherRelation,
+  TeacherStudentRelation,
+} from '../types/profile'
 import type { FinanceOwnerStudentLink, MyContact } from '../types/relations'
 
 /**
@@ -121,6 +126,46 @@ export async function unlinkTeacherStudentRelation(
   const { data } = await apiClient.delete<TeacherStudentRelation>(
     `/relations/teacher-student/${teacherId}/${studentId}`,
     reason ? { data: { reason } } : undefined,
+  )
+  return data
+}
+
+/**
+ * GET /relations/animator-teacher/:animatorId — Lister les formateurs animés par un
+ * animateur pédagogique (docs/routes.md § profile-service > Relations). Route déjà
+ * ouverte au RP, au TI et à l'AP lui-même, mais jamais consommée par aucun composant
+ * front avant le complément du 2026-09-02 (point 3, « Contacts essentiels » de
+ * `docs/architecture.md` > « Reconstruction du rail gauche du RP »).
+ */
+export async function fetchAnimatedTeachers(animatorId: string): Promise<AnimatorTeacherRelation[]> {
+  const { data } = await apiClient.get<AnimatorTeacherRelation[]>(
+    `/relations/animator-teacher/${animatorId}`,
+  )
+  return data
+}
+
+/**
+ * GET /relations/teacher-student/by-teacher/:teacherId — Lister les élèves **actifs**
+ * d'un formateur, sens inverse de `fetchTeacherStudentRelations` (docs/routes.md §
+ * profile-service > Relations, PR #212, 2026-09-02). Complément « Contacts
+ * essentiels » : professeur → élèves.
+ */
+export async function fetchStudentsOfTeacher(teacherId: string): Promise<StudentOfTeacherRelation[]> {
+  const { data } = await apiClient.get<StudentOfTeacherRelation[]>(
+    `/relations/teacher-student/by-teacher/${teacherId}`,
+  )
+  return data
+}
+
+/**
+ * GET /relations/animator-teacher/by-teacher/:teacherId — Lister le ou les AP qui
+ * animent un formateur, sens inverse de `fetchAnimatedTeachers` (docs/routes.md §
+ * profile-service > Relations, PR #212, 2026-09-02). Complément « Contacts
+ * essentiels » : professeur → AP.
+ */
+export async function fetchAnimatorsOfTeacher(teacherId: string): Promise<AnimatorOfTeacherRelation[]> {
+  const { data } = await apiClient.get<AnimatorOfTeacherRelation[]>(
+    `/relations/animator-teacher/by-teacher/${teacherId}`,
   )
   return data
 }

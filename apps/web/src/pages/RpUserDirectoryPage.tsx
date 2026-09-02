@@ -17,10 +17,36 @@
  *
  * Chaque tuile (`PersonTile`, extraite de `ParentDashboardPage` — « le
  * composant de tuile déjà existant qui présente un élève à son parent
- * financeur ») porte trois actions vers des écrans déjà existants et déjà
- * ouverts au RP côté route : profil, calendrier, cahier de texte — rien de
- * plus, comme demandé explicitement. Aucun UUID n'est jamais affiché ;
- * `userId` ne sert qu'à construire ces liens et à résoudre la photo.
+ * financeur »), rendue par `UserDirectoryList`, porte des actions **différenciées
+ * par rôle** (complément du 2026-09-02, point 2, voir
+ * `buildUserDirectoryTileActions` dans `utils/userDirectoryFormat.ts`) : élève →
+ * Profil, Calendrier, Cahier de texte, Mémos (le lien « Mémos » réutilise
+ * exactement le mécanisme déjà en place côté formateur sur `MyStudentsPage` —
+ * bouton ouvrant `MemoReadOnlyModal` alimentée par `GET /memos/students/:studentId`,
+ * jamais une nouvelle route de navigation `/memos` qui ne sait afficher que le
+ * mémo de l'appelant lui-même) ; professeur/AP → Profil, Calendrier (le Cahier de
+ * texte n'a pas de sens sur un formateur, c'est une notion par élève) ; parent
+ * financeur → Profil seul. Aucun UUID n'est jamais affiché ; `userId` ne sert qu'à
+ * construire ces actions et à résoudre la photo.
+ *
+ * **Point 3 (« Contacts essentiels »), même complément** : investigation
+ * menée avant toute construction, conformément à la consigne. Résultat —
+ * élève → professeurs est **déjà** couvert par `ProfilePage` (panneau
+ * « Formateurs liés », visible pour RP/AP/TI/AF/formateur sur le profil de
+ * n'importe quel élève, pas seulement le sien) : le bouton « Profil » de
+ * cette page y mène déjà, rien à dupliquer ici. Les autres directions
+ * (élève→parents, parent→élèves, professeur→élèves, professeur→AP,
+ * AP→professeurs) ne sont **pas** affichées à un tiers sur `ProfilePage`
+ * aujourd'hui — gaps documentés dans le rapport de session, pas comblés ici
+ * (certains n'ont même aucune route backend pour les servir).
+ *
+ * **Point 1 (recherche), complément du 2026-09-02** : chaque onglet porte un champ de
+ * recherche par nom (`UserDirectorySearchForm`), soumis explicitement (formulaire,
+ * comme `MemoSearch` — pas de requête à chaque frappe). La recherche est
+ * **entièrement côté serveur** (`GET /profiles/directory/by-role?...&q=`,
+ * `profile-service` PR #210) : elle filtre avant la pagination, jamais sur la seule
+ * page déjà chargée par le front — voir
+ * `useUserDirectoryByRole`/`fetchUserDirectoryByRole`.
  */
 
 import React, { useState } from 'react'
@@ -29,10 +55,11 @@ import { PageHeader } from '../components/ui/PageHeader'
 import { ErrorMessage } from '../components/ui/ErrorMessage'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Tabs, TabPanel } from '../components/ui/Tabs'
-import { PersonTile } from '../components/ui/PersonTile'
+import { MemoReadOnlyModal } from '../components/pedagogical-log/MemoReadOnlyModal'
+import { UserDirectoryList } from '../components/profile/UserDirectoryList'
+import { UserDirectorySearchForm } from '../components/profile/UserDirectorySearchForm'
 import { useUserDirectoryByRole } from '../hooks/profile/useUserDirectoryByRole'
 import { formatPersonDisplayName } from '../utils/nameFormat'
-import { formatDirectoryEntrySubtitle } from '../utils/userDirectoryFormat'
 import type { UserDirectoryEntry } from '../types/profile'
 import type { UserRole } from '../types/user'
 
@@ -50,73 +77,90 @@ const TABS: { id: DirectoryTabId; label: string; role: UserRole; genericLabel: s
   },
 ]
 
-function buildTileActions(userId: string) {
-  return [
-    { label: 'Profil', to: `/profiles/${userId}` },
-    { label: 'Calendrier', to: `/calendar?studentId=${userId}` },
-    { label: 'Cahier de texte', to: `/pedagogical-log?studentId=${userId}` },
-  ]
-}
-
-function DirectoryList({
-  entries,
-  genericLabel,
-}: {
-  entries: UserDirectoryEntry[]
-  genericLabel: string
-}) {
-  return (
-    <div className="grid grid-cols-[repeat(auto-fill,_minmax(280px,_1fr))] gap-4">
-      {entries.map((entry) => (
-        <PersonTile
-          key={entry.userId}
-          displayName={formatPersonDisplayName(entry.firstName, entry.lastName, undefined, genericLabel)}
-          subtitle={formatDirectoryEntrySubtitle(entry)}
-          actions={buildTileActions(entry.userId)}
-          // Pas d'appel réseau pour une personne sans photo connue — le champ
-          // `avatarUrl` de l'annuaire le dit déjà, inutile de tenter et d'essuyer
-          // un 404 côté `useReadOnlyAvatar`.
-          photoUserId={entry.avatarUrl ? entry.userId : undefined}
-        />
-      ))}
-    </div>
-  )
-}
-
 function DirectoryTabPanel({
   role,
   isEnabled,
   genericLabel,
   emptyMessage,
+  onOpenMemosFor,
 }: {
   role: UserRole
   isEnabled: boolean
   genericLabel: string
   emptyMessage: string
+  onOpenMemosFor?: (entry: UserDirectoryEntry) => void
 }) {
-  const { entries, isLoading, loadError, isTruncated } = useUserDirectoryByRole(role, isEnabled)
+  // Saisie en cours (`draftQuery`) distincte de la recherche réellement soumise
+  // (`submittedQuery`) — seule cette dernière déclenche un appel réseau, via
+  // `useUserDirectoryByRole` (`docs/routes.md`, param `q` de
+  // `GET /profiles/directory/by-role`, PR #210).
+  const [draftQuery, setDraftQuery] = useState('')
+  const [submittedQuery, setSubmittedQuery] = useState('')
+
+  const { entries, isLoading, loadError, isTruncated } = useUserDirectoryByRole(
+    role,
+    isEnabled,
+    submittedQuery,
+  )
+
+  const searchForm = (
+    <UserDirectorySearchForm
+      draftValue={draftQuery}
+      onDraftValueChange={setDraftQuery}
+      onSubmit={() => setSubmittedQuery(draftQuery.trim())}
+      onReset={() => {
+        setDraftQuery('')
+        setSubmittedQuery('')
+      }}
+      hasActiveSearch={submittedQuery.length > 0}
+      genericLabel={genericLabel}
+    />
+  )
 
   if (isLoading) {
-    return <p className="text-gray-400 text-sm">Chargement…</p>
+    return (
+      <div className="space-y-3">
+        {searchForm}
+        <p className="text-gray-400 text-sm">Chargement…</p>
+      </div>
+    )
   }
 
   if (loadError) {
-    return <ErrorMessage message={loadError} />
+    return (
+      <div className="space-y-3">
+        {searchForm}
+        <ErrorMessage message={loadError} />
+      </div>
+    )
   }
 
   if (entries.length === 0) {
-    return <EmptyState message={emptyMessage} />
+    return (
+      <div className="space-y-3">
+        {searchForm}
+        <EmptyState
+          message={submittedQuery ? `Aucun résultat pour « ${submittedQuery} ».` : emptyMessage}
+        />
+      </div>
+    )
   }
 
   return (
     <div className="space-y-3">
+      {searchForm}
       {isTruncated && (
         <ErrorMessage
           variant="warning"
           message="La liste est très longue : seules les premières entrées sont affichées."
         />
       )}
-      <DirectoryList entries={entries} genericLabel={genericLabel} />
+      <UserDirectoryList
+        entries={entries}
+        role={role}
+        genericLabel={genericLabel}
+        onOpenMemosFor={onOpenMemosFor}
+      />
     </div>
   )
 }
@@ -125,6 +169,10 @@ const DEFAULT_TAB: DirectoryTabId = 'eleves'
 
 export default function RpUserDirectoryPage() {
   const [activeTab, setActiveTab] = useState<DirectoryTabId>(DEFAULT_TAB)
+
+  // Mémo consulté depuis l'onglet « Élèves » (point 2 du complément 2026-09-02) —
+  // même pattern que `MyStudentsPage` : un état local minimal, pas de route dédiée.
+  const [memoModalEntry, setMemoModalEntry] = useState<UserDirectoryEntry | null>(null)
 
   // Une fois activé, un onglet reste « chargeable » pour toujours — même règle
   // que `TabPanel` (montage paresseux puis maintien, 2026-08-10) : revenir sur
@@ -164,9 +212,18 @@ export default function RpUserDirectoryPage() {
               isEnabled={activatedTabs.has(id)}
               genericLabel={genericLabel}
               emptyMessage={`Aucun compte de type « ${genericLabel.toLowerCase()} » pour l'instant.`}
+              onOpenMemosFor={role === 'eleve' ? setMemoModalEntry : undefined}
             />
           </TabPanel>
         ))}
+
+        {memoModalEntry && (
+          <MemoReadOnlyModal
+            studentId={memoModalEntry.userId}
+            title={`Mémo de ${formatPersonDisplayName(memoModalEntry.firstName, memoModalEntry.lastName, undefined, 'Élève')}`}
+            onClose={() => setMemoModalEntry(null)}
+          />
+        )}
       </div>
     </Layout>
   )

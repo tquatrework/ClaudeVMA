@@ -2915,6 +2915,7 @@ l'import.
 | Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
 | GET | /quizzes/import/constraints | **À lire AVANT d'ouvrir le sélecteur de fichier**, sur le modèle de `GET /profiles/avatar/constraints`. Publie le plafond de taille en vigueur | 🔒 | tout compte authentifié | `200 {maxFileSizeBytes}` — ex. `{"maxFileSizeBytes":900000}` · `401` |
+| GET | /quizzes/import/template | **Ajoutée rétroactivement le 2026-09-02** (`docs/architecture.md`, "Import d'Exercice depuis un tableur (CSV/Excel), et modèle de type identique pour l'import de Quizz", point 7) — l'import de Quizz n'avait jamais eu de fichier modèle depuis sa création (2026-08-29). Fichier CSV directement importable (1 quizz, 3 catégories de question), généré par `buildCsvRow` à partir des mêmes constantes que le parseur réel — vérifié par un test dédié qui le fait repasser dans `parseQuizImportFile` | 🔒 | tout compte authentifié | `200` fichier CSV (`Content-Disposition: attachment; filename="modele-import-quizz.csv"`) · `401` |
 | POST | /quizzes/import | **Multipart**, champ `file`, un seul fichier CSV ou Excel (`.xlsx`). Type détecté sur les **octets réels** (signature ZIP pour `.xlsx`, texte sans octet nul pour CSV) — ni l'extension ni le `Content-Type` du client ne sont consultés. Un fichier peut contenir plusieurs quizz empilés (colonnes fixes, discriminant `type=quizz`/`type=question` en première colonne, quoting CSV RFC 4180 — `;` sert à la fois de séparateur de colonnes et, à l'intérieur d'une cellule citée, de séparateur intra-cellule). L'échec d'un bloc (ligne malformée, catégorie inconnue, réponse correcte introuvable parmi les options...) n'empêche **jamais** la création des autres blocs valides du même fichier. **Depuis le 2026-09-01, deux quizz au même titre pour le même auteur dans un même fichier (ou avec un quizz déjà existant) ne produisent plus un bloc en erreur** : chaque appel à `QuizzesService.create()` réutilise la disambiguation automatique par suffixe `"(N)"`, donc le deuxième bloc est créé sous un titre suffixé au lieu d'échouer | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `201 [{blockIndex, status: "created"\|"error", quizId?, validationStatus?, errors?: [{row, message}]}]` — un résultat par bloc détecté · `400` aucun fichier, fichier vide, ou format non reconnu (ni CSV ni xlsx) · `403` rôle insuffisant · `413` au-delà du plafond en vigueur — **corps structuré, voir ci-dessous** |
 
 **Format du fichier.** Ligne `quizz` (ouvre un bloc, valable jusqu'à la prochaine ligne `quizz` ou
@@ -3061,6 +3062,69 @@ une solution d'exercice autrement que via `learning-activity-service`.
 |---|---|---|---|---|
 | POST | /internal/exercises/:exerciseId/parts/:partId/solution | Contrat figé avec `learning-activity-service` (`docs/architecture.md`, point 10) : renvoie le contenu complet de la solution d'un bloc `question`, sous la même forme que le contenu des blocs (`{id, type, order, content, imageMimeType?, imageSizeBytes?}[]`). Pour un item `image`, `id` sert directement d'`itemId` à passer à la route ci-dessous — les octets ne sont jamais embarqués en base64 dans cette réponse | `X-Internal-Secret` | `200 {content: PublicContentItem[]}` · `401` · `404` bloc ou solution introuvable |
 | GET | /internal/exercises/images/:itemId | Octets de **n'importe quelle** image (bloc ou solution) — aucune vérification de visibilité ici : le proprietaire de la décision (révéler ou non une solution à l'élève) est `learning-activity-service`, en amont de cet appel | `X-Internal-Secret` | `200` octets · `401` · `404` |
+
+### Import d'exercices depuis un fichier tableur (CSV/Excel)
+
+Ajoutées le 2026-09-02, conformes à `docs/architecture.md`, "Import d'Exercice depuis un tableur
+(CSV/Excel), et modèle de type identique pour l'import de Quizz". Réutilise intégralement
+`ExercisesService.create()` bloc par bloc, exactement sur le modèle de l'import Quizz (2026-08-29) :
+un exercice importé par un formateur passe par `pending_validation` exactement comme à la création
+manuelle, un exercice importé par un AP ou un RP est auto-validé. Aucune règle de validation, de
+composition minimale (au moins un bloc `statement` + un bloc `question` non vide) ni de titre
+(obligatoire, unique par auteur, disambiguation automatique par suffixe `"(N)"`) n'est contournée
+par l'import.
+
+**Aucun nouveau champ sur `Exercise`** : `level`, `difficulty`, `theme`, `competencies`, `tags`
+existaient déjà (chantier de juin 2026, conservés tels quels par la refonte du 2026-08-29) — vérifié
+dans le code réel avant implémentation, contrairement à ce que laissait supposer une première
+lecture de l'arbitrage. Aucune migration ajoutée par ce chantier.
+
+| Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /exercises/import/constraints | À lire avant d'ouvrir le sélecteur de fichier, même modèle que `GET /quizzes/import/constraints` | 🔒 | tout compte authentifié | `200 {maxFileSizeBytes}` — ex. `{"maxFileSizeBytes":900000}` · `401` |
+| GET | /exercises/import/template | Fichier CSV modèle directement importable (2 exercices, blocs énoncé/question/solution), généré par `buildCsvRow` à partir des mêmes constantes que le parseur réel — vérifié par un test dédié qui le fait repasser dans `parseExerciseImportFile` | 🔒 | tout compte authentifié | `200` fichier CSV (`Content-Disposition: attachment; filename="modele-import-exercices.csv"`) · `401` |
+| POST | /exercises/import | **Multipart**, champ `file`, un seul fichier CSV ou Excel (`.xlsx`). Type détecté sur les **octets réels** (signature ZIP pour `.xlsx`, texte sans octet nul pour CSV). Un fichier peut contenir plusieurs exercices ; chaque bloc s'ouvre sur une ligne `exercice` et se termine à la **première ligne vide OU à la prochaine ligne `exercice`** (les deux terminent un bloc, contrairement au Quizz qui ne s'arrête qu'au prochain `type=quizz`). L'échec d'un bloc n'empêche **jamais** la création des autres blocs valides du même fichier | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `201 [{blockIndex, status: "created"\|"error", exerciseId?, validationStatus?, errors?: [{row, message}]}]` — un résultat par bloc détecté · `400` aucun fichier, fichier vide, ou format non reconnu · `403` rôle insuffisant · `413` au-delà du plafond en vigueur — corps structuré, même forme que l'import Quizz (`code: "EXERCISE_IMPORT_FILE_TOO_LARGE"`) |
+
+**Format du fichier.** Colonnes fixes, mêmes pour toutes les lignes du fichier : `type | titre |
+niveau | difficulte | tags | themes | competences | contenu | image_data`.
+- Ligne `exercice` (ouvre un bloc) : `titre` (obligatoire), `niveau`, `difficulte`, `tags`
+  (`;`-séparés, → `Exercise.tags`), `themes` (**une seule valeur au maximum** — `400` si plusieurs
+  valeurs `;`-séparées sont fournies : le champ réel `Exercise.theme` est **scalaire**, pas une
+  liste, contrairement à `tags`/`competencies`), `competences` (`;`-séparés, →
+  `Exercise.competencies`).
+- Ligne `enonce` : `contenu` rempli (texte, syntaxe légère `[label](url)`/`$...$`/`$$...$$`
+  supportée) → bloc `statement`, item `type="text"`.
+- Ligne `question` : `contenu` rempli → bloc `question`, item `type="text"`. **Doit être
+  immédiatement suivie d'une ligne `solution`** — sinon le bloc entier est refusé (`error`, message
+  citant le numéro de ligne de la question fautive), y compris si la ligne suivante est vide ou une
+  nouvelle ligne `exercice`.
+- Ligne `solution` : `contenu` rempli, s'attache à la ligne `question` qui la précède
+  **immédiatement** (ce n'est pas un bloc de la séquence, contrairement à `enonce`/`question`/
+  `image`) — une ligne `solution` sans ligne `question` immédiatement précédente est refusée
+  (orpheline).
+- Ligne `image` : `image_data` rempli (base64 inline, même encodage que `POST`/`PUT /exercises`) →
+  bloc `image`. Techniquement supporté mais peu praticable à la main dans un tableur (réservé à un
+  usage scripté/généré) — aucun exemple n'en porte dans le fichier modèle téléchargeable.
+- Le discriminant de première colonne accepte à la fois la valeur littérale (`exercice`, `enonce`,
+  `question`, `solution`, `image`) et la forme préfixée (`type=exercice`, etc.), insensible à la
+  casse — même souplesse que l'import Quizz.
+
+**Taille maximale — 900 000 octets (900 Ko SI) par défaut, réglable uniquement par variable
+d'environnement (`EXERCISE_IMPORT_MAX_FILE_SIZE_BYTES`)**, même raisonnement que l'import Quizz
+(reste strictement sous le défaut non déclaré de `nginx-global`). Un bloc contenant une image en
+base64 consomme ce budget bien plus vite qu'un bloc texte — signalé dans le code comme un point à
+reconsidérer si l'usage réel avec images s'avère trop souvent bloqué, non relevé par anticipation.
+
+Corps de la réponse `413` : mêmes clés que l'import Quizz, `code: "EXERCISE_IMPORT_FILE_TOO_LARGE"`.
+
+**Vérifié en HTTP direct contre la pile réelle (2026-09-02)** : élève → `403` ; formateur avec un
+fichier portant un bloc valide + un bloc "question sans solution" → `201`, le bloc valide est créé
+en `pending_validation` (lu ensuite via `GET /exercises/:id`, contenu et métadonnées conformes), le
+bloc invalide renvoie l'erreur exacte sans bloquer le premier ; AP → `201 validated` immédiatement ;
+fichier de 950 Ko → `413` structuré avec `maxFileSizeBytes: 900000`. Le fichier modèle téléchargé
+via `GET /quizzes/import/template` a également été réimporté avec succès via `POST /quizzes/import`
+(`201 pending_validation`), et le fichier modèle Exercice vérifié par test unitaire (round-trip dans
+le parseur réel).
 
 ### Évaluations
 

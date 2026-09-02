@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ExercisesController } from './exercises.controller';
 import { InternalExercisesController } from './internal-exercises.controller';
 import { ExercisesService } from './exercises.service';
+import { ExerciseImportService } from './exercise-import.service';
 import { Exercise } from './entities/exercise.entity';
 import { ExercisePart } from './entities/exercise-part.entity';
 import { ExerciseSolution } from './entities/exercise-solution.entity';
@@ -26,7 +27,7 @@ import { ProfileClientModule } from '../common/clients/profile-client.module';
     ProfileClientModule,
   ],
   controllers: [ExercisesController, InternalExercisesController],
-  providers: [ExercisesService, ExerciseImageStorageService, ExerciseImageTranscoder],
+  providers: [ExercisesService, ExerciseImportService, ExerciseImageStorageService, ExerciseImageTranscoder],
   exports: [ExercisesService],
 })
 export class ExercisesModule {}

@@ -125,6 +125,21 @@ export class EventProcessorService {
       case 'CalendarEventCreated':
         await this.handleCalendarEventCreated(eventId, eventName, payload);
         break;
+      case 'EvaluationCorrectionRequested':
+        await this.handleEvaluationCorrectionRequested(eventId, eventName, payload);
+        break;
+      case 'EvaluationCorrectionAccepted':
+        await this.handleEvaluationCorrectionDecisionForRp(eventId, eventName, payload, NotificationType.EVALUATION_CORRECTION_ACCEPTED);
+        break;
+      case 'EvaluationCorrectionDeclined':
+        await this.handleEvaluationCorrectionDecisionForRp(eventId, eventName, payload, NotificationType.EVALUATION_CORRECTION_DECLINED);
+        break;
+      case 'EvaluationCorrectionAllDeclined':
+        await this.handleEvaluationCorrectionAllDeclined(eventId, eventName, payload);
+        break;
+      case 'EvaluationCorrected':
+        await this.handleEvaluationCorrected(eventId, eventName, payload);
+        break;
       case 'TeacherRequestClosed':
       case 'TeacherRequestDeleted':
         // No notification: TeacherRequestClosed is redundant with TeacherAssigned's
@@ -382,6 +397,114 @@ export class EventProcessorService {
       eventName,
       inviteeIds.map((userId) => ({ userId, type: NotificationType.EVENT_INVITATION_RECEIVED, metadata })),
     );
+  }
+
+  /**
+   * `EvaluationCorrectionRequested` is published by learning-activity-service
+   * when a student (or the profile that took the attempt) requests a manual
+   * correction of an already-closed `EvaluationAttempt`, provided at least
+   * one teacher is currently linked to the student — an unlinked student
+   * bypasses this event entirely and produces `EvaluationCorrectionAllDeclined`
+   * (reason `no_linked_teacher`) instead, handled separately below.
+   * Recipients: every linked teacher individually, plus the RP role — same
+   * "premier arrivé, premier servi" framing as the teacher-request flow, but
+   * for a one-off correction task rather than a durable pedagogical
+   * relationship (`docs/architecture.md`, arbitrage du 2026-09-01, point 4c).
+   */
+  private async handleEvaluationCorrectionRequested(eventId: string, eventName: string, payload: Record<string, unknown>): Promise<void> {
+    const studentId = payload.studentId as string;
+    const teacherIds = [...new Set((payload.teacherIds as string[] | undefined) ?? [])];
+    const names = await this.resolveNames([studentId]);
+    const metadata = {
+      correctionRequestId: payload.correctionRequestId,
+      attemptId: payload.attemptId,
+      evaluationId: payload.evaluationId,
+      studentId,
+      studentName: displayName(names.get(studentId)),
+    };
+    const rpRecipients = await this.resolveRoleRecipients(
+      'responsable_pedagogique',
+      NotificationType.EVALUATION_CORRECTION_REQUESTED,
+      metadata,
+    );
+    const recipients: NotificationRecipient[] = [
+      ...teacherIds.map((userId) => ({ userId, type: NotificationType.EVALUATION_CORRECTION_REQUESTED, metadata })),
+      ...rpRecipients,
+    ];
+    await this.persist(eventId, eventName, recipients);
+  }
+
+  /**
+   * `EvaluationCorrectionAccepted` / `EvaluationCorrectionDeclined`: a linked
+   * teacher (or the RP, in the accept case) took or refused the correction.
+   * Recipients: role RP in both cases — "quand un professeur accepte ou
+   * refuse, le RP est notifié de l'issue dans tous les cas"
+   * (`docs/architecture.md`, arbitrage du 2026-09-01, point 4d).
+   */
+  private async handleEvaluationCorrectionDecisionForRp(
+    eventId: string,
+    eventName: string,
+    payload: Record<string, unknown>,
+    type: NotificationType,
+  ): Promise<void> {
+    const studentId = payload.studentId as string;
+    const teacherId = payload.teacherId as string;
+    const names = await this.resolveNames([studentId, teacherId]);
+    const metadata = {
+      correctionRequestId: payload.correctionRequestId,
+      attemptId: payload.attemptId,
+      evaluationId: payload.evaluationId,
+      studentId,
+      studentName: displayName(names.get(studentId)),
+      teacherId,
+      teacherName: displayName(names.get(teacherId)),
+    };
+    const recipients = await this.resolveRoleRecipients('responsable_pedagogique', type, metadata);
+    await this.persist(eventId, eventName, recipients);
+  }
+
+  /**
+   * `EvaluationCorrectionAllDeclined`: every currently linked teacher
+   * declined, or none was linked at all (`reason: 'no_linked_teacher'`) —
+   * either way this is the actionable state the RP must pick up manually
+   * ("pour un besoin ponctuel", arbitrage du 2026-09-01, point 4c). Recipient:
+   * role RP only.
+   */
+  private async handleEvaluationCorrectionAllDeclined(eventId: string, eventName: string, payload: Record<string, unknown>): Promise<void> {
+    const studentId = payload.studentId as string;
+    const names = await this.resolveNames([studentId]);
+    const metadata = {
+      correctionRequestId: payload.correctionRequestId,
+      attemptId: payload.attemptId,
+      evaluationId: payload.evaluationId,
+      studentId,
+      studentName: displayName(names.get(studentId)),
+      reason: payload.reason,
+    };
+    const recipients = await this.resolveRoleRecipients('responsable_pedagogique', NotificationType.EVALUATION_CORRECTION_ALL_DECLINED, metadata);
+    await this.persist(eventId, eventName, recipients);
+  }
+
+  /**
+   * `EvaluationCorrected`: the accepting teacher (or RP) submitted a
+   * score/comment. Recipient: the student (`payload.studentId`) — the
+   * correction's result becoming available is the fact worth surfacing to
+   * them, not a name they already know.
+   */
+  private async handleEvaluationCorrected(eventId: string, eventName: string, payload: Record<string, unknown>): Promise<void> {
+    const studentId = payload.studentId as string;
+    const teacherId = payload.teacherId as string;
+    const names = await this.resolveNames([teacherId]);
+    const metadata = {
+      correctionRequestId: payload.correctionRequestId,
+      attemptId: payload.attemptId,
+      evaluationId: payload.evaluationId,
+      teacherId,
+      teacherName: displayName(names.get(teacherId)),
+      score: payload.score,
+      comment: payload.comment,
+    };
+    await this.persist(eventId, eventName, [{ userId: studentId, type: NotificationType.EVALUATION_CORRECTED, metadata }]);
   }
 
   /** Atomically records the event as processed and creates its notifications, or neither. */

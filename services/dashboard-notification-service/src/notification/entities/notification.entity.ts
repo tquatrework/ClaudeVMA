@@ -51,6 +51,18 @@ export enum NotificationType {
   // depuis `CalendarEventCreated`, un destinataire par élément
   // `payload.inviteeIds`. Voir EventProcessorService.
   EVENT_INVITATION_RECEIVED = 'event_invitation_received',
+  // Ajoutés le 2026-09-02 pour le flow de correction manuelle d'une
+  // tentative d'Évaluation (`docs/architecture.md`, « Refonte des
+  // Evaluations : notation manuelle, demande de correction, notifications »,
+  // arbitrage du 2026-09-01), consommés depuis les 5 événements publiés par
+  // learning-activity-service sur `visiomath:events`
+  // (`docs/routes.md` > learning-activity-service > « Événements émis »).
+  // Voir EventProcessorService.
+  EVALUATION_CORRECTION_REQUESTED = 'evaluation_correction_requested',
+  EVALUATION_CORRECTION_ACCEPTED = 'evaluation_correction_accepted',
+  EVALUATION_CORRECTION_DECLINED = 'evaluation_correction_declined',
+  EVALUATION_CORRECTION_ALL_DECLINED = 'evaluation_correction_all_declined',
+  EVALUATION_CORRECTED = 'evaluation_corrected',
 }
 
 @Entity('notifications')

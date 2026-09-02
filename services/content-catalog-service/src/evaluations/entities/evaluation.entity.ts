@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { ContentStatus } from '../../common/enums/content-status.enum';
+import { EvaluationScoringMode } from '../enums/evaluation-scoring-mode.enum';
 
 /**
  * Evaluation — cycle de vie aligné sur Quizz/Exercice (arbitrage du
@@ -32,6 +33,15 @@ import { ContentStatus } from '../../common/enums/content-status.enum';
  * elle migre vers `learning-activity-service`, sur le même modèle que Quiz
  * et Exercise (delegation séparée, en cours en parallèle) — voir la
  * migration `DropEvaluationAttempts`.
+ *
+ *   - `scoring` : barème informatif (arbitrage du 2026-09-02, "Barème
+ *     informatif pour l'Évaluation") — jamais utilisé pour un calcul
+ *     automatique, la correction reste entièrement manuelle. Colonne jsonb
+ *     nullable, absente tant que le créateur n'en définit pas. Portée
+ *     exclusivement par `Évaluation`, jamais par `Exercice`/`ExercisePart` :
+ *     un même exercice peut être réutilisé par plusieurs évaluations avec
+ *     des poids différents à chaque fois. Ajoutée par la migration
+ *     `AddEvaluationScoring`.
  */
 @Entity('evaluations')
 export class Evaluation {
@@ -84,6 +94,9 @@ export class Evaluation {
   @Column({ nullable: true })
   shareableLink: string;
 
+  @Column({ type: 'jsonb', nullable: true })
+  scoring: EvaluationScoring | null;
+
   @CreateDateColumn()
   createdAt: Date;
 
@@ -95,4 +108,25 @@ export interface EvaluationExerciseItem {
   exerciseId: string;
   titleOverride?: string;
   order: number;
+}
+
+/**
+ * Barème informatif d'une Évaluation (arbitrage du 2026-09-02). `entries`
+ * porte une valeur de points par item :
+ *   - mode PER_EXERCISE : une entrée par `exerciseId` (pas de `partId`).
+ *   - mode PER_QUESTION : une entrée par bloc `question` d'un exercice
+ *     (`exerciseId` + `partId`, `partId` obligatoire dans ce mode).
+ * Aucune contrainte de somme totale — voir EvaluationsService pour la
+ * validation complète (référence à un exercice/bloc réel, unicité, points
+ * strictement positifs).
+ */
+export interface EvaluationScoringEntry {
+  exerciseId: string;
+  partId?: string;
+  points: number;
+}
+
+export interface EvaluationScoring {
+  mode: EvaluationScoringMode;
+  entries: EvaluationScoringEntry[];
 }

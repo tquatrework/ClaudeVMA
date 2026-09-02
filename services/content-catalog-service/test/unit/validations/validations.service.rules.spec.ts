@@ -79,6 +79,7 @@ function buildSampleEvaluation(overrides = {}): Evaluation {
     authorRole: 'formateur',
     status: ContentStatus.PENDING_VALIDATION,
     shareableLink: null,
+    scoring: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,

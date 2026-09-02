@@ -3080,23 +3080,59 @@ et l'entité `EvaluationAttempt` qui la portait. Un appel sur cette route renvoi
 | Méthode | Chemin | Description | Auth | Rôles autorisés | Réponse attendue |
 |---|---|---|---|---|---|
 | GET | /evaluations | Rechercher les évaluations, filtrables par `level`, `difficulty`, `theme`, `tag` (`ANY(tags)`, exact — **corrigé le 2026-09-01**, le DTO exposait déjà ce champ sans jamais l'appliquer), `keyword` (titre, ILIKE), paginées. Élèves et parents ne voient que les évaluations `validated` | 🔒 | tous rôles authentifiés | `200 {items, total}` · `401` |
-| POST | /evaluations | Créer une évaluation à partir d'une liste d'exercices existants (`exerciseItems`, non vide), avec durée de chronométrage **désormais obligatoire** (`durationSeconds`, entier > 0 — `400` sinon) et option de blocage du retour arrière. **Statut initial aligné sur Quizz/Exercice depuis le 2026-09-01** (remplace le `DRAFT` systématique antérieur) : `pending_validation` pour un formateur, `validated` (auto-validé) immédiatement pour un AP ou un RP | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `201 Evaluation` · `400` liste d'exercices vide ou durée absente/invalide · `403` |
-| GET | /evaluations/:id | Récupérer une évaluation par id — détail avec ses exercices. Comportement de visibilité par statut inchangé par ce chantier (`findOne()` ne filtre pas par statut, contrairement à Quizz/Exercice — écart pré-existant, non corrigé ici, hors périmètre explicite de la tâche) | 🔒 | tous rôles authentifiés | `200 Evaluation` · `404` |
+| POST | /evaluations | Créer une évaluation à partir d'une liste d'exercices existants (`exerciseItems`, non vide), avec durée de chronométrage **désormais obligatoire** (`durationSeconds`, entier > 0 — `400` sinon), option de blocage du retour arrière, et **barème informatif optionnel** (`scoring`, arbitrage du 2026-09-02 — voir plus bas). **Statut initial aligné sur Quizz/Exercice depuis le 2026-09-01** (remplace le `DRAFT` systématique antérieur) : `pending_validation` pour un formateur, `validated` (auto-validé) immédiatement pour un AP ou un RP | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `201 Evaluation` · `400` liste d'exercices vide, durée absente/invalide, ou barème mal formé (voir plus bas) · `403` |
+| PUT | /evaluations/:id | **Ajoutée le 2026-09-02** avec le barème informatif (aucune route d'édition n'existait jusqu'ici). Remplacement intégral, même corps que `POST /evaluations`, même modèle que `PUT /quizzes/:id`/`PUT /exercises/:id` : réservé à l'auteur ; un formateur qui édite fait repasser l'évaluation en `pending_validation` (quel que soit son statut précédent) ; un AP/RP éditant sa propre évaluation ne change jamais son statut | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique, auteur uniquement | `200 Evaluation` · `400` mêmes règles que la création · `403` appelant non auteur · `404` |
+| GET | /evaluations/:id | Récupérer une évaluation par id — détail avec ses exercices et son barème informatif éventuel (`scoring`, `null` si non défini). Comportement de visibilité par statut inchangé par ce chantier (`findOne()` ne filtre pas par statut, contrairement à Quizz/Exercice — écart pré-existant, non corrigé ici, hors périmètre explicite de la tâche) | 🔒 | tous rôles authentifiés | `200 Evaluation` · `404` |
 | DELETE | /evaluations/:id | Retire une évaluation (statut `REMOVED`) | 🔒 | responsable_pedagogique, technicien_informatique, ou auteur | `204` · `403` · `404` |
 | POST | /validations/evaluation/:id/decision | Réutilise le flux de validation générique partagé avec exercise/tutorial/quiz. **Validation AP scopée par la relation `animator_of_teacher` depuis le 2026-09-01** — révise une note du 2026-08-28 qui limitait volontairement ce scoping au Quizz ; réutilise exactement le mécanisme déjà construit pour Quizz/Exercice (`ProfileRelationsClient.hasAnimatorOfTeacherRelation`), pas redéveloppé. RP reste sans restriction | 🔒 | animateur_pedagogique, responsable_pedagogique | `201 ContentValidation` · `400` commentaire manquant en cas de rejet · `403` AP non lié au formateur auteur · `404` |
 | POST | /validations/evaluation/:id/request | Réutilise le flux générique de soumission à validation | 🔒 | formateur, animateur_pedagogique, responsable_pedagogique | `204` · `403` · `404` |
 
-Body `POST /evaluations` : `{title, description?, exerciseItems: [{exerciseId, titleOverride?,
-order}] (non vide), level?, difficulty?, theme?, competencies?: string[], tags?: string[],
-durationSeconds (obligatoire, > 0), blockBackNavigation?}`. `tags` porte désormais sur une colonne
-`text[]` postgres native (comme Quizz/Exercice), convertie depuis `simple-array` par la migration
+Body `POST /evaluations` et `PUT /evaluations/:id` (même forme) : `{title, description?,
+exerciseItems: [{exerciseId, titleOverride?, order}] (non vide), level?, difficulty?, theme?,
+competencies?: string[], tags?: string[], durationSeconds (obligatoire, > 0),
+blockBackNavigation?, scoring?}`. `tags` porte désormais sur une colonne `text[]` postgres native
+(comme Quizz/Exercice), convertie depuis `simple-array` par la migration
 `ConvertEvaluationTagsToNativeArray1797000000000`.
+
+**Barème informatif (`scoring`, arbitrage du 2026-09-02, `docs/architecture.md` > "Barème
+informatif pour l'Évaluation")** — ajouté par la migration `AddEvaluationScoring1799000000000`
+(colonne `scoring` jsonb, nullable). **Purement informatif, jamais utilisé pour un calcul
+automatique** : la correction reste entièrement manuelle (score + commentaire libre du
+professeur, `learning-activity-service`, inchangé). Optionnel — une évaluation peut n'en porter
+aucun (`scoring: null`).
+
+Forme : `scoring?: {mode: "per_exercise"|"per_question", entries: [{exerciseId, partId?,
+points}]}`.
+- `mode` : granularité unique pour toute l'évaluation, pas de mélange.
+- En mode `per_exercise` : une entrée par exercice de `exerciseItems` (`exerciseId` + `points`
+  uniquement) — `partId` interdit (`400` sinon), doublon d'`exerciseId` interdit (`400`).
+- En mode `per_question` : une entrée par bloc de catégorie `question` d'un exercice référencé
+  (`exerciseId` + `partId` + `points`, `partId` obligatoire) — `partId` doit être un bloc
+  `question` réel appartenant bien à l'`exerciseId` déclaré sur la même entrée (`400` sinon,
+  vérifié en base auprès de `ExercisePart`) ; doublon de `(exerciseId, partId)` interdit (`400`).
+- Dans les deux modes, chaque `exerciseId` référencé par `scoring` doit figurer dans
+  `exerciseItems` de la même requête (`400` sinon, jamais d'entrée orpheline acceptée
+  silencieusement).
+- `points` : nombre strictement positif (`400` sinon).
+- **Aucune contrainte de somme totale** — les poids n'ont pas à totaliser 100 ou un multiple
+  donné.
+- Renvoyé tel quel (même forme, mêmes clés) par `GET /evaluations`, `GET /evaluations/:id`,
+  `POST /evaluations` et `PUT /evaluations/:id` — pas de sérialisation dédiée, l'entité est
+  renvoyée directement (contrairement à Quizz/Exercice, qui masquent leur solution : le barème
+  n'est pas secret).
 
 **Aucune route de lecture de solution supplémentaire** n'a été construite pour ce chantier
 (arbitrage explicite du 2026-09-01, point 6 : "une correction n'a rien à voir avec une solution...
 la correction consiste à revoir la tentative/la réponse d'un utilisateur") — la solution d'un
 Exercice référencé par une évaluation reste accessible uniquement via les mécanismes déjà existants
 côté Exercice (`GET /exercises/:id/solutions`, route interne dédiée à `learning-activity-service`).
+
+**Compatibilité avec le contrat interservices déjà consommé par `learning-activity-service`**
+(`GET /evaluations/:id` → `{id, status, durationSeconds, exerciseItems: [...], ...}`, documenté
+plus bas dans ce fichier) : l'ajout de `scoring` est **purement additif**, aucun champ existant
+n'est retiré ni renommé — `learning-activity-service` ne valide strictement que `durationSeconds`
+et `exerciseItems`, un champ supplémentaire ignoré ne casse rien. Non re-testé contre ce service
+dans ce chantier (hors périmètre de la tâche), signalé ici par précaution.
 
 ## learning-activity-service
 

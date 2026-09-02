@@ -22,6 +22,7 @@ import { ForbiddenException, NotFoundException, BadRequestException } from '@nes
 import { EvaluationsService } from '../../../src/evaluations/evaluations.service';
 import { Evaluation } from '../../../src/evaluations/entities/evaluation.entity';
 import { ContentStatus } from '../../../src/common/enums/content-status.enum';
+import { ExercisePart } from '../../../src/exercises/entities/exercise-part.entity';
 
 const FORMATEUR_ID    = 'form-0000-4000-a000-aaaaaaaaaaaa';
 const AP_ID           = 'apid-0000-4000-a000-aaaaaaaaaaaa';
@@ -50,6 +51,12 @@ function buildMockRepo() {
   };
 }
 
+function buildMockExercisePartRepo() {
+  return {
+    find: jest.fn().mockResolvedValue([]),
+  };
+}
+
 function buildSampleEvaluation(overrides: Partial<Evaluation> = {}): Evaluation {
   return {
     id: EVALUATION_ID,
@@ -67,6 +74,7 @@ function buildSampleEvaluation(overrides: Partial<Evaluation> = {}): Evaluation 
     authorRole: 'formateur',
     status: ContentStatus.VALIDATED,
     shareableLink: '/evaluations/eval-0000',
+    scoring: null,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),
     ...overrides,
@@ -76,14 +84,17 @@ function buildSampleEvaluation(overrides: Partial<Evaluation> = {}): Evaluation 
 describe('EvaluationsService', () => {
   let evaluationsService: EvaluationsService;
   let evaluationRepo: ReturnType<typeof buildMockRepo>;
+  let exercisePartRepo: ReturnType<typeof buildMockExercisePartRepo>;
 
   beforeEach(async () => {
     evaluationRepo = buildMockRepo();
+    exercisePartRepo = buildMockExercisePartRepo();
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         EvaluationsService,
         { provide: getRepositoryToken(Evaluation), useValue: evaluationRepo },
+        { provide: getRepositoryToken(ExercisePart), useValue: exercisePartRepo },
       ],
     }).compile();
 

@@ -17,17 +17,17 @@
  *
  * Chaque tuile (`PersonTile`, extraite de `ParentDashboardPage` — « le
  * composant de tuile déjà existant qui présente un élève à son parent
- * financeur ») porte des actions **différenciées par rôle** (complément du
- * 2026-09-02, `docs/architecture.md` > « Compléments demandés le 2026-09-02… »,
- * point 2) : élève → Profil, Calendrier, Cahier de texte, Mémos (le lien
- * « Mémos » réutilise exactement le mécanisme déjà en place côté formateur
- * sur `MyStudentsPage` — bouton ouvrant `MemoReadOnlyModal` alimentée par
- * `GET /memos/students/:studentId`, jamais une nouvelle route de navigation
- * `/memos` qui ne sait afficher que le mémo de l'appelant lui-même) ;
- * professeur/AP → Profil, Calendrier (le Cahier de texte n'a pas de sens sur
- * un formateur, c'est une notion par élève) ; parent financeur → Profil seul.
- * Aucun UUID n'est jamais affiché ; `userId` ne sert qu'à construire ces
- * actions et à résoudre la photo.
+ * financeur »), rendue par `UserDirectoryList`, porte des actions **différenciées
+ * par rôle** (complément du 2026-09-02, point 2, voir
+ * `buildUserDirectoryTileActions` dans `utils/userDirectoryFormat.ts`) : élève →
+ * Profil, Calendrier, Cahier de texte, Mémos (le lien « Mémos » réutilise
+ * exactement le mécanisme déjà en place côté formateur sur `MyStudentsPage` —
+ * bouton ouvrant `MemoReadOnlyModal` alimentée par `GET /memos/students/:studentId`,
+ * jamais une nouvelle route de navigation `/memos` qui ne sait afficher que le
+ * mémo de l'appelant lui-même) ; professeur/AP → Profil, Calendrier (le Cahier de
+ * texte n'a pas de sens sur un formateur, c'est une notion par élève) ; parent
+ * financeur → Profil seul. Aucun UUID n'est jamais affiché ; `userId` ne sert qu'à
+ * construire ces actions et à résoudre la photo.
  *
  * **Point 3 (« Contacts essentiels »), même complément** : investigation
  * menée avant toute construction, conformément à la consigne. Résultat —
@@ -39,6 +39,14 @@
  * AP→professeurs) ne sont **pas** affichées à un tiers sur `ProfilePage`
  * aujourd'hui — gaps documentés dans le rapport de session, pas comblés ici
  * (certains n'ont même aucune route backend pour les servir).
+ *
+ * **Point 1 (recherche), complément du 2026-09-02** : chaque onglet porte un champ de
+ * recherche par nom (`UserDirectorySearchForm`), soumis explicitement (formulaire,
+ * comme `MemoSearch` — pas de requête à chaque frappe). La recherche est
+ * **entièrement côté serveur** (`GET /profiles/directory/by-role?...&q=`,
+ * `profile-service` PR #210) : elle filtre avant la pagination, jamais sur la seule
+ * page déjà chargée par le front — voir
+ * `useUserDirectoryByRole`/`fetchUserDirectoryByRole`.
  */
 
 import React, { useState } from 'react'
@@ -47,11 +55,11 @@ import { PageHeader } from '../components/ui/PageHeader'
 import { ErrorMessage } from '../components/ui/ErrorMessage'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Tabs, TabPanel } from '../components/ui/Tabs'
-import { PersonTile, type PersonTileAction } from '../components/ui/PersonTile'
 import { MemoReadOnlyModal } from '../components/pedagogical-log/MemoReadOnlyModal'
+import { UserDirectoryList } from '../components/profile/UserDirectoryList'
+import { UserDirectorySearchForm } from '../components/profile/UserDirectorySearchForm'
 import { useUserDirectoryByRole } from '../hooks/profile/useUserDirectoryByRole'
 import { formatPersonDisplayName } from '../utils/nameFormat'
-import { formatDirectoryEntrySubtitle } from '../utils/userDirectoryFormat'
 import type { UserDirectoryEntry } from '../types/profile'
 import type { UserRole } from '../types/user'
 
@@ -69,73 +77,6 @@ const TABS: { id: DirectoryTabId; label: string; role: UserRole; genericLabel: s
   },
 ]
 
-/**
- * Actions de tuile différenciées par rôle (point 2 du complément 2026-09-02) :
- * élève → Profil/Calendrier/Cahier de texte/Mémos ; professeur/AP →
- * Profil/Calendrier ; parent financeur → Profil seul.
- *
- * `onOpenMemos` n'est fourni (et donc utilisé) que pour le rôle `eleve`.
- */
-function buildTileActions(
-  role: UserRole,
-  userId: string,
-  onOpenMemos: (() => void) | undefined,
-): PersonTileAction[] {
-  const profileAction: PersonTileAction = { label: 'Profil', to: `/profiles/${userId}` }
-
-  if (role === 'parent_financeur') {
-    return [profileAction]
-  }
-
-  if (role === 'formateur' || role === 'animateur_pedagogique') {
-    return [profileAction, { label: 'Calendrier', to: `/calendar?studentId=${userId}` }]
-  }
-
-  // role === 'eleve'
-  const actions: PersonTileAction[] = [
-    profileAction,
-    { label: 'Calendrier', to: `/calendar?studentId=${userId}` },
-    { label: 'Cahier de texte', to: `/pedagogical-log?studentId=${userId}` },
-  ]
-  if (onOpenMemos) {
-    actions.push({ label: 'Mémos', onClick: onOpenMemos })
-  }
-  return actions
-}
-
-function DirectoryList({
-  entries,
-  role,
-  genericLabel,
-  onOpenMemosFor,
-}: {
-  entries: UserDirectoryEntry[]
-  role: UserRole
-  genericLabel: string
-  onOpenMemosFor?: (entry: UserDirectoryEntry) => void
-}) {
-  return (
-    <div className="grid grid-cols-[repeat(auto-fill,_minmax(280px,_1fr))] gap-4">
-      {entries.map((entry) => (
-        <PersonTile
-          key={entry.userId}
-          displayName={formatPersonDisplayName(entry.firstName, entry.lastName, undefined, genericLabel)}
-          subtitle={formatDirectoryEntrySubtitle(entry)}
-          actions={buildTileActions(
-            role,
-            entry.userId,
-            onOpenMemosFor ? () => onOpenMemosFor(entry) : undefined,
-          )}
-          // Pas d'appel réseau pour une personne sans photo connue — le champ
-          // `avatarUrl` de l'annuaire le dit déjà, inutile de tenter et d'essuyer
-          // un 404 côté `useReadOnlyAvatar`.
-          photoUserId={entry.avatarUrl ? entry.userId : undefined}
-        />
-      ))}
-    </div>
-  )
-}
-
 function DirectoryTabPanel({
   role,
   isEnabled,
@@ -149,29 +90,72 @@ function DirectoryTabPanel({
   emptyMessage: string
   onOpenMemosFor?: (entry: UserDirectoryEntry) => void
 }) {
-  const { entries, isLoading, loadError, isTruncated } = useUserDirectoryByRole(role, isEnabled)
+  // Saisie en cours (`draftQuery`) distincte de la recherche réellement soumise
+  // (`submittedQuery`) — seule cette dernière déclenche un appel réseau, via
+  // `useUserDirectoryByRole` (`docs/routes.md`, param `q` de
+  // `GET /profiles/directory/by-role`, PR #210).
+  const [draftQuery, setDraftQuery] = useState('')
+  const [submittedQuery, setSubmittedQuery] = useState('')
+
+  const { entries, isLoading, loadError, isTruncated } = useUserDirectoryByRole(
+    role,
+    isEnabled,
+    submittedQuery,
+  )
+
+  const searchForm = (
+    <UserDirectorySearchForm
+      draftValue={draftQuery}
+      onDraftValueChange={setDraftQuery}
+      onSubmit={() => setSubmittedQuery(draftQuery.trim())}
+      onReset={() => {
+        setDraftQuery('')
+        setSubmittedQuery('')
+      }}
+      hasActiveSearch={submittedQuery.length > 0}
+      genericLabel={genericLabel}
+    />
+  )
 
   if (isLoading) {
-    return <p className="text-gray-400 text-sm">Chargement…</p>
+    return (
+      <div className="space-y-3">
+        {searchForm}
+        <p className="text-gray-400 text-sm">Chargement…</p>
+      </div>
+    )
   }
 
   if (loadError) {
-    return <ErrorMessage message={loadError} />
+    return (
+      <div className="space-y-3">
+        {searchForm}
+        <ErrorMessage message={loadError} />
+      </div>
+    )
   }
 
   if (entries.length === 0) {
-    return <EmptyState message={emptyMessage} />
+    return (
+      <div className="space-y-3">
+        {searchForm}
+        <EmptyState
+          message={submittedQuery ? `Aucun résultat pour « ${submittedQuery} ».` : emptyMessage}
+        />
+      </div>
+    )
   }
 
   return (
     <div className="space-y-3">
+      {searchForm}
       {isTruncated && (
         <ErrorMessage
           variant="warning"
           message="La liste est très longue : seules les premières entrées sont affichées."
         />
       )}
-      <DirectoryList
+      <UserDirectoryList
         entries={entries}
         role={role}
         genericLabel={genericLabel}

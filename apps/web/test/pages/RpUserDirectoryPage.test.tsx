@@ -3,8 +3,9 @@
  * 2026-09-02, complétée le même jour pour couvrir les 4 rôles, puis à nouveau
  * pour exploiter le contrat réel confirmé par `docs/routes.md` : `avatarUrl`,
  * `level`, `levels`, `subjects`, puis une troisième fois pour différencier les
- * actions de tuile par rôle — `docs/architecture.md` > « Compléments demandés
- * le 2026-09-02… », point 2).
+ * actions de tuile par rôle, puis une quatrième fois pour la recherche par nom
+ * — `docs/architecture.md` > « Compléments demandés le 2026-09-02… », points 1
+ * et 2).
  *
  * Les 4 onglets (Élèves, Parents financeurs, Professeurs, Animateurs
  * pédagogiques) sont tous branchés sur la même route
@@ -14,7 +15,9 @@
  * `avatarUrl` est renseigné (sinon des initiales, sans appel réseau), et
  * porte des actions **différenciées par rôle** : élève → Profil, Calendrier,
  * Cahier de texte, Mémos ; professeur/AP → Profil, Calendrier ; parent
- * financeur → Profil seul.
+ * financeur → Profil seul. Chaque onglet porte aussi un champ de recherche par
+ * nom, soumis explicitement, qui redemande l'annuaire au serveur avec le
+ * paramètre `q` (jamais un filtrage sur la seule page déjà chargée).
  */
 
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -115,7 +118,7 @@ describe('RpUserDirectoryPage', () => {
       expect(screen.getByText('Camille Durand')).toBeDefined()
     })
 
-    expect(mockFetchUserDirectoryByRole).toHaveBeenCalledWith('eleve', 1, 100)
+    expect(mockFetchUserDirectoryByRole).toHaveBeenCalledWith('eleve', 1, 100, '')
     expect(screen.queryByText('student-abc-123')).toBeNull()
 
     const main = within(screen.getByRole('main'))
@@ -359,9 +362,9 @@ describe('RpUserDirectoryPage', () => {
 
     // Onglet par défaut (Élèves) chargé au montage — le formateur ne l'est pas encore.
     await waitFor(() => {
-      expect(mockFetchUserDirectoryByRole).toHaveBeenCalledWith('eleve', 1, 100)
+      expect(mockFetchUserDirectoryByRole).toHaveBeenCalledWith('eleve', 1, 100, '')
     })
-    expect(mockFetchUserDirectoryByRole).not.toHaveBeenCalledWith('formateur', 1, 100)
+    expect(mockFetchUserDirectoryByRole).not.toHaveBeenCalledWith('formateur', 1, 100, '')
 
     await userEvent.click(screen.getByRole('tab', { name: 'Professeurs' }))
     await waitFor(() => {
@@ -399,6 +402,156 @@ describe('RpUserDirectoryPage', () => {
     // test, pour ne pas déclencher une mise à jour d'état hors `act()`.
     await waitFor(() => {
       expect(mockFetchUserDirectoryByRole).toHaveBeenCalled()
+    })
+  })
+
+  describe('recherche par nom (point 1, complément 2026-09-02)', () => {
+    it('ne recherche pas à chaque frappe : q reste vide tant que le formulaire n\'est pas soumis', async () => {
+      mockFetchUserDirectoryByRole.mockImplementation(async (role) => {
+        if (role === 'eleve') {
+          return onePage(buildEntry({ userId: 'student-1', firstName: 'Jean', lastName: 'Petit' }))
+        }
+        return emptyPage()
+      })
+
+      renderPage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Jean Petit')).toBeDefined()
+      })
+
+      const main = within(screen.getByRole('main'))
+      await userEvent.type(main.getByRole('textbox'), 'Cam')
+
+      // Toujours un seul appel (celui du montage) — la saisie seule ne
+      // déclenche aucune requête réseau.
+      expect(mockFetchUserDirectoryByRole).toHaveBeenCalledTimes(1)
+    })
+
+    it('soumet la recherche et la transmet au serveur (paramètre q), combinée au rôle actif', async () => {
+      mockFetchUserDirectoryByRole.mockImplementation(async (role, _page, _limit, q) => {
+        if (role === 'eleve' && q === 'Camille') {
+          return onePage(buildEntry({ userId: 'student-abc', firstName: 'Camille', lastName: 'Durand' }))
+        }
+        if (role === 'eleve') {
+          return onePage(buildEntry({ userId: 'student-1', firstName: 'Jean', lastName: 'Petit' }))
+        }
+        return emptyPage()
+      })
+
+      renderPage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Jean Petit')).toBeDefined()
+      })
+
+      const main = within(screen.getByRole('main'))
+      await userEvent.type(main.getByRole('textbox'), 'Camille')
+      await userEvent.click(main.getByRole('button', { name: 'Rechercher' }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Camille Durand')).toBeDefined()
+      })
+      expect(screen.queryByText('Jean Petit')).toBeNull()
+      expect(mockFetchUserDirectoryByRole).toHaveBeenCalledWith('eleve', 1, 100, 'Camille')
+    })
+
+    it('affiche un état vide explicite mentionnant le terme recherché quand la recherche ne trouve personne', async () => {
+      mockFetchUserDirectoryByRole.mockImplementation(async (role, _page, _limit, q) => {
+        if (role === 'eleve' && q) {
+          return emptyPage()
+        }
+        if (role === 'eleve') {
+          return onePage(buildEntry({ userId: 'student-1', firstName: 'Jean', lastName: 'Petit' }))
+        }
+        return emptyPage()
+      })
+
+      renderPage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Jean Petit')).toBeDefined()
+      })
+
+      const main = within(screen.getByRole('main'))
+      await userEvent.type(main.getByRole('textbox'), 'Zzz')
+      await userEvent.click(main.getByRole('button', { name: 'Rechercher' }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Aucun résultat pour « Zzz ».')).toBeDefined()
+      })
+    })
+
+    it('le bouton Réinitialiser efface la recherche et recharge l\'annuaire sans q', async () => {
+      mockFetchUserDirectoryByRole.mockImplementation(async (role, _page, _limit, q) => {
+        if (role === 'eleve' && q === 'Camille') {
+          return onePage(buildEntry({ userId: 'student-abc', firstName: 'Camille', lastName: 'Durand' }))
+        }
+        if (role === 'eleve') {
+          return onePage(buildEntry({ userId: 'student-1', firstName: 'Jean', lastName: 'Petit' }))
+        }
+        return emptyPage()
+      })
+
+      renderPage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Jean Petit')).toBeDefined()
+      })
+
+      const main = within(screen.getByRole('main'))
+      await userEvent.type(main.getByRole('textbox'), 'Camille')
+      await userEvent.click(main.getByRole('button', { name: 'Rechercher' }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Camille Durand')).toBeDefined()
+      })
+
+      await userEvent.click(main.getByRole('button', { name: 'Réinitialiser' }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Jean Petit')).toBeDefined()
+      })
+      expect(mockFetchUserDirectoryByRole).toHaveBeenCalledWith('eleve', 1, 100, '')
+      expect(main.queryByRole('button', { name: 'Réinitialiser' })).toBeNull()
+    })
+
+    it('chaque onglet a sa propre recherche, indépendante des autres onglets', async () => {
+      mockFetchUserDirectoryByRole.mockImplementation(async (role, _page, _limit, q) => {
+        if (role === 'eleve' && q === 'Camille') {
+          return onePage(buildEntry({ userId: 'student-abc', firstName: 'Camille', lastName: 'Durand' }))
+        }
+        if (role === 'eleve') {
+          return onePage(buildEntry({ userId: 'student-1', firstName: 'Jean', lastName: 'Petit' }))
+        }
+        if (role === 'formateur') {
+          return onePage(buildEntry({ userId: 'teacher-1', firstName: 'Alice', lastName: 'Martin' }))
+        }
+        return emptyPage()
+      })
+
+      renderPage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Jean Petit')).toBeDefined()
+      })
+
+      const main = within(screen.getByRole('main'))
+      await userEvent.type(main.getByRole('textbox'), 'Camille')
+      await userEvent.click(main.getByRole('button', { name: 'Rechercher' }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Camille Durand')).toBeDefined()
+      })
+
+      await userEvent.click(screen.getByRole('tab', { name: 'Professeurs' }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Alice Martin')).toBeDefined()
+      })
+      // L'onglet Professeurs n'a jamais été cherché — son champ reste vide.
+      expect((main.getByRole('textbox') as HTMLInputElement).value).toBe('')
+      expect(mockFetchUserDirectoryByRole).toHaveBeenCalledWith('formateur', 1, 100, '')
     })
   })
 })

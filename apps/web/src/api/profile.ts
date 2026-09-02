@@ -358,6 +358,13 @@ export async function fetchValidatedTeachers(
 export const USER_DIRECTORY_PAGE_SIZE = 100
 
 /**
+ * Plafond de longueur de `q` déclaré par le serveur (`docs/routes.md`) : au-delà,
+ * `400`. Le front ne l'atteint jamais en pratique (champ de recherche libre), mais la
+ * constante évite un nombre magique si une contrainte de saisie est ajoutée plus tard.
+ */
+export const USER_DIRECTORY_SEARCH_MAX_LENGTH = 100
+
+/**
  * GET /profiles/directory/by-role — annuaire par rôle (élève, parent financeur,
  * formateur, animateur pédagogique), un rôle à la fois, réservé RP/AF/TI.
  *
@@ -367,15 +374,24 @@ export const USER_DIRECTORY_PAGE_SIZE = 100
  * contenu) — ce front n'a donc pas besoin de distinguer les deux annuaires, cette route
  * suffit pour les 4 rôles. Voir `UserDirectoryEntry` pour le détail des champs et leurs
  * nuances par rôle (`level` vs `levels`, `parent_financeur` sans bloc pédagogique).
+ *
+ * `q` (complément du 2026-09-02, PR #210) : recherche insensible à la casse sur
+ * prénom/nom, appliquée **côté serveur avant la pagination** — jamais un filtrage sur
+ * la seule page déjà chargée côté front, qui serait incomplet dès que la population
+ * dépasse une page. Combiné au filtre `role` déjà en place. Omis du tout (pas envoyé
+ * comme chaîne vide) quand `q` est vide ou absent, pour rester au plus près du contrat
+ * documenté (« absent/vide = comportement inchangé »).
  */
 export async function fetchUserDirectoryByRole(
   role: UserRole,
   page = 1,
   limit = USER_DIRECTORY_PAGE_SIZE,
+  q?: string,
 ): Promise<PaginatedResponse<UserDirectoryEntry>> {
+  const trimmedQuery = q?.trim()
   const { data } = await apiClient.get<PaginatedResponse<UserDirectoryEntry>>(
     '/profiles/directory/by-role',
-    { params: { role, page, limit } },
+    { params: { role, page, limit, ...(trimmedQuery ? { q: trimmedQuery } : {}) } },
   )
   return data
 }

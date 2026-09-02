@@ -41,6 +41,21 @@ rôle), (2) suite à donner aux 2 gaps backend contournés côté front sans inv
 (`PUT /evaluations/:id` absent → pas d'édition ; `GET /evaluations/pending-validation` absent → RP
 filtré côté client).
 
+---
+
+**Retour utilisateur du 2026-09-02, après premier test réel en production** : la notation
+(valeur en points) de chaque question/Exercice n'est visible nulle part pour l'élève qui passe une
+Évaluation. Clarifié avec l'utilisateur et arbitré dans `docs/architecture.md` ("Barème informatif
+pour l'Évaluation") : un barème **purement informatif** (jamais de calcul automatique, la
+correction reste manuelle), porté par `Évaluation` (pas par `Exercice`, réutilisable par plusieurs
+Évaluations avec des poids différents), granularité au choix du créateur — par Exercice ou par
+question, un seul mode par Évaluation.
+
+Délégué à `content-catalog-service` le 2026-09-02 : modèle de données du barème sur `Évaluation`
+(extension de `exerciseItems`), validation, exposition dans `GET /evaluations/:id`. `front-developper`
+à déléguer ensuite une fois ce contrat stabilisé (saisie du barème à la création, affichage à
+l'élève en consultation/passage).
+
 Rappel branches non fusionnées dans `master` (hors périmètre, signalées mais non traitées) :
 `feat/front-reprise-candidature-formateur` et `feat/reprise-candidature-formateur` — travail réel
 inachevé du 2026-08-13 (arbitrage persisté dans `docs/architecture.md`, jamais implémenté).

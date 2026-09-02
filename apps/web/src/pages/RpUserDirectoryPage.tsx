@@ -9,18 +9,18 @@
  * **Complétée le 2026-09-02** pour couvrir les 4 rôles via la nouvelle route
  * `GET /profiles/directory/by-role` (livrée par `profile-service`, PR #209),
  * en remplacement du seul annuaire formateurs (`GET /profiles/teachers/validated`)
- * branché dans une première passe. Voir `useUserDirectoryByRole` et
- * `UserDirectoryEntry` (`src/types/profile.ts`) pour les réserves sur le
- * contrat exact de cette route, non documentée dans `docs/routes.md` au moment
- * de cette implémentation — seul le socle garanti ailleurs dans ce projet
- * (prénom, nom) est affiché, aucun champ additionnel n'est deviné.
+ * branché dans une première passe. Contrat désormais confirmé par
+ * `docs/routes.md` — voir `UserDirectoryEntry` (`src/types/profile.ts`) : chaque
+ * tuile affiche, en plus du nom, la photo (`avatarUrl`, résolue via
+ * `PersonTile`/`useReadOnlyAvatar`) et le niveau suivi (élève) ou les niveaux
+ * enseignés + matières (formateur/AP), via `formatDirectoryEntrySubtitle`.
  *
  * Chaque tuile (`PersonTile`, extraite de `ParentDashboardPage` — « le
  * composant de tuile déjà existant qui présente un élève à son parent
  * financeur ») porte trois actions vers des écrans déjà existants et déjà
  * ouverts au RP côté route : profil, calendrier, cahier de texte — rien de
  * plus, comme demandé explicitement. Aucun UUID n'est jamais affiché ;
- * `userId` ne sert qu'à construire ces liens.
+ * `userId` ne sert qu'à construire ces liens et à résoudre la photo.
  */
 
 import React, { useState } from 'react'
@@ -32,6 +32,7 @@ import { Tabs, TabPanel } from '../components/ui/Tabs'
 import { PersonTile } from '../components/ui/PersonTile'
 import { useUserDirectoryByRole } from '../hooks/profile/useUserDirectoryByRole'
 import { formatPersonDisplayName } from '../utils/nameFormat'
+import { formatDirectoryEntrySubtitle } from '../utils/userDirectoryFormat'
 import type { UserDirectoryEntry } from '../types/profile'
 import type { UserRole } from '../types/user'
 
@@ -70,7 +71,12 @@ function DirectoryList({
         <PersonTile
           key={entry.userId}
           displayName={formatPersonDisplayName(entry.firstName, entry.lastName, undefined, genericLabel)}
+          subtitle={formatDirectoryEntrySubtitle(entry)}
           actions={buildTileActions(entry.userId)}
+          // Pas d'appel réseau pour une personne sans photo connue — le champ
+          // `avatarUrl` de l'annuaire le dit déjà, inutile de tenter et d'essuyer
+          // un 404 côté `useReadOnlyAvatar`.
+          photoUserId={entry.avatarUrl ? entry.userId : undefined}
         />
       ))}
     </div>

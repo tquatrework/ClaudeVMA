@@ -33,8 +33,18 @@ en `docker run` brut par le subagent pendant sa vérification, conflit de nom au
 arrêté/retiré proprement par l'orchestrateur avant de relancer `docker compose up`, aucune perte de
 données.
 
-**Reste à déléguer** : `front-developper` — bouton d'import Exercice, lien de téléchargement du
-modèle sur les deux écrans d'import (Exercice ET Quizz, qui n'en a jamais eu).
+**`front-developper` mergé (PR #206), déployé, site vérifié `200` — déploiement propre, sans le
+conflit de conteneur habituel.** Panneau d'import Exercice sur le même patron que le Quizz, lien de
+téléchargement du modèle sur les deux écrans d'import. Sur confirmation explicite de l'utilisateur
+("oui, merge et déploie #206").
+
+**Chantier import Exercice clos.**
+
+**Retour utilisateur du 2026-09-02, en même temps que la confirmation du merge** : « le système de
+validation n'est pas bon, on y travaille après » — pas de détail donné, l'utilisateur a explicitement
+reporté ce sujet à plus tard. **Ne pas investiguer ni déléguer maintenant** ; à reprendre quand
+l'utilisateur en reparle (probablement la validation AP/RP d'Exercice/Quizz/Évaluation, mais ne pas
+présumer du périmètre exact avant qu'il ne précise).
 
 ---
 

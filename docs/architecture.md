@@ -1672,6 +1672,44 @@ Phase 3 enrichit l'offre :
        aussi probablement un équivalent "validés" déjà utilisé par le rail actuel, à vérifier) plutôt
        que d'en construire une distincte pour ce rôle si elle convient déjà à l'usage "annuaire".
 
+  **Compléments demandés le 2026-09-02, après premier test réel de Visualisation en production
+  (PR #207/#209 déjà livrées)** :
+  1. **Recherche dans l'annuaire.** `GET /profiles/directory/by-role` gagne un paramètre `q`
+     optionnel, filtre insensible à la casse sur prénom/nom, combiné au filtre de rôle déjà en
+     place — même convention que la recherche du carnet personnel (`date?`/`q?`, 2026-08-27), pas
+     de nouveau mécanisme de recherche à inventer. Toujours paginé, la recherche s'applique côté
+     serveur (pas un filtrage client sur la seule page déjà chargée, qui serait incomplet dès que la
+     population dépasse une page).
+  2. **Actions par tuile différenciées par rôle** — jusqu'ici les 3 mêmes boutons pour tout le
+     monde, ce qui n'a pas de sens pour un parent qui n'a ni calendrier ni cahier de texte
+     consultable de cette façon. Mots de l'utilisateur : « pour un élève, il faut afficher profil,
+     calendrier, cahier de texte, mémos. [...] pour les professeurs, et les AP, il n'y a que profil
+     et calendrier. Pour les parents, le profil. » Soit : Élève → Profil, Calendrier, Cahier de
+     texte, Mémos ; Professeur/AP → Profil, Calendrier ; Parent financeur → Profil seul. **"Mémos"**
+     désigne une fonctionnalité déjà existante côté élève (à vérifier son nom de route exact avant
+     de câbler le lien, ne pas deviner).
+  3. **"Contacts essentiels"** : depuis une tuile, pouvoir voir les personnes clés liées à cet
+     utilisateur — élève → son ou ses parents et ses professeurs ; professeur → ses élèves et son
+     ou ses AP ; parent → ses élèves ; AP → ses professeurs. Demande formulée ouverte par
+     l'utilisateur (« je ne sais comment, propose... peut-être que cela apparaît déjà quelque
+     part ») — proposition retenue, à vérifier avant de construire quoi que ce soit de neuf :
+     - Un précédent fort suggère qu'une partie existe déjà : l'arbitrage du 2026-08-12 sur la fin
+       d'une relation élève↔formateur dit explicitement que « le RP consulte le profil de l'élève et
+       y trouve, sur chaque formateur lié, de quoi mettre fin à la relation » — la fiche élève
+       affiche donc très probablement déjà ses professeurs liés. `front-developper` doit
+       **investiguer d'abord** ce qui s'affiche réellement sur la fiche Profil de chaque rôle avant
+       de proposer une construction neuve.
+     - Si une partie manque réellement pour certains rôles, la proposition par défaut est un 4e type
+       d'action de tuile ("Contacts") qui ouvre une liste compacte des personnes liées, sous forme de
+       mini-tuiles réutilisant `PersonTile` (nom, photo, pas d'UUID affiché), chacune pouvant
+       elle-même mener à son propre Profil — pas un nouvel écran plein, un panneau/une liste. Les
+       données sous-jacentes existent déjà côté `profile-service` (relations parent↔élève,
+       professeur↔élève, AP↔formateur, toutes déjà modélisées) ; ce qui manquerait est une lecture
+       agrégée "contacts essentiels de cet utilisateur" côté RP, à construire seulement pour les
+       rôles où le gap est confirmé.
+     - Ne pas construire cette lecture agrégée avant confirmation du gap réel par `front-developper`
+       — éviter de dupliquer un affichage déjà existant ailleurs.
+
 ## Points ouverts a arbitrer
 
 - `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a

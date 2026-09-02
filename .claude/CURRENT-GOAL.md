@@ -85,10 +85,22 @@ erreur brute. Données de test nettoyées de la production (comptes conservés, 
 
 **Le backend du chantier Évaluations est fonctionnellement complet et prouvé de bout en bout.**
 
-**Ordre restant** : déléguer `dashboard-notification-service` (nouveaux types d'événement, contrat
-exact dans `.claude/reports/learning-activity-service-evaluations-2026-09-01.md`) →
-`front-developper` seulement une fois le backend entièrement stabilisé (ce qui est désormais le
-cas pour le cœur du flux ; seules les notifications restent à câbler).
+**`dashboard-notification-service` mergé (PR #200), déployé, démarrage propre, site vérifié `200`
+après redéploiement.** Les 5 événements du flow de correction d'Évaluation
+(`EvaluationCorrectionRequested/Accepted/Declined/AllDeclined`, `EvaluationCorrected`) sont
+consommés depuis `visiomath:events`, avec résolution de noms via `profile-service`, fan-out réel
+du rôle RP, et déduplication par `eventId` — vérifiés par le subagent en direct contre la pile
+réelle (XADD Redis + notifications créées + idempotence confirmée en base), 111 tests verts.
+Aucune route interservice manquante (hypothèse initiale invalidée : les payloads portaient déjà
+`studentId`/`teacherId(s)`). Rapport complet :
+`.claude/reports/dashboard-notification-service-evaluations-2026-09-02.md` (5 `type` de
+notification + `metadata` + destinataires — propositions de libellés français incluses pour
+`front-developper`).
+
+**Ordre restant** : déléguer `front-developper` — ajouter les 5 nouveaux `type` dans
+`notificationLabels.ts` (libellés proposés dans le rapport ci-dessus) et vérifier que la cloche de
+notification les affiche correctement. C'est la dernière étape avant de considérer le chantier
+Évaluations entièrement clos (backend + notifications).
 
 Comptes de test réutilisables pour la suite (fin de vie non nettoyée, harmless) : formateur
 `e2e.titletest.1788286184` / `E2eTest!2026` (id `d91afd1c-6c2b-4eb7-b625-bd7ce7b2bce1`), RP

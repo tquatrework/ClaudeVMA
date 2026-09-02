@@ -7,6 +7,23 @@
 
 ## Besoin courant
 
+Import d'Exercice depuis un tableur (CSV/Excel), demandé le 2026-09-02, pendant que l'utilisateur
+vérifie le rail RP en parallèle (question de menu du chantier Évaluations toujours en attente, voir
+plus bas). Arbitrage complet persisté dans `docs/architecture.md` ("Import d'Exercice depuis un
+tableur..."), même principe que l'import Quizz déjà livré (2026-08-29) : discriminant `type` par
+ligne (`exercice`/`enonce`/`question`/`solution`/`image`), une ligne `question` doit être
+immédiatement suivie d'une ligne `solution` sinon refus explicite, fin de bloc à la première ligne
+vide ou au prochain `type=exercice`. Extension du modèle `Exercise` avec niveau/difficulté/
+thèmes/compétences (lecture de l'orchestrateur, à confirmer si trop large). **Modèle/exemple
+téléchargeable à fournir pour les deux imports, Exercice ET Quizz** (celui-ci n'en a jamais eu —
+gap signalé par l'utilisateur).
+
+Délégué à `content-catalog-service` le 2026-09-02 (parsing, validation, route, extension du modèle
+Exercise, fichiers modèles téléchargeables pour Exercice et Quizz). `front-developper` à déléguer
+ensuite (bouton d'import Exercice, lien de téléchargement du modèle sur les deux écrans d'import).
+
+---
+
 **Gap trouvé par l'utilisateur le 2026-09-02** : le chantier Évaluations avait été archivé comme
 « clos » alors que le front n'a **jamais été refait**. Erreur de l'orchestrateur — contrairement
 aux chantiers Quizz et Exercice, seule la cloche de notification (PR #201) a été déléguée au front

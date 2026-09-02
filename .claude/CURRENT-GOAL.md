@@ -45,8 +45,22 @@ maintenant). Détail point 3 (contacts essentiels), par direction :
 l'affichage élève↔parents existant aux rôles administratifs, câbler AP→professeurs sur la route déjà
 ouverte) et `profile-service` (nouvelle route professeur→élèves/professeur→AP).
 
-**Reste à faire dans tous les cas** : câbler la recherche (point 1) côté front sur PR #211 avant
-merge, puisque le backend est maintenant prêt.
+**`profile-service` mergé (PR #212), déployé.** `GET /relations/teacher-student/by-teacher/:teacherId`
+et `GET /relations/animator-teacher/by-teacher/:teacherId` (sens inverse formateur→élèves,
+formateur→AP), même modèle que les routes symétriques déjà en place. Preuve HTTP directe.
+
+**`front-developper` mergé (PR #211), déployé, site vérifié `200`.** Les 4 points livrés ensemble :
+recherche par nom sur chaque onglet de Visualisation (côté serveur) ; actions de tuile différenciées
+par rôle (élève : Profil/Calendrier/Cahier de texte/Mémos ; professeur/AP : Profil/Calendrier ;
+parent : Profil seul) ; les 3 gaps de "contacts essentiels" fermés (élève↔parents via
+`LinkedFinanceRelationsPanel`, AP→professeurs via `AnimatedTeachersPanel`, professeur→élèves/AP via
+`StudentsOfTeacherPanel`/`AnimatorsOfTeacherPanel`), tous gatés exactement sur les rôles autorisés
+côté serveur pour chaque route. Deux suites de tests existantes corrigées au passage
+(`ProfileFinancialTab`/`ProfileRemanenceByRole` ne mockaient pas les nouvelles routes de relations).
+Gap résiduel signalé, non bloquant : `ProfilePage.tsx` dépasse 300 lignes (545) — dette pré-existante,
+pas aggravée par cette session au point de nécessiter une action immédiate, à reprendre séparément.
+
+**Chantier Visualisation RP (rail + recherche + actions par rôle + contacts essentiels) clos.**
 
 ---
 

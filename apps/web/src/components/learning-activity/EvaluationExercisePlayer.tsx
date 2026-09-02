@@ -8,13 +8,23 @@
  *
  * Désactivé (lecture seule, aucune saisie) une fois le temps écoulé ou la tentative close — la
  * page appelante pilote cet état via `isAnswerable`.
+ *
+ * **Barème informatif (2026-09-02)** : si l'Évaluation en porte un (`evaluation.scoring`), la
+ * valeur en points de l'Exercice (mode `per_exercise`) ou de chaque question (mode
+ * `per_question`) est affichée à titre indicatif — jamais utilisée pour un calcul, voir
+ * `utils/evaluationScoring.ts`.
  */
 
 import React, { useState } from 'react'
 import { ExerciseContentItemView } from '../content-catalog/ExerciseContentItemView'
 import { EXERCISE_PART_CATEGORY_LABELS } from '../../utils/exerciseLabels'
+import {
+  findExerciseScoringPoints,
+  findQuestionScoringPoints,
+} from '../../utils/evaluationScoring'
 import type { PublicExerciseDetail } from '../../types/exercise'
 import type { EvaluationAttemptAnswer } from '../../types/evaluationAttempt'
+import type { EvaluationScoring } from '../../types/evaluation'
 
 interface EvaluationExercisePlayerProps {
   exercise: PublicExerciseDetail
@@ -22,6 +32,8 @@ interface EvaluationExercisePlayerProps {
   answers: EvaluationAttemptAnswer[]
   isAnswerable: boolean
   onAnswerSubmit: (partId: string, content: string) => Promise<void>
+  /** Barème informatif de l'Évaluation, `null`/`undefined` si non défini. */
+  scoring?: EvaluationScoring | null
 }
 
 export function EvaluationExercisePlayer({
@@ -30,7 +42,9 @@ export function EvaluationExercisePlayer({
   answers,
   isAnswerable,
   onAnswerSubmit,
+  scoring,
 }: EvaluationExercisePlayerProps) {
+  const exercisePoints = findExerciseScoringPoints(scoring, exercise.id)
   const [draftAnswers, setDraftAnswers] = useState<Record<string, string>>({})
   const [busyPartId, setBusyPartId] = useState<string | null>(null)
   const [errorByPartId, setErrorByPartId] = useState<Record<string, string>>({})
@@ -60,12 +74,29 @@ export function EvaluationExercisePlayer({
 
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-semibold text-gray-800">{displayTitle}</h3>
-      {exercise.parts.map((part, index) => (
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-gray-800">{displayTitle}</h3>
+        {exercisePoints !== null && (
+          <span className="text-xs font-medium text-indigo-700 bg-indigo-50 rounded-full px-2.5 py-1 shrink-0">
+            {exercisePoints} pt{exercisePoints > 1 ? 's' : ''}
+          </span>
+        )}
+      </div>
+      {exercise.parts.map((part, index) => {
+        const questionPoints =
+          part.category === 'question' ? findQuestionScoringPoints(scoring, exercise.id, part.id) : null
+        return (
         <div key={part.id} className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-            {EXERCISE_PART_CATEGORY_LABELS[part.category]} {index + 1}
-          </p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              {EXERCISE_PART_CATEGORY_LABELS[part.category]} {index + 1}
+            </p>
+            {questionPoints !== null && (
+              <span className="text-xs font-medium text-indigo-700 bg-indigo-50 rounded-full px-2.5 py-1 shrink-0">
+                {questionPoints} pt{questionPoints > 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
 
           <div className="space-y-2">
             {part.items.map((item) => (
@@ -107,7 +138,8 @@ export function EvaluationExercisePlayer({
             </div>
           )}
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

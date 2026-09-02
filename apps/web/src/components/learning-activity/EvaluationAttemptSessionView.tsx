@@ -167,6 +167,7 @@ export function EvaluationAttemptSessionView({
               answers={attempt.answers}
               isAnswerable={isAnswerable}
               onAnswerSubmit={(partId, content) => handleAnswerSubmit(exercise.id, partId, content)}
+              scoring={evaluation.scoring}
             />
           ))}
         </div>

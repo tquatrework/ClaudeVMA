@@ -23,6 +23,7 @@ import { startEvaluationAttempt } from '../api/evaluationAttempts'
 import { EvaluationAttemptSessionView } from '../components/learning-activity/EvaluationAttemptSessionView'
 import { getEvaluationDisplayTitle } from '../utils/evaluationLabels'
 import { getErrorMessage } from '../utils/apiError'
+import { sumScoringPointsByExerciseId } from '../utils/evaluationScoring'
 import type { EvaluationAttemptView } from '../types/evaluationAttempt'
 
 export default function EvaluationAttemptPage() {
@@ -117,6 +118,34 @@ export default function EvaluationAttemptPage() {
               n'est accessible pendant ni après le passage — la correction est faite par un
               professeur, sur demande.
             </p>
+
+            {evaluation.scoring &&
+              (() => {
+                const pointsByExerciseId = sumScoringPointsByExerciseId(evaluation.scoring)
+                return (
+                  <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3 space-y-1">
+                    <p className="text-xs font-semibold text-indigo-800">
+                      Barème indicatif (
+                      {evaluation.scoring.mode === 'per_exercise' ? 'par exercice' : 'par question'})
+                    </p>
+                    <ul className="text-xs text-indigo-700 space-y-0.5">
+                      {evaluation.exerciseItems
+                        .slice()
+                        .sort((a, b) => a.order - b.order)
+                        .map((item) => {
+                          const points = pointsByExerciseId?.[item.exerciseId]
+                          if (points === undefined) return null
+                          return (
+                            <li key={item.exerciseId}>
+                              {item.titleOverride || 'Exercice'} — {points} pt{points > 1 ? 's' : ''}
+                            </li>
+                          )
+                        })}
+                    </ul>
+                  </div>
+                )
+              })()}
+
             {startError && <p className="text-red-600 text-sm">{startError}</p>}
             <button
               type="button"

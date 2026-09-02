@@ -1,10 +1,12 @@
 /**
- * EvaluationForm — création d'une Évaluation (content-catalog-service).
+ * EvaluationForm — création et édition d'une Évaluation (content-catalog-service).
  *
- * **Création uniquement** : aucune route `PUT /evaluations/:id` n'existe côté serveur (confirmé
- * par `.claude/reports/content-catalog-service-evaluations-2026-09-01.md`), contrairement au
- * Quizz/Exercice. Une évaluation `rejected` se resoumet telle quelle (`MyEvaluationsList`), elle
- * ne se modifie pas.
+ * **Édition depuis le 2026-09-02** : `PUT /evaluations/:id` existe désormais côté serveur (PR
+ * #203, livrée avec le barème informatif) — `mode="edit"` réutilise ce même formulaire, sur le
+ * modèle déjà suivi par `QuizForm`/`ExerciseForm`. Un formateur qui édite une évaluation déjà
+ * `validated` la fait repasser en `pending_validation` (comportement du serveur, réaffiché tel
+ * quel). Une évaluation `rejected` peut aussi se resoumettre telle quelle
+ * (`requestEvaluationValidation`, `MyEvaluationsList`), sans passer par l'édition.
  *
  * Rôles autorisés : formateur, animateur_pedagogique, responsable_pedagogique (statut initial
  * `pending_validation` pour un formateur, `validated` — auto-validé — pour AP/RP).
@@ -13,6 +15,9 @@
  * Evaluations », point 7). Pas de suggestion de titre par défaut côté serveur pour l'Évaluation
  * (aucune route `GET /evaluations/default-title`, à la différence de Quizz/Exercice) — l'auteur
  * saisit son titre lui-même.
+ *
+ * **Barème informatif (2026-09-02)** : granularité par Exercice ou par question, purement
+ * informatif — voir `EvaluationScoringFields` et `utils/evaluationScoring.ts`.
  *
  * **Bouton « Nouveau » (2026-09-02)** : à côté de « Rechercher » dans `EvaluationExercisePicker`,
  * pour créer un Exercice sans quitter mentalement la création de l'Évaluation en cours. Le
@@ -25,29 +30,43 @@
 
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createEvaluation } from '../../api/evaluations'
+import { createEvaluation, updateEvaluation } from '../../api/evaluations'
 import { getErrorMessage } from '../../utils/apiError'
 import { EvaluationMetadataFields } from './EvaluationMetadataFields'
 import {
   EvaluationExercisePicker,
   type EditableEvaluationExerciseItem,
 } from './EvaluationExercisePicker'
+import { EvaluationScoringFields } from './EvaluationScoringFields'
+import { useExerciseQuestionParts } from '../../hooks/content-catalog/useExerciseQuestionParts'
+import { createEmptyScoringState } from '../../utils/evaluationScoring'
+import { buildEvaluationPayload } from '../../utils/evaluationPayload'
 import { saveEvaluationDraftForExerciseCreation } from '../../utils/evaluationDraft'
-import type { Evaluation } from '../../types/evaluation'
+import type { Evaluation, EvaluationScoringMode } from '../../types/evaluation'
 import type {
   EditableEvaluationFormState,
   EvaluationExercisePickerNavigationState,
 } from '../../utils/evaluationDraft'
 
 interface EvaluationFormProps {
+  /** `edit` réservé à l'auteur de l'évaluation — vérifié côté serveur, pas ici. */
+  mode?: 'create' | 'edit'
+  /** Requis en mode `edit` — identifiant de l'évaluation modifiée. */
+  evaluationId?: string
   onSaved: (evaluation: Evaluation) => void
   onCancel: () => void
   /** Brouillon à restaurer — utilisé au retour d'une création d'Exercice déclenchée depuis ce
-   * formulaire (bouton « Nouveau »). Absent en création normale. */
+   * formulaire (bouton « Nouveau »), ou état initial en mode `edit`. */
   initialDraft?: EditableEvaluationFormState
 }
 
-export function EvaluationForm({ onSaved, onCancel, initialDraft }: EvaluationFormProps) {
+export function EvaluationForm({
+  mode = 'create',
+  evaluationId,
+  onSaved,
+  onCancel,
+  initialDraft,
+}: EvaluationFormProps) {
   const navigate = useNavigate()
   const [title, setTitle] = useState(initialDraft?.title ?? '')
   const [level, setLevel] = useState(initialDraft?.level ?? '')
@@ -62,8 +81,25 @@ export function EvaluationForm({ onSaved, onCancel, initialDraft }: EvaluationFo
   const [exerciseItems, setExerciseItems] = useState<EditableEvaluationExerciseItem[]>(
     initialDraft?.exerciseItems ?? [],
   )
+  const scoringState = initialDraft?.scoring ?? createEmptyScoringState()
+  const [scoringMode, setScoringMode] = useState<'none' | EvaluationScoringMode>(scoringState.mode)
+  const [pointsByExerciseId, setPointsByExerciseId] = useState<Record<string, string>>(
+    scoringState.pointsByExerciseId,
+  )
+  const [pointsByPartKey, setPointsByPartKey] = useState<Record<string, string>>(
+    scoringState.pointsByPartKey,
+  )
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+
+  const {
+    partsByExerciseId: questionPartsByExerciseId,
+    isLoading: isLoadingQuestionParts,
+    error: questionPartsError,
+  } = useExerciseQuestionParts(
+    exerciseItems.map((item) => item.exerciseId),
+    scoringMode === 'per_question',
+  )
 
   const buildCurrentDraft = (): EditableEvaluationFormState => ({
     title,
@@ -75,6 +111,7 @@ export function EvaluationForm({ onSaved, onCancel, initialDraft }: EvaluationFo
     durationMinutes,
     blockBackNavigation,
     exerciseItems,
+    scoring: { mode: scoringMode, pointsByExerciseId, pointsByPartKey },
   })
 
   const handleCreateNewExercise = () => {
@@ -100,52 +137,35 @@ export function EvaluationForm({ onSaved, onCancel, initialDraft }: EvaluationFo
     event.preventDefault()
     setFormError(null)
 
-    if (!title.trim()) {
-      setFormError('Le titre est obligatoire.')
-      return
-    }
-    if (exerciseItems.length === 0) {
-      setFormError('Ajoutez au moins un exercice.')
-      return
-    }
-    const durationSeconds = Number(durationMinutes) * 60
-    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
-      setFormError('La durée doit être un nombre de minutes supérieur à zéro.')
+    let payload
+    try {
+      payload = buildEvaluationPayload(
+        { title, level, difficulty, theme, competenciesInput, tagsInput, durationMinutes, blockBackNavigation },
+        exerciseItems,
+        { mode: scoringMode, pointsByExerciseId, pointsByPartKey },
+        questionPartsByExerciseId,
+      )
+    } catch (validationError: unknown) {
+      setFormError(
+        validationError instanceof Error ? validationError.message : 'Formulaire invalide.',
+      )
       return
     }
 
     setIsSubmitting(true)
     try {
-      const competencies = competenciesInput
-        .split(',')
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0)
-      const tags = tagsInput
-        .split(',')
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0)
-
-      const saved = await createEvaluation({
-        title: title.trim(),
-        // `order` doit être >= 1 (vérifié en HTTP direct le 2026-09-02 :
-        // `exerciseItems.0.order must not be less than 1`), contrairement à `order` sur les blocs
-        // d'Exercice qui, lui, part de 0 — deux DTO distincts, pas la même convention.
-        exerciseItems: exerciseItems.map((item, index) => ({
-          exerciseId: item.exerciseId,
-          order: index + 1,
-          ...(item.titleOverride.trim() ? { titleOverride: item.titleOverride.trim() } : {}),
-        })),
-        ...(level.trim() ? { level: level.trim() } : {}),
-        ...(difficulty.trim() ? { difficulty: difficulty.trim() } : {}),
-        ...(theme.trim() ? { theme: theme.trim() } : {}),
-        ...(competencies.length > 0 ? { competencies } : {}),
-        ...(tags.length > 0 ? { tags } : {}),
-        durationSeconds,
-        blockBackNavigation,
-      })
+      const saved =
+        mode === 'edit' && evaluationId
+          ? await updateEvaluation(evaluationId, payload)
+          : await createEvaluation(payload)
       onSaved(saved)
     } catch (error: unknown) {
-      setFormError(getErrorMessage(error, "Impossible de créer l'évaluation."))
+      setFormError(
+        getErrorMessage(
+          error,
+          mode === 'edit' ? "Impossible de modifier l'évaluation." : "Impossible de créer l'évaluation.",
+        ),
+      )
     } finally {
       setIsSubmitting(false)
     }
@@ -153,7 +173,9 @@ export function EvaluationForm({ onSaved, onCancel, initialDraft }: EvaluationFo
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
-      <h2 className="text-base font-semibold text-gray-800">Créer une nouvelle évaluation</h2>
+      <h2 className="text-base font-semibold text-gray-800">
+        {mode === 'edit' ? "Modifier l'évaluation" : 'Créer une nouvelle évaluation'}
+      </h2>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -211,6 +233,20 @@ export function EvaluationForm({ onSaved, onCancel, initialDraft }: EvaluationFo
           onSearchExisting={handleSearchExistingExercise}
         />
 
+        <EvaluationScoringFields
+          exerciseItems={exerciseItems}
+          mode={scoringMode}
+          onModeChange={setScoringMode}
+          pointsByExerciseId={pointsByExerciseId}
+          onPointsByExerciseIdChange={setPointsByExerciseId}
+          pointsByPartKey={pointsByPartKey}
+          onPointsByPartKeyChange={setPointsByPartKey}
+          questionPartsByExerciseId={questionPartsByExerciseId}
+          isLoadingQuestionParts={isLoadingQuestionParts}
+          questionPartsError={questionPartsError}
+          isSubmitting={isSubmitting}
+        />
+
         {formError && <p className="text-red-600 text-sm">{formError}</p>}
 
         <div className="flex justify-end gap-3">
@@ -227,7 +263,13 @@ export function EvaluationForm({ onSaved, onCancel, initialDraft }: EvaluationFo
             disabled={isSubmitting}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {isSubmitting ? 'Création…' : "Créer l'évaluation"}
+            {isSubmitting
+              ? mode === 'edit'
+                ? 'Enregistrement…'
+                : 'Création…'
+              : mode === 'edit'
+                ? 'Enregistrer les modifications'
+                : "Créer l'évaluation"}
           </button>
         </div>
       </form>

@@ -6,12 +6,10 @@
  * Voir `docs/routes.md` > content-catalog-service > « Évaluations » pour le contrat documenté, et
  * `src/types/evaluation.ts` pour les formes.
  *
- * Deux gaps confirmés contre `.claude/reports/content-catalog-service-evaluations-2026-09-01.md`
- * (PR #195) — jamais comblés par une URL inventée, compensés ici par une lecture plus large que le
- * strict besoin, filtrée côté client :
- * - **Pas de `PUT /evaluations/:id`** : aucune fonction d'édition dans ce module, contrairement à
- *   `updateExercise`/`updateQuiz`. Une évaluation `rejected` se resoumet telle quelle
- *   (`requestEvaluationValidation`), elle ne se modifie pas.
+ * `PUT /evaluations/:id` ajoutée le 2026-09-02 (PR #203, avec le barème informatif) —
+ * `updateEvaluation` ci-dessous, même modèle que `updateExercise`/`updateQuiz`. Un gap reste
+ * confirmé contre `.claude/reports/content-catalog-service-evaluations-2026-09-01.md` (PR #195),
+ * jamais comblé par une URL inventée :
  * - **Pas de `GET /evaluations/pending-validation`** : `fetchPendingEvaluations` réutilise
  *   `searchEvaluations` (qui renvoie tous statuts confondus pour formateur/AP/RP, confirmé par le
  *   rapport ci-dessus) et filtre `status === 'pending_validation'` côté client. Le filtrage réel
@@ -100,6 +98,21 @@ export async function fetchEvaluation(evaluationId: string): Promise<Evaluation>
  */
 export async function createEvaluation(payload: CreateEvaluationPayload): Promise<Evaluation> {
   const { data } = await apiClient.post<Evaluation>('/evaluations', payload)
+  return normalizeEvaluation(data)
+}
+
+/**
+ * PUT /evaluations/:id
+ * Remplacement intégral, réservé à l'auteur (ajoutée le 2026-09-02, PR #203). Un formateur qui
+ * édite fait repasser l'évaluation en `pending_validation` ; un AP/RP éditant sa propre évaluation
+ * ne change jamais son statut — comportement du serveur, réaffiché tel quel (règle du projet : on
+ * réaffiche la réponse reçue, jamais le corps envoyé).
+ */
+export async function updateEvaluation(
+  evaluationId: string,
+  payload: CreateEvaluationPayload,
+): Promise<Evaluation> {
+  const { data } = await apiClient.put<Evaluation>(`/evaluations/${evaluationId}`, payload)
   return normalizeEvaluation(data)
 }
 

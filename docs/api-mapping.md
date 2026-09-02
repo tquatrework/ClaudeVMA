@@ -164,7 +164,14 @@ Ces services n'ont pas encore de fichier dédié dans `src/api/`. Les appels son
 |---|---|---|
 | `communityPath.ts` | community-path-service | `/forums` · `/paths` |
 | `learningActivity.ts` | learning-activity-service | `/open-activities` · `/activities` |
-| `contentCatalog.ts` | content-catalog-service | `/exercises` · `/evaluations` · `/tutorials` |
+| `contentCatalog.ts` | content-catalog-service | `/exercises` · `/tutorials` (Évaluations retirées le 2026-09-02, voir `evaluations.ts`) |
+| `exercises.ts` | content-catalog-service | `/exercises` (définition, validation) |
+| `exerciseAttempts.ts` | learning-activity-service | `/exercise-attempts` |
+| `quizzes.ts` | content-catalog-service | `/quizzes` (définition, validation) |
+| `quizAttempts.ts` | learning-activity-service | `/quiz-attempts` |
+| `evaluations.ts` | content-catalog-service | `/evaluations` (définition, validation — refonte du 2026-09-02) |
+| `evaluationAttempts.ts` | learning-activity-service | `/evaluation-attempts` (passage chronométré, refonte du 2026-09-02) |
+| `evaluationCorrections.ts` | learning-activity-service | `/evaluation-corrections` (demande de correction, refonte du 2026-09-02) |
 
 ---
 

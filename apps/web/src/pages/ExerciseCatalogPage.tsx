@@ -14,6 +14,13 @@
  *   POST /exercises                         (content-catalog-service — création)
  *   POST /validations/exercise/:id/decision (content-catalog-service — décision de validation)
  *   GET  /exercise-attempts/history         (learning-activity-service — historique)
+ *
+ * **Mode « choix pour une Évaluation en cours » (2026-09-02)** : atteint depuis les boutons
+ * « Nouveau »/« Rechercher » d'`EvaluationExercisePicker` — voir `useExercisePickerReturnMode`.
+ * Le mot-clé de recherche est pré-rempli, le formulaire de création s'ouvre automatiquement en
+ * intention « create », et choisir/créer un Exercice ramène vers la création d'Évaluation en
+ * cours avec cet Exercice ajouté, au lieu du comportement normal (fiche de détail / bandeau de
+ * succès sur cette page).
  */
 
 import React, { useState } from 'react'
@@ -24,22 +31,17 @@ import { useAsyncData } from '../hooks/useAsyncData'
 import { useExerciseAttemptHistory } from '../hooks/learning-activity/useExerciseAttemptHistory'
 import { useMyExercises } from '../hooks/content-catalog/useMyExercises'
 import { useExerciseValidationQueue } from '../hooks/content-catalog/useExerciseValidationQueue'
+import { useExercisePickerReturnMode } from '../hooks/content-catalog/useExercisePickerReturnMode'
 import { PageHeader } from '../components/ui/PageHeader'
-import { EmptyState } from '../components/ui/EmptyState'
 import { ErrorMessage } from '../components/ui/ErrorMessage'
-import { StatusBadge } from '../components/ui/StatusBadge'
-import { CatalogItemCard } from '../components/ui/CatalogItemCard'
 import { Tabs, TabPanel } from '../components/ui/Tabs'
 import { ExerciseCreationSection } from '../components/content-catalog/ExerciseCreationSection'
+import { ExerciseSearchCatalog } from '../components/content-catalog/ExerciseSearchCatalog'
 import { ExerciseAttemptHistoryList } from '../components/learning-activity/ExerciseAttemptHistoryList'
 import { MyExercisesList } from '../components/content-catalog/MyExercisesList'
 import { ExerciseValidationList } from '../components/content-catalog/ExerciseValidationList'
 import { searchExercises } from '../api/exercises'
-import {
-  EXERCISE_STATUS_BADGE_CLASSES,
-  EXERCISE_STATUS_LABELS,
-  getExerciseDisplayTitle,
-} from '../utils/exerciseLabels'
+import { getExerciseDisplayTitle } from '../utils/exerciseLabels'
 import type { PublicExerciseDetail } from '../types/exercise'
 
 const PAGE_SIZE = 20
@@ -47,14 +49,15 @@ const PAGE_SIZE = 20
 export default function ExerciseCatalogPage() {
   const { hasRole } = useAuth()
   const navigate = useNavigate()
+  const pickerReturn = useExercisePickerReturnMode()
 
   const [activeTab, setActiveTab] = useState<'catalog' | 'history' | 'mine' | 'validation'>(
     'catalog',
   )
   const [tagFilter, setTagFilter] = useState('')
-  const [keywordFilter, setKeywordFilter] = useState('')
+  const [keywordFilter, setKeywordFilter] = useState(() => pickerReturn.prefillKeyword ?? '')
   const [appliedTag, setAppliedTag] = useState('')
-  const [appliedKeyword, setAppliedKeyword] = useState('')
+  const [appliedKeyword, setAppliedKeyword] = useState(() => pickerReturn.prefillKeyword ?? '')
   const [page, setPage] = useState(1)
   const [justCreatedExercise, setJustCreatedExercise] = useState<PublicExerciseDetail | null>(null)
 
@@ -109,10 +112,37 @@ export default function ExerciseCatalogPage() {
       <div className="space-y-6">
         <PageHeader title="Exercices" subtitle="Des exercices d'auto-contrôle, à votre rythme." />
 
+        {pickerReturn.isPicking && (
+          <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex items-center justify-between gap-4">
+            <p className="text-sm text-indigo-800">
+              {pickerReturn.intent === 'create'
+                ? "Créez votre exercice — vous reviendrez ensuite sur l'évaluation en cours, avec cet exercice ajouté."
+                : "Choisissez un exercice ci-dessous pour l'ajouter à l'évaluation en cours."}
+            </p>
+            <button
+              type="button"
+              onClick={pickerReturn.returnWithoutExercise}
+              className="px-3 py-1.5 text-xs font-medium text-indigo-700 bg-white border border-indigo-300 rounded-md hover:bg-indigo-100 transition-colors shrink-0"
+            >
+              Retour sans ajouter
+            </button>
+          </div>
+        )}
+
         <ExerciseCreationSection
           canCreateExercise={canCreateExercise}
+          autoOpen={pickerReturn.intent === 'create'}
           onOpenCreateForm={() => setJustCreatedExercise(null)}
-          onExerciseCreated={(createdExercise) => setJustCreatedExercise(createdExercise)}
+          onExerciseCreated={(createdExercise) => {
+            if (pickerReturn.isPicking) {
+              pickerReturn.returnWithExercise({
+                id: createdExercise.id,
+                title: getExerciseDisplayTitle(createdExercise.title),
+              })
+              return
+            }
+            setJustCreatedExercise(createdExercise)
+          }}
           onListsChanged={() => {
             refetch()
             refetchMyExercises()
@@ -164,101 +194,29 @@ export default function ExerciseCatalogPage() {
         />
 
         <TabPanel tabId="catalog" activeTab={activeTab}>
-          <div className="space-y-4">
-            <form onSubmit={handleSearchSubmit} className="flex flex-wrap gap-3 items-end">
-              <div>
-                <label htmlFor="exercise-search-tag" className="block text-xs text-gray-600 mb-1">
-                  Tag
-                </label>
-                <input
-                  id="exercise-search-tag"
-                  type="text"
-                  value={tagFilter}
-                  onChange={(e) => setTagFilter(e.target.value)}
-                  placeholder="fractions"
-                  className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
-                />
-              </div>
-              <div>
-                <label htmlFor="exercise-search-keyword" className="block text-xs text-gray-600 mb-1">
-                  Mot-clé (titre)
-                </label>
-                <input
-                  id="exercise-search-keyword"
-                  type="text"
-                  value={keywordFilter}
-                  onChange={(e) => setKeywordFilter(e.target.value)}
-                  placeholder="géométrie"
-                  className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
-                />
-              </div>
-              <button
-                type="submit"
-                className="px-4 py-1.5 text-sm font-medium text-white bg-gray-700 rounded-md hover:bg-gray-800 transition-colors"
-              >
-                Rechercher
-              </button>
-            </form>
-
-            {isLoading && <p className="text-gray-400 text-sm">Chargement des exercices…</p>}
-            {loadError && <ErrorMessage message={loadError} />}
-
-            {!isLoading && !loadError && searchResult && (
-              <>
-                {searchResult.items.length === 0 ? (
-                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-8 text-center">
-                    <EmptyState message="Aucun exercice ne correspond à cette recherche." />
-                  </div>
-                ) : (
-                  <ul className="space-y-3">
-                    {searchResult.items.map((exercise) => (
-                      <CatalogItemCard
-                        key={exercise.id}
-                        id={exercise.id}
-                        title={getExerciseDisplayTitle(exercise.title)}
-                        description={exercise.description ?? undefined}
-                        tags={exercise.tags.map((tag) => ({ label: tag }))}
-                        rightBadge={
-                          exercise.status !== 'validated' ? (
-                            <StatusBadge
-                              status={exercise.status}
-                              label={EXERCISE_STATUS_LABELS[exercise.status]}
-                              badgeClasses={EXERCISE_STATUS_BADGE_CLASSES}
-                            />
-                          ) : undefined
-                        }
-                        onSelect={(id) => navigate(`/content/exercises/${id}`)}
-                      />
-                    ))}
-                  </ul>
-                )}
-
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-center gap-3 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      disabled={page <= 1}
-                      className="px-3 py-1 text-sm text-gray-600 disabled:opacity-40"
-                    >
-                      Précédent
-                    </button>
-                    <span className="text-sm text-gray-500">
-                      Page {page} / {totalPages}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                      disabled={page >= totalPages}
-                      className="px-3 py-1 text-sm text-gray-600 disabled:opacity-40"
-                    >
-                      Suivant
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+          <ExerciseSearchCatalog
+            tagFilter={tagFilter}
+            onTagFilterChange={setTagFilter}
+            keywordFilter={keywordFilter}
+            onKeywordFilterChange={setKeywordFilter}
+            onSearchSubmit={handleSearchSubmit}
+            isLoading={isLoading}
+            loadError={loadError}
+            searchResult={searchResult}
+            page={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            onSelectExercise={(exercise) => {
+              if (pickerReturn.isPicking) {
+                pickerReturn.returnWithExercise({
+                  id: exercise.id,
+                  title: getExerciseDisplayTitle(exercise.title),
+                })
+                return
+              }
+              navigate(`/content/exercises/${exercise.id}`)
+            }}
+          />
         </TabPanel>
 
         <TabPanel tabId="history" activeTab={activeTab}>

@@ -56,6 +56,7 @@ import ExerciseDetailPage from './pages/ExerciseDetailPage'
 import ExerciseEditPage from './pages/ExerciseEditPage'
 import EvaluationCatalogPage from './pages/EvaluationCatalogPage'
 import EvaluationAttemptPage from './pages/EvaluationAttemptPage'
+import EvaluationAttemptResumePage from './pages/EvaluationAttemptResumePage'
 import TutorialCatalogPage from './pages/TutorialCatalogPage'
 import QuizzPage from './pages/QuizzPage'
 import QuizDetailPage from './pages/QuizDetailPage'
@@ -693,10 +694,21 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+          {/* Évaluations — refonte du 2026-09-02 (notation manuelle, demande de correction).
+              Rôles alignés sur le contrat réel de learning-activity-service pour
+              `POST /evaluation-attempts` : eleve, formateur, animateur_pedagogique,
+              responsable_pedagogique — mêmes 4 rôles créateurs/passants que Quizz/Exercice. */}
           <Route
             path="/content/evaluations"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                allowedRoles={[
+                  'eleve',
+                  'formateur',
+                  'animateur_pedagogique',
+                  'responsable_pedagogique',
+                ]}
+              >
                 <EvaluationCatalogPage />
               </ProtectedRoute>
             }
@@ -704,8 +716,32 @@ export default function App() {
           <Route
             path="/content/evaluations/:evaluationId/attempt"
             element={
-              <ProtectedRoute allowedRoles={['eleve']}>
+              <ProtectedRoute
+                allowedRoles={[
+                  'eleve',
+                  'formateur',
+                  'animateur_pedagogique',
+                  'responsable_pedagogique',
+                ]}
+              >
                 <EvaluationAttemptPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* Reprise d'une tentative déjà démarrée — lien profond depuis l'onglet « Mon
+              historique » de EvaluationCatalogPage, pas d'entrée de menu dédiée. */}
+          <Route
+            path="/content/evaluations/attempts/:attemptId"
+            element={
+              <ProtectedRoute
+                allowedRoles={[
+                  'eleve',
+                  'formateur',
+                  'animateur_pedagogique',
+                  'responsable_pedagogique',
+                ]}
+              >
+                <EvaluationAttemptResumePage />
               </ProtectedRoute>
             }
           />

@@ -6,22 +6,29 @@
  * Les listes de contenus (exercices, évaluations, tutoriels, quizz) en attente sont reçues en
  * props.
  *
- * Exercices et Quizz disposent d'une vraie route de décision (même mécanisme de validation
- * générique, `docs/architecture.md` > « Refonte des Exercices ») — ce composant l'appelle
- * réellement via `ExerciseValidationList`/`QuizValidationList`. Évaluations et tutoriels restent
- * en attente d'une route dédiée (validation encore optimiste côté client).
+ * Exercices, Quizz et Évaluations disposent d'une vraie route de décision (même mécanisme de
+ * validation générique, `docs/architecture.md` > « Refonte des Exercices »/« Refonte des
+ * Evaluations ») — ce composant l'appelle réellement via
+ * `ExerciseValidationList`/`QuizValidationList`/`EvaluationValidationList`. Seuls les tutoriels
+ * restent en attente d'une route dédiée (validation encore optimiste côté client).
+ *
+ * Note : la validation des Évaluations est aussi accessible depuis l'onglet « Validation » de
+ * `EvaluationCatalogPage` (leçon du chantier Quizz sur la découvrabilité) — les deux écrans
+ * appellent la même route serveur, sans état partagé entre eux.
  */
 
 import React, { useState } from 'react'
-import type { Evaluation, Tutorial } from '../../api/contentCatalog'
+import type { Tutorial } from '../../api/contentCatalog'
+import type { Evaluation, EvaluationValidationDecision } from '../../types/evaluation'
 import type { ExerciseSummary, ExerciseValidationDecision } from '../../types/exercise'
 import type { QuizSummary, QuizValidationDecision } from '../../types/quiz'
 import { ExerciseValidationList } from './ExerciseValidationList'
 import { QuizValidationList } from './QuizValidationList'
+import { EvaluationValidationList } from './EvaluationValidationList'
 
-// Vocabulaire local, propre aux évaluations/tutoriels (validation encore optimiste côté client,
-// aucune route de décision documentée pour ces deux types — voir plus bas). Distinct de
-// `ExerciseValidationDecision`/`QuizValidationDecision`, qui portent le vocabulaire réel attendu
+// Vocabulaire local, propre aux tutoriels (validation encore optimiste côté client, aucune route
+// de décision documentée pour ce type). Distinct de `ExerciseValidationDecision`/
+// `QuizValidationDecision`/`EvaluationValidationDecision`, qui portent le vocabulaire réel attendu
 // par le serveur.
 type ContentDecision = 'approve' | 'reject'
 
@@ -30,19 +37,16 @@ interface ContentValidationQueueProps {
   pendingEvaluations: Evaluation[]
   pendingTutorials: Tutorial[]
   pendingQuizzes: QuizSummary[]
-  onValidateContent: (
-    contentType: 'evaluation' | 'tutorial',
-    contentId: string,
-    decision: ContentDecision,
-  ) => void
+  onValidateContent: (contentType: 'tutorial', contentId: string, decision: ContentDecision) => void
   onDecideExercise: (
     exerciseId: string,
     decision: ExerciseValidationDecision,
     comment?: string,
   ) => Promise<void>
-  onDecideQuiz: (
-    quizId: string,
-    decision: QuizValidationDecision,
+  onDecideQuiz: (quizId: string, decision: QuizValidationDecision, comment?: string) => Promise<void>
+  onDecideEvaluation: (
+    evaluationId: string,
+    decision: EvaluationValidationDecision,
     comment?: string,
   ) => Promise<void>
 }
@@ -57,6 +61,7 @@ export default function ContentValidationQueue({
   onValidateContent,
   onDecideExercise,
   onDecideQuiz,
+  onDecideEvaluation,
 }: ContentValidationQueueProps) {
   const [activeTab, setActiveTab] = useState<ActiveValidationTab>('exercises')
 
@@ -72,6 +77,13 @@ export default function ContentValidationQueue({
     )
   }
 
+  const tabs: { id: ActiveValidationTab; label: string; count: number }[] = [
+    { id: 'exercises', label: 'Exercices', count: pendingExercises.length },
+    { id: 'evaluations', label: 'Évaluations', count: pendingEvaluations.length },
+    { id: 'tutorials', label: 'Tutoriels', count: pendingTutorials.length },
+    { id: 'quizzes', label: 'Quizz', count: pendingQuizzes.length },
+  ]
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -79,72 +91,34 @@ export default function ContentValidationQueue({
         <span className="text-sm text-gray-500">{totalPendingCount} contenus en attente</span>
       </div>
 
-      {/* Onglets */}
       <div className="flex gap-1 border-b border-gray-200">
-        <button
-          type="button"
-          onClick={() => setActiveTab('exercises')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'exercises'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Exercices ({pendingExercises.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('evaluations')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'evaluations'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Évaluations ({pendingEvaluations.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('tutorials')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'tutorials'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Tutoriels ({pendingTutorials.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('quizzes')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'quizzes'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Quizz ({pendingQuizzes.length})
-        </button>
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === tab.id
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {tab.label} ({tab.count})
+          </button>
+        ))}
       </div>
 
-      {/* Contenu selon l'onglet */}
       {activeTab === 'exercises' && (
         <ExerciseValidationList exercises={pendingExercises} onDecide={onDecideExercise} />
       )}
 
       {activeTab === 'evaluations' && (
-        <ValidationItemList
-          items={pendingEvaluations}
-          contentType="evaluation"
-          onValidate={onValidateContent}
-          emptyLabel="Aucune évaluation en attente."
-        />
+        <EvaluationValidationList evaluations={pendingEvaluations} onDecide={onDecideEvaluation} />
       )}
 
       {activeTab === 'tutorials' && (
         <ValidationItemList
           items={pendingTutorials}
-          contentType="tutorial"
           onValidate={onValidateContent}
           emptyLabel="Aucun tutoriel en attente."
         />
@@ -157,7 +131,7 @@ export default function ContentValidationQueue({
   )
 }
 
-// ─── Sous-composant liste de validation (évaluations/tutoriels) ───────────────
+// ─── Sous-composant liste de validation (tutoriels) ────────────────────────────
 
 interface ValidationItem {
   id: string
@@ -169,21 +143,11 @@ interface ValidationItem {
 
 interface ValidationItemListProps {
   items: ValidationItem[]
-  contentType: 'evaluation' | 'tutorial'
-  onValidate: (
-    contentType: 'evaluation' | 'tutorial',
-    contentId: string,
-    decision: ContentDecision,
-  ) => void
+  onValidate: (contentType: 'tutorial', contentId: string, decision: ContentDecision) => void
   emptyLabel: string
 }
 
-function ValidationItemList({
-  items,
-  contentType,
-  onValidate,
-  emptyLabel,
-}: ValidationItemListProps) {
+function ValidationItemList({ items, onValidate, emptyLabel }: ValidationItemListProps) {
   if (items.length === 0) {
     return <p className="text-gray-400 text-sm italic py-4">{emptyLabel}</p>
   }
@@ -211,14 +175,14 @@ function ValidationItemList({
           <div className="flex gap-2 shrink-0">
             <button
               type="button"
-              onClick={() => onValidate(contentType, item.id, 'approve')}
+              onClick={() => onValidate('tutorial', item.id, 'approve')}
               className="px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded hover:bg-green-700 transition-colors"
             >
               Valider
             </button>
             <button
               type="button"
-              onClick={() => onValidate(contentType, item.id, 'reject')}
+              onClick={() => onValidate('tutorial', item.id, 'reject')}
               className="px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded hover:bg-red-700 transition-colors"
             >
               Rejeter

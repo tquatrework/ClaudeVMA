@@ -1,222 +1,267 @@
 /**
- * EvaluationCatalogPage — Phase 12 (content-catalog-service)
+ * EvaluationCatalogPage — catalogue des Évaluations (refonte du 2026-09-02).
  *
- * Catalogue des évaluations pédagogiques.
- * L'élève et le formateur voient les évaluations publiées.
- * Le formateur peut créer une évaluation (avec solution obligatoire non publiée).
- * Le RP/AP voit les évaluations en attente de validation.
+ * Remplace l'écran de juin 2026 qui appelait des routes retirées côté serveur (voir
+ * `docs/routes.md` > content-catalog-service > « Évaluations », « Retiré le 2026-09-01 »). Même
+ * patron que `QuizzPage`/`ExerciseCatalogPage` : recherche par tag/mot-clé, onglet « Mon
+ * historique », onglet « Mes Évaluations » (création, pas d'édition — voir `MyEvaluationsList`),
+ * onglet « Validation » (AP/RP), onglet « Corrections » (formateur/RP — leçon du chantier Quizz :
+ * la validation/correction se fait directement depuis cette page, pas un écran séparé peu
+ * découvrable).
  *
  * Routes API consommées :
- *   GET  /evaluations
- *   POST /evaluations
+ *   GET  /evaluations                          (content-catalog-service — recherche)
+ *   POST /evaluations                          (content-catalog-service — création)
+ *   POST /validations/evaluation/:id/decision  (content-catalog-service — décision de validation)
+ *   GET  /evaluation-attempts/history           (learning-activity-service — historique)
+ *   GET  /evaluation-corrections/pending, /mine (learning-activity-service — corrections)
+ *
+ * **Reprise du brouillon après « Nouveau »/« Rechercher » (2026-09-02)** : au retour de
+ * `/content/exercises` (`location.state.resumeEvaluationDraft`), le brouillon sauvegardé par
+ * `EvaluationForm` avant de partir est relu depuis `sessionStorage`
+ * (`loadAndClearEvaluationDraftForExerciseCreation`), l'Exercice choisi/créé y est ajouté s'il
+ * n'y figure pas déjà, et le formulaire de création se rouvre automatiquement, pré-rempli
+ * (`EvaluationCreationSection`, prop `resumedDraft`). Le `state` de navigation est effacé
+ * (`navigate(..., {replace: true, state: null})`) pour qu'un rafraîchissement ou un retour
+ * arrière ne rejoue pas cette reprise une seconde fois.
  */
 
 import React, { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
-import { CatalogItemCard } from '../components/ui/CatalogItemCard'
-import { StatusBadge } from '../components/ui/StatusBadge'
+import { useAsyncData } from '../hooks/useAsyncData'
+import { useEvaluationAttemptHistory } from '../hooks/learning-activity/useEvaluationAttemptHistory'
+import { useMyEvaluations } from '../hooks/content-catalog/useMyEvaluations'
+import { useEvaluationValidationQueue } from '../hooks/content-catalog/useEvaluationValidationQueue'
 import { PageHeader } from '../components/ui/PageHeader'
-import { EmptyState } from '../components/ui/EmptyState'
-import {
-  DIFFICULTY_LABELS,
-  DIFFICULTY_BADGE_CLASSES,
-} from '../types/content'
-import {
-  fetchEvaluations,
-  createEvaluation,
-  type Evaluation,
-  type DifficultyLevel,
-} from '../api/contentCatalog'
-import { EvaluationCreateForm } from '../components/content-catalog/EvaluationCreateForm'
+import { ErrorMessage } from '../components/ui/ErrorMessage'
+import { Tabs, TabPanel } from '../components/ui/Tabs'
+import { EvaluationCreationSection } from '../components/content-catalog/EvaluationCreationSection'
+import { EvaluationSearchCatalog } from '../components/content-catalog/EvaluationSearchCatalog'
+import { MyEvaluationsList } from '../components/content-catalog/MyEvaluationsList'
+import { EvaluationValidationList } from '../components/content-catalog/EvaluationValidationList'
+import { EvaluationAttemptHistoryList } from '../components/learning-activity/EvaluationAttemptHistoryList'
+import { EvaluationCorrectionsTab } from '../components/learning-activity/EvaluationCorrectionsTab'
+import { searchEvaluations } from '../api/evaluations'
+import { getEvaluationDisplayTitle } from '../utils/evaluationLabels'
+import { loadAndClearEvaluationDraftForExerciseCreation } from '../utils/evaluationDraft'
+import type { Evaluation } from '../types/evaluation'
+import type {
+  EditableEvaluationFormState,
+  EvaluationDraftResumeState,
+} from '../utils/evaluationDraft'
+
+const PAGE_SIZE = 20
+
+type EvaluationTab = 'catalog' | 'history' | 'mine' | 'validation' | 'corrections'
 
 export default function EvaluationCatalogPage() {
   const { hasRole } = useAuth()
+  const location = useLocation()
   const navigate = useNavigate()
 
-  const [evaluationList, setEvaluationList] = useState<Evaluation[]>([])
-  const [isLoadingEvaluations, setIsLoadingEvaluations] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
-
-  const [shouldShowCreateForm, setShouldShowCreateForm] = useState(false)
-
-  // Champs du formulaire de création
-  const [newTitle, setNewTitle] = useState('')
-  const [newDescription, setNewDescription] = useState('')
-  const [newSubject, setNewSubject] = useState('')
-  const [newLevel, setNewLevel] = useState('')
-  const [newDifficulty, setNewDifficulty] = useState<DifficultyLevel>('moyen')
-  const [newSolution, setNewSolution] = useState('')
-  const [newDurationMinutes, setNewDurationMinutes] = useState<number | ''>('')
-  const [isCreating, setIsCreating] = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
-
-  const isTeacher = hasRole('formateur')
-  const isInternalUser = hasRole(
-    'responsable_pedagogique',
-    'animateur_pedagogique',
-    'technicien_informatique',
-    'administrateur_financier',
-  )
-  const canCreateEvaluation = isTeacher || isInternalUser
+  const [activeTab, setActiveTab] = useState<EvaluationTab>('catalog')
+  const [tagFilter, setTagFilter] = useState('')
+  const [keywordFilter, setKeywordFilter] = useState('')
+  const [appliedTag, setAppliedTag] = useState('')
+  const [appliedKeyword, setAppliedKeyword] = useState('')
+  const [page, setPage] = useState(1)
+  const [justCreatedEvaluation, setJustCreatedEvaluation] = useState<Evaluation | null>(null)
+  const [resumedDraft, setResumedDraft] = useState<EditableEvaluationFormState | null>(null)
 
   useEffect(() => {
-    setIsLoadingEvaluations(true)
-    setLoadError(null)
+    const resumeState = location.state as EvaluationDraftResumeState | null
+    if (!resumeState?.resumeEvaluationDraft) return
 
-    fetchEvaluations()
-      .then((evaluations) => setEvaluationList(evaluations))
-      .catch(() => setLoadError('Impossible de charger les évaluations.'))
-      .finally(() => setIsLoadingEvaluations(false))
+    const draft = loadAndClearEvaluationDraftForExerciseCreation()
+    if (draft) {
+      const newExercise = resumeState.newExercise
+      const alreadyPresent =
+        !!newExercise && draft.exerciseItems.some((item) => item.exerciseId === newExercise.id)
+      setResumedDraft({
+        ...draft,
+        exerciseItems:
+          newExercise && !alreadyPresent
+            ? [
+                ...draft.exerciseItems,
+                { exerciseId: newExercise.id, title: newExercise.title, titleOverride: '' },
+              ]
+            : draft.exerciseItems,
+      })
+    }
+
+    // Efface le state de navigation pour qu'un rafraîchissement ou un retour arrière ne
+    // redéclenche pas cette reprise une seconde fois.
+    navigate(location.pathname, { replace: true, state: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const handleCreateEvaluation = async (event: React.FormEvent) => {
+  const canPassEvaluation = hasRole(
+    'eleve',
+    'formateur',
+    'animateur_pedagogique',
+    'responsable_pedagogique',
+  )
+  const canCreateEvaluation = hasRole('formateur', 'animateur_pedagogique', 'responsable_pedagogique')
+  const canValidateEvaluation = hasRole('responsable_pedagogique', 'animateur_pedagogique')
+  const canCorrectEvaluation = hasRole('formateur', 'responsable_pedagogique')
+
+  const {
+    data: searchResult,
+    isLoading,
+    error: loadError,
+    refetch,
+  } = useAsyncData(
+    () =>
+      searchEvaluations({
+        tag: appliedTag || undefined,
+        keyword: appliedKeyword || undefined,
+        page,
+        limit: PAGE_SIZE,
+      }),
+    [appliedTag, appliedKeyword, page],
+    { fallbackErrorMessage: 'Impossible de charger les évaluations.' },
+  )
+
+  const { entries: historyEntries, isLoading: isLoadingHistory, error: historyError } =
+    useEvaluationAttemptHistory()
+
+  const {
+    items: myEvaluations,
+    isLoading: isLoadingMyEvaluations,
+    error: myEvaluationsError,
+    refetch: refetchMyEvaluations,
+  } = useMyEvaluations()
+
+  const {
+    items: pendingValidationEvaluations,
+    isLoading: isLoadingValidationQueue,
+    error: validationQueueError,
+    decide: decideValidationQueue,
+  } = useEvaluationValidationQueue(canValidateEvaluation)
+
+  const handleSearchSubmit = (event: React.FormEvent) => {
     event.preventDefault()
-
-    if (!newSolution.trim()) {
-      setCreateError('La solution est obligatoire pour créer une évaluation.')
-      return
-    }
-
-    setIsCreating(true)
-    setCreateError(null)
-
-    try {
-      const createdEvaluation = await createEvaluation({
-        title: newTitle.trim(),
-        description: newDescription.trim(),
-        subject: newSubject.trim(),
-        level: newLevel.trim(),
-        difficultyLevel: newDifficulty,
-        solutionContent: newSolution.trim(),
-        durationMinutes: newDurationMinutes !== '' ? Number(newDurationMinutes) : undefined,
-      })
-
-      setEvaluationList((previous) => [createdEvaluation, ...previous])
-      setShouldShowCreateForm(false)
-      setNewTitle('')
-      setNewDescription('')
-      setNewSubject('')
-      setNewLevel('')
-      setNewDifficulty('moyen')
-      setNewSolution('')
-      setNewDurationMinutes('')
-    } catch (error: unknown) {
-      const responseStatus = (error as { response?: { status?: number } })?.response?.status
-      if (responseStatus === 403) {
-        setCreateError('Vous n\'êtes pas autorisé à créer une évaluation.')
-      } else {
-        setCreateError('Impossible de créer l\'évaluation. Vérifiez les champs et réessayez.')
-      }
-    } finally {
-      setIsCreating(false)
-    }
+    setPage(1)
+    setAppliedTag(tagFilter.trim())
+    setAppliedKeyword(keywordFilter.trim())
   }
 
-  const handleOpenEvaluation = (evaluationId: string) => {
-    navigate(`/content/evaluations/${evaluationId}`)
-  }
-
-  if (isLoadingEvaluations) {
-    return (
-      <Layout>
-        <p className="text-gray-400 text-sm">Chargement des évaluations…</p>
-      </Layout>
-    )
-  }
-
-  if (loadError) {
-    return (
-      <Layout>
-        <p className="text-red-600">{loadError}</p>
-      </Layout>
-    )
-  }
+  const totalPages = searchResult ? Math.max(1, Math.ceil(searchResult.total / PAGE_SIZE)) : 1
 
   return (
     <Layout>
       <div className="space-y-6">
         <PageHeader
           title="Évaluations"
-          subtitle="Catalogue des évaluations pédagogiques disponibles."
-          action={
-            canCreateEvaluation ? (
-              <button
-                type="button"
-                onClick={() => setShouldShowCreateForm(true)}
-                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
-              >
-                Nouvelle évaluation
-              </button>
-            ) : undefined
-          }
+          subtitle="Des suites d'exercices chronométrées, corrigées par un professeur sur demande."
         />
 
-        {/* Formulaire de création */}
-        {shouldShowCreateForm && (
-          <EvaluationCreateForm
-            newTitle={newTitle}
-            newDescription={newDescription}
-            newSubject={newSubject}
-            newLevel={newLevel}
-            newDifficulty={newDifficulty}
-            newSolution={newSolution}
-            newDurationMinutes={newDurationMinutes}
-            isCreating={isCreating}
-            createError={createError}
-            onTitleChange={setNewTitle}
-            onDescriptionChange={setNewDescription}
-            onSubjectChange={setNewSubject}
-            onLevelChange={setNewLevel}
-            onDifficultyChange={setNewDifficulty}
-            onSolutionChange={setNewSolution}
-            onDurationMinutesChange={setNewDurationMinutes}
-            onSubmit={handleCreateEvaluation}
-            onCancel={() => setShouldShowCreateForm(false)}
-          />
+        <EvaluationCreationSection
+          canCreateEvaluation={canCreateEvaluation}
+          onOpenCreateForm={() => setJustCreatedEvaluation(null)}
+          onEvaluationCreated={(created) => setJustCreatedEvaluation(created)}
+          onListsChanged={() => {
+            refetch()
+            refetchMyEvaluations()
+          }}
+          resumedDraft={resumedDraft}
+          onResumedDraftConsumed={() => setResumedDraft(null)}
+        />
+
+        {justCreatedEvaluation && (
+          <div className="bg-green-50 border border-green-200 rounded-xl p-5 space-y-3">
+            <p className="text-sm text-green-800">
+              Évaluation « {getEvaluationDisplayTitle(justCreatedEvaluation.title)} » créée avec
+              succès.
+            </p>
+            <button
+              type="button"
+              onClick={() => setJustCreatedEvaluation(null)}
+              className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800"
+            >
+              Fermer
+            </button>
+          </div>
         )}
 
-        {/* Liste des évaluations */}
-        {evaluationList.length === 0 ? (
-          <div className="bg-gray-50 border border-gray-200 rounded-xl p-8 text-center">
-            <EmptyState message="Aucune évaluation disponible pour le moment." />
-          </div>
-        ) : (
-          <ul className="space-y-3">
-            {evaluationList.map((evaluation) => (
-              <CatalogItemCard
-                key={evaluation.id}
-                id={evaluation.id}
-                title={evaluation.title}
-                description={evaluation.description}
-                tags={[
-                  { label: evaluation.subject, colorClass: 'bg-blue-50 text-blue-700' },
-                  { label: evaluation.level },
-                  ...(evaluation.durationMinutes
-                    ? [{ label: `${evaluation.durationMinutes} min` }]
-                    : []),
-                ]}
-                rightBadge={
-                  <>
-                    <StatusBadge
-                      status={evaluation.difficultyLevel}
-                      label={DIFFICULTY_LABELS[evaluation.difficultyLevel]}
-                      badgeClasses={DIFFICULTY_BADGE_CLASSES}
-                    />
-                    {evaluation.status === 'pending_validation' && (
-                      <StatusBadge
-                        status="pending_validation"
-                        label="En attente"
-                        badgeClasses={{ pending_validation: 'bg-orange-100 text-orange-700' }}
-                      />
-                    )}
-                  </>
-                }
-                onSelect={handleOpenEvaluation}
+        <Tabs
+          ariaLabel="Sections Évaluations"
+          tabs={[
+            { id: 'catalog', label: 'Catalogue' },
+            ...(canPassEvaluation ? [{ id: 'history', label: 'Mon historique' }] : []),
+            ...(canCreateEvaluation ? [{ id: 'mine', label: 'Mes Évaluations' }] : []),
+            ...(canValidateEvaluation ? [{ id: 'validation', label: 'Validation' }] : []),
+            ...(canCorrectEvaluation ? [{ id: 'corrections', label: 'Corrections' }] : []),
+          ]}
+          activeTab={activeTab}
+          onTabChange={(id) => setActiveTab(id as EvaluationTab)}
+        />
+
+        <TabPanel tabId="catalog" activeTab={activeTab}>
+          <EvaluationSearchCatalog
+            tagFilter={tagFilter}
+            onTagFilterChange={setTagFilter}
+            keywordFilter={keywordFilter}
+            onKeywordFilterChange={setKeywordFilter}
+            onSearchSubmit={handleSearchSubmit}
+            isLoading={isLoading}
+            loadError={loadError}
+            searchResult={searchResult}
+            page={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+          />
+        </TabPanel>
+
+        {canPassEvaluation && (
+          <TabPanel tabId="history" activeTab={activeTab}>
+            {isLoadingHistory && <p className="text-gray-400 text-sm">Chargement de l'historique…</p>}
+            {historyError && <ErrorMessage message={historyError} />}
+            {!isLoadingHistory && !historyError && (
+              <EvaluationAttemptHistoryList entries={historyEntries} />
+            )}
+          </TabPanel>
+        )}
+
+        {canCreateEvaluation && (
+          <TabPanel tabId="mine" activeTab={activeTab}>
+            {isLoadingMyEvaluations && (
+              <p className="text-gray-400 text-sm">Chargement de vos évaluations…</p>
+            )}
+            {myEvaluationsError && <ErrorMessage message={myEvaluationsError} />}
+            {!isLoadingMyEvaluations && !myEvaluationsError && (
+              <MyEvaluationsList
+                evaluations={myEvaluations}
+                onResubmitted={() => refetchMyEvaluations()}
               />
-            ))}
-          </ul>
+            )}
+          </TabPanel>
+        )}
+
+        {canValidateEvaluation && (
+          <TabPanel tabId="validation" activeTab={activeTab}>
+            <p className="text-sm text-gray-500 mb-3">
+              Évaluations créées par un professeur, en attente de votre validation.
+            </p>
+            {isLoadingValidationQueue && (
+              <p className="text-gray-400 text-sm">Chargement des évaluations en attente…</p>
+            )}
+            {validationQueueError && <ErrorMessage message={validationQueueError} />}
+            {!isLoadingValidationQueue && !validationQueueError && (
+              <EvaluationValidationList
+                evaluations={pendingValidationEvaluations}
+                onDecide={decideValidationQueue}
+              />
+            )}
+          </TabPanel>
+        )}
+
+        {canCorrectEvaluation && (
+          <TabPanel tabId="corrections" activeTab={activeTab}>
+            <EvaluationCorrectionsTab canDecline={hasRole('formateur')} />
+          </TabPanel>
         )}
       </div>
     </Layout>

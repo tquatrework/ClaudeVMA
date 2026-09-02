@@ -56,6 +56,23 @@ Délégué à `content-catalog-service` le 2026-09-02 : modèle de données du b
 à déléguer ensuite une fois ce contrat stabilisé (saisie du barème à la création, affichage à
 l'élève en consultation/passage).
 
+**`content-catalog-service` mergé (PR #203), déployé, démarrage propre, `PUT /evaluations/:id`
+confirmé mappé, site vérifié `200`.** Champ `scoring` (granularité par Exercice ou par question,
+purement informatif) sur `POST`/`PUT`/`GET /evaluations`, validations complètes (400 sur partId
+invalide, exerciseId orphelin, doublon, bloc appartenant à un autre exercice), 368/368 tests verts,
+migration `AddEvaluationScoring1799000000000` appliquée. **Bonus** : `PUT /evaluations/:id`
+construit à cette occasion (n'existait pas) — répond à l'un des 2 gaps backend signalés à
+l'utilisateur le 2026-09-02, sur le même modèle Quizz/Exercice (auteur seul, formateur qui édite une
+Évaluation `validated` la fait repasser en `pending_validation`). **Incident mineur au
+redéploiement** (même défaut déjà rencontré 2 fois avant, pour `frontend` et `content-catalog-service`
+lui-même) : conteneur `visiomath_content_catalog` démarré en `docker run` brut par le subagent
+pendant sa vérification, hors `docker compose`, conflit de nom au redéploiement — arrêté/retiré
+proprement par l'orchestrateur, aucune perte de données (volumes externes). Contrat exact documenté
+dans `docs/routes.md`/`docs/services/content-catalog-service.md`.
+
+**Reste à déléguer** : `front-developper` — saisie du barème à la création (granularité + valeurs),
+affichage à l'élève pendant la consultation/le passage d'une Évaluation.
+
 Rappel branches non fusionnées dans `master` (hors périmètre, signalées mais non traitées) :
 `feat/front-reprise-candidature-formateur` et `feat/reprise-candidature-formateur` — travail réel
 inachevé du 2026-08-13 (arbitrage persisté dans `docs/architecture.md`, jamais implémenté).

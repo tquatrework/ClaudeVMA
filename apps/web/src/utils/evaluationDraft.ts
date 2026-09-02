@@ -28,6 +28,7 @@
  */
 
 import type { EditableEvaluationExerciseItem } from '../components/content-catalog/EvaluationExercisePicker'
+import { createEmptyScoringState, type EditableEvaluationScoringState } from './evaluationScoring'
 
 export interface EditableEvaluationFormState {
   title: string
@@ -39,7 +40,12 @@ export interface EditableEvaluationFormState {
   durationMinutes: string
   blockBackNavigation: boolean
   exerciseItems: EditableEvaluationExerciseItem[]
+  /** Barème informatif (arbitrage du 2026-09-02) — absent sur un brouillon antérieur à ce
+   * chantier relu depuis `sessionStorage` ; `EvaluationForm` retombe alors sur un état vide. */
+  scoring?: EditableEvaluationScoringState
 }
+
+export { createEmptyScoringState }
 
 /**
  * État de navigation transmis à `/content/exercises` (Évaluation → Exercices), léger — la charge

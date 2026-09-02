@@ -1,9 +1,8 @@
 /**
  * MyEvaluationsList — liste des Évaluations créées par l'utilisateur courant, tous statuts
- * confondus. Même patron que `MyExercisesList`/`MyQuizzesList`, avec une différence assumée :
- * **pas de bouton « Modifier »** — aucune route `PUT /evaluations/:id` n'existe côté serveur
- * (confirmé par `.claude/reports/content-catalog-service-evaluations-2026-09-01.md`). Une
- * évaluation `rejected` se resoumet telle quelle, elle ne se réécrit pas depuis cet écran.
+ * confondus. Même patron que `MyExercisesList`/`MyQuizzesList` : bouton « Modifier » vers
+ * `/content/evaluations/:id/edit` (`PUT /evaluations/:id` ajoutée le 2026-09-02, PR #203). Une
+ * évaluation `rejected` peut aussi se resoumettre telle quelle sans passer par l'édition.
  */
 
 import React, { useState } from 'react'
@@ -100,10 +99,10 @@ export function MyEvaluationsList({ evaluations, onResubmitted }: MyEvaluationsL
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => navigate(`/content/evaluations/${evaluation.id}`)}
-              className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200 transition-colors"
+              onClick={() => navigate(`/content/evaluations/${evaluation.id}/edit`)}
+              className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 rounded hover:bg-indigo-700 transition-colors"
             >
-              Voir la fiche
+              Modifier
             </button>
             {evaluation.status === 'rejected' && (
               <button

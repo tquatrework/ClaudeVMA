@@ -55,6 +55,7 @@ import ExerciseCatalogPage from './pages/ExerciseCatalogPage'
 import ExerciseDetailPage from './pages/ExerciseDetailPage'
 import ExerciseEditPage from './pages/ExerciseEditPage'
 import EvaluationCatalogPage from './pages/EvaluationCatalogPage'
+import EvaluationEditPage from './pages/EvaluationEditPage'
 import EvaluationAttemptPage from './pages/EvaluationAttemptPage'
 import EvaluationAttemptResumePage from './pages/EvaluationAttemptResumePage'
 import TutorialCatalogPage from './pages/TutorialCatalogPage'
@@ -710,6 +711,18 @@ export default function App() {
                 ]}
               >
                 <EvaluationCatalogPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* Édition d'une Évaluation par son auteur — `PUT /evaluations/:id` ajoutée le
+              2026-09-02 (barème informatif). Mêmes rôles créateurs que Quizz/Exercice. */}
+          <Route
+            path="/content/evaluations/:evaluationId/edit"
+            element={
+              <ProtectedRoute
+                allowedRoles={['formateur', 'animateur_pedagogique', 'responsable_pedagogique']}
+              >
+                <EvaluationEditPage />
               </ProtectedRoute>
             }
           />

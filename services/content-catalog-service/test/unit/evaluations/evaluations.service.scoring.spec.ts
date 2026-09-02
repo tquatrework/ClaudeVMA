@@ -21,6 +21,7 @@ import { ContentStatus } from '../../../src/common/enums/content-status.enum';
 import { ExercisePart } from '../../../src/exercises/entities/exercise-part.entity';
 import { ExercisePartCategory } from '../../../src/exercises/enums/exercise-part-category.enum';
 import { EvaluationScoringMode } from '../../../src/evaluations/enums/evaluation-scoring-mode.enum';
+import { ProfileRelationsClient } from '../../../src/common/clients/profile-relations.client';
 
 const FORMATEUR_ID  = 'form-0000-4000-a000-aaaaaaaaaaaa';
 const AP_ID         = 'apid-0000-4000-a000-aaaaaaaaaaaa';
@@ -100,6 +101,7 @@ describe('EvaluationsService — barème informatif et update()', () => {
         EvaluationsService,
         { provide: getRepositoryToken(Evaluation), useValue: evaluationRepo },
         { provide: getRepositoryToken(ExercisePart), useValue: exercisePartRepo },
+        { provide: ProfileRelationsClient, useValue: { hasAnimatorOfTeacherRelation: jest.fn() } },
       ],
     }).compile();
 

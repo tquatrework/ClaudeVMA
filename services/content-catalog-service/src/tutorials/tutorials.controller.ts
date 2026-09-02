@@ -73,7 +73,9 @@ export class TutorialsController {
   @Get(':id')
   @ApiOperation({
     summary: 'Récupérer un tutoriel par identifiant',
-    description: 'Retourne le détail d\'un tutoriel ou d\'une vidéo.',
+    description:
+      'Retourne le détail d\'un tutoriel ou d\'une vidéo. Un tutoriel non validé reste invisible ' +
+      'sauf à son auteur et aux AP/RP/TI (arbitrage du 2026-09-02).',
   })
   @ApiParam({ name: 'id', description: 'UUID du tutoriel' })
   @ApiResponse({ status: 200, description: 'Tutoriel trouvé' })
@@ -82,7 +84,7 @@ export class TutorialsController {
     @Param('id') tutorialId: string,
     @CurrentUser() currentUser: AuthenticatedUser,
   ) {
-    return this.tutorialsService.findOne(tutorialId);
+    return this.tutorialsService.findOne(tutorialId, currentUser.id, currentUser.role);
   }
 
   @Delete(':id')

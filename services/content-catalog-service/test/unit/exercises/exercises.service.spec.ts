@@ -730,6 +730,46 @@ describe('ExercisesService', () => {
 
       await expect(service.findOne(EXERCISE_ID, ELEVE_ID, 'eleve')).rejects.toThrow(NotFoundException);
     });
+
+    // ───────────────────────────────────────────────────────────────────
+    // Visibilité pour le validateur RP/AP (arbitrage du 2026-09-02,
+    // "Visibilité du contenu en attente de validation, pour son
+    // validateur (RP/AP)") : RP illimité, AP scopé animator_of_teacher.
+    // ───────────────────────────────────────────────────────────────────
+
+    it('permet à un RP de voir un exercice non validé d\'un tiers, sans vérifier de relation', async () => {
+      exerciseRepo.findOne.mockResolvedValue(
+        buildSampleExercise({ status: ContentStatus.PENDING_VALIDATION, authorId: FORMATEUR_ID }),
+      );
+
+      const result = await service.findOne(EXERCISE_ID, 'rp00-0000-4000-a000-aaaaaaaaaaaa', 'responsable_pedagogique');
+
+      expect(result.id).toBe(EXERCISE_ID);
+      expect(profileRelationsClient.hasAnimatorOfTeacherRelation).not.toHaveBeenCalled();
+    });
+
+    it('permet à un AP qui anime l\'auteur de voir son exercice non validé', async () => {
+      exerciseRepo.findOne.mockResolvedValue(
+        buildSampleExercise({ status: ContentStatus.PENDING_VALIDATION, authorId: FORMATEUR_ID }),
+      );
+      profileRelationsClient.hasAnimatorOfTeacherRelation.mockResolvedValue(true);
+
+      const result = await service.findOne(EXERCISE_ID, AP_ID, 'animateur_pedagogique');
+
+      expect(result.id).toBe(EXERCISE_ID);
+      expect(profileRelationsClient.hasAnimatorOfTeacherRelation).toHaveBeenCalledWith(AP_ID, FORMATEUR_ID);
+    });
+
+    it('masque un exercice non validé à un AP qui n\'anime pas l\'auteur (404)', async () => {
+      exerciseRepo.findOne.mockResolvedValue(
+        buildSampleExercise({ status: ContentStatus.PENDING_VALIDATION, authorId: FORMATEUR_ID }),
+      );
+      profileRelationsClient.hasAnimatorOfTeacherRelation.mockResolvedValue(false);
+
+      await expect(
+        service.findOne(EXERCISE_ID, AP_ID, 'animateur_pedagogique'),
+      ).rejects.toThrow(NotFoundException);
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────

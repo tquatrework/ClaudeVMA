@@ -678,6 +678,38 @@ describe('QuizzesService', () => {
       const result = await quizzesService.findOne(QUIZ_ID, RP_ID, 'responsable_pedagogique');
       expect(result.id).toBe(QUIZ_ID);
     });
+
+    // ───────────────────────────────────────────────────────────────────
+    // Visibilité pour l'AP validateur, scopée par animator_of_teacher
+    // (arbitrage du 2026-09-02, "Visibilité du contenu en attente de
+    // validation, pour son validateur (RP/AP)").
+    // ───────────────────────────────────────────────────────────────────
+
+    it('permet à un AP qui anime l\'auteur de voir son quizz non validé', async () => {
+      const APId = 'ap00-0000-4000-a000-aaaaaaaaaaaa';
+      const quiz = buildSampleQuiz({ status: ContentStatus.PENDING_VALIDATION, authorId: FORMATEUR_ID });
+      quizRepo.findOne.mockResolvedValue(quiz);
+      profileRelationsClient.hasAnimatorOfTeacherRelation.mockResolvedValue(true);
+
+      const result = await quizzesService.findOne(QUIZ_ID, APId, 'animateur_pedagogique');
+
+      expect(result.id).toBe(QUIZ_ID);
+      expect(profileRelationsClient.hasAnimatorOfTeacherRelation).toHaveBeenCalledWith(
+        APId,
+        FORMATEUR_ID,
+      );
+    });
+
+    it('masque un quizz non validé à un AP qui n\'anime pas l\'auteur (404)', async () => {
+      const APId = 'ap00-0000-4000-a000-aaaaaaaaaaaa';
+      const quiz = buildSampleQuiz({ status: ContentStatus.PENDING_VALIDATION, authorId: FORMATEUR_ID });
+      quizRepo.findOne.mockResolvedValue(quiz);
+      profileRelationsClient.hasAnimatorOfTeacherRelation.mockResolvedValue(false);
+
+      await expect(
+        quizzesService.findOne(QUIZ_ID, APId, 'animateur_pedagogique'),
+      ).rejects.toThrow(NotFoundException);
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────────

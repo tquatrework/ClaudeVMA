@@ -796,7 +796,7 @@ les routes du service, est traduit lui aussi.
 
 | Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /profiles/teachers/validated | 🔒 | responsable_pedagogique, administrateur_financier, technicien_informatique | **Annuaire des formateurs dont la validation est `validated`.** Query : `page` (défaut `1`) et `limit` (défaut `20`, **maximum `100`**). Liste **triée par nom puis prénom sur l'ensemble**, pas page par page. Contenu **limité au socle de visibilité** — rien de plus, bien que les administrateurs soient exemptés du filtrage champ par champ : servir la fiche entière ferait de cette liste une porte dérobée à ce filtrage | `200 {data: [{userId, firstName, lastName, levels, subjects}], page, limit, total, totalPages}` · `400` `page`/`limit` non entier ou < 1, `limit` > 100, **ou paramètre de requête inconnu** · `401` · `403` tout autre rôle, **animateur pédagogique compris** |
+| GET | /profiles/teachers/validated | 🔒 | responsable_pedagogique, administrateur_financier, technicien_informatique | **Annuaire des formateurs dont la validation est `validated`.** Query : `page` (défaut `1`) et `limit` (défaut `20`, **maximum `100`**). Liste **triée par nom puis prénom sur l'ensemble**, pas page par page. Contenu **limité au socle de visibilité** — rien de plus, bien que les administrateurs soient exemptés du filtrage champ par champ : servir la fiche entière ferait de cette liste une porte dérobée à ce filtrage. `avatarUrl` ajouté le 2026-09-02 (champ additif, mêmes garanties que `AdministrativeProfileView`) pour l'usage tuile de l'annuaire « Visualisation » du RP | `200 {data: [{userId, firstName, lastName, avatarUrl, levels, subjects}], page, limit, total, totalPages}` · `400` `page`/`limit` non entier ou < 1, `limit` > 100, **ou paramètre de requête inconnu** · `401` · `403` tout autre rôle, **animateur pédagogique compris** |
 
 Précisions qui font contrat :
 
@@ -820,6 +820,49 @@ Précisions qui font contrat :
   pas un moteur.
 - Aucune modification de `api-gateway` n'a été nécessaire : `/api/v1/profiles` est proxifié **en bloc**
   (`location ^~`), donc `/api/v1/profiles/teachers/validated` est joint sans déclaration nouvelle.
+
+### Annuaire « Visualisation » par rôle (RP) — 2026-09-02
+
+> `docs/architecture.md` > « Reconstruction du rail gauche du RP », précision du 2026-09-02.
+> Le menu « Visualisation » du RP doit retrouver n'importe quel utilisateur élève, parent,
+> professeur, AP par rôle, sous forme de tuiles avec liens vers profil/calendrier/cahier de
+> texte. Seul le rôle formateur avait déjà un annuaire exploitable
+> (`/profiles/teachers/validated` ci-dessus) ; cette route couvre les 4 rôles avec une seule
+> forme de réponse, et **délègue** à l'annuaire formateurs pour `role=formateur` plutôt que d'en
+> dupliquer la logique.
+
+| Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
+|---|---|---|---|---|---|
+| GET | /profiles/directory/by-role | 🔒 | responsable_pedagogique, administrateur_financier, technicien_informatique | **Annuaire par rôle**, un rôle à la fois. Query : `role` (**requis**, un de `eleve`/`parent_financeur`/`formateur`/`animateur_pedagogique`), `page` (défaut `1`), `limit` (défaut `20`, **maximum `100`**). `role=formateur` délègue intégralement à `GET /profiles/teachers/validated` (même population, même tri, même contenu). Pour les 3 autres rôles, la population fait autorité auprès de `identity-access-service` (`GET /internal/accounts?role=`), croisée avec les profils locaux, triée par nom puis prénom sur l'ensemble | `200 {data: [{userId, firstName, lastName, avatarUrl, level, levels, subjects}], page, limit, total, totalPages}` · `400` `role` absent/hors enum, `page`/`limit` non entier ou < 1, `limit` > 100, ou paramètre de requête inconnu · `401` · `403` tout autre rôle |
+
+Précisions qui font contrat :
+
+- **Le chemin comporte deux segments (`directory/by-role`) à dessein**, même motif que
+  `teachers/validated` : un chemin à un seul segment sous `/profiles` (ex. `/profiles/directory`
+  seul) entrerait en collision avec `GET /profiles/:userId`, quel que soit l'ordre de
+  déclaration des contrôleurs — Express route par nombre de segments.
+- **`level` (singulier) et `levels` (pluriel) sont deux champs distincts, jamais fusionnés.**
+  `level` porte le niveau scolaire **suivi** par un élève (une valeur, non nul seulement pour
+  `role=eleve`) ; `levels` porte les niveaux **enseignés** par un formateur/AP (plusieurs
+  valeurs, non nul seulement pour `role=formateur`/`role=animateur_pedagogique`). Ce sont deux
+  données différentes, déjà nommées différemment sur leurs entités respectives
+  (`StudentPedagogicalProfile.level` vs `TeacherPedagogicalProfile.levels`) — les confondre sous
+  un seul nom aurait mélangé « le niveau suivi » et « les niveaux enseignés ».
+- **`role=parent_financeur` n'a aucun bloc pédagogique** : `level`, `levels` et `subjects` valent
+  toujours `null` pour ce rôle, ce n'est ni une anomalie ni une incohérence.
+- **`userId` sert uniquement à router** vers les écrans liés (profil/calendrier/cahier de texte
+  côté front) ; il n'est jamais affiché comme texte (arbitrage du 2026-08-09).
+- **Incohérence de données journalisée, pas bloquante** : un compte connu d'`identity-access-service`
+  pour ce rôle mais sans profil administratif local n'apparaît pas dans la liste (le profil
+  administratif est obligatoire, créé à l'inscription) et l'écart est journalisé côté serveur —
+  contrairement à l'annuaire formateurs, il n'est pas non plus inclus avec des champs `null` :
+  la population de référence vient d'un autre service, il n'y a pas de ligne locale à afficher
+  malgré tout.
+- **Dégradation, pas erreur, si `identity-access-service` est indisponible** pour un rôle
+  interrogé (`eleve`/`parent_financeur`/`animateur_pedagogique`) : la route renvoie une page
+  vide (`data: [], total: 0`) plutôt qu'un `5xx`, journalisé côté serveur.
+- Aucune modification de `api-gateway` n'a été nécessaire, même raisonnement que
+  `teachers/validated` (`/api/v1/profiles` proxifié en bloc).
 
 ### Relations
 

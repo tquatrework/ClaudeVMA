@@ -1710,6 +1710,15 @@ Phase 3 enrichit l'offre :
      - Ne pas construire cette lecture agrégée avant confirmation du gap réel par `front-developper`
        — éviter de dupliquer un affichage déjà existant ailleurs.
 
+  **Gap réel confirmé le 2026-09-02 par `front-developper` (PR #211), fermeture demandée par
+  l'utilisateur pour les 3 directions manquantes** : élève→professeurs était déjà couvert (panneau
+  "Formateurs liés" sur `ProfilePage`) ; élève→parents/parent→élèves existaient mais restaient
+  gardés par `isViewingOwnProfile` (jamais montrés à un tiers, RP inclus) ; AP→professeurs avait sa
+  route côté `profile-service` déjà ouverte au RP mais jamais consommée par le front ; professeur→
+  élèves/professeur→AP n'avaient **aucune route** dans ce sens. Les trois gaps sont fermés
+  ensemble : les deux premiers par correctif front (ouvrir l'affichage/le câblage déjà existants aux
+  rôles administratifs), le troisième par une nouvelle route `profile-service`.
+
 ## Points ouverts a arbitrer
 
 - `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a

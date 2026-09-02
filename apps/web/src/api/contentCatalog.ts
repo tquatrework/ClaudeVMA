@@ -1,6 +1,6 @@
 /**
  * Module API — content-catalog-service (Phase 12)
- * Évaluations, tutos-vidéos, commentaires, notations.
+ * Tutos-vidéos, commentaires, notations.
  * Toutes les requêtes passent par apiClient (base /api/v1).
  *
  * Les Exercices ont été retirés de ce module le 2026-08-29 (refonte en blocs typés) : voir
@@ -8,6 +8,12 @@
  * (learning-activity-service, réponses/tentatives/historique). L'ancien modèle plat
  * (`Exercise`, `ExerciseAnswer`, `ExerciseSolution`, demande de correction) ne correspond plus au
  * contrat serveur réel — voir `docs/architecture.md` > « Refonte des Exercices ».
+ *
+ * Les Évaluations sont retirées de ce module le 2026-09-02 (refonte notation manuelle/demande de
+ * correction) : voir `src/api/evaluations.ts` (content-catalog-service), `src/api/evaluationAttempts.ts`
+ * et `src/api/evaluationCorrections.ts` (learning-activity-service). L'ancien modèle plat
+ * (`Evaluation.subject`/`solutionContent`, `POST /evaluations/:id/attempts`) ne correspond plus au
+ * contrat serveur réel — voir `docs/architecture.md` > « Refonte des Evaluations ».
  */
 
 import apiClient from './client'
@@ -19,48 +25,6 @@ export type ContentType = 'exercise' | 'evaluation' | 'tutorial'
 export type DifficultyLevel = 'facile' | 'moyen' | 'difficile'
 
 export type ContentStatus = 'draft' | 'pending_validation' | 'published' | 'rejected'
-
-// ─── Évaluations ─────────────────────────────────────────────────────────────
-
-export interface Evaluation {
-  id: string
-  title: string
-  description: string
-  subject: string
-  level: string
-  difficultyLevel: DifficultyLevel
-  status: ContentStatus
-  authorId: string
-  durationMinutes?: number
-  hasSolution: boolean
-  createdAt: string
-  updatedAt?: string
-}
-
-export interface CreateEvaluationPayload {
-  title: string
-  description: string
-  subject: string
-  level: string
-  difficultyLevel: DifficultyLevel
-  solutionContent: string
-  durationMinutes?: number
-}
-
-export interface EvaluationAttempt {
-  id: string
-  evaluationId: string
-  studentId: string
-  answers: string
-  startedAt: string
-  completedAt?: string
-  score?: number
-  isSolutionUnlocked: boolean
-}
-
-export interface StartEvaluationAttemptPayload {
-  answers?: string
-}
 
 // ─── Tutoriels ────────────────────────────────────────────────────────────────
 
@@ -120,49 +84,6 @@ export interface PaginatedResponse<T> {
     page: number
     pageSize: number
   }
-}
-
-// ─── API Évaluations ──────────────────────────────────────────────────────────
-
-/**
- * GET /evaluations
- * Liste les évaluations publiées (ou toutes pour RP/AP).
- */
-export async function fetchEvaluations(params?: {
-  subject?: string
-  level?: string
-  status?: ContentStatus
-}): Promise<Evaluation[]> {
-  const { data } = await apiClient.get<Evaluation[] | PaginatedResponse<Evaluation>>(
-    '/evaluations',
-    { params },
-  )
-  if (Array.isArray(data)) return data
-  return (data as PaginatedResponse<Evaluation>).data ?? []
-}
-
-/**
- * POST /evaluations
- * Crée une évaluation (formateur, AP, RP). Nécessite une solution.
- */
-export async function createEvaluation(payload: CreateEvaluationPayload): Promise<Evaluation> {
-  const { data } = await apiClient.post<Evaluation>('/evaluations', payload)
-  return data
-}
-
-/**
- * POST /evaluations/:id/attempts
- * L'élève démarre ou soumet une tentative d'évaluation.
- */
-export async function startEvaluationAttempt(
-  evaluationId: string,
-  payload: StartEvaluationAttemptPayload,
-): Promise<EvaluationAttempt> {
-  const { data } = await apiClient.post<EvaluationAttempt>(
-    `/evaluations/${evaluationId}/attempts`,
-    payload,
-  )
-  return data
 }
 
 // ─── API Tutoriels ────────────────────────────────────────────────────────────

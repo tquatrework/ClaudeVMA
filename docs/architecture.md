@@ -1545,6 +1545,59 @@ Phase 3 enrichit l'offre :
      un multiple donné), sauf demande explicite ultérieure — rester permissif, cohérent avec le
      principe de ne pas construire de règle non demandée.
 
+- Import d'Exercice depuis un tableur (CSV/Excel), et modèle de type identique pour l'import de
+  Quizz. Arbitrage rendu le 2026-09-02, sur demande explicite de l'utilisateur, en complément direct
+  du modèle Exercice refondu (2026-08-29, 2026-09-01) et sur le même principe que l'import de Quizz
+  déjà livré (2026-08-29, PR #175-177).
+  1. **Format** : un discriminant `type` en première colonne, comme pour le Quizz. Un bloc Exercice
+     commence par une ligne `type=exercice` (métadonnées) puis une séquence de lignes
+     `type=enonce` / `type=question` / `type=image` (dans l'ordre où elles doivent apparaître dans
+     la séquence de blocs de l'Exercice) et `type=solution` (n'est pas un bloc de séquence, s'attache
+     à la question qui la précède immédiatement). **Une ligne `type=question` doit être immédiatement
+     suivie d'une ligne `type=solution` ; sinon, refus explicite** — mot pour mot la règle donnée par
+     l'utilisateur. Fin d'un bloc Exercice à la première ligne vide **ou** à la prochaine ligne
+     `type=exercice` (variante de la règle Quizz, qui ne s'arrêtait qu'au prochain `type=quizz` — ici
+     une ligne vide sert aussi de séparateur explicite, à la demande de l'utilisateur).
+  2. **Colonnes** (un seul jeu de colonnes fixe pour tout le fichier, beaucoup de cellules vides selon
+     le type de ligne — comme pour le Quizz) : `type | titre | niveau | difficulte | tags | themes |
+     competences | contenu | image_data`. Sur une ligne `type=exercice` : titre, niveau, difficulte,
+     tags (`;`-séparés), themes (`;`-séparés), competences (`;`-séparés) remplis, le reste vide. Sur
+     une ligne `enonce`/`question`/`solution` : `contenu` rempli (texte, peut contenir la syntaxe
+     légère déjà en place ailleurs — liens `[label](url)`, formules `$...$`/`$$...$$`), le reste vide.
+     Sur une ligne `image` : `image_data` rempli (même encodage base64 inline que
+     `POST`/`PUT /exercises` déjà en place depuis le bloc image de premier niveau, 2026-09-01) — noté
+     ici comme peu praticable à remplir à la main dans un tableur, mais techniquement supporté pour un
+     usage scripté/généré ; ne pas construire de mécanisme d'upload de fichier séparé pour ce cas.
+  3. **`content-catalog-service` gagne des champs de métadonnées qu'il n'avait pas encore sur
+     `Exercise` : niveau, difficulté, thèmes, compétences** (`tags` existe déjà). Lecture de la
+     demande de l'utilisateur, qui les énumère explicitement comme "éléments propres à l'exercice" —
+     traité ici comme une extension confirmée du modèle `Exercise`, symétrique aux champs déjà
+     portés par `Évaluation` (niveau/difficulté/thème/compétences/tags, arbitrage du 2026-08-28 pour
+     le Quizz puis repris pour l'Évaluation). **Reprendre exactement les mêmes noms de champs déjà
+     utilisés côté `Évaluation`/`Quizz` pour ces concepts** (vérifier dans le code réel, ne pas
+     redevine) — un seul nom par donnée, règle du projet. Point signalé comme une lecture de
+     l'orchestrateur, pas confirmé mot pour mot par l'utilisateur au-delà de l'énumération donnée — à
+     corriger si l'intention était plus étroite.
+  4. **Contraintes déjà arbitrées pour l'Exercice restent valables à l'import** : au moins un bloc
+     `statement` (peut être vide) et au moins un bloc `question` non vide (2026-09-01) ; titre
+     obligatoire, unique par auteur, avec disambiguation automatique par suffixe `"(N)"` en cas de
+     collision (2026-09-01) — ne pas réintroduire un refus 400 sur collision de titre à l'import.
+  5. **Un fichier peut contenir plusieurs Exercices ; l'échec d'un bloc n'empêche pas les autres**,
+     même convention que le Quizz : un statut par bloc (`created` + `exerciseId`/statut de
+     validation, ou `error` + lignes en cause et motif).
+  6. **Créateurs autorisés identiques à la création manuelle** (formateur/AP/RP), cycle de validation
+     identique (formateur → `pending_validation`, AP/RP → `validated` immédiat) — l'import ne
+     contourne aucune règle de validation, même principe que le Quizz.
+  7. **Un modèle/exemple téléchargeable doit être fourni pour l'import d'Exercice, ET rétroactivement
+     pour l'import de Quizz** (qui n'en a jamais eu, gap signalé explicitement par l'utilisateur).
+     Le format exact (route dédiée générant le fichier vs asset statique servi par le front) est
+     laissé à l'appréciation de `content-catalog-service`, qui reste la seule source de vérité du
+     format réel — objectif : que le format documenté ici et le fichier exemple ne puissent jamais
+     diverger silencieusement l'un de l'autre.
+  8. **CSV et Excel (`.xlsx`) tous deux acceptés, type détecté sur les octets réels**, plafond de
+     taille explicite annoncé avant l'envoi — mêmes conventions déjà posées pour l'import Quizz
+     (2026-08-29), à répliquer telles quelles pour l'Exercice plutôt qu'à réinventer.
+
 ## Points ouverts a arbitrer
 
 - `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a

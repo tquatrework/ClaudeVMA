@@ -1511,6 +1511,40 @@ Phase 3 enrichit l'offre :
   evenements Quizz/Exercice deja consommes) ; `front-developper` seulement une fois le contrat
   backend stabilise (meme sequencement que la refonte des Exercices).
 
+  **Suite livree et deployee** (PR #195-201) : backend, notifications et front tous mergés et
+  vérifiés en production le 2026-09-02 (front initialement oublié dans la première passe de
+  délégation, corrigé le jour même — voir aussi le point ci-dessous, trouvé au premier test réel).
+
+- Barème informatif pour l'Évaluation, affiché à l'élève, jamais utilisé pour un calcul
+  automatique. Arbitrage rendu le 2026-09-02, sur clarification de l'utilisateur après le premier
+  test réel de la refonte des Évaluations en production (PR #195-202) : le créateur d'une
+  Évaluation doit pouvoir communiquer à l'élève, en passant l'Évaluation, la valeur en points de
+  chaque question ou de chaque Exercice de la suite — au choix du créateur.
+  1. **Reste purement informatif, ne calcule jamais un score.** La correction demeure entièrement
+     manuelle (arbitrage du 2026-09-01, non remis en cause) : le professeur donne toujours un score
+     global + un commentaire sur la tentative. Le barème sert uniquement à ce que l'élève sache ce
+     que chaque item pèse en le passant — pas à produire ou contraindre automatiquement la note du
+     professeur. Si le besoin d'une correction elle-même granulaire (score par item, sommé) se
+     confirme plus tard, ce sera un arbitrage distinct — ne pas l'anticiper ici.
+  2. **Porté par `Évaluation`, jamais par `Exercice`.** Motif explicite de l'utilisateur : un même
+     Exercice peut être réutilisé par plusieurs Évaluations, chacune avec sa propre pondération — la
+     valeur n'est donc pas une propriété intrinsèque de l'Exercice. `content-catalog-service` reste
+     seul propriétaire des deux entités, mais le barème vit exclusivement dans les champs de
+     `Évaluation` (extension probable de `exerciseItems`), jamais dans `ExercisePart`/
+     `ExerciseSolution`.
+  3. **Granularité choisie par le créateur, par Évaluation : par Exercice ou par question — un seul
+     mode actif à la fois**, pas de mélange au sein d'une même Évaluation, pour rester simple. En
+     mode "par question", le barème référence les blocs de catégorie question de chaque Exercice
+     (déjà exposés par `GET /exercises/:id`) — une valeur de points par identifiant de bloc.
+  4. **Affiché à l'élève pendant le passage**, et raisonnablement dès la consultation avant
+     démarrage pour qu'il sache à quoi s'attendre. Le barème doit voyager dans la réponse déjà lue
+     par le front pour afficher la suite d'Exercices (`GET /evaluations/:id` côté
+     `content-catalog-service`) — pas de nouvelle route interservice a priori si ces champs y sont
+     simplement ajoutés.
+  5. **Aucune contrainte de somme totale imposée** (pas d'obligation que les poids totalisent 100 ou
+     un multiple donné), sauf demande explicite ultérieure — rester permissif, cohérent avec le
+     principe de ne pas construire de règle non demandée.
+
 ## Points ouverts a arbitrer
 
 - `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a

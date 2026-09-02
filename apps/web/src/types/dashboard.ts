@@ -29,6 +29,14 @@ export type NotificationType =
   // notification créée quand `CalendarEventCreated` porte au moins un invité
   // (docs/routes.md § dashboard-notification-service > "Consommateur d'événements").
   | 'event_invitation_received'
+  // Chantier « Refonte des Évaluations », flow de demande de correction (2026-09-01/02) :
+  // docs/routes.md § learning-activity-service > « Événements émis », consommés par
+  // dashboard-notification-service (.claude/reports/dashboard-notification-service-evaluations-2026-09-02.md).
+  | 'evaluation_correction_requested'
+  | 'evaluation_correction_accepted'
+  | 'evaluation_correction_declined'
+  | 'evaluation_correction_all_declined'
+  | 'evaluation_corrected'
   | (string & {})
 
 /**
@@ -59,6 +67,19 @@ export interface NotificationMetadata {
   title?: string | null
   /** `event_invitation_received` — horodatage ISO de l'événement (`payload.startTime`). */
   startAt?: string
+  /** Demande de correction d'Évaluation — identifiants réservés à un usage futur de lien
+   * profond (`GET /evaluation-corrections/:id`), jamais affichés à l'écran. */
+  correctionRequestId?: string
+  attemptId?: string
+  evaluationId?: string
+  /** `evaluation_correction_all_declined` — motif de l'escalade au RP : soit tous les
+   * professeurs liés ont refusé, soit l'élève n'a aucun professeur lié. */
+  reason?: 'all_linked_teachers_declined' | 'no_linked_teacher' | (string & {})
+  /** `evaluation_corrected` — note attribuée par le correcteur, potentiellement négative
+   * (pénalités) ou décimale ; formater avec `formatQuizScore` plutôt qu'afficher brut. */
+  score?: number | string | null
+  /** `evaluation_corrected` — commentaire du correcteur, optionnel. */
+  comment?: string | null
 }
 
 export interface DashboardNotification {

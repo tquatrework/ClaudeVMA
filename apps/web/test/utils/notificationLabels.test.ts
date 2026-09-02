@@ -208,6 +208,107 @@ describe('getNotificationDisplayText', () => {
     expect(text).toBe("Quelqu'un vous a invité à un événement")
     expect(text).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/i)
   })
+
+  // Chantier « Refonte des Évaluations », flow de demande de correction (2026-09-01/02).
+  // Contrat de `metadata` : .claude/reports/dashboard-notification-service-evaluations-2026-09-02.md
+  describe('flow de correction d\'Évaluation (2026-09-02)', () => {
+    it('résout evaluation_correction_requested avec le nom de l\'élève', () => {
+      const text = getNotificationDisplayText({
+        type: 'evaluation_correction_requested',
+        metadata: { studentName: 'Camille Verify' },
+        title: '',
+        message: '',
+      })
+      expect(text).toBe('Camille Verify demande une correction de son évaluation')
+      expect(text).not.toBe('Nouvelle notification')
+    })
+
+    it('résout evaluation_correction_accepted avec le nom du professeur et de l\'élève', () => {
+      const text = getNotificationDisplayText({
+        type: 'evaluation_correction_accepted',
+        metadata: { teacherName: 'prof lycee', studentName: 'Camille Verify' },
+        title: '',
+        message: '',
+      })
+      expect(text).toBe('prof lycee a pris en charge la correction de Camille Verify')
+    })
+
+    it('résout evaluation_correction_declined avec le nom du professeur et de l\'élève', () => {
+      const text = getNotificationDisplayText({
+        type: 'evaluation_correction_declined',
+        metadata: { teacherName: 'prof superieur', studentName: 'Camille Verify' },
+        title: '',
+        message: '',
+      })
+      expect(text).toBe('prof superieur a refusé la correction de Camille Verify')
+    })
+
+    it('résout evaluation_correction_all_declined — reason: all_linked_teachers_declined', () => {
+      const text = getNotificationDisplayText({
+        type: 'evaluation_correction_all_declined',
+        metadata: { studentName: 'Camille Verify', reason: 'all_linked_teachers_declined' },
+        title: '',
+        message: '',
+      })
+      expect(text).toBe(
+        'Tous les professeurs liés ont refusé la correction de Camille Verify — à traiter manuellement',
+      )
+    })
+
+    it('résout evaluation_correction_all_declined — reason: no_linked_teacher, libellé distinct', () => {
+      const text = getNotificationDisplayText({
+        type: 'evaluation_correction_all_declined',
+        metadata: { studentName: 'Camille Verify', reason: 'no_linked_teacher' },
+        title: '',
+        message: '',
+      })
+      expect(text).toBe('Aucun professeur lié pour corriger Camille Verify — à traiter manuellement')
+
+      const otherReasonText = getNotificationDisplayText({
+        type: 'evaluation_correction_all_declined',
+        metadata: { studentName: 'Camille Verify', reason: 'all_linked_teachers_declined' },
+        title: '',
+        message: '',
+      })
+      expect(text).not.toBe(otherReasonText)
+    })
+
+    it('résout evaluation_corrected avec le nom du correcteur et la note', () => {
+      const text = getNotificationDisplayText({
+        type: 'evaluation_corrected',
+        metadata: { teacherName: 'prof lycee', score: 15, comment: 'Bien joué' },
+        title: '',
+        message: '',
+      })
+      expect(text).toBe('Votre évaluation a été corrigée par prof lycee — note : 15')
+    })
+
+    it('evaluation_corrected reste lisible sans score connu (pas de "— note : —")', () => {
+      const text = getNotificationDisplayText({
+        type: 'evaluation_corrected',
+        metadata: { teacherName: 'prof lycee' },
+        title: '',
+        message: '',
+      })
+      expect(text).toBe('Votre évaluation a été corrigée par prof lycee')
+    })
+
+    it('aucun des 5 nouveaux types ne retombe sur le libellé générique de repli', () => {
+      const types = [
+        'evaluation_correction_requested',
+        'evaluation_correction_accepted',
+        'evaluation_correction_declined',
+        'evaluation_correction_all_declined',
+        'evaluation_corrected',
+      ] as const
+
+      for (const type of types) {
+        const text = getNotificationDisplayText({ type, metadata: {}, title: '', message: '' })
+        expect(text).not.toBe('Nouvelle notification')
+        expect(text).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/i)
+      }
+    })
+  })
 })
 
 describe('getNotificationTargetPath', () => {
@@ -226,5 +327,13 @@ describe('getNotificationTargetPath', () => {
 
   it('renvoie null pour un type inconnu', () => {
     expect(getNotificationTargetPath('some_legacy_type')).toBeNull()
+  })
+
+  it('renvoie null pour les 5 types du flow de correction d\'Évaluation (aucun écran livré)', () => {
+    expect(getNotificationTargetPath('evaluation_correction_requested')).toBeNull()
+    expect(getNotificationTargetPath('evaluation_correction_accepted')).toBeNull()
+    expect(getNotificationTargetPath('evaluation_correction_declined')).toBeNull()
+    expect(getNotificationTargetPath('evaluation_correction_all_declined')).toBeNull()
+    expect(getNotificationTargetPath('evaluation_corrected')).toBeNull()
   })
 })

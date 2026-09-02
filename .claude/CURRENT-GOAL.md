@@ -7,6 +7,24 @@
 
 ## Besoin courant
 
+Trois compléments à Visualisation, demandés le 2026-09-02 après premier test réel : (1) recherche
+(`q` sur prénom/nom, combinée au filtre de rôle) ; (2) actions de tuile différenciées par rôle —
+Élève : Profil/Calendrier/Cahier de texte/Mémos, Professeur/AP : Profil/Calendrier, Parent :
+Profil seul (jusqu'ici les mêmes 3 boutons pour tout le monde) ; (3) "Contacts essentiels" par
+tuile (élève→parents+professeurs, professeur→élèves+AP, parent→élèves, AP→professeurs) — demande
+ouverte de l'utilisateur, proposition retenue après vérification : investiguer d'abord ce qui
+s'affiche déjà sur la fiche Profil (précédent fort : l'arbitrage du 2026-08-12 sur la fin de
+relation élève↔formateur suggère que la fiche élève affiche déjà ses professeurs liés) avant de
+construire une lecture agrégée neuve. Arbitrage complet persisté dans `docs/architecture.md`
+(complément à "Reconstruction du rail gauche du RP").
+
+Délégué le 2026-09-02 : `profile-service` (paramètre `q` sur `GET /profiles/directory/by-role`) et
+`front-developper` (recherche, actions par rôle en vérifiant le nom réel de la route "Mémos" côté
+élève, investigation des contacts essentiels déjà affichés ou non par rôle — ne pas construire de
+lecture agrégée avant confirmation du gap réel).
+
+---
+
 Deux demandes liées, le 2026-09-02 : reconstruction du rail gauche RP (Gestion : Comptes/
 Délégation/Visualisation nouveau ; A traiter : Nouveaux Formateurs/Demandes professeurs/Demandes
 rattachement/Contenus à valider ; Contenu : Quizz/Exercices/Évaluations/Tutos-Vidéos/Forums/

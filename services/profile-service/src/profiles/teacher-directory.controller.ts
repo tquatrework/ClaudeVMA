@@ -87,7 +87,8 @@ export class TeacherDirectoryController {
     description:
       'Enveloppe `{data, page, limit, total, totalPages}` — jamais un tableau nu, sans quoi ' +
       'le front ne saurait pas combien de formateurs restent à afficher. Chaque entrée : ' +
-      '`{userId, firstName, lastName, levels, subjects}`, triée par nom puis prénom sur ' +
+      '`{userId, firstName, lastName, avatarUrl, levels, subjects}` (`avatarUrl` ajouté le ' +
+      "2026-09-02 pour l'usage tuile de l'annuaire RP « Visualisation »), triée par nom puis prénom sur " +
       "l'ensemble de la liste (et non page par page). `levels`/`subjects` valent `null` " +
       'quand le profil pédagogique — facultatif — ne les porte pas ; `firstName`/`lastName` ' +
       'à `null` signalent une incohérence de données journalisée côté serveur, jamais un ' +

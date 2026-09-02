@@ -7,6 +7,18 @@ export interface IdentityAccount {
   role: string;
 }
 
+/**
+ * Une entrée de `GET /internal/accounts?role=`. Même socle que
+ * `IdentityAccount` (le contrat ne documente pas de champs supplémentaires
+ * garantis — `email` est présent en pratique mais n'est pas consommé ici,
+ * `identity-access-service` en restant l'unique propriétaire).
+ */
+export interface IdentityAccountSummary {
+  userId: string;
+  loginIdentifier: string;
+  role: string;
+}
+
 /** Thrown when identity-access-service returns a 404 for the given lookup. */
 export class IdentityAccessNotFoundError extends Error {}
 
@@ -52,6 +64,27 @@ export class IdentityAccessClient {
   ): Promise<IdentityAccount> {
     return this.fetchAccount(
       `/internal/accounts/by-login-identifier?loginIdentifier=${encodeURIComponent(loginIdentifier)}`,
+      correlationId,
+    );
+  }
+
+  /**
+   * Liste des comptes détenant un rôle donné (`GET /internal/accounts?role=`),
+   * déjà consommée ailleurs dans la pile pour le fan-out par rôle des
+   * notifications (`docs/routes.md`, `POST /internal/notify`). Non paginée côté
+   * `identity-access-service` : c'est l'appelant qui pagine, après avoir croisé
+   * cette liste avec ses propres données (voir `RoleDirectoryService`).
+   *
+   * Un rôle vide renvoie `[]`, jamais une erreur — `identity-access-service`
+   * refuse en amont (`400`) une valeur hors de son enum de rôles, ce que
+   * l'appelant doit de toute façon valider avant d'émettre la requête.
+   */
+  async listAccountsByRole(
+    role: string,
+    correlationId?: string,
+  ): Promise<IdentityAccountSummary[]> {
+    return this.fetchAccountList(
+      `/internal/accounts?role=${encodeURIComponent(role)}`,
       correlationId,
     );
   }
@@ -105,5 +138,49 @@ export class IdentityAccessClient {
     }
 
     return response.json() as Promise<IdentityAccount>;
+  }
+
+  /**
+   * Variante DE LISTE de `fetchAccount` : pas de cas `404` (une liste vide est
+   * une réponse `200 []` normale, jamais une absence de ressource), sinon même
+   * politique d'erreur réseau/config.
+   */
+  private async fetchAccountList(
+    path: string,
+    correlationId?: string,
+  ): Promise<IdentityAccountSummary[]> {
+    const identityServiceUrl = this.configService.get<string>(
+      'IDENTITY_ACCESS_SERVICE_URL',
+      'http://identity-access-service:3001',
+    );
+    const internalSecret = this.configService.get<string>('INTERNAL_SECRET', '');
+
+    let response: Response;
+    try {
+      response = await fetch(`${identityServiceUrl}${path}`, {
+        method: 'GET',
+        headers: {
+          'X-Internal-Secret': internalSecret,
+          ...(correlationId ? { 'X-Correlation-Id': correlationId } : {}),
+        },
+        signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+      });
+    } catch (networkError) {
+      this.logger.error(
+        `Impossible de joindre identity-access-service (${path}) : ${(networkError as Error).message}. ` +
+          'Vérifier IDENTITY_ACCESS_SERVICE_URL et la disponibilité réseau.',
+      );
+      throw new IdentityAccessUnavailableError('identity-access-service unreachable or timed out');
+    }
+
+    if (!response.ok) {
+      this.logger.error(
+        `identity-access-service a retourné HTTP ${response.status} pour ${path}. ` +
+          'Vérifier INTERNAL_SECRET et la configuration réseau entre les deux services.',
+      );
+      throw new IdentityAccessUnavailableError(`identity-access-service returned HTTP ${response.status}`);
+    }
+
+    return response.json() as Promise<IdentityAccountSummary[]>;
   }
 }

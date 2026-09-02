@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import { AdministrativeProfile } from './entities/administrative-profile.entity';
@@ -15,6 +16,7 @@ import {
   TEACHERS_PAGE_DEFAULT_LIMIT,
   TEACHERS_PAGE_DEFAULT_PAGE,
 } from './dto/teachers-page.query.dto';
+import { DEFAULT_AVATAR_PUBLIC_PATH_PREFIX, buildAvatarUrl } from './administrative-profile.view';
 
 /**
  * LISTES DE FORMATEURS PAR STATUT DE VALIDATION.
@@ -73,6 +75,13 @@ export interface TeacherSummary {
   userId: string;
   firstName: string | null;
   lastName: string | null;
+  /**
+   * URL de lecture de la photo de profil, `null` en l'absence de photo.
+   * Ajouté le 2026-09-02 pour l'usage « tuile » de l'annuaire RP
+   * (`docs/architecture.md`, « Reconstruction du rail gauche du RP »/
+   * « Visualisation ») — champ additif, aucun consommateur existant cassé.
+   */
+  avatarUrl: string | null;
   levels: string[] | null;
   subjects: string[] | null;
 }
@@ -121,6 +130,9 @@ interface TeacherRow {
   userId: string;
   firstName: string | null;
   lastName: string | null;
+  avatarObjectKey: string | null;
+  avatarUpdatedAt: Date | null;
+  administrativeUpdatedAt: Date | null;
   levels: string | null;
   subjects: string | null;
   createdAt: Date;
@@ -146,10 +158,16 @@ function toStringArray(raw: string | null | undefined): string[] | null {
 export class TeacherDirectoryService {
   private readonly logger = new Logger(TeacherDirectoryService.name);
 
+  private readonly avatarPublicPathPrefix: string;
+
   constructor(
     @InjectRepository(TeacherValidation)
     private readonly teacherValidationRepo: Repository<TeacherValidation>,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.avatarPublicPathPrefix =
+      config.get<string>('AVATAR_PUBLIC_PATH_PREFIX') ?? DEFAULT_AVATAR_PUBLIC_PATH_PREFIX;
+  }
 
   /**
    * Liste paginée des formateurs VALIDÉS, triée par nom puis prénom.
@@ -174,6 +192,7 @@ export class TeacherDirectoryService {
       userId: row.userId,
       firstName: row.firstName,
       lastName: row.lastName,
+      avatarUrl: this.buildRowAvatarUrl(row),
       levels: toStringArray(row.levels),
       subjects: toStringArray(row.subjects),
     }));
@@ -212,6 +231,7 @@ export class TeacherDirectoryService {
         userId: row.userId,
         firstName: row.firstName,
         lastName: row.lastName,
+        avatarUrl: this.buildRowAvatarUrl(row),
         levels: toStringArray(row.levels),
         subjects: toStringArray(row.subjects),
         pendingSince: row.createdAt,
@@ -262,6 +282,9 @@ export class TeacherDirectoryService {
         .select('validation.teacherId', 'userId')
         .addSelect('administrative.firstName', 'firstName')
         .addSelect('administrative.lastName', 'lastName')
+        .addSelect('administrative.avatarObjectKey', 'avatarObjectKey')
+        .addSelect('administrative.avatarUpdatedAt', 'avatarUpdatedAt')
+        .addSelect('administrative.updatedAt', 'administrativeUpdatedAt')
         .addSelect('pedagogical.levels', 'levels')
         .addSelect('pedagogical.subjects', 'subjects')
         .addSelect('validation.createdAt', 'createdAt'),
@@ -289,6 +312,24 @@ export class TeacherDirectoryService {
       total,
       totalPages: limit > 0 ? Math.ceil(total / limit) : 0,
     };
+  }
+
+  /**
+   * `avatarUrl` d'une ligne brute, ou `null` en l'absence de photo — même
+   * fonction de construction que `AdministrativeProfileView`
+   * (`administrative-profile.view.ts`), appliquée ici à une ligne agrégée
+   * plutôt qu'à une entité hydratée.
+   */
+  private buildRowAvatarUrl(row: TeacherRow): string | null {
+    return buildAvatarUrl(
+      {
+        userId: row.userId,
+        avatarObjectKey: row.avatarObjectKey,
+        avatarUpdatedAt: row.avatarUpdatedAt,
+        updatedAt: row.administrativeUpdatedAt as Date,
+      },
+      this.avatarPublicPathPrefix,
+    );
   }
 
   /**

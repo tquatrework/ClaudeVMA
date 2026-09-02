@@ -26,8 +26,10 @@ import type {
   SavedProfileBlock,
   TeacherValidationRecord,
   UpdateTeacherValidationPayload,
+  UserDirectoryEntry,
   ValidatedTeacher,
 } from '../types/profile'
+import type { UserRole } from '../types/user'
 
 // ─── Profil ───────────────────────────────────────────────────────────────────
 
@@ -343,6 +345,37 @@ export async function fetchValidatedTeachers(
   const { data } = await apiClient.get<PaginatedResponse<ValidatedTeacher>>(
     '/profiles/teachers/validated',
     { params: { page, limit } },
+  )
+  return data
+}
+
+// ─── Annuaire par rôle (écran « Visualisation » du RP, 2026-09-02) ────────────
+
+/**
+ * Plafond de pagination par défaut retenu côté front — même valeur que les autres
+ * annuaires de ce service, faute de contrat documenté précisant un maximum serveur
+ * différent pour cette route (voir `UserDirectoryEntry`).
+ */
+export const USER_DIRECTORY_PAGE_SIZE = 100
+
+/**
+ * GET /profiles/directory/by-role — annuaire par rôle (élève, parent financeur,
+ * formateur, animateur pédagogique), réservé RP/AF/TI.
+ *
+ * Livrée par `profile-service` le 2026-09-02, vérifiée joignable via la passerelle
+ * par l'orchestrateur (`401` sans jeton) mais **non documentée dans `docs/routes.md`**
+ * au moment de l'implémentation front — voir `UserDirectoryEntry`. L'enveloppe de
+ * pagination reste supposée conforme à celle, déjà stable, des autres annuaires de
+ * ce service (`{data, page, limit, total, totalPages}`).
+ */
+export async function fetchUserDirectoryByRole(
+  role: UserRole,
+  page = 1,
+  limit = USER_DIRECTORY_PAGE_SIZE,
+): Promise<PaginatedResponse<UserDirectoryEntry>> {
+  const { data } = await apiClient.get<PaginatedResponse<UserDirectoryEntry>>(
+    '/profiles/directory/by-role',
+    { params: { role, page, limit } },
   )
   return data
 }

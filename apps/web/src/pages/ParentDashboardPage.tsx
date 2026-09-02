@@ -12,6 +12,7 @@ import { getRailGroupsForRole, filterTopNavItems } from '../navigation/navigatio
 import { PageTitle } from '../components/ui/PageTitle'
 import { useParentDashboard } from '../hooks/dashboard/useParentDashboard'
 import { MemoReadOnlyModal } from '../components/pedagogical-log/MemoReadOnlyModal'
+import { PersonTile } from '../components/ui/PersonTile'
 
 export default function ParentDashboardPage() {
   const { user, hasRole } = useAuth()
@@ -82,28 +83,24 @@ export default function ParentDashboardPage() {
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,_minmax(300px,_1fr))] gap-4">
             {studentCards.map((studentCard) => (
-              <div
+              <PersonTile
                 key={studentCard.studentId}
-                style={{ boxShadow: 'var(--shadow-card)' }}
-                className="bg-[var(--color-white)] border border-[var(--color-surface)] rounded-[var(--radius-card)] p-5"
+                displayName={studentCard.displayName}
+                subtitle={studentCard.loginIdentifier}
+                actions={[
+                  { label: 'Profil', to: `/profiles/${studentCard.studentId}` },
+                  { label: 'Calendrier', to: `/calendar?studentId=${studentCard.studentId}` },
+                  { label: 'Cahier', to: `/pedagogical-log?studentId=${studentCard.studentId}` },
+                  {
+                    label: 'Mémos',
+                    onClick: () =>
+                      setMemoModalStudent({
+                        studentId: studentCard.studentId,
+                        displayName: studentCard.displayName,
+                      }),
+                  },
+                ]}
               >
-                {/* En-tête carte */}
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-full bg-[var(--accent)] flex items-center justify-center text-white font-bold text-[16px] shrink-0">
-                    {studentCard.displayName.charAt(0).toUpperCase()}
-                  </div>
-                  <div>
-                    <p className="text-[15px] font-semibold text-[color:var(--color-ink)] m-0">
-                      {studentCard.displayName}
-                    </p>
-                    {studentCard.loginIdentifier && (
-                      <p className="text-[11px] text-[color:var(--color-text-secondary)] m-0">
-                        {studentCard.loginIdentifier}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
                 {/* Prochain cours */}
                 <div className="p-3 bg-[var(--color-bg)] rounded-[var(--radius-field)] mb-3">
                   <p className="text-[11px] font-semibold text-[color:var(--color-text-secondary)] mb-1">
@@ -130,41 +127,7 @@ export default function ParentDashboardPage() {
                     </p>
                   )}
                 </div>
-
-                {/* Actions */}
-                <div className="flex gap-2 flex-wrap">
-                  <Link
-                    to={`/profiles/${studentCard.studentId}`}
-                    className="text-[12px] text-[color:var(--accent)] border border-[var(--color-surface)] rounded-[var(--radius-pill)] py-[5px] px-3 no-underline font-medium"
-                  >
-                    Profil
-                  </Link>
-                  <Link
-                    to={`/calendar?studentId=${studentCard.studentId}`}
-                    className="text-[12px] text-[color:var(--accent)] border border-[var(--color-surface)] rounded-[var(--radius-pill)] py-[5px] px-3 no-underline font-medium"
-                  >
-                    Calendrier
-                  </Link>
-                  <Link
-                    to={`/pedagogical-log?studentId=${studentCard.studentId}`}
-                    className="text-[12px] text-[color:var(--accent)] border border-[var(--color-surface)] rounded-[var(--radius-pill)] py-[5px] px-3 no-underline font-medium"
-                  >
-                    Cahier
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setMemoModalStudent({
-                        studentId: studentCard.studentId,
-                        displayName: studentCard.displayName,
-                      })
-                    }
-                    className="text-[12px] text-[color:var(--accent)] border border-[var(--color-surface)] rounded-[var(--radius-pill)] py-[5px] px-3 font-medium"
-                  >
-                    Mémos
-                  </button>
-                </div>
-              </div>
+              </PersonTile>
             ))}
           </div>
         )}

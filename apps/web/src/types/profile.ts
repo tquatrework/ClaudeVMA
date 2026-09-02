@@ -447,6 +447,27 @@ export interface ValidatedTeacher {
 }
 
 /**
+ * Une entrée de l'annuaire par rôle (`GET /profiles/directory/by-role`), livré par
+ * `profile-service` le 2026-09-02 pour l'écran « Visualisation » du rail RP
+ * (`docs/architecture.md` > « Reconstruction du rail gauche du Responsable Pédagogique (RP) »).
+ *
+ * ⚠️ **Contrat non documenté dans `docs/routes.md` au moment de l'implémentation front** — route
+ * vérifiée joignable via la passerelle par l'orchestrateur (`401` sans jeton, pas `404`), mais le
+ * détail exact des champs par rôle n'a pas pu être confirmé par la documentation ni par un appel
+ * authentifié direct. Le type reste donc volontairement **restreint au socle garanti partout
+ * ailleurs dans ce projet** (arbitrage du 2026-08-17 : prénom/nom toujours visibles, jamais
+ * l'identifiant technique affiché) — tout champ additionnel que le serveur renverrait réellement
+ * (niveaux, matières…) est ignoré plutôt que deviné, pour ne jamais construire un contrat inventé.
+ * `userId` sert uniquement à construire les liens d'action (profil, calendrier, cahier de texte),
+ * jamais affiché (arbitrage du 2026-08-09).
+ */
+export interface UserDirectoryEntry {
+  userId: string
+  firstName: string | null
+  lastName: string | null
+}
+
+/**
  * Réponse de `GET /profiles/avatar/constraints` — contraintes d'envoi de la
  * photo de profil, **en vigueur côté serveur**.
  *

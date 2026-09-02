@@ -58,7 +58,12 @@ export class RoleDirectoryController {
       "uniquement à router vers les écrans liés, jamais à être lu par l'utilisateur.\n\n" +
       `**LISTE BORNÉE.** \`page\` (défaut 1) et \`limit\` (défaut ${DIRECTORY_PAGE_DEFAULT_LIMIT}, ` +
       `maximum ${DIRECTORY_PAGE_MAX_LIMIT}). Un \`limit\` supérieur au plafond est refusé en ` +
-      "`400`, jamais ramené en silence au plafond.",
+      "`400`, jamais ramené en silence au plafond.\n\n" +
+      '**RECHERCHE (`q`, ajoutée le 2026-09-02).** Filtre insensible à la casse sur ' +
+      '`firstName`/`lastName`, combiné au filtre `role` déjà en place. Appliqué **côté serveur, ' +
+      "avant la pagination** — jamais un filtrage client sur la seule page déjà chargée. `q` " +
+      'absent ou vide : comportement inchangé. `role: formateur` transmet `q` tel quel à ' +
+      '`GET /profiles/teachers/validated`.',
   })
   @ApiQuery({
     name: 'role',
@@ -79,6 +84,14 @@ export class RoleDirectoryController {
     description:
       `Nombre d'utilisateurs par page. Défaut : ${DIRECTORY_PAGE_DEFAULT_LIMIT}, ` +
       `maximum : ${DIRECTORY_PAGE_MAX_LIMIT}.`,
+  })
+  @ApiQuery({
+    name: 'q',
+    required: false,
+    type: String,
+    description:
+      'Recherche insensible à la casse sur prénom/nom, combinée au filtre `role`. Vide ou ' +
+      'absent : aucun filtre supplémentaire (comportement inchangé). Maximum 100 caractères.',
   })
   @ApiResponse({
     status: 200,

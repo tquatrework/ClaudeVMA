@@ -25,6 +25,7 @@ const makeQuery = (overrides: Partial<RoleDirectoryPageQueryDto> = {}): RoleDire
   dto.role = overrides.role ?? (UserRole.ELEVE as never);
   dto.page = overrides.page;
   dto.limit = overrides.limit;
+  dto.q = overrides.q;
   return dto;
 };
 
@@ -39,6 +40,7 @@ function makeQueryBuilderStub(rows: unknown[], total: number) {
   for (const method of [
     'leftJoin',
     'where',
+    'andWhere',
     'select',
     'addSelect',
     'orderBy',
@@ -178,6 +180,18 @@ describe('RoleDirectoryService', () => {
         levels: ['seconde'],
         subjects: ['mathematiques'],
       });
+    });
+
+    it('transmet `q` tel quel à TeacherDirectoryService.listValidatedTeachers', async () => {
+      await service.listByRole(
+        makeQuery({ role: UserRole.FORMATEUR as never, q: 'Chainon' }),
+        makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE),
+      );
+
+      expect(teacherDirectoryService.listValidatedTeachers).toHaveBeenCalledWith(
+        expect.objectContaining({ q: 'Chainon' }),
+        expect.anything(),
+      );
     });
   });
 
@@ -356,6 +370,36 @@ describe('RoleDirectoryService', () => {
 
       expect(queryBuilder.calls.offset).toEqual([[10]]);
       expect(queryBuilder.calls.limit).toEqual([[5]]);
+    });
+
+    // -------------------------------------------------------------------------
+    // Recherche par nom (`q`) — ajoutée le 2026-09-02, combinée au filtre de rôle
+    // -------------------------------------------------------------------------
+
+    it('n\'ajoute aucun filtre supplémentaire quand q est absent', async () => {
+      await service.listByRole(
+        makeQuery({ role: UserRole.ELEVE as never }),
+        makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE),
+      );
+
+      expect(queryBuilder.calls.andWhere).toBeUndefined();
+    });
+
+    it('ajoute un filtre ILIKE sur prénom/nom, combiné au filtre de rôle, quand q est fourni', async () => {
+      await service.listByRole(
+        makeQuery({ role: UserRole.ELEVE as never, q: 'Camille' }),
+        makeActor(UserRole.RESPONSABLE_PEDAGOGIQUE),
+      );
+
+      expect(queryBuilder.calls.where).toEqual([
+        ['administrative.userId IN (:...userIds)', { userIds: ['u1', 'u2'] }],
+      ]);
+      expect(queryBuilder.calls.andWhere).toEqual([
+        [
+          '(administrative.firstName ILIKE :q OR administrative.lastName ILIKE :q)',
+          { q: '%Camille%' },
+        ],
+      ]);
     });
   });
 });

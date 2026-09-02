@@ -275,6 +275,17 @@ export class TeacherDirectoryService {
       )
       .where('validation.status = :status', { status });
 
+    if (query.q) {
+      // Recherche insensible à la casse sur prénom/nom (arbitrage du 2026-09-02,
+      // `docs/architecture.md` > « Reconstruction du rail gauche du RP » >
+      // « Compléments demandés le 2026-09-02 », point 1). Combinée au filtre de
+      // statut déjà posé ci-dessus, jamais en remplacement.
+      baseQuery.andWhere(
+        '(administrative.firstName ILIKE :q OR administrative.lastName ILIKE :q)',
+        { q: `%${query.q}%` },
+      );
+    }
+
     const total = await baseQuery.clone().getCount();
 
     const rows = await this.applyOrder(

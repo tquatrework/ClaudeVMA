@@ -51,6 +51,16 @@ const DEFAULT_LIMIT = 20
 const WIDE_LIMIT = 100
 
 /**
+ * `tags` est renvoyé `null` (pas `[]`) par le serveur quand aucun tag n'a été fourni à la création
+ * — vérifié en HTTP direct le 2026-09-02. Le type `Evaluation.tags` est déclaré non-nullable
+ * (même convention que Quizz/Exercice) : toute réponse passe par cette normalisation avant
+ * d'atteindre le reste du front, pour ne jamais faire planter un `.map`/`.length` sur `null`.
+ */
+function normalizeEvaluation(raw: Evaluation): Evaluation {
+  return { ...raw, tags: raw.tags ?? [] }
+}
+
+/**
  * GET /evaluations
  * Recherche paginée, filtrable par niveau/difficulté/thème/tag/mot-clé (titre). Élèves et parents
  * ne voient que les évaluations `validated` ; les autres rôles voient tous les statuts.
@@ -69,7 +79,7 @@ export async function searchEvaluations(
       ...(params.keyword ? { keyword: params.keyword } : {}),
     },
   })
-  return data
+  return { ...data, items: data.items.map(normalizeEvaluation) }
 }
 
 /**
@@ -80,7 +90,7 @@ export async function searchEvaluations(
  */
 export async function fetchEvaluation(evaluationId: string): Promise<Evaluation> {
   const { data } = await apiClient.get<Evaluation>(`/evaluations/${evaluationId}`)
-  return data
+  return normalizeEvaluation(data)
 }
 
 /**
@@ -90,7 +100,7 @@ export async function fetchEvaluation(evaluationId: string): Promise<Evaluation>
  */
 export async function createEvaluation(payload: CreateEvaluationPayload): Promise<Evaluation> {
   const { data } = await apiClient.post<Evaluation>('/evaluations', payload)
-  return data
+  return normalizeEvaluation(data)
 }
 
 /** DELETE /evaluations/:id — retire une évaluation (statut `REMOVED`). Auteur, RP ou TI. */

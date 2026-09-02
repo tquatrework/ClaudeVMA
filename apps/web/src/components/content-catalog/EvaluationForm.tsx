@@ -74,9 +74,12 @@ export function EvaluationForm({ onSaved, onCancel }: EvaluationFormProps) {
 
       const saved = await createEvaluation({
         title: title.trim(),
+        // `order` doit être >= 1 (vérifié en HTTP direct le 2026-09-02 :
+        // `exerciseItems.0.order must not be less than 1`), contrairement à `order` sur les blocs
+        // d'Exercice qui, lui, part de 0 — deux DTO distincts, pas la même convention.
         exerciseItems: exerciseItems.map((item, index) => ({
           exerciseId: item.exerciseId,
-          order: index,
+          order: index + 1,
           ...(item.titleOverride.trim() ? { titleOverride: item.titleOverride.trim() } : {}),
         })),
         ...(level.trim() ? { level: level.trim() } : {}),

@@ -48,10 +48,26 @@ parents/professeurs/AP), champs socle pour affichage en tuile, aucun UUID affich
 rôles administratifs. `front-developper` à déléguer ensuite pour construire les tuiles + boutons une
 fois ce contrat stabilisé (PR #207 déjà ouverte, à compléter plutôt qu'à remplacer).
 
-**Reste à faire** : demander à l'utilisateur s'il veut merger #207 maintenant (structure de rail déjà
-correcte, Visualisation formateurs-only en attendant la suite) ou attendre que Visualisation soit
-complète ; vérifier après déploiement conjoint que le clic sur un contenu `pending_validation` depuis
-"Contenus à valider" affiche bien le contenu complet désormais.
+**`profile-service` mergé (PR #209), déployé, joignabilité via la passerelle vérifiée (`401` sans
+jeton sur `/api/v1/profiles/directory/by-role`, pas de `404`).** `GET /profiles/directory/by-role`
+livrée, réservée RP/AF/TI, `role=formateur` délègue à l'annuaire déjà existant, les 3 autres rôles
+croisent `identity-access-service`. 703 tests verts, contrat complet documenté dans `docs/routes.md`
+(y compris `avatarUrl`/`level`/`levels`/`subjects`, pas seulement le socle nom/prénom).
+
+**`front-developper` mergé (PR #207), déployé, site vérifié `200`.** Rail RP reconstruit tel que
+spécifié, écran "Visualisation" couvrant les 4 rôles avec `PersonTile` (extrait sans régression de
+la tuile élève déjà utilisée par `ParentDashboardPage`), boutons profil/calendrier/cahier de texte
+par tuile, photo + niveau/matières affichés (parent financeur : aucune ligne, conforme — ce champ
+n'a pas de bloc pédagogique). Sur confirmation explicite de l'utilisateur ("oui, merge et déploie
+#207").
+
+**Chantier rail RP + Visualisation clos.**
+
+**Reste à vérifier** (pas encore fait par l'orchestrateur) : après ce déploiement conjoint, confirmer
+que le clic sur un contenu `pending_validation` depuis "Contenus à valider" affiche bien le contenu
+complet désormais (conséquence attendue de PR #208, jamais reconfirmée en conditions réelles après
+le redéploiement du front) — à l'utilisateur de constater, ou à vérifier au prochain passage sur ce
+sujet.
 
 ---
 

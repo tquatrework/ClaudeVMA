@@ -111,15 +111,21 @@ export function filterTopNavItems(
  * Les files de travail du RP, déclarées **une seule fois**.
  *
  * L'arbitrage du 2026-08-12 le formule ainsi : « le RP a un plan de travail, pas
- * des écrans épars ». Ses deux files sont de la même famille — un dossier arrive,
+ * des écrans épars ». Ces files sont de la même famille — un dossier arrive,
  * il l'instruit, il tranche — et doivent donc être voisines dans le rail *et*
  * atteignables l'une depuis l'autre (`RpWorkQueueNav`).
  *
- * Deux entrées plutôt qu'une page à deux sections : les deux files n'ont ni la
- * même source (`profile-service` / `teacher-request-service`), ni la même
- * pagination, ni le même rythme de traitement. Les fusionner obligerait à charger
- * les deux pour en consulter une, ce que la règle de chargement au niveau de la
- * page (2026-08-10) déconseille.
+ * Étendu le 2026-09-02 (reconstruction du rail RP, `docs/architecture.md` >
+ * « Reconstruction du rail gauche du Responsable Pédagogique (RP) ») de 2 à
+ * 4 entrées, pour couvrir le groupe « À traiter » demandé tel quel : Nouveaux
+ * Formateurs, Demandes professeurs, Demandes rattachement, Contenus à valider.
+ *
+ * Quatre entrées plutôt qu'une page à quatre sections : les files n'ont ni la
+ * même source (`profile-service` / `teacher-request-service` /
+ * `content-catalog-service`), ni la même pagination, ni le même rythme de
+ * traitement. Les fusionner obligerait à charger les quatre pour en consulter
+ * une, ce que la règle de chargement au niveau de la page (2026-08-10)
+ * déconseille.
  */
 export const RP_WORK_QUEUES = [
   {
@@ -137,6 +143,22 @@ export const RP_WORK_QUEUES = [
     path: '/teacher-requests',
     icon: '🎓',
     description: 'Demandes des élèves à instruire.',
+  },
+  {
+    id: 'parent-link-requests',
+    label: 'Demandes rattachement',
+    shortLabel: 'Rattachements',
+    path: '/parent-link-requests/inbox',
+    icon: '👨‍👩‍👧',
+    description: 'Demandes de rattachement parent financeur ↔ élève en attente.',
+  },
+  {
+    id: 'content-validation',
+    label: 'Contenus à valider',
+    shortLabel: 'Contenus',
+    path: '/content/validation',
+    icon: '✅',
+    description: 'Quizz, exercices, évaluations et tutoriels soumis à validation.',
   },
 ] as const
 
@@ -258,42 +280,64 @@ export const RAIL_GROUPS_BY_ROLE: Record<UserRole, RailGroup[]> = {
     },
   ],
 
+  // Rail reconstruit le 2026-09-02 (`docs/architecture.md` > « Reconstruction
+  // du rail gauche du Responsable Pédagogique (RP) »), structure demandée
+  // telle quelle par l'utilisateur : Gestion (Comptes, Délégations,
+  // Visualisation) → À traiter (les 4 files de RP_WORK_QUEUES) → Contenu
+  // (Quizz, Exercices, Évaluations, Tutos/Vidéos, Forums, Parcours, Jeux) →
+  // Observabilité (inchangé). Remplace l'ancien découpage
+  // À traiter / Gestion / Validation / Pédagogie / Observabilité.
+  //
+  // Deux entrées de l'ancien groupe « Pédagogie » n'ont pas de repreneur dans
+  // la structure demandée : « Cahier de texte » (`/pedagogical-log`) et
+  // « Archives » (`/archives`). Archives reste atteignable pour le RP via le
+  // menu du haut (TOP_NAV_CONFIG, id 'archives', déjà ouvert à
+  // responsable_pedagogique) ; Cahier de texte perd tout point d'entrée
+  // depuis le rail RP — signalé comme régression potentielle dans le rapport
+  // de livraison, la route (`/pedagogical-log`) reste ouverte au RP côté
+  // serveur, seul le raccourci de rail disparaît.
   responsable_pedagogique: [
-    // Plan de travail du RP (arbitrage du 2026-08-12) : ses deux files sont
-    // voisines et en tête de rail, pas dispersées dans « Gestion » et
-    // « Validation ». Voir RP_WORK_QUEUES ci-dessous, qui les rend également
-    // visibles l'une depuis l'autre.
-    {
-      groupLabel: 'À traiter',
-      items: RP_WORK_QUEUES.map(({ label, path, icon }) => ({ label, path, icon })),
-    },
     {
       groupLabel: 'Gestion',
       items: [
         { label: 'Comptes', path: '/admin/accounts', icon: '🔑' },
         { label: 'Délégations', path: '/delegations', icon: '🔗' },
+        // 'Visualisation' — nouveau le 2026-09-02 : accès structuré du RP aux
+        // fiches élèves / parents / professeurs / AP. Annuaire réel pour les
+        // formateurs validés (`GET /profiles/teachers/validated`) ; élèves,
+        // parents et AP n'ont aujourd'hui aucune route de liste côté serveur
+        // — signalé explicitement à l'écran plutôt que simulé.
+        { label: 'Visualisation', path: '/rp/visualisation', icon: '👁️' },
       ],
     },
+    // Plan de travail du RP (arbitrage du 2026-08-12, étendu le 2026-09-02) :
+    // ses files sont voisines et en tête utile du rail, pas dispersées dans
+    // « Gestion » et « Validation ». Voir RP_WORK_QUEUES ci-dessus, qui les
+    // rend également visibles l'une depuis l'autre (`RpWorkQueueNav`).
     {
-      groupLabel: 'Validation',
-      items: [
-        { label: 'Contenus à valider', path: '/content/validation', icon: '✅' },
-        { label: 'Demandes rattachement', path: '/parent-link-requests/inbox', icon: '👨‍👩‍👧' },
-      ],
+      groupLabel: 'À traiter',
+      items: RP_WORK_QUEUES.map(({ label, path, icon }) => ({ label, path, icon })),
     },
     {
-      groupLabel: 'Pédagogie',
+      groupLabel: 'Contenu',
       items: [
-        { label: 'Cahier de texte', path: '/pedagogical-log', icon: '📖' },
-        { label: 'Archives', path: '/archives', icon: '🗂️' },
-        { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
-        { label: 'Forums', path: '/community/forums', icon: '💬' },
-        // 'Quizz' ajouté le 2026-08-28 : le RP est un créateur autorisé
+        // 'Quizz' : le RP est un créateur autorisé
         // (docs/architecture.md > « Fonctionnalite Quizz »), auto-validé à la
         // création — sans cette entrée il n'aurait aucun moyen d'atteindre le
         // formulaire de création. La file de validation des quizz créés par
-        // les professeurs reste accessible via « Contenus à valider » ci-dessous.
+        // les professeurs reste accessible via « Contenus à valider » (groupe
+        // « À traiter » ci-dessus).
         { label: 'Quizz', path: '/content/quizz', icon: '❓' },
+        { label: 'Exercices', path: '/content/exercises', icon: '📐' },
+        { label: 'Évaluations', path: '/content/evaluations', icon: '📝' },
+        { label: 'Tutos/Vidéos', path: '/content/tutorials', icon: '🎬' },
+        { label: 'Forums', path: '/community/forums', icon: '💬' },
+        { label: 'Parcours', path: '/community/paths', icon: '🗺️' },
+        // 'Jeux' — route déjà réelle (`GamesPage`, ressources externes
+        // statiques), jusqu'ici réservée au rôle élève. Ouverte au RP le
+        // 2026-09-02 (App.tsx + routeAccessMap.ts) pour honorer la demande
+        // explicite, sans construire de nouvel écran.
+        { label: 'Jeux', path: '/community/games', icon: '🎮' },
       ],
     },
     {

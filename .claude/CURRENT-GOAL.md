@@ -13,14 +13,28 @@ plus bas). Arbitrage complet persisté dans `docs/architecture.md` ("Import d'Ex
 tableur..."), même principe que l'import Quizz déjà livré (2026-08-29) : discriminant `type` par
 ligne (`exercice`/`enonce`/`question`/`solution`/`image`), une ligne `question` doit être
 immédiatement suivie d'une ligne `solution` sinon refus explicite, fin de bloc à la première ligne
-vide ou au prochain `type=exercice`. Extension du modèle `Exercise` avec niveau/difficulté/
-thèmes/compétences (lecture de l'orchestrateur, à confirmer si trop large). **Modèle/exemple
-téléchargeable à fournir pour les deux imports, Exercice ET Quizz** (celui-ci n'en a jamais eu —
-gap signalé par l'utilisateur).
+vide ou au prochain `type=exercice`. **Modèle/exemple téléchargeable à fournir pour les deux
+imports, Exercice ET Quizz** (celui-ci n'en a jamais eu — gap signalé par l'utilisateur).
 
-Délégué à `content-catalog-service` le 2026-09-02 (parsing, validation, route, extension du modèle
-Exercise, fichiers modèles téléchargeables pour Exercice et Quizz). `front-developper` à déléguer
-ensuite (bouton d'import Exercice, lien de téléchargement du modèle sur les deux écrans d'import).
+**Correction en cours de route** : l'orchestrateur avait cru que `Exercise` avait besoin d'une
+extension de modèle pour niveau/difficulté/thèmes/compétences — faux, confirmé par l'utilisateur,
+ces champs existent déjà. `docs/architecture.md` corrigé, agent redirigé avant qu'il n'écrive de
+migration inutile.
+
+**`content-catalog-service` mergé (PR #205), déployé, site vérifié `200`.**
+`POST /exercises/import` + `GET /exercises/import/constraints` livrés sur le même mécanisme que
+l'import Quizz. Règle "question immédiatement suivie de solution" et double terminateur de bloc
+(ligne vide OU nouvelle ligne `exercice`) implémentés et testés. Aucun champ/migration ajouté sur
+`Exercise` (confirmé indépendamment par l'agent avant même de recevoir la correction). Fichiers
+modèles téléchargeables ajoutés pour Exercice et rétroactivement Quizz. 404/404 tests verts, preuve
+HTTP complète contre le conteneur réel. **Incident mineur au redéploiement** (même défaut récurrent
+que pour `frontend` et `content-catalog-service` lui-même les fois précédentes) : conteneur démarré
+en `docker run` brut par le subagent pendant sa vérification, conflit de nom au redéploiement —
+arrêté/retiré proprement par l'orchestrateur avant de relancer `docker compose up`, aucune perte de
+données.
+
+**Reste à déléguer** : `front-developper` — bouton d'import Exercice, lien de téléchargement du
+modèle sur les deux écrans d'import (Exercice ET Quizz, qui n'en a jamais eu).
 
 ---
 

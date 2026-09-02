@@ -7,6 +7,25 @@
 
 ## Besoin courant
 
+Deux demandes liées, le 2026-09-02 : reconstruction du rail gauche RP (Gestion : Comptes/
+Délégation/Visualisation nouveau ; A traiter : Nouveaux Formateurs/Demandes professeurs/Demandes
+rattachement/Contenus à valider ; Contenu : Quizz/Exercices/Évaluations/Tutos-Vidéos/Forums/
+Parcours/Jeux ; Observabilité inchangé) — répond aussi à la question de menu en attente depuis le
+chantier Évaluations (entrée RP absente du rail). Et un vrai bug UX : RP/AP doivent aujourd'hui
+valider un Quizz/Exercice/Évaluation **sans le voir** (statut `pending_validation` bloque la
+lecture pour un non-auteur même validateur légitime) — doit désormais s'afficher comme si validé
+(avec le tag "en attente"), pour juger avant de décider dans "A valider". Arbitrages complets
+persistés dans `docs/architecture.md` ("Visibilité du contenu en attente..." et "Reconstruction du
+rail gauche du RP").
+
+Délégué en parallèle le 2026-09-02 : `content-catalog-service` (élargir la lecture de
+`GET /quizzes/:id`/`GET /exercises/:id`/`GET /evaluations/:id` à RP illimité et AP scopé
+`animator_of_teacher`, quel que soit le statut) et `front-developper` (rail RP, en investiguant ce
+qui existe déjà pour "Visualisation"/Forums/Parcours/Jeux plutôt que d'inventer des routes ; le
+câblage "voir avant de valider" suivra une fois le contrat backend confirmé).
+
+---
+
 Import d'Exercice depuis un tableur (CSV/Excel), demandé le 2026-09-02, pendant que l'utilisateur
 vérifie le rail RP en parallèle (question de menu du chantier Évaluations toujours en attente, voir
 plus bas). Arbitrage complet persisté dans `docs/architecture.md` ("Import d'Exercice depuis un

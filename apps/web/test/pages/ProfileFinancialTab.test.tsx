@@ -39,7 +39,14 @@ import {
   fetchProfileAvatarBlob,
   fetchProfileAvatarConstraints,
 } from '../../src/api/profile'
-import { fetchTeacherStudentRelations } from '../../src/api/relations'
+import {
+  fetchTeacherStudentRelations,
+  fetchLinkedParents,
+  fetchLinkedStudents,
+  fetchAnimatedTeachers,
+  fetchStudentsOfTeacher,
+  fetchAnimatorsOfTeacher,
+} from '../../src/api/relations'
 import { fetchFinancialArchives, fetchFinancialProfile } from '../../src/api/finance'
 import type { UserRole } from '../../src/types/user'
 
@@ -128,6 +135,11 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockApiClient.get = vi.fn().mockResolvedValue({ data: [] })
   vi.mocked(fetchTeacherStudentRelations).mockResolvedValue([])
+  vi.mocked(fetchLinkedParents).mockResolvedValue([])
+  vi.mocked(fetchLinkedStudents).mockResolvedValue([])
+  vi.mocked(fetchAnimatedTeachers).mockResolvedValue([])
+  vi.mocked(fetchStudentsOfTeacher).mockResolvedValue([])
+  vi.mocked(fetchAnimatorsOfTeacher).mockResolvedValue([])
   vi.mocked(fetchInternalNotes).mockResolvedValue([])
   vi.mocked(fetchProfileAvatarConstraints).mockResolvedValue({
     maxUploadBytes: 1_000_000,

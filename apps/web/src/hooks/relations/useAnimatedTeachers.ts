@@ -9,18 +9,7 @@
 
 import { fetchAnimatedTeachers } from '../../api/relations'
 import type { AnimatorTeacherRelation } from '../../types/profile'
-import { useAsyncData } from '../useAsyncData'
-
-/** Ne se résout jamais : l'appel n'a pas lieu d'être, et rien ne doit s'afficher. */
-function pendingForever<T>(): Promise<T> {
-  return new Promise<T>(() => {})
-}
-
-export interface UseAnimatedTeachersResult {
-  relations: AnimatorTeacherRelation[]
-  isLoading: boolean
-  loadError: string | null
-}
+import { useRelationList, type UseRelationListResult } from './useRelationList'
 
 /**
  * @param animatorId Identifiant de l'animateur pédagogique consulté.
@@ -31,19 +20,11 @@ export interface UseAnimatedTeachersResult {
 export function useAnimatedTeachers(
   animatorId: string | undefined,
   isEnabled: boolean,
-): UseAnimatedTeachersResult {
-  const { data, isLoading, error } = useAsyncData(
-    () =>
-      isEnabled && animatorId
-        ? fetchAnimatedTeachers(animatorId)
-        : pendingForever<AnimatorTeacherRelation[]>(),
-    [animatorId, isEnabled],
-    { fallbackErrorMessage: 'Impossible de charger les formateurs animés.' },
+): UseRelationListResult<AnimatorTeacherRelation> {
+  return useRelationList(
+    fetchAnimatedTeachers,
+    animatorId,
+    isEnabled,
+    'Impossible de charger les formateurs animés.',
   )
-
-  return {
-    relations: data ?? [],
-    isLoading,
-    loadError: error,
-  }
 }

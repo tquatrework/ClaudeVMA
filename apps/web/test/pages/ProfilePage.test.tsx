@@ -45,6 +45,8 @@ import {
   fetchLinkedParents,
   fetchLinkedStudents,
   fetchAnimatedTeachers,
+  fetchStudentsOfTeacher,
+  fetchAnimatorsOfTeacher,
 } from '../../src/api/relations'
 import { fetchConsents } from '../../src/api/accounts'
 import { fetchThirdPartyNotebookEntries } from '../../src/api/pedagogicalLogNotebook'
@@ -61,6 +63,8 @@ const mockUnlinkTeacherStudentRelation = vi.mocked(unlinkTeacherStudentRelation)
 const mockFetchLinkedParents = vi.mocked(fetchLinkedParents)
 const mockFetchLinkedStudents = vi.mocked(fetchLinkedStudents)
 const mockFetchAnimatedTeachers = vi.mocked(fetchAnimatedTeachers)
+const mockFetchStudentsOfTeacher = vi.mocked(fetchStudentsOfTeacher)
+const mockFetchAnimatorsOfTeacher = vi.mocked(fetchAnimatorsOfTeacher)
 const mockFetchConsents = vi.mocked(fetchConsents)
 const mockFetchThirdPartyNotebookEntries = vi.mocked(fetchThirdPartyNotebookEntries)
 
@@ -134,6 +138,8 @@ beforeEach(() => {
   mockFetchLinkedParents.mockResolvedValue([])
   mockFetchLinkedStudents.mockResolvedValue([])
   mockFetchAnimatedTeachers.mockResolvedValue([])
+  mockFetchStudentsOfTeacher.mockResolvedValue([])
+  mockFetchAnimatorsOfTeacher.mockResolvedValue([])
   mockFetchInternalNotes.mockResolvedValue([])
   mockFetchProfileStatistics.mockResolvedValue({})
   mockFetchConsents.mockResolvedValue([])
@@ -1056,6 +1062,148 @@ describe('ProfilePage', () => {
       })
       expect(screen.queryByText('Professeurs animés')).toBeNull()
       expect(mockFetchAnimatedTeachers).not.toHaveBeenCalled()
+    })
+  })
+
+  /**
+   * Élèves et AP d'un formateur, sens inverse des panneaux ci-dessus (point 3,
+   * « Contacts essentiels » — professeur → élèves, professeur → AP), livrés par
+   * `profile-service` le 2026-09-02 (PR #212).
+   */
+  describe('élèves et AP d’un formateur (point 3, sens inverse)', () => {
+    const TEACHER_PROFILE = {
+      ...SAMPLE_PROFILE,
+      pedagogicalType: 'teacher' as const,
+    }
+    const AF_USER = {
+      id: 'af-1',
+      email: 'af@test.com',
+      role: 'administrateur_financier' as const,
+      validationStatus: 'active' as const,
+    }
+    const TI_USER = {
+      id: 'ti-1',
+      email: 'ti@test.com',
+      role: 'technicien_informatique' as const,
+      validationStatus: 'active' as const,
+    }
+    const STUDENT_OF_TEACHER = {
+      id: 'sot-1',
+      teacherId: 'student-1',
+      studentId: 'eleve-42',
+      isPrincipalTeacher: false,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      endedAt: null,
+      studentName: { firstName: 'Nina', lastName: 'Roy' },
+    }
+    const ANIMATOR_OF_TEACHER = {
+      id: 'aot-1',
+      animatorId: 'ap-42',
+      teacherId: 'student-1',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      animatorName: { firstName: 'Karim', lastName: 'Saadi' },
+    }
+
+    it('affiche les élèves et les AP d’un formateur au RP consultant sa fiche', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+      mockFetchProfile.mockResolvedValue(TEACHER_PROFILE)
+      mockFetchStudentsOfTeacher.mockResolvedValue([STUDENT_OF_TEACHER])
+      mockFetchAnimatorsOfTeacher.mockResolvedValue([ANIMATOR_OF_TEACHER])
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Élèves')).toBeDefined()
+      })
+      expect(screen.getByText('Nina Roy')).toBeDefined()
+      expect(screen.getByText('Animateurs pédagogiques')).toBeDefined()
+      expect(screen.getByText('Karim Saadi')).toBeDefined()
+      expect(mockFetchStudentsOfTeacher).toHaveBeenCalledWith('student-1')
+      expect(mockFetchAnimatorsOfTeacher).toHaveBeenCalledWith('student-1')
+    })
+
+    it('affiche les élèves mais jamais les AP à l’administrateur financier (AF exclu côté serveur)', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(AF_USER))
+      mockFetchProfile.mockResolvedValue(TEACHER_PROFILE)
+      mockFetchStudentsOfTeacher.mockResolvedValue([STUDENT_OF_TEACHER])
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Nina Roy')).toBeDefined()
+      })
+      expect(screen.queryByText('Animateurs pédagogiques')).toBeNull()
+      expect(mockFetchAnimatorsOfTeacher).not.toHaveBeenCalled()
+    })
+
+    it('affiche les deux panneaux au technicien informatique', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(TI_USER))
+      mockFetchProfile.mockResolvedValue(TEACHER_PROFILE)
+      mockFetchStudentsOfTeacher.mockResolvedValue([STUDENT_OF_TEACHER])
+      mockFetchAnimatorsOfTeacher.mockResolvedValue([ANIMATOR_OF_TEACHER])
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Nina Roy')).toBeDefined()
+      })
+      expect(screen.getByText('Karim Saadi')).toBeDefined()
+    })
+
+    it('affiche les deux panneaux au formateur consultant sa propre fiche', async () => {
+      const TEACHER_SELF_USER = {
+        id: 'student-1',
+        email: 'prof@test.com',
+        role: 'formateur' as const,
+        validationStatus: 'active' as const,
+      }
+      mockUseAuth.mockReturnValue(buildAuthMock(TEACHER_SELF_USER))
+      mockFetchProfile.mockResolvedValue(TEACHER_PROFILE)
+      mockFetchStudentsOfTeacher.mockResolvedValue([STUDENT_OF_TEACHER])
+      mockFetchAnimatorsOfTeacher.mockResolvedValue([ANIMATOR_OF_TEACHER])
+
+      renderProfilePage('student-1')
+
+      await waitFor(() => {
+        expect(screen.getByText('Nina Roy')).toBeDefined()
+      })
+      expect(screen.getByText('Karim Saadi')).toBeDefined()
+    })
+
+    it('ne montre ni élèves ni AP à un formateur consultant la fiche d’un autre formateur', async () => {
+      const OTHER_TEACHER_USER = {
+        id: 'teacher-other',
+        email: 'autre-prof@test.com',
+        role: 'formateur' as const,
+        validationStatus: 'active' as const,
+      }
+      mockUseAuth.mockReturnValue(buildAuthMock(OTHER_TEACHER_USER))
+      mockFetchProfile.mockResolvedValue(TEACHER_PROFILE)
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Fiche profil')).toBeDefined()
+      })
+      expect(screen.queryByText('Élèves')).toBeNull()
+      expect(screen.queryByText('Animateurs pédagogiques')).toBeNull()
+      expect(mockFetchStudentsOfTeacher).not.toHaveBeenCalled()
+      expect(mockFetchAnimatorsOfTeacher).not.toHaveBeenCalled()
+    })
+
+    it('ne montre aucun des deux panneaux quand le titulaire de la fiche n’est pas un formateur', async () => {
+      mockUseAuth.mockReturnValue(buildAuthMock(RP_USER))
+      mockFetchProfile.mockResolvedValue(SAMPLE_PROFILE)
+
+      renderProfilePage()
+
+      await waitFor(() => {
+        expect(screen.getByText('Fiche profil')).toBeDefined()
+      })
+      expect(screen.queryByText('Élèves')).toBeNull()
+      expect(screen.queryByText('Animateurs pédagogiques')).toBeNull()
+      expect(mockFetchStudentsOfTeacher).not.toHaveBeenCalled()
+      expect(mockFetchAnimatorsOfTeacher).not.toHaveBeenCalled()
     })
   })
 

@@ -101,6 +101,9 @@ export const TERMINATE_TEACHER_RELATION_REASON_MAX_LENGTH = 1000
 /** Repli lisible quand le formateur n'a pas de profil administratif. */
 export const TEACHER_GENERIC_LABEL = 'Formateur'
 
+/** Repli lisible quand l'animateur pédagogique n'a pas de profil administratif. */
+export const ANIMATOR_GENERIC_LABEL = 'Animateur pédagogique'
+
 /** Nom affichable du formateur d'une relation. Le nom vient du serveur (`teacherName`). */
 export function describeTeacherRelationName(relation: TeacherStudentRelation): string {
   return formatPersonName(relation.teacherName, TEACHER_GENERIC_LABEL)

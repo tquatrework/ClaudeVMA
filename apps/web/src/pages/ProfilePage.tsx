@@ -11,6 +11,8 @@ import { InternalNotesPanel } from '../components/profile/InternalNotesPanel'
 import { LinkedTeachersPanel } from '../components/profile/LinkedTeachersPanel'
 import { LinkedFinanceRelationsPanel } from '../components/profile/LinkedFinanceRelationsPanel'
 import { AnimatedTeachersPanel } from '../components/profile/AnimatedTeachersPanel'
+import { StudentsOfTeacherPanel } from '../components/profile/StudentsOfTeacherPanel'
+import { AnimatorsOfTeacherPanel } from '../components/profile/AnimatorsOfTeacherPanel'
 import { TerminateTeacherRelationDialog } from '../components/profile/TerminateTeacherRelationDialog'
 import { AdministrativeProfilePanel } from '../components/profile/AdministrativeProfilePanel'
 import { PedagogicalProfilePanel } from '../components/profile/PedagogicalProfilePanel'
@@ -107,6 +109,26 @@ export default function ProfilePage() {
    */
   const canSeeAnimatedTeachersRole =
     hasRole('responsable_pedagogique', 'technicien_informatique') || isViewingOwnProfile
+
+  /**
+   * Élèves et AP d'un formateur, sens **inverse** des panneaux déjà câblés
+   * ci-dessus (point 3, « Contacts essentiels » — professeur → élèves,
+   * professeur → AP), livrés par `profile-service` le 2026-09-02 (PR #212).
+   * Mêmes rôles autorisés que les routes correspondantes (`docs/routes.md`) :
+   * - élèves d'un formateur (`GET /relations/teacher-student/by-teacher/:teacherId`) :
+   *   RP, TI, AF, ou le formateur lui-même (`isViewingOwnProfile && hasRole('formateur')`
+   *   — l'AP n'y figure pas côté serveur, volontairement non ajouté ici) ;
+   * - AP d'un formateur (`GET /relations/animator-teacher/by-teacher/:teacherId`) :
+   *   RP, TI, ou le formateur lui-même — l'AF en est exclu.
+   * Combinés plus bas à `pedagogicalKind === 'teacher'`, seul signal fiable
+   * distinguant un profil de formateur/AP d'un profil élève/parent/admin.
+   */
+  const canSeeStudentsOfTeacherRole =
+    hasRole('responsable_pedagogique', 'technicien_informatique', 'administrateur_financier') ||
+    (isViewingOwnProfile && hasRole('formateur'))
+  const canSeeAnimatorsOfTeacherRole =
+    hasRole('responsable_pedagogique', 'technicien_informatique') ||
+    (isViewingOwnProfile && hasRole('formateur'))
 
   /**
    * Mettre fin à une relation élève ↔ formateur : réservé au RP, et seulement
@@ -249,6 +271,18 @@ export default function ProfilePage() {
   const canSeeAnimatedTeachers = isTargetAnimateurPedagogique && canSeeAnimatedTeachersRole
 
   /**
+   * Le titulaire de la fiche est-il un formateur (ou un AP, qui est
+   * fondamentalement un formateur promu) ? Seul signal fiable disponible côté
+   * front — `pedagogicalType`/`pedagogicalKind` distingue déjà élève/formateur
+   * ailleurs sur cette page. Conditionne `StudentsOfTeacherPanel`/
+   * `AnimatorsOfTeacherPanel` (point 3, « Contacts essentiels », professeur →
+   * élèves/AP) : ces relations n'ont de sens que sur un profil de formateur.
+   */
+  const isTargetTeacher = pedagogicalKind === 'teacher'
+  const canSeeStudentsOfTeacher = isTargetTeacher && canSeeStudentsOfTeacherRole
+  const canSeeAnimatorsOfTeacher = isTargetTeacher && canSeeAnimatorsOfTeacherRole
+
+  /**
    * Le parent financeur n'a pas de profil pédagogique : lui en afficher un vide
    * l'inviterait à renseigner un profil qui n'existe pas pour son rôle. On ne
    * masque l'onglet que sur SA fiche — le rôle du titulaire n'est connu que là.
@@ -361,6 +395,23 @@ export default function ProfilePage() {
                     titulaire de la fiche est réellement un AP. */}
                 {userId && (
                   <AnimatedTeachersPanel animatorId={userId} enabled={canSeeAnimatedTeachers} />
+                )}
+
+                {/* Élèves d'un formateur — sens inverse de « Formateurs liés »
+                    (point 3, « Contacts essentiels », professeur → élèves,
+                    livrée le 2026-09-02 par profile-service, PR #212). RP/TI/AF,
+                    ou le formateur lui-même sur son propre profil. */}
+                {userId && (
+                  <StudentsOfTeacherPanel teacherId={userId} enabled={canSeeStudentsOfTeacher} />
+                )}
+
+                {/* AP d'un formateur — sens inverse de « Professeurs animés »
+                    (point 3, « Contacts essentiels », professeur → AP, livrée
+                    le 2026-09-02 par profile-service, PR #212). RP/TI, ou le
+                    formateur lui-même sur son propre profil — l'AF en est
+                    exclu, comme côté serveur. */}
+                {userId && (
+                  <AnimatorsOfTeacherPanel teacherId={userId} enabled={canSeeAnimatorsOfTeacher} />
                 )}
 
                 {/* Notes internes — RP / administrateur financier */}

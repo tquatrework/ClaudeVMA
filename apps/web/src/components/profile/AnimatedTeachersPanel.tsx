@@ -7,15 +7,14 @@
  * (`GET /relations/animator-teacher/:animatorId`) existait déjà et est déjà ouverte
  * au RP, au TI et à l'AP lui-même, mais n'était appelée par aucun composant front.
  * Même présentation que `LinkedTeachersPanel` (élève → professeurs), en lecture
- * seule — aucune route de rupture de ce lien n'existe côté serveur, donc aucune
- * action n'est proposée ici.
+ * seule via `RelationLinksPanel` — aucune route de rupture de ce lien n'existe côté
+ * serveur, donc aucune action n'est proposée ici.
  */
 
 import React from 'react'
-import { Link } from 'react-router-dom'
 import { useAnimatedTeachers } from '../../hooks/relations/useAnimatedTeachers'
-import { formatPersonName } from '../../utils/nameFormat'
 import { TEACHER_GENERIC_LABEL } from '../../utils/relationLabels'
+import { RelationLinksPanel } from './RelationLinksPanel'
 
 interface AnimatedTeachersPanelProps {
   /** Identifiant de l'animateur pédagogique consulté. */
@@ -34,30 +33,17 @@ export function AnimatedTeachersPanel({ animatorId, enabled }: AnimatedTeachersP
   if (!enabled) return null
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-6">
-      <h2 className="text-lg font-semibold text-gray-800 mb-4">Professeurs animés</h2>
-      {isLoading && <p className="text-gray-400 text-sm">Chargement…</p>}
-      {!isLoading && loadError && <p className="text-red-600 text-sm">{loadError}</p>}
-      {!isLoading && !loadError && relations.length === 0 && (
-        <p className="text-gray-400 text-sm">Aucun professeur animé</p>
-      )}
-      {!isLoading && !loadError && relations.length > 0 && (
-        <ul className="space-y-2">
-          {relations.map((relation) => (
-            <li
-              key={relation.id}
-              className="flex items-center justify-between gap-3 py-2 border-b border-gray-100 last:border-0"
-            >
-              <Link
-                to={`/profiles/${relation.teacherId}`}
-                className="text-sm text-indigo-600 hover:underline truncate"
-              >
-                {formatPersonName(relation.teacherName, TEACHER_GENERIC_LABEL)}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <RelationLinksPanel
+      title="Professeurs animés"
+      emptyMessage="Aucun professeur animé"
+      genericLabel={TEACHER_GENERIC_LABEL}
+      isLoading={isLoading}
+      loadError={loadError}
+      items={relations.map((relation) => ({
+        id: relation.id,
+        targetUserId: relation.teacherId,
+        personName: relation.teacherName,
+      }))}
+    />
   )
 }

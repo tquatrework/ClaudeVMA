@@ -13,6 +13,7 @@ import {
   HttpCode,
   HttpStatus,
   Headers,
+  Header,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -29,6 +30,7 @@ import { QuizzesService } from './quizzes.service';
 import { QuizImportService, QuizImportBlockResult } from './quiz-import.service';
 import { QuizImportPayloadTooLargeFilter } from './quiz-import-payload-too-large.filter';
 import { QUIZ_IMPORT_MAX_FILE_SIZE_BYTES } from './quiz-import.constants';
+import { QUIZ_IMPORT_TEMPLATE_CSV } from './quiz-import-template';
 import { CreateQuizDto } from './dto/create-quiz.dto';
 import { UpdateQuizDto } from './dto/update-quiz.dto';
 import { SearchQuizDto } from './dto/search-quiz.dto';
@@ -158,6 +160,23 @@ export class QuizzesController {
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   getImportConstraints(): { maxFileSizeBytes: number } {
     return this.quizImportService.getConstraints();
+  }
+
+  @Get('import/template')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="modele-import-quizz.csv"')
+  @ApiOperation({
+    summary: 'Télécharger un fichier CSV modèle pour l\'import de quizz',
+    description:
+      'Fichier exemple directement importable (1 quizz couvrant les 3 catégories de question), généré à partir ' +
+      'du même format que celui appliqué par POST /quizzes/import — ne peut jamais diverger silencieusement de ' +
+      'la route d\'import réelle (vérifié par un test dédié qui le fait repasser dans le vrai parseur). Ajouté ' +
+      'rétroactivement le 2026-09-02, l\'import de quizz n\'en avait jamais eu depuis sa création (2026-08-29).',
+  })
+  @ApiResponse({ status: 200, description: 'Fichier CSV modèle' })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  getImportTemplate(): string {
+    return QUIZ_IMPORT_TEMPLATE_CSV;
   }
 
   @Post('import')

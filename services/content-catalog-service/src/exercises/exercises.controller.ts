@@ -8,14 +8,32 @@ import {
   Param,
   Query,
   UseGuards,
+  UseInterceptors,
+  UseFilters,
+  UploadedFile,
   HttpCode,
   HttpStatus,
   Headers,
+  Header,
   Res,
 } from '@nestjs/common';
 import { Response } from 'express';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiHeader } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiParam,
+  ApiHeader,
+  ApiConsumes,
+  ApiBody,
+} from '@nestjs/swagger';
 import { ExercisesService } from './exercises.service';
+import { ExerciseImportService, ExerciseImportBlockResult } from './exercise-import.service';
+import { ExerciseImportPayloadTooLargeFilter } from './exercise-import-payload-too-large.filter';
+import { EXERCISE_IMPORT_MAX_FILE_SIZE_BYTES } from './exercise-import.constants';
+import { EXERCISE_IMPORT_TEMPLATE_CSV } from './exercise-import-template';
 import { CreateExerciseDto } from './dto/create-exercise.dto';
 import { UpdateExerciseDto } from './dto/update-exercise.dto';
 import { SearchExerciseDto } from './dto/search-exercise.dto';
@@ -31,7 +49,10 @@ import { AuthenticatedUser } from '../common/guards/jwt-auth.guard';
 @Controller('exercises')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ExercisesController {
-  constructor(private readonly exercisesService: ExercisesService) {}
+  constructor(
+    private readonly exercisesService: ExercisesService,
+    private readonly exerciseImportService: ExerciseImportService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -150,6 +171,75 @@ export class ExercisesController {
   @ApiResponse({ status: 503, description: 'profile-service injoignable' })
   async getPendingValidation(@CurrentUser() currentUser: AuthenticatedUser) {
     return this.exercisesService.getPendingValidation(currentUser.id, currentUser.role);
+  }
+
+  @Get('import/constraints')
+  @ApiOperation({
+    summary: 'Contraintes de l\'import d\'exercices par fichier',
+    description:
+      'À lire AVANT d\'ouvrir le sélecteur de fichier, pour annoncer la limite avant sélection. ' +
+      'Ouverte à tout compte authentifié (le formateur doit pouvoir la lire sans être AP/RP).',
+  })
+  @ApiResponse({ status: 200, description: 'Contraintes en vigueur', schema: { example: { maxFileSizeBytes: 900000 } } })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  getImportConstraints(): { maxFileSizeBytes: number } {
+    return this.exerciseImportService.getConstraints();
+  }
+
+  @Get('import/template')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="modele-import-exercices.csv"')
+  @ApiOperation({
+    summary: 'Télécharger un fichier CSV modèle pour l\'import d\'exercices',
+    description:
+      'Fichier exemple directement importable (2 exercices, blocs énoncé/question/solution), généré à partir ' +
+      'du même format que celui appliqué par POST /exercises/import — ne peut jamais diverger silencieusement ' +
+      'de la route d\'import réelle (vérifié par un test dédié qui le fait repasser dans le vrai parseur).',
+  })
+  @ApiResponse({ status: 200, description: 'Fichier CSV modèle' })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  getImportTemplate(): string {
+    return EXERCISE_IMPORT_TEMPLATE_CSV;
+  }
+
+  @Post('import')
+  @HttpCode(HttpStatus.CREATED)
+  @Roles(UserRole.FORMATEUR, UserRole.ANIMATEUR_PEDAGOGIQUE, UserRole.RESPONSABLE_PEDAGOGIQUE)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: EXERCISE_IMPORT_MAX_FILE_SIZE_BYTES } }))
+  @UseFilters(ExerciseImportPayloadTooLargeFilter)
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } },
+  })
+  @ApiOperation({
+    summary: 'Importer plusieurs exercices depuis un fichier tableur (CSV ou Excel .xlsx)',
+    description:
+      'Réutilise le service de création existant bloc par bloc : un exercice importé par un formateur passe en ' +
+      'attente de validation exactement comme à la création manuelle, un exercice importé par un AP ou un RP est ' +
+      'auto-validé. Un bloc "exercice" se termine à la première ligne vide ou à la prochaine ligne "exercice". ' +
+      'Une ligne "question" doit être immédiatement suivie d\'une ligne "solution", sinon le bloc entier est ' +
+      'refusé. L\'échec d\'un bloc n\'empêche jamais la création des autres blocs valides du même fichier. Le ' +
+      'type de fichier est détecté sur les octets réels (CSV ou ZIP/xlsx), jamais sur l\'extension ni le ' +
+      'Content-Type du client.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Un résultat par bloc "exercice" détecté dans le fichier (créé ou en erreur)',
+    schema: {
+      example: [
+        { blockIndex: 0, status: 'created', exerciseId: 'uuid', validationStatus: 'pending_validation' },
+        { blockIndex: 1, status: 'error', errors: [{ row: 9, message: 'Ligne "question" (ligne 9) doit être immédiatement suivie d\'une ligne "solution"' }] },
+      ],
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Aucun fichier, format non reconnu, ou fichier vide/sans bloc "exercice"' })
+  @ApiResponse({ status: 403, description: 'Rôle insuffisant' })
+  @ApiResponse({ status: 413, description: 'Fichier trop volumineux — corps structuré (code, maxFileSizeBytes, requestBodyBytes)' })
+  async importExercises(
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<ExerciseImportBlockResult[]> {
+    return this.exerciseImportService.importFile(file, currentUser.id, currentUser.role);
   }
 
   @Get(':id')

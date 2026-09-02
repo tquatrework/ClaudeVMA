@@ -41,6 +41,10 @@
       <endpoint method="GET" path="/exercises/default-title">Suggerer un titre par defaut ("Exercice {n}", n = nombre d'exercices deja crees par l'appelant + 1) — lue par le front a l'ouverture du formulaire de creation (ajoute le 2026-09-01). Reservee aux createurs (formateur/AP/RP).</endpoint>
       <endpoint method="GET" path="/exercises/image-constraints">Plafonds d'image (entree/sortie/corps JSON) lus par le front avant d'afficher le bouton d'ajout (ajoute le 2026-09-01). Reservee aux createurs.</endpoint>
       <endpoint method="GET" path="/exercises/pending-validation">Lister les exercices en attente de validation ; AP scope par relation animator_of_teacher, RP illimite (ajoute le 2026-08-29).</endpoint>
+      <endpoint method="GET" path="/exercises/import/constraints">Plafond de taille de l'import CSV/Excel, meme modele que GET /quizzes/import/constraints (ajoute le 2026-09-02).</endpoint>
+      <endpoint method="GET" path="/exercises/import/template">Fichier CSV modele directement importable (2 exercices), genere par buildCsvRow a partir des memes constantes que le parseur reel — verifie par un test qui le fait repasser dans parseExerciseImportFile (ajoute le 2026-09-02).</endpoint>
+      <endpoint method="POST" path="/exercises/import">Import de plusieurs exercices depuis un fichier CSV/Excel, discriminant type=exercice/enonce/question/solution/image, un bloc question doit etre immediatement suivi d'une ligne solution sinon le bloc entier est refuse, un bloc se termine a la premiere ligne vide OU a la prochaine ligne exercice. Reutilise ExercisesService.create() bloc par bloc, aucune regle de validation/composition/titre contournee (ajoute le 2026-09-02).</endpoint>
+      <endpoint method="GET" path="/quizzes/import/template">Fichier CSV modele pour l'import de Quizz, ajoute retroactivement le 2026-09-02 (l'import existait depuis le 2026-08-29 sans jamais avoir eu de modele).</endpoint>
       <endpoint method="GET" path="/exercises/{id}/solutions">Recuperer un exercice avec le contenu complet des solutions de chaque bloc question, y compris les images de solution en base64 (imageData, ajoute le 2026-09-01) — reserve a l'auteur et aux AP/RP/TI. GET /exercises/{id} reste inchangee (hasSolution seulement).</endpoint>
       <endpoint method="GET" path="/exercises/{id}/images/{itemId}">Octets d'une image de bloc, y compris un bloc image de premier niveau (jamais de solution) (ajoute le 2026-08-29).</endpoint>
       <endpoint method="POST" path="/internal/exercises/{exerciseId}/parts/{partId}/solution">Route interne, contenu complet de la solution pour learning-activity-service (ajoute le 2026-08-29).</endpoint>
@@ -1699,6 +1703,161 @@
             Aucune contrainte de coherence entre le bareme et une eventuelle correction manuelle
             future (score par item, somme) n'est posee — conforme au point 1 de l'arbitrage
             ("si le besoin se confirme plus tard, ce sera un arbitrage distinct").
+          </point>
+        </openPoints>
+      </session>
+
+      <session date="2026-09-02" label="Import d'Exercice depuis un tableur (CSV/Excel), et fichiers modèles téléchargeables Exercice+Quizz (branche feat/content-catalog-exercise-import)">
+        <objective>
+          Implémenter POST /exercises/import et GET /exercises/import/constraints, conformément à
+          l'arbitrage docs/architecture.md du 2026-09-02 ("Import d'Exercice depuis un tableur
+          (CSV/Excel), et modèle de type identique pour l'import de Quizz"), en réutilisant
+          exactement les conventions déjà éprouvées de l'import de Quizz (2026-08-29) : détection de
+          type sur les octets réels, plafond de taille annoncé, CSV+xlsx, séparateur ";", quoting
+          RFC 4180, un statut par bloc plutôt qu'un tout-ou-rien. Fournir en plus un fichier modèle
+          téléchargeable pour l'Exercice ET rétroactivement pour le Quizz (qui n'en avait jamais eu).
+        </objective>
+        <preliminaryFinding>
+          Le point 1 de la délégation initiale demandait d'étendre `Exercise` avec
+          niveau/difficulté/thèmes/compétences — vérification du code réel (avant tout écrit)
+          montre que `level`/`difficulty`/`theme`/`competencies`/`tags` existent déjà sur `Exercise`
+          depuis le chantier de juin 2026, conservés inchangés par la refonte du 2026-08-29 (déjà
+          documenté par une décision de cette même session : "Champs conservés sans changement bien
+          que non mentionnés explicitement par l'arbitrage"). Aucune migration, aucun nouveau champ
+          — l'orchestrateur a corrigé `docs/architecture.md` en conséquence pendant ce chantier.
+          Seule tâche réelle sur ce point : faire correspondre les colonnes CSV `niveau`/
+          `difficulte`/`themes`/`competences` à ces champs existants, sans les redéviner.
+        </preliminaryFinding>
+        <filesAdded>
+          <file path="src/exercises/exercise-import.constants.ts">EXERCISE_IMPORT_MAX_FILE_SIZE_BYTES — 900 000 octets par défaut (variable d'environnement EXERCISE_IMPORT_MAX_FILE_SIZE_BYTES pour ajuster), même valeur et même raisonnement que QUIZ_IMPORT_MAX_FILE_SIZE_BYTES.</file>
+          <file path="src/exercises/exercise-import.parser.ts">Module PUR (aucune dépendance TypeORM/Nest hors BadRequestException), testable sans base de données. Porte detectFileKind() (DUPLIQUÉ depuis quiz-import.parser.ts plutôt que factorisé — décision détaillée ci-dessous), parseCsvRows()/parseXlsxRows() (à la différence du parseur Quizz, les lignes VIDES sont conservées avec un flag isBlank, jamais filtrées : elles servent de séparateur de bloc explicite), et buildBlocksFromRows() qui regroupe les lignes en blocs "exercice" + enonce/question/solution/image et convertit chaque bloc valide en CreateExerciseDto prêt à être passé à ExercisesService.create(). Gère la règle d'adjacence stricte question→solution via un état pendingSolutionRowNumber/pendingSolutionPartIndex sur le bloc ouvert.</file>
+          <file path="src/exercises/exercise-import.service.ts">ExerciseImportService — vérifie le rôle créateur (EXERCISE_CREATOR_ROLES, déjà exporté de exercises.service.ts), appelle parseExerciseImportFile(), puis ExercisesService.create() bloc par bloc. Même contrat de résultat par bloc que QuizImportService : {blockIndex, status, exerciseId?, validationStatus?, errors?}.</file>
+          <file path="src/exercises/exercise-import-payload-too-large.filter.ts">Filtre d'exception scopé à POST /exercises/import (@UseFilters), même forme exacte que QuizImportPayloadTooLargeFilter (code EXERCISE_IMPORT_FILE_TOO_LARGE).</file>
+          <file path="src/common/utils/csv-row.ts">buildCsvRow(cells) — construction RFC 4180 d'une ligne CSV (";" délimiteur, quoting si la cellule contient ";"/'"'/saut de ligne) à partir d'un tableau de cellules, plutôt que des chaînes concaténées à la main. Utilisé par les deux fichiers modèles ci-dessous, pour éliminer tout risque d'erreur de comptage de ";" entre colonnes vides.</file>
+          <file path="src/exercises/exercise-import-template.ts">EXERCISE_IMPORT_TEMPLATE_CSV — fichier modèle généré (2 exercices, blocs énoncé/question/solution), servi par GET /exercises/import/template. Aucun exemple de ligne "image" (peu praticable à la main, réservé à un usage scripté).</file>
+          <file path="src/quizzes/quiz-import-template.ts">QUIZ_IMPORT_TEMPLATE_CSV — ajouté RÉTROACTIVEMENT (l'import Quizz existe depuis le 2026-08-29 sans jamais avoir eu de modèle). 1 quizz couvrant les 3 catégories de question (choix_unique/choix_multiple/texte_court), servi par GET /quizzes/import/template (nouvelle route).</file>
+          <file path="test/unit/exercises/exercise-import.parser.spec.ts">21 tests : détection de format, 2 blocs séparés par ligne vide OU par nouvelle ligne "exercice", adjacence stricte question→solution (y compris en fin de bloc via ligne vide), solution orpheline, type de ligne inconnu, ligne orpheline sans bloc ouvert, titre obligatoire, bloc sans contenu, colonne "themes" refusée si plusieurs valeurs, un bloc en erreur n'empêche pas les autres, ligne "image" avec/sans image_data, préfixe littéral "type=" insensible à la casse, fichier vide, format non reconnu, équivalence CSV/xlsx (y compris ligne vide du classeur comme séparateur).</file>
+          <file path="test/unit/exercises/exercise-import.service.spec.ts">Rôles créateurs, fichier absent/vide, format non reconnu propagé, création par bloc avec statut de validation renvoyé, un bloc en erreur au parsing OU rejeté par ExercisesService.create() n'empêche pas la création des autres, getConstraints().</file>
+          <file path="test/unit/exercises/exercise-import-payload-too-large.filter.spec.ts">Corps 413 structuré, requestBodyBytes null si Content-Length absent.</file>
+          <file path="test/unit/exercises/exercise-import-template.spec.ts">Fait repasser EXERCISE_IMPORT_TEMPLATE_CSV dans le vrai parseur (parseExerciseImportFile) : 2 blocs valides, composition minimale respectée, chaque bloc question porte une solution — garantit que le fichier fourni à l'utilisateur ne peut jamais diverger silencieusement du parseur réel.</file>
+          <file path="test/unit/quizzes/quiz-import-template.spec.ts">Même principe pour QUIZ_IMPORT_TEMPLATE_CSV via parseQuizImportFile — 1 bloc valide, 3 catégories de question présentes.</file>
+        </filesAdded>
+        <filesModified>
+          <file path="src/exercises/exercises.controller.ts">Nouvelles routes GET /exercises/import/constraints, GET /exercises/import/template, POST /exercises/import (FileInterceptor('file', {limits:{fileSize}}), @UseFilters(ExerciseImportPayloadTooLargeFilter)), placées avant GET /exercises/:id pour éviter toute capture par le paramètre dynamique — même ordre que default-title/image-constraints/pending-validation déjà en place.</file>
+          <file path="src/exercises/exercises.module.ts">Enregistrement de ExerciseImportService comme provider.</file>
+          <file path="src/quizzes/quizzes.controller.ts">Nouvelle route GET /quizzes/import/template (rétroactive), placée juste après GET /quizzes/import/constraints.</file>
+          <file path="docs/routes.md">Nouvelle section "Import d'exercices depuis un fichier tableur (CSV/Excel)" ; ligne GET /quizzes/import/template ajoutée à la section Quizz existante.</file>
+        </filesModified>
+        <technicalDecisions>
+          <decision>
+            detectFileKind() et le parsing brut CSV/Excel sont DUPLIQUÉS depuis quiz-import.parser.ts
+            plutôt que factorisés dans un util partagé : fonctions pures d'une quinzaine de lignes,
+            chacune déjà couverte par sa propre suite de tests côté Quizz — les dupliquer évite de
+            toucher un mécanisme déjà éprouvé en production (import Quizz, PR #175-177) pour un gain
+            de factorisation marginal. Compromis assumé, signalé explicitement plutôt que caché.
+          </decision>
+          <decision>
+            Ligne vide = séparateur de bloc explicite (règle propre à l'Exercice, absente du Quizz) :
+            contrairement à quiz-import.parser.ts qui filtre les lignes vides dès la lecture brute
+            (skip_empty_lines désactivé côté csv-parse mais lignes vides retirées ensuite), le
+            parseur Exercice les CONSERVE (flag isBlank par ligne) et buildBlocksFromRows() les
+            traite comme un événement de fermeture de bloc, sans jamais ouvrir de nouveau bloc ni
+            lever d'erreur. Pour Excel, includeEmpty: true (contre includeEmpty: false côté Quizz) —
+            sinon ExcelJS saute silencieusement une ligne totalement vide et le séparateur serait
+            invisible au parseur.
+          </decision>
+          <decision>
+            Règle d'adjacence question→solution implémentée par un état "en attente" porté sur le
+            bloc ouvert (pendingSolutionRowNumber/pendingSolutionPartIndex), vérifié/soldé à CHAQUE
+            ligne suivante (y compris une ligne vide ou une nouvelle ligne "exercice") plutôt que par
+            un simple "la ligne suivante doit être solution" isolé — nécessaire car la ligne vide,
+            qui ferme un bloc, doit elle-même déclencher l'erreur si elle suit une question sans
+            solution (couvert par un test dédié).
+          </decision>
+          <decision>
+            Colonne "themes" (CSV, potentiellement ";"-séparée comme tags/competences) mappée sur
+            `Exercise.theme`, un champ SCALAIRE (aligné sur `Evaluation.theme`, pas un tableau) —
+            conflit de forme entre l'arbitrage (qui énumère "themes" au pluriel dans la même famille
+            que tags/competences) et le champ réel. Tranché ici, pas devanciné : une seule valeur
+            acceptée, `400` explicite si plusieurs valeurs ";"-séparées sont fournies plutôt qu'une
+            troncature silencieuse au premier élément — cohérent avec la règle du projet "un champ
+            non prévu ne doit jamais être accepté puis ignoré". Signalé à l'orchestrateur comme
+            lecture assumée, à corriger si l'intention était de transformer `theme` en tableau.
+          </decision>
+          <decision>
+            Contenu texte des lignes enonce/question/solution mappé sur un item unique `type="text"`
+            (jamais `type="formula"`) : la syntaxe légère `$...$`/`$$...$$` déjà en place ailleurs
+            dans le projet se rend au même titre sur un item texte, pas seulement sur un item formule
+            dédié (même principe que les champs libres du Quizz, qui n'ont pas de distinction de type
+            et supportent déjà LaTeX inline) — pas de colonne supplémentaire pour distinguer texte et
+            formule, cohérent avec la consigne de simplicité de code déjà appliquée au chantier Quizz.
+          </decision>
+          <decision>
+            Erreurs de FORMAT (type de ligne inconnu, ligne orpheline, adjacence question/solution
+            rompue, titre vide, themes multiple, image_data absent) détectées au PARSING, sans jamais
+            appeler ExercisesService.create() pour ce bloc ; erreurs de RÈGLE MÉTIER (composition
+            minimale, titre en collision — bien que la collision ne bloque plus depuis le
+            2026-09-01) restent détectées par ExercisesService.create() lui-même — même découpage
+            exact que l'import Quizz, pour ne pas dupliquer une validation déjà portée par le service
+            de création.
+          </decision>
+          <decision>
+            Fichiers modèles téléchargeables (Exercice ET Quizz) : mécanisme retenu = route NestJS
+            dédiée renvoyant une constante générée par buildCsvRow(), plutôt qu'un asset statique
+            servi par le front. Choix motivé par la garantie de non-divergence explicitement demandée
+            par l'arbitrage : un test unitaire fait repasser chaque fichier généré dans le VRAI
+            parseur d'import (parseExerciseImportFile/parseQuizImportFile) et vérifie qu'il produit
+            les blocs attendus sans aucune erreur — toute divergence future entre le format réel et
+            le fichier modèle casse ce test, pas seulement une phrase de documentation. Un asset
+            statique côté front n'aurait offert aucune garantie de ce type sans dupliquer le parseur
+            côté client.
+          </decision>
+          <decision>
+            Aucune ligne "image" dans le fichier modèle Exercice : un contenu base64 réaliste
+            rendrait le fichier illisible sans rien démontrer de plus sur le format (le mécanisme est
+            déjà couvert par un test dédié du parseur, séparément).
+          </decision>
+        </technicalDecisions>
+        <verification>
+          <item>`npm run build` (tsc via nest build) : 0 erreur.</item>
+          <item>`npm test` : 404/404 tests verts, 38 suites (368 précédents + 36 nouveaux : 21
+            exercise-import.parser.spec.ts + 9 exercise-import.service.spec.ts + 2
+            exercise-import-payload-too-large.filter.spec.ts + 1 exercise-import-template.spec.ts +
+            1 quiz-import-template.spec.ts, plus 2 tests supplémentaires dans les fichiers ci-dessus
+            non comptés séparément).</item>
+          <item>Preuve HTTP directe contre le conteneur réel redéployé (image reconstruite depuis le
+            worktree, retaguée claudevma-content-catalog-service:latest, conteneur recréé en place
+            avec les mêmes variables d'environnement/volume/réseau/alias/politique de redémarrage) :
+            <detail>GET /exercises/import/constraints (formateur) -&gt; 200 {"maxFileSizeBytes":900000}.</detail>
+            <detail>GET /exercises/import/template (formateur) -&gt; 200, CSV avec 2 exercices complets.</detail>
+            <detail>POST /exercises/import (élève) -&gt; 403.</detail>
+            <detail>POST /exercises/import (formateur, fichier avec 1 bloc valide + 1 bloc "question
+              sans solution") -&gt; 201, bloc valide créé (pending_validation, exerciseId renvoyé),
+              bloc invalide renvoyé en erreur avec le message exact et le numéro de ligne, sans
+              bloquer le bloc valide.</detail>
+            <detail>GET /exercises/:id sur l'exercice créé -&gt; 200, title/level/difficulty/theme/
+              competencies/tags/parts conformes au fichier importé.</detail>
+            <detail>POST /exercises/import (AP) -&gt; 201, exercice créé directement `validated`.</detail>
+            <detail>POST /exercises/import (formateur, fichier de 950 Ko) -&gt; 413, corps structuré
+              {"code":"EXERCISE_IMPORT_FILE_TOO_LARGE","maxFileSizeBytes":900000,"requestBodyBytes":950207}.</detail>
+            <detail>GET /quizzes/import/template (formateur) -&gt; 200, CSV avec 1 quizz/3 questions.</detail>
+            <detail>GET /quizzes/import/constraints (formateur) -&gt; 200 {"maxFileSizeBytes":900000}.</detail>
+            <detail>Le fichier modèle Quizz téléchargé via GET /quizzes/import/template a été
+              réimporté avec succès via POST /quizzes/import -&gt; 201 pending_validation.</detail>
+          </item>
+        </verification>
+        <blockers>Aucun.</blockers>
+        <openPoints>
+          <point>
+            Données de test créées sur la pile partagée pendant la vérification (2 exercices, dont un
+            "Import HTTP - Aire" et un "Import HTTP - AP direct", plus 1 quizz "Quizz de test -
+            Fractions" réimporté depuis le modèle téléchargé) — non supprimées, cohérent avec la
+            pratique des sessions précédentes sur ce service.
+          </point>
+          <point>
+            Colonne "themes" (CSV) mappée en un champ scalaire unique avec refus explicite si
+            plusieurs valeurs — lecture assumée par ce chantier faute de confirmation mot pour mot de
+            l'utilisateur sur ce point précis, signalée dans docs/architecture.md et ici.
           </point>
         </openPoints>
       </session>

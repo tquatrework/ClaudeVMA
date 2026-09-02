@@ -1641,6 +1641,37 @@ Phase 3 enrichit l'offre :
   pas encore. Ne pas inventer de route : construire ce qui existe déjà, signaler explicitement ce qui
   manque plutôt que de créer un lien mort ou un écran vide non annoncé.
 
+  **Précisions apportées le 2026-09-02, après livraison partielle (PR #207) et retour de
+  l'utilisateur** :
+  1. **"Cahier de texte" reste volontairement absent du rail RP** — confirmé explicitement.
+     L'utilisateur y accédera par "Visualisation" (voir ci-dessous), pas par un raccourci direct.
+  2. **"Visualisation" doit couvrir les 4 rôles** (élèves, parents, professeurs, AP), pas seulement
+     l'annuaire des formateurs validés déjà réutilisé en premier jet. Forme demandée par
+     l'utilisateur, mot pour mot : « il faut [...] pouvoir récupérer n'importe quel utilisateur
+     élève, parent, professeur, AP par rôle, et on aboutit alors à une petite fiche sous la même
+     forme que les tuiles qui présentent un élève à son parent par exemple, avec donc des boutons
+     pour aboutir aux différents éléments du profil/de l'utilisateur au sein de cette tuile (profil,
+     calendrier, cahier de texte, etc.) ».
+     - Un onglet/filtre par rôle, chacun listant les utilisateurs de ce rôle sous forme de tuiles —
+       **réutiliser le composant de tuile déjà existant** qui présente un élève à son parent
+       financeur, pas en créer un nouveau.
+     - Chaque tuile porte des boutons vers les écrans déjà existants pour cet utilisateur : profil,
+       calendrier, cahier de texte — "etc." laissé ouvert, ne pas construire au-delà de ces trois
+       sans un besoin explicite (les statistiques/archives pédagogiques, déjà accessibles au RP par
+       ailleurs depuis 2026-08-11, peuvent être un candidat naturel si le besoin se confirme).
+     - **Nécessite une nouvelle route de liste côté `profile-service`**, paginée dès l'origine (même
+       principe que l'annuaire des formateurs validés, 2026-08-12 : "un plafond non déclaré est un
+       plafond caché"), filtrée par rôle, réservée aux rôles administratifs (RP illimité, cohérent
+       avec "administrateurs voient tout" 2026-08-07 ; AF/TI probablement aussi, à confirmer par
+       `profile-service` en cohérence avec ce qui existe déjà pour l'annuaire formateurs). Champs
+       socle pour l'affichage en tuile (prénom, nom, photo, et les champs déjà visibles par défaut à
+       un administrateur) — **aucun UUID affiché** (règle du 2026-08-09), l'identifiant ne sert qu'à
+       router vers les écrans liés (profil/calendrier/cahier de texte), jamais montré comme texte.
+     - Reprend la même route existante pour les formateurs déjà exposée
+       (`GET /profiles/teachers/pending-validation` liste les formateurs en attente — il existe
+       aussi probablement un équivalent "validés" déjà utilisé par le rail actuel, à vérifier) plutôt
+       que d'en construire une distincte pour ce rôle si elle convient déjà à l'usage "annuaire".
+
 ## Points ouverts a arbitrer
 
 - `NODE_ENV=development` sur toute la pile reelle deployee, hors perimetre du chantier qui l'a

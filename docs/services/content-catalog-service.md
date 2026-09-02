@@ -47,7 +47,9 @@
       <endpoint method="GET" path="/internal/exercises/images/{itemId}">Route interne, octets de n'importe quelle image (ajoute le 2026-08-29).</endpoint>
       <endpoint method="RETIRE" path="/exercises/{id}/parts/{partId}/images (et .../solution/images)">Ancien mecanisme multipart post-creation, retire le 2026-09-01 — remplace par le bloc image de premier niveau embarque en base64 des la creation/edition.</endpoint>
       <endpoint method="GET" path="/evaluations">Rechercher evaluations, filtrable par tag (ANY(tags)) et keyword (titre) — gap corrige le 2026-09-01, ces deux champs existaient deja dans SearchEvaluationDto sans jamais etre appliques.</endpoint>
-      <endpoint method="POST" path="/evaluations">Creer une evaluation a partir d'une liste d'exercices existants (exerciseItems). Statut initial aligne sur Quizz/Exercice le 2026-09-01 : pending_validation pour un formateur, validated pour AP/RP (remplace le DRAFT systematique). durationSeconds devient obligatoire (400 si absent/nul/negatif, 2026-09-01).</endpoint>
+      <endpoint method="POST" path="/evaluations">Creer une evaluation a partir d'une liste d'exercices existants (exerciseItems). Statut initial aligne sur Quizz/Exercice le 2026-09-01 : pending_validation pour un formateur, validated pour AP/RP (remplace le DRAFT systematique). durationSeconds devient obligatoire (400 si absent/nul/negatif, 2026-09-01). Accepte desormais un bareme informatif optionnel (scoring, ajoute le 2026-09-02).</endpoint>
+      <endpoint method="PUT" path="/evaluations/{id}">Modifier une evaluation, reserve a son auteur ; repasse en pending_validation si l'auteur est formateur, inchange pour AP/RP auteur (ajoute le 2026-09-02, meme modele que Quizz/Exercice — comblait un manque signale par front-developper). Meme forme de corps que la creation, remplacement integral (exerciseItems et scoring compris).</endpoint>
+      <endpoint method="GET" path="/evaluations/{id}">Renvoie desormais le bareme informatif eventuel (scoring, null si non defini) en plus des champs deja exposes (ajoute le 2026-09-02).</endpoint>
       <endpoint method="RETIRE" path="/evaluations/{id}/attempts">Retiree le 2026-09-01 avec EvaluationAttempt (jamais utilisee reellement, migre vers learning-activity-service).</endpoint>
       <endpoint method="GET" path="/tutorials">Rechercher tutos/videos.</endpoint>
       <endpoint method="POST" path="/tutorials">Charger tuto/video.</endpoint>
@@ -78,7 +80,7 @@
         <note>Refonte du 2026-08-29 : 1-a-1 avec un bloc question (partId unique, FK obligatoire). cost/isOfficial/isValidated et solutions concurrentes retires. Contenu porte par ExerciseContentItem (solutionId). Jamais exposee par une route publique.</note>
       </entity>
       <entity name="Evaluation">
-        <note>Cycle de vie aligne sur Quizz/Exercice le 2026-09-01 : statut fixe a la creation selon le role (pending_validation formateur, validated AP/RP), validation AP scopee par animator_of_teacher, tags convertis en text[] postgres natif (ANY() en recherche), durationSeconds rendu NOT NULL. EvaluationAttempt retiree (jamais utilisee, migre vers learning-activity-service). Structure exerciseItems inchangee.</note>
+        <note>Cycle de vie aligne sur Quizz/Exercice le 2026-09-01 : statut fixe a la creation selon le role (pending_validation formateur, validated AP/RP), validation AP scopee par animator_of_teacher, tags convertis en text[] postgres natif (ANY() en recherche), durationSeconds rendu NOT NULL. EvaluationAttempt retiree (jamais utilisee, migre vers learning-activity-service). Structure exerciseItems inchangee. Colonne scoring (jsonb, nullable) ajoutee le 2026-09-02 : bareme informatif {mode: per_exercise|per_question, entries: [{exerciseId, partId?, points}]}, jamais utilise pour un calcul automatique. PUT /evaluations/{id} ajoutee le meme jour, meme modele d'edition que Quizz/Exercice.</note>
       </entity>
       <entity>Tutorial</entity>
       <entity>ContentComment</entity>
@@ -116,6 +118,8 @@
       <criterion>La validation AP d'une evaluation est scopee par la relation animator_of_teacher, RP illimite (ajoute le 2026-09-01, meme mecanisme que Quizz/Exercice).</criterion>
       <criterion>Une evaluation ne peut pas etre creee sans duree de chronometrage strictement positive (ajoute le 2026-09-01).</criterion>
       <criterion>evaluation_attempts n'existe plus dans content-catalog-service ; POST /evaluations/:id/attempts renvoie 404 (route absente), jamais 500 (ajoute le 2026-09-01).</criterion>
+      <criterion>Le bareme informatif d'une evaluation (scoring) est optionnel, valide en entree (mode coherent, exerciseId reference dans exerciseItems, partId valide et de categorie question en mode per_question, points strictement positifs, aucun doublon) et renvoye tel quel par GET/POST/PUT — jamais utilise pour calculer un score (ajoute le 2026-09-02).</criterion>
+      <criterion>PUT /evaluations/:id est reserve a l'auteur (403 sinon, 404 si introuvable) et suit la meme regle de transition de statut que Quizz/Exercice (ajoute le 2026-09-02).</criterion>
     </acceptanceCriteria>
     <technicalImplementation>
       <session date="2026-08-28" label="Creation et definition du Quizz (branche feat/quiz-definition)">
@@ -1593,6 +1597,108 @@
             correction) : a definir conjointement une fois les deux chantiers stabilises —
             aucun contrat de ce type n'a ete pose dans cette session, contrairement au Quizz
             (POST /internal/quizzes/:quizId/grade, fige le meme jour que sa creation).
+          </point>
+        </openPoints>
+      </session>
+
+      <session date="2026-09-02" label="Bareme informatif de l'Evaluation, par exercice ou par question (branche feat/content-catalog-evaluation-bareme)">
+        <objective>
+          Conforme a l'arbitrage docs/architecture.md du 2026-09-02 ("Bareme informatif pour
+          l'Evaluation") : le createur d'une Evaluation doit pouvoir communiquer a l'eleve la
+          valeur en points de chaque item de la suite d'exercices — par exercice OU par bloc
+          question, un seul mode actif a la fois, purement informatif (jamais utilise pour un
+          calcul automatique, la correction reste entierement manuelle). Point ouvert signale
+          par la tache : "aucune route PUT /evaluations/:id n'existe" (deja note comme open
+          point dans la session precedente, 2026-09-01) — traite dans ce meme chantier car
+          necessaire pour ajuster un bareme apres creation, meme modele que Quizz/Exercice.
+        </objective>
+        <filesAdded>
+          <file path="src/evaluations/enums/evaluation-scoring-mode.enum.ts">EvaluationScoringMode.PER_EXERCISE|PER_QUESTION.</file>
+          <file path="src/evaluations/dto/evaluation-scoring.dto.ts">EvaluationScoringEntryDto {exerciseId (UUID), partId? (UUID), points (nombre positif)} et EvaluationScoringDto {mode, entries[] (min 1)}.</file>
+          <file path="src/evaluations/dto/update-evaluation.dto.ts">UpdateEvaluationDto extends CreateEvaluationDto — meme forme que UpdateQuizDto/UpdateExerciseDto.</file>
+          <file path="src/migrations/1799000000000-AddEvaluationScoring.ts">ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS scoring jsonb (nullable), sous garde to_regclass, idempotente. Aucun backfill necessaire (colonne nullable, aucune contrainte posee).</file>
+          <file path="test/unit/evaluations/evaluations.service.scoring.spec.ts">20 tests : validation du bareme (per_exercise et per_question, tous les cas de refus 400 — partId interdit/manquant, exerciseId orphelin, doublon, bloc introuvable, bloc appartenant a un autre exercice, bloc non-question) et update() (404, 403, transition de statut selon le role de l'auteur, remplacement integral du bareme, bareme omis = retire).</file>
+        </filesAdded>
+        <filesModified>
+          <file path="src/evaluations/entities/evaluation.entity.ts">Colonne scoring (jsonb, nullable) + interfaces EvaluationScoring/EvaluationScoringEntry exportees.</file>
+          <file path="src/evaluations/dto/create-evaluation.dto.ts">Champ scoring? optionnel, valide par nested EvaluationScoringDto.</file>
+          <file path="src/evaluations/evaluations.module.ts">Import direct de TypeOrmModule.forFeature([Evaluation, ExercisePart]) — ExercisePart importe directement (pas via ExercisesModule, pour eviter une dependance de module croisee) afin de verifier en base qu'un partId de bareme "par question" reference bien un bloc question reel.</file>
+          <file path="src/evaluations/evaluations.service.ts">Nouvelle methode privee validateScoring() (verifie coherence de mode, reference a un exerciseId de exerciseItems, unicite, et pour per_question l'existence/appartenance/categorie du bloc via ExercisePart repository) appelee par create() et par la nouvelle update(). Nouvelle methode update() : 404/403/mêmes validations que create() (exerciseItems non vide, durationSeconds > 0), remplacement integral (Object.assign puis reaffectation explicite de scoring — Object.assign seul aurait laisse le champ absent au lieu de null si scoring est omis), transition de statut copiee de Quizz/Exercice (formateur -> toujours pending_validation, AP/RP auteur -> inchange).</file>
+          <file path="src/evaluations/evaluations.controller.ts">Nouvelle route PUT /evaluations/:id (@Roles formateur/AP/RP, controle fin auteur fait cote service). Descriptions Swagger de POST/GET completees pour mentionner scoring.</file>
+          <file path="test/unit/evaluations/evaluations.service.spec.ts">buildSampleEvaluation() : scoring: null ajoute (sinon erreur de compilation TS, le type Evaluation exige desormais le champ). Provider ExercisePart mocke ajoute au TestingModule (nouvelle dependance du constructeur).</file>
+          <file path="test/unit/evaluations/evaluations.service.rules.spec.ts">Idem (scoring: null + provider ExercisePart mocke).</file>
+          <file path="test/unit/validations/validations.service.rules.spec.ts">buildSampleEvaluation() : scoring: null ajoute (meme raison, type partage).</file>
+        </filesModified>
+        <technicalDecisions>
+          <decision>
+            Forme du bareme : un seul objet {mode, entries[]} plutot que deux champs paralleles
+            (scoringByExercise / scoringByQuestion) — un seul mecanisme, coherent avec "un seul
+            mode actif a la fois" demande par l'arbitrage ; empeche structurellement un etat
+            incoherent ou les deux tableaux seraient renseignes en meme temps.
+          </decision>
+          <decision>
+            Validation du bloc question (mode per_question) faite par une requete directe au
+            repository ExercisePart plutot qu'un appel a ExercisesService — ExercisePart est deja
+            dans la meme base de donnees (meme service), un appel HTTP interne aurait ajoute une
+            latence et une dependance reseau injustifiees pour une lecture locale.
+          </decision>
+          <decision>
+            update() reprend integralement les validations de create() (exerciseItems non vide,
+            durationSeconds > 0) plutot que de faire confiance au DTO seul — meme discipline que
+            create(), defense en profondeur, message d'erreur francais explicite.
+          </decision>
+          <decision>
+            Aucune route de lecture de solution supplementaire ajoutee (le bareme n'est pas une
+            solution, il est renvoye directement par les routes de lecture existantes) —
+            conforme au point 4 de l'arbitrage ("le bareme doit voyager dans la reponse deja
+            lue... pas de nouvelle route interservice a priori").
+          </decision>
+          <decision>
+            Nettoyage des donnees de test crees pendant la verification HTTP (comptes formateur,
+            exercices, evaluations) non effectue — memes pratiques que les sessions precedentes
+            de ce service, qui laissent leurs artefacts de verification sur la pile partagee.
+          </decision>
+        </technicalDecisions>
+        <verification>
+          <item>`npm run build` : 0 erreur.</item>
+          <item>`npm test` : 368/368 tests verts, 33 suites (348 avant ce chantier + 20 nouveaux
+            dans evaluations.service.scoring.spec.ts).</item>
+          <item>Preuve HTTP directe contre le conteneur reel redeploye (image reconstruite depuis
+            le worktree corrige, retaguee claudevma-content-catalog-service:latest, conteneur
+            recree en place avec les memes variables d'environnement/volume/reseau/alias/
+            politique de redemarrage) :
+            <detail>Migration AddEvaluationScoring1799000000000 appliquee proprement au demarrage
+              (confirmee par SELECT name FROM migrations), colonne scoring jsonb nullable
+              presente en base (\d evaluations).</detail>
+            <detail>POST /evaluations avec scoring mode per_exercice (2 exercices, 2 entrees) ->
+              201, scoring renvoye tel quel dans la reponse.</detail>
+            <detail>GET /evaluations/:id -> scoring present et identique.</detail>
+            <detail>POST /evaluations avec scoring mode per_question (partId reel de bloc
+              question de chaque exercice) -> 201, scoring renvoye tel quel.</detail>
+            <detail>POST /evaluations avec scoring per_question et partId inconnu -> 400 "Le
+              bloc question ... est introuvable".</detail>
+            <detail>POST /evaluations avec scoring per_question et partId appartenant a un autre
+              exercice que celui declare sur l'entree -> 400 "... n'appartient pas a
+              l'exercice ...".</detail>
+            <detail>PUT /evaluations/:id par l'auteur -> 200, titre/duree/scoring remplaces
+              integralement.</detail>
+            <detail>PUT /evaluations/:id par un formateur tiers (non auteur) -> 403.</detail>
+            <detail>PUT /evaluations/:id sur un id inexistant -> 404.</detail>
+          </item>
+        </verification>
+        <blockers>Aucun sur le code livre.</blockers>
+        <openPoints>
+          <point>
+            Compatibilite avec le contrat interne deja consomme par learning-activity-service
+            (GET /evaluations/:id) non re-testee dans ce chantier — l'ajout de scoring est
+            purement additif (aucun champ retire/renomme), donc sans risque de casse attendu,
+            mais aucune verification croisee reelle contre ce service n'a ete faite ici (hors
+            perimetre explicite de la tache).
+          </point>
+          <point>
+            Aucune contrainte de coherence entre le bareme et une eventuelle correction manuelle
+            future (score par item, somme) n'est posee — conforme au point 1 de l'arbitrage
+            ("si le besoin se confirme plus tard, ce sera un arbitrage distinct").
           </point>
         </openPoints>
       </session>

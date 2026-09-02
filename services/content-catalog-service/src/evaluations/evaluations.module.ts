@@ -5,10 +5,15 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { EvaluationsController } from './evaluations.controller';
 import { EvaluationsService } from './evaluations.service';
 import { Evaluation } from './entities/evaluation.entity';
+import { ExercisePart } from '../exercises/entities/exercise-part.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Evaluation]),
+    // ExercisePart importé directement (pas via ExercisesModule) pour
+    // valider les identifiants de bloc question référencés par le barème
+    // informatif (mode per_question) sans dépendance de module croisée —
+    // même lecture seule que les autres validations de ce service.
+    TypeOrmModule.forFeature([Evaluation, ExercisePart]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({

@@ -11,6 +11,7 @@ import {
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { EvaluationScoringDto } from './evaluation-scoring.dto';
 
 export class EvaluationExerciseItemDto {
   @ApiProperty({ description: 'UUID de l\'exercice inclus dans l\'évaluation' })
@@ -85,4 +86,16 @@ export class CreateEvaluationDto {
   @IsOptional()
   @IsBoolean()
   blockBackNavigation?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Barème informatif (par exercice ou par question), affiché à l\'élève, jamais utilisé ' +
+      'pour un calcul automatique — la correction reste entièrement manuelle (arbitrage du ' +
+      '2026-09-02). Facultatif : une évaluation peut ne porter aucun barème.',
+    type: EvaluationScoringDto,
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => EvaluationScoringDto)
+  scoring?: EvaluationScoringDto;
 }

@@ -796,7 +796,7 @@ les routes du service, est traduit lui aussi.
 
 | Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /profiles/teachers/validated | 🔒 | responsable_pedagogique, administrateur_financier, technicien_informatique | **Annuaire des formateurs dont la validation est `validated`.** Query : `page` (défaut `1`) et `limit` (défaut `20`, **maximum `100`**). Liste **triée par nom puis prénom sur l'ensemble**, pas page par page. Contenu **limité au socle de visibilité** — rien de plus, bien que les administrateurs soient exemptés du filtrage champ par champ : servir la fiche entière ferait de cette liste une porte dérobée à ce filtrage. `avatarUrl` ajouté le 2026-09-02 (champ additif, mêmes garanties que `AdministrativeProfileView`) pour l'usage tuile de l'annuaire « Visualisation » du RP | `200 {data: [{userId, firstName, lastName, avatarUrl, levels, subjects}], page, limit, total, totalPages}` · `400` `page`/`limit` non entier ou < 1, `limit` > 100, **ou paramètre de requête inconnu** · `401` · `403` tout autre rôle, **animateur pédagogique compris** |
+| GET | /profiles/teachers/validated | 🔒 | responsable_pedagogique, administrateur_financier, technicien_informatique | **Annuaire des formateurs dont la validation est `validated`.** Query : `page` (défaut `1`) et `limit` (défaut `20`, **maximum `100`**), plus `q` (optionnel, ajouté le 2026-09-02 — recherche insensible à la casse sur `firstName`/`lastName`, appliquée côté serveur avant la pagination, combinée au filtre de statut déjà en place ; absent/vide = comportement inchangé). Liste **triée par nom puis prénom sur l'ensemble**, pas page par page. Contenu **limité au socle de visibilité** — rien de plus, bien que les administrateurs soient exemptés du filtrage champ par champ : servir la fiche entière ferait de cette liste une porte dérobée à ce filtrage. `avatarUrl` ajouté le 2026-09-02 (champ additif, mêmes garanties que `AdministrativeProfileView`) pour l'usage tuile de l'annuaire « Visualisation » du RP | `200 {data: [{userId, firstName, lastName, avatarUrl, levels, subjects}], page, limit, total, totalPages}` · `400` `page`/`limit` non entier ou < 1, `limit` > 100, `q` > 100 caractères, **ou paramètre de requête inconnu** · `401` · `403` tout autre rôle, **animateur pédagogique compris** |
 
 Précisions qui font contrat :
 
@@ -817,7 +817,9 @@ Précisions qui font contrat :
 - `userId` sert **uniquement** à désigner le formateur dans l'appel suivant ; il n'est jamais affiché
   (arbitrage du 2026-08-09).
 - **La recherche par niveau, disponibilités et points reste en phase 2.** Cette route livre une liste,
-  pas un moteur.
+  pas un moteur. `q` (2026-09-02) est une **recherche par nom** seulement, pas ce moteur — utilisée
+  notamment par `GET /profiles/directory/by-role?role=formateur`, qui délègue à cette route et lui
+  transmet `q` tel quel.
 - Aucune modification de `api-gateway` n'a été nécessaire : `/api/v1/profiles` est proxifié **en bloc**
   (`location ^~`), donc `/api/v1/profiles/teachers/validated` est joint sans déclaration nouvelle.
 
@@ -833,7 +835,7 @@ Précisions qui font contrat :
 
 | Méthode | Chemin | Auth | Rôles autorisés | Description | Réponse attendue |
 |---|---|---|---|---|---|
-| GET | /profiles/directory/by-role | 🔒 | responsable_pedagogique, administrateur_financier, technicien_informatique | **Annuaire par rôle**, un rôle à la fois. Query : `role` (**requis**, un de `eleve`/`parent_financeur`/`formateur`/`animateur_pedagogique`), `page` (défaut `1`), `limit` (défaut `20`, **maximum `100`**). `role=formateur` délègue intégralement à `GET /profiles/teachers/validated` (même population, même tri, même contenu). Pour les 3 autres rôles, la population fait autorité auprès de `identity-access-service` (`GET /internal/accounts?role=`), croisée avec les profils locaux, triée par nom puis prénom sur l'ensemble | `200 {data: [{userId, firstName, lastName, avatarUrl, level, levels, subjects}], page, limit, total, totalPages}` · `400` `role` absent/hors enum, `page`/`limit` non entier ou < 1, `limit` > 100, ou paramètre de requête inconnu · `401` · `403` tout autre rôle |
+| GET | /profiles/directory/by-role | 🔒 | responsable_pedagogique, administrateur_financier, technicien_informatique | **Annuaire par rôle**, un rôle à la fois. Query : `role` (**requis**, un de `eleve`/`parent_financeur`/`formateur`/`animateur_pedagogique`), `page` (défaut `1`), `limit` (défaut `20`, **maximum `100`**), `q` (optionnel, ajouté le 2026-09-02 — recherche insensible à la casse sur `firstName`/`lastName`, combinée au filtre `role`, appliquée côté serveur avant la pagination ; absent/vide = comportement inchangé, max 100 caractères). `role=formateur` délègue intégralement à `GET /profiles/teachers/validated` (même population, même tri, même contenu, `q` transmis tel quel). Pour les 3 autres rôles, la population fait autorité auprès de `identity-access-service` (`GET /internal/accounts?role=`), croisée avec les profils locaux, triée par nom puis prénom sur l'ensemble | `200 {data: [{userId, firstName, lastName, avatarUrl, level, levels, subjects}], page, limit, total, totalPages}` · `400` `role` absent/hors enum, `page`/`limit` non entier ou < 1, `limit` > 100, `q` > 100 caractères, ou paramètre de requête inconnu · `401` · `403` tout autre rôle |
 
 Précisions qui font contrat :
 
@@ -863,6 +865,14 @@ Précisions qui font contrat :
   vide (`data: [], total: 0`) plutôt qu'un `5xx`, journalisé côté serveur.
 - Aucune modification de `api-gateway` n'a été nécessaire, même raisonnement que
   `teachers/validated` (`/api/v1/profiles` proxifié en bloc).
+- **Recherche `q` (2026-09-02)** : filtre `ILIKE` insensible à la casse sur `firstName`/`lastName`,
+  appliqué **avant** le découpage en page (`WHERE ... AND (firstName ILIKE '%q%' OR lastName ILIKE
+  '%q%')`, puis `OFFSET`/`LIMIT`) — jamais un filtrage sur la seule page déjà récupérée. Vérifié
+  contre la pile réelle le 2026-09-02 : `q` vide laisse `total` inchangé (166 élèves), un nom exact
+  ou partiel (casse différente) restreint `total` à la bonne valeur, une recherche sans résultat
+  renvoie `{data: [], total: 0}`, et la pagination reste cohérente avec un filtre actif (`total: 2`
+  réparti sur 2 pages de `limit=1`, sans doublon ni omission). Même mécanique côté
+  `GET /profiles/teachers/validated` pour `role=formateur`.
 
 ### Relations
 

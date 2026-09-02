@@ -66,7 +66,12 @@ export class TeacherDirectoryController {
       'pas une erreur.\n\n' +
       'La recherche par niveau, disponibilités et points reste en **phase 2** : cette route ' +
       "livre une liste, pas un moteur. `userId` sert à désigner le formateur dans l'appel " +
-      "suivant ; il n'est jamais affiché (arbitrage du 2026-08-09).",
+      "suivant ; il n'est jamais affiché (arbitrage du 2026-08-09).\n\n" +
+      '**RECHERCHE PAR NOM (`q`, ajoutée le 2026-09-02)** : filtre insensible à la casse sur ' +
+      '`firstName`/`lastName`, appliqué côté serveur avant la pagination. Ce n\'est pas la ' +
+      "recherche par niveau/disponibilités/points ci-dessus, toujours en phase 2 — seulement " +
+      'un filtre par nom, utilisé notamment par `GET /profiles/directory/by-role?role=formateur` ' +
+      'qui délègue à cette route.',
   })
   @ApiQuery({
     name: 'page',
@@ -81,6 +86,14 @@ export class TeacherDirectoryController {
     description:
       `Nombre de formateurs par page. Défaut : ${TEACHERS_PAGE_DEFAULT_LIMIT}, ` +
       `maximum : ${TEACHERS_PAGE_MAX_LIMIT}.`,
+  })
+  @ApiQuery({
+    name: 'q',
+    required: false,
+    type: String,
+    description:
+      'Recherche insensible à la casse sur prénom/nom. Vide ou absent : aucun filtre ' +
+      'supplémentaire (comportement inchangé). Maximum 100 caractères.',
   })
   @ApiResponse({
     status: 200,

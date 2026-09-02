@@ -1,5 +1,5 @@
-import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 /**
  * Paramètres de pagination COMMUNS aux deux listes de formateurs :
@@ -47,4 +47,21 @@ export class TeachersPageQueryDto {
       'Demandez les pages suivantes pour obtenir la suite de la liste.',
   })
   limit?: number = TEACHERS_PAGE_DEFAULT_LIMIT;
+
+  /**
+   * Recherche insensible à la casse sur `firstName`/`lastName`, ajoutée le
+   * 2026-09-02 en complément de l'annuaire « Visualisation » du RP
+   * (`docs/architecture.md`, « Reconstruction du rail gauche du RP »,
+   * « Compléments demandés le 2026-09-02 », point 1). Toujours **combinée** au
+   * filtre de statut de validation déjà en place, jamais un remplacement : une
+   * recherche vide se comporte exactement comme avant (aucun filtre
+   * supplémentaire), une recherche non vide se **compose** avec la pagination —
+   * appliquée côté serveur, avant le découpage en page, jamais un filtrage
+   * client sur une seule page déjà chargée.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString({ message: 'Le terme de recherche doit être une chaîne de caractères.' })
+  @MaxLength(100, { message: 'Le terme de recherche ne peut pas dépasser 100 caractères.' })
+  q?: string;
 }

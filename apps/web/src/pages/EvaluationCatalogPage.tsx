@@ -15,9 +15,19 @@
  *   POST /validations/evaluation/:id/decision  (content-catalog-service — décision de validation)
  *   GET  /evaluation-attempts/history           (learning-activity-service — historique)
  *   GET  /evaluation-corrections/pending, /mine (learning-activity-service — corrections)
+ *
+ * **Reprise du brouillon après « Nouveau »/« Rechercher » (2026-09-02)** : au retour de
+ * `/content/exercises` (`location.state.resumeEvaluationDraft`), le brouillon sauvegardé par
+ * `EvaluationForm` avant de partir est relu depuis `sessionStorage`
+ * (`loadAndClearEvaluationDraftForExerciseCreation`), l'Exercice choisi/créé y est ajouté s'il
+ * n'y figure pas déjà, et le formulaire de création se rouvre automatiquement, pré-rempli
+ * (`EvaluationCreationSection`, prop `resumedDraft`). Le `state` de navigation est effacé
+ * (`navigate(..., {replace: true, state: null})`) pour qu'un rafraîchissement ou un retour
+ * arrière ne rejoue pas cette reprise une seconde fois.
  */
 
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
 import { useAsyncData } from '../hooks/useAsyncData'
@@ -35,7 +45,12 @@ import { EvaluationAttemptHistoryList } from '../components/learning-activity/Ev
 import { EvaluationCorrectionsTab } from '../components/learning-activity/EvaluationCorrectionsTab'
 import { searchEvaluations } from '../api/evaluations'
 import { getEvaluationDisplayTitle } from '../utils/evaluationLabels'
+import { loadAndClearEvaluationDraftForExerciseCreation } from '../utils/evaluationDraft'
 import type { Evaluation } from '../types/evaluation'
+import type {
+  EditableEvaluationFormState,
+  EvaluationDraftResumeState,
+} from '../utils/evaluationDraft'
 
 const PAGE_SIZE = 20
 
@@ -43,6 +58,8 @@ type EvaluationTab = 'catalog' | 'history' | 'mine' | 'validation' | 'correction
 
 export default function EvaluationCatalogPage() {
   const { hasRole } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
 
   const [activeTab, setActiveTab] = useState<EvaluationTab>('catalog')
   const [tagFilter, setTagFilter] = useState('')
@@ -51,6 +68,34 @@ export default function EvaluationCatalogPage() {
   const [appliedKeyword, setAppliedKeyword] = useState('')
   const [page, setPage] = useState(1)
   const [justCreatedEvaluation, setJustCreatedEvaluation] = useState<Evaluation | null>(null)
+  const [resumedDraft, setResumedDraft] = useState<EditableEvaluationFormState | null>(null)
+
+  useEffect(() => {
+    const resumeState = location.state as EvaluationDraftResumeState | null
+    if (!resumeState?.resumeEvaluationDraft) return
+
+    const draft = loadAndClearEvaluationDraftForExerciseCreation()
+    if (draft) {
+      const newExercise = resumeState.newExercise
+      const alreadyPresent =
+        !!newExercise && draft.exerciseItems.some((item) => item.exerciseId === newExercise.id)
+      setResumedDraft({
+        ...draft,
+        exerciseItems:
+          newExercise && !alreadyPresent
+            ? [
+                ...draft.exerciseItems,
+                { exerciseId: newExercise.id, title: newExercise.title, titleOverride: '' },
+              ]
+            : draft.exerciseItems,
+      })
+    }
+
+    // Efface le state de navigation pour qu'un rafraîchissement ou un retour arrière ne
+    // redéclenche pas cette reprise une seconde fois.
+    navigate(location.pathname, { replace: true, state: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const canPassEvaluation = hasRole(
     'eleve',
@@ -121,6 +166,8 @@ export default function EvaluationCatalogPage() {
             refetch()
             refetchMyEvaluations()
           }}
+          resumedDraft={resumedDraft}
+          onResumedDraftConsumed={() => setResumedDraft(null)}
         />
 
         {justCreatedEvaluation && (

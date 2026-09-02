@@ -3,9 +3,15 @@
  *
  * Extrait de `ExerciseCatalogPage` pour rester sous le seuil de 300 lignes du fichier de page —
  * même découpage que `QuizCreationSection`.
+ *
+ * **`autoOpen` (2026-09-02)** : ouvre directement le formulaire de création au montage, sans que
+ * l'utilisateur ait à cliquer sur le bouton — utilisé quand cette page est atteinte depuis le
+ * bouton « Nouveau » de la création d'une Évaluation (`EvaluationExercisePicker`), pour que
+ * « pointer vers la création d'un Exercice » atterrisse vraiment sur le formulaire, pas sur le
+ * catalogue.
  */
 
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { ExerciseForm } from './ExerciseForm'
 import type { PublicExerciseDetail } from '../../types/exercise'
 
@@ -17,6 +23,8 @@ interface ExerciseCreationSectionProps {
   onOpenCreateForm: () => void
   /** Catalogue et « Mes Exercices » doivent être rechargés (création terminée). */
   onListsChanged: () => void
+  /** Ouvre directement le formulaire au montage — voir l'en-tête du fichier. */
+  autoOpen?: boolean
 }
 
 export function ExerciseCreationSection({
@@ -24,8 +32,15 @@ export function ExerciseCreationSection({
   onExerciseCreated,
   onOpenCreateForm,
   onListsChanged,
+  autoOpen,
 }: ExerciseCreationSectionProps) {
   const [shouldShowCreateForm, setShouldShowCreateForm] = useState(false)
+
+  useEffect(() => {
+    if (autoOpen) setShouldShowCreateForm(true)
+    // Ouverture au montage uniquement — ne réagit pas à un changement ultérieur de `autoOpen`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   if (!canCreateExercise) return null
 

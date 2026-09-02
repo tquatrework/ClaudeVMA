@@ -13,9 +13,18 @@
  * Evaluations », point 7). Pas de suggestion de titre par défaut côté serveur pour l'Évaluation
  * (aucune route `GET /evaluations/default-title`, à la différence de Quizz/Exercice) — l'auteur
  * saisit son titre lui-même.
+ *
+ * **Bouton « Nouveau » (2026-09-02)** : à côté de « Rechercher » dans `EvaluationExercisePicker`,
+ * pour créer un Exercice sans quitter mentalement la création de l'Évaluation en cours. Le
+ * brouillon complet (tous les champs de ce formulaire) est sauvegardé dans `sessionStorage`
+ * (`utils/evaluationDraft.ts`) juste avant de naviguer vers `/content/exercises` ; au retour,
+ * `EvaluationCatalogPage` relit ce brouillon, y ajoute l'Exercice fraîchement créé, et rouvre ce
+ * même formulaire via `initialDraft` — jamais une redirection vers le catalogue d'Exercices, qui
+ * reste le comportement normal d'une création d'Exercice déclenchée autrement.
  */
 
 import React, { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { createEvaluation } from '../../api/evaluations'
 import { getErrorMessage } from '../../utils/apiError'
 import { EvaluationMetadataFields } from './EvaluationMetadataFields'
@@ -23,25 +32,69 @@ import {
   EvaluationExercisePicker,
   type EditableEvaluationExerciseItem,
 } from './EvaluationExercisePicker'
+import { saveEvaluationDraftForExerciseCreation } from '../../utils/evaluationDraft'
 import type { Evaluation } from '../../types/evaluation'
+import type {
+  EditableEvaluationFormState,
+  EvaluationExercisePickerNavigationState,
+} from '../../utils/evaluationDraft'
 
 interface EvaluationFormProps {
   onSaved: (evaluation: Evaluation) => void
   onCancel: () => void
+  /** Brouillon à restaurer — utilisé au retour d'une création d'Exercice déclenchée depuis ce
+   * formulaire (bouton « Nouveau »). Absent en création normale. */
+  initialDraft?: EditableEvaluationFormState
 }
 
-export function EvaluationForm({ onSaved, onCancel }: EvaluationFormProps) {
-  const [title, setTitle] = useState('')
-  const [level, setLevel] = useState('')
-  const [difficulty, setDifficulty] = useState('')
-  const [theme, setTheme] = useState('')
-  const [competenciesInput, setCompetenciesInput] = useState('')
-  const [tagsInput, setTagsInput] = useState('')
-  const [durationMinutes, setDurationMinutes] = useState('')
-  const [blockBackNavigation, setBlockBackNavigation] = useState(false)
-  const [exerciseItems, setExerciseItems] = useState<EditableEvaluationExerciseItem[]>([])
+export function EvaluationForm({ onSaved, onCancel, initialDraft }: EvaluationFormProps) {
+  const navigate = useNavigate()
+  const [title, setTitle] = useState(initialDraft?.title ?? '')
+  const [level, setLevel] = useState(initialDraft?.level ?? '')
+  const [difficulty, setDifficulty] = useState(initialDraft?.difficulty ?? '')
+  const [theme, setTheme] = useState(initialDraft?.theme ?? '')
+  const [competenciesInput, setCompetenciesInput] = useState(initialDraft?.competenciesInput ?? '')
+  const [tagsInput, setTagsInput] = useState(initialDraft?.tagsInput ?? '')
+  const [durationMinutes, setDurationMinutes] = useState(initialDraft?.durationMinutes ?? '')
+  const [blockBackNavigation, setBlockBackNavigation] = useState(
+    initialDraft?.blockBackNavigation ?? false,
+  )
+  const [exerciseItems, setExerciseItems] = useState<EditableEvaluationExerciseItem[]>(
+    initialDraft?.exerciseItems ?? [],
+  )
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+
+  const buildCurrentDraft = (): EditableEvaluationFormState => ({
+    title,
+    level,
+    difficulty,
+    theme,
+    competenciesInput,
+    tagsInput,
+    durationMinutes,
+    blockBackNavigation,
+    exerciseItems,
+  })
+
+  const handleCreateNewExercise = () => {
+    saveEvaluationDraftForExerciseCreation(buildCurrentDraft())
+    const navigationState: EvaluationExercisePickerNavigationState = {
+      returnToEvaluationDraft: true,
+      exercisePickerIntent: 'create',
+    }
+    navigate('/content/exercises', { state: navigationState })
+  }
+
+  const handleSearchExistingExercise = (keyword: string) => {
+    saveEvaluationDraftForExerciseCreation(buildCurrentDraft())
+    const navigationState: EvaluationExercisePickerNavigationState = {
+      returnToEvaluationDraft: true,
+      exercisePickerIntent: 'search',
+      ...(keyword ? { prefillKeyword: keyword } : {}),
+    }
+    navigate('/content/exercises', { state: navigationState })
+  }
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -154,6 +207,8 @@ export function EvaluationForm({ onSaved, onCancel }: EvaluationFormProps) {
           selectedItems={exerciseItems}
           onChange={setExerciseItems}
           isSubmitting={isSubmitting}
+          onCreateNew={handleCreateNewExercise}
+          onSearchExisting={handleSearchExistingExercise}
         />
 
         {formError && <p className="text-red-600 text-sm">{formError}</p>}

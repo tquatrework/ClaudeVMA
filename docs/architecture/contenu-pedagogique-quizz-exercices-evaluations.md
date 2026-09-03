@@ -773,3 +773,57 @@
   9. **Import tableur non demandé pour ce chantier** — à la différence de Quizz et Exercice, aucune
      demande d'import CSV/Excel n'a été faite ici ; ne pas le construire par anticipation.
 
+- Éditeur riche (WYSIWYG) pour les blocs texte du Tutoriel "post" — révision scopée de la syntaxe
+  légère unifiée (2026-08-26). Arbitrage rendu le 2026-09-03, sur retour utilisateur après premier
+  test réel du chantier Tutos/Vidéos (PR #215/#217, livré le jour même) : la mise en forme demandée
+  (taille de titre, taille de texte, couleur) dépasse ce que la syntaxe légère texte brut + `$...$`
+  peut raisonnablement exprimer sans réinventer une syntaxe à taper — un vrai éditeur riche est le
+  bon outil ici, à la différence du besoin de 2026-08-26 (juste un lien ou une formule au milieu
+  d'un texte par ailleurs simple).
+  1. **Scope strictement limité aux blocs `text` du Tutoriel "post"**, confirmé explicitement par
+     l'utilisateur ("l'éditeur riche n'est utile que pour les tutos"). Le Memo, le Quizz (énoncés/
+     options) et le cahier de texte (`sessionSummary`/`homework`) **gardent la syntaxe légère**
+     texte brut + `$...$`/`[label](url)` — leur besoin n'a pas changé, ce n'est pas une bascule
+     générale du projet vers le WYSIWYG. La règle du 2026-08-26 ("un éditeur riche est écarté")
+     reste donc valable partout ailleurs ; ceci en est l'unique exception nommée.
+  2. **La catégorie de bloc `title` est retirée, fusionnée dans `text`.** Proposition de
+     l'orchestrateur faite sur la remarque de l'utilisateur lui-même ("la taille du texte, auquel
+     cas le titre est moins nécessaire"), non contredite. Un titre devient un texte affiché en
+     grande taille/gras via l'éditeur riche, plutôt qu'une catégorie de bloc distincte portant le
+     même besoin par un mécanisme différent — deux façons d'obtenir un titre entretiendraient la
+     confusion. `content-catalog-service` doit vérifier l'état réel des données avant de retirer la
+     catégorie (le chantier a été livré le jour même, aucun contenu réel n'est attendu, mais ne pas
+     le supposer sans vérifier) ; si des blocs `title` existent, migration vers `text` avec un
+     marquage de mise en forme "grand/gras" dans le nouveau contenu structuré (point 3) plutôt
+     qu'une perte silencieuse de leur statut visuel de titre.
+  3. **Stockage : un document structuré, jamais du HTML brut.** Le champ `content` d'un bloc `text`
+     passe du texte brut avec syntaxe légère à un document structuré (le format JSON propre à
+     l'éditeur riche choisi par `front-developper` — ex. le schéma document d'une librairie comme
+     TipTap/ProseMirror, laissé à son appréciation technique). Explicitement **pas** de HTML brut
+     stocké ni rendu via un mécanisme d'injection HTML côté client : c'était précisément la raison
+     du refus initial du WYSIWYG (coût d'assainissement anti-injection) — un document structuré
+     rendu par un moteur à schéma contrôlé (jamais `dangerouslySetInnerHTML` sur du contenu
+     utilisateur) obtient la richesse sans réintroduire ce risque. Côté `content-catalog-service`,
+     le champ reste une donnée opaque (texte/JSON), aucune validation de structure interne
+     nécessaire au-delà d'un plafond de taille — le service ne parse ni n'interprète ce contenu, il
+     le stocke et le restitue tel quel, exactement comme il le faisait pour le texte brut.
+  4. **La formule mathématique devient un nœud inline du document structuré**, plutôt qu'une
+     notation textuelle `$...$` — c'est ce qui permet qu'elle **hérite la taille du texte
+     environnant** (demande explicite : "à la bonne taille") au lieu d'un rendu à taille fixe
+     indépendant du contexte. Reste rendue par KaTeX (moteur déjà en place, pas de second moteur de
+     rendu de formule à introduire), insérée via une affordance dédiée dans la barre d'outils de
+     l'éditeur (même principe d'affordance explicite que `InsertFormulaButton` ailleurs dans le
+     projet, adapté à la barre d'outils du nouvel éditeur).
+  5. **Taille et couleur : ensembles de valeurs prédéfinis, pas de liberté totale.** Proposition de
+     l'orchestrateur, non contredite par l'utilisateur : une palette de couleurs et un jeu de
+     tailles prédéfinies (façon Notion/Google Docs), plutôt qu'un sélecteur de couleur libre et une
+     saisie de taille en pixels arbitraire — objectif de cohérence visuelle sur une plateforme
+     partagée entre de nombreux auteurs (formateurs, AP, RP), cohérent avec l'existence d'une
+     charte graphique dédiée (`.claude/design/front-design.md`) que `front-developper` doit
+     respecter pour choisir les valeurs concrètes de la palette/des tailles.
+  6. **Le format `video` (champ `videoUrl`) et la catégorie de bloc `image` sont inchangés** — cet
+     arbitrage ne touche que le contenu des blocs `text` du format `post`.
+  7. **Aucune contrainte nouvelle sur les droits/validation/lecture** — le mécanisme déjà en place
+     (formateur/AP/RP créateurs, validation alignée sur Quizz/Exercice/Évaluation) reste inchangé ;
+     seule la richesse du contenu d'un bloc `text` évolue.
+

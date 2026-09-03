@@ -1,12 +1,20 @@
 /**
- * Tests pour ContentValidationQueue (Phase 12 + Quizz 2026-08-28)
+ * Tests pour ContentValidationQueue.
+ *
+ * Réécrits le 2026-09-03 (refonte des Tutos/Vidéos) : le composant a évolué au fil des refontes
+ * successives (Exercice 2026-08-29, Évaluation 2026-09-02, Tutoriel 2026-09-03) — chaque type de
+ * contenu appelle désormais une vraie route de décision via son propre callback `onDecideXxx`, il
+ * n'existe plus de mécanisme générique `onValidateContent`. Ce fichier était resté sur les
+ * anciennes formes (`Exercise`/`Tutorial` importés de `api/contentCatalog`, prop
+ * `onValidateContent`) — remplacé ici par les types réels (`ExerciseSummary`, `Evaluation`,
+ * `TutorialSummary`, `QuizSummary`) et les callbacks réels.
  *
  * Couvre :
  * - Affiche "Aucun contenu" quand les quatre listes sont vides
- * - Affiche les exercices en attente dans l'onglet Exercices
- * - Les boutons Valider/Rejeter déclenchent le callback onValidateContent
- * - La navigation entre onglets fonctionne
+ * - Affiche les exercices en attente dans l'onglet Exercices, et appelle onDecideExercise
+ * - La navigation entre onglets fonctionne (évaluations, tutoriels, quizz)
  * - Le compteur total des contenus en attente est correct
+ * - L'onglet Tutoriels affiche les tutoriels en attente et appelle onDecideTutorial
  * - L'onglet Quizz affiche les quizz en attente et appelle onDecideQuiz
  */
 
@@ -14,45 +22,46 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import ContentValidationQueue from '../../../src/components/content-catalog/ContentValidationQueue'
-import type { Exercise, Evaluation, Tutorial } from '../../../src/api/contentCatalog'
+import type { Evaluation } from '../../../src/types/evaluation'
+import type { ExerciseSummary } from '../../../src/types/exercise'
 import type { QuizSummary } from '../../../src/types/quiz'
+import type { TutorialSummary } from '../../../src/types/tutorial'
 
-const PENDING_EXERCISE: Exercise = {
+const PENDING_EXERCISE: ExerciseSummary = {
   id: 'ex-1',
   title: 'Limites et continuité',
   description: 'Étude des limites en terminale',
-  subject: 'Mathématiques',
-  level: 'Terminale',
-  difficultyLevel: 'moyen',
+  tags: [],
   status: 'pending_validation',
   authorId: 'teacher-1',
-  hasSolution: true,
   createdAt: '2026-06-15T08:00:00Z',
+  updatedAt: '2026-06-15T08:00:00Z',
 }
 
 const PENDING_EVALUATION: Evaluation = {
   id: 'eval-1',
   title: 'DS Dérivées',
   description: 'Évaluation sur les dérivées',
-  subject: 'Mathématiques',
-  level: 'Première',
-  difficultyLevel: 'difficile',
+  exerciseItems: [],
+  tags: [],
+  durationSeconds: 3600,
+  blockBackNavigation: false,
   status: 'pending_validation',
   authorId: 'teacher-1',
-  hasSolution: true,
-  durationMinutes: 60,
   createdAt: '2026-06-15T09:00:00Z',
+  updatedAt: '2026-06-15T09:00:00Z',
 }
 
-const PENDING_TUTORIAL: Tutorial = {
+const PENDING_TUTORIAL: TutorialSummary = {
   id: 'tuto-1',
   title: 'Introduction aux intégrales',
   description: 'Tutoriel vidéo sur les intégrales',
-  subject: 'Mathématiques',
-  level: 'Terminale',
+  tags: [],
+  format: 'video',
   status: 'pending_validation',
   authorId: 'teacher-1',
   createdAt: '2026-06-15T10:00:00Z',
+  updatedAt: '2026-06-15T10:00:00Z',
 }
 
 const PENDING_QUIZ: QuizSummary = {
@@ -71,17 +80,17 @@ const PENDING_QUIZ: QuizSummary = {
 }
 
 interface RenderQueueOverrides {
-  pendingExercises?: Exercise[]
+  pendingExercises?: ExerciseSummary[]
   pendingEvaluations?: Evaluation[]
-  pendingTutorials?: Tutorial[]
+  pendingTutorials?: TutorialSummary[]
   pendingQuizzes?: QuizSummary[]
-  onValidateContent?: ReturnType<typeof vi.fn>
-  onDecideQuiz?: ReturnType<typeof vi.fn>
 }
 
 function renderQueue(overrides: RenderQueueOverrides = {}) {
-  const onValidateContent = overrides.onValidateContent ?? vi.fn()
-  const onDecideQuiz = overrides.onDecideQuiz ?? vi.fn().mockResolvedValue(undefined)
+  const onDecideExercise = vi.fn().mockResolvedValue(undefined)
+  const onDecideQuiz = vi.fn().mockResolvedValue(undefined)
+  const onDecideEvaluation = vi.fn().mockResolvedValue(undefined)
+  const onDecideTutorial = vi.fn().mockResolvedValue(undefined)
 
   render(
     <ContentValidationQueue
@@ -89,12 +98,14 @@ function renderQueue(overrides: RenderQueueOverrides = {}) {
       pendingEvaluations={overrides.pendingEvaluations ?? []}
       pendingTutorials={overrides.pendingTutorials ?? []}
       pendingQuizzes={overrides.pendingQuizzes ?? []}
-      onValidateContent={onValidateContent}
+      onDecideExercise={onDecideExercise}
       onDecideQuiz={onDecideQuiz}
+      onDecideEvaluation={onDecideEvaluation}
+      onDecideTutorial={onDecideTutorial}
     />,
   )
 
-  return { onValidateContent, onDecideQuiz }
+  return { onDecideExercise, onDecideQuiz, onDecideEvaluation, onDecideTutorial }
 }
 
 beforeEach(() => {
@@ -115,7 +126,7 @@ describe('ContentValidationQueue', () => {
     expect(screen.getByText('Étude des limites en terminale')).toBeDefined()
   })
 
-  it('affiche le compteur total correct, quizz compris', () => {
+  it('affiche le compteur total correct, quizz et tutoriels compris', () => {
     renderQueue({
       pendingExercises: [PENDING_EXERCISE],
       pendingEvaluations: [PENDING_EVALUATION],
@@ -126,20 +137,12 @@ describe('ContentValidationQueue', () => {
     expect(screen.getByText('4 contenus en attente')).toBeDefined()
   })
 
-  it('le bouton Valider déclenche onValidateContent avec decision=approve', async () => {
-    const { onValidateContent } = renderQueue({ pendingExercises: [PENDING_EXERCISE] })
+  it('le bouton Valider d\'un exercice appelle onDecideExercise avec "validated"', async () => {
+    const { onDecideExercise } = renderQueue({ pendingExercises: [PENDING_EXERCISE] })
 
     await userEvent.click(screen.getByRole('button', { name: /valider/i }))
 
-    expect(onValidateContent).toHaveBeenCalledWith('exercise', 'ex-1', 'approve')
-  })
-
-  it('le bouton Rejeter déclenche onValidateContent avec decision=reject', async () => {
-    const { onValidateContent } = renderQueue({ pendingExercises: [PENDING_EXERCISE] })
-
-    await userEvent.click(screen.getByRole('button', { name: /rejeter/i }))
-
-    expect(onValidateContent).toHaveBeenCalledWith('exercise', 'ex-1', 'reject')
+    await waitFor(() => expect(onDecideExercise).toHaveBeenCalledWith('ex-1', 'validated'))
   })
 
   it('navigue vers l\'onglet Évaluations et affiche les évaluations en attente', async () => {
@@ -150,12 +153,14 @@ describe('ContentValidationQueue', () => {
     expect(screen.getByText('DS Dérivées')).toBeDefined()
   })
 
-  it('navigue vers l\'onglet Tutoriels et affiche les tutoriels en attente', async () => {
-    renderQueue({ pendingTutorials: [PENDING_TUTORIAL] })
+  it('navigue vers l\'onglet Tutoriels, affiche les tutoriels en attente et appelle onDecideTutorial', async () => {
+    const { onDecideTutorial } = renderQueue({ pendingTutorials: [PENDING_TUTORIAL] })
 
     await userEvent.click(screen.getByRole('button', { name: /tutoriels/i }))
-
     expect(screen.getByText('Introduction aux intégrales')).toBeDefined()
+
+    await userEvent.click(screen.getByRole('button', { name: /valider/i }))
+    await waitFor(() => expect(onDecideTutorial).toHaveBeenCalledWith('tuto-1', 'validated'))
   })
 
   it('affiche "Aucun exercice en attente" dans l\'onglet Exercices quand la liste est vide', async () => {

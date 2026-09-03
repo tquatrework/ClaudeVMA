@@ -57,8 +57,17 @@ enfant quand la branche de base est supprimée au merge de la PR parente.
 @docs/microservices.md
 
 ## Architecture
-@docs/architecture.md — 16 microservices, respecter strictement le découpage domaine.
+16 microservices, respecter strictement le découpage domaine.
 Toute contradiction détectée pendant le codage doit être remontée AVANT implémentation.
+
+`docs/architecture.md` a été scindé le 2026-09-03 en fichiers thématiques (index dans
+`docs/architecture.md` lui-même). Contenu auto-chargé, équivalent à l'ancien fichier unique :
+@docs/architecture/overview.md
+@docs/architecture/identite-profils-acces.md
+@docs/architecture/demande-professeur.md
+@docs/architecture/cahier-texte-notifications-carnet.md
+@docs/architecture/contenu-pedagogique-quizz-exercices-evaluations.md
+@docs/architecture/rail-rp-et-points-ouverts.md
 
 ### Aspects Front.
 Les règles relatives au développement du Front End sont hébergés par l'agent Front-developper, via le fichier 

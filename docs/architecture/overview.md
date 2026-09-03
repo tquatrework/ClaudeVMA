@@ -1,0 +1,89 @@
+# Architecture — Vue d'ensemble
+
+> Fait partie de la scission de `docs/architecture.md` (2026-09-03). Voir aussi :
+> [identite-profils-acces.md](identite-profils-acces.md), [demande-professeur.md](demande-professeur.md),
+> [cahier-texte-notifications-carnet.md](cahier-texte-notifications-carnet.md),
+> [contenu-pedagogique-quizz-exercices-evaluations.md](contenu-pedagogique-quizz-exercices-evaluations.md),
+> [rail-rp-et-points-ouverts.md](rail-rp-et-points-ouverts.md).
+
+## Principe de decoupage
+
+La plateforme est decoupee par domaines metier stables plutot que par type d'ecran. Chaque microservice possede ses donnees principales, expose des APIs et publie des evenements metier. Les interfaces web/mobile consomment ces services via une API Gateway ou un Backend-for-Frontend.
+
+## Microservices proposes
+
+Les noms ci-dessous sont canoniques. Ils doivent etre repris tels quels dans les fichiers, le code, les tests et les appels interservices.
+
+1. orchestration-service : coordination interservices, workflows, routage, evenements, idempotence et reprises.
+2. identity-access-service : comptes, authentification, consentements RGPD, roles et droits.
+3. profile-service : profils administratifs, pedagogiques et relations entre eleves, familles, formateurs, AP et RP.
+4. dashboard-notification-service : tableaux de bord, notifications et signaux d'activite utiles par role.
+5. communication-service : messagerie entre contacts autorises, messages systeme et incidents TI, prevue des la phase 1.
+6. calendar-service : disponibilites, rendez-vous, cours, reunions, rappels et projection d'evenements.
+7. teacher-request-service : demandes de professeur, affectations, refus, arrets, suivi PP.
+8. video-session-service : creation et suivi des visios pedagogiques.
+9. pedagogical-log-service : cahier de texte, memo, carnet personnel et traces pedagogiques.
+10. admin-observability-service : activite globale, audit, incidents, masquage temporaire et statistiques.
+11. archive-document-service : archives pedagogiques et financieres, pieces justificatives, documents rattaches.
+12. legal-document-service : mandats clients, contrats formateurs, signatures et pieces legales.
+13. finance-credit-service : profils financiers, credits, paiements familles, remunerations formateurs et exports.
+14. content-catalog-service : exercices, evaluations, tutos-videos, validation et moderation pedagogique.
+15. learning-activity-service : reponses, corrections, scores, points pedagogiques et activites non pourvues.
+16. community-path-service : forums, parcours, badges et progression.
+
+## Pase 1
+
+Les 9 services de phase 1 sont :
+
+orchestration-service
+identity-access-service
+profile-service
+dashboard-notification-service
+communication-service
+calendar-service
+teacher-request-service
+video-session-service
+pedagogical-log-service
+
+## Priorisation
+
+Phase 1 doit livrer un parcours utilisable :
+
+- inscription et connexion ;
+- profils minimaux ;
+- demande de professeur ;
+- calendrier ;
+- visio ;
+- cahier de texte ;
+- carnet personnel ;
+- communication et messagerie ;
+- tableau de bord initial.
+
+Phase 2 renforce la gouvernance :
+
+- archives ;
+- signatures ;
+- interfaces RP, TI et finance ;
+- recherche professeur ;
+- suivi d'activite et droits etendus.
+
+Phase 3 enrichit l'offre :
+
+- exercices ;
+- evaluations ;
+- tutos-videos ;
+- forums ;
+- parcours ;
+- badges ;
+- corrections et activites non pourvues ;
+- enrichissements de communication lies aux activites avancees.
+
+## Services transverses recommandes
+
+- API Gateway / BFF web-mobile.
+- Event bus pour les evenements metier.
+- Stockage objet pour les documents, videos et pieces justificatives.
+- Moteur de recherche/indexation pour contenus, profils formateurs et archives.
+- Observabilite technique : logs, traces, metriques, alertes.
+- Jobs asynchrones : notifications, exports, rappels, rapprochements financiers.
+

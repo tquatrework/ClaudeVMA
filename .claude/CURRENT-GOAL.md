@@ -49,10 +49,38 @@ Vérifié : conteneur `healthy`, image `claudevma-content-catalog-service` (cons
 `404`). Image de test `visiomath_content_catalog:tutorial-rebuild` supprimée. Worktree de l'agent
 et branche locale `feat/tutorial-rebuild` nettoyés.
 
-**Reste à faire** : déléguer `front-developper` pour les écrans (création vidéo/post, catalogue
-avec recherche par tag, formulaire de blocs titre/texte/image façon Memo/Exercice, lien optionnel
-vers un Quizz, onglet Validation intégré directement dans la page comme pour Quizz/Exercice —
-pas un écran séparé peu découvrable, leçon retenue du 2026-08-29).
+**`front-developper` livré en deux passes, PR #217 mergée, déployée, site vérifié `200`.**
+Première passe : écrans complets (création vidéo/post, catalogue avec recherche par tag + filtre
+"mes Tutoriels", onglet Validation intégré dès le départ — pas d'écran séparé, leçon du
+2026-08-29 appliquée d'emblée —, page de détail/édition), ancien front pré-refonte
+(`TutorialCreateForm.tsx`, ancien contrat `tutorialType`/`format texte-mixte-vidéo`) remplacé
+proprement. `tsc`/build propres, tests verts. Un point laissé ouvert par manque de credentials de
+prod au premier passage : la forme exacte de lecture des blocs `image` d'un tuto "post" avait été
+**inférée** par analogie avec l'Exercice plutôt que vérifiée.
+
+**Deuxième passe (même jour)** : vérification HTTP directe contre la pile réelle demandée par
+l'orchestrateur avant merge — création d'un Tutoriel post avec bloc titre/texte (formule + lien)/
+image (upload réel), relecture `GET /tutorials/:id`, téléchargement de l'image
+`GET /tutorials/:id/images/:blockId` → `200`, octets WebP réels. **Aucun écart trouvé** entre la
+forme réelle de `PublicTutorialBlock` et le code déjà écrit — aucun correctif nécessaire.
+
+**Merge et déploiement, sur confirmation explicite de l'utilisateur** (question posée sur le
+niveau de preuve avant merge — réponse : « Merge et déploie maintenant »). PR #217 mergée,
+`docker compose up -d --build frontend` depuis `master`, conteneur sain, site vérifié `200`
+(y compris route `/tutorials`). Nettoyage : worktree résiduel du premier passage supprimé (celui
+du second, verrouillé pendant son travail, s'est libéré tout seul en fin de tâche) ; branches
+distantes obsolètes purgées après `git fetch --prune` (`docs/current-goal-tutorial-backend-done`,
+`docs/tutos-videos-arbitrage`, `refactor/split-architecture-doc` déjà supprimées côté GitHub,
+juste pas encore purgées localement) ; `origin/feat/tutorial-rebuild` (PR #215) était restée
+orpheline sur GitHub malgré `--delete-branch` — supprimée manuellement après vérification que son
+contenu est bien sur `master`.
+
+**Chantier Tutos/Vidéos (backend + front) clos.**
+
+Rappel branches non fusionnées dans `master` (hors périmètre, signalées mais non traitées) :
+`feat/front-reprise-candidature-formateur` et `feat/reprise-candidature-formateur` — travail réel
+inachevé du 2026-08-13 (arbitrage persisté dans
+`docs/architecture/demande-professeur.md`, jamais implémenté).
 
 ---
 
